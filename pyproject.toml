@@ -1,0 +1,61 @@
+[project]
+name = "update-burden"
+version = "0.1.0"
+description = "Utility to forecast risks associated with currently installed packages updates"
+readme = "README.md"
+authors = [
+  {name = "Maksym Klymyshyn", email = "klymyshyn@gmail.com"}
+]
+maintainers = [
+  {name = "Maksym Klymyshyn", email = "klymyshyn@gmail.com"}
+]
+classifiers = [
+    "OSI Approved :: GNU General Public License v3 (GPLv3)"
+]
+license = {text = "GPLv3", file = "LICENSE"}
+dependencies = [
+  "typer",
+  "rich",
+  "tree-sitter",
+  "tree-sitter-javascript",
+  "tree-sitter-typescript"
+]
+requires-python = ">= 3.10"
+
+[project.optional-dependencies]
+test = [
+    "coverage",  # testing
+    "pytest",  # testing
+    "ruff",  # linting
+    "ty", # checking types
+    "ipdb", # debugging
+]
+
+[project.urls]
+bugs = "https://github.com/mklymyshyn/update_burden/issues"
+changelog = "https://github.com/mklymyshyn/update_burden/blob/master/changelog.md"
+homepage = "https://github.com/mklymyshyn/update_burden"
+
+[project.scripts]
+update-burden = "update_burden.cli:app"
+
+[tool.ty]
+# All rules are enabled as "error" by default; no need to specify unless overriding.
+# Example override: relax a rule for the entire project (uncomment if needed).
+# rules.TY015 = "warn"  # For invalid-argument-type, warn instead of error.
+
+[tool.ruff]
+line-length = 120
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # Pyflakes
+    "I",   # isort
+    "B",   # flake8-bugbear
+    "UP",  # pyupgrade
+]
+
+[tool.uv]
+package = true
