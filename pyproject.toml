@@ -14,8 +14,12 @@ classifiers = [
 ]
 license = {text = "GPLv3", file = "LICENSE"}
 dependencies = [
+  "ipdb",
   "typer",
   "rich",
+  "termcolor",
+  "requests",
+  "semver",
   "tree-sitter",
   "tree-sitter-javascript",
   "tree-sitter-typescript"
@@ -28,7 +32,10 @@ test = [
     "pytest",  # testing
     "ruff",  # linting
     "ty", # checking types
-    "ipdb", # debugging
+    "ipdb", # debugging,
+    "black",
+    "pylint",
+    "pylint-google-style",
 ]
 
 [project.urls]

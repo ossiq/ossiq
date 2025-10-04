@@ -1,0 +1,25 @@
+{
+  // 1. Python Interpreter: IMPORTANT - Replace "venv/bin/python" with your actual path
+  "python.defaultInterpreterPath": "../venv/bin/python",
+
+  // 2. Formatting: Use Black as the primary formatter
+  "editor.defaultFormatter": "ms-python.black-formatter",
+
+  // 3. Enable formatting on save (highly recommended)
+  "editor.formatOnSave": true,
+
+  // 4. Black Configuration: Set line length to 100 (Google standard)
+  "black-formatter.args": [
+      "--line-length=100"
+  ],
+
+  // 5. Linting: Enable Pylint
+  "python.linting.enabled": true,
+  "python.linting.lintOnSave": true,
+  "python.linting.pylintEnabled": true,
+
+  // 6. Pylint Configuration: Use the custom pylintrc file
+  "python.linting.pylintArgs": [
+      "--rcfile=${workspaceFolder}/pylintrc"
+  ]
+}
