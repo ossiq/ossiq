@@ -4,8 +4,7 @@ Module to define abstract Package
 """
 from typing import Dict
 from .versions import normalize_version
-
-PROJECT_TYPE_NPM, PROJECT_TYPE_PYPI = "NPM", "PYPI"
+from .common import PROJECT_TYPE_NPM, PROJECT_TYPE_PYPI
 
 
 class Project:

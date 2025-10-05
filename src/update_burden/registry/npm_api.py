@@ -3,12 +3,16 @@ Module to operate with NPM registry
 """
 import json
 import os
+from typing import List
 import requests
 
-from .package import Package, REGISTRY_NPM
-from .project import Project, PROJECT_TYPE_NPM
+from .common import REGISTRY_NPM, PROJECT_TYPE_NPM
+from .package import Package
+from .project import Project
+from .versions import PackageVersion
 
 NPM_REGISTRY = "https://registry.npmjs.org"
+NPM_REGISTRY_FRONT = "https://www.npmjs.com"
 NPM_DEPENDENCIES_SECTIONS = (
     "dependencies",
     "devDependencies",
@@ -40,18 +44,7 @@ def parse_npm_project_info(path: str) -> dict:
         )
 
 
-def find_installed_version(pkg_json: dict, package: str) -> str | None:
-    """
-    Find installed version of a package in package.json.
-    Returns None if not found.
-    """
-    for field in NPM_DEPENDENCIES_SECTIONS:
-        if package in (pkg_json.get(field) or {}):
-            return pkg_json[field][package]
-    return None
-
-
-def fetch_npm_info(package_name: str) -> Package:
+def load_npm_package(package_name: str) -> Package:
     """
     Fetch npm info for a given package.
     Raises HTTPError if not found.
@@ -67,15 +60,33 @@ def fetch_npm_info(package_name: str) -> Package:
         name=response["name"],
         version=distribution_tags.get("latest", None),
         next_version=distribution_tags.get("next", None),
-        repo=response.get("repository"),
+        repo_url=response.get("repository", {}).get("url", None),
         author=response.get("author"),
-        url=response.get("homepage"),
+        homepage_url=response.get("homepage"),
         description=response.get("description")
     )
 
 
-def extract_github_repo_url(npm_info: dict) -> str | None:
-    rep = npm_info.get("repository")
-    if isinstance(rep, dict):
-        return rep.get("url")
-    return rep
+def load_npm_package_versions(package_name: str) -> List[PackageVersion]:
+    """
+    Fetch npm versions for a given package.
+    Raises HTTPError if not found.
+    """
+    r = requests.get(f"{NPM_REGISTRY}/{package_name}", timeout=15)
+    r.raise_for_status()
+    versions = r.json().get("versions", [])
+
+    # Much simpler API down the road
+    result_versions = []
+    for version, details in versions.items():
+        result_versions.append(
+            PackageVersion(
+                version=version,
+                dependencies=details.get("dependencies", {}),
+                license=details.get("license", None),
+                package_version_url=f"{NPM_REGISTRY_FRONT}/package/{package_name}/v/{version}",
+                engine_versions=details.get("engines", {}),
+                dev_dependencies=details.get("devDependencies", {}),
+                description=details.get("description", None)
+            ))
+    return result_versions

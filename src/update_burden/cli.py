@@ -28,13 +28,19 @@ def help():
 
 
 @app.command()
-def overview(package_name: str, path: Annotated[str, typer.Argument()] = "package.json"):
-    registry_type = id_registry_type(path)
-    target_package = package_name
+def overview(project_file_path: str = "package.json", package_name: str = None):
+    # FIXME: fix UX with this tool: consistent commands and parameter names
+    # TODO: create cheatsheet for respective commands
+    registry_type = id_registry_type(project_file_path)
+
+    if package_name is None:
+        console.print(
+            "[red bold]\\[-] --package-name is not specified, cannot proceed[/red bold]")
+        return
 
     console.print(
-        f"[green bold]\\[x] Pulling changes overview for package {target_package} from {registry_type} registry")
-    aggregate_package_changes(registry_type, path, target_package)
+        f"[green bold]\\[x] Pulling changes overview for package {package_name} from {registry_type} registry")
+    aggregate_package_changes(registry_type, project_file_path, package_name)
 
     # print(colored(
     #     f"Installed: {installed_version}  Latest: {latest_version}", "blue", attrs=["bold"]))

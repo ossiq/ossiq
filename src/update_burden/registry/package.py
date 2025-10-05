@@ -2,8 +2,11 @@
 Module to define abstract Package
 """
 import os
+from typing import List
 
-REGISTRY_NPM, REGISTRY_PYPI = "NPM", "PYPI"
+from .repository import Repository
+from .common import REGISTRY_NPM, REGISTRY_PYPI
+from .versions import Version
 
 
 class Package:
@@ -13,13 +16,16 @@ class Package:
     version: str
     next_version: str
     author: str
-    url: str
-    repo: str
+    homepage_url: str
+    repo_url: str
     description: str
     author: str
 
-    def __init__(self, registry: str, name: str, version: str, next_version: str, repo: str,
-                 author: str = None, url: str = None, description: str = None):
+    _repository: Repository
+    _versions: List[Version]
+
+    def __init__(self, registry: str, name: str, version: str, next_version: str, repo_url: str,
+                 author: str = None, homepage_url: str = None, description: str = None):
 
         assert registry in (REGISTRY_NPM, REGISTRY_PYPI), "Invalid registry"
 
@@ -27,10 +33,13 @@ class Package:
         self.name = name
         self.version = version
         self.next_version = next_version
-        self.repo = repo
+        self.repo_url = repo_url
         self.author = author
-        self.url = url
+        self.homepage_url = homepage_url
         self.description = description
+
+        self._repository = None
+        self._versions = None
 
     def __repr__(self):
         return f"""{self.registry} Package(
@@ -41,6 +50,16 @@ class Package:
 )"""
 
     @property
+    def versions(self):
+        if self._versions is None:
+            raise ValueError("Versions not set yet")
+        return self._versions
+
+    @versions.setter
+    def versions(self, versions: List[Version]):
+        self._versions = versions
+
+    @property
     def package_url(self):
         if self.registry == REGISTRY_NPM:
             return f"https://www.npmjs.com/package/{self.name}/{self.version}"
@@ -49,6 +68,14 @@ class Package:
             return f"https://pypi.org/project/{self.name}/{self.version}"
 
         raise ValueError("Invalid registry")
+
+    @property
+    def repository(self):
+        return self._repository
+
+    @repository.setter
+    def repository(self, repo: Repository):
+        self._repository = repo
 
 
 def id_registry_type(project_file: str):
