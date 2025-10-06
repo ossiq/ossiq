@@ -10,7 +10,7 @@ from .common import REGISTRY_NPM, REPOSITORY_PROVIDER_GITHUB
 from .package import Package
 from .project import Project
 from .repository import Repository
-from .versions import PackageVersion, RepositoryVersion, Version
+from .versions import PackageVersion, RepositoryVersion, Version, filter_versions_between
 from .npm_api import (
     load_npm_package,
     parse_npm_project_info,
@@ -43,7 +43,8 @@ def extract_package_info(registry_type: str, package_name: str) -> Package:
     raise ValueError(f"Unknown registry type: {registry_type}")
 
 
-def load_package_versions(package: Package, repository: Repository) -> List[Version]:
+def load_package_versions(package: Package, repository: Repository,
+                          installed_version: str) -> List[Version]:
     """
     Load package versions from a given registry.
     """
@@ -56,10 +57,23 @@ def load_package_versions(package: Package, repository: Repository) -> List[Vers
     if package_versions is None:
         raise ValueError(f"Cannot load package versions for '{package.name}'")
 
-    # NOTE: there's depenedency on package_versions pulled
+    # NOTE: we don't need to pull all the versions, just the difference between
+    # what we have and what is the latest available.
+    tareget_versions = list(filter_versions_between(
+        [p.version for p in package_versions],
+        installed_version,
+        package.version
+    ))
+
+    # filter out versions we don't need
+    package_versions = [
+        p for p in package_versions if p.version in tareget_versions]
+
     if repository.provider == REPOSITORY_PROVIDER_GITHUB:
         repository_versions = load_github_code_versions(
-            repository, package_versions)
+            repository,
+            package_versions
+        )
 
     if repository_versions is None:
         raise ValueError(f"Cannot load repository versions for {package.name}")
@@ -83,7 +97,7 @@ def aggregate_package_changes(registry_type: str, package_path: str, package_nam
 
     # Pull what is in the project file
     installed_version = project.installed_package_version(package_name)
-    versions = load_package_versions(package, repository)
+    versions = load_package_versions(package, repository, installed_version)
 
     import ipdb
     ipdb.set_trace()

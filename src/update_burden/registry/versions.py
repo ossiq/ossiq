@@ -3,7 +3,7 @@ Module to operate with package versions
 """
 import re
 from dataclasses import dataclass
-from typing import List, Dict
+from typing import List, Dict, Iterable
 
 import semver
 
@@ -39,8 +39,16 @@ class Commit:
     committer_date: str | None
 
     def __repr__(self):
-        return f"Commit(sha='{self.sha}', author='{self.author.name}', "\
+        return f"Commit(sha='{self.sha}', author='{self.commit_user_name}', "\
             f"message='{self.simplified_message}')"
+
+    @property
+    def commit_user_name(self):
+        if self.author:
+            return self.author.name
+        if self.committer:
+            return self.committer.name
+        return "<N/A>"
 
     @property
     def simplified_message(self):
@@ -71,6 +79,8 @@ class RepositoryVersion:
     version_source_type: str
     commits: List[Commit]
     version: str
+    prev_version: str | None = None
+    name: str | None = None
     description: str | None = None
     repository_version_url: str | None = None
     # NOTE: patches could be pretty sizable so let's not load it every time
@@ -171,9 +181,28 @@ def normalize_version(spec: str) -> str:
 
 def compare_versions(v1: str, v2: str) -> int:
     """
-    Compare two versions leveraging semver
+    Compare two versions leveraging semver.
+    Potentially silent with try/catch and compare raw: (v1 > v2) - (v1 < v2)
     """
-    try:
-        return semver.compare(v1, v2)
-    except Exception:
-        return (v1 > v2) - (v1 < v2)
+    return semver.compare(v1, v2)
+
+
+def filter_versions_between(versions: list[str], installed: str, latest: str) -> Iterable[str]:
+    """
+    Filter out versions which we're interested in.
+    """
+
+    if installed == latest:
+        return
+
+    installed_norm, latest_norm = normalize_version(
+        installed), normalize_version(latest)
+
+    for version in sorted(versions):
+        version_norm = normalize_version(version)
+        if not version_norm:
+            continue
+
+        if compare_versions(version_norm, installed_norm) >= 0 and compare_versions(
+                version_norm, latest_norm) <= 0:
+            yield version

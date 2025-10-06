@@ -9,7 +9,7 @@
         "typescript": "^5.8.3"
     },
     "dependencies": {
-        "luxon": "^3.7.2",
+        "luxon": "^3.7.0",
         "i18n": "^0.9.1"
     }
 }
