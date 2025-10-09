@@ -16,6 +16,7 @@ license = {text = "GPLv3", file = "LICENSE"}
 dependencies = [
   "ipdb",
   "typer",
+  "pydantic",
   "rich",
   "termcolor",
   "requests",

@@ -6,6 +6,7 @@ import pprint
 
 from typing import List
 
+from ..config import Settings
 from .common import REGISTRY_NPM, REPOSITORY_PROVIDER_GITHUB
 from .package import Package
 from .project import Project
@@ -43,7 +44,7 @@ def extract_package_info(registry_type: str, package_name: str) -> Package:
     raise ValueError(f"Unknown registry type: {registry_type}")
 
 
-def load_package_versions(package: Package, repository: Repository,
+def load_package_versions(config: Settings, package: Package, repository: Repository,
                           installed_version: str) -> List[Version]:
     """
     Load package versions from a given registry.
@@ -72,7 +73,8 @@ def load_package_versions(package: Package, repository: Repository,
     if repository.provider == REPOSITORY_PROVIDER_GITHUB:
         repository_versions = load_github_code_versions(
             repository,
-            package_versions
+            package_versions,
+            config.github_token
         )
 
     if repository_versions is None:
@@ -81,7 +83,7 @@ def load_package_versions(package: Package, repository: Repository,
     return package_versions, repository_versions
 
 
-def aggregate_package_changes(registry_type: str, package_path: str, package_name: str):
+def aggregate_package_changes(config: Settings, registry_type: str, package_path: str, package_name: str):
     """
     Aggregate changes between two versions of a package regardless of the registry.
     """
@@ -97,37 +99,41 @@ def aggregate_package_changes(registry_type: str, package_path: str, package_nam
 
     # Pull what is in the project file
     installed_version = project.installed_package_version(package_name)
-    versions = load_package_versions(package, repository, installed_version)
+    package_versions, repository_versions = load_package_versions(
+        config, package, repository, installed_version
+    )
+
+    repo_versions_map = {
+        version.version: version for version in repository_versions
+    }
+
+    versions = []
+    for package_version in package_versions:
+        # NOTE: we're not looking past installed version, so there'll be no history
+        if package_version.version == installed_version:
+            continue
+
+        if package_version.version not in repo_versions_map:
+            import ipdb
+            ipdb.set_trace()
+
+        versions.append(Version(
+            package_registry=package.registry,
+            repository_provider=repository.provider,
+            package_version_info=package_version,
+            repository_version_info=repo_versions_map.get(
+                package_version.normalized_version, None
+            )
+        ))
+
+    if config.verbose:
+        print(f"Installed Version: {installed_version}")
+        print(f"Latest Version: {package.version}")
+
+        pprint.pprint(project)
+        pprint.pprint(package)
+        pprint.pprint(repository)
+        pprint.pprint(package_versions)
 
     import ipdb
     ipdb.set_trace()
-    print(f"Installed Version: {installed_version}")
-    print(f"Latest Version: {package.version}")
-
-    pprint.pprint(project)
-    pprint.pprint(package)
-    pprint.pprint(repository)
-
-
-def lookup_packages_to_check(package_json, package: str):
-    # installed_spec = find_installed_version(package_json, package)
-    # 4. Releases
-    releases = fetch_releases(owner, repo)
-    if not releases:
-        # 4.1. Lookup up for tags
-        # raise ValueError(f"No releases found on Github repository of package: {package}")
-        tags = fetch_tags(owner, repo)
-        if not tags:
-            raise ValueError(
-                f"No releases or tags found on Github repository of package: {package}")
-        changes = filter_tags_between(
-            tags, owner, repo, installed_version, latest_version)
-    else:
-        changes = filter_releases_between(
-            releases, installed_version, latest_version)
-
-    if not changes:
-        raise ValueError(
-            f"No changelog entries found between versions for package: {package}")
-
-    return installed_version, latest_version, owner, repo, changes

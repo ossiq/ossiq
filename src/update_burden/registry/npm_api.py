@@ -9,7 +9,7 @@ import requests
 from .common import REGISTRY_NPM, PROJECT_TYPE_NPM
 from .package import Package
 from .project import Project
-from .versions import PackageVersion
+from .versions import PackageVersion, normalize_version
 
 NPM_REGISTRY = "https://registry.npmjs.org"
 NPM_REGISTRY_FRONT = "https://www.npmjs.com"
@@ -82,6 +82,7 @@ def load_npm_package_versions(package_name: str) -> List[PackageVersion]:
         result_versions.append(
             PackageVersion(
                 version=version,
+                normalized_version=normalize_version(version),
                 dependencies=details.get("dependencies", {}),
                 license=details.get("license", None),
                 package_version_url=f"{NPM_REGISTRY_FRONT}/package/{package_name}/v/{version}",

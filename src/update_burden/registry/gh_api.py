@@ -16,7 +16,7 @@ from .common import (
 )
 
 from .repository import Repository
-from .versions import compare_versions, RepositoryVersion, Commit, User
+from .versions import normalize_version, RepositoryVersion, Commit, User
 
 GITHUB_API = "https://api.github.com"
 HEADERS = {"Accept": "application/vnd.github.v3+json"}
@@ -27,12 +27,6 @@ MAX_RETRIES = 5
 BACKOFF_FACTOR = 0.1
 
 console = Console()
-GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN", None)
-if GITHUB_TOKEN:
-    console.print(
-        "[bold yellow]NOTE[/bold yellow] "
-        "You're using [bold]Github API[/bold] with the Token")
-    HEADERS["Authorization"] = f"Bearer {GITHUB_TOKEN}"
 
 
 def extract_next_url(link_header: str):
@@ -50,11 +44,15 @@ def extract_next_url(link_header: str):
     return None
 
 
-def make_github_api_request(url: str) -> Tuple[bool, dict]:
+def make_github_api_request(url: str, github_token: str | None = None) -> Tuple[bool, dict]:
     """
     Make a request to the GitHub API and properly handle pagination
     """
-    response = requests.get(url, timeout=TIMEOUT, headers=HEADERS)
+    headers = {}
+    if github_token:
+        headers["Authorization"] = f"Bearer {github_token}"
+
+    response = requests.get(url, timeout=TIMEOUT, headers=headers)
 
     # Basically let user know that we're done here with Github.
     if response.status_code == 403:
@@ -82,14 +80,14 @@ def make_github_api_request(url: str) -> Tuple[bool, dict]:
     return extract_next_url(response.headers.get("Link", None)), response.json()
 
 
-def paginate_github_api_request(url: str) -> Iterable[list]:
+def paginate_github_api_request(url: str, github_token: str | None = None) -> Iterable[list]:
     """
     Paginate stuff from Github API while there"s any
     """
     next_url = url
 
     while next_url:
-        next_url, data = make_github_api_request(next_url)
+        next_url, data = make_github_api_request(next_url, github_token)
         for item in data:
             yield item
 
@@ -122,7 +120,7 @@ def load_github_repository(repo_url: str) -> Repository:
     )
 
 
-def load_releases_from_github(owner: str, repo: str, versions_set: Set[str]):
+def load_releases_from_github(owner: str, repo: str, versions_set: Set[str], github_token: str | None = None):
     """
     Fetch releases from a GitHub repo.
     """
@@ -130,8 +128,8 @@ def load_releases_from_github(owner: str, repo: str, versions_set: Set[str]):
 
     aggregated_releases = []
     # NOTE: we need to pull all the releases we're interested in and then break iteration
-    for release in paginate_github_api_request(url):
-        if release["tag_name"] in versions_set:
+    for release in paginate_github_api_request(url, github_token):
+        if normalize_version(release["tag_name"]) in versions_set:
             aggregated_releases.append(release)
 
         if len(aggregated_releases) == len(versions_set):
@@ -141,14 +139,15 @@ def load_releases_from_github(owner: str, repo: str, versions_set: Set[str]):
 
 
 def load_commits_between_tags(repository: Repository,
-                              start_tag: str, end_tag: str) -> Tuple[str, List[Commit]]:
+                              start_tag: str, end_tag: str,
+                              github_token: str | None = None) -> Tuple[str, List[Commit]]:
     """
     Load commits between two tags and its patch.
     """
     compare_url = f"{GITHUB_API}/repos/{repository.owner}/"\
         f"{repository.name}/compare/{start_tag}...{end_tag}"
 
-    _, compare_data = make_github_api_request(compare_url)
+    _, compare_data = make_github_api_request(compare_url, github_token)
 
     commits_raw = compare_data.get("commits", [])
     commits = []
@@ -188,14 +187,16 @@ def load_commits_between_tags(repository: Repository,
     return compare_data["patch_url"], commits
 
 
-def load_tags_from_github(owner: str, repo: str, versions_set: Set[str]) -> Iterable[RepositoryVersion]:
+def load_tags_from_github(owner: str, repo: str,
+                          versions_set: Set[str],
+                          github_token: str | None = None) -> Iterable[RepositoryVersion]:
     """
     Fetch tags from a GitHub repo.
     """
     url = f"{GITHUB_API}/repos/{owner}/{repo}/tags"
 
     aggregated_tags = []
-    for tag in paginate_github_api_request(url):
+    for tag in paginate_github_api_request(url, github_token):
         if tag["name"] in versions_set:
             aggregated_tags.append(tag)
 
@@ -206,7 +207,8 @@ def load_tags_from_github(owner: str, repo: str, versions_set: Set[str]) -> Iter
 
 
 def load_github_code_versions_releases(repository: Repository,
-                                       releases: list[dict]) -> Iterable[RepositoryVersion]:
+                                       releases: list[dict],
+                                       github_token: str | None = None) -> Iterable[RepositoryVersion]:
     """
     Pull commits associated with the given releases.
     """
@@ -218,7 +220,8 @@ def load_github_code_versions_releases(repository: Repository,
         patch_url, commits = load_commits_between_tags(
             repository,
             version_from["tag_name"],
-            version_to["tag_name"]
+            version_to["tag_name"],
+            github_token
         )
 
         yield RepositoryVersion(
@@ -235,7 +238,8 @@ def load_github_code_versions_releases(repository: Repository,
 
 def load_github_code_versions_tags(
         repository: Repository,
-        tags: list[dict]) -> Iterable[RepositoryVersion]:
+        tags: list[dict],
+        github_token: str | None = None) -> Iterable[RepositoryVersion]:
     """
     Pull commits associated with the given releases.
     """
@@ -247,14 +251,15 @@ def load_github_code_versions_tags(
         patch_url, commits = load_commits_between_tags(
             repository,
             version_from["name"],
-            version_to["name"]
+            version_to["name"],
+            github_token
         )
         html_url = f"{repository.html_url}/tree/{version_to["name"]}"
         yield RepositoryVersion(
             version_source_type=VERSION_DATA_SOURCE_GITHUB_RELEASES,
             commits=commits,
-            version=version_to["name"],
-            prev_version=version_from["name"],
+            version=normalize_version(version_to["name"]),
+            prev_version=normalize_version(version_from["name"]),
             name=version_to["name"],
             description=None,
             repository_version_url=html_url,
@@ -262,7 +267,9 @@ def load_github_code_versions_tags(
         )
 
 
-def load_github_code_versions(repository: Repository, package_versions: List[RepositoryVersion]) -> List[RepositoryVersion]:
+def load_github_code_versions(repository: Repository,
+                              package_versions: List[RepositoryVersion],
+                              github_token: str | None = None) -> List[RepositoryVersion]:
     """
     Pull versions info available from the given repository. Github releases
     is the default way to get it, then fallback to tags.
@@ -271,23 +278,44 @@ def load_github_code_versions(repository: Repository, package_versions: List[Rep
     releases = load_releases_from_github(
         repository.owner,
         repository.name,
-        versions_set
+        versions_set,
+        github_token
     )
-
     # NOTE: if infrastructure based on github releases, then that's it
     if releases:
-        return list(load_github_code_versions_releases(repository, releases))
+        released_versions = list(load_github_code_versions_releases(
+            repository, releases, github_token))
+
+        if len(released_versions) != len(versions_set):
+            # NOTE: we would need to identify difference between what was released and what was
+            # registered in the Package Registry and fill the gap
+            released_versions_set = set(
+                [rv.version for rv in released_versions])
+            versions_difference = versions_set - released_versions_set
+            tags = list(load_tags_from_github(
+                repository.owner,
+                repository.name,
+                versions_difference,
+                github_token))
+            tag_versions = list(load_github_code_versions_tags(
+                repository, tags, github_token))
+
+            return sorted(
+                released_versions + tag_versions,
+                key=lambda x: x.version
+            )
 
     # otherwise fall back to git tags to establish link between code and package version
     else:
         tags = list(load_tags_from_github(
             repository.owner,
             repository.name,
-            versions_set))
+            versions_set,
+            github_token))
 
         if not tags:
             raise ValueError(
                 f"Seems like there is unrecognized "
                 f"versioning method for {repository.html_url}")
 
-        return list(load_github_code_versions_tags(repository, tags))
+        return list(load_github_code_versions_tags(repository, tags, github_token))

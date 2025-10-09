@@ -62,6 +62,7 @@ class PackageVersion:
     Partial version information typically pulled from package registry.
     """
     version: str
+    normalized_version: str
     dependencies: Dict[str, str]
     license: str
     package_version_url: str
@@ -85,6 +86,10 @@ class RepositoryVersion:
     repository_version_url: str | None = None
     # NOTE: patches could be pretty sizable so let's not load it every time
     patch_url: str | None = None
+
+    # NOTE: this is special mode for the currently installed package
+    # b/c there's no history beyond it.
+    # lookup_head: bool = False
 
 
 class Version:
@@ -123,6 +128,9 @@ class Version:
 
     def __init__(self, package_registry: str, repository_provider: str,
                  package_version_info: PackageVersion, repository_version_info: RepositoryVersion):
+
+        assert repository_version_info is not None, \
+            "Repository version info cannot be None"
 
         version_source_type = repository_version_info.version_source_type
         assert version_source_type in (VERSION_DATA_SOURCE_GITHUB_RELEASES,
