@@ -4,6 +4,7 @@ Module to operate with package versions
 import re
 from dataclasses import dataclass
 from typing import List, Dict, Iterable
+from functools import cmp_to_key
 
 import semver
 
@@ -19,13 +20,13 @@ from .common import (
 class User:
     """Class to contains user information."""
     id: int
-    login: str
+    username: str
     email: str
-    name: str
-    html_url: str
+    display_name: str
+    profile_url: str
 
     def __repr__(self):
-        return f"""User(login='{self.login}', name='{self.name}')"""
+        return f"""User(login='{self.username}', name='{self.display_name}')"""
 
 
 @dataclass
@@ -34,9 +35,9 @@ class Commit:
     sha: str
     message: str
     author: User
-    author_date: str
+    authored_at: str
     committer: User | None
-    committer_date: str | None
+    committed_at: str | None
 
     def __repr__(self):
         return f"Commit(sha='{self.sha}', author='{self.commit_user_name}', "\
@@ -62,11 +63,10 @@ class PackageVersion:
     Partial version information typically pulled from package registry.
     """
     version: str
-    normalized_version: str
     dependencies: Dict[str, str]
     license: str
-    package_version_url: str
-    engine_versions: Dict[str, str] | None = None
+    package_url: str
+    runtime_requirements: Dict[str, str] | None = None
     dev_dependencies: Dict[str, str] | None = None
     description: str | None = None
 
@@ -80,16 +80,13 @@ class RepositoryVersion:
     version_source_type: str
     commits: List[Commit]
     version: str
-    prev_version: str | None = None
-    name: str | None = None
-    description: str | None = None
-    repository_version_url: str | None = None
+    ref_previous: str | None = None
+    ref_name: str | None = None
+    release_name: str | None = None
+    release_notes: str | None = None
+    source_url: str | None = None
     # NOTE: patches could be pretty sizable so let's not load it every time
     patch_url: str | None = None
-
-    # NOTE: this is special mode for the currently installed package
-    # b/c there's no history beyond it.
-    # lookup_head: bool = False
 
 
 class Version:
@@ -98,69 +95,39 @@ class Version:
     Package Registry and Source Code Repository
     """
 
-    # version source type in the repository, could be github tag, github release etc
-    version_source_type: str
-
-    # package registry (could be NPM, PyPi etc.)
     package_registry: str
-
-    # source code repository provider (github, bitbucket potentially ...)
     repository_provider: str
 
-    # version comes from package registry (NPM, PyPi etc.)
-    version: str
+    package_data: PackageVersion
+    repository_data: RepositoryVersion
 
-    # raw data comes from the repository, could be list of commits or separate message
-    commits: List[Commit]
-
-    dependencies: Dict[str, str]
-    dev_dependencies: Dict[str, str]
-
-    # could be minimum node or python version
-    engine_versions: Dict[str, str]
-
-    version_description: str | None
-    summary_description: str | None
-
-    license: str
-    package_version_url: str
-    repository_version_url: str
+    _summary_description: str | None
 
     def __init__(self, package_registry: str, repository_provider: str,
-                 package_version_info: PackageVersion, repository_version_info: RepositoryVersion):
+                 package_data: PackageVersion, repository_data: RepositoryVersion):
 
-        assert repository_version_info is not None, \
+        assert repository_data is not None, \
             "Repository version info cannot be None"
-
-        version_source_type = repository_version_info.version_source_type
-        assert version_source_type in (VERSION_DATA_SOURCE_GITHUB_RELEASES,
-                                       VERSION_DATA_SOURCE_GITHUB_TAGS), \
-            f"Invalid data source type {version_source_type}"
         assert package_registry in PACKAGE_REGISTRIES, \
             f"Invalid package registry {package_registry}"
         assert repository_provider in REPOSITORY_PROVIDERS, \
             f"Invalid repository provider {repository_provider}"
 
-        self.version_source_type = version_source_type
         self.package_registry = package_registry
         self.repository_provider = repository_provider
+        self.package_data = package_data
+        self.repository_data = repository_data
 
-        self.version = package_version_info.version
-        self.dependencies = package_version_info.dependencies
-        self.dev_dependencies = package_version_info.dev_dependencies
-        self.engine_versions = package_version_info.engine_versions
-        self.version_description = package_version_info.description
-
-        self.commits = repository_version_info.commits
-
-        self.package_version_url = package_version_info.package_version_url
-        self.repository_version_url = repository_version_info.repository_version_url
-        self.license = package_version_info.license
+        self._summary_description = None
 
     def __repr__(self):
-        return f"{self.data_source_type} Version(version='{self.version}', "\
+        return f"Version(version='{self.version}', "\
             f"registr={self.package_registry}, "\
-            f"repo={self.repository_provider}, license={self.license})"
+            f"repo={self.repository_provider})"
+
+    @property
+    def version(self):
+        return self.package_data.version
 
     @property
     def summary_description(self):
@@ -214,3 +181,10 @@ def filter_versions_between(versions: list[str], installed: str, latest: str) ->
         if compare_versions(version_norm, installed_norm) >= 0 and compare_versions(
                 version_norm, latest_norm) <= 0:
             yield version
+
+
+def sort_versions(versions: List[PackageVersion]) -> List[PackageVersion]:
+    """
+    Sorts a list of semantically versioned strings.
+    """
+    return sorted(versions, key=cmp_to_key(lambda v1, v2: compare_versions(v1.version, v2.version)))

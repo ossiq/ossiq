@@ -82,11 +82,10 @@ def load_npm_package_versions(package_name: str) -> List[PackageVersion]:
         result_versions.append(
             PackageVersion(
                 version=version,
-                normalized_version=normalize_version(version),
                 dependencies=details.get("dependencies", {}),
                 license=details.get("license", None),
-                package_version_url=f"{NPM_REGISTRY_FRONT}/package/{package_name}/v/{version}",
-                engine_versions=details.get("engines", {}),
+                package_url=f"{NPM_REGISTRY_FRONT}/package/{package_name}/v/{version}",
+                runtime_requirements=details.get("engines", None),
                 dev_dependencies=details.get("devDependencies", {}),
                 description=details.get("description", None)
             ))

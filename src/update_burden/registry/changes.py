@@ -71,11 +71,11 @@ def load_package_versions(config: Settings, package: Package, repository: Reposi
         p for p in package_versions if p.version in tareget_versions]
 
     if repository.provider == REPOSITORY_PROVIDER_GITHUB:
-        repository_versions = load_github_code_versions(
+        repository_versions = list(load_github_code_versions(
             repository,
             package_versions,
             config.github_token
-        )
+        ))
 
     if repository_versions is None:
         raise ValueError(f"Cannot load repository versions for {package.name}")
@@ -109,21 +109,16 @@ def aggregate_package_changes(config: Settings, registry_type: str, package_path
 
     versions = []
     for package_version in package_versions:
-        # NOTE: we're not looking past installed version, so there'll be no history
-        if package_version.version == installed_version:
-            continue
 
+        # Assumption: identify changes only for versions available in the source code repository
         if package_version.version not in repo_versions_map:
-            import ipdb
-            ipdb.set_trace()
+            continue
 
         versions.append(Version(
             package_registry=package.registry,
             repository_provider=repository.provider,
-            package_version_info=package_version,
-            repository_version_info=repo_versions_map.get(
-                package_version.normalized_version, None
-            )
+            package_data=package_version,
+            repository_data=repo_versions_map[package_version.version]
         ))
 
     if config.verbose:
@@ -134,6 +129,3 @@ def aggregate_package_changes(config: Settings, registry_type: str, package_path
         pprint.pprint(package)
         pprint.pprint(repository)
         pprint.pprint(package_versions)
-
-    import ipdb
-    ipdb.set_trace()
