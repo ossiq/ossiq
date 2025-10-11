@@ -12,7 +12,10 @@ Utility to forecast risks associated with currently installed packages updates
 ## Usage
 
 ```bash
-hatch run update-burden analyze ../data/i18n/0.9.1 ../data/i18n/0.15.0
+UPDATE_BURDEN_GITHUB_TOKEN=$(gh auth token) \
+  hatch run update-burden --verbose overview \
+  --project-file-path testdata/npm/project1/packages.json \
+  --package-name i18n
 ```
 
 ## Features
