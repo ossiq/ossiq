@@ -11,8 +11,6 @@ import semver
 from .common import (
     PACKAGE_REGISTRIES,
     REPOSITORY_PROVIDERS,
-    VERSION_DATA_SOURCE_GITHUB_RELEASES,
-    VERSION_DATA_SOURCE_GITHUB_TAGS
 )
 
 
@@ -46,9 +44,9 @@ class Commit:
     @property
     def commit_user_name(self):
         if self.author:
-            return self.author.name
+            return self.author.display_name
         if self.committer:
-            return self.committer.name
+            return self.committer.display_name
         return "<N/A>"
 
     @property
@@ -128,6 +126,14 @@ class Version:
     @property
     def version(self):
         return self.package_data.version
+
+    @property
+    def ref_previous(self):
+        return self.repository_data.ref_previous
+
+    @property
+    def source_url(self):
+        return self.repository_data.source_url
 
     @property
     def summary_description(self):

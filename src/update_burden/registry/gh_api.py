@@ -100,17 +100,33 @@ def paginate_github_api_request(url: str, github_token: str | None = None) -> It
             yield item
 
 
-def extract_github_repo_ownership(raw: str) -> tuple[str, str] | None:
-    if not raw:
-        return None
+def is_github_repository(url: str | None) -> bool:
+    """
+    Check if a given URL is a GitHub repository.
+    """
+    if not url:
+        return False
 
+    s = url.strip().removeprefix("git+").removeprefix("https://")
+    m = re.search(r"github\.com[:/](?P<owner>[^/]+)/(?P<name>[^/.]+)", s)
+
+    if m:
+        return True
+
+    return False
+
+
+def extract_github_repo_ownership(raw: str) -> tuple[str, str] | None:
+    """
+    Extract GitHub repository ownership from a given URL.
+    """
     s = raw.strip().removeprefix("git+").removeprefix("https://")
     m = re.search(r"github\.com[:/](?P<owner>[^/]+)/(?P<name>[^/.]+)", s)
 
     if m:
         return m.group("owner"), m.group("name")
 
-    return None
+    return None, None
 
 
 def load_github_repository(repo_url: str) -> Repository:
@@ -118,6 +134,9 @@ def load_github_repository(repo_url: str) -> Repository:
     Extract GitHub repository info from a given github URL.
     """
     owner, repo_name = extract_github_repo_ownership(repo_url)
+
+    if not owner or not repo_name:
+        raise ValueError(f"Invalid GitHub URL: {repo_url}")
 
     # TODO: pull description from github and sum up repository description
     return Repository(
@@ -312,14 +331,12 @@ def load_github_code_versions(repository: Repository,
 
     # return very first version (installed package)
     yield versions[0]
-    for n in range(len(versions)):
-        if n + 1 >= len(versions):
+
+    for verion_from, version_to in itertools.zip_longest(versions, versions[1:]):
+        if not version_to:
             break
 
-        version_from = versions[n]
-        version_to = versions[n + 1]
-
-        version_to.ref_previous = version_from.ref_name
+        version_to.ref_previous = verion_from.ref_name
 
         version_to = load_and_calculate_difference(
             repository, version_to, github_token)

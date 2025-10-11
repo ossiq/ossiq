@@ -18,6 +18,7 @@ from .npm_api import (
     load_npm_package_versions
 )
 from .gh_api import (
+    is_github_repository,
     load_github_repository,
     load_github_code_versions
 )
@@ -42,6 +43,24 @@ def extract_package_info(registry_type: str, package_name: str) -> Package:
         return load_npm_package(package_name)
 
     raise ValueError(f"Unknown registry type: {registry_type}")
+
+
+def extract_repository_info(repository_url: str) -> Repository:
+    """
+    Extract repository info from a given repository URL.
+    """
+    if not repository_url:
+        raise ValueError("Repository URL cannot be empty")
+
+    if is_github_repository(repository_url):
+        return load_github_repository(repository_url)
+
+    raise ValueError(f"Unknown Repository Provider URL: {repository_url}")
+
+
+def load_repository(package: Package) -> Repository:
+
+    return load_github_repository(package.repo_url)
 
 
 def load_package_versions(config: Settings, package: Package, repository: Repository,
@@ -94,7 +113,7 @@ def aggregate_package_changes(config: Settings, registry_type: str, package_path
             f"Package {package_name} not found in project {project}")
 
     package = extract_package_info(registry_type, package_name)
-    repository = load_github_repository(package.repo_url)
+    repository = extract_repository_info(package.repo_url)
     package.repository = repository
 
     # Pull what is in the project file
@@ -125,7 +144,17 @@ def aggregate_package_changes(config: Settings, registry_type: str, package_path
         print(f"Installed Version: {installed_version}")
         print(f"Latest Version: {package.version}")
 
-        pprint.pprint(project)
-        pprint.pprint(package)
-        pprint.pprint(repository)
-        pprint.pprint(package_versions)
+        for version in versions:
+            # installed version
+            if version.ref_previous is None:
+                continue
+
+            print(
+                f"Diff {version.ref_previous} -> {version.version}: "
+                f"{version.source_url} ({version.summary_description})"
+            )
+
+        # pprint.pprint(project)
+        # pprint.pprint(package)
+        # pprint.pprint(repository)
+        # pprint.pprint(package_versions)
