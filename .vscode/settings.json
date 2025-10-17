@@ -21,5 +21,9 @@
   // 6. Pylint Configuration: Use the custom pylintrc file
   "python.linting.pylintArgs": [
       "--rcfile=${workspaceFolder}/pylintrc"
-  ]
+  ],
+  "files.exclude": {
+    "**/__pycache__": true,
+    "**/*.egg-info": true
+  }
 }

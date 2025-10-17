@@ -6,7 +6,7 @@ from typing import List
 
 from .repository import Repository
 from .common import REGISTRY_NPM, REGISTRY_PYPI
-from .versions import Version
+from .version import Version
 
 
 class Package:

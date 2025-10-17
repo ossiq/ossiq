@@ -14,7 +14,7 @@ from .common import (
 )
 
 
-@dataclass
+@dataclass(frozen=True)
 class User:
     """Class to contains user information."""
     id: int
@@ -27,7 +27,7 @@ class User:
         return f"""User(login='{self.username}', name='{self.display_name}')"""
 
 
-@dataclass
+@dataclass(frozen=True)
 class Commit:
     """Class to contains commit information."""
     sha: str
@@ -55,7 +55,7 @@ class Commit:
         return self.message.split("\n")[0]
 
 
-@dataclass
+@dataclass(frozen=True)
 class PackageVersion:
     """
     Partial version information typically pulled from package registry.

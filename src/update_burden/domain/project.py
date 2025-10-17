@@ -3,7 +3,7 @@
 Module to define abstract Package
 """
 from typing import Dict
-from .versions import normalize_version
+from .version import normalize_version
 from .common import PROJECT_TYPE_NPM, PROJECT_TYPE_PYPI
 
 

@@ -7,11 +7,11 @@ import pprint
 from typing import List
 
 from ..config import Settings
-from .common import REGISTRY_NPM, REPOSITORY_PROVIDER_GITHUB
-from .package import Package
-from .project import Project
-from .repository import Repository
-from .versions import PackageVersion, RepositoryVersion, Version, filter_versions_between
+from ..domain.common import REGISTRY_NPM, REPOSITORY_PROVIDER_GITHUB
+from ..domain.package import Package
+from ..domain.project import Project
+from ..domain.repository import Repository
+from ..domain.version import PackageVersion, RepositoryVersion, Version, filter_versions_between
 from .npm_api import (
     load_npm_package,
     parse_npm_project_info,
@@ -102,7 +102,8 @@ def load_package_versions(config: Settings, package: Package, repository: Reposi
     return package_versions, repository_versions
 
 
-def aggregate_package_changes(config: Settings, registry_type: str, package_path: str, package_name: str):
+def aggregate_package_changes(config: Settings, registry_type: str,
+                              package_path: str, package_name: str):
     """
     Aggregate changes between two versions of a package regardless of the registry.
     """

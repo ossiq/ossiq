@@ -8,7 +8,8 @@ from rich.console import Console
 from .config import Settings
 from update_burden import utils
 
-from .registry.package import id_registry_type
+from .domain.exceptions import GithubRateLimitError
+from .domain.package import id_registry_type
 from .registry.changes import aggregate_package_changes
 
 app = typer.Typer()
@@ -78,16 +79,23 @@ def overview(project_file_path: str = "package.json",
             "[red bold]\\[-] --package-name is not specified, cannot proceed[/red bold]")
         return
 
-    console.print(
-        f"[green bold]\\[x] Pulling changes overview for package "
-        f"{package_name} from {registry_type} registry")
+    try:
+        console.print(
+            f"[green bold]\\[x] Pulling changes overview for package "
+            f"{package_name} from {registry_type} registry")
 
-    aggregate_package_changes(
-        context["settings"],
-        registry_type,
-        project_file_path,
-        package_name
-    )
+        aggregate_package_changes(
+            context["settings"],
+            registry_type,
+            project_file_path,
+            package_name
+        )
+    except GithubRateLimitError as e:
+        console.print(f"[red bold]\\[-] {e}[/red bold]")
+        console.print(
+            "[bold yellow]NOTE[/bold yellow] You can increase the limit "
+            "by passing a Github API token via the `GITHUB_TOKEN` environment variable "
+            "or the `--github-token` option.")
 
     # print(colored(
     #     f"Installed: {installed_version}  Latest: {latest_version}", "blue", attrs=["bold"]))

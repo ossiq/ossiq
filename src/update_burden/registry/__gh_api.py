@@ -10,14 +10,14 @@ from rich.console import Console
 
 import requests
 
-from .common import (
+from ..domain.common import (
     REPOSITORY_PROVIDER_GITHUB,
     VERSION_DATA_SOURCE_GITHUB_RELEASES,
     VERSION_DATA_SOURCE_GITHUB_TAGS
 )
 
-from .repository import Repository
-from .versions import (
+from ..domain.repository import Repository
+from ..domain.version import (
     PackageVersion,
     RepositoryVersion,
     Commit,
