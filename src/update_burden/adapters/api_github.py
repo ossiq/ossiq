@@ -10,11 +10,17 @@ from rich.console import Console
 
 from .api_interfaces import AbstractSourceCodeApiClient
 from ..domain.exceptions import GithubRateLimitError
-from ..config import Settings
 from ..domain.repository import Repository
-from ..domain.version import RepositoryVersion, PackageVersion, sort_versions, Commit, User, normalize_version
+from ..domain.version import (
+    RepositoryVersion,
+    PackageVersion,
+    Commit,
+    User,
+    sort_versions,
+    normalize_version
+)
 from ..domain.common import (
-    REPOSITORY_PROVIDER_GITHUB,
+    RepositoryProviderType,
     VERSION_DATA_SOURCE_GITHUB_RELEASES,
     VERSION_DATA_SOURCE_GITHUB_TAGS
 )
@@ -29,10 +35,13 @@ class GithubSourceCodeApiClient(AbstractSourceCodeApiClient):
     """
     Implementation of SourceCodeApiClient for Github    
     """
-    settings: Settings
+    github_token: str
 
-    def __init__(self, settings: Settings):
-        self.settings = settings
+    def __init__(self, github_token: str):
+        self.github_token = github_token
+        if not self.github_token:
+            # FIXME: pass warning
+            pass
 
     def _extract_next_url(self, link_header: str):
         """
@@ -53,8 +62,8 @@ class GithubSourceCodeApiClient(AbstractSourceCodeApiClient):
         Make a request to the GitHub API and properly handle pagination
         """
         headers = {}
-        if self.settings.github_token:
-            headers["Authorization"] = f"Bearer {self.settings.github_token}"
+        if self.github_token:
+            headers["Authorization"] = f"Bearer {self.github_token}"
 
         response = requests.get(url, timeout=timeout, headers=headers)
 
@@ -92,30 +101,6 @@ class GithubSourceCodeApiClient(AbstractSourceCodeApiClient):
             next_url, data = self._make_github_api_request(next_url)
             for item in data:
                 yield item
-
-    def get_repository(self,
-                       repository_url: str) -> Repository:
-        """
-        Extract GitHub repository info from a given github URL.
-        """
-        s = repository_url.strip().removeprefix("git+").removeprefix("https://")
-        m = re.search(r"github\.com[:/](?P<owner>[^/]+)/(?P<name>[^/.]+)", s)
-
-        if not m:
-            raise ValueError(f"Invalid GitHub URL: {repository_url}")
-
-        owner, repo_name = m.group("owner"), m.group("name")
-
-        # Fetch repository details to get the description
-        repo_api_url = f"{GITHUB_API}/repos/{owner}/{repo_name}"
-        _, repo_data = self._make_github_api_request(repo_api_url)
-
-        return Repository(
-            provider=REPOSITORY_PROVIDER_GITHUB,
-            name=repo_name,
-            owner=owner,
-            description=repo_data.get("description")
-        )
 
     def _load_releases(self,
                        repository: Repository,
@@ -246,6 +231,30 @@ class GithubSourceCodeApiClient(AbstractSourceCodeApiClient):
                 n += 1
             if n == len(versions_set):
                 break
+
+    def get_repository(self, repository_url: str) -> Repository:
+        """
+        Extract GitHub repository info from a given github URL.
+        """
+        s = repository_url.strip().removeprefix("git+").removeprefix("https://")
+        m = re.search(r"github\.com[:/](?P<owner>[^/]+)/(?P<name>[^/.]+)", s)
+
+        if not m:
+            raise ValueError(f"Invalid GitHub URL: {repository_url}")
+
+        owner, repo_name = m.group("owner"), m.group("name")
+
+        # Fetch repository details to get the description
+        repo_api_url = f"{GITHUB_API}/repos/{owner}/{repo_name}"
+        _, repo_data = self._make_github_api_request(repo_api_url)
+
+        return Repository(
+            provider=RepositoryProviderType.PROVIDER_GITHUB,
+            name=repo_name,
+            owner=owner,
+            description=repo_data.get("description"),
+            html_url=f"https://github.com/{owner}/{repo_name}"
+        )
 
     def get_versions(self,
                      repository: Repository,

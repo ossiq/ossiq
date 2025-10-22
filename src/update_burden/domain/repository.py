@@ -2,8 +2,6 @@
 Module to define abstract code Registryike github
 """
 
-from .common import REPOSITORY_PROVIDER_GITHUB
-
 
 class Repository:
     """Class for a Repository."""
@@ -12,15 +10,19 @@ class Repository:
     owner: str
     description: str | None
 
-    def __init__(self, provider: str, name: str, owner: str, description: str):
+    html_url: str | None
 
-        assert provider in (
-            REPOSITORY_PROVIDER_GITHUB), f"Invalid provider {provider}"
-
+    def __init__(self,
+                 provider: str,
+                 name: str,
+                 owner: str,
+                 description: str,
+                 html_url: str | None):
         self.provider = provider
         self.owner = owner
         self.name = name
         self.description = description
+        self.html_url = html_url
 
     def __repr__(self):
         return f"""{self.provider} Repository(
@@ -28,15 +30,3 @@ class Repository:
   owner='{self.owner}'
   url='{self.html_url}'
 )"""
-
-    @property
-    def api_url(self):
-        if self.provider == REPOSITORY_PROVIDER_GITHUB:
-            return f"https://api.github.com/repos/{self.owner}/{self.repo}/releases"
-
-        raise ValueError("Invalid provider")
-
-    @property
-    def html_url(self):
-        if self.provider == REPOSITORY_PROVIDER_GITHUB:
-            return f"https://github.com/{self.owner}/{self.name}"

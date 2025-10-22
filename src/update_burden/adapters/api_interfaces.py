@@ -15,7 +15,7 @@ class AbstractSourceCodeApiClient(abc.ABC):
     Abstract client to communicate with source code repositories like GitHub    
     """
 
-    @abs.abstractmethod
+    @abc.abstractmethod
     def get_repository(self, repository_url: str):
         raise NotImplementedError
 

@@ -4,8 +4,9 @@ Module to define abstract Package
 import os
 from typing import List
 
+from update_burden.domain.common import PackageRegistryType
+
 from .repository import Repository
-from .common import REGISTRY_NPM, REGISTRY_PYPI
 from .version import Version
 
 
@@ -26,8 +27,6 @@ class Package:
 
     def __init__(self, registry: str, name: str, version: str, next_version: str, repo_url: str,
                  author: str = None, homepage_url: str = None, description: str = None):
-
-        assert registry in (REGISTRY_NPM, REGISTRY_PYPI), "Invalid registry"
 
         self.registry = registry
         self.name = name
@@ -61,11 +60,13 @@ class Package:
 
     @property
     def package_url(self):
-        if self.registry == REGISTRY_NPM:
-            return f"https://www.npmjs.com/package/{self.name}/{self.version}"
+        # FIXME: push this into Registry Client and keep it just static copies
+        print(self.registry)
+        # if self.registry == REGISTRY_NPM:
+        #     return f"https://www.npmjs.com/package/{self.name}/{self.version}"
 
-        if self.registry == REGISTRY_PYPI:
-            return f"https://pypi.org/project/{self.name}/{self.version}"
+        # if self.registry == REGISTRY_PYPI:
+        #     return f"https://pypi.org/project/{self.name}/{self.version}"
 
         raise ValueError("Invalid registry")
 
@@ -85,12 +86,12 @@ def id_registry_type(project_file: str):
     name = os.path.basename(project_file)
 
     if name == "packages.json":
-        return REGISTRY_NPM
+        return PackageRegistryType.REGISTRY_NPM
 
     if name == "requirements.txt":
-        return REGISTRY_PYPI
+        return PackageRegistryType.REGISTRY_PYPI
 
     if name == "pyproject.toml":
-        return REGISTRY_PYPI
+        return PackageRegistryType.REGISTRY_PYPI
 
     raise ValueError(f"Unknown project file: {project_file}")

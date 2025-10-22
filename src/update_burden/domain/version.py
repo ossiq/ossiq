@@ -8,11 +8,6 @@ from functools import cmp_to_key
 
 import semver
 
-from .common import (
-    PACKAGE_REGISTRIES,
-    REPOSITORY_PROVIDERS,
-)
-
 
 @dataclass(frozen=True)
 class User:
@@ -106,10 +101,11 @@ class Version:
 
         assert repository_data is not None, \
             "Repository version info cannot be None"
-        assert package_registry in PACKAGE_REGISTRIES, \
-            f"Invalid package registry {package_registry}"
-        assert repository_provider in REPOSITORY_PROVIDERS, \
-            f"Invalid repository provider {repository_provider}"
+        # FIXME: fix validation here with custom exceptions + types from domain.common
+        # assert package_registry in PACKAGE_REGISTRIES, \
+        #     f"Invalid package registry {package_registry}"
+        # assert repository_provider in REPOSITORY_PROVIDERS, \
+        #     f"Invalid repository provider {repository_provider}"
 
         self.package_registry = package_registry
         self.repository_provider = repository_provider
