@@ -232,7 +232,7 @@ class GithubSourceCodeApiClient(AbstractSourceCodeApiClient):
             if n == len(versions_set):
                 break
 
-    def get_repository(self, repository_url: str) -> Repository:
+    def repository_info(self, repository_url: str) -> Repository:
         """
         Extract GitHub repository info from a given github URL.
         """
@@ -256,9 +256,9 @@ class GithubSourceCodeApiClient(AbstractSourceCodeApiClient):
             html_url=f"https://github.com/{owner}/{repo_name}"
         )
 
-    def get_versions(self,
-                     repository: Repository,
-                     package_versions: List[PackageVersion]) -> Iterable[RepositoryVersion]:
+    def repository_versions(self,
+                            repository: Repository,
+                            package_versions: List[PackageVersion]) -> Iterable[RepositoryVersion]:
         """
         Pull versions info available from the given repository. Github releases
         is the default way to get it, then fallback to tags.

@@ -6,10 +6,10 @@ import os
 from typing import List
 import requests
 
-from .common import REGISTRY_NPM, PROJECT_TYPE_NPM
-from .package import Package
-from .project import Project
-from .versions import PackageVersion, normalize_version
+from ..domain.common import REGISTRY_NPM, PROJECT_TYPE_NPM
+from ..domain.package import Package
+from ..domain.project import Project
+from ..domain.version import PackageVersion, normalize_version
 
 NPM_REGISTRY = "https://registry.npmjs.org"
 NPM_REGISTRY_FRONT = "https://www.npmjs.com"
@@ -42,51 +42,3 @@ def parse_npm_project_info(path: str) -> dict:
                 **project_json.get("optionalDependencies", {}),
             }
         )
-
-
-def load_npm_package(package_name: str) -> Package:
-    """
-    Fetch npm info for a given package.
-    Raises HTTPError if not found.
-    """
-    r = requests.get(f"{NPM_REGISTRY}/{package_name}", timeout=15)
-    r.raise_for_status()
-    response = r.json()
-    distribution_tags = response.get(
-        "dist-tags", {"latest": None, "next": None})
-
-    return Package(
-        registry=REGISTRY_NPM,
-        name=response["name"],
-        version=distribution_tags.get("latest", None),
-        next_version=distribution_tags.get("next", None),
-        repo_url=response.get("repository", {}).get("url", None),
-        author=response.get("author"),
-        homepage_url=response.get("homepage"),
-        description=response.get("description")
-    )
-
-
-def load_npm_package_versions(package_name: str) -> List[PackageVersion]:
-    """
-    Fetch npm versions for a given package.
-    Raises HTTPError if not found.
-    """
-    r = requests.get(f"{NPM_REGISTRY}/{package_name}", timeout=15)
-    r.raise_for_status()
-    versions = r.json().get("versions", [])
-
-    # Much simpler API down the road
-    result_versions = []
-    for version, details in versions.items():
-        result_versions.append(
-            PackageVersion(
-                version=version,
-                dependencies=details.get("dependencies", {}),
-                license=details.get("license", None),
-                package_url=f"{NPM_REGISTRY_FRONT}/package/{package_name}/v/{version}",
-                runtime_requirements=details.get("engines", None),
-                dev_dependencies=details.get("devDependencies", {}),
-                description=details.get("description", None)
-            ))
-    return result_versions

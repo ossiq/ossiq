@@ -14,28 +14,32 @@ class Package:
     """Class for a package."""
     registry: str
     name: str
-    version: str
+    latest_version: str
     next_version: str
     author: str
     homepage_url: str
     repo_url: str
     description: str
     author: str
+    package_url: str
 
     _repository: Repository
     _versions: List[Version]
 
-    def __init__(self, registry: str, name: str, version: str, next_version: str, repo_url: str,
-                 author: str = None, homepage_url: str = None, description: str = None):
+    def __init__(self,
+                 registry: str, name: str, latest_version: str, next_version: str, repo_url: str,
+                 author: str = None, homepage_url: str = None, description: str = None,
+                 package_url: str = None):
 
         self.registry = registry
         self.name = name
-        self.version = version
+        self.latest_version = latest_version
         self.next_version = next_version
         self.repo_url = repo_url
         self.author = author
         self.homepage_url = homepage_url
         self.description = description
+        self.package_url = package_url
 
         self._repository = None
         self._versions = None
@@ -43,7 +47,7 @@ class Package:
     def __repr__(self):
         return f"""{self.registry} Package(
   name='{self.name}'
-  version='{self.version}'
+  version='{self.latest_version}'
   author='{self.author}'
   url='{self.package_url}'
 )"""
@@ -58,15 +62,8 @@ class Package:
     def versions(self, versions: List[Version]):
         self._versions = versions
 
-    @property
-    def package_url(self):
-        # FIXME: push this into Registry Client and keep it just static copies
-        print(self.registry)
-        # if self.registry == REGISTRY_NPM:
-        #     return f"https://www.npmjs.com/package/{self.name}/{self.version}"
-
-        # if self.registry == REGISTRY_PYPI:
-        #     return f"https://pypi.org/project/{self.name}/{self.version}"
+    # if self.registry == REGISTRY_PYPI:
+    #     return f"https://pypi.org/project/{self.name}/{self.version}"
 
         raise ValueError("Invalid registry")
 

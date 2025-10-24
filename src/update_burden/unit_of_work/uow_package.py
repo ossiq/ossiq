@@ -2,7 +2,10 @@
 Package Unit Of Work pattern to isolate
 I/O for external sources
 """
-from update_burden.adapters.api import SourceCodeApiClientFactory
+from update_burden.adapters.api import (
+    PackageRegistryApiClientFactory,
+    SourceCodeApiClientFactory
+)
 from update_burden.config import Settings
 from update_burden.domain.common import (
     RepositoryProviderType,
@@ -42,7 +45,9 @@ class PackageUnitOfWork(AbstractPackageUnitOfWork):
             self.settings
         )
 
-        self.packages_registry = None
+        self.packages_registry = PackageRegistryApiClientFactory.get_client(
+            self.packages_registry_type
+        )
 
     def __exit__(self, *args):
         pass

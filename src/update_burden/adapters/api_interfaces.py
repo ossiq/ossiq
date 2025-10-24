@@ -3,11 +3,12 @@ Interfaces related to external APIs
 """
 
 import abc
-from typing import List
+from typing import Iterable, List
+
+from update_burden.domain.package import Package
 
 from ..domain.repository import Repository
 from ..domain.version import PackageVersion
-from ..config import Settings
 
 
 class AbstractSourceCodeApiClient(abc.ABC):
@@ -16,11 +17,11 @@ class AbstractSourceCodeApiClient(abc.ABC):
     """
 
     @abc.abstractmethod
-    def get_repository(self, repository_url: str):
+    def repository_info(self, repository_url: str):
         raise NotImplementedError
 
     @abc.abstractmethod
-    def get_versions(self, repository: Repository, package_versions: List[PackageVersion]):
+    def repository_versions(self, repository: Repository, package_versions: List[PackageVersion]):
         raise NotImplementedError
 
 
@@ -28,10 +29,11 @@ class AbstractPackageRegistryApiClient(abc.ABC):
     """
     Abstract client to communicate with package registries like PyPi or NPM
     """
+
     @abc.abstractmethod
-    def set_config(self, settings: Settings):
+    def package_info(self, package_name: str) -> Package:
         raise NotImplementedError
 
     @abc.abstractmethod
-    def get(self, reference):
+    def package_versions(self, package_name: str) -> Iterable[PackageVersion]:
         raise NotImplementedError

@@ -11,7 +11,10 @@ console = Console()
 def versions(uow: unit_of_work.AbstractPackageUnitOfWork):
     with uow:
 
-        repository = uow.repository_provider.get_repository(
+        repository = uow.repository_provider.repository_info(
             "https://github.com/mklymyshyn/ossrisk"
         )
+        registry = uow.packages_registry.package_info(uow.package_name)
+
         console.print(f"[bold]Detected Repository:[/bold] {repository}")
+        console.print(f"[bold]Detected Registry:[/bold] {registry}")
