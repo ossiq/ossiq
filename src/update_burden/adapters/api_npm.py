@@ -2,13 +2,18 @@
 Implementation of Package Registry API client for NPM
 """
 
+import json
+import os
+
 from typing import Iterable
+
 import requests
 from rich.console import Console
 
-from update_burden.adapters.api_interfaces import AbstractPackageRegistryApiClient
+from update_burden.adapters.api_interfaces import AbstractPackageRegistryApi
 from update_burden.domain.common import PackageRegistryType
 from update_burden.domain.package import Package
+from update_burden.domain.project import Project
 from update_burden.domain.version import PackageVersion
 
 console = Console()
@@ -25,7 +30,7 @@ NPM_DEPENDENCIES_SECTIONS = (
 )
 
 
-class NpmRegistryApiClient(AbstractPackageRegistryApiClient):
+class PackageRegistryApiNpm(AbstractPackageRegistryApi):
     """
     Implementation of Package Registry API client for NPM
     """
@@ -79,4 +84,32 @@ class NpmRegistryApiClient(AbstractPackageRegistryApiClient):
                 dev_dependencies=details.get("devDependencies", {}),
                 description=details.get("description", None),
                 package_url=f"{NPM_REGISTRY_FRONT}/package/{package_name}/v/{version}"
+            )
+
+    def project_info(self, project_path: str) -> Project:
+        """
+        Method to return a particular Project info
+        with all installed dependencies with their versions
+        """
+        project_file_path = os.path.join(project_path, "package.json")
+        if not os.path.exists(project_file_path):
+            raise FileNotFoundError(
+                f"package.json not found at `{project_file_path}`")
+
+        with open(project_path, "r", encoding="utf-8") as f:
+            project_json = json.load(f)
+            fallback_name = os.path.basename(project_path)
+
+            return Project(
+                package_registry=PackageRegistryType.REGISTRY_NPM,
+                name=project_json.get("name", fallback_name),
+                dependencies=project_json.get("dependencies", {}),
+                # TODO: for simplicity merge these, but probably
+                # just needs to introduce priority for dependencies to calculate risk score later
+                # FIXME: take care of the pinned dependencies later
+                dev_dependencies={
+                    **project_json.get("devDependencies", {}),
+                    **project_json.get("peerDependencies", {}),
+                    **project_json.get("optionalDependencies", {}),
+                }
             )

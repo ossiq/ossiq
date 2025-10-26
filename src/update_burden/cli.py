@@ -6,7 +6,7 @@ import typer
 from rich.console import Console
 
 from update_burden.domain.common import PackageRegistryType, RepositoryProviderType
-from update_burden.unit_of_work import uow_package
+from update_burden.unit_of_work import uow_package, uow_project
 
 from .config import Settings
 from update_burden import utils
@@ -89,14 +89,12 @@ def overview(project_file_path: str = "package.json",
             f"[green bold]\\[x] Pulling changes overview for package "
             f"{package_name} from {registry_type} registry")
 
-        uow = uow_package.PackageUnitOfWork(
+        uow = uow_project.ProjectUnitOfWork(
             settings=context["settings"],
-            package_name=package_name,
-            installed_package_version=None,
-            repository_provider_type=RepositoryProviderType.PROVIDER_GITHUB,
             packages_registry_type=PackageRegistryType.REGISTRY_NPM
         )
-        package.versions(uow)
+        package.versions(
+            uow, RepositoryProviderType.PROVIDER_GITHUB, package_name)
         # aggregate_package_changes(
         #     context["settings"],
         #     registry_type,

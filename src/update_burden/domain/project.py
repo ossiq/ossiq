@@ -4,10 +4,7 @@ Module to define abstract Package
 """
 from typing import Dict
 from .version import normalize_version
-from .common import (
-    PackageRegistryType,
-    UnsupportedProjectType
-)
+from .common import PackageRegistryType
 
 
 class Project:
@@ -22,12 +19,6 @@ class Project:
                  name: str,
                  dependencies: Dict[str, str],
                  dev_dependencies: Dict[str, str]):
-
-        if package_registry not in (
-                PackageRegistryType.REGISTRY_NPM,
-                PackageRegistryType.REGISTRY_PYPI):
-            raise UnsupportedProjectType(
-                f"Invalid package registry {package_registry}")
 
         self.package_registry = package_registry
         self.name = name

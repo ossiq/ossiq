@@ -8,7 +8,7 @@ from typing import Iterable, Tuple, List, Set
 import requests
 from rich.console import Console
 
-from .api_interfaces import AbstractSourceCodeApiClient
+from .api_interfaces import AbstractSourceCodeProviderApi
 from ..domain.exceptions import GithubRateLimitError
 from ..domain.repository import Repository
 from ..domain.version import (
@@ -31,7 +31,7 @@ console = Console()
 GITHUB_API = "https://api.github.com"
 
 
-class GithubSourceCodeApiClient(AbstractSourceCodeApiClient):
+class SourceCodeProviderApiGithub(AbstractSourceCodeProviderApi):
     """
     Implementation of SourceCodeApiClient for Github    
     """

@@ -11,7 +11,7 @@ from ..domain.repository import Repository
 from ..domain.version import PackageVersion
 
 
-class AbstractSourceCodeApiClient(abc.ABC):
+class AbstractSourceCodeProviderApi(abc.ABC):
     """
     Abstract client to communicate with source code repositories like GitHub    
     """
@@ -25,15 +25,30 @@ class AbstractSourceCodeApiClient(abc.ABC):
         raise NotImplementedError
 
 
-class AbstractPackageRegistryApiClient(abc.ABC):
+class AbstractPackageRegistryApi(abc.ABC):
     """
     Abstract client to communicate with package registries like PyPi or NPM
     """
 
     @abc.abstractmethod
     def package_info(self, package_name: str) -> Package:
+        """
+        Get a particular package info
+        """
         raise NotImplementedError
 
     @abc.abstractmethod
     def package_versions(self, package_name: str) -> Iterable[PackageVersion]:
+        """
+        Get a particular package versions between what is installed
+        currently in the project and the latest version available
+        """
+        raise NotImplementedError
+
+    @abc.abstractmethod
+    def project_info(self, project_path: str):
+        """
+        Method to return a particular Project info
+        with all installed dependencies with their versions
+        """
         raise NotImplementedError

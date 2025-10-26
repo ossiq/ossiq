@@ -1,27 +1,27 @@
 """
 Factory to instantiate API clients
 """
-from update_burden.adapters.api_npm import NpmRegistryApiClient
+from update_burden.adapters.api_npm import PackageRegistryApiNpm
 from ..config import Settings
 from update_burden.domain.common import PackageRegistryType, RepositoryProviderType
-from .api_github import GithubSourceCodeApiClient
-from .api_interfaces import AbstractSourceCodeApiClient
+from .api_github import SourceCodeProviderApiGithub
+from .api_interfaces import AbstractSourceCodeProviderApi
 
 
-class SourceCodeApiClientFactory:
+class SourceCodeProviderApiFactory:
     @staticmethod
-    def get_client(provider_type: str, settings: Settings) -> AbstractSourceCodeApiClient:
+    def get_provider(provider_type: str, settings: Settings) -> AbstractSourceCodeProviderApi:
         if provider_type == RepositoryProviderType.PROVIDER_GITHUB:
-            return GithubSourceCodeApiClient(settings.github_token)
+            return SourceCodeProviderApiGithub(settings.github_token)
         else:
             raise ValueError(
                 f"Unknown source code provider type: {provider_type}")
 
 
-class PackageRegistryApiClientFactory:
+class PackageRegistryApiFactory:
     @staticmethod
-    def get_client(registry_type: str) -> AbstractSourceCodeApiClient:
+    def get_registry(registry_type: str) -> AbstractSourceCodeProviderApi:
         if registry_type == PackageRegistryType.REGISTRY_NPM:
-            return NpmRegistryApiClient()
+            return PackageRegistryApiNpm()
         else:
             raise ValueError(f"Unknown package registry type: {registry_type}")
