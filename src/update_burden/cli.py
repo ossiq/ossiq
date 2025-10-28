@@ -5,16 +5,16 @@ import typer
 
 from rich.console import Console
 
-from update_burden.domain.common import PackageRegistryType, RepositoryProviderType
-from update_burden.unit_of_work import uow_package, uow_project
+# from update_burden.domain.common import ProjectPackagesRegistryKind, RepositoryProviderType
+from update_burden.unit_of_work import uow_project
 
 from .config import Settings
 from update_burden import utils
 
-from .domain.exceptions import GithubRateLimitError
-from .domain.package import id_registry_type
+# from .domain.exceptions import GithubRateLimitError
+from .domain.common import identify_project_registry_kind
 # from .registry.changes import aggregate_package_changes
-from update_burden.service import package
+from update_burden.service import project
 
 
 app = typer.Typer()
@@ -74,39 +74,33 @@ def help():
 
 
 @app.command()
-def overview(project_file_path: str = "package.json",
-             package_name: str = None):
+def overview(project_path: str):
+    """
+    Project overview
+    """
     # TODO: create cheatsheet for respective commands
-    registry_type = id_registry_type(project_file_path)
+    packages_registry_type = identify_project_registry_kind(project_path)
 
-    if package_name is None:
-        console.print(
-            "[red bold]\\[-] --package-name is not specified, cannot proceed[/red bold]")
-        return
+    uow = uow_project.ProjectUnitOfWork(
+        settings=context["settings"],
+        project_path=project_path,
+        packages_registry_type=packages_registry_type
+    )
 
-    try:
-        console.print(
-            f"[green bold]\\[x] Pulling changes overview for package "
-            f"{package_name} from {registry_type} registry")
+    project.overview(uow)
 
-        uow = uow_project.ProjectUnitOfWork(
-            settings=context["settings"],
-            packages_registry_type=PackageRegistryType.REGISTRY_NPM
-        )
-        package.versions(
-            uow, RepositoryProviderType.PROVIDER_GITHUB, package_name)
-        # aggregate_package_changes(
-        #     context["settings"],
-        #     registry_type,
-        #     project_file_path,
-        #     package_name
-        # )
-    except GithubRateLimitError as e:
-        console.print(f"[red bold]\\[-] {e}[/red bold]")
-        console.print(
-            "[bold yellow]NOTE[/bold yellow] You can increase the limit "
-            "by passing a Github API token via the `GITHUB_TOKEN` environment variable "
-            "or the `--github-token` option.")
+    # aggregate_package_changes(
+    #     context["settings"],
+    #     registry_type,
+    #     project_file_path,
+    #     package_name
+    # )
+    # except GithubRateLimitError as e:
+    #     console.print(f"[red bold]\\[-] {e}[/red bold]")
+    #     console.print(
+    #         "[bold yellow]NOTE[/bold yellow] You can increase the limit "
+    #         "by passing a Github API token via the `GITHUB_TOKEN` environment variable "
+    #         "or the `--github-token` option.")
 
     # print(colored(
     #     f"Installed: {installed_version}  Latest: {latest_version}", "blue", attrs=["bold"]))

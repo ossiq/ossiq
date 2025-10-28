@@ -24,6 +24,10 @@ class AbstractSourceCodeProviderApi(abc.ABC):
     def repository_versions(self, repository: Repository, package_versions: List[PackageVersion]):
         raise NotImplementedError
 
+    @abc.abstractmethod
+    def __repr__(self):
+        raise NotImplementedError
+
 
 class AbstractPackageRegistryApi(abc.ABC):
     """
@@ -51,4 +55,8 @@ class AbstractPackageRegistryApi(abc.ABC):
         Method to return a particular Project info
         with all installed dependencies with their versions
         """
+        raise NotImplementedError
+
+    @abc.abstractmethod
+    def __repr__(self):
         raise NotImplementedError

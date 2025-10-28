@@ -4,18 +4,18 @@ Module to define abstract Package
 """
 from typing import Dict
 from .version import normalize_version
-from .common import PackageRegistryType
+from .common import ProjectPackagesRegistryKind
 
 
 class Project:
     """Class for a package."""
-    package_registry: PackageRegistryType
+    package_registry: ProjectPackagesRegistryKind
     name: str
     dependencies: Dict[str, str]
     dev_dependencies: Dict[str, str]
 
     def __init__(self,
-                 package_registry: PackageRegistryType,
+                 package_registry: ProjectPackagesRegistryKind,
                  name: str,
                  dependencies: Dict[str, str],
                  dev_dependencies: Dict[str, str]):

@@ -13,9 +13,7 @@ Utility to forecast risks associated with currently installed packages updates
 
 ```bash
 UPDATE_BURDEN_GITHUB_TOKEN=$(gh auth token) \
-  hatch run update-burden --verbose overview \
-  --project-file-path testdata/npm/project1/packages.json \
-  --package-name i18n
+  hatch run update-burden --verbose overview testdata/npm/project1/
 ```
 
 ## Features

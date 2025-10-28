@@ -3,7 +3,7 @@ Factory to instantiate API clients
 """
 from update_burden.adapters.api_npm import PackageRegistryApiNpm
 from ..config import Settings
-from update_burden.domain.common import PackageRegistryType, RepositoryProviderType
+from update_burden.domain.common import ProjectPackagesRegistryKind, RepositoryProviderType
 from .api_github import SourceCodeProviderApiGithub
 from .api_interfaces import AbstractSourceCodeProviderApi
 
@@ -21,7 +21,7 @@ class SourceCodeProviderApiFactory:
 class PackageRegistryApiFactory:
     @staticmethod
     def get_registry(registry_type: str) -> AbstractSourceCodeProviderApi:
-        if registry_type == PackageRegistryType.REGISTRY_NPM:
+        if registry_type == ProjectPackagesRegistryKind.NPM:
             return PackageRegistryApiNpm()
         else:
             raise ValueError(f"Unknown package registry type: {registry_type}")

@@ -11,7 +11,7 @@ import requests
 from rich.console import Console
 
 from update_burden.adapters.api_interfaces import AbstractPackageRegistryApi
-from update_burden.domain.common import PackageRegistryType
+from update_burden.domain.common import ProjectPackagesRegistryKind
 from update_burden.domain.package import Package
 from update_burden.domain.project import Project
 from update_burden.domain.version import PackageVersion
@@ -35,8 +35,8 @@ class PackageRegistryApiNpm(AbstractPackageRegistryApi):
     Implementation of Package Registry API client for NPM
     """
 
-    def __init__(self):
-        pass
+    def __repr__(self):
+        return "<PackageRegistryApiNpm instance>"
 
     def _make_request(self, path: str, timeout: int = 15) -> dict:
         """
@@ -56,7 +56,7 @@ class PackageRegistryApiNpm(AbstractPackageRegistryApi):
             "dist-tags", {"latest": None, "next": None})
 
         return Package(
-            registry=PackageRegistryType.REGISTRY_NPM,
+            registry=ProjectPackagesRegistryKind.NPM,
             name=response["name"],
             latest_version=distribution_tags.get("latest", None),
             next_version=distribution_tags.get("next", None),
@@ -91,17 +91,17 @@ class PackageRegistryApiNpm(AbstractPackageRegistryApi):
         Method to return a particular Project info
         with all installed dependencies with their versions
         """
-        project_file_path = os.path.join(project_path, "package.json")
+        project_file_path = os.path.join(project_path, "packages.json")
         if not os.path.exists(project_file_path):
             raise FileNotFoundError(
-                f"package.json not found at `{project_file_path}`")
+                f"packages.json not found at `{project_file_path}`")
 
-        with open(project_path, "r", encoding="utf-8") as f:
+        with open(project_file_path, "r", encoding="utf-8") as f:
             project_json = json.load(f)
             fallback_name = os.path.basename(project_path)
 
             return Project(
-                package_registry=PackageRegistryType.REGISTRY_NPM,
+                package_registry=ProjectPackagesRegistryKind.NPM,
                 name=project_json.get("name", fallback_name),
                 dependencies=project_json.get("dependencies", {}),
                 # TODO: for simplicity merge these, but probably

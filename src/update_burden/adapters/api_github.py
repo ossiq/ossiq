@@ -43,6 +43,9 @@ class SourceCodeProviderApiGithub(AbstractSourceCodeProviderApi):
             # FIXME: pass warning
             pass
 
+    def __repr__(self):
+        return "<SourceCodeProviderApiGithub instance>"
+
     def _extract_next_url(self, link_header: str):
         """
         Parse header <https://api.github.com/repositories/47118129/tags?page=2>;

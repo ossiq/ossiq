@@ -1,10 +1,8 @@
 """
 Module to define abstract Package
 """
-import os
-from typing import List
 
-from update_burden.domain.common import PackageRegistryType
+from typing import List
 
 from .repository import Repository
 from .version import Version
@@ -74,21 +72,3 @@ class Package:
     @repository.setter
     def repository(self, repo: Repository):
         self._repository = repo
-
-
-def id_registry_type(project_file: str):
-    """
-    Identify Packages registry by typical file name
-    """
-    name = os.path.basename(project_file)
-
-    if name == "packages.json":
-        return PackageRegistryType.REGISTRY_NPM
-
-    if name == "requirements.txt":
-        return PackageRegistryType.REGISTRY_PYPI
-
-    if name == "pyproject.toml":
-        return PackageRegistryType.REGISTRY_PYPI
-
-    raise ValueError(f"Unknown project file: {project_file}")
