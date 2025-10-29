@@ -6,6 +6,7 @@ import abc
 from typing import Iterable, List
 
 from update_burden.domain.package import Package
+from update_burden.domain.project import Project
 
 from ..domain.repository import Repository
 from ..domain.version import PackageVersion
@@ -50,7 +51,7 @@ class AbstractPackageRegistryApi(abc.ABC):
         raise NotImplementedError
 
     @abc.abstractmethod
-    def project_info(self, project_path: str):
+    def project_info(self, project_path: str) -> Project:
         """
         Method to return a particular Project info
         with all installed dependencies with their versions

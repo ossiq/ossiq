@@ -91,10 +91,10 @@ class PackageRegistryApiNpm(AbstractPackageRegistryApi):
         Method to return a particular Project info
         with all installed dependencies with their versions
         """
-        project_file_path = os.path.join(project_path, "packages.json")
+        project_file_path = os.path.join(project_path, "package.json")
         if not os.path.exists(project_file_path):
             raise FileNotFoundError(
-                f"packages.json not found at `{project_file_path}`")
+                f"package.json not found at `{project_file_path}`")
 
         with open(project_file_path, "r", encoding="utf-8") as f:
             project_json = json.load(f)
@@ -103,6 +103,8 @@ class PackageRegistryApiNpm(AbstractPackageRegistryApi):
             return Project(
                 package_registry=ProjectPackagesRegistryKind.NPM,
                 name=project_json.get("name", fallback_name),
+                project_path=project_path,
+                project_files=[project_file_path],
                 dependencies=project_json.get("dependencies", {}),
                 # TODO: for simplicity merge these, but probably
                 # just needs to introduce priority for dependencies to calculate risk score later

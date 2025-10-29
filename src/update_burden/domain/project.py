@@ -2,7 +2,7 @@
 """
 Module to define abstract Package
 """
-from typing import Dict
+from typing import Dict, List
 from .version import normalize_version
 from .common import ProjectPackagesRegistryKind
 
@@ -11,17 +11,23 @@ class Project:
     """Class for a package."""
     package_registry: ProjectPackagesRegistryKind
     name: str
+    project_path: str | None
+    project_files: List[str]
     dependencies: Dict[str, str]
     dev_dependencies: Dict[str, str]
 
     def __init__(self,
                  package_registry: ProjectPackagesRegistryKind,
                  name: str,
+                 project_path: str,
+                 project_files: List[str],
                  dependencies: Dict[str, str],
                  dev_dependencies: Dict[str, str]):
 
         self.package_registry = package_registry
         self.name = name
+        self.project_path = project_path
+        self.project_files = project_files
         self.dependencies = dependencies
         self.dev_dependencies = dev_dependencies
 

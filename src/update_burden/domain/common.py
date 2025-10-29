@@ -19,7 +19,23 @@ class ProjectPackagesRegistryKind(Enum):
     PYPI = "PYPI"
 
 
+class PresentationType(Enum):
+    """
+    What kind of presentation methods available. Default likely should be Console,
+    potentailly could be HTML and JSON/YAML.
+    """
+    CONSOLE = "console"
+
+
+class Command(Enum):
+    """
+    List of available commands, used by presentation layer to map
+    command with respective presentation layer.
+    """
+    OVERVIEW = "overview"
+
 # Domain-specific Exceptions
+
 
 class UnsupportedProjectType(Exception):
     pass
@@ -29,13 +45,21 @@ class UnsupportedPackageRegistry(Exception):
     pass
 
 
+class UnknownCommandException(Exception):
+    pass
+
+
+class UnknownPresentationType(Exception):
+    pass
+
+
 def identify_project_registry_kind(project_path: str) -> ProjectPackagesRegistryKind:
     """
     Identify Packages registry by typical file name
     """
 
     projects_kind_map = {
-        "packages.json": ProjectPackagesRegistryKind.NPM,
+        "package.json": ProjectPackagesRegistryKind.NPM,
         "requirements.txt": ProjectPackagesRegistryKind.PYPI,
         "pyproject.toml": ProjectPackagesRegistryKind.PYPI
     }

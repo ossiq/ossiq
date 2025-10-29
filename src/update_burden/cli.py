@@ -2,10 +2,18 @@
 
 from typing import Annotated
 import typer
+from time import sleep
 
 from rich.console import Console
+from rich.panel import Panel
+from rich.text import Text
 
 # from update_burden.domain.common import ProjectPackagesRegistryKind, RepositoryProviderType
+from update_burden.presentation.views import (
+    Command,
+    PresentationType,
+    get_presentation_view
+)
 from update_burden.unit_of_work import uow_project
 
 from .config import Settings
@@ -62,9 +70,13 @@ def main(
 
     context["settings"] = env_settings.model_copy(update=cli_overrides)
 
-    console.print(
-        f"[bold blue]Configuration Loaded:[/bold blue] "
-        f"{context["settings"].model_dump()}")
+    if verbose:
+        header_text = Text()
+        for setting, value in context["settings"].model_dump().items():
+            header_text.append(f"{setting}: ", style="bold white")
+            header_text.append(f"{value}\n", style="green")
+        console.print("\n[bold cyan]  Settings")
+        console.print(Panel(header_text, expand=False, border_style="cyan"))
 
 
 @app.command()
@@ -80,14 +92,18 @@ def overview(project_path: str):
     """
     # TODO: create cheatsheet for respective commands
     packages_registry_type = identify_project_registry_kind(project_path)
-
     uow = uow_project.ProjectUnitOfWork(
         settings=context["settings"],
         project_path=project_path,
         packages_registry_type=packages_registry_type
     )
 
-    project.overview(uow)
+    with console.status("[bold cyan]Collecting project packages data..."):
+        project_overview = project.overview(uow)
+
+    presentation_view = get_presentation_view(
+        Command.OVERVIEW, PresentationType.CONSOLE)
+    presentation_view(project_overview)
 
     # aggregate_package_changes(
     #     context["settings"],
