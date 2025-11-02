@@ -1,10 +1,10 @@
 """
 Module to operate with package versions
 """
+from functools import cmp_to_key
 import re
 from dataclasses import dataclass
-from typing import List, Dict, Iterable
-from functools import cmp_to_key
+from typing import List, Dict
 
 import semver
 
@@ -56,11 +56,11 @@ class PackageVersion:
     Partial version information typically pulled from package registry.
     """
     version: str
-    dependencies: Dict[str, str]
     license: str
     package_url: str
-    runtime_requirements: Dict[str, str] | None = None
+    dependencies: Dict[str, str]
     dev_dependencies: Dict[str, str] | None = None
+    runtime_requirements: Dict[str, str] | None = None
     description: str | None = None
 
 
@@ -69,7 +69,6 @@ class RepositoryVersion:
     """
     Partial version information typically pulled from source code repository.    
     """
-
     version_source_type: str
     commits: List[Commit]
     version: str
@@ -164,29 +163,10 @@ def compare_versions(v1: str, v2: str) -> int:
     return semver.compare(v1, v2)
 
 
-def filter_versions_between(versions: list[str], installed: str, latest: str) -> Iterable[str]:
-    """
-    Filter out versions which we're interested in.
-    """
-
-    if installed == latest:
-        return
-
-    installed_norm, latest_norm = normalize_version(
-        installed), normalize_version(latest)
-
-    for version in sorted(versions):
-        version_norm = normalize_version(version)
-        if not version_norm:
-            continue
-
-        if compare_versions(version_norm, installed_norm) >= 0 and compare_versions(
-                version_norm, latest_norm) <= 0:
-            yield version
-
-
 def sort_versions(versions: List[PackageVersion]) -> List[PackageVersion]:
     """
     Sorts a list of semantically versioned strings.
     """
-    return sorted(versions, key=cmp_to_key(lambda v1, v2: compare_versions(v1.version, v2.version)))
+    return sorted(
+        versions,
+        key=cmp_to_key(lambda v1, v2: compare_versions(v1.version, v2.version)))

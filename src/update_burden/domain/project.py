@@ -4,7 +4,7 @@ Module to define abstract Package
 """
 from typing import Dict, List
 from .version import normalize_version
-from .common import ProjectPackagesRegistryKind
+from .common import PackageNotInstalled, ProjectPackagesRegistryKind
 
 
 class Project:
@@ -37,14 +37,16 @@ class Project:
   dependencies={self.dependencies}
 )"""
 
-    def installed_package_version(self, package: str):
+    def installed_package_version(self, package_name: str):
         """
         Get installed version of a package.
         """
-        version = None
-        if package in self.dependencies:
-            version = self.dependencies[package]
-        elif package in self.dev_dependencies:
-            version = self.dev_dependencies[package]
+        if package_name in self.dependencies:
+            version = self.dependencies[package_name]
+        elif package_name in self.dev_dependencies:
+            version = self.dev_dependencies[package_name]
+        else:
+            raise PackageNotInstalled(
+                f"Package {package_name} not found in project {self.name}")
 
         return normalize_version(version)

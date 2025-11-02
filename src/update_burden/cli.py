@@ -98,7 +98,10 @@ def overview(project_path: str):
         packages_registry_type=packages_registry_type
     )
 
-    with console.status("[bold cyan]Collecting project packages data..."):
+    if context["settings"].verbose is False:
+        with console.status("[bold cyan]Collecting project packages data..."):
+            project_overview = project.overview(uow)
+    else:
         project_overview = project.overview(uow)
 
     presentation_view = get_presentation_view(

@@ -45,11 +45,23 @@ class UnsupportedPackageRegistry(Exception):
     pass
 
 
+class UnsupportedRepositoryProvider(Exception):
+    pass
+
+
 class UnknownCommandException(Exception):
     pass
 
 
 class UnknownPresentationType(Exception):
+    pass
+
+
+class NoPackageVersionsFound(Exception):
+    pass
+
+
+class PackageNotInstalled(Exception):
     pass
 
 
@@ -69,4 +81,16 @@ def identify_project_registry_kind(project_path: str) -> ProjectPackagesRegistry
         if os.path.exists(full_probe_path):
             return registry_kind
 
-    raise ValueError(f"Unknown project kind at: {project_path}")
+    raise UnsupportedPackageRegistry(
+        f"Unknown project kind at: {project_path}")
+
+
+def identify_project_source_code_provider_kind(repo_url: str) -> RepositoryProviderType:
+    """
+    Identify Packages registry by typical file name
+    """
+    if repo_url("https://github.com/"):
+        return RepositoryProviderType.PROVIDER_GITHUB
+
+    raise UnsupportedRepositoryProvider(
+        f"Unknown repository provider for the URL: {repo_url}")

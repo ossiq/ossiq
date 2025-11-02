@@ -20,15 +20,37 @@ def display_view(project_overview: ProjectOverviewSummary):
     table.add_column("Installed", justify="center")
     table.add_column("Latest", justify="center")
     table.add_column("Days Behind", justify="right")
-    table.add_column("Dev?", justify="center")
+    table.add_column("Production?", justify="center")
 
-    for pkg in project_overview.installed_packages_overview:
+    production_dependencies = sorted([
+        pkg for pkg in project_overview.installed_packages_overview
+        if not pkg.is_dev_dependency
+    ], key=lambda pkg: pkg.package_name)
+
+    dev_dependencies = sorted([
+        pkg for pkg in project_overview.installed_packages_overview
+        if pkg.is_dev_dependency
+    ], key=lambda pkg: pkg.package_name)
+
+    for pkg in production_dependencies:
         table.add_row(
             pkg.package_name,
             pkg.installed_version,
             pkg.latest_version,
             str(pkg.lag_days),
-            "✅ yes" if pkg.is_dev_dependency else "❌ no",
+            "✅ yes"
+        )
+
+    if dev_dependencies:
+        table.add_section()
+
+    for pkg in dev_dependencies:
+        table.add_row(
+            pkg.package_name,
+            pkg.installed_version,
+            pkg.latest_version,
+            str(pkg.lag_days),
+            "❌ no"
         )
 
     header_text = Text()

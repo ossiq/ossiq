@@ -7,6 +7,7 @@ from typing import List
 
 from rich.console import Console
 from update_burden.domain.version import normalize_version
+from update_burden.service.common import package_versions
 from update_burden.unit_of_work import core as unit_of_work
 # from update_burden.domain.common import RepositoryProviderType
 
@@ -33,16 +34,16 @@ class ProjectOverviewSummary:
 
 def overview(uow: unit_of_work.AbstractProjectUnitOfWork) -> ProjectOverviewSummary:
     with uow:
-        # registry = uow.packages_registry.package_info(package_name)
-        # source_code_provider = uow.get_source_code_provider(
-        #     repository_provider_type)
-        # repository = source_code_provider.repository_info(
-        #     "https://github.com/mklymyshyn/ossrisk"
-        # )
-
         project_info = uow.packages_registry.project_info(uow.project_path)
         packages: List[ProjectOverviewRecord] = []
         for package_name, package_version in project_info.dependencies.items():
+            package_info = uow.packages_registry.package_info(package_name)
+            versions = package_versions.versions_list(
+                uow,
+                package_info,
+                project_info.installed_package_version(package_name)
+            )
+
             packages.append(
                 ProjectOverviewRecord(
                     package_name=package_name,
@@ -50,6 +51,17 @@ def overview(uow: unit_of_work.AbstractProjectUnitOfWork) -> ProjectOverviewSumm
                     latest_version=None,
                     lag_days=0,
                     is_dev_dependency=False
+                )
+            )
+
+        for package_name, package_version in project_info.dev_dependencies.items():
+            packages.append(
+                ProjectOverviewRecord(
+                    package_name=package_name,
+                    installed_version=normalize_version(package_version),
+                    latest_version=None,
+                    lag_days=0,
+                    is_dev_dependency=True
                 )
             )
 

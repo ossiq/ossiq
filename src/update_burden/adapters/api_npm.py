@@ -38,11 +38,12 @@ class PackageRegistryApiNpm(AbstractPackageRegistryApi):
     def __repr__(self):
         return "<PackageRegistryApiNpm instance>"
 
-    def _make_request(self, path: str, timeout: int = 15) -> dict:
+    def _make_request(self, path: str, headers: dict = None, timeout: int = 15) -> dict:
         """
         Make request and handle retries and errors handling.
         """
-        r = requests.get(f"{NPM_REGISTRY}{path}", timeout=timeout)
+        r = requests.get(f"{NPM_REGISTRY}{path}",
+                         timeout=timeout, headers=headers)
         r.raise_for_status()
         return r.json()
 
@@ -71,11 +72,14 @@ class PackageRegistryApiNpm(AbstractPackageRegistryApi):
         """
         Fetch npm versions for a given package.
         """
-        response = self._make_request(f"/{package_name}")
+        response = self._make_request(f"/{package_name}", headers={
+            "Accept": "application/vnd.npm.install-v1+json; q=1.0, application/json; q=0.8, */*"
+        })
         # FIXME: raise custom exception if not found
         versions = response.get("versions", [])
 
         for version, details in versions.items():
+            # FIXME: Need to figure out WHEN package was uploaded
             yield PackageVersion(
                 version=version,
                 dependencies=details.get("dependencies", {}),
