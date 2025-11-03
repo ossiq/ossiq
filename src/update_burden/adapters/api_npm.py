@@ -72,16 +72,15 @@ class PackageRegistryApiNpm(AbstractPackageRegistryApi):
         """
         Fetch npm versions for a given package.
         """
-        response = self._make_request(f"/{package_name}", headers={
-            "Accept": "application/vnd.npm.install-v1+json; q=1.0, application/json; q=0.8, */*"
-        })
+        response = self._make_request(f"/{package_name}")
         # FIXME: raise custom exception if not found
         versions = response.get("versions", [])
+        timestamp_map = response.get("time", {})
 
         for version, details in versions.items():
-            # FIXME: Need to figure out WHEN package was uploaded
             yield PackageVersion(
                 version=version,
+                published_date_iso=timestamp_map.get(version, None),
                 dependencies=details.get("dependencies", {}),
                 license=details.get("license", None),
                 runtime_requirements=details.get("engines", None),

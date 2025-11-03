@@ -132,18 +132,3 @@ def package_changes(
             package_data=package_version,
             repository_data=repo_versions_map[package_version.version]
         )
-
-
-def versions_list(
-        uow: AbstractProjectUnitOfWork,
-        package_info: Package,
-        installed_version: str):
-    """
-    Aggregate changes between two versions of a package regardless of the registry.
-    """
-    versions = list(uow.packages_registry.package_versions(package_info.name))
-    latest_version = package_info.latest_version
-    import ipdb
-    ipdb.set_trace()
-
-    return []

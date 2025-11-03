@@ -62,6 +62,7 @@ class PackageVersion:
     dev_dependencies: Dict[str, str] | None = None
     runtime_requirements: Dict[str, str] | None = None
     description: str | None = None
+    published_date_iso: str | None = None
 
 
 @dataclass

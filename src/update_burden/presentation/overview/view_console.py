@@ -12,15 +12,39 @@ from update_burden.service.project import ProjectOverviewSummary
 console = Console()
 
 
+def format_time_delta(days: int | None) -> str:
+    """
+    Formats a number of days into a human-readable string (e.g., "2y", "1y", "8m", "3w", "5d").
+    """
+    if days is None:
+        return "N/A"
+
+    if days == 0:
+        return "[bold][green]LATEST"
+
+    if days >= 365:
+        years = round(days / 365)
+        return f"[bold][red]{years}y"
+    elif days >= 30:
+        months = round(days / 30)
+        return f"[bold][{"blue" if months < 3 else "yellow"}]{months}m"
+
+    elif days >= 7:
+        weeks = round(days / 7)
+        return f"{weeks}w"
+    else:
+        return f"{days}d"
+
+
 def display_view(project_overview: ProjectOverviewSummary):
     table = Table(title="Python Package Version Status",
                   title_style="bold cyan")
 
     table.add_column("Dependency", justify="left", style="bold cyan")
+    table.add_column("Prod?", justify="center")
+    table.add_column("Time Lag", justify="right")
     table.add_column("Installed", justify="center")
     table.add_column("Latest", justify="center")
-    table.add_column("Days Behind", justify="right")
-    table.add_column("Production?", justify="center")
 
     production_dependencies = sorted([
         pkg for pkg in project_overview.installed_packages_overview
@@ -35,10 +59,10 @@ def display_view(project_overview: ProjectOverviewSummary):
     for pkg in production_dependencies:
         table.add_row(
             pkg.package_name,
+            "Y",
+            format_time_delta(pkg.lag_days),
             pkg.installed_version,
             pkg.latest_version,
-            str(pkg.lag_days),
-            "✅ yes"
         )
 
     if dev_dependencies:
@@ -47,10 +71,10 @@ def display_view(project_overview: ProjectOverviewSummary):
     for pkg in dev_dependencies:
         table.add_row(
             pkg.package_name,
+            "N",
+            format_time_delta(pkg.lag_days),
             pkg.installed_version,
-            pkg.latest_version,
-            str(pkg.lag_days),
-            "❌ no"
+            pkg.latest_version
         )
 
     header_text = Text()
