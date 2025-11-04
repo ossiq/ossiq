@@ -1,6 +1,7 @@
 """
 Service to take care of a Package versions
 """
+import itertools
 
 from dataclasses import dataclass
 from datetime import datetime
@@ -101,41 +102,28 @@ def overview(uow: unit_of_work.AbstractProjectUnitOfWork) -> ProjectOverviewSumm
         project_info = uow.packages_registry.project_info(uow.project_path)
         packages: List[ProjectOverviewRecord] = []
 
-        # production dependencies
-        for package_name, package_version in project_info.dependencies.items():
+        # Combine production and dev dependencies for processing
+        dependencies = itertools.chain(
+            ((name, version, False)
+             for name, version in project_info.dependencies.items()),
+            ((name, version, True)
+             for name, version in project_info.dev_dependencies.items())
+        )
+
+        for package_name, package_version, is_dev_dependency in dependencies:
             package_info = uow.packages_registry.package_info(package_name)
             versions_lag = get_package_versions_lag(
                 uow,
                 project_info,
                 package_info
             )
-
             packages.append(
                 ProjectOverviewRecord(
                     package_name=package_name,
                     installed_version=normalize_version(package_version),
                     latest_version=package_info.latest_version,
                     lag_days=versions_lag,
-                    is_dev_dependency=False
-                )
-            )
-
-        # dev dependencies
-        for package_name, package_version in project_info.dev_dependencies.items():
-            package_info = uow.packages_registry.package_info(package_name)
-            versions_lag = get_package_versions_lag(
-                uow,
-                project_info,
-                package_info
-            )
-
-            packages.append(
-                ProjectOverviewRecord(
-                    package_name=package_name,
-                    installed_version=normalize_version(package_version),
-                    latest_version=package_info.latest_version,
-                    lag_days=versions_lag,
-                    is_dev_dependency=True
+                    is_dev_dependency=is_dev_dependency
                 )
             )
 

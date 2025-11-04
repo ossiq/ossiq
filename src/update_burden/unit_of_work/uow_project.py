@@ -2,7 +2,10 @@
 Package Unit Of Work pattern to isolate
 I/O for external sources
 """
-from update_burden.adapters.api import PackageRegistryApiFactory, SourceCodeProviderApiFactory
+from update_burden.adapters.api import (
+    get_package_registry,
+    get_source_code_provider
+)
 from update_burden.adapters.api_interfaces import AbstractSourceCodeProviderApi
 from update_burden.config import Settings
 from update_burden.domain.common import ProjectPackagesRegistryKind
@@ -30,7 +33,7 @@ class ProjectUnitOfWork(AbstractProjectUnitOfWork):
         """
         Initialize actual instances of respective clients (and other stuff when needed)
         """
-        self.packages_registry = PackageRegistryApiFactory.get_registry(
+        self.packages_registry = get_package_registry(
             self.packages_registry_type
         )
 
@@ -43,7 +46,7 @@ class ProjectUnitOfWork(AbstractProjectUnitOfWork):
         """
         Return source code provider (like Github) using factory and respective type
         """
-        return SourceCodeProviderApiFactory.get_provider(
+        return get_source_code_provider(
             repository_provider_type,
             self.settings
         )

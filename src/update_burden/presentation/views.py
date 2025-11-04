@@ -10,7 +10,7 @@ from update_burden.domain.common import (
 from update_burden.presentation.common import PRESENTATION_MAP
 
 
-def get_presentation_view(command: Command, presentation_type: PresentationType):
+def get_presentation_view(command: Command, presentation_type: PresentationType) -> callable:
     """
     Get presentation layer
     """

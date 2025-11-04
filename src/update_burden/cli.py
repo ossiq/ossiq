@@ -2,13 +2,16 @@
 
 from typing import Annotated
 import typer
-from time import sleep
 
 from rich.console import Console
 from rich.panel import Panel
 from rich.text import Text
 
 # from update_burden.domain.common import ProjectPackagesRegistryKind, RepositoryProviderType
+from update_burden.messages import (
+    HELP_LAG_THRESHOULD,
+    HELP_PRODUCTION_ONLY,
+)
 from update_burden.presentation.views import (
     Command,
     PresentationType,
@@ -17,7 +20,7 @@ from update_burden.presentation.views import (
 from update_burden.unit_of_work import uow_project
 
 from .config import Settings
-from update_burden import utils
+from update_burden import timeutil, utils
 
 # from .domain.exceptions import GithubRateLimitError
 from .domain.common import identify_project_registry_kind
@@ -86,10 +89,23 @@ def help():
 
 
 @app.command()
-def overview(project_path: str):
+def overview(
+        project_path: str,
+        lag_threshold_days: Annotated[
+            str, typer.Option(
+                "--lag-threshold-delta",
+                "-l",
+                help=HELP_LAG_THRESHOULD)] = '1y',
+        production_only: Annotated[
+            bool, typer.Option(
+                "--production-only",
+                help=HELP_PRODUCTION_ONLY)] = False):
     """
-    Project overview
+    Project overview command.
     """
+
+    threshold_parsed = timeutil.parse_relative_time_delta(lag_threshold_days)
+
     # TODO: create cheatsheet for respective commands
     packages_registry_type = identify_project_registry_kind(project_path)
     uow = uow_project.ProjectUnitOfWork(
@@ -106,7 +122,10 @@ def overview(project_path: str):
 
     presentation_view = get_presentation_view(
         Command.OVERVIEW, PresentationType.CONSOLE)
-    presentation_view(project_overview)
+    presentation_view(project_overview, threshold_parsed.days)
+
+    # TODO: list project_overview and check against theshold_parsed.days
+    # if anything exceeded theshold, then exit with non-zero
 
     # aggregate_package_changes(
     #     context["settings"],
