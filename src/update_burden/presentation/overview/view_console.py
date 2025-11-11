@@ -2,12 +2,13 @@
 View for overview command/Console output type
 """
 
+from typing import List
 from rich.console import Console
 from rich.table import Table
 from rich.panel import Panel
 from rich.text import Text
 
-from update_burden.service.project import ProjectOverviewSummary
+from update_burden.service.project import ProjectOverviewRecord, ProjectOverviewSummary
 
 console = Console()
 
@@ -40,18 +41,36 @@ def _format_time_delta(days: int | None, lag_threshold_days: int) -> str:
     return f"[bold red]{formatted_string}" if days >= lag_threshold_days else formatted_string
 
 
+def table_factory(title: str,
+                  title_style: str,
+                  dependencies: List[ProjectOverviewRecord],
+                  lag_threshold_days: int) -> Table:
+    """
+    Product records for the table
+    """
+    table = Table(title=title, title_style=title_style)
+    table.add_column("Dependency", justify="left", style="bold cyan")
+    table.add_column("Time Lag", justify="right")
+    table.add_column("Installed", justify="center")
+    table.add_column("Latest", justify="center")
+
+    for pkg in dependencies:
+        table.add_row(
+            pkg.package_name,
+            _format_time_delta(pkg.lag_days, lag_threshold_days),
+            pkg.installed_version,
+            pkg.latest_version,
+        )
+
+    return table
+
+
 def display_view(project_overview: ProjectOverviewSummary, lag_threshold_days: int):
     """
     Representation of the project overview for Console.
     """
-    table = Table(title="Python Package Version Status",
-                  title_style="bold cyan")
 
-    table.add_column("Dependency", justify="left", style="bold cyan")
-    table.add_column("Prod?", justify="center")
-    table.add_column("Time Lag", justify="right")
-    table.add_column("Installed", justify="center")
-    table.add_column("Latest", justify="center")
+    table_dev = None
 
     def sort_function(pkg):
         return (pkg.lag_days, pkg.package_name,)
@@ -61,30 +80,24 @@ def display_view(project_overview: ProjectOverviewSummary, lag_threshold_days: i
         if not pkg.is_dev_dependency
     ], key=sort_function, reverse=True)
 
+    table_prod = table_factory(
+        "Production Packages Version Status",
+        "bold green",
+        production_dependencies,
+        lag_threshold_days
+    )
+
     dev_dependencies = sorted([
         pkg for pkg in project_overview.installed_packages_overview
         if pkg.is_dev_dependency
     ], key=sort_function, reverse=True)
 
-    for pkg in production_dependencies:
-        table.add_row(
-            pkg.package_name,
-            "Y",
-            _format_time_delta(pkg.lag_days, lag_threshold_days),
-            pkg.installed_version,
-            pkg.latest_version,
-        )
-
     if dev_dependencies:
-        table.add_section()
-
-    for pkg in dev_dependencies:
-        table.add_row(
-            pkg.package_name,
-            "N",
-            _format_time_delta(pkg.lag_days, lag_threshold_days),
-            pkg.installed_version,
-            pkg.latest_version
+        table_dev = table_factory(
+            "Development Packages Version Status",
+            "bold cyan",
+            dev_dependencies,
+            lag_threshold_days
         )
 
     header_text = Text()
@@ -99,4 +112,7 @@ def display_view(project_overview: ProjectOverviewSummary, lag_threshold_days: i
     console.print("\n")
     console.print(Panel(header_text, expand=False, border_style="cyan"))
     console.print("\n")
-    console.print(table)
+    console.print(table_prod)
+    if table_dev:
+        console.print("\n")
+        console.print(table_dev)

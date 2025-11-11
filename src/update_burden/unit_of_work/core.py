@@ -24,6 +24,7 @@ class AbstractProjectUnitOfWork(abc.ABC):
     project_path: str
     packages_registry_type: ProjectPackagesRegistryKind
     packages_registry: AbstractPackageRegistryApi
+    production: bool
 
     @abc.abstractmethod
     def get_source_code_provider(
@@ -42,11 +43,3 @@ class AbstractProjectUnitOfWork(abc.ABC):
 
     def __exit__(self, *args):
         raise NotImplementedError("Exit not implemented")
-
-    # @abc.abstractmethod
-    # def commit(self):
-    #     raise NotImplementedError
-
-    # @abc.abstractmethod
-    # def rollback(self):
-    #     raise NotImplementedError

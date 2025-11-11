@@ -21,13 +21,17 @@ class ProjectUnitOfWork(AbstractProjectUnitOfWork):
     def __init__(self,
                  settings: Settings,
                  project_path: str,
-                 packages_registry_type: ProjectPackagesRegistryKind):
+                 packages_registry_type: ProjectPackagesRegistryKind,
+                 production: bool = False):
         """
         Takes a single package details pulled from 
         """
+        super().__init__()
+
         self.project_path = project_path
         self.settings = settings
         self.packages_registry_type = packages_registry_type
+        self.production = production
 
     def __enter__(self):
         """

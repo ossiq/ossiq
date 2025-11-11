@@ -60,11 +60,6 @@ class Package:
     def versions(self, versions: List[Version]):
         self._versions = versions
 
-    # if self.registry == REGISTRY_PYPI:
-    #     return f"https://pypi.org/project/{self.name}/{self.version}"
-
-        raise ValueError("Invalid registry")
-
     @property
     def repository(self):
         return self._repository

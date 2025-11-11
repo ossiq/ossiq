@@ -13,7 +13,6 @@ from update_burden.domain.project import Project
 from update_burden.domain.version import compare_versions, normalize_version
 from update_burden.service.common import package_versions
 from update_burden.unit_of_work import core as unit_of_work
-# from update_burden.domain.common import RepositoryProviderType
 
 console = Console()
 
@@ -111,6 +110,9 @@ def overview(uow: unit_of_work.AbstractProjectUnitOfWork) -> ProjectOverviewSumm
         )
 
         for package_name, package_version, is_dev_dependency in dependencies:
+            if uow.production and is_dev_dependency:
+                continue
+
             package_info = uow.packages_registry.package_info(package_name)
             versions_lag = get_package_versions_lag(
                 uow,

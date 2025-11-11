@@ -4,28 +4,16 @@ from typing import Annotated
 import typer
 
 from rich.console import Console
-from rich.panel import Panel
-from rich.text import Text
 
-# from update_burden.domain.common import ProjectPackagesRegistryKind, RepositoryProviderType
+from update_burden.commands.overview import commnad_overview
 from update_burden.messages import (
     HELP_LAG_THRESHOULD,
     HELP_PRODUCTION_ONLY,
 )
-from update_burden.presentation.views import (
-    Command,
-    PresentationType,
-    get_presentation_view
-)
-from update_burden.unit_of_work import uow_project
+from update_burden.presentation.system import show_settings
 
 from .config import Settings
-from update_burden import timeutil, utils
-
-# from .domain.exceptions import GithubRateLimitError
-from .domain.common import identify_project_registry_kind
-# from .registry.changes import aggregate_package_changes
-from update_burden.service import project
+from update_burden import utils
 
 
 app = typer.Typer()
@@ -74,12 +62,7 @@ def main(
     context["settings"] = env_settings.model_copy(update=cli_overrides)
 
     if verbose:
-        header_text = Text()
-        for setting, value in context["settings"].model_dump().items():
-            header_text.append(f"{setting}: ", style="bold white")
-            header_text.append(f"{value}\n", style="green")
-        console.print("\n[bold cyan]  Settings")
-        console.print(Panel(header_text, expand=False, border_style="cyan"))
+        show_settings(context, "Settings", context["settings"].model_dump())
 
 
 @app.command()
@@ -95,68 +78,20 @@ def overview(
             str, typer.Option(
                 "--lag-threshold-delta",
                 "-l",
-                help=HELP_LAG_THRESHOULD)] = '1y',
-        production_only: Annotated[
+                help=HELP_LAG_THRESHOULD)] = "1y",
+        production: Annotated[
             bool, typer.Option(
-                "--production-only",
+                "--production",
                 help=HELP_PRODUCTION_ONLY)] = False):
     """
     Project overview command.
     """
-
-    threshold_parsed = timeutil.parse_relative_time_delta(lag_threshold_days)
-
-    # TODO: create cheatsheet for respective commands
-    packages_registry_type = identify_project_registry_kind(project_path)
-    uow = uow_project.ProjectUnitOfWork(
-        settings=context["settings"],
-        project_path=project_path,
-        packages_registry_type=packages_registry_type
+    commnad_overview(
+        context,
+        project_path,
+        lag_threshold_days,
+        production
     )
-
-    if context["settings"].verbose is False:
-        with console.status("[bold cyan]Collecting project packages data..."):
-            project_overview = project.overview(uow)
-    else:
-        project_overview = project.overview(uow)
-
-    presentation_view = get_presentation_view(
-        Command.OVERVIEW, PresentationType.CONSOLE)
-    presentation_view(project_overview, threshold_parsed.days)
-
-    # TODO: list project_overview and check against theshold_parsed.days
-    # if anything exceeded theshold, then exit with non-zero
-
-    # aggregate_package_changes(
-    #     context["settings"],
-    #     registry_type,
-    #     project_file_path,
-    #     package_name
-    # )
-    # except GithubRateLimitError as e:
-    #     console.print(f"[red bold]\\[-] {e}[/red bold]")
-    #     console.print(
-    #         "[bold yellow]NOTE[/bold yellow] You can increase the limit "
-    #         "by passing a Github API token via the `GITHUB_TOKEN` environment variable "
-    #         "or the `--github-token` option.")
-
-    # print(colored(
-    #     f"Installed: {installed_version}  Latest: {latest_version}", "blue", attrs=["bold"]))
-    # print(colored(f"Repository: https://github.com/{owner}/{repo}", "magenta"))
-    # print()
-
-
-@app.command()
-def analyze(base_version: str, target_version: str):
-    """
-Analyzes the API differences between two versions of a repository.
-"""
-    console.print(
-        f"Analyzing differences between {base_version} and {target_version}")
-    console.print(f"Base version: {base_version}")
-    console.print(f"Target version: {target_version}")
-
-    utils.run_analysis(base_version, target_version)
 
 
 if __name__ == "__main__":

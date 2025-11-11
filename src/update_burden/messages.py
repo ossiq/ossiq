@@ -14,3 +14,7 @@ Exit with non-zero status code if lag exceeds this threshold.
 HELP_PRODUCTION_ONLY = """
 Exclude development packages if specified. Default: false
 """
+
+ERROR_EXIT_OUTDATED_PACKAGES = """There are libraries with outdated versions:
+exiting with non-zero exit code
+""".replace("\n", " ")
