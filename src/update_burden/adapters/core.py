@@ -1,5 +1,5 @@
 import abc
-from ..config import Settings
+from ..settings import Settings
 
 # from allocation.domain import model
 

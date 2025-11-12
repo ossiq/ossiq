@@ -7,12 +7,12 @@ import typer
 from rich.console import Console
 
 from update_burden.domain.common import identify_project_registry_kind
-from update_burden.presentation.system import show_error, show_settings
+from update_burden.presentation.system import show_error, show_operation_progress, show_settings
 from update_burden.presentation.views import (
     Command,
-    PresentationType,
     get_presentation_view
 )
+from update_burden.settings import Settings
 from update_burden.unit_of_work import uow_project
 from update_burden import timeutil
 from update_burden.service import project
@@ -29,7 +29,7 @@ def commnad_overview(
     """
     Project overview command.
     """
-
+    settings: Settings = ctx["settings"]
     threshold_parsed = timeutil.parse_relative_time_delta(lag_threshold_days)
 
     show_settings(ctx, "Overview Settings", {
@@ -46,16 +46,23 @@ def commnad_overview(
         production=production
     )
 
-    if ctx["settings"].verbose is False:
-        with console.status("[bold cyan]Collecting project packages data..."):
+    with show_operation_progress(settings, "Collecting project packages data...") as progress:
+        with progress():
             project_overview = project.overview(uow)
-    else:
-        project_overview = project.overview(uow)
 
+    # Render output
     presentation_view = get_presentation_view(
-        Command.OVERVIEW, PresentationType.CONSOLE)
-    presentation_view(project_overview, threshold_parsed.days)
+        Command.OVERVIEW,
+        ctx["settings"].presentation
+    )
 
+    presentation_view(
+        project_overview,
+        threshold_parsed.days,
+        settings.output_destination)
+
+    # Check for outdated packages and exit with non-zero exit code if there
+    # are any over specified threshold.
     for pkg in project_overview.installed_packages_overview:
         if pkg.lag_days > threshold_parsed.days:
             if ctx["settings"].verbose is True:

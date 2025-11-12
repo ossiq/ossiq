@@ -25,6 +25,7 @@ class PresentationType(Enum):
     potentailly could be HTML and JSON/YAML.
     """
     CONSOLE = "console"
+    HTML = "html"
 
 
 class Command(Enum):

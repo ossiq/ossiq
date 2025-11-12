@@ -1,0 +1,255 @@
+<!doctype html>
+
+<html lang="en"> <!--  class="dark" Remove "dark" to default to light mode -->
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <!-- Google Font: Raleway -->
+    <link href="https://fonts.googleapis.com/css2?family=Raleway:wght@300;400;600&display=swap" rel="stylesheet">
+
+    <!-- Google Material Symbols -->
+    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded" rel="stylesheet" />
+
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <style>
+        body {
+            font-family: 'Raleway', sans-serif;
+        }
+    </style>
+</head>
+
+<body class="bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100">
+    <!-- HEADER -->
+    <header class="w-full bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
+        <div class="max-w-6xl mx-auto flex items-center justify-between py-4 px-6">
+
+            <!-- Logo -->
+            <div class="flex items-center space-x-2">
+                <span class="text-xl font-normal tracking-wide">OSS IQ</span>
+                <span class="text-xs pl-5">External Dependencies Intelligence Swissknife</span>
+
+            </div>
+
+            <!-- GitHub Link -->
+            <a href="https://github.com/" class="flex items-center space-x-1 text-gray-700 dark:text-gray-300 
+                hover:text-black dark:hover:text-white transition font-medium">
+                <span class="material-symbols-rounded text-xl">code</span>
+                <span>GitHub</span>
+            </a>
+
+        </div>
+    </header>
+
+    <main class="max-w-6xl mx-auto p-6 space-y-10">
+        <h1 class="text-2xl font-medium">
+            Project Update-Lag Report for the project
+            <span class="font-semibold">&ldquo;{{ project_overview.project_name }}&rdquo;</span>
+        </h1>
+        <div class="flex">
+            <p class="text-sm text-slate-500 mt-1 w-3/4">
+                <strong>Dependencies Lag</strong> measures how many major, minor, or patch releases your project is
+                behind the latest version of each open-source package it uses.
+                It's a simple way to see how “old” your dependencies are so you can quickly
+                spot what needs updating first.
+            </p>
+        </div>
+
+
+        <section>
+            <div
+                class="overflow-hidden rounded-xl bg-white dark:bg-gray-800 shadow-sm border border-gray-200 dark:border-gray-700">
+                <table class="min-w-full text-left border-collapse">
+                    <thead class="bg-gray-100 dark:bg-gray-700/50 text-gray-700 dark:text-gray-200">
+                        <tr>
+                            <th class="px-6 py-3 font-semibold">Dependency</th>
+                            <th class="px-6 py-3 font-semibold">Current</th>
+                            <th class="px-6 py-3 font-semibold">Latest</th>
+                            <th class="px-6 py-3 font-semibold">Lag Versions</th>
+                            <th class="px-6 py-3 font-semibold">Lag Time</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+
+                        {% for dep in production_dependencies %}
+                        <!-- Row -->
+                        <tr
+                            class="border-t border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/30 transition">
+                            <td class="px-6 py-3">{{ dep.package_name }}</td>
+                            <td class="px-6 py-3 text-gray-800 dark:text-gray-200">{{ dep.installed_version }}</td>
+                            <td class="px-6 py-3">{{ dep.latest_version }}</td>
+                            <td class="px-6 py-3">
+                                <span
+                                    class="px-3 py-1 rounded-full bg-amber-100 dark:bg-amber-700/50 text-amber-700 dark:text-amber-200 text-sm font-medium">
+                                    1 minor
+                                </span>
+                            </td>
+                            <td class="px-6 py-3">
+                                {{ format_time_delta(dep.lag_days, lag_threshold_days) | safe }}
+                            </td>
+                        </tr>
+                        {% else %}
+                        <tr>
+                            <td colspan="6" class="py-4 text-center text-slate-400">No dependencies found.</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+                {#
+                <span
+                    class="px-3 py-1 rounded-full bg-red-100 dark:bg-red-700/50 text-red-700 dark:text-red-200 text-sm font-medium">
+                    1 major
+                </span>
+                <span
+                    class="px-3 py-1 rounded-full bg-emerald-100 dark:bg-emerald-700/50 text-emerald-700 dark:text-emerald-200 text-sm font-medium">
+                    up to date
+                </span>
+                #}
+            </div>
+        </section>
+    </main>
+    <div class="max-w-5xl mx-auto p-6 hidden">
+        <!-- Summary metrics -->
+        <section class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+            <div class="bg-white p-4 rounded-lg shadow">
+                <div class="text-xs text-slate-500">Total dependencies</div>
+                <div class="text-2xl font-bold mt-1">[TOTAL]</div>
+            </div>
+            <div class="bg-white p-4 rounded-lg shadow">
+                <div class="text-xs text-slate-500">Behind latest</div>
+                <div class="text-2xl font-bold mt-1">[BEHIND TOTAL]</div>
+                <div class="text-sm text-slate-500">
+                    [BEHIND_MAJOR] Major • [BEHIND_MINOR] Minor • [BEHIND_PATCH] Patch
+                </div>
+            </div>
+            <div class="bg-white p-4 rounded-lg shadow">
+                <div class="text-xs text-slate-500">Average lag</div>
+                <div class="text-2xl font-bold mt-1">[AVERAGE LAG] major</div>
+            </div>
+            <!-- Risk indicator widget -->
+            <div class="bg-white p-4 rounded-lg shadow flex flex-col items-center justify-center relative group"
+                title="Hover for breakdown">
+                <svg class="w-16 h-16 transform -rotate-90" viewBox="0 0 36 36">
+                    <path class="text-slate-200" stroke="currentColor" stroke-width="3.8" fill="none"
+                        d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" />
+                    <path class="#ff0000" stroke="currentColor" stroke-width="3.8" stroke-dasharray="80, 100"
+                        fill="none" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" />
+                </svg>
+                <div class="absolute text-lg font-semibold">[RISK PERCENT]%</div>
+                <div class="text-xs text-slate-500 mt-2">Outdated</div>
+                <div
+                    class="hidden absolute top-full mt-2 bg-white border rounded-lg shadow p-2 text-xs text-slate-600 group-hover:block">
+                    <p><span class="text-rose-600 font-medium">Major:</span> [RISK_MAJOR]</p>
+                    <p><span class="text-amber-600 font-medium">Minor:</span> [RISK_MINOR]</p>
+                    <p><span class="text-sky-600 font-medium">Patch:</span> [RISK_PATCH]</p>
+                </div>
+            </div>
+        </section>
+
+        <!-- Controls -->
+        <section class="flex flex-wrap gap-3 items-center mb-6">
+            <input id="search" type="search" placeholder="Search package..."
+                class="px-3 py-2 rounded-lg border bg-white" />
+            <select id="ecosystem" class="px-3 py-2 rounded-lg border bg-white">
+                <option>All</option>
+                <option value="[ECO]">[ECOSYSTEMS]</option>
+            </select>
+            <select id="sort" class="px-3 py-2 rounded-lg border bg-white">
+                <option>Severity</option>
+                <option>Alphabetical</option>
+            </select>
+        </section>
+
+        <!-- Table -->
+        <section class="bg-white p-4 rounded-lg shadow overflow-x-auto">
+            <table class="w-full table-auto text-sm">
+                <thead class="text-slate-600 text-xs border-b">
+                    <tr>
+                        <th class="py-2 text-left">Package</th>
+                        <th class="py-2 text-left">Current</th>
+                        <th class="py-2 text-left">Latest</th>
+                        <th class="py-2 text-left">Lag (M.m.p)</th>
+                        <th class="py-2 text-left">Severity</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y">
+                    {% for dep in production_dependencies %}
+                    <tr class="{{ dep.row_class or '' }}" data-status="{{ dep.status or '' }}">
+                        <td class="py-2 font-medium">{{ dep.package_name }}</td>
+                        <td class="py-2">{{ dep.installed_version }}</td>
+                        <td class="py-2">{{ dep.latest_version }}</td>
+                        <td class="py-2 {{ dep.severity_color }}">[MAJOR] . [MINOR] . [PATCH]</td>
+                        <td class="py-2">
+                            <span
+                                class="px-2 py-1 rounded {{ dep.badge_bg }} {{ dep.badge_text }} text-xs">[SEVERITY]</span>
+                        </td>
+                    </tr>
+                    {% else %}
+                    <tr>
+                        <td colspan="6" class="py-4 text-center text-slate-400">No dependencies found.</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </section>
+
+        <!-- Suggested actions -->
+        <section class="mt-6 bg-white p-4 rounded-lg shadow">
+            <h2 class="text-sm font-semibold mb-2">Suggested next steps</h2>
+            <ul class="list-disc pl-5 text-sm text-slate-600 space-y-1">
+
+                <li>[NEXT STEPS]</li>
+
+            </ul>
+        </section>
+    </div>
+
+    <script>
+        document.getElementById('search').addEventListener('input', e => {
+            const term = e.target.value.toLowerCase();
+            document.querySelectorAll('tbody tr').forEach(r => {
+                const text = r.innerText.toLowerCase();
+                r.style.display = text.includes(term) ? '' : 'none';
+            });
+        });
+
+        // Dropdown handling for acknowledge actions
+        document.querySelectorAll('.acknowledge-btn').forEach(btn => {
+            btn.addEventListener('click', e => {
+                const menu = btn.nextElementSibling;
+                document.querySelectorAll('tbody tr div.absolute').forEach(m => {
+                    if (m !== menu) m.classList.add('hidden');
+                });
+                menu.classList.toggle('hidden');
+            });
+        });
+
+        document.addEventListener('click', e => {
+            if (!e.target.closest('.acknowledge-btn')) {
+                document.querySelectorAll('tbody tr div.absolute').forEach(m => m.classList.add('hidden'));
+            }
+        });
+
+        // Visual persistence for actions
+        document.querySelectorAll('.action-btn').forEach(action => {
+            action.addEventListener('click', e => {
+                const row = e.target.closest('tr');
+                const menu = e.target.closest('div');
+                menu.classList.add('hidden');
+                const type = e.target.dataset.action;
+
+                if (type.startsWith('silent')) {
+                    row.classList.add('opacity-60');
+                    row.dataset.status = type;
+                } else if (type === 'deprioritize') {
+                    row.classList.add('bg-slate-100');
+                    row.dataset.status = 'deprioritized';
+                }
+            });
+        });
+    </script>
+</body>
+
+</html>

@@ -1,13 +1,35 @@
 """
 """
+from contextlib import contextmanager
 from typing import Callable
 
 from rich.console import Console
 from rich.panel import Panel
 from rich.text import Text
 
+from update_burden.settings import Settings
+
 console = Console()
 error_console = Console(stderr=True)
+
+
+@contextmanager
+def show_operation_progress(settings: Settings, message: str):
+    """
+    Show progress till function is executed if
+    verbose is disabled.    
+    """
+    @contextmanager
+    def noop():
+        yield lambda: None
+
+    try:
+        if settings.verbose is False:
+            yield lambda: console.status(f"[bold cyan]{message}")
+        else:
+            yield noop
+    finally:
+        pass
 
 
 def show_progress(ctx, message: str, fn: Callable):

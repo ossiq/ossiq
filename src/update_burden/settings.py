@@ -26,6 +26,16 @@ class Settings(BaseModel):
         description="Optional Github Token to authorize calls to the Github API and overcome limits"
     )
 
+    presentation: str = Field(
+        default="console",
+        description="How to present results, options: console, html"
+    )
+
+    output_destination: str = Field(
+        default=".",
+        description="Where to store output, dependson. Relevance depends on the presentation"
+    )
+
     verbose: bool = Field(
         default=False,
         description="Enable verbose output"

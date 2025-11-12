@@ -65,7 +65,9 @@ def table_factory(title: str,
     return table
 
 
-def display_view(project_overview: ProjectOverviewSummary, lag_threshold_days: int):
+def display_view(project_overview: ProjectOverviewSummary,
+                 lag_threshold_days: int,
+                 **kwargs):
     """
     Representation of the project overview for Console.
     """

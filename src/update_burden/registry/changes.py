@@ -6,7 +6,7 @@ import pprint
 
 from typing import List
 
-from ..config import Settings
+from ..settings import Settings
 from ..domain.common import REGISTRY_NPM, REPOSITORY_PROVIDER_GITHUB
 from ..domain.package import Package
 from ..domain.project import Project

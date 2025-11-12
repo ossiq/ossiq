@@ -7,9 +7,9 @@ from update_burden.adapters.api import (
     get_source_code_provider
 )
 from update_burden.adapters.api_interfaces import AbstractSourceCodeProviderApi
-from update_burden.config import Settings
+from update_burden.settings import Settings
 from update_burden.domain.common import ProjectPackagesRegistryKind
-from .core import AbstractProjectUnitOfWork
+from update_burden.unit_of_work.core import AbstractProjectUnitOfWork
 
 
 class ProjectUnitOfWork(AbstractProjectUnitOfWork):

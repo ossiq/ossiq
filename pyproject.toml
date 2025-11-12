@@ -21,6 +21,7 @@ dependencies = [
   "termcolor",
   "requests",
   "semver",
+  "jinja2",
   "tree-sitter",
   "tree-sitter-javascript",
   "tree-sitter-typescript",

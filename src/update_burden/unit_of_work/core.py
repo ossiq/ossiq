@@ -12,7 +12,7 @@ from update_burden.domain.common import (
     RepositoryProviderType,
     ProjectPackagesRegistryKind
 )
-from update_burden.config import Settings
+from update_burden.settings import Settings
 
 
 class AbstractProjectUnitOfWork(abc.ABC):

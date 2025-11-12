@@ -2,7 +2,7 @@
 Factory to instantiate API clients
 """
 from update_burden.adapters.api_npm import PackageRegistryApiNpm
-from ..config import Settings
+from update_burden.settings import Settings
 from update_burden.domain.common import ProjectPackagesRegistryKind, RepositoryProviderType
 from .api_github import SourceCodeProviderApiGithub
 from .api_interfaces import AbstractSourceCodeProviderApi
