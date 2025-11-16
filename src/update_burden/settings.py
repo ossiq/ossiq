@@ -31,6 +31,9 @@ class Settings(BaseModel):
         description="How to present results, options: console, html"
     )
 
+    # FIXME: instead of specifying folder we could specify either folder or file
+    # so that it could be interpret intelligently downstream and make interface
+    # a bit more intuitive.
     output_destination: str = Field(
         default=".",
         description="Where to store output, dependson. Relevance depends on the presentation"

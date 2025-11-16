@@ -15,13 +15,18 @@
     <script src="https://cdn.tailwindcss.com"></script>
 
     <style>
-        body {
+        h1,
+        h2,
+        h3,
+        h4,
+        h5,
+        header {
             font-family: 'Raleway', sans-serif;
         }
     </style>
 </head>
 
-<body class="bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100">
+<body class="bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100 min-h-screen flex flex-col">
     <!-- HEADER -->
     <header class="w-full bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
         <div class="max-w-6xl mx-auto flex items-center justify-between py-4 px-6">
@@ -30,7 +35,6 @@
             <div class="flex items-center space-x-2">
                 <span class="text-xl font-normal tracking-wide">OSS IQ</span>
                 <span class="text-xs pl-5">External Dependencies Intelligence Swissknife</span>
-
             </div>
 
             <!-- GitHub Link -->
@@ -43,7 +47,7 @@
         </div>
     </header>
 
-    <main class="max-w-6xl mx-auto p-6 space-y-10">
+    <main class="flex-grow max-w-6xl mx-auto p-6 space-y-6">
         <h1 class="text-2xl font-medium">
             Project Update-Lag Report for the project
             <span class="font-semibold">&ldquo;{{ project_overview.project_name }}&rdquo;</span>
@@ -65,10 +69,11 @@
                     <thead class="bg-gray-100 dark:bg-gray-700/50 text-gray-700 dark:text-gray-200">
                         <tr>
                             <th class="px-6 py-3 font-semibold">Dependency</th>
+                            <th class="px-6 py-3 font-semibold">Lag Status</th>
                             <th class="px-6 py-3 font-semibold">Current</th>
                             <th class="px-6 py-3 font-semibold">Latest</th>
-                            <th class="px-6 py-3 font-semibold">Lag Versions</th>
-                            <th class="px-6 py-3 font-semibold">Lag Time</th>
+                            <th class="px-6 py-3 font-semibold">Releases Lag</th>
+                            <th class="px-6 py-3 font-semibold">Time Lag</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -77,17 +82,16 @@
                         <!-- Row -->
                         <tr
                             class="border-t border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/30 transition">
-                            <td class="px-6 py-3">{{ dep.package_name }}</td>
+                            <td class="px-6 py-3"><a href="https://npmjs.com/package/{{ dep.package_name }}"
+                                    target="_blank" class="text-blue-600 dark:text-blue-400 hover:underline"">{{ dep.package_name }}</a></td>
+                            <td class=" px-6 py-3">
+                                    {% versions_difference dep.installed_version dep.latest_version %}
+                            </td>
                             <td class="px-6 py-3 text-gray-800 dark:text-gray-200">{{ dep.installed_version }}</td>
                             <td class="px-6 py-3">{{ dep.latest_version }}</td>
+                            <td class="px-6 py-3">-</td>
                             <td class="px-6 py-3">
-                                <span
-                                    class="px-3 py-1 rounded-full bg-amber-100 dark:bg-amber-700/50 text-amber-700 dark:text-amber-200 text-sm font-medium">
-                                    1 minor
-                                </span>
-                            </td>
-                            <td class="px-6 py-3">
-                                {{ format_time_delta(dep.lag_days, lag_threshold_days) | safe }}
+                                {{ dep.lag_days | format_highlight_days(lag_threshold_days) }}
                             </td>
                         </tr>
                         {% else %}
@@ -97,159 +101,142 @@
                         {% endfor %}
                     </tbody>
                 </table>
-                {#
-                <span
-                    class="px-3 py-1 rounded-full bg-red-100 dark:bg-red-700/50 text-red-700 dark:text-red-200 text-sm font-medium">
-                    1 major
-                </span>
-                <span
-                    class="px-3 py-1 rounded-full bg-emerald-100 dark:bg-emerald-700/50 text-emerald-700 dark:text-emerald-200 text-sm font-medium">
-                    up to date
-                </span>
-                #}
             </div>
+        </section>
+
+        <!-- LEGEND -->
+        <section class="max-w-6xl mx-auto mb-6">
+            <div class="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-sm p-4">
+                <h2 class="text-sm font-semibold tracking-wide uppercase text-gray-600 dark:text-gray-300 mb-3">
+                    Legend
+                </h2>
+
+                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+                    <!-- Major Lag -->
+                    <div class="flex items-start space-x-3">
+                        <span class="block w-3 h-3 mt-1 rounded-full bg-red-500"></span>
+                        <div>
+                            <div class="text-sm font-semibold text-gray-900 dark:text-gray-100">
+                                Lag Status: <strong>MAJOR</strong>
+                            </div>
+                            <p class="text-xs text-gray-600 dark:text-gray-400 leading-relaxed">
+                                Your dependency is one or more **major versions** behind, indicating breaking changes
+                                and potentially significant refactoring needs.
+                            </p>
+                        </div>
+                    </div>
+
+                    <!-- Minor Lag -->
+                    <div class="flex items-start space-x-3">
+                        <span class="block w-3 h-3 mt-1 rounded-full bg-amber-500"></span>
+                        <div>
+                            <div class="text-sm font-semibold text-gray-900 dark:text-gray-100">
+                                Lag Status: <strong>MINOR</strong>
+                            </div>
+                            <p class="text-xs text-gray-600 dark:text-gray-400 leading-relaxed">
+                                New non-breaking features are available; updating is recommended but usually low-risk.
+                            </p>
+                        </div>
+                    </div>
+
+                    <!-- Patch Lag -->
+                    <div class="flex items-start space-x-3">
+                        <span class="block w-3 h-3 mt-1 rounded-full bg-blue-500"></span>
+                        <div>
+                            <div class="text-sm font-semibold text-gray-900 dark:text-gray-100">
+                                Lag Status: <strong>PATCH</strong>
+                            </div>
+                            <p class="text-xs text-gray-600 dark:text-gray-400 leading-relaxed">
+                                Only bugfixes or security patches are missing; these updates are typically
+                                straightforward.
+                            </p>
+                        </div>
+                    </div>
+
+                    <!-- Latest -->
+                    <div class="flex items-start space-x-3">
+                        <span class="block w-3 h-3 mt-1 rounded-full bg-emerald-500"></span>
+                        <div>
+                            <div class="text-sm font-semibold text-gray-900 dark:text-gray-100">
+                                Lag Status: <strong>LATEST</strong>
+                            </div>
+                            <p class="text-xs text-gray-600 dark:text-gray-400 leading-relaxed">
+                                No newer versions are available; the dependency requires no immediate action.
+                            </p>
+                        </div>
+                    </div>
+
+                    <!-- Acknowledged -->
+                    <div class="flex items-start space-x-3">
+                        <span class="material-symbols-rounded text-lg mt-[-4px] text-gray-500 dark:text-gray-300">
+                            stacks
+                        </span>
+                        <div>
+                            <div class="text-sm font-semibold text-gray-900 dark:text-gray-100">
+                                Releases Lag
+                            </div>
+                            <p class="text-xs text-gray-600 dark:text-gray-400 leading-relaxed">
+                                How many releases behind package installed version,
+                                e.g., <code>1.0.0</code> to <code>1.0.1</code> is <span
+                                    class="dark:text-blue-500 text-blue-500">1
+                                    patch release</span>,
+                                <code>1.0.0</code> to <code>1.1.0</code> is <span class="text-amber-500">1 minor
+                                    release</span>,
+                                <code>1.0.0</code> to <code>2.0.0</code> is <span class="text-red-500">1 major
+                                    release</span>.
+                            </p>
+                        </div>
+                    </div>
+
+                    <!-- Tooltip Metadata -->
+                    <div class="flex items-start space-x-3">
+                        <span class="material-symbols-rounded text-lg mt-[-4px] text-gray-500 dark:text-gray-300">
+                            change_history
+                        </span>
+                        <div>
+                            <div class="text-sm font-semibold text-gray-900 dark:text-gray-100">
+                                Time Lag
+                            </div>
+                            <p class="text-xs text-gray-600 dark:text-gray-400 leading-relaxed">
+                                How much time past by between installed version and latest release.
+                                The color of the number of days indicates the following:
+                                <span class="text-emerald-500">Green</span>: less than {{ lag_threshold_days }} days,
+                                <span class="text-amber-500">Orange</span>: more than {{ lag_threshold_days }} days,
+                                <span class="text-red-500">Red</span>: more than {{ lag_threshold_days * 2 }} days.
+                            </p>
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+
         </section>
     </main>
-    <div class="max-w-5xl mx-auto p-6 hidden">
-        <!-- Summary metrics -->
-        <section class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
-            <div class="bg-white p-4 rounded-lg shadow">
-                <div class="text-xs text-slate-500">Total dependencies</div>
-                <div class="text-2xl font-bold mt-1">[TOTAL]</div>
-            </div>
-            <div class="bg-white p-4 rounded-lg shadow">
-                <div class="text-xs text-slate-500">Behind latest</div>
-                <div class="text-2xl font-bold mt-1">[BEHIND TOTAL]</div>
-                <div class="text-sm text-slate-500">
-                    [BEHIND_MAJOR] Major • [BEHIND_MINOR] Minor • [BEHIND_PATCH] Patch
-                </div>
-            </div>
-            <div class="bg-white p-4 rounded-lg shadow">
-                <div class="text-xs text-slate-500">Average lag</div>
-                <div class="text-2xl font-bold mt-1">[AVERAGE LAG] major</div>
-            </div>
-            <!-- Risk indicator widget -->
-            <div class="bg-white p-4 rounded-lg shadow flex flex-col items-center justify-center relative group"
-                title="Hover for breakdown">
-                <svg class="w-16 h-16 transform -rotate-90" viewBox="0 0 36 36">
-                    <path class="text-slate-200" stroke="currentColor" stroke-width="3.8" fill="none"
-                        d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" />
-                    <path class="#ff0000" stroke="currentColor" stroke-width="3.8" stroke-dasharray="80, 100"
-                        fill="none" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" />
-                </svg>
-                <div class="absolute text-lg font-semibold">[RISK PERCENT]%</div>
-                <div class="text-xs text-slate-500 mt-2">Outdated</div>
-                <div
-                    class="hidden absolute top-full mt-2 bg-white border rounded-lg shadow p-2 text-xs text-slate-600 group-hover:block">
-                    <p><span class="text-rose-600 font-medium">Major:</span> [RISK_MAJOR]</p>
-                    <p><span class="text-amber-600 font-medium">Minor:</span> [RISK_MINOR]</p>
-                    <p><span class="text-sky-600 font-medium">Patch:</span> [RISK_PATCH]</p>
-                </div>
-            </div>
-        </section>
+    <!-- FOOTER -->
+    <footer class="w-full border-t border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 py-6 mt-4">
 
-        <!-- Controls -->
-        <section class="flex flex-wrap gap-3 items-center mb-6">
-            <input id="search" type="search" placeholder="Search package..."
-                class="px-3 py-2 rounded-lg border bg-white" />
-            <select id="ecosystem" class="px-3 py-2 rounded-lg border bg-white">
-                <option>All</option>
-                <option value="[ECO]">[ECOSYSTEMS]</option>
-            </select>
-            <select id="sort" class="px-3 py-2 rounded-lg border bg-white">
-                <option>Severity</option>
-                <option>Alphabetical</option>
-            </select>
-        </section>
+        <div class="max-w-6xl mx-auto px-6 text-center space-y-1">
 
-        <!-- Table -->
-        <section class="bg-white p-4 rounded-lg shadow overflow-x-auto">
-            <table class="w-full table-auto text-sm">
-                <thead class="text-slate-600 text-xs border-b">
-                    <tr>
-                        <th class="py-2 text-left">Package</th>
-                        <th class="py-2 text-left">Current</th>
-                        <th class="py-2 text-left">Latest</th>
-                        <th class="py-2 text-left">Lag (M.m.p)</th>
-                        <th class="py-2 text-left">Severity</th>
-                    </tr>
-                </thead>
-                <tbody class="divide-y">
-                    {% for dep in production_dependencies %}
-                    <tr class="{{ dep.row_class or '' }}" data-status="{{ dep.status or '' }}">
-                        <td class="py-2 font-medium">{{ dep.package_name }}</td>
-                        <td class="py-2">{{ dep.installed_version }}</td>
-                        <td class="py-2">{{ dep.latest_version }}</td>
-                        <td class="py-2 {{ dep.severity_color }}">[MAJOR] . [MINOR] . [PATCH]</td>
-                        <td class="py-2">
-                            <span
-                                class="px-2 py-1 rounded {{ dep.badge_bg }} {{ dep.badge_text }} text-xs">[SEVERITY]</span>
-                        </td>
-                    </tr>
-                    {% else %}
-                    <tr>
-                        <td colspan="6" class="py-4 text-center text-slate-400">No dependencies found.</td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-        </section>
+            <p class="text-sm text-gray-600 dark:text-gray-400">
+                Released under the
+                <a href="https://www.gnu.org/licenses/gpl-3.0.html#license-text" target="_blank"
+                    class="underline hover:text-gray-900 dark:hover:text-gray-200 transition">
+                    GPLv3 license.
+                </a>
+            </p>
 
-        <!-- Suggested actions -->
-        <section class="mt-6 bg-white p-4 rounded-lg shadow">
-            <h2 class="text-sm font-semibold mb-2">Suggested next steps</h2>
-            <ul class="list-disc pl-5 text-sm text-slate-600 space-y-1">
+            <p class="text-sm text-gray-600 dark:text-gray-400">
+                Copyright &copy; 2025
+                <a href="http://github.com/mklymyshyn" target="_blank"
+                    class="underline hover:text-gray-900 dark:hover:text-gray-200 transition">
+                    Maksym Klymyshyn
+                </a>
+            </p>
 
-                <li>[NEXT STEPS]</li>
+        </div>
 
-            </ul>
-        </section>
-    </div>
+    </footer>
 
-    <script>
-        document.getElementById('search').addEventListener('input', e => {
-            const term = e.target.value.toLowerCase();
-            document.querySelectorAll('tbody tr').forEach(r => {
-                const text = r.innerText.toLowerCase();
-                r.style.display = text.includes(term) ? '' : 'none';
-            });
-        });
-
-        // Dropdown handling for acknowledge actions
-        document.querySelectorAll('.acknowledge-btn').forEach(btn => {
-            btn.addEventListener('click', e => {
-                const menu = btn.nextElementSibling;
-                document.querySelectorAll('tbody tr div.absolute').forEach(m => {
-                    if (m !== menu) m.classList.add('hidden');
-                });
-                menu.classList.toggle('hidden');
-            });
-        });
-
-        document.addEventListener('click', e => {
-            if (!e.target.closest('.acknowledge-btn')) {
-                document.querySelectorAll('tbody tr div.absolute').forEach(m => m.classList.add('hidden'));
-            }
-        });
-
-        // Visual persistence for actions
-        document.querySelectorAll('.action-btn').forEach(action => {
-            action.addEventListener('click', e => {
-                const row = e.target.closest('tr');
-                const menu = e.target.closest('div');
-                menu.classList.add('hidden');
-                const type = e.target.dataset.action;
-
-                if (type.startsWith('silent')) {
-                    row.classList.add('opacity-60');
-                    row.dataset.status = type;
-                } else if (type === 'deprioritize') {
-                    row.classList.add('bg-slate-100');
-                    row.dataset.status = 'deprioritized';
-                }
-            });
-        });
-    </script>
 </body>
 
 </html>

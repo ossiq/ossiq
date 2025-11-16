@@ -4,8 +4,6 @@ Project packages overview command
 import sys
 import typer
 
-from rich.console import Console
-
 from update_burden.domain.common import identify_project_registry_kind
 from update_burden.presentation.system import show_error, show_operation_progress, show_settings
 from update_burden.presentation.views import (
@@ -17,8 +15,6 @@ from update_burden.unit_of_work import uow_project
 from update_burden import timeutil
 from update_burden.service import project
 from update_burden.messages import ERROR_EXIT_OUTDATED_PACKAGES
-
-console = Console()
 
 
 def commnad_overview(
@@ -50,7 +46,7 @@ def commnad_overview(
         with progress():
             project_overview = project.overview(uow)
 
-    # Render output
+    # FIXME: use similar pattern to UoW to "commit" output on exit
     presentation_view = get_presentation_view(
         Command.OVERVIEW,
         ctx["settings"].presentation
@@ -60,6 +56,10 @@ def commnad_overview(
         project_overview,
         threshold_parsed.days,
         settings.output_destination)
+
+    # FIXME: both implementation and location below doens't feel right.
+    # Potentially, could be refactored to use event-based design pattern
+    # similar to email sending pattern from CosmicPython.com
 
     # Check for outdated packages and exit with non-zero exit code if there
     # are any over specified threshold.

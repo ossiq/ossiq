@@ -32,17 +32,6 @@ def show_operation_progress(settings: Settings, message: str):
         pass
 
 
-def show_progress(ctx, message: str, fn: Callable):
-    """
-    Show progress till function is executed
-    """
-    if ctx["settings"].verbose is False:
-        with console.status(f"[bold cyan]{message}"):
-            return fn()
-    else:
-        return fn()
-
-
 def show_settings(ctx, label: str, settings: dict):
     """
     Show a panel with key/value pairs with settings

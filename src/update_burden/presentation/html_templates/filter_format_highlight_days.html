@@ -1,0 +1,7 @@
+{% if duration_days == 0 %}
+<strong class="text-green text-semibold">{{ formatted_string }}</strong>
+{% elif threshold_days and duration_days and duration_days > threshold_days %}
+<strong class="text-red-100 dark:text-red-500 text-semibold">{{ formatted_string }}</strong>
+{% else %}
+<strong class="text-semibold">{{ formatted_string }}</strong>
+{% endif %}

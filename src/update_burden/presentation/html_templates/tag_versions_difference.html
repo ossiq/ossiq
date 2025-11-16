@@ -1,0 +1,26 @@
+<div class="flex">
+    {% if comparison.diff_index == diff_types.DIFF_MAJOR %}
+    <span class="material-symbols-rounded text-base text-gray-500 dark:text-gray-300 text-xl mr-2">flood</span>
+
+    <span class="px-3 py-1 rounded-full bg-red-700 dark:bg-red-700 text-white dark:text-white text-sm font-bold">
+        MAJOR
+    </span>
+    {% elif comparison.diff_index == diff_types.DIFF_MINOR %}
+    <span class="material-symbols-rounded text-base text-gray-500 dark:text-gray-300 text-xl mr-2">timer</span>
+    <span
+        class="px-3 py-1 rounded-full bg-yellow-300 dark:bg-yellow-700/70 text-amber-700 dark:text-white text-sm font-bold">
+        MINOR
+    </span>
+    {% elif comparison.diff_index == diff_types.DIFF_PATCH %}
+    <span class="material-symbols-rounded text-base text-gray-500 dark:text-gray-300 text-xl mr-2">warning</span>
+    <span
+        class="px-3 py-1 rounded-full bg-blue-500 dark:bg-blue-700/60 text-blue-500 dark:text-blue-200 text-sm font-bold">
+        PATCH
+    </span>
+    {% else %}
+    <span class="material-symbols-rounded text-base text-gray-500 dark:text-gray-300 text-xl mr-2">check</span>
+    <span class="px-3 py-1 rounded-full bg-green-500 dark:bg-green-700/60 text-white dark:text-white text-sm font-bold">
+        LATEST
+    </span>
+    {% endif %}
+</div>

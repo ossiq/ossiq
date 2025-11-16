@@ -20,3 +20,10 @@ class GithubRateLimitError(ApplicationError):
             f"Limit: {remaining} of {total} remaining. Resets at: {reset_time}."
         )
         super().__init__(message)
+
+
+class DestinationDoesntExist(Exception):
+    """
+    If there's no destination found
+    """
+    pass

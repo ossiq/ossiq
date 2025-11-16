@@ -37,3 +37,23 @@ def parse_relative_time_delta(
         f"Expected format: <number><unit>, where unit is one of {", ".join(units_supported)}. "
         "Example: 1y, 6m, 2w, 30d, 24h."
     )
+
+
+def format_time_days(duration_days: int) -> str:
+    """
+    Formats a number of days into a human-readable string (e.g., "2y", "1y", "8m", "3w", "5d").
+    """
+    formatted_string = ""
+    if duration_days >= 365:
+        years = round(duration_days / 365)
+        formatted_string = f"{years}y"
+    elif duration_days >= 30:
+        months = round(duration_days / 30)
+        formatted_string = f"{months}m"
+    elif duration_days >= 7:
+        weeks = round(duration_days / 7)
+        formatted_string = f"{weeks}w"
+    else:
+        formatted_string = f"{duration_days}d"
+
+    return formatted_string

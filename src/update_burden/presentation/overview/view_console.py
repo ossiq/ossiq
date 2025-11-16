@@ -9,6 +9,7 @@ from rich.panel import Panel
 from rich.text import Text
 
 from update_burden.service.project import ProjectOverviewRecord, ProjectOverviewSummary
+from update_burden.timeutil import format_time_days
 
 console = Console()
 
@@ -17,26 +18,11 @@ def _format_time_delta(days: int | None, lag_threshold_days: int) -> str:
     """
     Formats a number of days into a human-readable string (e.g., "2y", "1y", "8m", "3w", "5d").
     """
-
     if days is None:
         return "N/A"
 
-    if days == 0:
-        return "[bold][green]LATEST"
-
     # Determine the formatted string and apply highlighting if needed
-    formatted_string = ""
-    if days >= 365:
-        years = round(days / 365)
-        formatted_string = f"{years}y"
-    elif days >= 30:
-        months = round(days / 30)
-        formatted_string = f"{months}m"
-    elif days >= 7:
-        weeks = round(days / 7)
-        formatted_string = f"{weeks}w"
-    else:
-        formatted_string = f"{days}d"
+    formatted_string = format_time_days(days)
 
     return f"[bold red]{formatted_string}" if days >= lag_threshold_days else formatted_string
 
@@ -67,7 +53,7 @@ def table_factory(title: str,
 
 def display_view(project_overview: ProjectOverviewSummary,
                  lag_threshold_days: int,
-                 **kwargs):
+                 **_):
     """
     Representation of the project overview for Console.
     """
@@ -115,6 +101,7 @@ def display_view(project_overview: ProjectOverviewSummary,
     console.print(Panel(header_text, expand=False, border_style="cyan"))
     console.print("\n")
     console.print(table_prod)
+
     if table_dev:
         console.print("\n")
         console.print(table_dev)

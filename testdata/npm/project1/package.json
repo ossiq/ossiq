@@ -9,6 +9,8 @@
         "typescript": "^5.8.3"
     },
     "dependencies": {
+        "vue": "^1.0.23",
+        "bootstrap": "^5.3.8",
         "luxon": "^3.7.0",
         "i18n": "^0.9.1"
     }
