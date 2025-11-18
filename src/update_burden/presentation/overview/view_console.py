@@ -8,6 +8,16 @@ from rich.table import Table
 from rich.panel import Panel
 from rich.text import Text
 
+from update_burden.domain.version import (
+    VERSION_DIFF_BUILD,
+    VERSION_DIFF_MAJOR,
+    VERSION_DIFF_MINOR,
+    VERSION_DIFF_PATCH,
+    VERSION_DIFF_PRERELEASE,
+    VERSION_LATEST,
+    VersionsDifference,
+    difference_versions
+)
 from update_burden.service.project import ProjectOverviewRecord, ProjectOverviewSummary
 from update_burden.timeutil import format_time_days
 
@@ -27,6 +37,26 @@ def _format_time_delta(days: int | None, lag_threshold_days: int) -> str:
     return f"[bold red]{formatted_string}" if days >= lag_threshold_days else formatted_string
 
 
+def _format_lag_status(vdiff: VersionsDifference) -> str:
+    """
+    Format lag status into human readable string with color coding
+    """
+    if vdiff.diff_index == VERSION_DIFF_MAJOR:
+        return "[red][bold]Major"
+    elif vdiff.diff_index == VERSION_DIFF_MINOR:
+        return "[yellow][bold]Minor"
+    elif vdiff.diff_index == VERSION_DIFF_PATCH:
+        return "[white]Patch"
+    elif vdiff.diff_index == VERSION_DIFF_PRERELEASE:
+        return "[yellow][bold]Prerelease"
+    elif vdiff.diff_index == VERSION_DIFF_BUILD:
+        return "[white]Build"
+    elif vdiff.diff_index == VERSION_LATEST:
+        return "[green][bold]Latest"
+    else:
+        return "[white][bold]N/A"
+
+
 def table_factory(title: str,
                   title_style: str,
                   dependencies: List[ProjectOverviewRecord],
@@ -36,16 +66,21 @@ def table_factory(title: str,
     """
     table = Table(title=title, title_style=title_style)
     table.add_column("Dependency", justify="left", style="bold cyan")
-    table.add_column("Time Lag", justify="right")
+    table.add_column("Lag Status", justify="center")
     table.add_column("Installed", justify="center")
     table.add_column("Latest", justify="center")
+    table.add_column("Release Lag", justify="left")
+    table.add_column("Time Lag", justify="left")
 
     for pkg in dependencies:
+        vdiff = difference_versions(pkg.installed_version, pkg.latest_version)
         table.add_row(
             pkg.package_name,
-            _format_time_delta(pkg.lag_days, lag_threshold_days),
+            _format_lag_status(vdiff),
             pkg.installed_version,
             pkg.latest_version,
+            "N/A",
+            _format_time_delta(pkg.lag_days, lag_threshold_days),
         )
 
     return table
@@ -60,31 +95,18 @@ def display_view(project_overview: ProjectOverviewSummary,
 
     table_dev = None
 
-    def sort_function(pkg):
-        return (pkg.lag_days, pkg.package_name,)
-
-    production_dependencies = sorted([
-        pkg for pkg in project_overview.installed_packages_overview
-        if not pkg.is_dev_dependency
-    ], key=sort_function, reverse=True)
-
     table_prod = table_factory(
         "Production Packages Version Status",
         "bold green",
-        production_dependencies,
+        project_overview.production_packages,
         lag_threshold_days
     )
 
-    dev_dependencies = sorted([
-        pkg for pkg in project_overview.installed_packages_overview
-        if pkg.is_dev_dependency
-    ], key=sort_function, reverse=True)
-
-    if dev_dependencies:
+    if project_overview.development_packages:
         table_dev = table_factory(
             "Development Packages Version Status",
             "bold cyan",
-            dev_dependencies,
+            project_overview.development_packages,
             lag_threshold_days
         )
 

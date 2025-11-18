@@ -70,7 +70,7 @@
                         <tr>
                             <th class="px-6 py-3 font-semibold">Dependency</th>
                             <th class="px-6 py-3 font-semibold">Lag Status</th>
-                            <th class="px-6 py-3 font-semibold">Current</th>
+                            <th class="px-6 py-3 font-semibold">Installed</th>
                             <th class="px-6 py-3 font-semibold">Latest</th>
                             <th class="px-6 py-3 font-semibold">Releases Lag</th>
                             <th class="px-6 py-3 font-semibold">Time Lag</th>
@@ -85,7 +85,7 @@
                             <td class="px-6 py-3"><a href="https://npmjs.com/package/{{ dep.package_name }}"
                                     target="_blank" class="text-blue-600 dark:text-blue-400 hover:underline"">{{ dep.package_name }}</a></td>
                             <td class=" px-6 py-3">
-                                    {% versions_difference dep.installed_version dep.latest_version %}
+                                    {% versions_difference dep.versions_diff_index %}
                             </td>
                             <td class="px-6 py-3 text-gray-800 dark:text-gray-200">{{ dep.installed_version }}</td>
                             <td class="px-6 py-3">{{ dep.latest_version }}</td>

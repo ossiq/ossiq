@@ -55,15 +55,16 @@ def commnad_overview(
     presentation_view(
         project_overview,
         threshold_parsed.days,
-        settings.output_destination)
+        destination=settings.output_destination)
 
     # FIXME: both implementation and location below doens't feel right.
     # Potentially, could be refactored to use event-based design pattern
     # similar to email sending pattern from CosmicPython.com
+    # /FIXME
 
-    # Check for outdated packages and exit with non-zero exit code if there
+    # NOTE: Check for outdated packages and exit with non-zero exit code if there
     # are any over specified threshold.
-    for pkg in project_overview.installed_packages_overview:
+    for pkg in project_overview.production_packages:
         if pkg.lag_days > threshold_parsed.days:
             if ctx["settings"].verbose is True:
                 show_error(ctx, ERROR_EXIT_OUTDATED_PACKAGES)

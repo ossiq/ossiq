@@ -8,6 +8,36 @@ from typing import List, Dict
 
 import semver
 
+VERSION_NO_DIFF = -1
+VERSION_LATEST = 0
+VERSION_DIFF_MAJOR = 5
+VERSION_DIFF_MINOR = 4
+VERSION_DIFF_PATCH = 3
+VERSION_DIFF_PRERELEASE = 2
+VERSION_DIFF_BUILD = 1
+
+VERSION_DIFF_TYPES_MAP = {
+    "DIFF_MAJOR": VERSION_DIFF_MAJOR,
+    "DIFF_MINOR": VERSION_DIFF_MINOR,
+    "DIFF_PATCH": VERSION_DIFF_PATCH,
+    "DIFF_PRERELEASE": VERSION_DIFF_PRERELEASE,
+    "DIFF_BUILD": VERSION_DIFF_BUILD,
+    "NO_DIFF": VERSION_NO_DIFF,
+    "LATEST": VERSION_LATEST
+}
+
+VERSINO_INVERSED_DIFF_TYPES_MAP = {
+    val: key for key, val in VERSION_DIFF_TYPES_MAP.items()
+}
+
+
+@dataclass
+class VersionsDifference:
+    version1: str
+    version2: str
+    diff_index: int
+    diff_name: str
+
 
 @dataclass(frozen=True)
 class User:
@@ -171,3 +201,35 @@ def sort_versions(versions: List[PackageVersion]) -> List[PackageVersion]:
     return sorted(
         versions,
         key=cmp_to_key(lambda v1, v2: compare_versions(v1.version, v2.version)))
+
+
+def difference_versions(v1_str: str, v2_str: str) -> VersionsDifference:
+    """Helper to split version strings and find the index where they first differ."""
+    v1 = semver.Version.parse(v1_str)
+    v2 = semver.Version.parse(v2_str)
+
+    diff_index = VERSION_NO_DIFF
+
+    if v1_str == v2_str:
+        diff_index = VERSION_LATEST
+    if v1.major != v2.major:
+        diff_index = VERSION_DIFF_MAJOR
+    elif v1.minor != v2.minor:
+        diff_index = VERSION_DIFF_MINOR
+    elif v1.patch != v2.patch:
+        diff_index = VERSION_DIFF_PATCH
+    elif v1.prerelease != v2.prerelease:
+        diff_index = VERSION_DIFF_PRERELEASE
+    elif v1.build != v2.build:
+        diff_index = VERSION_DIFF_BUILD
+
+    # The diff_index indicates the first differing part of the semantic version.
+    # 0: major, 1: minor, 2: patch, 3: prerelease, 4: build.
+    # This is used for highlighting the most significant difference in the HTML template.
+
+    return VersionsDifference(
+        str(v1),
+        str(v2),
+        diff_index,
+        diff_name=VERSINO_INVERSED_DIFF_TYPES_MAP[diff_index]
+    )

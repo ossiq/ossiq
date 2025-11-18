@@ -41,7 +41,7 @@ def main(
             "--presentation", "-p",
             envvar=f"{Settings.ENV_PREFIX}PRESENTATION",
             help=ARGS_HELP_PRESENTATION
-        )] = PresentationType.CONSOLE,
+        )] = PresentationType.CONSOLE.value,
     output_destination: Annotated[
         str,
         typer.Option(

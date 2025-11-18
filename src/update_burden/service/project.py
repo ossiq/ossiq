@@ -1,7 +1,6 @@
 """
 Service to take care of a Package versions
 """
-import itertools
 
 from dataclasses import dataclass
 from datetime import datetime
@@ -10,7 +9,7 @@ from typing import List
 from rich.console import Console
 from update_burden.domain.package import Package
 from update_burden.domain.project import Project
-from update_burden.domain.version import compare_versions, normalize_version
+from update_burden.domain.version import compare_versions, difference_versions, normalize_version
 from update_burden.service.common import package_versions
 from update_burden.unit_of_work import core as unit_of_work
 
@@ -23,6 +22,7 @@ class ProjectOverviewRecord:
     is_dev_dependency: bool
     installed_version: str
     latest_version: str
+    versions_diff_index: int
     lag_days: int
 
 
@@ -32,7 +32,8 @@ class ProjectOverviewSummary:
     packages_registry: str
     project_path: str
     project_files: List[str]
-    installed_packages_overview: List[ProjectOverviewRecord]
+    production_packages: List[ProjectOverviewRecord]
+    development_packages: List[ProjectOverviewRecord]
 
 
 def parse_iso(datetime_str: str | None):
@@ -96,43 +97,63 @@ def get_package_versions_lag(
     )
 
 
+def overview_record(
+        uow: unit_of_work.AbstractProjectUnitOfWork,
+        project_info: Project,
+        package_name: str,
+        package_version: str,
+        is_dev_dependency: bool) -> ProjectOverviewRecord:
+    """
+    Factory to generate ProjectOverviewRecord instances
+    """
+    package_info = uow.packages_registry.package_info(package_name)
+    versions_lag = get_package_versions_lag(
+        uow,
+        project_info,
+        package_info
+    )
+    installed_version = normalize_version(package_version)
+
+    return ProjectOverviewRecord(
+        package_name=package_name,
+        installed_version=normalize_version(package_version),
+        latest_version=package_info.latest_version,
+        lag_days=versions_lag,
+        versions_diff_index=difference_versions(
+            installed_version, package_info.latest_version),
+        is_dev_dependency=is_dev_dependency
+    )
+
+
 def overview(uow: unit_of_work.AbstractProjectUnitOfWork) -> ProjectOverviewSummary:
+    def sort_function(pkg: ProjectOverviewRecord):
+        return (pkg.versions_diff_index.diff_index, pkg.lag_days, pkg.package_name,)
+
     with uow:
         project_info = uow.packages_registry.project_info(uow.project_path)
-        packages: List[ProjectOverviewRecord] = []
 
-        # Combine production and dev dependencies for processing
-        dependencies = itertools.chain(
-            ((name, version, False)
-             for name, version in project_info.dependencies.items()),
-            ((name, version, True)
-             for name, version in project_info.dev_dependencies.items())
-        )
+        production_packages: List[ProjectOverviewRecord] = []
+        development_packages: List[ProjectOverviewRecord] = []
 
-        for package_name, package_version, is_dev_dependency in dependencies:
-            if uow.production and is_dev_dependency:
-                continue
+        for package_name, package_version in project_info.dependencies.items():
+            production_packages.append(overview_record(
+                uow, project_info, package_name, package_version, False))
 
-            package_info = uow.packages_registry.package_info(package_name)
-            versions_lag = get_package_versions_lag(
-                uow,
-                project_info,
-                package_info
-            )
-            packages.append(
-                ProjectOverviewRecord(
-                    package_name=package_name,
-                    installed_version=normalize_version(package_version),
-                    latest_version=package_info.latest_version,
-                    lag_days=versions_lag,
-                    is_dev_dependency=is_dev_dependency
-                )
-            )
+        # uow.production driven by the setting
+        if not uow.production:
+            for package_name, package_version in project_info.dev_dependencies.items():
+                development_packages.append(overview_record(
+                    uow, project_info, package_name, package_version, True))
 
         return ProjectOverviewSummary(
             project_name=project_info.name,
             project_path=project_info.project_path,
             project_files=project_info.project_files,
             packages_registry=project_info.package_registry.value,
-            installed_packages_overview=packages
+            production_packages=sorted([
+                pkg for pkg in production_packages if not pkg.is_dev_dependency
+            ], key=sort_function, reverse=True),
+            development_packages=sorted([
+                pkg for pkg in development_packages if pkg.is_dev_dependency
+            ], key=sort_function, reverse=True)
         )
