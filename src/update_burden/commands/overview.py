@@ -65,7 +65,7 @@ def commnad_overview(
     # NOTE: Check for outdated packages and exit with non-zero exit code if there
     # are any over specified threshold.
     for pkg in project_overview.production_packages:
-        if pkg.lag_days > threshold_parsed.days:
+        if pkg.time_lag_days > threshold_parsed.days:
             if ctx["settings"].verbose is True:
                 show_error(ctx, ERROR_EXIT_OUTDATED_PACKAGES)
             sys.exit(1)

@@ -7,9 +7,12 @@ from datetime import datetime
 from typing import List
 
 from rich.console import Console
-from update_burden.domain.package import Package
 from update_burden.domain.project import Project
-from update_burden.domain.version import compare_versions, difference_versions, normalize_version
+from update_burden.domain.version import (
+    compare_versions,
+    difference_versions,
+    normalize_version
+)
 from update_burden.service.common import package_versions
 from update_burden.unit_of_work import core as unit_of_work
 
@@ -23,7 +26,8 @@ class ProjectOverviewRecord:
     installed_version: str
     latest_version: str
     versions_diff_index: int
-    lag_days: int
+    time_lag_days: int
+    releases_lag: int
 
 
 @dataclass
@@ -46,7 +50,7 @@ def parse_iso(datetime_str: str | None):
     return None
 
 
-def calculate_time_difference(
+def calculate_time_lag(
         versions: List[package_versions.PackageVersion],
         installed_version: str,
         latest_version: str) -> int | None:
@@ -71,30 +75,20 @@ def calculate_time_difference(
     return None
 
 
-def get_package_versions_lag(
+def get_package_versions_since(
         uow: unit_of_work.AbstractProjectUnitOfWork,
-        project_info: Project,
-        package_info: Package) -> int | None:
+        package_name: str,
+        installed_version: str) -> List[package_versions.PackageVersion]:
     """
     Calculate Package versions lag: delta between
     installed package and the latest one.
     """
-    installed_version = project_info.installed_package_version(
-        package_info.name)
 
-    versions = [
+    return [
         v for v in
-        uow.packages_registry.package_versions(package_info.name)
+        uow.packages_registry.package_versions(package_name)
         if compare_versions(v.version, installed_version) >= 0
     ]
-
-    latest_version = package_info.latest_version
-
-    return calculate_time_difference(
-        versions,
-        installed_version,
-        latest_version
-    )
 
 
 def overview_record(
@@ -107,18 +101,29 @@ def overview_record(
     Factory to generate ProjectOverviewRecord instances
     """
     package_info = uow.packages_registry.package_info(package_name)
-    versions_lag = get_package_versions_lag(
+    installed_version = project_info.installed_package_version(
+        package_info.name)
+
+    releases_since_installed = get_package_versions_since(
         uow,
-        project_info,
-        package_info
+        package_info.name,
+        installed_version
     )
+
+    time_lag_days = calculate_time_lag(
+        releases_since_installed,
+        installed_version,
+        package_info.latest_version
+    )
+
     installed_version = normalize_version(package_version)
 
     return ProjectOverviewRecord(
         package_name=package_name,
         installed_version=normalize_version(package_version),
         latest_version=package_info.latest_version,
-        lag_days=versions_lag,
+        time_lag_days=time_lag_days,
+        releases_lag=len(releases_since_installed) - 1,
         versions_diff_index=difference_versions(
             installed_version, package_info.latest_version),
         is_dev_dependency=is_dev_dependency
@@ -127,7 +132,7 @@ def overview_record(
 
 def overview(uow: unit_of_work.AbstractProjectUnitOfWork) -> ProjectOverviewSummary:
     def sort_function(pkg: ProjectOverviewRecord):
-        return (pkg.versions_diff_index.diff_index, pkg.lag_days, pkg.package_name,)
+        return (pkg.versions_diff_index.diff_index, pkg.time_lag_days, pkg.package_name,)
 
     with uow:
         project_info = uow.packages_registry.project_info(uow.project_path)

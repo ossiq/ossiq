@@ -67,10 +67,10 @@ def table_factory(title: str,
     table = Table(title=title, title_style=title_style)
     table.add_column("Dependency", justify="left", style="bold cyan")
     table.add_column("Lag Status", justify="center")
-    table.add_column("Installed", justify="center")
-    table.add_column("Latest", justify="center")
-    table.add_column("Release Lag", justify="left")
-    table.add_column("Time Lag", justify="left")
+    table.add_column("Installed", justify="left")
+    table.add_column("Latest", justify="left")
+    table.add_column("Release Lag", justify="right")
+    table.add_column("Time Lag", justify="right")
 
     for pkg in dependencies:
         vdiff = difference_versions(pkg.installed_version, pkg.latest_version)
@@ -79,8 +79,8 @@ def table_factory(title: str,
             _format_lag_status(vdiff),
             pkg.installed_version,
             pkg.latest_version,
-            "N/A",
-            _format_time_delta(pkg.lag_days, lag_threshold_days),
+            str(pkg.releases_lag),
+            _format_time_delta(pkg.time_lag_days, lag_threshold_days),
         )
 
     return table

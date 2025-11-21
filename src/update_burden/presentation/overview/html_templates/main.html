@@ -3,240 +3,350 @@
 <html lang="en"> <!--  class="dark" Remove "dark" to default to light mode -->
 
 <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
 
-    <!-- Google Font: Raleway -->
-    <link href="https://fonts.googleapis.com/css2?family=Raleway:wght@300;400;600&display=swap" rel="stylesheet">
+  <!-- Google Font: Raleway -->
+  <link href="https://fonts.googleapis.com/css2?family=Raleway:wght@300;400;600&display=swap" rel="stylesheet">
 
-    <!-- Google Material Symbols -->
-    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded" rel="stylesheet" />
+  <!-- Google Material Symbols -->
+  <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded" rel="stylesheet" />
 
-    <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
 
-    <style>
-        h1,
-        h2,
-        h3,
-        h4,
-        h5,
-        header {
-            font-family: 'Raleway', sans-serif;
-        }
-    </style>
+  <style>
+    h1,
+    h2,
+    h3,
+    h4,
+    h5,
+    header {
+      font-family: 'Raleway', sans-serif;
+    }
+  </style>
 </head>
 
 <body class="bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100 min-h-screen flex flex-col">
-    <!-- HEADER -->
-    <header class="w-full bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
-        <div class="max-w-6xl mx-auto flex items-center justify-between py-4 px-6">
+  <!-- HEADER -->
+  <header class="w-full bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
+    <div class="max-w-6xl mx-auto flex items-center justify-between py-4 px-6">
 
-            <!-- Logo -->
-            <div class="flex items-center space-x-2">
-                <span class="text-xl font-normal tracking-wide">OSS IQ</span>
-                <span class="text-xs pl-5">External Dependencies Intelligence Swissknife</span>
-            </div>
+      <!-- Logo -->
+      <div class="flex items-center space-x-2">
+        <span class="text-xl font-normal tracking-wide">OSS IQ</span>
+        <span class="text-xs pl-5">External Dependencies Intelligence Swissknife</span>
+      </div>
 
-            <!-- GitHub Link -->
-            <a href="https://github.com/" class="flex items-center space-x-1 text-gray-700 dark:text-gray-300 
+      <!-- GitHub Link -->
+      <a href="https://github.com/" class="flex items-center space-x-1 text-gray-700 dark:text-gray-300 
                 hover:text-black dark:hover:text-white transition font-medium">
-                <span class="material-symbols-rounded text-xl">code</span>
-                <span>GitHub</span>
-            </a>
+        <span class="material-symbols-rounded text-xl">code</span>
+        <span>GitHub</span>
+      </a>
 
+    </div>
+  </header>
+
+  <main class="flex-grow max-w-6xl mx-auto p-6 space-y-6">
+    <h1 class="text-2xl font-medium">
+      Project Update-Lag Report for the project
+      <span class="font-semibold">&ldquo;{{ project_overview.project_name }}&rdquo;</span>
+    </h1>
+    <div class="flex">
+      <p class="text-sm text-slate-500 mt-1 w-3/4">
+        <strong>Dependencies Lag</strong> measures how many major, minor, or patch releases your project is
+        behind the latest version of each open-source package it uses.
+        It's a simple way to see how “old” your dependencies are so you can quickly
+        spot what needs updating first.
+      </p>
+    </div>
+
+    <div id="app">
+      <!-- FILTER BAR -->
+      <section class="max-w-6xl mx-auto mb-6">
+        <div class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 
+              rounded-xl px-4 py-3 shadow-sm">
+
+          <div class="flex flex-col lg:flex-row lg:items-end gap-4">
+
+            <!-- Search -->
+            <div class="flex-1">
+              <label class="block text-xs uppercase text-gray-500 dark:text-gray-400 mb-1">
+                Search
+              </label>
+              <input type="text" placeholder="Filter by dependency name" class="
+                 w-full h-9 rounded-md bg-gray-50 dark:bg-gray-900 
+                 border border-gray-300 dark:border-gray-600
+                 px-3 text-sm text-gray-800 dark:text-gray-100
+                 placeholder-gray-400 dark:placeholder-gray-500
+                 focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500" />
+            </div>
+
+            <!-- Lag Status -->
+            <div class="w-full sm:w-32">
+              <label class="block text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-1">
+                Lag Status
+              </label>
+              <select class="w-full h-9 rounded-md bg-gray-50 dark:bg-gray-900
+                 border border-gray-300 dark:border-gray-600
+                 px-3 text-sm text-gray-800 dark:text-gray-100
+                 focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500">
+                <option>All</option>
+                <option>Major</option>
+                <option>Minor</option>
+                <option>Patch</option>
+              </select>
+            </div>
+
+            <!-- Release Lag -->
+            <div class="w-full sm:w-32">
+              <label class="block text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-1">
+                Releases Lag
+              </label>
+              <select class="w-full h-9 rounded-md bg-gray-50 dark:bg-gray-900
+                 border border-gray-300 dark:border-gray-600
+                 px-3 text-sm text-gray-800 dark:text-gray-100
+                 focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500">
+                <option>All</option>
+                <option>&lt; 30 days</option>
+                <option>30–90 days</option>
+                <option>&gt; 90 days</option>
+              </select>
+            </div>
+
+            <!-- Time Lag -->
+            <div class="w-full sm:w-32">
+              <label class="block text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-1">
+                Time Lag
+              </label>
+              <select class="w-full h-9 rounded-md bg-gray-50 dark:bg-gray-900
+                 border border-gray-300 dark:border-gray-600
+                 px-3 text-sm text-gray-800 dark:text-gray-100
+                 focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500">
+                <option>All</option>
+                <option>&lt; 30 days</option>
+                <option>30–90 days</option>
+                <option>&gt; 90 days</option>
+              </select>
+            </div>
+
+            <!-- Actions -->
+            <div class="flex items-center gap-2 lg:ml-auto pt-1">
+
+              <!-- Reset -->
+              <button class="flex items-center h-9 px-3 rounded-md
+                 border border-gray-300 dark:border-gray-600
+                 text-sm text-gray-700 dark:text-gray-300
+                 hover:bg-gray-100 dark:hover:bg-gray-700 transition">
+                <span class="material-symbols-rounded text-base mr-1">refresh</span>
+                Reset
+              </button>
+
+              <!-- Export -->
+              <button class="flex items-center h-9 px-4 rounded-md
+                 bg-blue-600 hover:bg-blue-700
+                 text-sm text-white font-medium transition">
+                Download CSV
+                <span class="material-symbols-rounded text-xl text-gray-500 dark:text-gray-300">
+                  download
+                </span>
+              </button>
+            </div>
+          </div>
         </div>
-    </header>
+      </section>
+    </div>
 
-    <main class="flex-grow max-w-6xl mx-auto p-6 space-y-6">
-        <h1 class="text-2xl font-medium">
-            Project Update-Lag Report for the project
-            <span class="font-semibold">&ldquo;{{ project_overview.project_name }}&rdquo;</span>
-        </h1>
-        <div class="flex">
-            <p class="text-sm text-slate-500 mt-1 w-3/4">
-                <strong>Dependencies Lag</strong> measures how many major, minor, or patch releases your project is
-                behind the latest version of each open-source package it uses.
-                It's a simple way to see how “old” your dependencies are so you can quickly
-                spot what needs updating first.
-            </p>
-        </div>
+    <section>
+      <div
+        class="overflow-hidden rounded-xl bg-white dark:bg-gray-800 shadow-sm border border-gray-200 dark:border-gray-700">
+        <table class="min-w-full text-left border-collapse">
+          <thead class="bg-gray-100 dark:bg-gray-700/50 text-gray-700 dark:text-gray-200">
+            <tr>
+              <th class="px-6 py-3 font-semibold">Dependency</th>
+              <th class="px-6 py-3 font-semibold">Lag Status</th>
+              <th class="px-6 py-3 font-semibold">Installed</th>
+              <th class="px-6 py-3 font-semibold">Latest</th>
+              <th class="px-6 py-3 font-semibold">Releases Lag</th>
+              <th class="px-6 py-3 font-semibold">Time Lag</th>
+            </tr>
+          </thead>
+          <tbody>
 
-
-        <section>
-            <div
-                class="overflow-hidden rounded-xl bg-white dark:bg-gray-800 shadow-sm border border-gray-200 dark:border-gray-700">
-                <table class="min-w-full text-left border-collapse">
-                    <thead class="bg-gray-100 dark:bg-gray-700/50 text-gray-700 dark:text-gray-200">
-                        <tr>
-                            <th class="px-6 py-3 font-semibold">Dependency</th>
-                            <th class="px-6 py-3 font-semibold">Lag Status</th>
-                            <th class="px-6 py-3 font-semibold">Installed</th>
-                            <th class="px-6 py-3 font-semibold">Latest</th>
-                            <th class="px-6 py-3 font-semibold">Releases Lag</th>
-                            <th class="px-6 py-3 font-semibold">Time Lag</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-
-                        {% for dep in production_dependencies %}
-                        <!-- Row -->
-                        <tr
-                            class="border-t border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/30 transition">
-                            <td class="px-6 py-3"><a href="https://npmjs.com/package/{{ dep.package_name }}"
-                                    target="_blank" class="text-blue-600 dark:text-blue-400 hover:underline"">{{ dep.package_name }}</a></td>
+            {% for dep in production_dependencies %}
+            <!-- Row -->
+            <tr
+              class="border-t border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/30 transition">
+              <td class="px-6 py-3"><a href="https://npmjs.com/package/{{ dep.package_name }}" target="_blank"
+                  class="text-blue-600 dark:text-blue-400 hover:underline"">{{ dep.package_name }}</a></td>
                             <td class=" px-6 py-3">
-                                    {% versions_difference dep.versions_diff_index %}
-                            </td>
-                            <td class="px-6 py-3 text-gray-800 dark:text-gray-200">{{ dep.installed_version }}</td>
-                            <td class="px-6 py-3">{{ dep.latest_version }}</td>
-                            <td class="px-6 py-3">-</td>
-                            <td class="px-6 py-3">
-                                {{ dep.lag_days | format_highlight_days(lag_threshold_days) }}
-                            </td>
-                        </tr>
-                        {% else %}
-                        <tr>
-                            <td colspan="6" class="py-4 text-center text-slate-400">No dependencies found.</td>
-                        </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
+                  {% versions_difference dep.versions_diff_index %}
+              </td>
+              <td class="px-6 py-3 text-gray-800 dark:text-gray-200">{{ dep.installed_version }}</td>
+              <td class="px-6 py-3">{{ dep.latest_version }}</td>
+              <td class="px-6 py-3">{{ dep.releases_lag }}</td>
+              <td class="px-6 py-3">
+                {{ dep.time_lag_days | format_highlight_days(lag_threshold_days) }}
+              </td>
+            </tr>
+            {% else %}
+            <tr>
+              <td colspan="6" class="py-4 text-center text-slate-400">No dependencies found.</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- LEGEND -->
+    <section class="max-w-6xl mx-auto mb-6">
+      <div class="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-sm p-4">
+        <h2 class="text-sm font-semibold tracking-wide uppercase text-gray-600 dark:text-gray-300 mb-3">
+          Legend
+        </h2>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+          <!-- Major Lag -->
+          <div class="flex items-start space-x-3">
+            <span class="block w-3 h-3 mt-1 rounded-full bg-red-500"></span>
+            <div>
+              <div class="text-sm font-semibold text-gray-900 dark:text-gray-100">
+                Lag Status: <strong>MAJOR</strong>
+              </div>
+              <p class="text-xs text-gray-600 dark:text-gray-400 leading-relaxed">
+                Your dependency is one or more **major versions** behind, indicating breaking changes
+                and potentially significant refactoring needs.
+              </p>
             </div>
-        </section>
+          </div>
 
-        <!-- LEGEND -->
-        <section class="max-w-6xl mx-auto mb-6">
-            <div class="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-sm p-4">
-                <h2 class="text-sm font-semibold tracking-wide uppercase text-gray-600 dark:text-gray-300 mb-3">
-                    Legend
-                </h2>
-
-                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-                    <!-- Major Lag -->
-                    <div class="flex items-start space-x-3">
-                        <span class="block w-3 h-3 mt-1 rounded-full bg-red-500"></span>
-                        <div>
-                            <div class="text-sm font-semibold text-gray-900 dark:text-gray-100">
-                                Lag Status: <strong>MAJOR</strong>
-                            </div>
-                            <p class="text-xs text-gray-600 dark:text-gray-400 leading-relaxed">
-                                Your dependency is one or more **major versions** behind, indicating breaking changes
-                                and potentially significant refactoring needs.
-                            </p>
-                        </div>
-                    </div>
-
-                    <!-- Minor Lag -->
-                    <div class="flex items-start space-x-3">
-                        <span class="block w-3 h-3 mt-1 rounded-full bg-amber-500"></span>
-                        <div>
-                            <div class="text-sm font-semibold text-gray-900 dark:text-gray-100">
-                                Lag Status: <strong>MINOR</strong>
-                            </div>
-                            <p class="text-xs text-gray-600 dark:text-gray-400 leading-relaxed">
-                                New non-breaking features are available; updating is recommended but usually low-risk.
-                            </p>
-                        </div>
-                    </div>
-
-                    <!-- Patch Lag -->
-                    <div class="flex items-start space-x-3">
-                        <span class="block w-3 h-3 mt-1 rounded-full bg-blue-500"></span>
-                        <div>
-                            <div class="text-sm font-semibold text-gray-900 dark:text-gray-100">
-                                Lag Status: <strong>PATCH</strong>
-                            </div>
-                            <p class="text-xs text-gray-600 dark:text-gray-400 leading-relaxed">
-                                Only bugfixes or security patches are missing; these updates are typically
-                                straightforward.
-                            </p>
-                        </div>
-                    </div>
-
-                    <!-- Latest -->
-                    <div class="flex items-start space-x-3">
-                        <span class="block w-3 h-3 mt-1 rounded-full bg-emerald-500"></span>
-                        <div>
-                            <div class="text-sm font-semibold text-gray-900 dark:text-gray-100">
-                                Lag Status: <strong>LATEST</strong>
-                            </div>
-                            <p class="text-xs text-gray-600 dark:text-gray-400 leading-relaxed">
-                                No newer versions are available; the dependency requires no immediate action.
-                            </p>
-                        </div>
-                    </div>
-
-                    <!-- Acknowledged -->
-                    <div class="flex items-start space-x-3">
-                        <span class="material-symbols-rounded text-lg mt-[-4px] text-gray-500 dark:text-gray-300">
-                            stacks
-                        </span>
-                        <div>
-                            <div class="text-sm font-semibold text-gray-900 dark:text-gray-100">
-                                Releases Lag
-                            </div>
-                            <p class="text-xs text-gray-600 dark:text-gray-400 leading-relaxed">
-                                How many releases behind package installed version,
-                                e.g., <code>1.0.0</code> to <code>1.0.1</code> is <span
-                                    class="dark:text-blue-500 text-blue-500">1
-                                    patch release</span>,
-                                <code>1.0.0</code> to <code>1.1.0</code> is <span class="text-amber-500">1 minor
-                                    release</span>,
-                                <code>1.0.0</code> to <code>2.0.0</code> is <span class="text-red-500">1 major
-                                    release</span>.
-                            </p>
-                        </div>
-                    </div>
-
-                    <!-- Tooltip Metadata -->
-                    <div class="flex items-start space-x-3">
-                        <span class="material-symbols-rounded text-lg mt-[-4px] text-gray-500 dark:text-gray-300">
-                            change_history
-                        </span>
-                        <div>
-                            <div class="text-sm font-semibold text-gray-900 dark:text-gray-100">
-                                Time Lag
-                            </div>
-                            <p class="text-xs text-gray-600 dark:text-gray-400 leading-relaxed">
-                                How much time past by between installed version and latest release.
-                                The color of the number of days indicates the following:
-                                <span class="text-emerald-500">Green</span>: less than {{ lag_threshold_days }} days,
-                                <span class="text-amber-500">Orange</span>: more than {{ lag_threshold_days }} days,
-                                <span class="text-red-500">Red</span>: more than {{ lag_threshold_days * 2 }} days.
-                            </p>
-                        </div>
-                    </div>
-
-                </div>
+          <!-- Minor Lag -->
+          <div class="flex items-start space-x-3">
+            <span class="block w-3 h-3 mt-1 rounded-full bg-amber-500"></span>
+            <div>
+              <div class="text-sm font-semibold text-gray-900 dark:text-gray-100">
+                Lag Status: <strong>MINOR</strong>
+              </div>
+              <p class="text-xs text-gray-600 dark:text-gray-400 leading-relaxed">
+                New non-breaking features are available; updating is recommended but usually low-risk.
+              </p>
             </div>
+          </div>
 
-        </section>
-    </main>
-    <!-- FOOTER -->
-    <footer class="w-full border-t border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 py-6 mt-4">
+          <!-- Patch Lag -->
+          <div class="flex items-start space-x-3">
+            <span class="block w-3 h-3 mt-1 rounded-full bg-blue-500"></span>
+            <div>
+              <div class="text-sm font-semibold text-gray-900 dark:text-gray-100">
+                Lag Status: <strong>PATCH</strong>
+              </div>
+              <p class="text-xs text-gray-600 dark:text-gray-400 leading-relaxed">
+                Only bugfixes or security patches are missing; these updates are typically
+                straightforward.
+              </p>
+            </div>
+          </div>
 
-        <div class="max-w-6xl mx-auto px-6 text-center space-y-1">
+          <!-- Latest -->
+          <div class="flex items-start space-x-3">
+            <span class="block w-3 h-3 mt-1 rounded-full bg-emerald-500"></span>
+            <div>
+              <div class="text-sm font-semibold text-gray-900 dark:text-gray-100">
+                Lag Status: <strong>LATEST</strong>
+              </div>
+              <p class="text-xs text-gray-600 dark:text-gray-400 leading-relaxed">
+                No newer versions are available; the dependency requires no immediate action.
+              </p>
+            </div>
+          </div>
 
-            <p class="text-sm text-gray-600 dark:text-gray-400">
-                Released under the
-                <a href="https://www.gnu.org/licenses/gpl-3.0.html#license-text" target="_blank"
-                    class="underline hover:text-gray-900 dark:hover:text-gray-200 transition">
-                    GPLv3 license.
-                </a>
-            </p>
+          <!-- Acknowledged -->
+          <div class="flex items-start space-x-3">
+            <span class="material-symbols-rounded text-lg mt-[-4px] text-gray-500 dark:text-gray-300">
+              stacks
+            </span>
+            <div>
+              <div class="text-sm font-semibold text-gray-900 dark:text-gray-100">
+                Releases Lag
+              </div>
+              <p class="text-xs text-gray-600 dark:text-gray-400 leading-relaxed">
+                How many releases behind package installed version,
+                e.g., <code>1.0.0</code> to <code>1.0.1</code> is <span class="dark:text-blue-500 text-blue-500">1
+                  patch release</span>,
+                <code>1.0.0</code> to <code>1.1.0</code> is <span class="text-amber-500">1 minor
+                  release</span>,
+                <code>1.0.0</code> to <code>2.0.0</code> is <span class="text-red-500">1 major
+                  release</span>.
+              </p>
+            </div>
+          </div>
 
-            <p class="text-sm text-gray-600 dark:text-gray-400">
-                Copyright &copy; 2025
-                <a href="http://github.com/mklymyshyn" target="_blank"
-                    class="underline hover:text-gray-900 dark:hover:text-gray-200 transition">
-                    Maksym Klymyshyn
-                </a>
-            </p>
+          <!-- Tooltip Metadata -->
+          <div class="flex items-start space-x-3">
+            <span class="material-symbols-rounded text-lg mt-[-4px] text-gray-500 dark:text-gray-300">
+              change_history
+            </span>
+            <div>
+              <div class="text-sm font-semibold text-gray-900 dark:text-gray-100">
+                Time Lag
+              </div>
+              <p class="text-xs text-gray-600 dark:text-gray-400 leading-relaxed">
+                How much time past by between installed version and latest release.
+                The color of the number of days indicates the following:
+                <span class="text-emerald-500">Green</span>: less than {{ lag_threshold_days }} days,
+                <span class="text-amber-500">Orange</span>: more than {{ lag_threshold_days }} days,
+                <span class="text-red-500">Red</span>: more than {{ lag_threshold_days * 2 }} days.
+              </p>
+            </div>
+          </div>
 
         </div>
+      </div>
 
-    </footer>
+    </section>
+  </main>
+  <!-- FOOTER -->
+  <footer class="w-full border-t border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 py-6 mt-4">
+
+    <div class="max-w-6xl mx-auto px-6 text-center space-y-1">
+
+      <p class="text-sm text-gray-600 dark:text-gray-400">
+        Released under the
+        <a href="https://www.gnu.org/licenses/gpl-3.0.html#license-text" target="_blank"
+          class="underline hover:text-gray-900 dark:hover:text-gray-200 transition">
+          GPLv3 license.
+        </a>
+      </p>
+
+      <p class="text-sm text-gray-600 dark:text-gray-400">
+        Copyright &copy; 2025
+        <a href="http://github.com/mklymyshyn" target="_blank"
+          class="underline hover:text-gray-900 dark:hover:text-gray-200 transition">
+          Maksym Klymyshyn
+        </a>,
+        <a href="" target="_blank" class="underline hover:text-gray-900 dark:hover:text-gray-200 transition">
+          Oleksandr Shulika
+        </a>
+      </p>
+
+    </div>
+
+  </footer>
 
 </body>
+<script type="module">
+  import { createApp } from 'https://unpkg.com/vue@3/dist/vue.esm-browser.js'
+  const app = createApp({
+    data() {
+      return {
+        message: 'Hello Vue 👋'
+      }
+    }
+  })
+
+  app.config.compilerOptions.delimiters = ['[[', ']]'];
+  app.mount('#app')
+</script>
 
 </html>
