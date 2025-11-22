@@ -28,6 +28,7 @@
 
 <body class="bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100 min-h-screen flex flex-col">
   <!-- HEADER -->
+
   <header class="w-full bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
     <div class="max-w-6xl mx-auto flex items-center justify-between py-4 px-6">
 
@@ -82,6 +83,14 @@
                  focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500" />
             </div>
 
+            <!-- Include Dev Packages -->
+            <div class="flex gap-2 mt-6 sm:mt-0">
+              <input type="checkbox" id="productionPackage"
+                class="rounded border-neutral-400 text-neutral-900 focus:ring-neutral-800 dark:bg-neutral-900 dark:border-neutral-600" />
+              <label for="productionPackage" class="text-sm text-neutral-700 dark:text-neutral-300">Production
+                only</label>
+            </div>
+
             <!-- Lag Status -->
             <div class="w-full sm:w-32">
               <label class="block text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-1">
@@ -89,7 +98,7 @@
               </label>
               <select class="w-full h-9 rounded-md bg-gray-50 dark:bg-gray-900
                  border border-gray-300 dark:border-gray-600
-                 px-3 text-sm text-gray-800 dark:text-gray-100
+                 px-3 text-sm text-gray-800 dark:text-gray-100 
                  focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500">
                 <option>All</option>
                 <option>Major</option>
@@ -105,7 +114,7 @@
               </label>
               <select class="w-full h-9 rounded-md bg-gray-50 dark:bg-gray-900
                  border border-gray-300 dark:border-gray-600
-                 px-3 text-sm text-gray-800 dark:text-gray-100
+                 px-3 text-sm text-gray-800 dark:text-gray-100 
                  focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500">
                 <option>All</option>
                 <option>&lt; 30 days</option>
@@ -119,14 +128,15 @@
               <label class="block text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-1">
                 Time Lag
               </label>
-              <select class="w-full h-9 rounded-md bg-gray-50 dark:bg-gray-900
+              <select data-filter-type="range" data-filter-id="time-lag" data-target-id="time-lag"
+                @change="applyFilters($event)" class="w-full h-9 rounded-md bg-gray-50 dark:bg-gray-900
                  border border-gray-300 dark:border-gray-600
-                 px-3 text-sm text-gray-800 dark:text-gray-100
+                 px-3 text-sm text-gray-800 dark:text-gray-100 
                  focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500">
                 <option>All</option>
-                <option>&lt; 30 days</option>
-                <option>30–90 days</option>
-                <option>&gt; 90 days</option>
+                <option data-range-max="30">&lt; 30 days</option>
+                <option data-range-min="30" data-range-max="90">30–90 days</option>
+                <option data-range-min="90">&gt; 90 days</option>
               </select>
             </div>
 
@@ -134,7 +144,7 @@
             <div class="flex items-center gap-2 lg:ml-auto pt-1">
 
               <!-- Reset -->
-              <button class="flex items-center h-9 px-3 rounded-md
+              <button @click="resetFilters" class="flex items-center h-9 px-3 rounded-md
                  border border-gray-300 dark:border-gray-600
                  text-sm text-gray-700 dark:text-gray-300
                  hover:bg-gray-100 dark:hover:bg-gray-700 transition">
@@ -160,7 +170,7 @@
     <section>
       <div
         class="overflow-hidden rounded-xl bg-white dark:bg-gray-800 shadow-sm border border-gray-200 dark:border-gray-700">
-        <table class="min-w-full text-left border-collapse">
+        <table id="report" class="min-w-full text-left border-collapse">
           <thead class="bg-gray-100 dark:bg-gray-700/50 text-gray-700 dark:text-gray-200">
             <tr>
               <th class="px-6 py-3 font-semibold">Dependency</th>
@@ -175,17 +185,21 @@
 
             {% for dep in production_dependencies %}
             <!-- Row -->
-            <tr
-              class="border-t border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/30 transition">
-              <td class="px-6 py-3"><a href="https://npmjs.com/package/{{ dep.package_name }}" target="_blank"
-                  class="text-blue-600 dark:text-blue-400 hover:underline"">{{ dep.package_name }}</a></td>
-                            <td class=" px-6 py-3">
-                  {% versions_difference dep.versions_diff_index %}
+            <tr data-id="is-dev-dependency" data-value="{{ dep.is_dev_dependency }}"
+              class=" border-t border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/30 transition">
+              <td data-id="name" data-value="{{ dep.package_name }}" class="px-6 py-3"><a
+                  href="https://npmjs.com/package/{{ dep.package_name }}" target="_blank"
+                  class="text-blue-600 dark:text-blue-400 hover:underline">{{ dep.package_name }}</a></td>
+              <td data-id="version-diff-index" data-value="{{ dep.versions_diff_index }}" class=" px-6 py-3">
+                {% versions_difference dep.versions_diff_index %}
               </td>
-              <td class="px-6 py-3 text-gray-800 dark:text-gray-200">{{ dep.installed_version }}</td>
-              <td class="px-6 py-3">{{ dep.latest_version }}</td>
-              <td class="px-6 py-3">{{ dep.releases_lag }}</td>
-              <td class="px-6 py-3">
+              <td data-id="installed-version" data-value="{{ dep.installed_version }}"
+                class="px-6 py-3 text-gray-800 dark:text-gray-200">{{ dep.installed_version }}</td>
+              <td data-id="latest-version" data-value="{{ dep.latest_version }}" class="px-6 py-3">{{ dep.latest_version
+                }}</td>
+              <td data-id="releases-lag" data-value="{{ dep.releases_lag }}" class="px-6 py-3">{{ dep.releases_lag }}
+              </td>
+              <td data-id="time-lag" data-value="{{ dep.time_lag_days }}" class="px-6 py-3">
                 {{ dep.time_lag_days | format_highlight_days(lag_threshold_days) }}
               </td>
             </tr>
@@ -335,15 +349,94 @@
   </footer>
 
 </body>
+<script type="text/javascript">
+  const FILTER_RANGE = 'range';
+  const FILTER_VALUE = 2;
+  const FILTER_BOOLEAN = 3;
+
+  class TableFilter {
+    constructor(tableId) {
+      this.table = document.querySelector(`#${tableId}`);
+      this.rows = Array.from(this.table.querySelectorAll('tbody tr'));
+    }
+
+    applyFilters(filters) {
+      this.rows.forEach(row => {
+        const hideRow = filters.some((filter) => {
+          const cell = row.querySelector(`[data-id="${filter.target}"]`);
+          const valueRaw = cell.getAttribute('data-value');
+          switch (filter.type) {
+            case FILTER_RANGE:
+              const cellValue = parseFloat(valueRaw);
+              if (!isNaN(cellValue) && (cellValue < filter.min || cellValue > filter.max)) {
+                return true;
+              }
+              break;
+          }
+          return false;
+        });
+
+        if (hideRow) {
+          row.classList.add('hidden');
+        } else {
+          row.classList.remove('hidden');
+        }
+      });
+    }
+
+    resetFilters() {
+      this.rows.forEach(row => {
+        row.classList.remove('hidden');
+      });
+    }
+  }
+</script>
 <script type="module">
-  import { createApp } from 'https://unpkg.com/vue@3/dist/vue.esm-browser.js'
+  import { createApp, toRaw } from 'https://unpkg.com/vue@3/dist/vue.esm-browser.js'
+  const tableFilter = new TableFilter('report');
   const app = createApp({
     data() {
+
       return {
-        message: 'Hello Vue 👋'
+        filters: {}
+      }
+    },
+    methods: {
+      applyFilters({ target }) {
+        const selected = target.selectedOptions[0] ?? null;
+        const filterId = target.getAttribute('data-filter-id');
+        const filterType = target.getAttribute('data-filter-type');
+        const filterTarget = target.getAttribute('data-target-id');
+
+        console.log('EVENT', {
+          target,
+          selected,
+          filterId,
+          filterType,
+          filterTarget
+        })
+
+        if (filterType === FILTER_RANGE) {
+          const rangeMin = parseFloat(selected.getAttribute('data-range-min'));
+          const rangeMax = parseFloat(selected.getAttribute('data-range-max'));
+          this.filters[filterId] = {
+            id: filterId,
+            type: FILTER_RANGE,
+            target: filterTarget,
+            min: isNaN(rangeMin) ? 0 : rangeMin,
+            max: isNaN(rangeMax) ? Infinity : rangeMax
+          };
+        }
+
+        tableFilter.applyFilters(Object.values(this.filters).map(toRaw));
+      },
+      resetFilters(value) {
+        this.filters = {};
+        tableFilter.resetFilters();
       }
     }
   })
+
 
   app.config.compilerOptions.delimiters = ['[[', ']]'];
   app.mount('#app')
