@@ -50,10 +50,20 @@
 
   <main class="flex-grow max-w-6xl mx-auto p-6 space-y-6">
     <h1 class="text-2xl font-medium">
-      Project Update-Lag Report for the project
-      <span class="font-semibold">&ldquo;{{ project_overview.project_name }}&rdquo;</span>
+      <span class="flex items-center space-x-2">
+        <span>
+          Project Update-Lag Report for the project
+          <span class="font-semibold">&ldquo;{{ project_overview.project_name }}&rdquo;</span>
+        </span>
+        <span>
+          <a href="javascript:void();" rel="report-help" id="repoert-help-toggle">
+            <span
+              class="material-symbols-rounded text-base text-gray-500 dark:text-gray-300 text-xl mr-2 mt-2">info</span>
+          </a>
+        </span>
+      </span>
     </h1>
-    <div class="flex">
+    <div class="flex hidden" id="report-help">
       <p class="text-sm text-slate-500 mt-1 w-3/4">
         <strong>Dependencies Lag</strong> measures how many major, minor, or patch releases your project is
         behind the latest version of each open-source package it uses.
@@ -83,12 +93,19 @@
                  focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500" />
             </div>
 
-            <!-- Include Dev Packages -->
-            <div class="flex gap-2 mt-6 sm:mt-0">
-              <input type="checkbox" id="productionPackage"
-                class="rounded border-neutral-400 text-neutral-900 focus:ring-neutral-800 dark:bg-neutral-900 dark:border-neutral-600" />
-              <label for="productionPackage" class="text-sm text-neutral-700 dark:text-neutral-300">Production
-                only</label>
+            <!-- Package Types -->
+            <div class="w-full sm:w-32">
+              <label class="block text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-1">
+                Package Types
+              </label>
+              <select data-filter-type="value" data-target-id="is-dev-dependency" class="w-full h-9 rounded-md bg-gray-50 dark:bg-gray-900
+                 border border-gray-300 dark:border-gray-600
+                 px-3 text-sm text-gray-800 dark:text-gray-100 
+                 focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500">
+                <option>All</option>
+                <option value="False">Production</option>
+                <option value="True">Development</option>
+              </select>
             </div>
 
             <!-- Lag Status -->
@@ -96,14 +113,15 @@
               <label class="block text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-1">
                 Lag Status
               </label>
-              <select class="w-full h-9 rounded-md bg-gray-50 dark:bg-gray-900
+              <select data-filter-type="value" data-target-id="version-diff-index" class="w-full h-9 rounded-md bg-gray-50 dark:bg-gray-900
                  border border-gray-300 dark:border-gray-600
                  px-3 text-sm text-gray-800 dark:text-gray-100 
                  focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500">
                 <option>All</option>
-                <option>Major</option>
-                <option>Minor</option>
-                <option>Patch</option>
+                <option value="DIFF_MAJOR">Major</option>
+                <option value="DIFF_MINOR">Minor</option>
+                <option value="DIFF_PATCH">Patch</option>
+                <option value="LATEST">Latest</option>
               </select>
             </div>
 
@@ -112,14 +130,15 @@
               <label class="block text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-1">
                 Releases Lag
               </label>
-              <select class="w-full h-9 rounded-md bg-gray-50 dark:bg-gray-900
+              <select data-filter-type="range" data-target-id="releases-lag" class="w-full h-9 rounded-md bg-gray-50 dark:bg-gray-900
                  border border-gray-300 dark:border-gray-600
                  px-3 text-sm text-gray-800 dark:text-gray-100 
                  focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500">
                 <option>All</option>
-                <option>&lt; 30 days</option>
-                <option>30–90 days</option>
-                <option>&gt; 90 days</option>
+                <option data-range-min="10">&gt; 10 releases</option>
+                <option data-range-min="100">&gt; 100 releases</option>
+                <option data-range-min="300">&gt; 300 releases</option>
+                <option data-range-min="500">&gt; 500 releases</option>
               </select>
             </div>
 
@@ -128,8 +147,7 @@
               <label class="block text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-1">
                 Time Lag
               </label>
-              <select data-filter-type="range" data-filter-id="time-lag" data-target-id="time-lag"
-                @change="applyFilters($event)" class="w-full h-9 rounded-md bg-gray-50 dark:bg-gray-900
+              <select data-filter-type="range" data-target-id="time-lag" class="w-full h-9 rounded-md bg-gray-50 dark:bg-gray-900
                  border border-gray-300 dark:border-gray-600
                  px-3 text-sm text-gray-800 dark:text-gray-100 
                  focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500">
@@ -144,7 +162,7 @@
             <div class="flex items-center gap-2 lg:ml-auto pt-1">
 
               <!-- Reset -->
-              <button @click="resetFilters" class="flex items-center h-9 px-3 rounded-md
+              <button id="reset-filters-btn" class="flex items-center h-9 px-3 rounded-md
                  border border-gray-300 dark:border-gray-600
                  text-sm text-gray-700 dark:text-gray-300
                  hover:bg-gray-100 dark:hover:bg-gray-700 transition">
@@ -173,7 +191,17 @@
         <table id="report" class="min-w-full text-left border-collapse">
           <thead class="bg-gray-100 dark:bg-gray-700/50 text-gray-700 dark:text-gray-200">
             <tr>
-              <th class="px-6 py-3 font-semibold">Dependency</th>
+              <th class="px-6 py-3 font-semibold">
+                <span class="flex items-center space-x-2">
+                  <span>Dependency</span>
+                  <a href="javascript:void(0)" class="hidden" data-sort-target-id="name" data-state-id="asc"><span
+                      class="material-symbols-rounded text-base text-gray-500 dark:text-gray-300 text-xl mr-2 mt-1">arrow_upward</span></a>
+                  <a href="javascript:void(0);" class="hidden" data-sort-target-id="name" data-state-id="desc"><span
+                      class="material-symbols-rounded text-base text-gray-500 dark:text-gray-300 text-xl mr-2 mt-1">arrow_downward</span></a>
+                  <a href="javascript:void(0);" data-sort-target-id="name" data-state-id="none"><span
+                      class="material-symbols-rounded text-base text-gray-500 dark:text-gray-300 text-xl mr-2 mt-1">sort_by_alpha</span></a>
+                </span>
+              </th>
               <th class="px-6 py-3 font-semibold">Lag Status</th>
               <th class="px-6 py-3 font-semibold">Installed</th>
               <th class="px-6 py-3 font-semibold">Latest</th>
@@ -183,14 +211,22 @@
           </thead>
           <tbody>
 
-            {% for dep in production_dependencies %}
+            {% for dep in dependencies %}
             <!-- Row -->
-            <tr data-id="is-dev-dependency" data-value="{{ dep.is_dev_dependency }}"
+            <tr
               class=" border-t border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/30 transition">
-              <td data-id="name" data-value="{{ dep.package_name }}" class="px-6 py-3"><a
-                  href="https://npmjs.com/package/{{ dep.package_name }}" target="_blank"
-                  class="text-blue-600 dark:text-blue-400 hover:underline">{{ dep.package_name }}</a></td>
-              <td data-id="version-diff-index" data-value="{{ dep.versions_diff_index }}" class=" px-6 py-3">
+              <td data-id="name" data-value="{{ dep.package_name }}" class="px-6 py-3">
+                <div class="flex items-center space-x-2">
+                  <a href="https://npmjs.com/package/{{ dep.package_name }}" target="_blank"
+                    class="text-blue-600 dark:text-blue-400 hover:underline">{{ dep.package_name }}</a>
+                  {% if dep.is_dev_dependency %}
+                  <span
+                    class="material-symbols-rounded text-base text-gray-500 dark:text-gray-300 text-xl mr-2">logo_dev</span>
+                  {% endif %}
+                </div>
+                <span class="hidden" data-id="is-dev-dependency" data-value="{{ dep.is_dev_dependency }}" />
+              </td>
+              <td data-id="version-diff-index" data-value="{{ dep.versions_diff_index.diff_name }}" class=" px-6 py-3">
                 {% versions_difference dep.versions_diff_index %}
               </td>
               <td data-id="installed-version" data-value="{{ dep.installed_version }}"
@@ -351,8 +387,7 @@
 </body>
 <script type="text/javascript">
   const FILTER_RANGE = 'range';
-  const FILTER_VALUE = 2;
-  const FILTER_BOOLEAN = 3;
+  const FILTER_VALUE = 'value';
 
   class TableFilter {
     constructor(tableId) {
@@ -369,6 +404,11 @@
             case FILTER_RANGE:
               const cellValue = parseFloat(valueRaw);
               if (!isNaN(cellValue) && (cellValue < filter.min || cellValue > filter.max)) {
+                return true;
+              }
+              break;
+            case FILTER_VALUE:
+              if (filter.value && filter.value !== '' && valueRaw !== filter.value) {
                 return true;
               }
               break;
@@ -390,56 +430,185 @@
       });
     }
   }
-</script>
-<script type="module">
-  import { createApp, toRaw } from 'https://unpkg.com/vue@3/dist/vue.esm-browser.js'
   const tableFilter = new TableFilter('report');
-  const app = createApp({
-    data() {
+  const filters = {};
 
-      return {
-        filters: {}
+  function applyFilters(event) {
+    const target = event.target;
+    const selected = target.selectedOptions[0] ?? null;
+    const filterBase = {
+      type: target.getAttribute('data-filter-type'),
+      target: target.getAttribute('data-target-id'),
+    };
+
+    if (filterBase.type === FILTER_RANGE) {
+      const rangeMin = parseFloat(selected.getAttribute('data-range-min'));
+      const rangeMax = parseFloat(selected.getAttribute('data-range-max'));
+      filters[filterBase.target] = {
+        ...filterBase,
+        min: isNaN(rangeMin) ? 0 : rangeMin,
+        max: isNaN(rangeMax) ? Infinity : rangeMax
+      };
+    } else if (filterBase.type === FILTER_VALUE) {
+      filters[filterBase.target] = {
+        ...filterBase,
+        value: selected.getAttribute('value')
+      };
+    }
+
+    tableFilter.applyFilters(Object.values(filters));
+  }
+
+  function resetFilters() {
+    for (const key in filters) {
+      delete filters[key];
+    }
+    // Reset all select elements to their default 'All' option
+    document.querySelectorAll('select[data-filter-type]').forEach(select => {
+      select.value = 'All';
+    });
+    tableFilter.resetFilters();
+  }
+
+  document.addEventListener('DOMContentLoaded', () => {
+    // Attach event listeners to filter selects
+    document.querySelectorAll('select[data-filter-type]').forEach(select => {
+      select.addEventListener('change', applyFilters);
+    });
+
+    // Attach event listener to the reset button
+    document.getElementById('reset-filters-btn').addEventListener('click', resetFilters);
+
+    // Initial filter application in case of pre-selected options (though not in this HTML)
+    document.querySelectorAll('select[data-filter-type]').forEach(select => {
+      if (select.value !== 'All') {
+        const event = new Event('change');
+        select.dispatchEvent(event);
       }
-    },
-    methods: {
-      applyFilters({ target }) {
-        const selected = target.selectedOptions[0] ?? null;
-        const filterId = target.getAttribute('data-filter-id');
-        const filterType = target.getAttribute('data-filter-type');
-        const filterTarget = target.getAttribute('data-target-id');
+    });
+  });
 
-        console.log('EVENT', {
-          target,
-          selected,
-          filterId,
-          filterType,
-          filterTarget
-        })
+  // Search functionality
+  document.querySelector('input[type="text"]').addEventListener('input', (event) => {
+    const searchTerm = event.target.value.toLowerCase();
+    tableFilter.rows.forEach(row => {
+      const dependencyName = row.querySelector('[data-id="name"]').textContent.toLowerCase();
+      if (dependencyName.includes(searchTerm)) {
+        row.classList.remove('hidden');
+      } else {
+        row.classList.add('hidden');
+      }
+    });
+  });
+  document.getElementById('repoert-help-toggle').addEventListener('click', () => {
+    document.getElementById('report-help').classList.toggle('hidden');
+  });
 
-        if (filterType === FILTER_RANGE) {
-          const rangeMin = parseFloat(selected.getAttribute('data-range-min'));
-          const rangeMax = parseFloat(selected.getAttribute('data-range-max'));
-          this.filters[filterId] = {
-            id: filterId,
-            type: FILTER_RANGE,
-            target: filterTarget,
-            min: isNaN(rangeMin) ? 0 : rangeMin,
-            max: isNaN(rangeMax) ? Infinity : rangeMax
-          };
+  // Sorting functionality
+  class TableSorter {
+    constructor(tableId) {
+      this.table = document.querySelector(`#${tableId}`);
+      this.tbody = this.table.querySelector('tbody');
+      this.rows = Array.from(this.tbody.querySelectorAll('tr'));
+      this.currentSort = {
+        column: null,
+        direction: 'none'
+      }; // 'none', 'asc', 'desc'
+    }
+
+    sort(columnId, direction) {
+      this.currentSort.column = columnId;
+      this.currentSort.direction = direction;
+      console.log(columnId, direction);
+
+      this.rows.sort((rowA, rowB) => {
+        const cellA = rowA.querySelector(`[data-id="${columnId}"]`);
+        const cellB = rowB.querySelector(`[data-id="${columnId}"]`);
+
+        let valueA = cellA ? cellA.getAttribute('data-value') || cellA.textContent : '';
+        let valueB = cellB ? cellB.getAttribute('data-value') || cellB.textContent : '';
+
+        // Handle numeric values
+        if (!isNaN(valueA) && !isNaN(valueB) && valueA !== '' && valueB !== '') {
+          valueA = parseFloat(valueA);
+          valueB = parseFloat(valueB);
+        } else {
+          valueA = valueA.toLowerCase();
+          valueB = valueB.toLowerCase();
         }
 
-        tableFilter.applyFilters(Object.values(this.filters).map(toRaw));
-      },
-      resetFilters(value) {
-        this.filters = {};
-        tableFilter.resetFilters();
-      }
+        if (valueA < valueB) {
+          return direction === 'asc' ? -1 : 1;
+        }
+        if (valueA > valueB) {
+          return direction === 'asc' ? 1 : -1;
+        }
+        return 0;
+      });
+
+      this.renderSortedRows();
     }
-  })
 
+    renderSortedRows() {
+      this.tbody.innerHTML = '';
+      this.rows.forEach(row => {
+        this.tbody.appendChild(row);
+      });
+    }
 
-  app.config.compilerOptions.delimiters = ['[[', ']]'];
-  app.mount('#app')
+    resetSort() {
+      this.currentSort = {
+        column: null,
+        direction: 'none'
+      };
+      // Re-append rows in their original order (if stored, otherwise just render current state)
+      this.renderSortedRows();
+    }
+  }
+
+  const tableSorter = new TableSorter('report');
+  const SORT_STATE_PROGRESSION = ['none', 'asc', 'desc'];
+  document.querySelectorAll('a[data-sort-target-id]').forEach(sort => {
+    sort.addEventListener('click', (event) => {
+      const element = event.target.parentElement;
+      const columnId = element.getAttribute('data-sort-target-id');
+      const stateId = element.getAttribute('data-state-id');
+      // Determine next state
+      const currentIndex = SORT_STATE_PROGRESSION.indexOf(stateId);
+      const nextIndex = (currentIndex + 1) % SORT_STATE_PROGRESSION.length;
+      const nextState = SORT_STATE_PROGRESSION[nextIndex];
+
+      // Show the icon for the next state
+      element.classList.add('hidden');
+      document.querySelector(`a[data-sort-target-id="${columnId}"][data-state-id="${nextState}"]`).classList.remove('hidden');
+
+      if (nextState === 'none') {
+        tableSorter.resetSort();
+      } else {
+        tableSorter.sort(columnId, nextState);
+      }
+      /*
+      // Hide all other sort icons for this column
+      document.querySelectorAll(`a[data-sort-target-id="${columnId}"]`).forEach(el => {
+        if (el !== element) {
+          el.classList.add('hidden');
+        }
+      });
+
+      // Reset other columns to 'none' state
+      document.querySelectorAll('a[data-sort-target-id]').forEach(otherSortLink => {
+        const otherColumnId = otherSortLink.getAttribute('data-sort-target-id');
+        if (otherColumnId !== columnId) {
+          otherSortLink.classList.add('hidden');
+          if (otherSortLink.getAttribute('data-state-id') === 'none') {
+            otherSortLink.classList.remove('hidden');
+          }
+        }
+      });
+      */
+
+    });
+  });
 </script>
 
 </html>

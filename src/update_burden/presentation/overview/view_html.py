@@ -29,8 +29,8 @@ def display_view(project_overview: ProjectOverviewSummary,
     rendered_html = template.render(
         project_overview=project_overview,
         lag_threshold_days=lag_threshold_days,
-        production_dependencies=project_overview.production_packages,
-        dev_dependencies=project_overview.development_packages
+        dependencies=project_overview.production_packages +
+        project_overview.development_packages,
     )
 
     target_path = os.path.join(destination, "overview_report.html")
