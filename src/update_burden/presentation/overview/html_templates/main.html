@@ -1,6 +1,15 @@
 <!doctype html>
-
 <html lang="en"> <!--  class="dark" Remove "dark" to default to light mode -->
+
+{% macro sort_control(target) -%}
+<a href="javascript:void(0)" class="hidden" data-sort-target-id="{{ target }}" data-state-id="asc"><span
+    class="material-symbols-rounded text-base text-gray-500 dark:text-gray-300 text-xl mr-2 mt-1">arrow_upward</span></a>
+<a href="javascript:void(0);" class="hidden" data-sort-target-id="{{ target }}" data-state-id="desc"><span
+    class="material-symbols-rounded text-base text-gray-500 dark:text-gray-300 text-xl mr-2 mt-1">arrow_downward</span></a>
+<a href="javascript:void(0);" data-sort-target-id="{{ target }}" data-state-id="none"><span
+    class="material-symbols-rounded text-base text-gray-500 dark:text-gray-300 text-xl mr-2 mt-1">sort_by_alpha</span></a>
+{%- endmacro %}
+
 
 <head>
   <meta charset="utf-8" />
@@ -171,7 +180,7 @@
               </button>
 
               <!-- Export -->
-              <button class="flex items-center h-9 px-4 rounded-md
+              <button id="download-csv" class="flex items-center h-9 px-4 rounded-md
                  bg-blue-600 hover:bg-blue-700
                  text-sm text-white font-medium transition">
                 Download CSV
@@ -193,27 +202,47 @@
             <tr>
               <th class="px-6 py-3 font-semibold">
                 <span class="flex items-center space-x-2">
-                  <span>Dependency</span>
-                  <a href="javascript:void(0)" class="hidden" data-sort-target-id="name" data-state-id="asc"><span
-                      class="material-symbols-rounded text-base text-gray-500 dark:text-gray-300 text-xl mr-2 mt-1">arrow_upward</span></a>
-                  <a href="javascript:void(0);" class="hidden" data-sort-target-id="name" data-state-id="desc"><span
-                      class="material-symbols-rounded text-base text-gray-500 dark:text-gray-300 text-xl mr-2 mt-1">arrow_downward</span></a>
-                  <a href="javascript:void(0);" data-sort-target-id="name" data-state-id="none"><span
-                      class="material-symbols-rounded text-base text-gray-500 dark:text-gray-300 text-xl mr-2 mt-1">sort_by_alpha</span></a>
+                  <span data-label-for="name">Dependency</span>
+                  {{ sort_control("name") }}
                 </span>
               </th>
-              <th class="px-6 py-3 font-semibold">Lag Status</th>
-              <th class="px-6 py-3 font-semibold">Installed</th>
-              <th class="px-6 py-3 font-semibold">Latest</th>
-              <th class="px-6 py-3 font-semibold">Releases Lag</th>
-              <th class="px-6 py-3 font-semibold">Time Lag</th>
+              <th class="px-6 py-3 font-semibold">
+                <span class="flex items-center space-x-2">
+                  <span data-label-for="version-diff-index">Lag Status</span>
+                  {{ sort_control("version-diff-index") }}
+                </span>
+              </th>
+              <th class="px-6 py-3 font-semibold">
+                <span class="flex items-center space-x-2">
+                  <span data-label-for="installed-version">Installed</span>
+                  {{ sort_control("installed-version") }}
+                </span>
+              </th>
+              <th class="px-6 py-3 font-semibold">
+                <span class="flex items-center space-x-2">
+                  <span data-label-for="latest-version">Latest</span>
+                  {{ sort_control("latest-version") }}
+                </span>
+              </th>
+              <th class="px-6 py-3 font-semibold">
+                <span class="flex items-center space-x-2">
+                  <span data-label-for="releases-lag">Releases Lag</span>
+                  {{ sort_control("releases-lag") }}
+                </span>
+              </th>
+              <th class="px-6 py-3 font-semibold">
+                <span class="flex items-center space-x-2">
+                  <span data-label-for="time-lag">Time Lag</span>
+                  {{ sort_control("time-lag") }}
+                </span>
+              </th>
             </tr>
           </thead>
           <tbody>
 
             {% for dep in dependencies %}
             <!-- Row -->
-            <tr
+            <tr data-row-id="{{ loop.index }}"
               class=" border-t border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/30 transition">
               <td data-id="name" data-value="{{ dep.package_name }}" class="px-6 py-3">
                 <div class="flex items-center space-x-2">
@@ -519,14 +548,28 @@
     sort(columnId, direction) {
       this.currentSort.column = columnId;
       this.currentSort.direction = direction;
-      console.log(columnId, direction);
 
       this.rows.sort((rowA, rowB) => {
+        // default sort
+        if (this.currentSort.column === null) {
+          const cellA = parseInt(rowA.getAttribute('data-row-id'), 10);
+          const cellB = parseInt(rowB.getAttribute('data-row-id'), 10);
+          if (cellA === cellB) {
+            return 0;
+          }
+
+          return cellA > cellB ? 1 : -1;
+        }
+
         const cellA = rowA.querySelector(`[data-id="${columnId}"]`);
         const cellB = rowB.querySelector(`[data-id="${columnId}"]`);
 
-        let valueA = cellA ? cellA.getAttribute('data-value') || cellA.textContent : '';
-        let valueB = cellB ? cellB.getAttribute('data-value') || cellB.textContent : '';
+        let valueA = cellA
+          ? cellA.getAttribute('data-value')
+          : '';
+        let valueB = cellB
+          ? cellB.getAttribute('data-value')
+          : '';
 
         // Handle numeric values
         if (!isNaN(valueA) && !isNaN(valueB) && valueA !== '' && valueB !== '') {
@@ -562,12 +605,19 @@
         direction: 'none'
       };
       // Re-append rows in their original order (if stored, otherwise just render current state)
+      this.sort(null, 'none');
       this.renderSortedRows();
     }
   }
 
   const tableSorter = new TableSorter('report');
   const SORT_STATE_PROGRESSION = ['none', 'asc', 'desc'];
+
+  const resetSortUI = () => {
+    document.querySelectorAll(`a[data-sort-target-id]`).forEach(el => el.classList.add('hidden'));
+    document.querySelectorAll(`a[data-state-id="none"]`).forEach(el => el.classList.remove('hidden'));
+  }
+
   document.querySelectorAll('a[data-sort-target-id]').forEach(sort => {
     sort.addEventListener('click', (event) => {
       const element = event.target.parentElement;
@@ -578,37 +628,50 @@
       const nextIndex = (currentIndex + 1) % SORT_STATE_PROGRESSION.length;
       const nextState = SORT_STATE_PROGRESSION[nextIndex];
 
+      if (columnId !== tableSorter.currentSort.column) {
+        resetSortUI();
+      }
+
       // Show the icon for the next state
       element.classList.add('hidden');
       document.querySelector(`a[data-sort-target-id="${columnId}"][data-state-id="${nextState}"]`).classList.remove('hidden');
-
       if (nextState === 'none') {
         tableSorter.resetSort();
       } else {
         tableSorter.sort(columnId, nextState);
       }
-      /*
-      // Hide all other sort icons for this column
-      document.querySelectorAll(`a[data-sort-target-id="${columnId}"]`).forEach(el => {
-        if (el !== element) {
-          el.classList.add('hidden');
-        }
-      });
-
-      // Reset other columns to 'none' state
-      document.querySelectorAll('a[data-sort-target-id]').forEach(otherSortLink => {
-        const otherColumnId = otherSortLink.getAttribute('data-sort-target-id');
-        if (otherColumnId !== columnId) {
-          otherSortLink.classList.add('hidden');
-          if (otherSortLink.getAttribute('data-state-id') === 'none') {
-            otherSortLink.classList.remove('hidden');
-          }
-        }
-      });
-      */
-
     });
   });
+
+  // CSV Export functionality
+  document.getElementById('download-csv').addEventListener('click', () => {
+    const rows = tableSorter.rows;
+    let csvContent = "data:text/csv;charset=utf-8,";
+
+    const headers = [];
+    document.querySelectorAll('[data-label-for]')
+      .forEach(header => headers.push([header.getAttribute('data-label-for'), header.textContent.trim()]));
+
+    csvContent += headers.map(([headerId, headerText]) => `"${headerText}"`).join(',') + '\n';
+    rows.forEach(row => {
+      const rowData = [];
+      for (const [headerId, headerText] of headers) {
+        const cell = row.querySelector(`[data-id="${headerId}"]`);
+        rowData.push(`"${cell.getAttribute('data-value')}"`);
+      }
+
+      csvContent += rowData.join(',') + '\n';
+    });
+
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement('a');
+    link.setAttribute('href', encodedUri);
+    link.setAttribute('download', 'dependency_report.csv');
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  });
+
 </script>
 
 </html>
