@@ -1,13 +1,13 @@
 """
 Factory to map possile views with respective presentation types
 """
-from update_burden.domain.common import (
+from ossiq.domain.common import (
     Command,
     PresentationType,
     UnknownCommandException,
     UnknownPresentationType
 )
-from update_burden.presentation.common import PRESENTATION_MAP
+from ossiq.presentation.common import PRESENTATION_MAP
 
 
 def get_presentation_view(command: Command, presentation_type: PresentationType) -> callable:

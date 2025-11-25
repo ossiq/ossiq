@@ -5,7 +5,7 @@ Filter to format difference in versions.
 from jinja2.ext import Extension
 from jinja2 import nodes
 
-from update_burden.domain.version import (
+from ossiq.domain.version import (
     VERSION_DIFF_TYPES_MAP,
     VersionsDifference,
 )

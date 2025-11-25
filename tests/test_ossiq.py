@@ -1,9 +1,7 @@
 #!/usr/bin/env python
 import pytest
 
-"""Tests for `update_burden` package."""
-
-# from update_burden import update_burden
+"""Tests for `ossiq` package."""
 
 
 @pytest.fixture

@@ -2,14 +2,14 @@
 Package Unit Of Work pattern to isolate
 I/O for external sources
 """
-from update_burden.adapters.api import (
+from ossiq.adapters.api import (
     get_package_registry,
     get_source_code_provider
 )
-from update_burden.adapters.api_interfaces import AbstractSourceCodeProviderApi
-from update_burden.settings import Settings
-from update_burden.domain.common import ProjectPackagesRegistryKind
-from update_burden.unit_of_work.core import AbstractProjectUnitOfWork
+from ossiq.adapters.api_interfaces import AbstractSourceCodeProviderApi
+from ossiq.settings import Settings
+from ossiq.domain.common import ProjectPackagesRegistryKind
+from ossiq.unit_of_work.core import AbstractProjectUnitOfWork
 
 
 class ProjectUnitOfWork(AbstractProjectUnitOfWork):

@@ -6,14 +6,13 @@ versions out of scope.
 
 from typing import Iterable, List, Tuple
 
-from update_burden.domain.package import Package
-from update_burden.unit_of_work.core import AbstractProjectUnitOfWork
-from update_burden.domain.common import (
+from ossiq.unit_of_work.core import AbstractProjectUnitOfWork
+from ossiq.domain.common import (
     NoPackageVersionsFound,
     identify_project_source_code_provider_kind
 )
-from update_burden.domain.repository import Repository
-from update_burden.domain.version import (
+from ossiq.domain.repository import Repository
+from ossiq.domain.version import (
     PackageVersion,
     RepositoryVersion,
     Version,

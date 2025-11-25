@@ -10,11 +10,11 @@ from typing import Iterable
 import requests
 from rich.console import Console
 
-from update_burden.adapters.api_interfaces import AbstractPackageRegistryApi
-from update_burden.domain.common import ProjectPackagesRegistryKind
-from update_burden.domain.package import Package
-from update_burden.domain.project import Project
-from update_burden.domain.version import PackageVersion
+from ossiq.adapters.api_interfaces import AbstractPackageRegistryApi
+from ossiq.domain.common import ProjectPackagesRegistryKind
+from ossiq.domain.package import Package
+from ossiq.domain.project import Project
+from ossiq.domain.version import PackageVersion
 
 console = Console()
 

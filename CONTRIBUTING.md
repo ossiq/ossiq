@@ -8,7 +8,7 @@ You can contribute in many ways:
 
 ### Report Bugs
 
-Report bugs at https://github.com/mklymyshyn/update_burden/issues.
+Report bugs at https://github.com/mklymyshyn/ossiq/issues.
 
 If you are reporting a bug, please include:
 
@@ -30,7 +30,7 @@ Update Burden could always use more documentation, whether as part of the offici
 
 ### Submit Feedback
 
-The best way to send feedback is to file an issue at https://github.com/mklymyshyn/update_burden/issues.
+The best way to send feedback is to file an issue at https://github.com/mklymyshyn/ossiq-cli/issues.
 
 If you are proposing a feature:
 
@@ -40,20 +40,20 @@ If you are proposing a feature:
 
 ## Get Started!
 
-Ready to contribute? Here's how to set up `update_burden` for local development.
+Ready to contribute? Here's how to set up `ossiq-cli` for local development.
 
-1. Fork the `update_burden` repo on GitHub.
+1. Fork the `ossiq-cli` repo on GitHub.
 2. Clone your fork locally:
 
    ```sh
-   git clone git@github.com:your_name_here/update_burden.git
+   git clone git@github.com:your_name_here/ossiq-cli.git
    ```
 
 3. Install your local copy into a virtualenv. Assuming you have virtualenvwrapper installed, this is how you set up your fork for local development:
 
    ```sh
-   mkvirtualenv update_burden
-   cd update_burden/
+   mkvirtualenv ossiq-cli
+   cd ossiq-cli/
    python setup.py develop
    ```
 
@@ -99,7 +99,7 @@ Before you submit a pull request, check that it meets these guidelines:
 To run a subset of tests:
 
 ```sh
-pytest tests.test_update_burden
+pytest tests.test_ossiq
 ```
 
 ## Deploying

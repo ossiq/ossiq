@@ -3,11 +3,11 @@ View for overview command for HTML view
 """
 
 import os
-from update_burden.domain.exceptions import DestinationDoesntExist
-from update_burden.presentation.html.template_environment import (
+from ossiq.domain.exceptions import DestinationDoesntExist
+from ossiq.presentation.html.template_environment import (
     configure_template_environment,
 )
-from update_burden.service.project import ProjectOverviewSummary
+from ossiq.service.project import ProjectOverviewSummary
 
 
 def display_view(project_overview: ProjectOverviewSummary,

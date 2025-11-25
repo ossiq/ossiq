@@ -3,7 +3,7 @@
 from pydantic import BaseModel, Field
 from typing import ClassVar
 
-ENV_PREFIX = "UPDATE_BURDEN_"
+ENV_PREFIX = "OSSIQ_"
 
 
 class Settings(BaseModel):

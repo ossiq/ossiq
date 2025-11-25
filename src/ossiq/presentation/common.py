@@ -3,8 +3,8 @@ Presentation-related types and Mapping between commands and respective views
 """
 
 
-from update_burden.domain.common import Command, PresentationType
-from update_burden.presentation.overview import view_console, view_html
+from ossiq.domain.common import Command, PresentationType
+from ossiq.presentation.overview import view_console, view_html
 
 
 # Mapping between commands and presentation renderers

@@ -1,1 +1,1 @@
-"""Unit test package for update_burden."""
+"""Unit test package for ossiq-cli."""

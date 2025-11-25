@@ -11,10 +11,10 @@ from jinja2 import (
     select_autoescape
 )
 
-from update_burden.presentation.html.filter_format_highlight_days import (
+from ossiq.presentation.html.filter_format_highlight_days import (
     FormatHighlightDaysFilterExtension
 )
-from update_burden.presentation.html.tag_versions_difference import (
+from ossiq.presentation.html.tag_versions_difference import (
     VersionsDifferenceTagExtension
 )
 
@@ -32,10 +32,10 @@ def configure_template_environment(base_template: str):
     env = Environment(
         loader=ChoiceLoader([
             PackageLoader(
-                "update_burden",
+                "ossiq",
                 package_path="./presentation/html_templates"),
             PackageLoader(
-                "update_burden",
+                "ossiq",
                 package_path=templates_path)
         ]),
         extensions=[

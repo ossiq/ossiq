@@ -4,7 +4,7 @@ Filter to format days into a human-readable string.
 from markupsafe import Markup
 from jinja2.ext import Extension
 
-from update_burden.timeutil import format_time_days
+from ossiq.timeutil import format_time_days
 
 
 class FormatHighlightDaysFilterExtension(Extension):

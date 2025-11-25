@@ -1,13 +1,13 @@
 """
+Presentation-related system-level functions
 """
 from contextlib import contextmanager
-from typing import Callable
 
 from rich.console import Console
 from rich.panel import Panel
 from rich.text import Text
 
-from update_burden.settings import Settings
+from ossiq.settings import Settings
 
 console = Console()
 error_console = Console(stderr=True)

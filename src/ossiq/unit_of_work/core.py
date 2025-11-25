@@ -4,15 +4,15 @@ Different types of abstract Unit of Works
 
 import abc
 
-from update_burden.adapters.api_interfaces import (
+from ossiq.adapters.api_interfaces import (
     AbstractPackageRegistryApi,
     AbstractSourceCodeProviderApi
 )
-from update_burden.domain.common import (
+from ossiq.domain.common import (
     RepositoryProviderType,
     ProjectPackagesRegistryKind
 )
-from update_burden.settings import Settings
+from ossiq.settings import Settings
 
 
 class AbstractProjectUnitOfWork(abc.ABC):

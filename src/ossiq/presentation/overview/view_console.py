@@ -8,7 +8,7 @@ from rich.table import Table
 from rich.panel import Panel
 from rich.text import Text
 
-from update_burden.domain.version import (
+from ossiq.domain.version import (
     VERSION_DIFF_BUILD,
     VERSION_DIFF_MAJOR,
     VERSION_DIFF_MINOR,
@@ -18,8 +18,8 @@ from update_burden.domain.version import (
     VersionsDifference,
     difference_versions
 )
-from update_burden.service.project import ProjectOverviewRecord, ProjectOverviewSummary
-from update_burden.timeutil import format_time_days
+from ossiq.service.project import ProjectOverviewRecord, ProjectOverviewSummary
+from ossiq.timeutil import format_time_days
 
 console = Console()
 

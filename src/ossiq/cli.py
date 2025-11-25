@@ -1,13 +1,13 @@
-"""Console script for update_burden."""
+"""Console script for ossiq-cli."""
 
 from typing import Annotated
 import typer
 
 from rich.console import Console
 
-from update_burden.commands.overview import commnad_overview
-from update_burden.domain.common import PresentationType
-from update_burden.messages import (
+from ossiq.commands.overview import commnad_overview
+from ossiq.domain.common import PresentationType
+from ossiq.messages import (
     ARGS_HELP_GITHUB_TOKEN,
     ARGS_HELP_OUTPUT,
     ARGS_HELP_PRESENTATION,
@@ -15,9 +15,9 @@ from update_burden.messages import (
     HELP_PRODUCTION_ONLY,
     HELP_TEXT,
 )
-from update_burden.presentation.system import show_settings
+from ossiq.presentation.system import show_settings
 
-from update_burden.settings import Settings
+from ossiq.settings import Settings
 
 
 app = typer.Typer()
@@ -83,7 +83,7 @@ def main(
 
 @app.command()
 def help():
-    """Console script for update_burden."""
+    """Console script for ossiq-cli."""
     console.print(HELP_TEXT)
 
 

@@ -4,17 +4,17 @@ Project packages overview command
 import sys
 import typer
 
-from update_burden.domain.common import identify_project_registry_kind
-from update_burden.presentation.system import show_error, show_operation_progress, show_settings
-from update_burden.presentation.views import (
+from ossiq.domain.common import identify_project_registry_kind
+from ossiq.presentation.system import show_error, show_operation_progress, show_settings
+from ossiq.presentation.views import (
     Command,
     get_presentation_view
 )
-from update_burden.settings import Settings
-from update_burden.unit_of_work import uow_project
-from update_burden import timeutil
-from update_burden.service import project
-from update_burden.messages import ERROR_EXIT_OUTDATED_PACKAGES
+from ossiq.settings import Settings
+from ossiq.unit_of_work import uow_project
+from ossiq import timeutil
+from ossiq.service import project
+from ossiq.messages import ERROR_EXIT_OUTDATED_PACKAGES
 
 
 def commnad_overview(

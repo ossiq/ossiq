@@ -5,8 +5,8 @@ Interfaces related to external APIs
 import abc
 from typing import Iterable, List
 
-from update_burden.domain.package import Package
-from update_burden.domain.project import Project
+from ossiq.domain.package import Package
+from ossiq.domain.project import Project
 
 from ..domain.repository import Repository
 from ..domain.version import PackageVersion

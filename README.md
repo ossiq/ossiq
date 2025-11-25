@@ -12,8 +12,7 @@ Utility to forecast risks associated with currently installed packages updates
 ## Usage
 
 ```bash
-UPDATE_BURDEN_GITHUB_TOKEN=$(gh auth token) \
-  hatch run update-burden --verbose overview testdata/npm/project1/
+OSSIQ_GITHUB_TOKEN=$(gh auth token) uv run hatch run ossiq-cli --verbose overview testdata/npm/project1/
 ```
 
 ## Features

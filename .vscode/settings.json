@@ -14,12 +14,11 @@
   ],
 
   // 5. Linting: Enable Pylint
-  "python.linting.enabled": true,
-  "python.linting.lintOnSave": true,
-  "python.linting.pylintEnabled": true,
+  "pylint.enabled": true,
+  "pylint.lintOnChange": true,
 
   // 6. Pylint Configuration: Use the custom pylintrc file
-  "python.linting.pylintArgs": [
+  "pylint.pylintArgs": [
       "--rcfile=${workspaceFolder}/pylintrc"
   ],
   "files.exclude": {

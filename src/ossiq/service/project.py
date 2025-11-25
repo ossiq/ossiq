@@ -7,14 +7,14 @@ from datetime import datetime
 from typing import List
 
 from rich.console import Console
-from update_burden.domain.project import Project
-from update_burden.domain.version import (
+from ossiq.domain.project import Project
+from ossiq.domain.version import (
     compare_versions,
     difference_versions,
     normalize_version
 )
-from update_burden.service.common import package_versions
-from update_burden.unit_of_work import core as unit_of_work
+from ossiq.service.common import package_versions
+from ossiq.unit_of_work import core as unit_of_work
 
 console = Console()
 
