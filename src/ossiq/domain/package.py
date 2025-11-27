@@ -4,13 +4,15 @@ Module to define abstract Package
 
 from typing import List
 
+from ossiq.domain.common import ProjectPackagesRegistry
+
 from .repository import Repository
 from .version import Version
 
 
 class Package:
     """Class for a package."""
-    registry: str
+    registry: ProjectPackagesRegistry
     name: str
     latest_version: str
     next_version: str
@@ -25,7 +27,8 @@ class Package:
     _versions: List[Version]
 
     def __init__(self,
-                 registry: str, name: str, latest_version: str, next_version: str, repo_url: str,
+                 registry: ProjectPackagesRegistry, name: str,
+                 latest_version: str, next_version: str, repo_url: str,
                  author: str = None, homepage_url: str = None, description: str = None,
                  package_url: str = None):
 

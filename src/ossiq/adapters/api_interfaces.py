@@ -3,8 +3,9 @@ Interfaces related to external APIs
 """
 
 import abc
-from typing import Iterable, List
+from typing import Iterable, List, Set
 
+from ossiq.domain.cve import CVE
 from ossiq.domain.package import Package
 from ossiq.domain.project import Project
 
@@ -55,6 +56,25 @@ class AbstractPackageRegistryApi(abc.ABC):
         """
         Method to return a particular Project info
         with all installed dependencies with their versions
+        """
+        raise NotImplementedError
+
+    @abc.abstractmethod
+    def __repr__(self):
+        raise NotImplementedError
+
+
+class AbstractCveDatabaseApi(abc.ABC):
+    """
+    Abstract client to communicate with CVEs repositories like osv.dev or github CVE APIs
+    """
+
+    @abc.abstractmethod
+    def get_cves_for_package(
+        self, package: Package, version: PackageVersion
+    ) -> Set[CVE]:
+        """
+        Method to return a particular CVE info
         """
         raise NotImplementedError
 

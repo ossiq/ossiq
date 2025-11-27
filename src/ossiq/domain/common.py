@@ -10,13 +10,21 @@ VERSION_DATA_SOURCE_GITHUB_RELEASES = "GITHUB-RELEASES"
 VERSION_DATA_SOURCE_GITHUB_TAGS = "GITHUB-TAGS"
 
 
-class RepositoryProviderType(Enum):
+class RepositoryProvider(str, Enum):
     PROVIDER_GITHUB = "GITHUB"
 
 
-class ProjectPackagesRegistryKind(Enum):
+class ProjectPackagesRegistry(str, Enum):
     NPM = "NPM"
     PYPI = "PYPI"
+
+
+class CveDatabase(str, Enum):
+    OSV = "OSV"
+    GHSA = "GHSA"
+    NVD = "NVD"
+    SNYK = "SNYK"
+    OTHER = "OTHER"
 
 
 class PresentationType(Enum):
@@ -66,15 +74,15 @@ class PackageNotInstalled(Exception):
     pass
 
 
-def identify_project_registry_kind(project_path: str) -> ProjectPackagesRegistryKind:
+def identify_project_registry_kind(project_path: str) -> ProjectPackagesRegistry:
     """
     Identify Packages registry by typical file name
     """
 
     projects_kind_map = {
-        "package.json": ProjectPackagesRegistryKind.NPM,
-        "requirements.txt": ProjectPackagesRegistryKind.PYPI,
-        "pyproject.toml": ProjectPackagesRegistryKind.PYPI
+        "package.json": ProjectPackagesRegistry.NPM,
+        "requirements.txt": ProjectPackagesRegistry.PYPI,
+        "pyproject.toml": ProjectPackagesRegistry.PYPI
     }
 
     for dependencies_filename, registry_kind in projects_kind_map.items():
@@ -86,12 +94,12 @@ def identify_project_registry_kind(project_path: str) -> ProjectPackagesRegistry
         f"Unknown project kind at: {project_path}")
 
 
-def identify_project_source_code_provider_kind(repo_url: str) -> RepositoryProviderType:
+def identify_project_source_code_provider_kind(repo_url: str) -> RepositoryProvider:
     """
     Identify Packages registry by typical file name
     """
     if repo_url("https://github.com/"):
-        return RepositoryProviderType.PROVIDER_GITHUB
+        return RepositoryProvider.PROVIDER_GITHUB
 
     raise UnsupportedRepositoryProvider(
         f"Unknown repository provider for the URL: {repo_url}")

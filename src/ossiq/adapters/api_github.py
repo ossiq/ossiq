@@ -20,7 +20,7 @@ from ..domain.version import (
     normalize_version
 )
 from ..domain.common import (
-    RepositoryProviderType,
+    RepositoryProvider,
     VERSION_DATA_SOURCE_GITHUB_RELEASES,
     VERSION_DATA_SOURCE_GITHUB_TAGS
 )
@@ -252,7 +252,7 @@ class SourceCodeProviderApiGithub(AbstractSourceCodeProviderApi):
         _, repo_data = self._make_github_api_request(repo_api_url)
 
         return Repository(
-            provider=RepositoryProviderType.PROVIDER_GITHUB,
+            provider=RepositoryProvider.PROVIDER_GITHUB,
             name=repo_name,
             owner=owner,
             description=repo_data.get("description"),

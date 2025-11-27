@@ -5,12 +5,13 @@ Different types of abstract Unit of Works
 import abc
 
 from ossiq.adapters.api_interfaces import (
+    AbstractCveDatabaseApi,
     AbstractPackageRegistryApi,
     AbstractSourceCodeProviderApi
 )
 from ossiq.domain.common import (
-    RepositoryProviderType,
-    ProjectPackagesRegistryKind
+    RepositoryProvider,
+    ProjectPackagesRegistry
 )
 from ossiq.settings import Settings
 
@@ -22,14 +23,15 @@ class AbstractProjectUnitOfWork(abc.ABC):
 
     settings: Settings
     project_path: str
-    packages_registry_type: ProjectPackagesRegistryKind
+    packages_registry_type: ProjectPackagesRegistry
     packages_registry: AbstractPackageRegistryApi
+    cve_database: AbstractCveDatabaseApi
     production: bool
 
     @abc.abstractmethod
     def get_source_code_provider(
             self,
-            repository_provider_type: RepositoryProviderType) -> AbstractSourceCodeProviderApi:
+            repository_provider_type: RepositoryProvider) -> AbstractSourceCodeProviderApi:
         """
         Method to get source code provider by its type. The point here is that
         single project has multiple package installed and each package

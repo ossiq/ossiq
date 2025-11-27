@@ -3,12 +3,13 @@ Package Unit Of Work pattern to isolate
 I/O for external sources
 """
 from ossiq.adapters.api import (
+    get_cve_database,
     get_package_registry,
     get_source_code_provider
 )
 from ossiq.adapters.api_interfaces import AbstractSourceCodeProviderApi
 from ossiq.settings import Settings
-from ossiq.domain.common import ProjectPackagesRegistryKind
+from ossiq.domain.common import ProjectPackagesRegistry
 from ossiq.unit_of_work.core import AbstractProjectUnitOfWork
 
 
@@ -21,7 +22,7 @@ class ProjectUnitOfWork(AbstractProjectUnitOfWork):
     def __init__(self,
                  settings: Settings,
                  project_path: str,
-                 packages_registry_type: ProjectPackagesRegistryKind,
+                 packages_registry_type: ProjectPackagesRegistry,
                  production: bool = False):
         """
         Takes a single package details pulled from 
@@ -32,6 +33,7 @@ class ProjectUnitOfWork(AbstractProjectUnitOfWork):
         self.settings = settings
         self.packages_registry_type = packages_registry_type
         self.production = production
+        self.cve_database = get_cve_database()
 
     def __enter__(self):
         """

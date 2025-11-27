@@ -11,7 +11,7 @@ import requests
 from rich.console import Console
 
 from ossiq.adapters.api_interfaces import AbstractPackageRegistryApi
-from ossiq.domain.common import ProjectPackagesRegistryKind
+from ossiq.domain.common import ProjectPackagesRegistry
 from ossiq.domain.package import Package
 from ossiq.domain.project import Project
 from ossiq.domain.version import PackageVersion
@@ -57,7 +57,7 @@ class PackageRegistryApiNpm(AbstractPackageRegistryApi):
             "dist-tags", {"latest": None, "next": None})
 
         return Package(
-            registry=ProjectPackagesRegistryKind.NPM,
+            registry=ProjectPackagesRegistry.NPM,
             name=response["name"],
             latest_version=distribution_tags.get("latest", None),
             next_version=distribution_tags.get("next", None),
@@ -103,8 +103,9 @@ class PackageRegistryApiNpm(AbstractPackageRegistryApi):
             project_json = json.load(f)
             fallback_name = os.path.basename(project_path)
 
+            # FIXME: prioritize package-lock.json over package.json if possible
             return Project(
-                package_registry=ProjectPackagesRegistryKind.NPM,
+                package_registry=ProjectPackagesRegistry.NPM,
                 name=project_json.get("name", fallback_name),
                 project_path=project_path,
                 project_files=[project_file_path],

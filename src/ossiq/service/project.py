@@ -4,9 +4,10 @@ Service to take care of a Package versions
 
 from dataclasses import dataclass
 from datetime import datetime
-from typing import List
+from typing import List, Set
 
 from rich.console import Console
+from ossiq.domain.cve import CVE
 from ossiq.domain.project import Project
 from ossiq.domain.version import (
     compare_versions,
@@ -28,6 +29,7 @@ class ProjectOverviewRecord:
     versions_diff_index: int
     time_lag_days: int
     releases_lag: int
+    cve: Set[CVE]
 
 
 @dataclass
@@ -116,7 +118,18 @@ def overview_record(
         package_info.latest_version
     )
 
-    installed_version = normalize_version(package_version)
+    installed_release = next(
+        (release for release in releases_since_installed
+         if release.version == installed_version),
+        None
+    )
+
+    cves = []
+    if installed_release:
+        cves = list(uow.cve_database.get_cves_for_package(
+            package_info,
+            installed_release
+        ))
 
     return ProjectOverviewRecord(
         package_name=package_name,
@@ -126,6 +139,7 @@ def overview_record(
         releases_lag=len(releases_since_installed) - 1,
         versions_diff_index=difference_versions(
             installed_version, package_info.latest_version),
+        cve=cves,
         is_dev_dependency=is_dev_dependency
     )
 

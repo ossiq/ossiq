@@ -66,6 +66,7 @@ def table_factory(title: str,
     """
     table = Table(title=title, title_style=title_style)
     table.add_column("Dependency", justify="left", style="bold cyan")
+    table.add_column("CVEs", justify="center")
     table.add_column("Lag Status", justify="center")
     table.add_column("Installed", justify="left")
     table.add_column("Latest", justify="left")
@@ -76,6 +77,7 @@ def table_factory(title: str,
         vdiff = difference_versions(pkg.installed_version, pkg.latest_version)
         table.add_row(
             pkg.package_name,
+            f"[bold][red]{len(pkg.cve)}" if pkg.cve else "",
             _format_lag_status(vdiff),
             pkg.installed_version,
             pkg.latest_version,

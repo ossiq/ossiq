@@ -1,6 +1,6 @@
 {
   // 1. Python Interpreter: IMPORTANT - Replace "venv/bin/python" with your actual path
-  "python.defaultInterpreterPath": "../venv/bin/python",
+  "python.defaultInterpreterPath": "./venv/bin/python",
 
   // 2. Formatting: Use Black as the primary formatter
   "editor.defaultFormatter": "ms-python.black-formatter",

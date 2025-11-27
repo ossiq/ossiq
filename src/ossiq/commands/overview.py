@@ -35,6 +35,7 @@ def commnad_overview(
     })
 
     packages_registry_type = identify_project_registry_kind(project_path)
+
     uow = uow_project.ProjectUnitOfWork(
         settings=ctx["settings"],
         project_path=project_path,
