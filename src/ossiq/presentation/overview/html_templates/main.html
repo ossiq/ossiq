@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en"> <!--  class="dark" Remove "dark" to default to light mode -->
+<html lang="en" clas="light"> <!--  class="dark" Remove "dark" to default to light mode -->
 
 {% macro sort_control(target) -%}
 <a href="javascript:void(0)" class="hidden" data-sort-target-id="{{ target }}" data-state-id="asc"><span
@@ -39,7 +39,7 @@
   <!-- HEADER -->
 
   <header class="w-full bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
-    <div class="max-w-6xl mx-auto flex items-center justify-between py-4 px-6">
+    <div class="max-w-7xl mx-auto flex items-center justify-between py-4 px-6">
 
       <!-- Logo -->
       <div class="flex items-center space-x-2">
@@ -57,7 +57,7 @@
     </div>
   </header>
 
-  <main class="flex-grow max-w-6xl mx-auto p-6 space-y-6">
+  <main class="flex-grow max-w-7xl mx-auto p-6 space-y-6">
     <h1 class="text-2xl font-medium">
       <span class="flex items-center space-x-2">
         <span>
@@ -83,7 +83,7 @@
 
     <div id="app">
       <!-- FILTER BAR -->
-      <section class="max-w-6xl mx-auto mb-6">
+      <section class="max-w-7xl mx-auto mb-6">
         <div class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 
               rounded-xl px-4 py-3 shadow-sm">
 
@@ -184,7 +184,7 @@
                  bg-blue-600 hover:bg-blue-700
                  text-sm text-white font-medium transition">
                 Download CSV
-                <span class="material-symbols-rounded text-xl text-gray-500 dark:text-gray-300">
+                <span class="material-symbols-rounded text-xl text-white dark:text-gray-300">
                   download
                 </span>
               </button>
@@ -200,10 +200,16 @@
         <table id="report" class="min-w-full text-left border-collapse">
           <thead class="bg-gray-100 dark:bg-gray-700/50 text-gray-700 dark:text-gray-200">
             <tr>
-              <th class="px-6 py-3 font-semibold">
+              <th class="px-6 py-3 font-semibold" width="18%">
                 <span class="flex items-center space-x-2">
                   <span data-label-for="name">Dependency</span>
                   {{ sort_control("name") }}
+                </span>
+              </th>
+              <th class="px-6 py-3 font-semibold text-left">
+                <span class="flex items-center space-x-2">
+                  <span data-label-for="cve-index">Security</span>
+                  {{ sort_control("cve-index") }}
                 </span>
               </th>
               <th class="px-6 py-3 font-semibold">
@@ -243,7 +249,7 @@
             {% for dep in dependencies %}
             <!-- Row -->
             <tr data-row-id="{{ loop.index }}"
-              class=" border-t border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/30 transition">
+              class="border-t border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/30 transition">
               <td data-id="name" data-value="{{ dep.package_name }}" class="px-6 py-3">
                 <div class="flex items-center space-x-2">
                   <a href="https://npmjs.com/package/{{ dep.package_name }}" target="_blank"
@@ -254,6 +260,16 @@
                   {% endif %}
                 </div>
                 <span class="hidden" data-id="is-dev-dependency" data-value="{{ dep.is_dev_dependency }}" />
+              </td>
+              <td data-id="cve-index" data-value="{{ dep.cve|length }}" class="text-center">
+                {% if dep.cve|length > 0 %}
+                <a href="https://osv.dev/list?q={{ dep.package_name }}&ecosystem={{ project_overview.packages_registry|lower }}"
+                  target="_blank" class="inline-flex items-center gap-1 px-2 py-0 rounded-full text-xs font-semibold
+                              text-white bg-[#DE4514] dark:bg-[#DE4514]/90">
+                  <span class="material-symbols-rounded pt-0.5 text-base text-md">security</span>
+                  {{ dep.cve|length }} CVE{% if dep.cve|length > 1 %}s{% endif %}
+                </a>
+                {% endif %}
               </td>
               <td data-id="version-diff-index" data-value="{{ dep.versions_diff_index.diff_name }}" class=" px-6 py-3">
                 {% versions_difference dep.versions_diff_index %}
@@ -279,7 +295,7 @@
     </section>
 
     <!-- LEGEND -->
-    <section class="max-w-6xl mx-auto mb-6">
+    <section class="max-w-7xl mx-auto mb-6">
       <div class="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-sm p-4">
         <h2 class="text-sm font-semibold tracking-wide uppercase text-gray-600 dark:text-gray-300 mb-3">
           Legend
@@ -388,7 +404,7 @@
   <!-- FOOTER -->
   <footer class="w-full border-t border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 py-6 mt-4">
 
-    <div class="max-w-6xl mx-auto px-6 text-center space-y-1">
+    <div class="max-w-7xl mx-auto px-6 text-center space-y-1">
 
       <p class="text-sm text-gray-600 dark:text-gray-400">
         Released under the
@@ -415,6 +431,7 @@
 
 </body>
 <script type="text/javascript">
+  // FIXME: refactor to vue.js/proper TS project
   const FILTER_RANGE = 'range';
   const FILTER_VALUE = 'value';
 
