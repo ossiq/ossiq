@@ -4,15 +4,45 @@ version = "0.1.0"
 description = "Utility to forecast risks associated with currently installed packages updates"
 readme = "README.md"
 authors = [
-  {name = "Maksym Klymyshyn", email = "klymyshyn@gmail.com"}
+  {name = "Maksym Klymyshyn", email = "klymyshyn@gmail.com"},
+  {name = "Oleksandr Shulika", email = "oleksandr.shulika@gmail.com"}
 ]
 maintainers = [
   {name = "Maksym Klymyshyn", email = "klymyshyn@gmail.com"}
 ]
 classifiers = [
-    "OSI Approved :: GNU General Public License v3 (GPLv3)"
+    "License :: OSI Approved :: GNU Affero General Public License v3",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Information Technology"
+    "Development Status :: 3 - Alpha",
+    
+    "Topic :: Software Development :: Build Tools",
+    "Topic :: Scientific/Engineering :: Information Analysis",
+    "Topic :: Software Development :: Version Control",    
+    "Topic :: Security",
+    "Topic :: Software Development",
+
+    "Programming Language :: Python :: 3",  
+    "Topic :: Utilities",
+    "Topic :: Software Development :: Quality Assurance",
+    "Topic :: System :: Monitoring",
+    "Topic :: System :: Software Distribution",
+    
+    # Environment/OS
+    "Operating System :: OS Independent",
+
+    # Specific Python Versions (Adjust these to what you actually support)
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3 :: Only",
 ]
 license = {file = "LICENSE"}
+license-files = ["LICEN[CS]E*", "AUTHORS"]
+keywords = ["techdebt", "tech debt", "maintenance", "toc", "engineering"]
+
 dependencies = [ # specify that newer patch or minor versions allowed
   "ipdb~=0.13.13",
   "typer~=0.20.0",
