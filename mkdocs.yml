@@ -1,0 +1,19 @@
+site_name: ossiq
+site_description: "Utility to forecast risks associated with currently installed packages updates"
+site_author: Maksym Klymyshyn
+site_url: https://github.com/ossiq/ossiq
+
+repo_name: ossiq/ossiq
+repo_url: https://github.com/ossiq/ossiq
+edit_uri: blob/main/docs/
+
+theme:
+  name: material
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - toc.integrate
+    - navigation.top
+    - search.suggest
+    - search.highlight
+    - content.tabs.link

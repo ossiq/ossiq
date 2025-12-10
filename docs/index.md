@@ -1,16 +1,5 @@
-# Welcome to Update Burden's documentation!
+# Explanation
 
-## Contents
+This section provides discussions and explanations of key concepts and design decisions in `ossiq`.
 
-- [Readme](readme.md)
-- [Installation](installation.md)
-- [Usage](usage.md)
-- [Modules](modules.md)
-- [Contributing](contributing.md)
-- [History](history.md)
-
-## Indices and tables
-
-- [Index](genindex)
-- [Module Index](modindex)
-- [Search](search)
+*   Risk Forecasting Model
