@@ -1,5 +1,5 @@
-# Explanation
-
-This section provides discussions and explanations of key concepts and design decisions in `ossiq`.
-
-*   Risk Forecasting Model
+---
+title: OSSIQ - Home
+template: landing.html
+weight: 1
+---

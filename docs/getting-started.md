@@ -1,4 +1,10 @@
-# Getting Started with ossiq
+---
+title: Getting Started
+description: A First Tutorial on Something Important
+weight: 2
+---
+
+# Getting Started
 
 This tutorial will walk you through the first steps of using `ossiq`.
 
