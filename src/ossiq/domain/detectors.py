@@ -1,6 +1,7 @@
 """
 Module with various rules to detect different types of data sources
 """
+
 import re
 
 

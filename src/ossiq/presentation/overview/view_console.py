@@ -2,10 +2,9 @@
 View for overview command/Console output type
 """
 
-from typing import List
 from rich.console import Console
-from rich.table import Table
 from rich.panel import Panel
+from rich.table import Table
 from rich.text import Text
 
 from ossiq.domain.version import (
@@ -16,7 +15,7 @@ from ossiq.domain.version import (
     VERSION_DIFF_PRERELEASE,
     VERSION_LATEST,
     VersionsDifference,
-    difference_versions
+    difference_versions,
 )
 from ossiq.service.project import ProjectOverviewRecord, ProjectOverviewSummary
 from ossiq.timeutil import format_time_days
@@ -57,10 +56,9 @@ def _format_lag_status(vdiff: VersionsDifference) -> str:
         return "[white][bold]N/A"
 
 
-def table_factory(title: str,
-                  title_style: str,
-                  dependencies: List[ProjectOverviewRecord],
-                  lag_threshold_days: int) -> Table:
+def table_factory(
+    title: str, title_style: str, dependencies: list[ProjectOverviewRecord], lag_threshold_days: int
+) -> Table:
     """
     Product records for the table
     """
@@ -88,9 +86,7 @@ def table_factory(title: str,
     return table
 
 
-def display_view(project_overview: ProjectOverviewSummary,
-                 lag_threshold_days: int,
-                 **_):
+def display_view(project_overview: ProjectOverviewSummary, lag_threshold_days: int, **_):
     """
     Representation of the project overview for Console.
     """
@@ -98,10 +94,7 @@ def display_view(project_overview: ProjectOverviewSummary,
     table_dev = None
 
     table_prod = table_factory(
-        "Production Packages Version Status",
-        "bold green",
-        project_overview.production_packages,
-        lag_threshold_days
+        "Production Packages Version Status", "bold green", project_overview.production_packages, lag_threshold_days
     )
 
     if project_overview.development_packages:
@@ -109,15 +102,14 @@ def display_view(project_overview: ProjectOverviewSummary,
             "Development Packages Version Status",
             "bold cyan",
             project_overview.development_packages,
-            lag_threshold_days
+            lag_threshold_days,
         )
 
     header_text = Text()
     header_text.append("📦 Project: ", style="bold white")
     header_text.append(f"{project_overview.project_name}\n", style="bold cyan")
     header_text.append("🔗 Packages Registry: ", style="bold white")
-    header_text.append(
-        f"{project_overview.packages_registry}\n", style="green")
+    header_text.append(f"{project_overview.packages_registry}\n", style="green")
     header_text.append("📍 Project Path: ", style="bold white")
     header_text.append(f"{project_overview.project_path}", style="green")
 

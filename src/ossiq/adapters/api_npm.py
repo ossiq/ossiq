@@ -4,8 +4,7 @@ Implementation of Package Registry API client for NPM
 
 import json
 import os
-
-from typing import Iterable
+from collections.abc import Iterable
 
 import requests
 from rich.console import Console
@@ -25,7 +24,7 @@ NPM_DEPENDENCIES_SECTIONS = (
     "dependencies",
     "devDependencies",
     "peerDependencies",
-    "optionalDependencies"
+    "optionalDependencies",
     # FIXME: consider pinned versions as well!
 )
 
@@ -38,23 +37,21 @@ class PackageRegistryApiNpm(AbstractPackageRegistryApi):
     def __repr__(self):
         return "<PackageRegistryApiNpm instance>"
 
-    def _make_request(self, path: str, headers: dict = None, timeout: int = 15) -> dict:
+    def _make_request(self, path: str, headers: dict | None = None, timeout: int = 15) -> dict:
         """
         Make request and handle retries and errors handling.
         """
-        r = requests.get(f"{NPM_REGISTRY}{path}",
-                         timeout=timeout, headers=headers)
+        r = requests.get(f"{NPM_REGISTRY}{path}", timeout=timeout, headers=headers)
         r.raise_for_status()
         return r.json()
 
-    def package_info(self, package_name: str) -> dict:
+    def package_info(self, package_name: str) -> Package:
         """
         Fetch npm info for a given package.
         FIXME: raise custom exception if not found
         """
         response = self._make_request(f"/{package_name}")
-        distribution_tags = response.get(
-            "dist-tags", {"latest": None, "next": None})
+        distribution_tags = response.get("dist-tags", {"latest": None, "next": None})
 
         return Package(
             registry=ProjectPackagesRegistry.NPM,
@@ -65,7 +62,7 @@ class PackageRegistryApiNpm(AbstractPackageRegistryApi):
             author=response.get("author"),
             homepage_url=response.get("homepage"),
             description=response.get("description"),
-            package_url=f"{NPM_REGISTRY_FRONT}/package/{package_name}/"
+            package_url=f"{NPM_REGISTRY_FRONT}/package/{package_name}/",
         )
 
     def package_versions(self, package_name: str) -> Iterable[PackageVersion]:
@@ -86,7 +83,7 @@ class PackageRegistryApiNpm(AbstractPackageRegistryApi):
                 runtime_requirements=details.get("engines", None),
                 dev_dependencies=details.get("devDependencies", {}),
                 description=details.get("description", None),
-                package_url=f"{NPM_REGISTRY_FRONT}/package/{package_name}/v/{version}"
+                package_url=f"{NPM_REGISTRY_FRONT}/package/{package_name}/v/{version}",
             )
 
     def project_info(self, project_path: str) -> Project:
@@ -96,10 +93,9 @@ class PackageRegistryApiNpm(AbstractPackageRegistryApi):
         """
         project_file_path = os.path.join(project_path, "package.json")
         if not os.path.exists(project_file_path):
-            raise FileNotFoundError(
-                f"package.json not found at `{project_file_path}`")
+            raise FileNotFoundError(f"package.json not found at `{project_file_path}`")
 
-        with open(project_file_path, "r", encoding="utf-8") as f:
+        with open(project_file_path, encoding="utf-8") as f:
             project_json = json.load(f)
             fallback_name = os.path.basename(project_path)
 
@@ -117,5 +113,5 @@ class PackageRegistryApiNpm(AbstractPackageRegistryApi):
                     **project_json.get("devDependencies", {}),
                     **project_json.get("peerDependencies", {}),
                     **project_json.get("optionalDependencies", {}),
-                }
+                },
             )

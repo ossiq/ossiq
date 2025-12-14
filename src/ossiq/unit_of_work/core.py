@@ -7,12 +7,9 @@ import abc
 from ossiq.adapters.api_interfaces import (
     AbstractCveDatabaseApi,
     AbstractPackageRegistryApi,
-    AbstractSourceCodeProviderApi
+    AbstractSourceCodeProviderApi,
 )
-from ossiq.domain.common import (
-    RepositoryProvider,
-    ProjectPackagesRegistry
-)
+from ossiq.domain.common import ProjectPackagesRegistry, RepositoryProvider
 from ossiq.settings import Settings
 
 
@@ -29,16 +26,13 @@ class AbstractProjectUnitOfWork(abc.ABC):
     production: bool
 
     @abc.abstractmethod
-    def get_source_code_provider(
-            self,
-            repository_provider_type: RepositoryProvider) -> AbstractSourceCodeProviderApi:
+    def get_source_code_provider(self, repository_provider_type: RepositoryProvider) -> AbstractSourceCodeProviderApi:
         """
         Method to get source code provider by its type. The point here is that
         single project has multiple package installed and each package
         might come from different source code providers (Github, Bitbucket, etc.)
         """
-        raise NotImplementedError(
-            "Source Code Provider getter not implemented")
+        raise NotImplementedError("Source Code Provider getter not implemented")
 
     def __enter__(self):
         raise NotImplementedError("Enter not implemented")

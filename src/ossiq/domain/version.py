@@ -1,10 +1,10 @@
 """
 Module to operate with package versions
 """
-from functools import cmp_to_key
+
 import re
 from dataclasses import dataclass
-from typing import List, Dict
+from functools import cmp_to_key
 
 import semver
 
@@ -23,12 +23,11 @@ VERSION_DIFF_TYPES_MAP = {
     "DIFF_PRERELEASE": VERSION_DIFF_PRERELEASE,
     "DIFF_BUILD": VERSION_DIFF_BUILD,
     "NO_DIFF": VERSION_NO_DIFF,
-    "LATEST": VERSION_LATEST
+    "LATEST": VERSION_LATEST,
 }
 
 VERSINO_INVERSED_DIFF_TYPES_MAP = {
-    val: key for key, val in VERSION_DIFF_TYPES_MAP.items()
-}
+    val: key for key, val in VERSION_DIFF_TYPES_MAP.items()}
 
 
 @dataclass
@@ -42,6 +41,7 @@ class VersionsDifference:
 @dataclass(frozen=True)
 class User:
     """Class to contains user information."""
+
     id: int
     username: str
     email: str
@@ -55,6 +55,7 @@ class User:
 @dataclass(frozen=True)
 class Commit:
     """Class to contains commit information."""
+
     sha: str
     message: str
     author: User
@@ -63,8 +64,7 @@ class Commit:
     committed_at: str | None
 
     def __repr__(self):
-        return f"Commit(sha='{self.sha}', author='{self.commit_user_name}', "\
-            f"message='{self.simplified_message}')"
+        return f"Commit(sha='{self.sha}', author='{self.commit_user_name}', message='{self.simplified_message}')"
 
     @property
     def commit_user_name(self):
@@ -85,12 +85,13 @@ class PackageVersion:
     """
     Partial version information typically pulled from package registry.
     """
+
     version: str
     license: str
     package_url: str
-    dependencies: Dict[str, str]
-    dev_dependencies: Dict[str, str] | None = None
-    runtime_requirements: Dict[str, str] | None = None
+    dependencies: dict[str, str]
+    dev_dependencies: dict[str, str] | None = None
+    runtime_requirements: dict[str, str] | None = None
     description: str | None = None
     published_date_iso: str | None = None
 
@@ -98,10 +99,11 @@ class PackageVersion:
 @dataclass
 class RepositoryVersion:
     """
-    Partial version information typically pulled from source code repository.    
+    Partial version information typically pulled from source code repository.
     """
+
     version_source_type: str
-    commits: List[Commit]
+    commits: list[Commit]
     version: str
     ref_previous: str | None = None
     ref_name: str | None = None
@@ -114,7 +116,7 @@ class RepositoryVersion:
 
 class Version:
     """
-    Class to contains aggregated version information from both sides: 
+    Class to contains aggregated version information from both sides:
     Package Registry and Source Code Repository
     """
 
@@ -126,11 +128,14 @@ class Version:
 
     _summary_description: str | None
 
-    def __init__(self, package_registry: str, repository_provider: str,
-                 package_data: PackageVersion, repository_data: RepositoryVersion):
-
-        assert repository_data is not None, \
-            "Repository version info cannot be None"
+    def __init__(
+        self,
+        package_registry: str,
+        repository_provider: str,
+        package_data: PackageVersion,
+        repository_data: RepositoryVersion,
+    ):
+        assert repository_data is not None, "Repository version info cannot be None"
         # FIXME: fix validation here with custom exceptions + types from domain.common
         # assert package_registry in PACKAGE_REGISTRIES, \
         #     f"Invalid package registry {package_registry}"
@@ -145,9 +150,7 @@ class Version:
         self._summary_description = None
 
     def __repr__(self):
-        return f"Version(version='{self.version}', "\
-            f"registr={self.package_registry}, "\
-            f"repo={self.repository_provider})"
+        return f"Version(version='{self.version}', registr={self.package_registry}, repo={self.repository_provider})"
 
     @property
     def version(self):
@@ -194,13 +197,11 @@ def compare_versions(v1: str, v2: str) -> int:
     return semver.compare(v1, v2)
 
 
-def sort_versions(versions: List[PackageVersion]) -> List[PackageVersion]:
+def sort_versions(versions: list[PackageVersion]) -> list[PackageVersion]:
     """
     Sorts a list of semantically versioned strings.
     """
-    return sorted(
-        versions,
-        key=cmp_to_key(lambda v1, v2: compare_versions(v1.version, v2.version)))
+    return sorted(versions, key=cmp_to_key(lambda v1, v2: compare_versions(v1.version, v2.version)))
 
 
 def difference_versions(v1_str: str, v2_str: str) -> VersionsDifference:
@@ -227,9 +228,4 @@ def difference_versions(v1_str: str, v2_str: str) -> VersionsDifference:
     # 0: major, 1: minor, 2: patch, 3: prerelease, 4: build.
     # This is used for highlighting the most significant difference in the HTML template.
 
-    return VersionsDifference(
-        str(v1),
-        str(v2),
-        diff_index,
-        diff_name=VERSINO_INVERSED_DIFF_TYPES_MAP[diff_index]
-    )
+    return VersionsDifference(str(v1), str(v2), diff_index, diff_name=VERSINO_INVERSED_DIFF_TYPES_MAP[diff_index])

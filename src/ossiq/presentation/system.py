@@ -1,6 +1,7 @@
 """
 Presentation-related system-level functions
 """
+
 from contextlib import contextmanager
 
 from rich.console import Console
@@ -17,8 +18,9 @@ error_console = Console(stderr=True)
 def show_operation_progress(settings: Settings, message: str):
     """
     Show progress till function is executed if
-    verbose is disabled.    
+    verbose is disabled.
     """
+
     @contextmanager
     def noop():
         yield lambda: None
@@ -53,6 +55,4 @@ def show_error(ctx, message: str):
     """
     Show error message
     """
-    error_console.print(
-        f"\n[bold yellow on red blink] ERROR [/bold yellow on red blink] [red]{message}[/red]"
-    )
+    error_console.print(f"\n[bold yellow on red blink] ERROR [/bold yellow on red blink] [red]{message}[/red]")

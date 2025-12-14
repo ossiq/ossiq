@@ -5,6 +5,7 @@ Module to define abstract code Registryike github
 
 class Repository:
     """Class for a Repository."""
+
     provider: str
     name: str
     owner: str
@@ -12,12 +13,7 @@ class Repository:
 
     html_url: str | None
 
-    def __init__(self,
-                 provider: str,
-                 name: str,
-                 owner: str,
-                 description: str,
-                 html_url: str | None):
+    def __init__(self, provider: str, name: str, owner: str, description: str, html_url: str | None):
         self.provider = provider
         self.owner = owner
         self.name = name

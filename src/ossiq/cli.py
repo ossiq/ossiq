@@ -1,8 +1,8 @@
 """Console script for ossiq-cli."""
 
 from typing import Annotated
-import typer
 
+import typer
 from rich.console import Console
 
 from ossiq.commands.overview import commnad_overview
@@ -16,9 +16,7 @@ from ossiq.messages import (
     HELP_TEXT,
 )
 from ossiq.presentation.system import show_settings
-
 from ossiq.settings import Settings
-
 
 app = typer.Typer()
 console = Console()
@@ -30,32 +28,26 @@ def main(
     _: typer.Context,
     github_token: Annotated[
         str,
-        typer.Option(
-            "--github-token", "-T",
-            envvar=f"{Settings.ENV_PREFIX}GITHUB_TOKEN",
-            help=ARGS_HELP_GITHUB_TOKEN
-        )] = None,
+        typer.Option("--github-token", "-T", envvar=f"{Settings.ENV_PREFIX}GITHUB_TOKEN", help=ARGS_HELP_GITHUB_TOKEN),
+    ] = None,
     presentation: Annotated[
         str,
-        typer.Option(
-            "--presentation", "-p",
-            envvar=f"{Settings.ENV_PREFIX}PRESENTATION",
-            help=ARGS_HELP_PRESENTATION
-        )] = PresentationType.CONSOLE.value,
+        typer.Option("--presentation", "-p", envvar=f"{Settings.ENV_PREFIX}PRESENTATION", help=ARGS_HELP_PRESENTATION),
+    ] = PresentationType.CONSOLE.value,
     output_destination: Annotated[
-        str,
-        typer.Option(
-            "--output", "-o",
-            envvar=f"{Settings.ENV_PREFIX}OUTPUT",
-            help=ARGS_HELP_OUTPUT
-        )] = ".",
+        str, typer.Option("--output", "-o", envvar=f"{Settings.ENV_PREFIX}OUTPUT", help=ARGS_HELP_OUTPUT)
+    ] = ".",
     verbose: Annotated[
-        bool, typer.Option(
-            "--verbose", "-v",
+        bool,
+        typer.Option(
+            "--verbose",
+            "-v",
             is_flag=True,
             envvar=f"{Settings.ENV_PREFIX}_VERBOSE",
-            help=f"Enable verbose output. Overrides {Settings.ENV_PREFIX}VERBOSE env var."
-        )] = False):
+            help=f"Enable verbose output. Overrides {Settings.ENV_PREFIX}VERBOSE env var.",
+        ),
+    ] = False,
+):
     """
     Main callback. Loads the configuration and stores it in the context.
     """
@@ -65,7 +57,7 @@ def main(
         "github_token": github_token,
         "verbose": verbose,
         "presentation": presentation,
-        "output_destination": output_destination
+        "output_destination": output_destination,
     }
 
     env_settings = context["settings"]
@@ -89,25 +81,14 @@ def help():
 
 @app.command()
 def overview(
-        project_path: str,
-        lag_threshold_days: Annotated[
-            str, typer.Option(
-                "--lag-threshold-delta",
-                "-l",
-                help=HELP_LAG_THRESHOULD)] = "1y",
-        production: Annotated[
-            bool, typer.Option(
-                "--production",
-                help=HELP_PRODUCTION_ONLY)] = False):
+    project_path: str,
+    lag_threshold_days: Annotated[str, typer.Option("--lag-threshold-delta", "-l", help=HELP_LAG_THRESHOULD)] = "1y",
+    production: Annotated[bool, typer.Option("--production", help=HELP_PRODUCTION_ONLY)] = False,
+):
     """
     Project overview command.
     """
-    commnad_overview(
-        context,
-        project_path,
-        lag_threshold_days,
-        production
-    )
+    commnad_overview(context, project_path, lag_threshold_days, production)
 
 
 if __name__ == "__main__":

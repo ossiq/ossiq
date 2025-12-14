@@ -1,30 +1,20 @@
 """
 Implementation of SourceCodeApiClient for Github
 """
+
 import datetime
+import itertools
 import re
-from typing import Iterable, Tuple, List, Set
+from collections.abc import Iterable
 
 import requests
 from rich.console import Console
 
-from .api_interfaces import AbstractSourceCodeProviderApi
+from ..domain.common import VERSION_DATA_SOURCE_GITHUB_RELEASES, VERSION_DATA_SOURCE_GITHUB_TAGS, RepositoryProvider
 from ..domain.exceptions import GithubRateLimitError
 from ..domain.repository import Repository
-from ..domain.version import (
-    RepositoryVersion,
-    PackageVersion,
-    Commit,
-    User,
-    sort_versions,
-    normalize_version
-)
-from ..domain.common import (
-    RepositoryProvider,
-    VERSION_DATA_SOURCE_GITHUB_RELEASES,
-    VERSION_DATA_SOURCE_GITHUB_TAGS
-)
-import itertools
+from ..domain.version import Commit, PackageVersion, RepositoryVersion, User, normalize_version, sort_versions
+from .api_interfaces import AbstractSourceCodeProviderApi
 
 console = Console()
 
@@ -33,8 +23,9 @@ GITHUB_API = "https://api.github.com"
 
 class SourceCodeProviderApiGithub(AbstractSourceCodeProviderApi):
     """
-    Implementation of SourceCodeApiClient for Github    
+    Implementation of SourceCodeApiClient for Github
     """
+
     github_token: str
 
     def __init__(self, github_token: str):
@@ -60,7 +51,7 @@ class SourceCodeProviderApiGithub(AbstractSourceCodeProviderApi):
 
         return None
 
-    def _make_github_api_request(self, url: str, timeout: int = 15) -> Tuple[str | None, dict]:
+    def _make_github_api_request(self, url: str, timeout: int = 15) -> tuple[str | None, dict]:
         """
         Make a request to the GitHub API and properly handle pagination
         """
@@ -72,8 +63,7 @@ class SourceCodeProviderApiGithub(AbstractSourceCodeProviderApi):
 
         # Basically let user know that we're done here with Github.
         if response.status_code == 403:
-            remaining_rate_limit = response.headers.get(
-                "x-ratelimit-remaining", "N/A")
+            remaining_rate_limit = response.headers.get("x-ratelimit-remaining", "N/A")
 
             try:
                 reset_rate_limit_time = datetime.datetime.fromtimestamp(
@@ -102,12 +92,9 @@ class SourceCodeProviderApiGithub(AbstractSourceCodeProviderApi):
 
         while next_url:
             next_url, data = self._make_github_api_request(next_url)
-            for item in data:
-                yield item
+            yield from data
 
-    def _load_releases(self,
-                       repository: Repository,
-                       versions_set: Set[str]) -> Iterable[RepositoryVersion]:
+    def _load_releases(self, repository: Repository, versions_set: set[str]) -> Iterable[RepositoryVersion]:
         """
         Fetch releases from a GitHub repo that match the provided versions.
         """
@@ -134,19 +121,17 @@ class SourceCodeProviderApiGithub(AbstractSourceCodeProviderApi):
             if n == len(versions_set):
                 break
 
-    def _load_commits_between_refs(self,
-                                   repository: Repository,
-                                   start_ref: str,
-                                   end_ref: str) -> Tuple[str, List[Commit]]:
+    def _load_commits_between_refs(
+        self, repository: Repository, start_ref: str, end_ref: str
+    ) -> tuple[str, list[Commit]]:
         """
         Load commits between two git references (tags/commits) and its patch URL.
 
-        NOTE: A potential optimization is to pull all commits between the oldest and 
+        NOTE: A potential optimization is to pull all commits between the oldest and
         newest versions in one API call, then associate them with tags client-side.
         This would reduce API calls but increase complexity.
         """
-        compare_url = f"{GITHUB_API}/repos/{repository.owner}/"\
-            f"{repository.name}/compare/{start_ref}...{end_ref}"
+        compare_url = f"{GITHUB_API}/repos/{repository.owner}/{repository.name}/compare/{start_ref}...{end_ref}"
 
         _, compare_data = self._make_github_api_request(compare_url)
 
@@ -155,8 +140,7 @@ class SourceCodeProviderApiGithub(AbstractSourceCodeProviderApi):
 
         for commit_data in commits_raw:
             commit = commit_data["commit"]
-            author, committer = commit_data.get(
-                "author"), commit_data.get("committer")
+            author, committer = commit_data.get("author"), commit_data.get("committer")
 
             author_user = None
             if author and commit.get("author"):
@@ -165,7 +149,7 @@ class SourceCodeProviderApiGithub(AbstractSourceCodeProviderApi):
                     username=author.get("login"),
                     profile_url=author.get("html_url"),
                     display_name=commit["author"].get("name"),
-                    email=commit["author"].get("email")
+                    email=commit["author"].get("email"),
                 )
 
             committer_user = None
@@ -175,25 +159,25 @@ class SourceCodeProviderApiGithub(AbstractSourceCodeProviderApi):
                     username=committer.get("login"),
                     profile_url=committer.get("html_url"),
                     display_name=commit["committer"].get("name"),
-                    email=commit["committer"].get("email")
+                    email=commit["committer"].get("email"),
                 )
 
-            commits.append(Commit(
-                sha=commit_data["sha"],
-                message=commit["message"],
-                author=author_user,
-                committer=committer_user,
-                authored_at=commit.get("author", {}).get("date"),
-                committed_at=commit.get("committer", {}).get("date")
-            ))
+            commits.append(
+                Commit(
+                    sha=commit_data["sha"],
+                    message=commit["message"],
+                    author=author_user,
+                    committer=committer_user,
+                    authored_at=commit.get("author", {}).get("date"),
+                    committed_at=commit.get("committer", {}).get("date"),
+                )
+            )
 
         return compare_data.get("patch_url"), commits
 
-    def _get_diff_for_version(self,
-                              repository: Repository,
-                              repository_version: RepositoryVersion) -> RepositoryVersion:
+    def _get_diff_for_version(self, repository: Repository, repository_version: RepositoryVersion) -> RepositoryVersion:
         """
-        Pull commits associated with the given RepositoryVersion by 
+        Pull commits associated with the given RepositoryVersion by
         comparing it to its previous ref.
         """
         patch_url, commits = self._load_commits_between_refs(
@@ -207,9 +191,7 @@ class SourceCodeProviderApiGithub(AbstractSourceCodeProviderApi):
 
         return repository_version
 
-    def _load_versions_from_tags(self,
-                                 repository: Repository,
-                                 versions_set: Set[str]) -> Iterable[RepositoryVersion]:
+    def _load_versions_from_tags(self, repository: Repository, versions_set: set[str]) -> Iterable[RepositoryVersion]:
         """
         Fetch tags from a GitHub repo and convert them to RepositoryVersion objects.
         """
@@ -219,7 +201,7 @@ class SourceCodeProviderApiGithub(AbstractSourceCodeProviderApi):
         for tag in self._paginate_github_api_request(url):
             version = normalize_version(tag["name"])
             if version in versions_set:
-                source_url = f"{repository.html_url}/releases/tag/{tag["name"]}"
+                source_url = f"{repository.html_url}/releases/tag/{tag['name']}"
                 yield RepositoryVersion(
                     version_source_type=VERSION_DATA_SOURCE_GITHUB_TAGS,
                     version=version,
@@ -229,7 +211,7 @@ class SourceCodeProviderApiGithub(AbstractSourceCodeProviderApi):
                     commits=None,
                     ref_previous=None,
                     release_notes=None,
-                    patch_url=None
+                    patch_url=None,
                 )
                 n += 1
             if n == len(versions_set):
@@ -256,12 +238,12 @@ class SourceCodeProviderApiGithub(AbstractSourceCodeProviderApi):
             name=repo_name,
             owner=owner,
             description=repo_data.get("description"),
-            html_url=f"https://github.com/{owner}/{repo_name}"
+            html_url=f"https://github.com/{owner}/{repo_name}",
         )
 
-    def repository_versions(self,
-                            repository: Repository,
-                            package_versions: List[PackageVersion]) -> Iterable[RepositoryVersion]:
+    def repository_versions(
+        self, repository: Repository, package_versions: list[PackageVersion]
+    ) -> Iterable[RepositoryVersion]:
         """
         Pull versions info available from the given repository. Github releases
         is the default way to get it, then fallback to tags.
@@ -278,10 +260,8 @@ class SourceCodeProviderApiGithub(AbstractSourceCodeProviderApi):
         if len(releases) != len(versions_set):
             released_versions_set = {rv.version for rv in releases}
             missing_versions = versions_set - released_versions_set
-            tags_as_versions = self._load_versions_from_tags(
-                repository, missing_versions)
-            released_versions = list(
-                itertools.chain(releases, tags_as_versions))
+            tags_as_versions = self._load_versions_from_tags(repository, missing_versions)
+            released_versions = list(itertools.chain(releases, tags_as_versions))
 
         # 3. Sort all found versions semantically.
         versions = sort_versions(released_versions)
@@ -298,7 +278,6 @@ class SourceCodeProviderApiGithub(AbstractSourceCodeProviderApi):
 
             version_to.ref_previous = version_from.ref_name
 
-            version_to_with_diff = self._get_diff_for_version(
-                repository, version_to)
+            version_to_with_diff = self._get_diff_for_version(repository, version_to)
 
             yield version_to_with_diff

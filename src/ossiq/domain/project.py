@@ -1,29 +1,30 @@
-
 """
 Module to define abstract Package
 """
-from typing import Dict, List
-from .version import normalize_version
+
 from .common import PackageNotInstalled, ProjectPackagesRegistry
+from .version import normalize_version
 
 
 class Project:
     """Class for a package."""
+
     package_registry: ProjectPackagesRegistry
     name: str
     project_path: str | None
-    project_files: List[str]
-    dependencies: Dict[str, str]
-    dev_dependencies: Dict[str, str]
+    project_files: list[str]
+    dependencies: dict[str, str]
+    dev_dependencies: dict[str, str]
 
-    def __init__(self,
-                 package_registry: ProjectPackagesRegistry,
-                 name: str,
-                 project_path: str,
-                 project_files: List[str],
-                 dependencies: Dict[str, str],
-                 dev_dependencies: Dict[str, str]):
-
+    def __init__(
+        self,
+        package_registry: ProjectPackagesRegistry,
+        name: str,
+        project_path: str,
+        project_files: list[str],
+        dependencies: dict[str, str],
+        dev_dependencies: dict[str, str],
+    ):
         self.package_registry = package_registry
         self.name = name
         self.project_path = project_path
@@ -46,7 +47,6 @@ class Project:
         elif package_name in self.dev_dependencies:
             version = self.dev_dependencies[package_name]
         else:
-            raise PackageNotInstalled(
-                f"Package {package_name} not found in project {self.name}")
+            raise PackageNotInstalled(f"Package {package_name} not found in project {self.name}")
 
         return normalize_version(version)

@@ -4,16 +4,13 @@ Service to take care of a Package versions
 
 from dataclasses import dataclass
 from datetime import datetime
-from typing import List, Set
 
 from rich.console import Console
+
 from ossiq.domain.cve import CVE
+from ossiq.domain.exceptions import ProjectPathNotFoundError
 from ossiq.domain.project import Project
-from ossiq.domain.version import (
-    compare_versions,
-    difference_versions,
-    normalize_version
-)
+from ossiq.domain.version import VersionsDifference, compare_versions, difference_versions, normalize_version
 from ossiq.service.common import package_versions
 from ossiq.unit_of_work import core as unit_of_work
 
@@ -26,10 +23,10 @@ class ProjectOverviewRecord:
     is_dev_dependency: bool
     installed_version: str
     latest_version: str
-    versions_diff_index: int
-    time_lag_days: int
-    releases_lag: int
-    cve: Set[CVE]
+    versions_diff_index: VersionsDifference
+    time_lag_days: int | None
+    releases_lag: int | None
+    cve: list[CVE]
 
 
 @dataclass
@@ -37,9 +34,9 @@ class ProjectOverviewSummary:
     project_name: str
     packages_registry: str
     project_path: str
-    project_files: List[str]
-    production_packages: List[ProjectOverviewRecord]
-    development_packages: List[ProjectOverviewRecord]
+    project_files: list[str]
+    production_packages: list[ProjectOverviewRecord]
+    development_packages: list[ProjectOverviewRecord]
 
 
 def parse_iso(datetime_str: str | None):
@@ -53,9 +50,8 @@ def parse_iso(datetime_str: str | None):
 
 
 def calculate_time_lag(
-        versions: List[package_versions.PackageVersion],
-        installed_version: str,
-        latest_version: str) -> int | None:
+    versions: list[package_versions.PackageVersion], installed_version: str, latest_version: str
+) -> int | None:
     """
     Calculates the time difference in days between the installed and latest package versions.
     """
@@ -78,58 +74,44 @@ def calculate_time_lag(
 
 
 def get_package_versions_since(
-        uow: unit_of_work.AbstractProjectUnitOfWork,
-        package_name: str,
-        installed_version: str) -> List[package_versions.PackageVersion]:
+    uow: unit_of_work.AbstractProjectUnitOfWork, package_name: str, installed_version: str
+) -> list[package_versions.PackageVersion]:
     """
     Calculate Package versions lag: delta between
     installed package and the latest one.
     """
 
     return [
-        v for v in
-        uow.packages_registry.package_versions(package_name)
+        v
+        for v in uow.packages_registry.package_versions(package_name)
         if compare_versions(v.version, installed_version) >= 0
     ]
 
 
 def overview_record(
-        uow: unit_of_work.AbstractProjectUnitOfWork,
-        project_info: Project,
-        package_name: str,
-        package_version: str,
-        is_dev_dependency: bool) -> ProjectOverviewRecord:
+    uow: unit_of_work.AbstractProjectUnitOfWork,
+    project_info: Project,
+    package_name: str,
+    package_version: str,
+    is_dev_dependency: bool,
+) -> ProjectOverviewRecord:
     """
     Factory to generate ProjectOverviewRecord instances
     """
     package_info = uow.packages_registry.package_info(package_name)
-    installed_version = project_info.installed_package_version(
-        package_info.name)
+    installed_version = project_info.installed_package_version(package_info.name)
 
-    releases_since_installed = get_package_versions_since(
-        uow,
-        package_info.name,
-        installed_version
-    )
+    releases_since_installed = get_package_versions_since(uow, package_info.name, installed_version)
 
-    time_lag_days = calculate_time_lag(
-        releases_since_installed,
-        installed_version,
-        package_info.latest_version
-    )
+    time_lag_days = calculate_time_lag(releases_since_installed, installed_version, package_info.latest_version)
 
     installed_release = next(
-        (release for release in releases_since_installed
-         if release.version == installed_version),
-        None
+        (release for release in releases_since_installed if release.version == installed_version), None
     )
 
-    cves = []
+    cve = []
     if installed_release:
-        cves = list(uow.cve_database.get_cves_for_package(
-            package_info,
-            installed_release
-        ))
+        cve = list(uow.cve_database.get_cves_for_package(package_info, installed_release))
 
     return ProjectOverviewRecord(
         package_name=package_name,
@@ -137,42 +119,47 @@ def overview_record(
         latest_version=package_info.latest_version,
         time_lag_days=time_lag_days,
         releases_lag=len(releases_since_installed) - 1,
-        versions_diff_index=difference_versions(
-            installed_version, package_info.latest_version),
-        cve=cves,
-        is_dev_dependency=is_dev_dependency
+        versions_diff_index=difference_versions(installed_version, package_info.latest_version),
+        cve=cve,
+        is_dev_dependency=is_dev_dependency,
     )
 
 
 def overview(uow: unit_of_work.AbstractProjectUnitOfWork) -> ProjectOverviewSummary:
     def sort_function(pkg: ProjectOverviewRecord):
-        return (pkg.versions_diff_index.diff_index, pkg.time_lag_days, pkg.package_name,)
+        return (
+            pkg.versions_diff_index.diff_index,
+            pkg.time_lag_days,
+            pkg.package_name,
+        )
 
     with uow:
         project_info = uow.packages_registry.project_info(uow.project_path)
 
-        production_packages: List[ProjectOverviewRecord] = []
-        development_packages: List[ProjectOverviewRecord] = []
+        # FIXME: catch this issue way before as part of command validation
+        if not project_info.project_path:
+            raise ProjectPathNotFoundError("Project Path is not Specified")
+
+        production_packages: list[ProjectOverviewRecord] = []
+        development_packages: list[ProjectOverviewRecord] = []
 
         for package_name, package_version in project_info.dependencies.items():
-            production_packages.append(overview_record(
-                uow, project_info, package_name, package_version, False))
+            production_packages.append(overview_record(uow, project_info, package_name, package_version, False))
 
         # uow.production driven by the setting
         if not uow.production:
             for package_name, package_version in project_info.dev_dependencies.items():
-                development_packages.append(overview_record(
-                    uow, project_info, package_name, package_version, True))
+                development_packages.append(overview_record(uow, project_info, package_name, package_version, True))
 
         return ProjectOverviewSummary(
             project_name=project_info.name,
             project_path=project_info.project_path,
             project_files=project_info.project_files,
             packages_registry=project_info.package_registry.value,
-            production_packages=sorted([
-                pkg for pkg in production_packages if not pkg.is_dev_dependency
-            ], key=sort_function, reverse=True),
-            development_packages=sorted([
-                pkg for pkg in development_packages if pkg.is_dev_dependency
-            ], key=sort_function, reverse=True)
+            production_packages=sorted(
+                [pkg for pkg in production_packages if not pkg.is_dev_dependency], key=sort_function, reverse=True
+            ),
+            development_packages=sorted(
+                [pkg for pkg in development_packages if pkg.is_dev_dependency], key=sort_function, reverse=True
+            ),
         )

@@ -1,18 +1,15 @@
+from collections.abc import Iterable
 
 import requests
-from typing import List, Iterable
 
 from ossiq.domain.common import CveDatabase, ProjectPackagesRegistry
 from ossiq.domain.cve import CVE, Severity
 from ossiq.domain.package import Package
 from ossiq.domain.version import PackageVersion
+
 from .api_interfaces import AbstractCveDatabaseApi
 
-
-ECOSYSTEM_MAPPING = {
-    ProjectPackagesRegistry.NPM: "npm",
-    ProjectPackagesRegistry.PYPI: "PyPI"
-}
+ECOSYSTEM_MAPPING = {ProjectPackagesRegistry.NPM: "npm", ProjectPackagesRegistry.PYPI: "PyPI"}
 
 
 class CveApiOsv(AbstractCveDatabaseApi):
@@ -26,16 +23,13 @@ class CveApiOsv(AbstractCveDatabaseApi):
     def __repr__(self):
         return f"OsvApiClient(base_url='{self.base_url}')"
 
-    def get_cves_for_package(
-        self, package: Package, version: PackageVersion
-    ) -> Iterable[CVE]:
+    def get_cves_for_package(self, package: Package, version: PackageVersion) -> Iterable[CVE]:
         payload = {
             "package": {"name": package.name, "ecosystem": ECOSYSTEM_MAPPING[package.registry]},
             "version": version.version,
         }
 
-        resp = requests.post(f"{self.base_url}/query",
-                             json=payload, timeout=10)
+        resp = requests.post(f"{self.base_url}/query", json=payload, timeout=10)
         resp.raise_for_status()
         data = resp.json()
 
@@ -55,7 +49,7 @@ class CveApiOsv(AbstractCveDatabaseApi):
                 link=self._build_osv_link(cve_raw["id"]),
             )
 
-    def _map_severity(self, osv_severity: List[dict]) -> Severity:
+    def _map_severity(self, osv_severity: list[dict]) -> Severity:
         """
         The purpose is to map osv.dev score numbers to simplified
         severity levels.
@@ -89,7 +83,7 @@ class CveApiOsv(AbstractCveDatabaseApi):
             return Severity.MEDIUM
         return Severity.LOW
 
-    def _extract_affected_versions(self, osv_entry: dict) -> List[str]:
+    def _extract_affected_versions(self, osv_entry: dict) -> list[str]:
         """
         OSV provides ranges, but also `versions` which is easier: explicit versions.
         """

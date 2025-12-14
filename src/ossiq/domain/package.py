@@ -2,8 +2,6 @@
 Module to define abstract Package
 """
 
-from typing import List
-
 from ossiq.domain.common import ProjectPackagesRegistry
 
 from .repository import Repository
@@ -12,6 +10,7 @@ from .version import Version
 
 class Package:
     """Class for a package."""
+
     registry: ProjectPackagesRegistry
     name: str
     latest_version: str
@@ -24,14 +23,20 @@ class Package:
     package_url: str
 
     _repository: Repository
-    _versions: List[Version]
+    _versions: list[Version]
 
-    def __init__(self,
-                 registry: ProjectPackagesRegistry, name: str,
-                 latest_version: str, next_version: str, repo_url: str,
-                 author: str = None, homepage_url: str = None, description: str = None,
-                 package_url: str = None):
-
+    def __init__(
+        self,
+        registry: ProjectPackagesRegistry,
+        name: str,
+        latest_version: str,
+        next_version: str,
+        repo_url: str,
+        author: str = None,
+        homepage_url: str = None,
+        description: str = None,
+        package_url: str = None,
+    ):
         self.registry = registry
         self.name = name
         self.latest_version = latest_version
@@ -60,7 +65,7 @@ class Package:
         return self._versions
 
     @versions.setter
-    def versions(self, versions: List[Version]):
+    def versions(self, versions: list[Version]):
         self._versions = versions
 
     @property
