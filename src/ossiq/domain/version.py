@@ -23,11 +23,10 @@ VERSION_DIFF_TYPES_MAP = {
     "DIFF_PRERELEASE": VERSION_DIFF_PRERELEASE,
     "DIFF_BUILD": VERSION_DIFF_BUILD,
     "NO_DIFF": VERSION_NO_DIFF,
-    "LATEST": VERSION_LATEST
+    "LATEST": VERSION_LATEST,
 }
 
-VERSINO_INVERSED_DIFF_TYPES_MAP = {
-    val: key for key, val in VERSION_DIFF_TYPES_MAP.items()}
+VERSINO_INVERSED_DIFF_TYPES_MAP = {val: key for key, val in VERSION_DIFF_TYPES_MAP.items()}
 
 
 @dataclass
@@ -64,9 +63,7 @@ class Commit:
     committed_at: str | None
 
     def __repr__(self):
-        return f"Commit(sha='{self.sha}', "\
-            f"author='{self.commit_user_name}', "\
-            f"message='{self.simplified_message}')"
+        return f"Commit(sha='{self.sha}', author='{self.commit_user_name}', message='{self.simplified_message}')"
 
     @property
     def commit_user_name(self):
@@ -89,7 +86,7 @@ class PackageVersion:
     """
 
     version: str
-    license: str
+    license: str | None
     package_url: str
     dependencies: dict[str, str]
     dev_dependencies: dict[str, str] | None = None
@@ -216,7 +213,7 @@ def difference_versions(v1_str: str | None, v2_str: str | None) -> VersionsDiffe
             v1_str if v1_str else "N/A",
             v2_str if v2_str else "N/A",
             VERSION_NO_DIFF,
-            diff_name=VERSINO_INVERSED_DIFF_TYPES_MAP[VERSION_NO_DIFF]
+            diff_name=VERSINO_INVERSED_DIFF_TYPES_MAP[VERSION_NO_DIFF],
         )
 
     v1 = semver.Version.parse(v1_str)
@@ -241,9 +238,4 @@ def difference_versions(v1_str: str | None, v2_str: str | None) -> VersionsDiffe
     # 0: major, 1: minor, 2: patch, 3: prerelease, 4: build.
     # This is used for highlighting the most significant difference in the HTML template.
 
-    return VersionsDifference(
-        str(v1),
-        str(v2),
-        diff_index,
-        diff_name=VERSINO_INVERSED_DIFF_TYPES_MAP[diff_index]
-    )
+    return VersionsDifference(str(v1), str(v2), diff_index, diff_name=VERSINO_INVERSED_DIFF_TYPES_MAP[diff_index])
