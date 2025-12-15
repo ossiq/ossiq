@@ -26,8 +26,7 @@ VERSION_DIFF_TYPES_MAP = {
     "LATEST": VERSION_LATEST,
 }
 
-VERSINO_INVERSED_DIFF_TYPES_MAP = {
-    val: key for key, val in VERSION_DIFF_TYPES_MAP.items()}
+VERSINO_INVERSED_DIFF_TYPES_MAP = {val: key for key, val in VERSION_DIFF_TYPES_MAP.items()}
 
 
 @dataclass
@@ -58,7 +57,7 @@ class Commit:
 
     sha: str
     message: str
-    author: User
+    author: User | None
     authored_at: str
     committer: User | None
     committed_at: str | None
@@ -103,7 +102,7 @@ class RepositoryVersion:
     """
 
     version_source_type: str
-    commits: list[Commit]
+    commits: list[Commit] | None = None
     version: str
     ref_previous: str | None = None
     ref_name: str | None = None
@@ -194,7 +193,7 @@ def compare_versions(v1: str, v2: str) -> int:
     Compare two versions leveraging semver.
     Potentially silent with try/catch and compare raw: (v1 > v2) - (v1 < v2)
     """
-    return semver.compare(v1, v2)
+    return semver.Version.parse(v1).compare(semver.Version.parse(v2))
 
 
 def sort_versions(versions: list[PackageVersion]) -> list[PackageVersion]:

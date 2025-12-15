@@ -19,7 +19,6 @@ def get_presentation_view(command: Command, presentation_type: PresentationType)
 
     presentation_view = command_presentation.get(presentation_type, None)
     if not presentation_view:
-        raise UnknownPresentationType(
-            f"Unknown presentation requested: {presentation_type}")
+        raise UnknownPresentationType(f"Unknown presentation requested: {presentation_type}")
 
     return presentation_view

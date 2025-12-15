@@ -101,7 +101,7 @@ def identify_project_source_code_provider_kind(repo_url: str) -> RepositoryProvi
     """
     Identify Packages registry by typical file name
     """
-    if repo_url("https://github.com/"):
+    if repo_url.startswith("https://github.com/"):
         return RepositoryProvider.PROVIDER_GITHUB
 
     raise UnsupportedRepositoryProvider(f"Unknown repository provider for the URL: {repo_url}")

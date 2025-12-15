@@ -26,9 +26,9 @@ class SourceCodeProviderApiGithub(AbstractSourceCodeProviderApi):
     Implementation of SourceCodeApiClient for Github
     """
 
-    github_token: str
+    github_token: str | None
 
-    def __init__(self, github_token: str):
+    def __init__(self, github_token: str | None):
         self.github_token = github_token
         if not self.github_token:
             # FIXME: pass warning
@@ -122,8 +122,8 @@ class SourceCodeProviderApiGithub(AbstractSourceCodeProviderApi):
                 break
 
     def _load_commits_between_refs(
-        self, repository: Repository, start_ref: str, end_ref: str
-    ) -> tuple[str, list[Commit]]:
+        self, repository: Repository, start_ref: str | None, end_ref: str | None
+    ) -> tuple[str, list[Commit]] | tuple[None, None]:
         """
         Load commits between two git references (tags/commits) and its patch URL.
 
@@ -131,6 +131,10 @@ class SourceCodeProviderApiGithub(AbstractSourceCodeProviderApi):
         newest versions in one API call, then associate them with tags client-side.
         This would reduce API calls but increase complexity.
         """
+
+        if start_ref or not end_ref:
+            return None, None
+
         compare_url = f"{GITHUB_API}/repos/{repository.owner}/{repository.name}/compare/{start_ref}...{end_ref}"
 
         _, compare_data = self._make_github_api_request(compare_url)
@@ -173,13 +177,14 @@ class SourceCodeProviderApiGithub(AbstractSourceCodeProviderApi):
                 )
             )
 
-        return compare_data.get("patch_url"), commits
+        return str(compare_data.get("patch_url")), commits
 
     def _get_diff_for_version(self, repository: Repository, repository_version: RepositoryVersion) -> RepositoryVersion:
         """
         Pull commits associated with the given RepositoryVersion by
         comparing it to its previous ref.
         """
+
         patch_url, commits = self._load_commits_between_refs(
             repository,
             repository_version.ref_previous,

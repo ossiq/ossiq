@@ -38,12 +38,14 @@ def show_settings(ctx, label: str, settings: dict):
     """
     Show a panel with key/value pairs with settings
     """
-    if ctx["settings"].verbose is False:
+    settings: Settings = ctx.obj
+    if settings.verbose is False:
         return
 
     header_text = Text()
     header_text.append("\n", style="bold cyan")
-    for setting, value in settings.items():
+
+    for setting, value in settings.model_dump().items():
         header_text.append(f"{setting}: ", style="bold white")
         header_text.append(f"{value}\n", style="green")
 
