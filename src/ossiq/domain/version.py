@@ -23,10 +23,11 @@ VERSION_DIFF_TYPES_MAP = {
     "DIFF_PRERELEASE": VERSION_DIFF_PRERELEASE,
     "DIFF_BUILD": VERSION_DIFF_BUILD,
     "NO_DIFF": VERSION_NO_DIFF,
-    "LATEST": VERSION_LATEST,
+    "LATEST": VERSION_LATEST
 }
 
-VERSINO_INVERSED_DIFF_TYPES_MAP = {val: key for key, val in VERSION_DIFF_TYPES_MAP.items()}
+VERSINO_INVERSED_DIFF_TYPES_MAP = {
+    val: key for key, val in VERSION_DIFF_TYPES_MAP.items()}
 
 
 @dataclass
@@ -63,7 +64,9 @@ class Commit:
     committed_at: str | None
 
     def __repr__(self):
-        return f"Commit(sha='{self.sha}', author='{self.commit_user_name}', message='{self.simplified_message}')"
+        return f"Commit(sha='{self.sha}', "\
+            f"author='{self.commit_user_name}', "\
+            f"message='{self.simplified_message}')"
 
     @property
     def commit_user_name(self):
@@ -93,6 +96,8 @@ class PackageVersion:
     runtime_requirements: dict[str, str] | None = None
     description: str | None = None
     published_date_iso: str | None = None
+    unpublished_date_iso: str | None = None
+    is_published: bool = True
 
 
 @dataclass
@@ -102,8 +107,8 @@ class RepositoryVersion:
     """
 
     version_source_type: str
-    commits: list[Commit] | None = None
     version: str
+    commits: list[Commit] | None = None
     ref_previous: str | None = None
     ref_name: str | None = None
     release_name: str | None = None
@@ -203,8 +208,17 @@ def sort_versions(versions: list[PackageVersion]) -> list[PackageVersion]:
     return sorted(versions, key=cmp_to_key(lambda v1, v2: compare_versions(v1.version, v2.version)))
 
 
-def difference_versions(v1_str: str, v2_str: str) -> VersionsDifference:
+def difference_versions(v1_str: str | None, v2_str: str | None) -> VersionsDifference:
     """Helper to split version strings and find the index where they first differ."""
+
+    if not v1_str or not v2_str:
+        return VersionsDifference(
+            v1_str if v1_str else "N/A",
+            v2_str if v2_str else "N/A",
+            VERSION_NO_DIFF,
+            diff_name=VERSINO_INVERSED_DIFF_TYPES_MAP[VERSION_NO_DIFF]
+        )
+
     v1 = semver.Version.parse(v1_str)
     v2 = semver.Version.parse(v2_str)
 
@@ -227,4 +241,9 @@ def difference_versions(v1_str: str, v2_str: str) -> VersionsDifference:
     # 0: major, 1: minor, 2: patch, 3: prerelease, 4: build.
     # This is used for highlighting the most significant difference in the HTML template.
 
-    return VersionsDifference(str(v1), str(v2), diff_index, diff_name=VERSINO_INVERSED_DIFF_TYPES_MAP[diff_index])
+    return VersionsDifference(
+        str(v1),
+        str(v2),
+        diff_index,
+        diff_name=VERSINO_INVERSED_DIFF_TYPES_MAP[diff_index]
+    )

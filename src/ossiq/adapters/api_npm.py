@@ -41,7 +41,8 @@ class PackageRegistryApiNpm(AbstractPackageRegistryApi):
         """
         Make request and handle retries and errors handling.
         """
-        r = requests.get(f"{NPM_REGISTRY}{path}", timeout=timeout, headers=headers)
+        r = requests.get(f"{NPM_REGISTRY}{path}",
+                         timeout=timeout, headers=headers)
         r.raise_for_status()
         return r.json()
 
@@ -51,7 +52,8 @@ class PackageRegistryApiNpm(AbstractPackageRegistryApi):
         FIXME: raise custom exception if not found
         """
         response = self._make_request(f"/{package_name}")
-        distribution_tags = response.get("dist-tags", {"latest": None, "next": None})
+        distribution_tags = response.get(
+            "dist-tags", {"latest": None, "next": None})
 
         return Package(
             registry=ProjectPackagesRegistry.NPM,
@@ -73,18 +75,32 @@ class PackageRegistryApiNpm(AbstractPackageRegistryApi):
         # FIXME: raise custom exception if not found
         versions = response.get("versions", [])
         timestamp_map = response.get("time", {})
+        unpublished_response = timestamp_map.pop("unpublished", {})
 
-        for version, details in versions.items():
-            yield PackageVersion(
-                version=version,
-                published_date_iso=timestamp_map.get(version, None),
-                dependencies=details.get("dependencies", {}),
-                license=details.get("license", None),
-                runtime_requirements=details.get("engines", None),
-                dev_dependencies=details.get("devDependencies", {}),
-                description=details.get("description", None),
-                package_url=f"{NPM_REGISTRY_FRONT}/package/{package_name}/v/{version}",
-            )
+        # Package version is either published or unpublished
+        if unpublished_response:
+            unpublished_date_iso = unpublished_response.get("time", None)
+            for version in unpublished_response.get("versions", []):
+                yield PackageVersion(
+                    version=version,
+                    license=None,
+                    dependencies={},
+                    package_url=f"{NPM_REGISTRY_FRONT}/package/{package_name}/v/{version}",
+                    unpublished_date_iso=unpublished_date_iso,
+                    is_published=False
+                )
+        else:
+            for version, details in versions.items():
+                yield PackageVersion(
+                    version=version,
+                    published_date_iso=timestamp_map.get(version, None),
+                    dependencies=details.get("dependencies", {}),
+                    license=details.get("license", None),
+                    runtime_requirements=details.get("engines", None),
+                    dev_dependencies=details.get("devDependencies", {}),
+                    description=details.get("description", None),
+                    package_url=f"{NPM_REGISTRY_FRONT}/package/{package_name}/v/{version}",
+                )
 
     def project_info(self, project_path: str) -> Project:
         """
@@ -93,7 +109,8 @@ class PackageRegistryApiNpm(AbstractPackageRegistryApi):
         """
         project_file_path = os.path.join(project_path, "package.json")
         if not os.path.exists(project_file_path):
-            raise FileNotFoundError(f"package.json not found at `{project_file_path}`")
+            raise FileNotFoundError(
+                f"package.json not found at `{project_file_path}`")
 
         with open(project_file_path, encoding="utf-8") as f:
             project_json = json.load(f)
