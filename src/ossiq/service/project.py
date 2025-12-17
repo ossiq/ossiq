@@ -22,7 +22,7 @@ class ProjectOverviewRecord:
     package_name: str
     is_dev_dependency: bool
     installed_version: str
-    latest_version: str
+    latest_version: str | None
     versions_diff_index: VersionsDifference
     time_lag_days: int | None
     releases_lag: int | None
@@ -50,7 +50,7 @@ def parse_iso(datetime_str: str | None):
 
 
 def calculate_time_lag(
-    versions: list[package_versions.PackageVersion], installed_version: str, latest_version: str
+    versions: list[package_versions.PackageVersion], installed_version: str, latest_version: str | None
 ) -> int | None:
     """
     Calculates the time difference in days between the installed and latest package versions.
@@ -58,7 +58,7 @@ def calculate_time_lag(
     installed_date = None
     latest_date = None
 
-    if installed_version == latest_version:
+    if installed_version == latest_version or not latest_version:
         return 0
 
     for pv in versions:
@@ -129,6 +129,7 @@ def overview(uow: unit_of_work.AbstractProjectUnitOfWork) -> ProjectOverviewSumm
     def sort_function(pkg: ProjectOverviewRecord):
         return (
             pkg.versions_diff_index.diff_index,
+            len(pkg.cve),
             pkg.time_lag_days,
             pkg.package_name,
         )

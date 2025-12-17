@@ -78,7 +78,7 @@ def table_factory(
             f"[bold][red]{len(pkg.cve)}" if pkg.cve else "",
             _format_lag_status(vdiff),
             pkg.installed_version,
-            pkg.latest_version,
+            pkg.latest_version if pkg.latest_version else "[bold][red]N/A",
             str(pkg.releases_lag),
             _format_time_delta(pkg.time_lag_days, lag_threshold_days),
         )

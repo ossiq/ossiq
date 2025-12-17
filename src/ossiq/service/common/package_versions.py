@@ -36,7 +36,7 @@ def aggregated_package_versions(
     repository_info: Repository,
     package_name: str,
     installed_version: str,
-    latest_version: str,
+    latest_version: str | None,
 ) -> tuple[list[PackageVersion], list[RepositoryVersion]]:
     """
     Load package versions from a given registry.
@@ -53,9 +53,12 @@ def aggregated_package_versions(
 
     # NOTE: we don't need to pull all the versions, just the difference between
     # what we have and what is the latest available.
-    versions_delta = list(
-        filter_versions_between([p.version for p in package_versions], installed_version, latest_version)
-    )
+    if latest_version:
+        versions_delta = list(
+            filter_versions_between([p.version for p in package_versions], installed_version, latest_version)
+        )
+    else:
+        versions_delta = [p.version for p in package_versions]
 
     # filter out versions we don't need
     packages_delta = [p for p in package_versions if p.version in versions_delta]

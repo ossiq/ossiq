@@ -13,7 +13,7 @@ class Package:
 
     registry: ProjectPackagesRegistry
     name: str
-    latest_version: str
+    latest_version: str | None
     next_version: str
     repo_url: str
     homepage_url: str | None
@@ -28,7 +28,7 @@ class Package:
         self,
         registry: ProjectPackagesRegistry,
         name: str,
-        latest_version: str,
+        latest_version: str | None,
         next_version: str,
         repo_url: str,
         author: str | None = None,

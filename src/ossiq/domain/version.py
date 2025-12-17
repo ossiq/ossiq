@@ -8,7 +8,7 @@ from functools import cmp_to_key
 
 import semver
 
-VERSION_NO_DIFF = -1
+VERSION_NO_DIFF = 10
 VERSION_LATEST = 0
 VERSION_DIFF_MAJOR = 5
 VERSION_DIFF_MINOR = 4
@@ -63,7 +63,7 @@ class Commit:
     committed_at: str | None
 
     def __repr__(self):
-        return f"Commit(sha='{self.sha}', author='{self.commit_user_name}', message='{self.simplified_message}')"
+        return f"Commit(sha='{self.sha}', author='{self.commit_user_name}', message = '{self.simplified_message}')"
 
     @property
     def commit_user_name(self):
