@@ -2,7 +2,7 @@ site_name: ossiq
 site_description: "Utility to forecast risks associated with currently installed packages updates"
 site_author: Maksym Klymyshyn
 site_dir: site
-site_url: https://ossiq.dev
+site_url: https://ossiq.github.io
 
 repo_name: ossiq/ossiq
 repo_url: https://github.com/ossiq/ossiq
@@ -10,7 +10,9 @@ edit_uri: blob/main/docs/
 
 plugins:
   - mkdocs-nav-weight
-  - info
+  - info:
+      enabled: false
+      enabled_on_serve: true
 
 markdown_extensions:
   - pymdownx.highlight:

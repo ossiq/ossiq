@@ -54,7 +54,7 @@ dependencies = [ # specify that newer patch or minor versions allowed
   "pandas~=2.3.3",
   "hatch>=1.15.1",
   "mkdocs>=1.6.1",
-  "mkdocs-material>=9.5.50",
+  "mkdocs-material>=9.7.1",
   "mkdocstrings>=0.25.2",
   "mkdocs-nav-weight>=0.3.0",
 ]
