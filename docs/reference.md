@@ -5,17 +5,58 @@ weight: 5
 # Reference
 
 
-## Concepts & Data Model
+## Data Model
 
- - What exists, and how it is named
- - Project
- - Dependency
- - Dependency Graph Modeling
- - Transitive Dependency Analysis
- - SBOM as System Representation
- - Provenance Tracking (ecosystem-specific)
- - Version & Version Range
- - Snapshot / Analysis Run
+The `ossiq` domain model is located in the `ossiq.domain` module. It defines the core entities used for analysis.
+
+### Project
+
+A software project being analyzed. Each `Project` contains a `name` and lists of its direct production and development `dependencies`.
+
+For full details, see [`ossiq/domain/project.py`](https://github.com/ossiq/ossiq/tree/main/src/ossiq/domain/project.py).
+
+### Package
+
+A dependency of a `Project`. A `Package` is defined by its `name` and contains a list of all its available `versions`.
+
+For full details, see [`ossiq/domain/package.py`](https://github.com/ossiq/ossiq/tree/main/src/ossiq/domain/package.py).
+
+### Version Models
+
+The version-related models capture details from different sources and are aggregated into a single `Version` object.
+
+The primary `Version` object aggregates `package_data` (from a package registry) and `repository_data` (from a source code repository). Other data classes like `Commit` and `User` provide granular detail about the source code history.
+
+For a complete definition of all version-related data classes, see [`ossiq/domain/version.py`](https://github.com/ossiq/ossiq/tree/main/src/ossiq/domain/version.py).
+
+---
+
+## System Behavior
+
+### Dependency Resolution
+
+-   **Dependency Graph**: The system operates on a flat list of dependencies resolved from a lockfile (e.g., `package-lock.json`). It does not build or traverse a dependency graph.
+-   **Transitive Dependencies**: Transitive dependency resolution is not performed. The tool relies on the dependency resolution of the target project's native package manager (e.g., `npm`, `pip`).
+
+### Data Provenance
+
+Package metadata is sourced from ecosystem-specific repositories (e.g., npm registry, PyPI). This is handled by a set of adapters in the `ossiq.adapters` module (e.g., `ossiq.adapters.api_npm`).
+
+### Analysis Output
+
+A single analysis run produces a `ProjectOverviewSummary` object.
+
+**Class**: `ossiq.service.project.ProjectOverviewSummary`
+
+**Description**: Contains an analysis of each dependency, including version lags, time lags, and associated vulnerabilities.
+
+---
+
+!!! warning
+
+    Everything below is vibe-coded draft what needs to be described.
+    Since there are quite a few halluzinations, list might be incorrect.
+
 
 ## Inputs
 

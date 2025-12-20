@@ -8,12 +8,19 @@ from functools import cmp_to_key
 
 import semver
 
+# Version is unpublished from the Package Registry
 VERSION_NO_DIFF = 10
+# Version installed and the latest in the Registry are the same
 VERSION_LATEST = 0
+# Installed version is a major version behind
 VERSION_DIFF_MAJOR = 5
+# Installd version is a minor version behind
 VERSION_DIFF_MINOR = 4
+# Installed version is patch version behind
 VERSION_DIFF_PATCH = 3
+# Installed version is pre-release version behind (same meaning as VERSION_LATEST)
 VERSION_DIFF_PRERELEASE = 2
+# Installed version is build version behind (same meaning as VERSION_LATEST)
 VERSION_DIFF_BUILD = 1
 
 VERSION_DIFF_TYPES_MAP = {
@@ -26,7 +33,8 @@ VERSION_DIFF_TYPES_MAP = {
     "LATEST": VERSION_LATEST,
 }
 
-VERSINO_INVERSED_DIFF_TYPES_MAP = {val: key for key, val in VERSION_DIFF_TYPES_MAP.items()}
+VERSINO_INVERSED_DIFF_TYPES_MAP = {
+    val: key for key, val in VERSION_DIFF_TYPES_MAP.items()}
 
 
 @dataclass
