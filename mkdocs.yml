@@ -31,8 +31,20 @@ markdown_extensions:
 theme:
   name: material
   custom_dir: docs/overrides
-  palette:
-    primary: teal
+  palette: 
+    - scheme: default
+      primary: white  
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+
+    # Palette toggle for dark mode
+    - scheme: slate
+      primary: black
+      accent: black
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
   features:
     - navigation.tabs
     - navigation.sections

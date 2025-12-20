@@ -5,24 +5,60 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>OSS IQ - Know Your Dependency Risk in Minutes, Not Weeks</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,400,0,0"
-        rel="stylesheet">
+
+    <!-- SEO Meta Tags -->
+    <meta name="description"
+        content="Instantly analyze your software dependencies with OSS IQ. Get a single health score to track vulnerabilities, outdated packages, and maintenance risks. Free & open source CLI tool.">
+    <link rel="canonical" href="https://ossiq.dev/" />
+
+    <!-- Open Graph / Facebook -->
+    <meta property="og:type" content="website">
+    <meta property="og:url" content="https://ossiq.dev/">
+    <meta property="og:title" content="OSS IQ - Know Your Dependency Risk in Minutes, Not Weeks">
+    <meta property="og:description"
+        content="Instantly analyze your software dependencies with OSS IQ. Get a single health score to track vulnerabilities, outdated packages, and maintenance risks.">
+    <meta property="og:image" content="https://ossiq.dev/img/ossiq-html-report.png">
+
+    <!-- Twitter -->
+    <meta property="twitter:card" content="summary_large_image">
+    <meta property="twitter:url" content="https://ossiq.dev/">
+    <meta property="twitter:title" content="OSS IQ - Know Your Dependency Risk in Minutes, Not Weeks">
+    <meta property="twitter:description"
+        content="Instantly analyze your software dependencies with OSS IQ. Get a single health score to track vulnerabilities, outdated packages, and maintenance risks.">
+    <meta property="twitter:image" content="https://ossiq.dev/img/ossiq-html-report.png">
+
+
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+
+    <!-- Google Font: Raleway -->
+    <link href="https://fonts.googleapis.com/css2?family=Raleway:wght@300;400;600&display=swap" rel="stylesheet">
+
+    <!-- Google Material Symbols -->
+    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded" rel="stylesheet" />
+
     <style>
         body {
-            font-family: 'Inter', sans-serif;
+            font-family: "SF Pro Display", "SF Pro Icons", "Helvetica Neue", "Helvetica", "Arial", sans-serif;
+        }
+
+        h1,
+        h2,
+        h3,
+        h4,
+        h5,
+        header {
+            font-family: 'Raleway', sans-serif;
         }
 
         .gradient-text {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: linear-gradient(135deg, #3b73ff 0%, #f84d4d 100%);
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
             background-clip: text;
         }
 
         .gradient-bg {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: linear-gradient(135deg, #3b73ff 0%, #f84d4d 100%);
         }
 
         .score-animation {
@@ -41,32 +77,108 @@
             }
         }
     </style>
+    <style type="text/tailwindcss">
+        @theme { --color-red-ossiq: #DA291C; }
+    </style>
+
+    <!-- Structured Data -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@graph": [
+        {
+          "@type": "SoftwareApplication",
+          "name": "OSS IQ",
+          "applicationCategory": "DeveloperTool",
+          "operatingSystem": "Linux, macOS, Windows",
+          "license": "https://opensource.org/licenses/MIT",
+          "description": "An open-source CLI tool that provides a single, actionable dependency health score for your entire codebase, helping you identify vulnerabilities, outdated packages, and abandoned dependencies.",
+          "url": "https://ossiq.dev/",
+          "mainEntityOfPage": {
+            "@type": "WebPage",
+            "@id": "https://ossiq.dev/"
+          }
+        },
+        {
+          "@type": "FAQPage",
+          "mainEntity": [
+            {
+              "@type": "Question",
+              "name": "What is a dependency health score?",
+              "acceptedAnswer": {
+                "@type": "Answer",
+                "text": "It's a single, easy-to-understand metric that aggregates dozens of signals—like security vulnerabilities (CVEs), package maintenance status, and version lag—into one number. It gives you an instant, holistic view of your project's dependency risk."
+              }
+            },
+            {
+              "@type": "Question",
+              "name": "How is this different from `npm audit` or `pip-audit`?",
+              "acceptedAnswer": {
+                "@type": "Answer",
+                "text": "Audit tools are great at finding known vulnerabilities. OSS IQ goes further by also analyzing non-security risks, such as how far behind you are from the latest version (technical debt) and whether a package is still actively maintained. We give you the full picture of dependency health, not just one part of it."
+              }
+            },
+            {
+              "@type": "Question",
+              "name": "What ecosystems does OSS IQ support?",
+              "acceptedAnswer": {
+                "@type": "Answer",
+                "text": "OSS IQ currently supports popular ecosystems like npm (including Yarn and pnpm) for JavaScript and multiple dependency managers for Python (like uv, Poetry, and classic pip). We are always working to add support for more ecosystems."
+              }
+            },
+            {
+              "@type": "Question",
+              "name": "Is OSS IQ free?",
+              "acceptedAnswer": {
+                "@type": "Answer",
+                "text": "Yes, OSS IQ is a completely free and open-source tool, licensed under the MIT license. You can use it for any personal or commercial project."
+              }
+            }
+          ]
+        }
+      ]
+    }
+    </script>
 </head>
 
 <body class="antialiased">
 
     <!-- Navigation -->
     <nav class="fixed w-full bg-white/90 backdrop-blur-md z-50 border-b border-gray-200">
-        <div class="max-w-7xl mx-auto px-6 py-4">
-            <div class="flex items-center justify-between">
-                <div class="flex items-center space-x-2">
-                    <span class="text-2xl font-bold gradient-text">OSS IQ</span>
-                    <span class="text-xs text-gray-500 hidden sm:block">Dependency Intelligence</span>
-                </div>
-                <div class="hidden md:flex items-center space-x-8">
-                    <a href="#how-it-works" class="text-gray-600 hover:text-gray-900 transition">How It Works</a>
-                    <a href="/getting-started/" class="text-gray-600 hover:text-gray-900 transition">Getting Started</a>
+        <div class="max-w-7xl mx-auto px-1 py-4">
+            <div class="flex space-x-8 items-center justify-between">
+                <div class="flex space-x-8 items-center">
+                    <div class="flex items-center">
+                        <span class="text-xl font-normal tracking-wide">OSS IQ</span>
+                        <span class="text-xs pl-5">Dependencies Intelligence</span>
+                    </div>
+                    <div class="hidden md:flex space-x-8 items-center pl-8">
+                        <a href="#how-it-works"
+                            class="text-gray-700 hover:text-gray-900 transition font-bold  hover:border-b-2 hover:border-red-ossiq">
+                            How it works</a>
+                        <a href="/getting-started/"
+                            class="text-gray-700 hover:text-gray-900 transition font-bold hover:border-b-2 hover:border-red-ossiq">Getting
+                            started</a>
+                        <a href="/explanation/"
+                            class="text-gray-700 hover:text-gray-900 transition font-bold  hover:border-b-2 hover:border-red-ossiq">Explanation</a>
+                        <a href="#faq"
+                            class="text-gray-700 hover:text-gray-900 transition font-bold  hover:border-b-2 hover:border-red-ossiq">
+                            FAQ</a>
+                    </div>
                 </div>
                 <div class="flex items-center space-x-4">
-                    <a href="https://github.com/ossiq/ossiq/"
-                        class="text-gray-600 hover:text-gray-900 transition">Github</a>
+                    <a href="https://github.com/" class="flex items-center space-x-1 text-gray-700
+                            hover:text-black transition font-medium">
+                        <span class="material-symbols-rounded text-xl">code</span>
+                        <span>GitHub</span>
+                    </a>
                 </div>
             </div>
         </div>
     </nav>
 
     <!-- Hero Section -->
-    <section class="pt-32 pb-20 px-6 bg-gradient-to-br from-indigo-50 via-white to-purple-50">
+    <section class="pt-32 pb-20 px-6 bg-gradient-to-br from-blue-50 via-white to-red-ossiq/20">
         <div class="max-w-7xl mx-auto">
             <div class="grid lg:grid-cols-2 gap-12 items-center">
                 <!-- Left: Copy -->
@@ -76,8 +188,9 @@
                     </h1>
 
                     <p class="text-xl text-gray-600 leading-relaxed">
-                        One dependency health score for your entire codebase. No manual work. No guesswork. Just instant
-                        visibility into what matters: vulnerabilities, outdated packages, and abandoned dependencies.
+                        Understand your <strong>dependency drift at scale</strong>.
+                        No ad-hoc audits. No spreadsheets. No dependabot-style urgency.
+                        Track version lag and transitive risk directly from your dependency files.
                     </p>
 
                     <div class="flex flex-col sm:flex-row gap-4">
@@ -99,7 +212,8 @@
                 <!-- Right: Visual -->
                 <div class="relative">
                     <div class="bg-white rounded-2xl shadow-2xl p-8 border border-gray-200">
-                        <img src="img/ossiq-html-report.png" />
+                        <img src="img/ossiq-html-report.png"
+                            alt="Screenshot of the OSS IQ HTML report showing dependency health scores, version lag, and security vulnerabilities." />
 
                     </div>
                 </div>
@@ -108,7 +222,7 @@
     </section>
 
     <!-- Problem / Solution -->
-    <section class="py-20 px-6 bg-gray-50">
+    <section class="py-20 px-6">
         <div class="max-w-7xl mx-auto">
             <div class="text-center mb-16">
                 <h2 class="text-4xl font-bold text-gray-900 mb-4">
@@ -236,6 +350,60 @@
         </div>
     </section>
 
+    <!-- FAQ Section -->
+    <section id="faq" class="py-20 px-6">
+        <div class="max-w-4xl mx-auto">
+            <div class="text-center mb-12">
+                <h2 class="text-4xl font-bold text-gray-900 mb-4">
+                    Frequently Asked Questions
+                </h2>
+            </div>
+            <div class="space-y-8">
+                <!-- Question 1 -->
+                <div>
+                    <h3 class="text-xl font-semibold text-gray-900 mb-2">Why another <strong>Software Composition
+                            Analysis</strong> tool?</h3>
+                    <p class="text-gray-600">
+                        OSS IQ is not another vulnerability scanner.
+                        It helps platform teams evaluate open-source dependencies
+                        as long-term engineering assets by analyzing SBOMs,
+                        dependency graphs, and maintenance signals, producing stable
+                        scores suitable for CI and platform governance.
+                    </p>
+                </div>
+                <!-- Question 2 -->
+                <div>
+                    <h3 class="text-xl font-semibold text-gray-900 mb-2">How <strong>OSS IQ</strong> is different from
+                        `npm audit` or
+                        `pip-audit`?</h3>
+                    <p class="text-gray-600">
+                        Audit tools are great at finding known vulnerabilities. OSS IQ goes further by also analyzing
+                        non-security risks, such as how far behind you are from the latest version (technical debt) and
+                        whether a package is still actively maintained. We give you the full picture of dependency
+                        health, not just one part of it.
+                    </p>
+                </div>
+                <!-- Question 3 -->
+                <div>
+                    <h3 class="text-xl font-semibold text-gray-900 mb-2">What ecosystems does OSS IQ support?</h3>
+                    <p class="text-gray-600">
+                        OSS IQ currently supports popular ecosystems like npm for JavaScript
+                        and multiple dependency managers for Python (uv, Poetry, and classic pip). We are always
+                        working to add support for more ecosystems.
+                    </p>
+                </div>
+                <!-- Question 4 -->
+                <div>
+                    <h3 class="text-xl font-semibold text-gray-900 mb-2">Is OSS IQ free?</h3>
+                    <p class="text-gray-600">
+                        Yes, OSS IQ is a completely free and open-source tool, licensed under the AGPLv3 license. You
+                        can use it for any personal or commercial project.
+                    </p>
+                </div>
+            </div>
+        </div>
+    </section>
+
 
     <!-- Footer -->
     <footer class="bg-gray-900 text-gray-400 py-12 px-6">
@@ -250,8 +418,8 @@
                 <div>
                     <h4 class="text-white font-semibold mb-4">Product</h4>
                     <ul class="space-y-2 text-sm">
-                        <li><a href="/explanation/" class="hover:text-white transition">Explanation</a></li>
-                        <li><a href="/getting-started/" class="hover:text-white transition">Documentation</a></li>
+                        <li><a href="https://github.com/ossiq/ossiq" class="hover:text-white transition">
+                                About</a></li>
                         <li><a href="https://github.com/ossiq/ossiq/issues" class="hover:text-white transition">Issues
                                 Tracker</a></li>
                         <li><a href="https://github.com/ossiq/ossiq/releases"
@@ -261,7 +429,8 @@
                 <div>
                     <h4 class="text-white font-semibold mb-4">Project</h4>
                     <ul class="space-y-2 text-sm">
-                        <li><a href="http://ossiq.dev/" class="hover:text-white transition">About</a></li>
+                        <li><a href="/explanation/" class="hover:text-white transition">Explanation</a></li>
+                        <li><a href="/getting-started/" class="hover:text-white transition">Documentation</a></li>
                     </ul>
                 </div>
             </div>
