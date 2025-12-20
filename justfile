@@ -11,11 +11,15 @@ list:
 
 # Run all the formatting, linting, and testing commands
 qa:
-    uv run --python=3.13 --extra test ruff format .
-    uv run --python=3.13 --extra test ruff check . --fix
-    uv run --python=3.13 --extra test ruff check --select I --fix .
-    uv run --python=3.13 --extra test ty check .
-    uv run --python=3.13 --extra test pytest .
+    uv run --extra test ruff format .
+    uv run --extra test ruff check . --fix
+    uv run --extra test ruff check --select I --fix .
+    uv run --extra test ty check .
+    uv run --extra test pytest .
+
+lint:
+    uv run ruff check .
+    uv run ruff check --exit-zero --statistics .
 
 # Run all the tests for all the supported Python versions
 testall:
@@ -27,7 +31,7 @@ testall:
 # Run all the tests, but allow for arguments to be passed
 test *ARGS:
     @echo "Running with arg: {{ARGS}}"
-    uv run --python=3.13 --extra test pytest {{ARGS}}
+    uv run --extra test pytest {{ARGS}}
 
 # Run all the tests, but on failure, drop into the debugger
 pdb *ARGS:
@@ -60,9 +64,9 @@ tag:
 
 # remove all build, test, coverage and Python artifacts
 clean: 
-	clean-build
-	clean-pyc
-	clean-test
+	uv run just clean-build
+	uv run just clean-pyc
+	uv run just clean-test
 
 # remove build artifacts
 clean-build:
