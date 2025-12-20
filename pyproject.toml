@@ -1,19 +1,17 @@
 [project]
-name = "ossiq-cli"
+name = "ossiq"
 version = "0.1.0"
 description = "Utility to forecast risks associated with currently installed packages updates"
 readme = "README.md"
 authors = [
-  {name = "Maksym Klymyshyn", email = "klymyshyn@gmail.com"},
-  {name = "Oleksandr Shulika", email = "oleksandr.shulika@gmail.com"}
+  {name = "Maksym Klymyshyn", email = "klymyshyn@gmail.com"}
 ]
 maintainers = [
   {name = "Maksym Klymyshyn", email = "klymyshyn@gmail.com"}
 ]
 classifiers = [
-    "License :: OSI Approved :: GNU Affero General Public License v3",
     "Intended Audience :: Developers",
-    "Intended Audience :: Information Technology"
+    "Intended Audience :: Information Technology",
     "Development Status :: 3 - Alpha",
     
     "Topic :: Software Development :: Build Tools",
@@ -39,8 +37,6 @@ classifiers = [
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3 :: Only",
 ]
-license = {file = "LICENSE"}
-license-files = ["LICEN[CS]E*", "AUTHORS"]
 keywords = ["techdebt", "tech debt", "maintenance", "toc", "engineering"]
 
 dependencies = [ # specify that newer patch or minor versions allowed
@@ -57,6 +53,10 @@ dependencies = [ # specify that newer patch or minor versions allowed
   "tree-sitter-typescript~=0.23.2",
   "pandas~=2.3.3",
   "hatch>=1.15.1",
+  "mkdocs>=1.6.1",
+  "mkdocs-material>=9.5.50",
+  "mkdocstrings>=0.25.2",
+  "mkdocs-nav-weight>=0.3.0",
 ]
 requires-python = ">= 3.10"
 
@@ -70,12 +70,22 @@ test = [
     "black~=25.11.0",
     "pylint~=4.0.3"
 ]
+docs = [
+    "mkdocs~=1.6.0",
+    "mkdocs-material",
+    "mkdocstrings",
+]
+
+[project.license]
+license = "AGPL-3.0-only"
+file = "LICENSE"
+
 
 [project.urls]
-bugs = "https://github.com/mklymyshyn/ossiq-cli/issues"
-changelog = "httpshttps://github.com/mklymyshyn/ossiq/blob/master/changelog.md"
-homepage = "https://github.com/mklymyshyn/ossiq-cli"
-repository = "https://github.com/mklymyshyn/ossiq-cli.git"
+bugs = "https://github.com/ossiq/ossiq/issues"
+changelog = "https://github.com/ossiq/ossiq/blob/master/changelog.md"
+homepage = "https://github.com/ossiq/ossiq"
+repository = "https://github.com/ossiq/ossiq.git"
 
 [project.scripts]
 ossiq-cli = "ossiq.cli:app"

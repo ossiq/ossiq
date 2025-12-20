@@ -3,8 +3,9 @@ Interfaces related to external APIs
 """
 
 import abc
-from typing import Iterable, List, Set
+from collections.abc import Iterable
 
+from ossiq.domain.common import ProjectPackagesRegistry
 from ossiq.domain.cve import CVE
 from ossiq.domain.package import Package
 from ossiq.domain.project import Project
@@ -15,7 +16,7 @@ from ..domain.version import PackageVersion
 
 class AbstractSourceCodeProviderApi(abc.ABC):
     """
-    Abstract client to communicate with source code repositories like GitHub    
+    Abstract client to communicate with source code repositories like GitHub
     """
 
     @abc.abstractmethod
@@ -23,7 +24,7 @@ class AbstractSourceCodeProviderApi(abc.ABC):
         raise NotImplementedError
 
     @abc.abstractmethod
-    def repository_versions(self, repository: Repository, package_versions: List[PackageVersion]):
+    def repository_versions(self, repository: Repository, package_versions: list[PackageVersion]):
         raise NotImplementedError
 
     @abc.abstractmethod
@@ -35,6 +36,8 @@ class AbstractPackageRegistryApi(abc.ABC):
     """
     Abstract client to communicate with package registries like PyPi or NPM
     """
+
+    registry: ProjectPackagesRegistry
 
     @abc.abstractmethod
     def package_info(self, package_name: str) -> Package:
@@ -70,9 +73,7 @@ class AbstractCveDatabaseApi(abc.ABC):
     """
 
     @abc.abstractmethod
-    def get_cves_for_package(
-        self, package: Package, version: PackageVersion
-    ) -> Set[CVE]:
+    def get_cves_for_package(self, package: Package, version: PackageVersion) -> set[CVE]:
         """
         Method to return a particular CVE info
         """

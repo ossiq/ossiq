@@ -1,6 +1,7 @@
 """
 Presentation-related system-level functions
 """
+
 from contextlib import contextmanager
 
 from rich.console import Console
@@ -17,8 +18,9 @@ error_console = Console(stderr=True)
 def show_operation_progress(settings: Settings, message: str):
     """
     Show progress till function is executed if
-    verbose is disabled.    
+    verbose is disabled.
     """
+
     @contextmanager
     def noop():
         yield lambda: None
@@ -36,12 +38,14 @@ def show_settings(ctx, label: str, settings: dict):
     """
     Show a panel with key/value pairs with settings
     """
-    if ctx["settings"].verbose is False:
+    settings: Settings = ctx.obj
+    if settings.verbose is False:
         return
 
     header_text = Text()
     header_text.append("\n", style="bold cyan")
-    for setting, value in settings.items():
+
+    for setting, value in settings.model_dump().items():
         header_text.append(f"{setting}: ", style="bold white")
         header_text.append(f"{value}\n", style="green")
 
@@ -53,6 +57,4 @@ def show_error(ctx, message: str):
     """
     Show error message
     """
-    error_console.print(
-        f"\n[bold yellow on red blink] ERROR [/bold yellow on red blink] [red]{message}[/red]"
-    )
+    error_console.print(f"\n[bold yellow on red blink] ERROR [/bold yellow on red blink] [red]{message}[/red]")

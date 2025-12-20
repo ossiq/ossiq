@@ -8,7 +8,7 @@ You can contribute in many ways:
 
 ### Report Bugs
 
-Report bugs at https://github.com/mklymyshyn/ossiq/issues.
+Report bugs at [https://github.com/ossiq/ossiq/issues](https://github.com/ossiq/ossiq/issues).
 
 If you are reporting a bug, please include:
 
@@ -30,7 +30,7 @@ Update Burden could always use more documentation, whether as part of the offici
 
 ### Submit Feedback
 
-The best way to send feedback is to file an issue at https://github.com/mklymyshyn/ossiq-cli/issues.
+The best way to send feedback is to file an issue at [https://github.com/ossiq/ossiq/issues](https://github.com/ossiq/ossiq/issues) .
 
 If you are proposing a feature:
 

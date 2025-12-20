@@ -2,6 +2,7 @@
 Put all the important constants in one place to avoid
 mutual dependencies.
 """
+
 import os
 from enum import Enum
 
@@ -32,6 +33,7 @@ class PresentationType(Enum):
     What kind of presentation methods available. Default likely should be Console,
     potentailly could be HTML and JSON/YAML.
     """
+
     CONSOLE = "console"
     HTML = "html"
 
@@ -41,7 +43,9 @@ class Command(Enum):
     List of available commands, used by presentation layer to map
     command with respective presentation layer.
     """
+
     OVERVIEW = "overview"
+
 
 # Domain-specific Exceptions
 
@@ -82,7 +86,7 @@ def identify_project_registry_kind(project_path: str) -> ProjectPackagesRegistry
     projects_kind_map = {
         "package.json": ProjectPackagesRegistry.NPM,
         "requirements.txt": ProjectPackagesRegistry.PYPI,
-        "pyproject.toml": ProjectPackagesRegistry.PYPI
+        "pyproject.toml": ProjectPackagesRegistry.PYPI,
     }
 
     for dependencies_filename, registry_kind in projects_kind_map.items():
@@ -90,16 +94,14 @@ def identify_project_registry_kind(project_path: str) -> ProjectPackagesRegistry
         if os.path.exists(full_probe_path):
             return registry_kind
 
-    raise UnsupportedPackageRegistry(
-        f"Unknown project kind at: {project_path}")
+    raise UnsupportedPackageRegistry(f"Unknown project kind at: {project_path}")
 
 
 def identify_project_source_code_provider_kind(repo_url: str) -> RepositoryProvider:
     """
     Identify Packages registry by typical file name
     """
-    if repo_url("https://github.com/"):
+    if repo_url.startswith("https://github.com/"):
         return RepositoryProvider.PROVIDER_GITHUB
 
-    raise UnsupportedRepositoryProvider(
-        f"Unknown repository provider for the URL: {repo_url}")
+    raise UnsupportedRepositoryProvider(f"Unknown repository provider for the URL: {repo_url}")

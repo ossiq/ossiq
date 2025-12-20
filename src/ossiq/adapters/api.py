@@ -1,13 +1,14 @@
 """
 Factory to instantiate API clients
 """
+
 from ossiq.adapters.api_npm import PackageRegistryApiNpm
 from ossiq.adapters.api_osv import CveApiOsv
-from ossiq.settings import Settings
 from ossiq.domain.common import ProjectPackagesRegistry, RepositoryProvider
+from ossiq.settings import Settings
+
 from .api_github import SourceCodeProviderApiGithub
-from .api_interfaces import AbstractCveDatabaseApi, AbstractSourceCodeProviderApi
-from .api_interfaces import AbstractPackageRegistryApi
+from .api_interfaces import AbstractCveDatabaseApi, AbstractPackageRegistryApi, AbstractSourceCodeProviderApi
 
 
 def get_source_code_provider(provider_type: RepositoryProvider, settings: Settings) -> AbstractSourceCodeProviderApi:

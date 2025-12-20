@@ -1,0 +1,55 @@
+site_name: ossiq
+site_description: "Utility to forecast risks associated with currently installed packages updates"
+site_author: Maksym Klymyshyn
+site_dir: site
+site_url: https://ossiq.dev
+
+repo_name: ossiq/ossiq
+repo_url: https://github.com/ossiq/ossiq
+edit_uri: blob/main/docs/
+
+plugins:
+  - mkdocs-nav-weight
+  - info
+
+markdown_extensions:
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.superfences
+  - pymdownx.mark
+  - pymdownx.details
+  - admonition
+  - footnotes
+  - attr_list
+  - tables
+  - md_in_html
+
+theme:
+  name: material
+  custom_dir: docs/overrides
+  palette: 
+    - scheme: default
+      primary: white  
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+
+    # Palette toggle for dark mode
+    - scheme: slate
+      primary: black
+      accent: black
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - toc.integrate
+    - navigation.top
+    - search.suggest
+    - search.highlight
+    - content.tabs.link

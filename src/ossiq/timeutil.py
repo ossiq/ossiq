@@ -1,13 +1,13 @@
 """
 Collection of utility functions to work with time.
 """
+
 import re
+
 import pandas as pd
 
 
-def parse_relative_time_delta(
-        time_unit_str: str,
-        units_supported=("y", "m", "w", "d", "h")) -> pd.Timedelta:
+def parse_relative_time_delta(time_unit_str: str, units_supported=("y", "m", "w", "d", "h")) -> pd.Timedelta:
     """
     It also allows for a single number without a unit, which will default to days.
     """
@@ -16,7 +16,7 @@ def parse_relative_time_delta(
     matched_pattern = re.match(pattern, time_unit_str)
     if matched_pattern:
         time_value, unit = matched_pattern.groups()
-        time_unit_str = f"{time_value}{unit if unit else "d"}"
+        time_unit_str = f"{time_value}{unit if unit else 'd'}"
 
         time_value = int(time_value)
 
@@ -34,7 +34,7 @@ def parse_relative_time_delta(
 
     raise ValueError(
         f"Invalid time delta format: {time_unit_str}. "
-        f"Expected format: <number><unit>, where unit is one of {", ".join(units_supported)}. "
+        f"Expected format: <number><unit>, where unit is one of {', '.join(units_supported)}. "
         "Example: 1y, 6m, 2w, 30d, 24h."
     )
 

@@ -1,8 +1,8 @@
 """Console script for ossiq-cli."""
 
 from typing import Annotated
-import typer
 
+import typer
 from rich.console import Console
 
 from ossiq.commands.overview import commnad_overview
@@ -16,69 +16,58 @@ from ossiq.messages import (
     HELP_TEXT,
 )
 from ossiq.presentation.system import show_settings
-
 from ossiq.settings import Settings
-
 
 app = typer.Typer()
 console = Console()
-context = {"settings": Settings.load_from_env()}
 
 
 @app.callback()
 def main(
-    _: typer.Context,
+    context: typer.Context,
     github_token: Annotated[
-        str,
-        typer.Option(
-            "--github-token", "-T",
-            envvar=f"{Settings.ENV_PREFIX}GITHUB_TOKEN",
-            help=ARGS_HELP_GITHUB_TOKEN
-        )] = None,
+        str | None,
+        typer.Option("--github-token", "-T", envvar=f"{Settings.ENV_PREFIX}GITHUB_TOKEN", help=ARGS_HELP_GITHUB_TOKEN),
+    ] = None,
     presentation: Annotated[
         str,
-        typer.Option(
-            "--presentation", "-p",
-            envvar=f"{Settings.ENV_PREFIX}PRESENTATION",
-            help=ARGS_HELP_PRESENTATION
-        )] = PresentationType.CONSOLE.value,
+        typer.Option("--presentation", "-p", envvar=f"{Settings.ENV_PREFIX}PRESENTATION", help=ARGS_HELP_PRESENTATION),
+    ] = PresentationType.CONSOLE.value,
     output_destination: Annotated[
-        str,
-        typer.Option(
-            "--output", "-o",
-            envvar=f"{Settings.ENV_PREFIX}OUTPUT",
-            help=ARGS_HELP_OUTPUT
-        )] = ".",
+        str, typer.Option("--output", "-o", envvar=f"{Settings.ENV_PREFIX}OUTPUT", help=ARGS_HELP_OUTPUT)
+    ] = ".",
     verbose: Annotated[
-        bool, typer.Option(
-            "--verbose", "-v",
+        bool,
+        typer.Option(
+            "--verbose",
+            "-v",
             is_flag=True,
             envvar=f"{Settings.ENV_PREFIX}_VERBOSE",
-            help=f"Enable verbose output. Overrides {Settings.ENV_PREFIX}VERBOSE env var."
-        )] = False):
+            help=f"Enable verbose output. Overrides {Settings.ENV_PREFIX}VERBOSE env var.",
+        ),
+    ] = False,
+):
     """
     Main callback. Loads the configuration and stores it in the context.
     """
+    # 1. Load settings from environment variables (done by Pydantic on instantiation)
+    settings = Settings.load_from_env()
 
-    cli_overrides = {}
-    source_overrides = {
+    # 2. Collect CLI arguments that will override env vars
+    cli_overrides = {
         "github_token": github_token,
         "verbose": verbose,
         "presentation": presentation,
-        "output_destination": output_destination
+        "output_destination": output_destination,
     }
+    # Filter out None values so we only override with explicitly provided options
+    update_data = {k: v for k, v in cli_overrides.items() if v is not None}
 
-    env_settings = context["settings"]
-
-    # Command line arguments takes precedene over ENV variables
-    for k, v in source_overrides.items():
-        if getattr(env_settings, k, None) != v:
-            cli_overrides[k] = v
-
-    context["settings"] = env_settings.model_copy(update=cli_overrides)
-
-    if verbose:
-        show_settings(context, "Settings", context["settings"].model_dump())
+    # 3. Create a new, immutable settings object with the overrides
+    settings = settings.model_copy(update=update_data)
+    context.obj = settings
+    if settings.verbose:
+        show_settings(context, "Settings", settings.model_dump())
 
 
 @app.command()
@@ -89,24 +78,16 @@ def help():
 
 @app.command()
 def overview(
-        project_path: str,
-        lag_threshold_days: Annotated[
-            str, typer.Option(
-                "--lag-threshold-delta",
-                "-l",
-                help=HELP_LAG_THRESHOULD)] = "1y",
-        production: Annotated[
-            bool, typer.Option(
-                "--production",
-                help=HELP_PRODUCTION_ONLY)] = False):
+    context: typer.Context,
+    project_path: str,
+    lag_threshold_days: Annotated[str, typer.Option("--lag-threshold-delta", "-l", help=HELP_LAG_THRESHOULD)] = "1y",
+    production: Annotated[bool, typer.Option("--production", help=HELP_PRODUCTION_ONLY)] = False,
+):
     """
     Project overview command.
     """
     commnad_overview(
-        context,
-        project_path,
-        lag_threshold_days,
-        production
+        ctx=context, project_path=project_path, lag_threshold_days=lag_threshold_days, production=production
     )
 
 

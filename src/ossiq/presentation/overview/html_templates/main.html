@@ -44,7 +44,7 @@
       <!-- Logo -->
       <div class="flex items-center space-x-2">
         <span class="text-xl font-normal tracking-wide">OSS IQ</span>
-        <span class="text-xs pl-5">External Dependencies Intelligence Swissknife</span>
+        <span class="text-xs pl-5">Dependencies Intelligence</span>
       </div>
 
       <!-- GitHub Link -->
@@ -276,8 +276,13 @@
               </td>
               <td data-id="installed-version" data-value="{{ dep.installed_version }}"
                 class="px-6 py-3 text-gray-800 dark:text-gray-200">{{ dep.installed_version }}</td>
-              <td data-id="latest-version" data-value="{{ dep.latest_version }}" class="px-6 py-3">{{ dep.latest_version
-                }}</td>
+              <td data-id="latest-version" data-value="{{ dep.latest_version }}" class="px-6 py-3">
+                {% if dep.latest_version %}
+                {{ dep.latest_version }}
+                {% else %}
+                <strong class="text-red-500 dark:text-red-400">N/A</strong>
+                {% endif %}
+              </td>
               <td data-id="releases-lag" data-value="{{ dep.releases_lag }}" class="px-6 py-3">{{ dep.releases_lag }}
               </td>
               <td data-id="time-lag" data-value="{{ dep.time_lag_days }}" class="px-6 py-3">

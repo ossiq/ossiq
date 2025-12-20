@@ -17,6 +17,13 @@
         class="px-3 py-1 rounded-full bg-blue-500 text-white dark:bg-blue-700/60 text-blue-500 dark:text-blue-200 text-sm font-bold">
         PATCH
     </span>
+    {% elif comparison.diff_index == diff_types.NO_DIFF %}
+
+    <span class="material-symbols-rounded text-base text-gray-500 dark:text-gray-300 text-xl mr-2">unpublished</span>
+
+    <span class="px-3 py-1 rounded-full text-red-700 dark:text-red-700 bg-white dark:bg-white text-sm font-bold">
+        UNPUBLISHED
+    </span>
     {% else %}
     <span class="material-symbols-rounded text-base text-gray-500 dark:text-gray-300 text-xl mr-2">check</span>
     <span class="px-3 py-1 rounded-full bg-green-500 dark:bg-green-700/60 text-white dark:text-white text-sm font-bold">

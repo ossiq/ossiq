@@ -1,0 +1,448 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OSS IQ - Know Your Dependency Risk in Minutes, Not Weeks</title>
+
+    <!-- SEO Meta Tags -->
+    <meta name="description"
+        content="Instantly analyze your software dependencies with OSS IQ. Get a single health score to track vulnerabilities, outdated packages, and maintenance risks. Free & open source CLI tool.">
+    <link rel="canonical" href="https://ossiq.dev/" />
+
+    <!-- Open Graph / Facebook -->
+    <meta property="og:type" content="website">
+    <meta property="og:url" content="https://ossiq.dev/">
+    <meta property="og:title" content="OSS IQ - Know Your Dependency Risk in Minutes, Not Weeks">
+    <meta property="og:description"
+        content="Instantly analyze your software dependencies with OSS IQ. Get a single health score to track vulnerabilities, outdated packages, and maintenance risks.">
+    <meta property="og:image" content="https://ossiq.dev/img/ossiq-html-report.png">
+
+    <!-- Twitter -->
+    <meta property="twitter:card" content="summary_large_image">
+    <meta property="twitter:url" content="https://ossiq.dev/">
+    <meta property="twitter:title" content="OSS IQ - Know Your Dependency Risk in Minutes, Not Weeks">
+    <meta property="twitter:description"
+        content="Instantly analyze your software dependencies with OSS IQ. Get a single health score to track vulnerabilities, outdated packages, and maintenance risks.">
+    <meta property="twitter:image" content="https://ossiq.dev/img/ossiq-html-report.png">
+
+
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+
+    <!-- Google Font: Raleway -->
+    <link href="https://fonts.googleapis.com/css2?family=Raleway:wght@300;400;600&display=swap" rel="stylesheet">
+
+    <!-- Google Material Symbols -->
+    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded" rel="stylesheet" />
+
+    <style>
+        body {
+            font-family: "SF Pro Display", "SF Pro Icons", "Helvetica Neue", "Helvetica", "Arial", sans-serif;
+        }
+
+        h1,
+        h2,
+        h3,
+        h4,
+        h5,
+        header {
+            font-family: 'Raleway', sans-serif;
+        }
+
+        .gradient-text {
+            background: linear-gradient(135deg, #3b73ff 0%, #f84d4d 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .gradient-bg {
+            background: linear-gradient(135deg, #3b73ff 0%, #f84d4d 100%);
+        }
+
+        .score-animation {
+            animation: scoreCount 2s ease-out forwards;
+        }
+
+        @keyframes scoreCount {
+            from {
+                opacity: 0;
+                transform: scale(0.5);
+            }
+
+            to {
+                opacity: 1;
+                transform: scale(1);
+            }
+        }
+    </style>
+    <style type="text/tailwindcss">
+        @theme { --color-red-ossiq: #DA291C; }
+    </style>
+
+    <!-- Structured Data -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@graph": [
+        {
+          "@type": "SoftwareApplication",
+          "name": "OSS IQ",
+          "applicationCategory": "DeveloperTool",
+          "operatingSystem": "Linux, macOS, Windows",
+          "license": "https://opensource.org/licenses/MIT",
+          "description": "An open-source CLI tool that provides a single, actionable dependency health score for your entire codebase, helping you identify vulnerabilities, outdated packages, and abandoned dependencies.",
+          "url": "https://ossiq.dev/",
+          "mainEntityOfPage": {
+            "@type": "WebPage",
+            "@id": "https://ossiq.dev/"
+          }
+        },
+        {
+          "@type": "FAQPage",
+          "mainEntity": [
+            {
+              "@type": "Question",
+              "name": "What is a dependency health score?",
+              "acceptedAnswer": {
+                "@type": "Answer",
+                "text": "It's a single, easy-to-understand metric that aggregates dozens of signals—like security vulnerabilities (CVEs), package maintenance status, and version lag—into one number. It gives you an instant, holistic view of your project's dependency risk."
+              }
+            },
+            {
+              "@type": "Question",
+              "name": "How is this different from `npm audit` or `pip-audit`?",
+              "acceptedAnswer": {
+                "@type": "Answer",
+                "text": "Audit tools are great at finding known vulnerabilities. OSS IQ goes further by also analyzing non-security risks, such as how far behind you are from the latest version (technical debt) and whether a package is still actively maintained. We give you the full picture of dependency health, not just one part of it."
+              }
+            },
+            {
+              "@type": "Question",
+              "name": "What ecosystems does OSS IQ support?",
+              "acceptedAnswer": {
+                "@type": "Answer",
+                "text": "OSS IQ currently supports popular ecosystems like npm (including Yarn and pnpm) for JavaScript and multiple dependency managers for Python (like uv, Poetry, and classic pip). We are always working to add support for more ecosystems."
+              }
+            },
+            {
+              "@type": "Question",
+              "name": "Is OSS IQ free?",
+              "acceptedAnswer": {
+                "@type": "Answer",
+                "text": "Yes, OSS IQ is a completely free and open-source tool, licensed under the MIT license. You can use it for any personal or commercial project."
+              }
+            }
+          ]
+        }
+      ]
+    }
+    </script>
+</head>
+
+<body class="antialiased">
+
+    <!-- Navigation -->
+    <nav class="fixed w-full bg-white/90 backdrop-blur-md z-50 border-b border-gray-200">
+        <div class="max-w-7xl mx-auto px-1 py-4">
+            <div class="flex space-x-8 items-center justify-between">
+                <div class="flex space-x-8 items-center">
+                    <div class="flex items-center">
+                        <span class="text-xl font-normal tracking-wide">OSS IQ</span>
+                        <span class="text-xs pl-5">Dependencies Intelligence</span>
+                    </div>
+                    <div class="hidden md:flex space-x-8 items-center pl-8">
+                        <a href="#how-it-works"
+                            class="text-gray-700 hover:text-gray-900 transition font-bold  hover:border-b-2 hover:border-red-ossiq">
+                            How it works</a>
+                        <a href="/getting-started/"
+                            class="text-gray-700 hover:text-gray-900 transition font-bold hover:border-b-2 hover:border-red-ossiq">Getting
+                            started</a>
+                        <a href="/explanation/"
+                            class="text-gray-700 hover:text-gray-900 transition font-bold  hover:border-b-2 hover:border-red-ossiq">Explanation</a>
+                        <a href="#faq"
+                            class="text-gray-700 hover:text-gray-900 transition font-bold  hover:border-b-2 hover:border-red-ossiq">
+                            FAQ</a>
+                    </div>
+                </div>
+                <div class="flex items-center space-x-4">
+                    <a href="https://github.com/" class="flex items-center space-x-1 text-gray-700
+                            hover:text-black transition font-medium">
+                        <span class="material-symbols-rounded text-xl">code</span>
+                        <span>GitHub</span>
+                    </a>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Hero Section -->
+    <section class="pt-32 pb-20 px-6 bg-gradient-to-br from-blue-50 via-white to-red-ossiq/20">
+        <div class="max-w-7xl mx-auto">
+            <div class="grid lg:grid-cols-2 gap-12 items-center">
+                <!-- Left: Copy -->
+                <div class="space-y-8">
+                    <h1 class="text-5xl lg:text-6xl font-bold leading-tight text-gray-900">
+                        Know Your <span class="gradient-text">Dependency Risk</span> in Minutes, Not Weeks
+                    </h1>
+
+                    <p class="text-xl text-gray-600 leading-relaxed">
+                        Understand your <strong>dependency drift at scale</strong>.
+                        No ad-hoc audits. No spreadsheets. No dependabot-style urgency.
+                        Track version lag and transitive risk directly from your dependency files.
+                    </p>
+
+                    <div class="flex flex-col sm:flex-row gap-4">
+                        <a href="#demo"
+                            class="px-8 py-4 bg-white border-2 border-gray-300 text-gray-700 rounded-lg font-semibold text-lg hover:border-gray-400 transition flex items-center justify-center space-x-2">
+                            <span class="material-symbols-rounded">play_circle</span>
+                            <span>Watch Demo</span>
+                        </a>
+                    </div>
+
+                    <div class="flex items-center space-x-8 text-sm text-gray-500">
+                        <div class="flex items-center space-x-2">
+                            <span class="material-symbols-rounded text-green-500">check_circle</span>
+                            <span>Free and Open Source</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Right: Visual -->
+                <div class="relative">
+                    <div class="bg-white rounded-2xl shadow-2xl p-8 border border-gray-200">
+                        <img src="img/ossiq-html-report.png"
+                            alt="Screenshot of the OSS IQ HTML report showing dependency health scores, version lag, and security vulnerabilities." />
+
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Problem / Solution -->
+    <section class="py-20 px-6">
+        <div class="max-w-7xl mx-auto">
+            <div class="text-center mb-16">
+                <h2 class="text-4xl font-bold text-gray-900 mb-4">
+                    Stop Flying Blind with Your Dependencies
+                </h2>
+                <p class="text-xl text-gray-600 max-w-3xl mx-auto">
+                    You have 23 dependencies. Or 230. Or 2,300 across your org. How many have critical vulnerabilities?
+                    How far behind are you? Which ones are abandoned?
+                </p>
+            </div>
+
+            <div class="grid md:grid-cols-3 gap-8">
+                <!-- Problem 1 -->
+                <div class="bg-white rounded-xl p-8 shadow-sm border border-gray-200">
+                    <div class="w-12 h-12 bg-red-100 rounded-lg flex items-center justify-center mb-4">
+                        <span class="material-symbols-rounded text-red-600 text-2xl">warning</span>
+                    </div>
+                    <h3 class="text-xl font-bold text-gray-900 mb-3">Security Blind Spots</h3>
+                    <p class="text-gray-600 mb-4">
+                        Running <code class="bg-gray-100 px-2 py-1 rounded text-sm">npm audit</code> tells you there are
+                        vulnerabilities. It doesn't tell you which ones actually matter or how to prioritize them.
+                    </p>
+                    <div class="flex items-center space-x-2 text-green-600 font-semibold">
+                        <span class="material-symbols-rounded">check_circle</span>
+                        <span>We show you what to fix first</span>
+                    </div>
+                </div>
+
+                <!-- Problem 2 -->
+                <div class="bg-white rounded-xl p-8 shadow-sm border border-gray-200">
+                    <div class="w-12 h-12 bg-yellow-100 rounded-lg flex items-center justify-center mb-4">
+                        <span class="material-symbols-rounded text-yellow-600 text-2xl">schedule</span>
+                    </div>
+                    <h3 class="text-xl font-bold text-gray-900 mb-3">Silent Tech Debt</h3>
+                    <p class="text-gray-600 mb-4">
+                        Your React version is 2 years old. Your Express is 3 majors behind. You won't know until you try
+                        to upgrade and it takes 2 weeks instead of 2 hours.
+                    </p>
+                    <div class="flex items-center space-x-2 text-green-600 font-semibold">
+                        <span class="material-symbols-rounded">check_circle</span>
+                        <span>We track your lag in real-time</span>
+                    </div>
+                </div>
+
+                <!-- Problem 3 -->
+                <div class="bg-white rounded-xl p-8 shadow-sm border border-gray-200">
+                    <div class="w-12 h-12 bg-purple-100 rounded-lg flex items-center justify-center mb-4">
+                        <span class="material-symbols-rounded text-purple-600 text-2xl">visibility_off</span>
+                    </div>
+                    <h3 class="text-xl font-bold text-gray-900 mb-3">No Org-Wide View</h3>
+                    <p class="text-gray-600 mb-4">
+                        You have 50 repos. Which ones are vulnerable? Which teams need help? Without centralized
+                        visibility, you're always reactive, never proactive.
+                    </p>
+                    <div class="flex items-center space-x-2 text-green-600 font-semibold">
+                        <span class="material-symbols-rounded">check_circle</span>
+                        <span>We give you the dashboard</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+
+    <!-- How It Works -->
+    <section id="how-it-works" class="py-20 px-6 bg-gradient-to-br from-indigo-50 via-white to-purple-50">
+        <div class="max-w-7xl mx-auto">
+            <div class="text-center mb-16">
+                <h2 class="text-4xl font-bold text-gray-900 mb-4">
+                    From Zero to Health Score in Few Minutes
+                </h2>
+            </div>
+
+            <div class="grid md:grid-cols-4 gap-8">
+                <div class="text-center">
+                    <div class="w-16 h-16 gradient-bg rounded-full flex items-center justify-center mx-auto mb-4">
+                        <span class="text-white text-2xl font-bold">1</span>
+                    </div>
+                    <h3 class="text-xl font-bold text-gray-900 mb-3">Run OSS IQ</h3>
+                    <p class="text-gray-600">
+                        Run OSS-IQ pointing to your project manifest file. We support npm (yarn, pnpm) and Python (uv,
+                        poetry, classic)
+                    </p>
+                </div>
+
+                <div class="text-center">
+                    <div class="w-16 h-16 gradient-bg rounded-full flex items-center justify-center mx-auto mb-4">
+                        <span class="text-white text-2xl font-bold">2</span>
+                    </div>
+                    <h3 class="text-xl font-bold text-gray-900 mb-3">OSS IQ Analyze Everything</h3>
+                    <p class="text-gray-600">
+                        Version lag, CVEs, transitive deps, maintainer activity—all cross-referenced against public
+                        databases in real-time.
+                    </p>
+                </div>
+
+                <div class="text-center">
+                    <div class="w-16 h-16 gradient-bg rounded-full flex items-center justify-center mx-auto mb-4">
+                        <span class="text-white text-2xl font-bold">3</span>
+                    </div>
+                    <h3 class="text-xl font-bold text-gray-900 mb-3">Get Your OSS IQ Report</h3>
+                    <p class="text-gray-600">
+                        See your health score, drill into sub-scores, and get a prioritized list of what to fix first.
+                    </p>
+                </div>
+
+                <div class="text-center">
+                    <div class="w-16 h-16 gradient-bg rounded-full flex items-center justify-center mx-auto mb-4">
+                        <span class="text-white text-2xl font-bold">4</span>
+                    </div>
+                    <h3 class="text-xl font-bold text-gray-900 mb-3">Build your Quality Gates</h3>
+                    <p class="text-gray-600">
+                        Use your project metrics to set up policies and drive organization behavior
+                    </p>
+                </div>
+            </div>
+
+            <div class="mt-12 text-center">
+                <a href="/getting-started/"
+                    class="inline-flex items-center space-x-2 px-8 py-4 gradient-bg text-white rounded-lg font-semibold text-lg hover:opacity-90 transition shadow-lg">
+                    <span>Try It Now</span>
+                    <span class="material-symbols-rounded">arrow_forward</span>
+                </a>
+            </div>
+        </div>
+    </section>
+
+    <!-- FAQ Section -->
+    <section id="faq" class="py-20 px-6">
+        <div class="max-w-4xl mx-auto">
+            <div class="text-center mb-12">
+                <h2 class="text-4xl font-bold text-gray-900 mb-4">
+                    Frequently Asked Questions
+                </h2>
+            </div>
+            <div class="space-y-8">
+                <!-- Question 1 -->
+                <div>
+                    <h3 class="text-xl font-semibold text-gray-900 mb-2">Why another <strong>Software Composition
+                            Analysis</strong> tool?</h3>
+                    <p class="text-gray-600">
+                        OSS IQ is not another vulnerability scanner.
+                        It helps platform teams evaluate open-source dependencies
+                        as long-term engineering assets by analyzing SBOMs,
+                        dependency graphs, and maintenance signals, producing stable
+                        scores suitable for CI and platform governance.
+                    </p>
+                </div>
+                <!-- Question 2 -->
+                <div>
+                    <h3 class="text-xl font-semibold text-gray-900 mb-2">How <strong>OSS IQ</strong> is different from
+                        `npm audit` or
+                        `pip-audit`?</h3>
+                    <p class="text-gray-600">
+                        Audit tools are great at finding known vulnerabilities. OSS IQ goes further by also analyzing
+                        non-security risks, such as how far behind you are from the latest version (technical debt) and
+                        whether a package is still actively maintained. We give you the full picture of dependency
+                        health, not just one part of it.
+                    </p>
+                </div>
+                <!-- Question 3 -->
+                <div>
+                    <h3 class="text-xl font-semibold text-gray-900 mb-2">What ecosystems does OSS IQ support?</h3>
+                    <p class="text-gray-600">
+                        OSS IQ currently supports popular ecosystems like npm for JavaScript
+                        and multiple dependency managers for Python (uv, Poetry, and classic pip). We are always
+                        working to add support for more ecosystems.
+                    </p>
+                </div>
+                <!-- Question 4 -->
+                <div>
+                    <h3 class="text-xl font-semibold text-gray-900 mb-2">Is OSS IQ free?</h3>
+                    <p class="text-gray-600">
+                        Yes, OSS IQ is a completely free and open-source tool, licensed under the AGPLv3 license. You
+                        can use it for any personal or commercial project.
+                    </p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+
+    <!-- Footer -->
+    <footer class="bg-gray-900 text-gray-400 py-12 px-6">
+        <div class="max-w-7xl mx-auto">
+            <div class="grid md:grid-cols-4 gap-8 mb-8">
+                <div>
+                    <div class="text-white text-2xl font-bold mb-4">OSS IQ</div>
+                    <p class="text-sm">
+                        Dependency intelligence for modern engineering teams.
+                    </p>
+                </div>
+                <div>
+                    <h4 class="text-white font-semibold mb-4">Product</h4>
+                    <ul class="space-y-2 text-sm">
+                        <li><a href="https://github.com/ossiq/ossiq" class="hover:text-white transition">
+                                About</a></li>
+                        <li><a href="https://github.com/ossiq/ossiq/issues" class="hover:text-white transition">Issues
+                                Tracker</a></li>
+                        <li><a href="https://github.com/ossiq/ossiq/releases"
+                                class="hover:text-white transition">Changelog</a></li>
+                    </ul>
+                </div>
+                <div>
+                    <h4 class="text-white font-semibold mb-4">Project</h4>
+                    <ul class="space-y-2 text-sm">
+                        <li><a href="/explanation/" class="hover:text-white transition">Explanation</a></li>
+                        <li><a href="/getting-started/" class="hover:text-white transition">Documentation</a></li>
+                    </ul>
+                </div>
+            </div>
+            <div class="border-t border-gray-800 pt-8 flex flex-col md:flex-row justify-between items-center">
+                <p class="text-sm">&copy; 2025 OSS IQ. All rights reserved.</p>
+                <div class="flex items-center space-x-4 mt-4 md:mt-0">
+                    <a href="https://github.com/ossiq/ossiq/" class="hover:text-white transition">GitHub</a>
+                </div>
+            </div>
+        </div>
+    </footer>
+
+</body>
+
+</html>

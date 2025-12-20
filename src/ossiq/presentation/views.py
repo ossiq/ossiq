@@ -1,16 +1,15 @@
 """
 Factory to map possile views with respective presentation types
 """
-from ossiq.domain.common import (
-    Command,
-    PresentationType,
-    UnknownCommandException,
-    UnknownPresentationType
-)
+
+from collections.abc import Callable
+
+from ossiq.domain.common import Command, PresentationType, UnknownCommandException, UnknownPresentationType
 from ossiq.presentation.common import PRESENTATION_MAP
 
 
-def get_presentation_view(command: Command, presentation_type: PresentationType) -> callable:
+# FIXME: overhaul this entire presentation view. Currently there's no precise interface to follow.
+def get_presentation_view(command: Command, presentation_type: PresentationType) -> Callable:
     """
     Get presentation layer
     """
@@ -20,7 +19,6 @@ def get_presentation_view(command: Command, presentation_type: PresentationType)
 
     presentation_view = command_presentation.get(presentation_type, None)
     if not presentation_view:
-        raise UnknownPresentationType(
-            f"Unknown presentation requested: {presentation_type}")
+        raise UnknownPresentationType(f"Unknown presentation requested: {presentation_type}")
 
     return presentation_view

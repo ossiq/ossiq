@@ -5,6 +5,7 @@ Domain-specific exceptions.
 
 class ApplicationError(Exception):
     """Base class for application-specific errors."""
+
     pass
 
 
@@ -15,10 +16,7 @@ class GithubRateLimitError(ApplicationError):
         self.remaining = remaining
         self.total = total
         self.reset_time = reset_time
-        message = (
-            f"GitHub API rate limit exceeded. "
-            f"Limit: {remaining} of {total} remaining. Resets at: {reset_time}."
-        )
+        message = f"GitHub API rate limit exceeded. Limit: {remaining} of {total} remaining. Resets at: {reset_time}."
         super().__init__(message)
 
 
@@ -26,4 +24,9 @@ class DestinationDoesntExist(Exception):
     """
     If there's no destination found
     """
+
+    pass
+
+
+def ProjectPathNotFoundError(Exception):
     pass
