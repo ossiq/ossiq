@@ -9,7 +9,8 @@ from ossiq.domain.version import PackageVersion
 
 from .api_interfaces import AbstractCveDatabaseApi
 
-ECOSYSTEM_MAPPING = {ProjectPackagesRegistry.NPM: "npm", ProjectPackagesRegistry.PYPI: "PyPI"}
+ECOSYSTEM_MAPPING = {ProjectPackagesRegistry.NPM: "npm",
+                     ProjectPackagesRegistry.PYPI: "PyPI"}
 
 
 class CveApiOsv(AbstractCveDatabaseApi):
@@ -29,7 +30,8 @@ class CveApiOsv(AbstractCveDatabaseApi):
             "version": version.version,
         }
 
-        resp = requests.post(f"{self.base_url}/query", json=payload, timeout=10)
+        resp = requests.post(f"{self.base_url}/query",
+                             json=payload, timeout=10)
         resp.raise_for_status()
         data = resp.json()
 

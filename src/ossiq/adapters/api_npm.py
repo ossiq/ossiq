@@ -11,6 +11,7 @@ from rich.console import Console
 
 from ossiq.adapters.api_interfaces import AbstractPackageRegistryApi
 from ossiq.domain.common import ProjectPackagesRegistry
+from ossiq.domain.ecosystem import NPM
 from ossiq.domain.package import Package
 from ossiq.domain.project import Project
 from ossiq.domain.version import PackageVersion
@@ -34,6 +35,8 @@ class PackageRegistryApiNpm(AbstractPackageRegistryApi):
     Implementation of Package Registry API client for NPM
     """
 
+    package_registry_ecosystem = ProjectPackagesRegistry.NPM
+
     def __repr__(self):
         return "<PackageRegistryApiNpm instance>"
 
@@ -41,7 +44,8 @@ class PackageRegistryApiNpm(AbstractPackageRegistryApi):
         """
         Make request and handle retries and errors handling.
         """
-        r = requests.get(f"{NPM_REGISTRY}{path}", timeout=timeout, headers=headers)
+        r = requests.get(f"{NPM_REGISTRY}{path}",
+                         timeout=timeout, headers=headers)
         r.raise_for_status()
         return r.json()
 
@@ -51,7 +55,8 @@ class PackageRegistryApiNpm(AbstractPackageRegistryApi):
         FIXME: raise custom exception if not found
         """
         response = self._make_request(f"/{package_name}")
-        distribution_tags = response.get("dist-tags", {"latest": None, "next": None})
+        distribution_tags = response.get(
+            "dist-tags", {"latest": None, "next": None})
 
         return Package(
             registry=ProjectPackagesRegistry.NPM,
@@ -107,7 +112,8 @@ class PackageRegistryApiNpm(AbstractPackageRegistryApi):
         """
         project_file_path = os.path.join(project_path, "package.json")
         if not os.path.exists(project_file_path):
-            raise FileNotFoundError(f"package.json not found at `{project_file_path}`")
+            raise FileNotFoundError(
+                f"package.json not found at `{project_file_path}`")
 
         with open(project_file_path, encoding="utf-8") as f:
             project_json = json.load(f)
@@ -115,10 +121,9 @@ class PackageRegistryApiNpm(AbstractPackageRegistryApi):
 
             # FIXME: prioritize package-lock.json over package.json if possible
             return Project(
-                package_registry=ProjectPackagesRegistry.NPM,
+                package_manager=NPM,
                 name=project_json.get("name", fallback_name),
                 project_path=project_path,
-                project_files=[project_file_path],
                 dependencies=project_json.get("dependencies", {}),
                 # TODO: for simplicity merge these, but probably
                 # just needs to introduce priority for dependencies to calculate risk score later

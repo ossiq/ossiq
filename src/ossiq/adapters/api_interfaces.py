@@ -7,8 +7,10 @@ from collections.abc import Iterable
 
 from ossiq.domain.common import ProjectPackagesRegistry
 from ossiq.domain.cve import CVE
+from ossiq.domain.ecosystem import PackageManagerType
 from ossiq.domain.package import Package
 from ossiq.domain.project import Project
+from ossiq.settings import Settings
 
 from ..domain.repository import Repository
 from ..domain.version import PackageVersion
@@ -37,7 +39,9 @@ class AbstractPackageRegistryApi(abc.ABC):
     Abstract client to communicate with package registries like PyPi or NPM
     """
 
+    settings: Settings
     registry: ProjectPackagesRegistry
+    package_registry_ecosystem: ProjectPackagesRegistry
 
     @abc.abstractmethod
     def package_info(self, package_name: str) -> Package:
@@ -51,14 +55,6 @@ class AbstractPackageRegistryApi(abc.ABC):
         """
         Get a particular package versions between what is installed
         currently in the project and the latest version available
-        """
-        raise NotImplementedError
-
-    @abc.abstractmethod
-    def project_info(self, project_path: str) -> Project:
-        """
-        Method to return a particular Project info
-        with all installed dependencies with their versions
         """
         raise NotImplementedError
 
@@ -82,3 +78,30 @@ class AbstractCveDatabaseApi(abc.ABC):
     @abc.abstractmethod
     def __repr__(self):
         raise NotImplementedError
+
+
+class AbstractPackageManagerApi(abc.ABC):
+    """
+    Abstract Package Manager to extract installed versions
+    of packages from different package managers.
+    """
+
+    settings: Settings
+    package_manager_type: PackageManagerType
+    project_path: str
+
+    @staticmethod
+    @abc.abstractmethod
+    def has_package_manager(project_path: str) -> bool:
+        """
+        Detect that package mangager is used in a project_path
+        """
+        pass
+
+    @abc.abstractmethod
+    def project_info(self) -> Project:
+        """
+        Extract project dependencies using file format from a specific
+        package manager.       
+        """
+        pass
