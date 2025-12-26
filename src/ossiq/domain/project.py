@@ -2,38 +2,36 @@
 Module to define abstract Package
 """
 
-from .common import PackageNotInstalled, ProjectPackagesRegistry
+from .common import PackageNotInstalled
+from .ecosystem import PackageManagerType
 from .version import normalize_version
 
 
 class Project:
     """Class for a package."""
 
-    package_registry: ProjectPackagesRegistry
+    package_manager: PackageManagerType
     name: str
     project_path: str | None
-    project_files: list[str]
     dependencies: dict[str, str]
     dev_dependencies: dict[str, str]
 
     def __init__(
         self,
-        package_registry: ProjectPackagesRegistry,
+        package_manager: PackageManagerType,
         name: str,
         project_path: str,
-        project_files: list[str],
         dependencies: dict[str, str],
         dev_dependencies: dict[str, str],
     ):
-        self.package_registry = package_registry
+        self.package_manager = package_manager
         self.name = name
         self.project_path = project_path
-        self.project_files = project_files
         self.dependencies = dependencies
         self.dev_dependencies = dev_dependencies
 
     def __repr__(self):
-        return f"""{self.package_registry} Package(
+        return f"""{self.package_manager.name} Package(
   name='{self.name}'
   dependencies={self.dependencies}
 )"""
@@ -47,6 +45,11 @@ class Project:
         elif package_name in self.dev_dependencies:
             version = self.dev_dependencies[package_name]
         else:
-            raise PackageNotInstalled(f"Package {package_name} not found in project {self.name}")
+            raise PackageNotInstalled(
+                f"Package {package_name} not found in project {self.name}")
 
         return normalize_version(version)
+
+    @property
+    def package_registry(self):
+        return self.package_manager.ecosystem

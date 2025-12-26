@@ -3,7 +3,6 @@ Put all the important constants in one place to avoid
 mutual dependencies.
 """
 
-import os
 from enum import Enum
 
 # Source of versions data within target source code repository
@@ -76,32 +75,3 @@ class NoPackageVersionsFound(Exception):
 
 class PackageNotInstalled(Exception):
     pass
-
-
-def identify_project_registry_kind(project_path: str) -> ProjectPackagesRegistry:
-    """
-    Identify Packages registry by typical file name
-    """
-
-    projects_kind_map = {
-        "package.json": ProjectPackagesRegistry.NPM,
-        "requirements.txt": ProjectPackagesRegistry.PYPI,
-        "pyproject.toml": ProjectPackagesRegistry.PYPI,
-    }
-
-    for dependencies_filename, registry_kind in projects_kind_map.items():
-        full_probe_path = os.path.join(project_path, dependencies_filename)
-        if os.path.exists(full_probe_path):
-            return registry_kind
-
-    raise UnsupportedPackageRegistry(f"Unknown project kind at: {project_path}")
-
-
-def identify_project_source_code_provider_kind(repo_url: str) -> RepositoryProvider:
-    """
-    Identify Packages registry by typical file name
-    """
-    if repo_url.startswith("https://github.com/"):
-        return RepositoryProvider.PROVIDER_GITHUB
-
-    raise UnsupportedRepositoryProvider(f"Unknown repository provider for the URL: {repo_url}")

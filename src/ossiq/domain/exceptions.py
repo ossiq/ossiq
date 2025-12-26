@@ -28,5 +28,9 @@ class DestinationDoesntExist(Exception):
     pass
 
 
-def ProjectPathNotFoundError(Exception):
+class ProjectPathNotFoundError(Exception):
+    pass
+
+
+class UnknownProjectPackageManager(Exception):
     pass
