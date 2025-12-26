@@ -6,6 +6,7 @@ import abc
 
 from ossiq.adapters.api_interfaces import (
     AbstractCveDatabaseApi,
+    AbstractPackageManagerApi,
     AbstractPackageRegistryApi,
     AbstractSourceCodeProviderApi,
 )
@@ -20,8 +21,9 @@ class AbstractProjectUnitOfWork(abc.ABC):
 
     settings: Settings
     project_path: str
-    packages_registry_type: ProjectPackagesRegistry
-    packages_registry: AbstractPackageRegistryApi
+    narrow_package_manager: ProjectPackagesRegistry | None
+    packages_manager: AbstractPackageManagerApi | None
+    packages_registry: AbstractPackageRegistryApi | None
     cve_database: AbstractCveDatabaseApi
     production: bool
 
@@ -32,7 +34,8 @@ class AbstractProjectUnitOfWork(abc.ABC):
         single project has multiple package installed and each package
         might come from different source code providers (Github, Bitbucket, etc.)
         """
-        raise NotImplementedError("Source Code Provider getter not implemented")
+        raise NotImplementedError(
+            "Source Code Provider getter not implemented")
 
     def __enter__(self):
         raise NotImplementedError("Enter not implemented")

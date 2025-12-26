@@ -7,7 +7,6 @@ import sys
 import typer
 
 from ossiq import timeutil
-from ossiq.domain.common import identify_project_registry_kind
 from ossiq.messages import ERROR_EXIT_OUTDATED_PACKAGES
 from ossiq.presentation.system import show_error, show_operation_progress, show_settings
 from ossiq.presentation.views import Command, get_presentation_view
@@ -16,7 +15,12 @@ from ossiq.settings import Settings
 from ossiq.unit_of_work import uow_project
 
 
-def commnad_overview(ctx: typer.Context, project_path: str, lag_threshold_days: str, production: bool):
+def commnad_overview(
+    ctx: typer.Context,
+    project_path: str,
+    lag_threshold_days: str,
+    production: bool
+):
     """
     Project overview command.
     """
@@ -26,15 +30,15 @@ def commnad_overview(ctx: typer.Context, project_path: str, lag_threshold_days: 
     show_settings(
         ctx,
         "Overview Settings",
-        {"project_path": project_path, "lag_threshold_days": f"{threshold_parsed.days} days", "production": production},
+        {"project_path": project_path,
+            "lag_threshold_days": f"{threshold_parsed.days} days", "production": production},
     )
-
-    packages_registry_type = identify_project_registry_kind(project_path)
 
     uow = uow_project.ProjectUnitOfWork(
         settings=settings,
         project_path=project_path,
-        packages_registry_type=packages_registry_type,
+        # FIXME: add parameter to pass narrow_package_manager for cases
+        # where more than one project per directory
         production=production,
     )
 
@@ -43,9 +47,11 @@ def commnad_overview(ctx: typer.Context, project_path: str, lag_threshold_days: 
             project_overview = project.overview(uow)
 
     # FIXME: use similar pattern to UoW to "commit" output on exit
-    presentation_view = get_presentation_view(Command.OVERVIEW, settings.presentation)
+    presentation_view = get_presentation_view(
+        Command.OVERVIEW, settings.presentation)
 
-    presentation_view(project_overview, threshold_parsed.days, destination=settings.output_destination)
+    presentation_view(project_overview, threshold_parsed.days,
+                      destination=settings.output_destination)
 
     # FIXME: both implementation and location below doens't feel right.
     # Potentially, could be refactored to use event-based design pattern
