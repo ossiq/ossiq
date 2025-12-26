@@ -44,8 +44,7 @@ class PackageRegistryApiNpm(AbstractPackageRegistryApi):
         """
         Make request and handle retries and errors handling.
         """
-        r = requests.get(f"{NPM_REGISTRY}{path}",
-                         timeout=timeout, headers=headers)
+        r = requests.get(f"{NPM_REGISTRY}{path}", timeout=timeout, headers=headers)
         r.raise_for_status()
         return r.json()
 
@@ -55,8 +54,7 @@ class PackageRegistryApiNpm(AbstractPackageRegistryApi):
         FIXME: raise custom exception if not found
         """
         response = self._make_request(f"/{package_name}")
-        distribution_tags = response.get(
-            "dist-tags", {"latest": None, "next": None})
+        distribution_tags = response.get("dist-tags", {"latest": None, "next": None})
 
         return Package(
             registry=ProjectPackagesRegistry.NPM,
@@ -112,8 +110,7 @@ class PackageRegistryApiNpm(AbstractPackageRegistryApi):
         """
         project_file_path = os.path.join(project_path, "package.json")
         if not os.path.exists(project_file_path):
-            raise FileNotFoundError(
-                f"package.json not found at `{project_file_path}`")
+            raise FileNotFoundError(f"package.json not found at `{project_file_path}`")
 
         with open(project_file_path, encoding="utf-8") as f:
             project_json = json.load(f)

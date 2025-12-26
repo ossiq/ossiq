@@ -15,12 +15,7 @@ from ossiq.settings import Settings
 from ossiq.unit_of_work import uow_project
 
 
-def commnad_overview(
-    ctx: typer.Context,
-    project_path: str,
-    lag_threshold_days: str,
-    production: bool
-):
+def commnad_overview(ctx: typer.Context, project_path: str, lag_threshold_days: str, production: bool):
     """
     Project overview command.
     """
@@ -30,8 +25,7 @@ def commnad_overview(
     show_settings(
         ctx,
         "Overview Settings",
-        {"project_path": project_path,
-            "lag_threshold_days": f"{threshold_parsed.days} days", "production": production},
+        {"project_path": project_path, "lag_threshold_days": f"{threshold_parsed.days} days", "production": production},
     )
 
     uow = uow_project.ProjectUnitOfWork(
@@ -47,11 +41,9 @@ def commnad_overview(
             project_overview = project.overview(uow)
 
     # FIXME: use similar pattern to UoW to "commit" output on exit
-    presentation_view = get_presentation_view(
-        Command.OVERVIEW, settings.presentation)
+    presentation_view = get_presentation_view(Command.OVERVIEW, settings.presentation)
 
-    presentation_view(project_overview, threshold_parsed.days,
-                      destination=settings.output_destination)
+    presentation_view(project_overview, threshold_parsed.days, destination=settings.output_destination)
 
     # FIXME: both implementation and location below doens't feel right.
     # Potentially, could be refactored to use event-based design pattern

@@ -45,34 +45,29 @@ class ProjectUnitOfWork(AbstractProjectUnitOfWork):
         Initialize actual instances of respective clients (and other stuff when needed)
         """
 
-        packages_managers = create_package_managers(
-            self.project_path, self.settings
-        )
+        packages_managers = create_package_managers(self.project_path, self.settings)
 
         if not packages_managers:
-            raise UnknownProjectPackageManager(
-                f"Unable to identify Package Manager for project at {self.project_path}"
-            )
+            raise UnknownProjectPackageManager(f"Unable to identify Package Manager for project at {self.project_path}")
 
         if self.narrow_package_registry:
-            self.packages_manager = next((
-                manager for manager in packages_managers
-                if manager.package_manager_type.ecosystem == self.narrow_package_registry
-            ), None)
+            self.packages_manager = next(
+                (
+                    manager
+                    for manager in packages_managers
+                    if manager.package_manager_type.ecosystem == self.narrow_package_registry
+                ),
+                None,
+            )
         else:
             self.packages_manager = next(packages_managers)
 
-        self.packages_registry = create_package_registry_api(
-            self.packages_manager.package_manager_type.ecosystem
-        )
+        self.packages_registry = create_package_registry_api(self.packages_manager.package_manager_type.ecosystem)
 
     def __exit__(self, *args):
         pass
 
-    def get_source_code_provider(
-        self,
-        repository_provider_type: RepositoryProvider
-    ) -> AbstractSourceCodeProviderApi:
+    def get_source_code_provider(self, repository_provider_type: RepositoryProvider) -> AbstractSourceCodeProviderApi:
         """
         Return source code provider (like Github) using factory and respective type
         """

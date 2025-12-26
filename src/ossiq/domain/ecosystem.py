@@ -7,18 +7,21 @@ from ossiq.domain.common import ProjectPackagesRegistry
 @dataclass(frozen=True)
 class Manifest:
     """Represents a dependency manifest file."""
+
     name: str
 
 
 @dataclass(frozen=True)
 class Lockfile:
     """Represents a dependency lockfile."""
+
     name: str
 
 
 @dataclass(frozen=True)
 class PackageManagerType:
     """Represents a package manager or dependency tool."""
+
     name: str
     ecosystem: ProjectPackagesRegistry
     primary_manifest: Manifest

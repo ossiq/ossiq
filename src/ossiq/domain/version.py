@@ -33,8 +33,7 @@ VERSION_DIFF_TYPES_MAP = {
     "LATEST": VERSION_LATEST,
 }
 
-VERSINO_INVERSED_DIFF_TYPES_MAP = {
-    val: key for key, val in VERSION_DIFF_TYPES_MAP.items()}
+VERSINO_INVERSED_DIFF_TYPES_MAP = {val: key for key, val in VERSION_DIFF_TYPES_MAP.items()}
 
 
 @dataclass

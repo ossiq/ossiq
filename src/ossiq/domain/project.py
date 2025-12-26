@@ -45,8 +45,7 @@ class Project:
         elif package_name in self.dev_dependencies:
             version = self.dev_dependencies[package_name]
         else:
-            raise PackageNotInstalled(
-                f"Package {package_name} not found in project {self.name}")
+            raise PackageNotInstalled(f"Package {package_name} not found in project {self.name}")
 
         return normalize_version(version)
 

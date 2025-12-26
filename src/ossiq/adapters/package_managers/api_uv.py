@@ -1,15 +1,16 @@
 """
 Support of UV package manager
 """
+
 import os
-import tomllib
 from collections import namedtuple
+
+import tomllib
 
 from ossiq.adapters.api_interfaces import AbstractPackageManagerApi
 from ossiq.domain.ecosystem import UV, PackageManagerType
 from ossiq.domain.project import Project
 from ossiq.settings import Settings
-
 
 UvProject = namedtuple("UvProject", ["manifest", "lockfile"])
 
@@ -27,8 +28,7 @@ class PackageManagerPythonUv(AbstractPackageManagerApi):
     @staticmethod
     def project_files(project_path: str) -> UvProject:
         return UvProject(
-            os.path.join(project_path, UV.primary_manifest.name),
-            os.path.join(project_path, UV.lockfile.name)
+            os.path.join(project_path, UV.primary_manifest.name), os.path.join(project_path, UV.lockfile.name)
         )
 
     @staticmethod
@@ -51,7 +51,7 @@ class PackageManagerPythonUv(AbstractPackageManagerApi):
     def project_info(self) -> Project:
         """
         Extract project dependencies using file format from a specific
-        package manager.       
+        package manager.
         """
 
         project_files = PackageManagerPythonUv.project_files(self.project_path)
@@ -62,15 +62,10 @@ class PackageManagerPythonUv(AbstractPackageManagerApi):
         with open(project_files.lockfile, "rb") as f:
             uv_lock_data = tomllib.load(f)
 
-        project_name = pyproject_data.get("project", {}).get(
-            "name", os.path.basename(self.project_path))
+        project_name = pyproject_data.get("project", {}).get("name", os.path.basename(self.project_path))
 
         # TODO: figure out project package name (from pyproject.toml), then pull categories
-        categories = {
-            "main": [],
-            "test": [],
-            "docs": []
-        }
+        categories = {"main": [], "test": [], "docs": []}
 
         for dist in uv_lock_data.get("requires-dist", []):
             marker = dist.get("marker", "")
@@ -83,6 +78,7 @@ class PackageManagerPythonUv(AbstractPackageManagerApi):
             elif not marker:
                 categories["main"].append(name)
         import ipdb
+
         ipdb.set_trace()
         # # TODO: refactor Project to support multiple categories of dependencies
         # return Project(

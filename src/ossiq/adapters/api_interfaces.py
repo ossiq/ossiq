@@ -102,6 +102,6 @@ class AbstractPackageManagerApi(abc.ABC):
     def project_info(self) -> Project:
         """
         Extract project dependencies using file format from a specific
-        package manager.       
+        package manager.
         """
         pass

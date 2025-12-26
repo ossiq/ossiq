@@ -3,12 +3,9 @@ Module with various rules to detect different types of data sources
 """
 
 import os
+
+from ossiq.domain.common import RepositoryProvider, UnsupportedProjectType, UnsupportedRepositoryProvider
 from ossiq.domain.ecosystem import ALL_MANAGERS, PackageManagerType
-from ossiq.domain.common import (
-    RepositoryProvider,
-    UnsupportedProjectType,
-    UnsupportedRepositoryProvider
-)
 
 
 def detect_package_manager(project_path: str) -> PackageManagerType:
@@ -39,18 +36,14 @@ def detect_package_manager(project_path: str) -> PackageManagerType:
             "Detected 'pyproject.toml' but no lockfile. Cannot determine a specific package manager (uv, Poetry, PDM)."
         )
 
-    raise UnsupportedProjectType(
-        f"Could not determine project type in '{project_path}'. No supported file found."
-    )
+    raise UnsupportedProjectType(f"Could not determine project type in '{project_path}'. No supported file found.")
 
 
 def detect_source_code_provider(repo_url: str) -> RepositoryProvider:
     """
     Identify Source Code Provider by URL.
     """
-    if (repo_url.startswith("https://github.com/") or
-            repo_url.startswith("git@github.com:")):
+    if repo_url.startswith("https://github.com/") or repo_url.startswith("git@github.com:"):
         return RepositoryProvider.PROVIDER_GITHUB
 
-    raise UnsupportedRepositoryProvider(
-        f"Unknown repository provider for the URL: {repo_url}")
+    raise UnsupportedRepositoryProvider(f"Unknown repository provider for the URL: {repo_url}")

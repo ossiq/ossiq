@@ -12,10 +12,7 @@ from .api_github import SourceCodeProviderApiGithub
 from .api_interfaces import AbstractCveDatabaseApi, AbstractPackageRegistryApi, AbstractSourceCodeProviderApi
 
 
-def create_source_code_provider(
-    provider_type: RepositoryProvider,
-    settings: Settings
-) -> AbstractSourceCodeProviderApi:
+def create_source_code_provider(provider_type: RepositoryProvider, settings: Settings) -> AbstractSourceCodeProviderApi:
     """
     Return source code provider (like Github) using factory and respective type
     """
@@ -26,8 +23,7 @@ def create_source_code_provider(
 
 
 def create_package_registry_api(
-    package_registry: ProjectPackagesRegistry,
-    settings: Settings = None
+    package_registry: ProjectPackagesRegistry, settings: Settings = None
 ) -> AbstractPackageRegistryApi:
     """
     Create insetance of a specific ecosystem's package registry API
