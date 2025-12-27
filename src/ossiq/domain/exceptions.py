@@ -34,3 +34,7 @@ class ProjectPathNotFoundError(Exception):
 
 class UnknownProjectPackageManager(Exception):
     pass
+
+
+class PackageManagerLockfileParsingError(Exception):
+    pass

@@ -2,9 +2,21 @@
 Module to define abstract Package
 """
 
+from dataclasses import dataclass, field
+
 from .common import PackageNotInstalled
 from .ecosystem import PackageManagerType
 from .version import normalize_version
+
+
+@dataclass(frozen=True)
+class Dependency:
+    name: str
+    # Factually installed version. Fallback to version_defined if there's no lockfile
+    version_installed: str
+    # Version, nominally defined in project requirements before resolution
+    version_defined: str | None = None
+    categories: list[str] = field(default_factory=lambda: [])
 
 
 class Project:
@@ -13,22 +25,25 @@ class Project:
     package_manager: PackageManagerType
     name: str
     project_path: str | None
-    dependencies: dict[str, str]
-    dev_dependencies: dict[str, str]
+    dependencies: dict[str, Dependency]
+    # Optional dependencies with respective categories.
+    # NOTE: one dependency could be in dependencies and
+    # multiple categories of optional dependencies (1-to-Many link)
+    optional_dependencies: dict[str, Dependency]
 
     def __init__(
         self,
-        package_manager: PackageManagerType,
+        package_manager_type: PackageManagerType,
         name: str,
         project_path: str,
-        dependencies: dict[str, str],
-        dev_dependencies: dict[str, str],
+        dependencies: dict[str, Dependency],
+        optional_dependencies: dict[str, Dependency],
     ):
-        self.package_manager = package_manager
+        self.package_manager = package_manager_type
         self.name = name
         self.project_path = project_path
         self.dependencies = dependencies
-        self.dev_dependencies = dev_dependencies
+        self.optional_dependencies = optional_dependencies
 
     def __repr__(self):
         return f"""{self.package_manager.name} Package(
@@ -41,9 +56,9 @@ class Project:
         Get installed version of a package.
         """
         if package_name in self.dependencies:
-            version = self.dependencies[package_name]
-        elif package_name in self.dev_dependencies:
-            version = self.dev_dependencies[package_name]
+            version = self.dependencies[package_name].version_installed
+        elif package_name in self.optional_dependencies:
+            version = self.optional_dependencies[package_name].version_installed
         else:
             raise PackageNotInstalled(f"Package {package_name} not found in project {self.name}")
 
