@@ -5,6 +5,7 @@ Support of UV package manager
 import json
 import os
 from collections import defaultdict, namedtuple
+from collections.abc import Callable
 from dataclasses import replace
 from itertools import chain
 
@@ -34,11 +35,12 @@ class PackageManagerJsNpm(AbstractPackageManagerApi):
     project_path: str
 
     # Dynamic mapping between NOM lockfile versions
-    supported_versions: dict[str, str] = {"lockfileVersion == 3": "parse_lockfile_v3"}
+    supported_versions: dict[str, str] = {
+        "lockfileVersion == 3": "parse_lockfile_v3"}
 
     @staticmethod
     def project_files(project_path: str) -> NpmProject:
-        # NOTE: we know for sure that for NPM lockfile is never None,
+        # NOTE: we know for sure that for NPM.lockfile is never None,
         # hence [possibly-missing-attribute] warning is False Positive here
         lockfile = os.path.join(project_path, NPM.lockfile.name)  # ty: ignore
 
@@ -66,17 +68,18 @@ class PackageManagerJsNpm(AbstractPackageManagerApi):
         self.project_path = project_path
 
     def get_lockfile_parser(
-        self, lockfileVersion: str | None
-    ) -> callable[tuple[dict[str, Dependency], dict[str, Dependency]]] | None:
+        self, lockfile_version: str | None
+    ) -> Callable[..., tuple[dict[str, Dependency], dict[str, Dependency]]] | None:
         """
         Find and return lockfile parser instance
         """
 
-        context = {"lockfileVersion": lockfileVersion}
+        context = {"lockfileVersion": lockfile_version}
 
         handler_name = find_lockfile_parser(self.supported_versions, context)
         if not handler_name or not hasattr(self, handler_name):
-            raise PackageManagerLockfileParsingError(f"There's no parser for NPM lockfile version `{lockfileVersion}`")
+            raise PackageManagerLockfileParsingError(
+                f"There's no parser for NPM lockfile version `{lockfile_version}`")
 
         return getattr(self, handler_name)
 
@@ -93,7 +96,8 @@ class PackageManagerJsNpm(AbstractPackageManagerApi):
         main_package = lockfile_data.get("packages", {}).get("", None)
 
         if not main_package:
-            raise PackageManagerLockfileParsingError("Cannot extract project package from NPM lockfile")
+            raise PackageManagerLockfileParsingError(
+                "Cannot extract project package from NPM lockfile")
 
         # Go through nominal dependencies
         packages = lockfile_data.get("packages", {})
@@ -127,50 +131,36 @@ class PackageManagerJsNpm(AbstractPackageManagerApi):
         """
 
         categories_map = defaultdict(list)
-        dev_dependencies_map = project_data.get("devDependencies", {})
-        peer_dependencies_map = project_data.get("peerDependencies", {})
-        optional_dependencies_map = project_data.get("optionalDependencies", {})
 
-        for package_name in dev_dependencies_map.keys():
-            categories_map[package_name].append(CATEGORIES_DEV)
+        category_sources = [
+            (project_data.get("devDependencies", {}), CATEGORIES_DEV),
+            (project_data.get("peerDependencies", {}), CATEGORIES_PEER),
+            (project_data.get("optionalDependencies", {}), CATEGORIES_OPTIONAL),
+        ]
 
-        for package_name in peer_dependencies_map.keys():
-            categories_map[package_name].append(CATEGORIES_PEER)
+        for deps, category in category_sources:
+            for package_name in deps:
+                categories_map[package_name].append(category)
 
-        for package_name in optional_dependencies_map.keys():
-            categories_map[package_name].append(CATEGORIES_OPTIONAL)
+        def create_dependency(name: str, version: str) -> Dependency:
+            return Dependency(
+                name=name,
+                version_installed=normalize_version(version),
+                version_defined=version,
+                categories=categories_map.get(name, []),
+            )
 
-        dependencies_map = project_data.get("dependencies", {})
+        dependencies = {
+            name: create_dependency(name, version)
+            for name, version in project_data.get("dependencies", {}).items()
+        }
 
-        dependencies = {}
         optional_dependencies = {}
-
-        for package, version in dependencies_map.items():
-            dependency_instance = Dependency(
-                name=package,
-                version_installed=normalize_version(version),
-                version_defined=version,
-                categories=categories_map.get(package, []),
-            )
-
-            dependencies[package] = dependency_instance
-
-        optional_dependencies_aggregated = chain(
-            dev_dependencies_map.items(), peer_dependencies_map.items(), optional_dependencies_map.items()
-        )
-
-        for package, version in optional_dependencies_aggregated:
-            if package in dependencies:
-                continue
-
-            dependency_instance = Dependency(
-                name=package,
-                version_installed=normalize_version(version),
-                version_defined=version,
-                categories=categories_map.get(package, []),
-            )
-
-            optional_dependencies[package] = dependency_instance
+        for deps, _ in category_sources:
+            for name, version in deps.items():
+                if name not in dependencies and name not in optional_dependencies:
+                    optional_dependencies[name] = create_dependency(
+                        name, version)
 
         return dependencies, optional_dependencies
 
@@ -182,7 +172,8 @@ class PackageManagerJsNpm(AbstractPackageManagerApi):
 
         project_files = PackageManagerJsNpm.project_files(self.project_path)
 
-        project_data = json.load(open(project_files.manifest, encoding="utf-8"))
+        with open(project_files.manifest, encoding="utf-8") as f:
+            project_data = json.load(f)
         lockfile_data = None
 
         fallback_name = os.path.basename(self.project_path)
@@ -190,7 +181,8 @@ class PackageManagerJsNpm(AbstractPackageManagerApi):
 
         # Exceptional case, no lockfile
         if not project_files.lockfile:
-            dependencies, optional_dependencies = self.parse_package_json(project_data)
+            dependencies, optional_dependencies = self.parse_package_json(
+                project_data)
 
             return Project(
                 package_manager_type=self.package_manager_type,
@@ -201,10 +193,13 @@ class PackageManagerJsNpm(AbstractPackageManagerApi):
             )
 
         # Lockfile present, let's parse it
-        lockfile_data = json.load(open(project_files.lockfile, encoding="utf-8"))
+        with open(project_files.lockfile, encoding="utf-8") as f:
+            lockfile_data = json.load(f)
 
-        nominal_dependencies, nominal_optional_dependencies = self.parse_package_json(project_data)
-        lockfile_parser = self.get_lockfile_parser(lockfile_data.get("lockfileVersion", None))
+        nominal_dependencies, nominal_optional_dependencies = self.parse_package_json(
+            project_data)
+        lockfile_parser = self.get_lockfile_parser(
+            lockfile_data.get("lockfileVersion", None))
 
         dependencies, optional_dependencies = lockfile_parser(
             nominal_dependencies, nominal_optional_dependencies, lockfile_data

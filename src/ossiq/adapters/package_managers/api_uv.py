@@ -5,6 +5,7 @@ Support of UV package manager
 import os
 import tomllib
 from collections import defaultdict, namedtuple
+from collections.abc import Callable
 
 from ossiq.adapters.api_interfaces import AbstractPackageManagerApi
 from ossiq.adapters.package_managers.utils import find_lockfile_parser
@@ -27,7 +28,8 @@ class PackageManagerPythonUv(AbstractPackageManagerApi):
     project_path: str
 
     # Dynamic mapping between UV lockfile versions
-    supported_versions = {"version == 1 && revision >= 3": "parse_lockfile_v1_r3"}
+    supported_versions = {
+        "version == 1 && revision >= 3": "parse_lockfile_v1_r3"}
 
     @staticmethod
     def project_files(project_path: str) -> UvProject:
@@ -35,7 +37,7 @@ class PackageManagerPythonUv(AbstractPackageManagerApi):
             os.path.join(project_path, UV.primary_manifest.name),
             # NOTE: we know for sure that for UV lockfile is never None,
             # hence [possibly-missing-attribute] warning is False Positive here
-            os.path.join(project_path, UV.lockfile.name),  # ty: ignore
+            os.path.join(project_path, UV.lockfile.name),  # type: ignore
         )
 
     @staticmethod
@@ -73,14 +75,18 @@ class PackageManagerPythonUv(AbstractPackageManagerApi):
         optional_dependencies = {}
 
         main_package = next(
-            (package for package in uv_lock_data.get("package", []) if package["name"] == project_package_name), None
+            (package for package in uv_lock_data.get("package", [])
+             if package["name"] == project_package_name), None
         )
 
         if not main_package:
-            raise PackageManagerLockfileParsingError("Cannot extract project package from UV lockfile")
+            raise PackageManagerLockfileParsingError(
+                "Cannot extract project package from UV lockfile")
 
-        optional_dependencies_map = main_package.get("optional-dependencies", {})
-        main_dependencies_set = set(package["name"] for package in main_package.get("dependencies", []))
+        optional_dependencies_map = main_package.get(
+            "optional-dependencies", {})
+        main_dependencies_set = set(
+            package["name"] for package in main_package.get("dependencies", []))
 
         categories_map = defaultdict(list)
         for category, packages in optional_dependencies_map.items():
@@ -93,7 +99,8 @@ class PackageManagerPythonUv(AbstractPackageManagerApi):
                 continue
 
             dependency_instance = Dependency(
-                name=name, version_installed=package["version"], categories=categories_map.get(name, [])
+                name=name, version_installed=package["version"], categories=categories_map.get(
+                    name, [])
             )
 
             if name in main_dependencies_set:
@@ -110,7 +117,7 @@ class PackageManagerPythonUv(AbstractPackageManagerApi):
 
     def get_lockfile_parser(
         self, version: str | None, revision: str | None
-    ) -> callable[tuple[dict[str, Dependency], dict[str, Dependency]]] | None:
+    ) -> Callable[..., tuple[dict[str, Dependency], dict[str, Dependency]]] | None:
         """
         Find and return lockfile parser instance
         """
@@ -134,21 +141,24 @@ class PackageManagerPythonUv(AbstractPackageManagerApi):
         project_files = PackageManagerPythonUv.project_files(self.project_path)
 
         with open(project_files.manifest, "rb") as f:
-            pyproject_data = tomllib.load(open(project_files.manifest, "rb"))
+            pyproject_data = tomllib.load(f)
 
         with open(project_files.lockfile, "rb") as f:
             uv_lock_data = tomllib.load(f)
 
-        project_package_name = pyproject_data.get("project", {}).get("name", os.path.basename(self.project_path))
+        project_package_name = pyproject_data.get("project", {}).get(
+            "name", os.path.basename(self.project_path))
 
         # NOTE: each lockfile could have different parser.
         # Which parser to use determined by version and revision
         # attributes from within lockfile itself.
         lockfile_parser = self.get_lockfile_parser(
-            uv_lock_data.get("version", None), uv_lock_data.get("revision", None)
+            uv_lock_data.get("version", None), uv_lock_data.get(
+                "revision", None)
         )
 
-        dependencies, optional_dependencies = lockfile_parser(project_package_name, uv_lock_data)  # ty: ignore
+        dependencies, optional_dependencies = lockfile_parser(
+            project_package_name, uv_lock_data)  # type: ignore
 
         return Project(
             package_manager_type=self.package_manager_type,
