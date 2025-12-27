@@ -2,23 +2,16 @@
 Implementation of Package Registry API client for PyPI
 """
 
-
-from ossiq.domain.common import ProjectPackagesRegistry
-from ossiq.settings import Settings
-
-try:
-    import tomllib
-except ImportError:
-    # Python < 3.11
-    pass
 from collections.abc import Iterable
 
 import requests
 from rich.console import Console
 
 from ossiq.adapters.api_interfaces import AbstractPackageRegistryApi
+from ossiq.domain.common import ProjectPackagesRegistry
 from ossiq.domain.package import Package
 from ossiq.domain.version import PackageVersion
+from ossiq.settings import Settings
 
 console = Console()
 
@@ -30,7 +23,8 @@ class PackageRegistryApiPypi(AbstractPackageRegistryApi):
     Implementation of Package Registry API client for PyPI
     """
 
-    package_registry_ecosystem = ProjectPackagesRegistry.PYPI
+    package_registry = ProjectPackagesRegistry.PYPI
+    settings: Settings
 
     def __init__(self, settings: Settings):
         super().__init__()

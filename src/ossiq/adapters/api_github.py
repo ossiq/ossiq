@@ -26,6 +26,8 @@ class SourceCodeProviderApiGithub(AbstractSourceCodeProviderApi):
     Implementation of SourceCodeApiClient for Github
     """
 
+    repository_provider: RepositoryProvider = RepositoryProvider.PROVIDER_GITHUB
+
     github_token: str | None
 
     def __init__(self, github_token: str | None):

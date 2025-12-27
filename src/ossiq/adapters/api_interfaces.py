@@ -22,7 +22,7 @@ class AbstractSourceCodeProviderApi(abc.ABC):
     """
 
     @abc.abstractmethod
-    def repository_info(self, repository_url: str):
+    def repository_info(self, repository_url: str) -> Repository:
         raise NotImplementedError
 
     @abc.abstractmethod
@@ -40,8 +40,7 @@ class AbstractPackageRegistryApi(abc.ABC):
     """
 
     settings: Settings
-    registry: ProjectPackagesRegistry
-    package_registry_ecosystem: ProjectPackagesRegistry
+    package_registry: ProjectPackagesRegistry
 
     @abc.abstractmethod
     def package_info(self, package_name: str) -> Package:

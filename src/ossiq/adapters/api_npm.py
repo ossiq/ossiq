@@ -2,8 +2,6 @@
 Implementation of Package Registry API client for NPM
 """
 
-import json
-import os
 from collections.abc import Iterable
 
 import requests
@@ -11,10 +9,9 @@ from rich.console import Console
 
 from ossiq.adapters.api_interfaces import AbstractPackageRegistryApi
 from ossiq.domain.common import ProjectPackagesRegistry
-from ossiq.domain.ecosystem import NPM
 from ossiq.domain.package import Package
-from ossiq.domain.project import Project
 from ossiq.domain.version import PackageVersion
+from ossiq.settings import Settings
 
 console = Console()
 
@@ -35,7 +32,11 @@ class PackageRegistryApiNpm(AbstractPackageRegistryApi):
     Implementation of Package Registry API client for NPM
     """
 
-    package_registry_ecosystem = ProjectPackagesRegistry.NPM
+    package_registry = ProjectPackagesRegistry.NPM
+    settings: Settings
+
+    def __init__(self, settings: Settings):
+        self.settings = settings
 
     def __repr__(self):
         return "<PackageRegistryApiNpm instance>"
@@ -102,32 +103,3 @@ class PackageRegistryApiNpm(AbstractPackageRegistryApi):
                     description=details.get("description", None),
                     package_url=f"{NPM_REGISTRY_FRONT}/package/{package_name}/v/{version}",
                 )
-
-    def project_info(self, project_path: str) -> Project:
-        """
-        Method to return a particular Project info
-        with all installed dependencies with their versions
-        """
-        project_file_path = os.path.join(project_path, "package.json")
-        if not os.path.exists(project_file_path):
-            raise FileNotFoundError(f"package.json not found at `{project_file_path}`")
-
-        with open(project_file_path, encoding="utf-8") as f:
-            project_json = json.load(f)
-            fallback_name = os.path.basename(project_path)
-
-            # FIXME: prioritize package-lock.json over package.json if possible
-            return Project(
-                package_manager=NPM,
-                name=project_json.get("name", fallback_name),
-                project_path=project_path,
-                dependencies=project_json.get("dependencies", {}),
-                # TODO: for simplicity merge these, but probably
-                # just needs to introduce priority for dependencies to calculate risk score later
-                # FIXME: take care of the pinned dependencies later
-                dev_dependencies={
-                    **project_json.get("devDependencies", {}),
-                    **project_json.get("peerDependencies", {}),
-                    **project_json.get("optionalDependencies", {}),
-                },
-            )
