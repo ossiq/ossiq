@@ -36,22 +36,20 @@ class ProjectUnitOfWork(AbstractProjectUnitOfWork):
         self.narrow_package_registry = narrow_package_manager
         self.cve_database = create_cve_database()
 
-        # set up values before creation
-        self.package_manager = None
-        self.package_registry = None
-
     def __enter__(self):
         """
         Initialize actual instances of respective clients (and other stuff when needed)
         """
 
-        packages_managers = create_package_managers(self.project_path, self.settings)
+        packages_managers = list(create_package_managers(self.project_path, self.settings))
 
         if not packages_managers:
             raise UnknownProjectPackageManager(f"Unable to identify Package Manager for project at {self.project_path}")
 
+        packages_manager = packages_managers[0]
+
         if self.narrow_package_registry:
-            self.packages_manager = next(
+            packages_manager = next(
                 (
                     manager
                     for manager in packages_managers
@@ -59,10 +57,16 @@ class ProjectUnitOfWork(AbstractProjectUnitOfWork):
                 ),
                 None,
             )
-        else:
-            self.packages_manager = next(packages_managers)
+            if not packages_manager:
+                raise UnknownProjectPackageManager(
+                    f"Unable to narrow Package Manager to {self.narrow_package_registry}"
+                    f"for project at {self.project_path}"
+                )
 
-        self.packages_registry = create_package_registry_api(self.packages_manager.package_manager_type.ecosystem)
+        self.packages_manager = packages_manager
+        self.packages_registry = create_package_registry_api(
+            packages_manager.package_manager_type.ecosystem, self.settings
+        )
 
     def __exit__(self, *args):
         pass

@@ -144,13 +144,17 @@ def overview(uow: unit_of_work.AbstractProjectUnitOfWork) -> ProjectOverviewSumm
         production_packages: list[ProjectOverviewRecord] = []
         development_packages: list[ProjectOverviewRecord] = []
 
-        for package_name, package_version in project_info.dependencies.items():
-            production_packages.append(overview_record(uow, project_info, package_name, package_version, False))
+        for package_name, package in project_info.dependencies.items():
+            production_packages.append(
+                overview_record(uow, project_info, package_name, package.version_installed, False)
+            )
 
         # uow.production is driven by the setting
         if not uow.production:
-            for package_name, package_version in project_info.dev_dependencies.items():
-                development_packages.append(overview_record(uow, project_info, package_name, package_version, True))
+            for package_name, package in project_info.optional_dependencies.items():
+                development_packages.append(
+                    overview_record(uow, project_info, package_name, package.version_installed, True)
+                )
 
         return ProjectOverviewSummary(
             project_name=project_info.name,

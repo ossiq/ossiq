@@ -22,8 +22,8 @@ class AbstractProjectUnitOfWork(abc.ABC):
     settings: Settings
     project_path: str
     narrow_package_manager: ProjectPackagesRegistry | None
-    packages_manager: AbstractPackageManagerApi | None
-    packages_registry: AbstractPackageRegistryApi | None
+    packages_manager: AbstractPackageManagerApi
+    packages_registry: AbstractPackageRegistryApi
     cve_database: AbstractCveDatabaseApi
     production: bool
 

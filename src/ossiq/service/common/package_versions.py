@@ -96,7 +96,7 @@ def package_changes(uow: AbstractProjectUnitOfWork, package_name: str, installed
             continue
 
         yield Version(
-            package_registry=uow.packages_registry.registry,
+            package_registry=uow.packages_registry.package_registry,
             repository_provider=repository_info.provider,
             package_data=package_version,
             repository_data=repo_versions_map[package_version.version],
