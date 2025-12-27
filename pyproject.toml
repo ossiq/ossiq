@@ -30,9 +30,6 @@ classifiers = [
     "Operating System :: OS Independent",
 
     # Specific Python Versions (Adjust these to what you actually support)
-    "Programming Language :: Python :: 3.8",
-    "Programming Language :: Python :: 3.9",
-    "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3 :: Only",
@@ -48,8 +45,10 @@ dependencies = [ # specify that newer patch or minor versions allowed
   "semver~=3.0.4",
   "jinja2~=3.1.6",
   "hatch>=1.15.1",
+  "common-expression-language>=0.5.3",
+  "pandas>=2.3.3",
 ]
-requires-python = ">= 3.10"
+requires-python = ">= 3.11"
 
 [project.optional-dependencies]
 test = [
