@@ -12,6 +12,7 @@ VERSION_DATA_SOURCE_GITHUB_TAGS = "GITHUB-TAGS"
 
 class RepositoryProvider(str, Enum):
     PROVIDER_GITHUB = "GITHUB"
+    PROVIDER_UNKNOWN = "UNKNOWN"
 
 
 class ProjectPackagesRegistry(str, Enum):

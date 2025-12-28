@@ -6,7 +6,6 @@ from dataclasses import dataclass, field
 
 from .common import PackageNotInstalled
 from .ecosystem import PackageManagerType
-from .version import normalize_version
 
 
 @dataclass(frozen=True)
@@ -62,7 +61,7 @@ class Project:
         else:
             raise PackageNotInstalled(f"Package {package_name} not found in project {self.name}")
 
-        return normalize_version(version)
+        return version
 
     @property
     def package_registry(self):

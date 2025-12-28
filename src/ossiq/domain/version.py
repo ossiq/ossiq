@@ -3,10 +3,9 @@ Module to operate with package versions
 """
 
 import re
+from collections.abc import Callable
 from dataclasses import dataclass
 from functools import cmp_to_key
-
-import semver
 
 # Version is unpublished from the Package Registry
 VERSION_NO_DIFF = 10
@@ -183,66 +182,79 @@ class Version:
         self._summary_description = summary
 
 
-def normalize_version(spec: str) -> str:
+def create_version_difference_no_diff(v1: str | None, v2: str | None) -> VersionsDifference:
     """
-    Normalize version to feed into semver later on.
-    TODO: likely semver could parse it better than the regexp:
-          questinable vibecoded regexp.
+    Create a VersionsDifference for versions that cannot be compared.
+
+    Used when versions are None, empty, or invalid. Marks them as incomparable
+    with VERSION_NO_DIFF status.
+
+    Args:
+        v1: First version string (or None)
+        v2: Second version string (or None)
+
+    Returns:
+        VersionsDifference with NO_DIFF status
     """
-    if not spec:
-        return spec
-    m = re.search(r"\d+\.\d+\.\d+(?:[-+][^\s,]*)?", spec)
-    if m:
-        return m.group(0)
-    return spec
+    return VersionsDifference(
+        v1 if v1 else "N/A",
+        v2 if v2 else "N/A",
+        VERSION_NO_DIFF,
+        diff_name=VERSINO_INVERSED_DIFF_TYPES_MAP[VERSION_NO_DIFF],
+    )
 
 
-def compare_versions(v1: str, v2: str) -> int:
+def normalize_version(version: str) -> str:
     """
-    Compare two versions leveraging semver.
-    Potentially silent with try/catch and compare raw: (v1 > v2) - (v1 < v2)
+    Normalize version string by stripping version modifiers.
+
+    Removes common version modifiers from package.json and pyproject.toml:
+    - npm/yarn: ^, ~, >, <, >=, <=, =, *, x, latest, etc.
+    - Python: ==, >=, <=, >, <, ~=, !=, ===, etc.
+
+    Examples:
+        "^1.2.3" -> "1.2.3"
+        "~1.2.3" -> "1.2.3"
+        ">=1.2.3" -> "1.2.3"
+        "==1.2.3" -> "1.2.3"
+        "1.2.x" -> "1.2.x"
+
+    Args:
+        version: Version string with optional modifiers
+
+    Returns:
+        Clean version string without modifiers
     """
-    return semver.Version.parse(v1).compare(semver.Version.parse(v2))
+    if not version:
+        return version
+
+    # Strip whitespace
+    version = version.strip()
+
+    # Remove common version modifiers (^, ~, >=, <=, ==, >, <, =, !=, ~=, ===)
+    # Pattern matches these operators at the start of the string
+    pattern = r"^(~=|===|==|!=|>=|<=|>|<|=|\^|~|\*)\s*"
+    version = re.sub(pattern, "", version)
+
+    # Handle version ranges by taking the first version
+    # e.g., "1.2.3 - 2.0.0" -> "1.2.3"
+    if " - " in version:
+        version = version.split(" - ")[0].strip()
+
+    # Handle OR conditions by taking the first version
+    # e.g., "1.2.3 || 2.0.0" -> "1.2.3"
+    if "||" in version:
+        version = version.split("||")[0].strip()
+
+    # Handle spaces (some formats might have "1.2.3 <2.0.0")
+    if " " in version:
+        version = version.split()[0].strip()
+
+    return version
 
 
-def sort_versions(versions: list[PackageVersion]) -> list[PackageVersion]:
+def sort_versions(versions: list[PackageVersion], comparator: Callable) -> list[PackageVersion]:
     """
     Sorts a list of semantically versioned strings.
     """
-    return sorted(versions, key=cmp_to_key(lambda v1, v2: compare_versions(v1.version, v2.version)))
-
-
-def difference_versions(v1_str: str | None, v2_str: str | None) -> VersionsDifference:
-    """Helper to split version strings and find the index where they first differ."""
-
-    if not v1_str or not v2_str:
-        return VersionsDifference(
-            v1_str if v1_str else "N/A",
-            v2_str if v2_str else "N/A",
-            VERSION_NO_DIFF,
-            diff_name=VERSINO_INVERSED_DIFF_TYPES_MAP[VERSION_NO_DIFF],
-        )
-
-    v1 = semver.Version.parse(v1_str)
-    v2 = semver.Version.parse(v2_str)
-
-    diff_index = VERSION_NO_DIFF
-
-    if v1_str == v2_str:
-        diff_index = VERSION_LATEST
-    if v1.major != v2.major:
-        diff_index = VERSION_DIFF_MAJOR
-    elif v1.minor != v2.minor:
-        diff_index = VERSION_DIFF_MINOR
-    elif v1.patch != v2.patch:
-        diff_index = VERSION_DIFF_PATCH
-    elif v1.prerelease != v2.prerelease:
-        diff_index = VERSION_DIFF_PRERELEASE
-    elif v1.build != v2.build:
-        diff_index = VERSION_DIFF_BUILD
-
-    # The diff_index indicates the first differing part of the semantic version.
-    # 0: major, 1: minor, 2: patch, 3: prerelease, 4: build.
-    # This is used for highlighting the most significant difference in the HTML template.
-
-    return VersionsDifference(str(v1), str(v2), diff_index, diff_name=VERSINO_INVERSED_DIFF_TYPES_MAP[diff_index])
+    return sorted(versions, key=cmp_to_key(lambda v1, v2: comparator(v1.version, v2.version)))

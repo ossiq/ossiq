@@ -39,6 +39,15 @@ UV = PackageManagerType(
     lockfile=UV_LOCKFILE,
 )
 
+PIP_PYPROJECT = Manifest(name="pyproject.toml")
+PIP_LOCKFILE = Lockfile(name="pylock.toml")
+PIP = PackageManagerType(
+    name="pylock",
+    ecosystem=ProjectPackagesRegistry.PYPI,
+    primary_manifest=PIP_PYPROJECT,
+    lockfile=PIP_LOCKFILE,
+)
+
 POETRY_PYPROJECT = Manifest(name="pyproject.toml")
 POETRY_LOCKFILE = Lockfile(name="poetry.lock")
 POETRY = PackageManagerType(
@@ -55,23 +64,6 @@ PDM = PackageManagerType(
     ecosystem=ProjectPackagesRegistry.PYPI,
     primary_manifest=PDM_PYPROJECT,
     lockfile=PDM_LOCKFILE,
-)
-
-PIPENV_FILE = Manifest(name="Pipfile")
-PIPENV_LOCKFILE = Lockfile(name="Pipfile.lock")
-PIPENV = PackageManagerType(
-    name="Pipenv",
-    ecosystem=ProjectPackagesRegistry.PYPI,
-    primary_manifest=PIPENV_FILE,
-    lockfile=PIPENV_LOCKFILE,
-)
-
-PIP_REQUIREMENTS = Manifest(name="requirements.txt")
-PIP = PackageManagerType(
-    name="pip",
-    ecosystem=ProjectPackagesRegistry.PYPI,
-    primary_manifest=PIP_REQUIREMENTS,
-    lockfile=None,  # pip doesn't have a standard lockfile by default
 )
 
 # --- NPM Package Managers (for future use) ---
@@ -102,6 +94,6 @@ PNPM = PackageManagerType(
 )
 
 # A list to hold all supported managers for easier lookup
-PYPI_MANAGERS = [UV, POETRY, PDM, PIPENV, PIP]
+PYPI_MANAGERS = [UV, POETRY, PDM, PIP]
 NPM_MANAGERS = [NPM, YARN, PNPM]
 ALL_MANAGERS = PYPI_MANAGERS + NPM_MANAGERS
