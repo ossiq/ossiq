@@ -4,16 +4,16 @@ given currently installed package version without polluting with
 versions out of scope.
 """
 
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 
 from ossiq.adapters.detectors import detect_source_code_provider
 from ossiq.domain.common import NoPackageVersionsFound
 from ossiq.domain.repository import Repository
-from ossiq.domain.version import PackageVersion, RepositoryVersion, Version, compare_versions, normalize_version
+from ossiq.domain.version import PackageVersion, RepositoryVersion, Version
 from ossiq.unit_of_work.core import AbstractProjectUnitOfWork
 
 
-def filter_versions_between(versions: list[str], installed: str, latest: str) -> Iterable[str]:
+def filter_versions_between(versions: list[str], installed: str, latest: str, comparator: Callable) -> Iterable[str]:
     """
     Filter out versions which we're interested in.
     """
@@ -21,14 +21,8 @@ def filter_versions_between(versions: list[str], installed: str, latest: str) ->
     if installed == latest:
         return
 
-    installed_norm, latest_norm = normalize_version(installed), normalize_version(latest)
-
     for version in sorted(versions):
-        version_norm = normalize_version(version)
-        if not version_norm:
-            continue
-
-        if compare_versions(version_norm, installed_norm) >= 0 and compare_versions(version_norm, latest_norm) <= 0:
+        if comparator(version, installed) >= 0 and comparator(version, latest) <= 0:
             yield version
 
 
@@ -43,7 +37,8 @@ def aggregated_package_versions(
     Load package versions from a given registry.
     """
     package_info = uow.packages_registry.package_info(package_name)
-    repository_provider = uow.get_source_code_provider(detect_source_code_provider(package_info.repo_url))
+    source_code_provider_type = detect_source_code_provider(package_info.repo_url)
+    source_code_provider = uow.get_source_code_provider(source_code_provider_type)
     # Leveraging abstractions to the full extend
     package_versions = list(uow.packages_registry.package_versions(package_name))
 
@@ -54,7 +49,12 @@ def aggregated_package_versions(
     # what we have and what is the latest available.
     if latest_version:
         versions_delta = list(
-            filter_versions_between([p.version for p in package_versions], installed_version, latest_version)
+            filter_versions_between(
+                [p.version for p in package_versions],
+                installed_version,
+                latest_version,
+                comparator=uow.packages_registry.compare_versions,
+            )
         )
     else:
         versions_delta = [p.version for p in package_versions]
@@ -62,7 +62,11 @@ def aggregated_package_versions(
     # filter out versions we don't need
     packages_delta = [p for p in package_versions if p.version in versions_delta]
 
-    repository_versions = list(repository_provider.repository_versions(repository_info, packages_delta))
+    repository_versions = list(
+        source_code_provider.repository_versions(
+            repository_info, packages_delta, comparator=uow.packages_registry.compare_versions
+        )
+    )
 
     if repository_versions is None:
         raise NoPackageVersionsFound(f"Cannot load repository versions for {package_name}")

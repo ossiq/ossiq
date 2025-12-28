@@ -10,7 +10,7 @@ from rich.console import Console
 from ossiq.domain.cve import CVE
 from ossiq.domain.exceptions import ProjectPathNotFoundError
 from ossiq.domain.project import Project
-from ossiq.domain.version import VersionsDifference, compare_versions, difference_versions, normalize_version
+from ossiq.domain.version import VersionsDifference
 from ossiq.service.common import package_versions
 from ossiq.unit_of_work import core as unit_of_work
 
@@ -83,7 +83,7 @@ def get_package_versions_since(
     return [
         v
         for v in uow.packages_registry.package_versions(package_name)
-        if compare_versions(v.version, installed_version) >= 0
+        if uow.packages_registry.compare_versions(v.version, installed_version) >= 0
     ]
 
 
@@ -114,11 +114,11 @@ def overview_record(
 
     return ProjectOverviewRecord(
         package_name=package_name,
-        installed_version=normalize_version(package_version),
+        installed_version=package_version,
         latest_version=package_info.latest_version,
         time_lag_days=time_lag_days,
         releases_lag=len(releases_since_installed) - 1,
-        versions_diff_index=difference_versions(installed_version, package_info.latest_version),
+        versions_diff_index=uow.packages_registry.difference_versions(installed_version, package_info.latest_version),
         cve=cve,
         is_dev_dependency=is_dev_dependency,
     )

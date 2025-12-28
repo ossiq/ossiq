@@ -15,7 +15,6 @@ from ossiq.domain.version import (
     VERSION_DIFF_PRERELEASE,
     VERSION_LATEST,
     VersionsDifference,
-    difference_versions,
 )
 from ossiq.service.project import ProjectOverviewRecord, ProjectOverviewSummary
 from ossiq.timeutil import format_time_days
@@ -72,11 +71,10 @@ def table_factory(
     table.add_column("Time Lag", justify="right")
 
     for pkg in dependencies:
-        vdiff = difference_versions(pkg.installed_version, pkg.latest_version)
         table.add_row(
             pkg.package_name,
             f"[bold][red]{len(pkg.cve)}" if pkg.cve else "",
-            _format_lag_status(vdiff),
+            _format_lag_status(pkg.versions_diff_index),
             pkg.installed_version,
             pkg.latest_version if pkg.latest_version else "[bold][red]N/A",
             str(pkg.releases_lag),
@@ -99,7 +97,7 @@ def display_view(project_overview: ProjectOverviewSummary, lag_threshold_days: i
 
     if project_overview.development_packages:
         table_dev = table_factory(
-            "Development Packages Version Status",
+            "Optional Packages Version Status",
             "bold cyan",
             project_overview.development_packages,
             lag_threshold_days,
