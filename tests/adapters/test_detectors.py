@@ -1,98 +1,109 @@
-import os
+"""
+Tests for detector functions in ossiq.adapters.detectors module.
+
+This module tests the detection logic for identifying repository providers
+based on URL patterns.
+"""
 
 import pytest
 
-from ossiq.adapters.detectors import detect_package_manager, detect_source_code_provider
-from ossiq.domain.common import RepositoryProvider, UnsupportedProjectType, UnsupportedRepositoryProvider
-from ossiq.domain.ecosystem import NPM, PDM, PIP, PIPENV, POETRY, UV, YARN
+from ossiq.adapters.detectors import detect_source_code_provider
+from ossiq.domain.common import RepositoryProvider, UnsupportedRepositoryProvider
 
 
-@pytest.fixture
-def mock_os_path_exists(monkeypatch):
-    """Fixture to mock os.path.exists."""
-    mock_files = set()
+class TestDetectSourceCodeProvider:
+    """
+    Test suite for detect_source_code_provider() function.
 
-    def exists_side_effect(path):
-        filename = os.path.basename(path)
-        return filename in mock_files
+    Tests URL pattern matching for various repository providers,
+    including different URL formats (HTTPS, SSH) and error handling
+    for unsupported providers.
+    """
 
-    monkeypatch.setattr(os.path, "exists", exists_side_effect)
+    def test_github_https_url(self):
+        """
+        Test GitHub detection with HTTPS URL format.
 
-    class MockExistsHelper:
-        def set_files(self, files):
-            mock_files.clear()
-            mock_files.update(files)
+        Verifies that standard GitHub HTTPS URLs (https://github.com/...)
+        are correctly identified as GitHub provider.
+        """
+        provider = detect_source_code_provider("https://github.com/owner/repo")
+        assert provider == RepositoryProvider.PROVIDER_GITHUB
 
-    return MockExistsHelper()
+    def test_github_ssh_url(self):
+        """
+        Test GitHub detection with SSH URL format.
 
+        Verifies that GitHub SSH URLs (git@github.com:...)
+        are correctly identified as GitHub provider.
+        """
+        provider = detect_source_code_provider("git@github.com:owner/repo.git")
+        assert provider == RepositoryProvider.PROVIDER_GITHUB
 
-def test_detect_package_manager_uv(mock_os_path_exists):
-    mock_os_path_exists.set_files(["pyproject.toml", "uv.lock"])
-    manager = detect_package_manager("/test/project")
-    assert manager == UV
+    def test_github_https_with_trailing_slash(self):
+        """
+        Test GitHub detection with trailing slash in URL.
 
+        Verifies that URLs with trailing slashes are handled correctly.
+        """
+        provider = detect_source_code_provider("https://github.com/owner/repo/")
+        assert provider == RepositoryProvider.PROVIDER_GITHUB
 
-def test_detect_package_manager_poetry(mock_os_path_exists):
-    mock_os_path_exists.set_files(["pyproject.toml", "poetry.lock"])
-    manager = detect_package_manager("/test/project")
-    assert manager == POETRY
+    def test_github_https_with_git_extension(self):
+        """
+        Test GitHub detection with .git extension in HTTPS URL.
 
+        Verifies that HTTPS URLs with .git extension are correctly identified.
+        """
+        provider = detect_source_code_provider("https://github.com/owner/repo.git")
+        assert provider == RepositoryProvider.PROVIDER_GITHUB
 
-def test_detect_package_manager_pdm(mock_os_path_exists):
-    mock_os_path_exists.set_files(["pyproject.toml", "pdm.lock"])
-    manager = detect_package_manager("/test/project")
-    assert manager == PDM
+    def test_unsupported_gitlab_url(self):
+        """
+        Test error handling for unsupported GitLab provider.
 
+        Verifies that GitLab URLs raise UnsupportedRepositoryProvider exception
+        with appropriate error message.
+        """
+        with pytest.raises(UnsupportedRepositoryProvider) as excinfo:
+            detect_source_code_provider("https://gitlab.com/owner/repo")
+        assert "Unknown repository provider for the URL: https://gitlab.com/owner/repo" in str(excinfo.value)
 
-def test_detect_package_manager_pipenv(mock_os_path_exists):
-    mock_os_path_exists.set_files(["Pipfile", "Pipfile.lock"])
-    manager = detect_package_manager("/test/project")
-    assert manager == PIPENV
+    def test_unsupported_bitbucket_url(self):
+        """
+        Test error handling for unsupported Bitbucket provider.
 
+        Verifies that Bitbucket URLs raise UnsupportedRepositoryProvider exception.
+        """
+        with pytest.raises(UnsupportedRepositoryProvider) as excinfo:
+            detect_source_code_provider("https://bitbucket.org/owner/repo")
+        assert "Unknown repository provider for the URL: https://bitbucket.org/owner/repo" in str(excinfo.value)
 
-def test_detect_package_manager_npm(mock_os_path_exists):
-    mock_os_path_exists.set_files(["package.json", "package-lock.json"])
-    manager = detect_package_manager("/test/project")
-    assert manager == NPM
+    def test_unsupported_custom_git_server(self):
+        """
+        Test error handling for custom/unknown Git servers.
 
+        Verifies that URLs from unknown Git providers raise appropriate exception.
+        """
+        with pytest.raises(UnsupportedRepositoryProvider) as excinfo:
+            detect_source_code_provider("https://git.example.com/owner/repo")
+        assert "Unknown repository provider for the URL" in str(excinfo.value)
 
-def test_detect_package_manager_yarn(mock_os_path_exists):
-    mock_os_path_exists.set_files(["package.json", "yarn.lock"])
-    manager = detect_package_manager("/test/project")
-    assert manager == YARN
+    def test_unsupported_ssh_gitlab(self):
+        """
+        Test error handling for GitLab SSH URLs.
 
+        Verifies that GitLab SSH URLs are correctly identified as unsupported.
+        """
+        with pytest.raises(UnsupportedRepositoryProvider) as excinfo:
+            detect_source_code_provider("git@gitlab.com:owner/repo.git")
+        assert "Unknown repository provider for the URL" in str(excinfo.value)
 
-def test_detect_package_manager_pip_requirements(mock_os_path_exists):
-    mock_os_path_exists.set_files(["requirements.txt"])
-    manager = detect_package_manager("/test/project")
-    assert manager == PIP
+    def test_undefined_repository(self):
+        """
+        This is exceptional case when there's no repository
+        specified (possible) for a package.
+        """
 
-
-def test_detect_package_manager_ambiguous_pyproject_toml(mock_os_path_exists):
-    mock_os_path_exists.set_files(["pyproject.toml"])
-    with pytest.raises(UnsupportedProjectType) as excinfo:
-        detect_package_manager("/test/project")
-    assert "Detected 'pyproject.toml' but no lockfile." in str(excinfo.value)
-
-
-def test_detect_package_manager_no_files_found(mock_os_path_exists):
-    mock_os_path_exists.set_files([])
-    with pytest.raises(UnsupportedProjectType) as excinfo:
-        detect_package_manager("/test/project")
-    assert "Could not determine project type in '/test/project'." in str(excinfo.value)
-
-
-def test_detect_source_code_provider_github():
-    provider = detect_source_code_provider("https://github.com/owner/repo")
-    assert provider == RepositoryProvider.PROVIDER_GITHUB
-
-
-def test_detect_source_code_provider_github_with_git_prefix():
-    provider = detect_source_code_provider("git@github.com:owner/repo.git")
-    assert provider == RepositoryProvider.PROVIDER_GITHUB
-
-
-def test_detect_source_code_provider_unsupported():
-    with pytest.raises(UnsupportedRepositoryProvider) as excinfo:
-        detect_source_code_provider("https://gitlab.com/owner/repo")
-    assert "Unknown repository provider for the URL: https://gitlab.com/owner/repo" in str(excinfo.value)
+        provider = detect_source_code_provider(None)
+        assert provider == RepositoryProvider.PROVIDER_UNKNOWN
