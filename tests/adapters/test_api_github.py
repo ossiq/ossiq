@@ -1,3 +1,4 @@
+# pylint: disable=redefined-outer-name,unused-variable,protected-access,unused-argument
 """
 Tests for SourceCodeProviderApiGithub in ossiq.adapters.api_github module.
 

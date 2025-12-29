@@ -1,3 +1,4 @@
+# pylint: disable=redefined-outer-name,unused-variable,protected-access,unused-argument
 """
 Tests for PackageRegistryApiNpm in ossiq.adapters.api_npm module.
 

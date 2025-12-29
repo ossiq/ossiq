@@ -1,3 +1,4 @@
+# pylint: disable=redefined-outer-name,unused-variable,protected-access,unused-argument
 """
 Tests for PackageManagerJsNpm adapter.
 
@@ -553,7 +554,7 @@ class TestProjectInfo:
 
         assert project.name == "test-npm-project"
         assert project.project_path == npm_project_with_lockfile
-        assert project.package_manager == NPM
+        assert project.package_manager_type == NPM
 
         # Check main dependencies (versions from lockfile)
         assert "express" in project.dependencies

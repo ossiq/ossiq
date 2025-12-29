@@ -1,3 +1,4 @@
+# pylint: disable=redefined-outer-name,unused-variable,protected-access,unused-argument
 """
 Tests for PackageManagerPythonUv adapter.
 
@@ -576,7 +577,7 @@ class TestProjectInfo:
 
         assert project.name == "test-project"
         assert project.project_path == uv_project_with_lockfile
-        assert project.package_manager == UV
+        assert project.package_manager_type == UV
 
         # Check main dependencies
         assert "requests" in project.dependencies

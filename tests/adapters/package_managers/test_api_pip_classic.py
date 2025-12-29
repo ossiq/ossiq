@@ -1,3 +1,4 @@
+# pylint: disable=redefined-outer-name,unused-variable,protected-access,unused-argument
 """
 Tests for PackageManagerPythonPipClassic adapter.
 
@@ -142,37 +143,125 @@ class TestStaticMethods:
 
 
 # ============================================================================
-# Test Package Name Normalization
+# Test Internal Helper Methods
 # ============================================================================
 
 
-class TestPackageNameNormalization:
-    """Test package name normalization according to PEP 503."""
+class TestInternalHelpers:
+    """Test internal helper methods and module-level patterns."""
 
-    def test_normalize_simple_name(self):
-        """Test normalization of simple package name."""
-        result = PackageManagerPythonPipClassic.normalize_package_name("Requests")
-        assert result == "requests"
+    def test_read_requirements_lines_success(self, pip_classic_project_basic, settings):
+        """Test _read_requirements_lines successfully reads file."""
+        adapter = PackageManagerPythonPipClassic(pip_classic_project_basic, settings)
+        manifest_path = adapter.project_files(pip_classic_project_basic).manifest
 
-    def test_normalize_with_extras(self):
-        """Test normalization removes extras."""
-        result = PackageManagerPythonPipClassic.normalize_package_name("requests[security]")
-        assert result == "requests"
+        lines = adapter._read_requirements_lines(manifest_path)
 
-    def test_normalize_with_hyphens(self):
-        """Test normalization preserves hyphens."""
-        result = PackageManagerPythonPipClassic.normalize_package_name("Django-REST-Framework")
-        assert result == "django-rest-framework"
+        assert isinstance(lines, list)
+        assert len(lines) > 0
+        assert any("requests" in line for line in lines)
 
-    def test_normalize_with_underscores(self):
-        """Test normalization converts underscores to hyphens."""
-        result = PackageManagerPythonPipClassic.normalize_package_name("some_package")
-        assert result == "some-package"
+    def test_read_requirements_lines_file_not_found(self, temp_project_dir, settings):
+        """Test _read_requirements_lines raises error for missing file."""
+        adapter = PackageManagerPythonPipClassic(temp_project_dir, settings)
+        nonexistent_path = os.path.join(temp_project_dir, "nonexistent.txt")
 
-    def test_normalize_mixed_case_with_extras(self):
-        """Test normalization handles mixed case and extras."""
-        result = PackageManagerPythonPipClassic.normalize_package_name("PyDantic[email]")
-        assert result == "pydantic"
+        with pytest.raises(PackageManagerLockfileParsingError, match="requirements.txt not found"):
+            adapter._read_requirements_lines(nonexistent_path)
+
+    def test_parse_pinned_requirement_success(self):
+        """Test _parse_pinned_requirement extracts package and version."""
+        result = PackageManagerPythonPipClassic._parse_pinned_requirement("requests==2.31.0")
+        assert result == ("requests", "2.31.0")
+
+    def test_parse_pinned_requirement_with_extras(self):
+        """Test _parse_pinned_requirement handles extras."""
+        result = PackageManagerPythonPipClassic._parse_pinned_requirement("pydantic[email]==2.5.0")
+        assert result == ("pydantic[email]", "2.5.0")
+
+    def test_parse_pinned_requirement_with_environment_marker(self):
+        """Test _parse_pinned_requirement handles environment markers."""
+        line = 'certifi==2023.11.17; python_version >= "3.8"'
+        result = PackageManagerPythonPipClassic._parse_pinned_requirement(line)
+        assert result == ("certifi", "2023.11.17")
+
+    def test_parse_pinned_requirement_range_specifier(self):
+        """Test _parse_pinned_requirement returns None for range specifiers."""
+        assert PackageManagerPythonPipClassic._parse_pinned_requirement("numpy>=1.20.0") is None
+        assert PackageManagerPythonPipClassic._parse_pinned_requirement("pandas~=2.0.0") is None
+        assert PackageManagerPythonPipClassic._parse_pinned_requirement("flask>2.0") is None
+
+    def test_parse_pinned_requirement_empty_line(self):
+        """Test _parse_pinned_requirement returns None for empty line."""
+        assert PackageManagerPythonPipClassic._parse_pinned_requirement("") is None
+
+    def test_skip_line_pattern_pip_options(self):
+        """Test module-level _SKIP_LINE_PATTERN matches pip options."""
+        from ossiq.adapters.package_managers.api_pip_classic import _SKIP_LINE_PATTERN
+
+        # Should match various pip options
+        assert _SKIP_LINE_PATTERN.match("-e file:///path/to/package")
+        assert _SKIP_LINE_PATTERN.match("--editable file:///path/to/package")
+        assert _SKIP_LINE_PATTERN.match("-r other-requirements.txt")
+        assert _SKIP_LINE_PATTERN.match("--requirement other-requirements.txt")
+        assert _SKIP_LINE_PATTERN.match("-c constraints.txt")
+
+    def test_skip_line_pattern_vcs_dependencies(self):
+        """Test module-level _SKIP_LINE_PATTERN matches VCS dependencies."""
+        from ossiq.adapters.package_managers.api_pip_classic import _SKIP_LINE_PATTERN
+
+        assert _SKIP_LINE_PATTERN.match("git+https://github.com/user/repo.git")
+        assert _SKIP_LINE_PATTERN.match("hg+https://hg.example.com/repo")
+        assert _SKIP_LINE_PATTERN.match("svn+https://svn.example.com/repo")
+        assert _SKIP_LINE_PATTERN.match("bzr+https://bzr.example.com/repo")
+
+    def test_skip_line_pattern_url_dependencies(self):
+        """Test module-level _SKIP_LINE_PATTERN matches URL dependencies."""
+        from ossiq.adapters.package_managers.api_pip_classic import _SKIP_LINE_PATTERN
+
+        assert _SKIP_LINE_PATTERN.match("https://files.pythonhosted.org/packages/package.tar.gz")
+        assert _SKIP_LINE_PATTERN.match("http://example.com/package.whl")
+        assert _SKIP_LINE_PATTERN.match("file:///local/path/to/package.tar.gz")
+
+    def test_skip_line_pattern_normal_packages(self):
+        """Test module-level _SKIP_LINE_PATTERN does NOT match normal packages."""
+        from ossiq.adapters.package_managers.api_pip_classic import _SKIP_LINE_PATTERN
+
+        # Should NOT match normal package specifications
+        assert not _SKIP_LINE_PATTERN.match("requests==2.31.0")
+        assert not _SKIP_LINE_PATTERN.match("Django>=3.2")
+        assert not _SKIP_LINE_PATTERN.match("pydantic[email]~=2.0")
+
+    def test_pinned_dependency_pattern_valid(self):
+        """Test module-level _PINNED_DEPENDENCY_PATTERN matches pinned deps."""
+        from ossiq.adapters.package_managers.api_pip_classic import _PINNED_DEPENDENCY_PATTERN
+
+        match = _PINNED_DEPENDENCY_PATTERN.match("requests==2.31.0")
+        assert match is not None
+        assert match.group(1) == "requests"
+        assert match.group(2) == "2.31.0"
+
+        # With extras
+        match = _PINNED_DEPENDENCY_PATTERN.match("pydantic[email]==2.5.0")
+        assert match is not None
+        assert match.group(1) == "pydantic[email]"
+        assert match.group(2) == "2.5.0"
+
+    def test_pinned_dependency_pattern_invalid(self):
+        """Test module-level _PINNED_DEPENDENCY_PATTERN doesn't match invalid."""
+        from ossiq.adapters.package_managers.api_pip_classic import _PINNED_DEPENDENCY_PATTERN
+
+        assert not _PINNED_DEPENDENCY_PATTERN.match("requests>=2.31.0")
+        assert not _PINNED_DEPENDENCY_PATTERN.match("requests~=2.31.0")
+        assert not _PINNED_DEPENDENCY_PATTERN.match("requests")
+
+    def test_extras_pattern(self):
+        """Test module-level _EXTRAS_PATTERN removes extras."""
+        from ossiq.adapters.package_managers.api_pip_classic import _EXTRAS_PATTERN
+
+        assert _EXTRAS_PATTERN.sub("", "requests[security]") == "requests"
+        assert _EXTRAS_PATTERN.sub("", "pydantic[email,dotenv]") == "pydantic"
+        assert _EXTRAS_PATTERN.sub("", "package") == "package"
 
 
 # ============================================================================
@@ -282,7 +371,7 @@ class TestProjectInfo:
         project = adapter.project_info()
 
         # Check project metadata
-        assert project.package_manager == PIP_CLASSIC
+        assert project.package_manager_type == PIP_CLASSIC
         assert project.name == os.path.basename(pip_classic_project_basic)
         assert project.project_path == pip_classic_project_basic
 

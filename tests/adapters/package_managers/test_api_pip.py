@@ -1,3 +1,4 @@
+# pylint: disable=redefined-outer-name,unused-variable,protected-access,unused-argument
 """
 Tests for PackageManagerPythonPylock adapter.
 
@@ -766,7 +767,7 @@ class TestProjectInfo:
 
         assert project.name == "test-pylock-project"
         assert project.project_path == pylock_project_basic
-        assert project.package_manager == PIP
+        assert project.package_manager_type == PIP
 
         # Check main dependencies
         assert "requests" in project.dependencies
