@@ -15,8 +15,8 @@ from pathlib import Path
 import pytest
 
 from ossiq.adapters.package_managers.api_pip_classic import PackageManagerPythonPipClassic
-from ossiq.domain.ecosystem import PIP_CLASSIC
 from ossiq.domain.exceptions import PackageManagerLockfileParsingError
+from ossiq.domain.packages_manager import PIP_CLASSIC
 from ossiq.settings import Settings
 
 # ============================================================================

@@ -11,8 +11,8 @@ from itertools import chain
 
 from ossiq.adapters.api_interfaces import AbstractPackageManagerApi
 from ossiq.adapters.package_managers.utils import find_lockfile_parser
-from ossiq.domain.ecosystem import NPM, PackageManagerType
 from ossiq.domain.exceptions import PackageManagerLockfileParsingError
+from ossiq.domain.packages_manager import NPM, PackageManagerType
 from ossiq.domain.project import Dependency, Project
 from ossiq.domain.version import normalize_version
 from ossiq.settings import Settings

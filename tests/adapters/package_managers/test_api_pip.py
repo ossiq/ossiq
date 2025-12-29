@@ -18,8 +18,8 @@ from pathlib import Path
 import pytest
 
 from ossiq.adapters.package_managers.api_pip import PackageManagerPythonPip
-from ossiq.domain.ecosystem import PIP
 from ossiq.domain.exceptions import PackageManagerLockfileParsingError
+from ossiq.domain.packages_manager import PIP
 from ossiq.settings import Settings
 
 # ============================================================================

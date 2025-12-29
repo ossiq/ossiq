@@ -10,8 +10,8 @@ import re
 from collections import namedtuple
 
 from ossiq.adapters.api_interfaces import AbstractPackageManagerApi
-from ossiq.domain.ecosystem import PIP_CLASSIC, PackageManagerType
 from ossiq.domain.exceptions import PackageManagerLockfileParsingError
+from ossiq.domain.packages_manager import PIP_CLASSIC, PackageManagerType
 from ossiq.domain.project import Dependency, Project
 from ossiq.domain.version import normalize_version
 from ossiq.settings import Settings

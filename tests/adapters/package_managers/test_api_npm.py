@@ -22,8 +22,8 @@ from ossiq.adapters.package_managers.api_npm import (
     CATEGORIES_PEER,
     PackageManagerJsNpm,
 )
-from ossiq.domain.ecosystem import NPM
 from ossiq.domain.exceptions import PackageManagerLockfileParsingError
+from ossiq.domain.packages_manager import NPM
 from ossiq.settings import Settings
 
 # ============================================================================

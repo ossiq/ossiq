@@ -23,7 +23,7 @@ class PackageManagerType:
     """Represents a package manager or dependency tool."""
 
     name: str
-    ecosystem: ProjectPackagesRegistry
+    package_registry: ProjectPackagesRegistry
     primary_manifest: Manifest
     lockfile: Lockfile | None
 
@@ -34,7 +34,7 @@ UV_PYPROJECT = Manifest(name="pyproject.toml")
 UV_LOCKFILE = Lockfile(name="uv.lock")
 UV = PackageManagerType(
     name="uv",
-    ecosystem=ProjectPackagesRegistry.PYPI,
+    package_registry=ProjectPackagesRegistry.PYPI,
     primary_manifest=UV_PYPROJECT,
     lockfile=UV_LOCKFILE,
 )
@@ -43,7 +43,7 @@ PIP_PYPROJECT = Manifest(name="pyproject.toml")
 PIP_LOCKFILE = Lockfile(name="pylock.toml")
 PIP = PackageManagerType(
     name="pylock",
-    ecosystem=ProjectPackagesRegistry.PYPI,
+    package_registry=ProjectPackagesRegistry.PYPI,
     primary_manifest=PIP_PYPROJECT,
     lockfile=PIP_LOCKFILE,
 )
@@ -52,7 +52,7 @@ POETRY_PYPROJECT = Manifest(name="pyproject.toml")
 POETRY_LOCKFILE = Lockfile(name="poetry.lock")
 POETRY = PackageManagerType(
     name="Poetry",
-    ecosystem=ProjectPackagesRegistry.PYPI,
+    package_registry=ProjectPackagesRegistry.PYPI,
     primary_manifest=POETRY_PYPROJECT,
     lockfile=POETRY_LOCKFILE,
 )
@@ -61,7 +61,7 @@ PDM_PYPROJECT = Manifest(name="pyproject.toml")
 PDM_LOCKFILE = Lockfile(name="pdm.lock")
 PDM = PackageManagerType(
     name="PDM",
-    ecosystem=ProjectPackagesRegistry.PYPI,
+    package_registry=ProjectPackagesRegistry.PYPI,
     primary_manifest=PDM_PYPROJECT,
     lockfile=PDM_LOCKFILE,
 )
@@ -69,7 +69,7 @@ PDM = PackageManagerType(
 PIP_REQUIREMENTS_TXT = Manifest(name="requirements.txt")
 PIP_CLASSIC = PackageManagerType(
     name="pip-classic",
-    ecosystem=ProjectPackagesRegistry.PYPI,
+    package_registry=ProjectPackagesRegistry.PYPI,
     primary_manifest=PIP_REQUIREMENTS_TXT,
     lockfile=None,
 )
@@ -80,7 +80,7 @@ NPM_PACKAGE_JSON = Manifest(name="package.json")
 NPM_LOCKFILE = Lockfile(name="package-lock.json")
 NPM = PackageManagerType(
     name="npm",
-    ecosystem=ProjectPackagesRegistry.NPM,
+    package_registry=ProjectPackagesRegistry.NPM,
     primary_manifest=NPM_PACKAGE_JSON,
     lockfile=NPM_LOCKFILE,
 )
@@ -88,7 +88,7 @@ NPM = PackageManagerType(
 YARN_LOCKFILE = Lockfile(name="yarn.lock")
 YARN = PackageManagerType(
     name="Yarn",
-    ecosystem=ProjectPackagesRegistry.NPM,
+    package_registry=ProjectPackagesRegistry.NPM,
     primary_manifest=NPM_PACKAGE_JSON,  # Uses package.json
     lockfile=YARN_LOCKFILE,
 )
@@ -96,7 +96,7 @@ YARN = PackageManagerType(
 PNPM_LOCKFILE = Lockfile(name="pnpm-lock.yaml")
 PNPM = PackageManagerType(
     name="pnpm",
-    ecosystem=ProjectPackagesRegistry.NPM,
+    package_registry=ProjectPackagesRegistry.NPM,
     primary_manifest=NPM_PACKAGE_JSON,  # Uses package.json
     lockfile=PNPM_LOCKFILE,
 )

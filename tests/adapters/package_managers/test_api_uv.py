@@ -16,8 +16,8 @@ from pathlib import Path
 import pytest
 
 from ossiq.adapters.package_managers.api_uv import PackageManagerPythonUv
-from ossiq.domain.ecosystem import UV
 from ossiq.domain.exceptions import PackageManagerLockfileParsingError
+from ossiq.domain.packages_manager import UV
 from ossiq.settings import Settings
 
 # ============================================================================

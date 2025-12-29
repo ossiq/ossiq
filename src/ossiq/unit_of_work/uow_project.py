@@ -53,7 +53,7 @@ class ProjectUnitOfWork(AbstractProjectUnitOfWork):
                 (
                     manager
                     for manager in packages_managers
-                    if manager.package_manager_type.ecosystem == self.narrow_package_registry
+                    if manager.package_manager_type.package_registry == self.narrow_package_registry
                 ),
                 None,
             )
@@ -65,7 +65,7 @@ class ProjectUnitOfWork(AbstractProjectUnitOfWork):
 
         self.packages_manager = packages_manager
         self.packages_registry = create_package_registry_api(
-            packages_manager.package_manager_type.ecosystem, self.settings
+            packages_manager.package_manager_type.package_registry, self.settings
         )
 
     def __exit__(self, *args):

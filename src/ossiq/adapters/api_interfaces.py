@@ -7,8 +7,8 @@ from collections.abc import Callable, Iterable
 
 from ossiq.domain.common import ProjectPackagesRegistry
 from ossiq.domain.cve import CVE
-from ossiq.domain.ecosystem import PackageManagerType
 from ossiq.domain.package import Package
+from ossiq.domain.packages_manager import PackageManagerType
 from ossiq.domain.project import Project
 from ossiq.settings import Settings
 

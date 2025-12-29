@@ -10,8 +10,8 @@ from collections.abc import Callable
 
 from ossiq.adapters.api_interfaces import AbstractPackageManagerApi
 from ossiq.adapters.package_managers.utils import find_lockfile_parser
-from ossiq.domain.ecosystem import PIP, PackageManagerType
 from ossiq.domain.exceptions import PackageManagerLockfileParsingError
+from ossiq.domain.packages_manager import PIP, PackageManagerType
 from ossiq.domain.project import Dependency, Project
 from ossiq.settings import Settings
 

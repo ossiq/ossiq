@@ -5,7 +5,7 @@ Module to define abstract Package
 from dataclasses import dataclass, field
 
 from .common import PackageNotInstalled
-from .ecosystem import PackageManagerType
+from .packages_manager import PackageManagerType
 
 
 @dataclass(frozen=True)
@@ -65,4 +65,4 @@ class Project:
 
     @property
     def package_registry(self):
-        return self.package_manager.ecosystem
+        return self.package_manager.package_registry
