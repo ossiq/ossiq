@@ -17,6 +17,13 @@ qa:
     uv run --extra test ty check .
     uv run --extra test pytest .
 
+qa-integration:
+    uv run hatch run ossiq-cli overview testdata/npm/project1
+    uv run hatch run ossiq-cli overview testdata/npm/project2
+    uv run hatch run ossiq-cli overview testdata/pypi/uv
+    uv run hatch run ossiq-cli overview testdata/pypi/pylock
+    uv run hatch run ossiq-cli overview testdata/pypi/pip-classic
+
 lint:
     uv run ruff check .
     uv run ruff check --exit-zero --statistics .
