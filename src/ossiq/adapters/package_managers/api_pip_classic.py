@@ -18,6 +18,21 @@ from ossiq.settings import Settings
 
 PipClassicProject = namedtuple("PipClassicProject", ["manifest"])
 
+# Compiled regex patterns for performance (avoid recompilation in loops)
+# Matches lines to skip: pip options, VCS deps, URL deps
+_SKIP_LINE_PATTERN = re.compile(
+    r"^("
+    r"-[a-z\-]|"  # Pip options like -e, --editable, -r, --requirement, etc.
+    r"(git|hg|svn|bzr)\+|"  # VCS dependencies (git+, hg+, svn+, bzr+)
+    r"(https?|file)://"  # URL dependencies (http://, https://, file://)
+    r")",
+    re.IGNORECASE,
+)
+# Matches pinned dependencies: package==version or package[extras]==version
+_PINNED_DEPENDENCY_PATTERN = re.compile(r"^([a-zA-Z0-9._\-\[\]]+)==([^\s;]+)")
+# Matches extras specification in package names
+_EXTRAS_PATTERN = re.compile(r"\[.*\]")
+
 
 class PackageManagerPythonPipClassic(AbstractPackageManagerApi):
     """
@@ -49,26 +64,48 @@ class PackageManagerPythonPipClassic(AbstractPackageManagerApi):
         self.settings = settings
         self.project_path = project_path
 
-    @staticmethod
-    def normalize_package_name(name: str) -> str:
+    def _read_requirements_lines(self, manifest_path: str) -> list[str]:
         """
-        Normalize package name according to PEP 503.
+        Read and return lines from requirements.txt file.
 
-        PyPI package names are case-insensitive and treat hyphens/underscores
-        equivalently. This normalization ensures consistency.
+        Args:
+            manifest_path: Path to requirements.txt file
+
+        Returns:
+            List of lines from the file
+
+        Raises:
+            PackageManagerLockfileParsingError: If file not found or decode fails
+        """
+        try:
+            with open(manifest_path, encoding="utf-8") as f:
+                return f.readlines()
+        except FileNotFoundError as e:
+            raise PackageManagerLockfileParsingError(f"requirements.txt not found at {manifest_path}") from e
+        except UnicodeDecodeError as e:
+            raise PackageManagerLockfileParsingError(f"Failed to decode requirements.txt: {e}") from e
+
+    @staticmethod
+    def _parse_pinned_requirement(line: str) -> tuple[str, str] | None:
+        """
+        Extract package specification and version from pinned requirement line.
+
+        Args:
+            line: Preprocessed requirement line
+
+        Returns:
+            Tuple of (package_spec, version_spec) if line is pinned requirement,
+            None otherwise.
 
         Examples:
-            "requests[security]" -> "requests"
-            "Django-REST-Framework" -> "django-rest-framework"
-            "some_package" -> "some-package"
+            "requests==2.31.0" -> ("requests", "2.31.0")
+            "Django[extra]==4.2.0" -> ("Django[extra]", "4.2.0")
+            "package>=1.0.0" -> None (not pinned)
         """
-        # Remove extras specification (e.g., "requests[security]" -> "requests")
-        name = re.sub(r"\[.*\]", "", name)
-
-        # Convert to lowercase and replace underscores with hyphens
-        name = name.lower().replace("_", "-")
-
-        return name.strip()
+        match = _PINNED_DEPENDENCY_PATTERN.match(line)
+        if not match:
+            return None
+        return match.group(1), match.group(2)
 
     def parse_requirements_txt(self) -> dict[str, Dependency]:
         """
@@ -84,56 +121,26 @@ class PackageManagerPythonPipClassic(AbstractPackageManagerApi):
         project_files = self.project_files(self.project_path)
         dependencies = {}
 
-        try:
-            with open(project_files.manifest, encoding="utf-8") as f:
-                lines = f.readlines()
-        except FileNotFoundError as e:
-            raise PackageManagerLockfileParsingError(f"requirements.txt not found at {project_files.manifest}") from e
-        except UnicodeDecodeError as e:
-            raise PackageManagerLockfileParsingError(f"Failed to decode requirements.txt: {e}") from e
+        lines = self._read_requirements_lines(project_files.manifest)
 
         for line in lines:
-            # Strip whitespace and comments
-            line = line.strip()
-
             # Remove inline comments
             if "#" in line:
                 line = line.split("#")[0].strip()
 
-            # Skip empty lines
-            if not line:
-                continue
-
-            # Skip editable installs
-            if line.startswith("-e") or line.startswith("--editable"):
-                continue
-
-            # Skip other pip options
-            if line.startswith("-"):
-                continue
-
-            # Skip VCS dependencies (git+, hg+, svn+, bzr+)
-            if re.match(r"^(git|hg|svn|bzr)\+", line):
-                continue
-
-            # Skip URL dependencies
-            if line.startswith("http://") or line.startswith("https://") or line.startswith("file://"):
+            if not line or bool(_SKIP_LINE_PATTERN.match(line)):
                 continue
 
             # Parse pinned dependency: package==version or package[extras]==version
-            # Pattern: package_name[optional_extras]==version
-            match = re.match(r"^([a-zA-Z0-9._\-\[\]]+)==([^\s;]+)", line)
-
-            if not match:
-                # Not a pinned dependency, skip it
-                # (Could be >=, ~=, or other specifier)
+            parsed = self._parse_pinned_requirement(line)
+            if not parsed:
+                # Not a pinned dependency, skip (could be >=, ~=, or other specifier)
                 continue
 
-            package_spec = match.group(1)  # e.g., "requests" or "requests[security]"
-            version_spec = match.group(2)  # e.g., "2.31.0"
+            package_spec, version_spec = parsed
 
             # Normalize package name (removes extras, lowercases, etc.)
-            package_name = self.normalize_package_name(package_spec)
+            package_name = _EXTRAS_PATTERN.sub("", package_spec).lower().replace("_", "-").strip()
 
             # Normalize version (remove any remaining modifiers)
             version = normalize_version(version_spec)
