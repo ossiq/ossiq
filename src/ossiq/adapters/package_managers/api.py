@@ -10,10 +10,16 @@ from collections.abc import Iterable
 from ossiq.adapters.api_interfaces import AbstractPackageManagerApi
 from ossiq.adapters.package_managers.api_npm import PackageManagerJsNpm
 from ossiq.adapters.package_managers.api_pip import PackageManagerPythonPip
+from ossiq.adapters.package_managers.api_pip_classic import PackageManagerPythonPipClassic
 from ossiq.adapters.package_managers.api_uv import PackageManagerPythonUv
 from ossiq.settings import Settings
 
-PACKAGE_MANAGERS = (PackageManagerPythonUv, PackageManagerPythonPip, PackageManagerJsNpm)
+PACKAGE_MANAGERS = (
+    PackageManagerPythonUv,
+    PackageManagerPythonPip,
+    PackageManagerJsNpm,
+    PackageManagerPythonPipClassic,
+)
 
 
 def create_package_managers(project_path: str, settings: Settings) -> Iterable[AbstractPackageManagerApi]:

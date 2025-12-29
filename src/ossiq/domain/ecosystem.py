@@ -66,6 +66,14 @@ PDM = PackageManagerType(
     lockfile=PDM_LOCKFILE,
 )
 
+PIP_REQUIREMENTS_TXT = Manifest(name="requirements.txt")
+PIP_CLASSIC = PackageManagerType(
+    name="pip-classic",
+    ecosystem=ProjectPackagesRegistry.PYPI,
+    primary_manifest=PIP_REQUIREMENTS_TXT,
+    lockfile=None,
+)
+
 # --- NPM Package Managers (for future use) ---
 
 NPM_PACKAGE_JSON = Manifest(name="package.json")
@@ -94,6 +102,6 @@ PNPM = PackageManagerType(
 )
 
 # A list to hold all supported managers for easier lookup
-PYPI_MANAGERS = [UV, POETRY, PDM, PIP]
+PYPI_MANAGERS = [UV, POETRY, PDM, PIP, PIP_CLASSIC]
 NPM_MANAGERS = [NPM, YARN, PNPM]
 ALL_MANAGERS = PYPI_MANAGERS + NPM_MANAGERS

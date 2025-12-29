@@ -2,13 +2,10 @@
 Project packages overview command
 """
 
-import sys
-
 import typer
 
 from ossiq import timeutil
-from ossiq.messages import ERROR_EXIT_OUTDATED_PACKAGES
-from ossiq.presentation.system import show_error, show_operation_progress, show_settings
+from ossiq.presentation.system import show_operation_progress, show_settings
 from ossiq.presentation.views import Command, get_presentation_view
 from ossiq.service import project
 from ossiq.settings import Settings
@@ -43,7 +40,11 @@ def commnad_overview(ctx: typer.Context, project_path: str, lag_threshold_days: 
     # FIXME: use similar pattern to UoW to "commit" output on exit
     presentation_view = get_presentation_view(Command.OVERVIEW, settings.presentation)
 
-    presentation_view(project_overview, threshold_parsed.days, destination=settings.output_destination)
+    presentation_view(
+        project_overview,
+        threshold_parsed.days,
+        destination=settings.output_destination,
+    )
 
     # FIXME: both implementation and location below doens't feel right.
     # Potentially, could be refactored to use event-based design pattern
@@ -52,8 +53,8 @@ def commnad_overview(ctx: typer.Context, project_path: str, lag_threshold_days: 
 
     # NOTE: Check for outdated packages and exit with non-zero exit code if there
     # are any over specified threshold.
-    for pkg in project_overview.production_packages:
-        if pkg.time_lag_days and pkg.time_lag_days > threshold_parsed.days:
-            if settings.verbose is True:
-                show_error(ctx, ERROR_EXIT_OUTDATED_PACKAGES)
-            sys.exit(1)
+    # for pkg in project_overview.production_packages:
+    #     if pkg.time_lag_days and pkg.time_lag_days > threshold_parsed.days:
+    #         if settings.verbose is True:
+    #             show_error(ctx, ERROR_EXIT_OUTDATED_PACKAGES)
+    #         sys.exit(1)
