@@ -21,7 +21,7 @@ class Dependency:
 class Project:
     """Class for a package."""
 
-    package_manager: PackageManagerType
+    package_manager_type: PackageManagerType
     name: str
     project_path: str | None
     dependencies: dict[str, Dependency]
@@ -38,14 +38,14 @@ class Project:
         dependencies: dict[str, Dependency],
         optional_dependencies: dict[str, Dependency],
     ):
-        self.package_manager = package_manager_type
+        self.package_manager_type = package_manager_type
         self.name = name
         self.project_path = project_path
         self.dependencies = dependencies
         self.optional_dependencies = optional_dependencies
 
     def __repr__(self):
-        return f"""{self.package_manager.name} Package(
+        return f"""{self.package_manager_type.name} Package(
   name='{self.name}'
   dependencies={self.dependencies}
 )"""
@@ -65,4 +65,4 @@ class Project:
 
     @property
     def package_registry(self):
-        return self.package_manager.package_registry
+        return self.package_manager_type.package_registry
