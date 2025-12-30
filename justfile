@@ -11,11 +11,24 @@ list:
 
 # Run all the formatting, linting, and testing commands
 qa:
-    uv run --extra test ruff format .
-    uv run --extra test ruff check . --fix
-    uv run --extra test ruff check --select I --fix .
-    uv run --extra test ty check .
-    uv run --extra test pytest .
+    uv run --extra dev ruff format .
+    uv run --extra dev ruff check . --fix
+    uv run --extra dev ruff check --select I --fix .
+    uv run --extra dev ty check .
+    uv run --extra dev pytest .
+
+qa-integration:
+    mkdir reports || echo 'Reports is there already'
+    uv run hatch run ossiq-cli overview testdata/npm/project1
+    uv run hatch run ossiq-cli overview testdata/npm/project2
+    uv run hatch run ossiq-cli overview testdata/pypi/uv
+    uv run hatch run ossiq-cli overview testdata/pypi/pylock
+    uv run hatch run ossiq-cli overview testdata/pypi/pip-classic
+    uv run hatch run ossiq-cli overview testdata/mixed
+    uv run hatch run ossiq-cli overview testdata/mixed --registry-type=npm
+    uv run hatch run ossiq-cli overview testdata/mixed --registry-type=pypi
+    uv run hatch run ossiq-cli --presentation=html --output=./reports/overview_npm.html overview testdata/mixed --registry-type=npm
+    uv run hatch run ossiq-cli --presentation=html --output=./reports/overview_pypi.html overview testdata/mixed --registry-type=pypi
 
 lint:
     uv run ruff check .
@@ -23,26 +36,26 @@ lint:
 
 # Run all the tests for all the supported Python versions
 testall:
-    uv run --python=3.10 --extra test pytest
-    uv run --python=3.11 --extra test pytest
-    uv run --python=3.12 --extra test pytest
-    uv run --python=3.13 --extra test pytest
+    uv run --python=3.10 --extra dev pytest
+    uv run --python=3.11 --extra dev pytest
+    uv run --python=3.12 --extra dev pytest
+    uv run --python=3.13 --extra dev pytest
 
 # Run all the tests, but allow for arguments to be passed
 test *ARGS:
     @echo "Running with arg: {{ARGS}}"
-    uv run --extra test pytest {{ARGS}}
+    uv run --extra dev pytest {{ARGS}}
 
 # Run all the tests, but on failure, drop into the debugger
 pdb *ARGS:
     @echo "Running with arg: {{ARGS}}"
-    uv run --python=3.13  --extra test pytest --pdb --maxfail=10 --pdbcls=IPython.terminal.debugger:TerminalPdb {{ARGS}}
+    uv run --python=3.13  --extra dev pytest --pdb --maxfail=10 --pdbcls=IPython.terminal.debugger:TerminalPdb {{ARGS}}
 
 # Run coverage, and build to HTML
 coverage:
-    uv run --python=3.13 --extra test coverage run -m pytest .
-    uv run --python=3.13 --extra test coverage report -m
-    uv run --python=3.13 --extra test coverage html
+    uv run --python=3.13 --extra dev coverage run -m pytest .
+    uv run --python=3.13 --extra dev coverage report -m
+    uv run --python=3.13 --extra dev coverage html
 
 # Build the project, useful for checking that packaging is correct
 build:

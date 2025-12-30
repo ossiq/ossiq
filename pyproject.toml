@@ -30,17 +30,15 @@ classifiers = [
     "Operating System :: OS Independent",
 
     # Specific Python Versions (Adjust these to what you actually support)
-    "Programming Language :: Python :: 3.8",
-    "Programming Language :: Python :: 3.9",
-    "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3 :: Only",
 ]
 keywords = ["techdebt", "tech debt", "maintenance", "toc", "engineering"]
 
+requires-python = ">= 3.11"
+
 dependencies = [ # specify that newer patch or minor versions allowed
-  "ipdb~=0.13.13",
   "typer~=0.20.0",
   "pydantic~=2.12.4",
   "rich~=14.2.0",
@@ -48,32 +46,27 @@ dependencies = [ # specify that newer patch or minor versions allowed
   "requests~=2.32.5",
   "semver~=3.0.4",
   "jinja2~=3.1.6",
-  "tree-sitter~=0.25.2",
-  "tree-sitter-javascript~=0.25.0",
-  "tree-sitter-typescript~=0.23.2",
-  "pandas~=2.3.3",
   "hatch>=1.15.1",
-  "mkdocs>=1.6.1",
-  "mkdocs-material>=9.7.1",
-  "mkdocstrings>=0.25.2",
-  "mkdocs-nav-weight>=0.3.0",
+  "common-expression-language>=0.5.3",
+  "pandas>=2.3.3",
+  "packaging>=25.0",
 ]
-requires-python = ">= 3.10"
+
 
 [project.optional-dependencies]
-test = [
-    "coverage~=7.12.0",  # testing
-    "pytest~=9.0.1",  # testing
-    "ruff~=0.14.6",  # linting
-    "ty~=0.0.1a27", # checking types
+dev = [
+    "coverage~=7.13.1",  # testing
+    "pytest~=9.0.2",  # testing
+    "ruff~=0.14.10",  # linting
+    "ty~=0.0.8", # checking types
     "ipdb~=0.13.13", # debugging,
-    "black~=25.11.0",
-    "pylint~=4.0.3"
+    "pylint~=4.0.4"
 ]
 docs = [
-    "mkdocs~=1.6.0",
-    "mkdocs-material",
-    "mkdocstrings",
+    "mkdocs~=1.6.1",
+    "mkdocstrings~=1.0.0",
+    "mkdocs-material~=9.7.1",    
+    "mkdocs-nav-weight~=0.3.0"
 ]
 
 [project.license]
@@ -97,6 +90,13 @@ ossiq-cli = "ossiq.cli:app"
 
 [tool.ruff]
 line-length = 120
+
+[tool.ruff.format]
+# These settings ensure Ruff behaves like Black (but with your 120 limit)
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false  # Respects trailing commas to keep multi-line formatting
+line-ending = "auto"
 
 [tool.ruff.lint]
 select = [

@@ -1,0 +1,104 @@
+[project]
+name = "ossiq"
+version = "0.1.0"
+description = "Utility to forecast risks associated with currently installed packages updates"
+readme = "README.md"
+authors = [
+  {name = "Maksym Klymyshyn", email = "klymyshyn@gmail.com"}
+]
+maintainers = [
+  {name = "Maksym Klymyshyn", email = "klymyshyn@gmail.com"}
+]
+classifiers = [
+    "Intended Audience :: Developers",
+    "Intended Audience :: Information Technology",
+    "Development Status :: 3 - Alpha",
+    
+    "Topic :: Software Development :: Build Tools",
+    "Topic :: Scientific/Engineering :: Information Analysis",
+    "Topic :: Software Development :: Version Control",    
+    "Topic :: Security",
+    "Topic :: Software Development",
+
+    "Programming Language :: Python :: 3",  
+    "Topic :: Utilities",
+    "Topic :: Software Development :: Quality Assurance",
+    "Topic :: System :: Monitoring",
+    "Topic :: System :: Software Distribution",
+    
+    # Environment/OS
+    "Operating System :: OS Independent",
+
+    # Specific Python Versions (Adjust these to what you actually support)
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3 :: Only",
+]
+keywords = ["techdebt", "tech debt", "maintenance", "toc", "engineering"]
+
+dependencies = [ # specify that newer patch or minor versions allowed
+  "typer~=0.20.0",
+  "pydantic~=2.12.4",
+  "rich~=14.2.0",
+  "termcolor~=3.2.0",
+  "requests~=2.32.5",
+  "semver~=3.0.4",
+  "jinja2~=3.1.6",
+  "hatch>=1.15.1",
+  "common-expression-language>=0.5.3",
+  "pandas>=2.3.3",
+  "packaging>=25.0",
+]
+requires-python = ">= 3.11"
+
+[project.optional-dependencies]
+test = [
+    "coverage~=7.12.0",  # testing
+    "pytest~=9.0.1",  # testing
+    "ruff~=0.14.6",  # linting
+    "ty~=0.0.1a27", # checking types
+    "ipdb~=0.13.13", # debugging,
+    "black~=25.11.0",
+    "pylint~=4.0.3"
+]
+docs = [
+    "mkdocs~=1.6.1",
+    "mkdocstrings~=1.0.0",
+    "mkdocs-material~=9.7.1",    
+    "mkdocs-nav-weight~=0.3.0"
+]
+
+[project.license]
+license = "AGPL-3.0-only"
+file = "LICENSE"
+
+
+[project.urls]
+bugs = "https://github.com/ossiq/ossiq/issues"
+changelog = "https://github.com/ossiq/ossiq/blob/master/changelog.md"
+homepage = "https://github.com/ossiq/ossiq"
+repository = "https://github.com/ossiq/ossiq.git"
+
+[project.scripts]
+ossiq-cli = "ossiq.cli:app"
+
+[tool.ty]
+# All rules are enabled as "error" by default; no need to specify unless overriding.
+# Example override: relax a rule for the entire project (uncomment if needed).
+# rules.TY015 = "warn"  # For invalid-argument-type, warn instead of error.
+
+[tool.ruff]
+line-length = 120
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # Pyflakes
+    "I",   # isort
+    "B",   # flake8-bugbear
+    "UP",  # pyupgrade
+]
+
+[tool.uv]
+package = true

@@ -5,7 +5,7 @@ Implementation of SourceCodeApiClient for Github
 import datetime
 import itertools
 import re
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 
 import requests
 from rich.console import Console
@@ -13,7 +13,7 @@ from rich.console import Console
 from ..domain.common import VERSION_DATA_SOURCE_GITHUB_RELEASES, VERSION_DATA_SOURCE_GITHUB_TAGS, RepositoryProvider
 from ..domain.exceptions import GithubRateLimitError
 from ..domain.repository import Repository
-from ..domain.version import Commit, PackageVersion, RepositoryVersion, User, normalize_version, sort_versions
+from ..domain.version import Commit, PackageVersion, RepositoryVersion, User, sort_versions
 from .api_interfaces import AbstractSourceCodeProviderApi
 
 console = Console()
@@ -25,6 +25,8 @@ class SourceCodeProviderApiGithub(AbstractSourceCodeProviderApi):
     """
     Implementation of SourceCodeApiClient for Github
     """
+
+    repository_provider: RepositoryProvider = RepositoryProvider.PROVIDER_GITHUB
 
     github_token: str | None
 
@@ -86,7 +88,7 @@ class SourceCodeProviderApiGithub(AbstractSourceCodeProviderApi):
 
     def _paginate_github_api_request(self, url: str) -> Iterable[dict]:
         """
-        Paginate stuff from Github API while there"s any
+        Paginate responses from Github API
         """
         next_url = url
 
@@ -103,7 +105,7 @@ class SourceCodeProviderApiGithub(AbstractSourceCodeProviderApi):
         n = 0
         # NOTE: we need to pull all the releases we're interested in and then break iteration
         for release in self._paginate_github_api_request(url):
-            normalized_tag = normalize_version(release["tag_name"])
+            normalized_tag = release["tag_name"]
             if normalized_tag in versions_set:
                 yield RepositoryVersion(
                     version_source_type=VERSION_DATA_SOURCE_GITHUB_RELEASES,
@@ -204,7 +206,7 @@ class SourceCodeProviderApiGithub(AbstractSourceCodeProviderApi):
 
         n = 0
         for tag in self._paginate_github_api_request(url):
-            version = normalize_version(tag["name"])
+            version = tag["name"]
             if version in versions_set:
                 source_url = f"{repository.html_url}/releases/tag/{tag['name']}"
                 yield RepositoryVersion(
@@ -222,10 +224,12 @@ class SourceCodeProviderApiGithub(AbstractSourceCodeProviderApi):
             if n == len(versions_set):
                 break
 
-    def repository_info(self, repository_url: str) -> Repository:
+    def repository_info(self, repository_url: str | None) -> Repository:
         """
         Extract GitHub repository info from a given github URL.
         """
+        if repository_url is None:
+            raise ValueError("Repository URL cannot be None")
         s = repository_url.strip().removeprefix("git+").removeprefix("https://")
         m = re.search(r"github\.com[:/](?P<owner>[^/]+)/(?P<name>[^/.]+)", s)
 
@@ -247,7 +251,10 @@ class SourceCodeProviderApiGithub(AbstractSourceCodeProviderApi):
         )
 
     def repository_versions(
-        self, repository: Repository, package_versions: list[PackageVersion]
+        self,
+        repository: Repository,
+        package_versions: list[PackageVersion],
+        comparator: Callable,
     ) -> Iterable[RepositoryVersion]:
         """
         Pull versions info available from the given repository. Github releases
@@ -269,7 +276,7 @@ class SourceCodeProviderApiGithub(AbstractSourceCodeProviderApi):
             released_versions = list(itertools.chain(releases, tags_as_versions))
 
         # 3. Sort all found versions semantically.
-        versions = sort_versions(released_versions)
+        versions = sort_versions(released_versions, comparator=comparator)
         if not versions:
             return
 

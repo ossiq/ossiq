@@ -4,6 +4,7 @@ Factory to instantiate API clients
 
 from ossiq.adapters.api_npm import PackageRegistryApiNpm
 from ossiq.adapters.api_osv import CveApiOsv
+from ossiq.adapters.api_pypi import PackageRegistryApiPypi
 from ossiq.domain.common import ProjectPackagesRegistry, RepositoryProvider
 from ossiq.settings import Settings
 
@@ -11,7 +12,7 @@ from .api_github import SourceCodeProviderApiGithub
 from .api_interfaces import AbstractCveDatabaseApi, AbstractPackageRegistryApi, AbstractSourceCodeProviderApi
 
 
-def get_source_code_provider(provider_type: RepositoryProvider, settings: Settings) -> AbstractSourceCodeProviderApi:
+def create_source_code_provider(provider_type: RepositoryProvider, settings: Settings) -> AbstractSourceCodeProviderApi:
     """
     Return source code provider (like Github) using factory and respective type
     """
@@ -21,17 +22,22 @@ def get_source_code_provider(provider_type: RepositoryProvider, settings: Settin
         raise ValueError(f"Unknown source code provider type: {provider_type}")
 
 
-def get_package_registry(registry_type: ProjectPackagesRegistry) -> AbstractPackageRegistryApi:
+def create_package_registry_api(
+    package_registry: ProjectPackagesRegistry, settings: Settings
+) -> AbstractPackageRegistryApi:
     """
-    Return package registry (like NPM) using factory and respective type
+    Create instance of a specific ecosystem's package registry API
     """
-    if registry_type == ProjectPackagesRegistry.NPM:
-        return PackageRegistryApiNpm()
+
+    if package_registry == ProjectPackagesRegistry.NPM:
+        return PackageRegistryApiNpm(settings)
+    elif package_registry == ProjectPackagesRegistry.PYPI:
+        return PackageRegistryApiPypi(settings)
     else:
-        raise ValueError(f"Unknown package registry type: {registry_type}")
+        raise ValueError(f"Unknown package registry: {package_registry}")
 
 
-def get_cve_database() -> AbstractCveDatabaseApi:
+def create_cve_database() -> AbstractCveDatabaseApi:
     """
     Return CVE database (like osv.dev). The purpose is little different from
     Source Code Provider or Packages Registry/Ecosystem: there might be

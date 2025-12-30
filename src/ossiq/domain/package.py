@@ -14,8 +14,8 @@ class Package:
     registry: ProjectPackagesRegistry
     name: str
     latest_version: str | None
-    next_version: str
-    repo_url: str
+    next_version: str | None
+    repo_url: str | None
     homepage_url: str | None
     description: str | None
     author: str | None
@@ -29,8 +29,9 @@ class Package:
         registry: ProjectPackagesRegistry,
         name: str,
         latest_version: str | None,
-        next_version: str,
-        repo_url: str,
+        next_version: str | None,
+        # Sometimes, there's no link to source code repository
+        repo_url: str | None,
         author: str | None = None,
         homepage_url: str | None = None,
         description: str | None = None,

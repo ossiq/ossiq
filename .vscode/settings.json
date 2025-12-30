@@ -3,16 +3,16 @@
   "python.defaultInterpreterPath": "./venv/bin/python",
 
   // 2. Formatting: Use Black as the primary formatter
-  "editor.defaultFormatter": "ms-python.black-formatter",
-
-  // 3. Enable formatting on save (highly recommended)
-  "editor.formatOnSave": true,
-
-  // 4. Black Configuration: Set line length to 100 (Google standard)
-  "black-formatter.args": [
-      "--line-length=100"
-  ],
-
+  "[python]": {
+    // Change this from "ms-python.black-formatter"
+    "editor.defaultFormatter": "charliermarsh.ruff",
+    "editor.formatOnSave": true,
+    "editor.codeActionsOnSave": {
+      "source.fixAll.ruff": "explicit",
+      "source.organizeImports.ruff": "explicit"
+    }
+  },
+    
   // 5. Linting: Enable Pylint
   "pylint.enabled": true,
   "pylint.lintOnChange": true,

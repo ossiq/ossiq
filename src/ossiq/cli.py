@@ -5,7 +5,7 @@ from typing import Annotated
 import typer
 from rich.console import Console
 
-from ossiq.commands.overview import commnad_overview
+from ossiq.commands.overview import CommandOverviewOptions, commnad_overview
 from ossiq.domain.common import PresentationType
 from ossiq.messages import (
     ARGS_HELP_GITHUB_TOKEN,
@@ -35,7 +35,7 @@ def main(
     ] = PresentationType.CONSOLE.value,
     output_destination: Annotated[
         str, typer.Option("--output", "-o", envvar=f"{Settings.ENV_PREFIX}OUTPUT", help=ARGS_HELP_OUTPUT)
-    ] = ".",
+    ] = "./overview_report_{project_name}.html",
     verbose: Annotated[
         bool,
         typer.Option(
@@ -71,7 +71,7 @@ def main(
 
 
 @app.command()
-def help():
+def help():  # pylint: disable=redefined-builtin
     """Console script for ossiq-cli."""
     console.print(HELP_TEXT)
 
@@ -82,12 +82,22 @@ def overview(
     project_path: str,
     lag_threshold_days: Annotated[str, typer.Option("--lag-threshold-delta", "-l", help=HELP_LAG_THRESHOULD)] = "1y",
     production: Annotated[bool, typer.Option("--production", help=HELP_PRODUCTION_ONLY)] = False,
+    registry_type: Annotated[str | None, typer.Option("--registry-type", "-r", help="")] = None,
 ):
     """
     Project overview command.
     """
+    if registry_type and registry_type.lower() not in ["npm", "pypi"]:
+        raise typer.BadParameter("Only `npm` and `pypi` allowed")
+
     commnad_overview(
-        ctx=context, project_path=project_path, lag_threshold_days=lag_threshold_days, production=production
+        ctx=context,
+        options=CommandOverviewOptions(
+            project_path=project_path,
+            lag_threshold_days=lag_threshold_days,
+            production=production,
+            registry_type=registry_type,
+        ),
     )
 
 

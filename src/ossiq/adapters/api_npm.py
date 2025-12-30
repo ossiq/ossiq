@@ -2,18 +2,29 @@
 Implementation of Package Registry API client for NPM
 """
 
-import json
-import os
 from collections.abc import Iterable
 
 import requests
+import semver
 from rich.console import Console
 
 from ossiq.adapters.api_interfaces import AbstractPackageRegistryApi
 from ossiq.domain.common import ProjectPackagesRegistry
 from ossiq.domain.package import Package
-from ossiq.domain.project import Project
-from ossiq.domain.version import PackageVersion
+from ossiq.domain.version import (
+    VERSION_DIFF_BUILD,
+    VERSION_DIFF_MAJOR,
+    VERSION_DIFF_MINOR,
+    VERSION_DIFF_PATCH,
+    VERSION_DIFF_PRERELEASE,
+    VERSION_INVERSED_DIFF_TYPES_MAP,
+    VERSION_LATEST,
+    VERSION_NO_DIFF,
+    PackageVersion,
+    VersionsDifference,
+    create_version_difference_no_diff,
+)
+from ossiq.settings import Settings
 
 console = Console()
 
@@ -33,6 +44,89 @@ class PackageRegistryApiNpm(AbstractPackageRegistryApi):
     """
     Implementation of Package Registry API client for NPM
     """
+
+    package_registry = ProjectPackagesRegistry.NPM
+    settings: Settings
+
+    @staticmethod
+    def compare_versions(v1: str, v2: str) -> int:
+        """
+        Compare two versions following Semantic Versioning.
+        """
+        return semver.Version.parse(v1).compare(semver.Version.parse(v2))
+
+    @staticmethod
+    def _calculate_semver_diff_index(v1: semver.Version, v2: semver.Version) -> int:
+        """
+        Calculate the most significant difference between two semver versions.
+
+        Compares version components in order of significance:
+        1. Major version
+        2. Minor version
+        3. Patch version
+        4. Prerelease
+        5. Build metadata
+
+        Args:
+            v1: First parsed semver version
+            v2: Second parsed semver version
+
+        Returns:
+            Diff index constant indicating the most significant difference level
+        """
+        if v1.major != v2.major:
+            return VERSION_DIFF_MAJOR
+
+        if v1.minor != v2.minor:
+            return VERSION_DIFF_MINOR
+
+        if v1.patch != v2.patch:
+            return VERSION_DIFF_PATCH
+
+        if v1.prerelease != v2.prerelease:
+            return VERSION_DIFF_PRERELEASE
+
+        if v1.build != v2.build:
+            return VERSION_DIFF_BUILD
+
+        return VERSION_NO_DIFF
+
+    @staticmethod
+    def difference_versions(v1_str: str | None, v2_str: str | None) -> VersionsDifference:
+        """
+        Calculate version difference using Semantic Versioning (semver) semantics.
+
+        NPM packages follow strict semver, so we parse and compare major, minor,
+        patch, prerelease, and build components.
+
+        Args:
+            v1_str: First version string (e.g., installed version)
+            v2_str: Second version string (e.g., latest version)
+
+        Returns:
+            VersionsDifference with categorized diff index
+        """
+        # Handle None/empty versions
+        if not v1_str or not v2_str:
+            return create_version_difference_no_diff(v1_str, v2_str)
+
+        # Optimize: check string equality before parsing
+        if v1_str == v2_str:
+            return VersionsDifference(
+                v1_str, v2_str, VERSION_LATEST, diff_name=VERSION_INVERSED_DIFF_TYPES_MAP[VERSION_LATEST]
+            )
+
+        # Parse versions
+        v1 = semver.Version.parse(v1_str)
+        v2 = semver.Version.parse(v2_str)
+
+        # Calculate the difference
+        diff_index = PackageRegistryApiNpm._calculate_semver_diff_index(v1, v2)
+
+        return VersionsDifference(str(v1), str(v2), diff_index, diff_name=VERSION_INVERSED_DIFF_TYPES_MAP[diff_index])
+
+    def __init__(self, settings: Settings):
+        self.settings = settings
 
     def __repr__(self):
         return "<PackageRegistryApiNpm instance>"
@@ -99,33 +193,3 @@ class PackageRegistryApiNpm(AbstractPackageRegistryApi):
                     description=details.get("description", None),
                     package_url=f"{NPM_REGISTRY_FRONT}/package/{package_name}/v/{version}",
                 )
-
-    def project_info(self, project_path: str) -> Project:
-        """
-        Method to return a particular Project info
-        with all installed dependencies with their versions
-        """
-        project_file_path = os.path.join(project_path, "package.json")
-        if not os.path.exists(project_file_path):
-            raise FileNotFoundError(f"package.json not found at `{project_file_path}`")
-
-        with open(project_file_path, encoding="utf-8") as f:
-            project_json = json.load(f)
-            fallback_name = os.path.basename(project_path)
-
-            # FIXME: prioritize package-lock.json over package.json if possible
-            return Project(
-                package_registry=ProjectPackagesRegistry.NPM,
-                name=project_json.get("name", fallback_name),
-                project_path=project_path,
-                project_files=[project_file_path],
-                dependencies=project_json.get("dependencies", {}),
-                # TODO: for simplicity merge these, but probably
-                # just needs to introduce priority for dependencies to calculate risk score later
-                # FIXME: take care of the pinned dependencies later
-                dev_dependencies={
-                    **project_json.get("devDependencies", {}),
-                    **project_json.get("peerDependencies", {}),
-                    **project_json.get("optionalDependencies", {}),
-                },
-            )

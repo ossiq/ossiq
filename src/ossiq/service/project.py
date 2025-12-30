@@ -10,7 +10,7 @@ from rich.console import Console
 from ossiq.domain.cve import CVE
 from ossiq.domain.exceptions import ProjectPathNotFoundError
 from ossiq.domain.project import Project
-from ossiq.domain.version import VersionsDifference, compare_versions, difference_versions, normalize_version
+from ossiq.domain.version import VersionsDifference
 from ossiq.service.common import package_versions
 from ossiq.unit_of_work import core as unit_of_work
 
@@ -34,7 +34,6 @@ class ProjectOverviewSummary:
     project_name: str
     packages_registry: str
     project_path: str
-    project_files: list[str]
     production_packages: list[ProjectOverviewRecord]
     development_packages: list[ProjectOverviewRecord]
 
@@ -84,7 +83,7 @@ def get_package_versions_since(
     return [
         v
         for v in uow.packages_registry.package_versions(package_name)
-        if compare_versions(v.version, installed_version) >= 0
+        if uow.packages_registry.compare_versions(v.version, installed_version) >= 0
     ]
 
 
@@ -115,11 +114,11 @@ def overview_record(
 
     return ProjectOverviewRecord(
         package_name=package_name,
-        installed_version=normalize_version(package_version),
+        installed_version=package_version,
         latest_version=package_info.latest_version,
         time_lag_days=time_lag_days,
         releases_lag=len(releases_since_installed) - 1,
-        versions_diff_index=difference_versions(installed_version, package_info.latest_version),
+        versions_diff_index=uow.packages_registry.difference_versions(installed_version, package_info.latest_version),
         cve=cve,
         is_dev_dependency=is_dev_dependency,
     )
@@ -135,7 +134,8 @@ def overview(uow: unit_of_work.AbstractProjectUnitOfWork) -> ProjectOverviewSumm
         )
 
     with uow:
-        project_info = uow.packages_registry.project_info(uow.project_path)
+        # FIXME: move this up into UnitOfWork, since it's abstracted out better there
+        project_info = uow.packages_manager.project_info()
 
         # FIXME: catch this issue way before as part of command validation
         if not project_info.project_path:
@@ -144,18 +144,21 @@ def overview(uow: unit_of_work.AbstractProjectUnitOfWork) -> ProjectOverviewSumm
         production_packages: list[ProjectOverviewRecord] = []
         development_packages: list[ProjectOverviewRecord] = []
 
-        for package_name, package_version in project_info.dependencies.items():
-            production_packages.append(overview_record(uow, project_info, package_name, package_version, False))
+        for package_name, package in project_info.dependencies.items():
+            production_packages.append(
+                overview_record(uow, project_info, package_name, package.version_installed, False)
+            )
 
-        # uow.production driven by the setting
+        # uow.production is driven by the setting
         if not uow.production:
-            for package_name, package_version in project_info.dev_dependencies.items():
-                development_packages.append(overview_record(uow, project_info, package_name, package_version, True))
+            for package_name, package in project_info.optional_dependencies.items():
+                development_packages.append(
+                    overview_record(uow, project_info, package_name, package.version_installed, True)
+                )
 
         return ProjectOverviewSummary(
             project_name=project_info.name,
             project_path=project_info.project_path,
-            project_files=project_info.project_files,
             packages_registry=project_info.package_registry.value,
             production_packages=sorted(
                 [pkg for pkg in production_packages if not pkg.is_dev_dependency], key=sort_function, reverse=True

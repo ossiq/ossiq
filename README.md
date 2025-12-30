@@ -22,7 +22,7 @@ OSS IQ bridges the gap between raw dependency data and actionable intelligence. 
 
 ## How It Works
 
-1.  **Run OSS IQ**: Point the CLI to your project's manifest file (`package.json`, `pyproject.toml`, etc.). OSS IQ supports NPM (and Yarn/pnpm) and Python (uv, Poetry, pip).
+1.  **Run OSS IQ**: Point the CLI to your project's manifest file (`package.json`, `pyproject.toml`, etc.). OSS IQ supports NPM and Python (uv, Poetry, pip).
 2.  **Analyze Everything**: The tool cross-references version lag, CVEs, and maintainer activity against public databases in real-time.
 3.  **Get Your Report**: See a high-level health score and drill down into specific risks. The output is available as a rich console summary, an interactive HTML report, JSON, or a CycloneDX SBOM.
 4.  **Build Quality Gates**: Use the metrics and scores to set policies and build automated quality gates in your CI/CD pipelines.
@@ -86,6 +86,26 @@ Here is an example of the summary provided in your console:
 -   **Silent Tech Debt**: Track your version lag in releases and in time (e.g., "your React version is 2 years old") to quantify technical debt.
 -   **Multiple Output Formats**: Generate reports as interactive HTML, JSON, CycloneDX SBOMs, or a rich console view.
 -   **CI/CD Integration**: Use scores and metrics to build quality gates and enforce dependency policies automatically.
+
+## Supported Ecosystems
+
+### NPM
+
+**Supported:**
+- **[npm](https://docs.npmjs.com/cli/v11/commands/npm)** – Package manager for JavaScript (`package.json` + `package-lock.json`)
+
+### Python
+
+**Supported:**
+- **[uv](https://docs.astral.sh/uv/)** – Fast Rust-based package manager (`pyproject.toml` + `uv.lock`)
+- **[pip lock](https://pip.pypa.io/en/stable/cli/pip_lock/)** – [pylock.toml](https://packaging.python.org/en/latest/specifications/pylock-toml/#pylock-toml-spec) lockfile format (`pyproject.toml` + `pylock.toml`)
+- **[pip classic](https://pip.pypa.io/en/stable/reference/requirements-file-format/)** – Traditional `requirements.txt` (best with `pip freeze` output)
+
+**Not yet supported:**
+- **[Poetry](https://python-poetry.org/)** – Consider exporting to `pylock.toml` as a workaround ([discussion](https://github.com/orgs/python-poetry/discussions/10322))
+
+### Limitations
+ - Transitive dependencies are not yet supported
 
 ## FAQ
 
