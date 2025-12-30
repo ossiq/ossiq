@@ -26,7 +26,7 @@ def create_package_registry_api(
     package_registry: ProjectPackagesRegistry, settings: Settings
 ) -> AbstractPackageRegistryApi:
     """
-    Create insetance of a specific ecosystem's package registry API
+    Create instance of a specific ecosystem's package registry API
     """
 
     if package_registry == ProjectPackagesRegistry.NPM:

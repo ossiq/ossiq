@@ -126,7 +126,7 @@ class TestExtractNextUrl:
         assert next_url == "https://api.github.com/repos/owner/repo/tags?page=2"
 
     def test_extract_next_url_without_next(self, github_api_with_token):
-        """Test extraction when there"s no next link."""
+        """Test extraction when there's no next link."""
         link_header = '<https://api.github.com/repos/owner/repo/tags?page=5>; rel="last"'
         next_url = github_api_with_token._extract_next_url(link_header)
         assert next_url is None

@@ -12,12 +12,12 @@ from ossiq.adapters.api_interfaces import AbstractPackageRegistryApi
 from ossiq.domain.common import ProjectPackagesRegistry
 from ossiq.domain.package import Package
 from ossiq.domain.version import (
-    VERSINO_INVERSED_DIFF_TYPES_MAP,
     VERSION_DIFF_BUILD,
     VERSION_DIFF_MAJOR,
     VERSION_DIFF_MINOR,
     VERSION_DIFF_PATCH,
     VERSION_DIFF_PRERELEASE,
+    VERSION_INVERSED_DIFF_TYPES_MAP,
     VERSION_LATEST,
     VERSION_NO_DIFF,
     PackageVersion,
@@ -180,7 +180,7 @@ class PackageRegistryApiPypi(AbstractPackageRegistryApi):
         # Optimize: check string equality before parsing
         if v1_str == v2_str:
             return VersionsDifference(
-                v1_str, v2_str, VERSION_LATEST, diff_name=VERSINO_INVERSED_DIFF_TYPES_MAP[VERSION_LATEST]
+                v1_str, v2_str, VERSION_LATEST, diff_name=VERSION_INVERSED_DIFF_TYPES_MAP[VERSION_LATEST]
             )
 
         # Parse versions (may raise InvalidVersion for invalid strings)
@@ -190,7 +190,7 @@ class PackageRegistryApiPypi(AbstractPackageRegistryApi):
         # Calculate the difference
         diff_index = PackageRegistryApiPypi._calculate_pep440_diff_index(v1, v2)
 
-        return VersionsDifference(str(v1), str(v2), diff_index, diff_name=VERSINO_INVERSED_DIFF_TYPES_MAP[diff_index])
+        return VersionsDifference(str(v1), str(v2), diff_index, diff_name=VERSION_INVERSED_DIFF_TYPES_MAP[diff_index])
 
     def __init__(self, settings: Settings):
         self.settings = settings

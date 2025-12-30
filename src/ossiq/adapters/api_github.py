@@ -88,7 +88,7 @@ class SourceCodeProviderApiGithub(AbstractSourceCodeProviderApi):
 
     def _paginate_github_api_request(self, url: str) -> Iterable[dict]:
         """
-        Paginate stuff from Github API while there"s any
+        Paginate responses from Github API
         """
         next_url = url
 

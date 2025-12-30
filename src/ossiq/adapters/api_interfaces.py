@@ -125,7 +125,7 @@ class AbstractPackageManagerApi(abc.ABC):
     @abc.abstractmethod
     def has_package_manager(project_path: str) -> bool:
         """
-        Detect that package mangager is used in a project_path
+        Detect that package manager is used in a project_path
         """
         pass
 

@@ -64,7 +64,7 @@ class ProjectUnitOfWork(AbstractProjectUnitOfWork):
             )
             if not packages_manager:
                 raise UnknownProjectPackageManager(
-                    f"Unable to narrow Package Manager to {self.narrow_package_registry}"
+                    f"Unable to narrow Package Manager to {self.narrow_package_registry} "
                     f"for project at {self.project_path}"
                 )
 

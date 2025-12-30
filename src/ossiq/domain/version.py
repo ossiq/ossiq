@@ -33,7 +33,7 @@ VERSION_DIFF_TYPES_MAP = {
     "LATEST": VERSION_LATEST,
 }
 
-VERSINO_INVERSED_DIFF_TYPES_MAP = {val: key for key, val in VERSION_DIFF_TYPES_MAP.items()}
+VERSION_INVERSED_DIFF_TYPES_MAP = {val: key for key, val in VERSION_DIFF_TYPES_MAP.items()}
 
 
 @dataclass
@@ -201,7 +201,7 @@ def create_version_difference_no_diff(v1: str | None, v2: str | None) -> Version
         v1 if v1 else "N/A",
         v2 if v2 else "N/A",
         VERSION_NO_DIFF,
-        diff_name=VERSINO_INVERSED_DIFF_TYPES_MAP[VERSION_NO_DIFF],
+        diff_name=VERSION_INVERSED_DIFF_TYPES_MAP[VERSION_NO_DIFF],
     )
 
 
