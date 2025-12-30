@@ -11,7 +11,6 @@ This module tests the GitHub API adapter implementation, including:
 """
 
 import datetime
-from typing import cast
 from unittest.mock import Mock
 
 import pytest
@@ -203,7 +202,7 @@ class TestMakeGithubApiRequest:
         with pytest.raises(GithubRateLimitError) as excinfo:
             github_api_with_token._make_github_api_request("https://api.github.com/test")
 
-        error = cast(GithubRateLimitError, excinfo.value)
+        error = excinfo.value
         assert error.remaining == "0"
         assert error.total == "5000"
         assert error.reset_time is not None
@@ -231,7 +230,7 @@ class TestMakeGithubApiRequest:
         with pytest.raises(GithubRateLimitError) as excinfo:
             github_api_without_token._make_github_api_request("https://api.github.com/test")
 
-        error = cast(GithubRateLimitError, excinfo.value)
+        error = excinfo.value
         assert error.remaining == "0"
         assert error.total == "60"  # Unauthenticated rate limit
         assert error.reset_time is not None
@@ -252,7 +251,7 @@ class TestMakeGithubApiRequest:
         with pytest.raises(GithubRateLimitError) as excinfo:
             github_api_with_token._make_github_api_request("https://api.github.com/test")
 
-        error = cast(GithubRateLimitError, excinfo.value)
+        error = excinfo.value
         assert error.remaining == "N/A"
         assert error.total == "N/A"
         assert error.reset_time == "N/A"
