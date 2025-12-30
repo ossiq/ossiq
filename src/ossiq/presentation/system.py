@@ -53,8 +53,15 @@ def show_settings(ctx, label: str, settings: dict):
     console.print(Panel(header_text, expand=False, border_style="cyan"))
 
 
-def show_error(ctx, message: str):
+def show_error(_, message: str):
     """
     Show error message
     """
     error_console.print(f"\n[bold yellow on red blink] ERROR [/bold yellow on red blink] [red]{message}[/red]")
+
+
+def show_warning(message: str):
+    """
+    Show warning
+    """
+    error_console.print(f"\n[bold red on yellow]\\[WARNING][/bold red on yellow] [white]{message.strip()}[/white]")

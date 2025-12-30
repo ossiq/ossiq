@@ -2,9 +2,12 @@
 Project packages overview command
 """
 
+from dataclasses import dataclass
+
 import typer
 
 from ossiq import timeutil
+from ossiq.domain.common import ProjectPackagesRegistry
 from ossiq.presentation.system import show_operation_progress, show_settings
 from ossiq.presentation.views import Command, get_presentation_view
 from ossiq.service import project
@@ -12,25 +15,42 @@ from ossiq.settings import Settings
 from ossiq.unit_of_work import uow_project
 
 
-def commnad_overview(ctx: typer.Context, project_path: str, lag_threshold_days: str, production: bool):
+@dataclass(frozen=True)
+class CommandOverviewOptions:
+    project_path: str
+    lag_threshold_days: str
+    production: bool
+    registry_type: str | None
+
+
+def commnad_overview(ctx: typer.Context, options: CommandOverviewOptions):
     """
     Project overview command.
     """
     settings: Settings = ctx.obj
-    threshold_parsed = timeutil.parse_relative_time_delta(lag_threshold_days)
-
+    threshold_parsed = timeutil.parse_relative_time_delta(options.lag_threshold_days)
+    registry_type_map = {
+        "npm": ProjectPackagesRegistry.NPM,
+        "pypi": ProjectPackagesRegistry.PYPI,
+    }
     show_settings(
         ctx,
         "Overview Settings",
-        {"project_path": project_path, "lag_threshold_days": f"{threshold_parsed.days} days", "production": production},
+        {
+            "project_path": options.project_path,
+            "lag_threshold_days": f"{threshold_parsed.days} days",
+            "production": options.production,
+            "narrow_registry_type": registry_type_map.get(options.registry_type),
+        },
     )
 
     uow = uow_project.ProjectUnitOfWork(
         settings=settings,
-        project_path=project_path,
+        project_path=options.project_path,
         # FIXME: add parameter to pass narrow_package_manager for cases
         # where more than one project per directory
-        production=production,
+        production=options.production,
+        narrow_package_registry=registry_type_map.get(options.registry_type),
     )
 
     with show_operation_progress(settings, "Collecting project packages data...") as progress:

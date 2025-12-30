@@ -2,6 +2,7 @@
 Module to define abstract Package
 """
 
+import re
 from dataclasses import dataclass, field
 
 from .common import PackageNotInstalled
@@ -66,3 +67,24 @@ class Project:
     @property
     def package_registry(self):
         return self.package_manager_type.package_registry
+
+
+def normalize_filename(source_name: str) -> str:
+    """
+    Normalize a source name (package name, directory name) to a valid filename component.
+    """
+
+    # Convert to lowercase for consistency
+    normalized = source_name.lower()
+
+    # Replace filesystem-unsafe characters, @, dots, and whitespace with underscore,
+    # then collapse multiple consecutive underscores or hyphens.
+    normalized = re.sub(r'[/\\:*?"<>|@.\s]+', "_", normalized)
+    normalized = re.sub(r"_+", "_", normalized)
+
+    normalized = normalized.strip("_-")
+
+    if not normalized:
+        normalized = "unnamed"
+
+    return normalized

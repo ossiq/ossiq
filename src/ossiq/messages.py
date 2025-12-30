@@ -16,7 +16,16 @@ ARGS_HELP_OUTPUT = """Destination where to generate output,
 appropriate for respective presentations"""
 
 HELP_PRODUCTION_ONLY = """
-Exclude development packages if specified. Default: false
+Exclude non-production packages. Default: false
+"""
+
+HELP_REGISTRY_TYPE = """
+Specify which project registry type (ecosystem) to use. Default: None
+Possible options: npm, pypi
+"""
+
+WARNING_MULTIPLE_REGISTRY_TYPES = """
+`{project_path}` contains multiple registry types. Use `--registry-type` option to narrow it down
 """
 
 ERROR_EXIT_OUTDATED_PACKAGES = """There are libraries with outdated versions:

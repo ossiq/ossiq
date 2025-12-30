@@ -5,6 +5,7 @@ View for overview command for HTML view
 import os
 
 from ossiq.domain.exceptions import DestinationDoesntExist
+from ossiq.domain.project import normalize_filename
 from ossiq.presentation.html.template_environment import (
     configure_template_environment,
 )
@@ -17,7 +18,7 @@ def display_view(project_overview: ProjectOverviewSummary, lag_threshold_days: i
     """
 
     # Make sure we can write to the destination
-    if not os.path.exists(destination):
+    if not os.path.exists(os.path.dirname(destination)):
         raise DestinationDoesntExist(f"Destination `{destination}` doesn't exist.")
 
     _, template = configure_template_environment("./presentation/overview/html_templates/main.html")
@@ -28,7 +29,9 @@ def display_view(project_overview: ProjectOverviewSummary, lag_threshold_days: i
         dependencies=project_overview.production_packages + project_overview.development_packages,
     )
 
-    target_path = os.path.join(destination, "overview_report.html")
+    target_path = destination.format(
+        project_name=normalize_filename(project_overview.project_name),
+    )
 
     # Save the rendered HTML to a file
     with open(target_path, "w", encoding="utf-8") as fh:

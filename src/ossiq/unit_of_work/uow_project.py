@@ -8,6 +8,8 @@ from ossiq.adapters.api_interfaces import AbstractSourceCodeProviderApi
 from ossiq.adapters.package_managers.api import create_package_managers
 from ossiq.domain.common import ProjectPackagesRegistry, RepositoryProvider
 from ossiq.domain.exceptions import UnknownProjectPackageManager
+from ossiq.messages import WARNING_MULTIPLE_REGISTRY_TYPES
+from ossiq.presentation.system import show_warning
 from ossiq.settings import Settings
 from ossiq.unit_of_work.core import AbstractProjectUnitOfWork
 
@@ -22,7 +24,7 @@ class ProjectUnitOfWork(AbstractProjectUnitOfWork):
         self,
         settings: Settings,
         project_path: str,
-        narrow_package_manager: ProjectPackagesRegistry | None = None,
+        narrow_package_registry: ProjectPackagesRegistry | None = None,
         production: bool = False,
     ):
         """
@@ -33,7 +35,7 @@ class ProjectUnitOfWork(AbstractProjectUnitOfWork):
         self.project_path = project_path
         self.settings = settings
         self.production = production
-        self.narrow_package_registry = narrow_package_manager
+        self.narrow_package_registry = narrow_package_registry
         self.cve_database = create_cve_database()
 
     def __enter__(self):
@@ -45,6 +47,9 @@ class ProjectUnitOfWork(AbstractProjectUnitOfWork):
 
         if not packages_managers:
             raise UnknownProjectPackageManager(f"Unable to identify Package Manager for project at {self.project_path}")
+
+        if len(packages_managers) > 1 and not self.narrow_package_registry:
+            show_warning(WARNING_MULTIPLE_REGISTRY_TYPES.format(project_path=self.project_path))
 
         packages_manager = packages_managers[0]
 
