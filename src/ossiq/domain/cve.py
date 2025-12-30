@@ -16,7 +16,7 @@ class Severity(str, Enum):
     CRITICAL = "CRITICAL"
 
 
-@dataclass
+@dataclass(frozen=True)
 class CVE:
     """
     Model to represent a CVE from various databases
@@ -25,7 +25,7 @@ class CVE:
     # primary ID (e.g. CVE-2021-23337 or GHSA-...)
     id: str
     # all aliases (CVE, GHSA, OSV)
-    cve_ids: list[str]
+    cve_ids: tuple[str, ...]
     # where this record came from
     source: CveDatabase
     package_name: str
@@ -34,7 +34,7 @@ class CVE:
     summary: str
     severity: Severity
     # resolved versions
-    affected_versions: list[str]
+    affected_versions: tuple[str, ...]
     published: str | None
     # URL to upstream advisory
     link: str

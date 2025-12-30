@@ -6,6 +6,7 @@ import re
 from collections.abc import Callable
 from dataclasses import dataclass
 from functools import cmp_to_key
+from typing import TypeVar
 
 # Version is unpublished from the Package Registry
 VERSION_NO_DIFF = 10
@@ -253,8 +254,18 @@ def normalize_version(version: str) -> str:
     return version
 
 
-def sort_versions(versions: list[PackageVersion], comparator: Callable) -> list[PackageVersion]:
+VersionType = TypeVar("VersionType", PackageVersion, RepositoryVersion)
+
+
+def sort_versions(versions: list[VersionType], comparator: Callable) -> list[VersionType]:
     """
-    Sorts a list of semantically versioned strings.
+    Sorts a list of semantically versioned objects.
+
+    Args:
+        versions: List of PackageVersion or RepositoryVersion objects
+        comparator: Comparison function that takes two version strings
+
+    Returns:
+        Sorted list of the same type as input
     """
     return sorted(versions, key=cmp_to_key(lambda v1, v2: comparator(v1.version, v2.version)))

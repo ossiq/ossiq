@@ -224,10 +224,12 @@ class SourceCodeProviderApiGithub(AbstractSourceCodeProviderApi):
             if n == len(versions_set):
                 break
 
-    def repository_info(self, repository_url: str) -> Repository:
+    def repository_info(self, repository_url: str | None) -> Repository:
         """
         Extract GitHub repository info from a given github URL.
         """
+        if repository_url is None:
+            raise ValueError("Repository URL cannot be None")
         s = repository_url.strip().removeprefix("git+").removeprefix("https://")
         m = re.search(r"github\.com[:/](?P<owner>[^/]+)/(?P<name>[^/.]+)", s)
 

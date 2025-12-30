@@ -1,5 +1,3 @@
-from collections.abc import Iterable
-
 import requests
 
 from ossiq.domain.common import CveDatabase, ProjectPackagesRegistry
@@ -23,7 +21,7 @@ class CveApiOsv(AbstractCveDatabaseApi):
     def __repr__(self):
         return f"OsvApiClient(base_url='{self.base_url}')"
 
-    def get_cves_for_package(self, package: Package, version: PackageVersion) -> Iterable[CVE]:
+    def get_cves_for_package(self, package: Package, version: PackageVersion) -> set[CVE]:
         payload = {
             "package": {"name": package.name, "ecosystem": ECOSYSTEM_MAPPING[package.registry]},
             "version": version.version,
@@ -35,19 +33,23 @@ class CveApiOsv(AbstractCveDatabaseApi):
 
         vulnerabilities_raw = data.get("vulns", [])
 
+        cves = set()
         for cve_raw in vulnerabilities_raw:
-            yield CVE(
-                id=cve_raw["id"],
-                cve_ids=cve_raw.get("aliases", []),
-                source=CveDatabase.OSV,
-                package_name=package.name,
-                package_registry=package.registry,
-                summary=cve_raw.get("summary", ""),
-                severity=self._map_severity(cve_raw.get("severity", [])),
-                affected_versions=self._extract_affected_versions(cve_raw),
-                published=cve_raw.get("published"),
-                link=self._build_osv_link(cve_raw["id"]),
+            cves.add(
+                CVE(
+                    id=cve_raw["id"],
+                    cve_ids=tuple(cve_raw.get("aliases", [])),
+                    source=CveDatabase.OSV,
+                    package_name=package.name,
+                    package_registry=package.registry,
+                    summary=cve_raw.get("summary", ""),
+                    severity=self._map_severity(cve_raw.get("severity", [])),
+                    affected_versions=tuple(self._extract_affected_versions(cve_raw)),
+                    published=cve_raw.get("published"),
+                    link=self._build_osv_link(cve_raw["id"]),
+                )
             )
+        return cves
 
     def _map_severity(self, osv_severity: list[dict]) -> Severity:
         """
