@@ -42,8 +42,9 @@ Get **OSS IQ** up and running in your terminal to analyze your first project.
 
  2. Run your first analysis
 
-    OSS IQ works best with the popular ecosystem dependency formats e.g. for **NPM** its [package.json](https://docs.npmjs.com/cli/v7/configuring-npm/package-json) or [package-lock.json](https://docs.npmjs.com/cli/v8/configuring-npm/package-lock-json) 
-    and for **PyPI** its [pyproject.toml](https://packaging.python.org/en/latest/guides/writing-pyproject-toml/) and [uv.lock](https://docs.astral.sh/uv/concepts/projects/layout/#the-lockfile).
+    OSS IQ works best with the popular ecosystem dependency formats e.g. for **NPM** its [package.json](https://docs.npmjs.com/cli/v7/configuring-npm/package-json) or [package-lock.json](https://docs.npmjs.com/cli/v8/configuring-npm/package-lock-json),
+    and for **PyPI** its [pylock.toml](https://packaging.python.org/en/latest/specifications/pylock-toml/#pylock-toml-spec),  [uv.lock](https://docs.astral.sh/uv/concepts/projects/layout/#the-lockfile), or classic [requirements.txt](https://pip.pypa.io/en/stable/reference/requirements-file-format/).
+
     You can point it at an existing project and OSS IQ will **detect dependencies automatically**.
 
     ```bash
