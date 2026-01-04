@@ -62,7 +62,7 @@
       <span class="flex items-center space-x-2">
         <span>
           Project Update-Lag Report for the project
-          <span class="font-semibold">&ldquo;{{ project_overview.project_name }}&rdquo;</span>
+          <span class="font-semibold">&ldquo;{{ project_scan.project_name }}&rdquo;</span>
         </span>
         <span>
           <a href="javascript:void();" rel="report-help" id="repoert-help-toggle">
@@ -263,7 +263,7 @@
               </td>
               <td data-id="cve-index" data-value="{{ dep.cve|length }}" class="text-center">
                 {% if dep.cve|length > 0 %}
-                <a href="https://osv.dev/list?q={{ dep.package_name }}&ecosystem={{ project_overview.packages_registry|lower }}"
+                <a href="https://osv.dev/list?q={{ dep.package_name }}&ecosystem={{ project_scan.packages_registry|lower }}"
                   target="_blank" class="inline-flex items-center gap-1 px-2 py-0 rounded-full text-xs font-semibold
                               text-white bg-[#DE4514] dark:bg-[#DE4514]/90">
                   <span class="material-symbols-rounded pt-0.5 text-base text-md">security</span>

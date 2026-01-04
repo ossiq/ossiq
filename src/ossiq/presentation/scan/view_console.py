@@ -1,5 +1,5 @@
 """
-View for overview command/Console output type
+View for scan command/Console output type
 """
 
 from rich.console import Console
@@ -16,7 +16,7 @@ from ossiq.domain.version import (
     VERSION_LATEST,
     VersionsDifference,
 )
-from ossiq.service.project import ProjectOverviewRecord, ProjectOverviewSummary
+from ossiq.service.project import ProjectMetrics, ProjectMetricsRecord
 from ossiq.timeutil import format_time_days
 
 console = Console()
@@ -56,7 +56,7 @@ def _format_lag_status(vdiff: VersionsDifference) -> str:
 
 
 def table_factory(
-    title: str, title_style: str, dependencies: list[ProjectOverviewRecord], lag_threshold_days: int
+    title: str, title_style: str, dependencies: list[ProjectMetricsRecord], lag_threshold_days: int
 ) -> Table:
     """
     Product records for the table
@@ -84,32 +84,32 @@ def table_factory(
     return table
 
 
-def display_view(project_overview: ProjectOverviewSummary, lag_threshold_days: int, **_):
+def display_view(project_metrics: ProjectMetrics, lag_threshold_days: int, **_):
     """
-    Representation of the project overview for Console.
+    Representation of the project scan for Console.
     """
 
     table_dev = None
 
     table_prod = table_factory(
-        "Production Packages Version Status", "bold green", project_overview.production_packages, lag_threshold_days
+        "Production Packages Version Status", "bold green", project_metrics.production_packages, lag_threshold_days
     )
 
-    if project_overview.development_packages:
+    if project_metrics.development_packages:
         table_dev = table_factory(
             "Optional Packages Version Status",
             "bold cyan",
-            project_overview.development_packages,
+            project_metrics.development_packages,
             lag_threshold_days,
         )
 
     header_text = Text()
     header_text.append("📦 Project: ", style="bold white")
-    header_text.append(f"{project_overview.project_name}\n", style="bold cyan")
+    header_text.append(f"{project_metrics.project_name}\n", style="bold cyan")
     header_text.append("🔗 Packages Registry: ", style="bold white")
-    header_text.append(f"{project_overview.packages_registry}\n", style="green")
+    header_text.append(f"{project_metrics.packages_registry}\n", style="green")
     header_text.append("📍 Project Path: ", style="bold white")
-    header_text.append(f"{project_overview.project_path}", style="green")
+    header_text.append(f"{project_metrics.project_path}", style="green")
 
     console.print("\n")
     console.print(Panel(header_text, expand=False, border_style="cyan"))
