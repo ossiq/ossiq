@@ -11,7 +11,7 @@ This section provides hands-on, step-by-step guides to help you achieve a specif
 **What you'll learn:**
 
  - How to install and verify `ossiq-cli`.
- - How to run the `overview` command on a local project.
+ - How to run the `scan` command on a local project.
  - How to interpret the key metrics in the console output.
  - How to generate and navigate the interactive HTML report.
 
@@ -19,9 +19,9 @@ This section provides hands-on, step-by-step guides to help you achieve a specif
 
  - **Step 1: Installation** (Todo)
  - **Step 2: Setting up the Sample Project** (Todo: Provide a git repo to clone)
- - **Step 3: Running Your First Analysis** (Todo: Show the `ossiq overview` command)
+ - **Step 3: Running Your First Analysis** (Todo: Show the `ossiq-cli scan` command)
  - **Step 4: Understanding the Console Output** (Todo: Briefly explain scores)
- - **Step 5: Generating and Exploring the HTML Report** (Todo: Show the `--format html` flag and what the report looks like)
+ - **Step 5: Generating and Exploring the HTML Report** (Todo: Show the `-p html` flag and what the report looks like)
  - **Next Steps** (Todo: Link to other docs)
 
 

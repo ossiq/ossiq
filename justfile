@@ -19,16 +19,16 @@ qa:
 
 qa-integration:
     mkdir reports || echo 'Reports is there already'
-    uv run hatch run ossiq-cli overview testdata/npm/project1
-    uv run hatch run ossiq-cli overview testdata/npm/project2
-    uv run hatch run ossiq-cli overview testdata/pypi/uv
-    uv run hatch run ossiq-cli overview testdata/pypi/pylock
-    uv run hatch run ossiq-cli overview testdata/pypi/pip-classic
-    uv run hatch run ossiq-cli overview testdata/mixed
-    uv run hatch run ossiq-cli overview testdata/mixed --registry-type=npm
-    uv run hatch run ossiq-cli overview testdata/mixed --registry-type=pypi
-    uv run hatch run ossiq-cli --presentation=html --output=./reports/overview_npm.html overview testdata/mixed --registry-type=npm
-    uv run hatch run ossiq-cli --presentation=html --output=./reports/overview_pypi.html overview testdata/mixed --registry-type=pypi
+    uv run hatch run ossiq-cli scan testdata/npm/project1
+    uv run hatch run ossiq-cli scan testdata/npm/project2
+    uv run hatch run ossiq-cli scan testdata/pypi/uv
+    uv run hatch run ossiq-cli scan testdata/pypi/pylock
+    uv run hatch run ossiq-cli scan testdata/pypi/pip-classic
+    uv run hatch run ossiq-cli scan testdata/mixed
+    uv run hatch run ossiq-cli scan testdata/mixed --registry-type=npm
+    uv run hatch run ossiq-cli scan testdata/mixed --registry-type=pypi
+    uv run hatch run ossiq-cli scan --presentation=html --output=./reports/scan_npm.html --registry-type=npm testdata/mixed
+    uv run hatch run ossiq-cli scan --presentation=html --output=./reports/scan_pypi.html --registry-type=pypi testdata/mixed
 
 lint:
     uv run ruff check .
