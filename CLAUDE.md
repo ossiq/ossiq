@@ -53,10 +53,10 @@ uv run just coverage
 ### Running the CLI
 ```bash
 # Analyze a project
-uv run hatch run ossiq-cli overview /path/to/project
+uv run hatch run ossiq-cli scan /path/to/project
 
 # Or directly via module
-uv run python -m ossiq.cli overview /path/to/project
+uv run python -m ossiq.cli scan /path/to/project
 ```
 
 ## Architecture

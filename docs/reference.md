@@ -36,7 +36,7 @@ For a complete definition of all version-related data classes, see [`ossiq/domai
 ### Dependency Resolution
 
 -   **Dependency Graph**: The system operates on a flat list of dependencies resolved from a lockfile (e.g., `package-lock.json`). It does not build or traverse a dependency graph.
--   **Transitive Dependencies**: Transitive dependency resolution is not performed. The tool relies on the dependency resolution of the target project's native package manager (e.g., `npm`, `pip`).
+-   **Transitive Dependencies**: Transitive dependency resolution is not performed. The tool relies on the dependency resolution of the target project's native package manager (e.g., `npm`, `pip`, `uv`).
 
 ### Data Provenance
 
@@ -44,9 +44,9 @@ Package metadata is sourced from ecosystem-specific repositories (e.g., npm regi
 
 ### Analysis Output
 
-A single analysis run produces a `ProjectOverviewSummary` object.
+A single analysis run produces a `ProjectMetrics` object.
 
-**Class**: `ossiq.service.project.ProjectOverviewSummary`
+**Class**: `ossiq.service.project.ProjectMetrics`
 
 **Description**: Contains an analysis of each dependency, including version lags, time lags, and associated vulnerabilities.
 

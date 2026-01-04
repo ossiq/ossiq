@@ -26,7 +26,7 @@ Get **OSS IQ** up and running in your terminal to analyze your first project.
 
     ```bash
     export OSSIQ_GITHUB_TOKEN=$(gh auth token)
-    oss-iq overview ./your-project
+    oss-iq scan ./your-project
     ```
 
  1. Install and run OSS IQ in **dev mode**
@@ -37,7 +37,7 @@ Get **OSS IQ** up and running in your terminal to analyze your first project.
     uv sync
 
     OSSIQ_GITHUB_TOKEN=$(gh auth token) \
-    uv run hatch run ossiq-cli overview testdata/npm/project1/
+    uv run hatch run ossiq-cli scan testdata/npm/project1/
     ```
 
  2. Run your first analysis
@@ -49,7 +49,7 @@ Get **OSS IQ** up and running in your terminal to analyze your first project.
 
     ```bash
     OSSIQ_GITHUB_TOKEN=$(gh auth token) \
-    uv run hatch run ossiq-cli overview testdata/npm/project1/ 
+    uv run hatch run ossiq-cli scan testdata/npm/project1/ 
     ```
 
  3. Understand the Output
