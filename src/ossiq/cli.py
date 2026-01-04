@@ -5,7 +5,7 @@ from typing import Annotated
 import typer
 from rich.console import Console
 
-from ossiq.commands.overview import CommandOverviewOptions, commnad_overview
+from ossiq.commands.scan import CommandScanOptions, commnad_scan
 from ossiq.domain.common import PresentationType
 from ossiq.messages import (
     ARGS_HELP_GITHUB_TOKEN,
@@ -13,6 +13,7 @@ from ossiq.messages import (
     ARGS_HELP_PRESENTATION,
     HELP_LAG_THRESHOULD,
     HELP_PRODUCTION_ONLY,
+    HELP_REGISTRY_TYPE,
     HELP_TEXT,
 )
 from ossiq.presentation.system import show_settings
@@ -29,13 +30,6 @@ def main(
         str | None,
         typer.Option("--github-token", "-T", envvar=f"{Settings.ENV_PREFIX}GITHUB_TOKEN", help=ARGS_HELP_GITHUB_TOKEN),
     ] = None,
-    presentation: Annotated[
-        str,
-        typer.Option("--presentation", "-p", envvar=f"{Settings.ENV_PREFIX}PRESENTATION", help=ARGS_HELP_PRESENTATION),
-    ] = PresentationType.CONSOLE.value,
-    output_destination: Annotated[
-        str, typer.Option("--output", "-o", envvar=f"{Settings.ENV_PREFIX}OUTPUT", help=ARGS_HELP_OUTPUT)
-    ] = "./overview_report_{project_name}.html",
     verbose: Annotated[
         bool,
         typer.Option(
@@ -54,12 +48,7 @@ def main(
     settings = Settings.load_from_env()
 
     # 2. Collect CLI arguments that will override env vars
-    cli_overrides = {
-        "github_token": github_token,
-        "verbose": verbose,
-        "presentation": presentation,
-        "output_destination": output_destination,
-    }
+    cli_overrides = {"github_token": github_token, "verbose": verbose}
     # Filter out None values so we only override with explicitly provided options
     update_data = {k: v for k, v in cli_overrides.items() if v is not None}
 
@@ -77,26 +66,35 @@ def help():  # pylint: disable=redefined-builtin
 
 
 @app.command()
-def overview(
+def scan(
     context: typer.Context,
     project_path: str,
     lag_threshold_days: Annotated[str, typer.Option("--lag-threshold-delta", "-l", help=HELP_LAG_THRESHOULD)] = "1y",
     production: Annotated[bool, typer.Option("--production", help=HELP_PRODUCTION_ONLY)] = False,
-    registry_type: Annotated[str | None, typer.Option("--registry-type", "-r", help="")] = None,
+    registry_type: Annotated[str | None, typer.Option("--registry-type", "-r", help=HELP_REGISTRY_TYPE)] = None,
+    presentation: Annotated[
+        str,
+        typer.Option("--presentation", "-p", envvar=f"{Settings.ENV_PREFIX}PRESENTATION", help=ARGS_HELP_PRESENTATION),
+    ] = PresentationType.CONSOLE.value,
+    output: Annotated[
+        str, typer.Option("--output", "-o", envvar=f"{Settings.ENV_PREFIX}OUTPUT", help=ARGS_HELP_OUTPUT)
+    ] = "./ossiq_scan_report_{project_name}.html",
 ):
     """
-    Project overview command.
+    Scan project dependencies and produce metrics
     """
     if registry_type and registry_type.lower() not in ["npm", "pypi"]:
         raise typer.BadParameter("Only `npm` and `pypi` allowed")
 
-    commnad_overview(
+    commnad_scan(
         ctx=context,
-        options=CommandOverviewOptions(
+        options=CommandScanOptions(
             project_path=project_path,
             lag_threshold_days=lag_threshold_days,
             production=production,
             registry_type=registry_type,
+            presentation=presentation,
+            output_destination=output,
         ),
     )
 

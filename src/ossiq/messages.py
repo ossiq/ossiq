@@ -5,9 +5,8 @@ Currently supported ecosystems:
 """
 
 HELP_LAG_THRESHOULD = """
-Time delta after which a package is considered to be lagging.
+Time delta after which a package is considered to be lagging to highlight in the report.
 Supported units: y/m/w/d/h, default: d (days).
-Exit with non-zero status code if lag exceeds this threshold.
 """
 
 ARGS_HELP_GITHUB_TOKEN = """The server host. Overrides respective env var."""
@@ -20,8 +19,7 @@ Exclude non-production packages. Default: false
 """
 
 HELP_REGISTRY_TYPE = """
-Specify which project registry type (ecosystem) to use. Default: None
-Possible options: npm, pypi
+Specify which project registry type (ecosystem) to use. Default: None. Possible options: npm, pypi
 """
 
 WARNING_MULTIPLE_REGISTRY_TYPES = """

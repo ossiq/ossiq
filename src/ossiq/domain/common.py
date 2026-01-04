@@ -44,7 +44,7 @@ class Command(Enum):
     command with respective presentation layer.
     """
 
-    OVERVIEW = "overview"
+    SCAN = "scan"
 
 
 # Domain-specific Exceptions

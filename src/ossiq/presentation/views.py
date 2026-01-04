@@ -4,7 +4,12 @@ Factory to map possile views with respective presentation types
 
 from collections.abc import Callable
 
-from ossiq.domain.common import Command, PresentationType, UnknownCommandException, UnknownPresentationType
+from ossiq.domain.common import (
+    Command,
+    PresentationType,
+    UnknownCommandException,
+    UnknownPresentationType,
+)
 from ossiq.presentation.common import PRESENTATION_MAP
 
 
