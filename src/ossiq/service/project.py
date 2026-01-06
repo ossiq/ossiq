@@ -134,7 +134,6 @@ def scan(uow: unit_of_work.AbstractProjectUnitOfWork) -> ProjectMetrics:
         )
 
     with uow:
-        # FIXME: move this up into UnitOfWork, since it's abstracted out better there
         project_info = uow.packages_manager.project_info()
 
         # FIXME: catch this issue way before as part of command validation
