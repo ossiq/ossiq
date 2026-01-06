@@ -7,10 +7,12 @@ from typing import Literal
 
 import typer
 
+# Import renderers to trigger registration
+import ossiq.presentation.renderers  # noqa: F401
 from ossiq import timeutil
-from ossiq.domain.common import ProjectPackagesRegistry
+from ossiq.domain.common import Command, PresentationType, ProjectPackagesRegistry
+from ossiq.presentation.registry import get_renderer
 from ossiq.presentation.system import show_operation_progress, show_settings
-from ossiq.presentation.views import Command, get_presentation_view
 from ossiq.service import project
 from ossiq.settings import Settings
 from ossiq.unit_of_work import uow_project
@@ -59,11 +61,13 @@ def commnad_scan(ctx: typer.Context, options: CommandScanOptions):
         with progress():
             project_scan = project.scan(uow)
 
-    # FIXME: use similar pattern to UoW to "commit" output on exit
-    presentation_view = get_presentation_view(Command.SCAN, options.presentation)
+    # Get renderer using new registry pattern (mirrors package manager adapter pattern)
+    renderer = get_renderer(
+        command=Command.SCAN, presentation_type=PresentationType(options.presentation), settings=settings
+    )
 
-    presentation_view(
-        project_scan,
-        threshold_parsed.days,
+    renderer.render(
+        data=project_scan,
+        lag_threshold_days=threshold_parsed.days,
         destination=options.output_destination,
     )
