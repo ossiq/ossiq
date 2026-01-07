@@ -5,24 +5,24 @@ Migrated from presentation/scan/view_html.py
 
 import os
 
-from ossiq.domain.common import Command, PresentationType
+from ossiq.domain.common import Command, UserInterfaceType
 from ossiq.domain.exceptions import DestinationDoesntExist
 from ossiq.domain.project import normalize_filename
-from ossiq.presentation.html.template_environment import configure_template_environment
-from ossiq.presentation.interfaces import AbstractPresentationRenderer
 from ossiq.service.project import ProjectMetrics
+from ossiq.ui.html.template_environment import configure_template_environment
+from ossiq.ui.interfaces import AbstractUserInterfaceRenderer
 
 
-class HtmlScanRenderer(AbstractPresentationRenderer):
+class HtmlScanRenderer(AbstractUserInterfaceRenderer):
     """HTML renderer for scan command."""
 
     command = Command.SCAN
-    presentation_type = PresentationType.HTML
+    user_interface_type = UserInterfaceType.HTML
 
     @staticmethod
-    def supports(command: Command, presentation_type: PresentationType) -> bool:
+    def supports(command: Command, user_interface_type: UserInterfaceType) -> bool:
         """Check if this renderer handles scan/html combination."""
-        return command == Command.SCAN and presentation_type == PresentationType.HTML
+        return command == Command.SCAN and user_interface_type == UserInterfaceType.HTML
 
     def render(self, data: ProjectMetrics, **kwargs) -> None:  # type: ignore[override]
         """
@@ -46,10 +46,7 @@ class HtmlScanRenderer(AbstractPresentationRenderer):
 
         # Configure Jinja2 environment and load template
         # Use module_file parameter for robust path resolution
-        _, template = configure_template_environment(
-            "html_templates/main.html",
-            module_file=__file__
-        )
+        _, template = configure_template_environment("html_templates/main.html", module_file=__file__)
 
         # Render template
         rendered_html = template.render(

@@ -6,11 +6,11 @@ Follows the same pattern as AbstractPackageManagerApi.
 import abc
 from typing import Any
 
-from ossiq.domain.common import Command, PresentationType
+from ossiq.domain.common import Command, UserInterfaceType
 from ossiq.settings import Settings
 
 
-class AbstractPresentationRenderer(abc.ABC):
+class AbstractUserInterfaceRenderer(abc.ABC):
     """
     Abstract base class for all presentation renderers.
 
@@ -20,7 +20,7 @@ class AbstractPresentationRenderer(abc.ABC):
 
     # Class attributes (to be overridden by subclasses)
     command: Command
-    presentation_type: PresentationType
+    user_interface_type: UserInterfaceType
     settings: Settings
 
     def __init__(self, settings: Settings):
@@ -29,7 +29,7 @@ class AbstractPresentationRenderer(abc.ABC):
 
     @staticmethod
     @abc.abstractmethod
-    def supports(command: Command, presentation_type: PresentationType) -> bool:
+    def supports(command: Command, user_interface_type: UserInterfaceType) -> bool:
         """
         Check if this renderer supports the given command/presentation combination.
 
@@ -37,7 +37,7 @@ class AbstractPresentationRenderer(abc.ABC):
 
         Args:
             command: The command being executed (SCAN, EXPORT, etc.)
-            presentation_type: The output format (CONSOLE, HTML, etc.)
+            user_interface_type: The output format (CONSOLE, HTML, etc.)
 
         Returns:
             True if this renderer supports the combination, False otherwise
@@ -56,4 +56,4 @@ class AbstractPresentationRenderer(abc.ABC):
         pass
 
     def __repr__(self):
-        return f"{self.__class__.__name__}(command={self.command}, type={self.presentation_type})"
+        return f"{self.__class__.__name__}(command={self.command}, type={self.user_interface_type})"

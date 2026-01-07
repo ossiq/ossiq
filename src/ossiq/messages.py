@@ -22,6 +22,10 @@ HELP_REGISTRY_TYPE = """
 Specify which project registry type (ecosystem) to use. Default: None. Possible options: npm, pypi
 """
 
+HELP_OUTPUT_FORMAT = """
+Output format. Default: json. Possible options: json, csv, cyclonedx
+"""
+
 WARNING_MULTIPLE_REGISTRY_TYPES = """
 `{project_path}` contains multiple registry types. Use `--registry-type` option to narrow it down
 """

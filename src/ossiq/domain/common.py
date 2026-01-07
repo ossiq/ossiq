@@ -28,7 +28,7 @@ class CveDatabase(str, Enum):
     OTHER = "OTHER"
 
 
-class PresentationType(Enum):
+class UserInterfaceType(Enum):
     """
     What kind of presentation methods available. Default likely should be Console,
     potentailly could be HTML and JSON/YAML.
@@ -36,6 +36,7 @@ class PresentationType(Enum):
 
     CONSOLE = "console"
     HTML = "html"
+    JSON = "json"
 
 
 class Command(Enum):
@@ -45,6 +46,13 @@ class Command(Enum):
     """
 
     SCAN = "scan"
+    EXPORT = "export"
+
+
+class ExportJsonSchemaVersion(str, Enum):
+    """Supported export schema versions."""
+
+    V1_0 = "1.0"
 
 
 # Domain-specific Exceptions
@@ -66,7 +74,7 @@ class UnknownCommandException(Exception):
     pass
 
 
-class UnknownPresentationType(Exception):
+class UnknownUserInterfaceType(Exception):
     pass
 
 

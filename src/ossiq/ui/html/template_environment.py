@@ -6,8 +6,8 @@ import os
 
 from jinja2 import ChoiceLoader, Environment, PackageLoader, select_autoescape
 
-from ossiq.presentation.html.filter_format_highlight_days import FormatHighlightDaysFilterExtension
-from ossiq.presentation.html.tag_versions_difference import VersionsDifferenceTagExtension
+from ossiq.ui.html.filter_format_highlight_days import FormatHighlightDaysFilterExtension
+from ossiq.ui.html.tag_versions_difference import VersionsDifferenceTagExtension
 
 
 def configure_template_environment(base_template: str, module_file: str | None = None):
@@ -35,7 +35,7 @@ def configure_template_environment(base_template: str, module_file: str | None =
     env = Environment(
         loader=ChoiceLoader(
             [
-                PackageLoader("ossiq", package_path="./presentation/html_templates"),
+                PackageLoader("ossiq", package_path="./ui/html_templates"),
                 PackageLoader("ossiq", package_path=templates_path),
             ]
         ),
