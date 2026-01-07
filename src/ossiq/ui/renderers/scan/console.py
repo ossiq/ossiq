@@ -1,6 +1,5 @@
 """
 Console renderer for scan command.
-Migrated from presentation/scan/view_console.py
 """
 
 from rich.console import Console
@@ -8,7 +7,7 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
-from ossiq.domain.common import Command, PresentationType
+from ossiq.domain.common import Command, UserInterfaceType
 from ossiq.domain.version import (
     VERSION_DIFF_BUILD,
     VERSION_DIFF_MAJOR,
@@ -18,26 +17,26 @@ from ossiq.domain.version import (
     VERSION_LATEST,
     VersionsDifference,
 )
-from ossiq.presentation.interfaces import AbstractPresentationRenderer
 from ossiq.service.project import ProjectMetrics, ProjectMetricsRecord
 from ossiq.settings import Settings
 from ossiq.timeutil import format_time_days
+from ossiq.ui.interfaces import AbstractUserInterfaceRenderer
 
 
-class ConsoleScanRenderer(AbstractPresentationRenderer):
+class ConsoleScanRenderer(AbstractUserInterfaceRenderer):
     """Console renderer for scan command."""
 
     command = Command.SCAN
-    presentation_type = PresentationType.CONSOLE
+    user_interface_type = UserInterfaceType.CONSOLE
 
     def __init__(self, settings: Settings):
         super().__init__(settings)
         self.console = Console()
 
     @staticmethod
-    def supports(command: Command, presentation_type: PresentationType) -> bool:
+    def supports(command: Command, user_interface_type: UserInterfaceType) -> bool:
         """Check if this renderer handles scan/console combination."""
-        return command == Command.SCAN and presentation_type == PresentationType.CONSOLE
+        return command == Command.SCAN and user_interface_type == UserInterfaceType.CONSOLE
 
     def render(self, data: ProjectMetrics, **kwargs) -> None:  # type: ignore[override]
         """
@@ -50,19 +49,13 @@ class ConsoleScanRenderer(AbstractPresentationRenderer):
         """
         lag_threshold_days = kwargs.get("lag_threshold_days", 180)
         table_prod = self._table_factory(
-            "Production Packages Version Status",
-            "bold green",
-            data.production_packages,
-            lag_threshold_days
+            "Production Packages Version Status", "bold green", data.production_packages, lag_threshold_days
         )
 
         table_dev = None
         if data.development_packages:
             table_dev = self._table_factory(
-                "Optional Packages Version Status",
-                "bold cyan",
-                data.development_packages,
-                lag_threshold_days
+                "Optional Packages Version Status", "bold cyan", data.development_packages, lag_threshold_days
             )
 
         # Header
@@ -85,9 +78,7 @@ class ConsoleScanRenderer(AbstractPresentationRenderer):
             self.console.print(table_dev)
 
     def _table_factory(
-        self, title: str, title_style: str,
-        dependencies: list[ProjectMetricsRecord],
-        lag_threshold_days: int
+        self, title: str, title_style: str, dependencies: list[ProjectMetricsRecord], lag_threshold_days: int
     ) -> Table:
         """Create Rich table with dependency data."""
         table = Table(title=title, title_style=title_style)

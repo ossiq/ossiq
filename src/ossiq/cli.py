@@ -1,23 +1,25 @@
 """Console script for ossiq-cli."""
 
-from typing import Annotated
+from typing import Annotated, Literal
 
 import typer
 from rich.console import Console
 
+from ossiq.commands.export import CommandExportOptions, commnad_export
 from ossiq.commands.scan import CommandScanOptions, commnad_scan
-from ossiq.domain.common import PresentationType
+from ossiq.domain.common import UserInterfaceType
 from ossiq.messages import (
     ARGS_HELP_GITHUB_TOKEN,
     ARGS_HELP_OUTPUT,
     ARGS_HELP_PRESENTATION,
     HELP_LAG_THRESHOULD,
+    HELP_OUTPUT_FORMAT,
     HELP_PRODUCTION_ONLY,
     HELP_REGISTRY_TYPE,
     HELP_TEXT,
 )
-from ossiq.presentation.system import show_settings
 from ossiq.settings import Settings
+from ossiq.ui.system import show_settings
 
 app = typer.Typer()
 console = Console()
@@ -71,13 +73,17 @@ def scan(
     project_path: str,
     lag_threshold_days: Annotated[str, typer.Option("--lag-threshold-delta", "-l", help=HELP_LAG_THRESHOULD)] = "1y",
     production: Annotated[bool, typer.Option("--production", help=HELP_PRODUCTION_ONLY)] = False,
-    registry_type: Annotated[str | None, typer.Option("--registry-type", "-r", help=HELP_REGISTRY_TYPE)] = None,
+    registry_type: Annotated[
+        Literal["npm", "pypi"] | None,
+        typer.Option("--registry-type", "-r", help=HELP_REGISTRY_TYPE),
+    ] = None,
     presentation: Annotated[
-        str,
+        Literal["console", "html"],
         typer.Option("--presentation", "-p", envvar=f"{Settings.ENV_PREFIX}PRESENTATION", help=ARGS_HELP_PRESENTATION),
-    ] = PresentationType.CONSOLE.value,
+    ] = UserInterfaceType.CONSOLE.value,
     output: Annotated[
-        str, typer.Option("--output", "-o", envvar=f"{Settings.ENV_PREFIX}OUTPUT", help=ARGS_HELP_OUTPUT)
+        str,
+        typer.Option("--output", "-o", envvar=f"{Settings.ENV_PREFIX}OUTPUT", help=ARGS_HELP_OUTPUT),
     ] = "./ossiq_scan_report_{project_name}.html",
 ):
     """
@@ -94,6 +100,40 @@ def scan(
             production=production,
             registry_type=registry_type,
             presentation=presentation,
+            output_destination=output,
+        ),
+    )
+
+
+@app.command()
+def export(
+    context: typer.Context,
+    project_path: str,
+    registry_type: Annotated[
+        Literal["npm", "pypi"] | None, typer.Option("--registry-type", "-r", help=HELP_REGISTRY_TYPE)
+    ] = None,
+    output_format: Annotated[
+        Literal["json", "csv"],
+        typer.Option("--output-format", "-f", envvar=f"{Settings.ENV_PREFIX}OUTPUT_FORMAT", help=HELP_OUTPUT_FORMAT),
+    ] = "json",
+    output: Annotated[
+        str, typer.Option("--output", "-o", envvar=f"{Settings.ENV_PREFIX}OUTPUT", help=ARGS_HELP_OUTPUT)
+    ] = "./ossiq_export_report_{project_name}.{output_format}",
+    production: Annotated[bool, typer.Option("--production", help=HELP_PRODUCTION_ONLY)] = False,
+):
+    """
+    Export project metrics to a file
+    """
+    if registry_type and registry_type.lower() not in ["npm", "pypi"]:
+        raise typer.BadParameter("Only `npm` and `pypi` allowed")
+
+    commnad_export(
+        ctx=context,
+        options=CommandExportOptions(
+            project_path=project_path,
+            registry_type=registry_type,
+            production=production,
+            output_format=output_format,
             output_destination=output,
         ),
     )

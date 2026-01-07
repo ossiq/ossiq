@@ -7,7 +7,6 @@ from typing import Literal
 
 import typer
 
-from ossiq import timeutil
 from ossiq.domain.common import Command, ProjectPackagesRegistry, UserInterfaceType
 from ossiq.service import project
 from ossiq.settings import Settings
@@ -17,21 +16,19 @@ from ossiq.unit_of_work import uow_project
 
 
 @dataclass(frozen=True)
-class CommandScanOptions:
+class CommandExportOptions:
     project_path: str
-    lag_threshold_days: str
-    production: bool
     registry_type: Literal["npm", "pypi"] | None
-    presentation: Literal["console", "html"]
+    production: bool
+    output_format: Literal["json", "csv"]
     output_destination: str
 
 
-def commnad_scan(ctx: typer.Context, options: CommandScanOptions):
+def commnad_export(ctx: typer.Context, options: CommandExportOptions):
     """
-    Project scan command.
+    Project data export command.
     """
     settings: Settings = ctx.obj
-    threshold_parsed = timeutil.parse_relative_time_delta(options.lag_threshold_days)
     registry_type_map = {
         "npm": ProjectPackagesRegistry.NPM,
         "pypi": ProjectPackagesRegistry.PYPI,
@@ -39,11 +36,11 @@ def commnad_scan(ctx: typer.Context, options: CommandScanOptions):
 
     show_settings(
         ctx,
-        "Scan Settings",
+        "Export Settings",
         {
             "project_path": options.project_path,
-            "lag_threshold_days": f"{threshold_parsed.days} days",
-            "production": options.production,
+            "output_format": options.output_format,
+            "output_destination": options.output_destination,
             "narrow_registry_type": registry_type_map.get(options.registry_type),
         },
     )
@@ -59,13 +56,13 @@ def commnad_scan(ctx: typer.Context, options: CommandScanOptions):
         with progress():
             project_scan = project.scan(uow)
 
-    # Get renderer using new registry pattern (mirrors package manager adapter pattern)
     renderer = get_renderer(
-        command=Command.SCAN, user_interface_type=UserInterfaceType(options.presentation), settings=settings
+        command=Command.EXPORT,
+        user_interface_type=UserInterfaceType(options.output_format),
+        settings=settings,
     )
 
     renderer.render(
         data=project_scan,
-        lag_threshold_days=threshold_parsed.days,
         destination=options.output_destination,
     )

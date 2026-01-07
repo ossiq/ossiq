@@ -72,7 +72,7 @@ src/ossiq/
 ├── service/         # Application services (orchestrate domain + adapters)
 ├── unit_of_work/    # UoW pattern for transaction boundaries
 ├── commands/        # CLI command implementations
-└── presentation/    # Output formatting (console, HTML, JSON, SBOM)
+└── ui/              # Output formatting (console, HTML, JSON, SBOM)
 ```
 
 ### Key Architectural Patterns
@@ -162,9 +162,11 @@ NPM = PackageManagerType(
 
 ### Testing Patterns
 
-Tests follow consistent patterns across adapters:
+Tests follow consistent patterns across adapters and are written following pytest best practices.
 
-**Test file structure** (see `tests/adapters/package_managers/test_api_uv.py`):
+#### Test File Structure
+
+Tests are organized by functionality (see `tests/adapters/package_managers/test_api_uv.py`):
 ```python
 # Fixtures for test projects
 @pytest.fixture
@@ -180,6 +182,116 @@ class TestParsing:
 
 class TestProjectInfo:
     # Integration tests for project_info()
+```
+
+#### Pytest Best Practices
+
+All tests in this project must follow these practices:
+
+**1. AAA Pattern (Arrange-Act-Assert)**
+Structure every test into three distinct blocks for clarity:
+```python
+def test_package_version_parsing(self, sample_lockfile):
+    """Test lockfile parser extracts correct package version."""
+    # Arrange
+    parser = LockfileParser()
+
+    # Act
+    version = parser.parse_version(sample_lockfile, "react")
+
+    # Assert
+    assert version == "18.2.0"
+```
+
+**2. Use Parametrization**
+Use `@pytest.mark.parametrize` to run the same test logic against multiple data sets:
+```python
+@pytest.mark.parametrize(
+    "version_string,expected",
+    [
+        ("^1.2.3", "1.2.3"),
+        ("~2.0.0", "2.0.0"),
+        (">=3.1.0", "3.1.0"),
+    ],
+)
+def test_version_normalization(self, version_string, expected):
+    """Test version normalization handles various prefixes."""
+    # Act
+    result = normalize_version(version_string)
+
+    # Assert
+    assert result == expected
+```
+
+**3. Implement Fixtures**
+Use pytest fixtures for reusable setup and teardown logic:
+```python
+@pytest.fixture
+def temp_lockfile(tmp_path):
+    """Create temporary lockfile for testing."""
+    lockfile = tmp_path / "uv.lock"
+    lockfile.write_text("version = 1\n")
+    yield lockfile
+    # Cleanup happens automatically via tmp_path
+```
+
+**4. Single Responsibility**
+Each test validates exactly one behavior. Avoid combining multiple unrelated assertions:
+```python
+# Good - single responsibility
+def test_parser_extracts_package_name(self):
+    """Test parser extracts package name correctly."""
+    assert parser.get_name() == "react"
+
+def test_parser_extracts_package_version(self):
+    """Test parser extracts package version correctly."""
+    assert parser.get_version() == "18.2.0"
+
+# Bad - multiple responsibilities
+def test_parser_extracts_data(self):
+    """Test parser extracts data."""
+    assert parser.get_name() == "react"
+    assert parser.get_version() == "18.2.0"
+    assert parser.get_description() == "React library"
+```
+
+**5. Mock External Boundaries**
+Use `unittest.mock` or `pytest-mock` to isolate units from external dependencies:
+```python
+from unittest.mock import patch
+
+def test_github_api_rate_limit_handling(self):
+    """Test GitHub API handles rate limits correctly."""
+    # Arrange
+    with patch('requests.get') as mock_get:
+        mock_get.return_value.status_code = 429
+        api = GitHubApi(token="test")
+
+        # Act & Assert
+        with pytest.raises(RateLimitError):
+            api.get_releases("owner/repo")
+```
+
+**6. Descriptive Test Names**
+Test names should clearly describe what is being tested and expected outcome:
+- Use `test_<action>_<expected_result>` pattern
+- Be specific about the scenario
+- Examples:
+  - `test_parser_raises_error_on_invalid_lockfile_version`
+  - `test_exported_json_conforms_to_schema`
+  - `test_unicode_characters_handled_correctly`
+
+**7. Test Documentation**
+Include docstrings with AAA pattern explanation for complex tests:
+```python
+def test_complex_scenario(self):
+    """Test complex scenario with multiple steps.
+
+    AAA Pattern:
+    - Arrange: Set up multiple dependencies
+    - Act: Execute multi-step operation
+    - Assert: Verify final state and side effects
+    """
 ```
 
 **Coverage requirement**: Target 80%+ for new code (use `uv run just coverage`)

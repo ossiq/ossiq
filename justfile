@@ -29,6 +29,7 @@ qa-integration:
     uv run hatch run ossiq-cli scan testdata/mixed --registry-type=pypi
     uv run hatch run ossiq-cli scan --presentation=html --output=./reports/scan_npm.html --registry-type=npm testdata/mixed
     uv run hatch run ossiq-cli scan --presentation=html --output=./reports/scan_pypi.html --registry-type=pypi testdata/mixed
+    uv run hatch run ossiq-cli export --output-format=json --output=./reports/scan_export_pypi.json --registry-type=pypi testdata/mixed
 
 lint:
     uv run ruff check .
