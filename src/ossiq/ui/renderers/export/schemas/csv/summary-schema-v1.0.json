@@ -1,0 +1,116 @@
+{
+  "$schema": "https://specs.frictionlessdata.io/schemas/table-schema.json",
+  "fields": [
+    {
+      "name": "schema_version",
+      "type": "string",
+      "title": "Schema Version",
+      "description": "Version of the export schema format",
+      "constraints": {
+        "required": true,
+        "enum": ["1.0"]
+      }
+    },
+    {
+      "name": "export_timestamp",
+      "type": "datetime",
+      "title": "Export Timestamp",
+      "description": "UTC timestamp when the export was generated",
+      "format": "%Y-%m-%dT%H:%M:%S",
+      "constraints": {
+        "required": true
+      }
+    },
+    {
+      "name": "project_name",
+      "type": "string",
+      "title": "Project Name",
+      "description": "Name of the analyzed project",
+      "constraints": {
+        "required": true,
+        "minLength": 1
+      }
+    },
+    {
+      "name": "project_path",
+      "type": "string",
+      "title": "Project Path",
+      "description": "Absolute path to the project directory",
+      "constraints": {
+        "required": true,
+        "minLength": 1
+      }
+    },
+    {
+      "name": "project_registry",
+      "type": "string",
+      "title": "Package Registry",
+      "description": "Package manager ecosystem (npm, pypi)",
+      "constraints": {
+        "required": true,
+        "enum": ["npm", "pypi"]
+      }
+    },
+    {
+      "name": "total_packages",
+      "type": "integer",
+      "title": "Total Packages",
+      "description": "Total number of packages (production + development)",
+      "constraints": {
+        "required": true,
+        "minimum": 0
+      }
+    },
+    {
+      "name": "production_packages",
+      "type": "integer",
+      "title": "Production Packages",
+      "description": "Number of production dependencies",
+      "constraints": {
+        "required": true,
+        "minimum": 0
+      }
+    },
+    {
+      "name": "development_packages",
+      "type": "integer",
+      "title": "Development Packages",
+      "description": "Number of development dependencies",
+      "constraints": {
+        "required": true,
+        "minimum": 0
+      }
+    },
+    {
+      "name": "packages_with_cves",
+      "type": "integer",
+      "title": "Packages with CVEs",
+      "description": "Number of packages with known vulnerabilities",
+      "constraints": {
+        "required": true,
+        "minimum": 0
+      }
+    },
+    {
+      "name": "total_cves",
+      "type": "integer",
+      "title": "Total CVEs",
+      "description": "Total number of CVEs across all packages",
+      "constraints": {
+        "required": true,
+        "minimum": 0
+      }
+    },
+    {
+      "name": "packages_outdated",
+      "type": "integer",
+      "title": "Outdated Packages",
+      "description": "Number of packages behind the latest version",
+      "constraints": {
+        "required": true,
+        "minimum": 0
+      }
+    }
+  ],
+  "missingValues": [""]
+}
