@@ -18,7 +18,7 @@ console = Console()
 
 
 @dataclass
-class ProjectOverviewRecord:
+class ProjectMetricsRecord:
     package_name: str
     is_dev_dependency: bool
     installed_version: str
@@ -30,12 +30,12 @@ class ProjectOverviewRecord:
 
 
 @dataclass
-class ProjectOverviewSummary:
+class ProjectMetrics:
     project_name: str
     packages_registry: str
     project_path: str
-    production_packages: list[ProjectOverviewRecord]
-    development_packages: list[ProjectOverviewRecord]
+    production_packages: list[ProjectMetricsRecord]
+    development_packages: list[ProjectMetricsRecord]
 
 
 def parse_iso(datetime_str: str | None):
@@ -87,15 +87,15 @@ def get_package_versions_since(
     ]
 
 
-def overview_record(
+def scan_record(
     uow: unit_of_work.AbstractProjectUnitOfWork,
     project_info: Project,
     package_name: str,
     package_version: str,
     is_dev_dependency: bool,
-) -> ProjectOverviewRecord:
+) -> ProjectMetricsRecord:
     """
-    Factory to generate ProjectOverviewRecord instances
+    Factory to generate ProjectMetricsRecord instances
     """
     package_info = uow.packages_registry.package_info(package_name)
     installed_version = project_info.installed_package_version(package_info.name)
@@ -112,7 +112,7 @@ def overview_record(
     if installed_release:
         cve = list(uow.cve_database.get_cves_for_package(package_info, installed_release))
 
-    return ProjectOverviewRecord(
+    return ProjectMetricsRecord(
         package_name=package_name,
         installed_version=package_version,
         latest_version=package_info.latest_version,
@@ -124,8 +124,8 @@ def overview_record(
     )
 
 
-def overview(uow: unit_of_work.AbstractProjectUnitOfWork) -> ProjectOverviewSummary:
-    def sort_function(pkg: ProjectOverviewRecord):
+def scan(uow: unit_of_work.AbstractProjectUnitOfWork) -> ProjectMetrics:
+    def sort_function(pkg: ProjectMetricsRecord):
         return (
             pkg.versions_diff_index.diff_index,
             len(pkg.cve),
@@ -134,29 +134,26 @@ def overview(uow: unit_of_work.AbstractProjectUnitOfWork) -> ProjectOverviewSumm
         )
 
     with uow:
-        # FIXME: move this up into UnitOfWork, since it's abstracted out better there
         project_info = uow.packages_manager.project_info()
 
         # FIXME: catch this issue way before as part of command validation
         if not project_info.project_path:
             raise ProjectPathNotFoundError("Project Path is not Specified")
 
-        production_packages: list[ProjectOverviewRecord] = []
-        development_packages: list[ProjectOverviewRecord] = []
+        production_packages: list[ProjectMetricsRecord] = []
+        development_packages: list[ProjectMetricsRecord] = []
 
         for package_name, package in project_info.dependencies.items():
-            production_packages.append(
-                overview_record(uow, project_info, package_name, package.version_installed, False)
-            )
+            production_packages.append(scan_record(uow, project_info, package_name, package.version_installed, False))
 
         # uow.production is driven by the setting
         if not uow.production:
             for package_name, package in project_info.optional_dependencies.items():
                 development_packages.append(
-                    overview_record(uow, project_info, package_name, package.version_installed, True)
+                    scan_record(uow, project_info, package_name, package.version_installed, True)
                 )
 
-        return ProjectOverviewSummary(
+        return ProjectMetrics(
             project_name=project_info.name,
             project_path=project_info.project_path,
             packages_registry=project_info.package_registry.value,

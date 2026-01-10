@@ -50,7 +50,10 @@ cd ossiq
 uv sync
 
 # Run your first analysis
-uv run hatch run ossiq-cli overview /path/to/your/project
+uv run hatch run ossiq-cli scan /path/to/your/project
+
+# Generate HTML report
+uv run hatch run ossiq-cli scan -p html -o ./test_report.html /path/to/your/project
 ```
 
 OSS IQ automatically detects the dependency manifest (`package.json`, `pyproject.toml`, etc.) in the target directory.

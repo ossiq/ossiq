@@ -9,8 +9,8 @@ from ossiq.adapters.package_managers.api import create_package_managers
 from ossiq.domain.common import ProjectPackagesRegistry, RepositoryProvider
 from ossiq.domain.exceptions import UnknownProjectPackageManager
 from ossiq.messages import WARNING_MULTIPLE_REGISTRY_TYPES
-from ossiq.presentation.system import show_warning
 from ossiq.settings import Settings
+from ossiq.ui.system import show_warning
 from ossiq.unit_of_work.core import AbstractProjectUnitOfWork
 
 
