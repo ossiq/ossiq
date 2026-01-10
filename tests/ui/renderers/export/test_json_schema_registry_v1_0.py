@@ -15,7 +15,7 @@ from pathlib import Path
 import pytest
 
 from ossiq.domain.common import ExportJsonSchemaVersion
-from ossiq.ui.renderers.export.schema_registry import SchemaRegistry, schema_registry
+from ossiq.ui.renderers.export.json_schema_registry import SchemaRegistry, json_schema_registry
 
 
 @pytest.fixture
@@ -126,15 +126,15 @@ class TestSchemaRegistryV10:
         """Test global registry singleton is accessible and functional.
 
         AAA Pattern:
-        - Arrange: Global schema_registry instance
+        - Arrange: Global json_schema_registry instance
         - Act: Get schema path from global instance
         - Assert: Instance is valid and path exists
         """
         # Act
-        path = schema_registry.get_schema_path(ExportJsonSchemaVersion.V1_0)
+        path = json_schema_registry.get_schema_path(ExportJsonSchemaVersion.V1_0)
 
         # Assert
-        assert isinstance(schema_registry, SchemaRegistry)
+        assert isinstance(json_schema_registry, SchemaRegistry)
         assert path.exists()
 
     def test_schema_file_contains_valid_json(self, registry):

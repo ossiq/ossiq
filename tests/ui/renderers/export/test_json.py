@@ -21,7 +21,7 @@ from ossiq.domain.version import VersionsDifference
 from ossiq.service.project import ProjectMetrics, ProjectMetricsRecord
 from ossiq.settings import Settings
 from ossiq.ui.renderers.export.json import JsonExportRenderer
-from ossiq.ui.renderers.export.schema_registry import schema_registry
+from ossiq.ui.renderers.export.json_schema_registry import json_schema_registry
 
 
 @pytest.fixture
@@ -319,7 +319,7 @@ class TestJsonExportRenderer:
 
         # Act
         exported_data = json.loads(output_file.read_text())
-        latest_schema = schema_registry.load_schema(schema_registry.get_latest_version())
+        latest_schema = json_schema_registry.load_schema(json_schema_registry.get_latest_version())
 
         # Assert - validate() raises exception if invalid
         validate(instance=exported_data, schema=latest_schema)

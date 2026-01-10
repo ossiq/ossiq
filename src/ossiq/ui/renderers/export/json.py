@@ -13,6 +13,7 @@ from ossiq.domain.exceptions import DestinationDoesntExist
 from ossiq.domain.project import normalize_filename
 from ossiq.service.project import ProjectMetrics
 from ossiq.ui.interfaces import AbstractUserInterfaceRenderer
+from ossiq.ui.renderers.export.json_schema_registry import json_schema_registry
 from ossiq.ui.renderers.export.models import ExportData
 
 
@@ -50,7 +51,10 @@ class JsonExportRenderer(AbstractUserInterfaceRenderer):
             raise DestinationDoesntExist(f"Destination `{destination}` doesn't exist.")
 
         # Convert domain model to export model
-        export_data = ExportData.from_project_metrics(data)
+        export_data = ExportData.from_project_metrics(
+            data,
+            schema_version=json_schema_registry.get_latest_version(),
+        )
 
         # Resolve destination path with project name placeholder
         target_path = destination.format(

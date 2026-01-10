@@ -37,6 +37,7 @@ class UserInterfaceType(Enum):
     CONSOLE = "console"
     HTML = "html"
     JSON = "json"
+    CSV = "csv"
 
 
 class Command(Enum):
@@ -49,7 +50,19 @@ class Command(Enum):
     EXPORT = "export"
 
 
+class ExportUnknownSchemaVersion(str, Enum):
+    """Supported export schema versions."""
+
+    UNKNOWN = "UNKNOWN"
+
+
 class ExportJsonSchemaVersion(str, Enum):
+    """Supported export schema versions."""
+
+    V1_0 = "1.0"
+
+
+class ExportCsvSchemaVersion(str, Enum):
     """Supported export schema versions."""
 
     V1_0 = "1.0"
