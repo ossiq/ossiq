@@ -113,3 +113,8 @@ select = [
 
 [tool.uv]
 package = true
+
+[dependency-groups]
+dev = [
+    "datapackage>=1.15.4",
+]
