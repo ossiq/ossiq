@@ -51,6 +51,8 @@ dependencies = [ # specify that newer patch or minor versions allowed
   "pandas>=2.3.3",
   "packaging>=25.0",
   "jsonschema~=4.23.0",
+  "petl~=1.7.15",
+  "frictionless~=5.0.0",
 ]
 
 

@@ -10,17 +10,20 @@ from datetime import UTC, datetime
 
 from pydantic import BaseModel, Field, field_serializer
 
-from ossiq.domain.common import ExportJsonSchemaVersion
+from ossiq.domain.common import (
+    ExportCsvSchemaVersion,
+    ExportJsonSchemaVersion,
+    ExportUnknownSchemaVersion,
+)
 from ossiq.domain.cve import CVE, Severity
-
-CURRENT_SCHEMA_VERSION = ExportJsonSchemaVersion.V1_0
+from ossiq.service.project import ProjectMetrics
 
 
 class ExportMetadata(BaseModel):
     """Metadata about the export itself."""
 
-    schema_version: ExportJsonSchemaVersion = Field(
-        default=CURRENT_SCHEMA_VERSION,
+    schema_version: ExportUnknownSchemaVersion | ExportJsonSchemaVersion | ExportCsvSchemaVersion = Field(
+        default=ExportUnknownSchemaVersion.UNKNOWN,
         description="Version of the export schema format",
     )
     export_timestamp: datetime = Field(
@@ -130,7 +133,9 @@ class ExportData(BaseModel):
     )
 
     @classmethod
-    def from_project_metrics(cls, data) -> "ExportData":
+    def from_project_metrics(
+        cls, data: ProjectMetrics, schema_version: ExportJsonSchemaVersion | ExportCsvSchemaVersion
+    ) -> "ExportData":
         """
         Create ExportData from ProjectMetrics domain model.
 
@@ -147,7 +152,7 @@ class ExportData(BaseModel):
         packages_outdated = sum(1 for pkg in all_packages if pkg.versions_diff_index.diff_index > 0)
 
         return cls(
-            metadata=ExportMetadata(),
+            metadata=ExportMetadata(schema_version=schema_version),
             project=ProjectInfo(
                 name=data.project_name,
                 path=data.project_path,

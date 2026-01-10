@@ -29,15 +29,6 @@ class SchemaRegistry:
     def get_schema_path(self, version: ExportJsonSchemaVersion) -> Path:
         """
         Get the path to the JSON schema file for a given version.
-
-        Args:
-            version: Schema version
-
-        Returns:
-            Path to the JSON schema file
-
-        Raises:
-            ValueError: If schema version is not registered
         """
         if version not in self._SCHEMA_FILES:
             raise ValueError(f"No schema file registered for version {version.value}")
@@ -47,17 +38,6 @@ class SchemaRegistry:
     def load_schema(self, version: ExportJsonSchemaVersion) -> dict:
         """
         Load and parse the JSON schema for a given version.
-
-        Args:
-            version: Schema version
-
-        Returns:
-            Parsed JSON schema as a dictionary
-
-        Raises:
-            ValueError: If schema version is not registered
-            FileNotFoundError: If schema file doesn't exist
-            json.JSONDecodeError: If schema file is invalid JSON
         """
         schema_path = self.get_schema_path(version)
 
@@ -70,9 +50,6 @@ class SchemaRegistry:
     def get_latest_version(self) -> ExportJsonSchemaVersion:
         """
         Get the latest supported schema version.
-
-        Returns:
-            Latest schema version enum value
         """
         # For now, v1.0 is the only version
         # In the future, this could return max(self._SCHEMA_FILES.keys())
@@ -90,4 +67,4 @@ class SchemaRegistry:
 
 
 # Global registry instance
-schema_registry = SchemaRegistry()
+json_schema_registry = SchemaRegistry()
