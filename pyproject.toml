@@ -50,6 +50,9 @@ dependencies = [ # specify that newer patch or minor versions allowed
   "common-expression-language>=0.5.3",
   "pandas>=2.3.3",
   "packaging>=25.0",
+  "jsonschema~=4.23.0",
+  "petl~=1.7.15",
+  "frictionless~=5.0.0",
 ]
 
 
@@ -110,3 +113,8 @@ select = [
 
 [tool.uv]
 package = true
+
+[dependency-groups]
+dev = [
+    "datapackage>=1.15.4",
+]
