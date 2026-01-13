@@ -71,6 +71,14 @@ VERSION := `grep -m1 '^version' pyproject.toml | sed -E 's/version = "(.*)"/\1/'
 version:
     @echo "Current version is {{VERSION}}"
 
+# Check what version PSR would bump to (dry-run)
+version-next:
+    uv run --extra dev semantic-release version --print
+
+# View unpublished changes since last release
+version-changelog:
+    uv run --extra dev semantic-release changelog --unreleased
+
 # Tag the current version in git and put to github
 tag:
     echo "Tagging version v{{VERSION}}"
