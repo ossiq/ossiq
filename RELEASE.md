@@ -1,0 +1,425 @@
+# Release Process for ossiq-cli
+
+This document describes the semi-manual release process for ossiq-cli using python-semantic-release (PSR).
+
+## Overview
+
+- **Development branch**: `main` - All feature work lands here via PRs
+- **Release branch**: `production` - Merging to this branch triggers a release
+- **Versioning**: Semantic versioning (MAJOR.MINOR.PATCH) based on conventional commits
+- **Automation**: python-semantic-release handles version bumping, changelog, tagging, and publishing
+
+## Branch Structure
+
+### Long-Lived Branches
+- **`main`**: Development/integration branch. All PRs merge here.
+- **`production`**: Release trigger branch. PSR runs when code is pushed here.
+
+### Short-Lived Branches
+- **`release-candidate/X.Y.Z`**: Optional QA branches for testing before production merge.
+
+## Commit Message Convention
+
+Follow **Conventional Commits** format for all commits:
+
+| Type | Description | Version Impact | Examples |
+|------|-------------|----------------|----------|
+| `feat:` | New feature | MINOR bump (0.X.0) | `feat: add CSV export` |
+| `fix:` | Bug fix | PATCH bump (0.0.X) | `fix: handle unicode in names` |
+| `perf:` | Performance improvement | PATCH bump | `perf: optimize version parsing` |
+| `docs:` | Documentation only | No bump | `docs: update README` |
+| `chore:` | Build/tooling changes | No bump | `chore: update dependencies` |
+| `refactor:` | Code refactoring | No bump | `refactor: simplify parser logic` |
+| `test:` | Adding/updating tests | No bump | `test: add unit tests for API` |
+| `BREAKING CHANGE:` | Breaking change (in body/footer) | MAJOR bump (X.0.0) | See below |
+
+### Breaking Change Example
+```
+feat: redesign CLI interface
+
+BREAKING CHANGE: The --output flag is now --output-file
+```
+
+## Prerequisites
+
+### One-Time Setup
+
+1. **PyPI API Token**
+   - Generate at: https://pypi.org/manage/account/token/
+   - Store securely: `export PYPI_TOKEN=pypi-...`
+   - Or configure in `~/.pypirc`
+
+2. **GitHub Token**
+   - Uses `gh` CLI authentication: `gh auth login`
+   - Token accessed via: `gh auth token`
+
+3. **Branch Protection** (Optional but recommended)
+   - `main`: Require PR reviews, require CI to pass
+   - `production`: Require PR reviews, require CI to pass
+
+## Release Workflow
+
+### Step 1: Preview the Next Release
+
+Before cutting a release, check what version PSR will create:
+
+```bash
+# Ensure you're on main
+git checkout main
+git pull
+
+# Preview next version (works from any branch, but informational only on main)
+just version-next
+
+# View commits since last release that will trigger bumps
+just version-changelog
+```
+
+### Step 2: Prepare Release (Optional)
+
+For major releases or when QA is needed:
+
+```bash
+# Create release candidate branch
+git checkout -b release-candidate/X.Y.Z
+
+# Run integration tests
+just qa-integration
+
+# Push for review (if working with a team)
+git push -u origin release-candidate/X.Y.Z
+```
+
+### Step 3: Merge to Production
+
+When ready to release:
+
+```bash
+# Ensure main is up-to-date
+git checkout main
+git pull
+git status  # Verify clean working directory
+
+# Merge to production (fast-forward only)
+git checkout production
+git pull
+git merge main --ff-only
+
+# Verify what will be released
+just version-next  # Should show new version number
+```
+
+### Step 4: Run the Release
+
+Execute the release:
+
+```bash
+# Set required environment variables
+export GH_TOKEN=$(gh auth token)
+export PYPI_TOKEN=<your-pypi-token>
+
+# Run semantic-release publish
+uv run --extra dev semantic-release publish
+```
+
+**What PSR does automatically:**
+1. ✅ Analyzes commits since last release
+2. ✅ Calculates new version (e.g., 0.1.0 → 0.2.0)
+3. ✅ Updates `pyproject.toml` version
+4. ✅ Generates/updates `CHANGELOG.md` from commits
+5. ✅ Commits changes: `chore(release): X.Y.Z`
+6. ✅ Creates git tag: `vX.Y.Z`
+7. ✅ Builds package: `dist/ossiq-X.Y.Z.*`
+8. ✅ Publishes to PyPI
+9. ✅ Creates GitHub Release with changelog
+10. ✅ Pushes commits and tags to remote
+
+### Step 5: Back-Merge to Main
+
+After the release completes, sync the version bump back to main:
+
+```bash
+# Fetch new tag and commits
+git fetch --all --tags
+
+# Merge production back to main
+git checkout main
+git merge production
+git push origin main
+
+# Optional: Delete release-candidate branch if used
+git branch -d release-candidate/X.Y.Z
+git push origin --delete release-candidate/X.Y.Z
+```
+
+### Step 6: Verify Release
+
+Check that everything published correctly:
+
+- **PyPI**: https://pypi.org/project/ossiq/
+- **GitHub Release**: https://github.com/ossiq/ossiq/releases
+- **Tags**: `git tag -l` should show new version
+- **Version in main**: `grep "^version" pyproject.toml` should show new version
+
+## Manual Release (Fallback)
+
+If PSR fails or you need to release manually:
+
+### 1. Commit Version Changes
+
+```bash
+# Update version manually in pyproject.toml
+# Update CHANGELOG.md manually
+
+git add pyproject.toml CHANGELOG.md uv.lock
+git commit -m "chore(release): X.Y.Z
+
+Automatically generated by python-semantic-release
+
+Signed-off-by: Maksym Klymyshyn <klymyshyn@gmail.com>"
+```
+
+### 2. Create and Push Tag
+
+```bash
+git tag -a vX.Y.Z -m "vX.Y.Z"
+git push origin production
+git push origin vX.Y.Z
+```
+
+### 3. Build and Upload to PyPI
+
+```bash
+# Build package
+uv build
+
+# Upload to PyPI (requires twine in dev dependencies)
+uv run twine upload dist/ossiq-X.Y.Z*
+```
+
+### 4. Create GitHub Release
+
+```bash
+# Extract changelog for this version
+gh release create vX.Y.Z \
+  --title "vX.Y.Z" \
+  --notes "$(sed -n '/## vX.Y.Z/,/## v/p' CHANGELOG.md | head -n -2)"
+```
+
+### 5. Back-Merge to Main
+
+```bash
+git checkout main
+git merge production
+git push origin main
+```
+
+## Troubleshooting
+
+### Issue: "No release will be made, X.Y.Z has already been released"
+
+**Cause**: PSR detects the version tag already exists.
+
+**Solutions**:
+- If you haven't published yet, delete the tag: `git tag -d vX.Y.Z && git push origin :refs/tags/vX.Y.Z`
+- If already published, make a new commit with a semantic prefix to trigger a new version
+
+### Issue: "No tags found with format 'v{version}'"
+
+**Cause**: No baseline tag exists in the repository.
+
+**Solution**: Create an initial tag:
+```bash
+git tag -a v0.0.1 -m "chore: initial release baseline"
+git push origin v0.0.1
+```
+
+### Issue: PSR updated files but didn't commit/push
+
+**Cause**: PSR failed during publish step (e.g., PyPI credentials issue).
+
+**Solution**: Follow the manual release steps above to complete the release.
+
+### Issue: "branch 'main' isn't in any release groups"
+
+**Cause**: PSR is configured to only release from `production` branch.
+
+**Solution**: This is expected! PSR only creates releases when run from the `production` branch. Switch to `production` before running PSR.
+
+## Environment Variables
+
+Required for releases:
+
+```bash
+# GitHub token (for creating releases and pushing tags)
+export GH_TOKEN=$(gh auth token)
+
+# PyPI token (for uploading packages)
+export PYPI_TOKEN=pypi-...
+
+# Optional: GitHub token for API calls during scans
+export OSSIQ_GITHUB_TOKEN=$(gh auth token)
+```
+
+## Testing PSR Locally
+
+Before running a real release, test PSR behavior:
+
+```bash
+# See what version would be bumped to (dry-run)
+uv run --extra dev semantic-release version --print
+
+# View commits that will be included in changelog
+just version-changelog
+
+# Test build without committing/pushing/publishing
+GH_TOKEN=$(gh auth token) uv run --extra dev semantic-release version --no-push --no-commit --no-tag
+```
+
+## Tips
+
+1. **Always use conventional commit messages** - PSR relies on them for version calculation
+2. **Review changelog before release** - Check `CHANGELOG.md` after PSR runs to ensure accuracy
+3. **Test in release-candidate branch first** - For major changes, create a RC branch and test thoroughly
+4. **Keep production in sync** - Always back-merge to main after releasing
+5. **Use `just version-next`** - Preview the next version before merging to production
+
+## Useful Commands
+
+```bash
+# Check current version
+just version
+
+# Preview next version
+just version-next
+
+# View unreleased semantic commits
+just version-changelog
+
+# Run full QA suite
+uv run just qa
+
+# Run integration tests
+uv run just qa-integration
+
+# Build package locally
+uv run just build
+
+# Tag current version (old manual method - deprecated)
+just tag
+```
+
+## Release Checklist
+
+Before releasing:
+
+- [ ] All tests pass: `uv run just qa`
+- [ ] Integration tests pass: `uv run just qa-integration`
+- [ ] Version to be released is correct: `just version-next`
+- [ ] Commits use conventional format
+- [ ] `main` branch is clean and up-to-date
+- [ ] PyPI token is set: `echo $PYPI_TOKEN`
+- [ ] GitHub token is available: `gh auth token`
+
+After releasing:
+
+- [ ] Version bump commit exists on `production`
+- [ ] Git tag created: `git tag -l`
+- [ ] Package on PyPI: https://pypi.org/project/ossiq/
+- [ ] GitHub Release created: https://github.com/ossiq/ossiq/releases
+- [ ] `main` branch has version bump (after back-merge)
+- [ ] `CHANGELOG.md` updated correctly
+
+## Future Enhancements
+
+Potential improvements to the release process:
+
+- **GitHub Actions automation**: Trigger PSR on production branch push
+- **PyPI Trusted Publishing**: Eliminate API token management
+- **Automated back-merge**: GitHub Actions bot merges production → main
+- **Pre-release versions**: Alpha/beta releases on feature branches
+- **Custom changelog templates**: Jinja2 templates for release notes
+- **Release notes review**: Manual approval step before publishing
+
+
+## Pre-Commit validation hook
+
+Must be put in `.git/hooks/commit-msg`
+
+```bash
+
+#!/bin/sh
+#
+# commit-msg hook to validate:
+# 1. Signed-off-by presence (--signoff)
+# 2. Commit title follows Conventional Commits (python-semantic-release Angular parser)
+#
+# Conventional Commits format: <type>[(scope)][!]: <description>
+# Types: feat, fix, docs, style, refactor, perf, test, build, ci, chore, revert
+
+COMMIT_MSG_FILE="$1"
+COMMIT_MSG=$(cat "$COMMIT_MSG_FILE")
+
+# Extract the first line (commit title)
+COMMIT_TITLE=$(echo "$COMMIT_MSG" | head -n 1)
+
+# Colors for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[0;33m'
+NC='\033[0m' # No Color
+
+# Track errors
+ERRORS=""
+
+#
+# 1. Validate Conventional Commits format
+#
+# Pattern explanation:
+# ^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert) - type
+# (\([a-zA-Z0-9_-]+\))? - optional scope in parentheses
+# !? - optional breaking change indicator
+# : - colon separator
+# .+ - description (at least one character)
+#
+CONVENTIONAL_PATTERN="^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)(\([a-zA-Z0-9_/-]+\))?!?: .+"
+
+if ! echo "$COMMIT_TITLE" | grep -qE "$CONVENTIONAL_PATTERN"; then
+    ERRORS="${ERRORS}${RED}ERROR:${NC} Commit title does not follow Conventional Commits format.\n"
+    ERRORS="${ERRORS}\n"
+    ERRORS="${ERRORS}  ${YELLOW}Your title:${NC} $COMMIT_TITLE\n"
+    ERRORS="${ERRORS}\n"
+    ERRORS="${ERRORS}  ${GREEN}Expected format:${NC} <type>[(scope)][!]: <description>\n"
+    ERRORS="${ERRORS}\n"
+    ERRORS="${ERRORS}  ${GREEN}Valid types:${NC} feat, fix, docs, style, refactor, perf, test, build, ci, chore, revert\n"
+    ERRORS="${ERRORS}\n"
+    ERRORS="${ERRORS}  ${GREEN}Examples:${NC}\n"
+    ERRORS="${ERRORS}    feat: add new user authentication\n"
+    ERRORS="${ERRORS}    fix(api): resolve rate limiting issue\n"
+    ERRORS="${ERRORS}    docs: update installation guide\n"
+    ERRORS="${ERRORS}    feat!: breaking change to API\n"
+    ERRORS="${ERRORS}    chore(deps): update dependencies\n"
+    ERRORS="${ERRORS}\n"
+fi
+
+#
+# 2. Validate Signed-off-by presence
+#
+if ! grep -q "^Signed-off-by: " "$COMMIT_MSG_FILE"; then
+    ERRORS="${ERRORS}${RED}ERROR:${NC} Missing Signed-off-by line.\n"
+    ERRORS="${ERRORS}\n"
+    ERRORS="${ERRORS}  Please use ${GREEN}git commit --signoff${NC} or ${GREEN}git commit -s${NC}\n"
+    ERRORS="${ERRORS}\n"
+fi
+
+#
+# Output errors and exit
+#
+if [ -n "$ERRORS" ]; then
+    printf "\n${RED}Commit message validation failed:${NC}\n\n"
+    printf "$ERRORS"
+    exit 1
+fi
+
+exit 0
+```
