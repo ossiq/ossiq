@@ -118,6 +118,7 @@ package = true
 [dependency-groups]
 dev = [
     "datapackage>=1.15.4",
+    "twine>=6.2.0",
 ]
 
 [tool.semantic_release]

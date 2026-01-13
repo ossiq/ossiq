@@ -75,9 +75,10 @@ version:
 version-next:
     uv run --extra dev semantic-release version --print
 
-# View unpublished changes since last release
+# View commits since last release that will trigger version bump
 version-changelog:
-    uv run --extra dev semantic-release changelog --unreleased
+    @echo "Commits since last release:"
+    @git log --oneline $(git describe --tags --abbrev=0)..HEAD --grep="^feat:" --grep="^fix:" --grep="^perf:" -E || echo "No semantic commits found"
 
 # Tag the current version in git and put to github
 tag:
