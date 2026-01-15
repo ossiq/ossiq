@@ -26,11 +26,11 @@ Look through the GitHub issues for features. Anything tagged with "enhancement" 
 
 ### Write Documentation
 
-Update Burden could always use more documentation, whether as part of the official docs, in docstrings, or even on the web in blog posts, articles, and such.
+ossiq-cli could always use more documentation, whether as part of the official docs, in docstrings, or even on the web in blog posts, articles, and such.
 
 ### Submit Feedback
 
-The best way to send feedback is to file an issue at [https://github.com/ossiq/ossiq/issues](https://github.com/ossiq/ossiq/issues) .
+The best way to send feedback is to file an issue at [https://github.com/ossiq/ossiq/issues](https://github.com/ossiq/ossiq/issues).
 
 If you are proposing a feature:
 
@@ -43,76 +43,126 @@ If you are proposing a feature:
 Ready to contribute? Here's how to set up `ossiq-cli` for local development.
 
 1. Fork the `ossiq-cli` repo on GitHub.
+
 2. Clone your fork locally:
 
    ```sh
    git clone git@github.com:your_name_here/ossiq-cli.git
    ```
 
-3. Install your local copy into a virtualenv. Assuming you have virtualenvwrapper installed, this is how you set up your fork for local development:
+3. Install dependencies using `uv`:
 
    ```sh
-   mkvirtualenv ossiq-cli
    cd ossiq-cli/
-   python setup.py develop
+   uv sync
    ```
 
-4. Create a branch for local development:
+4. Set up required environment variables:
 
    ```sh
-   git checkout -b name-of-your-bugfix-or-feature
+   export OSSIQ_GITHUB_TOKEN=$(gh auth token)
+   ```
+
+5. Create a branch for local development using the naming convention:
+
+   ```
+   <type>/GH-<ISSUE_ID>--<meaningful-branch-name>
+   ```
+
+   Where `<type>` is one of:
+   - `feature` - New functionality
+   - `fix` - Bug fixes
+   - `chore` - Maintenance tasks (dependencies, CI, etc.)
+   - `docs` - Documentation updates
+
+   Examples:
+   ```sh
+   git checkout -b feature/GH-11--release-process
+   git checkout -b fix/GH-42--lockfile-parsing-error
+   git checkout -b chore/GH-15--update-dependencies
+   git checkout -b docs/GH-8--api-documentation
    ```
 
    Now you can make your changes locally.
 
-5. When you're done making changes, check that your changes pass flake8 and the tests, including testing other Python versions with tox:
+6. When you're done making changes, run the full QA suite:
 
    ```sh
-   make lint
-   make test
-   # Or
-   make test-all
+   just qa
    ```
 
-   To get flake8 and tox, just pip install them into your virtualenv.
-
-6. Commit your changes and push your branch to GitHub:
+   This runs formatting, linting, type checking, and tests. You can also run individual steps:
 
    ```sh
-   git add .
-   git commit -m "Your detailed description of your changes."
-   git push origin name-of-your-bugfix-or-feature
+   just lint           # Run linter only
+   just test           # Run tests only
+   just test tests/adapters/test_api_npm.py  # Run specific test file
+   just coverage       # Generate coverage report
    ```
 
-7. Submit a pull request through the GitHub website.
+7. Commit your changes using conventional commit format with sign-off:
+
+   ```
+   <type>[(<scope>)][!]: <description>
+   ```
+
+   **Valid types:** `feat`, `fix`, `docs`, `style`, `refactor`, `perf`, `test`, `build`, `ci`, `chore`, `revert`
+
+   **Important:**
+   - All commits must be **GPG signed**. Set up commit signing with `git config commit.gpgsign true`. See [GitHub's guide on signing commits](https://docs.github.com/en/authentication/managing-commit-signature-verification/signing-commits).
+   - All commits must include a **Signed-off-by** line using `git commit -s` or `git commit --signoff`.
+
+   A commit-msg hook (`.git/hooks/commit-msg`) validates:
+   1. Commit title follows Conventional Commits format
+   2. `Signed-off-by` line is present
+
+   Examples:
+   ```sh
+   git commit -s -m "feat(parser): add support for poetry lockfiles"
+   git commit -s -m "fix(npm): handle missing optional dependencies"
+   git commit -s -m "chore(deps): update ruff to 0.5.0"
+   git commit -s -m "docs: update contributing guidelines"
+   git commit -s -m "feat!: breaking change to API"
+   ```
+
+   To reference a GitHub issue in the commit body:
+   ```sh
+   git commit -s -m "feat(parser): add poetry support" -m "GH-42"
+   ```
+
+8. Push your branch to GitHub:
+
+   ```sh
+   git push origin feature/GH-11--release-process
+   ```
+
+9. Submit a pull request through the GitHub website.
 
 ## Pull Request Guidelines
 
 Before you submit a pull request, check that it meets these guidelines:
 
 1. The pull request should include tests.
-2. If the pull request adds functionality, the docs should be updated. Put your new functionality into a function with a docstring, and add the feature to the list in README.md.
-3. The pull request should work for Python 3.12 and 3.13. Tests run in GitHub Actions on every pull request to the main branch, make sure that the tests pass for all supported Python versions.
+2. If the pull request adds functionality, the docs should be updated. Put your new functionality into a function with a docstring.
+3. The pull request should work for Python 3.10, 3.11, 3.12, and 3.13. You can test multiple versions locally:
+
+   ```sh
+   just testall
+   ```
 
 ## Tips
 
 To run a subset of tests:
 
 ```sh
-pytest tests.test_ossiq
+just test tests/adapters/test_api_npm.py::TestClass::test_method
 ```
 
-## Deploying
-
-A reminder for the maintainers on how to deploy. Make sure all your changes are committed (including an entry in HISTORY.md). Then run:
+To debug failing tests with IPython debugger:
 
 ```sh
-bump2version patch # possible: major / minor / patch
-git push
-git push --tags
+just pdb tests/path/to/test.py
 ```
-
-You can set up a [GitHub Actions workflow](https://docs.github.com/en/actions/use-cases-and-examples/building-and-testing/building-and-testing-python#publishing-to-pypi) to automatically deploy your package to PyPI when you push a new tag.
 
 ## Code of Conduct
 
