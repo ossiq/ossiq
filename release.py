@@ -263,12 +263,19 @@ class GitService:
             date = datetime.now()
 
         # Extract GH-* references and clean up body
-        body_lines = body.strip().split("\n")
+        body_lines = body.split("\n")
         github_issues: list[str] = []
         cleaned_lines: list[str] = []
 
         gh_pattern = re.compile(r"^(GH-\d+)$")
         for line in body_lines:
+            if line.strip() == "**":
+                cleaned_lines.append("")
+                continue
+
+            if not line.strip():
+                continue
+
             # Skip Signed-off-by lines
             if line.startswith("Signed-off-by:"):
                 continue
@@ -279,7 +286,7 @@ class GitService:
             else:
                 cleaned_lines.append(line)
 
-        body_cleaned = "\n".join(cleaned_lines).strip()
+        body_cleaned = "\n".join(cleaned_lines)
 
         return CommitInfo(
             sha=sha,
