@@ -1,6 +1,8 @@
 [project]
 name = "ossiq"
 version = "0.1.2"
+project.license = "AGPL-3.0-only"
+
 description = "Utility to forecast risks associated with currently installed packages updates"
 readme = "README.md"
 authors = [

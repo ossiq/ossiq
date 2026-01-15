@@ -8,6 +8,7 @@ jobs:
   publish:
     environment:
       name: release
+      url: https://pypi.org/project/ossiq
     runs-on: ubuntu-latest
     permissions:
       # Use OIDC for Trusted Publishing
