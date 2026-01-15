@@ -71,20 +71,19 @@ VERSION := `grep -m1 '^version' pyproject.toml | sed -E 's/version = "(.*)"/\1/'
 version:
     @echo "Current version is {{VERSION}}"
 
-# Check what version PSR would bump to (dry-run)
-version-next:
-    uv run --extra dev semantic-release version --print
-
-# View commits since last release that will trigger version bump
-version-changelog:
-    @echo "Commits since last release:"
-    @git log --oneline $(git describe --tags --abbrev=0)..HEAD --grep="^feat:" --grep="^fix:" --grep="^perf:" -E || echo "No semantic commits found"
-
 # Tag the current version in git and put to github
 tag:
     echo "Tagging version v{{VERSION}}"
     git tag -a v{{VERSION}} -m "Creating version v{{VERSION}}"
     git push origin v{{VERSION}}
+
+# Create a new release (dry-run by default)
+release *ARGS:
+    uv run python release.py {{ARGS}}
+
+# Preview what a patch release would look like
+release-preview:
+    uv run python release.py --patch --dry-run
 
 # remove all build, test, coverage and Python artifacts
 clean: 
