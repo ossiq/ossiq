@@ -171,6 +171,12 @@ class VersionService:
 
         pyproject_path.write_text(new_content)
 
+        subprocess.run(
+            ["uv", "sync"],
+            check=True,
+            shell=False,
+        )
+
 
 # ============================================================================
 # Git Service
@@ -636,7 +642,9 @@ class ReleaseOrchestrator:
         self.console.print("-" * 60)
 
         self.console.print("\n[bold]Commands that would be executed:[/]")
-        self.console.print(f'  1. Update pyproject.toml: version = "{current_version}" -> "{new_version}"')
+        self.console.print(
+            f'  1. Update pyproject.toml: version = "{current_version}" -> "{new_version}" and execute `uv sync`'
+        )
         self.console.print("  2. Update CHANGELOG.md with new entry")
         self.console.print("  3. git add pyproject.toml CHANGELOG.md")
         self.console.print(f'  4. git commit -s -m "chore(release): {new_version}"')
@@ -655,7 +663,7 @@ class ReleaseOrchestrator:
         self.changelog_svc.update_changelog_file(self.config.project_root, changelog_entry, dry_run=False)
 
         self.console.print("[bold blue]Step 8:[/] Creating release commit...")
-        self.git_svc.create_release_commit(new_version, ["pyproject.toml", "CHANGELOG.md"], dry_run=False)
+        self.git_svc.create_release_commit(new_version, ["uv.lock", "pyproject.toml", "CHANGELOG.md"], dry_run=False)
 
         self.console.print("[bold blue]Step 9:[/] Creating git tag...")
         self.git_svc.create_tag(new_version, dry_run=False)
@@ -673,9 +681,9 @@ class ReleaseOrchestrator:
         self.console.print(f"\n[bold green]Release v{new_version} created successfully![/]")
         if release_url:
             self.console.print(f"  GitHub release: {release_url}")
-        self.console.print("\n[bold yellow]Don't forget to push:[/]")
-        self.console.print("  git push origin main")
-        self.console.print(f"  git push origin v{new_version}")
+        self.console.print("\n[bold yellow]Don't forget to push & backmerge:[/]")
+        self.console.print("  git push origin production")
+        self.console.print("  git checkout main && git merge production")
 
 
 # ============================================================================
