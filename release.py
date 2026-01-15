@@ -330,6 +330,19 @@ class GitService:
             shell=False,
         )
 
+    @staticmethod
+    def push_tag(version: str, dry_run: bool) -> None:
+        """Create git tag."""
+        if dry_run:
+            return
+
+        tag_name = f"v{version}"
+        subprocess.run(
+            ["git", "push", "origin", tag_name],
+            check=True,
+            shell=False,
+        )
+
 
 # ============================================================================
 # Changelog Service
@@ -628,7 +641,8 @@ class ReleaseOrchestrator:
         self.console.print("  3. git add pyproject.toml CHANGELOG.md")
         self.console.print(f'  4. git commit -s -m "chore(release): {new_version}"')
         self.console.print(f'  5. git tag -a v{new_version} -m "Release v{new_version}"')
-        self.console.print(f"  6. POST {self.github_api_url}/releases")
+        self.console.print(f"  6. git push origin v{new_version} ")
+        self.console.print(f"  7. POST {self.github_api_url}/releases")
         self.console.print(f"     - tag_name: v{new_version}")
         self.console.print(f"     - name: Release v{new_version}")
 
@@ -645,8 +659,10 @@ class ReleaseOrchestrator:
 
         self.console.print("[bold blue]Step 9:[/] Creating git tag...")
         self.git_svc.create_tag(new_version, dry_run=False)
+        self.console.print("[bold blue]Step 10:[/] Pushing git tag...")
+        self.git_svc.push_tag(new_version, dry_run=False)
 
-        self.console.print("[bold blue]Step 10:[/] Creating GitHub release...")
+        self.console.print("[bold blue]Step 11:[/] Creating GitHub release...")
         assert self.github_svc is not None, "GitHub service not initialized"
         release_url = self.github_svc.create_release(
             f"v{new_version}",

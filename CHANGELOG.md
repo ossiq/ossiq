@@ -2,6 +2,13 @@
 
 
 
+## v0.1.3 (2026-01-15)
+
+
+### Chore
+
+* chore: fixed release.yml and added license to pyproject.toml (GH-11) ([`43e4bae`](https://github.com/ossiq/ossiq/commit/43e4bae0f603f0c71c7678db644589d3f909a083))
+
 ## v0.1.2 (2026-01-15)
 
 
