@@ -1,6 +1,6 @@
 [project]
 name = "ossiq"
-version = "0.1.0"
+version = "0.1.2"
 description = "Utility to forecast risks associated with currently installed packages updates"
 readme = "README.md"
 authors = [

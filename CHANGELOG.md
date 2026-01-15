@@ -2,6 +2,42 @@
 
 
 
+## v0.1.2 (2026-01-15)
+
+
+### Feature
+
+* feat: Added release.py script and release.yml GA workflow (GH-11) ([`ce6baeb`](https://github.com/ossiq/ossiq/commit/ce6baeb8b0f45628cb28467bd53e1752dfcffc03))
+ - Added release.py script instead of python-semantic-release,
+   which is confusing and doesn't work well with semi-manual
+   release process I wanted to have initially.
+ - Added release.yml Github Actions workflow with
+   `release` GH Environment to work with PyPI
+   Trusted Release with Release Attestation
+ - Removed RELEASE.md in its current form, will
+   add back newer version later.
+ - Cleaned up pyproject.toml and justfile from
+   python-semantic-release junk.
+
+
+### Fix
+
+* fix: added check for OSSIQ_GITHUB_TOKEN to release (GH-11) ([`2836b81`](https://github.com/ossiq/ossiq/commit/2836b81b505e9098c8b2decbcd1bc8ad8ee9e06a))
+Added check to validate OSSIQ_GITHUB_TOKEN, otherwise
+release.py fail on the last step (basically, broken state).
+
+* fix: added explicit newline control to release notes (GH-11) ([`d2bfeef`](https://github.com/ossiq/ossiq/commit/d2bfeefd4f4db9c026cd7e8d860c1a6d7a16a515))
+Added `**` character to explicitly control newline
+character in git commit messages. This would be handy
+to accurately generate changelog.
+
+* fix: updated RELEASE.md to validate release process (GH-11) ([`68ae7c3`](https://github.com/ossiq/ossiq/commit/68ae7c36e3784ac13470299b4a2750c2669bae49))
+
+
+### Chore
+
+* chore: added twine to manually upload to pypi when needed (GH-11) ([`44a349e`](https://github.com/ossiq/ossiq/commit/44a349e06103fd7f8792b853a7f3efe97f75fe4b))
+
 ## v0.1.0 (2026-01-13)
 
 ### Feature
