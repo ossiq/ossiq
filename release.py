@@ -675,7 +675,7 @@ def release(
     dry_run: Annotated[
         bool,
         typer.Option("--dry-run", "-n", help="Print what would happen without executing"),
-    ] = True,
+    ] = False,
     major: Annotated[
         bool,
         typer.Option("--major", help="Bump major version (X.0.0)"),
@@ -699,6 +699,11 @@ def release(
     Requires exactly one of: --major, --minor, --patch, or --override-version
     """
     bump_count = sum([major, minor, patch])
+
+    if not dry_run and not override_version and not os.environ.get("OSSIQ_GITHUB_TOKEN"):
+        console.print("[red]Error: OSSIQ_GITHUB_TOKEN environment variable is required for actual releases.[/]")
+        console.print("[red]       Please set it or use --dry-run.[/]")
+        raise typer.Exit(1)
 
     if override_version and bump_count > 0:
         console.print("[red]Error: Cannot use --override-version with --major/--minor/--patch[/]")
