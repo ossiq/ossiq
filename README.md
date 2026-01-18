@@ -58,6 +58,59 @@ uv run hatch run ossiq-cli scan -p html -o ./test_report.html /path/to/your/proj
 
 OSS IQ automatically detects the dependency manifest (`package.json`, `pyproject.toml`, etc.) in the target directory.
 
+### Using Docker
+
+OSS IQ CLI is available as a Docker image for easy deployment without installing Python dependencies.
+
+```bash
+# Pull the latest image
+docker pull ossiq/ossiq-cli
+
+# Set your GitHub token (required)
+export OSSIQ_GITHUB_TOKEN=$(gh auth token)
+
+# Scan a local project
+docker run --rm \
+  -e OSSIQ_GITHUB_TOKEN \
+  -v /path/to/your/project:/project:ro \
+  ossiq/ossiq-cli scan /project
+
+# Generate an HTML report
+docker run --rm \
+  -e OSSIQ_GITHUB_TOKEN \
+  -v /path/to/your/project:/project:ro \
+  -v $(pwd)/reports:/output \
+  ossiq/ossiq-cli scan -p html -o /output/report.html /project
+
+# Export to JSON for CI/CD pipelines
+docker run --rm \
+  -e OSSIQ_GITHUB_TOKEN \
+  -v /path/to/your/project:/project:ro \
+  -v $(pwd)/reports:/output \
+  ossiq/ossiq-cli export -f json -o /output/metrics.json /project
+```
+
+**Docker Image Tags:**
+- `ossiq/ossiq-cli:latest` - Latest stable release
+- `ossiq/ossiq-cli:0.1.3` - Specific version
+- `ossiq/ossiq-cli:0.1` - Latest patch in minor version
+
+**CI/CD Integration Example (GitHub Actions):**
+
+```yaml
+jobs:
+  dependency-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Analyze dependencies
+        run: |
+          docker run --rm \
+            -e OSSIQ_GITHUB_TOKEN=${{ secrets.GITHUB_TOKEN }} \
+            -v ${{ github.workspace }}:/project:ro \
+            ossiq/ossiq-cli scan /project
+```
+
 ## Example Output
 
 Here is an example of the summary provided in your console:

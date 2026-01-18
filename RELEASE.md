@@ -65,3 +65,116 @@ If an issue is discovered immediately after a release, you can revert the change
     ```bash
     git push origin :refs/tags/vX.Y.Z # Replace vX.Y.Z with the actual version tag
     ```
+
+---
+
+## Docker Image
+
+The Docker image is automatically built and pushed to Docker Hub when a GitHub release is published.
+The workflow is defined in `.github/workflows/docker.yml`.
+
+### Building and Testing Locally
+
+Before releasing, test the Docker build locally:
+
+```bash
+# Build the image
+docker build -t ossiq/ossiq-cli:test .
+
+# Test help commands
+docker run --rm ossiq/ossiq-cli:test --help
+docker run --rm ossiq/ossiq-cli:test scan --help
+
+# Test token validation (should fail gracefully with helpful message)
+docker run --rm ossiq/ossiq-cli:test scan /project
+
+# Test actual scan with a project
+docker run -t --rm \
+  -e OSSIQ_GITHUB_TOKEN=$(gh auth token) \
+  -v ./testdata/npm/project1:/project:ro \
+  ossiq/ossiq-cli:test scan /project
+
+# Test HTML report generation
+docker run --rm \
+  -e OSSIQ_GITHUB_TOKEN=$(gh auth token) \
+  -v ./testdata/npm/project1:/project:ro \
+  -v $(pwd)/reports:/output \
+  ossiq/ossiq-cli:test scan -p html -o /output/report.html /project
+```
+
+### Multi-Architecture Build Test
+
+The CI builds for both `linux/amd64` and `linux/arm64`. To test multi-arch locally:
+
+```bash
+# Create a builder (one-time setup)
+docker buildx create --name multiarch --use
+
+# Build for multiple platforms (without pushing)
+docker buildx build --platform linux/amd64,linux/arm64 -t ossiq/ossiq-cli:test .
+```
+
+### Updating Python Version
+
+The Dockerfile uses a specific Python version. Update it when:
+- A new Python version becomes stable and is tested with OSS IQ
+- The minimum Python version in `pyproject.toml` changes
+- Security updates require a newer version
+
+**Files to update:**
+1. `Dockerfile` - Update both stages:
+   ```dockerfile
+   FROM python:3.14-slim-bookworm AS builder
+   ...
+   ENV UV_PYTHON=python3.14
+   ...
+   FROM python:3.14-slim-bookworm AS runtime
+   ```
+
+2. `pyproject.toml` - Ensure classifiers include the version:
+   ```toml
+   "Programming Language :: Python :: 3.14",
+   ```
+
+3. `.github/workflows/test.yml` - Add the version to the test matrix
+
+### Updating uv Version
+
+The Dockerfile pins a specific uv version for reproducibility. Update it when:
+- A new uv version has features or fixes you need
+- Security updates are released
+- Breaking changes require testing
+
+**File to update:** `Dockerfile`
+```dockerfile
+COPY --from=ghcr.io/astral-sh/uv:0.9.26 /uv /uvx /bin/
+```
+
+Check for new versions at: https://github.com/astral-sh/uv/releases
+
+### Specifying OSS IQ Version in Docker
+
+The Docker image version is determined by the Git tag used in the GitHub release.
+The `docker/metadata-action` automatically extracts version tags:
+
+| Git Tag | Docker Tags Created |
+|---------|---------------------|
+| `v0.1.3` | `0.1.3`, `0.1`, `latest` |
+| `v1.0.0` | `1.0.0`, `1.0`, `1`, `latest` |
+| `v2.0.0-beta.1` | `2.0.0-beta.1` |
+
+The version in the Docker image comes from the installed Python package, which is set in `pyproject.toml`.
+
+### Docker Hub Setup (One-Time)
+
+1. Create Docker Hub repository at https://hub.docker.com
+   - Organization/Username: `ossiq`
+   - Repository: `ossiq-cli`
+   - Short description: "Dependency risk analysis by linking version lag, CVEs, and maintainer activity"
+
+2. Add GitHub repository secrets:
+   - `DOCKER_USERNAME` - Docker Hub username
+   - `DOCKER_PASSWORD` - Docker Hub access token (create at https://hub.docker.com/settings/security)
+
+3. Update Docker Hub README:
+   - Copy content from `DOCKER_README.md` to the Docker Hub repository description

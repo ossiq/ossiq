@@ -1,0 +1,92 @@
+# =============================================================================
+# Docker Build Context Exclusions
+# =============================================================================
+# Exclude files not needed for building the Docker image
+
+# Git
+.git
+.gitignore
+.github
+
+# Python artifacts
+__pycache__
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info
+*.egg
+.eggs
+
+# Virtual environments (use fresh install in container)
+.venv
+venv
+env
+ENV
+
+# Build artifacts
+build
+dist
+wheels
+*.whl
+
+# Test and coverage
+.pytest_cache
+.coverage
+.coverage.*
+htmlcov
+.tox
+.nox
+.hypothesis
+coverage.xml
+*.cover
+
+# IDE and editors
+.idea
+.vscode
+*.swp
+*.swo
+*~
+
+# Documentation build
+docs/_build
+site
+
+# Caches
+.cache
+.ruff_cache
+.mypy_cache
+.dmypy.json
+.pytype
+
+# Test data (not needed for production image)
+testdata
+
+# Local reports
+reports
+ossiq_scan_report_*.html
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Environment files (secrets)
+.env
+.envrc
+
+# Docker-related (avoid recursive inclusion)
+Dockerfile
+docker-compose*.yml
+.dockerignore
+DOCKER_README.md
+
+# Development files
+*.md
+!README.md
+*.rst
+Makefile
+justfile
+pylintrc
+mkdocs.yml
+CONTRIBUTING.md
+RELEASE.md
