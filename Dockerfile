@@ -1,65 +1,65 @@
 # syntax=docker/dockerfile:1
 
-# =============================================================================
-# OSS IQ CLI - Docker Image
-# =============================================================================
-# Single-stage build installing ossiq from PyPI
-# Base: python:3.14-slim-bookworm (~50MB compressed)
-#
-# Usage:
-#   docker build -t ossiq/ossiq-cli .
-#   docker run --rm -e OSSIQ_GITHUB_TOKEN=$OSSIQ_GITHUB_TOKEN \
-#     -v /path/to/project:/project:ro ossiq/ossiq-cli scan /project
-# =============================================================================
+# --- Stage 1: Builder ---
+# To Test Build: docker build -t ossiq-test --build-arg TAG_VERSION=0.1.3 .
+FROM python:3.13-slim-bookworm AS builder
 
-FROM python:3.14-slim-bookworm
+# Install build dependencies for Rust/C extensions (Fixes "cc not found")
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    && rm -rf /var/lib/apt/lists/*
 
-# Labels for container metadata (OCI standard)
-LABEL org.opencontainers.image.title="OSS IQ CLI" \
-      org.opencontainers.image.description="Analyze open-source dependency risk by cross-referencing version lag, CVEs, and maintainer activity" \
-      org.opencontainers.image.vendor="OSS IQ" \
-      org.opencontainers.image.licenses="AGPL-3.0-only" \
-      org.opencontainers.image.source="https://github.com/ossiq/ossiq" \
-      org.opencontainers.image.documentation="https://github.com/ossiq/ossiq#readme"
-
-# Copy uv binary from official image (pinned version for reproducibility)
+# Copy uv binary from official image
 COPY --from=ghcr.io/astral-sh/uv:0.9.26 /uv /uvx /bin/
 
-# Create non-root user for security
-RUN groupadd --gid 1000 ossiq \
-    && useradd --uid 1000 --gid ossiq --shell /bin/bash --create-home ossiq
-
 WORKDIR /app
+
+# Argument to allow passing the tag from GitHub Actions
+ARG TAG_VERSION
 
 # Set uv environment variables for optimal builds
 ENV UV_COMPILE_BYTECODE=1 \
     UV_LINK_MODE=copy \
     UV_PYTHON_DOWNLOADS=never \
-    UV_PYTHON=python3.14
+    UV_PYTHON=python3.13
 
-# Install ossiq from PyPI with pinned version
+# Install ossiq into a virtual environment
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv venv /app/.venv && \
-    uv pip install --python /app/.venv/bin/python ossiq==0.1.3
+    uv pip install --python /app/.venv/bin/python ossiq==${TAG_VERSION}
 
-# Copy entrypoint script
+# --- Stage 2: Final Runtime ---
+# To test image: docker run --rm ossiq-test --version
+FROM python:3.13-slim-bookworm
+
+# Labels for container metadata
+LABEL org.opencontainers.image.title="OSS IQ CLI" \
+      org.opencontainers.image.description="Analyze open-source dependency risk" \
+      org.opencontainers.image.vendor="OSS IQ" \
+      org.opencontainers.image.licenses="AGPL-3.0-only"
+
+# Create non-root user
+RUN groupadd --gid 1000 ossiq \
+    && useradd --uid 1000 --gid ossiq --shell /bin/bash --create-home ossiq
+
+WORKDIR /app
+
+# Copy the pre-built virtual environment from the builder
+COPY --from=builder /app/.venv /app/.venv
+
+# Copy entrypoint script (Make sure this file exists in your repo)
 COPY --chown=ossiq:ossiq docker-entrypoint.sh /usr/local/bin/
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 
 # Set environment variables
 ENV PATH="/app/.venv/bin:$PATH" \
-    # Ensure Python output is not buffered (important for Docker logs)
     PYTHONUNBUFFERED=1 \
-    # Disable Python bytecode generation at runtime
     PYTHONDONTWRITEBYTECODE=1
 
-# Set ownership of the virtual environment to ossiq user
+# Ensure ownership for the non-root user
 RUN chown -R ossiq:ossiq /app/.venv
 
-# Switch to non-root user
 USER ossiq
-
-# Default working directory for project analysis
 WORKDIR /project
 
 ENTRYPOINT ["docker-entrypoint.sh"]

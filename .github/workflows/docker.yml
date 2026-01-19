@@ -1,6 +1,6 @@
-name: Build and Publish Docker Image
+name: Publish to Docker Hub
 
-on:
+on: 
   release:
     types: [published]
   # Allow manual trigger for testing
@@ -10,6 +10,7 @@ on:
         description: 'Tag to build (e.g., v0.1.3)'
         required: false
         default: ''
+        type: string
 
 env:
   REGISTRY: docker.io
@@ -17,7 +18,11 @@ env:
 
 jobs:
   build-and-push:
-    runs-on: ubuntu-latest
+    environment:
+      name: release
+      url: https://pypi.org/project/ossiq
+
+    runs-on: ubuntu-24.04-arm
 
     permissions:
       contents: read
@@ -43,25 +48,27 @@ jobs:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
 
+      - name: Sanitize Tag
+        id: sanitize
+        shell: bash
+        run: |
+          # Takes 'v0.1.3' and turns it into '0.1.3'
+          # If it was already '0.1.3', it stays '0.1.3'
+          RAW_TAG="${{ inputs.tag || '0.1.3' }}"
+          CLEAN_TAG="${RAW_TAG#v}"
+          echo "tag=$CLEAN_TAG" >> $GITHUB_OUTPUT
+
       - name: Extract metadata for Docker
         id: meta
         uses: docker/metadata-action@v5
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
-            # Tag with version number (e.g., 0.1.3)
+            type=raw,value=${{ steps.sanitize.outputs.tag }},enable=${{ steps.sanitize.outputs.tag != '' }}
             type=semver,pattern={{version}}
-            # Tag with major.minor (e.g., 0.1)
             type=semver,pattern={{major}}.{{minor}}
-            # Tag with major only for stable releases (e.g., 1)
-            type=semver,pattern={{major}},enable=${{ !startsWith(github.ref, 'refs/tags/v0.') }}
-            # Tag as 'latest' for releases
             type=raw,value=latest,enable=${{ github.event_name == 'release' }}
-          labels: |
-            org.opencontainers.image.title=OSS IQ CLI
-            org.opencontainers.image.description=Analyze open-source dependency risk
-            org.opencontainers.image.vendor=OSS IQ
-
+            
       - name: Build and push Docker image
         uses: docker/build-push-action@v6
         with:
@@ -75,7 +82,11 @@ jobs:
           cache-to: type=gha,mode=max
           build-args: |
             BUILDKIT_INLINE_CACHE=1
+            TAG_VERSION=${{ steps.sanitize.outputs.tag }}
 
+      - name: Debug Input
+        run: |
+          echo "The tag being used is: ${{ inputs.tag }}"
       - name: Generate build summary
         run: |
           echo "## Docker Image Published :whale:" >> $GITHUB_STEP_SUMMARY
