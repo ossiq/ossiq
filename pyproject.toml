@@ -34,6 +34,8 @@ classifiers = [
     # Specific Python Versions (Adjust these to what you actually support)
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Programming Language :: Python :: 3 :: Only",
 ]
 keywords = ["techdebt", "tech debt", "maintenance", "toc", "engineering"]
@@ -115,4 +117,14 @@ package = true
 dev = [
     "datapackage>=1.15.4",
     "twine>=6.2.0",
+    "coverage~=7.13.1",  # testing
+    "pytest~=9.0.2",  # testing
+    "ruff~=0.14.10",  # linting
+    "ty~=0.0.8", # checking types
+    "ipdb~=0.13.13", # debugging,
+    "pylint~=4.0.4",
+    "mkdocs~=1.6.1",
+    "mkdocstrings~=1.0.0",
+    "mkdocs-material~=9.7.1",    
+    "mkdocs-nav-weight~=0.3.0"
 ]

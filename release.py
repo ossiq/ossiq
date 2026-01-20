@@ -275,6 +275,7 @@ class GitService:
 
         gh_pattern = re.compile(r"^(GH-\d+)$")
         for line in body_lines:
+            # Additional Space for better release notes formatting
             if line.strip() == "**":
                 cleaned_lines.append("")
                 continue
