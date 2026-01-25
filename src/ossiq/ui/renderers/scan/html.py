@@ -3,6 +3,7 @@ HTML renderer for scan command.
 Migrated from presentation/scan/view_html.py
 """
 
+import datetime
 import os
 
 from ossiq.domain.common import Command, UserInterfaceType
@@ -45,14 +46,14 @@ class HtmlScanRenderer(AbstractUserInterfaceRenderer):
             raise DestinationDoesntExist(f"Destination `{destination}` doesn't exist.")
 
         # Configure Jinja2 environment and load template
-        # Use module_file parameter for robust path resolution
-        _, template = configure_template_environment("html_templates/main.html", module_file=__file__)
+        _, template = configure_template_environment("ui/renderers/scan/html_templates/main.html")
 
         # Render template
         rendered_html = template.render(
             project_scan=data,
             lag_threshold_days=lag_threshold_days,
             dependencies=data.production_packages + data.development_packages,
+            now=datetime.datetime.utcnow(),
         )
 
         # Resolve output path with project name placeholder

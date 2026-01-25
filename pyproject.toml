@@ -1,3 +1,7 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
 [project]
 name = "ossiq"
 version = "0.1.3"
@@ -54,11 +58,13 @@ dependencies = [ # specify that newer patch or minor versions allowed
   "common-expression-language>=0.5.3",
   "pandas>=2.3.3",
   "packaging>=25.0",
-  "jsonschema~=4.23.0",
+  "jsonschema~=4.26.0",
   "petl~=1.7.15",
-  "frictionless~=5.0.0",
+  "frictionless~=5.18.1",
 ]
 
+[tool.uv]
+package = true
 
 [project.optional-dependencies]
 dev = [
@@ -85,6 +91,24 @@ repository = "https://github.com/ossiq/ossiq.git"
 [project.scripts]
 ossiq-cli = "ossiq.cli:app"
 
+[tool.hatch.build]
+# ignore-vcs ensures Hatch doesn't skip files listed in .gitignore
+ignore-vcs = true
+# Recursive globbing is required to find files in subdirectories
+include = [
+  "src/ossiq/**/*.py",
+  "src/ossiq/**/*.html",
+  "src/ossiq/**/*.json",
+  "src/ossiq/**/*.csv",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/ossiq"]
+
+[tool.hatch.build.targets.wheel.force-include]
+# Explicitly mapping the directory as a secondary safety measure
+"src/ossiq/ui/html_templates" = "ossiq/ui/html_templates"
+
 [tool.ty]
 # All rules are enabled as "error" by default; no need to specify unless overriding.
 # Example override: relax a rule for the entire project (uncomment if needed).
@@ -109,9 +133,6 @@ select = [
     "B",   # flake8-bugbear
     "UP",  # pyupgrade
 ]
-
-[tool.uv]
-package = true
 
 [dependency-groups]
 dev = [

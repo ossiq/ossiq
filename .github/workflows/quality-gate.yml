@@ -1,0 +1,79 @@
+name: OSS IQ Dependency Quality Gate
+
+on:  
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  ossiq-scan:
+    name: OSS IQ Dependency Scan
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install OSS IQ
+        run: pip install ossiq
+
+      - name: Run OSS IQ scan
+        env:
+          OSSIQ_GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          ossiq-cli export \
+            --output-format=json \
+            --output=ossiq-report.json \
+            .
+
+      - name: Upload scan results
+        uses: actions/upload-artifact@v4
+        with:
+          name: ossiq-report
+          path: ossiq-report.json
+
+      - name: Check for critical issues
+        run: |
+          echo "Checking OSS IQ results..."
+
+          # Extract metrics from JSON report
+          TOTAL_CVES=$(jq '.summary.total_cves' ossiq-report.json)
+          PACKAGES_OUTDATED=$(jq '.summary.packages_outdated' ossiq-report.json)
+          TOTAL_PACKAGES=$(jq '.summary.total_packages' ossiq-report.json)
+
+          echo "📊 Scan Summary:"
+          echo "   Total packages: $TOTAL_PACKAGES"
+          echo "   Packages with CVEs: $TOTAL_CVES"
+          echo "   Outdated packages: $PACKAGES_OUTDATED"
+
+          # Fail if any CVEs are found
+          if [ "$TOTAL_CVES" -gt 0 ]; then
+            echo ""
+            echo "❌ FAILED: Found $TOTAL_CVES CVE(s) in dependencies"
+            echo ""
+            echo "Packages with vulnerabilities:"
+            jq -r '(.production_packages + .development_packages) | .[] | select(.cve | length > 0) | "  - \(.package_name)@\(.installed_version): \(.cve | length) CVE(s)"' ossiq-report.json
+            exit 1
+          fi
+
+          # Check for severely outdated packages (default: 365 days)
+          MAX_LAG_DAYS=${MAX_LAG_DAYS:-365}
+          SEVERELY_OUTDATED_COUNT=$(jq "(.production_packages + .development_packages) | map(select(.time_lag_days != null and .time_lag_days > $MAX_LAG_DAYS)) | length" ossiq-report.json)
+
+          if [ "$SEVERELY_OUTDATED_COUNT" -gt 0 ]; then
+            echo ""
+            echo "❌ FAILED: Found $SEVERELY_OUTDATED_COUNT package(s) more than $MAX_LAG_DAYS days behind latest"
+            echo ""
+            echo "Severely outdated packages:"
+            jq -r "(.production_packages + .development_packages) | .[] | select(.time_lag_days != null and .time_lag_days > $MAX_LAG_DAYS) | \"  - \(.package_name): \(.time_lag_days) days behind\"" ossiq-report.json
+            exit 1
+          fi
+
+          echo ""
+          echo "✅ PASSED: No critical issues detected"

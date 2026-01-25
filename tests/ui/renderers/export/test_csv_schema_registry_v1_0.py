@@ -304,7 +304,7 @@ value1,value2
 
         # Assert
         assert is_valid is False
-        assert len(errors) > 0
+        assert len(errors) > 0, str(errors)
         assert "should have exactly 1 data row" in errors[0]
 
     def test_validate_csv_with_empty_packages(self, registry, tmp_path):

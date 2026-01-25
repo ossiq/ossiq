@@ -32,6 +32,10 @@ markdown_extensions:
 
 theme:
   name: material
+  extra:
+    analytics:
+      provider: google
+      property: G-6GG5NRKT0J
   custom_dir: docs/overrides
   palette: 
     - scheme: default

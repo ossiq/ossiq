@@ -49,13 +49,13 @@ class ConsoleScanRenderer(AbstractUserInterfaceRenderer):
         """
         lag_threshold_days = kwargs.get("lag_threshold_days", 180)
         table_prod = self._table_factory(
-            "Production Packages Version Status", "bold green", data.production_packages, lag_threshold_days
+            "Production Dependency Drift Report", "bold green", data.production_packages, lag_threshold_days
         )
 
         table_dev = None
         if data.development_packages:
             table_dev = self._table_factory(
-                "Optional Packages Version Status", "bold cyan", data.development_packages, lag_threshold_days
+                "Optional Dependency Drift Report", "bold cyan", data.development_packages, lag_threshold_days
             )
 
         # Header
@@ -84,10 +84,10 @@ class ConsoleScanRenderer(AbstractUserInterfaceRenderer):
         table = Table(title=title, title_style=title_style)
         table.add_column("Dependency", justify="left", style="bold cyan")
         table.add_column("CVEs", justify="center")
-        table.add_column("Lag Status", justify="center")
+        table.add_column("Drift Status", justify="center")
         table.add_column("Installed", justify="left")
         table.add_column("Latest", justify="left")
-        table.add_column("Release Lag", justify="right")
+        table.add_column("Releases Distance", justify="right")
         table.add_column("Time Lag", justify="right")
 
         for pkg in dependencies:

@@ -10,33 +10,22 @@ from ossiq.ui.html.filter_format_highlight_days import FormatHighlightDaysFilter
 from ossiq.ui.html.tag_versions_difference import VersionsDifferenceTagExtension
 
 
-def configure_template_environment(base_template: str, module_file: str | None = None):
+def configure_template_environment(base_template: str):
     """
-    Configure HTML templates engine environment for a specific command.
-    The `base_template` argument implies that the rest of command templates
-    located relatively to the base template.
-
-    Args:
-        base_template: Template path (relative to package or absolute)
-        module_file: __file__ of calling module for relative path resolution.
-                     If provided, base_template is resolved relative to the module's directory.
+    Configures Jinja2 to look inside the installed 'ossiq' package.
     """
-
-    if module_file:
-        # Make path relative to calling module
-        module_dir = os.path.dirname(module_file)
-        templates_path = os.path.join(module_dir, os.path.dirname(base_template))
-        base_template_name = os.path.basename(base_template)
-    else:
-        # Original behavior - relative to package root
-        templates_path = os.path.dirname(base_template)
-        base_template_name = os.path.basename(base_template)
+    # Extract the directory and filename from the path provided
+    # e.g., "html_templates/main.html" -> "html_templates", "main.html"
+    templates_subpath = os.path.dirname(base_template)
+    base_template_name = os.path.basename(base_template)
 
     env = Environment(
         loader=ChoiceLoader(
             [
-                PackageLoader("ossiq", package_path="./ui/html_templates"),
-                PackageLoader("ossiq", package_path=templates_path),
+                # 1. Look in the specific UI templates folder
+                PackageLoader("ossiq", "ui/html_templates"),
+                # 2. Look in the path relative to the ossiq root as a fallback
+                PackageLoader("ossiq", templates_subpath),
             ]
         ),
         extensions=[VersionsDifferenceTagExtension, FormatHighlightDaysFilterExtension],

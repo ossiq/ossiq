@@ -1,126 +1,78 @@
 ---
 title: Getting Started
-description: A First Tutorial on Something Important
+description: OSS IQ solves the problem of unmanaged dependency drift and invisible transitive supply-chain risk by replacing alert-driven, CVE-centric tooling with calm, longitudinal, and deterministic analysis that enables planned, context-aware remediation at scale.
+
 weight: 2
 ---
 
 # Getting Started
 
-**OSS IQ** provides deep visibility into the risk profile of your open-source ecosystem. By analyzing both direct and transitive dependencies, it identifies security vulnerabilities and maintenance "red flags" before they reach production.
+**OSS IQ** helps software teams understand and remediate dependency drift and transitive supply-chain risk before it turns into an emergency. Instead of alert-driven, CVE-centric tooling that forces *reactive upgrades*, OSS IQ uses static analysis of dependency files and project structure to provide calm, longitudinal insight into dependency health. It makes version drift, systemic risk, and maintenance red flags explicit—so remediation can be planned, contextual, and safe.
 
-Built for Platform Teams OSS IQ bridges the gap between raw dependency data and actionable intelligence. It supports flexible output formats—ranging from **interactive HTML reports** and **rich console output** for human review, to **JSON** and **CSV** for automated workflows. This versatility allows teams to enforce security standards across diverse CI pipelines and repositories without the friction of a heavy, proprietary security toolchain.
+Built for **Platform and Infrastructure teams**, OSS IQ bridges the gap between raw dependency data and actionable engineering decisions. It analyzes both direct and transitive dependencies and produces outputs designed for real workflows: **interactive HTML reports** and **rich CLI output** for human review, alongside **JSON** and **CSV** for automation and policy enforcement. This lets teams apply consistent dependency and supply-chain standards across repositories and CI pipelines without adopting a heavy, proprietary security toolchain.
+
 
 ## Quick Start
 
-!!! note "GitHub Token Required"
+Get **OSS IQ** up and running in your terminal to analyze your first project.
 
-    GitHub limits unauthenticated requests to 60/hour—insufficient for full scans.
-    Set a token before running:
+!!! note
+
+    GitHub Token Required for Full Analysis > GitHub limits unauthenticated API requests to 60 per hour, 
+    which is typically insufficient for a full scan. Because OSS IQ employs 
+    Mining Software Repository (MSR) techniques to analyze differences across 
+    many versions (e.g., high-velocity projects like TypeScript), 
+    it may perform hundreds of requests per run.
+
+    To ensure a complete analysis, please provide a GitHub Personal Access Token (PAT):
 
     ```bash
     export OSSIQ_GITHUB_TOKEN=$(gh auth token)
+    oss-iq scan ./your-project
     ```
 
-1. **Install**
+ 1. Install and run OSS IQ in **dev mode**
 
     ```bash
-    pip install ossiq
+    git clone https://github.com/ossiq/ossiq.git
+    cd ossiq
+    uv sync
+
+    OSSIQ_GITHUB_TOKEN=$(gh auth token) \
+    uv run hatch run ossiq-cli scan testdata/npm/project1/
     ```
 
-2. **Scan a project**
+ 2. Run your first analysis
 
-    Point OSS IQ at any project—it auto-detects `package.json`, `uv.lock`, `requirements.txt`, and other dependency files.
+    OSS IQ works best with the popular ecosystem dependency formats e.g. for **NPM** its [package.json](https://docs.npmjs.com/cli/v7/configuring-npm/package-json) or [package-lock.json](https://docs.npmjs.com/cli/v8/configuring-npm/package-lock-json),
+    and for **PyPI** its [pylock.toml](https://packaging.python.org/en/latest/specifications/pylock-toml/#pylock-toml-spec),  [uv.lock](https://docs.astral.sh/uv/concepts/projects/layout/#the-lockfile), or classic [requirements.txt](https://pip.pypa.io/en/stable/reference/requirements-file-format/).
+
+    You can point it at an existing project and OSS IQ will **detect dependencies automatically**.
 
     ```bash
-    ossiq-cli scan ./
+    OSSIQ_GITHUB_TOKEN=$(gh auth token) \
+    uv run hatch run ossiq-cli scan testdata/npm/project1/ 
     ```
 
-3. **Review output**
+ 3. Understand the Output
+    OSS IQ provides a high-level risk score and breaks down specific signals for both security (vulnerabilities) and maintenance (activity, overhead, and health).
 
-    OSS IQ shows a risk summary with CVEs, version lag, and maintenance signals:
-
-
-    ```bash
-
-    ╭─────────────────────────────────────────╮
-    │ 📦 Project: example                     │
-    │ 🔗 Packages Registry: NPM               │
-    │ 📍 Project Path: testdata/npm/project1/ │
-    ╰─────────────────────────────────────────╯
-
-
-                            Production Packages Version Status                           
-    ┏━━━━━━━━━━━━━━━━━━━┳━━━━━━┳━━━━━━━━━━━━┳━━━━━━━━━━━┳━━━━━━━━┳━━━━━━━━━━━━━┳━━━━━━━━━━┓
-    ┃ Dependency        ┃ CVEs ┃ Lag Status ┃ Installed ┃ Latest ┃ Release Lag ┃ Time Lag ┃
-    ┡━━━━━━━━━━━━━━━━━━━╇━━━━━━╇━━━━━━━━━━━━╇━━━━━━━━━━━╇━━━━━━━━╇━━━━━━━━━━━━━╇━━━━━━━━━━┩
-    │ react-hook-form-5 │  1   │    N/A     │ 90.9.0    │ N/A    │           2 │       0d │
-    │ mustache          │  1   │   Major    │ 2.2.0     │ 4.2.0  │          18 │       5y │
-    │ vue               │      │   Major    │ 1.0.23    │ 3.5.25 │         413 │      10y │
-    │ i18n              │      │   Minor    │ 0.9.1     │ 0.15.3 │          16 │       5y │
-    │ luxon             │      │   Patch    │ 3.7.0     │ 3.7.2  │           3 │       2m │
-    │ bootstrap         │      │   Latest   │ 5.3.8     │ 5.3.8  │           0 │       0d │
-    └───────────────────┴──────┴────────────┴───────────┴────────┴─────────────┴──────────┘
-    ```
-
-4. **Generate HTML report**
-
-    ```bash
-    ossiq-cli scan --presentation=html --output=./ossiq_report.html ./
-    ```
-
-    ![OSS IQ HTML report](/img/ossiq-report-html-light.png){ align=left }
-
-
-## Export
-
-### Export to JSON
-
-```bash
-export OSSIQ_GITHUB_TOKEN=$(gh auth token)
-ossiq-cli export --output-format=json --output=./ossiq_metrics.json ./
 ```
+╭─────────────────────────────────────────╮
+│ 📦 Project: example                     │
+│ 🔗 Packages Registry: NPM               │
+│ 📍 Project Path: testdata/npm/project1/ │
+╰─────────────────────────────────────────╯
 
-This creates an `ossiq_metrics.json` file containing a structured representation of your project's dependency metrics. This format is ideal for CI/CD pipelines, custom dashboards, or programmatic access. The format follows the [JSON schema](https://github.com/ossiq/ossiq-cli/blob/main/src/ossiq/ui/renderers/export/schemas/export_schema_v1.0.json).
 
-### Export to CSV
-
-```bash
-export OSSIQ_GITHUB_TOKEN=$(gh auth token)
-ossiq-cli export --output-format=csv --output=./ossiq_metrics ./
+                           Production Dependency Drift Report                           
+┏━━━━━━━━━━━━┳━━━━━━┳━━━━━━━━━━━━━━┳━━━━━━━━━━━┳━━━━━━━━┳━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━┓
+┃ Dependency ┃ CVEs ┃ Drift Status ┃ Installed ┃ Latest ┃ Releases Distance ┃ Time Lag ┃
+┡━━━━━━━━━━━━╇━━━━━━╇━━━━━━━━━━━━━━╇━━━━━━━━━━━╇━━━━━━━━╇━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━┩
+│ vue        │      │    Major     │ 1.0.28    │ 3.5.27 │               409 │       9y │
+│ mustache   │      │    Major     │ 2.3.2     │ 4.2.0  │                14 │       3y │
+│ i18n       │      │    Minor     │ 0.9.1     │ 0.15.3 │                16 │       5y │
+│ luxon      │      │    Latest    │ 3.7.2     │ 3.7.2  │                 1 │       0d │
+│ bootstrap  │      │    Latest    │ 5.3.8     │ 5.3.8  │                 0 │       0d │
+└────────────┴──────┴──────────────┴───────────┴────────┴───────────────────┴──────────┘
 ```
-
-This generates a [Tabular Data Package](https://specs.frictionlessdata.io/tabular-data-package/) following [the schema](https://github.com/ossiq/ossiq/tree/main/src/ossiq/ui/renderers/export/schemas/csv) with CSV files in the `ossiq_metrics` directory.
-
-
-## Docker
-
-Run OSS IQ without installing Python dependencies using the [official Docker image](https://hub.docker.com/r/ossiq/ossiq-cli).
-
-1. **Scan a project**
-
-    ```bash
-    docker run --rm \
-      -e OSSIQ_GITHUB_TOKEN=$(gh auth token) \
-      -v /path/to/your/project:/project:ro \
-      ossiq/ossiq-cli scan /project
-    ```
-
-2. **Generate HTML report**
-
-    ```bash
-    docker run --rm \
-      -e OSSIQ_GITHUB_TOKEN=$(gh auth token) \
-      -v /path/to/project:/project:ro \
-      -v $(pwd)/reports:/output \
-      ossiq/ossiq-cli scan --presentation=html --output=/output/report.html /project
-    ```
-
-3. **Export to JSON**
-
-    ```bash
-    docker run --rm \
-      -e OSSIQ_GITHUB_TOKEN=$(gh auth token) \
-      -v /path/to/project:/project:ro \
-      -v $(pwd)/reports:/output \
-      ossiq/ossiq-cli export --output-format=json --output=/output/metrics.json /project
-    ```
