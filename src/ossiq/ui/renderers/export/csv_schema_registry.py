@@ -189,8 +189,10 @@ class CsvSchemaRegistry:
         # Do this check even if report is not valid to catch all issues
         if schema_type == "summary":
             rows = extract(str(csv_path), encoding="utf-8-sig")
-            if len(rows) != 1:
-                errors.append(f"Summary CSV should have exactly 1 data row, found {len(rows)}")
+            # extract() returns a dict {resource_name: [rows...]}, get the row list
+            row_list = list(rows.values())[0]
+            if len(row_list) != 1:
+                errors.append(f"Summary CSV should have exactly 1 data row, found {len(row_list)}")
 
         return len(errors) == 0, errors
 
