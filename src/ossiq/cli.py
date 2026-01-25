@@ -1,5 +1,6 @@
 """Console script for ossiq-cli."""
 
+import importlib.metadata
 from typing import Annotated, Literal
 
 import typer
@@ -25,6 +26,17 @@ app = typer.Typer()
 console = Console()
 
 
+def version_callback(value: bool):
+    """
+    Extract package version from metadata
+    """
+
+    if value:
+        version = importlib.metadata.version("ossiq")
+        print(f"ossiq version: {version}")
+        raise typer.Exit()
+
+
 @app.callback()
 def main(
     context: typer.Context,
@@ -40,6 +52,15 @@ def main(
             is_flag=True,
             envvar=f"{Settings.ENV_PREFIX}_VERBOSE",
             help=f"Enable verbose output. Overrides {Settings.ENV_PREFIX}VERBOSE env var.",
+        ),
+    ] = False,
+    version: Annotated[  # pylint: disable=unused-argument
+        bool,
+        typer.Option(
+            "--version",
+            callback=version_callback,
+            is_eager=True,
+            help="Show the version and exit.",
         ),
     ] = False,
 ):

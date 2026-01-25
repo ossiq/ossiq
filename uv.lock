@@ -579,7 +579,7 @@ wheels = [
 
 [[package]]
 name = "frictionless"
-version = "5.0.4"
+version = "5.18.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "attrs" },
@@ -590,21 +590,21 @@ dependencies = [
     { name = "jsonschema" },
     { name = "marko" },
     { name = "petl" },
+    { name = "pydantic" },
     { name = "python-dateutil" },
     { name = "python-slugify" },
     { name = "pyyaml" },
     { name = "requests" },
     { name = "rfc3986" },
     { name = "simpleeval" },
-    { name = "stringcase" },
     { name = "tabulate" },
     { name = "typer" },
     { name = "typing-extensions" },
     { name = "validators" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/99/08/47b3344fa59227284dba4c58831ce6d8caa6e0a738d72a253a60c5851873/frictionless-5.0.4.tar.gz", hash = "sha256:9329b40ae0cec6aea97735dccbdcbb953d89c2be675e102056a14a970e44a480", size = 246013, upload-time = "2023-01-10T12:52:54.362Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/11/d0/c94675a1c1b8c12fd68489e2b4a924f80a2b122199cd986c58a5136197d2/frictionless-5.18.1.tar.gz", hash = "sha256:daeaf55f896eeb52b43e62600466af9528fe0aeeebd28b1b917e13322f370a8b", size = 74372478, upload-time = "2025-03-25T21:32:50.081Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/1f/ff/a39cef39718f55eda87b9b6efc6dd6140e10d0e5e7a292c2ffdc5d850719/frictionless-5.0.4-py2.py3-none-any.whl", hash = "sha256:edb672f00447c0781f8454beb82f9830046d33b50260dbecc0c9201ee3aba145", size = 434276, upload-time = "2023-01-10T12:52:52.708Z" },
+    { url = "https://files.pythonhosted.org/packages/a9/7a/dac76d31584bb4f874ae860490c9465f5b59bd8c110f68fbbb07aba48845/frictionless-5.18.1-py3-none-any.whl", hash = "sha256:3f4c87469a89bdb88e9cc318088553a26f3d14839098f95c183ea01fc89628dd", size = 531615, upload-time = "2025-03-25T21:32:45.534Z" },
 ]
 
 [[package]]
@@ -1049,7 +1049,7 @@ wheels = [
 
 [[package]]
 name = "jsonschema"
-version = "4.23.0"
+version = "4.26.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "attrs" },
@@ -1057,9 +1057,9 @@ dependencies = [
     { name = "referencing" },
     { name = "rpds-py" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/38/2e/03362ee4034a4c917f697890ccd4aec0800ccf9ded7f511971c75451deec/jsonschema-4.23.0.tar.gz", hash = "sha256:d71497fef26351a33265337fa77ffeb82423f3ea21283cd9467bb03999266bc4", size = 325778, upload-time = "2024-07-08T18:40:05.546Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/b3/fc/e067678238fa451312d4c62bf6e6cf5ec56375422aee02f9cb5f909b3047/jsonschema-4.26.0.tar.gz", hash = "sha256:0c26707e2efad8aa1bfc5b7ce170f3fccc2e4918ff85989ba9ffa9facb2be326", size = 366583, upload-time = "2026-01-07T13:41:07.246Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/69/4a/4f9dbeb84e8850557c02365a0eee0649abe5eb1d84af92a25731c6c0f922/jsonschema-4.23.0-py3-none-any.whl", hash = "sha256:fbadb6f8b144a8f8cf9f0b89ba94501d143e50411a1278633f56a7acf7fd5566", size = 88462, upload-time = "2024-07-08T18:40:00.165Z" },
+    { url = "https://files.pythonhosted.org/packages/69/90/f63fb5873511e014207a475e2bb4e8b2e570d655b00ac19a9a0ca0a385ee/jsonschema-4.26.0-py3-none-any.whl", hash = "sha256:d489f15263b8d200f8387e64b4c3a75f06629559fb73deb8fdfb525f2dab50ce", size = 90630, upload-time = "2026-01-07T13:41:05.306Z" },
 ]
 
 [[package]]
@@ -1546,11 +1546,11 @@ dev = [
 requires-dist = [
     { name = "common-expression-language", specifier = ">=0.5.3" },
     { name = "coverage", marker = "extra == 'dev'", specifier = "~=7.13.1" },
-    { name = "frictionless", specifier = "~=5.0.0" },
+    { name = "frictionless", specifier = "~=5.18.1" },
     { name = "hatch", specifier = ">=1.15.1" },
     { name = "ipdb", marker = "extra == 'dev'", specifier = "~=0.13.13" },
     { name = "jinja2", specifier = "~=3.1.6" },
-    { name = "jsonschema", specifier = "~=4.23.0" },
+    { name = "jsonschema", specifier = "~=4.26.0" },
     { name = "mkdocs", marker = "extra == 'docs'", specifier = "~=1.6.1" },
     { name = "mkdocs-material", marker = "extra == 'docs'", specifier = "~=9.7.1" },
     { name = "mkdocs-nav-weight", marker = "extra == 'docs'", specifier = "~=0.3.0" },
@@ -2368,12 +2368,6 @@ sdist = { url = "https://files.pythonhosted.org/packages/28/e3/55dcc2cfbc3ca9c29
 wheels = [
     { url = "https://files.pythonhosted.org/packages/f1/7b/ce1eafaf1a76852e2ec9b22edecf1daa58175c090266e9f6c64afcd81d91/stack_data-0.6.3-py3-none-any.whl", hash = "sha256:d5558e0c25a4cb0853cddad3d77da9891a08cb85dd9f9f91b9f8cd66e511e695", size = 24521, upload-time = "2023-09-30T13:58:03.53Z" },
 ]
-
-[[package]]
-name = "stringcase"
-version = "1.2.0"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/f3/1f/1241aa3d66e8dc1612427b17885f5fcd9c9ee3079fc0d28e9a3aeeb36fa3/stringcase-1.2.0.tar.gz", hash = "sha256:48a06980661908efe8d9d34eab2b6c13aefa2163b3ced26972902e3bdfd87008", size = 2958, upload-time = "2017-08-06T01:40:57.021Z" }
 
 [[package]]
 name = "tableschema"

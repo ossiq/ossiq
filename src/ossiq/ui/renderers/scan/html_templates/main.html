@@ -32,6 +32,13 @@
     header {
       font-family: 'Raleway', sans-serif;
     }
+    /* Swiss Design often uses strong grids */
+    .swiss-grid {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      border-top: 4px solid #000;
+      padding-top: 1.5rem;
+    }
   </style>
 </head>
 
@@ -47,6 +54,16 @@
         <span class="text-xs pl-5">Dependencies Intelligence</span>
       </div>
 
+      <div class="flex flex-col md:flex-row md:items-center gap-4">
+        <span class="inline-flex items-center px-3 py-1 bg-black text-white text-xs font-bold uppercase tracking-widest">
+          Project
+        </span>
+        <span class="text-xl font-medium tracking-tight">
+          {{ project_scan.project_name }}
+        </span>
+      </div>
+
+
       <!-- GitHub Link -->
       <a href="https://github.com/ossiq/ossiq/" target="_blank" class="flex items-center space-x-1 text-gray-700 dark:text-gray-300 
                 hover:text-black dark:hover:text-white transition font-medium">
@@ -57,27 +74,41 @@
     </div>
   </header>
 
-  <main class="flex-grow max-w-7xl mx-auto p-6 space-y-6">
-    <h1 class="text-2xl font-medium">
-      <span class="flex items-center space-x-2">
-        <span>
-          Project Update-Lag Report for the project
-          <span class="font-semibold">&ldquo;{{ project_scan.project_name }}&rdquo;</span>
-        </span>
-        <span>
-          <a href="javascript:void();" rel="report-help" id="repoert-help-toggle">
-            <span
-              class="material-symbols-rounded text-base text-gray-500 dark:text-gray-300 text-xl mr-2 mt-2">info</span>
+  <main class="flex-grow max-w-7xl mx-auto p-4 space-y-6">
+    <div class="flex justify-between">
+      <div class="flex flex-col justify-center">
+        <div class="flex items-start">
+          <h1 class="text-2xl md:text-3xl font-black tracking-tighter leading-none uppercase max-w-2xl">
+            Dependency Drift <span class="text-gray-400">Report</span>
+          </h1>
+          
+          <a href="javascript:void(0);" 
+            rel="report-help" 
+            id="repoert-help-toggle"
+            class="p-1 hover:opacity-75 transition ounded-full">
+            <span class="material-symbols-rounded block text-2xl">info</span>
           </a>
-        </span>
-      </span>
-    </h1>
+        </div>
+      </div>    
+
+      <!-- Right Section: The Timestamp as a Design Object -->
+      <div class="flex flex-col items-end justify-between">
+        <div class="flex flex-col items-end">
+          <span class="text-xl font-light">
+            {{ now.strftime("%B %d, %Y") }}
+          </span>
+          <span class="font-mono text-sm font-bold text-black bg-yellow-300 px-1 mt-1">
+            {{ now.strftime("%H:%M:%S") }} UTC
+          </span>
+        </div>
+      </div>
+    </div>
+
     <div class="flex hidden" id="report-help">
       <p class="text-sm text-slate-500 mt-1 w-3/4">
-        <strong>Dependencies Lag</strong> measures how many major, minor, or patch releases your project is
-        behind the latest version of each open-source package it uses.
-        It's a simple way to see how “old” your dependencies are so you can quickly
-        spot what needs updating first.
+        <strong>Dependency Drift</strong> quantifies the version distance between installed and latest releases, segmented by 
+        major, minor, and patch changes. This provides a deterministic signal of accumulated change 
+        and remediation effort across both direct and transitive dependencies.
       </p>
     </div>
 
@@ -117,10 +148,10 @@
               </select>
             </div>
 
-            <!-- Lag Status -->
+            <!-- Drift Status -->
             <div class="w-full sm:w-32">
               <label class="block text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-1">
-                Lag Status
+                Drift Status
               </label>
               <select data-filter-type="value" data-target-id="version-diff-index" class="w-full h-9 rounded-md bg-gray-50 dark:bg-gray-900
                  border border-gray-300 dark:border-gray-600
@@ -134,10 +165,10 @@
               </select>
             </div>
 
-            <!-- Release Lag -->
+            <!-- Release Drift -->
             <div class="w-full sm:w-32">
               <label class="block text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-1">
-                Releases Lag
+                Release Distance
               </label>
               <select data-filter-type="range" data-target-id="releases-lag" class="w-full h-9 rounded-md bg-gray-50 dark:bg-gray-900
                  border border-gray-300 dark:border-gray-600
@@ -214,7 +245,7 @@
               </th>
               <th class="px-6 py-3 font-semibold">
                 <span class="flex items-center space-x-2">
-                  <span data-label-for="version-diff-index">Lag Status</span>
+                  <span data-label-for="version-diff-index">Drift Status</span>
                   {{ sort_control("version-diff-index") }}
                 </span>
               </th>
@@ -232,7 +263,7 @@
               </th>
               <th class="px-6 py-3 font-semibold">
                 <span class="flex items-center space-x-2">
-                  <span data-label-for="releases-lag">Releases Lag</span>
+                  <span data-label-for="releases-lag">Releases Distance</span>
                   {{ sort_control("releases-lag") }}
                 </span>
               </th>
@@ -307,43 +338,42 @@
         </h2>
 
         <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-          <!-- Major Lag -->
+          <!-- Major Drift -->
           <div class="flex items-start space-x-3">
             <span class="block w-3 h-3 mt-1 rounded-full bg-red-500"></span>
             <div>
               <div class="text-sm font-semibold text-gray-900 dark:text-gray-100">
-                Lag Status: <strong>MAJOR</strong>
+                Drift Status: <strong>MAJOR</strong>
               </div>
               <p class="text-xs text-gray-600 dark:text-gray-400 leading-relaxed">
-                Your dependency is one or more **major versions** behind, indicating breaking changes
-                and potentially significant refactoring needs.
+                Your dependency is one or more **major versions** behind, 
+                implying accumulated breaking changes and higher remediation effort if addressed.
               </p>
             </div>
           </div>
 
-          <!-- Minor Lag -->
+          <!-- Minor Drift -->
           <div class="flex items-start space-x-3">
             <span class="block w-3 h-3 mt-1 rounded-full bg-amber-500"></span>
             <div>
               <div class="text-sm font-semibold text-gray-900 dark:text-gray-100">
-                Lag Status: <strong>MINOR</strong>
+                Drift Status: <strong>MINOR</strong>
               </div>
               <p class="text-xs text-gray-600 dark:text-gray-400 leading-relaxed">
-                New non-breaking features are available; updating is recommended but usually low-risk.
+                Behind on non-breaking feature releases; remediation is typically low-risk and can be planned opportunistically.
               </p>
             </div>
           </div>
 
-          <!-- Patch Lag -->
+          <!-- Patch Drift -->
           <div class="flex items-start space-x-3">
             <span class="block w-3 h-3 mt-1 rounded-full bg-blue-500"></span>
             <div>
               <div class="text-sm font-semibold text-gray-900 dark:text-gray-100">
-                Lag Status: <strong>PATCH</strong>
+                Drift Status: <strong>PATCH</strong>
               </div>
               <p class="text-xs text-gray-600 dark:text-gray-400 leading-relaxed">
-                Only bugfixes or security patches are missing; these updates are typically
-                straightforward.
+                Missing bugfixes or security patches; remediation effort is usually minimal.
               </p>
             </div>
           </div>
@@ -353,10 +383,10 @@
             <span class="block w-3 h-3 mt-1 rounded-full bg-emerald-500"></span>
             <div>
               <div class="text-sm font-semibold text-gray-900 dark:text-gray-100">
-                Lag Status: <strong>LATEST</strong>
+                Drift Status: <strong>LATEST</strong>
               </div>
               <p class="text-xs text-gray-600 dark:text-gray-400 leading-relaxed">
-                No newer versions are available; the dependency requires no immediate action.
+                Aligned with the latest release; no remediation required at this time.
               </p>
             </div>
           </div>
@@ -368,10 +398,10 @@
             </span>
             <div>
               <div class="text-sm font-semibold text-gray-900 dark:text-gray-100">
-                Releases Lag
+                Release Distance
               </div>
               <p class="text-xs text-gray-600 dark:text-gray-400 leading-relaxed">
-                How many releases behind package installed version,
+                The number and type of releases between the installed version and the latest available version.
                 e.g., <code>1.0.0</code> to <code>1.0.1</code> is <span class="dark:text-blue-500 text-blue-500">1
                   patch release</span>,
                 <code>1.0.0</code> to <code>1.1.0</code> is <span class="text-amber-500">1 minor
@@ -392,8 +422,8 @@
                 Time Lag
               </div>
               <p class="text-xs text-gray-600 dark:text-gray-400 leading-relaxed">
-                How much time past by between installed version and latest release.
-                The color of the number of days indicates the following:
+                The time elapsed between the installed version and the latest available release. 
+                Color indicates how far the dependency has drifted relative to configured thresholds.
                 <span class="text-emerald-500">Green</span>: less than {{ lag_threshold_days }} days,
                 <span class="text-amber-500">Orange</span>: more than {{ lag_threshold_days }} days,
                 <span class="text-red-500">Red</span>: more than {{ lag_threshold_days * 2 }} days.

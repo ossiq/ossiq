@@ -178,3 +178,16 @@ The version in the Docker image comes from the installed Python package, which i
 
 3. Update Docker Hub README:
    - Copy content from `DOCKER_README.md` to the Docker Hub repository description
+
+### Common Issues
+
+One of the typical packaging issue is to make sure that all necessary
+assets are included alongside source code. The practical use case
+is **HTML templates** (see `[tool.hatch.build.targets.wheel.force-include]` section
+of `pyproject.toml`).
+
+To validate that specific files are present in the build, use bash command:
+
+```bash
+unzip -l dist/ossiq-0.1.3-py3-none-any.whl | grep ".html"
+```
