@@ -2,6 +2,103 @@
 
 
 
+## v0.1.4 (2026-01-25)
+
+
+### Feature
+
+* feat: initial Dockerfile implementation with documentation (GH-6) ([`e1068f9`](https://github.com/ossiq/ossiq/commit/e1068f97954731aca251a14b69eb7535046239c8))
+Added initial Dockerfile implementation
+and tested with colored and black-and-white output.
+b/c of Rust dependency in common-expression-language
+had to build two-phase (build, prod) Dockerfile.
+
+
+### Fix
+
+* fix: fixed test for csv schema validation and updated readme screenshot GH-5 ([`875a120`](https://github.com/ossiq/ossiq/commit/875a120269159870f2b09758293c9504eda81312))
+
+* fix: aligned terminology with html report (GH-5) ([`7edf901`](https://github.com/ossiq/ossiq/commit/7edf90141c0b7821e3d6db4a6ebe60de155d449d))
+Aligned terminology to be more sharp with each
+metric collected for console report.
+
+* fix: html templates in python package and template improvements (GH-5) ([`ce26cdd`](https://github.com/ossiq/ossiq/commit/ce26cdd2f5e94b581d03dbd72d69f348aaa8133b))
+Fixed assets build for pypi package to include html report templates.
+Additionally, improved wording and added date to HTML report for
+better clarity.
+
+
+### Documentation
+
+* docs: updated docs with latest screenshots and console reports (GH-5) ([`e8f2733`](https://github.com/ossiq/ossiq/commit/e8f2733855bf82be18f51b9d77812ad58e8dc67a))
+Updated all the screenshots, added sample report to the landing
+and some other maintenance stuff.
+
+* docs: finished first analysis and github actions tutorials (GH-5) ([`9c4bed5`](https://github.com/ossiq/ossiq/commit/9c4bed565d2e1e5bfd3ef22317b66385d1f9ebfd))
+Updated Getting Started with slightly sharper framing and
+finished two tutorials: First Analysis and Github Actions.
+Added Google Analytics for the landing page.
+
+* docs: updated getting started and landing (GH-6) ([`2c995a8`](https://github.com/ossiq/ossiq/commit/2c995a8311b34115d04079a829cec73d8725af17))
+
+ - Updated Getting Started section with Export and Docker subsections
+ - Updated Landing page with new HTML report screenshot
+
+* docs(contribution): Updated CONTRIBUTING.md with latest changes (GH-11) ([`7a44238`](https://github.com/ossiq/ossiq/commit/7a44238093cca18cbccdd454383563feef6603e1))
+
+
+### CI
+
+* ci: added quality gate dogfood workflow (GH-5) ([`dfc7401`](https://github.com/ossiq/ossiq/commit/dfc74016cfe3359c44ee27e5e9ac9922bb071acc))
+Created quality gate based on own tutorial
+to threshould versions lag and fail on CVEs.
+
+* ci: updated workflows for tests and release to docker hub (GH-6) ([`f1eba1b`](https://github.com/ossiq/ossiq/commit/f1eba1b794f8bb7fcfea1f61764d4c7091870619))
+
+ - Added python 3.11-3.14 to test workflow
+ - Added GA environment name to docker.yml
+
+
+### Chore
+
+* chore: removed python 3.10 from the list of supported versions (GH-6) ([`be2d64f`](https://github.com/ossiq/ossiq/commit/be2d64f533c45a32c8482bd32d78b9b833d32e52))
+common-expression-language requires python 3.11+
+
+* chore: Added RELEASE.md documentation (GH-11) ([`41ef530`](https://github.com/ossiq/ossiq/commit/41ef530e2f0605e2759797d8c0863f9a7c29b186))
+
+* chore: fixed tip after the release (GH-11) ([`f57781b`](https://github.com/ossiq/ossiq/commit/f57781b2558e05b57d8d99a603ff6043a5d7eb28))
+
+
+### Unknown
+
+* unknown: Bump urllib3 from 2.5.0 to 2.6.3 in the uv group across 1 directory ([`e85bb3e`](https://github.com/ossiq/ossiq/commit/e85bb3e975f5015c6670aaa1369c4eef8ef60995))
+Bumps the uv group with 1 update in the / directory: [urllib3](https://github.com/urllib3/urllib3).
+Updates `urllib3` from 2.5.0 to 2.6.3
+- [Release notes](https://github.com/urllib3/urllib3/releases)
+- [Changelog](https://github.com/urllib3/urllib3/blob/main/CHANGES.rst)
+- [Commits](https://github.com/urllib3/urllib3/compare/2.5.0...2.6.3)
+---
+updated-dependencies:
+- dependency-name: urllib3
+  dependency-version: 2.6.3
+  dependency-type: indirect
+  dependency-group: uv
+...
+
+* unknown: Bump virtualenv in the uv group across 1 directory ([`2cefc8b`](https://github.com/ossiq/ossiq/commit/2cefc8b6b75ae8633e71b9ab9061d9bca3e9d275))
+Bumps the uv group with 1 update in the / directory: [virtualenv](https://github.com/pypa/virtualenv).
+Updates `virtualenv` from 20.35.4 to 20.36.1
+- [Release notes](https://github.com/pypa/virtualenv/releases)
+- [Changelog](https://github.com/pypa/virtualenv/blob/main/docs/changelog.rst)
+- [Commits](https://github.com/pypa/virtualenv/compare/20.35.4...20.36.1)
+---
+updated-dependencies:
+- dependency-name: virtualenv
+  dependency-version: 20.36.1
+  dependency-type: indirect
+  dependency-group: uv
+...
+
 ## v0.1.3 (2026-01-15)
 
 
