@@ -12,7 +12,7 @@ Follow these steps to create and publish a new release:
 1.  **Ensure `production` branch is up-to-date**:
     ```bash    
     git checkout production
-    git merge -ff-only main
+    git merge --ff-only main
     ```
 
 2.  **Run the release script (dry-run first)**:
@@ -181,6 +181,7 @@ The version in the Docker image comes from the installed Python package, which i
 
 ### Common Issues
 
+#### How to include additional assets
 One of the typical packaging issue is to make sure that all necessary
 assets are included alongside source code. The practical use case
 is **HTML templates** (see `[tool.hatch.build.targets.wheel.force-include]` section
@@ -190,4 +191,25 @@ To validate that specific files are present in the build, use bash command:
 
 ```bash
 unzip -l dist/ossiq-0.1.3-py3-none-any.whl | grep ".html"
+```
+
+#### No duplicate assets
+
+Similarly to previous problem, another risk is to include twice the same asset.
+
+PyPI would report during release proces something like:
+
+```
+Uploading ossiq-0.1.4-py3-none-any.whl
+WARNING  Error during upload. Retry with the --verbose option for more details. 
+ERROR    HTTPError: 400 Bad Request from https://upload.pypi.org/legacy/        
+         Invalid distribution file. ZIP archive not accepted: Duplicate filename
+         in local headers. See https://docs.pypi.org/archives for more          
+         information  
+```
+
+And to identify what is wrong follow similar command:
+
+```bash
+python3 -m zipfile -l dist/ossiq-0.1.4-py3-none-any.whl
 ```

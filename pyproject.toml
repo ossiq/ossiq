@@ -105,10 +105,6 @@ include = [
 [tool.hatch.build.targets.wheel]
 packages = ["src/ossiq"]
 
-[tool.hatch.build.targets.wheel.force-include]
-# Explicitly mapping the directory as a secondary safety measure
-"src/ossiq/ui/html_templates" = "ossiq/ui/html_templates"
-
 [tool.ty]
 # All rules are enabled as "error" by default; no need to specify unless overriding.
 # Example override: relax a rule for the entire project (uncomment if needed).
