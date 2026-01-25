@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "ossiq"
-version = "0.1.4"
+version = "0.1.5"
 license = "AGPL-3.0-only"
 
 description = "Utility to forecast risks associated with currently installed packages updates"

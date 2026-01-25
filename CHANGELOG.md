@@ -2,6 +2,13 @@
 
 
 
+## v0.1.5 (2026-01-25)
+
+
+### CI
+
+* ci: fix duplicate assets record inside wheel archive (GH-5) ([`d29f4c8`](https://github.com/ossiq/ossiq/commit/d29f4c8ce3b909cf0cb6d485f8b8d19177795243))
+
 ## v0.1.4 (2026-01-25)
 
 
