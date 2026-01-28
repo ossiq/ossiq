@@ -25,7 +25,7 @@ class HtmlScanRenderer(AbstractUserInterfaceRenderer):
         """Check if this renderer handles scan/html combination."""
         return command == Command.SCAN and user_interface_type == UserInterfaceType.HTML
 
-    def render(self, data: ProjectMetrics, **kwargs) -> None:  # type: ignore[override]
+    def render(self, data: ProjectMetrics, **kwargs) -> None:
         """
         Render project metrics to HTML file.
 
@@ -52,8 +52,8 @@ class HtmlScanRenderer(AbstractUserInterfaceRenderer):
         rendered_html = template.render(
             project_scan=data,
             lag_threshold_days=lag_threshold_days,
-            dependencies=data.production_packages + data.development_packages,
-            now=datetime.datetime.utcnow(),
+            dependencies=data.production_packages + data.optional_packages,
+            now=datetime.datetime.now(datetime.UTC),
         )
 
         # Resolve output path with project name placeholder

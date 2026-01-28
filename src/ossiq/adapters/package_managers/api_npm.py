@@ -5,11 +5,10 @@ Support of NPM package manager
 import json
 import os
 from collections import defaultdict, namedtuple
-from collections.abc import Callable
-from dataclasses import replace
-from itertools import chain
+from collections.abc import Callable, Iterable
 
 from ossiq.adapters.api_interfaces import AbstractPackageManagerApi
+from ossiq.adapters.package_managers.dependency_tree import BaseDependencyResolver
 from ossiq.adapters.package_managers.utils import find_lockfile_parser
 from ossiq.domain.exceptions import PackageManagerLockfileParsingError
 from ossiq.domain.packages_manager import NPM, PackageManagerType
@@ -22,6 +21,63 @@ NpmProject = namedtuple("NpmProject", ["manifest", "lockfile"])
 CATEGORIES_DEV = "development"
 CATEGORIES_OPTIONAL = "optional"
 CATEGORIES_PEER = "peer"
+
+
+class NPMResolverV3(BaseDependencyResolver):
+    """
+    Concrete resolver for NPM v3 lockfiles.
+    """
+
+    def get_all_packages(self) -> Iterable[dict]:
+        packages = self.raw_data.get("packages", {})
+        for path, data in packages.items():
+            pkg_info = data.copy()
+            pkg_info["_path"] = path
+            yield pkg_info
+
+    def extract_package_identity(self, pkg_data: dict) -> tuple[str, str]:
+        # IMPORTANT: In NPM v3, the root package is at path ""
+        # If it has a 'name' field, use it. Otherwise, use the lockfile top-level name.
+        name = pkg_data.get("name")
+        if not name:
+            path = pkg_data.get("_path", "")
+            # If path is empty string, it's the root project
+            name = self.raw_data.get("name") if path == "" else path.split("node_modules/")[-1]
+
+        version = pkg_data.get("version", "0.0.0")
+        return name, version
+
+    def get_raw_dependencies(self, pkg_data: dict) -> Iterable[tuple[str | None, Iterable[dict]]]:
+        # NPM v3 uses 'dependencies' and 'devDependencies' inside the package block
+        # NOTE: 'optionalDependencies' is also a common block in NPM!
+
+        yield None, [{"name": n, "version": c} for n, c in pkg_data.get("dependencies", {}).items()]
+        yield "development", [{"name": n, "version": c} for n, c in pkg_data.get("devDependencies", {}).items()]
+        yield "optional", [{"name": n, "version": c} for n, c in pkg_data.get("optionalDependencies", {}).items()]
+
+    def extract_package_metadata(self, pkg_data: dict) -> tuple[str | None, str | None, str | None]:
+        """
+        NPM 'resolved' is the source URL.
+        'engines' can be used as markers.
+        """
+        source = pkg_data.get("resolved")  # The registry URL or git link
+
+        # Mapping engines (node version) to the marker concept
+        engines = pkg_data.get("engines", {})
+        node = engines.get("node")
+        required_engine = f"node: {node}" if node else None
+
+        # NPM doesn't store the original 'version_defined' inside the package
+        # block itself, but rather in the parent's dependency list.
+        v_def = None
+
+        return source, required_engine, v_def
+
+    def extract_dependency_identity(self, dep_data: dict) -> tuple[str, str | None]:
+        """
+        In NPM's dependency list, 'version' is actually the constraint (e.g., ^1.2.3).
+        """
+        return dep_data["name"], dep_data.get("version")
 
 
 class PackageManagerJsNpm(AbstractPackageManagerApi):
@@ -80,52 +136,15 @@ class PackageManagerJsNpm(AbstractPackageManagerApi):
 
     def parse_lockfile_v3(
         self,
-        nominal_dependencies: dict[str, Dependency],
-        nominal_optional_dependencies: dict[str, Dependency],
         lockfile_data: dict,
-    ) -> tuple[dict[str, Dependency], dict[str, Dependency]]:
+    ) -> Dependency:
         """
         Lockfile parser for NPM
         """
-        packages = lockfile_data.get("packages", {})
-        main_package = packages.get("", None)
+        resolver = NPMResolverV3(lockfile_data)
+        return resolver.build_graph(lockfile_data["name"])
 
-        if not main_package:
-            raise PackageManagerLockfileParsingError("Cannot extract project package from NPM lockfile")
-
-        # Go through nominal dependencies
-        dependencies = {}
-        optional_dependencies = {}
-
-        for package_name, package_instance in chain(
-            nominal_dependencies.items(), nominal_optional_dependencies.items()
-        ):
-            installed_package_name = f"node_modules/{package_name}"
-            if installed_package_name not in packages:
-                raise PackageManagerLockfileParsingError(
-                    f"Couldn't resolve {package_name}: {installed_package_name} not found in lockfile/packages section"
-                )
-            installed_package = packages[installed_package_name]
-            version = installed_package.get("version", None)
-
-            if not version:
-                raise PackageManagerLockfileParsingError(
-                    f"Couldn't extract version for {package_name}: {installed_package}"
-                )
-
-            updated_package_instance = replace(
-                package_instance,
-                version_installed=version,
-            )
-            if package_name in nominal_dependencies:
-                dependencies[package_name] = updated_package_instance
-
-            if package_name in nominal_optional_dependencies:
-                optional_dependencies[package_name] = updated_package_instance
-
-        return dependencies, optional_dependencies
-
-    def parse_package_json(self, project_data: dict) -> tuple[dict[str, Dependency], dict[str, Dependency]]:
+    def parse_package_json(self, project_data: dict) -> Dependency:
         """
         Extracting dependencies and categories from package.json
         """
@@ -160,7 +179,12 @@ class PackageManagerJsNpm(AbstractPackageManagerApi):
                 if name not in dependencies and name not in optional_dependencies:
                     optional_dependencies[name] = create_dependency(name, version)
 
-        return dependencies, optional_dependencies
+        return Dependency(
+            name=project_data.get("name"),
+            version_installed=project_data.get("version"),
+            dependencies=dependencies,
+            optional_dependencies=optional_dependencies,
+        )
 
     def project_info(self) -> Project:
         """
@@ -177,41 +201,25 @@ class PackageManagerJsNpm(AbstractPackageManagerApi):
         fallback_name = os.path.basename(self.project_path)
         project_package_name = project_data.get("name", fallback_name)
 
-        def create_project(
-            dependencies: dict[str, Dependency], optional_dependencies: dict[str, Dependency]
-        ) -> Project:
+        def create_project(dependency_tree: Dependency) -> Project:
             return Project(
                 package_manager_type=self.package_manager_type,
                 name=project_package_name,
                 project_path=self.project_path,
-                dependencies=dependencies,
-                optional_dependencies=optional_dependencies,
+                dependency_tree=dependency_tree,
             )
 
         # Exceptional case, no lockfile
         if not project_files.lockfile:
-            dependencies, optional_dependencies = self.parse_package_json(project_data)
-
-            return create_project(
-                dependencies=dependencies,
-                optional_dependencies=optional_dependencies,
-            )
+            return create_project(dependency_tree=self.parse_package_json(project_data))
 
         # Lockfile present, let's parse it
         with open(project_files.lockfile, encoding="utf-8") as f:
             lockfile_data = json.load(f)
 
-        nominal_dependencies, nominal_optional_dependencies = self.parse_package_json(project_data)
         lockfile_parser = self.get_lockfile_parser(lockfile_data.get("lockfileVersion"))
 
-        dependencies, optional_dependencies = lockfile_parser(
-            nominal_dependencies, nominal_optional_dependencies, lockfile_data
-        )  # ty: ignore
-
-        return create_project(
-            dependencies=dependencies,
-            optional_dependencies=optional_dependencies,
-        )
+        return create_project(dependency_tree=lockfile_parser(lockfile_data))
 
     def __repr__(self):
         return f"{self.package_manager_type.name} Package Manager"

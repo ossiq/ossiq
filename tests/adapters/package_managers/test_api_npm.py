@@ -25,6 +25,7 @@ from ossiq.adapters.package_managers.api_npm import (
 )
 from ossiq.domain.exceptions import PackageManagerLockfileParsingError
 from ossiq.domain.packages_manager import NPM
+from ossiq.domain.project import Dependency
 from ossiq.settings import Settings
 
 # ============================================================================
@@ -316,17 +317,19 @@ class TestParsePackageJson:
         with open(Path(npm_project_with_lockfile) / "package.json", encoding="utf-8") as f:
             project_data = json.load(f)
 
-        dependencies, optional_dependencies = npm_manager.parse_package_json(project_data)
+        dependency_tree = npm_manager.parse_package_json(project_data)
 
         # Main dependencies should contain express and lodash
-        assert "express" in dependencies
-        assert "lodash" in dependencies
-        assert dependencies["express"].version_defined == "^4.18.0"
-        assert dependencies["lodash"].version_defined == "~4.17.21"
+        express = Dependency.lookup_by_name(dependency_tree.dependencies, "express")
+        lodash = Dependency.lookup_by_name(dependency_tree.dependencies, "lodash")
+        assert express is not None
+        assert lodash is not None
+        assert express.version_defined == "^4.18.0"
+        assert express.version_defined == "~4.17.21"
 
         # Version normalization should strip modifiers
-        assert dependencies["express"].version_installed == "4.18.0"
-        assert dependencies["lodash"].version_installed == "4.17.21"
+        assert express.version_installed == "4.18.0"
+        assert express.version_installed == "4.17.21"
 
     def test_parse_dev_dependencies(self, npm_project_with_lockfile, settings):
         """Test parsing devDependencies with categories."""
@@ -335,15 +338,17 @@ class TestParsePackageJson:
         with open(Path(npm_project_with_lockfile) / "package.json", encoding="utf-8") as f:
             project_data = json.load(f)
 
-        dependencies, optional_dependencies = npm_manager.parse_package_json(project_data)
+        dependency_tree = npm_manager.parse_package_json(project_data)
+        jest_package = Dependency.lookup_by_name(dependency_tree.optional_dependencies, "jest")
+        eslint_package = Dependency.lookup_by_name(dependency_tree.optional_dependencies, "eslint")
 
         # Dev dependencies should be in optional_dependencies
-        assert "jest" in optional_dependencies
-        assert "eslint" in optional_dependencies
+        assert jest_package is not None
+        assert eslint_package is not None
 
         # Verify categories are assigned
-        assert CATEGORIES_DEV in optional_dependencies["jest"].categories
-        assert CATEGORIES_DEV in optional_dependencies["eslint"].categories
+        assert CATEGORIES_DEV in jest_package.categories
+        assert CATEGORIES_DEV in eslint_package.categories
 
     def test_parse_optional_dependencies(self, npm_project_with_lockfile, settings):
         """Test parsing optionalDependencies category."""
@@ -352,11 +357,12 @@ class TestParsePackageJson:
         with open(Path(npm_project_with_lockfile) / "package.json", encoding="utf-8") as f:
             project_data = json.load(f)
 
-        dependencies, optional_dependencies = npm_manager.parse_package_json(project_data)
+        dependency_tree = npm_manager.parse_package_json(project_data)
+        fsevents_package = Dependency.lookup_by_name(dependency_tree.optional_dependencies, "fsevents")
 
         # Optional dependencies
-        assert "fsevents" in optional_dependencies
-        assert CATEGORIES_OPTIONAL in optional_dependencies["fsevents"].categories
+        assert fsevents_package is not None
+        assert CATEGORIES_OPTIONAL in fsevents_package.categories
 
     def test_parse_peer_dependencies(self, npm_project_with_lockfile, settings):
         """Test parsing peerDependencies category."""
@@ -365,11 +371,11 @@ class TestParsePackageJson:
         with open(Path(npm_project_with_lockfile) / "package.json", encoding="utf-8") as f:
             project_data = json.load(f)
 
-        dependencies, optional_dependencies = npm_manager.parse_package_json(project_data)
+        dependency_tree = npm_manager.parse_package_json(project_data)
+        react_package = Dependency.lookup_by_name(dependency_tree.optional_dependencies, "react")
 
-        # Peer dependencies
-        assert "react" in optional_dependencies
-        assert CATEGORIES_PEER in optional_dependencies["react"].categories
+        assert react_package is not None
+        assert CATEGORIES_PEER in react_package.categories
 
     def test_parse_dual_category_dependencies(self, npm_project_dual_category_deps, settings):
         """
@@ -383,19 +389,21 @@ class TestParsePackageJson:
         with open(Path(npm_project_dual_category_deps) / "package.json", encoding="utf-8") as f:
             project_data = json.load(f)
 
-        dependencies, optional_dependencies = npm_manager.parse_package_json(project_data)
-
+        dependency_tree = npm_manager.parse_package_json(project_data)
+        lodash_package = Dependency.lookup_by_name(dependency_tree.optional_dependencies, "lodash")
+        jest_package = Dependency.lookup_by_name(dependency_tree.optional_dependencies, "jest")
+        jest_package_prod = Dependency.lookup_by_name(dependency_tree.dependencies, "jest")
         # lodash should be in main dependencies (takes precedence)
-        assert "lodash" in dependencies
+        assert lodash_package is not None
         # lodash should also have dev category
-        assert CATEGORIES_DEV in dependencies["lodash"].categories
+        assert CATEGORIES_DEV in lodash_package.categories
 
         # jest should be in optional_dependencies (not in main dependencies)
-        assert "jest" in optional_dependencies
-        assert "jest" not in dependencies
+        assert jest_package is not None
+        assert jest_package_prod is None
         # jest should have both dev and peer categories
-        assert CATEGORIES_DEV in optional_dependencies["jest"].categories
-        assert CATEGORIES_PEER in optional_dependencies["jest"].categories
+        assert CATEGORIES_DEV in jest_package.categories
+        assert CATEGORIES_PEER in jest_package.categories
 
     def test_parse_empty_dependencies(self, temp_project_dir, settings):
         """Test parsing when project has no dependencies."""
@@ -407,10 +415,10 @@ class TestParsePackageJson:
         with open(package_json_path, encoding="utf-8") as f:
             project_data = json.load(f)
 
-        dependencies, optional_dependencies = npm_manager.parse_package_json(project_data)
+        dependency_tree = npm_manager.parse_package_json(project_data)
 
-        assert len(dependencies) == 0
-        assert len(optional_dependencies) == 0
+        assert len(dependency_tree.dependencies) == 0
+        assert len(dependency_tree.optional_dependencies) == 0
 
 
 # ============================================================================
@@ -425,53 +433,45 @@ class TestParseLockfileV3:
         """Test that lockfile parsing updates version_installed from lockfile."""
         npm_manager = PackageManagerJsNpm(npm_project_with_lockfile, settings)
 
-        with open(Path(npm_project_with_lockfile) / "package.json", encoding="utf-8") as f:
-            project_data = json.load(f)
         with open(Path(npm_project_with_lockfile) / "package-lock.json", encoding="utf-8") as f:
             lockfile_data = json.load(f)
 
-        nominal_dependencies, nominal_optional_dependencies = npm_manager.parse_package_json(project_data)
-        dependencies, optional_dependencies = npm_manager.parse_lockfile_v3(
-            nominal_dependencies, nominal_optional_dependencies, lockfile_data
-        )
+        dependency_tree = npm_manager.parse_lockfile_v3(lockfile_data)
 
+        express_package = Dependency.lookup_by_name(dependency_tree.dependencies, "express")
+        lodash_package = Dependency.lookup_by_name(dependency_tree.dependencies, "lodash")
+        jest_package = Dependency.lookup_by_name(dependency_tree.optional_dependencies, "jest")
+        eslint_package = Dependency.lookup_by_name(dependency_tree.optional_dependencies, "eslint")
         # Check that versions are updated from lockfile
-        assert dependencies["express"].version_installed == "4.18.2"
-        assert dependencies["lodash"].version_installed == "4.17.21"
-        assert optional_dependencies["jest"].version_installed == "29.7.0"
-        assert optional_dependencies["eslint"].version_installed == "8.56.0"
+        assert express_package.version_installed == "4.18.2"  # ty: ignore
+        assert lodash_package.version_installed == "4.17.21"  # ty: ignore
+        assert jest_package.version_installed == "29.7.0"  # ty: ignore
+        assert eslint_package.version_installed == "8.56.0"  # ty: ignore
 
     def test_parse_lockfile_preserves_version_defined(self, npm_project_with_lockfile, settings):
         """Test that version_defined is preserved from package.json."""
         npm_manager = PackageManagerJsNpm(npm_project_with_lockfile, settings)
 
-        with open(Path(npm_project_with_lockfile) / "package.json", encoding="utf-8") as f:
-            project_data = json.load(f)
         with open(Path(npm_project_with_lockfile) / "package-lock.json", encoding="utf-8") as f:
             lockfile_data = json.load(f)
 
-        nominal_dependencies, nominal_optional_dependencies = npm_manager.parse_package_json(project_data)
-        dependencies, optional_dependencies = npm_manager.parse_lockfile_v3(
-            nominal_dependencies, nominal_optional_dependencies, lockfile_data
-        )
+        dependency_tree = npm_manager.parse_lockfile_v3(lockfile_data)
+        express_package = Dependency.lookup_by_name(dependency_tree.dependencies, "express")
+        lodash_package = Dependency.lookup_by_name(dependency_tree.dependencies, "lodash")
 
         # version_defined should match package.json (with modifiers)
-        assert dependencies["express"].version_defined == "^4.18.0"
-        assert dependencies["lodash"].version_defined == "~4.17.21"
+        assert express_package.version_defined == "^4.18.0"  # ty: ignore
+        assert lodash_package.version_defined == "~4.17.21"  # ty: ignore
 
     def test_parse_lockfile_missing_main_package_error(self, npm_project_missing_main_package, settings):
         """Test error when main project package is not in lockfile."""
         npm_manager = PackageManagerJsNpm(npm_project_missing_main_package, settings)
 
-        with open(Path(npm_project_missing_main_package) / "package.json", encoding="utf-8") as f:
-            project_data = json.load(f)
         with open(Path(npm_project_missing_main_package) / "package-lock.json", encoding="utf-8") as f:
             lockfile_data = json.load(f)
 
-        nominal_dependencies, nominal_optional_dependencies = npm_manager.parse_package_json(project_data)
-
         with pytest.raises(PackageManagerLockfileParsingError) as excinfo:
-            npm_manager.parse_lockfile_v3(nominal_dependencies, nominal_optional_dependencies, lockfile_data)
+            npm_manager.parse_lockfile_v3(lockfile_data)
 
         assert "Cannot extract project package from NPM lockfile" in str(excinfo.value)
 
@@ -479,15 +479,11 @@ class TestParseLockfileV3:
         """Test error when a package.json dependency is missing from lockfile."""
         npm_manager = PackageManagerJsNpm(npm_project_missing_dependency_in_lockfile, settings)
 
-        with open(Path(npm_project_missing_dependency_in_lockfile) / "package.json", encoding="utf-8") as f:
-            project_data = json.load(f)
         with open(Path(npm_project_missing_dependency_in_lockfile) / "package-lock.json", encoding="utf-8") as f:
             lockfile_data = json.load(f)
 
-        nominal_dependencies, nominal_optional_dependencies = npm_manager.parse_package_json(project_data)
-
         with pytest.raises(PackageManagerLockfileParsingError) as excinfo:
-            npm_manager.parse_lockfile_v3(nominal_dependencies, nominal_optional_dependencies, lockfile_data)
+            npm_manager.parse_lockfile_v3(lockfile_data)
 
         assert "Couldn't resolve missing-package" in str(excinfo.value)
         assert "node_modules/missing-package not found in lockfile" in str(excinfo.value)
@@ -505,7 +501,7 @@ class TestGetLockfileParser:
         """Test getting parser for lockfile version 3."""
         npm_manager = PackageManagerJsNpm(npm_project_with_lockfile, settings)
 
-        parser = npm_manager.get_lockfile_parser(3)  # type: ignore[arg-type]
+        parser = npm_manager.get_lockfile_parser(3)
 
         assert parser is not None
         assert parser == npm_manager.parse_lockfile_v3
@@ -515,7 +511,7 @@ class TestGetLockfileParser:
         npm_manager = PackageManagerJsNpm(npm_project_with_lockfile, settings)
 
         with pytest.raises(PackageManagerLockfileParsingError) as excinfo:
-            npm_manager.get_lockfile_parser(99)  # type: ignore[arg-type]
+            npm_manager.get_lockfile_parser(99)
 
         assert "There's no parser for NPM lockfile version `99`" in str(excinfo.value)
 
@@ -524,7 +520,7 @@ class TestGetLockfileParser:
         npm_manager = PackageManagerJsNpm(npm_project_with_lockfile, settings)
 
         with pytest.raises(PackageManagerLockfileParsingError) as excinfo:
-            npm_manager.get_lockfile_parser(1)  # type: ignore[arg-type]
+            npm_manager.get_lockfile_parser(1)
 
         assert "There's no parser for NPM lockfile version `1`" in str(excinfo.value)
 

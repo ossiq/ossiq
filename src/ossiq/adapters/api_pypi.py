@@ -5,7 +5,8 @@ Implementation of Package Registry API client for PyPI
 from collections.abc import Iterable
 
 import requests
-from packaging.version import InvalidVersion, Version
+from packaging.version import InvalidVersion
+from packaging.version import Version as PackagingVersion
 from rich.console import Console
 
 from ossiq.adapters.api_interfaces import AbstractPackageRegistryApi
@@ -46,7 +47,7 @@ def is_valid_pep440_version(version_str: str) -> bool:
         True if valid PEP 440, False otherwise
     """
     try:
-        Version(version_str)
+        PackagingVersion(version_str)
         return True
     except InvalidVersion:
         return False
@@ -91,8 +92,8 @@ class PackageRegistryApiPypi(AbstractPackageRegistryApi):
         Raises:
             InvalidVersion: If either version string is not valid PEP 440
         """
-        ver1 = Version(v1)
-        ver2 = Version(v2)
+        ver1 = PackagingVersion(v1)
+        ver2 = PackagingVersion(v2)
 
         if ver1 < ver2:
             return -1
@@ -101,7 +102,7 @@ class PackageRegistryApiPypi(AbstractPackageRegistryApi):
         return 0
 
     @staticmethod
-    def _calculate_pep440_diff_index(v1: Version, v2: Version) -> int:
+    def _calculate_pep440_diff_index(v1: PackagingVersion, v2: PackagingVersion) -> int:
         """
         Calculate the most significant difference between two PEP 440 versions.
 
@@ -184,8 +185,8 @@ class PackageRegistryApiPypi(AbstractPackageRegistryApi):
             )
 
         # Parse versions (may raise InvalidVersion for invalid strings)
-        v1 = Version(v1_str)
-        v2 = Version(v2_str)
+        v1 = PackagingVersion(v1_str)
+        v2 = PackagingVersion(v2_str)
 
         # Calculate the difference
         diff_index = PackageRegistryApiPypi._calculate_pep440_diff_index(v1, v2)

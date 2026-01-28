@@ -11,11 +11,11 @@ list:
 
 # Run all the formatting, linting, and testing commands
 qa:
-    uv run --extra dev ruff format .
-    uv run --extra dev ruff check . --fix
-    uv run --extra dev ruff check --select I --fix .
-    uv run --extra dev ty check .
-    uv run --extra dev pytest .
+    uv run --group dev ruff format .
+    uv run --group dev ruff check . --fix
+    uv run --group dev ruff check --select I --fix .
+    uv run --group dev ty check .
+    uv run --group dev pytest .
 
 qa-integration:
     mkdir reports || echo 'Reports is there already'
@@ -38,26 +38,26 @@ lint:
 
 # Run all the tests for all the supported Python versions
 testall:
-    uv run --python=3.10 --extra dev pytest
-    uv run --python=3.11 --extra dev pytest
-    uv run --python=3.12 --extra dev pytest
-    uv run --python=3.13 --extra dev pytest
+    uv run --python=3.10 --group dev pytest
+    uv run --python=3.11 --group dev pytest
+    uv run --python=3.12 --group dev pytest
+    uv run --python=3.13 --group dev pytest
 
 # Run all the tests, but allow for arguments to be passed
 test *ARGS:
     @echo "Running with arg: {{ARGS}}"
-    uv run --extra dev pytest {{ARGS}}
+    uv run --group dev pytest {{ARGS}}
 
 # Run all the tests, but on failure, drop into the debugger
 pdb *ARGS:
     @echo "Running with arg: {{ARGS}}"
-    uv run --python=3.13  --extra dev pytest --pdb --maxfail=10 --pdbcls=IPython.terminal.debugger:TerminalPdb {{ARGS}}
+    uv run --python=3.13  --group dev pytest --pdb --maxfail=10 --pdbcls=IPython.terminal.debugger:TerminalPdb {{ARGS}}
 
 # Run coverage, and build to HTML
 coverage:
-    uv run --python=3.13 --extra dev coverage run -m pytest .
-    uv run --python=3.13 --extra dev coverage report -m
-    uv run --python=3.13 --extra dev coverage html
+    uv run --python=3.13 --group dev coverage run -m pytest .
+    uv run --python=3.13 --group dev coverage report -m
+    uv run --python=3.13 --group dev coverage html
 
 # Build the project, useful for checking that packaging is correct
 build:

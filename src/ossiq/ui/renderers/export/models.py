@@ -146,7 +146,7 @@ class ExportData(BaseModel):
             ExportData with all fields populated
         """
         # Calculate summary statistics
-        all_packages = data.production_packages + data.development_packages
+        all_packages = data.production_packages + data.optional_packages
         total_cves = sum(len(pkg.cve) for pkg in all_packages)
         packages_with_cves = sum(1 for pkg in all_packages if len(pkg.cve) > 0)
         packages_outdated = sum(1 for pkg in all_packages if pkg.versions_diff_index.diff_index > 0)
@@ -161,11 +161,11 @@ class ExportData(BaseModel):
             summary=ProjectSummary(
                 total_packages=len(all_packages),
                 production_packages=len(data.production_packages),
-                development_packages=len(data.development_packages),
+                development_packages=len(data.optional_packages),
                 packages_with_cves=packages_with_cves,
                 total_cves=total_cves,
                 packages_outdated=packages_outdated,
             ),
             production_packages=[PackageMetrics.from_domain(pkg) for pkg in data.production_packages],
-            development_packages=[PackageMetrics.from_domain(pkg) for pkg in data.development_packages],
+            development_packages=[PackageMetrics.from_domain(pkg) for pkg in data.optional_packages],
         )
