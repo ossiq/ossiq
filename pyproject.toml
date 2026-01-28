@@ -59,7 +59,6 @@ dependencies = [ # specify that newer patch or minor versions allowed
   "pandas>=2.3.3",
   "packaging>=25.0",
   "jsonschema~=4.26.0",
-  "petl~=1.7.15",
   "frictionless~=5.18.1",
 ]
 
@@ -67,14 +66,6 @@ dependencies = [ # specify that newer patch or minor versions allowed
 package = true
 
 [project.optional-dependencies]
-dev = [
-    "coverage~=7.13.1",  # testing
-    "pytest~=9.0.2",  # testing
-    "ruff~=0.14.10",  # linting
-    "ty~=0.0.8", # checking types
-    "ipdb~=0.13.13", # debugging,
-    "pylint~=4.0.4",
-]
 docs = [
     "mkdocs~=1.6.1",
     "mkdocstrings~=1.0.0",
@@ -131,17 +122,13 @@ select = [
 ]
 
 [dependency-groups]
+# Tools for development: PEP 735
 dev = [
     "datapackage>=1.15.4",
-    "twine>=6.2.0",
-    "coverage~=7.13.1",  # testing
+    "coverage~=7.13.2",  # testing
     "pytest~=9.0.2",  # testing
-    "ruff~=0.14.10",  # linting
-    "ty~=0.0.8", # checking types
+    "ruff~=0.14.14",  # linting
+    "ty~=0.0.14", # checking types
     "ipdb~=0.13.13", # debugging,
-    "pylint~=4.0.4",
-    "mkdocs~=1.6.1",
-    "mkdocstrings~=1.0.0",
-    "mkdocs-material~=9.7.1",    
-    "mkdocs-nav-weight~=0.3.0"
+    "pylint~=4.0.4"    
 ]

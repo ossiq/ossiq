@@ -88,7 +88,7 @@ def sample_project_metrics(sample_project_metrics_record, sample_dev_dependency_
         project_path="/path/to/test-project",
         packages_registry=ProjectPackagesRegistry.NPM.value,
         production_packages=[sample_project_metrics_record],
-        development_packages=[sample_dev_dependency_record],
+        optional_packages=[sample_dev_dependency_record],
     )
 
 
@@ -401,7 +401,7 @@ class TestCsvExportRenderer:
                     cve=[],
                 )
             ],
-            development_packages=[],
+            optional_packages=[],
         )
         renderer = CsvExportRenderer(settings)
         output_path = tmp_path / "export.csv"
@@ -498,7 +498,7 @@ class TestCsvExportRenderer:
                     cve=[cve_with_comma],
                 )
             ],
-            development_packages=[],
+            optional_packages=[],
         )
         renderer = CsvExportRenderer(settings)
         output_path = tmp_path / "export.csv"
@@ -527,7 +527,7 @@ class TestCsvExportRenderer:
             project_path="/path/to/project",
             packages_registry="NPM",
             production_packages=[],
-            development_packages=[],
+            optional_packages=[],
         )
         renderer = CsvExportRenderer(settings)
         output_path = tmp_path / "export.csv"
@@ -649,7 +649,7 @@ class TestCsvExportRenderer:
             project_path="/test",
             packages_registry="NPM",
             production_packages=[],
-            development_packages=[],
+            optional_packages=[],
         )
         renderer = CsvExportRenderer(settings)
         output_path = tmp_path / "export.csv"
@@ -691,7 +691,7 @@ class TestCsvExportRenderer:
                     cve=[],  # No CVEs
                 )
             ],
-            development_packages=[],
+            optional_packages=[],
         )
         renderer = CsvExportRenderer(settings)
         output_path = tmp_path / "export.csv"
