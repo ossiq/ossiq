@@ -107,7 +107,7 @@ class PackageManagerPythonUv(AbstractPackageManagerApi):
         resolver = UVResolverV1R3(uv_lock_data)
         root_node = resolver.build_graph(project_package_name)
         if not root_node:
-            raise ValueError("Failed to parse UV lockfile")
+            raise PackageManagerLockfileParsingError("Cannot parse UV lockfile")
 
         return root_node
 

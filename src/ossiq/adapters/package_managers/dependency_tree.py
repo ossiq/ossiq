@@ -69,7 +69,6 @@ class BaseDependencyResolver(ABC):
             parent = self.registry.get(Dependency.generate_key(name, version))
 
             if not parent:
-                print("Skip parent: for ", name, version)
                 continue
 
             for category, dependencies in self.get_raw_dependencies(pkg_data):
@@ -77,11 +76,10 @@ class BaseDependencyResolver(ABC):
                     d_name, d_ver = self.extract_dependency_identity(d_data)
 
                     child = self.match_child(d_name, d_ver)
-
                     if child:
                         # handle optional dependencies category
                         if category:
-                            parent.categories.append(category)
+                            child.categories.append(category)
                             parent.optional_dependencies[child.key] = child
                         else:
                             parent.dependencies[child.key] = child
