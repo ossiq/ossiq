@@ -50,10 +50,16 @@ class NPMResolverV3(BaseDependencyResolver):
     def get_raw_dependencies(self, pkg_data: dict) -> Iterable[tuple[str | None, Iterable[dict]]]:
         # NPM v3 uses 'dependencies' and 'devDependencies' inside the package block
         # NOTE: 'optionalDependencies' is also a common block in NPM!
+        # NOTE: categories in lockfile takes PRECEDENCE over package.json
 
         yield None, [{"name": n, "version": c} for n, c in pkg_data.get("dependencies", {}).items()]
-        yield "development", [{"name": n, "version": c} for n, c in pkg_data.get("devDependencies", {}).items()]
-        yield "optional", [{"name": n, "version": c} for n, c in pkg_data.get("optionalDependencies", {}).items()]
+        for category, key in [
+            (CATEGORIES_DEV, "devDependencies"),
+            (CATEGORIES_OPTIONAL, "optionalDependencies"),
+            (CATEGORIES_PEER, "peerDependencies"),
+        ]:
+            if key in pkg_data:
+                yield category, [{"name": n, "version": c} for n, c in pkg_data[key].items()]
 
     def extract_package_metadata(self, pkg_data: dict) -> tuple[str | None, str | None, str | None]:
         """
@@ -119,9 +125,7 @@ class PackageManagerJsNpm(AbstractPackageManagerApi):
         self.settings = settings
         self.project_path = project_path
 
-    def get_lockfile_parser(
-        self, lockfile_version: int | None
-    ) -> Callable[..., tuple[dict[str, Dependency], dict[str, Dependency]]] | None:
+    def get_lockfile_parser(self, lockfile_version: int | None) -> Callable[..., Dependency] | None:
         """
         Find and return lockfile parser instance
         """
@@ -142,7 +146,12 @@ class PackageManagerJsNpm(AbstractPackageManagerApi):
         Lockfile parser for NPM
         """
         resolver = NPMResolverV3(lockfile_data)
-        return resolver.build_graph(lockfile_data["name"])
+        dependency_tree = resolver.build_graph(lockfile_data["name"])
+
+        # No dependencies - no analysis, something wrong
+        if not dependency_tree or (not dependency_tree.dependencies and not dependency_tree.optional_dependencies):
+            raise PackageManagerLockfileParsingError("Could not parse NPM lockfile")
+        return dependency_tree
 
     def parse_package_json(self, project_data: dict) -> Dependency:
         """
@@ -170,18 +179,19 @@ class PackageManagerJsNpm(AbstractPackageManagerApi):
             )
 
         dependencies = {
-            name: create_dependency(name, version) for name, version in project_data.get("dependencies", {}).items()
+            Dependency.generate_key(name, version): create_dependency(name, version)
+            for name, version in project_data.get("dependencies", {}).items()
         }
 
         optional_dependencies = {}
         for deps, _ in category_sources:
             for name, version in deps.items():
                 if name not in dependencies and name not in optional_dependencies:
-                    optional_dependencies[name] = create_dependency(name, version)
+                    optional_dependencies[Dependency.generate_key(name, version)] = create_dependency(name, version)
 
         return Dependency(
-            name=project_data.get("name"),
-            version_installed=project_data.get("version"),
+            name=project_data.get("name", ""),
+            version_installed=project_data.get("version", ""),
             dependencies=dependencies,
             optional_dependencies=optional_dependencies,
         )
@@ -218,6 +228,8 @@ class PackageManagerJsNpm(AbstractPackageManagerApi):
             lockfile_data = json.load(f)
 
         lockfile_parser = self.get_lockfile_parser(lockfile_data.get("lockfileVersion"))
+        if not lockfile_parser:
+            raise PackageManagerLockfileParsingError("Could not find a parser for the given lockfile version")
 
         return create_project(dependency_tree=lockfile_parser(lockfile_data))
 

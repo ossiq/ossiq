@@ -48,6 +48,8 @@ class BaseDependencyResolver(ABC):
         """
         Builds the in-memory graph using a two-pass approach to handle
         forward references and circular dependencies.
+
+        Performance is not in the consideration at this point.
         """
         # Pass 1: Instantiate all unique Dependency nodes
         for pkg_data in self.get_all_packages():
@@ -77,11 +79,16 @@ class BaseDependencyResolver(ABC):
 
                     child = self.match_child(d_name, d_ver)
                     if child:
+                        # collect defined versions if it is differ from installed version
+                        if d_ver != child.version_installed:
+                            child.version_defined = d_ver
+
                         # handle optional dependencies category
                         if category:
                             child.categories.append(category)
                             parent.optional_dependencies[child.key] = child
                         else:
+                            # production dependency
                             parent.dependencies[child.key] = child
 
         return self.find_root(root_name)

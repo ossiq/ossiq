@@ -59,6 +59,9 @@ class Dependency:
     def get_dependency(self, name):
         return self.lookup_by_name(self.dependencies, name)
 
+    def get_optional(self, name):
+        return self.lookup_by_name(self.optional_dependencies, name)
+
 
 class Project:
     """Class for a package."""

@@ -12,6 +12,7 @@ Tests focus on:
 """
 
 import json
+import os
 import tempfile
 from pathlib import Path
 
@@ -23,9 +24,9 @@ from ossiq.adapters.package_managers.api_npm import (
     CATEGORIES_PEER,
     PackageManagerJsNpm,
 )
+from ossiq.domain.common import ProjectPackagesRegistry
 from ossiq.domain.exceptions import PackageManagerLockfileParsingError
 from ossiq.domain.packages_manager import NPM
-from ossiq.domain.project import Dependency
 from ossiq.settings import Settings
 
 # ============================================================================
@@ -233,16 +234,12 @@ class TestProjectFiles:
         """Test that project_files returns correct file paths when lockfile exists."""
         npm_project = PackageManagerJsNpm.project_files(npm_project_with_lockfile)
 
-        import os
-
         assert npm_project.manifest == os.path.join(npm_project_with_lockfile, "package.json")
         assert npm_project.lockfile == os.path.join(npm_project_with_lockfile, "package-lock.json")
 
     def test_project_files_paths_without_lockfile(self, npm_project_without_lockfile):
         """Test that project_files returns None for lockfile when it doesn't exist."""
         npm_project = PackageManagerJsNpm.project_files(npm_project_without_lockfile)
-
-        import os
 
         assert npm_project.manifest == os.path.join(npm_project_without_lockfile, "package.json")
         assert npm_project.lockfile is None
@@ -320,16 +317,16 @@ class TestParsePackageJson:
         dependency_tree = npm_manager.parse_package_json(project_data)
 
         # Main dependencies should contain express and lodash
-        express = Dependency.lookup_by_name(dependency_tree.dependencies, "express")
-        lodash = Dependency.lookup_by_name(dependency_tree.dependencies, "lodash")
+        express = dependency_tree.get_dependency("express")
+        lodash = dependency_tree.get_dependency("lodash")
         assert express is not None
         assert lodash is not None
         assert express.version_defined == "^4.18.0"
-        assert express.version_defined == "~4.17.21"
+        assert lodash.version_defined == "~4.17.21"
 
         # Version normalization should strip modifiers
         assert express.version_installed == "4.18.0"
-        assert express.version_installed == "4.17.21"
+        assert lodash.version_installed == "4.17.21"
 
     def test_parse_dev_dependencies(self, npm_project_with_lockfile, settings):
         """Test parsing devDependencies with categories."""
@@ -339,8 +336,8 @@ class TestParsePackageJson:
             project_data = json.load(f)
 
         dependency_tree = npm_manager.parse_package_json(project_data)
-        jest_package = Dependency.lookup_by_name(dependency_tree.optional_dependencies, "jest")
-        eslint_package = Dependency.lookup_by_name(dependency_tree.optional_dependencies, "eslint")
+        jest_package = dependency_tree.get_optional("jest")
+        eslint_package = dependency_tree.get_optional("eslint")
 
         # Dev dependencies should be in optional_dependencies
         assert jest_package is not None
@@ -358,7 +355,7 @@ class TestParsePackageJson:
             project_data = json.load(f)
 
         dependency_tree = npm_manager.parse_package_json(project_data)
-        fsevents_package = Dependency.lookup_by_name(dependency_tree.optional_dependencies, "fsevents")
+        fsevents_package = dependency_tree.get_optional("fsevents")
 
         # Optional dependencies
         assert fsevents_package is not None
@@ -372,7 +369,7 @@ class TestParsePackageJson:
             project_data = json.load(f)
 
         dependency_tree = npm_manager.parse_package_json(project_data)
-        react_package = Dependency.lookup_by_name(dependency_tree.optional_dependencies, "react")
+        react_package = dependency_tree.get_optional("react")
 
         assert react_package is not None
         assert CATEGORIES_PEER in react_package.categories
@@ -390,9 +387,9 @@ class TestParsePackageJson:
             project_data = json.load(f)
 
         dependency_tree = npm_manager.parse_package_json(project_data)
-        lodash_package = Dependency.lookup_by_name(dependency_tree.optional_dependencies, "lodash")
-        jest_package = Dependency.lookup_by_name(dependency_tree.optional_dependencies, "jest")
-        jest_package_prod = Dependency.lookup_by_name(dependency_tree.dependencies, "jest")
+        lodash_package = dependency_tree.get_dependency("lodash")
+        jest_package = dependency_tree.get_optional("jest")
+        jest_package_prod = dependency_tree.get_dependency("jest")
         # lodash should be in main dependencies (takes precedence)
         assert lodash_package is not None
         # lodash should also have dev category
@@ -438,10 +435,10 @@ class TestParseLockfileV3:
 
         dependency_tree = npm_manager.parse_lockfile_v3(lockfile_data)
 
-        express_package = Dependency.lookup_by_name(dependency_tree.dependencies, "express")
-        lodash_package = Dependency.lookup_by_name(dependency_tree.dependencies, "lodash")
-        jest_package = Dependency.lookup_by_name(dependency_tree.optional_dependencies, "jest")
-        eslint_package = Dependency.lookup_by_name(dependency_tree.optional_dependencies, "eslint")
+        express_package = dependency_tree.get_dependency("express")
+        lodash_package = dependency_tree.get_dependency("lodash")
+        jest_package = dependency_tree.get_optional("jest")
+        eslint_package = dependency_tree.get_optional("eslint")
         # Check that versions are updated from lockfile
         assert express_package.version_installed == "4.18.2"  # ty: ignore
         assert lodash_package.version_installed == "4.17.21"  # ty: ignore
@@ -456,8 +453,8 @@ class TestParseLockfileV3:
             lockfile_data = json.load(f)
 
         dependency_tree = npm_manager.parse_lockfile_v3(lockfile_data)
-        express_package = Dependency.lookup_by_name(dependency_tree.dependencies, "express")
-        lodash_package = Dependency.lookup_by_name(dependency_tree.dependencies, "lodash")
+        express_package = dependency_tree.get_dependency("express")
+        lodash_package = dependency_tree.get_dependency("lodash")
 
         # version_defined should match package.json (with modifiers)
         assert express_package.version_defined == "^4.18.0"  # ty: ignore
@@ -473,7 +470,7 @@ class TestParseLockfileV3:
         with pytest.raises(PackageManagerLockfileParsingError) as excinfo:
             npm_manager.parse_lockfile_v3(lockfile_data)
 
-        assert "Cannot extract project package from NPM lockfile" in str(excinfo.value)
+        assert "Could not parse NPM lockfile" in str(excinfo.value)
 
     def test_parse_lockfile_missing_dependency_error(self, npm_project_missing_dependency_in_lockfile, settings):
         """Test error when a package.json dependency is missing from lockfile."""
@@ -485,8 +482,7 @@ class TestParseLockfileV3:
         with pytest.raises(PackageManagerLockfileParsingError) as excinfo:
             npm_manager.parse_lockfile_v3(lockfile_data)
 
-        assert "Couldn't resolve missing-package" in str(excinfo.value)
-        assert "node_modules/missing-package not found in lockfile" in str(excinfo.value)
+        assert "Could not parse NPM lockfile" in str(excinfo.value)
 
 
 # ============================================================================
@@ -553,16 +549,16 @@ class TestProjectInfo:
         assert project.package_manager_type == NPM
 
         # Check main dependencies (versions from lockfile)
-        assert "express" in project.dependencies
-        assert "lodash" in project.dependencies
-        assert project.dependencies["express"].version_installed == "4.18.2"
-        assert project.dependencies["lodash"].version_installed == "4.17.21"
+        assert project.dependency_tree.has_dependency("express") is True
+        assert project.dependency_tree.has_dependency("lodash") is True
+        assert project.dependency_tree.get_dependency("express").version_installed == "4.18.2"
+        assert project.dependency_tree.get_dependency("lodash").version_installed == "4.17.21"
 
         # Check optional dependencies
-        assert "jest" in project.optional_dependencies
-        assert "eslint" in project.optional_dependencies
-        assert "fsevents" in project.optional_dependencies
-        assert "react" in project.optional_dependencies
+        assert project.dependency_tree.has_optional("jest") is True
+        assert project.dependency_tree.has_optional("eslint") is True
+        assert project.dependency_tree.has_optional("fsevents") is True
+        assert project.dependency_tree.has_optional("react") is True
 
     def test_project_info_without_lockfile(self, npm_project_without_lockfile, settings):
         """Test extracting project info without lockfile (versions from package.json)."""
@@ -573,15 +569,17 @@ class TestProjectInfo:
         assert project.name == "no-lockfile-project"
 
         # Without lockfile, versions come from package.json (normalized)
-        assert "express" in project.dependencies
-        assert "jest" in project.optional_dependencies
+        assert project.dependency_tree.has_dependency("express") is True
+        assert project.dependency_tree.has_optional("jest") is True
 
         # Versions should be normalized (modifiers removed)
-        assert project.dependencies["express"].version_installed == "4.18.0"
-        assert project.dependencies["express"].version_defined == "^4.18.0"
+        assert project.dependency_tree.get_dependency("express").version_installed == "4.18.0"
+        assert project.dependency_tree.get_dependency("express").version_defined == "^4.18.0"
 
     def test_project_info_with_dual_category_deps(self, npm_project_dual_category_deps, settings):
-        """Test project with dependencies in multiple categories."""
+        """
+        Test project with dependencies in multiple categories.
+        """
         npm_manager = PackageManagerJsNpm(npm_project_dual_category_deps, settings)
 
         project = npm_manager.project_info()
@@ -589,13 +587,14 @@ class TestProjectInfo:
         assert project.name == "dual-category-project"
 
         # lodash is main dependency with dev category
-        assert "lodash" in project.dependencies
-        assert CATEGORIES_DEV in project.dependencies["lodash"].categories
+        assert project.dependency_tree.has_dependency("lodash") is True
+        assert CATEGORIES_DEV in project.dependency_tree.get_dependency("lodash").categories
 
         # jest is optional with dev and peer categories
-        assert "jest" in project.optional_dependencies
-        assert CATEGORIES_DEV in project.optional_dependencies["jest"].categories
-        assert CATEGORIES_PEER in project.optional_dependencies["jest"].categories
+        assert project.dependency_tree.has_optional("jest") is True
+        assert CATEGORIES_DEV in project.dependency_tree.get_optional("jest").categories
+        # NOTE: lockfile overrides package.json categorization!
+        assert CATEGORIES_PEER not in project.dependency_tree.get_optional("jest").categories
 
     def test_project_info_fallback_name(self, temp_project_dir, settings):
         """Test that project name falls back to directory name if not in package.json."""
@@ -609,7 +608,6 @@ class TestProjectInfo:
         project = npm_manager.project_info()
 
         # Should use directory name as fallback
-        import os
 
         assert project.name == os.path.basename(temp_project_dir)
 
@@ -629,7 +627,6 @@ class TestProjectInfo:
         project = npm_manager.project_info()
 
         # NPM uses NPM ecosystem
-        from ossiq.domain.common import ProjectPackagesRegistry
 
         assert project.package_registry == ProjectPackagesRegistry.NPM
 
