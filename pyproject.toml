@@ -91,10 +91,22 @@ include = [
   "src/ossiq/**/*.html",
   "src/ossiq/**/*.json",
   "src/ossiq/**/*.csv",
+  "frontend/**",
+  "hatch_build.py",
+]
+exclude = [
+  "frontend/node_modules/**",
+  "frontend/dist/**",
+]
+artifacts = [
+  "src/ossiq/ui/html_templates/spa_app.html",
 ]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/ossiq"]
+
+[tool.hatch.build.targets.wheel.hooks.custom]
+path = "hatch_build.py"
 
 [tool.ty]
 # All rules are enabled as "error" by default; no need to specify unless overriding.
