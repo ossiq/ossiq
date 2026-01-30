@@ -440,10 +440,10 @@ class TestParseLockfileV3:
         jest_package = dependency_tree.get_optional("jest")
         eslint_package = dependency_tree.get_optional("eslint")
         # Check that versions are updated from lockfile
-        assert express_package.version_installed == "4.18.2"  # ty: ignore
-        assert lodash_package.version_installed == "4.17.21"  # ty: ignore
-        assert jest_package.version_installed == "29.7.0"  # ty: ignore
-        assert eslint_package.version_installed == "8.56.0"  # ty: ignore
+        assert express_package.version_installed == "4.18.2"
+        assert lodash_package.version_installed == "4.17.21"
+        assert jest_package.version_installed == "29.7.0"
+        assert eslint_package.version_installed == "8.56.0"
 
     def test_parse_lockfile_preserves_version_defined(self, npm_project_with_lockfile, settings):
         """Test that version_defined is preserved from package.json."""
@@ -457,8 +457,8 @@ class TestParseLockfileV3:
         lodash_package = dependency_tree.get_dependency("lodash")
 
         # version_defined should match package.json (with modifiers)
-        assert express_package.version_defined == "^4.18.0"  # ty: ignore
-        assert lodash_package.version_defined == "~4.17.21"  # ty: ignore
+        assert express_package.version_defined == "^4.18.0"
+        assert lodash_package.version_defined == "~4.17.21"
 
     def test_parse_lockfile_missing_main_package_error(self, npm_project_missing_main_package, settings):
         """Test error when main project package is not in lockfile."""

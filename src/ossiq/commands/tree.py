@@ -13,9 +13,9 @@ from ossiq.ui.system import show_operation_progress, show_settings
 from ossiq.unit_of_work import uow_project
 
 
-def command_scan_tree(ctx: typer.Context, options: CommandScanOptions):
+def command_tree(ctx: typer.Context, options: CommandScanOptions):
     """
-    Project scan command.
+    Project tree command.
     """
     settings: Settings = ctx.obj
     threshold_parsed = timeutil.parse_relative_time_delta(options.lag_threshold_days)
@@ -26,7 +26,7 @@ def command_scan_tree(ctx: typer.Context, options: CommandScanOptions):
 
     show_settings(
         ctx,
-        "Scan Settings",
+        "Tree Settings",
         {
             "project_path": options.project_path,
             "lag_threshold_days": f"{threshold_parsed.days} days",
@@ -48,7 +48,7 @@ def command_scan_tree(ctx: typer.Context, options: CommandScanOptions):
 
     with show_operation_progress(settings, "Scanning transitive dependencies...") as progress:
         with progress():
-            tree = dependency.traverse_tree(uow, project_scan)
+            tree = dependency.tree(uow, project_scan)
 
     import pprint
 

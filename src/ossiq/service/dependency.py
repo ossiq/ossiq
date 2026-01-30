@@ -85,7 +85,7 @@ class TransitiveDependencyTree:
 #     return None
 
 
-def traverse_tree(
+def tree(
     uow: unit_of_work.AbstractProjectUnitOfWork,
     scan_metrics: ProjectMetrics,
 ) -> TransitiveDependencyTree | None:

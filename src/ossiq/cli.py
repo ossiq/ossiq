@@ -8,7 +8,7 @@ from rich.console import Console
 
 from ossiq.commands.export import CommandExportOptions, commnad_export
 from ossiq.commands.scan import CommandScanOptions, commnad_scan
-from ossiq.commands.scan_tree import command_scan_tree
+from ossiq.commands.tree import command_tree
 from ossiq.domain.common import UserInterfaceType
 from ossiq.messages import (
     ARGS_HELP_GITHUB_TOKEN,
@@ -162,7 +162,7 @@ def export(
 
 
 @app.command()
-def scan_tree(
+def tree(
     context: typer.Context,
     project_path: str,
     lag_threshold_days: Annotated[str, typer.Option("--lag-threshold-delta", "-l", help=HELP_LAG_THRESHOULD)] = "1y",
@@ -181,12 +181,12 @@ def scan_tree(
     ] = "./ossiq_dependency_tree_scan_report_{project_name}.html",
 ):
     """
-    Scan project transitive dependencies
+    Analyze project transitive dependencies
     """
     if registry_type and registry_type.lower() not in ["npm", "pypi"]:
         raise typer.BadParameter("Only `npm` and `pypi` allowed")
 
-    command_scan_tree(
+    command_tree(
         ctx=context,
         options=CommandScanOptions(
             project_path=project_path,
