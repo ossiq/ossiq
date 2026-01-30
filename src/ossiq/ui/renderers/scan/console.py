@@ -38,7 +38,7 @@ class ConsoleScanRenderer(AbstractUserInterfaceRenderer):
         """Check if this renderer handles scan/console combination."""
         return command == Command.SCAN and user_interface_type == UserInterfaceType.CONSOLE
 
-    def render(self, data: ProjectMetrics, **kwargs) -> None:  # type: ignore[override]
+    def render(self, data: ProjectMetrics, **kwargs) -> None:
         """
         Render project metrics to console.
 
@@ -53,9 +53,9 @@ class ConsoleScanRenderer(AbstractUserInterfaceRenderer):
         )
 
         table_dev = None
-        if data.development_packages:
+        if data.optional_packages:
             table_dev = self._table_factory(
-                "Optional Dependency Drift Report", "bold cyan", data.development_packages, lag_threshold_days
+                "Optional Dependency Drift Report", "bold cyan", data.optional_packages, lag_threshold_days
             )
 
         # Header

@@ -72,7 +72,7 @@ def sample_project_metrics(sample_project_metrics_record):
         project_path="/path/to/test-project",
         packages_registry=ProjectPackagesRegistry.NPM.value,
         production_packages=[sample_project_metrics_record],
-        development_packages=[],
+        optional_packages=[],
     )
 
 
@@ -272,7 +272,7 @@ class TestJsonExportRenderer:
             project_path="/path/to/project",
             packages_registry="NPM",
             production_packages=[],
-            development_packages=[],
+            optional_packages=[],
         )
         renderer = JsonExportRenderer(settings)
 

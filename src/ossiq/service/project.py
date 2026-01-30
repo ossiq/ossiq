@@ -35,7 +35,7 @@ class ProjectMetrics:
     packages_registry: str
     project_path: str
     production_packages: list[ProjectMetricsRecord]
-    development_packages: list[ProjectMetricsRecord]
+    optional_packages: list[ProjectMetricsRecord]
 
 
 def parse_iso(datetime_str: str | None):
@@ -125,6 +125,10 @@ def scan_record(
 
 
 def scan(uow: unit_of_work.AbstractProjectUnitOfWork) -> ProjectMetrics:
+    """
+    Project scan service to leverage Project UoW to gather metrics
+    """
+
     def sort_function(pkg: ProjectMetricsRecord):
         return (
             pkg.versions_diff_index.diff_index,
@@ -141,17 +145,15 @@ def scan(uow: unit_of_work.AbstractProjectUnitOfWork) -> ProjectMetrics:
             raise ProjectPathNotFoundError("Project Path is not Specified")
 
         production_packages: list[ProjectMetricsRecord] = []
-        development_packages: list[ProjectMetricsRecord] = []
+        optional_packages: list[ProjectMetricsRecord] = []
 
-        for package_name, package in project_info.dependencies.items():
-            production_packages.append(scan_record(uow, project_info, package_name, package.version_installed, False))
+        for package in project_info.dependencies.values():
+            production_packages.append(scan_record(uow, project_info, package.name, package.version_installed, False))
 
         # uow.production is driven by the setting
         if not uow.production:
-            for package_name, package in project_info.optional_dependencies.items():
-                development_packages.append(
-                    scan_record(uow, project_info, package_name, package.version_installed, True)
-                )
+            for package in project_info.optional_dependencies.values():
+                optional_packages.append(scan_record(uow, project_info, package.name, package.version_installed, True))
 
         return ProjectMetrics(
             project_name=project_info.name,
@@ -160,7 +162,7 @@ def scan(uow: unit_of_work.AbstractProjectUnitOfWork) -> ProjectMetrics:
             production_packages=sorted(
                 [pkg for pkg in production_packages if not pkg.is_dev_dependency], key=sort_function, reverse=True
             ),
-            development_packages=sorted(
-                [pkg for pkg in development_packages if pkg.is_dev_dependency], key=sort_function, reverse=True
+            optional_packages=sorted(
+                [pkg for pkg in optional_packages if pkg.is_dev_dependency], key=sort_function, reverse=True
             ),
         )
