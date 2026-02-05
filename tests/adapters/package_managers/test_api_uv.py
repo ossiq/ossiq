@@ -363,14 +363,14 @@ class TestParseLockfileV1R3:
         dependency_tree = uv_manager.parse_lockfile_v1_r3("test-project", uv_lock_data)
 
         # Main dependencies should contain requests and click
-        assert dependency_tree.has_dependency("requests")
-        assert dependency_tree.has_dependency("click")
+        assert "requests" in dependency_tree.dependencies
+        assert "click" in dependency_tree.dependencies
 
-        assert dependency_tree.get_dependency("requests").version_installed == "2.31.0"
-        assert dependency_tree.get_dependency("click").version_installed == "8.1.7"
+        assert dependency_tree.dependencies["requests"].version_installed == "2.31.0"
+        assert dependency_tree.dependencies["click"].version_installed == "8.1.7"
 
         # Should NOT include the project itself
-        assert dependency_tree.has_dependency("test-project") is False
+        assert "test-project" not in dependency_tree.dependencies
 
     def test_parse_optional_dependencies(self, uv_project_with_lockfile, settings):
         """Test parsing optional dependencies with categories."""
@@ -383,15 +383,15 @@ class TestParseLockfileV1R3:
         dependency_tree = uv_manager.parse_lockfile_v1_r3("test-project", uv_lock_data)
 
         # Optional dependencies should contain pytest and black
-        dependency_tree.has_optional("pytest")
-        dependency_tree.has_optional("black")
+        assert "pytest" in dependency_tree.optional_dependencies
+        assert "black" in dependency_tree.optional_dependencies
 
-        assert dependency_tree.get_optional("pytest").version_installed == "7.4.3"
-        assert dependency_tree.get_optional("black").version_installed == "23.12.1"
+        assert dependency_tree.optional_dependencies["pytest"].version_installed == "7.4.3"
+        assert dependency_tree.optional_dependencies["black"].version_installed == "23.12.1"
 
         # Verify categories are assigned
-        assert "dev" in dependency_tree.get_optional("pytest").categories
-        assert "dev" in dependency_tree.get_optional("black").categories
+        assert "dev" in dependency_tree.optional_dependencies["pytest"].categories
+        assert "dev" in dependency_tree.optional_dependencies["black"].categories
 
     def test_parse_transitive_dependencies_ignored(self, uv_project_with_lockfile, settings):
         """
@@ -410,10 +410,10 @@ class TestParseLockfileV1R3:
 
         # Transitive dependencies should NOT be included
         for dep in ["urllib3", "certifi", "pluggy"]:
-            assert dependency_tree.has_dependency(dep) is False
+            assert dep not in dependency_tree.dependencies
 
         for dep in ["urllib3", "certifi", "pluggy"]:
-            assert dependency_tree.has_optional(dep) is False
+            assert dep not in dependency_tree.optional_dependencies
 
     def test_parse_dual_category_dependencies(self, uv_project_with_dual_category_deps, settings):
         """
@@ -431,17 +431,19 @@ class TestParseLockfileV1R3:
         dependency_tree = uv_manager.parse_lockfile_v1_r3("multi-category-project", uv_lock_data)
 
         # requests should be in both main dependencies and optional
-        assert dependency_tree.has_dependency("requests") is True
-        assert dependency_tree.has_optional("requests") is True
+        assert "requests" in dependency_tree.dependencies
+        assert "requests" in dependency_tree.optional_dependencies
 
         # requests should have 'dev' category
-        assert "dev" in dependency_tree.get_dependency("requests").categories
+        assert "dev" in dependency_tree.dependencies["requests"].categories
 
         # pytest should be in multiple categories
-        assert dependency_tree.has_dependency("pytest") is False
-        assert dependency_tree.has_optional("pytest") is True
-        assert "dev" in dependency_tree.get_optional("pytest").categories
-        assert "test" in dependency_tree.get_optional("pytest").categories
+        # Pytest is not in production dependencies
+        assert "pytest" not in dependency_tree.dependencies
+        # but it is in two optional categories
+        assert "pytest" in dependency_tree.optional_dependencies
+        assert "dev" in dependency_tree.optional_dependencies["pytest"].categories
+        assert "test" in dependency_tree.optional_dependencies["pytest"].categories
 
     def test_parse_missing_main_package_error(self, uv_project_missing_main_package, settings):
         """Test error when main project package is not in lockfile."""
@@ -575,15 +577,15 @@ class TestProjectInfo:
         dependency_tree = project.dependency_tree
         # Check main dependencies
 
-        assert dependency_tree.has_dependency("requests") is True
-        assert dependency_tree.has_dependency("click") is True
+        assert "requests" in dependency_tree.dependencies
+        assert "click" in dependency_tree.dependencies
 
-        assert dependency_tree.get_dependency("requests").version_installed == "2.31.0"
-        assert dependency_tree.get_dependency("click").version_installed == "8.1.7"
+        assert dependency_tree.dependencies["requests"].version_installed == "2.31.0"
+        assert dependency_tree.dependencies["click"].version_installed == "8.1.7"
 
         # Check optional dependencies
-        assert dependency_tree.has_optional("pytest") is True
-        assert dependency_tree.has_optional("black") is True
+        assert "pytest" in dependency_tree.optional_dependencies
+        assert "black" in dependency_tree.optional_dependencies
 
     def test_project_info_with_dual_category_deps(self, uv_project_with_dual_category_deps, settings):
         """Test project with dependencies in multiple categories."""
@@ -596,11 +598,11 @@ class TestProjectInfo:
         dependency_tree = project.dependency_tree
 
         # requests is both main and optional
-        assert dependency_tree.has_dependency("requests") is True
-        assert dependency_tree.has_optional("requests") is True
+        assert "requests" in dependency_tree.dependencies
+        assert "requests" in dependency_tree.optional_dependencies
 
-        assert dependency_tree.has_optional("pytest") is True
-        pytest_dep = dependency_tree.get_optional("pytest")
+        assert "pytest" in dependency_tree.optional_dependencies
+        pytest_dep = dependency_tree.optional_dependencies["pytest"]
         assert "dev" in pytest_dep.categories
         assert "test" in pytest_dep.categories
 

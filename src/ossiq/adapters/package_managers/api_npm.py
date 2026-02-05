@@ -179,15 +179,14 @@ class PackageManagerJsNpm(AbstractPackageManagerApi):
             )
 
         dependencies = {
-            Dependency.generate_key(name, version): create_dependency(name, version)
-            for name, version in project_data.get("dependencies", {}).items()
+            name: create_dependency(name, version) for name, version in project_data.get("dependencies", {}).items()
         }
 
         optional_dependencies = {}
         for deps, _ in category_sources:
             for name, version in deps.items():
                 if name not in dependencies and name not in optional_dependencies:
-                    optional_dependencies[Dependency.generate_key(name, version)] = create_dependency(name, version)
+                    optional_dependencies[name] = create_dependency(name, version)
 
         return Dependency(
             name=project_data.get("name", ""),

@@ -63,12 +63,12 @@ class BaseDependencyResolver(ABC):
                 required_engine=required_engine,
                 version_defined=v_def,
             )
-            self.registry[node.key] = node
+            self.registry[frozenset((name, version))] = node
 
         # Pass 2: Link nodes via their dependencies mapping
         for pkg_data in self.get_all_packages():
             name, version = self.extract_package_identity(pkg_data)
-            parent = self.registry.get(Dependency.generate_key(name, version))
+            parent = self.registry.get(frozenset((name, version)))
 
             if not parent:
                 continue
@@ -83,13 +83,17 @@ class BaseDependencyResolver(ABC):
                         if d_ver != child.version_installed:
                             child.version_defined = d_ver
 
+                        # NOTE: we intentionally do not need to use
+                        # name+version combined b/c on every level
+                        # of the tree there'll be only one version of a package.
+
                         # handle optional dependencies category
                         if category:
                             child.categories.append(category)
-                            parent.optional_dependencies[child.key] = child
+                            parent.optional_dependencies[child.name] = child
                         else:
                             # production dependency
-                            parent.dependencies[child.key] = child
+                            parent.dependencies[child.name] = child
 
         return self.find_root(root_name)
 
@@ -99,25 +103,17 @@ class BaseDependencyResolver(ABC):
         In lockfiles, we prioritize finding the package that was actually resolved.
         """
         # 1. Try exact match first (standard)
-        if version_constraint:
-            exact_key = Dependency.generate_key(name, version_constraint)
-            if exact_key in self.registry:
-                return self.registry[exact_key]
+        exact_match = self.registry.get(frozenset((name, version_constraint)), None)
+        if exact_match:
+            return exact_match
 
         # 2. Fallback: Search registry for this package name
         # We split from the right to handle scoped packages like @scope/name@version
-        for key, dep in self.registry.items():
-            # rsplit('@', 1) splits 'pkg@1.0' into ['pkg', '1.0']
-            # and '@scope/pkg@1.0' into ['@scope/pkg', '1.0']
-            reg_name, _ = key.rsplit("@", 1)
-            if reg_name == name:
-                return dep
-
-        return None
+        return self.find_root(name)
 
     def find_root(self, name: str) -> Dependency | None:
         """Locates the starting node of the graph."""
-        return next((v for k, v in self.registry.items() if k.startswith(f"{name}@")), None)
+        return next((v for k, v in self.registry.items() if name in k), None)
 
 
 class GraphExporter:
@@ -132,10 +128,11 @@ class GraphExporter:
     def _to_dict(self, node: Dependency) -> dict:
         # If we've seen this specific package version before,
         # return a reference to avoid bloated JSON and recursion loops.
-        if node.key in self.visited:
-            return {"key": node.key, "ref": "already_defined"}
+        key = frozenset([node.name, node.version_installed])
+        if key in self.visited:
+            return {"key": key, "ref": "already_defined"}
 
-        self.visited.add(node.key)
+        self.visited.add(key)
 
         return {
             "name": node.name,
@@ -143,7 +140,7 @@ class GraphExporter:
             "version_defined": node.version_defined,
             "source": node.source,
             "marker": node.required_engine,
-            "key": node.key,
+            "key": key,
             # Recurse into children
             "dependencies": [self._to_dict(child) for child in node.dependencies.values()],
         }

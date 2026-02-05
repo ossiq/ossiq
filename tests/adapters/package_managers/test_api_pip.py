@@ -580,10 +580,10 @@ class TestParseLockfileV10:
         dependencies = dependency_tree.dependencies
 
         # Main dependencies should contain requests and click
-        assert "requests@2.31.0" in dependencies
-        assert "click@8.1.7" in dependencies
-        assert dependencies["requests@2.31.0"].version_installed == "2.31.0"
-        assert dependencies["click@8.1.7"].version_installed == "8.1.7"
+        assert "requests" in dependencies
+        assert "click" in dependencies
+        assert dependencies["requests"].version_installed == "2.31.0"
+        assert dependencies["click"].version_installed == "8.1.7"
 
     def test_parse_optional_dependencies(self, pylock_project_basic, settings):
         """Test parsing optional dependencies with categories."""
@@ -608,14 +608,14 @@ class TestParseLockfileV10:
         optional_dependencies = dependency_tree.optional_dependencies
 
         # Optional dependencies should contain pytest and black
-        assert "pytest@7.4.3" in optional_dependencies
-        assert "black@23.12.1" in optional_dependencies
-        assert optional_dependencies["pytest@7.4.3"].version_installed == "7.4.3"
-        assert optional_dependencies["black@23.12.1"].version_installed == "23.12.1"
+        assert "pytest" in optional_dependencies
+        assert "black" in optional_dependencies
+        assert optional_dependencies["pytest"].version_installed == "7.4.3"
+        assert optional_dependencies["black"].version_installed == "23.12.1"
 
         # Verify categories are assigned
-        assert "dev" in optional_dependencies["pytest@7.4.3"].categories
-        assert "dev" in optional_dependencies["black@23.12.1"].categories
+        assert "dev" in optional_dependencies["pytest"].categories
+        assert "dev" in optional_dependencies["black"].categories
 
     def test_parse_transitive_dependencies_are_nested(self, pylock_project_basic, settings):
         """
@@ -644,17 +644,17 @@ class TestParseLockfileV10:
         optional_dependencies = dependency_tree.optional_dependencies
 
         # Transitive dependencies should NOT be on root level
-        assert "urllib3@2.0.4" not in dependencies
-        assert "certifi@2023.7.22" not in dependencies
-        assert "pluggy@1.3.0" not in dependencies
-        assert "urllib3@2.0.4" not in optional_dependencies
-        assert "certifi@2023.7.22" not in optional_dependencies
-        assert "pluggy@1.3.0" not in optional_dependencies
+        assert "urllib3" not in dependencies
+        assert "certifi" not in dependencies
+        assert "pluggy" not in dependencies
+        assert "urllib" not in optional_dependencies
+        assert "certifi" not in optional_dependencies
+        assert "pluggy" not in optional_dependencies
 
         # But they should be nested under their parent
-        requests_dep = dependencies["requests@2.31.0"]
-        assert "urllib3@2.0.4" in requests_dep.dependencies
-        assert "certifi@2023.7.22" in requests_dep.dependencies
+        requests_dep = dependencies["requests"]
+        assert "urllib3" in requests_dep.dependencies
+        assert "certifi" in requests_dep.dependencies
 
     def test_parse_dual_category_dependencies(self, pylock_project_with_dual_category_deps, settings):
         """
@@ -685,16 +685,16 @@ class TestParseLockfileV10:
         optional_dependencies = dependency_tree.optional_dependencies
 
         # requests should be in both main dependencies and optional
-        assert "requests@2.31.0" in dependencies
-        assert "requests@2.31.0" in optional_dependencies
+        assert "requests" in dependencies
+        assert "requests" in optional_dependencies
 
         # requests should have 'dev' category
-        assert "dev" in optional_dependencies["requests@2.31.0"].categories
+        assert "dev" in optional_dependencies["requests"].categories
 
         # pytest should be in multiple categories
-        assert "pytest@7.4.3" in optional_dependencies
-        assert "dev" in optional_dependencies["pytest@7.4.3"].categories
-        assert "test" in optional_dependencies["pytest@7.4.3"].categories
+        assert "pytest" in optional_dependencies
+        assert "dev" in optional_dependencies["pytest"].categories
+        assert "test" in optional_dependencies["pytest"].categories
 
     def test_parse_with_name_normalization(self, pylock_project_with_name_variations, settings):
         """Test that package name normalization works correctly during parsing."""
@@ -719,9 +719,9 @@ class TestParseLockfileV10:
         dependencies = dependency_tree.dependencies
 
         # All packages should match despite name variations
-        assert "requests@2.31.0" in dependencies  # requests[security] matched
-        assert "django@4.2.7" in dependencies  # Django matched
-        assert "some-package@1.2.0" in dependencies  # some_package matched
+        assert "requests" in dependencies  # requests[security] matched
+        assert "django" in dependencies  # Django matched
+        assert "some-package" in dependencies  # some_package matched
 
     def test_parse_empty_dependencies(self, temp_project_dir, settings):
         """Test parsing when project has no dependencies."""
@@ -814,14 +814,14 @@ class TestProjectInfo:
         assert project.package_manager_type == PIP
 
         # Check main dependencies
-        assert "requests@2.31.0" in project.dependencies
-        assert "click@8.1.7" in project.dependencies
-        assert project.dependencies["requests@2.31.0"].version_installed == "2.31.0"
-        assert project.dependencies["click@8.1.7"].version_installed == "8.1.7"
+        assert "requests" in project.dependencies
+        assert "click" in project.dependencies
+        assert project.dependencies["requests"].version_installed == "2.31.0"
+        assert project.dependencies["click"].version_installed == "8.1.7"
 
         # Check optional dependencies
-        assert "pytest@7.4.3" in project.optional_dependencies
-        assert "black@23.12.1" in project.optional_dependencies
+        assert "pytest" in project.optional_dependencies
+        assert "black" in project.optional_dependencies
 
     def test_project_info_with_dual_category_deps(self, pylock_project_with_dual_category_deps, settings):
         """Test project with dependencies in multiple categories."""
@@ -832,12 +832,12 @@ class TestProjectInfo:
         assert project.name == "multi-category-project"
 
         # requests is both main and optional
-        assert "requests@2.31.0" in project.dependencies
-        assert "requests@2.31.0" in project.optional_dependencies
+        assert "requests" in project.dependencies
+        assert "requests" in project.optional_dependencies
 
         # pytest is in multiple optional categories
-        assert "pytest@7.4.3" in project.optional_dependencies
-        pytest_dep = project.optional_dependencies["pytest@7.4.3"]
+        assert "pytest" in project.optional_dependencies
+        pytest_dep = project.optional_dependencies["pytest"]
         assert "dev" in pytest_dep.categories
         assert "test" in pytest_dep.categories
 
@@ -881,9 +881,9 @@ created-by = "test-suite"
         project = pylock_manager.project_info()
 
         # All packages should match despite name variations
-        assert "requests@2.31.0" in project.dependencies
-        assert "django@4.2.7" in project.dependencies
-        assert "some-package@1.2.0" in project.dependencies
+        assert "requests" in project.dependencies
+        assert "django" in project.dependencies
+        assert "some-package" in project.dependencies
 
     def test_project_info_package_registry(self, pylock_project_basic, settings):
         """Test that project has correct package registry."""
@@ -907,8 +907,8 @@ created-by = "test-suite"
         project = pylock_manager.project_info()
 
         assert project.name == "my-app"
-        assert "requests@2.31.0" in project.dependencies
-        assert "click@8.1.7" in project.dependencies
+        assert "requests" in project.dependencies
+        assert "click" in project.dependencies
 
     def test_project_info_with_vcs_packages(self, pylock_project_with_vcs_packages, settings):
         """Test that VCS packages without version field are skipped.
@@ -921,6 +921,6 @@ created-by = "test-suite"
         project = pylock_manager.project_info()
 
         assert project.name == "vcs-project"
-        assert "requests@2.31.0" in project.dependencies
+        assert "requests" in project.dependencies
         # VCS package without version should not appear in the dependency tree
         assert not any("my-vcs-package" in key for key in project.dependencies)

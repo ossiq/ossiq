@@ -29,39 +29,6 @@ class Dependency:
     dependencies: dict[str, "Dependency"] = field(default_factory=dict, compare=False, hash=False)
     optional_dependencies: dict[str, "Dependency"] = field(default_factory=dict, compare=False, hash=False)
 
-    @classmethod
-    def lookup_by_name(cls, dependencies: dict[str, "Dependency"], name: str) -> "Dependency" | None:
-        for package in dependencies.values():
-            if package.name == name:
-                return package
-
-    @classmethod
-    def generate_key(cls, name: str, version: str) -> str:
-        """Standardized unique identifier for a package instance."""
-        return f"{name}@{version}"
-
-    @property
-    def key(self) -> str:
-        return self.generate_key(self.name, self.version_installed)
-
-    def has_dependency(self, name):
-        """
-        Check for a specific dependency
-        """
-        return self.lookup_by_name(self.dependencies, name) is not None
-
-    def has_optional(self, key):
-        """
-        Check for a specific optional dependency
-        """
-        return self.lookup_by_name(self.optional_dependencies, key) is not None
-
-    def get_dependency(self, name):
-        return self.lookup_by_name(self.dependencies, name)
-
-    def get_optional(self, name):
-        return self.lookup_by_name(self.optional_dependencies, name)
-
 
 class Project:
     """Class for a package."""
@@ -94,12 +61,12 @@ class Project:
         """
         Get installed version of a package.
         """
-        prod_package = Dependency.lookup_by_name(self.dependencies, package_name)
+        prod_package = self.dependencies.get(package_name, None)
 
         if prod_package:
             return prod_package.version_installed
 
-        optional_package = Dependency.lookup_by_name(self.optional_dependencies, package_name)
+        optional_package = self.optional_dependencies.get(package_name, None)
 
         if optional_package:
             return optional_package.version_installed
