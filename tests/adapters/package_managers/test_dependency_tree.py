@@ -185,8 +185,8 @@ class TestBuildGraph:
 
         # Assert
         assert root is not None
-        assert root.has_dependency("requests")
-        assert root.has_dependency("click")
+        assert "requests" in root.dependencies
+        assert "click" in root.dependencies
 
     def test_links_transitive_dependencies(self, transitive_lockfile):
         """Test that transitive dependencies are linked through the chain."""
@@ -198,10 +198,10 @@ class TestBuildGraph:
 
         # Assert
         assert root is not None
-        requests = root.get_dependency("requests")
+        requests = root.dependencies["requests"]
         assert requests is not None
-        assert requests.has_dependency("urllib3")
-        assert requests.has_dependency("certifi")
+        assert "urllib3" in requests.dependencies
+        assert "certifi" in requests.dependencies
 
     def test_transitive_deps_not_on_root(self, transitive_lockfile):
         """Test that transitive dependencies are not direct children of root."""
@@ -213,8 +213,8 @@ class TestBuildGraph:
 
         # Assert
         assert root is not None
-        assert not root.has_dependency("urllib3")
-        assert not root.has_dependency("certifi")
+        assert "urllib3" not in root.dependencies
+        assert "certifi" not in root.dependencies
 
     def test_optional_dependencies_linked(self, optional_deps_lockfile):
         """Test that optional dependencies are placed in optional_dependencies dict."""
@@ -226,8 +226,8 @@ class TestBuildGraph:
 
         # Assert
         assert root is not None
-        assert root.has_optional("pytest")
-        assert root.has_optional("sphinx")
+        assert "pytest" in root.optional_dependencies
+        assert "sphinx" in root.optional_dependencies
 
     def test_optional_dependencies_have_categories(self, optional_deps_lockfile):
         """Test that optional dependencies receive their category label."""
@@ -239,8 +239,8 @@ class TestBuildGraph:
 
         # Assert
         assert root is not None
-        pytest_dep = root.get_optional("pytest")
-        sphinx_dep = root.get_optional("sphinx")
+        pytest_dep = root.optional_dependencies["pytest"]
+        sphinx_dep = root.optional_dependencies["sphinx"]
         assert pytest_dep is not None
         assert sphinx_dep is not None
         assert "dev" in pytest_dep.categories
@@ -256,8 +256,8 @@ class TestBuildGraph:
 
         # Assert
         assert root is not None
-        assert root.has_dependency("requests")
-        assert not root.has_optional("requests")
+        assert "requests" in root.dependencies
+        assert "requests" not in root.optional_dependencies
 
     def test_circular_dependencies_do_not_loop(self, circular_lockfile):
         """Test that circular dependencies are handled without infinite recursion."""
@@ -269,12 +269,12 @@ class TestBuildGraph:
 
         # Assert
         assert root is not None
-        pkg_a = root.get_dependency("pkg-a")
+        pkg_a = root.dependencies["pkg-a"]
         assert pkg_a is not None
-        pkg_b = pkg_a.get_dependency("pkg-b")
+        pkg_b = pkg_a.dependencies["pkg-b"]
         assert pkg_b is not None
         # pkg-b points back to the same pkg-a object (shared reference)
-        assert pkg_b.has_dependency("pkg-a")
+        assert "pkg-a" in pkg_b.dependencies
 
     def test_version_defined_set_when_differs_from_installed(self):
         """Test version_defined is set on child when constraint differs from installed version."""
@@ -290,7 +290,7 @@ class TestBuildGraph:
 
         # Assert
         assert root is not None
-        lib = root.get_dependency("lib")
+        lib = root.dependencies["lib"]
         assert lib is not None
         assert lib.version_installed == "2.3.0"
         assert lib.version_defined == ">=2.0"
@@ -309,7 +309,7 @@ class TestBuildGraph:
 
         # Assert
         assert root is not None
-        lib = root.get_dependency("lib")
+        lib = root.dependencies["lib"]
         assert lib is not None
         assert lib.version_defined is None
 
@@ -323,9 +323,9 @@ class TestBuildGraph:
 
         # Assert
         assert len(resolver.registry) == 3
-        assert "my-app@1.0.0" in resolver.registry
-        assert "requests@2.31.0" in resolver.registry
-        assert "click@8.1.7" in resolver.registry
+        assert frozenset(["my-app", "1.0.0"]) in resolver.registry
+        assert frozenset(["requests", "2.31.0"]) in resolver.registry
+        assert frozenset(["click", "8.1.7"]) in resolver.registry
 
     def test_empty_lockfile(self):
         """Test build_graph with no packages returns None."""
@@ -352,7 +352,7 @@ class TestBuildGraph:
 
         # Assert
         assert root is not None
-        lib = root.get_dependency("lib")
+        lib = root.dependencies["lib"]
         assert lib is not None
         assert lib.source == "https://pypi.org"
         assert lib.required_engine == 'python_version >= "3.11"'
@@ -377,7 +377,7 @@ class TestMatchChild:
 
         # Assert
         assert result is not None
-        assert result.key == "lib@1.0.0"
+        assert result.name == "lib" and result.version_installed == "1.0.0"
 
     def test_fallback_by_name(self):
         """Test match_child falls back to name-only lookup when version does not match."""
@@ -520,7 +520,7 @@ class TestGraphExporter:
         # Assert — follow the chain until the back-reference
         pkg_a = next(d for d in result["dependencies"] if d["name"] == "pkg-a")
         pkg_b = next(d for d in pkg_a["dependencies"] if d["name"] == "pkg-b")
-        back_ref = next(d for d in pkg_b["dependencies"] if d["key"] == "pkg-a@1.0.0")
+        back_ref = next(d for d in pkg_b["dependencies"] if d["key"] == frozenset(["pkg-a", "1.0.0"]))
         assert back_ref["ref"] == "already_defined"
 
     def test_export_clears_visited_between_calls(self, simple_lockfile):
@@ -554,7 +554,7 @@ class TestGraphExporter:
         result = exporter.export()
 
         # Assert
-        assert result["key"] == "lib@1.0.0"
+        assert result["key"] == frozenset(["lib", "1.0.0"])
         assert result["version_defined"] == ">=1.0"
         assert result["source"] == "https://pypi.org"
         assert result["marker"] == 'python_version >= "3.11"'

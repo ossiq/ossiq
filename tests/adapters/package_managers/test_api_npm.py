@@ -317,8 +317,8 @@ class TestParsePackageJson:
         dependency_tree = npm_manager.parse_package_json(project_data)
 
         # Main dependencies should contain express and lodash
-        express = dependency_tree.get_dependency("express")
-        lodash = dependency_tree.get_dependency("lodash")
+        express = dependency_tree.dependencies["express"]
+        lodash = dependency_tree.dependencies["lodash"]
         assert express is not None
         assert lodash is not None
         assert express.version_defined == "^4.18.0"
@@ -336,8 +336,8 @@ class TestParsePackageJson:
             project_data = json.load(f)
 
         dependency_tree = npm_manager.parse_package_json(project_data)
-        jest_package = dependency_tree.get_optional("jest")
-        eslint_package = dependency_tree.get_optional("eslint")
+        jest_package = dependency_tree.optional_dependencies["jest"]
+        eslint_package = dependency_tree.optional_dependencies["eslint"]
 
         # Dev dependencies should be in optional_dependencies
         assert jest_package is not None
@@ -355,7 +355,7 @@ class TestParsePackageJson:
             project_data = json.load(f)
 
         dependency_tree = npm_manager.parse_package_json(project_data)
-        fsevents_package = dependency_tree.get_optional("fsevents")
+        fsevents_package = dependency_tree.optional_dependencies["fsevents"]
 
         # Optional dependencies
         assert fsevents_package is not None
@@ -369,7 +369,7 @@ class TestParsePackageJson:
             project_data = json.load(f)
 
         dependency_tree = npm_manager.parse_package_json(project_data)
-        react_package = dependency_tree.get_optional("react")
+        react_package = dependency_tree.optional_dependencies["react"]
 
         assert react_package is not None
         assert CATEGORIES_PEER in react_package.categories
@@ -387,17 +387,15 @@ class TestParsePackageJson:
             project_data = json.load(f)
 
         dependency_tree = npm_manager.parse_package_json(project_data)
-        lodash_package = dependency_tree.get_dependency("lodash")
-        jest_package = dependency_tree.get_optional("jest")
-        jest_package_prod = dependency_tree.get_dependency("jest")
+        lodash_package = dependency_tree.dependencies["lodash"]
+        jest_package = dependency_tree.optional_dependencies["jest"]
+
+        assert "jest" not in dependency_tree.dependencies
         # lodash should be in main dependencies (takes precedence)
         assert lodash_package is not None
         # lodash should also have dev category
         assert CATEGORIES_DEV in lodash_package.categories
 
-        # jest should be in optional_dependencies (not in main dependencies)
-        assert jest_package is not None
-        assert jest_package_prod is None
         # jest should have both dev and peer categories
         assert CATEGORIES_DEV in jest_package.categories
         assert CATEGORIES_PEER in jest_package.categories
@@ -435,10 +433,10 @@ class TestParseLockfileV3:
 
         dependency_tree = npm_manager.parse_lockfile_v3(lockfile_data)
 
-        express_package = dependency_tree.get_dependency("express")
-        lodash_package = dependency_tree.get_dependency("lodash")
-        jest_package = dependency_tree.get_optional("jest")
-        eslint_package = dependency_tree.get_optional("eslint")
+        express_package = dependency_tree.dependencies["express"]
+        lodash_package = dependency_tree.dependencies["lodash"]
+        jest_package = dependency_tree.optional_dependencies["jest"]
+        eslint_package = dependency_tree.optional_dependencies["eslint"]
         # Check that versions are updated from lockfile
         assert express_package.version_installed == "4.18.2"
         assert lodash_package.version_installed == "4.17.21"
@@ -453,8 +451,8 @@ class TestParseLockfileV3:
             lockfile_data = json.load(f)
 
         dependency_tree = npm_manager.parse_lockfile_v3(lockfile_data)
-        express_package = dependency_tree.get_dependency("express")
-        lodash_package = dependency_tree.get_dependency("lodash")
+        express_package = dependency_tree.dependencies["express"]
+        lodash_package = dependency_tree.dependencies["lodash"]
 
         # version_defined should match package.json (with modifiers)
         assert express_package.version_defined == "^4.18.0"
@@ -549,16 +547,16 @@ class TestProjectInfo:
         assert project.package_manager_type == NPM
 
         # Check main dependencies (versions from lockfile)
-        assert project.dependency_tree.has_dependency("express") is True
-        assert project.dependency_tree.has_dependency("lodash") is True
-        assert project.dependency_tree.get_dependency("express").version_installed == "4.18.2"
-        assert project.dependency_tree.get_dependency("lodash").version_installed == "4.17.21"
+        assert "express" in project.dependency_tree.dependencies
+        assert "lodash" in project.dependency_tree.dependencies
+        assert project.dependency_tree.dependencies["express"].version_installed == "4.18.2"
+        assert project.dependency_tree.dependencies["lodash"].version_installed == "4.17.21"
 
         # Check optional dependencies
-        assert project.dependency_tree.has_optional("jest") is True
-        assert project.dependency_tree.has_optional("eslint") is True
-        assert project.dependency_tree.has_optional("fsevents") is True
-        assert project.dependency_tree.has_optional("react") is True
+        assert "jest" in project.dependency_tree.optional_dependencies
+        assert "eslint" in project.dependency_tree.optional_dependencies
+        assert "fsevents" in project.dependency_tree.optional_dependencies
+        assert "react" in project.dependency_tree.optional_dependencies
 
     def test_project_info_without_lockfile(self, npm_project_without_lockfile, settings):
         """Test extracting project info without lockfile (versions from package.json)."""
@@ -569,12 +567,12 @@ class TestProjectInfo:
         assert project.name == "no-lockfile-project"
 
         # Without lockfile, versions come from package.json (normalized)
-        assert project.dependency_tree.has_dependency("express") is True
-        assert project.dependency_tree.has_optional("jest") is True
+        assert "express" in project.dependency_tree.dependencies
+        assert "jest" in project.dependency_tree.optional_dependencies
 
         # Versions should be normalized (modifiers removed)
-        assert project.dependency_tree.get_dependency("express").version_installed == "4.18.0"
-        assert project.dependency_tree.get_dependency("express").version_defined == "^4.18.0"
+        assert project.dependency_tree.dependencies["express"].version_installed == "4.18.0"
+        assert project.dependency_tree.dependencies["express"].version_defined == "^4.18.0"
 
     def test_project_info_with_dual_category_deps(self, npm_project_dual_category_deps, settings):
         """
@@ -587,14 +585,14 @@ class TestProjectInfo:
         assert project.name == "dual-category-project"
 
         # lodash is main dependency with dev category
-        assert project.dependency_tree.has_dependency("lodash") is True
-        assert CATEGORIES_DEV in project.dependency_tree.get_dependency("lodash").categories
+        assert "lodash" in project.dependency_tree.dependencies
+        assert CATEGORIES_DEV in project.dependency_tree.dependencies["lodash"].categories
 
         # jest is optional with dev and peer categories
-        assert project.dependency_tree.has_optional("jest") is True
-        assert CATEGORIES_DEV in project.dependency_tree.get_optional("jest").categories
+        assert "jest" in project.dependency_tree.optional_dependencies
+        assert CATEGORIES_DEV in project.dependency_tree.optional_dependencies["jest"].categories
         # NOTE: lockfile overrides package.json categorization!
-        assert CATEGORIES_PEER not in project.dependency_tree.get_optional("jest").categories
+        assert CATEGORIES_PEER not in project.dependency_tree.optional_dependencies["jest"].categories
 
     def test_project_info_fallback_name(self, temp_project_dir, settings):
         """Test that project name falls back to directory name if not in package.json."""
