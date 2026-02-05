@@ -17,7 +17,7 @@ class BaseDependencyResolver(ABC):
 
     def __init__(self, raw_data: Any):
         self.raw_data = raw_data
-        self.registry: dict[str, Dependency] = {}
+        self.registry: dict[frozenset, Dependency] = {}
 
     @abstractmethod
     def get_all_packages(self) -> Iterable[dict]:
