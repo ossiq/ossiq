@@ -3,7 +3,6 @@ import requests
 from ossiq.domain.common import CveDatabase, ProjectPackagesRegistry
 from ossiq.domain.cve import CVE, Severity
 from ossiq.domain.package import Package
-from ossiq.domain.version import PackageVersion
 
 from .api_interfaces import AbstractCveDatabaseApi
 
@@ -21,10 +20,10 @@ class CveApiOsv(AbstractCveDatabaseApi):
     def __repr__(self):
         return f"OsvApiClient(base_url='{self.base_url}')"
 
-    def get_cves_for_package(self, package: Package, version: PackageVersion) -> set[CVE]:
+    def get_cves_for_package(self, package: Package, version: str) -> set[CVE]:
         payload = {
             "package": {"name": package.name, "ecosystem": ECOSYSTEM_MAPPING[package.registry]},
-            "version": version.version,
+            "version": version,
         }
 
         resp = requests.post(f"{self.base_url}/query", json=payload, timeout=10)

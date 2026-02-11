@@ -182,6 +182,7 @@ class PackageRegistryApiNpm(AbstractPackageRegistryApi):
                     is_published=False,
                 )
         else:
+            # FIXME: filter out -beta and other suffixes: need to collect data to properly define rules
             for version, details in versions.items():
                 yield PackageVersion(
                     version=version,
