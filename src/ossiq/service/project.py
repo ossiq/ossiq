@@ -7,6 +7,7 @@ from datetime import datetime
 
 from rich.console import Console
 
+from ossiq.adapters.api_interfaces import AbstractPackageRegistryApi
 from ossiq.domain.cve import CVE
 from ossiq.domain.exceptions import ProjectPathNotFoundError
 from ossiq.domain.project import Project
@@ -48,7 +49,7 @@ def parse_iso(datetime_str: str | None):
     return None
 
 
-def calculate_time_lag(
+def calculate_time_lag_in_days(
     versions: list[package_versions.PackageVersion], installed_version: str, latest_version: str | None
 ) -> int | None:
     """
@@ -73,7 +74,7 @@ def calculate_time_lag(
 
 
 def get_package_versions_since(
-    uow: unit_of_work.AbstractProjectUnitOfWork, package_name: str, installed_version: str
+    packages_registry: AbstractPackageRegistryApi, package_name: str, installed_version: str
 ) -> list[package_versions.PackageVersion]:
     """
     Calculate Package versions lag: delta between
@@ -82,8 +83,8 @@ def get_package_versions_since(
 
     return [
         v
-        for v in uow.packages_registry.package_versions(package_name)
-        if uow.packages_registry.compare_versions(v.version, installed_version) >= 0
+        for v in packages_registry.package_versions(package_name)
+        if packages_registry.compare_versions(v.version, installed_version) >= 0
     ]
 
 
@@ -100,9 +101,9 @@ def scan_record(
     package_info = uow.packages_registry.package_info(package_name)
     installed_version = project_info.installed_package_version(package_info.name)
 
-    releases_since_installed = get_package_versions_since(uow, package_info.name, installed_version)
+    releases_since_installed = get_package_versions_since(uow.packages_registry, package_info.name, installed_version)
 
-    time_lag_days = calculate_time_lag(releases_since_installed, installed_version, package_info.latest_version)
+    time_lag_days = calculate_time_lag_in_days(releases_since_installed, installed_version, package_info.latest_version)
 
     installed_release = next(
         (release for release in releases_since_installed if release.version == installed_version), None
@@ -110,7 +111,7 @@ def scan_record(
 
     cve = []
     if installed_release:
-        cve = list(uow.cve_database.get_cves_for_package(package_info, installed_release))
+        cve = list(uow.cve_database.get_cves_for_package(package_info, installed_release.version))
 
     return ProjectMetricsRecord(
         package_name=package_name,
