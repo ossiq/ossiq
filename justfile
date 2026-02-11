@@ -59,6 +59,10 @@ coverage:
     uv run --python=3.13 --group dev coverage report -m
     uv run --python=3.13 --group dev coverage html
 
+# Build Vue.js SPA frontend and produce the SPA template for HTML reports
+frontend-build:
+    uv run python frontend_build.py
+
 # Build the project, useful for checking that packaging is correct
 build:
     rm -rf build
