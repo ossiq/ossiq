@@ -1,8 +1,12 @@
 <script setup lang="ts">
-import { RouterLink, RouterView } from 'vue-router'
+import { computed } from 'vue'
+import { RouterLink, RouterView, useRoute } from 'vue-router'
 import { useReportLoader } from '@/composables/useReportLoader'
 
 useReportLoader()
+
+const route = useRoute()
+const isFullscreen = computed(() => route.meta.layout === 'fullscreen')
 </script>
 
 <template>
@@ -43,12 +47,12 @@ useReportLoader()
     </header>
 
     <!-- Main Content -->
-    <main class="flex-grow max-w-7xl mx-auto p-4 md:p-6 w-full">
+    <main :class="isFullscreen ? 'flex-1 w-full flex flex-col' : 'flex-grow max-w-7xl mx-auto p-4 md:p-6 w-full'">
       <RouterView />
     </main>
 
-    <!-- Footer -->
-    <footer class="mt-auto border-t border-slate-200 bg-white py-6">
+    <!-- Footer (hidden in fullscreen layout) -->
+    <footer v-if="!isFullscreen" class="mt-auto border-t border-slate-200 bg-white py-6">
       <div class="max-w-7xl mx-auto px-6 text-center space-y-1">
         <p class="text-xs text-slate-400">
           Released under the

@@ -14,6 +14,7 @@ const router = createRouter({
       path: '/transitive-dependencies',
       name: 'transitive-dependencies',
       component: TransitiveDependenciesView,
+      meta: { layout: 'fullscreen' },
     },
   ],
 })

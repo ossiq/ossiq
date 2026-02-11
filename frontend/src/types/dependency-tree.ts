@@ -5,6 +5,7 @@ export interface DependencyNode {
   version_installed: string
   version_defined?: string
   latest_version?: string
+  severity?: string
   categories?: string[]
   dependencies?: Record<string, DependencyNode>
 }

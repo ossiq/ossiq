@@ -17,6 +17,7 @@ export function useD3Tree(options: UseD3TreeOptions) {
   let root: TreeNode | null = null
   let g: d3.Selection<SVGGElement, unknown, null, undefined> | null = null
   let treeLayout: d3.TreeLayout<D3NodeData> | null = null
+  let zoomBehavior: d3.ZoomBehavior<SVGSVGElement, unknown> | null = null
 
   function transformToD3(node: DependencyNode): D3NodeData {
     const children: D3NodeData[] = []
@@ -223,14 +224,17 @@ export function useD3Tree(options: UseD3TreeOptions) {
 
     const zoomGroup = svg.append('g')
 
-    svg.call(
-      d3
-        .zoom<SVGSVGElement, unknown>()
-        .scaleExtent([0.1, 3])
-        .on('zoom', (event) => {
-          zoomGroup.attr('transform', event.transform.toString())
-        }),
-    )
+    zoomBehavior = d3
+      .zoom<SVGSVGElement, unknown>()
+      .scaleExtent([0.1, 3])
+      .on('zoom', (event) => {
+        zoomGroup.attr('transform', event.transform.toString())
+      })
+
+    svg.call(zoomBehavior)
+    svg.style('cursor', 'grab')
+    svg.on('mousedown.cursor', () => svg.style('cursor', 'grabbing'))
+    svg.on('mouseup.cursor', () => svg.style('cursor', 'grab'))
 
     g = zoomGroup.append('g').attr('transform', `translate(${margin.left},${height / 2})`)
 
@@ -259,6 +263,21 @@ export function useD3Tree(options: UseD3TreeOptions) {
     }
   }
 
+  function zoomIn() {
+    if (!svgRef.value || !zoomBehavior) return
+    d3.select(svgRef.value).transition().duration(300).call(zoomBehavior.scaleBy, 1.3)
+  }
+
+  function zoomOut() {
+    if (!svgRef.value || !zoomBehavior) return
+    d3.select(svgRef.value).transition().duration(300).call(zoomBehavior.scaleBy, 1 / 1.3)
+  }
+
+  function resetZoom() {
+    if (!svgRef.value || !zoomBehavior) return
+    d3.select(svgRef.value).transition().duration(300).call(zoomBehavior.scaleTo, 1)
+  }
+
   onMounted(() => {
     window.addEventListener('resize', handleResize)
   })
@@ -269,5 +288,8 @@ export function useD3Tree(options: UseD3TreeOptions) {
 
   return {
     initializeTree,
+    zoomIn,
+    zoomOut,
+    resetZoom,
   }
 }

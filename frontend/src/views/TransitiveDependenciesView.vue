@@ -135,7 +135,7 @@ function handlePanelClose() {
   isPanelOpen.value = false
 }
 
-const { initializeTree } = useD3Tree({
+const { initializeTree, zoomIn, zoomOut, resetZoom } = useD3Tree({
   svgRef,
   onNodeSelect: handleNodeSelect,
 })
@@ -146,7 +146,7 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="flex h-[calc(100vh-200px)] w-full relative">
+  <div class="flex-1 flex w-full">
     <div class="grow relative overflow-hidden bg-white border border-slate-200">
       <header class="absolute top-0 left-0 p-6 z-10 pointer-events-none">
         <h1 class="text-xl font-bold text-slate-900 pointer-events-auto uppercase tracking-tight">
@@ -156,6 +156,30 @@ onMounted(() => {
           Root positioned left. Click nodes for details or to toggle visibility.
         </p>
       </header>
+
+      <div class="absolute bottom-4 right-4 z-10 flex flex-col gap-1">
+        <button
+          class="w-8 h-8 flex items-center justify-center bg-white border border-slate-300 rounded shadow-sm hover:bg-slate-50 text-slate-700 text-lg font-bold leading-none"
+          title="Zoom in"
+          @click="zoomIn"
+        >
+          +
+        </button>
+        <button
+          class="w-8 h-8 flex items-center justify-center bg-white border border-slate-300 rounded shadow-sm hover:bg-slate-50 text-slate-700 text-lg font-bold leading-none"
+          title="Zoom out"
+          @click="zoomOut"
+        >
+          &minus;
+        </button>
+        <button
+          class="w-8 h-8 flex items-center justify-center bg-white border border-slate-300 rounded shadow-sm hover:bg-slate-50 text-slate-700 text-xs leading-none"
+          title="Reset zoom"
+          @click="resetZoom"
+        >
+          1:1
+        </button>
+      </div>
 
       <svg ref="svgRef" class="w-full h-full"></svg>
     </div>
