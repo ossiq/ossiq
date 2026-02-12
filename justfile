@@ -11,11 +11,11 @@ list:
 
 # Run all the formatting, linting, and testing commands
 qa:
-    uv run --extra dev ruff format .
-    uv run --extra dev ruff check . --fix
-    uv run --extra dev ruff check --select I --fix .
-    uv run --extra dev ty check .
-    uv run --extra dev pytest .
+    uv run --group dev ruff format .
+    uv run --group dev ruff check . --fix
+    uv run --group dev ruff check --select I --fix .
+    uv run --group dev ty check .
+    uv run --group dev pytest .
 
 qa-integration:
     mkdir reports || echo 'Reports is there already'
@@ -38,26 +38,30 @@ lint:
 
 # Run all the tests for all the supported Python versions
 testall:
-    uv run --python=3.10 --extra dev pytest
-    uv run --python=3.11 --extra dev pytest
-    uv run --python=3.12 --extra dev pytest
-    uv run --python=3.13 --extra dev pytest
+    uv run --python=3.10 --group dev pytest
+    uv run --python=3.11 --group dev pytest
+    uv run --python=3.12 --group dev pytest
+    uv run --python=3.13 --group dev pytest
 
 # Run all the tests, but allow for arguments to be passed
 test *ARGS:
     @echo "Running with arg: {{ARGS}}"
-    uv run --extra dev pytest {{ARGS}}
+    uv run --group dev pytest {{ARGS}}
 
 # Run all the tests, but on failure, drop into the debugger
 pdb *ARGS:
     @echo "Running with arg: {{ARGS}}"
-    uv run --python=3.13  --extra dev pytest --pdb --maxfail=10 --pdbcls=IPython.terminal.debugger:TerminalPdb {{ARGS}}
+    uv run --python=3.13  --group dev pytest --pdb --maxfail=10 --pdbcls=IPython.terminal.debugger:TerminalPdb {{ARGS}}
 
 # Run coverage, and build to HTML
 coverage:
-    uv run --python=3.13 --extra dev coverage run -m pytest .
-    uv run --python=3.13 --extra dev coverage report -m
-    uv run --python=3.13 --extra dev coverage html
+    uv run --python=3.13 --group dev coverage run -m pytest .
+    uv run --python=3.13 --group dev coverage report -m
+    uv run --python=3.13 --group dev coverage html
+
+# Build Vue.js SPA frontend and produce the SPA template for HTML reports
+frontend-build:
+    uv run python frontend_build.py
 
 # Build the project, useful for checking that packaging is correct
 build:
@@ -71,15 +75,9 @@ VERSION := `grep -m1 '^version' pyproject.toml | sed -E 's/version = "(.*)"/\1/'
 version:
     @echo "Current version is {{VERSION}}"
 
-# Tag the current version in git and put to github
-tag:
-    echo "Tagging version v{{VERSION}}"
-    git tag -a v{{VERSION}} -m "Creating version v{{VERSION}}"
-    git push origin v{{VERSION}}
-
 # Create a new release (dry-run by default)
 release *ARGS:
-    uv run python release.py {{ARGS}}
+    uv run python release.py {{ARGS}} --dry-run
 
 # Preview what a patch release would look like
 release-preview:

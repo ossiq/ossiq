@@ -9,14 +9,25 @@ from .common import PackageNotInstalled
 from .packages_manager import PackageManagerType
 
 
-@dataclass(frozen=True)
+@dataclass(order=True)
 class Dependency:
+    """
+    Represents a Dependency with child (transitive) depenencies
+    """
+
     name: str
     # Factually installed version. Fallback to version_defined if there's no lockfile
     version_installed: str
     # Version, nominally defined in project requirements before resolution
     version_defined: str | None = None
-    categories: list[str] = field(default_factory=lambda: [])
+    source: str | None = None
+    required_engine: str | None = None
+    categories: list[str] = field(default_factory=list, compare=False)
+
+    # list of direct dependencies for this particular dependency
+    # NOTE: there's no segregation between Optional vs Non-Optional at this point
+    dependencies: dict[str, "Dependency"] = field(default_factory=dict, compare=False, hash=False)
+    optional_dependencies: dict[str, "Dependency"] = field(default_factory=dict, compare=False, hash=False)
 
 
 class Project:
@@ -25,25 +36,20 @@ class Project:
     package_manager_type: PackageManagerType
     name: str
     project_path: str | None
-    dependencies: dict[str, Dependency]
-    # Optional dependencies with respective categories.
-    # NOTE: one dependency could be in dependencies and
-    # multiple categories of optional dependencies (1-to-Many link)
-    optional_dependencies: dict[str, Dependency]
+
+    dependency_tree: Dependency
 
     def __init__(
         self,
         package_manager_type: PackageManagerType,
         name: str,
         project_path: str,
-        dependencies: dict[str, Dependency],
-        optional_dependencies: dict[str, Dependency],
+        dependency_tree: Dependency,
     ):
         self.package_manager_type = package_manager_type
         self.name = name
         self.project_path = project_path
-        self.dependencies = dependencies
-        self.optional_dependencies = optional_dependencies
+        self.dependency_tree = dependency_tree
 
     def __repr__(self):
         return f"""{self.package_manager_type.name} Package(
@@ -55,18 +61,29 @@ class Project:
         """
         Get installed version of a package.
         """
-        if package_name in self.dependencies:
-            version = self.dependencies[package_name].version_installed
-        elif package_name in self.optional_dependencies:
-            version = self.optional_dependencies[package_name].version_installed
-        else:
-            raise PackageNotInstalled(f"Package {package_name} not found in project {self.name}")
+        prod_package = self.dependencies.get(package_name, None)
 
-        return version
+        if prod_package:
+            return prod_package.version_installed
+
+        optional_package = self.optional_dependencies.get(package_name, None)
+
+        if optional_package:
+            return optional_package.version_installed
+
+        raise PackageNotInstalled(f"Package {package_name} not found in project {self.name}")
 
     @property
     def package_registry(self):
         return self.package_manager_type.package_registry
+
+    @property
+    def dependencies(self):
+        return self.dependency_tree.dependencies
+
+    @property
+    def optional_dependencies(self):
+        return self.dependency_tree.optional_dependencies
 
 
 def normalize_filename(source_name: str) -> str:
