@@ -108,7 +108,7 @@ class PackageMetrics(BaseModel):
         """Convert domain ProjectMetricsRecord to export model."""
         return cls(
             package_name=record.package_name,
-            is_optional_dependency=record.is_dev_dependency,
+            is_optional_dependency=record.is_optional_dependency,
             installed_version=record.installed_version,
             latest_version=record.latest_version,
             time_lag_days=record.time_lag_days,

@@ -3,15 +3,16 @@ HTML renderer for scan command.
 Migrated from presentation/scan/view_html.py
 """
 
-import datetime
 import os
+from pathlib import Path
 
 from ossiq.domain.common import Command, UserInterfaceType
 from ossiq.domain.exceptions import DestinationDoesntExist
 from ossiq.domain.project import normalize_filename
 from ossiq.service.project import ProjectMetrics
-from ossiq.ui.html.template_environment import configure_template_environment
 from ossiq.ui.interfaces import AbstractUserInterfaceRenderer
+from ossiq.ui.renderers.export.json_schema_registry import json_schema_registry
+from ossiq.ui.renderers.export.models import ExportData
 
 
 class HtmlScanRenderer(AbstractUserInterfaceRenderer):
@@ -27,34 +28,35 @@ class HtmlScanRenderer(AbstractUserInterfaceRenderer):
 
     def render(self, data: ProjectMetrics, **kwargs) -> None:
         """
-        Render project metrics to HTML file.
+        Render project metrics to HTML file using Vue.js SPA.
 
         Args:
             data: ProjectMetrics from scan service
             **kwargs: Rendering options
-                - lag_threshold_days: int - Threshold for highlighting time lag
                 - destination: str - Output file path (supports {project_name} placeholder)
 
         Raises:
             DestinationDoesntExist: If destination directory doesn't exist
         """
-        lag_threshold_days = kwargs.get("lag_threshold_days", 180)
         destination = kwargs.get("destination", ".")
         # Validate destination directory (fixed edge case: empty dirname)
         dest_dir = os.path.dirname(destination)
         if dest_dir and not os.path.exists(dest_dir):
             raise DestinationDoesntExist(f"Destination `{destination}` doesn't exist.")
 
-        # Configure Jinja2 environment and load template
-        _, template = configure_template_environment("ui/renderers/scan/html_templates/main.html")
+        # Load pre-built SPA template
+        spa_template_path = Path(__file__).parent.parent.parent / "html_templates" / "spa_app.html"
+        spa_template = spa_template_path.read_text(encoding="utf-8")
 
-        # Render template
-        rendered_html = template.render(
-            project_scan=data,
-            lag_threshold_days=lag_threshold_days,
-            dependencies=data.production_packages + data.optional_packages,
-            now=datetime.datetime.now(datetime.UTC),
+        # Convert ProjectMetrics to ExportData (reuses JSON export logic)
+        export_data = ExportData.from_project_metrics(
+            data,
+            schema_version=json_schema_registry.get_latest_version(),
         )
+
+        # Serialize to JSON and inject into SPA template
+        json_data = export_data.model_dump_json()
+        rendered_html = spa_template.replace("__OSSIQ_REPORT_DATA__", json_data)
 
         # Resolve output path with project name placeholder
         target_path = destination.format(
