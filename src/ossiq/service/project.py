@@ -2,15 +2,16 @@
 Service to take care of a Package versions
 """
 
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime
 
 from rich.console import Console
 
-from ossiq.adapters.api_interfaces import AbstractPackageRegistryApi
+from ossiq.adapters.api_interfaces import AbstractCveDatabaseApi, AbstractPackageRegistryApi
 from ossiq.domain.cve import CVE
 from ossiq.domain.exceptions import ProjectPathNotFoundError
-from ossiq.domain.project import Project
+from ossiq.domain.project import Dependency, Project
 from ossiq.domain.version import VersionsDifference
 from ossiq.service.common import package_versions
 from ossiq.unit_of_work import core as unit_of_work
@@ -21,7 +22,7 @@ console = Console()
 @dataclass
 class ProjectMetricsRecord:
     package_name: str
-    is_dev_dependency: bool
+    is_optional_dependency: bool
     installed_version: str
     latest_version: str | None
     versions_diff_index: VersionsDifference
@@ -89,19 +90,20 @@ def get_package_versions_since(
 
 
 def scan_record(
-    uow: unit_of_work.AbstractProjectUnitOfWork,
+    packages_registry: AbstractPackageRegistryApi,
+    cve_database: AbstractCveDatabaseApi,
     project_info: Project,
     package_name: str,
     package_version: str,
-    is_dev_dependency: bool,
+    is_optional_dependency: bool,
 ) -> ProjectMetricsRecord:
     """
     Factory to generate ProjectMetricsRecord instances
     """
-    package_info = uow.packages_registry.package_info(package_name)
+    package_info = packages_registry.package_info(package_name)
     installed_version = project_info.installed_package_version(package_info.name)
 
-    releases_since_installed = get_package_versions_since(uow.packages_registry, package_info.name, installed_version)
+    releases_since_installed = get_package_versions_since(packages_registry, package_info.name, installed_version)
 
     time_lag_days = calculate_time_lag_in_days(releases_since_installed, installed_version, package_info.latest_version)
 
@@ -111,7 +113,7 @@ def scan_record(
 
     cve = []
     if installed_release:
-        cve = list(uow.cve_database.get_cves_for_package(package_info, installed_release.version))
+        cve = list(cve_database.get_cves_for_package(package_info, installed_release.version))
 
     return ProjectMetricsRecord(
         package_name=package_name,
@@ -119,9 +121,9 @@ def scan_record(
         latest_version=package_info.latest_version,
         time_lag_days=time_lag_days,
         releases_lag=len(releases_since_installed) - 1,
-        versions_diff_index=uow.packages_registry.difference_versions(installed_version, package_info.latest_version),
+        versions_diff_index=packages_registry.difference_versions(installed_version, package_info.latest_version),
         cve=cve,
-        is_dev_dependency=is_dev_dependency,
+        is_optional_dependency=is_optional_dependency,
     )
 
 
@@ -148,22 +150,42 @@ def scan(uow: unit_of_work.AbstractProjectUnitOfWork) -> ProjectMetrics:
         production_packages: list[ProjectMetricsRecord] = []
         optional_packages: list[ProjectMetricsRecord] = []
 
-        for package in project_info.dependencies.values():
-            production_packages.append(scan_record(uow, project_info, package.name, package.version_installed, False))
+        def pull_packages_info(
+            dependencies: Iterable[Dependency], is_optional_dependency: bool
+        ) -> Iterable[ProjectMetricsRecord]:
+            for package in dependencies:
+                yield scan_record(
+                    uow.packages_registry,
+                    uow.cve_database,
+                    project_info,
+                    package.name,
+                    package.version_installed,
+                    is_optional_dependency,
+                )
 
+        production_packages = list(
+            pull_packages_info(
+                project_info.dependencies.values(),
+                False,
+            )
+        )
         # uow.production is driven by the setting
         if not uow.production:
-            for package in project_info.optional_dependencies.values():
-                optional_packages.append(scan_record(uow, project_info, package.name, package.version_installed, True))
+            optional_packages = list(
+                pull_packages_info(
+                    project_info.optional_dependencies.values(),
+                    True,
+                )
+            )
 
         return ProjectMetrics(
             project_name=project_info.name,
             project_path=project_info.project_path,
             packages_registry=project_info.package_registry.value,
             production_packages=sorted(
-                [pkg for pkg in production_packages if not pkg.is_dev_dependency], key=sort_function, reverse=True
+                [pkg for pkg in production_packages if not pkg.is_optional_dependency], key=sort_function, reverse=True
             ),
             optional_packages=sorted(
-                [pkg for pkg in optional_packages if pkg.is_dev_dependency], key=sort_function, reverse=True
+                [pkg for pkg in optional_packages if pkg.is_optional_dependency], key=sort_function, reverse=True
             ),
         )

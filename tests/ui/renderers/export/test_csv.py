@@ -51,7 +51,7 @@ def sample_project_metrics_record(sample_cve):
     """Create a sample ProjectMetricsRecord for testing."""
     return ProjectMetricsRecord(
         package_name="react",
-        is_dev_dependency=False,
+        is_optional_dependency=False,
         installed_version="17.0.2",
         latest_version="18.2.0",
         versions_diff_index=VersionsDifference(
@@ -68,7 +68,7 @@ def sample_dev_dependency_record():
     """Create a sample development dependency record."""
     return ProjectMetricsRecord(
         package_name="pytest",
-        is_dev_dependency=True,
+        is_optional_dependency=True,
         installed_version="7.0.0",
         latest_version="7.2.0",
         versions_diff_index=VersionsDifference(
@@ -392,7 +392,7 @@ class TestCsvExportRenderer:
             production_packages=[
                 ProjectMetricsRecord(
                     package_name="package1",
-                    is_dev_dependency=False,
+                    is_optional_dependency=False,
                     installed_version="1.0.0",
                     latest_version=None,  # None value
                     versions_diff_index=VersionsDifference("1.0.0", "1.0.0", 0, "SAME"),
@@ -489,7 +489,7 @@ class TestCsvExportRenderer:
             production_packages=[
                 ProjectMetricsRecord(
                     package_name="test-pkg",
-                    is_dev_dependency=False,
+                    is_optional_dependency=False,
                     installed_version="1.0.0",
                     latest_version="2.0.0",
                     versions_diff_index=VersionsDifference("1.0.0", "2.0.0", 1, "DIFF"),
@@ -682,7 +682,7 @@ class TestCsvExportRenderer:
             production_packages=[
                 ProjectMetricsRecord(
                     package_name="safe-pkg",
-                    is_dev_dependency=False,
+                    is_optional_dependency=False,
                     installed_version="1.0.0",
                     latest_version="1.0.0",
                     versions_diff_index=VersionsDifference("1.0.0", "1.0.0", 0, "SAME"),
