@@ -17,7 +17,7 @@ from ossiq.domain.version import (
     VERSION_LATEST,
     VersionsDifference,
 )
-from ossiq.service.project import ProjectMetrics, ProjectMetricsRecord
+from ossiq.service.project import ScanRecord, ScanResult
 from ossiq.settings import Settings
 from ossiq.timeutil import format_time_days
 from ossiq.ui.interfaces import AbstractUserInterfaceRenderer
@@ -38,7 +38,7 @@ class ConsoleScanRenderer(AbstractUserInterfaceRenderer):
         """Check if this renderer handles scan/console combination."""
         return command == Command.SCAN and user_interface_type == UserInterfaceType.CONSOLE
 
-    def render(self, data: ProjectMetrics, **kwargs) -> None:  # type: ignore[override]
+    def render(self, data: ScanResult, **kwargs) -> None:
         """
         Render project metrics to console.
 
@@ -53,9 +53,9 @@ class ConsoleScanRenderer(AbstractUserInterfaceRenderer):
         )
 
         table_dev = None
-        if data.development_packages:
+        if data.optional_packages:
             table_dev = self._table_factory(
-                "Optional Dependency Drift Report", "bold cyan", data.development_packages, lag_threshold_days
+                "Optional Dependency Drift Report", "bold cyan", data.optional_packages, lag_threshold_days
             )
 
         # Header
@@ -78,7 +78,7 @@ class ConsoleScanRenderer(AbstractUserInterfaceRenderer):
             self.console.print(table_dev)
 
     def _table_factory(
-        self, title: str, title_style: str, dependencies: list[ProjectMetricsRecord], lag_threshold_days: int
+        self, title: str, title_style: str, dependencies: list[ScanRecord], lag_threshold_days: int
     ) -> Table:
         """Create Rich table with dependency data."""
         table = Table(title=title, title_style=title_style)

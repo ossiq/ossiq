@@ -100,7 +100,7 @@ class AbstractCveDatabaseApi(abc.ABC):
     """
 
     @abc.abstractmethod
-    def get_cves_for_package(self, package: Package, version: PackageVersion) -> set[CVE]:
+    def get_cves_for_package(self, package: Package, version: str) -> set[CVE]:
         """
         Method to return a particular CVE info
         """

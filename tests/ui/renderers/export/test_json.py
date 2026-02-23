@@ -18,7 +18,7 @@ from ossiq.domain.common import Command, ProjectPackagesRegistry, UserInterfaceT
 from ossiq.domain.cve import CVE, CveDatabase, Severity
 from ossiq.domain.exceptions import DestinationDoesntExist
 from ossiq.domain.version import VersionsDifference
-from ossiq.service.project import ProjectMetrics, ProjectMetricsRecord
+from ossiq.service.project import ScanResult, ScanRecord
 from ossiq.settings import Settings
 from ossiq.ui.renderers.export.json import JsonExportRenderer
 from ossiq.ui.renderers.export.json_schema_registry import json_schema_registry
@@ -49,10 +49,10 @@ def sample_cve():
 
 @pytest.fixture
 def sample_project_metrics_record(sample_cve):
-    """Create a sample ProjectMetricsRecord for testing."""
-    return ProjectMetricsRecord(
+    """Create a sample ScanRecord for testing."""
+    return ScanRecord(
         package_name="react",
-        is_dev_dependency=False,
+        is_optional_dependency=False,
         installed_version="17.0.2",
         latest_version="18.2.0",
         versions_diff_index=VersionsDifference(
@@ -66,13 +66,13 @@ def sample_project_metrics_record(sample_cve):
 
 @pytest.fixture
 def sample_project_metrics(sample_project_metrics_record):
-    """Create realistic ProjectMetrics for testing."""
-    return ProjectMetrics(
+    """Create realistic ScanResult for testing."""
+    return ScanResult(
         project_name="test-project",
         project_path="/path/to/test-project",
         packages_registry=ProjectPackagesRegistry.NPM.value,
         production_packages=[sample_project_metrics_record],
-        development_packages=[],
+        optional_packages=[],
     )
 
 
@@ -267,12 +267,12 @@ class TestJsonExportRenderer:
         - Assert: Verify Unicode preserved correctly
         """
         # Arrange
-        metrics = ProjectMetrics(
+        metrics = ScanResult(
             project_name="tëst-ünïcødé",
             project_path="/path/to/project",
             packages_registry="NPM",
             production_packages=[],
-            development_packages=[],
+            optional_packages=[],
         )
         renderer = JsonExportRenderer(settings)
 

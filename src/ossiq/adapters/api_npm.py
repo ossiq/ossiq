@@ -176,20 +176,21 @@ class PackageRegistryApiNpm(AbstractPackageRegistryApi):
                 yield PackageVersion(
                     version=version,
                     license=None,
-                    dependencies={},
+                    declared_dependencies={},
                     package_url=f"{NPM_REGISTRY_FRONT}/package/{package_name}/v/{version}",
                     unpublished_date_iso=unpublished_date_iso,
                     is_published=False,
                 )
         else:
+            # FIXME: filter out -beta and other suffixes: need to collect data to properly define rules
             for version, details in versions.items():
                 yield PackageVersion(
                     version=version,
                     published_date_iso=timestamp_map.get(version, None),
-                    dependencies=details.get("dependencies", {}),
+                    declared_dependencies=details.get("dependencies", {}),
                     license=details.get("license", None),
                     runtime_requirements=details.get("engines", None),
-                    dev_dependencies=details.get("devDependencies", {}),
+                    declared_dev_dependencies=details.get("devDependencies", {}),
                     description=details.get("description", None),
                     package_url=f"{NPM_REGISTRY_FRONT}/package/{package_name}/v/{version}",
                 )

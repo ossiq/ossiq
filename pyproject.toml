@@ -46,40 +46,30 @@ keywords = ["techdebt", "tech debt", "maintenance", "toc", "engineering"]
 
 requires-python = ">= 3.11"
 
-dependencies = [ # specify that newer patch or minor versions allowed
-  "typer~=0.20.0",
-  "pydantic~=2.12.4",
-  "rich~=14.2.0",
-  "termcolor~=3.2.0",
-  "requests~=2.32.5",
-  "semver~=3.0.4",
-  "jinja2~=3.1.6",
-  "hatch>=1.15.1",
-  "common-expression-language>=0.5.3",
-  "pandas>=2.3.3",
+dependencies = [
+  "typer>=0.21.1",
+  "pydantic>=2.12.5,<3",
+  "rich>=14.3.2,<15",
+  "termcolor>=3.3.0,<4",
+  "requests>=2.32.5,<3",
+  "semver>=3.0.4,<4",
+  "hatch>=1.16.3,<2",
+  "common-expression-language>=0.5.6",
+  "pandas>=2.3.3,<4",
   "packaging>=25.0",
-  "jsonschema~=4.26.0",
-  "petl~=1.7.15",
-  "frictionless~=5.18.1",
+  "jsonschema>=4.26.0,<5",
+  "frictionless>=5.18.1,<6",
 ]
 
 [tool.uv]
 package = true
 
 [project.optional-dependencies]
-dev = [
-    "coverage~=7.13.1",  # testing
-    "pytest~=9.0.2",  # testing
-    "ruff~=0.14.10",  # linting
-    "ty~=0.0.8", # checking types
-    "ipdb~=0.13.13", # debugging,
-    "pylint~=4.0.4",
-]
 docs = [
-    "mkdocs~=1.6.1",
-    "mkdocstrings~=1.0.0",
-    "mkdocs-material~=9.7.1",    
-    "mkdocs-nav-weight~=0.3.0"
+    "mkdocs>=1.6.1,<2",
+    "mkdocstrings>=1.0.3,<2",
+    "mkdocs-material>=9.7.1,<10",
+    "mkdocs-nav-weight>=0.3.0",
 ]
 
 [project.urls]
@@ -100,10 +90,25 @@ include = [
   "src/ossiq/**/*.html",
   "src/ossiq/**/*.json",
   "src/ossiq/**/*.csv",
+  "frontend/**",
+  "hatch_build.py",  
+]
+exclude = [
+  "frontend/node_modules/**",
+  "frontend/dist/**",
+]
+artifacts = [
+  "src/ossiq/ui/html_templates/spa_app.html",
 ]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/ossiq"]
+
+[tool.hatch.build.targets.wheel.hooks.custom]
+path = "hatch_build.py"
+
+[tool.uv.extra-build-dependencies]
+ossiq = ["hatch_build"]
 
 [tool.ty]
 # All rules are enabled as "error" by default; no need to specify unless overriding.
@@ -131,17 +136,13 @@ select = [
 ]
 
 [dependency-groups]
+# Tools for development: PEP 735
 dev = [
-    "datapackage>=1.15.4",
-    "twine>=6.2.0",
-    "coverage~=7.13.1",  # testing
-    "pytest~=9.0.2",  # testing
-    "ruff~=0.14.10",  # linting
-    "ty~=0.0.8", # checking types
-    "ipdb~=0.13.13", # debugging,
-    "pylint~=4.0.4",
-    "mkdocs~=1.6.1",
-    "mkdocstrings~=1.0.0",
-    "mkdocs-material~=9.7.1",    
-    "mkdocs-nav-weight~=0.3.0"
+    "datapackage>=1.15.4,<2",
+    "coverage>=7.13.4,<8",  # testing
+    "pytest>=9.0.2,<10",  # testing
+    "ruff>=0.15.0",  # linting
+    "ty>=0.0.15",  # checking types
+    "ipdb>=0.13.13",  # debugging
+    "pylint>=4.0.4,<5",
 ]

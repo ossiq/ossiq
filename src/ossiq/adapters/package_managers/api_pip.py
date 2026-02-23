@@ -5,10 +5,11 @@ Support of pylock.toml package manager (PEP 751)
 import os
 import re
 import tomllib
-from collections import defaultdict, namedtuple
-from collections.abc import Callable
+from collections import namedtuple
+from collections.abc import Callable, Iterable
 
 from ossiq.adapters.api_interfaces import AbstractPackageManagerApi
+from ossiq.adapters.package_managers.dependency_tree import BaseDependencyResolver
 from ossiq.adapters.package_managers.utils import find_lockfile_parser
 from ossiq.domain.exceptions import PackageManagerLockfileParsingError
 from ossiq.domain.packages_manager import PIP, PackageManagerType
@@ -16,6 +17,62 @@ from ossiq.domain.project import Dependency, Project
 from ossiq.settings import Settings
 
 PylockProject = namedtuple("PylockProject", ["manifest", "lockfile"])
+
+
+class PyLockResolver(BaseDependencyResolver):
+    """
+    Concrete resolver for pylock.toml (PEP 751) lockfiles.
+
+    Handles the [[packages]] list format where dependencies are
+    provided as a list of name/version maps.
+    """
+
+    def get_all_packages(self) -> Iterable[dict]:
+        """Returns the list of packages defined under the [[packages]] header.
+
+        Filters out directory/editable packages (e.g., the project itself)
+        which lack a version field. These are represented by the synthetic
+        root entry injected from pyproject.toml instead.
+        """
+        return [pkg for pkg in self.raw_data.get("packages", []) if "version" in pkg]
+
+    def extract_package_identity(self, pkg_data: dict) -> tuple[str, str]:
+        """Extracts name and the specific installed version."""
+        return pkg_data["name"], pkg_data["version"]
+
+    def extract_package_metadata(self, pkg_data: dict) -> tuple[str | None, str | None, str | None]:
+        """
+        Extracts source details, environment markers, and the nominal requirement.
+        """
+        # Source can be a string or a dict like { registry = "..." } or { git = "..." }
+        source_val = pkg_data.get("source")
+        source = None
+        if isinstance(source_val, dict):
+            # Extract the first available value from the source dict
+            source = next(iter(source_val.values()), None)
+        elif isinstance(source_val, str):
+            source = source_val
+
+        marker = pkg_data.get("marker")
+
+        # Pulling version_defined from the metadata block if present
+        v_def = pkg_data.get("metadata", {}).get("version_spec")
+
+        return source, marker, v_def
+
+    def get_raw_dependencies(self, pkg_data: dict) -> Iterable[tuple[str | None, Iterable[dict]]]:
+        """Returns the list of dependency objects, including optional-dependencies."""
+        if pkg_data.get("optional-dependencies", {}):
+            yield from pkg_data.get("optional-dependencies", {}).items()
+
+        yield None, pkg_data.get("dependencies", [])
+
+    def extract_dependency_identity(self, dep_data: dict) -> tuple[str, str | None]:
+        """
+        In pylock, a dependency entry is usually: { name = "requests" }
+        Sometimes it includes a version: { name = "requests", version = "2.31.0" }
+        """
+        return dep_data["name"], dep_data.get("version")
 
 
 class PackageManagerPythonPip(AbstractPackageManagerApi):
@@ -99,71 +156,19 @@ class PackageManagerPythonPip(AbstractPackageManagerApi):
 
         return name.strip()
 
-    def parse_lockfile_v1_0(
-        self,
-        direct_dependencies: set[str],
-        optional_dependencies_map: dict[str, list[str]],
-        pylock_data: dict,
-    ) -> tuple[dict[str, Dependency], dict[str, Dependency]]:
+    def parse_lockfile_v1_0(self, project_package_name: str, pylock_data: dict) -> Dependency:
         """
         Lockfile parser for pylock.toml lock-version "1.0"
-
-        Args:
-            direct_dependencies: Set of normalized package names from [project.dependencies]
-            optional_dependencies_map: Map of category -> list of normalized package names
-            pylock_data: Parsed pylock.toml data
-
-        Returns:
-            Tuple of (dependencies, optional_dependencies) dictionaries
         """
 
-        dependencies = {}
-        optional_dependencies = {}
+        resolver = PyLockResolver(pylock_data)
+        root_node = resolver.build_graph(project_package_name)
+        if not root_node:
+            raise PackageManagerLockfileParsingError("Cannot parse pylock lockfile")
 
-        # Build reverse map: package name -> list of categories
-        categories_map = defaultdict(list)
-        for category, packages in optional_dependencies_map.items():
-            for package in packages:
-                categories_map[package].append(category)
+        return root_node
 
-        # Iterate through all packages in pylock.toml
-        for package in pylock_data.get("packages", []):
-            name = package.get("name")
-            version = package.get("version")
-
-            if not name:
-                continue
-
-            if not version:
-                # PEP 751: version may be omitted for VCS/directory sources
-                # For now, skip packages without version (could be enhanced later)
-                continue
-
-            # Normalize the package name for comparison
-            normalized_name = self.normalize_package_name(name)
-
-            dependency_instance = Dependency(
-                name=name,  # Keep original name from lockfile
-                version_installed=version,
-                categories=categories_map.get(normalized_name, []),
-            )
-
-            # Check if this is a direct dependency
-            if normalized_name in direct_dependencies:
-                dependencies[name] = dependency_instance
-
-            # NOTE: dependency could be in multiple categories at once!
-            if normalized_name in categories_map:
-                optional_dependencies[name] = dependency_instance
-
-            # if normalized_name not in direct_dependencies and normalized_name not in categories_map:
-            # TODO: Handle transitive dependencies, no need for now
-
-        return dependencies, optional_dependencies
-
-    def get_lockfile_parser(
-        self, lock_version: str | None
-    ) -> Callable[..., tuple[dict[str, Dependency], dict[str, Dependency]]] | None:
+    def get_lockfile_parser(self, lock_version: str | None) -> Callable[..., Dependency]:
         """
         Find and return lockfile parser instance based on lock-version field.
         """
@@ -217,6 +222,36 @@ class PackageManagerPythonPip(AbstractPackageManagerApi):
 
         return direct_dependencies, optional_dependencies_map
 
+    def _build_enriched_pylock_data(
+        self,
+        project_package_name: str,
+        project_version: str,
+        direct_dependencies: set[str],
+        optional_dependencies_map: dict[str, list[str]],
+        pylock_data: dict,
+    ) -> dict:
+        """
+        Build enriched pylock data by injecting a synthetic root package entry.
+
+        pylock.toml (PEP 751) does not include the project itself as a package.
+        We synthesize a root entry from pyproject.toml data so the resolver
+        can build a proper dependency graph with the project as root.
+        """
+        root_entry = {
+            "name": project_package_name,
+            "version": project_version,
+            "dependencies": [{"name": dep} for dep in direct_dependencies],
+            "optional-dependencies": {
+                category: [{"name": dep} for dep in deps] for category, deps in optional_dependencies_map.items()
+            },
+        }
+
+        # Create a copy with the root entry prepended
+        enriched = dict(pylock_data)
+        enriched["packages"] = [root_entry] + list(pylock_data.get("packages", []))
+
+        return enriched
+
     def project_info(self) -> Project:
         """
         Extract project dependencies by cross-referencing pyproject.toml
@@ -225,26 +260,28 @@ class PackageManagerPythonPip(AbstractPackageManagerApi):
 
         pyproject_data, pylock_data = self.load_pyproject_data()
 
-        # Extract project name (fallback to directory basename)
-        project_package_name = pyproject_data.get("project", {}).get("name", os.path.basename(self.project_path))
+        project_section = pyproject_data.get("project", {})
+        project_package_name = project_section.get("name", os.path.basename(self.project_path))
+        project_version = project_section.get("version", "0.0.0")
 
         # Extract direct and optional dependencies from pyproject.toml
         direct_dependencies, optional_dependencies_map = self.extract_pyproject_dependencies(pyproject_data)
 
+        # Enrich pylock data with synthetic root from pyproject.toml
+        enriched_pylock_data = self._build_enriched_pylock_data(
+            project_package_name, project_version, direct_dependencies, optional_dependencies_map, pylock_data
+        )
+
         # Get the appropriate parser based on lock-version
         lockfile_parser = self.get_lockfile_parser(pylock_data.get("lock-version", None))
 
-        # Parse lockfile with cross-reference data
-        dependencies, optional_dependencies = lockfile_parser(  # type: ignore
-            direct_dependencies, optional_dependencies_map, pylock_data
-        )
+        dependency_tree = lockfile_parser(project_package_name, enriched_pylock_data)
 
         return Project(
             package_manager_type=self.package_manager_type,
             name=project_package_name,
             project_path=self.project_path,
-            dependencies=dependencies,
-            optional_dependencies=optional_dependencies,
+            dependency_tree=dependency_tree,
         )
 
     def __repr__(self):

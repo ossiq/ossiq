@@ -242,19 +242,19 @@ class TestSortVersions:
                 version="2.0.0",
                 license="MIT",
                 package_url="https://example.com",
-                dependencies={},
+                declared_dependencies={},
             ),
             PackageVersion(
                 version="1.0.0",
                 license="MIT",
                 package_url="https://example.com",
-                dependencies={},
+                declared_dependencies={},
             ),
             PackageVersion(
                 version="1.5.0",
                 license="MIT",
                 package_url="https://example.com",
-                dependencies={},
+                declared_dependencies={},
             ),
         ]
 
@@ -279,7 +279,7 @@ class TestSortVersions:
                 version="1.0.0",
                 license="MIT",
                 package_url="https://example.com",
-                dependencies={},
+                declared_dependencies={},
             )
         ]
 
@@ -518,12 +518,12 @@ class TestPackageVersion:
             version="1.0.0",
             license="MIT",
             package_url="https://pypi.org/project/test/",
-            dependencies={},
+            declared_dependencies={},
         )
 
         assert pv.version == "1.0.0"
         assert pv.license == "MIT"
-        assert pv.dependencies == {}
+        assert pv.declared_dependencies == {}
         assert pv.is_published is True
 
     def test_package_version_with_dependencies(self):
@@ -532,12 +532,12 @@ class TestPackageVersion:
             version="2.0.0",
             license="Apache-2.0",
             package_url="https://pypi.org/project/test/",
-            dependencies={"requests": ">=2.0.0", "urllib3": "^1.26.0"},
-            dev_dependencies={"pytest": "^7.0.0"},
+            declared_dependencies={"requests": ">=2.0.0", "urllib3": "^1.26.0"},
+            declared_dev_dependencies={"pytest": "^7.0.0"},
         )
 
-        assert pv.dependencies == {"requests": ">=2.0.0", "urllib3": "^1.26.0"}
-        assert pv.dev_dependencies == {"pytest": "^7.0.0"}
+        assert pv.declared_dependencies == {"requests": ">=2.0.0", "urllib3": "^1.26.0"}
+        assert pv.declared_dev_dependencies == {"pytest": "^7.0.0"}
 
     def test_package_version_unpublished(self):
         """Test PackageVersion marked as unpublished."""
@@ -545,7 +545,7 @@ class TestPackageVersion:
             version="1.0.0",
             license=None,
             package_url="https://pypi.org/project/test/",
-            dependencies={},
+            declared_dependencies={},
             is_published=False,
             unpublished_date_iso="2023-01-01T00:00:00Z",
         )
@@ -559,7 +559,7 @@ class TestPackageVersion:
             version="1.0.0",
             license="MIT",
             package_url="https://pypi.org/project/test/",
-            dependencies={},
+            declared_dependencies={},
         )
 
         with pytest.raises(AttributeError):
@@ -632,7 +632,7 @@ class TestVersion:
             version="1.0.0",
             license="MIT",
             package_url="https://pypi.org/project/test/",
-            dependencies={},
+            declared_dependencies={},
         )
         rv = RepositoryVersion(version_source_type="GITHUB-RELEASES", version="1.0.0")
 
@@ -653,7 +653,7 @@ class TestVersion:
             version="1.0.0",
             license="MIT",
             package_url="https://pypi.org/project/test/",
-            dependencies={},
+            declared_dependencies={},
         )
         rv = RepositoryVersion(
             version_source_type="GITHUB-RELEASES",
@@ -678,7 +678,7 @@ class TestVersion:
             version="1.0.0",
             license="MIT",
             package_url="https://pypi.org/project/test/",
-            dependencies={},
+            declared_dependencies={},
         )
         rv = RepositoryVersion(version_source_type="GITHUB-RELEASES", version="1.0.0")
 
@@ -698,7 +698,7 @@ class TestVersion:
             version="1.0.0",
             license="MIT",
             package_url="https://pypi.org/project/test/",
-            dependencies={},
+            declared_dependencies={},
         )
         rv = RepositoryVersion(version_source_type="GITHUB-RELEASES", version="1.0.0")
 
@@ -720,7 +720,7 @@ class TestVersion:
             version="1.0.0",
             license="MIT",
             package_url="https://pypi.org/project/test/",
-            dependencies={},
+            declared_dependencies={},
         )
         rv = RepositoryVersion(version_source_type="GITHUB-RELEASES", version="1.0.0")
 
@@ -742,7 +742,7 @@ class TestVersion:
             version="1.0.0",
             license="MIT",
             package_url="https://pypi.org/project/test/",
-            dependencies={},
+            declared_dependencies={},
         )
 
         with pytest.raises(AssertionError) as excinfo:

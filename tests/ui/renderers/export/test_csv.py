@@ -17,7 +17,7 @@ from ossiq.domain.common import Command, ProjectPackagesRegistry, UserInterfaceT
 from ossiq.domain.cve import CVE, CveDatabase, Severity
 from ossiq.domain.exceptions import DestinationDoesntExist
 from ossiq.domain.version import VersionsDifference
-from ossiq.service.project import ProjectMetrics, ProjectMetricsRecord
+from ossiq.service.project import ScanResult, ScanRecord
 from ossiq.settings import Settings
 from ossiq.ui.renderers.export.csv import CsvExportRenderer
 from ossiq.ui.renderers.export.csv_schema_registry import csv_schema_registry
@@ -48,10 +48,10 @@ def sample_cve():
 
 @pytest.fixture
 def sample_project_metrics_record(sample_cve):
-    """Create a sample ProjectMetricsRecord for testing."""
-    return ProjectMetricsRecord(
+    """Create a sample ScanRecord for testing."""
+    return ScanRecord(
         package_name="react",
-        is_dev_dependency=False,
+        is_optional_dependency=False,
         installed_version="17.0.2",
         latest_version="18.2.0",
         versions_diff_index=VersionsDifference(
@@ -66,9 +66,9 @@ def sample_project_metrics_record(sample_cve):
 @pytest.fixture
 def sample_dev_dependency_record():
     """Create a sample development dependency record."""
-    return ProjectMetricsRecord(
+    return ScanRecord(
         package_name="pytest",
-        is_dev_dependency=True,
+        is_optional_dependency=True,
         installed_version="7.0.0",
         latest_version="7.2.0",
         versions_diff_index=VersionsDifference(
@@ -82,13 +82,13 @@ def sample_dev_dependency_record():
 
 @pytest.fixture
 def sample_project_metrics(sample_project_metrics_record, sample_dev_dependency_record):
-    """Create realistic ProjectMetrics for testing."""
-    return ProjectMetrics(
+    """Create realistic ScanResult for testing."""
+    return ScanResult(
         project_name="test-project",
         project_path="/path/to/test-project",
         packages_registry=ProjectPackagesRegistry.NPM.value,
         production_packages=[sample_project_metrics_record],
-        development_packages=[sample_dev_dependency_record],
+        optional_packages=[sample_dev_dependency_record],
     )
 
 
@@ -385,14 +385,14 @@ class TestCsvExportRenderer:
         - Assert: Verify None values are empty strings
         """
         # Arrange
-        metrics_with_none = ProjectMetrics(
+        metrics_with_none = ScanResult(
             project_name="test",
             project_path="/test",
             packages_registry="NPM",
             production_packages=[
-                ProjectMetricsRecord(
+                ScanRecord(
                     package_name="package1",
-                    is_dev_dependency=False,
+                    is_optional_dependency=False,
                     installed_version="1.0.0",
                     latest_version=None,  # None value
                     versions_diff_index=VersionsDifference("1.0.0", "1.0.0", 0, "SAME"),
@@ -401,7 +401,7 @@ class TestCsvExportRenderer:
                     cve=[],
                 )
             ],
-            development_packages=[],
+            optional_packages=[],
         )
         renderer = CsvExportRenderer(settings)
         output_path = tmp_path / "export.csv"
@@ -482,14 +482,14 @@ class TestCsvExportRenderer:
             published=None,
             link="https://test.com",
         )
-        metrics = ProjectMetrics(
+        metrics = ScanResult(
             project_name="test",
             project_path="/test",
             packages_registry="NPM",
             production_packages=[
-                ProjectMetricsRecord(
+                ScanRecord(
                     package_name="test-pkg",
-                    is_dev_dependency=False,
+                    is_optional_dependency=False,
                     installed_version="1.0.0",
                     latest_version="2.0.0",
                     versions_diff_index=VersionsDifference("1.0.0", "2.0.0", 1, "DIFF"),
@@ -498,7 +498,7 @@ class TestCsvExportRenderer:
                     cve=[cve_with_comma],
                 )
             ],
-            development_packages=[],
+            optional_packages=[],
         )
         renderer = CsvExportRenderer(settings)
         output_path = tmp_path / "export.csv"
@@ -522,12 +522,12 @@ class TestCsvExportRenderer:
         - Assert: Verify Unicode preserved correctly
         """
         # Arrange
-        metrics = ProjectMetrics(
+        metrics = ScanResult(
             project_name="tëst-ünïcødé",
             project_path="/path/to/project",
             packages_registry="NPM",
             production_packages=[],
-            development_packages=[],
+            optional_packages=[],
         )
         renderer = CsvExportRenderer(settings)
         output_path = tmp_path / "export.csv"
@@ -644,12 +644,12 @@ class TestCsvExportRenderer:
         - Assert: Verify packages CSV has headers but no rows
         """
         # Arrange
-        metrics = ProjectMetrics(
+        metrics = ScanResult(
             project_name="empty-project",
             project_path="/test",
             packages_registry="NPM",
             production_packages=[],
-            development_packages=[],
+            optional_packages=[],
         )
         renderer = CsvExportRenderer(settings)
         output_path = tmp_path / "export.csv"
@@ -675,14 +675,14 @@ class TestCsvExportRenderer:
         - Assert: Verify CVEs CSV has headers but no rows
         """
         # Arrange
-        metrics = ProjectMetrics(
+        metrics = ScanResult(
             project_name="no-cves",
             project_path="/test",
             packages_registry="NPM",
             production_packages=[
-                ProjectMetricsRecord(
+                ScanRecord(
                     package_name="safe-pkg",
-                    is_dev_dependency=False,
+                    is_optional_dependency=False,
                     installed_version="1.0.0",
                     latest_version="1.0.0",
                     versions_diff_index=VersionsDifference("1.0.0", "1.0.0", 0, "SAME"),
@@ -691,7 +691,7 @@ class TestCsvExportRenderer:
                     cve=[],  # No CVEs
                 )
             ],
-            development_packages=[],
+            optional_packages=[],
         )
         renderer = CsvExportRenderer(settings)
         output_path = tmp_path / "export.csv"

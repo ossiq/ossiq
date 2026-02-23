@@ -1,5 +1,12 @@
-# From https://github.com/github/gitignore/blob/main/Python.gitignore 2025-07-30
+# Claude
+.claudeignore
+.mcp.json
+.claude/
+CLAUDE.md
+
 ossiq_scan_report_*.html
+# From https://github.com/github/gitignore/blob/main/Python.gitignore 2025-07-30
+
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
@@ -11,6 +18,7 @@ __pycache__/
 
 # Distribution / packaging
 .Python
+designs/
 build/
 develop-eggs/
 dist/
