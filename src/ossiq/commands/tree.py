@@ -7,7 +7,7 @@ import typer
 from ossiq import timeutil
 from ossiq.commands.scan import CommandScanOptions
 from ossiq.domain.common import ProjectPackagesRegistry
-from ossiq.service import dependency, project
+from ossiq.service import project
 from ossiq.settings import Settings
 from ossiq.ui.system import show_operation_progress, show_settings
 from ossiq.unit_of_work import uow_project
@@ -46,10 +46,6 @@ def command_tree(ctx: typer.Context, options: CommandScanOptions):
         with progress():
             project_scan = project.scan(uow)
 
-    with show_operation_progress(settings, "Scanning transitive dependencies...") as progress:
-        with progress():
-            tree = dependency.tree(uow, project_scan)
-
     import pprint
 
-    pprint.pprint(tree)
+    pprint.pprint(project_scan.transitive_packages)

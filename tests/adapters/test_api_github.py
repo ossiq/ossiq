@@ -598,13 +598,13 @@ class TestRepositoryVersions:
                 version="1.0.0",
                 license="MIT",
                 package_url="https://pypi.org/project/test/1.0.0/",
-                dependencies={},
+                declared_dependencies={},
             ),
             PackageVersion(
                 version="1.1.0",
                 license="MIT",
                 package_url="https://pypi.org/project/test/1.1.0/",
-                dependencies={},
+                declared_dependencies={},
             ),
         ]
 
@@ -646,7 +646,7 @@ class TestRepositoryVersions:
                 version="1.0.0",
                 license="MIT",
                 package_url="https://pypi.org/project/test/1.0.0/",
-                dependencies={},
+                declared_dependencies={},
             )
         ]
 

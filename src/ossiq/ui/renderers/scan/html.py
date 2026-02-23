@@ -9,7 +9,7 @@ from pathlib import Path
 from ossiq.domain.common import Command, UserInterfaceType
 from ossiq.domain.exceptions import DestinationDoesntExist
 from ossiq.domain.project import normalize_filename
-from ossiq.service.project import ProjectMetrics
+from ossiq.service.project import ScanResult
 from ossiq.ui.interfaces import AbstractUserInterfaceRenderer
 from ossiq.ui.renderers.export.json_schema_registry import json_schema_registry
 from ossiq.ui.renderers.export.models import ExportData
@@ -26,7 +26,7 @@ class HtmlScanRenderer(AbstractUserInterfaceRenderer):
         """Check if this renderer handles scan/html combination."""
         return command == Command.SCAN and user_interface_type == UserInterfaceType.HTML
 
-    def render(self, data: ProjectMetrics, **kwargs) -> None:
+    def render(self, data: ScanResult, **kwargs) -> None:
         """
         Render project metrics to HTML file using Vue.js SPA.
 

@@ -16,7 +16,7 @@ from ossiq.domain.common import (
     ExportUnknownSchemaVersion,
 )
 from ossiq.domain.cve import CVE, Severity
-from ossiq.service.project import ProjectMetrics
+from ossiq.service.project import ScanResult
 
 
 class ExportMetadata(BaseModel):
@@ -102,10 +102,14 @@ class PackageMetrics(BaseModel):
     time_lag_days: int | None = Field(description="Days between installed and latest version")
     releases_lag: int | None = Field(description="Number of releases between installed and latest")
     cve: list[CVEInfo] = Field(default_factory=list, description="Known CVEs for this package")
+    dependency_path: list[str] | None = Field(
+        default=None,
+        description="Ancestor chain leading to this package (None for direct dependencies)",
+    )
 
     @classmethod
     def from_domain(cls, record) -> "PackageMetrics":
-        """Convert domain ProjectMetricsRecord to export model."""
+        """Convert domain ScanRecord to export model."""
         return cls(
             package_name=record.package_name,
             is_optional_dependency=record.is_optional_dependency,
@@ -114,6 +118,7 @@ class PackageMetrics(BaseModel):
             time_lag_days=record.time_lag_days,
             releases_lag=record.releases_lag,
             cve=[CVEInfo.from_domain(cve) for cve in record.cve],
+            dependency_path=record.dependency_path,
         )
 
 
@@ -131,25 +136,29 @@ class ExportData(BaseModel):
         default_factory=list,
         description="Development dependency metrics",
     )
+    transitive_packages: list[PackageMetrics] = Field(
+        default_factory=list,
+        description="Transitive dependency metrics (all paths, production edges only)",
+    )
 
     @classmethod
     def from_project_metrics(
-        cls, data: ProjectMetrics, schema_version: ExportJsonSchemaVersion | ExportCsvSchemaVersion
+        cls, data: ScanResult, schema_version: ExportJsonSchemaVersion | ExportCsvSchemaVersion
     ) -> "ExportData":
         """
-        Create ExportData from ProjectMetrics domain model.
+        Create ExportData from ScanResult domain model.
 
         Args:
-            data: ProjectMetrics instance from scan service
+            data: ScanResult instance from scan service
 
         Returns:
             ExportData with all fields populated
         """
-        # Calculate summary statistics
-        all_packages = data.production_packages + data.optional_packages
-        total_cves = sum(len(pkg.cve) for pkg in all_packages)
-        packages_with_cves = sum(1 for pkg in all_packages if len(pkg.cve) > 0)
-        packages_outdated = sum(1 for pkg in all_packages if pkg.versions_diff_index.diff_index > 0)
+        # Calculate summary statistics (direct deps only)
+        all_direct = data.production_packages + data.optional_packages
+        total_cves = sum(len(pkg.cve) for pkg in all_direct)
+        packages_with_cves = sum(1 for pkg in all_direct if len(pkg.cve) > 0)
+        packages_outdated = sum(1 for pkg in all_direct if pkg.versions_diff_index.diff_index > 0)
 
         return cls(
             metadata=ExportMetadata(schema_version=schema_version),
@@ -159,7 +168,7 @@ class ExportData(BaseModel):
                 registry=data.packages_registry,
             ),
             summary=ProjectSummary(
-                total_packages=len(all_packages),
+                total_packages=len(all_direct),
                 production_packages=len(data.production_packages),
                 development_packages=len(data.optional_packages),
                 packages_with_cves=packages_with_cves,
@@ -168,4 +177,5 @@ class ExportData(BaseModel):
             ),
             production_packages=[PackageMetrics.from_domain(pkg) for pkg in data.production_packages],
             development_packages=[PackageMetrics.from_domain(pkg) for pkg in data.optional_packages],
+            transitive_packages=[PackageMetrics.from_domain(pkg) for pkg in data.transitive_packages],
         )
