@@ -3,24 +3,24 @@ Put all the important constants in one place to avoid
 mutual dependencies.
 """
 
-from enum import Enum
+from enum import Enum, StrEnum
 
 # Source of versions data within target source code repository
 VERSION_DATA_SOURCE_GITHUB_RELEASES = "GITHUB-RELEASES"
 VERSION_DATA_SOURCE_GITHUB_TAGS = "GITHUB-TAGS"
 
 
-class RepositoryProvider(str, Enum):
+class RepositoryProvider(StrEnum):
     PROVIDER_GITHUB = "GITHUB"
     PROVIDER_UNKNOWN = "UNKNOWN"
 
 
-class ProjectPackagesRegistry(str, Enum):
+class ProjectPackagesRegistry(StrEnum):
     NPM = "NPM"
     PYPI = "PYPI"
 
 
-class CveDatabase(str, Enum):
+class CveDatabase(StrEnum):
     OSV = "OSV"
     GHSA = "GHSA"
     NVD = "NVD"
@@ -50,19 +50,19 @@ class Command(Enum):
     EXPORT = "export"
 
 
-class ExportUnknownSchemaVersion(str, Enum):
+class ExportUnknownSchemaVersion(StrEnum):
     """Supported export schema versions."""
 
     UNKNOWN = "UNKNOWN"
 
 
-class ExportJsonSchemaVersion(str, Enum):
+class ExportJsonSchemaVersion(StrEnum):
     """Supported export schema versions."""
 
     V1_0 = "1.0"
 
 
-class ExportCsvSchemaVersion(str, Enum):
+class ExportCsvSchemaVersion(StrEnum):
     """Supported export schema versions."""
 
     V1_0 = "1.0"
