@@ -3,15 +3,16 @@ Service to take care of a Package versions
 """
 
 from collections.abc import Iterable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 
 from rich.console import Console
 
 from ossiq.adapters.api_interfaces import AbstractCveDatabaseApi, AbstractPackageRegistryApi
+from ossiq.adapters.package_managers.dependency_tree import GraphExporter
 from ossiq.domain.cve import CVE
 from ossiq.domain.exceptions import ProjectPathNotFoundError
-from ossiq.domain.project import Dependency, Project
+from ossiq.domain.project import Dependency
 from ossiq.domain.version import VersionsDifference
 from ossiq.service.common import package_versions
 from ossiq.unit_of_work import core as unit_of_work
@@ -20,7 +21,7 @@ console = Console()
 
 
 @dataclass
-class ProjectMetricsRecord:
+class ScanRecord:
     package_name: str
     is_optional_dependency: bool
     installed_version: str
@@ -29,15 +30,17 @@ class ProjectMetricsRecord:
     time_lag_days: int | None
     releases_lag: int | None
     cve: list[CVE]
+    dependency_path: list[str] | None = None
 
 
 @dataclass
-class ProjectMetrics:
+class ScanResult:
     project_name: str
     packages_registry: str
     project_path: str
-    production_packages: list[ProjectMetricsRecord]
-    optional_packages: list[ProjectMetricsRecord]
+    production_packages: list[ScanRecord]
+    optional_packages: list[ScanRecord]
+    transitive_packages: list[ScanRecord] = field(default_factory=list)
 
 
 def parse_iso(datetime_str: str | None):
@@ -92,47 +95,47 @@ def get_package_versions_since(
 def scan_record(
     packages_registry: AbstractPackageRegistryApi,
     cve_database: AbstractCveDatabaseApi,
-    project_info: Project,
     package_name: str,
     package_version: str,
     is_optional_dependency: bool,
-) -> ProjectMetricsRecord:
+    dependency_path: list[str] | None = None,
+) -> ScanRecord:
     """
-    Factory to generate ProjectMetricsRecord instances
+    Factory to generate ScanRecord instances
     """
     package_info = packages_registry.package_info(package_name)
-    installed_version = project_info.installed_package_version(package_info.name)
 
-    releases_since_installed = get_package_versions_since(packages_registry, package_info.name, installed_version)
+    releases_since_installed = get_package_versions_since(packages_registry, package_info.name, package_version)
 
-    time_lag_days = calculate_time_lag_in_days(releases_since_installed, installed_version, package_info.latest_version)
+    time_lag_days = calculate_time_lag_in_days(releases_since_installed, package_version, package_info.latest_version)
 
     installed_release = next(
-        (release for release in releases_since_installed if release.version == installed_version), None
+        (release for release in releases_since_installed if release.version == package_version), None
     )
 
     cve = []
     if installed_release:
         cve = list(cve_database.get_cves_for_package(package_info, installed_release.version))
 
-    return ProjectMetricsRecord(
+    return ScanRecord(
         package_name=package_name,
         installed_version=package_version,
         latest_version=package_info.latest_version,
         time_lag_days=time_lag_days,
         releases_lag=len(releases_since_installed) - 1,
-        versions_diff_index=packages_registry.difference_versions(installed_version, package_info.latest_version),
+        versions_diff_index=packages_registry.difference_versions(package_version, package_info.latest_version),
         cve=cve,
         is_optional_dependency=is_optional_dependency,
+        dependency_path=dependency_path,
     )
 
 
-def scan(uow: unit_of_work.AbstractProjectUnitOfWork) -> ProjectMetrics:
+def scan(uow: unit_of_work.AbstractProjectUnitOfWork) -> ScanResult:
     """
     Project scan service to leverage Project UoW to gather metrics
     """
 
-    def sort_function(pkg: ProjectMetricsRecord):
+    def sort_function(pkg: ScanRecord):
         return (
             pkg.versions_diff_index.diff_index,
             len(pkg.cve),
@@ -147,45 +150,51 @@ def scan(uow: unit_of_work.AbstractProjectUnitOfWork) -> ProjectMetrics:
         if not project_info.project_path:
             raise ProjectPathNotFoundError("Project Path is not Specified")
 
-        production_packages: list[ProjectMetricsRecord] = []
-        optional_packages: list[ProjectMetricsRecord] = []
-
         def pull_packages_info(
             dependencies: Iterable[Dependency], is_optional_dependency: bool
-        ) -> Iterable[ProjectMetricsRecord]:
+        ) -> Iterable[ScanRecord]:
             for package in dependencies:
                 yield scan_record(
                     uow.packages_registry,
                     uow.cve_database,
-                    project_info,
                     package.name,
                     package.version_installed,
                     is_optional_dependency,
                 )
 
-        production_packages = list(
-            pull_packages_info(
-                project_info.dependencies.values(),
-                False,
-            )
+        production_packages = sorted(
+            pull_packages_info(project_info.dependencies.values(), False),
+            key=sort_function,
+            reverse=True,
         )
+
+        optional_packages: list[ScanRecord] = []
         # uow.production is driven by the setting
         if not uow.production:
-            optional_packages = list(
-                pull_packages_info(
-                    project_info.optional_dependencies.values(),
-                    True,
-                )
+            optional_packages = sorted(
+                pull_packages_info(project_info.optional_dependencies.values(), True),
+                key=sort_function,
+                reverse=True,
             )
 
-        return ProjectMetrics(
+        walker = GraphExporter(project_info.dependency_tree)
+        transitive_packages = [
+            scan_record(
+                uow.packages_registry,
+                uow.cve_database,
+                node.name,
+                node.version_installed,
+                is_optional_dependency=False,
+                dependency_path=path,
+            )
+            for node, path in walker.walk_all_paths()
+        ]
+
+        return ScanResult(
             project_name=project_info.name,
             project_path=project_info.project_path,
             packages_registry=project_info.package_registry.value,
-            production_packages=sorted(
-                [pkg for pkg in production_packages if not pkg.is_optional_dependency], key=sort_function, reverse=True
-            ),
-            optional_packages=sorted(
-                [pkg for pkg in optional_packages if pkg.is_optional_dependency], key=sort_function, reverse=True
-            ),
+            production_packages=production_packages,
+            optional_packages=optional_packages,
+            transitive_packages=transitive_packages,
         )

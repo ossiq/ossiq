@@ -19,7 +19,7 @@ from typing import Any, NamedTuple
 from ossiq.domain.common import Command, ExportCsvSchemaVersion, UserInterfaceType
 from ossiq.domain.exceptions import DestinationDoesntExist
 from ossiq.domain.project import normalize_filename
-from ossiq.service.project import ProjectMetrics
+from ossiq.service.project import ScanResult
 from ossiq.ui.interfaces import AbstractUserInterfaceRenderer
 from ossiq.ui.renderers.export.csv_datapackage import generate_datapackage_descriptor
 from ossiq.ui.renderers.export.csv_schema_registry import csv_schema_registry
@@ -47,7 +47,7 @@ class CsvExportRenderer(AbstractUserInterfaceRenderer):
         """Check if this renderer handles export/csv combination."""
         return command == Command.EXPORT and user_interface_type == UserInterfaceType.CSV
 
-    def render(self, data: ProjectMetrics, destination: str = ".", **kwargs) -> None:
+    def render(self, data: ScanResult, destination: str = ".", **kwargs) -> None:
         """
         Export project metrics to a folder containing CSV files and datapackage.json.
 
@@ -58,7 +58,7 @@ class CsvExportRenderer(AbstractUserInterfaceRenderer):
         - {base}/datapackage.json: Frictionless Data Package descriptor
 
         Args:
-            data: ProjectMetrics from scan service
+            data: ScanResult from scan service
             destination: Output file path (supports {project_name} placeholder)
 
         Raises:

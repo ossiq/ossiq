@@ -95,8 +95,12 @@ class PackageVersion:
     version: str
     license: str | None
     package_url: str
-    dependencies: dict[str, str]
-    dev_dependencies: dict[str, str] | None = None
+    # Version constraints declared by this package in the registry manifest.
+    # Keys are package names, values are version constraint strings (e.g. "^1.2.3").
+    # NOTE: These are registry-declared constraints, not the resolved/installed dependency tree.
+    # For the resolved transitive tree, use Dependency.dependencies (dict[str, Dependency]).
+    declared_dependencies: dict[str, str]
+    declared_dev_dependencies: dict[str, str] | None = None
     runtime_requirements: dict[str, str] | None = None
     description: str | None = None
     published_date_iso: str | None = None

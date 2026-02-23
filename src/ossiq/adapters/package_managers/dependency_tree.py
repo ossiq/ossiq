@@ -3,7 +3,7 @@ Abstract Dependency Tree parser for transitive dependencies analysis
 """
 
 from abc import ABC, abstractmethod
-from collections.abc import Iterable
+from collections.abc import Iterable, Iterator
 from typing import Any
 
 from ossiq.domain.project import Dependency
@@ -149,3 +149,34 @@ class GraphExporter:
         """Returns a dictionary representation of the graph."""
         self.visited.clear()
         return self._to_dict(self.root)
+
+    def walk_all_paths(self) -> Iterator[tuple[Dependency, list[str]]]:
+        """
+        Yields (node, path) for every transitive dependency reachable from root,
+        following all distinct paths without cross-path deduplication.
+
+        `path` contains ancestor names from root's direct child down to (but not
+        including) `node` — e.g. ["react-dom"] for scheduler, or
+        ["react-dom", "scheduler"] for loose-envify.
+
+        Per-path cycle detection via object identity (set of id()) prevents
+        infinite loops on circular deps while still surfacing the same
+        package@version reached via different parent chains.
+
+        Only production edges (Dependency.dependencies) are followed; optional
+        edges (dev/test/peer groups of transitive packages) are skipped.
+        """
+        for direct_dep in self.root.dependencies.values():
+            yield from self._walk_node(direct_dep, [direct_dep.name], {id(direct_dep)})
+
+    def _walk_node(
+        self,
+        node: Dependency,
+        path: list[str],
+        in_path: set[int],
+    ) -> Iterator[tuple[Dependency, list[str]]]:
+        for child in node.dependencies.values():
+            if id(child) in in_path:
+                continue  # skip back-edge (circular dep)
+            yield child, path
+            yield from self._walk_node(child, path + [child.name], in_path | {id(child)})

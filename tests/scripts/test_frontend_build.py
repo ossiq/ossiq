@@ -13,7 +13,11 @@ import pytest
 
 # frontend_build.py lives at project root, not in a Python package
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
-from hatch_build import REPORT_DATA_PLACEHOLDER, replace_report_data_with_placeholder
+# pylint: disable=wrong-import-position
+from hatch_build import (
+    REPORT_DATA_PLACEHOLDER,
+    replace_report_data_with_placeholder,
+)
 
 
 class TestReplaceReportDataWithPlaceholder:

@@ -266,7 +266,7 @@ class PackageRegistryApiPypi(AbstractPackageRegistryApi):
             yield PackageVersion(
                 version=version,
                 published_date_iso=published_date_iso,
-                dependencies=dependencies,
+                declared_dependencies=dependencies,
                 license=info.get("license"),
                 description=info.get("summary"),
                 package_url=f"{PYPI_REGISTRY_FRONT}/project/{package_name}/{version}/",

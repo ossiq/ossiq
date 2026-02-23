@@ -425,11 +425,11 @@ class TestPackageVersions:
         assert versions[0].is_published is True
         assert versions[0].unpublished_date_iso is None
         assert versions[0].license == "MIT"
-        assert versions[0].dependencies == {"lodash": "^4.17.0"}
+        assert versions[0].declared_dependencies == {"lodash": "^4.17.0"}
         assert versions[0].runtime_requirements == {"node": ">=14"}
 
         assert versions[1].version == "1.1.0"
-        assert versions[1].dependencies == {
+        assert versions[1].declared_dependencies == {
             "lodash": "^4.17.0",
             "axios": "^0.21.0",
         }
@@ -462,7 +462,7 @@ class TestPackageVersions:
             assert version.is_published is False
             assert version.unpublished_date_iso == "2021-03-15T10:30:00.000Z"
             assert version.license is None
-            assert version.dependencies == {}
+            assert version.declared_dependencies == {}
 
         assert versions[0].version == "1.0.0"
         assert versions[1].version == "1.0.1"
@@ -527,7 +527,7 @@ class TestPackageVersions:
         for prerelease in [alpha, beta, rc]:
             assert "-" in prerelease.version  # Prerelease indicator
             assert prerelease.is_published is True
-            assert prerelease.dependencies == {"new-dep": "^1.0.0"}
+            assert prerelease.declared_dependencies == {"new-dep": "^1.0.0"}
 
     def test_package_versions_dev_dependencies(self, npm_api, mock_npm_response):
         """
@@ -557,8 +557,8 @@ class TestPackageVersions:
         versions = list(npm_api.package_versions("dev-deps-pkg"))
 
         assert len(versions) == 1
-        assert versions[0].dependencies == {"lodash": "^4.17.0"}
-        assert versions[0].dev_dependencies == {
+        assert versions[0].declared_dependencies == {"lodash": "^4.17.0"}
+        assert versions[0].declared_dev_dependencies == {
             "jest": "^27.0.0",
             "eslint": "^8.0.0",
         }

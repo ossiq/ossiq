@@ -291,12 +291,12 @@ class TestPackageVersions:
         versions = list(pypi_api.package_versions("test-package"))
 
         latest = next(v for v in versions if v.version == "2.0.0")
-        assert "requests>=2.0.0" in latest.dependencies
-        assert "urllib3" in latest.dependencies
+        assert "requests>=2.0.0" in latest.declared_dependencies
+        assert "urllib3" in latest.declared_dependencies
 
         # Older versions don't have dependencies (PyPI API limitation)
         older = next(v for v in versions if v.version == "1.0.0")
-        assert len(older.dependencies) == 0
+        assert len(older.declared_dependencies) == 0
 
     def test_all_files_yanked_marks_version_unpublished(self, pypi_api, monkeypatch):
         """If all files are yanked, version should be unpublished."""

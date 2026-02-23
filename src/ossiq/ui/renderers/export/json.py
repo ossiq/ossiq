@@ -11,7 +11,7 @@ import os
 from ossiq.domain.common import Command, UserInterfaceType
 from ossiq.domain.exceptions import DestinationDoesntExist
 from ossiq.domain.project import normalize_filename
-from ossiq.service.project import ProjectMetrics
+from ossiq.service.project import ScanResult
 from ossiq.ui.interfaces import AbstractUserInterfaceRenderer
 from ossiq.ui.renderers.export.json_schema_registry import json_schema_registry
 from ossiq.ui.renderers.export.models import ExportData
@@ -28,7 +28,7 @@ class JsonExportRenderer(AbstractUserInterfaceRenderer):
         """Check if this renderer handles export/json combination."""
         return command == Command.EXPORT and user_interface_type == UserInterfaceType.JSON
 
-    def render(self, data: ProjectMetrics, destination: str = ".", **kwargs) -> None:
+    def render(self, data: ScanResult, destination: str = ".", **kwargs) -> None:
         """
         Export project metrics to JSON file with metadata wrapper.
 
@@ -36,7 +36,7 @@ class JsonExportRenderer(AbstractUserInterfaceRenderer):
         schema validation. The output conforms to the versioned export schema.
 
         Args:
-            data: ProjectMetrics from scan service
+            data: ScanResult from scan service
             destination: Output file path (supports {project_name} placeholder)
             **kwargs: Optional arguments:
                 - validate_schema (bool): Validate against JSON schema (default: True)
