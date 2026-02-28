@@ -1,129 +1,85 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, computed, watch, nextTick, onMounted } from 'vue'
+import { useOssiqStore } from '@/stores/ossiq'
 import { useD3Tree } from '@/composables/useD3Tree'
 import DependencyDetailPanel from '@/components/DependencyDetailPanel.vue'
 import type { DependencyNode, SelectedNodeDetail } from '@/types/dependency-tree'
+import type { OSSIQExportSchemaV11 } from '@/types/report'
 
+const store = useOssiqStore()
 const svgRef = ref<SVGSVGElement | null>(null)
 const selectedNode = ref<SelectedNodeDetail | null>(null)
 const isPanelOpen = ref(false)
 
-const sampleData: DependencyNode = {
-  name: 'enterprise-app',
-  version_installed: '2.4.0',
-  latest_version: '3.0.0',
-  categories: ['root'],
-  dependencies: {
-    react: {
-      name: 'react',
-      version_installed: '18.2.0',
-      version_defined: '^18.2.0',
-      latest_version: '18.2.0',
-      categories: ['ui-library'],
-      dependencies: {
-        'loose-envify': {
-          name: 'loose-envify',
-          version_installed: '1.4.0',
-          dependencies: {
-            'js-tokens': { name: 'js-tokens', version_installed: '4.0.0' },
-          },
-        },
-      },
-    },
-    express: {
-      name: 'express',
-      version_installed: '4.18.2',
-      version_defined: '^4.17.1',
-      latest_version: '5.0.0',
-      categories: ['framework'],
-      dependencies: {
-        'body-parser': {
-          name: 'body-parser',
-          version_installed: '1.20.1',
-          dependencies: {
-            qs: { name: 'qs', version_installed: '6.11.0' },
-            debug: { name: 'debug', version_installed: '2.6.9' },
-          },
-        },
-        finalhandler: {
-          name: 'finalhandler',
-          version_installed: '1.2.0',
-          dependencies: {
-            debug: { name: 'debug', version_installed: '2.6.9' },
-          },
-        },
-      },
-    },
-    typescript: {
-      name: 'typescript',
-      version_installed: '5.1.6',
-      version_defined: '^5.0.0',
-      latest_version: '5.3.3',
-      categories: ['build-tool'],
-      dependencies: {
-        tslib: { name: 'tslib', version_installed: '2.6.2' },
-      },
-    },
-    axios: {
-      name: 'axios',
-      version_installed: '1.6.0',
-      version_defined: '^1.6.0',
-      latest_version: '1.6.2',
-      categories: ['http-client'],
-      dependencies: {
-        'follow-redirects': { name: 'follow-redirects', version_installed: '1.15.2' },
-        'form-data': { name: 'form-data', version_installed: '4.0.0' },
-      },
-    },
-    ajv: {
-      name: 'ajv',
-      version_installed: '8.12.0',
-      version_defined: '^8.0.0',
-      latest_version: '8.12.0',
-      categories: ['validation'],
-      dependencies: {
-        'fast-deep-equal': { name: 'fast-deep-equal', version_installed: '3.1.3' },
-        'json-schema-traverse': { name: 'json-schema-traverse', version_installed: '1.0.0' },
-      },
-    },
-    jest: {
-      name: 'jest',
-      version_installed: '29.7.0',
-      latest_version: '30.0.0',
-      categories: ['testing'],
-      dependencies: {
-        'jest-core': {
-          name: 'jest-core',
-          version_installed: '29.7.0',
-          dependencies: {
-            'jest-util': { name: 'jest-util', version_installed: '29.7.0' },
-          },
-        },
-        chalk: { name: 'chalk', version_installed: '4.1.2' },
-      },
-    },
-    lodash: { name: 'lodash', version_installed: '4.17.21', categories: ['utility'] },
-    zod: { name: 'zod', version_installed: '3.22.4', categories: ['validation'] },
-    vite: {
-      name: 'vite',
-      version_installed: '5.0.0',
-      categories: ['build-tool'],
-      dependencies: {
-        esbuild: { name: 'esbuild', version_installed: '0.19.0' },
-        postcss: { name: 'postcss', version_installed: '8.4.31' },
-        rollup: { name: 'rollup', version_installed: '4.3.0' },
-      },
-    },
-    helmet: {
-      name: 'helmet',
-      version_installed: '7.1.0',
-      categories: ['security'],
-      dependencies: {
-        qs: { name: 'qs', version_installed: '6.11.0' },
-      },
-    },
-  },
+function buildDependencyTree(report: OSSIQExportSchemaV11): DependencyNode {
+  const root: DependencyNode = {
+    name: report.project.name,
+    version_installed: 'local',
+    dependencies: {},
+  }
+
+  for (const pkg of report.production_packages) {
+    root.dependencies![pkg.package_name] = {
+      name: pkg.package_name,
+      version_installed: pkg.installed_version,
+      latest_version: pkg.latest_version ?? undefined,
+      categories: ['production'],
+      dependencies: {},
+    }
+  }
+
+  if (report.development_packages.length > 0) {
+    root.optional_dependencies = {}
+    for (const pkg of report.development_packages) {
+      root.optional_dependencies[pkg.package_name] = {
+        name: pkg.package_name,
+        version_installed: pkg.installed_version,
+        latest_version: pkg.latest_version ?? undefined,
+        categories: ['development'],
+        dependencies: {},
+      }
+    }
+  }
+
+  // nodeByPath maps "ancestor1/ancestor2/.../parent" → DependencyNode
+  // seeded with direct production deps accessible by their name alone
+  const nodeByPath = new Map<string, DependencyNode>()
+  for (const [name, node] of Object.entries(root.dependencies!)) {
+    nodeByPath.set(name, node)
+  }
+
+  // Sort by path length so parents are always registered before their children
+  const sorted = [...report.transitive_packages].sort(
+    (a, b) => (a.dependency_path?.length ?? 0) - (b.dependency_path?.length ?? 0),
+  )
+
+  for (const pkg of sorted) {
+    if (!pkg.dependency_path || pkg.dependency_path.length === 0) continue
+
+    const parentPathKey = pkg.dependency_path.join('/')
+    const parent = nodeByPath.get(parentPathKey)
+    if (!parent) continue
+
+    if (!parent.dependencies) parent.dependencies = {}
+
+    if (!parent.dependencies[pkg.package_name]) {
+      const thisNode: DependencyNode = {
+        name: pkg.package_name,
+        version_installed: pkg.installed_version,
+        latest_version: pkg.latest_version ?? undefined,
+        dependencies: {},
+      }
+      parent.dependencies[pkg.package_name] = thisNode
+      nodeByPath.set(`${parentPathKey}/${pkg.package_name}`, thisNode)
+    }
+  }
+
+  return root
 }
+
+const dependencyTree = computed<DependencyNode | null>(() =>
+  store.report ? buildDependencyTree(store.report) : null,
+)
 
 function handleNodeSelect(node: SelectedNodeDetail | null) {
   selectedNode.value = node
@@ -141,12 +97,20 @@ const { initializeTree, zoomIn, zoomOut, resetZoom } = useD3Tree({
 })
 
 onMounted(() => {
-  initializeTree(sampleData)
+  if (dependencyTree.value) initializeTree(dependencyTree.value)
+})
+
+watch(dependencyTree, (tree) => {
+  if (tree) nextTick(() => initializeTree(tree))
 })
 </script>
 
 <template>
-  <div class="flex-1 flex w-full">
+  <div v-if="!store.isLoaded" class="flex items-center justify-center py-20">
+    <p class="text-sm text-slate-400 uppercase tracking-widest font-bold">Loading report data…</p>
+  </div>
+
+  <div v-else class="flex-1 flex w-full">
     <div class="grow relative overflow-hidden bg-white border border-slate-200">
       <header class="absolute top-0 left-0 p-6 z-10 pointer-events-none">
         <h1 class="text-xl font-bold text-slate-900 pointer-events-auto uppercase tracking-tight">

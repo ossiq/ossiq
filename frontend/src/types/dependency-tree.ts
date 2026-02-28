@@ -4,10 +4,13 @@ export interface DependencyNode {
   name: string
   version_installed: string
   version_defined?: string
+  source?: string | null
+  required_engine?: string | null
   latest_version?: string
   severity?: string
   categories?: string[]
   dependencies?: Record<string, DependencyNode>
+  optional_dependencies?: Record<string, DependencyNode>
 }
 
 export interface D3NodeData extends DependencyNode {
