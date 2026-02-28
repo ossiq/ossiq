@@ -47,7 +47,7 @@ class CsvExportRenderer(AbstractUserInterfaceRenderer):
         """Check if this renderer handles export/csv combination."""
         return command == Command.EXPORT and user_interface_type == UserInterfaceType.CSV
 
-    def render(self, data: ScanResult, destination: str = ".", **kwargs) -> None:
+    def render(self, data: ScanResult, destination: str = ".", schema_version: str | None = None, **kwargs) -> None:
         """
         Export project metrics to a folder containing CSV files and datapackage.json.
 
@@ -60,6 +60,7 @@ class CsvExportRenderer(AbstractUserInterfaceRenderer):
         Args:
             data: ScanResult from scan service
             destination: Output file path (supports {project_name} placeholder)
+            schema_version: Schema version string (e.g. "1.0"). Defaults to latest.
 
         Raises:
             DestinationDoesntExist: If destination parent directory doesn't exist
@@ -78,10 +79,15 @@ class CsvExportRenderer(AbstractUserInterfaceRenderer):
         if dest_dir and not os.path.exists(dest_dir):
             raise DestinationDoesntExist(f"Destination `{destination}` doesn't exist.")
 
+        # Resolve schema version: use provided value or fall back to latest
+        resolved_version = (
+            ExportCsvSchemaVersion(schema_version) if schema_version is not None else csv_schema_registry.get_latest_version()
+        )
+
         # Convert domain model to export model
         export_data = ExportData.from_project_metrics(
             data,
-            schema_version=csv_schema_registry.get_latest_version(),
+            schema_version=resolved_version,
         )
 
         # Resolve destination path with project name placeholder

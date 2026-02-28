@@ -17,7 +17,7 @@ from ossiq.domain.common import Command, ProjectPackagesRegistry, UserInterfaceT
 from ossiq.domain.cve import CVE, CveDatabase, Severity
 from ossiq.domain.exceptions import DestinationDoesntExist
 from ossiq.domain.version import VersionsDifference
-from ossiq.service.project import ScanResult, ScanRecord
+from ossiq.service.project import ScanRecord, ScanResult
 from ossiq.settings import Settings
 from ossiq.ui.renderers.export.csv import CsvExportRenderer
 from ossiq.ui.renderers.export.csv_schema_registry import csv_schema_registry
@@ -604,6 +604,60 @@ class TestCsvExportRenderer:
         # Act & Assert
         with pytest.raises(DestinationDoesntExist):
             renderer.render(sample_project_metrics, destination="/nonexistent/dir/export.csv")
+
+    def test_explicit_schema_version_1_0_produces_v1_0_output(self, csv_output_path, sample_project_metrics, settings):
+        """Test that requesting schema v1.0 produces output with schema_version 1.0.
+
+        AAA Pattern:
+        - Arrange: Set up renderer
+        - Act: Render with schema_version="1.0"
+        - Assert: Summary CSV reflects v1.0 schema version
+        """
+        # Arrange
+        renderer = CsvExportRenderer(settings)
+
+        # Act
+        renderer.render(sample_project_metrics, destination=str(csv_output_path), schema_version="1.0")
+
+        # Assert
+        summary_file = csv_output_path.parent / "export" / "summary.csv"
+        with open(summary_file, encoding="utf-8-sig", newline="") as f:
+            row = next(csv.DictReader(f))
+        assert row["schema_version"] == "1.0"
+
+    def test_unsupported_schema_version_raises_value_error(self, csv_output_path, sample_project_metrics, settings):
+        """Test that requesting an unsupported CSV schema version raises ValueError.
+
+        AAA Pattern:
+        - Arrange: Set up renderer
+        - Act & Assert: Render with unknown schema_version raises ValueError
+        """
+        # Arrange
+        renderer = CsvExportRenderer(settings)
+
+        # Act & Assert
+        with pytest.raises(ValueError):
+            renderer.render(sample_project_metrics, destination=str(csv_output_path), schema_version="9.9")
+
+    def test_no_schema_version_defaults_to_latest(self, csv_output_path, sample_project_metrics, settings):
+        """Test that omitting schema_version uses the latest version.
+
+        AAA Pattern:
+        - Arrange: Set up renderer
+        - Act: Render without schema_version argument
+        - Assert: Summary CSV reflects the latest schema version
+        """
+        # Arrange
+        renderer = CsvExportRenderer(settings)
+
+        # Act
+        renderer.render(sample_project_metrics, destination=str(csv_output_path))
+
+        # Assert
+        summary_file = csv_output_path.parent / "export" / "summary.csv"
+        with open(summary_file, encoding="utf-8-sig", newline="") as f:
+            row = next(csv.DictReader(f))
+        assert row["schema_version"] == csv_schema_registry.get_latest_version().value
 
     def test_exported_csv_can_be_read_back_with_dictreader(self, csv_output_path, sample_project_metrics, settings):
         """Test exported CSV files can be read back correctly with DictReader.

@@ -22,6 +22,7 @@ class CommandExportOptions:
     production: bool
     output_format: Literal["json", "csv"]
     output_destination: str
+    schema_version: str | None
 
 
 def commnad_export(ctx: typer.Context, options: CommandExportOptions):
@@ -65,4 +66,5 @@ def commnad_export(ctx: typer.Context, options: CommandExportOptions):
     renderer.render(
         data=project_scan,
         destination=options.output_destination,
+        schema_version=options.schema_version,
     )

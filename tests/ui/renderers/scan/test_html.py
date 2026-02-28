@@ -17,7 +17,7 @@ from ossiq.domain.common import Command, ProjectPackagesRegistry, UserInterfaceT
 from ossiq.domain.cve import CVE, CveDatabase, Severity
 from ossiq.domain.exceptions import DestinationDoesntExist
 from ossiq.domain.version import VersionsDifference
-from ossiq.service.project import ScanResult, ScanRecord
+from ossiq.service.project import ScanRecord, ScanResult
 from ossiq.settings import Settings
 from ossiq.ui.renderers.scan.html import HtmlScanRenderer
 

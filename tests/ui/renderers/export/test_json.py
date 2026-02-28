@@ -18,7 +18,7 @@ from ossiq.domain.common import Command, ProjectPackagesRegistry, UserInterfaceT
 from ossiq.domain.cve import CVE, CveDatabase, Severity
 from ossiq.domain.exceptions import DestinationDoesntExist
 from ossiq.domain.version import VersionsDifference
-from ossiq.service.project import ScanResult, ScanRecord
+from ossiq.service.project import ScanRecord, ScanResult
 from ossiq.settings import Settings
 from ossiq.ui.renderers.export.json import JsonExportRenderer
 from ossiq.ui.renderers.export.json_schema_registry import json_schema_registry
@@ -147,7 +147,7 @@ class TestJsonExportRenderer:
         metadata = data["metadata"]
 
         # Assert
-        assert metadata["schema_version"] == "1.0"
+        assert metadata["schema_version"] == "1.1"
         assert "export_timestamp" in metadata
         assert "ossiq_version" not in metadata
 
@@ -323,3 +323,60 @@ class TestJsonExportRenderer:
 
         # Assert - validate() raises exception if invalid
         validate(instance=exported_data, schema=latest_schema)
+
+    def test_explicit_schema_version_1_0_produces_v1_0_output(self, output_file, sample_project_metrics, settings):
+        """Test that requesting schema v1.0 produces output with schema_version 1.0.
+
+        AAA Pattern:
+        - Arrange: Set up renderer
+        - Act: Render with schema_version="1.0"
+        - Assert: Metadata reflects v1.0 and output conforms to v1.0 schema
+        """
+        # Arrange
+        renderer = JsonExportRenderer(settings)
+
+        # Act
+        renderer.render(sample_project_metrics, destination=str(output_file), schema_version="1.0")
+
+        # Assert
+        data = json.loads(output_file.read_text())
+        assert data["metadata"]["schema_version"] == "1.0"
+        v1_0_schema = json_schema_registry.load_schema("1.0")
+        validate(instance=data, schema=v1_0_schema)
+
+    def test_explicit_schema_version_1_1_produces_v1_1_output(self, output_file, sample_project_metrics, settings):
+        """Test that requesting schema v1.1 produces output with schema_version 1.1.
+
+        AAA Pattern:
+        - Arrange: Set up renderer
+        - Act: Render with schema_version="1.1"
+        - Assert: Metadata reflects v1.1 and transitive_packages key is present
+        """
+        # Arrange
+        renderer = JsonExportRenderer(settings)
+
+        # Act
+        renderer.render(sample_project_metrics, destination=str(output_file), schema_version="1.1")
+
+        # Assert
+        data = json.loads(output_file.read_text())
+        assert data["metadata"]["schema_version"] == "1.1"
+        assert "transitive_packages" in data
+
+    def test_no_schema_version_defaults_to_latest(self, output_file, sample_project_metrics, settings):
+        """Test that omitting schema_version uses the latest version.
+
+        AAA Pattern:
+        - Arrange: Set up renderer
+        - Act: Render without schema_version argument
+        - Assert: Output uses the latest schema version
+        """
+        # Arrange
+        renderer = JsonExportRenderer(settings)
+
+        # Act
+        renderer.render(sample_project_metrics, destination=str(output_file))
+
+        # Assert
+        data = json.loads(output_file.read_text())
+        assert data["metadata"]["schema_version"] == json_schema_registry.get_latest_version().value

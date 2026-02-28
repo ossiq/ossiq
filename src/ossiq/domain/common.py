@@ -60,6 +60,7 @@ class ExportJsonSchemaVersion(StrEnum):
     """Supported export schema versions."""
 
     V1_0 = "1.0"
+    V1_1 = "1.1"
 
 
 class ExportCsvSchemaVersion(StrEnum):

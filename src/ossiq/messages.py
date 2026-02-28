@@ -26,6 +26,10 @@ HELP_OUTPUT_FORMAT = """
 Output format. Default: json. Possible options: json, csv, cyclonedx
 """
 
+HELP_SCHEMA_VERSION = """
+Export schema version. Default: latest. Possible options: 1.0, 1.1
+"""
+
 WARNING_MULTIPLE_REGISTRY_TYPES = """
 `{project_path}` contains multiple registry types. Use `--registry-type` option to narrow it down
 """

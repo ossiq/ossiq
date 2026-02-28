@@ -18,6 +18,7 @@ from ossiq.messages import (
     HELP_OUTPUT_FORMAT,
     HELP_PRODUCTION_ONLY,
     HELP_REGISTRY_TYPE,
+    HELP_SCHEMA_VERSION,
     HELP_TEXT,
 )
 from ossiq.settings import Settings
@@ -142,6 +143,10 @@ def export(
         str, typer.Option("--output", "-o", envvar=f"{Settings.ENV_PREFIX}OUTPUT", help=ARGS_HELP_OUTPUT)
     ] = "./ossiq_export_report_{project_name}.{output_format}",
     production: Annotated[bool, typer.Option("--production", help=HELP_PRODUCTION_ONLY)] = False,
+    schema_version: Annotated[
+        Literal["1.0", "1.1"] | None,
+        typer.Option("--schema-version", "-s", envvar=f"{Settings.ENV_PREFIX}SCHEMA_VERSION", help=HELP_SCHEMA_VERSION),
+    ] = None,
 ):
     """
     Export project metrics to a file
@@ -157,6 +162,7 @@ def export(
             production=production,
             output_format=output_format,
             output_destination=output,
+            schema_version=schema_version,
         ),
     )
 
