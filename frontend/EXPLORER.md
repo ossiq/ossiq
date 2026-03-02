@@ -99,6 +99,62 @@ turns all ancestor edges red. Computed in `useHighlightState.collectAncestorInfo
 
 ---
 
+## Toolbar Controls
+
+The toolbar (top-right) contains the search field, filter toggles, a **Clear** button, and an **Info** button.
+
+### Clear filters button
+
+A "Clear" pill button appears automatically whenever any search query or toggle filter is active. Clicking it resets `searchQuery`, `filterCve`, `filterPinned`, and `filterUpperBound` to their defaults in one action. The button is hidden when no filters are active.
+
+Implemented via `hasActiveFilters` (computed) and `clearFilters()` exposed by `useTreeFilters`.
+
+### Legend panel (Info button)
+
+The `ℹ` icon button at the far right of the toolbar toggles a floating legend card (`showLegend` ref in `TransitiveDependenciesView.vue`). The card is positioned `top-18 right-6` (below the toolbar row) and contains three sections:
+
+1. **Node colors** — color swatches with fill/stroke matching `TREE_CONFIG.colors`, one row per rule
+2. **Interactions** — edge click, dashed-line click, Alt+Click, background click
+3. **Duplicate packages** — explains same-version dashed links
+
+The card has its own close button and also closes by toggling the Info button again.
+
+---
+
+## Search & Filters
+
+The toolbar exposes a fuzzy search input and three toggle buttons that prune the visible tree to branches of interest. All filter logic lives in `src/composables/useTreeFilters.ts`; the D3 rendering layer is unaware of filtering.
+
+### Search (Fuse.js)
+
+Typing in the search input fuzzy-matches against all package names in the tree (Fuse.js, threshold `0.35`, min 2 chars). The tree is re-evaluated **50 ms after the last keystroke** (debounced). Only branches containing at least one name match are shown; ancestors of matching nodes are preserved to maintain the path to root.
+
+### Toggle filters
+
+| Button | Condition | Active color |
+|---|---|---|
+| **CVE** | Node has `severity` set | red `#DE4514` |
+| **Pinned** | `version_defined` matches `^\d[\d.]*$` (no operators) | indigo `#4800E2` |
+| **UBC** | `version_defined` contains `<` (upper-bound constraint) | amber |
+
+Multiple active toggles use **OR** logic — a branch is shown if it contains a node satisfying any active toggle.
+
+### Combined search + toggles
+
+When both a search query and one or more toggles are active, **AND** logic applies: a node must match the search query _and_ satisfy at least one active toggle to be kept.
+
+### Adding a new filter
+
+To introduce a new toggle filter, only `useTreeFilters.ts` needs to change:
+1. Add an entry to `TOGGLE_FILTERS` with a `key` and `test` predicate.
+2. Add a `ref(false)` for it in the composable and expose it in the return value.
+3. Register it in the internal `toggleMap`.
+4. Add the toggle button in `TransitiveDependenciesView.vue`.
+
+`pruneTree` and `buildPredicate` are untouched.
+
+---
+
 ## Focus Mode
 
 Clicking a node, a same-version dashed link, or a tree edge triggers unified focus mode,

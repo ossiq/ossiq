@@ -2,6 +2,7 @@
 import { ref, computed, watch, nextTick, onMounted } from 'vue'
 import { useOssiqStore } from '@/stores/ossiq'
 import { useD3Tree } from '@/composables/useD3Tree'
+import { useTreeFilters } from '@/composables/useTreeFilters'
 import DependencyDetailPanel from '@/components/DependencyDetailPanel.vue'
 import type { DependencyNode, SelectedNodeDetail } from '@/types/dependency-tree'
 import type { OSSIQExportSchemaV11 } from '@/types/report'
@@ -10,6 +11,7 @@ const store = useOssiqStore()
 const svgRef = ref<SVGSVGElement | null>(null)
 const selectedNode = ref<SelectedNodeDetail | null>(null)
 const isPanelOpen = ref(false)
+const showLegend = ref(false)
 
 function buildDependencyTree(report: OSSIQExportSchemaV11): DependencyNode {
   // Build a map of package name → highest CVE severity
@@ -108,10 +110,8 @@ function handlePanelClose() {
   isPanelOpen.value = false
 }
 
-const searchQuery = ref('')
-const filterCve = ref(false)
-const filterPinned = ref(false)
-const filterUpperBound = ref(false)
+const { searchQuery, filterCve, filterPinned, filterUpperBound, filteredTree, hasActiveFilters, clearFilters } =
+  useTreeFilters({ dependencyTree })
 
 const { initializeTree, zoomIn, zoomOut, resetZoom } = useD3Tree({
   svgRef,
@@ -119,10 +119,10 @@ const { initializeTree, zoomIn, zoomOut, resetZoom } = useD3Tree({
 })
 
 onMounted(() => {
-  if (dependencyTree.value) initializeTree(dependencyTree.value)
+  if (filteredTree.value) initializeTree(filteredTree.value)
 })
 
-watch(dependencyTree, (tree) => {
+watch(filteredTree, (tree) => {
   if (tree) nextTick(() => initializeTree(tree))
 })
 </script>
@@ -152,7 +152,7 @@ watch(dependencyTree, (tree) => {
               v-model="searchQuery"
               type="text"
               placeholder="Search packages…"
-              class="h-8 w-44 bg-white/90 border border-slate-200 pl-7 pr-3 text-sm text-slate-900 placeholder-slate-400 rounded focus:outline-none focus:ring-1 focus:ring-[#4800E2] focus:border-[#4800E2]"
+              class="h-8 w-56 bg-white/90 border border-slate-200 pl-7 pr-3 text-sm text-slate-900 placeholder-slate-400 rounded focus:outline-none focus:ring-1 focus:ring-[#4800E2] focus:border-[#4800E2]"
             />
           </div>
 
@@ -197,6 +197,86 @@ watch(dependencyTree, (tree) => {
             <span class="material-symbols-rounded text-sm leading-none">arrow_range</span>
             UBC
           </button>
+
+          <!-- Clear filters -->
+          <button
+            v-if="hasActiveFilters"
+            class="h-7 px-2.5 flex items-center gap-1 text-[10px] font-bold uppercase tracking-wide rounded-full border transition-all bg-slate-100 border-slate-300 text-slate-600 hover:bg-slate-200"
+            title="Clear all filters"
+            @click="clearFilters"
+          >
+            <span class="material-symbols-rounded text-sm leading-none">close</span>
+            Clear
+          </button>
+
+          <!-- Legend toggle -->
+          <button
+            :class="[
+              'h-7 w-7 flex items-center justify-center rounded-full border transition-all',
+              showLegend
+                ? 'bg-slate-700 border-slate-700 text-white'
+                : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-50 hover:border-slate-300',
+            ]"
+            title="Show legend"
+            @click="showLegend = !showLegend"
+          >
+            <span class="material-symbols-rounded text-sm leading-none">info</span>
+          </button>
+        </div>
+
+        <!-- Legend panel -->
+        <div
+          v-if="showLegend"
+          class="absolute top-18 right-6 z-20 pointer-events-auto w-64 bg-white border border-slate-200 rounded-lg shadow-md p-3 text-xs text-slate-700 space-y-3"
+        >
+          <div class="flex items-center justify-between">
+            <span class="font-semibold text-slate-900 uppercase tracking-wide text-[10px]">Legend</span>
+            <button class="text-slate-400 hover:text-slate-700 leading-none" @click="showLegend = false">
+              <span class="material-symbols-rounded text-base leading-none">close</span>
+            </button>
+          </div>
+
+          <!-- Color coding -->
+          <div>
+            <p class="font-semibold text-[10px] uppercase tracking-wide text-slate-500 mb-1.5">Node colors</p>
+            <div class="space-y-1.5">
+              <div class="flex items-center gap-2">
+                <span class="inline-flex items-center justify-center w-4 h-4 rounded-full shrink-0 text-[8px] font-bold" style="background:#fde68a; outline:2px solid #d97706; outline-offset:-1px">!</span>
+                <span><strong class="text-slate-800">CVE detected</strong> — known vulnerability</span>
+              </div>
+              <div class="flex items-center gap-2">
+                <span class="inline-block w-4 h-4 rounded-full shrink-0" style="background:#fef08a; outline:2px solid #a16207; outline-offset:-1px"></span>
+                <span><strong class="text-slate-800">Pinned</strong> — exact version (e.g. <code>1.2.3</code>)</span>
+              </div>
+              <div class="flex items-center gap-2">
+                <span class="inline-block w-4 h-4 rounded-full shrink-0" style="background:#fecaca; outline:2px solid #dc2626; outline-offset:-1px"></span>
+                <span><strong class="text-slate-800">Upper-bound</strong> — constraint contains <code>&lt;</code></span>
+              </div>
+              <div class="flex items-center gap-2">
+                <span class="inline-block w-4 h-4 rounded-full shrink-0" style="background:#bfdbfe; outline:2px solid #1d4ed8; outline-offset:-1px"></span>
+                <span><strong class="text-slate-800">Default</strong> — no specific concern</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Interactions -->
+          <div>
+            <p class="font-semibold text-[10px] uppercase tracking-wide text-slate-500 mb-1.5">Interactions</p>
+            <ul class="space-y-1 text-slate-600 leading-snug">
+              <li>Click a <strong>tree edge</strong> → selects the child node</li>
+              <li>Click a <strong>dashed line</strong> → selects the connected duplicate</li>
+              <li><strong>Alt+Click</strong> a node → fold / unfold subtree</li>
+              <li>Click <strong>background</strong> → exit focus mode</li>
+            </ul>
+          </div>
+
+          <!-- Duplicates -->
+          <div>
+            <p class="font-semibold text-[10px] uppercase tracking-wide text-slate-500 mb-1.5">Duplicate packages</p>
+            <p class="text-slate-600 leading-snug">
+              Dashed curved lines connect nodes sharing the same <em>name@version</em> across different subtrees. Clicking any one highlights all occurrences.
+            </p>
+          </div>
         </div>
       </header>
 

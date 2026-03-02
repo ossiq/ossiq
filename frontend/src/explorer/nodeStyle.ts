@@ -9,12 +9,12 @@ export type NodeColorRule = {
   stroke: string
 }
 
-function isPinned(v?: string): boolean {
+export function isPinned(v?: string): boolean {
   if (!v) return false
   return /^\d[\d.]*$/.test(v.trim())
 }
 
-function hasUpperConstraint(v?: string): boolean {
+export function hasUpperConstraint(v?: string): boolean {
   if (!v) return false
   return v.includes('<')
 }
