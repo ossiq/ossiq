@@ -12,6 +12,20 @@ const selectedNode = ref<SelectedNodeDetail | null>(null)
 const isPanelOpen = ref(false)
 
 function buildDependencyTree(report: OSSIQExportSchemaV11): DependencyNode {
+  // Build a map of package name → highest CVE severity
+  const severityRank: Record<string, number> = { LOW: 1, MEDIUM: 2, HIGH: 3, CRITICAL: 4 }
+  const cveMap = new Map<string, string>()
+  for (const pkg of [...report.production_packages, ...report.development_packages, ...report.transitive_packages]) {
+    if (!pkg.cve.length) continue
+    const maxSev = pkg.cve.reduce((best, c) =>
+      (severityRank[c.severity] ?? 0) > (severityRank[best.severity] ?? 0) ? c : best,
+    ).severity
+    const existing = cveMap.get(pkg.package_name)
+    if (!existing || (severityRank[maxSev] ?? 0) > (severityRank[existing] ?? 0)) {
+      cveMap.set(pkg.package_name, maxSev)
+    }
+  }
+
   const root: DependencyNode = {
     name: report.project.name,
     version_installed: 'local',
@@ -23,6 +37,7 @@ function buildDependencyTree(report: OSSIQExportSchemaV11): DependencyNode {
       name: pkg.package_name,
       version_installed: pkg.installed_version,
       latest_version: pkg.latest_version ?? undefined,
+      severity: cveMap.get(pkg.package_name),
       categories: ['production'],
       dependencies: {},
     }
@@ -35,6 +50,7 @@ function buildDependencyTree(report: OSSIQExportSchemaV11): DependencyNode {
         name: pkg.package_name,
         version_installed: pkg.installed_version,
         latest_version: pkg.latest_version ?? undefined,
+        severity: cveMap.get(pkg.package_name),
         categories: ['development'],
         dependencies: {},
       }
@@ -67,6 +83,7 @@ function buildDependencyTree(report: OSSIQExportSchemaV11): DependencyNode {
         name: pkg.package_name,
         version_installed: pkg.installed_version,
         latest_version: pkg.latest_version ?? undefined,
+        severity: cveMap.get(pkg.package_name),
         dependencies: {},
       }
       parent.dependencies[pkg.package_name] = thisNode
@@ -91,6 +108,11 @@ function handlePanelClose() {
   isPanelOpen.value = false
 }
 
+const searchQuery = ref('')
+const filterCve = ref(false)
+const filterPinned = ref(false)
+const filterUpperBound = ref(false)
+
 const { initializeTree, zoomIn, zoomOut, resetZoom } = useD3Tree({
   svgRef,
   onNodeSelect: handleNodeSelect,
@@ -112,13 +134,70 @@ watch(dependencyTree, (tree) => {
 
   <div v-else class="flex-1 flex w-full">
     <div class="grow relative overflow-hidden bg-white border border-slate-200">
-      <header class="absolute top-0 left-0 p-6 z-10 pointer-events-none">
-        <h1 class="text-xl font-bold text-slate-900 pointer-events-auto uppercase tracking-tight">
-          Transitive Dependencies
-        </h1>
-        <p class="text-sm text-slate-500 pointer-events-auto">
-          Root positioned left. Click nodes for details or to toggle visibility.
-        </p>
+      <header
+        class="absolute top-0 left-0 right-0 px-6 pt-5 pb-4 z-10 flex items-start justify-between gap-4 pointer-events-none"
+      >
+        <div class="pointer-events-auto">
+          <h1 class="text-xl font-bold text-slate-900 uppercase tracking-tight">Transitive Dependencies</h1>
+          <p class="text-sm text-slate-500 mt-0.5">Root positioned left. Click for details · Alt+Click to fold/unfold branch.</p>
+        </div>
+
+        <div class="flex items-center gap-2 mt-1 pointer-events-auto">
+          <!-- Search -->
+          <div class="relative">
+            <span
+              class="material-symbols-rounded absolute left-2 top-1/2 -translate-y-1/2 text-slate-400 text-base select-none"
+            >search</span>
+            <input
+              v-model="searchQuery"
+              type="text"
+              placeholder="Search packages…"
+              class="h-8 w-44 bg-white/90 border border-slate-200 pl-7 pr-3 text-sm text-slate-900 placeholder-slate-400 rounded focus:outline-none focus:ring-1 focus:ring-[#4800E2] focus:border-[#4800E2]"
+            />
+          </div>
+
+          <!-- CVE toggle -->
+          <button
+            :class="[
+              'h-7 px-2.5 flex items-center gap-1 text-[10px] font-bold uppercase tracking-wide rounded-full border transition-all',
+              filterCve
+                ? 'bg-[#DE4514] border-[#DE4514] text-white'
+                : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-50 hover:border-slate-300',
+            ]"
+            @click="filterCve = !filterCve"
+          >
+            <span class="material-symbols-rounded text-sm leading-none">security</span>
+            CVE
+          </button>
+
+          <!-- Pinned toggle -->
+          <button
+            :class="[
+              'h-7 px-2.5 flex items-center gap-1 text-[10px] font-bold uppercase tracking-wide rounded-full border transition-all',
+              filterPinned
+                ? 'bg-[#4800E2] border-[#4800E2] text-white'
+                : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-50 hover:border-slate-300',
+            ]"
+            @click="filterPinned = !filterPinned"
+          >
+            <span class="material-symbols-rounded text-sm leading-none">push_pin</span>
+            Pinned
+          </button>
+
+          <!-- Upper Bound Constrained toggle -->
+          <button
+            :class="[
+              'h-7 px-2.5 flex items-center gap-1 text-[10px] font-bold uppercase tracking-wide rounded-full border transition-all',
+              filterUpperBound
+                ? 'bg-amber-500 border-amber-500 text-white'
+                : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-50 hover:border-slate-300',
+            ]"
+            @click="filterUpperBound = !filterUpperBound"
+          >
+            <span class="material-symbols-rounded text-sm leading-none">arrow_range</span>
+            UBC
+          </button>
+        </div>
       </header>
 
       <div class="absolute bottom-4 right-4 z-10 flex flex-col gap-1">
@@ -187,27 +266,17 @@ watch(dependencyTree, (tree) => {
 :deep(.link) {
   fill: none;
   stroke: #cbd5e1;
-  stroke-width: 1.5px;
-  opacity: 0.6;
+  stroke-width: 2.5px;
+  opacity: 0.7;
   transition: all 0.3s;
 }
 
-:deep(.link-duplicate) {
+:deep(.link-same-version) {
   fill: none;
   stroke: #94a3b8;
-  stroke-width: 2px;
-  stroke-dasharray: 5, 5;
-  opacity: 0.5;
-  transition: opacity 0.3s;
-}
-
-:deep(.link-duplicate:hover) {
-  opacity: 1;
-  stroke: #3b82f6;
-}
-
-:deep(.collapsed circle) {
-  fill-opacity: 0.5 !important;
-  stroke-width: 4px !important;
+  stroke-width: 1px;
+  stroke-dasharray: 4, 6;
+  opacity: 0.3;
+  pointer-events: none;
 }
 </style>
