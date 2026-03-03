@@ -31,6 +31,7 @@ class ScanRecord:
     releases_lag: int | None
     cve: list[CVE]
     dependency_path: list[str] | None = None
+    version_constraint: str | None = None
 
 
 @dataclass
@@ -99,6 +100,7 @@ def scan_record(
     package_version: str,
     is_optional_dependency: bool,
     dependency_path: list[str] | None = None,
+    version_constraint: str | None = None,
 ) -> ScanRecord:
     """
     Factory to generate ScanRecord instances
@@ -127,6 +129,7 @@ def scan_record(
         cve=cve,
         is_optional_dependency=is_optional_dependency,
         dependency_path=dependency_path,
+        version_constraint=version_constraint,
     )
 
 
@@ -160,6 +163,7 @@ def scan(uow: unit_of_work.AbstractProjectUnitOfWork) -> ScanResult:
                     package.name,
                     package.version_installed,
                     is_optional_dependency,
+                    version_constraint=package.version_defined,
                 )
 
         production_packages = sorted(
@@ -186,6 +190,7 @@ def scan(uow: unit_of_work.AbstractProjectUnitOfWork) -> ScanResult:
                 node.version_installed,
                 is_optional_dependency=False,
                 dependency_path=path,
+                version_constraint=node.version_defined,
             )
             for node, path in walker.walk_all_paths()
         ]

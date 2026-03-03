@@ -172,19 +172,19 @@ class TestCsvSchemaRegistryV10:
             assert isinstance(field["name"], str)
             assert isinstance(field["type"], str)
 
-    def test_get_latest_version_returns_v1_0(self, registry):
+    def test_get_latest_version_returns_v1_1(self, registry):
         """Test registry returns correct latest schema version.
 
         AAA Pattern:
         - Arrange: Registry fixture
         - Act: Get latest version
-        - Assert: Version is v1.0
+        - Assert: Version is v1.1 (current latest)
         """
         # Act
         latest = registry.get_latest_version()
 
         # Assert
-        assert latest == ExportCsvSchemaVersion.V1_0
+        assert latest == ExportCsvSchemaVersion.V1_1
 
     def test_list_versions_includes_v1_0(self, registry):
         """Test listing all registered versions includes v1.0.

@@ -160,6 +160,10 @@
             "type": "string"
           },
           "description": "Ancestor chain from root to this package (null for direct dependencies)"
+        },
+        "version_constraint": {
+          "type": ["string", "null"],
+          "description": "Version constraint declared in the project manifest (e.g. '^1.2.3', '>=1.0,<2.0')"
         }
       }
     },

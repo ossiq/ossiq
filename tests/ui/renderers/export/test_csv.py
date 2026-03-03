@@ -234,6 +234,7 @@ class TestCsvExportRenderer:
             "time_lag_days",
             "releases_lag",
             "cve_count",
+            "version_constraint",
         ]
         assert headers == expected_headers
 
@@ -289,7 +290,7 @@ class TestCsvExportRenderer:
             row = next(reader)
 
         # Assert
-        assert row["schema_version"] == "1.0"
+        assert row["schema_version"] == "1.1"
         assert row["project_name"] == "test-project"
         assert row["project_path"] == "/path/to/test-project"
         assert row["project_registry"] == "npm"

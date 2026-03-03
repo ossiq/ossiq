@@ -53,7 +53,9 @@ class JsonExportRenderer(AbstractUserInterfaceRenderer):
 
         # Resolve schema version: use provided value or fall back to latest
         resolved_version = (
-            ExportJsonSchemaVersion(schema_version) if schema_version is not None else json_schema_registry.get_latest_version()
+            ExportJsonSchemaVersion(schema_version)
+            if schema_version is not None
+            else json_schema_registry.get_latest_version()
         )
 
         # Convert domain model to export model

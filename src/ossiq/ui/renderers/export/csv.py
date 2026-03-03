@@ -81,7 +81,9 @@ class CsvExportRenderer(AbstractUserInterfaceRenderer):
 
         # Resolve schema version: use provided value or fall back to latest
         resolved_version = (
-            ExportCsvSchemaVersion(schema_version) if schema_version is not None else csv_schema_registry.get_latest_version()
+            ExportCsvSchemaVersion(schema_version)
+            if schema_version is not None
+            else csv_schema_registry.get_latest_version()
         )
 
         # Convert domain model to export model
@@ -215,6 +217,7 @@ class CsvExportRenderer(AbstractUserInterfaceRenderer):
             "time_lag_days",
             "releases_lag",
             "cve_count",
+            "version_constraint",
         ]
 
         # Generate rows for all packages
@@ -232,6 +235,7 @@ class CsvExportRenderer(AbstractUserInterfaceRenderer):
                     "time_lag_days": self._serialize_optional(pkg.time_lag_days),
                     "releases_lag": self._serialize_optional(pkg.releases_lag),
                     "cve_count": len(pkg.cve),
+                    "version_constraint": self._serialize_optional(pkg.version_constraint),
                 }
             )
 
@@ -247,6 +251,7 @@ class CsvExportRenderer(AbstractUserInterfaceRenderer):
                     "time_lag_days": self._serialize_optional(pkg.time_lag_days),
                     "releases_lag": self._serialize_optional(pkg.releases_lag),
                     "cve_count": len(pkg.cve),
+                    "version_constraint": self._serialize_optional(pkg.version_constraint),
                 }
             )
 

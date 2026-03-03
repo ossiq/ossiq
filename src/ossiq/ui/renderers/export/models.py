@@ -106,6 +106,10 @@ class PackageMetrics(BaseModel):
         default=None,
         description="Ancestor chain leading to this package (None for direct dependencies)",
     )
+    version_constraint: str | None = Field(
+        default=None,
+        description="Version constraint declared in the project manifest (e.g. '^1.2.3', '>=1.0,<2.0')",
+    )
 
     @classmethod
     def from_domain(cls, record) -> "PackageMetrics":
@@ -119,6 +123,7 @@ class PackageMetrics(BaseModel):
             releases_lag=record.releases_lag,
             cve=[CVEInfo.from_domain(cve) for cve in record.cve],
             dependency_path=record.dependency_path,
+            version_constraint=record.version_constraint,
         )
 
 

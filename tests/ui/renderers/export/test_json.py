@@ -14,7 +14,7 @@ import json
 import pytest
 from jsonschema import validate
 
-from ossiq.domain.common import Command, ProjectPackagesRegistry, UserInterfaceType
+from ossiq.domain.common import Command, ExportJsonSchemaVersion, ProjectPackagesRegistry, UserInterfaceType
 from ossiq.domain.cve import CVE, CveDatabase, Severity
 from ossiq.domain.exceptions import DestinationDoesntExist
 from ossiq.domain.version import VersionsDifference
@@ -341,7 +341,7 @@ class TestJsonExportRenderer:
         # Assert
         data = json.loads(output_file.read_text())
         assert data["metadata"]["schema_version"] == "1.0"
-        v1_0_schema = json_schema_registry.load_schema("1.0")
+        v1_0_schema = json_schema_registry.load_schema(ExportJsonSchemaVersion.V1_0)
         validate(instance=data, schema=v1_0_schema)
 
     def test_explicit_schema_version_1_1_produces_v1_1_output(self, output_file, sample_project_metrics, settings):
