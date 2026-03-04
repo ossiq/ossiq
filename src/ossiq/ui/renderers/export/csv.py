@@ -210,6 +210,7 @@ class CsvExportRenderer(AbstractUserInterfaceRenderer):
         """
         fieldnames = [
             "package_name",
+            "dependency_name",
             "dependency_type",
             "is_optional_dependency",
             "installed_version",
@@ -228,6 +229,7 @@ class CsvExportRenderer(AbstractUserInterfaceRenderer):
             rows.append(
                 {
                     "package_name": pkg.package_name,
+                    "dependency_name": pkg.dependency_name,
                     "dependency_type": "development" if pkg.is_optional_dependency else "production",
                     "is_optional_dependency": self._serialize_bool(pkg.is_optional_dependency),
                     "installed_version": pkg.installed_version,
@@ -244,6 +246,7 @@ class CsvExportRenderer(AbstractUserInterfaceRenderer):
             rows.append(
                 {
                     "package_name": pkg.package_name,
+                    "dependency_name": pkg.dependency_name,
                     "dependency_type": "development" if pkg.is_optional_dependency else "production",
                     "is_optional_dependency": self._serialize_bool(pkg.is_optional_dependency),
                     "installed_version": pkg.installed_version,

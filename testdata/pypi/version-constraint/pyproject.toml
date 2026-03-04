@@ -1,0 +1,24 @@
+[project]
+name = "python-version-test"
+version = "0.1.0"
+dependencies = [
+    # 1. Compatible Release (~=) - The Python "Tilde"
+    # Allows: 2.31.1, 2.31.9 | Blocks: 2.32.0
+    "requests ~= 2.31.0",
+
+    # 2. Minimum Bound (Inclusive)
+    # Allows: 2.0.0 and anything newer
+    "pydantic >= 2.0.0",
+
+    # 3. Maximum Bound (Exclusive)
+    # Allows: Anything below 2.0.0 (The "Safety Pin")
+    "scikit-learn < 2.0.0",
+
+    # 4. Range/Window Constraint (Combined Bounds)
+    # Commonly used to avoid breaking major versions
+    "jsonschema >= 4.0.0a6, < 4.5.0",
+
+    # 5. Multiple Constraints (Exclusion)
+    # Useful if a specific version is known to be buggy
+    "numpy >= 1.20.0, != 1.24.2, < 2.0.0",
+]

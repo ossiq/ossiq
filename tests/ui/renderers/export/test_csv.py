@@ -51,6 +51,7 @@ def sample_project_metrics_record(sample_cve):
     """Create a sample ScanRecord for testing."""
     return ScanRecord(
         package_name="react",
+        dependency_name="react",
         is_optional_dependency=False,
         installed_version="17.0.2",
         latest_version="18.2.0",
@@ -68,6 +69,7 @@ def sample_dev_dependency_record():
     """Create a sample development dependency record."""
     return ScanRecord(
         package_name="pytest",
+        dependency_name="pytest",
         is_optional_dependency=True,
         installed_version="7.0.0",
         latest_version="7.2.0",
@@ -227,6 +229,7 @@ class TestCsvExportRenderer:
         # Assert
         expected_headers = [
             "package_name",
+            "dependency_name",
             "dependency_type",
             "is_optional_dependency",
             "installed_version",
@@ -393,6 +396,7 @@ class TestCsvExportRenderer:
             production_packages=[
                 ScanRecord(
                     package_name="package1",
+                    dependency_name="package1",
                     is_optional_dependency=False,
                     installed_version="1.0.0",
                     latest_version=None,  # None value
@@ -490,6 +494,7 @@ class TestCsvExportRenderer:
             production_packages=[
                 ScanRecord(
                     package_name="test-pkg",
+                    dependency_name="test-pkg",
                     is_optional_dependency=False,
                     installed_version="1.0.0",
                     latest_version="2.0.0",
@@ -737,6 +742,7 @@ class TestCsvExportRenderer:
             production_packages=[
                 ScanRecord(
                     package_name="safe-pkg",
+                    dependency_name="safe-pkg",
                     is_optional_dependency=False,
                     installed_version="1.0.0",
                     latest_version="1.0.0",

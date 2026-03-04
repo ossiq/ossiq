@@ -37,20 +37,41 @@ class UVResolverV1R3(BaseDependencyResolver):
 
         marker = pkg_data.get("marker")
 
-        # Accessing version_defined from the metadata block
-        v_def = pkg_data.get("metadata", {}).get("version_spec")
-
-        return source, marker, v_def
+        return source, marker, None
 
     def get_raw_dependencies(self, pkg_data: dict) -> Iterable[tuple[str | None, Iterable[dict]]]:
-        if pkg_data.get("optional-dependencies", {}):
-            yield from pkg_data.get("optional-dependencies", {}).items()
+        metadata = pkg_data.get("metadata", {})
 
-        yield None, pkg_data.get("dependencies", [])
+        # Specifiers for regular deps live in [package.metadata].requires-dist
+        requires_dist = metadata.get("requires-dist", [])
+        dist_specifiers: dict[str, str | None] = {e["name"]: e.get("specifier") for e in requires_dist}
+
+        # Specifiers for optional/dev deps live in [package.metadata.requires-dev].<group>
+        dev_specifiers: dict[str, dict[str, str | None]] = {
+            group: {e["name"]: e.get("specifier") for e in entries}
+            for group, entries in metadata.get("requires-dev", {}).items()
+        }
+
+        def enrich(deps: list[dict], spec_map: dict[str, str | None]) -> list[dict]:
+            if not spec_map:
+                return deps
+            return [
+                {**dep, "specifier": spec_map[dep["name"]]}
+                if dep["name"] in spec_map and dep.get("specifier") is None
+                else dep
+                for dep in deps
+            ]
+
+        if pkg_data.get("optional-dependencies", {}):
+            for category, deps in pkg_data["optional-dependencies"].items():
+                yield category, enrich(list(deps), dev_specifiers.get(category, {}))
+
+        yield None, enrich(pkg_data.get("dependencies", []), dist_specifiers)
 
     def extract_dependency_identity(self, dep_data: dict) -> tuple[str, str | None]:
-        # UV dependencies in the list are usually just {'name': '...'}
-        return dep_data["name"], dep_data.get("version")
+        # UV dependency entries: {name = "requests", specifier = ">=2.31.0"}
+        # The 'specifier' key carries the version constraint; not all entries have it.
+        return dep_data["name"], dep_data.get("specifier")
 
 
 class PackageManagerPythonUv(AbstractPackageManagerApi):

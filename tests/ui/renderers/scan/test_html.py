@@ -50,6 +50,7 @@ def sample_project_metrics_record(sample_cve):
     """Create a sample ScanRecord for testing."""
     return ScanRecord(
         package_name="react",
+        dependency_name="react",
         is_optional_dependency=False,
         installed_version="17.0.2",
         latest_version="18.2.0",

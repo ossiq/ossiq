@@ -217,6 +217,8 @@ class PackageRegistryApiPypi(AbstractPackageRegistryApi):
             registry=ProjectPackagesRegistry.PYPI,
             # NOTE: package_name could be uppercase like Jinja2
             name=package_name,
+            # PyPI has no alias support, so canonical_name always equals name
+            canonical_name=package_name,
             latest_version=info["version"],
             next_version=None,
             repo_url=get_repo_url(info.get("project_urls", {})),

@@ -7,6 +7,7 @@ from collections.abc import Iterable, Iterator
 from typing import Any
 
 from ossiq.domain.project import Dependency
+from ossiq.domain.version import normalize_version
 
 
 class BaseDependencyResolver(ABC):
@@ -44,6 +45,11 @@ class BaseDependencyResolver(ABC):
         """Returns (name, version_constraint) from a dependency entry."""
         pass
 
+    def extract_canonical_name(self, pkg_data: dict) -> str | None:
+        """Returns the canonical registry name when it differs from the identity name (e.g. npm aliases).
+        Returns None when name is already the canonical name. Override in subclasses as needed."""
+        return None
+
     def build_graph(self, root_name: str) -> Dependency | None:
         """
         Builds the in-memory graph using a two-pass approach to handle
@@ -58,6 +64,7 @@ class BaseDependencyResolver(ABC):
 
             node = Dependency(
                 name=name,
+                canonical_name=self.extract_canonical_name(pkg_data) or name,
                 version_installed=version,
                 source=source,
                 required_engine=required_engine,
@@ -79,8 +86,10 @@ class BaseDependencyResolver(ABC):
 
                     child = self.match_child(d_name, d_ver)
                     if child:
-                        # collect defined versions if it is differ from installed version
-                        if d_ver != child.version_installed:
+                        # Capture the declared constraint when it differs from the resolved version.
+                        # Guard against None so that absent specifiers (e.g. UV entries without
+                        # a 'specifier' key) don't overwrite a value already set in Pass 1.
+                        if d_ver is not None and d_ver != child.version_installed:
                             child.version_defined = d_ver
 
                         # NOTE: we intentionally do not need to use
@@ -107,8 +116,21 @@ class BaseDependencyResolver(ABC):
         if exact_match:
             return exact_match
 
-        # 2. Fallback: Search registry for this package name
-        # We split from the right to handle scoped packages like @scope/name@version
+        # 2. Try normalized version match.
+        # Handles nested node_modules where the same package exists at multiple
+        # versions: a constraint like "^5.30.0" normalizes to "5.30.0" and
+        # resolves to the correct registry entry even when a different version
+        # (e.g. "5.43.0") is registered at the top level.
+        # Strings that don't start with a modifier (e.g. "npm:lodash@~4.17.0")
+        # are returned unchanged by normalize_version, so they skip this step.
+        if version_constraint:
+            normalized = normalize_version(version_constraint)
+            if normalized != version_constraint:
+                normalized_match = self.registry.get(frozenset((name, normalized)), None)
+                if normalized_match:
+                    return normalized_match
+
+        # 3. Fallback: Search registry for this package name
         return self.find_root(name)
 
     def find_root(self, name: str) -> Dependency | None:
@@ -136,6 +158,7 @@ class GraphExporter:
 
         return {
             "name": node.name,
+            "canonical_name": node.canonical_name,
             "version_installed": node.version_installed,
             "version_defined": node.version_defined,
             "source": node.source,

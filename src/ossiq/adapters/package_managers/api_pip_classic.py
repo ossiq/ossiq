@@ -152,6 +152,7 @@ class PackageManagerPythonPipClassic(AbstractPackageManagerApi):
             # Create dependency instance
             dependencies[package_name] = Dependency(
                 name=package_spec,  # Keep original name with extras if present
+                canonical_name=package_name,
                 version_installed=version,
                 version_defined=f"=={version_spec}",  # Preserve original spec
                 categories=[],  # No categories in classic requirements.txt
@@ -174,6 +175,7 @@ class PackageManagerPythonPipClassic(AbstractPackageManagerApi):
 
         dependency_tree = Dependency(
             name=project_package_name,
+            canonical_name=project_package_name,
             version_installed="",  # Not applicable for the project itself
             dependencies=dependencies,
             optional_dependencies={},

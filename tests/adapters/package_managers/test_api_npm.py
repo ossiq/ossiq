@@ -9,6 +9,7 @@ Tests focus on:
 4. Parser selection logic
 5. Project info extraction with and without lockfile
 6. Error handling
+7. npm alias packages (npm:pkg@version) and overrides
 """
 
 import json
@@ -21,13 +22,19 @@ import pytest
 from ossiq.adapters.package_managers.api_npm import (
     CATEGORIES_DEV,
     CATEGORIES_OPTIONAL,
+    CATEGORIES_OVERRIDDEN,
     CATEGORIES_PEER,
+    NPMResolverV3,
     PackageManagerJsNpm,
+    _npm_alias_constraint,
+    _npm_alias_package_name,
 )
 from ossiq.domain.common import ProjectPackagesRegistry
 from ossiq.domain.exceptions import PackageManagerLockfileParsingError
 from ossiq.domain.packages_manager import NPM
 from ossiq.settings import Settings
+
+TESTDATA_NPM = Path(__file__).parents[3] / "testdata" / "npm"
 
 # ============================================================================
 # Fixtures
@@ -641,3 +648,476 @@ class TestProjectInfo:
         # Test getting version from optional dependencies
         assert project.installed_package_version("jest") == "29.7.0"
         assert project.installed_package_version("eslint") == "8.56.0"
+
+
+# ============================================================================
+# Fixtures: aliases and overrides
+# ============================================================================
+
+
+@pytest.fixture
+def npm_project_with_aliases(temp_project_dir):
+    """
+    Create a project whose lockfile contains npm alias packages.
+
+    The lockfile intentionally has 'name' fields that differ from the path
+    component (e.g. node_modules/lodash-tilde has name="lodash"), verifying
+    that the adapter uses the path component as identity.
+    """
+    package_json_path = Path(temp_project_dir) / "package.json"
+    lockfile_path = Path(temp_project_dir) / "package-lock.json"
+
+    package_json_content = {
+        "name": "alias-test-project",
+        "version": "1.0.0",
+        "dependencies": {
+            "lodash-tilde": "npm:lodash@~4.17.0",
+            "lodash-caret": "npm:lodash@^4.17.0",
+            "chalk-legacy": "npm:chalk@4.1.2",
+        },
+    }
+    package_json_path.write_text(json.dumps(package_json_content, indent=2))
+
+    lockfile_content = {
+        "name": "alias-test-project",
+        "version": "1.0.0",
+        "lockfileVersion": 3,
+        "packages": {
+            "": {
+                "name": "alias-test-project",
+                "version": "1.0.0",
+                "dependencies": {
+                    "lodash-tilde": "npm:lodash@~4.17.0",
+                    "lodash-caret": "npm:lodash@^4.17.0",
+                    "chalk-legacy": "npm:chalk@4.1.2",
+                },
+            },
+            # Aliases: 'name' differs from path component
+            "node_modules/lodash-tilde": {"name": "lodash", "version": "4.17.23"},
+            "node_modules/lodash-caret": {"name": "lodash", "version": "4.17.23"},
+            "node_modules/chalk-legacy": {"name": "chalk", "version": "4.1.2"},
+        },
+    }
+    lockfile_path.write_text(json.dumps(lockfile_content, indent=2))
+
+    return temp_project_dir
+
+
+@pytest.fixture
+def npm_project_with_overrides(temp_project_dir):
+    """
+    Create a project whose lockfile root entry declares overrides.
+
+    lodash is a transitive dependency of express that is forced to 4.0.0
+    via overrides.
+    """
+    package_json_path = Path(temp_project_dir) / "package.json"
+    lockfile_path = Path(temp_project_dir) / "package-lock.json"
+
+    package_json_content = {
+        "name": "overrides-test-project",
+        "version": "1.0.0",
+        "dependencies": {"express": "^4.18.0"},
+        "overrides": {"lodash": "4.0.0"},
+    }
+    package_json_path.write_text(json.dumps(package_json_content, indent=2))
+
+    lockfile_content = {
+        "name": "overrides-test-project",
+        "version": "1.0.0",
+        "lockfileVersion": 3,
+        "packages": {
+            "": {
+                "name": "overrides-test-project",
+                "version": "1.0.0",
+                "dependencies": {"express": "^4.18.0"},
+                "overrides": {"lodash": "4.0.0"},
+            },
+            "node_modules/express": {
+                "version": "4.18.2",
+                "dependencies": {"lodash": "^4.17.0"},
+            },
+            "node_modules/lodash": {"version": "4.0.0"},
+        },
+    }
+    lockfile_path.write_text(json.dumps(lockfile_content, indent=2))
+
+    return temp_project_dir
+
+
+# ============================================================================
+# Test _npm_alias_constraint helper
+# ============================================================================
+
+
+class TestNpmAliasConstraint:
+    """Test suite for the _npm_alias_constraint module-level helper."""
+
+    @pytest.mark.parametrize(
+        "version,expected",
+        [
+            ("npm:lodash@~4.17.0", "~4.17.0"),
+            ("npm:chalk@4.1.2", "4.1.2"),
+            ("npm:ms@^0.7.0", "^0.7.0"),
+            ("npm:@scope/pkg@^1.0.0", "^1.0.0"),
+            ("^4.18.0", "^4.18.0"),
+            ("~1.2.3", "~1.2.3"),
+            ("4.1.2", "4.1.2"),
+        ],
+    )
+    def test_extracts_constraint(self, version, expected):
+        """Test that alias constraints are extracted and plain versions pass through."""
+        assert _npm_alias_constraint(version) == expected
+
+
+# ============================================================================
+# Test _npm_alias_package_name helper
+# ============================================================================
+
+
+class TestNpmAliasPackageName:
+    """Test suite for the _npm_alias_package_name module-level helper."""
+
+    @pytest.mark.parametrize(
+        "version,expected",
+        [
+            ("npm:chalk@4.1.2", "chalk"),
+            ("npm:lodash@~4.17.0", "lodash"),
+            ("npm:ms@^0.7.0", "ms"),
+            ("npm:@scope/pkg@^1.0.0", "@scope/pkg"),
+            ("^4.18.0", None),
+            ("~1.2.3", None),
+            ("4.1.2", None),
+        ],
+    )
+    def test_extracts_package_name(self, version, expected):
+        """Test that canonical package names are extracted from alias specs."""
+        assert _npm_alias_package_name(version) == expected
+
+
+# ============================================================================
+# Test NPM alias packages (lockfile path)
+# ============================================================================
+
+
+class TestNpmAliases:
+    """Test suite for npm alias packages (npm:pkg@version specifiers in lockfile)."""
+
+    def test_alias_packages_are_linked_to_root(self, npm_project_with_aliases, settings):
+        """Test that alias packages appear as direct dependencies of the root."""
+        # Arrange
+        npm_manager = PackageManagerJsNpm(npm_project_with_aliases, settings)
+
+        # Act
+        project = npm_manager.project_info()
+
+        # Assert — all three aliases must be linked
+        assert "lodash-tilde" in project.dependency_tree.dependencies
+        assert "lodash-caret" in project.dependency_tree.dependencies
+        assert "chalk-legacy" in project.dependency_tree.dependencies
+
+    def test_alias_version_installed_is_resolved(self, npm_project_with_aliases, settings):
+        """Test that version_installed reflects the lockfile-resolved version, not the constraint."""
+        # Arrange
+        npm_manager = PackageManagerJsNpm(npm_project_with_aliases, settings)
+
+        # Act
+        project = npm_manager.project_info()
+
+        # Assert
+        assert project.dependency_tree.dependencies["lodash-tilde"].version_installed == "4.17.23"
+        assert project.dependency_tree.dependencies["lodash-caret"].version_installed == "4.17.23"
+        assert project.dependency_tree.dependencies["chalk-legacy"].version_installed == "4.1.2"
+
+    def test_alias_version_defined_is_full_constraint(self, npm_project_with_aliases, settings):
+        """Test that version_defined stores the full npm alias specifier from the lockfile."""
+        # Arrange
+        npm_manager = PackageManagerJsNpm(npm_project_with_aliases, settings)
+
+        # Act
+        project = npm_manager.project_info()
+
+        # Assert
+        assert project.dependency_tree.dependencies["lodash-tilde"].version_defined == "npm:lodash@~4.17.0"
+        assert project.dependency_tree.dependencies["lodash-caret"].version_defined == "npm:lodash@^4.17.0"
+        assert project.dependency_tree.dependencies["chalk-legacy"].version_defined == "npm:chalk@4.1.2"
+
+    def test_two_aliases_for_same_package_are_separate_entries(self, npm_project_with_aliases, settings):
+        """Test that two aliases pointing to the same package resolve independently."""
+        # Arrange
+        npm_manager = PackageManagerJsNpm(npm_project_with_aliases, settings)
+
+        # Act
+        project = npm_manager.project_info()
+        tilde = project.dependency_tree.dependencies["lodash-tilde"]
+        caret = project.dependency_tree.dependencies["lodash-caret"]
+
+        # Assert — distinct Dependency objects with their own version_defined
+        assert tilde is not caret
+        assert tilde.version_defined != caret.version_defined
+
+    def test_alias_canonical_name_is_set(self, npm_project_with_aliases, settings):
+        """Test that canonical_name is set to the real package name for alias dependencies."""
+        # Arrange
+        npm_manager = PackageManagerJsNpm(npm_project_with_aliases, settings)
+
+        # Act
+        project = npm_manager.project_info()
+        deps = project.dependency_tree.dependencies
+
+        # Assert — alias names map to canonical package names
+        assert deps["lodash-tilde"].canonical_name == "lodash"
+        assert deps["lodash-caret"].canonical_name == "lodash"
+        assert deps["chalk-legacy"].canonical_name == "chalk"
+
+
+# ============================================================================
+# Test npm alias packages (no-lockfile path)
+# ============================================================================
+
+
+class TestNpmAliasesNoLockfile:
+    """Test suite for npm alias handling in parse_package_json (no lockfile)."""
+
+    def test_alias_version_installed_is_normalized_constraint(self, temp_project_dir, settings):
+        """Test that version_installed is the normalized constraint for alias specs."""
+        # Arrange
+        package_json_path = Path(temp_project_dir) / "package.json"
+        package_json_path.write_text(
+            json.dumps(
+                {
+                    "name": "no-lockfile-alias",
+                    "version": "1.0.0",
+                    "dependencies": {
+                        "lodash-tilde": "npm:lodash@~4.17.0",
+                        "chalk-exact": "npm:chalk@4.1.2",
+                    },
+                }
+            )
+        )
+        npm_manager = PackageManagerJsNpm(temp_project_dir, settings)
+
+        # Act
+        project = npm_manager.project_info()
+
+        # Assert — version_installed is the clean version, not the npm: spec
+        assert project.dependency_tree.dependencies["lodash-tilde"].version_installed == "4.17.0"
+        assert project.dependency_tree.dependencies["chalk-exact"].version_installed == "4.1.2"
+
+    def test_alias_version_defined_is_full_spec(self, temp_project_dir, settings):
+        """Test that version_defined preserves the full npm alias specifier."""
+        # Arrange
+        package_json_path = Path(temp_project_dir) / "package.json"
+        package_json_path.write_text(
+            json.dumps(
+                {
+                    "name": "no-lockfile-alias",
+                    "version": "1.0.0",
+                    "dependencies": {"lodash-tilde": "npm:lodash@~4.17.0"},
+                }
+            )
+        )
+        npm_manager = PackageManagerJsNpm(temp_project_dir, settings)
+
+        # Act
+        project = npm_manager.project_info()
+
+        # Assert
+        assert project.dependency_tree.dependencies["lodash-tilde"].version_defined == "npm:lodash@~4.17.0"
+
+    def test_alias_canonical_name_is_set_from_package_json(self, temp_project_dir, settings):
+        """Test that canonical_name is extracted from npm alias spec when no lockfile is present."""
+        # Arrange
+        package_json_path = Path(temp_project_dir) / "package.json"
+        package_json_path.write_text(
+            json.dumps(
+                {
+                    "name": "no-lockfile-alias",
+                    "version": "1.0.0",
+                    "dependencies": {
+                        "lodash-tilde": "npm:lodash@~4.17.0",
+                        "chalk-exact": "npm:chalk@4.1.2",
+                        "express": "^4.18.0",
+                    },
+                }
+            )
+        )
+        npm_manager = PackageManagerJsNpm(temp_project_dir, settings)
+
+        # Act
+        project = npm_manager.project_info()
+        deps = project.dependency_tree.dependencies
+
+        # Assert — alias deps get canonical_name, regular deps fall back to their own name
+        assert deps["lodash-tilde"].canonical_name == "lodash"
+        assert deps["chalk-exact"].canonical_name == "chalk"
+        assert deps["express"].canonical_name == "express"
+
+
+# ============================================================================
+# Test overrides
+# ============================================================================
+
+
+class TestNpmOverrides:
+    """Test suite for npm overrides support."""
+
+    def test_overridden_package_gets_category(self, npm_project_with_overrides, settings):
+        """Test that packages listed in overrides receive the 'overridden' category."""
+        # Arrange
+        npm_manager = PackageManagerJsNpm(npm_project_with_overrides, settings)
+
+        # Act
+        project = npm_manager.project_info()
+
+        # Find lodash (transitive dep of express, overridden to 4.0.0)
+        lodash = project.dependency_tree.dependencies["express"].dependencies.get("lodash")
+        assert lodash is not None
+        assert CATEGORIES_OVERRIDDEN in lodash.categories
+
+    def test_non_overridden_packages_have_no_override_category(self, npm_project_with_overrides, settings):
+        """Test that packages not in overrides do not get the 'overridden' category."""
+        # Arrange
+        npm_manager = PackageManagerJsNpm(npm_project_with_overrides, settings)
+
+        # Act
+        project = npm_manager.project_info()
+
+        # Assert
+        express = project.dependency_tree.dependencies["express"]
+        assert CATEGORIES_OVERRIDDEN not in express.categories
+
+    def test_flatten_overrides_flat(self):
+        """Test flattening of simple {name: version} overrides."""
+        # Arrange / Act
+        result = NPMResolverV3._flatten_overrides({"foo": "1.0.0", "bar": "2.0.0"})
+
+        # Assert
+        assert result == {"foo": "1.0.0", "bar": "2.0.0"}
+
+    def test_flatten_overrides_nested_with_dot(self):
+        """Test that "." in a nested block maps to the outer package name."""
+        # Arrange / Act
+        result = NPMResolverV3._flatten_overrides({"foo": {".": "1.0.0", "bar": "2.0.0"}})
+
+        # Assert
+        assert result["foo"] == "1.0.0"
+        assert result["bar"] == "2.0.0"
+
+    def test_flatten_overrides_empty(self):
+        """Test that empty overrides produce an empty mapping."""
+        # Arrange / Act
+        result = NPMResolverV3._flatten_overrides({})
+
+        # Assert
+        assert result == {}
+
+    def test_project_without_overrides_has_no_overridden_packages(self, npm_project_with_lockfile, settings):
+        """Test that a project without overrides has no packages with overridden category."""
+        # Arrange
+        npm_manager = PackageManagerJsNpm(npm_project_with_lockfile, settings)
+
+        # Act
+        project = npm_manager.project_info()
+
+        # Assert — walk all direct deps and their children
+        for dep in project.dependency_tree.dependencies.values():
+            assert CATEGORIES_OVERRIDDEN not in dep.categories
+
+
+# ============================================================================
+# Integration test against testdata/npm/project3 (real lockfile with aliases)
+# ============================================================================
+
+
+class TestNpmProject3Integration:
+    """Integration tests using the real project3 lockfile (alias-heavy project)."""
+
+    @pytest.fixture
+    def project3_path(self):
+        """Return path to testdata/npm/project3."""
+        path = TESTDATA_NPM / "project3"
+        if not path.exists():
+            pytest.skip("testdata/npm/project3 not found")
+        return str(path)
+
+    def test_alias_packages_present_in_tree(self, project3_path, settings):
+        """Test that all npm alias dependencies appear in the dependency tree."""
+        # Arrange
+        npm_manager = PackageManagerJsNpm(project3_path, settings)
+
+        # Act
+        project = npm_manager.project_info()
+        deps = project.dependency_tree.dependencies
+
+        # Assert — all aliases declared in package.json must be linked
+        for alias in ["lodash-range-tilde", "lodash-range-caret", "ms-zero-caret", "ms-zero-tilde"]:
+            assert alias in deps, f"Expected alias '{alias}' in dependency tree"
+
+    def test_alias_installed_versions_are_resolved(self, project3_path, settings):
+        """Test that alias version_installed comes from lockfile, not the constraint."""
+        # Arrange
+        npm_manager = PackageManagerJsNpm(project3_path, settings)
+
+        # Act
+        project = npm_manager.project_info()
+        deps = project.dependency_tree.dependencies
+
+        # Assert — resolved versions (not constraint strings)
+        assert deps["lodash-range-tilde"].version_installed == "4.17.23"
+        assert deps["lodash-range-caret"].version_installed == "4.17.23"
+        assert deps["ms-zero-caret"].version_installed == "0.7.3"
+        assert deps["ms-zero-tilde"].version_installed == "0.7.3"
+
+    def test_alias_version_defined_contains_constraint(self, project3_path, settings):
+        """Test that version_defined stores the full npm alias specifier."""
+        # Arrange
+        npm_manager = PackageManagerJsNpm(project3_path, settings)
+
+        # Act
+        project = npm_manager.project_info()
+        deps = project.dependency_tree.dependencies
+
+        # Assert
+        assert deps["lodash-range-tilde"].version_defined == "npm:lodash@~4.17.0"
+        assert deps["lodash-range-caret"].version_defined == "npm:lodash@^4.17.0"
+        assert deps["ms-zero-caret"].version_defined == "npm:ms@^0.7.0"
+        assert deps["ms-zero-tilde"].version_defined == "npm:ms@~0.7.0"
+
+    def test_chalk_and_chalk_legacy_are_separate_entries(self, project3_path, settings):
+        """Test that chalk and chalk-legacy coexist as separate dependencies."""
+        # Arrange
+        npm_manager = PackageManagerJsNpm(project3_path, settings)
+
+        # Act
+        project = npm_manager.project_info()
+        deps = project.dependency_tree.dependencies
+
+        # Assert — both the alias and the non-alias version must be present
+        assert "chalk" in deps, "Expected 'chalk' (v5) in dependency tree"
+        assert "chalk-legacy" in deps, "Expected 'chalk-legacy' alias in dependency tree"
+        assert deps["chalk"] is not deps["chalk-legacy"]
+
+    def test_chalk_legacy_canonical_name_is_chalk(self, project3_path, settings):
+        """Test that the chalk-legacy alias carries canonical_name='chalk' for registry lookups."""
+        # Arrange
+        npm_manager = PackageManagerJsNpm(project3_path, settings)
+
+        # Act
+        project = npm_manager.project_info()
+
+        # Assert
+        chalk_legacy = project.dependency_tree.dependencies["chalk-legacy"]
+        assert chalk_legacy.canonical_name == "chalk"
+
+    def test_chalk_canonical_name_equals_name(self, project3_path, settings):
+        """Test that the non-alias chalk dependency has canonical_name equal to its own name."""
+        # Arrange
+        npm_manager = PackageManagerJsNpm(project3_path, settings)
+
+        # Act
+        project = npm_manager.project_info()
+
+        # Assert
+        chalk = project.dependency_tree.dependencies["chalk"]
+        assert chalk.canonical_name == "chalk"

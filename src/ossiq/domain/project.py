@@ -18,6 +18,9 @@ class Dependency:
     name: str
     # Factually installed version. Fallback to version_defined if there's no lockfile
     version_installed: str
+    # Real registry name for package registry lookups. For npm aliases (e.g. alias "chalk-legacy" -> "chalk"),
+    # this holds the actual package name. For non-aliased packages it equals `name`. Never None.
+    canonical_name: str
     # Version, nominally defined in project requirements before resolution
     version_defined: str | None = None
     source: str | None = None

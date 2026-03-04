@@ -23,6 +23,7 @@ console = Console()
 @dataclass
 class ScanRecord:
     package_name: str
+    dependency_name: str
     is_optional_dependency: bool
     installed_version: str
     latest_version: str | None
@@ -97,6 +98,7 @@ def scan_record(
     packages_registry: AbstractPackageRegistryApi,
     cve_database: AbstractCveDatabaseApi,
     package_name: str,
+    canonical_name: str,
     package_version: str,
     is_optional_dependency: bool,
     dependency_path: list[str] | None = None,
@@ -105,7 +107,9 @@ def scan_record(
     """
     Factory to generate ScanRecord instances
     """
-    package_info = packages_registry.package_info(package_name)
+    # For npm alias packages (e.g. "chalk-legacy" -> "chalk"), use the canonical
+    # registry name for lookups while keeping the alias name for display.
+    package_info = packages_registry.package_info(canonical_name)
 
     releases_since_installed = get_package_versions_since(packages_registry, package_info.name, package_version)
 
@@ -120,7 +124,8 @@ def scan_record(
         cve = list(cve_database.get_cves_for_package(package_info, installed_release.version))
 
     return ScanRecord(
-        package_name=package_name,
+        package_name=canonical_name,
+        dependency_name=package_name,
         installed_version=package_version,
         latest_version=package_info.latest_version,
         time_lag_days=time_lag_days,
@@ -161,6 +166,7 @@ def scan(uow: unit_of_work.AbstractProjectUnitOfWork) -> ScanResult:
                     uow.packages_registry,
                     uow.cve_database,
                     package.name,
+                    package.canonical_name,
                     package.version_installed,
                     is_optional_dependency,
                     version_constraint=package.version_defined,
@@ -187,6 +193,7 @@ def scan(uow: unit_of_work.AbstractProjectUnitOfWork) -> ScanResult:
                 uow.packages_registry,
                 uow.cve_database,
                 node.name,
+                node.canonical_name,
                 node.version_installed,
                 is_optional_dependency=False,
                 dependency_path=path,

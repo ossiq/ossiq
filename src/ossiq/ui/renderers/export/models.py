@@ -95,7 +95,11 @@ class CVEInfo(BaseModel):
 class PackageMetrics(BaseModel):
     """Metrics for a single package."""
 
-    package_name: str = Field(description="Package name")
+    package_name: str = Field(description="Package name (canonical registry name)")
+    dependency_name: str | None = Field(
+        default=None,
+        description="Alias name as declared in the project manifest (None when no alias is used)",
+    )
     is_optional_dependency: bool = Field(description="Whether this is a development/optional dependency")
     installed_version: str = Field(description="Currently installed version")
     latest_version: str | None = Field(description="Latest available version")
@@ -116,6 +120,7 @@ class PackageMetrics(BaseModel):
         """Convert domain ScanRecord to export model."""
         return cls(
             package_name=record.package_name,
+            dependency_name=record.dependency_name,
             is_optional_dependency=record.is_optional_dependency,
             installed_version=record.installed_version,
             latest_version=record.latest_version,

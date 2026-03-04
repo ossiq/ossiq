@@ -125,7 +125,11 @@
       "properties": {
         "package_name": {
           "type": "string",
-          "description": "Package name"
+          "description": "Package name (canonical registry name)"
+        },
+        "dependency_name": {
+          "type": ["string", "null"],
+          "description": "Alias name as declared in the project manifest (null or same as package_name when no alias is used)"
         },
         "is_optional_dependency": {
           "type": "boolean",

@@ -72,6 +72,8 @@ dev = [
     pyproject_path.write_text(pyproject_content)
 
     # Create uv.lock with version 1 revision 3
+    # Real uv.lock stores version specifiers from pyproject.toml in the root package's
+    # [package.metadata].requires-dist block, not in the dependencies entries themselves.
     lockfile_content = """
 version = 1
 revision = 3
@@ -88,6 +90,18 @@ dependencies = [
 dev = [
     { name = "pytest" },
     { name = "black" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "requests", specifier = ">=2.31.0" },
+    { name = "click", specifier = ">=8.1.0" },
+]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "pytest", specifier = ">=7.4.0" },
+    { name = "black", specifier = ">=23.0.0" },
 ]
 
 [[package]]
@@ -445,6 +459,44 @@ class TestParseLockfileV1R3:
         assert "dev" in dependency_tree.optional_dependencies["pytest"].categories
         assert "test" in dependency_tree.optional_dependencies["pytest"].categories
 
+    def test_parse_lockfile_sets_version_defined_from_specifier(self, uv_project_with_lockfile, settings):
+        """Test that version_defined is populated from [package.metadata].requires-dist.
+
+        AAA Pattern:
+        - Arrange: Load lockfile where specifiers are in metadata.requires-dist (real UV format)
+        - Act: Parse lockfile via parse_lockfile_v1_r3
+        - Assert: version_defined reflects the specifier string, not None
+        """
+        # Arrange
+        uv_manager = PackageManagerPythonUv(uv_project_with_lockfile, settings)
+        lockfile_path = Path(uv_project_with_lockfile) / "uv.lock"
+        with open(lockfile_path, "rb") as f:
+            uv_lock_data = tomllib.load(f)
+
+        # Act
+        dependency_tree = uv_manager.parse_lockfile_v1_r3("test-project", uv_lock_data)
+
+        # Assert — direct production deps pick up the specifier from the root's entry
+        requests_dep = dependency_tree.dependencies["requests"]
+        click_dep = dependency_tree.dependencies["click"]
+        assert requests_dep.version_defined == ">=2.31.0"
+        assert click_dep.version_defined == ">=8.1.0"
+
+        # Assert — optional deps also pick up their specifiers
+        pytest_dep = dependency_tree.optional_dependencies["pytest"]
+        black_dep = dependency_tree.optional_dependencies["black"]
+        assert pytest_dep.version_defined == ">=7.4.0"
+        assert black_dep.version_defined == ">=23.0.0"
+
+        # Assert — transitive deps without a specifier remain None
+        assert dependency_tree.dependencies["requests"].version_installed == "2.31.0"
+        urllib3 = next(
+            (d for d in dependency_tree.dependencies["requests"].dependencies.values() if d.name == "urllib3"),
+            None,
+        )
+        assert urllib3 is not None
+        assert urllib3.version_defined is None
+
     def test_parse_missing_main_package_error(self, uv_project_missing_main_package, settings):
         """Test error when main project package is not in lockfile."""
         uv_manager = PackageManagerPythonUv(uv_project_missing_main_package, settings)
@@ -587,6 +639,26 @@ class TestProjectInfo:
         assert "pytest" in dependency_tree.optional_dependencies
         assert "black" in dependency_tree.optional_dependencies
 
+    def test_project_info_exposes_version_constraint_from_specifier(self, uv_project_with_lockfile, settings):
+        """Test that project_info exposes version constraints via version_defined on Dependency.
+
+        AAA Pattern:
+        - Arrange: UV project with specifiers in the lockfile
+        - Act: Call project_info() which runs the full adapter pipeline
+        - Assert: version_defined on direct dependencies reflects the declared specifier
+        """
+        # Arrange
+        uv_manager = PackageManagerPythonUv(uv_project_with_lockfile, settings)
+
+        # Act
+        project = uv_manager.project_info()
+
+        # Assert — version_defined matches the specifiers from pyproject.toml
+        assert project.dependencies["requests"].version_defined == ">=2.31.0"
+        assert project.dependencies["click"].version_defined == ">=8.1.0"
+        assert project.optional_dependencies["pytest"].version_defined == ">=7.4.0"
+        assert project.optional_dependencies["black"].version_defined == ">=23.0.0"
+
     def test_project_info_with_dual_category_deps(self, uv_project_with_dual_category_deps, settings):
         """Test project with dependencies in multiple categories."""
         uv_manager = PackageManagerPythonUv(uv_project_with_dual_category_deps, settings)
@@ -663,3 +735,47 @@ version = "0.1.0"
         project = uv_manager.project_info()
 
         assert project.package_registry == ProjectPackagesRegistry.PYPI
+
+
+# ============================================================================
+# Integration tests against real testdata
+# ============================================================================
+
+_VERSION_CONSTRAINT_TESTDATA = os.path.join(
+    os.path.dirname(__file__), "..", "..", "..", "testdata", "pypi", "version-constraint"
+)
+
+
+class TestVersionConstraintIntegration:
+    """Integration tests against testdata/pypi/version-constraint/ real lockfile."""
+
+    @pytest.mark.parametrize(
+        "pkg_name,expected_constraint",
+        [
+            ("requests", "~=2.31.0"),
+            ("pydantic", ">=2.0.0"),
+            ("scikit-learn", "<2.0.0"),
+            ("jsonschema", ">=4.0.0a6,<4.5.0"),
+            ("numpy", ">=1.20.0,!=1.24.2,<2.0.0"),
+        ],
+    )
+    def test_version_constraint_extracted_from_metadata_requires_dist(
+        self, pkg_name: str, expected_constraint: str, settings: Settings
+    ):
+        """Test version_defined is read from [package.metadata].requires-dist in a real uv.lock.
+
+        AAA Pattern:
+        - Arrange: Point adapter at real testdata project with diverse PEP 440 constraints
+        - Act: Call project_info() to parse the real lockfile
+        - Assert: version_defined on each direct dep matches the declared specifier
+        """
+        # Arrange
+        uv_manager = PackageManagerPythonUv(_VERSION_CONSTRAINT_TESTDATA, settings)
+
+        # Act
+        project = uv_manager.project_info()
+
+        # Assert
+        dep = project.dependencies.get(pkg_name)
+        assert dep is not None, f"{pkg_name!r} not found in project dependencies"
+        assert dep.version_defined == expected_constraint

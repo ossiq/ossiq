@@ -462,7 +462,7 @@ class TestGraphExporter:
     def test_export_single_node(self):
         """Test exporting a single dependency with no children."""
         # Arrange
-        dep = Dependency(name="lib", version_installed="1.0.0")
+        dep = Dependency(name="lib", version_installed="1.0.0", canonical_name="lib")
         exporter = GraphExporter(dep)
 
         # Act
@@ -544,6 +544,7 @@ class TestGraphExporter:
         dep = Dependency(
             name="lib",
             version_installed="1.0.0",
+            canonical_name="lib",
             version_defined=">=1.0",
             source="https://pypi.org",
             required_engine='python_version >= "3.11"',

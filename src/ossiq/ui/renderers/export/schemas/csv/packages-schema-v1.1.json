@@ -5,11 +5,17 @@
       "name": "package_name",
       "type": "string",
       "title": "Package Name",
-      "description": "Name of the package",
+      "description": "Canonical registry name of the package",
       "constraints": {
         "required": true,
         "minLength": 1
       }
+    },
+    {
+      "name": "dependency_name",
+      "type": "string",
+      "title": "Dependency Name",
+      "description": "Alias name as declared in the project manifest (same as package_name when no alias is used)"
     },
     {
       "name": "dependency_type",

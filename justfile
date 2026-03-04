@@ -29,12 +29,14 @@ qa-integration:
     uv run hatch run ossiq-cli scan testdata/mixed --registry-type=pypi
     uv run hatch run ossiq-cli scan --presentation=html --output=./reports/scan_npm.html --registry-type=npm testdata/mixed
     uv run hatch run ossiq-cli scan --presentation=html --output=./reports/scan_pypi.html --registry-type=pypi testdata/mixed
-    uv run hatch run ossiq-cli export --output-format=json --output=./reports/scan_export_pypi.json --registry-type=pypi testdata/mixed
-    uv run hatch run ossiq-cli export --output-format=csv --output=./reports/scan_export_pypi.json --registry-type=pypi testdata/pypi/uv
-    uv run hatch run ossiq-cli export --output-format=csv --schema-version=1.0 --output=./reports/scan_export_npm1.json --registry-type=pypi testdata/pypi/uv
-    uv run hatch run ossiq-cli export --output-format=csv --schema-version=1.1 --output=./reports/scan_export_pypi.json --registry-type=pypi testdata/pypi/uv
-    uv run hatch run ossiq-cli export --output-format=json --schema-version=1.0 --output=./reports/scan_export_pypi.json --registry-type=pypi testdata/mixed
-    uv run hatch run ossiq-cli export --output-format=json --schema-version=1.1 --output=./reports/scan_export_npm2.json --registry-type=npm testdata/mixed
+    uv run hatch run ossiq-cli scan testdata/npm/project3
+    uv run hatch run ossiq-cli export --output-format=json --output=./reports/scan_export_pypi0.json --registry-type=pypi testdata/mixed
+    uv run hatch run ossiq-cli export --output-format=csv --output=./reports/scan_export_pypi1.json --registry-type=pypi testdata/pypi/uv
+    uv run hatch run ossiq-cli export --output-format=csv --schema-version=1.0 --output=./reports/scan_export_pypi2.json --registry-type=pypi testdata/pypi/uv
+    uv run hatch run ossiq-cli export --output-format=csv --schema-version=1.1 --output=./reports/scan_export_pypi3.json --registry-type=pypi testdata/pypi/uv
+    uv run hatch run ossiq-cli export --output-format=json --schema-version=1.0 --output=./reports/scan_export_pypi4.json --registry-type=pypi testdata/mixed
+    uv run hatch run ossiq-cli export --output-format=json --schema-version=1.1 --output=./reports/scan_export_npm2.json --registry-type=npm testdata/mixed    
+    
 
 lint:
     uv run ruff check .

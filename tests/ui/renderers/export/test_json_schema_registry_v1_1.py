@@ -177,6 +177,34 @@ class TestSchemaRegistryV11:
         # Assert
         assert definition_name in definitions
 
+    def test_package_metrics_has_dependency_name_field(self, v1_1_schema):
+        """Test PackageMetrics definition includes dependency_name property.
+
+        AAA Pattern:
+        - Arrange: Load schema
+        - Act: Extract PackageMetrics properties
+        - Assert: dependency_name field is present
+        """
+        # Act
+        package_metrics_props = v1_1_schema["$defs"]["PackageMetrics"]["properties"]
+
+        # Assert
+        assert "dependency_name" in package_metrics_props
+
+    def test_dependency_name_allows_null(self, v1_1_schema):
+        """Test dependency_name field allows null (when no alias is used).
+
+        AAA Pattern:
+        - Arrange: Load schema
+        - Act: Extract dependency_name type definition
+        - Assert: null is an allowed type
+        """
+        # Act
+        dependency_name = v1_1_schema["$defs"]["PackageMetrics"]["properties"]["dependency_name"]
+
+        # Assert
+        assert "null" in dependency_name["type"]
+
     def test_package_metrics_has_dependency_path_field(self, v1_1_schema):
         """Test PackageMetrics definition includes dependency_path property.
 
