@@ -168,6 +168,21 @@
         "version_constraint": {
           "type": ["string", "null"],
           "description": "Version constraint declared in the project manifest (e.g. '^1.2.3', '>=1.0,<2.0')"
+        },
+        "repo_url": {
+          "type": ["string", "null"],
+          "format": "uri",
+          "description": "Source code repository URL"
+        },
+        "homepage_url": {
+          "type": ["string", "null"],
+          "format": "uri",
+          "description": "Package homepage URL"
+        },
+        "package_url": {
+          "type": ["string", "null"],
+          "format": "uri",
+          "description": "Package registry page URL"
         }
       }
     },

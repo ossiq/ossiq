@@ -114,6 +114,9 @@ class PackageMetrics(BaseModel):
         default=None,
         description="Version constraint declared in the project manifest (e.g. '^1.2.3', '>=1.0,<2.0')",
     )
+    repo_url: str | None = Field(default=None, description="Source code repository URL")
+    homepage_url: str | None = Field(default=None, description="Package homepage URL")
+    package_url: str | None = Field(default=None, description="Package registry page URL")
 
     @classmethod
     def from_domain(cls, record) -> "PackageMetrics":
@@ -129,6 +132,9 @@ class PackageMetrics(BaseModel):
             cve=[CVEInfo.from_domain(cve) for cve in record.cve],
             dependency_path=record.dependency_path,
             version_constraint=record.version_constraint,
+            repo_url=record.repo_url,
+            homepage_url=record.homepage_url,
+            package_url=record.package_url,
         )
 
 

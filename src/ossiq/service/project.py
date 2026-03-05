@@ -33,6 +33,9 @@ class ScanRecord:
     cve: list[CVE]
     dependency_path: list[str] | None = None
     version_constraint: str | None = None
+    repo_url: str | None = None
+    homepage_url: str | None = None
+    package_url: str | None = None
 
 
 @dataclass
@@ -135,6 +138,9 @@ def scan_record(
         is_optional_dependency=is_optional_dependency,
         dependency_path=dependency_path,
         version_constraint=version_constraint,
+        repo_url=package_info.repo_url,
+        homepage_url=package_info.homepage_url,
+        package_url=package_info.package_url,
     )
 
 
