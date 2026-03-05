@@ -67,7 +67,8 @@ export function resolveNodeStyle(node: TreeNode, highlight: HighlightState): Nod
     highlight.mode === 'none' ||
     highlight.primaryKeys.has(k) ||
     highlight.secondaryKeys.has(k) ||
-    highlight.ancestorKeys.has(k)
+    highlight.ancestorKeys.has(k) ||
+    highlight.descendantKeys.has(k)
       ? 1
       : TREE_CONFIG.node.opacityDimmed
 

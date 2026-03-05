@@ -121,6 +121,9 @@ export interface PackageMetrics {
    * Ancestor chain from root to this package (null for direct dependencies)
    */
   dependency_path: string[] | null;
+  repo_url?: string | null;
+  homepage_url?: string | null;
+  package_url?: string | null;
   [k: string]: unknown;
 }
 /**

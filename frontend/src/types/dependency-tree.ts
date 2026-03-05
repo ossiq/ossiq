@@ -1,4 +1,5 @@
 import type { HierarchyPointNode } from 'd3'
+import type { CVEInfo } from '@/types/report'
 
 export interface DependencyNode {
   name: string
@@ -9,6 +10,13 @@ export interface DependencyNode {
   latest_version?: string
   severity?: string
   categories?: string[]
+  time_lag_days?: number | null
+  releases_lag?: number | null
+  cve?: CVEInfo[]
+  dependency_path?: string[] | null
+  repo_url?: string | null
+  homepage_url?: string | null
+  package_url?: string | null
   dependencies?: Record<string, DependencyNode>
   optional_dependencies?: Record<string, DependencyNode>
 }
@@ -24,6 +32,13 @@ export interface SelectedNodeDetail {
   latest_version?: string
   categories?: string[]
   isDuplicate: boolean
+  time_lag_days?: number | null
+  releases_lag?: number | null
+  cve?: CVEInfo[]
+  dependency_path?: string[] | null
+  repo_url?: string | null
+  homepage_url?: string | null
+  package_url?: string | null
 }
 
 export interface TreeNode extends HierarchyPointNode<D3NodeData> {
@@ -44,10 +59,11 @@ export interface NodeStyle {
 /** Snapshot of which nodes/links are currently highlighted. Passed into all render functions. */
 export interface HighlightState {
   mode: 'none' | 'focus'
-  primaryKeys: ReadonlySet<string>        // clicked node (blue)
-  secondaryKeys: ReadonlySet<string>      // same-version duplicates (amber)
-  ancestorKeys: ReadonlySet<string>       // ancestors of primary/secondary (full opacity)
-  treeLinkTargetKeys: ReadonlySet<string> // tree edge target keys along ancestor paths
-  dashedLinkPairs: ReadonlySet<string>    // same-version dashed link pair keys to highlight
-  hasCveInPath: boolean                   // true if any highlighted ancestor node has a CVE
+  primaryKeys: ReadonlySet<string>             // clicked node (blue)
+  secondaryKeys: ReadonlySet<string>           // same-version duplicates (amber)
+  ancestorKeys: ReadonlySet<string>            // ancestors of primary/secondary (full opacity)
+  treeLinkTargetKeys: ReadonlySet<string>      // tree edge target keys along ancestor paths
+  dashedLinkPairs: ReadonlySet<string>         // same-version dashed link pair keys to highlight
+  descendantKeys: ReadonlySet<string>          // all descendants of primary+secondary (full opacity)
+  descendantLinkTargetKeys: ReadonlySet<string> // tree edge targets going DOWN from focused nodes
 }

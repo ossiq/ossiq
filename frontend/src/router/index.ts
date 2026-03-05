@@ -9,6 +9,7 @@ const router = createRouter({
       path: '/',
       name: 'scan-report',
       component: ScanReportView,
+      meta: { layout: 'fullscreen' },
     },
     {
       path: '/transitive-dependencies',

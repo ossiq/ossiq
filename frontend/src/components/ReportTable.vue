@@ -10,6 +10,7 @@ defineProps<{
 
 const emit = defineEmits<{
   sort: [column: SortColumn]
+  selectPackage: [row: ReportRow]
 }>()
 
 interface ColumnDef {
@@ -109,11 +110,10 @@ function osvUrl(packageName: string, ecosystem: string): string {
             <!-- Dependency -->
             <td class="px-6 py-3">
               <div class="flex items-center gap-2">
-                <a
-                  :href="row.registryUrl"
-                  target="_blank"
-                  class="text-[#4800E2] hover:underline font-medium"
-                >{{ row.pkg.package_name }}</a>
+                <button
+                  class="text-[#4800E2] hover:underline font-medium text-left cursor-pointer"
+                  @click="emit('selectPackage', row)"
+                >{{ row.pkg.package_name }}</button>
                 <span
                   v-if="row.isDev"
                   class="material-symbols-rounded text-xl text-slate-400"

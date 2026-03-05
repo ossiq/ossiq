@@ -74,6 +74,13 @@ export function useD3Tree(options: UseD3TreeOptions) {
       latest_version: d.data.latest_version,
       categories: d.data.categories,
       isDuplicate: (nameCountMap.get(d.data.name) ?? 0) > 1,
+      time_lag_days: d.data.time_lag_days,
+      releases_lag: d.data.releases_lag,
+      cve: d.data.cve,
+      dependency_path: d.data.dependency_path,
+      repo_url: d.data.repo_url,
+      homepage_url: d.data.homepage_url,
+      package_url: d.data.package_url,
     })
   }
 
@@ -133,5 +140,11 @@ export function useD3Tree(options: UseD3TreeOptions) {
   onMounted(() => window.addEventListener('resize', handleResize))
   onUnmounted(() => window.removeEventListener('resize', handleResize))
 
-  return { initializeTree, zoomIn: zoom.zoomIn, zoomOut: zoom.zoomOut, resetZoom: zoom.resetZoom }
+  function selectNodeByName(name: string) {
+    if (!root) return
+    const target = (root.descendants() as TreeNode[]).find((d) => d.data.name === name)
+    if (target) handleNodeSelect(target)
+  }
+
+  return { initializeTree, selectNodeByName, zoomIn: zoom.zoomIn, zoomOut: zoom.zoomOut, resetZoom: zoom.resetZoom }
 }

@@ -41,6 +41,12 @@ function buildDependencyTree(report: OSSIQExportSchemaV11): DependencyNode {
       latest_version: pkg.latest_version ?? undefined,
       severity: cveMap.get(pkg.package_name),
       categories: ['production'],
+      time_lag_days: pkg.time_lag_days,
+      releases_lag: pkg.releases_lag,
+      cve: pkg.cve,
+      repo_url: pkg.repo_url,
+      homepage_url: pkg.homepage_url,
+      package_url: pkg.package_url,
       dependencies: {},
     }
   }
@@ -54,6 +60,12 @@ function buildDependencyTree(report: OSSIQExportSchemaV11): DependencyNode {
         latest_version: pkg.latest_version ?? undefined,
         severity: cveMap.get(pkg.package_name),
         categories: ['development'],
+        time_lag_days: pkg.time_lag_days,
+        releases_lag: pkg.releases_lag,
+        cve: pkg.cve,
+        repo_url: pkg.repo_url,
+        homepage_url: pkg.homepage_url,
+        package_url: pkg.package_url,
         dependencies: {},
       }
     }
@@ -86,6 +98,13 @@ function buildDependencyTree(report: OSSIQExportSchemaV11): DependencyNode {
         version_installed: pkg.installed_version,
         latest_version: pkg.latest_version ?? undefined,
         severity: cveMap.get(pkg.package_name),
+        time_lag_days: pkg.time_lag_days,
+        releases_lag: pkg.releases_lag,
+        cve: pkg.cve,
+        dependency_path: pkg.dependency_path,
+        repo_url: pkg.repo_url,
+        homepage_url: pkg.homepage_url,
+        package_url: pkg.package_url,
         dependencies: {},
       }
       parent.dependencies[pkg.package_name] = thisNode
@@ -113,7 +132,7 @@ function handlePanelClose() {
 const { searchQuery, filterCve, filterPinned, filterUpperBound, filteredTree, hasActiveFilters, clearFilters } =
   useTreeFilters({ dependencyTree })
 
-const { initializeTree, zoomIn, zoomOut, resetZoom } = useD3Tree({
+const { initializeTree, selectNodeByName, zoomIn, zoomOut, resetZoom } = useD3Tree({
   svgRef,
   onNodeSelect: handleNodeSelect,
 })
@@ -307,7 +326,7 @@ watch(filteredTree, (tree) => {
       <svg ref="svgRef" class="w-full h-full"></svg>
     </div>
 
-    <DependencyDetailPanel :node="selectedNode" :is-open="isPanelOpen" @close="handlePanelClose" />
+    <DependencyDetailPanel :node="selectedNode" :is-open="isPanelOpen" @close="handlePanelClose" @select-node="selectNodeByName" />
   </div>
 </template>
 

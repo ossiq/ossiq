@@ -1,96 +1,310 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 import type { SelectedNodeDetail } from '@/types/dependency-tree'
+import { computeDriftStatus, formatTimeLag } from '@/composables/useReportFilters'
 
-defineProps<{
+const props = defineProps<{
   node: SelectedNodeDetail | null
   isOpen: boolean
 }>()
 
 const emit = defineEmits<{
   close: []
+  selectNode: [name: string]
 }>()
+
+const driftStatus = computed(() =>
+  props.node ? computeDriftStatus(props.node.version_installed, props.node.latest_version ?? null) : 'LATEST',
+)
+
+const lagBarWidth = computed(() => {
+  const days = props.node?.time_lag_days
+  if (!days || days <= 0) return '0%'
+  return `${Math.min(100, Math.round((days / 365) * 100))}%`
+})
+
+const lagIsHigh = computed(() => (props.node?.time_lag_days ?? 0) > 90)
+const lagIsModerate = computed(() => !lagIsHigh.value && (props.node?.time_lag_days ?? 0) > 30)
+
+const driftConfig: Record<string, { pill: string; icon: string; label: string }> = {
+  DIFF_MAJOR: { pill: 'bg-red-700 text-white',        icon: 'flood',   label: 'MAJOR' },
+  DIFF_MINOR: { pill: 'bg-yellow-300 text-amber-700', icon: 'warning', label: 'MINOR' },
+  DIFF_PATCH: { pill: 'bg-blue-500 text-white',       icon: 'timer',   label: 'PATCH' },
+  LATEST:     { pill: 'bg-green-500 text-white',      icon: 'check',   label: 'LATEST' },
+}
+
+type SeverityKey = 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW'
+
+const severityStyles: Record<SeverityKey, { card: string; box: string; label: string }> = {
+  CRITICAL: { card: 'border-rose-200',  box: 'bg-rose-50 border-rose-100 text-rose-600',    label: 'text-rose-600'  },
+  HIGH:     { card: 'border-rose-200',  box: 'bg-rose-50 border-rose-100 text-rose-600',    label: 'text-rose-600'  },
+  MEDIUM:   { card: 'border-slate-200', box: 'bg-amber-50 border-amber-100 text-amber-600', label: 'text-amber-600' },
+  LOW:      { card: 'border-slate-200', box: 'bg-slate-50 border-slate-200 text-slate-500', label: 'text-slate-500' },
+}
+
+function cveStyle(severity: string) {
+  return severityStyles[severity as SeverityKey] ?? severityStyles.LOW
+}
 </script>
 
 <template>
   <div
     :class="[
-      'fixed right-0 top-0 h-full w-80 bg-white shadow-2xl border-l border-slate-200 z-50 flex flex-col',
-      'transition-transform duration-300 ease-out',
-      isOpen ? 'translate-x-0' : 'translate-x-full',
+      'flex flex-col bg-white border-l border-slate-200 overflow-hidden shrink-0',
+      'transition-all duration-300 ease-out',
+      isOpen ? 'w-180' : 'w-0',
     ]"
   >
-    <div class="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50">
-      <h2 class="font-bold text-slate-800">Package Details</h2>
-      <button @click="emit('close')" class="p-2 hover:bg-slate-200 rounded-full transition-colors">
-        <svg
-          xmlns="http://www.w3.org/2000/svg"
-          width="20"
-          height="20"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="2"
-          stroke-linecap="round"
-          stroke-linejoin="round"
+    <div v-if="node" class="flex flex-col h-full overflow-y-auto w-180">
+
+      <!-- ── Sticky header ── -->
+      <div class="sticky top-0 z-10 px-5 py-3.5 bg-white border-b border-slate-200">
+        <div class="flex items-start justify-between gap-4">
+          <div class="flex items-center gap-3 min-w-0">
+            <div class="p-2 bg-white rounded-xl border border-slate-200 shadow-sm shrink-0">
+              <span class="material-symbols-rounded text-[24px] leading-none" style="color: #0ea5e9">inventory_2</span>
+            </div>
+            <div class="min-w-0">
+              <h1 class="text-xl font-bold tracking-tight font-mono break-all leading-tight">
+                {{ node.name }}
+                <span class="text-slate-400 font-normal text-lg ml-1.5">v{{ node.version_installed }}</span>
+              </h1>
+              <div class="flex flex-wrap items-center gap-2 mt-1.5">
+                <span
+                  v-for="cat in node.categories ?? ['dependency']"
+                  :key="cat"
+                  class="px-2 py-0.5 bg-slate-100 text-slate-500 text-[9px] rounded-full border border-slate-200 uppercase font-bold tracking-wide"
+                >{{ cat }}</span>
+                <span
+                  v-if="node.isDuplicate"
+                  class="px-2 py-0.5 bg-amber-50 text-amber-600 text-[9px] rounded-full border border-amber-200 uppercase font-bold tracking-wide"
+                >Shared Node</span>
+                <span class="text-slate-300 select-none">|</span>
+                <a
+                  v-if="node.package_url"
+                  :href="node.package_url"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="inline-flex items-center gap-1 text-xs text-slate-500 hover:text-sky-500 transition-colors"
+                  title="View on registry"
+                >
+                  <span class="material-symbols-rounded text-sm leading-none">inventory_2</span>
+                  Registry
+                </a>
+                <a
+                  v-if="node.repo_url || node.homepage_url"
+                  :href="node.repo_url ?? node.homepage_url ?? ''"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="inline-flex items-center gap-1 text-xs text-slate-500 hover:text-sky-500 transition-colors"
+                  title="View repository"
+                >
+                  <span class="material-symbols-rounded text-sm leading-none">code</span>
+                  Repository
+                </a>
+                <span class="text-xs text-slate-400 font-medium italic">License N/A</span>
+              </div>
+            </div>
+          </div>
+          <button
+            class="shrink-0 p-2 hover:bg-slate-100 rounded-lg transition-colors text-slate-400 hover:text-slate-700 mt-0.5"
+            @click="emit('close')"
+          >
+            <span class="material-symbols-rounded text-xl leading-none">close</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- ── Content ── -->
+      <div class="p-4 space-y-4">
+
+        <!-- Transitive Path -->
+        <section
+          v-if="node.dependency_path && node.dependency_path.length > 0"
+          class="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm"
         >
-          <path d="M18 6 6 18M6 6l12 12" />
-        </svg>
-      </button>
-    </div>
+          <div class="px-4 py-2.5 border-b border-slate-100 bg-slate-50/50">
+            <h2 class="text-sm font-bold flex items-center gap-2">
+              <span class="material-symbols-rounded text-base leading-none text-slate-500">account_tree</span>
+              Transitive Path (Lineage)
+            </h2>
+          </div>
+          <div class="p-4">
+            <div class="flex items-center gap-1.5 overflow-x-auto py-1 flex-wrap">
+              <!-- Root (not clickable — it's the project root, not a package node) -->
+              <div class="px-2 py-1 rounded bg-slate-100 text-[11px] font-bold border border-slate-200 text-slate-500 shrink-0">Root</div>
+              <!-- Ancestors -->
+              <template v-for="(ancestor, i) in node.dependency_path" :key="i">
+                <span class="material-symbols-rounded text-sm leading-none text-slate-300 shrink-0">chevron_right</span>
+                <button
+                  class="px-2 py-1 rounded bg-slate-100 text-[11px] font-bold border border-slate-200 font-mono text-slate-700 shrink-0 hover:bg-slate-200 hover:border-slate-300 transition-colors cursor-pointer"
+                  :title="`Select ${ancestor} in tree`"
+                  @click="emit('selectNode', ancestor)"
+                >{{ ancestor }}</button>
+              </template>
+              <!-- Current (not clickable — already selected) -->
+              <span class="material-symbols-rounded text-sm leading-none text-slate-300 shrink-0">chevron_right</span>
+              <div class="px-2 py-1 rounded bg-sky-50 text-sky-600 text-[11px] font-bold border border-sky-200 font-mono shrink-0">
+                {{ node.name }}
+              </div>
+            </div>
+            <p class="mt-3 text-xs text-slate-500 leading-relaxed">
+              <strong>Note:</strong> You don't manage
+              <code class="font-mono text-sky-500">{{ node.name }}</code> directly — it is pulled in by
+              <code class="font-mono">{{ node.dependency_path[node.dependency_path.length - 1] }}</code>.
+              Click any ancestor to navigate to it in the tree.
+            </p>
+          </div>
+        </section>
 
-    <div v-if="node" class="p-6 space-y-6 overflow-y-auto">
-      <div>
-        <label class="text-[10px] uppercase tracking-wider text-slate-400 font-bold">Package Name</label>
-        <div class="text-xl font-bold text-slate-900 break-all">{{ node.name }}</div>
-      </div>
+        <!-- Release & Lag -->
+        <section class="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
+          <div class="px-4 py-2.5 border-b border-slate-100 flex items-center justify-between">
+            <h2 class="text-sm font-bold uppercase tracking-wide">Release &amp; Lag</h2>
+            <div class="flex items-center gap-2">
+              <span class="material-symbols-rounded text-base text-slate-400 leading-none">{{ driftConfig[driftStatus]?.icon ?? 'help' }}</span>
+              <span
+                class="px-2.5 py-0.5 rounded-full text-xs font-bold"
+                :class="driftConfig[driftStatus]?.pill ?? 'bg-slate-200 text-slate-600'"
+              >{{ driftConfig[driftStatus]?.label ?? driftStatus }}</span>
+            </div>
+          </div>
+          <div class="p-4">
+            <div
+              v-if="!node.time_lag_days && !node.releases_lag"
+              class="flex items-center gap-2 text-emerald-600 text-sm font-semibold"
+            >
+              <span class="material-symbols-rounded text-lg leading-none">check_circle</span>
+              Up to date
+            </div>
+            <div v-else class="space-y-3">
+              <div class="grid grid-cols-3 gap-2">
+                <div class="p-2.5 bg-slate-50 rounded-xl border border-slate-100">
+                  <div class="text-[10px] font-bold text-slate-400 uppercase tracking-tighter mb-1">Releases Behind</div>
+                  <div class="text-lg font-bold font-mono">{{ node.releases_lag ?? '—' }}</div>
+                </div>
+                <div class="p-2.5 bg-slate-50 rounded-xl border border-slate-100">
+                  <div class="text-[10px] font-bold text-slate-400 uppercase tracking-tighter mb-1">Time Lag</div>
+                  <div
+                    class="text-lg font-bold font-mono"
+                    :class="
+                      !node.time_lag_days ? 'text-green-600'
+                      : (node.time_lag_days ?? 0) > 730 ? 'text-red-700'
+                      : (node.time_lag_days ?? 0) > 365 ? 'text-amber-600'
+                      : lagIsHigh ? 'text-rose-500'
+                      : lagIsModerate ? 'text-amber-500'
+                      : ''
+                    "
+                  >{{ node.time_lag_days != null ? formatTimeLag(node.time_lag_days) : '—' }}</div>
+                </div>
+                <div class="p-2.5 bg-slate-50 rounded-xl border border-slate-100">
+                  <div class="text-[10px] font-bold text-slate-400 uppercase tracking-tighter mb-1">Latest Version</div>
+                  <div class="text-lg font-bold font-mono truncate">{{ node.latest_version || '—' }}</div>
+                </div>
+              </div>
+              <div class="w-full h-1 bg-slate-100 rounded-full overflow-hidden">
+                <div
+                  :class="['h-full transition-all', lagIsHigh ? 'bg-rose-500' : lagIsModerate ? 'bg-amber-400' : 'bg-emerald-500']"
+                  :style="{ width: lagBarWidth }"
+                ></div>
+              </div>
+            </div>
+          </div>
+        </section>
 
-      <div class="grid grid-cols-2 gap-4">
-        <div class="bg-blue-50 p-3 rounded-lg border border-blue-100">
-          <label class="text-[10px] uppercase text-blue-600 font-bold block mb-1">Installed</label>
-          <span class="text-lg font-mono font-bold">{{ node.version_installed }}</span>
-        </div>
-        <div class="bg-emerald-50 p-3 rounded-lg border border-emerald-100">
-          <label class="text-[10px] uppercase text-emerald-600 font-bold block mb-1">Latest</label>
-          <span class="text-lg font-mono font-bold">{{ node.latest_version || 'N/A' }}</span>
-        </div>
-      </div>
+        <!-- Governance & Constraints -->
+        <section class="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
+          <div class="px-4 py-2.5 border-b border-slate-100">
+            <h2 class="text-sm font-bold uppercase tracking-wide">Governance &amp; Constraints</h2>
+          </div>
+          <div class="p-4">
+            <h3 class="text-xs font-bold text-slate-400 uppercase mb-4">Version Constraint Analysis</h3>
+            <div class="space-y-2.5">
+              <div class="flex items-center justify-between py-2 border-b border-slate-100">
+                <span class="text-sm text-slate-500">Declared range</span>
+                <span class="font-mono text-sm bg-slate-100 px-2 py-0.5 rounded text-slate-700">{{ node.version_defined || '—' }}</span>
+              </div>
+              <div class="flex items-center justify-between py-2 border-b border-slate-100">
+                <span class="text-sm text-slate-500">Installed</span>
+                <span class="font-mono text-sm bg-blue-50 text-blue-700 px-2 py-0.5 rounded">{{ node.version_installed }}</span>
+              </div>
+              <div class="flex items-center justify-between py-2">
+                <span class="text-sm text-slate-500">Latest available</span>
+                <span class="font-mono text-sm bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded">{{ node.latest_version || '—' }}</span>
+              </div>
+            </div>
+            <p class="text-[10px] text-slate-400 italic mt-3">Constraint range visualizer not yet available in this export version.</p>
+          </div>
+        </section>
 
-      <div>
-        <label class="text-[10px] uppercase tracking-wider text-slate-400 font-bold block mb-2">Details</label>
-        <div class="text-sm text-slate-600 py-2 border-b border-slate-100 flex justify-between">
-          <span>Range:</span>
-          <span class="font-mono bg-slate-100 px-1 rounded">{{ node.version_defined || 'Inherited' }}</span>
-        </div>
-        <div class="flex flex-wrap gap-1 mt-3">
-          <span
-            v-for="category in node.categories || ['dependency']"
-            :key="category"
-            class="px-2 py-0.5 bg-slate-100 text-slate-600 text-[9px] rounded-full border border-slate-200 uppercase font-bold"
+        <!-- Security Advisories -->
+        <section>
+          <div class="flex items-center justify-between mb-3">
+            <h2 class="text-base font-bold flex items-center gap-2">
+              Security Advisories
+              <span
+                v-if="node.cve && node.cve.length > 0"
+                class="px-2 py-0.5 bg-rose-100 text-rose-600 text-xs rounded-full font-bold"
+              >{{ node.cve.length }} Identified</span>
+            </h2>
+          </div>
+
+          <div
+            v-if="!node.cve || node.cve.length === 0"
+            class="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm flex items-center gap-2"
           >
-            {{ category }}
-          </span>
-        </div>
-      </div>
+            <span class="material-symbols-rounded text-lg leading-none text-emerald-500">verified</span>
+            <span class="text-sm font-semibold text-emerald-700">No known vulnerabilities</span>
+          </div>
 
-      <div v-if="node.isDuplicate" class="bg-amber-50 border border-amber-200 p-4 rounded-lg">
-        <div class="flex gap-2 text-amber-800">
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            width="18"
-            height="18"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-          >
-            <path d="m17 2 4 4-4 4" />
-            <path d="M3 11v-1a4 4 0 0 1 4-4h14" />
-            <path d="m7 22-4-4 4-4" />
-            <path d="M21 13v1a4 4 0 0 1-4 4H3" />
-          </svg>
-          <span class="text-xs font-bold">Shared Node</span>
-        </div>
-        <p class="text-[11px] text-amber-700 mt-1">Found in multiple branches of the tree.</p>
+          <div v-else class="space-y-3">
+            <div
+              v-for="cve in node.cve"
+              :key="cve.id"
+              :class="['bg-white rounded-2xl border overflow-hidden shadow-sm group hover:shadow-md transition-all', cveStyle(cve.severity).card]"
+            >
+              <div class="p-4 flex gap-4">
+                <div
+                  :class="['shrink-0 flex flex-col items-center justify-center w-16 h-16 rounded-xl border', cveStyle(cve.severity).box]"
+                >
+                  <span class="text-[9px] font-bold uppercase tracking-tighter opacity-70">Sev.</span>
+                  <span :class="['text-[11px] font-black text-center leading-tight mt-0.5', cveStyle(cve.severity).label]">
+                    {{ cve.severity }}
+                  </span>
+                </div>
+                <div class="grow min-w-0">
+                  <div class="flex items-start justify-between gap-3 mb-1">
+                    <h3 class="font-bold text-slate-800 text-sm leading-snug break-all">{{ cve.id }}</h3>
+                    <span v-if="cve.cve_ids[0] && cve.cve_ids[0] !== cve.id" class="text-xs font-mono text-slate-400 shrink-0">
+                      {{ cve.cve_ids[0] }}
+                    </span>
+                  </div>
+                  <p class="text-sm text-slate-500 leading-relaxed mb-3">{{ cve.summary }}</p>
+                  <a
+                    :href="cve.link"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    class="text-xs font-bold text-sky-500 hover:underline inline-flex items-center gap-1"
+                  >
+                    View Details
+                    <span class="material-symbols-rounded text-sm leading-none">open_in_new</span>
+                  </a>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- License (mocked) -->
+        <section class="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm">
+          <h3 class="text-xs font-bold text-slate-400 uppercase tracking-widest mb-3">License</h3>
+          <div class="flex justify-between items-center text-sm py-2 border-b border-slate-100">
+            <span class="text-slate-500">SPDX identifier</span>
+            <span class="font-mono text-slate-400">—</span>
+          </div>
+          <p class="text-[10px] text-slate-400 mt-2.5 italic">License data not yet available in this export version.</p>
+        </section>
+
       </div>
     </div>
   </div>

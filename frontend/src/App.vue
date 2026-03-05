@@ -13,24 +13,16 @@ const isFullscreen = computed(() => route.meta.layout === 'fullscreen')
   <div class="min-h-screen bg-slate-50 text-slate-900 flex flex-col">
     <!-- Header -->
     <header class="w-full bg-white border-b border-slate-200">
-      <div class="max-w-7xl mx-auto flex items-center justify-between py-4 px-6">
-        <div class="flex items-center gap-2">          
+      <div class="max-w-7xl mx-auto flex items-stretch justify-between px-6" style="min-height: 60px;">
+        <div class="flex items-center gap-2 py-4">
           <a href="https://ossiq.dev"><img src="/src/styles/oss-iq-logo.svg" alt="OSS IQ" class="w-26"></a>
         </div>
 
-        <nav class="flex items-center gap-1">
-          <RouterLink
-            to="/"
-            class="px-4 py-2 text-[10px] font-bold uppercase tracking-widest border border-slate-200 hover:bg-slate-50 transition-colors"
-            active-class="!bg-[#4800E2] !text-white !border-[#4800E2]"
-          >
+        <nav class="flex items-center gap-8 h-full self-center">
+          <RouterLink to="/" class="nav-link text-sm font-medium text-slate-500 hover:text-black">
             Scan Report
           </RouterLink>
-          <RouterLink
-            to="/transitive-dependencies"
-            class="px-4 py-2 text-[10px] font-bold uppercase tracking-widest border border-slate-200 hover:bg-slate-50 transition-colors"
-            active-class="!bg-[#4800E2] !text-white !border-[#4800E2]"
-          >
+          <RouterLink to="/transitive-dependencies" class="nav-link text-sm font-medium text-slate-500 hover:text-black">
             Transitive Dependencies
           </RouterLink>
         </nav>
@@ -38,7 +30,7 @@ const isFullscreen = computed(() => route.meta.layout === 'fullscreen')
         <a
           href="https://github.com/nickstenning/ossiq/"
           target="_blank"
-          class="flex items-center gap-1 text-slate-600 hover:text-black transition font-medium text-sm"
+          class="flex items-center gap-1 text-slate-600 hover:text-black transition font-medium text-sm py-4"
         >
           <span class="material-symbols-rounded text-xl">code</span>
           <span>GitHub</span>
@@ -74,5 +66,18 @@ const isFullscreen = computed(() => route.meta.layout === 'fullscreen')
 body {
   font-family: 'Instrument Sans', sans-serif;
   margin: 0;
+}
+
+.nav-link {
+  display: inline-flex;
+  align-items: center;
+  padding-bottom: 2px;
+  border-bottom: 2px solid transparent;
+  transition: color 0.15s, border-color 0.15s;
+}
+
+.nav-link.router-link-active {
+  color: #0f172a;
+  border-bottom-color: #4800E2;
 }
 </style>

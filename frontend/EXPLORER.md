@@ -86,16 +86,15 @@ This gives an at-a-glance risk map of the tree even before any interaction.
 
 ### Focus state (ancestor path)
 
-When a node is clicked, its path to the root is highlighted:
+When a node is clicked, its path to the root is highlighted. Each edge is colored
+individually based on its **target node's** exceptional state:
 
-| Condition | Ancestor edge color |
+| Target node type | Ancestor edge color |
 |---|---|
-| Any node in the path has CVE (`hasCveInPath`) | `#fca5a5` (red-300), 3px, full opacity |
-| No CVE in path | `#1d4ed8` (blue-700), 3px, full opacity |
+| Has CVE (`severity` set) | `#fca5a5` (red-300), 3px, full opacity |
+| Pinned or UBC (`version_defined` set) | `#fed7aa` (orange-200), 3px, full opacity |
+| Default | `#1d4ed8` (blue-700), 3px, full opacity |
 | Not on ancestor path | CSS default color, `opacity: 0.15` (dimmed) |
-
-`hasCveInPath` is all-or-nothing — a single CVE node anywhere in the focused path
-turns all ancestor edges red. Computed in `useHighlightState.collectAncestorInfo`.
 
 ---
 
@@ -163,11 +162,24 @@ showcasing all paths the dependency is used across the tree:
 - **Clicked node** → solid fill (fill = its semantic stroke color), border 3.5px
 - **Duplicate nodes** (same `name@version_installed`) → solid fill (fill = their semantic stroke color), border 3.5px
 - **Ancestor nodes** (path to root for every focused node) → full opacity, default semantic color
+- **Descendant nodes** (all children/grandchildren of focused nodes) → full opacity, default semantic color
 - **All other nodes** → `opacity: 0.15` (dimmed)
 - **Tree links on ancestor paths** → 3px, full opacity; blue `#1d4ed8` or red `#fca5a5` (see above)
+- **Tree links on descendant paths** → 3px, full opacity; color depends on target node exceptional state (see below)
 - **All other tree links** → `opacity: 0.15` (dimmed)
 - **Same-version dashed links for the focused package** → orange `#f97316`, 3px, 85% opacity (remain dashed)
 - **All other dashed links** → `opacity: 0.1` (dimmed)
+
+### Descendant path edge colors
+
+| Target node type | Descendant edge color |
+|---|---|
+| Has CVE (`severity` set) | `#fca5a5` (red-300) |
+| Pinned or UBC (`version_defined` set) | `#fed7aa` (orange-200) |
+| Default | `#22c55e` (green-500) |
+
+Descendant node circles keep their normal semantic pastel fill — no solid fill — which visually
+distinguishes them from the selected (solid) primary node.
 
 Clicking the SVG background exits focus mode and restores all nodes and links to their default state.
 

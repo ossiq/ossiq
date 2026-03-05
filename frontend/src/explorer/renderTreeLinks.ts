@@ -100,37 +100,56 @@ function normalEdgeColor(data: D3NodeData): string | null {
   return null
 }
 
+/** Returns the semantic edge color for an ancestor link in focus mode. */
+function ancestorEdgeColor(data: D3NodeData): string {
+  if (data.severity) return TREE_CONFIG.colors.cvePathLinkStroke
+  const v = data.version_defined?.trim()
+  if (v && (v.includes('<') || /^\d[\d.]*$/.test(v))) return TREE_CONFIG.colors.pinnedUbcPathLinkStroke
+  return TREE_CONFIG.colors.ancestorLinkStroke
+}
+
+/** Returns the semantic edge color for a descendant link in focus mode. */
+function descendantEdgeColor(data: D3NodeData): string {
+  if (data.severity) return TREE_CONFIG.colors.cvePathLinkStroke
+  const v = data.version_defined?.trim()
+  if (v && (v.includes('<') || /^\d[\d.]*$/.test(v))) return TREE_CONFIG.colors.pinnedUbcPathLinkStroke
+  return TREE_CONFIG.colors.descendantLinkStroke
+}
+
 /**
  * Re-applies highlight styles to existing tree link elements without structural changes.
  * Call this after any highlight state change that does not alter tree structure.
  *
  * Normal state: edges to CVE nodes are light red; edges to pinned/UBC nodes are light orange.
- * Focus state: ancestor path edges are blue (or light red if hasCveInPath); others are dimmed.
+ * Focus state: ancestor path edges are colored per target node's exceptional state (CVE → red,
+ * pinned/UBC → orange, default → blue); descendant path edges use green/red/orange similarly.
  */
 export function applyTreeLinkStyles(
   g: d3.Selection<SVGGElement, unknown, null, undefined>,
   highlight: HighlightState,
 ) {
-  const ancestorColor = highlight.hasCveInPath
-    ? TREE_CONFIG.colors.cvePathLinkStroke
-    : TREE_CONFIG.colors.ancestorLinkStroke
-
   // Use .style() not .attr() — Vue's :deep(.link) CSS properties override presentation attributes.
   // Inline styles (set via .style()) take precedence over CSS rules; null removes the override.
   g.selectAll<SVGPathElement, d3.HierarchyLink<D3NodeData>>('.link')
     .style('stroke', (d) => {
       if (highlight.mode !== 'none') {
-        return highlight.treeLinkTargetKeys.has(nodeKey(d.target)) ? ancestorColor : null
+        const tk = nodeKey(d.target)
+        if (highlight.treeLinkTargetKeys.has(tk)) return ancestorEdgeColor(d.target.data)
+        if (highlight.descendantLinkTargetKeys.has(tk)) return descendantEdgeColor(d.target.data)
+        return null
       }
       return normalEdgeColor(d.target.data)
     })
-    .style('stroke-width', (d) =>
-      highlight.mode !== 'none' && highlight.treeLinkTargetKeys.has(nodeKey(d.target))
-        ? '3px'
-        : null,
-    )
+    .style('stroke-width', (d) => {
+      if (highlight.mode !== 'none') {
+        const tk = nodeKey(d.target)
+        if (highlight.treeLinkTargetKeys.has(tk) || highlight.descendantLinkTargetKeys.has(tk)) return '3px'
+      }
+      return null
+    })
     .style('opacity', (d) => {
       if (highlight.mode === 'none') return null
-      return highlight.treeLinkTargetKeys.has(nodeKey(d.target)) ? '1' : '0.15'
+      const tk = nodeKey(d.target)
+      return highlight.treeLinkTargetKeys.has(tk) || highlight.descendantLinkTargetKeys.has(tk) ? '1' : '0.15'
     })
 }

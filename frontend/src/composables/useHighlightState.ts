@@ -13,12 +13,13 @@ import type { TreeNode, HighlightState } from '@/types/dependency-tree'
  */
 export function useHighlightState() {
   let mode: 'none' | 'focus' = 'none'
-  let primaryKeys = new Set<string>()           // clicked node (blue)
-  let secondaryKeys = new Set<string>()         // same-version duplicates (amber)
-  let ancestorKeys = new Set<string>()          // ancestor path nodes (full opacity)
-  let treeLinkTargetKeys = new Set<string>()    // tree edge targets along ancestor paths
-  let dashedLinkPairs = new Set<string>()       // same-version dashed link pair keys
-  let hasCveInPath = false                      // true if any highlighted path node has a CVE
+  let primaryKeys = new Set<string>()             // clicked node (blue)
+  let secondaryKeys = new Set<string>()           // same-version duplicates (amber)
+  let ancestorKeys = new Set<string>()            // ancestor path nodes (full opacity)
+  let treeLinkTargetKeys = new Set<string>()      // tree edge targets along ancestor paths
+  let dashedLinkPairs = new Set<string>()         // same-version dashed link pair keys
+  let descendantKeys = new Set<string>()          // all descendants of primary+secondary
+  let descendantLinkTargetKeys = new Set<string>() // tree edge targets going DOWN from focused nodes
 
   function clearFocus() {
     mode = 'none'
@@ -27,13 +28,27 @@ export function useHighlightState() {
     ancestorKeys = new Set()
     treeLinkTargetKeys = new Set()
     dashedLinkPairs = new Set()
-    hasCveInPath = false
+    descendantKeys = new Set()
+    descendantLinkTargetKeys = new Set()
+  }
+
+  function collectDescendantInfo(nodes: TreeNode[]) {
+    descendantKeys = new Set()
+    descendantLinkTargetKeys = new Set()
+    for (const node of nodes) {
+      node.descendants().slice(1).forEach((desc) => {
+        const k = nodeKey(desc as TreeNode)
+        descendantLinkTargetKeys.add(k)
+        if (!primaryKeys.has(k) && !secondaryKeys.has(k)) {
+          descendantKeys.add(k)
+        }
+      })
+    }
   }
 
   function collectAncestorInfo(nodes: TreeNode[]) {
     ancestorKeys = new Set()
     treeLinkTargetKeys = new Set()
-    hasCveInPath = false
     for (const node of nodes) {
       treeLinkTargetKeys.add(nodeKey(node))
       node.ancestors().forEach((ancestor) => {
@@ -43,9 +58,6 @@ export function useHighlightState() {
         }
         if (!primaryKeys.has(k) && !secondaryKeys.has(k)) {
           ancestorKeys.add(k)
-        }
-        if ((ancestor as TreeNode).data.severity) {
-          hasCveInPath = true
         }
       })
     }
@@ -74,12 +86,13 @@ export function useHighlightState() {
     primaryKeys = new Set([dKey])
     secondaryKeys = new Set(duplicates.map((n) => nodeKey(n)))
     collectAncestorInfo([node, ...duplicates])
+    collectDescendantInfo([node, ...duplicates])
     dashedLinkPairs = getDashedPairsForVersion(versionKey, allNodes)
   }
 
   /** Returns an immutable snapshot of the current highlight state for passing to render functions. */
   function getState(): HighlightState {
-    return { mode, primaryKeys, secondaryKeys, ancestorKeys, treeLinkTargetKeys, dashedLinkPairs, hasCveInPath }
+    return { mode, primaryKeys, secondaryKeys, ancestorKeys, treeLinkTargetKeys, dashedLinkPairs, descendantKeys, descendantLinkTargetKeys }
   }
 
   return { focusNode, clearFocus, getState }
