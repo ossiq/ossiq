@@ -56,14 +56,6 @@ def mock_package_registry():
     return registry
 
 
-@pytest.fixture
-def mock_cve_database():
-    """Mock CVE database returning no CVEs."""
-    db = MagicMock()
-    db.get_cves_for_package.return_value = []
-    return db
-
-
 # ============================================================================
 # Tests
 # ============================================================================
@@ -72,11 +64,11 @@ def mock_cve_database():
 class TestScanRecordVersionConstraint:
     """Test that scan_record() correctly propagates version_constraint."""
 
-    def test_version_constraint_is_stored_in_scan_record(self, mock_package_registry, mock_cve_database):
+    def test_version_constraint_is_stored_in_scan_record(self, mock_package_registry):
         """Test scan_record stores version_constraint when provided.
 
         AAA Pattern:
-        - Arrange: mock registry/CVE db, provide a version constraint string
+        - Arrange: mock registry, provide a version constraint string
         - Act: call scan_record() with version_constraint kwarg
         - Assert: resulting ScanRecord.version_constraint matches the input
         """
@@ -86,33 +78,33 @@ class TestScanRecordVersionConstraint:
         # Act
         record = scan_record(
             packages_registry=mock_package_registry,
-            cve_database=mock_cve_database,
             package_name="requests",
             canonical_name="requests",
             package_version="2.31.0",
             is_optional_dependency=False,
+            prefetched_cves=set(),
             version_constraint=constraint,
         )
 
         # Assert
         assert record.version_constraint == constraint
 
-    def test_version_constraint_defaults_to_none(self, mock_package_registry, mock_cve_database):
+    def test_version_constraint_defaults_to_none(self, mock_package_registry):
         """Test scan_record sets version_constraint to None when not provided.
 
         AAA Pattern:
-        - Arrange: mock registry/CVE db, omit version_constraint
+        - Arrange: mock registry, omit version_constraint
         - Act: call scan_record() without version_constraint
         - Assert: resulting ScanRecord.version_constraint is None
         """
         # Act
         record = scan_record(
             packages_registry=mock_package_registry,
-            cve_database=mock_cve_database,
             package_name="requests",
             canonical_name="requests",
             package_version="2.31.0",
             is_optional_dependency=False,
+            prefetched_cves=set(),
         )
 
         # Assert
@@ -129,7 +121,7 @@ class TestScanRecordVersionConstraint:
             "==2.31.0",
         ],
     )
-    def test_various_constraint_formats_are_preserved(self, mock_package_registry, mock_cve_database, constraint):
+    def test_various_constraint_formats_are_preserved(self, mock_package_registry, constraint):
         """Test that raw constraint strings from different ecosystems are stored as-is.
 
         AAA Pattern:
@@ -140,11 +132,11 @@ class TestScanRecordVersionConstraint:
         # Act
         record = scan_record(
             packages_registry=mock_package_registry,
-            cve_database=mock_cve_database,
             package_name="requests",
             canonical_name="requests",
             package_version="2.31.0",
             is_optional_dependency=False,
+            prefetched_cves=set(),
             version_constraint=constraint,
         )
 

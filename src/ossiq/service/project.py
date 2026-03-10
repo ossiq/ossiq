@@ -19,8 +19,15 @@ from ossiq.unit_of_work import core as unit_of_work
 
 console = Console()
 
-# (name, canonical_name, version, is_optional, dependency_path, version_constraint)
-DepDescriptor = tuple[str, str, str, bool, list[str] | None, str | None]
+
+@dataclass(frozen=True)
+class DependencyDescriptor:
+    name: str
+    canonical_name: str
+    version: str
+    is_optional: bool
+    dependency_path: list[str] | None
+    version_constraint: str | None
 
 
 @dataclass
@@ -174,48 +181,69 @@ def scan(uow: unit_of_work.AbstractProjectUnitOfWork) -> ScanResult:
         if not project_info.project_path:
             raise ProjectPathNotFoundError("Project Path is not Specified")
 
-        # Collect all dependency descriptors: (name, canonical_name, version, is_optional, path, version_constraint)
-        prod_deps: list[DepDescriptor] = [
-            (dep.name, dep.canonical_name, dep.version_installed, False, None, dep.version_defined)
+        # Collect all dependency descriptors
+        prod_deps = [
+            DependencyDescriptor(
+                name=dep.name,
+                canonical_name=dep.canonical_name,
+                version=dep.version_installed,
+                is_optional=False,
+                dependency_path=None,
+                version_constraint=dep.version_defined,
+            )
             for dep in project_info.dependencies.values()
         ]
 
-        opt_deps: list[DepDescriptor] = []
+        opt_deps: list[DependencyDescriptor] = []
         if not uow.production:
             opt_deps = [
-                (dep.name, dep.canonical_name, dep.version_installed, True, None, dep.version_defined)
+                DependencyDescriptor(
+                    name=dep.name,
+                    canonical_name=dep.canonical_name,
+                    version=dep.version_installed,
+                    is_optional=True,
+                    dependency_path=None,
+                    version_constraint=dep.version_defined,
+                )
                 for dep in project_info.optional_dependencies.values()
             ]
 
         walker = GraphExporter(project_info.dependency_tree)
-        trans_deps: list[DepDescriptor] = [
-            (node.name, node.canonical_name, node.version_installed, False, path, node.version_defined)
+        trans_deps = [
+            DependencyDescriptor(
+                name=node.name,
+                canonical_name=node.canonical_name,
+                version=node.version_installed,
+                is_optional=False,
+                dependency_path=path,
+                version_constraint=node.version_defined,
+            )
             for node, path in walker.walk_all_paths()
         ]
 
         all_deps = prod_deps + opt_deps + trans_deps
 
         # Pass 1: pre-fetch package infos (GET requests, cached by requests-cache)
-        package_infos = _prefetch_package_infos(uow.packages_registry, (cn for _, cn, *_ in all_deps))
+        package_infos = _prefetch_package_infos(uow.packages_registry, (dep.canonical_name for dep in all_deps))
 
         # Batch CVE fetch — single POST to /v1/querybatch for all packages
-        packages_for_cve = [(package_infos[cn], ver) for _, cn, ver, *_ in all_deps]
+        packages_for_cve = [(package_infos[dep.canonical_name], dep.version) for dep in all_deps]
         cve_cache = uow.cve_database.get_cves_batch(packages_for_cve)
 
         # Pass 2: build ScanRecords using pre-fetched CVE data
-        def build_records(descriptors: list[DepDescriptor]) -> list[ScanRecord]:
+        def build_records(descriptors: list[DependencyDescriptor]) -> list[ScanRecord]:
             return [
                 scan_record(
                     uow.packages_registry,
-                    name,
-                    cn,
-                    ver,
-                    is_opt,
-                    cve_cache.get((package_infos[cn].name, ver), set()),
-                    path,
-                    vc,
+                    dep.name,
+                    dep.canonical_name,
+                    dep.version,
+                    dep.is_optional,
+                    cve_cache.get((package_infos[dep.canonical_name].name, dep.version), set()),
+                    dep.dependency_path,
+                    dep.version_constraint,
                 )
-                for name, cn, ver, is_opt, path, vc in descriptors
+                for dep in descriptors
             ]
 
         production_packages = sorted(build_records(prod_deps), key=sort_function, reverse=True)

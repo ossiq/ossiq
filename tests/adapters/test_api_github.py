@@ -16,6 +16,7 @@ from unittest.mock import Mock
 import pytest
 
 from ossiq.adapters.api_github import SourceCodeProviderApiGithub
+from ossiq.clients.github import GithubSession
 from ossiq.domain.common import (
     VERSION_DATA_SOURCE_GITHUB_RELEASES,
     VERSION_DATA_SOURCE_GITHUB_TAGS,
@@ -29,13 +30,15 @@ from ossiq.domain.version import PackageVersion
 @pytest.fixture
 def github_api_with_token():
     """Fixture providing a GitHub API instance with authentication token."""
-    return SourceCodeProviderApiGithub(github_token="test_token_12345")
+    session = GithubSession(token="test_token_12345")
+    return SourceCodeProviderApiGithub(session=session)
 
 
 @pytest.fixture
 def github_api_without_token():
     """Fixture providing a GitHub API instance without authentication token."""
-    return SourceCodeProviderApiGithub(github_token=None)
+    session = GithubSession(token=None)
+    return SourceCodeProviderApiGithub(session=session)
 
 
 @pytest.fixture
@@ -49,8 +52,8 @@ def mock_github_response(monkeypatch):
     responses = {}
     response_headers = {}
 
-    def mock_get(url: str, timeout=15, headers=None):
-        """Mock requests.get to return predefined responses."""
+    def mock_get(_self, url: str, timeout=15, **kwargs):
+        """Mock requests.Session.get to return predefined responses."""
         if url in responses:
             mock_response = Mock()
             mock_response.status_code = responses[url].get("status_code", 200)
@@ -66,7 +69,7 @@ def mock_github_response(monkeypatch):
 
         raise ValueError(f"No mock response for URL: {url}")
 
-    monkeypatch.setattr("requests.get", mock_get)
+    monkeypatch.setattr("requests.Session.get", mock_get)
 
     class MockHelper:
         def set_response(self, url, data, status_code=200, headers=None):
@@ -90,14 +93,16 @@ class TestInitialization:
 
     def test_initialization_with_token(self):
         """Test initialization with GitHub token."""
-        api = SourceCodeProviderApiGithub(github_token="my_token")
-        assert api.github_token == "my_token"
+        session = GithubSession(token="my_token")
+        api = SourceCodeProviderApiGithub(session=session)
+        assert api.session.token == "my_token"
         assert api.repository_provider == RepositoryProvider.PROVIDER_GITHUB
 
     def test_initialization_without_token(self):
         """Test initialization without GitHub token."""
-        api = SourceCodeProviderApiGithub(github_token=None)
-        assert api.github_token is None
+        session = GithubSession(token=None)
+        api = SourceCodeProviderApiGithub(session=session)
+        assert api.session.token is None
         assert api.repository_provider == RepositoryProvider.PROVIDER_GITHUB
 
     def test_repr(self, github_api_with_token):

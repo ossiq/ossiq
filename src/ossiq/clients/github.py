@@ -8,7 +8,7 @@ import requests
 class GithubSession(requests.Session):
     """A pre-configured Session for GitHub API."""
 
-    def __init__(self, token: str = None):
+    def __init__(self, token: str | None = None):
         super().__init__()
         self.token = token or os.getenv("GITHUB_TOKEN")
 
