@@ -7,8 +7,9 @@ import itertools
 import re
 from collections.abc import Callable, Iterable
 
-import requests
 from rich.console import Console
+
+from ossiq.clients.github import GithubSession
 
 from ..domain.common import VERSION_DATA_SOURCE_GITHUB_RELEASES, VERSION_DATA_SOURCE_GITHUB_TAGS, RepositoryProvider
 from ..domain.exceptions import GithubRateLimitError
@@ -29,12 +30,10 @@ class SourceCodeProviderApiGithub(AbstractSourceCodeProviderApi):
     repository_provider: RepositoryProvider = RepositoryProvider.PROVIDER_GITHUB
 
     github_token: str | None
+    session: GithubSession
 
-    def __init__(self, github_token: str | None):
-        self.github_token = github_token
-        if not self.github_token:
-            # FIXME: pass warning
-            pass
+    def __init__(self, session: GithubSession):
+        self.session = session
 
     def __repr__(self):
         return "<SourceCodeProviderApiGithub instance>"
@@ -57,11 +56,7 @@ class SourceCodeProviderApiGithub(AbstractSourceCodeProviderApi):
         """
         Make a request to the GitHub API and properly handle pagination
         """
-        headers = {}
-        if self.github_token:
-            headers["Authorization"] = f"Bearer {self.github_token}"
-
-        response = requests.get(url, timeout=timeout, headers=headers)
+        response = self.session.get(url, timeout=timeout)
 
         # Basically let user know that we're done here with Github.
         if response.status_code == 403:

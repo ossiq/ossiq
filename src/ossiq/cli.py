@@ -6,11 +6,14 @@ from typing import Annotated, Literal
 import typer
 from rich.console import Console
 
+from ossiq.clients import install_requests_cache
 from ossiq.commands.export import CommandExportOptions, commnad_export
 from ossiq.commands.scan import CommandScanOptions, commnad_scan
 from ossiq.commands.tree import command_tree
 from ossiq.domain.common import UserInterfaceType
 from ossiq.messages import (
+    ARGS_HELP_CACHE_DESTINATION,
+    ARGS_HELP_CACHE_TTL,
     ARGS_HELP_GITHUB_TOKEN,
     ARGS_HELP_OUTPUT,
     ARGS_HELP_PRESENTATION,
@@ -56,6 +59,16 @@ def main(
             help=f"Enable verbose output. Overrides {Settings.ENV_PREFIX}VERBOSE env var.",
         ),
     ] = False,
+    cache_destination: Annotated[
+        str,
+        typer.Option(
+            "--cache-destination", envvar=f"{Settings.ENV_PREFIX}CACHE_DESTINATION", help=ARGS_HELP_CACHE_DESTINATION
+        ),
+    ] = "./ossiq_cache.sqlite3",
+    cache_ttl: Annotated[
+        int,
+        typer.Option("--cache-ttl", envvar=f"{Settings.ENV_PREFIX}CACHE_TTL", help=ARGS_HELP_CACHE_TTL),
+    ] = 24,
     version: Annotated[  # pylint: disable=unused-argument
         bool,
         typer.Option(
@@ -73,7 +86,12 @@ def main(
     settings = Settings.load_from_env()
 
     # 2. Collect CLI arguments that will override env vars
-    cli_overrides = {"github_token": github_token, "verbose": verbose}
+    cli_overrides = {
+        "github_token": github_token,
+        "verbose": verbose,
+        "cache_destinatoin": cache_destination,
+        "cache_ttl": cache_ttl,
+    }
     # Filter out None values so we only override with explicitly provided options
     update_data = {k: v for k, v in cli_overrides.items() if v is not None}
 
@@ -82,6 +100,9 @@ def main(
     context.obj = settings
     if settings.verbose:
         show_settings(context, "Settings", settings.model_dump())
+
+    # installed cache
+    install_requests_cache(cache_destination, cache_ttl)
 
 
 @app.command()
