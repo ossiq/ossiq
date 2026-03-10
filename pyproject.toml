@@ -47,18 +47,18 @@ keywords = ["techdebt", "tech debt", "maintenance", "toc", "engineering"]
 requires-python = ">= 3.11"
 
 dependencies = [
-  "typer>=0.21.1",
-  "pydantic>=2.12.5,<3",
-  "rich>=14.3.2,<15",
-  "termcolor>=3.3.0,<4",
-  "requests>=2.32.5,<3",
+  "typer>=0.24.1",
+  "pydantic>=2.12.5",
+  "rich>=14.3.3",
+  "termcolor>=3.3.0",
+  "requests>=2.32.5",
   "semver>=3.0.4,<4",
-  "hatch>=1.16.3,<2",
+  "hatch>=1.16.5",
   "common-expression-language>=0.5.6",
-  "pandas>=2.3.3,<4",
-  "packaging>=25.0",
-  "jsonschema>=4.26.0,<5",
-  "frictionless>=5.18.1,<6",
+  "packaging>=26.0",
+  "jsonschema>=4.26.0",
+  "frictionless>=5.18.1",
+  "requests-cache>=1.3.1",
 ]
 
 [tool.uv]
@@ -66,9 +66,9 @@ package = true
 
 [project.optional-dependencies]
 docs = [
-    "mkdocs>=1.6.1,<2",
-    "mkdocstrings>=1.0.3,<2",
-    "mkdocs-material>=9.7.1,<10",
+    "mkdocs>=1.6.1",
+    "mkdocstrings>=1.0.3",
+    "mkdocs-material>=9.7.5",
     "mkdocs-nav-weight>=0.3.0",
 ]
 
@@ -138,9 +138,9 @@ select = [
 [dependency-groups]
 # Tools for development: PEP 735
 dev = [
-    "datapackage>=1.15.4,<2",
-    "coverage>=7.13.4,<8",  # testing
-    "pytest>=9.0.2,<10",  # testing
+    "datapackage>=1.15.4",
+    "coverage>=7.13.4",  # testing
+    "pytest>=9.0.2",  # testing
     "ruff>=0.15.0",  # linting
     "ty>=0.0.15",  # checking types
     "ipdb>=0.13.13",  # debugging
