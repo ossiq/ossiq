@@ -238,6 +238,8 @@ class TestCsvExportRenderer:
             "releases_lag",
             "cve_count",
             "version_constraint",
+            "license",
+            "purl",
         ]
         assert headers == expected_headers
 
@@ -898,3 +900,28 @@ class TestCsvSchemaValidation:
             assert cve["package_name"] in package_names, (
                 f"CVE {cve['cve_id']} references unknown package: {cve['package_name']}"
             )
+
+    def test_packages_csv_contains_purl_column_with_values(self, csv_output_path, sample_project_metrics, settings):
+        """Test packages CSV includes a populated purl column for each package.
+
+        AAA Pattern:
+        - Arrange: ScanRecord with purl set, render to CSV
+        - Act: Read packages CSV and extract purl column
+        - Assert: purl values match expected PURL format
+        """
+        # Arrange — inject purl into the fixture records
+        sample_project_metrics.production_packages[0].purl = "pkg:npm/react@17.0.2"
+        sample_project_metrics.optional_packages[0].purl = "pkg:npm/pytest@7.0.0"
+
+        renderer = CsvExportRenderer(settings)
+        renderer.render(sample_project_metrics, destination=str(csv_output_path))
+        packages_file = csv_output_path.parent / "export" / "packages.csv"
+
+        # Act
+        with open(packages_file, encoding="utf-8-sig", newline="") as f:
+            rows = list(csv.DictReader(f))
+
+        # Assert
+        purl_values = [row["purl"] for row in rows]
+        assert "pkg:npm/react@17.0.2" in purl_values
+        assert "pkg:npm/pytest@7.0.0" in purl_values

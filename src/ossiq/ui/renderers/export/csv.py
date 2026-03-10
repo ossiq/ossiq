@@ -219,6 +219,8 @@ class CsvExportRenderer(AbstractUserInterfaceRenderer):
             "releases_lag",
             "cve_count",
             "version_constraint",
+            "license",
+            "purl",
         ]
 
         # Generate rows for all packages
@@ -238,6 +240,8 @@ class CsvExportRenderer(AbstractUserInterfaceRenderer):
                     "releases_lag": self._serialize_optional(pkg.releases_lag),
                     "cve_count": len(pkg.cve),
                     "version_constraint": self._serialize_optional(pkg.version_constraint),
+                    "license": self._serialize_optional(pkg.license),
+                    "purl": self._serialize_optional(pkg.purl),
                 }
             )
 
@@ -255,6 +259,8 @@ class CsvExportRenderer(AbstractUserInterfaceRenderer):
                     "releases_lag": self._serialize_optional(pkg.releases_lag),
                     "cve_count": len(pkg.cve),
                     "version_constraint": self._serialize_optional(pkg.version_constraint),
+                    "license": self._serialize_optional(pkg.license),
+                    "purl": self._serialize_optional(pkg.purl),
                 }
             )
 

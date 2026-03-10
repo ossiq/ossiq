@@ -90,6 +90,18 @@
       "type": "string",
       "title": "Version Constraint",
       "description": "Version specifier declared in the project manifest (e.g. '^1.2.3', '>=1.0,<2.0')"
+    },
+    {
+      "name": "license",
+      "type": "string",
+      "title": "License",
+      "description": "SPDX license identifier or license name as declared in the package registry"
+    },
+    {
+      "name": "purl",
+      "type": "string",
+      "title": "Package URL (PURL)",
+      "description": "Package URL per ECMA-386, e.g. pkg:pypi/requests@2.25.1 or pkg:npm/lodash@4.17.21"
     }
   ],
   "primaryKey": ["package_name"],

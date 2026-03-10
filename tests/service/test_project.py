@@ -6,6 +6,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from ossiq.domain.common import ProjectPackagesRegistry
 from ossiq.domain.package import Package
 from ossiq.domain.version import PackageVersion, VersionsDifference
 from ossiq.service.project import scan_record
@@ -19,6 +20,7 @@ from ossiq.service.project import scan_record
 def mock_package_registry():
     """Mock package registry API returning a stable package and version list."""
     registry = MagicMock()
+    registry.package_registry = ProjectPackagesRegistry.PYPI
 
     # package_info returns a minimal Package
     package = Package(
@@ -142,3 +144,50 @@ class TestScanRecordVersionConstraint:
 
         # Assert
         assert record.version_constraint == constraint
+
+
+class TestScanRecordPurl:
+    """Test that scan_record() correctly generates and stores the PURL field."""
+
+    def test_purl_is_populated_for_pypi_package(self, mock_package_registry):
+        """Test scan_record generates a valid PURL for a PyPI package.
+
+        AAA Pattern:
+        - Arrange: mock registry with PYPI registry type
+        - Act: call scan_record() for a known package and version
+        - Assert: resulting ScanRecord.purl matches expected PURL format
+        """
+        # Act
+        record = scan_record(
+            packages_registry=mock_package_registry,
+            package_name="requests",
+            canonical_name="requests",
+            package_version="2.31.0",
+            is_optional_dependency=False,
+            prefetched_cves=set(),
+        )
+
+        # Assert
+        assert record.purl == "pkg:pypi/requests@2.31.0"
+
+    def test_purl_uses_canonical_name(self, mock_package_registry):
+        """Test scan_record uses canonical_name (not alias) when building PURL.
+
+        AAA Pattern:
+        - Arrange: mock registry, package_name differs from canonical_name
+        - Act: call scan_record() with an alias name and a canonical name
+        - Assert: purl uses canonical_name, not the alias
+        """
+        # Act
+        record = scan_record(
+            packages_registry=mock_package_registry,
+            package_name="requests-alias",
+            canonical_name="requests",
+            package_version="2.31.0",
+            is_optional_dependency=False,
+            prefetched_cves=set(),
+        )
+
+        # Assert — PURL must reference canonical registry name
+        assert record.purl == "pkg:pypi/requests@2.31.0"
+        assert "requests-alias" not in record.purl

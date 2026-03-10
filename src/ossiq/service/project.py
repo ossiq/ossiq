@@ -10,6 +10,7 @@ from rich.console import Console
 
 from ossiq.adapters.api_interfaces import AbstractPackageRegistryApi
 from ossiq.adapters.package_managers.dependency_tree import GraphExporter
+from ossiq.domain.common import build_purl
 from ossiq.domain.cve import CVE
 from ossiq.domain.exceptions import ProjectPathNotFoundError
 from ossiq.domain.package import Package
@@ -43,9 +44,11 @@ class ScanRecord:
     cve: list[CVE]
     dependency_path: list[str] | None = None
     version_constraint: str | None = None
+    license: str | None = None
     repo_url: str | None = None
     homepage_url: str | None = None
     package_url: str | None = None
+    purl: str | None = None
 
 
 @dataclass
@@ -147,6 +150,8 @@ def scan_record(
         repo_url=package_info.repo_url,
         homepage_url=package_info.homepage_url,
         package_url=package_info.package_url,
+        license=installed_release.license if installed_release else None,
+        purl=build_purl(packages_registry.package_registry, canonical_name, package_version),
     )
 
 

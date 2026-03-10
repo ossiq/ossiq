@@ -117,6 +117,8 @@ class PackageMetrics(BaseModel):
     repo_url: str | None = Field(default=None, description="Source code repository URL")
     homepage_url: str | None = Field(default=None, description="Package homepage URL")
     package_url: str | None = Field(default=None, description="Package registry page URL")
+    license: str | None = Field(default=None, description="SPDX license identifier or license name")
+    purl: str | None = Field(default=None, description="Package URL (PURL) per ECMA-386, e.g. pkg:pypi/requests@2.25.1")
 
     @classmethod
     def from_domain(cls, record) -> "PackageMetrics":
@@ -135,6 +137,8 @@ class PackageMetrics(BaseModel):
             repo_url=record.repo_url,
             homepage_url=record.homepage_url,
             package_url=record.package_url,
+            license=record.license,
+            purl=record.purl,
         )
 
 

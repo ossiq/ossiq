@@ -183,6 +183,14 @@
           "type": ["string", "null"],
           "format": "uri",
           "description": "Package registry page URL"
+        },
+        "license": {
+          "type": ["string", "null"],
+          "description": "SPDX license identifier or license name as declared in the package registry"
+        },
+        "purl": {
+          "type": ["string", "null"],
+          "description": "Package URL (PURL) per ECMA-386, e.g. pkg:pypi/requests@2.25.1 or pkg:npm/lodash@4.17.21"
         }
       }
     },
