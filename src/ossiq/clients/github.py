@@ -5,7 +5,7 @@ import os
 import requests
 
 
-class GitHubSession(requests.Session):
+class GithubSession(requests.Session):
     """A pre-configured Session for GitHub API."""
 
     def __init__(self, token: str = None):

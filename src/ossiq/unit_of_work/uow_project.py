@@ -36,7 +36,7 @@ class ProjectUnitOfWork(AbstractProjectUnitOfWork):
         self.settings = settings
         self.production = production
         self.narrow_package_registry = narrow_package_registry
-        self.cve_database = create_cve_database()
+        self.cve_database = create_cve_database(settings)
 
     def __enter__(self):
         """
