@@ -49,7 +49,7 @@ export const TREE_CONFIG = {
     // Ancestor path edges in focus mode
     cvePathLinkStroke: '#fca5a5',              // red-300   — focused ancestor path, CVE present
     // Descendant path edges in focus mode
-    descendantLinkStroke: '#22c55e',           // green-500 — default descendant path edges
+    descendantLinkStroke: '#97c2f7',           // blue-400 — default descendant path edges
   },
   sameVersionLink: {
     bezierOffset: 40,        // perpendicular offset (px) for quadratic bezier control point
