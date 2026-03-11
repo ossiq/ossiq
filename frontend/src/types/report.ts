@@ -124,6 +124,18 @@ export interface PackageMetrics {
   repo_url?: string | null;
   homepage_url?: string | null;
   package_url?: string | null;
+  /**
+   * SPDX license identifiers parsed from the package license expression
+   */
+  license?: string[] | null;
+  /**
+   * Package URL (PURL) per ECMA-386
+   */
+  purl?: string | null;
+  /**
+   * Version constraint declared in the project manifest
+   */
+  version_constraint?: string | null;
   [k: string]: unknown;
 }
 /**

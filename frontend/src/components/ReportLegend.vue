@@ -72,6 +72,17 @@
             </p>
           </div>
         </div>
+
+        <!-- Transitive CVE -->
+        <div class="flex items-start gap-3">
+          <span class="text-orange-500 font-black text-lg shrink-0 leading-none mt-0.5">*</span>
+          <div>
+            <div class="text-sm font-bold text-slate-900">Transitive CVE</div>
+            <p class="text-xs text-slate-500 leading-relaxed">
+              One or more transitive (indirect) dependencies of this package have known CVEs.
+            </p>
+          </div>
+        </div>
       </div>
     </div>
   </section>

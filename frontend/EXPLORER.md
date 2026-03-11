@@ -1,7 +1,10 @@
 # Transitive Dependency Explorer
 
 The Explorer is a D3-based interactive tree visualization for transitive dependency analysis.
-Key files: `src/composables/useD3Tree.ts`, `src/views/TransitiveDependenciesView.vue`.
+Key files: `src/views/TransitiveDependenciesView.vue`, `src/composables/useD3Tree.ts` (orchestrator),
+`src/composables/useHighlightState.ts`, `src/composables/useTreeZoom.ts`,
+`src/explorer/` — rendering modules: `config.ts`, `nodeStyle.ts`, `renderNodes.ts`,
+`renderTreeLinks.ts`, `renderSameVersionLinks.ts`, `transform.ts`.
 
 ---
 
@@ -64,6 +67,7 @@ This makes folded subtrees immediately visually distinct at a glance.
 | **Click** a same-version dashed link | Identical to clicking the source endpoint node |
 | **Click** a tree edge (solid link) | Identical to clicking the child (target) endpoint node |
 | **Click** SVG background | Exits focus mode; restores all highlights; closes sidebar |
+| `selectNodeByName(name)` | Programmatically focuses a node by package name; called from `DependencyDetailPanel` via `@select-node` |
 
 Tree edges have a 12px transparent hit-target overlay (`.link-hit`) for easier clicking,
 mirroring the same-version dashed link pattern.
@@ -176,7 +180,7 @@ showcasing all paths the dependency is used across the tree:
 |---|---|
 | Has CVE (`severity` set) | `#fca5a5` (red-300) |
 | Pinned or UBC (`version_defined` set) | `#fed7aa` (orange-200) |
-| Default | `#22c55e` (green-500) |
+| Default | `#97c2f7` (blue-400) |
 
 Descendant node circles keep their normal semantic pastel fill — no solid fill — which visually
 distinguishes them from the selected (solid) primary node.
@@ -211,6 +215,7 @@ Each link is rendered as two stacked SVG paths:
 
 - Pan and zoom via D3's built-in zoom behavior, `scaleExtent: [0.1, 3]`
 - Cursor switches to `grabbing` while panning
+- Zoom buttons (+/−/1:1) rendered at **bottom-right** of the canvas, separate from the top toolbar
 - Controls: `zoomIn()` / `zoomOut()` scale by ×1.3; `resetZoom()` returns to scale 1
 - Window `resize` events update SVG dimensions and re-center the root group
 

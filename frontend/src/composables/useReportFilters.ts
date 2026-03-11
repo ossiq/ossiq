@@ -20,6 +20,8 @@ export interface ReportRow {
   timeLagDisplay: string
   cveCount: number
   registryUrl: string
+  license: string[]
+  hasTransitiveCve: boolean
 }
 
 export function computeDriftStatus(
@@ -68,6 +70,17 @@ export function useReportFilters() {
   const sortColumn = ref<SortColumn | null>(null)
   const sortDirection = ref<SortDirection>('none')
 
+  // Build set of direct package names that have transitive deps with CVEs
+  const transitiveCveSet = computed<Set<string>>(() => {
+    const set = new Set<string>()
+    for (const pkg of store.transitivePackages) {
+      if (pkg.cve.length > 0 && pkg.dependency_path?.[0]) {
+        set.add(pkg.dependency_path[0])
+      }
+    }
+    return set
+  })
+
   // Build unified row list
   const allRows = computed<ReportRow[]>(() => {
     const registry = store.report?.project.registry ?? 'npm'
@@ -78,6 +91,8 @@ export function useReportFilters() {
       timeLagDisplay: formatTimeLag(pkg.time_lag_days),
       cveCount: pkg.cve.length,
       registryUrl: registryUrl(registry, pkg.package_name),
+      license: pkg.license ?? [],
+      hasTransitiveCve: transitiveCveSet.value.has(pkg.package_name),
     }))
     const devRows: ReportRow[] = store.developmentPackages.map((pkg) => ({
       pkg,
@@ -86,6 +101,8 @@ export function useReportFilters() {
       timeLagDisplay: formatTimeLag(pkg.time_lag_days),
       cveCount: pkg.cve.length,
       registryUrl: registryUrl(registry, pkg.package_name),
+      license: pkg.license ?? [],
+      hasTransitiveCve: transitiveCveSet.value.has(pkg.package_name),
     }))
     return [...prodRows, ...devRows]
   })

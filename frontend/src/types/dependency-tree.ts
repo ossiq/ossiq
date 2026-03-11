@@ -17,6 +17,8 @@ export interface DependencyNode {
   repo_url?: string | null
   homepage_url?: string | null
   package_url?: string | null
+  license?: string[] | null
+  purl?: string | null
   dependencies?: Record<string, DependencyNode>
   optional_dependencies?: Record<string, DependencyNode>
 }
@@ -39,6 +41,10 @@ export interface SelectedNodeDetail {
   repo_url?: string | null
   homepage_url?: string | null
   package_url?: string | null
+  license?: string[] | null
+  purl?: string | null
+  dependencies?: Record<string, DependencyNode>
+  optional_dependencies?: Record<string, DependencyNode>
 }
 
 export interface TreeNode extends HierarchyPointNode<D3NodeData> {

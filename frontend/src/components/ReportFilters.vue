@@ -9,7 +9,6 @@ const timeLag = defineModel<{ min?: number; max?: number } | null>('timeLag', { 
 
 const emit = defineEmits<{
   reset: []
-  exportCsv: []
 }>()
 
 function onTimeLagChange(event: Event) {
@@ -131,14 +130,6 @@ function timeLagSelectValue(): string {
           >
             <span class="material-symbols-rounded text-base mr-1">refresh</span>
             Reset
-          </button>
-
-          <button
-            class="flex items-center h-9 px-4 bg-[#4800E2] hover:bg-[#3a00b8] text-sm text-white font-bold transition"
-            @click="emit('exportCsv')"
-          >
-            Download CSV
-            <span class="material-symbols-rounded text-xl ml-1">download</span>
           </button>
         </div>
       </div>

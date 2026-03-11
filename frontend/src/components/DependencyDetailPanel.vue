@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import type { SelectedNodeDetail } from '@/types/dependency-tree'
+import type { SelectedNodeDetail, DependencyNode } from '@/types/dependency-tree'
+import type { CVEInfo } from '@/types/report'
 import { computeDriftStatus, formatTimeLag } from '@/composables/useReportFilters'
 
 const props = defineProps<{
@@ -45,6 +46,38 @@ const severityStyles: Record<SeverityKey, { card: string; box: string; label: st
 function cveStyle(severity: string) {
   return severityStyles[severity as SeverityKey] ?? severityStyles.LOW
 }
+
+type TransitiveCVEGroup = { name: string; version: string; cves: CVEInfo[] }
+
+const SEVERITY_ORDER: Record<string, number> = { CRITICAL: 0, HIGH: 1, MEDIUM: 2, LOW: 3 }
+
+function collectTransitiveCVEs(
+  deps: Record<string, DependencyNode> | undefined,
+  acc: Map<string, TransitiveCVEGroup>,
+) {
+  if (!deps) return
+  for (const child of Object.values(deps)) {
+    if (child.cve?.length) {
+      const key = `${child.name}@${child.version_installed}`
+      if (!acc.has(key)) {
+        acc.set(key, { name: child.name, version: child.version_installed, cves: child.cve })
+      }
+    }
+    collectTransitiveCVEs(child.dependencies, acc)
+    collectTransitiveCVEs(child.optional_dependencies, acc)
+  }
+}
+
+const transitiveCVEGroups = computed<TransitiveCVEGroup[]>(() => {
+  if (!props.node) return []
+  const acc = new Map<string, TransitiveCVEGroup>()
+  collectTransitiveCVEs(props.node.dependencies, acc)
+  collectTransitiveCVEs(props.node.optional_dependencies, acc)
+  const worstSeverity = (g: TransitiveCVEGroup) =>
+    Math.min(...g.cves.map(c => SEVERITY_ORDER[c.severity] ?? 99))
+  return [...acc.values()].sort((a, b) => worstSeverity(a) - worstSeverity(b))
+})
+
 </script>
 
 <template>
@@ -68,6 +101,19 @@ function cveStyle(severity: string) {
               <h1 class="text-xl font-bold tracking-tight font-mono break-all leading-tight">
                 {{ node.name }}
                 <span class="text-slate-400 font-normal text-lg ml-1.5">v{{ node.version_installed }}</span>
+                <template v-if="node.license && node.license.length > 0">
+                  <a
+                    :href="`https://spdx.org/licenses/${node.license[0]}.html`"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    class="text-sm ml-4 font-mono text-slate-500 hover:text-sky-500 transition-colors inline-flex items-center "
+                  >
+                  <span class="px-2.5 py-1 rounded-full text-xs font-bold font-mono bg-slate-100 text-slate-600 border border-slate-200 hover:bg-sky-50 hover:text-sky-600 hover:border-sky-200 transition-colors">License: {{ node.license[0] }}</span>                  
+                </a>
+                <span v-if="node.license.length > 1" class="text-sm  py-1 text-slate-400 hover:text-sky-500 transition-colors"> +{{ node.license.length - 1 }}</span>
+                  
+                </template>
+                <span v-else class="text-xs text-slate-400 font-medium italic">License N/A</span>
               </h1>
               <div class="flex flex-wrap items-center gap-2 mt-1.5">
                 <span
@@ -101,8 +147,7 @@ function cveStyle(severity: string) {
                 >
                   <span class="material-symbols-rounded text-sm leading-none">code</span>
                   Repository
-                </a>
-                <span class="text-xs text-slate-400 font-medium italic">License N/A</span>
+                </a>                
               </div>
             </div>
           </div>
@@ -293,16 +338,89 @@ function cveStyle(severity: string) {
               </div>
             </div>
           </div>
+
+          <!-- Via Transitive Dependencies -->
+          <div v-if="transitiveCVEGroups.length > 0" class="mt-5">
+            <div class="flex items-center gap-2 mb-3">
+              <h3 class="text-sm font-bold text-slate-600">Via Transitive Dependencies</h3>
+              <span class="px-2 py-0.5 bg-slate-100 text-slate-500 text-xs rounded-full font-bold border border-slate-200">
+                {{ transitiveCVEGroups.length }}
+              </span>
+            </div>
+            <div class="space-y-3">
+              <div
+                v-for="group in transitiveCVEGroups"
+                :key="`${group.name}@${group.version}`"
+                class="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm"
+              >
+                <!-- Package header -->
+                <div class="px-4 py-2.5 bg-slate-50 border-b border-slate-100 flex items-center justify-between gap-3">
+                  <div class="flex items-center gap-2 min-w-0">
+                    <button
+                      class="font-mono text-sm font-bold text-slate-700 hover:text-sky-600 transition-colors truncate text-left"
+                      :title="`Navigate to ${group.name}`"
+                      @click="emit('selectNode', group.name)"
+                    >{{ group.name }}</button>
+                    <span class="text-xs font-mono text-slate-400 shrink-0">v{{ group.version }}</span>
+                  </div>
+                  <span class="px-2 py-0.5 bg-rose-100 text-rose-600 text-xs rounded-full font-bold shrink-0">
+                    {{ group.cves.length }}
+                  </span>
+                </div>
+                <!-- CVE list for this package -->
+                <div class="divide-y divide-slate-100">
+                  <div
+                    v-for="cve in group.cves"
+                    :key="cve.id"
+                    class="p-3 flex gap-3"
+                  >
+                    <div
+                      :class="['shrink-0 flex flex-col items-center justify-center w-12 h-12 rounded-xl border', cveStyle(cve.severity).box]"
+                    >
+                      <span class="text-[8px] font-bold uppercase tracking-tighter opacity-70">Sev.</span>
+                      <span :class="['text-[10px] font-black text-center leading-tight mt-0.5', cveStyle(cve.severity).label]">
+                        {{ cve.severity }}
+                      </span>
+                    </div>
+                    <div class="grow min-w-0">
+                      <div class="flex items-start justify-between gap-2 mb-0.5">
+                        <h4 class="font-bold text-slate-800 text-xs leading-snug break-all">{{ cve.id }}</h4>
+                        <span v-if="cve.cve_ids[0] && cve.cve_ids[0] !== cve.id" class="text-[10px] font-mono text-slate-400 shrink-0">
+                          {{ cve.cve_ids[0] }}
+                        </span>
+                      </div>
+                      <p class="text-xs text-slate-500 leading-relaxed mb-2">{{ cve.summary }}</p>
+                      <a
+                        :href="cve.link"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        class="text-xs font-bold text-sky-500 hover:underline inline-flex items-center gap-1"
+                      >
+                        View Details
+                        <span class="material-symbols-rounded text-sm leading-none">open_in_new</span>
+                      </a>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
         </section>
 
-        <!-- License (mocked) -->
+        <!-- License -->
         <section class="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm">
           <h3 class="text-xs font-bold text-slate-400 uppercase tracking-widest mb-3">License</h3>
-          <div class="flex justify-between items-center text-sm py-2 border-b border-slate-100">
-            <span class="text-slate-500">SPDX identifier</span>
-            <span class="font-mono text-slate-400">—</span>
+          <div v-if="node.license && node.license.length > 0" class="flex flex-wrap gap-2">
+            <a
+              v-for="lic in node.license"
+              :key="lic"
+              :href="`https://spdx.org/licenses/${lic}.html`"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold font-mono bg-slate-100 text-slate-600 border border-slate-200 hover:bg-sky-50 hover:text-sky-600 hover:border-sky-200 transition-colors"
+            >{{ lic }}</a>
           </div>
-          <p class="text-[10px] text-slate-400 mt-2.5 italic">License data not yet available in this export version.</p>
+          <p v-else class="text-[10px] text-slate-400 italic">License data not available.</p>
         </section>
 
       </div>

@@ -75,6 +75,10 @@ function osvUrl(packageName: string, ecosystem: string): string {
   const eco = ecosystem === 'npm' ? 'npm' : 'PyPI'
   return `https://osv.dev/list?q=${encodeURIComponent(packageName)}&ecosystem=${eco}`
 }
+
+function spdxUrl(spdxId: string): string {
+  return `https://spdx.org/licenses/${spdxId}.html`
+}
 </script>
 
 <template>
@@ -99,6 +103,7 @@ function osvUrl(packageName: string, ecosystem: string): string {
                 </button>
               </span>
             </th>
+            <th class="px-6 py-4 text-[10px] font-bold uppercase tracking-widest text-slate-500">License</th>
           </tr>
         </thead>
         <tbody class="divide-y divide-slate-100">
@@ -114,6 +119,11 @@ function osvUrl(packageName: string, ecosystem: string): string {
                   class="text-[#4800E2] hover:underline font-medium text-left cursor-pointer"
                   @click="emit('selectPackage', row)"
                 >{{ row.pkg.package_name }}</button>
+                <span
+                  v-if="row.hasTransitiveCve"
+                  class="text-orange-500 font-black leading-none"
+                  title="Has transitive dependency CVEs"
+                >*</span>
                 <span
                   v-if="row.isDev"
                   class="material-symbols-rounded text-xl text-slate-400"
@@ -162,10 +172,28 @@ function osvUrl(packageName: string, ecosystem: string): string {
                 :class="timeLagColor(row.pkg.time_lag_days)"
               >{{ row.timeLagDisplay }}</strong>
             </td>
+
+            <!-- License -->
+            <td class="px-6 py-3">
+              <div class="flex flex-wrap gap-1">
+                <template v-if="row.license.length > 0">
+                  <a
+                    v-for="lic in row.license.slice(0, 2)"
+                    :key="lic"
+                    :href="spdxUrl(lic)"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    class="inline-flex px-1.5 py-0.5 rounded text-[10px] font-bold font-mono bg-slate-100 text-slate-600 hover:text-sky-600 transition-colors border border-slate-200"
+                  >{{ lic }}</a>
+                  <span v-if="row.license.length > 2" class="text-[10px] text-slate-400 self-center">+{{ row.license.length - 2 }}</span>
+                </template>
+                <span v-else class="text-xs text-slate-300">—</span>
+              </div>
+            </td>
           </tr>
 
           <tr v-if="rows.length === 0">
-            <td colspan="7" class="px-6 py-8 text-center text-sm text-slate-400">
+            <td colspan="8" class="px-6 py-8 text-center text-sm text-slate-400">
               No dependencies match the current filters.
             </td>
           </tr>

@@ -81,6 +81,10 @@ export function useD3Tree(options: UseD3TreeOptions) {
       repo_url: d.data.repo_url,
       homepage_url: d.data.homepage_url,
       package_url: d.data.package_url,
+      license: d.data.license,
+      purl: d.data.purl,
+      dependencies: d.data.dependencies,
+      optional_dependencies: d.data.optional_dependencies,
     })
   }
 

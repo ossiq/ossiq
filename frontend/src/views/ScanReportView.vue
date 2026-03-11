@@ -3,7 +3,6 @@ import { computed, ref } from 'vue'
 import { useOssiqStore } from '@/stores/ossiq'
 import { useReportFilters } from '@/composables/useReportFilters'
 import type { ReportRow } from '@/composables/useReportFilters'
-import { useCsvExport } from '@/composables/useCsvExport'
 import ReportFilters from '@/components/ReportFilters.vue'
 import ReportTable from '@/components/ReportTable.vue'
 import ReportLegend from '@/components/ReportLegend.vue'
@@ -23,7 +22,6 @@ const {
   toggleSort,
   resetFilters,
 } = useReportFilters()
-const { exportCsv } = useCsvExport()
 
 const showHelp = ref(false)
 const selectedNode = ref<SelectedNodeDetail | null>(null)
@@ -40,10 +38,6 @@ const exportTimestamp = computed(() => {
   return { date, time }
 })
 
-function handleExportCsv() {
-  exportCsv(sortedRows.value)
-}
-
 function handleSelectPackage(row: ReportRow) {
   selectedNode.value = {
     name: row.pkg.package_name,
@@ -59,6 +53,8 @@ function handleSelectPackage(row: ReportRow) {
     repo_url: row.pkg.repo_url,
     homepage_url: row.pkg.homepage_url,
     package_url: row.pkg.package_url,
+    license: row.pkg?.license ?? null,
+    purl: row.pkg.purl ?? null,
   }
   isPanelOpen.value = true
 }
@@ -127,7 +123,6 @@ function handlePanelClose() {
           v-model:release-distance="releaseDistanceFilter"
           v-model:time-lag="timeLagFilter"
           @reset="resetFilters"
-          @export-csv="handleExportCsv"
         />
 
         <!-- Table -->

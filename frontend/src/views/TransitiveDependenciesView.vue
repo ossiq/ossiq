@@ -5,7 +5,7 @@ import { useD3Tree } from '@/composables/useD3Tree'
 import { useTreeFilters } from '@/composables/useTreeFilters'
 import DependencyDetailPanel from '@/components/DependencyDetailPanel.vue'
 import type { DependencyNode, SelectedNodeDetail } from '@/types/dependency-tree'
-import type { OSSIQExportSchemaV11 } from '@/types/report'
+import type { OSSIQExportSchemaV11, PackageMetrics } from '@/types/report'
 
 const store = useOssiqStore()
 const svgRef = ref<SVGSVGElement | null>(null)
@@ -32,15 +32,14 @@ function buildDependencyTree(report: OSSIQExportSchemaV11): DependencyNode {
     name: report.project.name,
     version_installed: 'local',
     dependencies: {},
-  }
+  };
 
-  for (const pkg of report.production_packages) {
-    root.dependencies![pkg.package_name] = {
+  const buildSelectedNodeDetail = (pkg: PackageMetrics, categories: string[]) => ({
+      categories,
       name: pkg.package_name,
       version_installed: pkg.installed_version,
       latest_version: pkg.latest_version ?? undefined,
-      severity: cveMap.get(pkg.package_name),
-      categories: ['production'],
+      severity: cveMap.get(pkg.package_name),      
       time_lag_days: pkg.time_lag_days,
       releases_lag: pkg.releases_lag,
       cve: pkg.cve,
@@ -48,26 +47,19 @@ function buildDependencyTree(report: OSSIQExportSchemaV11): DependencyNode {
       homepage_url: pkg.homepage_url,
       package_url: pkg.package_url,
       dependencies: {},
-    }
+      license: pkg.license,
+      purl: pkg.purl,
+      dependency_path: pkg.dependency_path,
+  })
+
+  for (const pkg of report.production_packages) {    
+    root.dependencies![pkg.package_name] = buildSelectedNodeDetail(pkg, ['production'])
   }
 
   if (report.development_packages.length > 0) {
     root.optional_dependencies = {}
     for (const pkg of report.development_packages) {
-      root.optional_dependencies[pkg.package_name] = {
-        name: pkg.package_name,
-        version_installed: pkg.installed_version,
-        latest_version: pkg.latest_version ?? undefined,
-        severity: cveMap.get(pkg.package_name),
-        categories: ['development'],
-        time_lag_days: pkg.time_lag_days,
-        releases_lag: pkg.releases_lag,
-        cve: pkg.cve,
-        repo_url: pkg.repo_url,
-        homepage_url: pkg.homepage_url,
-        package_url: pkg.package_url,
-        dependencies: {},
-      }
+      root.optional_dependencies[pkg.package_name] = buildSelectedNodeDetail(pkg, ['development'])
     }
   }
 
@@ -93,20 +85,7 @@ function buildDependencyTree(report: OSSIQExportSchemaV11): DependencyNode {
     if (!parent.dependencies) parent.dependencies = {}
 
     if (!parent.dependencies[pkg.package_name]) {
-      const thisNode: DependencyNode = {
-        name: pkg.package_name,
-        version_installed: pkg.installed_version,
-        latest_version: pkg.latest_version ?? undefined,
-        severity: cveMap.get(pkg.package_name),
-        time_lag_days: pkg.time_lag_days,
-        releases_lag: pkg.releases_lag,
-        cve: pkg.cve,
-        dependency_path: pkg.dependency_path,
-        repo_url: pkg.repo_url,
-        homepage_url: pkg.homepage_url,
-        package_url: pkg.package_url,
-        dependencies: {},
-      }
+      const thisNode: DependencyNode = buildSelectedNodeDetail(pkg, ['transitive'])      
       parent.dependencies[pkg.package_name] = thisNode
       nodeByPath.set(`${parentPathKey}/${pkg.package_name}`, thisNode)
     }
