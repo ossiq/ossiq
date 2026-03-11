@@ -20,13 +20,13 @@ interface ColumnDef {
 }
 
 const columns: ColumnDef[] = [
-  { id: 'name', label: 'Dependency', width: '18%' },
-  { id: 'cve', label: 'Security' },
-  { id: 'drift', label: 'Drift Status' },
-  { id: 'installed', label: 'Installed' },
-  { id: 'latest', label: 'Latest' },
-  { id: 'releases', label: 'Releases Distance' },
-  { id: 'timeLag', label: 'Time Lag' },
+  { id: 'name',      label: 'Dependency',   width: '18%' },
+  { id: 'cve',       label: 'Security',     width: '8%'  },
+  { id: 'drift',     label: 'Drift Status', width: '12%' },
+  { id: 'installed', label: 'Installed',    width: '8%'  },
+  { id: 'latest',    label: 'Latest',       width: '8%'  },
+  { id: 'releases',  label: 'Releases',     width: '8%'  },
+  { id: 'timeLag',   label: 'Time Lag',     width: '8%'  },
 ]
 
 function sortIcon(col: SortColumn, currentCol: SortColumn | null, dir: SortDirection): string {
@@ -103,7 +103,7 @@ function spdxUrl(spdxId: string): string {
                 </button>
               </span>
             </th>
-            <th class="px-6 py-4 text-[10px] font-bold uppercase tracking-widest text-slate-500">License</th>
+            <th class="px-6 py-4 text-[10px] font-bold uppercase tracking-widest text-slate-500" width="12%">License</th>
           </tr>
         </thead>
         <tbody class="divide-y divide-slate-100">
@@ -178,14 +178,12 @@ function spdxUrl(spdxId: string): string {
               <div class="flex flex-wrap gap-1">
                 <template v-if="row.license.length > 0">
                   <a
-                    v-for="lic in row.license.slice(0, 2)"
-                    :key="lic"
-                    :href="spdxUrl(lic)"
+                    :href="spdxUrl(row.license[0])"
                     target="_blank"
                     rel="noopener noreferrer"
                     class="inline-flex px-1.5 py-0.5 rounded text-[10px] font-bold font-mono bg-slate-100 text-slate-600 hover:text-sky-600 transition-colors border border-slate-200"
-                  >{{ lic }}</a>
-                  <span v-if="row.license.length > 2" class="text-[10px] text-slate-400 self-center">+{{ row.license.length - 2 }}</span>
+                  >{{ row.license[0] }}</a>
+                  <span v-if="row.license.length > 1" class="text-[10px] text-slate-400 self-center">+{{ row.license.length - 1 }}</span>
                 </template>
                 <span v-else class="text-xs text-slate-300">—</span>
               </div>
