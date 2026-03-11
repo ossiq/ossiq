@@ -10,7 +10,7 @@ from rich.console import Console
 
 from ossiq.adapters.api_interfaces import AbstractPackageRegistryApi
 from ossiq.adapters.package_managers.dependency_tree import GraphExporter
-from ossiq.domain.common import build_purl
+from ossiq.domain.common import build_purl, parse_spdx_expression
 from ossiq.domain.cve import CVE
 from ossiq.domain.exceptions import ProjectPathNotFoundError
 from ossiq.domain.package import Package
@@ -44,7 +44,7 @@ class ScanRecord:
     cve: list[CVE]
     dependency_path: list[str] | None = None
     version_constraint: str | None = None
-    license: str | None = None
+    license: list[str] | None = None
     repo_url: str | None = None
     homepage_url: str | None = None
     package_url: str | None = None
@@ -119,6 +119,7 @@ def scan_record(
     prefetched_cves: set[CVE],
     dependency_path: list[str] | None = None,
     version_constraint: str | None = None,
+    prefetched_license: str | None = None,
 ) -> ScanRecord:
     """
     Factory to generate ScanRecord instances
@@ -150,7 +151,7 @@ def scan_record(
         repo_url=package_info.repo_url,
         homepage_url=package_info.homepage_url,
         package_url=package_info.package_url,
-        license=installed_release.license if installed_release else None,
+        license=parse_spdx_expression(prefetched_license or (installed_release.license if installed_release else None)),
         purl=build_purl(packages_registry.package_registry, canonical_name, package_version),
     )
 
@@ -235,7 +236,10 @@ def scan(uow: unit_of_work.AbstractProjectUnitOfWork) -> ScanResult:
         packages_for_cve = [(package_infos[dep.canonical_name], dep.version) for dep in all_deps]
         cve_cache = uow.cve_database.get_cves_batch(packages_for_cve)
 
-        # Pass 2: build ScanRecords using pre-fetched CVE data
+        # Batch license fetch — single POST to ClearlyDefined for all packages
+        license_cache = uow.license_database.get_licenses_batch(packages_for_cve)
+
+        # Pass 2: build ScanRecords using pre-fetched CVE and license data
         def build_records(descriptors: list[DependencyDescriptor]) -> list[ScanRecord]:
             return [
                 scan_record(
@@ -247,6 +251,7 @@ def scan(uow: unit_of_work.AbstractProjectUnitOfWork) -> ScanResult:
                     cve_cache.get((package_infos[dep.canonical_name].name, dep.version), set()),
                     dep.dependency_path,
                     dep.version_constraint,
+                    license_cache.get((package_infos[dep.canonical_name].name, dep.version)),
                 )
                 for dep in descriptors
             ]

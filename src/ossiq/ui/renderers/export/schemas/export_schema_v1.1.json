@@ -185,8 +185,9 @@
           "description": "Package registry page URL"
         },
         "license": {
-          "type": ["string", "null"],
-          "description": "SPDX license identifier or license name as declared in the package registry"
+          "type": ["array", "null"],
+          "items": { "type": "string" },
+          "description": "SPDX license identifiers parsed from the package license expression"
         },
         "purl": {
           "type": ["string", "null"],

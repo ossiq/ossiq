@@ -3,6 +3,7 @@ Put all the important constants in one place to avoid
 mutual dependencies.
 """
 
+import re
 from enum import Enum, StrEnum
 from urllib.parse import quote
 
@@ -128,7 +129,40 @@ def build_purl(registry: "ProjectPackagesRegistry", name: str, version: str) -> 
         A PURL string in the form "pkg:{type}/{encoded_name}@{version}".
     """
     purl_type = _PURL_TYPE[registry.value]
-    # Per PURL spec §7.1, the name component must be percent-encoded.
+    # Per PURL spec the name component must be percent-encoded.
     # quote() with safe="" encodes "@" and "/" which appear in npm scoped packages.
     encoded_name = quote(name, safe="")
     return f"pkg:{purl_type}/{encoded_name}@{version}"
+
+
+def parse_spdx_expression(expr: str | None) -> list[str] | None:
+    """
+    Parse an SPDX license expression into individual license identifiers.
+
+    Splits on AND/OR boolean operators. Preserves WITH clauses (license exceptions)
+    as a single token. Filters out NOASSERTION tokens.
+
+    Examples:
+        parse_spdx_expression("Apache-2.0")
+        -> ["Apache-2.0"]
+
+        parse_spdx_expression("Apache-2.0 AND BSD-2-Clause")
+        -> ["Apache-2.0", "BSD-2-Clause"]
+
+        parse_spdx_expression("MIT OR Apache-2.0")
+        -> ["MIT", "Apache-2.0"]
+
+        parse_spdx_expression("GPL-2.0-only WITH Classpath-exception-2.0")
+        -> ["GPL-2.0-only WITH Classpath-exception-2.0"]
+
+        parse_spdx_expression("Apache-2.0 AND NOASSERTION")
+        -> ["Apache-2.0"]
+    """
+    if not expr:
+        return None
+
+    tokens = re.split(r"\s+(?:AND|OR)\s+", expr)
+    licenses = [token.strip().strip("()") for token in tokens]
+    licenses = [lic for lic in licenses if lic and lic != "NOASSERTION"]
+
+    return licenses if licenses else None

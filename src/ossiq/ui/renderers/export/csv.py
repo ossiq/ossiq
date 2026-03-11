@@ -240,7 +240,7 @@ class CsvExportRenderer(AbstractUserInterfaceRenderer):
                     "releases_lag": self._serialize_optional(pkg.releases_lag),
                     "cve_count": len(pkg.cve),
                     "version_constraint": self._serialize_optional(pkg.version_constraint),
-                    "license": self._serialize_optional(pkg.license),
+                    "license": self._serialize_optional(", ".join(pkg.license) if pkg.license else None),
                     "purl": self._serialize_optional(pkg.purl),
                 }
             )
@@ -259,7 +259,7 @@ class CsvExportRenderer(AbstractUserInterfaceRenderer):
                     "releases_lag": self._serialize_optional(pkg.releases_lag),
                     "cve_count": len(pkg.cve),
                     "version_constraint": self._serialize_optional(pkg.version_constraint),
-                    "license": self._serialize_optional(pkg.license),
+                    "license": self._serialize_optional(", ".join(pkg.license) if pkg.license else None),
                     "purl": self._serialize_optional(pkg.purl),
                 }
             )
