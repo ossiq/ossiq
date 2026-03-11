@@ -3,7 +3,7 @@
 [![PyPI version](https://img.shields.io/pypi/v/ossiq.svg)](https://pypi.org/project/ossiq)
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL%20v3-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
 
-> Know Your Dependency Risk in Minutes, Not Weeks.
+> Know Your Dependency Risk in Seconds, Not Weeks.
 
 **OSS IQ** is a free & open-source CLI tool that provides deep visibility into the risk profile of your open-source ecosystem. It helps you understand your dependency drift at scale by analyzing both direct and transitive dependencies to identify security vulnerabilities and maintenance "red flags" before they reach production.
 
@@ -15,10 +15,11 @@ In a typical project with hundreds of dependencies, how do you answer these ques
 - How many dependencies have critical vulnerabilities?
 - How far behind the latest versions are we?
 - Which packages are unmaintained or abandoned?
+- Which newer versions of dependencies would work best for my project?
 
 `npm audit` tells you about vulnerabilities, but not which ones matter. Your framework might be years old, turning a simple upgrade into a multi-week project. Without a centralized view, you are always reacting, not planning.
 
-OSS IQ bridges the gap between raw dependency data and actionable intelligence. It analyzes version lag, CVEs, transitive dependencies, and maintainer activity to produce a single, holistic health score for your project.
+OSS IQ bridges the gap between raw dependency data and actionable intelligence. It analyzes version lag, CVEs, transitive dependencies, and maintainer activity to produce a single, holistic view of your project dependencies.
 
 ## How It Works
 
@@ -159,8 +160,17 @@ Here is an example of the summary provided in your console:
 **Not yet supported:**
 - **[Poetry](https://python-poetry.org/)** – Consider exporting to `pylock.toml` as a workaround ([discussion](https://github.com/orgs/python-poetry/discussions/10322))
 
-### Limitations
- - Transitive dependencies are not yet supported
+## Data Sources
+
+OSS IQ aggregates data from the following public sources:
+
+| Source | Purpose |
+|---|---|
+| [OSV](https://osv.dev/) | Open-source vulnerability database (CVEs, security advisories) |
+| [ClearlyDefined](https://clearlydefined.io/) | License and curation data for open-source packages |
+| [NPM Registry](https://www.npmjs.com/) | Package metadata and version history for JavaScript packages |
+| [PyPI](https://pypi.org/) | Package metadata and version history for Python packages |
+| [GitHub](https://github.com/) | Repository activity, releases, and maintainer signals |
 
 ## FAQ
 
