@@ -39,3 +39,16 @@ WARNING_MULTIPLE_REGISTRY_TYPES = """
 ERROR_EXIT_OUTDATED_PACKAGES = """There are libraries with outdated versions:
 exiting with non-zero exit code
 """.replace("\n", " ")
+
+HELP_PACKAGE_NAME = """
+Name of the package to inspect. Exact match against the package name or its alias (case-insensitive).
+"""
+
+HELP_PACKAGE_COMMAND = """
+Deep-dive into a single package: drift status, dependency tree trace, policy compliance,
+security advisories, and transitive dependency CVEs.
+"""
+
+ERROR_PACKAGE_NOT_FOUND = """
+Package `{package_name}` not found in the project dependency tree.
+"""

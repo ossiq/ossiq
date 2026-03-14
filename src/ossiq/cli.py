@@ -8,8 +8,8 @@ from rich.console import Console
 
 from ossiq.clients import install_requests_cache
 from ossiq.commands.export import CommandExportOptions, commnad_export
+from ossiq.commands.package import CommandPackageOptions, command_package
 from ossiq.commands.scan import CommandScanOptions, commnad_scan
-from ossiq.commands.tree import command_tree
 from ossiq.domain.common import UserInterfaceType
 from ossiq.messages import (
     ARGS_HELP_CACHE_DESTINATION,
@@ -19,6 +19,7 @@ from ossiq.messages import (
     ARGS_HELP_PRESENTATION,
     HELP_LAG_THRESHOULD,
     HELP_OUTPUT_FORMAT,
+    HELP_PACKAGE_NAME,
     HELP_PRODUCTION_ONLY,
     HELP_REGISTRY_TYPE,
     HELP_SCHEMA_VERSION,
@@ -189,39 +190,27 @@ def export(
 
 
 @app.command()
-def tree(
+def package(
     context: typer.Context,
     project_path: str,
-    lag_threshold_days: Annotated[str, typer.Option("--lag-threshold-delta", "-l", help=HELP_LAG_THRESHOULD)] = "1y",
-    production: Annotated[bool, typer.Option("--production", help=HELP_PRODUCTION_ONLY)] = False,
+    package_name: Annotated[str, typer.Argument(help=HELP_PACKAGE_NAME)],
     registry_type: Annotated[
         Literal["npm", "pypi"] | None,
         typer.Option("--registry-type", "-r", help=HELP_REGISTRY_TYPE),
     ] = None,
-    presentation: Annotated[
-        Literal["console", "html"],
-        typer.Option("--presentation", "-p", envvar=f"{Settings.ENV_PREFIX}PRESENTATION", help=ARGS_HELP_PRESENTATION),
-    ] = UserInterfaceType.CONSOLE.value,
-    output: Annotated[
-        str,
-        typer.Option("--output", "-o", envvar=f"{Settings.ENV_PREFIX}OUTPUT", help=ARGS_HELP_OUTPUT),
-    ] = "./ossiq_dependency_tree_scan_report_{project_name}.html",
 ):
     """
-    Analyze project transitive dependencies
+    Deep-dive into a single package: drift status, CVEs, and transitive vulnerabilities.
     """
     if registry_type and registry_type.lower() not in ["npm", "pypi"]:
         raise typer.BadParameter("Only `npm` and `pypi` allowed")
 
-    command_tree(
+    command_package(
         ctx=context,
-        options=CommandScanOptions(
+        options=CommandPackageOptions(
             project_path=project_path,
-            lag_threshold_days=lag_threshold_days,
-            production=production,
+            package_name=package_name,
             registry_type=registry_type,
-            presentation=presentation,
-            output_destination=output,
         ),
     )
 
