@@ -1,6 +1,3 @@
----
-weight: 4
----
 # Explanation
 
 ## OSS IQ: The Case for Engineering Fitness

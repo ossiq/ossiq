@@ -1,10 +1,18 @@
-# Serve documentation locally
+# Serve documentation locally with live reload
 docs-serve:
-    mkdocs serve --watch-theme
+    uv run --extra docs sphinx-autobuild docs docs/_build/html --open-browser --watch docs
 
 # Build documentation
 docs-build:
-    mkdocs build
+    uv run --extra docs sphinx-build -b html docs docs/_build/html
+
+# Check documentation for broken links
+docs-check:
+    uv run --extra docs sphinx-build -b linkcheck docs docs/_build/linkcheck
+
+docs-clean:
+    [ -d "docs/_build" ] && rm -rf docs/_build;
+    uv run --extra docs sphinx-build -b linkcheck docs docs/_build/linkcheck
 
 list:
     @just --list
@@ -20,7 +28,11 @@ qa:
 qa-integration:
     mkdir reports || echo 'Reports is there already'
     uv run hatch run ossiq-cli scan testdata/npm/project1
+    uv run hatch run ossiq-cli scan testdata/npm/project1
     uv run hatch run ossiq-cli scan testdata/npm/project2
+    uv run hatch run ossiq-cli package testdata/npm/project3 ms
+    uv run hatch run ossiq-cli package testdata/npm/project3 chalk
+    uv run hatch run ossiq-cli package testdata/npm/project3 lodash
     uv run hatch run ossiq-cli scan testdata/pypi/uv
     uv run hatch run ossiq-cli scan testdata/pypi/pylock
     uv run hatch run ossiq-cli scan testdata/pypi/pip-classic
@@ -35,8 +47,9 @@ qa-integration:
     uv run hatch run ossiq-cli export --output-format=csv --schema-version=1.0 --output=./reports/scan_export_pypi2.json --registry-type=pypi testdata/pypi/uv
     uv run hatch run ossiq-cli export --output-format=csv --schema-version=1.1 --output=./reports/scan_export_pypi3.json --registry-type=pypi testdata/pypi/uv
     uv run hatch run ossiq-cli export --output-format=json --schema-version=1.0 --output=./reports/scan_export_pypi4.json --registry-type=pypi testdata/mixed
-    uv run hatch run ossiq-cli export --output-format=json --schema-version=1.1 --output=./reports/scan_export_npm2.json --registry-type=npm testdata/mixed    
-    
+    uv run hatch run ossiq-cli export --output-format=json --schema-version=1.1 --output=./reports/scan_export_npm2.json --registry-type=npm testdata/mixed
+    uv run hatch run ossiq-cli package testdata/pypi/version-constraint scipy
+    uv run hatch run ossiq-cli package testdata/pypi/version-constraint numpy    
 
 lint:
     uv run ruff check .

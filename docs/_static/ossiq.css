@@ -1,0 +1,27 @@
+@import url('https://fonts.googleapis.com/css2?family=Raleway:wght@300;400;600&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined');
+
+/* Logo: style the text rendered by theme option "logo": {"text": "OSS IQ"} */
+.md-header__title .md-header__topic:first-child span {
+    font-family: 'Raleway', sans-serif;
+    letter-spacing: 0.025em;
+    font-weight: 400;
+}
+
+/* Subtitle: inject "Dependencies Intelligence" after the logo text */
+.md-header__title .md-header__topic:first-child span::after {
+    content: "Dependencies Intelligence";
+    font-family: 'Raleway', sans-serif;
+    font-size: 0.65rem;
+    font-weight: 300;
+    padding-left: 1.25rem;
+    opacity: 0.75;
+}
+
+/* marker-check icon helper used in doc content */
+.marker-check {
+    margin-left: 1em;
+    margin-right: 0.5em;
+    display: inline-block;
+    vertical-align: middle;
+}

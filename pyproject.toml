@@ -66,10 +66,11 @@ package = true
 
 [project.optional-dependencies]
 docs = [
-    "mkdocs>=1.6.1",
-    "mkdocstrings>=1.0.3",
-    "mkdocs-material>=9.7.5",
-    "mkdocs-nav-weight>=0.3.0",
+    "sphinx>=8.0",
+    "sphinx-immaterial>=0.13.9",
+    "myst-parser>=5.0.0",
+    "sphinxext-opengraph>=0.13.0",
+    "sphinx-autobuild>=2025.8.25",
 ]
 
 [project.urls]

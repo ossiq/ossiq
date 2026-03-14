@@ -1,45 +1,55 @@
 ---
 title: Getting Started
 description: OSS IQ solves the problem of unmanaged dependency drift and invisible transitive supply-chain risk by replacing alert-driven, CVE-centric tooling with calm, longitudinal, and deterministic analysis that enables planned, context-aware remediation at scale.
-
-weight: 2
 ---
 
 # Getting Started
 
-**OSS IQ** helps software teams understand and remediate dependency drift and transitive supply-chain risk before it turns into an emergency. Instead of alert-driven, CVE-centric tooling that forces *reactive upgrades*, OSS IQ uses static analysis of dependency files and project structure to provide calm, longitudinal insight into dependency health. It makes version drift, systemic risk, and maintenance red flags explicit—so remediation can be planned, contextual, and safe.
+## What is OSS IQ?
 
-Built for **Platform and Infrastructure teams**, OSS IQ bridges the gap between raw dependency data and actionable engineering decisions. It analyzes both direct and transitive dependencies and produces outputs designed for real workflows: **interactive HTML reports** and **rich CLI output** for human review, alongside **JSON** and **CSV** for automation and policy enforcement. This lets teams apply consistent dependency and supply-chain standards across repositories and CI pipelines without adopting a heavy, proprietary security toolchain.
+**OSS IQ** is a tool that maps out open-source packages that your project relies on so you can keep them secure and up to date. It helps move from "CVE panic-fixing", reactive mode to "planned maintenance" of your entire software supply chain.
 
+Most security tools only alert you when a specific vulnerability (CVE) is found, forcing you to scramble for a "reactive" fix. OSS IQ is different: it looks at your project structure to give you a clear, long-term view of your project dependencies state.
+
+This allows you to build a predictable update rhythm, so you can focus your efforts where they matter most instead of just chasing the latest fire.
+
+## How it works
+
+The tool scans your project files to identify Direct Dependencies, Dependencies of your direct dpeendencies (Transitive Dependencies), how far behind you are from the latest, safest versions, signs that a library has been abandoned by its creators.
+
+## Built for Your Workflow
+
+**OSS IQ** is designed for Platform and Infrastructure teams who need to set standards across many different projects.
+
+You get the data in the format that fits your task:
+ 
+ - **Terminal (CLI)** "on-the-spot" analysis while you work.
+ - **interactive HTML report** For a "bird's-eye view" of your project's overall health.
+ - **JSON** or **CSV** Exports to plug data into your automated pipelines or custom spreadsheets.
 
 ## Quick Start
 
 Get **OSS IQ** up and running in your terminal to analyze your first project.
 
-!!! note
+:::{note}
 
-    GitHub Token Required for Full Analysis > GitHub limits unauthenticated API requests to 60 per hour, 
-    which is typically insufficient for a full scan. Because OSS IQ employs 
-    Mining Software Repository (MSR) techniques to analyze differences across 
-    many versions (e.g., high-velocity projects like TypeScript), 
-    it may perform hundreds of requests per run.
+GitHub limits unauthenticated API requests to 60 per hour, 
+which is typically insufficient for a full scan. Because OSS IQ employs 
+Mining Software Repository (MSR) techniques to analyze differences across 
+many versions (e.g., high-velocity projects like TypeScript), 
+it may perform hundreds of requests per run.
 
-    To ensure a complete analysis, please provide a GitHub Personal Access Token (PAT):
+To ensure a complete analysis, please provide a GitHub Personal Access Token (PAT):
+
+```bash
+export OSSIQ_GITHUB_TOKEN=$(gh auth token);
+```
+:::
+
+ 1. Install and run OSS IQ:
 
     ```bash
-    export OSSIQ_GITHUB_TOKEN=$(gh auth token)
-    oss-iq scan ./your-project
-    ```
-
- 1. Install and run OSS IQ in **dev mode**
-
-    ```bash
-    git clone https://github.com/ossiq/ossiq.git
-    cd ossiq
-    uv sync
-
-    OSSIQ_GITHUB_TOKEN=$(gh auth token) \
-    uv run hatch run ossiq-cli scan testdata/npm/project1/
+    uv add ossiq
     ```
 
  2. Run your first analysis
@@ -50,29 +60,59 @@ Get **OSS IQ** up and running in your terminal to analyze your first project.
     You can point it at an existing project and OSS IQ will **detect dependencies automatically**.
 
     ```bash
-    OSSIQ_GITHUB_TOKEN=$(gh auth token) \
-    uv run hatch run ossiq-cli scan testdata/npm/project1/ 
+    ossiq-cli scan testdata/npm/project1/ 
     ```
 
  3. Understand the Output
     OSS IQ provides a high-level risk score and breaks down specific signals for both security (vulnerabilities) and maintenance (activity, overhead, and health).
 
-```
-╭─────────────────────────────────────────╮
-│ 📦 Project: example                     │
-│ 🔗 Packages Registry: NPM               │
-│ 📍 Project Path: testdata/npm/project1/ │
-╰─────────────────────────────────────────╯
+    ![OSS IQ Terminal/CLI Report](/img/ossiq-cli-report-2026-03-14.png)
 
 
-                           Production Dependency Drift Report                           
-┏━━━━━━━━━━━━┳━━━━━━┳━━━━━━━━━━━━━━┳━━━━━━━━━━━┳━━━━━━━━┳━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━┓
-┃ Dependency ┃ CVEs ┃ Drift Status ┃ Installed ┃ Latest ┃ Releases Distance ┃ Time Lag ┃
-┡━━━━━━━━━━━━╇━━━━━━╇━━━━━━━━━━━━━━╇━━━━━━━━━━━╇━━━━━━━━╇━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━┩
-│ vue        │      │    Major     │ 1.0.28    │ 3.5.27 │               409 │       9y │
-│ mustache   │      │    Major     │ 2.3.2     │ 4.2.0  │                14 │       3y │
-│ i18n       │      │    Minor     │ 0.9.1     │ 0.15.3 │                16 │       5y │
-│ luxon      │      │    Latest    │ 3.7.2     │ 3.7.2  │                 1 │       0d │
-│ bootstrap  │      │    Latest    │ 5.3.8     │ 5.3.8  │                 0 │       0d │
-└────────────┴──────┴──────────────┴───────────┴────────┴───────────────────┴──────────┘
+## Package Details
+
+Get a specific package details:
+```bash
+ossiq-cli package . sphinx
 ```
+
+![OSS IQ Terminal/CLI Package Details](/img/ossiq-cli-package-2026-03-14.png)
+
+
+## HTML Report
+
+ 1. Generate HTML report:
+    ```bash
+    ossiq-cli scan --presentation=html --output report.html .
+    ```
+
+ 2. Open `report.html` and you'll get table view of your dependencies:
+    ![OSS IQ HTML Report](/img/ossiq-html-report-2026-03-14.png)
+
+ 3. Click on the **Transitive Dependencies** tab on the top:
+    ![OSS IQ Transitive Dependencies Report](/img/ossiq-html-transitive-dependencies-2026-03-14.png)
+
+ 4. Click on a dependency node (blue circle):
+    ![OSS IQ Transitive Dependencies Package Details](/img/ossiq-html-transitive-dependencies-package-2026-03-14.png)
+
+   From the report you could conclude that [eslint-plugin-vue](https://www.npmjs.com/package/eslint-plugin-vue) with
+   version `10.8.0` has pretty old [semver](https://www.npmjs.com/package/semver) dependency - the latest version is `7.7.4` while dependend version is `6.3.1`.
+
+
+
+## Export to JSON or CSV
+
+ 1. Export to JSON:
+    ```bash
+    ossiq-cli export --output-format=json --output=./scan_export.json .
+    ```
+
+   you also could specify schema version via `--schema-version` argument.
+   **We commited** to make sure that versions are **backward compatible**.
+
+ 2. Export to CSV:
+    ```bash
+    ossiq-cli export --output-format=csv --output=./scan_export_csv .
+    ```    
+   **Note** that folder `scan_report_csv` will be created automatically
+   if it doesn't exist.

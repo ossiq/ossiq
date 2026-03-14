@@ -112,6 +112,27 @@ jobs:
             ossiq/ossiq-cli scan /project
 ```
 
+### Package Deep-Dive
+
+Inspect a single package in detail — drift status, CVEs, transitive vulnerabilities, and its exact path in the dependency tree:
+
+```bash
+ossiq-cli package /path/to/your/project react
+ossiq-cli package /path/to/your/project lodash --registry-type npm
+```
+
+The output mirrors the structure of the dependency detail panel:
+
+```
+[01] DRIFT STATUS       — version lag bar, releases behind, latest version
+[02] DEPENDENCY TREE TRACE — ancestry path from root to the package
+[03] POLICY COMPLIANCE  — declared constraint vs. resolved vs. latest
+[04] SECURITY ADVISORIES — direct CVEs with severity and source
+[05] VIA TRANSITIVE DEPENDENCIES — CVEs in packages pulled in by this one
+```
+
+If the package appears in multiple places in the tree (hoisted duplicates, diamond dependencies), each occurrence is shown separately with a **SHARED NODE** indicator.
+
 ## Example Output
 
 Here is an example of the summary provided in your console:
