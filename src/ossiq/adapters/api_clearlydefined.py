@@ -31,7 +31,7 @@ class LicenseApiClearlyDefined(AbstractLicenseDatabaseApi):
 
         coordinates = [self._build_coordinate(pkg, version) for pkg, version in packages_with_versions]
 
-        resp = self.session.post(f"{self.base_url}/definitions", json=coordinates, timeout=30)
+        resp = self.session.post(f"{self.base_url}/definitions", json=coordinates, timeout=120)
         resp.raise_for_status()
 
         data = resp.json()

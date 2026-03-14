@@ -151,7 +151,7 @@ def scan_record(
         repo_url=package_info.repo_url,
         homepage_url=package_info.homepage_url,
         package_url=package_info.package_url,
-        license=parse_spdx_expression(prefetched_license or (installed_release.license if installed_release else None)),
+        license=parse_spdx_expression(prefetched_license),
         purl=build_purl(packages_registry.package_registry, canonical_name, package_version),
     )
 
