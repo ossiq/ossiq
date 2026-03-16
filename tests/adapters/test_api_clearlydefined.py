@@ -3,11 +3,12 @@
 Tests for LicenseApiClearlyDefined in ossiq.adapters.api_clearlydefined module.
 """
 
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
+import requests
 
-from ossiq.adapters.api_clearlydefined import LicenseApiClearlyDefined
+from ossiq.adapters.api_clearlydefined import CHUNK_SIZE, LicenseApiClearlyDefined
 from ossiq.domain.common import ProjectPackagesRegistry
 from ossiq.domain.package import Package
 
@@ -18,7 +19,7 @@ def make_package(name: str, registry: ProjectPackagesRegistry = ProjectPackagesR
 
 def make_session(response: dict) -> MagicMock:
     session = MagicMock()
-    session.post.return_value = MagicMock(json=MagicMock(return_value=response))
+    session.post.return_value = MagicMock(status_code=200, json=MagicMock(return_value=response))
     return session
 
 
@@ -202,3 +203,84 @@ class TestGetLicensesBatch:
         # Assert
         called_body = session.post.call_args[1]["json"]
         assert expected_coord in called_body
+
+
+class TestGetLicensesBatchChunking:
+    def test_large_batch_is_split_into_chunks(self):
+        """Test that a batch larger than CHUNK_SIZE triggers multiple POST requests."""
+        # Arrange
+        n = CHUNK_SIZE + 1
+        pkgs = [(make_package(f"pkg-{i}", ProjectPackagesRegistry.PYPI), "1.0.0") for i in range(n)]
+        session = MagicMock()
+        session.post.return_value = MagicMock(status_code=200, json=MagicMock(return_value={}))
+        api = LicenseApiClearlyDefined(session)
+
+        # Act
+        api.get_licenses_batch(pkgs)
+
+        # Assert
+        assert session.post.call_count == 2
+
+    def test_chunks_are_merged_correctly(self):
+        """Test that license results from multiple chunks are combined into one mapping."""
+        # Arrange
+        n = CHUNK_SIZE + 1
+        pkgs = [(make_package(f"pkg-{i}", ProjectPackagesRegistry.PYPI), "1.0.0") for i in range(n)]
+        # Only the last package (in the second chunk) has a known license
+        last_coord = f"pypi/pypi/-/pkg-{CHUNK_SIZE}/1.0.0"
+
+        def post_side_effect(url, json, timeout):
+            response = MagicMock(status_code=200)
+            if last_coord in json:
+                response.json.return_value = {last_coord: {"licensed": {"declared": "MIT"}}}
+            else:
+                response.json.return_value = {}
+            return response
+
+        session = MagicMock()
+        session.post.side_effect = post_side_effect
+        api = LicenseApiClearlyDefined(session)
+
+        # Act
+        result = api.get_licenses_batch(pkgs)
+
+        # Assert
+        assert result[(f"pkg-{CHUNK_SIZE}", "1.0.0")] == "MIT"
+        assert result[("pkg-0", "1.0.0")] is None
+
+    def test_chunk_retries_on_timeout_then_succeeds(self):
+        """Test that a chunk is retried after a Timeout and the eventual success is used."""
+        # Arrange
+        pkg = make_package("requests", ProjectPackagesRegistry.PYPI)
+        coord = "pypi/pypi/-/requests/2.28.2"
+        success_response = MagicMock(
+            status_code=200, json=MagicMock(return_value={coord: {"licensed": {"declared": "Apache-2.0"}}})
+        )
+
+        session = MagicMock()
+        session.post.side_effect = [requests.Timeout, success_response]
+        api = LicenseApiClearlyDefined(session)
+
+        # Act
+        with patch("ossiq.adapters.api_clearlydefined.time.sleep"):
+            result = api.get_licenses_batch([(pkg, "2.28.2")])
+
+        # Assert
+        assert session.post.call_count == 2
+        assert result == {("requests", "2.28.2"): "Apache-2.0"}
+
+    def test_chunk_returns_none_on_permanent_failure(self):
+        """Test that packages in a permanently failing chunk return None without raising."""
+        # Arrange
+        pkg = make_package("requests", ProjectPackagesRegistry.PYPI)
+        session = MagicMock()
+        session.post.side_effect = requests.Timeout
+        api = LicenseApiClearlyDefined(session)
+
+        # Act
+        with patch("ossiq.adapters.api_clearlydefined.time.sleep"):
+            result = api.get_licenses_batch([(pkg, "2.28.2")])
+
+        # Assert — no exception raised, result degrades gracefully to None
+        assert result == {("requests", "2.28.2"): None}
+        assert session.post.call_count == 3  # MAX_RETRIES attempts

@@ -48,9 +48,12 @@ class ConsoleScanRenderer(AbstractUserInterfaceRenderer):
                 - lag_threshold_days: int - Threshold for highlighting time lag
         """
         lag_threshold_days = kwargs.get("lag_threshold_days", 180)
-        table_prod = self._table_factory(
-            "Production Dependency Drift Report", "bold green", data.production_packages, lag_threshold_days
-        )
+        table_prod = None
+
+        if data.production_packages:
+            table_prod = self._table_factory(
+                "Production Dependency Drift Report", "bold green", data.production_packages, lag_threshold_days
+            )
 
         table_dev = None
         if data.optional_packages:
@@ -70,8 +73,10 @@ class ConsoleScanRenderer(AbstractUserInterfaceRenderer):
         # Output
         self.console.print("\n")
         self.console.print(Panel(header_text, expand=False, border_style="cyan"))
-        self.console.print("\n")
-        self.console.print(table_prod)
+
+        if table_prod:
+            self.console.print("\n")
+            self.console.print(table_prod)
 
         if table_dev:
             self.console.print("\n")

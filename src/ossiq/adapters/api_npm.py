@@ -10,6 +10,7 @@ from rich.console import Console
 
 from ossiq.adapters.api_interfaces import AbstractPackageRegistryApi
 from ossiq.domain.common import ProjectPackagesRegistry
+from ossiq.domain.exceptions import UnknownPackageVersion
 from ossiq.domain.package import Package
 from ossiq.domain.version import (
     VERSION_DIFF_BUILD,
@@ -53,7 +54,10 @@ class PackageRegistryApiNpm(AbstractPackageRegistryApi):
         """
         Compare two versions following Semantic Versioning.
         """
-        return semver.Version.parse(v1).compare(semver.Version.parse(v2))
+        try:
+            return semver.Version.parse(v1).compare(semver.Version.parse(v2))
+        except ValueError as e:
+            raise UnknownPackageVersion(str(e))  # noqa: B904
 
     @staticmethod
     def _calculate_semver_diff_index(v1: semver.Version, v2: semver.Version) -> int:
@@ -117,8 +121,16 @@ class PackageRegistryApiNpm(AbstractPackageRegistryApi):
             )
 
         # Parse versions
-        v1 = semver.Version.parse(v1_str)
-        v2 = semver.Version.parse(v2_str)
+        try:
+            v1 = semver.Version.parse(v1_str)
+            v2 = semver.Version.parse(v2_str)
+        except ValueError:
+            return VersionsDifference(
+                v1_str,
+                v2_str,
+                VERSION_NO_DIFF,
+                diff_name=VERSION_INVERSED_DIFF_TYPES_MAP[VERSION_NO_DIFF],
+            )
 
         # Calculate the difference
         diff_index = PackageRegistryApiNpm._calculate_semver_diff_index(v1, v2)

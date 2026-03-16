@@ -12,7 +12,7 @@ from ossiq.adapters.api_interfaces import AbstractPackageRegistryApi
 from ossiq.adapters.package_managers.dependency_tree import GraphExporter
 from ossiq.domain.common import build_purl, parse_spdx_expression
 from ossiq.domain.cve import CVE
-from ossiq.domain.exceptions import ProjectPathNotFoundError
+from ossiq.domain.exceptions import ProjectPathNotFoundError, UnknownPackageVersion
 from ossiq.domain.package import Package
 from ossiq.domain.version import VersionsDifference
 from ossiq.service.common import package_versions
@@ -102,12 +102,14 @@ def get_package_versions_since(
     Calculate Package versions lag: delta between
     installed package and the latest one.
     """
-
-    return [
-        v
-        for v in packages_registry.package_versions(package_name)
-        if packages_registry.compare_versions(v.version, installed_version) >= 0
-    ]
+    try:
+        return [
+            v
+            for v in packages_registry.package_versions(package_name)
+            if packages_registry.compare_versions(v.version, installed_version) >= 0
+        ]
+    except UnknownPackageVersion:
+        return []
 
 
 def scan_record(
@@ -136,6 +138,8 @@ def scan_record(
         (release for release in releases_since_installed if release.version == package_version), None
     )
 
+    version_diff_index = packages_registry.difference_versions(package_version, package_info.latest_version)
+
     return ScanRecord(
         package_name=canonical_name,
         dependency_name=package_name,
@@ -143,7 +147,7 @@ def scan_record(
         latest_version=package_info.latest_version,
         time_lag_days=time_lag_days,
         releases_lag=len(releases_since_installed) - 1,
-        versions_diff_index=packages_registry.difference_versions(package_version, package_info.latest_version),
+        versions_diff_index=version_diff_index,
         cve=list(prefetched_cves) if installed_release else [],
         is_optional_dependency=is_optional_dependency,
         dependency_path=dependency_path,

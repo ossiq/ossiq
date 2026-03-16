@@ -1,3 +1,9 @@
+import logging
+import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
+import requests
+
 from ossiq.clients.clearlydefined import ClearlyDefinedSession
 from ossiq.domain.common import ProjectPackagesRegistry
 from ossiq.domain.package import Package
@@ -9,11 +15,20 @@ REGISTRY_MAPPING = {
     ProjectPackagesRegistry.NPM: ("npm", "npmjs"),
 }
 
+CHUNK_SIZE = 25
+MAX_WORKERS = 5
+MAX_RETRIES = 3
+CHUNK_TIMEOUT = 60
+
+logger = logging.getLogger(__name__)
+
 
 class LicenseApiClearlyDefined(AbstractLicenseDatabaseApi):
     """
     An AbstractLicenseDatabaseApi implementation using ClearlyDefined.
-    Uses POST /definitions to fetch normalized SPDX licenses for all packages in one request.
+    Uses POST /definitions to fetch normalized SPDX licenses for all packages.
+    Large batches are split into chunks of CHUNK_SIZE and dispatched concurrently.
+    Each chunk is retried up to MAX_RETRIES times on transient failures.
     """
 
     def __init__(self, session: ClearlyDefinedSession):
@@ -30,17 +45,40 @@ class LicenseApiClearlyDefined(AbstractLicenseDatabaseApi):
             return {}
 
         coordinates = [self._build_coordinate(pkg, version) for pkg, version in packages_with_versions]
+        chunks = [coordinates[i : i + CHUNK_SIZE] for i in range(0, len(coordinates), CHUNK_SIZE)]
 
-        resp = self.session.post(f"{self.base_url}/definitions", json=coordinates, timeout=120)
-        resp.raise_for_status()
+        merged: dict[str, dict] = {}
+        with ThreadPoolExecutor(max_workers=MAX_WORKERS) as pool:
+            futures = {pool.submit(self._fetch_chunk, chunk): chunk for chunk in chunks}
+            for future in as_completed(futures):
+                merged.update(future.result())
 
-        data = resp.json()
         results: dict[tuple[str, str], str | None] = {}
         for (pkg, version), coord in zip(packages_with_versions, coordinates, strict=True):
-            definition = data.get(coord, {})
-            results[(pkg.name, version)] = self._extract_license(definition)
+            results[(pkg.name, version)] = self._extract_license(merged.get(coord, {}))
 
         return results
+
+    def _fetch_chunk(self, coordinates: list[str]) -> dict[str, dict]:
+        for attempt in range(MAX_RETRIES):
+            try:
+                resp = self.session.post(f"{self.base_url}/definitions", json=coordinates, timeout=CHUNK_TIMEOUT)
+                if (resp.status_code or 0) >= 500:
+                    raise requests.HTTPError(response=resp)
+                resp.raise_for_status()
+                return resp.json()
+            except (requests.Timeout, requests.ConnectionError, requests.HTTPError) as exc:
+                if attempt < MAX_RETRIES - 1:
+                    time.sleep(2**attempt)
+                else:
+                    logger.warning(
+                        "ClearlyDefined chunk of %d packages failed after %d attempts: %s",
+                        len(coordinates),
+                        MAX_RETRIES,
+                        exc,
+                    )
+                    return {}
+        return {}
 
     def _build_coordinate(self, pkg: Package, version: str) -> str:
         pkg_type, provider = REGISTRY_MAPPING[pkg.registry]

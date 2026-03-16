@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from functools import cmp_to_key
 from typing import TypeVar
 
-# Version is unpublished from the Package Registry
+# Version is unpublished from the Package Registry or Unknown
 VERSION_NO_DIFF = 10
 # Version installed and the latest in the Registry are the same
 VERSION_LATEST = 0
