@@ -46,24 +46,21 @@ export OSSIQ_GITHUB_TOKEN=$(gh auth token);
 ```
 :::
 
- 1. Install and run OSS IQ:
-
-    ```bash
-    uv add ossiq
-    ```
-
- 2. Run your first analysis
+ 1. **Run your first dependencies analysis**
 
     OSS IQ works best with the popular ecosystem dependency formats e.g. for **NPM** its [package.json](https://docs.npmjs.com/cli/v7/configuring-npm/package-json) or [package-lock.json](https://docs.npmjs.com/cli/v8/configuring-npm/package-lock-json),
     and for **PyPI** its [pylock.toml](https://packaging.python.org/en/latest/specifications/pylock-toml/#pylock-toml-spec),  [uv.lock](https://docs.astral.sh/uv/concepts/projects/layout/#the-lockfile), or classic [requirements.txt](https://pip.pypa.io/en/stable/reference/requirements-file-format/).
 
-    You can point it at an existing project and OSS IQ will **detect dependencies automatically**.
+    Point `ossiq-cli` at an existing python or javascript project and OSS IQ will **detect proejct dependencies**.
 
     ```bash
-    ossiq-cli scan testdata/npm/project1/ 
+    uvx --from ossiq ossiq-cli scan testdata/npm/project1/ 
     ```
 
- 3. Understand the Output
+    You always can install [ossiq](https://pypi.org/project/ossiq/) package with respective python tools `uv add ossiq` or `pip install ossiq`.
+
+ 3. **Understand the Output**
+
     OSS IQ provides a high-level risk score and breaks down specific signals for both security (vulnerabilities) and maintenance (activity, overhead, and health).
 
     ![OSS IQ Terminal/CLI Report](/img/ossiq-cli-report-2026-03-14.png)
@@ -73,7 +70,7 @@ export OSSIQ_GITHUB_TOKEN=$(gh auth token);
 
 Get a specific package details:
 ```bash
-ossiq-cli package . sphinx
+uvx --from ossiq ossiq-cli package . sphinx
 ```
 
 ![OSS IQ Terminal/CLI Package Details](/img/ossiq-cli-package-2026-03-14.png)
@@ -83,7 +80,7 @@ ossiq-cli package . sphinx
 
  1. Generate HTML report:
     ```bash
-    ossiq-cli scan --presentation=html --output report.html .
+    uvx --from ossiq ossiq-cli scan --presentation=html --output report.html .
     ```
 
  2. Open `report.html` and you'll get table view of your dependencies:
@@ -104,7 +101,7 @@ ossiq-cli package . sphinx
 
  1. Export to JSON:
     ```bash
-    ossiq-cli export --output-format=json --output=./scan_export.json .
+    uvx --from ossiq ossiq-cli export --output-format=json --output=./scan_export.json .
     ```
 
    you also could specify schema version via `--schema-version` argument.
@@ -112,7 +109,7 @@ ossiq-cli package . sphinx
 
  2. Export to CSV:
     ```bash
-    ossiq-cli export --output-format=csv --output=./scan_export_csv .
+    uvx --from ossiq ossiq-cli export --output-format=csv --output=./scan_export_csv .
     ```    
    **Note** that folder `scan_report_csv` will be created automatically
    if it doesn't exist.

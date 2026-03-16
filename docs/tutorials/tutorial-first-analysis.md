@@ -44,12 +44,13 @@ OSS IQ queries the GitHub API to gather repository health data for each dependen
     ```bash
     export OSSIQ_GITHUB_TOKEN="your_github_pat_here"
     ```
-    
+    :::{tip}
     !!! tip "Using GitHub CLI"
         If you use the official [GitHub CLI](https://cli.github.com/), you can easily get a token and set the variable in one command:
         ```bash
         export OSSIQ_GITHUB_TOKEN=$(gh auth token)
         ```
+    :::
 
 ---
 
@@ -161,4 +162,4 @@ Now that you've run your first scan, you can start integrating OSS IQ into your 
 
 -   **Automate with CI/CD**: Learn how to set up a [Quality Gate with GitHub Actions](./tutorial-github-actions.md) to automatically scan pull requests.
 -   **Explore Metrics**: Dive deeper into the metrics OSS IQ provides in the [Explanation](/explanation/) section.
--   **Read How-To Guides**: Check out the [How-To Guides](/how-to-guides.md) for more advanced use cases.
+

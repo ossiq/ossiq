@@ -7,7 +7,6 @@ title: OSS IQ
 :maxdepth: 2
 
 getting-started
-how-to-guides
 explanation
 reference
 tutorials/index
