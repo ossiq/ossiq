@@ -3,9 +3,9 @@
 [![PyPI version](https://img.shields.io/pypi/v/ossiq.svg)](https://pypi.org/project/ossiq)
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL%20v3-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
 
-> Know Your Dependency Risk in Seconds, Not Weeks.
+> Know Your Dependency Risk in Minutes, Not Weeks.
 
-**OSS IQ** is a free & open-source CLI tool that provides deep visibility into the risk profile of your open-source ecosystem. It helps you understand your dependency drift at scale by analyzing both direct and transitive dependencies to identify security vulnerabilities and maintenance "red flags" before they reach production.
+**OSS IQ** is a free & open-source CLI tool that provides deep visibility into the risk profile of your open-source ecosystem. It helps you move from reactive CVE-chasing to a planned, predictable maintenance rhythm by analyzing both direct and transitive dependencies to identify security vulnerabilities, version lag, and maintenance "red flags" before they reach production.
 
 ![OSS IQ HTML Report](https://ossiq.dev/img/ossiq-report-html-light.png)
 
@@ -23,41 +23,50 @@ OSS IQ bridges the gap between raw dependency data and actionable intelligence. 
 
 ## How It Works
 
-1.  **Run OSS IQ**: Point the CLI to your project's manifest file (`package.json`, `pyproject.toml`, etc.). OSS IQ supports NPM and Python (uv, Poetry, pip).
+1.  **Run OSS IQ**: Point the CLI to your project's manifest file (`package.json`, `pyproject.toml`, etc.). OSS IQ supports NPM and Python (uv, pip).
 2.  **Analyze Everything**: The tool cross-references version lag, CVEs, and maintainer activity against public databases in real-time.
-3.  **Get Your Report**: See a high-level health score and drill down into specific risks. The output is available as a rich console summary, an interactive HTML report, JSON, or a CycloneDX SBOM.
+3.  **Get Your Report**: See a high-level health score and drill down into specific risks. The output is available as a rich console summary, an interactive HTML report, JSON export, or CSV export.
 4.  **Build Quality Gates**: Use the metrics and scores to set policies and build automated quality gates in your CI/CD pipelines.
 
 ## Quick Start
 
-### 1. GitHub Token (Required)
+### 1. GitHub Token
 
-OSS IQ performs deep analysis by mining software repository history, which can involve hundreds of API requests to GitHub. To avoid being rate-limited, you need to provide a GitHub Personal Access Token (PAT).
+OSS IQ performs deep analysis by mining software repository history, which can involve hundreds of API requests to GitHub. To avoid being rate-limited, it's. best to provide a GitHub Personal Access Token (PAT).
 
 ```bash
 export OSSIQ_GITHUB_TOKEN=$(gh auth token)
 ```
 
-### 2. Installation & Analysis
+### 2. Run OSS IQ
 
-You can clone the repository and run the tool in development mode.
+The fastest way is to run directly from [PyPI](https://pypi.org/) with [uvx](https://docs.astral.sh/uv/) with no install required:
 
 ```bash
-# Clone the repository
-git clone https://github.com/ossiq/ossiq.git
-cd ossiq
+# JavaScript / npm
+uvx --from ossiq ossiq-cli scan /path/to/your/project
 
-# Install dependencies
-uv sync
-
-# Run your first analysis
-uv run hatch run ossiq-cli scan /path/to/your/project
+# Python / uv / pip
+uvx --from ossiq ossiq-cli scan /path/to/your/project
 
 # Generate HTML report
-uv run hatch run ossiq-cli scan -p html -o ./test_report.html /path/to/your/project
+uvx --from ossiq ossiq-cli scan --presentation=html --output report.html /path/to/your/project
 ```
 
 OSS IQ automatically detects the dependency manifest (`package.json`, `pyproject.toml`, etc.) in the target directory.
+
+If you prefer a persistent install:
+
+```bash
+# Install with uv
+uv add ossiq
+
+# Or with pip
+pip install ossiq
+
+# Then run directly
+ossiq-cli scan /path/to/your/project
+```
 
 ### Using Docker
 
@@ -112,6 +121,25 @@ jobs:
             ossiq/ossiq-cli scan /project
 ```
 
+### Development Mode
+
+To contribute or run from source:
+
+```bash
+# Clone the repository
+git clone https://github.com/ossiq/ossiq.git
+cd ossiq
+
+# Install dependencies
+uv sync
+
+# Run the CLI
+uv run hatch run ossiq-cli scan /path/to/your/project
+
+# Generate HTML report
+uv run hatch run ossiq-cli scan -p html -o ./test_report.html /path/to/your/project
+```
+
 ### Package Deep-Dive
 
 Inspect a single package in detail — drift status, CVEs, transitive vulnerabilities, and its exact path in the dependency tree:
@@ -133,35 +161,11 @@ The output mirrors the structure of the dependency detail panel:
 
 If the package appears in multiple places in the tree (hoisted duplicates, diamond dependencies), each occurrence is shown separately with a **SHARED NODE** indicator.
 
-## Example Output
-
-Here is an example of the summary provided in your console:
-
-```bash
-╭─────────────────────────────────────────╮
-│ 📦 Project: example                     │
-│ 🔗 Packages Registry: NPM               │
-│ 📍 Project Path: testdata/npm/project1/ │
-╰─────────────────────────────────────────╯
-
-
-                           Production Dependency Drift Report                           
-┏━━━━━━━━━━━━┳━━━━━━┳━━━━━━━━━━━━━━┳━━━━━━━━━━━┳━━━━━━━━┳━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━┓
-┃ Dependency ┃ CVEs ┃ Drift Status ┃ Installed ┃ Latest ┃ Releases Distance ┃ Time Lag ┃
-┡━━━━━━━━━━━━╇━━━━━━╇━━━━━━━━━━━━━━╇━━━━━━━━━━━╇━━━━━━━━╇━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━┩
-│ vue        │      │    Major     │ 1.0.28    │ 3.5.27 │               409 │       9y │
-│ mustache   │      │    Major     │ 2.3.2     │ 4.2.0  │                14 │       3y │
-│ i18n       │      │    Minor     │ 0.9.1     │ 0.15.3 │                16 │       5y │
-│ luxon      │      │    Latest    │ 3.7.2     │ 3.7.2  │                 1 │       0d │
-│ bootstrap  │      │    Latest    │ 5.3.8     │ 5.3.8  │                 0 │       0d │
-└────────────┴──────┴──────────────┴───────────┴────────┴───────────────────┴──────────┘
-```
-
 ## Key Features
 
 -   **Security Blind Spots**: Go beyond `npm audit` to see which vulnerabilities actually matter and how to prioritize them.
 -   **Silent Tech Debt**: Track your version lag in releases and in time (e.g., "your React version is 2 years old") to quantify technical debt.
--   **Multiple Output Formats**: Generate reports as interactive HTML, JSON, CycloneDX SBOMs, or a rich console view.
+-   **Multiple Output Formats**: Generate reports as interactive HTML, JSON, CSV exports, or a rich console view.
 -   **CI/CD Integration**: Use scores and metrics to build quality gates and enforce dependency policies automatically.
 
 ## Supported Ecosystems
@@ -170,6 +174,9 @@ Here is an example of the summary provided in your console:
 
 **Supported:**
 - **[npm](https://docs.npmjs.com/cli/v11/commands/npm)** – Package manager for JavaScript (`package.json` + `package-lock.json`)
+
+**Not yet supported:**
+- **[Yarn](https://yarnpkg.com/)** and **[pnpm](https://pnpm.io/)** – See the [issue tracker](https://github.com/ossiq/ossiq/issues) for roadmap status.
 
 ### Python
 
@@ -199,7 +206,7 @@ OSS IQ aggregates data from the following public sources:
 Audit tools are great at finding known vulnerabilities. OSS IQ goes further by also analyzing non-security risks, such as how far behind you are from the latest version (technical debt) and whether a package is still actively maintained. We give you the full picture of dependency health, not just one part of it.
 
 **What ecosystems does OSS IQ support?**
-OSS IQ currently supports npm for JavaScript and multiple dependency managers for Python (like uv, Poetry, and classic pip).
+OSS IQ currently supports npm for JavaScript and multiple dependency managers for Python (uv and classic pip). Yarn, pnpm, and Poetry support are on the roadmap — see the [issue tracker](https://github.com/ossiq/ossiq/issues) for status.
 
 **Is OSS IQ free?**
 Yes, OSS IQ is a completely free and open-source tool, licensed under the AGPL v3 license.
