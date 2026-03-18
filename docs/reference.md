@@ -98,7 +98,7 @@ jq --argjson max "$MAX_LAG_DAYS" \
 
 Start with a permissive threshold to baseline your project, then tighten it incrementally as tech debt is resolved. This avoids blocking CI on day one while still creating measurable improvement targets.
 
-For a complete GitHub Actions setup with CVE gating and outdated-package blocking, see the [Version Lag and CVE Quality Gate tutorial](../tutorials/tutorial-github-actions.md).
+For a complete GitHub Actions setup with CVE gating and outdated-package blocking, see the [Version Lag and CVE Quality Gate tutorial](/tutorials/tutorial-github-actions.md).
 
 ### Security
 
@@ -156,7 +156,7 @@ The Explorer supports:
 - Dashed curved links between nodes sharing an identical `package_name@installed_version`
 - Zoom and pan
 
-For full Explorer interaction details, see [EXPLORER.md](../frontend/EXPLORER.md).
+For full Explorer interaction details, see [EXPLORER.md](https://github.com/ossiq/ossiq/blob/main/frontend/EXPLORER.md).
 
 #### JSON Export
 

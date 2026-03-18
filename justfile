@@ -1,5 +1,6 @@
 # Serve documentation locally with live reload
 docs-serve:
+    uv run just docs-clean
     uv run --extra docs sphinx-autobuild docs docs/_build/html --open-browser --watch docs
 
 # Build documentation
@@ -11,8 +12,7 @@ docs-check:
     uv run --extra docs sphinx-build -b linkcheck docs docs/_build/linkcheck
 
 docs-clean:
-    [ -d "docs/_build" ] && rm -rf docs/_build;
-    uv run --extra docs sphinx-build -b linkcheck docs docs/_build/linkcheck
+    [ -d "docs/_build" ] && rm -rf docs/_build;    
 
 list:
     @just --list

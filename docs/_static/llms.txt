@@ -1,0 +1,35 @@
+# OSS IQ
+
+> An open-source CLI tool that produces a single, actionable dependency health score for software projects. Analyzes version lag, CVEs, transitive dependencies, and maintainer activity across the entire dependency graph.
+
+## What OSS IQ Does
+
+OSS IQ is a Software Composition Analysis (SCA) tool for platform engineers and development teams. It goes beyond vulnerability scanning to evaluate dependencies as long-term engineering assets.
+
+- Scans project manifest files (package.json, yarn.lock, pnpm-lock.yaml, uv.lock, pyproject.toml, requirements.txt, etc.)
+- Cross-references against public package registries (npm, PyPI), CVE databases, and GitHub repository signals
+- Produces a dependency health score with sub-scores per package (version lag, security, maintenance)
+- Supports JavaScript (npm/yarn/pnpm) and Python (uv/poetry/pip) ecosystems
+- Outputs reports as HTML, JSON, SBOM (CycloneDX), or terminal console
+- Suitable for use in CI/CD quality gates
+
+## Documentation
+
+- [Getting Started](https://ossiq.dev/getting-started.html): Installation, first scan, and basic usage
+- [Explanation](https://ossiq.dev/explanation.html): How scores are calculated, methodology, and concepts
+- [Reference](https://ossiq.dev/reference.html): Full CLI reference and configuration options
+- [Tutorials](https://ossiq.dev/tutorials/): Step-by-step guides for common use cases
+
+## Sample Reports
+
+- [NPM Scan Example](https://ossiq.dev/samples/scan_npm.html): Example output for a JavaScript project
+- [PyPI Scan Example](https://ossiq.dev/samples/scan_pypi.html): Example output for a Python project
+
+## Project
+
+- License: AGPL-3.0-only
+- Source: https://github.com/ossiq/ossiq
+- Issues: https://github.com/ossiq/ossiq/issues
+- Changelog: https://github.com/ossiq/ossiq/releases
+- Contact: hello@ossiq.pro
+- Headquarters: Barcelona, Spain

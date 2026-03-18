@@ -11,7 +11,7 @@ extensions = [
 
 templates_path = ["_templates"]
 html_static_path = ["_static"]
-html_extra_path = ["img", "samples"]
+html_extra_path = ["img", "samples", "_static/llms.txt", "_static/robots.txt"]
 
 # Custom landing page replaces index.html
 html_additional_pages = {"index": "landing.html"}
@@ -35,6 +35,7 @@ pygments_style = "sphinx"
 
 html_theme = "sphinx_immaterial"
 html_title = "OSS IQ"
+html_logo = "img/oss-iq-logo-light.svg"
 
 html_theme_options = {
     "site_url": "https://ossiq.dev/",
@@ -65,7 +66,7 @@ html_theme_options = {
         "navigation.sections",
         "toc.integrate",
         "navigation.top",
-        # "search.suggest",
+        "search.suggest",
         "search.highlight",
         "content.tabs.link",
     ],
