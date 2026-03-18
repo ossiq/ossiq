@@ -16,7 +16,7 @@ import re
 import subprocess
 from dataclasses import dataclass
 from datetime import datetime
-from enum import Enum
+from enum import StrEnum
 from pathlib import Path
 from typing import Annotated
 
@@ -33,7 +33,7 @@ from urllib3.util.retry import Retry
 # ============================================================================
 
 
-class BumpType(str, Enum):
+class BumpType(StrEnum):
     """Version bump type enumeration."""
 
     MAJOR = "major"
@@ -41,7 +41,7 @@ class BumpType(str, Enum):
     PATCH = "patch"
 
 
-class CommitType(str, Enum):
+class CommitType(StrEnum):
     """Conventional commit types."""
 
     FEAT = "feat"

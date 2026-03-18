@@ -19,7 +19,7 @@ from typing import Any, NamedTuple
 from ossiq.domain.common import Command, ExportCsvSchemaVersion, UserInterfaceType
 from ossiq.domain.exceptions import DestinationDoesntExist
 from ossiq.domain.project import normalize_filename
-from ossiq.service.project import ProjectMetrics
+from ossiq.service.project import ScanResult
 from ossiq.ui.interfaces import AbstractUserInterfaceRenderer
 from ossiq.ui.renderers.export.csv_datapackage import generate_datapackage_descriptor
 from ossiq.ui.renderers.export.csv_schema_registry import csv_schema_registry
@@ -47,7 +47,7 @@ class CsvExportRenderer(AbstractUserInterfaceRenderer):
         """Check if this renderer handles export/csv combination."""
         return command == Command.EXPORT and user_interface_type == UserInterfaceType.CSV
 
-    def render(self, data: ProjectMetrics, destination: str = ".", **kwargs) -> None:
+    def render(self, data: ScanResult, destination: str = ".", schema_version: str | None = None, **kwargs) -> None:
         """
         Export project metrics to a folder containing CSV files and datapackage.json.
 
@@ -58,8 +58,9 @@ class CsvExportRenderer(AbstractUserInterfaceRenderer):
         - {base}/datapackage.json: Frictionless Data Package descriptor
 
         Args:
-            data: ProjectMetrics from scan service
+            data: ScanResult from scan service
             destination: Output file path (supports {project_name} placeholder)
+            schema_version: Schema version string (e.g. "1.0"). Defaults to latest.
 
         Raises:
             DestinationDoesntExist: If destination parent directory doesn't exist
@@ -78,10 +79,17 @@ class CsvExportRenderer(AbstractUserInterfaceRenderer):
         if dest_dir and not os.path.exists(dest_dir):
             raise DestinationDoesntExist(f"Destination `{destination}` doesn't exist.")
 
+        # Resolve schema version: use provided value or fall back to latest
+        resolved_version = (
+            ExportCsvSchemaVersion(schema_version)
+            if schema_version is not None
+            else csv_schema_registry.get_latest_version()
+        )
+
         # Convert domain model to export model
         export_data = ExportData.from_project_metrics(
             data,
-            schema_version=csv_schema_registry.get_latest_version(),
+            schema_version=resolved_version,
         )
 
         # Resolve destination path with project name placeholder
@@ -202,6 +210,7 @@ class CsvExportRenderer(AbstractUserInterfaceRenderer):
         """
         fieldnames = [
             "package_name",
+            "dependency_name",
             "dependency_type",
             "is_optional_dependency",
             "installed_version",
@@ -209,6 +218,9 @@ class CsvExportRenderer(AbstractUserInterfaceRenderer):
             "time_lag_days",
             "releases_lag",
             "cve_count",
+            "version_constraint",
+            "license",
+            "purl",
         ]
 
         # Generate rows for all packages
@@ -219,6 +231,7 @@ class CsvExportRenderer(AbstractUserInterfaceRenderer):
             rows.append(
                 {
                     "package_name": pkg.package_name,
+                    "dependency_name": pkg.dependency_name,
                     "dependency_type": "development" if pkg.is_optional_dependency else "production",
                     "is_optional_dependency": self._serialize_bool(pkg.is_optional_dependency),
                     "installed_version": pkg.installed_version,
@@ -226,6 +239,9 @@ class CsvExportRenderer(AbstractUserInterfaceRenderer):
                     "time_lag_days": self._serialize_optional(pkg.time_lag_days),
                     "releases_lag": self._serialize_optional(pkg.releases_lag),
                     "cve_count": len(pkg.cve),
+                    "version_constraint": self._serialize_optional(pkg.version_constraint),
+                    "license": self._serialize_optional(", ".join(pkg.license) if pkg.license else None),
+                    "purl": self._serialize_optional(pkg.purl),
                 }
             )
 
@@ -234,6 +250,7 @@ class CsvExportRenderer(AbstractUserInterfaceRenderer):
             rows.append(
                 {
                     "package_name": pkg.package_name,
+                    "dependency_name": pkg.dependency_name,
                     "dependency_type": "development" if pkg.is_optional_dependency else "production",
                     "is_optional_dependency": self._serialize_bool(pkg.is_optional_dependency),
                     "installed_version": pkg.installed_version,
@@ -241,6 +258,9 @@ class CsvExportRenderer(AbstractUserInterfaceRenderer):
                     "time_lag_days": self._serialize_optional(pkg.time_lag_days),
                     "releases_lag": self._serialize_optional(pkg.releases_lag),
                     "cve_count": len(pkg.cve),
+                    "version_constraint": self._serialize_optional(pkg.version_constraint),
+                    "license": self._serialize_optional(", ".join(pkg.license) if pkg.license else None),
+                    "purl": self._serialize_optional(pkg.purl),
                 }
             )
 

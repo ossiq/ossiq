@@ -13,6 +13,9 @@ class Package:
 
     registry: ProjectPackagesRegistry
     name: str
+    # Real registry name when this package was installed under an npm alias.
+    # None when name already is the canonical registry name.
+    canonical_name: str | None
     latest_version: str | None
     next_version: str | None
     repo_url: str | None
@@ -36,9 +39,11 @@ class Package:
         homepage_url: str | None = None,
         description: str | None = None,
         package_url: str | None = None,
+        canonical_name: str | None = None,
     ):
         self.registry = registry
         self.name = name
+        self.canonical_name = canonical_name
         self.latest_version = latest_version
         self.next_version = next_version
         self.repo_url = repo_url

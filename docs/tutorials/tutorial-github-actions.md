@@ -1,8 +1,6 @@
 ---
 title: Version Lag and CVE Quality Gate with GitHub Actions
 description: Learn how to set up a GitHub Actions quality gate that scans dependencies with OSS IQ and blocks pull requests introducing critical vulnerabilities or excessive version lag. This tutorial shows how to enforce dependency and supply-chain standards using deterministic analysis—without relying on noisy, alert-driven security tools.
-
-weight: 2
 ---
 
 # Version Lag and CVE Quality Gate with GitHub Actions

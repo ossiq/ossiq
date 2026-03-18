@@ -1,6 +1,3 @@
----
-weight: 4
----
 # Explanation
 
 ## OSS IQ: The Case for Engineering Fitness
@@ -25,7 +22,7 @@ To understand where OSS IQ fits, we must view dependency management as an evolvi
 
 ## Audience Perspectives
 
-For someone just starting out, the trap is thinking that if the code "works" and the security scanner shows green, you're safe. But scanners are looking for immediate fires, not slow-burning risks. You might be using a library with zero vulnerabilities today that hasn't seen a commit in two years. That's "Maintenance Decay." Or perhaps the library is moving so fast that every minor update breaks your build-that's "Release Volatility." OSS IQ makes these invisible signals visible, helping you realize that risk often accumulates long before a failure actually happens.
+If you're just starting out, it's easy to think that if the code "works" and the security scanner shows green, you're safe. Scanners are looking for fires that are happening right now, not risks that are slowly growing. You could be using a library that has no known security holes today but hasn't had a commit in two years. That's what "Maintenance Decay" means. Or maybe the library is changing so quickly that every small change breaks your build. This is called "Release Volatility." OSS IQ makes these hidden signals clear, which helps you understand that risk builds up long before a failure happens.
 
 
 ### Quantifying Technical Debt
@@ -47,8 +44,8 @@ When it's not about micro-managing individual package choices, but about managin
  - Resource Allocation: Gain visibility into which teams are carrying the most "Dependency Debt," allowing for better-informed architectural investments.
 
 
-## Key Differentiators: Point-in-Time vs. Longitudinal
+<!-- ## Key Differentiators: Point-in-Time vs. Longitudinal
 
 The core innovation of OSS IQ is the move from Snapshot Analysis to Trend Analysis.
 
-Traditional scanners provide a "Pass/Fail" grade based on known vulnerabilities. OSS IQ evaluates the health of the producer, not just the state of the product. This allows organizations to anticipate a failure before it manifests as a security vulnerability or a production outage.
+Traditional scanners provide a "Pass/Fail" grade based on known vulnerabilities. OSS IQ intent is to evaluates the health of the producer, not just the state of the product. This allows organizations to anticipate a failure before it manifests as a security vulnerability or a production outage. -->

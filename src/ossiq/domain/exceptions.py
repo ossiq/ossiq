@@ -38,3 +38,7 @@ class UnknownProjectPackageManager(Exception):
 
 class PackageManagerLockfileParsingError(Exception):
     pass
+
+
+class UnknownPackageVersion(Exception):
+    pass

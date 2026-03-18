@@ -9,7 +9,9 @@ Time delta after which a package is considered to be lagging to highlight in the
 Supported units: y/m/w/d/h, default: d (days).
 """
 
-ARGS_HELP_GITHUB_TOKEN = """The server host. Overrides respective env var."""
+ARGS_HELP_GITHUB_TOKEN = """Github Token to increase requests limits"""
+ARGS_HELP_CACHE_DESTINATION = """Directory where cache will be stored"""
+ARGS_HELP_CACHE_TTL = """For how long cache is stored"""
 ARGS_HELP_PRESENTATION = """Output could be generated as console output, html or json"""
 ARGS_HELP_OUTPUT = """Destination where to generate output,
 appropriate for respective presentations"""
@@ -26,6 +28,10 @@ HELP_OUTPUT_FORMAT = """
 Output format. Default: json. Possible options: json, csv, cyclonedx
 """
 
+HELP_SCHEMA_VERSION = """
+Export schema version. Default: latest. Possible options: 1.0, 1.1
+"""
+
 WARNING_MULTIPLE_REGISTRY_TYPES = """
 `{project_path}` contains multiple registry types. Use `--registry-type` option to narrow it down
 """
@@ -33,3 +39,16 @@ WARNING_MULTIPLE_REGISTRY_TYPES = """
 ERROR_EXIT_OUTDATED_PACKAGES = """There are libraries with outdated versions:
 exiting with non-zero exit code
 """.replace("\n", " ")
+
+HELP_PACKAGE_NAME = """
+Name of the package to inspect. Exact match against the package name or its alias (case-insensitive).
+"""
+
+HELP_PACKAGE_COMMAND = """
+Deep-dive into a single package: drift status, dependency tree trace, policy compliance,
+security advisories, and transitive dependency CVEs.
+"""
+
+ERROR_PACKAGE_NOT_FOUND = """
+Package `{package_name}` not found in the project dependency tree.
+"""

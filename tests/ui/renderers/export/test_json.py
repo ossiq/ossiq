@@ -14,11 +14,11 @@ import json
 import pytest
 from jsonschema import validate
 
-from ossiq.domain.common import Command, ProjectPackagesRegistry, UserInterfaceType
+from ossiq.domain.common import Command, ExportJsonSchemaVersion, ProjectPackagesRegistry, UserInterfaceType
 from ossiq.domain.cve import CVE, CveDatabase, Severity
 from ossiq.domain.exceptions import DestinationDoesntExist
 from ossiq.domain.version import VersionsDifference
-from ossiq.service.project import ProjectMetrics, ProjectMetricsRecord
+from ossiq.service.project import ScanRecord, ScanResult
 from ossiq.settings import Settings
 from ossiq.ui.renderers.export.json import JsonExportRenderer
 from ossiq.ui.renderers.export.json_schema_registry import json_schema_registry
@@ -49,10 +49,11 @@ def sample_cve():
 
 @pytest.fixture
 def sample_project_metrics_record(sample_cve):
-    """Create a sample ProjectMetricsRecord for testing."""
-    return ProjectMetricsRecord(
+    """Create a sample ScanRecord for testing."""
+    return ScanRecord(
         package_name="react",
-        is_dev_dependency=False,
+        dependency_name="react",
+        is_optional_dependency=False,
         installed_version="17.0.2",
         latest_version="18.2.0",
         versions_diff_index=VersionsDifference(
@@ -66,13 +67,13 @@ def sample_project_metrics_record(sample_cve):
 
 @pytest.fixture
 def sample_project_metrics(sample_project_metrics_record):
-    """Create realistic ProjectMetrics for testing."""
-    return ProjectMetrics(
+    """Create realistic ScanResult for testing."""
+    return ScanResult(
         project_name="test-project",
         project_path="/path/to/test-project",
         packages_registry=ProjectPackagesRegistry.NPM.value,
         production_packages=[sample_project_metrics_record],
-        development_packages=[],
+        optional_packages=[],
     )
 
 
@@ -147,7 +148,7 @@ class TestJsonExportRenderer:
         metadata = data["metadata"]
 
         # Assert
-        assert metadata["schema_version"] == "1.0"
+        assert metadata["schema_version"] == "1.1"
         assert "export_timestamp" in metadata
         assert "ossiq_version" not in metadata
 
@@ -267,12 +268,12 @@ class TestJsonExportRenderer:
         - Assert: Verify Unicode preserved correctly
         """
         # Arrange
-        metrics = ProjectMetrics(
+        metrics = ScanResult(
             project_name="tëst-ünïcødé",
             project_path="/path/to/project",
             packages_registry="NPM",
             production_packages=[],
-            development_packages=[],
+            optional_packages=[],
         )
         renderer = JsonExportRenderer(settings)
 
@@ -323,3 +324,60 @@ class TestJsonExportRenderer:
 
         # Assert - validate() raises exception if invalid
         validate(instance=exported_data, schema=latest_schema)
+
+    def test_explicit_schema_version_1_0_produces_v1_0_output(self, output_file, sample_project_metrics, settings):
+        """Test that requesting schema v1.0 produces output with schema_version 1.0.
+
+        AAA Pattern:
+        - Arrange: Set up renderer
+        - Act: Render with schema_version="1.0"
+        - Assert: Metadata reflects v1.0 and output conforms to v1.0 schema
+        """
+        # Arrange
+        renderer = JsonExportRenderer(settings)
+
+        # Act
+        renderer.render(sample_project_metrics, destination=str(output_file), schema_version="1.0")
+
+        # Assert
+        data = json.loads(output_file.read_text())
+        assert data["metadata"]["schema_version"] == "1.0"
+        v1_0_schema = json_schema_registry.load_schema(ExportJsonSchemaVersion.V1_0)
+        validate(instance=data, schema=v1_0_schema)
+
+    def test_explicit_schema_version_1_1_produces_v1_1_output(self, output_file, sample_project_metrics, settings):
+        """Test that requesting schema v1.1 produces output with schema_version 1.1.
+
+        AAA Pattern:
+        - Arrange: Set up renderer
+        - Act: Render with schema_version="1.1"
+        - Assert: Metadata reflects v1.1 and transitive_packages key is present
+        """
+        # Arrange
+        renderer = JsonExportRenderer(settings)
+
+        # Act
+        renderer.render(sample_project_metrics, destination=str(output_file), schema_version="1.1")
+
+        # Assert
+        data = json.loads(output_file.read_text())
+        assert data["metadata"]["schema_version"] == "1.1"
+        assert "transitive_packages" in data
+
+    def test_no_schema_version_defaults_to_latest(self, output_file, sample_project_metrics, settings):
+        """Test that omitting schema_version uses the latest version.
+
+        AAA Pattern:
+        - Arrange: Set up renderer
+        - Act: Render without schema_version argument
+        - Assert: Output uses the latest schema version
+        """
+        # Arrange
+        renderer = JsonExportRenderer(settings)
+
+        # Act
+        renderer.render(sample_project_metrics, destination=str(output_file))
+
+        # Assert
+        data = json.loads(output_file.read_text())
+        assert data["metadata"]["schema_version"] == json_schema_registry.get_latest_version().value

@@ -17,7 +17,7 @@ from ossiq.domain.common import Command, ProjectPackagesRegistry, UserInterfaceT
 from ossiq.domain.cve import CVE, CveDatabase, Severity
 from ossiq.domain.exceptions import DestinationDoesntExist
 from ossiq.domain.version import VersionsDifference
-from ossiq.service.project import ProjectMetrics, ProjectMetricsRecord
+from ossiq.service.project import ScanRecord, ScanResult
 from ossiq.settings import Settings
 from ossiq.ui.renderers.export.csv import CsvExportRenderer
 from ossiq.ui.renderers.export.csv_schema_registry import csv_schema_registry
@@ -48,10 +48,11 @@ def sample_cve():
 
 @pytest.fixture
 def sample_project_metrics_record(sample_cve):
-    """Create a sample ProjectMetricsRecord for testing."""
-    return ProjectMetricsRecord(
+    """Create a sample ScanRecord for testing."""
+    return ScanRecord(
         package_name="react",
-        is_dev_dependency=False,
+        dependency_name="react",
+        is_optional_dependency=False,
         installed_version="17.0.2",
         latest_version="18.2.0",
         versions_diff_index=VersionsDifference(
@@ -66,9 +67,10 @@ def sample_project_metrics_record(sample_cve):
 @pytest.fixture
 def sample_dev_dependency_record():
     """Create a sample development dependency record."""
-    return ProjectMetricsRecord(
+    return ScanRecord(
         package_name="pytest",
-        is_dev_dependency=True,
+        dependency_name="pytest",
+        is_optional_dependency=True,
         installed_version="7.0.0",
         latest_version="7.2.0",
         versions_diff_index=VersionsDifference(
@@ -82,13 +84,13 @@ def sample_dev_dependency_record():
 
 @pytest.fixture
 def sample_project_metrics(sample_project_metrics_record, sample_dev_dependency_record):
-    """Create realistic ProjectMetrics for testing."""
-    return ProjectMetrics(
+    """Create realistic ScanResult for testing."""
+    return ScanResult(
         project_name="test-project",
         project_path="/path/to/test-project",
         packages_registry=ProjectPackagesRegistry.NPM.value,
         production_packages=[sample_project_metrics_record],
-        development_packages=[sample_dev_dependency_record],
+        optional_packages=[sample_dev_dependency_record],
     )
 
 
@@ -227,6 +229,7 @@ class TestCsvExportRenderer:
         # Assert
         expected_headers = [
             "package_name",
+            "dependency_name",
             "dependency_type",
             "is_optional_dependency",
             "installed_version",
@@ -234,6 +237,9 @@ class TestCsvExportRenderer:
             "time_lag_days",
             "releases_lag",
             "cve_count",
+            "version_constraint",
+            "license",
+            "purl",
         ]
         assert headers == expected_headers
 
@@ -289,7 +295,7 @@ class TestCsvExportRenderer:
             row = next(reader)
 
         # Assert
-        assert row["schema_version"] == "1.0"
+        assert row["schema_version"] == "1.1"
         assert row["project_name"] == "test-project"
         assert row["project_path"] == "/path/to/test-project"
         assert row["project_registry"] == "npm"
@@ -385,14 +391,15 @@ class TestCsvExportRenderer:
         - Assert: Verify None values are empty strings
         """
         # Arrange
-        metrics_with_none = ProjectMetrics(
+        metrics_with_none = ScanResult(
             project_name="test",
             project_path="/test",
             packages_registry="NPM",
             production_packages=[
-                ProjectMetricsRecord(
+                ScanRecord(
                     package_name="package1",
-                    is_dev_dependency=False,
+                    dependency_name="package1",
+                    is_optional_dependency=False,
                     installed_version="1.0.0",
                     latest_version=None,  # None value
                     versions_diff_index=VersionsDifference("1.0.0", "1.0.0", 0, "SAME"),
@@ -401,7 +408,7 @@ class TestCsvExportRenderer:
                     cve=[],
                 )
             ],
-            development_packages=[],
+            optional_packages=[],
         )
         renderer = CsvExportRenderer(settings)
         output_path = tmp_path / "export.csv"
@@ -482,14 +489,15 @@ class TestCsvExportRenderer:
             published=None,
             link="https://test.com",
         )
-        metrics = ProjectMetrics(
+        metrics = ScanResult(
             project_name="test",
             project_path="/test",
             packages_registry="NPM",
             production_packages=[
-                ProjectMetricsRecord(
+                ScanRecord(
                     package_name="test-pkg",
-                    is_dev_dependency=False,
+                    dependency_name="test-pkg",
+                    is_optional_dependency=False,
                     installed_version="1.0.0",
                     latest_version="2.0.0",
                     versions_diff_index=VersionsDifference("1.0.0", "2.0.0", 1, "DIFF"),
@@ -498,7 +506,7 @@ class TestCsvExportRenderer:
                     cve=[cve_with_comma],
                 )
             ],
-            development_packages=[],
+            optional_packages=[],
         )
         renderer = CsvExportRenderer(settings)
         output_path = tmp_path / "export.csv"
@@ -522,12 +530,12 @@ class TestCsvExportRenderer:
         - Assert: Verify Unicode preserved correctly
         """
         # Arrange
-        metrics = ProjectMetrics(
+        metrics = ScanResult(
             project_name="tëst-ünïcødé",
             project_path="/path/to/project",
             packages_registry="NPM",
             production_packages=[],
-            development_packages=[],
+            optional_packages=[],
         )
         renderer = CsvExportRenderer(settings)
         output_path = tmp_path / "export.csv"
@@ -605,6 +613,60 @@ class TestCsvExportRenderer:
         with pytest.raises(DestinationDoesntExist):
             renderer.render(sample_project_metrics, destination="/nonexistent/dir/export.csv")
 
+    def test_explicit_schema_version_1_0_produces_v1_0_output(self, csv_output_path, sample_project_metrics, settings):
+        """Test that requesting schema v1.0 produces output with schema_version 1.0.
+
+        AAA Pattern:
+        - Arrange: Set up renderer
+        - Act: Render with schema_version="1.0"
+        - Assert: Summary CSV reflects v1.0 schema version
+        """
+        # Arrange
+        renderer = CsvExportRenderer(settings)
+
+        # Act
+        renderer.render(sample_project_metrics, destination=str(csv_output_path), schema_version="1.0")
+
+        # Assert
+        summary_file = csv_output_path.parent / "export" / "summary.csv"
+        with open(summary_file, encoding="utf-8-sig", newline="") as f:
+            row = next(csv.DictReader(f))
+        assert row["schema_version"] == "1.0"
+
+    def test_unsupported_schema_version_raises_value_error(self, csv_output_path, sample_project_metrics, settings):
+        """Test that requesting an unsupported CSV schema version raises ValueError.
+
+        AAA Pattern:
+        - Arrange: Set up renderer
+        - Act & Assert: Render with unknown schema_version raises ValueError
+        """
+        # Arrange
+        renderer = CsvExportRenderer(settings)
+
+        # Act & Assert
+        with pytest.raises(ValueError):
+            renderer.render(sample_project_metrics, destination=str(csv_output_path), schema_version="9.9")
+
+    def test_no_schema_version_defaults_to_latest(self, csv_output_path, sample_project_metrics, settings):
+        """Test that omitting schema_version uses the latest version.
+
+        AAA Pattern:
+        - Arrange: Set up renderer
+        - Act: Render without schema_version argument
+        - Assert: Summary CSV reflects the latest schema version
+        """
+        # Arrange
+        renderer = CsvExportRenderer(settings)
+
+        # Act
+        renderer.render(sample_project_metrics, destination=str(csv_output_path))
+
+        # Assert
+        summary_file = csv_output_path.parent / "export" / "summary.csv"
+        with open(summary_file, encoding="utf-8-sig", newline="") as f:
+            row = next(csv.DictReader(f))
+        assert row["schema_version"] == csv_schema_registry.get_latest_version().value
+
     def test_exported_csv_can_be_read_back_with_dictreader(self, csv_output_path, sample_project_metrics, settings):
         """Test exported CSV files can be read back correctly with DictReader.
 
@@ -644,12 +706,12 @@ class TestCsvExportRenderer:
         - Assert: Verify packages CSV has headers but no rows
         """
         # Arrange
-        metrics = ProjectMetrics(
+        metrics = ScanResult(
             project_name="empty-project",
             project_path="/test",
             packages_registry="NPM",
             production_packages=[],
-            development_packages=[],
+            optional_packages=[],
         )
         renderer = CsvExportRenderer(settings)
         output_path = tmp_path / "export.csv"
@@ -675,14 +737,15 @@ class TestCsvExportRenderer:
         - Assert: Verify CVEs CSV has headers but no rows
         """
         # Arrange
-        metrics = ProjectMetrics(
+        metrics = ScanResult(
             project_name="no-cves",
             project_path="/test",
             packages_registry="NPM",
             production_packages=[
-                ProjectMetricsRecord(
+                ScanRecord(
                     package_name="safe-pkg",
-                    is_dev_dependency=False,
+                    dependency_name="safe-pkg",
+                    is_optional_dependency=False,
                     installed_version="1.0.0",
                     latest_version="1.0.0",
                     versions_diff_index=VersionsDifference("1.0.0", "1.0.0", 0, "SAME"),
@@ -691,7 +754,7 @@ class TestCsvExportRenderer:
                     cve=[],  # No CVEs
                 )
             ],
-            development_packages=[],
+            optional_packages=[],
         )
         renderer = CsvExportRenderer(settings)
         output_path = tmp_path / "export.csv"
@@ -837,3 +900,28 @@ class TestCsvSchemaValidation:
             assert cve["package_name"] in package_names, (
                 f"CVE {cve['cve_id']} references unknown package: {cve['package_name']}"
             )
+
+    def test_packages_csv_contains_purl_column_with_values(self, csv_output_path, sample_project_metrics, settings):
+        """Test packages CSV includes a populated purl column for each package.
+
+        AAA Pattern:
+        - Arrange: ScanRecord with purl set, render to CSV
+        - Act: Read packages CSV and extract purl column
+        - Assert: purl values match expected PURL format
+        """
+        # Arrange — inject purl into the fixture records
+        sample_project_metrics.production_packages[0].purl = "pkg:npm/react@17.0.2"
+        sample_project_metrics.optional_packages[0].purl = "pkg:npm/pytest@7.0.0"
+
+        renderer = CsvExportRenderer(settings)
+        renderer.render(sample_project_metrics, destination=str(csv_output_path))
+        packages_file = csv_output_path.parent / "export" / "packages.csv"
+
+        # Act
+        with open(packages_file, encoding="utf-8-sig", newline="") as f:
+            rows = list(csv.DictReader(f))
+
+        # Assert
+        purl_values = [row["purl"] for row in rows]
+        assert "pkg:npm/react@17.0.2" in purl_values
+        assert "pkg:npm/pytest@7.0.0" in purl_values

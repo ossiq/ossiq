@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from functools import cmp_to_key
 from typing import TypeVar
 
-# Version is unpublished from the Package Registry
+# Version is unpublished from the Package Registry or Unknown
 VERSION_NO_DIFF = 10
 # Version installed and the latest in the Registry are the same
 VERSION_LATEST = 0
@@ -95,13 +95,16 @@ class PackageVersion:
     version: str
     license: str | None
     package_url: str
-    dependencies: dict[str, str]
-    dev_dependencies: dict[str, str] | None = None
+    declared_dependencies: dict[str, str]
+    declared_dev_dependencies: dict[str, str] | None = None
     runtime_requirements: dict[str, str] | None = None
     description: str | None = None
     published_date_iso: str | None = None
     unpublished_date_iso: str | None = None
     is_published: bool = True
+    # Version constraint as declared in the project manifest (e.g. "^1.2.3", ">=1.0,<2.0").
+    # Not populated by registry adapters — set at scan time from Dependency.version_defined.
+    version_constraint: str | None = None
 
 
 @dataclass

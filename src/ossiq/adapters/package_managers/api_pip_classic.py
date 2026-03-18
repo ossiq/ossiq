@@ -152,6 +152,7 @@ class PackageManagerPythonPipClassic(AbstractPackageManagerApi):
             # Create dependency instance
             dependencies[package_name] = Dependency(
                 name=package_spec,  # Keep original name with extras if present
+                canonical_name=package_name,
                 version_installed=version,
                 version_defined=f"=={version_spec}",  # Preserve original spec
                 categories=[],  # No categories in classic requirements.txt
@@ -172,12 +173,19 @@ class PackageManagerPythonPipClassic(AbstractPackageManagerApi):
         # Project name: fallback to directory basename
         project_package_name = os.path.basename(self.project_path)
 
+        dependency_tree = Dependency(
+            name=project_package_name,
+            canonical_name=project_package_name,
+            version_installed="",  # Not applicable for the project itself
+            dependencies=dependencies,
+            optional_dependencies={},
+        )
+
         return Project(
             package_manager_type=self.package_manager_type,
             name=project_package_name,
             project_path=self.project_path,
-            dependencies=dependencies,
-            optional_dependencies={},  # Classic requirements.txt has no optional deps
+            dependency_tree=dependency_tree,
         )
 
     def __repr__(self):

@@ -13,6 +13,7 @@ from ossiq.settings import Settings
 from ossiq.ui.interfaces import AbstractUserInterfaceRenderer
 from ossiq.ui.renderers.export.csv import CsvExportRenderer
 from ossiq.ui.renderers.export.json import JsonExportRenderer
+from ossiq.ui.renderers.package.console import ConsolePackageRenderer
 from ossiq.ui.renderers.scan.console import ConsoleScanRenderer
 from ossiq.ui.renderers.scan.html import HtmlScanRenderer
 
@@ -23,6 +24,7 @@ RENDERERS: tuple[type[AbstractUserInterfaceRenderer], ...] = (
     HtmlScanRenderer,
     JsonExportRenderer,
     CsvExportRenderer,
+    ConsolePackageRenderer,
 )
 
 

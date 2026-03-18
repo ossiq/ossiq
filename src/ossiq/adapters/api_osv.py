@@ -1,9 +1,7 @@
-import requests
-
+from ossiq.clients.osv import OsvSession
 from ossiq.domain.common import CveDatabase, ProjectPackagesRegistry
 from ossiq.domain.cve import CVE, Severity
 from ossiq.domain.package import Package
-from ossiq.domain.version import PackageVersion
 
 from .api_interfaces import AbstractCveDatabaseApi
 
@@ -12,29 +10,61 @@ ECOSYSTEM_MAPPING = {ProjectPackagesRegistry.NPM: "npm", ProjectPackagesRegistry
 
 class CveApiOsv(AbstractCveDatabaseApi):
     """
-    An AbstractCveApi implementation for osv.dev CVEs repository
+    An AbstractCveDatabaseApi implementation for osv.dev CVEs repository.
+    Uses the /v1/querybatch endpoint to fetch CVEs for all packages in a single request.
     """
 
-    def __init__(self):
+    def __init__(self, session: OsvSession):
         self.base_url = "https://api.osv.dev/v1"
+        self.session = session
 
     def __repr__(self):
-        return f"OsvApiClient(base_url='{self.base_url}')"
+        return f"CveApiOsv(base_url='{self.base_url}')"
 
-    def get_cves_for_package(self, package: Package, version: PackageVersion) -> set[CVE]:
-        payload = {
-            "package": {"name": package.name, "ecosystem": ECOSYSTEM_MAPPING[package.registry]},
-            "version": version.version,
-        }
+    def get_cves_batch(self, packages_with_versions: list[tuple[Package, str]]) -> dict[tuple[str, str], set[CVE]]:
+        if not packages_with_versions:
+            return {}
 
-        resp = requests.post(f"{self.base_url}/query", json=payload, timeout=10)
+        queries = [
+            {"package": {"name": pkg.name, "ecosystem": ECOSYSTEM_MAPPING[pkg.registry]}, "version": version}
+            for pkg, version in packages_with_versions
+        ]
+
+        resp = self.session.post(f"{self.base_url}/querybatch", json={"queries": queries}, timeout=30)
         resp.raise_for_status()
-        data = resp.json()
 
-        vulnerabilities_raw = data.get("vulns", [])
+        results: dict[tuple[str, str], set[CVE]] = {}
+        for (pkg, version), result in zip(packages_with_versions, resp.json().get("results", []), strict=True):
+            cves = self._parse_cves_from_result(result, pkg)
 
+            # Handle pagination (triggers when a single package exceeds ~1000 CVEs — extremely rare)
+            page_token = result.get("next_page_token")
+            while page_token:
+                page_resp = self.session.post(
+                    f"{self.base_url}/querybatch",
+                    json={
+                        "queries": [
+                            {
+                                "package": {"name": pkg.name, "ecosystem": ECOSYSTEM_MAPPING[pkg.registry]},
+                                "version": version,
+                                "page_token": page_token,
+                            }
+                        ]
+                    },
+                    timeout=30,
+                )
+                page_resp.raise_for_status()
+                page_result = page_resp.json().get("results", [{}])[0]
+                cves |= self._parse_cves_from_result(page_result, pkg)
+                page_token = page_result.get("next_page_token")
+
+            results[(pkg.name, version)] = cves
+
+        return results
+
+    def _parse_cves_from_result(self, result: dict, package: Package) -> set[CVE]:
         cves = set()
-        for cve_raw in vulnerabilities_raw:
+        for cve_raw in result.get("vulns", []):
             cves.add(
                 CVE(
                     id=cve_raw["id"],
@@ -52,16 +82,6 @@ class CveApiOsv(AbstractCveDatabaseApi):
         return cves
 
     def _map_severity(self, osv_severity: list[dict]) -> Severity:
-        """
-        The purpose is to map osv.dev score numbers to simplified
-        severity levels.
-
-        :param self: Description
-        :param osv_severity: Description
-        :type osv_severity: List[dict]
-        :return: Description
-        :rtype: Severity
-        """
         if not osv_severity:
             return Severity.MEDIUM  # fallback
 

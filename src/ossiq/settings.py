@@ -4,6 +4,13 @@ from typing import ClassVar
 
 from pydantic import BaseModel, Field
 
+from ossiq.messages import (
+    ARGS_HELP_CACHE_DESTINATION,
+    ARGS_HELP_CACHE_TTL,
+    ARGS_HELP_GITHUB_TOKEN,
+    ARGS_HELP_PRESENTATION,
+)
+
 ENV_PREFIX = "OSSIQ_"
 
 
@@ -22,11 +29,11 @@ class Settings(BaseModel):
     }
 
     # Configuration Fields
-    github_token: str | None = Field(
-        default=None, description="Optional Github Token to authorize calls to the Github API and overcome limits"
-    )
+    github_token: str | None = Field(default=None, description=ARGS_HELP_GITHUB_TOKEN)
 
-    presentation: str = Field(default="console", description="How to present results, options: console, html")
+    cache_destination: str = Field(default="./ossiq_cache.sqlite3", description=ARGS_HELP_CACHE_DESTINATION)
+    cache_ttl: int = Field(default=24, description=ARGS_HELP_CACHE_TTL)
+    presentation: str = Field(default="console", description=ARGS_HELP_PRESENTATION)
 
     verbose: bool = Field(default=False, description="Enable verbose output")
 

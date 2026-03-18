@@ -100,9 +100,30 @@ class AbstractCveDatabaseApi(abc.ABC):
     """
 
     @abc.abstractmethod
-    def get_cves_for_package(self, package: Package, version: PackageVersion) -> set[CVE]:
+    def get_cves_batch(self, packages_with_versions: list[tuple[Package, str]]) -> dict[tuple[str, str], set[CVE]]:
         """
         Method to return a particular CVE info
+        """
+        raise NotImplementedError
+
+    @abc.abstractmethod
+    def __repr__(self):
+        raise NotImplementedError
+
+
+class AbstractLicenseDatabaseApi(abc.ABC):
+    """
+    Abstract client to communicate with license databases like ClearlyDefined.
+    """
+
+    @abc.abstractmethod
+    def get_licenses_batch(
+        self, packages_with_versions: list[tuple[Package, str]]
+    ) -> dict[tuple[str, str], str | None]:
+        """
+        Fetch normalized SPDX license identifiers for a batch of packages.
+
+        Returns a mapping of (package_name, version) -> SPDX license string or None.
         """
         raise NotImplementedError
 

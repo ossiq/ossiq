@@ -1,0 +1,266 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://ossiq.org/schemas/export/v1.1.json",
+  "title": "OSS-IQ Export Schema v1.1",
+  "description": "Schema for OSS-IQ project metrics export data (v1.1 adds transitive_packages and dependency_path)",
+  "type": "object",
+  "required": ["metadata", "project", "summary", "production_packages", "development_packages", "transitive_packages"],
+  "properties": {
+    "metadata": {
+      "type": "object",
+      "description": "Metadata about the export itself",
+      "required": ["schema_version", "export_timestamp"],
+      "properties": {
+        "schema_version": {
+          "type": "string",
+          "const": "1.1",
+          "description": "Version of the export schema format"
+        },
+        "export_timestamp": {
+          "type": "string",
+          "format": "date-time",
+          "description": "UTC timestamp when the export was generated"
+        }
+      }
+    },
+    "project": {
+      "type": "object",
+      "description": "Basic project information",
+      "required": ["name", "path", "registry"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Project name"
+        },
+        "path": {
+          "type": "string",
+          "description": "Absolute path to the project"
+        },
+        "registry": {
+          "type": "string",
+          "description": "Package registry type (npm, pypi, etc.)",
+          "enum": ["npm", "pypi"]
+        }
+      }
+    },
+    "summary": {
+      "type": "object",
+      "description": "Summary statistics for the scanned project",
+      "required": [
+        "total_packages",
+        "production_packages",
+        "development_packages",
+        "packages_with_cves",
+        "total_cves",
+        "packages_outdated"
+      ],
+      "properties": {
+        "total_packages": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Total number of packages (production + development)"
+        },
+        "production_packages": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of production dependencies"
+        },
+        "development_packages": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of development dependencies"
+        },
+        "packages_with_cves": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of packages with known CVEs"
+        },
+        "total_cves": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Total number of CVEs across all packages"
+        },
+        "packages_outdated": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of packages behind the latest version"
+        }
+      }
+    },
+    "production_packages": {
+      "type": "array",
+      "description": "Production dependency metrics",
+      "items": {
+        "$ref": "#/$defs/PackageMetrics"
+      }
+    },
+    "development_packages": {
+      "type": "array",
+      "description": "Development dependency metrics",
+      "items": {
+        "$ref": "#/$defs/PackageMetrics"
+      }
+    },
+    "transitive_packages": {
+      "type": "array",
+      "description": "Transitive dependency metrics (all paths, production edges only)",
+      "items": {
+        "$ref": "#/$defs/PackageMetrics"
+      }
+    }
+  },
+  "$defs": {
+    "PackageMetrics": {
+      "type": "object",
+      "description": "Metrics for a single package",
+      "required": [
+        "package_name",
+        "is_optional_dependency",
+        "installed_version",
+        "latest_version",
+        "time_lag_days",
+        "releases_lag",
+        "cve"
+      ],
+      "properties": {
+        "package_name": {
+          "type": "string",
+          "description": "Package name (canonical registry name)"
+        },
+        "dependency_name": {
+          "type": ["string", "null"],
+          "description": "Alias name as declared in the project manifest (null or same as package_name when no alias is used)"
+        },
+        "is_optional_dependency": {
+          "type": "boolean",
+          "description": "Whether this is a development/optional dependency"
+        },
+        "installed_version": {
+          "type": "string",
+          "description": "Currently installed version"
+        },
+        "latest_version": {
+          "type": ["string", "null"],
+          "description": "Latest available version"
+        },
+        "time_lag_days": {
+          "type": ["integer", "null"],
+          "description": "Days between installed and latest version"
+        },
+        "releases_lag": {
+          "type": ["integer", "null"],
+          "description": "Number of releases between installed and latest"
+        },
+        "cve": {
+          "type": "array",
+          "description": "Known CVEs for this package",
+          "items": {
+            "$ref": "#/$defs/CVEInfo"
+          }
+        },
+        "dependency_path": {
+          "type": ["array", "null"],
+          "items": {
+            "type": "string"
+          },
+          "description": "Ancestor chain from root to this package (null for direct dependencies)"
+        },
+        "version_constraint": {
+          "type": ["string", "null"],
+          "description": "Version constraint declared in the project manifest (e.g. '^1.2.3', '>=1.0,<2.0')"
+        },
+        "repo_url": {
+          "type": ["string", "null"],
+          "format": "uri",
+          "description": "Source code repository URL"
+        },
+        "homepage_url": {
+          "type": ["string", "null"],
+          "format": "uri",
+          "description": "Package homepage URL"
+        },
+        "package_url": {
+          "type": ["string", "null"],
+          "format": "uri",
+          "description": "Package registry page URL"
+        },
+        "license": {
+          "type": ["array", "null"],
+          "items": { "type": "string" },
+          "description": "SPDX license identifiers parsed from the package license expression"
+        },
+        "purl": {
+          "type": ["string", "null"],
+          "description": "Package URL (PURL) per ECMA-386, e.g. pkg:pypi/requests@2.25.1 or pkg:npm/lodash@4.17.21"
+        }
+      }
+    },
+    "CVEInfo": {
+      "type": "object",
+      "description": "CVE information for a package",
+      "required": [
+        "id",
+        "cve_ids",
+        "source",
+        "package_name",
+        "package_registry",
+        "summary",
+        "severity",
+        "affected_versions",
+        "published",
+        "link"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Primary CVE identifier"
+        },
+        "cve_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "All aliases (CVE, GHSA, OSV)"
+        },
+        "source": {
+          "type": "string",
+          "description": "CVE database source"
+        },
+        "package_name": {
+          "type": "string",
+          "description": "Affected package name"
+        },
+        "package_registry": {
+          "type": "string",
+          "description": "Package registry (npm, pypi, etc.)"
+        },
+        "summary": {
+          "type": "string",
+          "description": "Vulnerability description"
+        },
+        "severity": {
+          "type": "string",
+          "enum": ["LOW", "MEDIUM", "HIGH", "CRITICAL"],
+          "description": "Severity level"
+        },
+        "affected_versions": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "List of affected versions"
+        },
+        "published": {
+          "type": ["string", "null"],
+          "format": "date-time",
+          "description": "Publication date"
+        },
+        "link": {
+          "type": "string",
+          "format": "uri",
+          "description": "URL to upstream advisory"
+        }
+      }
+    }
+  }
+}

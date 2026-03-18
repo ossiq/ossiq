@@ -8,10 +8,10 @@ detailed package metrics.
 
 import os
 
-from ossiq.domain.common import Command, UserInterfaceType
+from ossiq.domain.common import Command, ExportJsonSchemaVersion, UserInterfaceType
 from ossiq.domain.exceptions import DestinationDoesntExist
 from ossiq.domain.project import normalize_filename
-from ossiq.service.project import ProjectMetrics
+from ossiq.service.project import ScanResult
 from ossiq.ui.interfaces import AbstractUserInterfaceRenderer
 from ossiq.ui.renderers.export.json_schema_registry import json_schema_registry
 from ossiq.ui.renderers.export.models import ExportData
@@ -28,7 +28,7 @@ class JsonExportRenderer(AbstractUserInterfaceRenderer):
         """Check if this renderer handles export/json combination."""
         return command == Command.EXPORT and user_interface_type == UserInterfaceType.JSON
 
-    def render(self, data: ProjectMetrics, destination: str = ".", **kwargs) -> None:
+    def render(self, data: ScanResult, destination: str = ".", schema_version: str | None = None, **kwargs) -> None:
         """
         Export project metrics to JSON file with metadata wrapper.
 
@@ -36,8 +36,9 @@ class JsonExportRenderer(AbstractUserInterfaceRenderer):
         schema validation. The output conforms to the versioned export schema.
 
         Args:
-            data: ProjectMetrics from scan service
+            data: ScanResult from scan service
             destination: Output file path (supports {project_name} placeholder)
+            schema_version: Schema version string (e.g. "1.0", "1.1"). Defaults to latest.
             **kwargs: Optional arguments:
                 - validate_schema (bool): Validate against JSON schema (default: True)
 
@@ -50,10 +51,17 @@ class JsonExportRenderer(AbstractUserInterfaceRenderer):
         if dest_dir and not os.path.exists(dest_dir):
             raise DestinationDoesntExist(f"Destination `{destination}` doesn't exist.")
 
+        # Resolve schema version: use provided value or fall back to latest
+        resolved_version = (
+            ExportJsonSchemaVersion(schema_version)
+            if schema_version is not None
+            else json_schema_registry.get_latest_version()
+        )
+
         # Convert domain model to export model
         export_data = ExportData.from_project_metrics(
             data,
-            schema_version=json_schema_registry.get_latest_version(),
+            schema_version=resolved_version,
         )
 
         # Resolve destination path with project name placeholder

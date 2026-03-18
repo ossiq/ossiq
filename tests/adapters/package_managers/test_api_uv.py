@@ -12,11 +12,13 @@ Tests focus on:
 
 import os
 import tempfile
+import tomllib
 from pathlib import Path
 
 import pytest
 
 from ossiq.adapters.package_managers.api_uv import PackageManagerPythonUv
+from ossiq.domain.common import ProjectPackagesRegistry
 from ossiq.domain.exceptions import PackageManagerLockfileParsingError
 from ossiq.domain.packages_manager import UV
 from ossiq.settings import Settings
@@ -70,6 +72,8 @@ dev = [
     pyproject_path.write_text(pyproject_content)
 
     # Create uv.lock with version 1 revision 3
+    # Real uv.lock stores version specifiers from pyproject.toml in the root package's
+    # [package.metadata].requires-dist block, not in the dependencies entries themselves.
     lockfile_content = """
 version = 1
 revision = 3
@@ -86,6 +90,18 @@ dependencies = [
 dev = [
     { name = "pytest" },
     { name = "black" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "requests", specifier = ">=2.31.0" },
+    { name = "click", specifier = ">=8.1.0" },
+]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "pytest", specifier = ">=7.4.0" },
+    { name = "black", specifier = ">=23.0.0" },
 ]
 
 [[package]]
@@ -353,44 +369,43 @@ class TestParseLockfileV1R3:
         uv_manager = PackageManagerPythonUv(uv_project_with_lockfile, settings)
 
         # Read lockfile manually for testing
-        import tomllib
 
         lockfile_path = Path(uv_project_with_lockfile) / "uv.lock"
         with open(lockfile_path, "rb") as f:
             uv_lock_data = tomllib.load(f)
 
-        dependencies, optional_dependencies = uv_manager.parse_lockfile_v1_r3("test-project", uv_lock_data)
+        dependency_tree = uv_manager.parse_lockfile_v1_r3("test-project", uv_lock_data)
 
         # Main dependencies should contain requests and click
-        assert "requests" in dependencies
-        assert "click" in dependencies
-        assert dependencies["requests"].version_installed == "2.31.0"
-        assert dependencies["click"].version_installed == "8.1.7"
+        assert "requests" in dependency_tree.dependencies
+        assert "click" in dependency_tree.dependencies
+
+        assert dependency_tree.dependencies["requests"].version_installed == "2.31.0"
+        assert dependency_tree.dependencies["click"].version_installed == "8.1.7"
 
         # Should NOT include the project itself
-        assert "test-project" not in dependencies
+        assert "test-project" not in dependency_tree.dependencies
 
     def test_parse_optional_dependencies(self, uv_project_with_lockfile, settings):
         """Test parsing optional dependencies with categories."""
         uv_manager = PackageManagerPythonUv(uv_project_with_lockfile, settings)
 
-        import tomllib
-
         lockfile_path = Path(uv_project_with_lockfile) / "uv.lock"
         with open(lockfile_path, "rb") as f:
             uv_lock_data = tomllib.load(f)
 
-        dependencies, optional_dependencies = uv_manager.parse_lockfile_v1_r3("test-project", uv_lock_data)
+        dependency_tree = uv_manager.parse_lockfile_v1_r3("test-project", uv_lock_data)
 
         # Optional dependencies should contain pytest and black
-        assert "pytest" in optional_dependencies
-        assert "black" in optional_dependencies
-        assert optional_dependencies["pytest"].version_installed == "7.4.3"
-        assert optional_dependencies["black"].version_installed == "23.12.1"
+        assert "pytest" in dependency_tree.optional_dependencies
+        assert "black" in dependency_tree.optional_dependencies
+
+        assert dependency_tree.optional_dependencies["pytest"].version_installed == "7.4.3"
+        assert dependency_tree.optional_dependencies["black"].version_installed == "23.12.1"
 
         # Verify categories are assigned
-        assert "dev" in optional_dependencies["pytest"].categories
-        assert "dev" in optional_dependencies["black"].categories
+        assert "dev" in dependency_tree.optional_dependencies["pytest"].categories
+        assert "dev" in dependency_tree.optional_dependencies["black"].categories
 
     def test_parse_transitive_dependencies_ignored(self, uv_project_with_lockfile, settings):
         """
@@ -401,21 +416,18 @@ class TestParseLockfileV1R3:
         """
         uv_manager = PackageManagerPythonUv(uv_project_with_lockfile, settings)
 
-        import tomllib
-
         lockfile_path = Path(uv_project_with_lockfile) / "uv.lock"
         with open(lockfile_path, "rb") as f:
             uv_lock_data = tomllib.load(f)
 
-        dependencies, optional_dependencies = uv_manager.parse_lockfile_v1_r3("test-project", uv_lock_data)
+        dependency_tree = uv_manager.parse_lockfile_v1_r3("test-project", uv_lock_data)
 
         # Transitive dependencies should NOT be included
-        assert "urllib3" not in dependencies
-        assert "certifi" not in dependencies
-        assert "pluggy" not in dependencies
-        assert "urllib3" not in optional_dependencies
-        assert "certifi" not in optional_dependencies
-        assert "pluggy" not in optional_dependencies
+        for dep in ["urllib3", "certifi", "pluggy"]:
+            assert dep not in dependency_tree.dependencies
+
+        for dep in ["urllib3", "certifi", "pluggy"]:
+            assert dep not in dependency_tree.optional_dependencies
 
     def test_parse_dual_category_dependencies(self, uv_project_with_dual_category_deps, settings):
         """
@@ -426,31 +438,68 @@ class TestParseLockfileV1R3:
         """
         uv_manager = PackageManagerPythonUv(uv_project_with_dual_category_deps, settings)
 
-        import tomllib
-
         lockfile_path = Path(uv_project_with_dual_category_deps) / "uv.lock"
         with open(lockfile_path, "rb") as f:
             uv_lock_data = tomllib.load(f)
 
-        dependencies, optional_dependencies = uv_manager.parse_lockfile_v1_r3("multi-category-project", uv_lock_data)
+        dependency_tree = uv_manager.parse_lockfile_v1_r3("multi-category-project", uv_lock_data)
 
         # requests should be in both main dependencies and optional
-        assert "requests" in dependencies
-        assert "requests" in optional_dependencies
+        assert "requests" in dependency_tree.dependencies
+        assert "requests" in dependency_tree.optional_dependencies
 
         # requests should have 'dev' category
-        assert "dev" in optional_dependencies["requests"].categories
+        assert "dev" in dependency_tree.dependencies["requests"].categories
 
         # pytest should be in multiple categories
-        assert "pytest" in optional_dependencies
-        assert "dev" in optional_dependencies["pytest"].categories
-        assert "test" in optional_dependencies["pytest"].categories
+        # Pytest is not in production dependencies
+        assert "pytest" not in dependency_tree.dependencies
+        # but it is in two optional categories
+        assert "pytest" in dependency_tree.optional_dependencies
+        assert "dev" in dependency_tree.optional_dependencies["pytest"].categories
+        assert "test" in dependency_tree.optional_dependencies["pytest"].categories
+
+    def test_parse_lockfile_sets_version_defined_from_specifier(self, uv_project_with_lockfile, settings):
+        """Test that version_defined is populated from [package.metadata].requires-dist.
+
+        AAA Pattern:
+        - Arrange: Load lockfile where specifiers are in metadata.requires-dist (real UV format)
+        - Act: Parse lockfile via parse_lockfile_v1_r3
+        - Assert: version_defined reflects the specifier string, not None
+        """
+        # Arrange
+        uv_manager = PackageManagerPythonUv(uv_project_with_lockfile, settings)
+        lockfile_path = Path(uv_project_with_lockfile) / "uv.lock"
+        with open(lockfile_path, "rb") as f:
+            uv_lock_data = tomllib.load(f)
+
+        # Act
+        dependency_tree = uv_manager.parse_lockfile_v1_r3("test-project", uv_lock_data)
+
+        # Assert — direct production deps pick up the specifier from the root's entry
+        requests_dep = dependency_tree.dependencies["requests"]
+        click_dep = dependency_tree.dependencies["click"]
+        assert requests_dep.version_defined == ">=2.31.0"
+        assert click_dep.version_defined == ">=8.1.0"
+
+        # Assert — optional deps also pick up their specifiers
+        pytest_dep = dependency_tree.optional_dependencies["pytest"]
+        black_dep = dependency_tree.optional_dependencies["black"]
+        assert pytest_dep.version_defined == ">=7.4.0"
+        assert black_dep.version_defined == ">=23.0.0"
+
+        # Assert — transitive deps without a specifier remain None
+        assert dependency_tree.dependencies["requests"].version_installed == "2.31.0"
+        urllib3 = next(
+            (d for d in dependency_tree.dependencies["requests"].dependencies.values() if d.name == "urllib3"),
+            None,
+        )
+        assert urllib3 is not None
+        assert urllib3.version_defined is None
 
     def test_parse_missing_main_package_error(self, uv_project_missing_main_package, settings):
         """Test error when main project package is not in lockfile."""
         uv_manager = PackageManagerPythonUv(uv_project_missing_main_package, settings)
-
-        import tomllib
 
         lockfile_path = Path(uv_project_missing_main_package) / "uv.lock"
         with open(lockfile_path, "rb") as f:
@@ -459,7 +508,7 @@ class TestParseLockfileV1R3:
         with pytest.raises(PackageManagerLockfileParsingError) as excinfo:
             uv_manager.parse_lockfile_v1_r3("missing-main-project", uv_lock_data)
 
-        assert "Cannot extract project package from UV lockfile" in str(excinfo.value)
+        assert "Cannot parse UV lockfile" in str(excinfo.value)
 
     def test_parse_empty_dependencies(self, temp_project_dir, settings):
         """Test parsing when project has no dependencies."""
@@ -483,15 +532,13 @@ version = "1.0.0"
 
         uv_manager = PackageManagerPythonUv(temp_project_dir, settings)
 
-        import tomllib
-
         with open(lockfile_path, "rb") as f:
             uv_lock_data = tomllib.load(f)
 
-        dependencies, optional_dependencies = uv_manager.parse_lockfile_v1_r3("empty-deps-project", uv_lock_data)
+        dependency_tree = uv_manager.parse_lockfile_v1_r3("empty-deps-project", uv_lock_data)
 
-        assert len(dependencies) == 0
-        assert len(optional_dependencies) == 0
+        assert len(dependency_tree.dependencies) == 0
+        assert len(dependency_tree.optional_dependencies) == 0
 
 
 # ============================================================================
@@ -579,15 +626,38 @@ class TestProjectInfo:
         assert project.project_path == uv_project_with_lockfile
         assert project.package_manager_type == UV
 
+        dependency_tree = project.dependency_tree
         # Check main dependencies
-        assert "requests" in project.dependencies
-        assert "click" in project.dependencies
-        assert project.dependencies["requests"].version_installed == "2.31.0"
-        assert project.dependencies["click"].version_installed == "8.1.7"
+
+        assert "requests" in dependency_tree.dependencies
+        assert "click" in dependency_tree.dependencies
+
+        assert dependency_tree.dependencies["requests"].version_installed == "2.31.0"
+        assert dependency_tree.dependencies["click"].version_installed == "8.1.7"
 
         # Check optional dependencies
-        assert "pytest" in project.optional_dependencies
-        assert "black" in project.optional_dependencies
+        assert "pytest" in dependency_tree.optional_dependencies
+        assert "black" in dependency_tree.optional_dependencies
+
+    def test_project_info_exposes_version_constraint_from_specifier(self, uv_project_with_lockfile, settings):
+        """Test that project_info exposes version constraints via version_defined on Dependency.
+
+        AAA Pattern:
+        - Arrange: UV project with specifiers in the lockfile
+        - Act: Call project_info() which runs the full adapter pipeline
+        - Assert: version_defined on direct dependencies reflects the declared specifier
+        """
+        # Arrange
+        uv_manager = PackageManagerPythonUv(uv_project_with_lockfile, settings)
+
+        # Act
+        project = uv_manager.project_info()
+
+        # Assert — version_defined matches the specifiers from pyproject.toml
+        assert project.dependencies["requests"].version_defined == ">=2.31.0"
+        assert project.dependencies["click"].version_defined == ">=8.1.0"
+        assert project.optional_dependencies["pytest"].version_defined == ">=7.4.0"
+        assert project.optional_dependencies["black"].version_defined == ">=23.0.0"
 
     def test_project_info_with_dual_category_deps(self, uv_project_with_dual_category_deps, settings):
         """Test project with dependencies in multiple categories."""
@@ -597,13 +667,14 @@ class TestProjectInfo:
 
         assert project.name == "multi-category-project"
 
-        # requests is both main and optional
-        assert "requests" in project.dependencies
-        assert "requests" in project.optional_dependencies
+        dependency_tree = project.dependency_tree
 
-        # pytest is in multiple optional categories
-        assert "pytest" in project.optional_dependencies
-        pytest_dep = project.optional_dependencies["pytest"]
+        # requests is both main and optional
+        assert "requests" in dependency_tree.dependencies
+        assert "requests" in dependency_tree.optional_dependencies
+
+        assert "pytest" in dependency_tree.optional_dependencies
+        pytest_dep = dependency_tree.optional_dependencies["pytest"]
         assert "dev" in pytest_dep.categories
         assert "test" in pytest_dep.categories
 
@@ -661,10 +732,50 @@ version = "0.1.0"
     def test_project_info_package_registry(self, uv_project_with_lockfile, settings):
         """Test that project has correct package registry."""
         uv_manager = PackageManagerPythonUv(uv_project_with_lockfile, settings)
-
         project = uv_manager.project_info()
 
-        # UV uses PyPI ecosystem
-        from ossiq.domain.common import ProjectPackagesRegistry
-
         assert project.package_registry == ProjectPackagesRegistry.PYPI
+
+
+# ============================================================================
+# Integration tests against real testdata
+# ============================================================================
+
+_VERSION_CONSTRAINT_TESTDATA = os.path.join(
+    os.path.dirname(__file__), "..", "..", "..", "testdata", "pypi", "version-constraint"
+)
+
+
+class TestVersionConstraintIntegration:
+    """Integration tests against testdata/pypi/version-constraint/ real lockfile."""
+
+    @pytest.mark.parametrize(
+        "pkg_name,expected_constraint",
+        [
+            ("requests", "~=2.31.0"),
+            ("pydantic", ">=2.0.0"),
+            ("scikit-learn", "<2.0.0"),
+            ("jsonschema", ">=4.0.0a6,<4.5.0"),
+            ("numpy", ">=1.20.0,!=1.24.2,<2.0.0"),
+        ],
+    )
+    def test_version_constraint_extracted_from_metadata_requires_dist(
+        self, pkg_name: str, expected_constraint: str, settings: Settings
+    ):
+        """Test version_defined is read from [package.metadata].requires-dist in a real uv.lock.
+
+        AAA Pattern:
+        - Arrange: Point adapter at real testdata project with diverse PEP 440 constraints
+        - Act: Call project_info() to parse the real lockfile
+        - Assert: version_defined on each direct dep matches the declared specifier
+        """
+        # Arrange
+        uv_manager = PackageManagerPythonUv(_VERSION_CONSTRAINT_TESTDATA, settings)
+
+        # Act
+        project = uv_manager.project_info()
+
+        # Assert
+        dep = project.dependencies.get(pkg_name)
+        assert dep is not None, f"{pkg_name!r} not found in project dependencies"
+        assert dep.version_defined == expected_constraint

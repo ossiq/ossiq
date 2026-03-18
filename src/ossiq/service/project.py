@@ -2,14 +2,18 @@
 Service to take care of a Package versions
 """
 
-from dataclasses import dataclass
+from collections.abc import Iterable
+from dataclasses import dataclass, field
 from datetime import datetime
 
 from rich.console import Console
 
+from ossiq.adapters.api_interfaces import AbstractPackageRegistryApi
+from ossiq.adapters.package_managers.dependency_tree import GraphExporter
+from ossiq.domain.common import build_purl, parse_spdx_expression
 from ossiq.domain.cve import CVE
-from ossiq.domain.exceptions import ProjectPathNotFoundError
-from ossiq.domain.project import Project
+from ossiq.domain.exceptions import ProjectPathNotFoundError, UnknownPackageVersion
+from ossiq.domain.package import Package
 from ossiq.domain.version import VersionsDifference
 from ossiq.service.common import package_versions
 from ossiq.unit_of_work import core as unit_of_work
@@ -17,25 +21,44 @@ from ossiq.unit_of_work import core as unit_of_work
 console = Console()
 
 
+@dataclass(frozen=True)
+class DependencyDescriptor:
+    name: str
+    canonical_name: str
+    version: str
+    is_optional: bool
+    dependency_path: list[str] | None
+    version_constraint: str | None
+
+
 @dataclass
-class ProjectMetricsRecord:
+class ScanRecord:
     package_name: str
-    is_dev_dependency: bool
+    dependency_name: str
+    is_optional_dependency: bool
     installed_version: str
     latest_version: str | None
     versions_diff_index: VersionsDifference
     time_lag_days: int | None
     releases_lag: int | None
     cve: list[CVE]
+    dependency_path: list[str] | None = None
+    version_constraint: str | None = None
+    license: list[str] | None = None
+    repo_url: str | None = None
+    homepage_url: str | None = None
+    package_url: str | None = None
+    purl: str | None = None
 
 
 @dataclass
-class ProjectMetrics:
+class ScanResult:
     project_name: str
     packages_registry: str
     project_path: str
-    production_packages: list[ProjectMetricsRecord]
-    development_packages: list[ProjectMetricsRecord]
+    production_packages: list[ScanRecord]
+    optional_packages: list[ScanRecord]
+    transitive_packages: list[ScanRecord] = field(default_factory=list)
 
 
 def parse_iso(datetime_str: str | None):
@@ -48,7 +71,7 @@ def parse_iso(datetime_str: str | None):
     return None
 
 
-def calculate_time_lag(
+def calculate_time_lag_in_days(
     versions: list[package_versions.PackageVersion], installed_version: str, latest_version: str | None
 ) -> int | None:
     """
@@ -73,59 +96,87 @@ def calculate_time_lag(
 
 
 def get_package_versions_since(
-    uow: unit_of_work.AbstractProjectUnitOfWork, package_name: str, installed_version: str
+    packages_registry: AbstractPackageRegistryApi, package_name: str, installed_version: str
 ) -> list[package_versions.PackageVersion]:
     """
     Calculate Package versions lag: delta between
     installed package and the latest one.
     """
-
-    return [
-        v
-        for v in uow.packages_registry.package_versions(package_name)
-        if uow.packages_registry.compare_versions(v.version, installed_version) >= 0
-    ]
+    try:
+        return [
+            v
+            for v in packages_registry.package_versions(package_name)
+            if packages_registry.compare_versions(v.version, installed_version) >= 0
+        ]
+    except UnknownPackageVersion:
+        return []
 
 
 def scan_record(
-    uow: unit_of_work.AbstractProjectUnitOfWork,
-    project_info: Project,
+    packages_registry: AbstractPackageRegistryApi,
     package_name: str,
+    canonical_name: str,
     package_version: str,
-    is_dev_dependency: bool,
-) -> ProjectMetricsRecord:
+    is_optional_dependency: bool,
+    prefetched_cves: set[CVE],
+    dependency_path: list[str] | None = None,
+    version_constraint: str | None = None,
+    prefetched_license: str | None = None,
+) -> ScanRecord:
     """
-    Factory to generate ProjectMetricsRecord instances
+    Factory to generate ScanRecord instances
     """
-    package_info = uow.packages_registry.package_info(package_name)
-    installed_version = project_info.installed_package_version(package_info.name)
+    # For npm alias packages (e.g. "chalk-legacy" -> "chalk"), use the canonical
+    # registry name for lookups while keeping the alias name for display.
+    package_info = packages_registry.package_info(canonical_name)
 
-    releases_since_installed = get_package_versions_since(uow, package_info.name, installed_version)
+    releases_since_installed = get_package_versions_since(packages_registry, package_info.name, package_version)
 
-    time_lag_days = calculate_time_lag(releases_since_installed, installed_version, package_info.latest_version)
+    time_lag_days = calculate_time_lag_in_days(releases_since_installed, package_version, package_info.latest_version)
 
     installed_release = next(
-        (release for release in releases_since_installed if release.version == installed_version), None
+        (release for release in releases_since_installed if release.version == package_version), None
     )
 
-    cve = []
-    if installed_release:
-        cve = list(uow.cve_database.get_cves_for_package(package_info, installed_release))
+    version_diff_index = packages_registry.difference_versions(package_version, package_info.latest_version)
 
-    return ProjectMetricsRecord(
-        package_name=package_name,
+    return ScanRecord(
+        package_name=canonical_name,
+        dependency_name=package_name,
         installed_version=package_version,
         latest_version=package_info.latest_version,
         time_lag_days=time_lag_days,
         releases_lag=len(releases_since_installed) - 1,
-        versions_diff_index=uow.packages_registry.difference_versions(installed_version, package_info.latest_version),
-        cve=cve,
-        is_dev_dependency=is_dev_dependency,
+        versions_diff_index=version_diff_index,
+        cve=list(prefetched_cves) if installed_release else [],
+        is_optional_dependency=is_optional_dependency,
+        dependency_path=dependency_path,
+        version_constraint=version_constraint,
+        repo_url=package_info.repo_url,
+        homepage_url=package_info.homepage_url,
+        package_url=package_info.package_url,
+        license=parse_spdx_expression(prefetched_license),
+        purl=build_purl(packages_registry.package_registry, canonical_name, package_version),
     )
 
 
-def scan(uow: unit_of_work.AbstractProjectUnitOfWork) -> ProjectMetrics:
-    def sort_function(pkg: ProjectMetricsRecord):
+def _prefetch_package_infos(
+    packages_registry: AbstractPackageRegistryApi, canonical_names: Iterable[str]
+) -> dict[str, Package]:
+    """Pre-fetch package info for all unique canonical names (results are cached by requests-cache)."""
+    infos: dict[str, Package] = {}
+    for name in canonical_names:
+        if name not in infos:
+            infos[name] = packages_registry.package_info(name)
+    return infos
+
+
+def scan(uow: unit_of_work.AbstractProjectUnitOfWork) -> ScanResult:
+    """
+    Project scan service to leverage Project UoW to gather metrics
+    """
+
+    def sort_function(pkg: ScanRecord):
         return (
             pkg.versions_diff_index.diff_index,
             len(pkg.cve),
@@ -140,27 +191,84 @@ def scan(uow: unit_of_work.AbstractProjectUnitOfWork) -> ProjectMetrics:
         if not project_info.project_path:
             raise ProjectPathNotFoundError("Project Path is not Specified")
 
-        production_packages: list[ProjectMetricsRecord] = []
-        development_packages: list[ProjectMetricsRecord] = []
+        # Collect all dependency descriptors
+        prod_deps = [
+            DependencyDescriptor(
+                name=dep.name,
+                canonical_name=dep.canonical_name,
+                version=dep.version_installed,
+                is_optional=False,
+                dependency_path=None,
+                version_constraint=dep.version_defined,
+            )
+            for dep in project_info.dependencies.values()
+        ]
 
-        for package_name, package in project_info.dependencies.items():
-            production_packages.append(scan_record(uow, project_info, package_name, package.version_installed, False))
-
-        # uow.production is driven by the setting
+        opt_deps: list[DependencyDescriptor] = []
         if not uow.production:
-            for package_name, package in project_info.optional_dependencies.items():
-                development_packages.append(
-                    scan_record(uow, project_info, package_name, package.version_installed, True)
+            opt_deps = [
+                DependencyDescriptor(
+                    name=dep.name,
+                    canonical_name=dep.canonical_name,
+                    version=dep.version_installed,
+                    is_optional=True,
+                    dependency_path=None,
+                    version_constraint=dep.version_defined,
                 )
+                for dep in project_info.optional_dependencies.values()
+            ]
 
-        return ProjectMetrics(
+        walker = GraphExporter(project_info.dependency_tree)
+        trans_deps = [
+            DependencyDescriptor(
+                name=node.name,
+                canonical_name=node.canonical_name,
+                version=node.version_installed,
+                is_optional=False,
+                dependency_path=path,
+                version_constraint=node.version_defined,
+            )
+            for node, path in walker.walk_all_paths()
+        ]
+
+        all_deps = prod_deps + opt_deps + trans_deps
+
+        # Pass 1: pre-fetch package infos (GET requests, cached by requests-cache)
+        package_infos = _prefetch_package_infos(uow.packages_registry, (dep.canonical_name for dep in all_deps))
+
+        # Batch CVE fetch — single POST to /v1/querybatch for all packages
+        packages_for_cve = [(package_infos[dep.canonical_name], dep.version) for dep in all_deps]
+        cve_cache = uow.cve_database.get_cves_batch(packages_for_cve)
+
+        # Batch license fetch — single POST to ClearlyDefined for all packages
+        license_cache = uow.license_database.get_licenses_batch(packages_for_cve)
+
+        # Pass 2: build ScanRecords using pre-fetched CVE and license data
+        def build_records(descriptors: list[DependencyDescriptor]) -> list[ScanRecord]:
+            return [
+                scan_record(
+                    uow.packages_registry,
+                    dep.name,
+                    dep.canonical_name,
+                    dep.version,
+                    dep.is_optional,
+                    cve_cache.get((package_infos[dep.canonical_name].name, dep.version), set()),
+                    dep.dependency_path,
+                    dep.version_constraint,
+                    license_cache.get((package_infos[dep.canonical_name].name, dep.version)),
+                )
+                for dep in descriptors
+            ]
+
+        production_packages = sorted(build_records(prod_deps), key=sort_function, reverse=True)
+        optional_packages = sorted(build_records(opt_deps), key=sort_function, reverse=True)
+        transitive_packages = build_records(trans_deps)
+
+        return ScanResult(
             project_name=project_info.name,
             project_path=project_info.project_path,
             packages_registry=project_info.package_registry.value,
-            production_packages=sorted(
-                [pkg for pkg in production_packages if not pkg.is_dev_dependency], key=sort_function, reverse=True
-            ),
-            development_packages=sorted(
-                [pkg for pkg in development_packages if pkg.is_dev_dependency], key=sort_function, reverse=True
-            ),
+            production_packages=production_packages,
+            optional_packages=optional_packages,
+            transitive_packages=transitive_packages,
         )
