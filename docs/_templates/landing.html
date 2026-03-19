@@ -318,6 +318,68 @@
         </section>
 
 
+        <!-- Differentiator -->
+        <section id="differentiator" class="grid-main py-20 bg-zinc-900 text-white rounded-sm mb-32 px-8">
+            <div class="col-span-12 mb-16">
+                <p class="text-[10px] font-bold uppercase tracking-widest text-zinc-500 mb-4">Positioning</p>
+                <h2 class="text-4xl md:text-5xl heading-font font-bold mb-6">Not Another Audit Tool.</h2>
+                <p class="text-zinc-400 font-light max-w-xl">The ecosystem already has point solutions. OSS IQ takes a different angle — analyzing the <span class="text-white font-medium">health and longevity</span> of your supply chain, not just its known bugs.</p>
+            </div>
+
+            <!-- Table header -->
+            <div class="col-span-12 hidden md:grid grid-cols-12 gap-8 mb-3 border-b border-zinc-700 pb-4">
+                <div class="col-span-3">
+                    <span class="text-[10px] font-bold uppercase tracking-widest text-zinc-600">Tool</span>
+                </div>
+                <div class="col-span-4">
+                    <span class="text-[10px] font-bold uppercase tracking-widest text-zinc-600">What it does</span>
+                </div>
+                <div class="col-span-5">
+                    <span class="text-[10px] font-bold uppercase tracking-widest text-zinc-600">What it misses</span>
+                </div>
+            </div>
+
+            <!-- npm audit row -->
+            <div class="col-span-12 grid grid-cols-1 md:grid-cols-12 gap-4 md:gap-8 py-7 border-b border-zinc-800">
+                <div class="md:col-span-3 flex items-center">
+                    <code class="font-mono font-bold text-zinc-300 text-base">npm audit</code>
+                </div>
+                <div class="md:col-span-4 flex items-center">
+                    <p class="text-sm text-zinc-400 font-light">Finds known security vulnerabilities (CVEs) in your direct and transitive dependencies.</p>
+                </div>
+                <div class="md:col-span-5 flex items-center">
+                    <p class="text-sm text-zinc-500 font-light">Version lag, maintenance signals, abandoned packages, license risk, or whether a package is worth depending on at all.</p>
+                </div>
+            </div>
+
+            <!-- Dependabot row -->
+            <div class="col-span-12 grid grid-cols-1 md:grid-cols-12 gap-4 md:gap-8 py-7 border-b border-zinc-800">
+                <div class="md:col-span-3 flex items-center">
+                    <span class="font-bold text-zinc-300 text-base">Dependabot</span>
+                </div>
+                <div class="md:col-span-4 flex items-center">
+                    <p class="text-sm text-zinc-400 font-light">Opens automated pull requests for every available package update, keeping versions current.</p>
+                </div>
+                <div class="md:col-span-5 flex items-center">
+                    <p class="text-sm text-zinc-500 font-light">Priority. It spams you with PRs for trivial patch bumps while a package you rely on quietly goes unmaintained.</p>
+                </div>
+            </div>
+
+            <!-- OSS IQ row — highlighted -->
+            <div class="col-span-12 grid grid-cols-1 md:grid-cols-12 gap-4 md:gap-8 py-7 bg-zinc-800 -mx-8 px-8 rounded-sm mt-2">
+                <div class="md:col-span-3 flex items-center gap-3">
+                    <span class="w-1.5 h-1.5 rounded-full bg-[#ff4d00] shrink-0"></span>
+                    <span class="font-bold text-[#ff4d00] text-base heading-font">OSS IQ</span>
+                </div>
+                <div class="md:col-span-4 flex items-center">
+                    <p class="text-sm text-white font-medium">Analyzes the health and longevity of your entire supply chain — CVEs, version lag, maintenance status, transitive risk, and license compliance.</p>
+                </div>
+                <div class="md:col-span-5 flex items-center">
+                    <p class="text-sm text-zinc-300 font-light italic">"It tells you if you <span class="not-italic font-semibold text-white">should use</span> a package, not just if it's broken."</p>
+                </div>
+            </div>
+        </section>
+
         <!-- Try It Out -->
         <section id="try-it-out" class="flex flex-col mb-24">
             <div class="grid-main pt-16 border-t border-zinc-200 mb-20">
