@@ -13,7 +13,7 @@
 
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>OSS IQ - Know Your Dependency Risk in Minutes, Not Weeks</title>
+    <title>OSS IQ - Quantify Software Dependencies Maintenance Health</title>
 
     <!-- SEO Meta Tags -->
     <meta name="description"
@@ -199,7 +199,8 @@
         </div>
     </header>
 
-    <main class="max-w-6xl mx-auto px-6 pt-32 md:pt-48 pb-16 flex-grow">
+    <main>
+        <div class="max-w-6xl mx-auto px-6 pt-32 md:pt-48 pb-16 flex-grow">
 
         <!-- Hero / Manifesto Section -->
         <section id="manifesto" class="grid-main mb-32">
@@ -443,6 +444,29 @@
         </section>
         
 
+        <!-- CI/CD Quality Gate Callout -->
+        <section id="infrastructure" class="grid-main py-24 bg-zinc-900 text-white rounded-sm mb-32 px-8">
+            <div class="col-span-full">
+                <h2 class="text-4xl md:text-5xl heading-font font-bold mb-8">From CLI to Quality Gate.</h2>
+                <p class="text-xl text-zinc-400 font-light mb-6">
+                    Plug OSS IQ into any CI pipeline. Export to JSON and fail builds when lag exceeds your threshold. Ship with confidence, not just hope.
+                </p>
+                <div class="bg-zinc-800 rounded-sm px-6 py-5 mb-10 font-mono text-sm text-zinc-300 overflow-x-auto">
+                    <span class="text-zinc-500"># Fail if any production package is more than 365 days behind</span><br>
+                    <span class="text-[#ff4d00]">uvx</span> --from ossiq ossiq-cli export --output-format=json --output=report.json .<br>
+                    <span class="text-[#ff4d00]">jq</span> <span class="text-green-400">'[.production_packages[] | select(.time_lag_days > 365)] | length'</span> report.json
+                </div>
+                <div class="flex flex-wrap gap-6 justify-center">
+                    <a href="tutorials/tutorial-github-actions.html" class="bg-[#ff4d00] hover:bg-orange-600 text-white px-8 py-4 font-bold text-sm uppercase tracking-widest transition-all">
+                        Documentation
+                    </a>
+                    <a href="https://github.com/ossiq/ossiq" class="border border-zinc-600 hover:border-zinc-300 text-white px-8 py-4 font-bold text-sm uppercase tracking-widest transition-all">
+                        GitHub Repository
+                    </a>
+                </div>
+            </div>
+        </section>
+
         <!-- How It Works (Process) -->
         <section id="how-it-works" class="grid-main pt-16 border-t border-zinc-200 mb-32">
             <div class="col-span-12 mb-16">
@@ -511,29 +535,7 @@
             </div>
         </section>
 
-        <!-- CI/CD Quality Gate Callout -->
-        <section id="infrastructure" class="grid-main py-24 bg-zinc-900 text-white rounded-sm mb-32 px-8">
-            <div class="col-span-full">
-                <h2 class="text-4xl md:text-5xl heading-font font-bold mb-8">From CLI to Quality Gate.</h2>
-                <p class="text-xl text-zinc-400 font-light mb-6">
-                    Plug OSS IQ into any CI pipeline. Export to JSON and fail builds when lag exceeds your threshold. Ship with confidence, not just hope.
-                </p>
-                <div class="bg-zinc-800 rounded-sm px-6 py-5 mb-10 font-mono text-sm text-zinc-300 overflow-x-auto">
-                    <span class="text-zinc-500"># Fail if any production package is more than 365 days behind</span><br>
-                    <span class="text-[#ff4d00]">uvx</span> --from ossiq ossiq-cli export --output-format=json --output=report.json .<br>
-                    <span class="text-[#ff4d00]">jq</span> <span class="text-green-400">'[.production_packages[] | select(.time_lag_days > 365)] | length'</span> report.json
-                </div>
-                <div class="flex flex-wrap gap-6 justify-center">
-                    <a href="tutorials/tutorial-github-actions.html" class="bg-[#ff4d00] hover:bg-orange-600 text-white px-8 py-4 font-bold text-sm uppercase tracking-widest transition-all">
-                        Documentation
-                    </a>
-                    <a href="https://github.com/ossiq/ossiq" class="border border-zinc-600 hover:border-zinc-300 text-white px-8 py-4 font-bold text-sm uppercase tracking-widest transition-all">
-                        GitHub Repository
-                    </a>
-                </div>
-            </div>
-        </section>
-
+        </div>
     </main>
 
     <!-- Footer -->
