@@ -17,7 +17,7 @@
     "generate:types": "json2ts -i ../src/ossiq/ui/renderers/export/schemas/export_schema_v1.0.json -o src/types/report.ts"
   },
   "dependencies": {
-    "@tailwindcss/vite": "^4.1.18",
+    "@tailwindcss/vite": "^4.2.2",
     "@types/d3": "^7.4.3",
     "d3": "^7.9.0",
     "eslint-plugin-vue": "^10.8.0",
@@ -31,7 +31,7 @@
     "@tsconfig/node24": "^24.0.4",
     "@types/jsdom": "^28.0.0",
     "@types/node": "^25.4.0",
-    "@vitejs/plugin-vue": "^6.0.3",
+    "@vitejs/plugin-vue": "^6.0.5",
     "@vitest/eslint-plugin": "^1.6.6",
     "@vue/eslint-config-typescript": "^14.6.0",
     "@vue/test-utils": "^2.4.6",
@@ -46,11 +46,11 @@
     "oxfmt": "^0.37.0",
     "oxlint": "~1.52.0",
     "typescript": "~5.9.3",
-    "vite": "beta",
-    "vite-plugin-singlefile": "^2.3.0",
-    "vite-plugin-vue-devtools": "^8.0.5",
-    "vitest": "^4.0.18",
-    "vue-tsc": "^3.2.4"
+    "vite": "^7.3.1",
+    "vite-plugin-singlefile": "^2.3.2",
+    "vite-plugin-vue-devtools": "^8.1.0",
+    "vitest": "^4.1.0",
+    "vue-tsc": "^3.2.6"
   },
   "engines": {
     "node": "^20.19.0 || >=22.12.0"
