@@ -45,7 +45,7 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;700;900&family=Space+Grotesk:wght@300;500;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;700;900&family=Space+Grotesk:wght@300;500;700&family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&display=swap" rel="stylesheet">
     <style>
         :root {
             --bg-color: #fcfcfc;
@@ -189,8 +189,7 @@
                 <a href="#how-it-works" class="nav-link">How It Works</a>
                 <a href="#features" class="nav-link">Features</a>
                 <a href="#try-it-out" class="nav-link">Try It</a>
-                <a href="getting-started.html" class="nav-link">Getting Started</a>
-                <a href="explanation.html" class="nav-link">Explanation</a>
+                <a href="getting-started.html" class="nav-link">Documentation</a>
                 <a href="#faq" class="nav-link">FAQ</a>
                 <a href="https://github.com/ossiq/ossiq" class="nav-link text-[#ff4d00]">GitHub</a>
             </nav>
@@ -206,17 +205,17 @@
         <section id="manifesto" class="grid-main mb-32">
             <div class="col-span-12 lg:col-span-6">
                 <h1 class="text-3xl md:text-4xl lg:text-6xl heading-font font-bold leading-[0.95] mb-16">
-                    Know Your <br>
-                    <span class="text-[#03b08a]">Dependency Risk</span> <br>
-                    in Minutes.
+                    Stop<br>
+                    <span class="text-[#03b08a]">Dependency Decay.</span><br>
+                     End Build Breaks.
                 </h1>
-
                 <div>
                     <p class="text-xl md:text-2xl font-light mb-8">
-                        Understand your <span class="font-medium text-[#ff4d00]">dependency drift</span> at scale. No ad-hoc audits. No spreadsheets. No dependabot-style urgency.
+                        OSS IQ analyzes <span class="font-medium text-[#ff4d00]">dependency drift</span> at scale. Open-source intelligence for platform teams.
                     </p>
                     <p class="text-base font-light text-zinc-500 mb-12">
-                        Track version lag and transitive risk directly from your dependency files. Move from <span class="font-medium">reactive CVE-chasing</span> to a planned, predictable maintenance rhythm.
+                        Track version lag and transitive risk directly from your dependency files. 
+                        Move from <span class="font-medium">reactive CVE-chasing</span> to a planned, predictable maintenance rhythm.
                     </p>
                     <div class="flex flex-wrap gap-4 mb-8">
                         <a href="#try-it-out" class="bg-black text-white px-8 py-4 rounded-sm font-bold text-xs uppercase tracking-widest hover:bg-[#ff4d00] transition-colors">Try It</a>
@@ -280,9 +279,9 @@
         <section id="features" class="grid-main pt-16 border-t border-zinc-200 mb-32">
             <div class="col-span-12 lg:col-span-4">
                 <p class="text-[10px] font-bold uppercase tracking-widest text-zinc-400 mb-4">The Challenge</p>
-                <h2 class="text-3xl heading-font font-bold mb-8">Stop Flying Blind.</h2>
+                <h2 class="text-3xl heading-font font-bold mb-8">Security Vulnerabilities aren't your only risk.</h2>
                 <p class="text-zinc-500 text-sm font-light">
-                    You have 23 dependencies. Or 230. Or 2,300 across your org. How many have critical vulnerabilities? How far behind are you? Which ones are abandoned?
+                    You have 50 dependencies. Or 150. Or 300 across your projects. How far behind are you? Which ones are abandoned? How many has pinned transitive dependency?
                 </p>
             </div>
 
@@ -292,22 +291,27 @@
                         <div class="text-lg font-bold mb-4 flex items-center">
                             <span class="squared-bullet"></span> Security Blind Spots
                         </div>
-                        <p class="text-zinc-500 font-light mb-3">Running <code class="bg-zinc-100 px-2 py-0.5 rounded text-sm">npm audit</code> tells you there are vulnerabilities. It doesn't tell you which ones actually matter or how to prioritize them.</p>
-                        <p class="text-sm font-semibold text-green-600">&#10003; We surface CVEs by severity and packages by drift status</p>
+                        <p class="text-zinc-500 font-light mb-3">                            
+                            Running <code class="bg-zinc-100 px-2 py-0.5 rounded text-sm">npm audit</code> tells you there are vulnerabilities. It doesn't tell you which ones actually matter or how to prioritize them.</p>
+                        <p class="text-sm font-semibold text-green-600 flex items-center ml-4 mt-6"><span class="material-symbols-outlined mr-2">check</span>We surface CVEs by severity and packages by drift status</p>
                     </div>
                     <div>
                         <div class="text-lg font-bold mb-4 flex items-center">
                             <span class="squared-bullet"></span> Silent Tech Debt
                         </div>
-                        <p class="text-zinc-500 font-light mb-3">Your React version is 2 years old. Your Express is 3 majors behind. You won't know until you try to upgrade and it takes 2 weeks instead of 2 hours.</p>
-                        <p class="text-sm font-semibold text-green-600">&#10003; We track your lag in real-time</p>
+                        <p class="text-zinc-500 font-light mb-3">
+                            Your React version is 2 years old. Your Express is 3 majors behind. 
+                            The 'Quick Update' that takes 3 days. 
+                            Urgent CVE vulnerability takes 2 weeks to resolve b/c transitive dependency has pinned vulnerable version.
+                        </p>
+                        <p class="text-sm font-semibold text-green-600 flex items-center ml-4 mt-6"><span class="material-symbols-outlined mr-2">check</span>We track your lag in real-time</p>
                     </div>
                     <div>
                         <div class="text-lg font-bold mb-4 flex items-center">
-                            <span class="squared-bullet"></span> Hidden Transitive Risk
+                            <span class="squared-bullet"></span>Hidden Transitive Risk
                         </div>
                         <p class="text-zinc-500 font-light mb-3">Your direct dependencies look fine. But what about their dependencies? A CVE three levels deep is still your problem. Without transitive visibility, you're missing most of the attack surface.</p>
-                        <p class="text-sm font-semibold text-green-600">&#10003; We map your full dependency graph</p>
+                        <p class="text-sm font-semibold text-green-600 flex items-center ml-4 mt-6"><span class="material-symbols-outlined mr-2">check</span>We map your full dependency graph</p>
                     </div>
                 </div>
             </div>
@@ -333,11 +337,7 @@
                         </div>
                         <div class="px-6 py-6 font-mono text-sm space-y-4">
                             <div>
-                                <p class="text-zinc-500 text-xs mb-2"># JavaScript / npm / yarn / pnpm</p>
-                                <p class="text-white">uvx --from ossiq ossiq-cli scan .</p>
-                            </div>
-                            <div>
-                                <p class="text-zinc-500 text-xs mb-2"># Python / uv / poetry / pip</p>
+                                <p class="text-zinc-500 text-xs mb-2"># JavaScript / npm or Python / uv / pip<</p>
                                 <p class="text-white">uvx --from ossiq ossiq-cli scan .</p>
                             </div>
                             <div>
@@ -392,17 +392,18 @@
                 <div class="border-l border-zinc-100 pl-6">
                     <span class="text-4xl font-light text-zinc-200 block mb-4">01</span>
                     <h3 class="font-bold mb-2">Run OSS IQ</h3>
-                    <p class="text-sm text-zinc-500">Run OSS IQ pointing to your project manifest file. We support npm (yarn, pnpm) and Python (uv, poetry, classic).</p>
+                    <p class="text-sm text-zinc-500">Run OSS IQ pointing to your project manifest file. We support npm and Python (uv, pip and pip classic).</p>
                 </div>
                 <div class="border-l border-zinc-100 pl-6">
                     <span class="text-4xl font-light text-zinc-200 block mb-4">02</span>
-                    <h3 class="font-bold mb-2">OSS IQ Analyzes Everything</h3>
-                    <p class="text-sm text-zinc-500">Version lag, CVEs, transitive dependencies, and license compliance—all cross-referenced against public databases (OSV, npm, PyPI, ClearlyDefined) in seconds.</p>
+                    <h3 class="font-bold mb-2">OSS IQ Analysis</h3>
+                    <p class="text-sm text-zinc-500">Version lag, CVEs, transitive dependencies, and license compliance—all cross-referenced against public databases (OSV, npm, PyPI, ClearlyDefined) using 
+                        <a href="https://en.wikipedia.org/wiki/Mining_software_repositories" target="_blank" class="underline">MSR</a> Engine in seconds.</p>
                 </div>
                 <div class="border-l border-zinc-100 pl-6">
                     <span class="text-4xl font-light text-zinc-200 block mb-4">03</span>
                     <h3 class="font-bold mb-2">Get Your OSS IQ Report</h3>
-                    <p class="text-sm text-zinc-500">See your health score, drill into sub-scores, and get a prioritized list of what to fix first.</p>
+                    <p class="text-sm text-zinc-500">See your dependencies drift report, drill into each package details, and get a prioritized list of what to fix first.</p>
                 </div>
                 <div class="border-l border-zinc-100 pl-6">
                     <span class="text-4xl font-light text-zinc-200 block mb-4">04</span>
@@ -414,7 +415,7 @@
             <div class="col-span-12 mt-8">
                 <a href="getting-started.html"
                     class="inline-flex items-center gap-2 bg-black text-white px-8 py-4 rounded-sm font-bold text-xs uppercase tracking-widest hover:bg-[#ff4d00] transition-colors">
-                    Try It Now
+                    Scan your first repo
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
                 </a>
             </div>
