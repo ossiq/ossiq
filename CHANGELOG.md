@@ -2,6 +2,283 @@
 
 
 
+## v0.1.6 (2026-03-20)
+
+
+### Feature
+
+* feat: added package command to show package details in CLI (GH-18) ([`06191b3`](https://github.com/ossiq/ossiq/commit/06191b3e98e0120aa7efd8e7084163ae8be07453))
+Added `package` command to show package details
+in the console with transitive dependencies support
+as well. Now, there's feature parity between HTML
+and Terminal CLI.
+
+* feat: added clearlydefined to main licenses information (GH-18) ([`e64ccb3`](https://github.com/ossiq/ossiq/commit/e64ccb3040b46ed0dae023b06264fa6022de543c))
+ClearlyDefined.io is a project to collect and crowdsource
+proper licensing information per package version. Now,
+licensing information correctly provided in SPDX format.
+
+* feat: simplified dependency panel design (GH-18) ([`c75b4e9`](https://github.com/ossiq/ossiq/commit/c75b4e9cd4f604c1d5964a1d713b4d37a7d8ffc5))
+Simplified Dependencies Panel design to maximize
+space and ergonomics.
+
+* feat: licenses and transitive cves (GH-18) ([`e51f337`](https://github.com/ossiq/ossiq/commit/e51f337e98b57d1961845f312d6b22f8ba13a65c))
+Dependencies licenses exposed for Dependency Detail panel
+and in the report. Transitive CVEs also exposed next to
+direct CVEs section.
+
+* feat: added license from ClearlyDefined source (GH-18) ([`4849e70`](https://github.com/ossiq/ossiq/commit/4849e70f259d5811fe183894b568cbb8badb09df))
+Added new source of information about Licenses in SPDX format
+(ClearlyDefined) together with caching and updates to the
+export model.
+
+* feat: exposed license and purl fields (GH-18) ([`5b034e4`](https://github.com/ossiq/ossiq/commit/5b034e4b8d0cc1383441d24fe6af82431751e5bf))
+Added license and purl fields to the export schema.
+Note, that for PyPI license is a mess and needs to be
+normalized in the future.
+
+* feat: added OSV optimization with batch requests (GH-18) ([`d168bf7`](https://github.com/ossiq/ossiq/commit/d168bf78402830913bd9e780dbf7362b6ef1bd40))
+Leveraged OSV API to perform batched requests instead
+of per-package. Significantly improved performance.
+
+* feat: added caching for Github and OSV (GH-18) ([`eb7d36b`](https://github.com/ossiq/ossiq/commit/eb7d36bcbda98d3976fea7af3f236c22a26fff4b))
+Added requests-caching dependency to handle caching
+for Github and OSV. Github is integrated, OSV is not.
+
+* feat: updated dependency details dialogue and transitive explorer (GH-18) ([`5b51de5`](https://github.com/ossiq/ossiq/commit/5b51de530e93e754561e18cc6d15391d42bc4049))
+Improved transitive dependency explorer with additional UX
+when specific dependency is selected as well as designed
+package details side panel. Refactored report to
+open package details panel as well instead of direct
+link to the registry.
+
+* feat: added repo url/homepage url and package urls (GH-18) ([`a908788`](https://github.com/ossiq/ossiq/commit/a9087888f979d7cb00ec0432831201e80bebb2aa))
+Extended schema with repo_url, homepage_url and
+package_url of a package for more detailed information
+about the package.
+
+* feat: added version constraints, overwrites and aliases for NPM (GH-18) ([`f35143b`](https://github.com/ossiq/ossiq/commit/f35143b3fc359f518fe9680d68998efbe7bbfb31))
+Added support of aliases in dependencies with multiple versions
+of the same dependency support as well as overrides for NPM.
+Aliases exposed via dependency_name property in export schema
+and overrides just separately categorized as "overrides" category.
+For PyPI added versions constraints, so it could be properly
+highlighted in the frontend.
+
+* feat: added new field version_constraint to PackageVersion (GH-18) ([`468be8d`](https://github.com/ossiq/ossiq/commit/468be8d87c401cdc4798fbaf3311d0dc00ef3838))
+Added new field `version_constraint` to keep constraints of
+a dependency. This is especially important for PyPI for explicit
+upper bound version constraint which in combination with
+version lag could indicate accumulated tech debt/risk exposure.
+Added CSV schema version 1.1 to align with JSON schema version.
+Added src/ossiq/domain/README.md with references to specs and
+motivation behind certain features.
+
+* feat: added filtering capability to explorer (GH-18) ([`02fdac7`](https://github.com/ossiq/ossiq/commit/02fdac706619589aaa1f7728a5681e268e07befc))
+Added filtering by keyword (fuse.js), CVEs,
+pinned and upper bound constrained versions.
+Additionally, added legend and some UX help.
+
+* feat: Mapping in dependency explorer (GH-18) ([`2a01db2`](https://github.com/ossiq/ossiq/commit/2a01db20ae946364d665c76ef3767b657323cad1))
+Implemented exploration UI and UX for transitive dependencies,
+handling of same dependencies by different packages as well
+as CVEs highlight and pinned/upper version constrained dependencies.
+
+* feat: transitive dependencies rendering code (GH-18) ([`4cce69b`](https://github.com/ossiq/ossiq/commit/4cce69bbca18ea59e90b43b621eb4e23f2a77008))
+Initial iteration of transitive dependencies
+rendering with D3.
+
+* feat: introduced new export schema version 1.1 with transitive dependencies (GH-18) ([`dfa4492`](https://github.com/ossiq/ossiq/commit/dfa449284ee18c12c247f9766435bcc3f57edd75))
+Introduced export schema 1.1 to cover use case with
+transitive dependencies. Needed to render dependency
+tree with D3 in frontend.
+
+* feat: added support of transitive dependencies to the scan command (GH-18) ([`f2c027d`](https://github.com/ossiq/ossiq/commit/f2c027d5b1b7176229e1bbd53b3a8cf845072a6a))
+Streamlined naming for ProjectVersion from generic dependencies to
+declared_dependencies with aim to improve semantic meaning.
+Added transitive dependencies traverse and extraction into
+the scan command models. Additionally, renamed ProjectMetrics
+to ScanResult to make it more semantically meaningful.
+Added DESIGN.md file to track code-level gaps/improvements.
+
+* feat: initial integration of Vue SPA and OSS IQ backend (GH-18) ([`50e7a2d`](https://github.com/ossiq/ossiq/commit/50e7a2df948492e8fbafb4b9f51254fb2849e179))
+ - refactored Jinja2-based template to Vue-based SPA for scan command
+ - removed Jinja2 templates and respective tags
+ - reduced dependency on uow for scan-related commands to simplify
+   project usage for MSR-specific research.
+
+* feat: added initial frontend implementation for the OSS IQ report (GH-18) ([`cc4e62f`](https://github.com/ossiq/ossiq/commit/cc4e62fd323db00f7544832b48f53735f087c888))
+Added two sections to the Vue-based app for the frontend:
+ - Added Vue version of the current HTML-based report;
+ - Added D3-based directed graph to represent transitive dependencies
+Furthermore, created initial implementation to build frontend both
+using hatch build hook and justfile command to maintain good
+development experience.
+
+* feat: strawmen reports for scan command and for transitive dependencies (GH-18) ([`113ef0c`](https://github.com/ossiq/ossiq/commit/113ef0c8ba427340f8e3e59e5b0448f2046d6ea6))
+Added pretty much production-ready report for scan command and
+strawmen implementation for transitive dependencies analysis
+visualisation view with D3.
+
+* feat: added frontend builder based on vue.js (GH-18) ([`fc6fded`](https://github.com/ossiq/ossiq/commit/fc6fdede22f03296f69cc936e7750fdea49cfa49))
+Added VueJS application and build system to
+build a self-contained SPA for HTML reports.
+The ultimate goal is to generate SPA during
+python package normal build process (facilitated
+by Hatch) and distribute only built version.
+Since there's attestation process happening,
+distributed SPA would have same security
+attributes as python package itself.
+To provide best UX for the HTML report,
+especially with introduction of Transitive
+Dependencies, the tooling should have
+enough capabilities to sustain development.
+
+* feat: implemented dependency tree parsers for pylock and pip classic (GH-18) ([`4afa462`](https://github.com/ossiq/ossiq/commit/4afa462733c4ac12299edb778aaf49a667c97eb5))
+ - Finilized implementaiton for pylock and pip classic requirements.txt
+ - Modified tests respectively. Added test for dependency_tree.py interface
+
+* feat: refactored tests and NPM package manager (GH-18) ([`620ed34`](https://github.com/ossiq/ossiq/commit/620ed3487b53c8aa3f076ac6020b16fadf240c13))
+Refactored NPM package manager and tests to support
+dependency tree structure.
+
+* feat: refactored tests for uv and bug in dependency_tree parser (GH-18) ([`0ca1729`](https://github.com/ossiq/ossiq/commit/0ca1729e9a72d54f8ffe9dc6b9468ff461db301b))
+Refactored/fixed tests for UV package manager dependencies parser
+and small fix for categorization error in dependency tree.
+
+* feat: introduced dependency tree parser (GH-18) ([`1c0b647`](https://github.com/ossiq/ossiq/commit/1c0b647d4d155917acc4f819bd41e868d594d556))
+Implemented Dependency Tree abstract class and
+implementations for UV and NPM (and NPM without lockfile).
+Refactored Project service to work with new data structure.
+Enhanced Depenency structure to work better with tree-like
+structure.
+WIP! Pylock is not finished as well as classic PIP is not
+refactored yet.
+Additionally, improved organization of pyproject.toml
+in accordance with PEP735 and adjusted justfile respectively.
+
+
+### Fix
+
+* fix: fixed docs build workflow (GH-18) ([`72e5634`](https://github.com/ossiq/ossiq/commit/72e563455b5121df265d52d2201b270e9fd9a5a0))
+
+* fix: fixed catalog: pnpm versioning in package.json (GH-18) ([`32e4a52`](https://github.com/ossiq/ossiq/commit/32e4a52a6b5dc25054a8d73fb5d0b0d1667f0584))
+Fixed handling of pnpm artifacts (for an
+example project @vue/core) to properly
+handle `catalog:` version modifier.
+Fixed request timeout for ClearlyDefined
+due to large request size.
+
+* fix: aligned behavior for transitive CVEs with Explorer view (GH-18) ([`0071804`](https://github.com/ossiq/ossiq/commit/007180453a8e88719966de31bcd804bbb4a76d7c))
+Aligned transitive CVEs view in Dependency Details panel with
+Explorer. Improved table layout slightly to fit license information.
+
+
+### Refactor
+
+* refactor: documentation migrated from mkdocs to sphinx (GH-18) ([`6ede725`](https://github.com/ossiq/ossiq/commit/6ede725b88d8292f2cf5ba89f2ff262c6c7c1912))
+There's a mess with MkDocs support together with MkDocs-Material
+folks who are hostages of the situation:
+https://squidfunk.github.io/mkdocs-material/blog/2026/02/18/mkdocs-2.0/
+Since this is just a beginning for OSS IQ, current
+documentation is migrated to Sphinx with similar to
+MkDocs-Material design.
+
+* refactor: refactored scan function for better readibility (GH-18) ([`576e416`](https://github.com/ossiq/ossiq/commit/576e416addf58053c06eadb9241670775b18d003))
+Refactored scan function for better readibility, fixed
+tests for github/osv and project service.
+
+* refactor: Refactored out dependency on pandas (GH-18) ([`932a174`](https://github.com/ossiq/ossiq/commit/932a174e04dd8f6ead9c710579e48d0a33331d30))
+Removed the only piece of code dependend on pandas
+to reduce dependencies from larger packages.
+
+* refactor: refactored initial dependency tree parser (GH-18) ([`a5e6e1f`](https://github.com/ossiq/ossiq/commit/a5e6e1fb72d1d221e40119488203dea2e0929e4e))
+Refactored initial implementation with packageName@version
+keys and original unnecessary complexity.
+
+
+### Documentation
+
+* docs: updated README.md and fixed some mistakes in landing ([`b5baa3a`](https://github.com/ossiq/ossiq/commit/b5baa3aa078685868dd2d3253250a356f15ff875))
+
+* docs: moved quality gates section next to try it out ([`c5abbf3`](https://github.com/ossiq/ossiq/commit/c5abbf3acfd0077e2b507949ffb16c92fbcdd92d))
+
+* docs: added positioning to the landing page ([`a14595c`](https://github.com/ossiq/ossiq/commit/a14595cd8b0573ee4900b79c299c3fd768c693e1))
+
+* docs: updated headline for the landing ([`00f3924`](https://github.com/ossiq/ossiq/commit/00f3924dc3a4d301d0e45d77f05e2ae50b01d189))
+
+* docs: updated landing with better wording ([`9af3d58`](https://github.com/ossiq/ossiq/commit/9af3d5812a6daea8a5cdd37395126b9f88b3a902))
+Improved some phrasing on the landing page,
+simplified menu and removed redundant example.
+Also, removed mentions of pnpm and poetry.
+
+* docs: updated README to align with documentation (GH-18) ([`e49e683`](https://github.com/ossiq/ossiq/commit/e49e68364148a21aabbc6f56c98a28e5f3a9ac32))
+
+* docs: finished documentation and updated landing (GH-18) ([`0f2cf65`](https://github.com/ossiq/ossiq/commit/0f2cf651a6de2c7f11e9825f17ba89ccb36cb544))
+Finished documentation with the new tool Sphinx as well
+as updated landing page for the tool. Aligned what is
+currently implemented with what is on the landing. Removed
+forward-looking references for now to clearly communicate
+what value is already possible to unlock.
+
+* docs: added reference documentation and updatd getting started (GH-18) ([`c8a2218`](https://github.com/ossiq/ossiq/commit/c8a2218cdefcbffc0b579a6143716ceb0c7ecee3))
+
+
+### Chore
+
+* chore: disabled docker image generation on publish and vscode setting ([`b80f8b0`](https://github.com/ossiq/ossiq/commit/b80f8b048e507b9391cdced98fb226d12b62d3cc))
+
+* chore: updated frontend dependencies ([`d51dad9`](https://github.com/ossiq/ossiq/commit/d51dad9f822b138c90269d96f77ff6f71303386d))
+Another demonstration why OSS IQ is needed -
+around 10 dependencies were updated since
+last week.
+
+* chore(deps): bump undici ([`2c576f5`](https://github.com/ossiq/ossiq/commit/2c576f5fb2a9841c0d8a37446b5ac07ddadcfc1e))
+Bumps the npm_and_yarn group with 1 update in the /frontend directory: [undici](https://github.com/nodejs/undici).
+Updates `undici` from 7.22.0 to 7.24.4
+- [Release notes](https://github.com/nodejs/undici/releases)
+- [Commits](https://github.com/nodejs/undici/compare/v7.22.0...v7.24.4)
+---
+updated-dependencies:
+- dependency-name: undici
+  dependency-version: 7.24.4
+  dependency-type: indirect
+  dependency-group: npm_and_yarn
+...
+
+* chore: tests for clearlydefined and README updates (GH-18) ([`1f291f0`](https://github.com/ossiq/ossiq/commit/1f291f0d6334e9663e48fa0251f96a65454af6de))
+Added sources used to README and added tests
+for clearlydefined code.
+
+* chore: updated frontend dependencies and some config to FE (GH-18) ([`38658e2`](https://github.com/ossiq/ossiq/commit/38658e2aae0ac80707d5d76cfe9ce87f867f6559))
+ - updated all FE depndencies to the latest versions
+ - changed green transitive descendant edges color to light blue
+ - built frontend and placed as spa_app.html
+
+* chore: Updated dependencies and fixed types (GH-18) ([`ad8bedd`](https://github.com/ossiq/ossiq/commit/ad8beddf2cb9bedc8c8f09f890af544380202360))
+Updated packages using OSS IQ MCP server and
+fixed typing (str, Enum -> StrEnum) as well as
+fix frontend builder test.
+
+* chore: simplified few places for future use (GH-18) ([`fe83c7b`](https://github.com/ossiq/ossiq/commit/fe83c7bbcbaa642c5ebc135496c81f80cd5d708a))
+During development noticed that few places has
+some type dependencies not needed for the use case.
+Removed and added FIXME suggestion for gap in
+implementation.
+
+* chore(deps): bump cryptography in the uv group across 1 directory ([`de448fe`](https://github.com/ossiq/ossiq/commit/de448fee974b2afb9ea0ec3f8e869eb98b626c5a))
+Bumps the uv group with 1 update in the / directory: [cryptography](https://github.com/pyca/cryptography).
+Updates `cryptography` from 46.0.3 to 46.0.5
+- [Changelog](https://github.com/pyca/cryptography/blob/main/CHANGELOG.rst)
+- [Commits](https://github.com/pyca/cryptography/compare/46.0.3...46.0.5)
+---
+updated-dependencies:
+- dependency-name: cryptography
+  dependency-version: 46.0.5
+  dependency-type: indirect
+  dependency-group: uv
+...
+
 ## v0.1.5 (2026-01-25)
 
 
