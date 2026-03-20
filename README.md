@@ -3,11 +3,11 @@
 [![PyPI version](https://img.shields.io/pypi/v/ossiq.svg)](https://pypi.org/project/ossiq)
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL%20v3-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
 
-> Know Your Dependency Risk in Minutes, Not Weeks.
+> Quantify Maintenance Health. Control Your Drift.
 
-**OSS IQ** is a free & open-source CLI tool that provides deep visibility into the risk profile of your open-source ecosystem. It helps you move from reactive CVE-chasing to a planned, predictable maintenance rhythm by analyzing both direct and transitive dependencies to identify security vulnerabilities, version lag, and maintenance "red flags" before they reach production.
+**OSS IQ** is a free & open-source CLI tool that analyzes dependency drift at scale. Track version lag and transitive risk directly from your dependency files. It helps to move from reactive CVE-chasing to a planned, predictable maintenance rhythm.
 
-![OSS IQ HTML Report](https://ossiq.dev/img/ossiq-report-html-light.png)
+![OSS IQ HTML Report](https://ossiq.dev/_images/ossiq-cli-report-2026-03-14.png)
 
 ## What is OSS IQ?
 
@@ -17,28 +17,24 @@ In a typical project with hundreds of dependencies, how do you answer these ques
 - Which packages are unmaintained or abandoned?
 - Which newer versions of dependencies would work best for my project?
 
-`npm audit` tells you about vulnerabilities, but not which ones matter. Your framework might be years old, turning a simple upgrade into a multi-week project. Without a centralized view, you are always reacting, not planning.
+## Key Features
+
+- **Security Blind Spots**: Go beyond `npm audit` to see which vulnerabilities actually matter and how to prioritize them.
+- **Multiple Output Formats**: CLI and interactive HTML per-project dependnecies exploration tools as well as export into clearly defined JSON or CSV schemas.
+- **CI/CD Integration**: Use scores and metrics to build quality gates and enforce dependency policies automatically.
 
 OSS IQ bridges the gap between raw dependency data and actionable intelligence. It analyzes version lag, CVEs, transitive dependencies, and maintainer activity to produce a single, holistic view of your project dependencies.
 
 ## How It Works
 
 1.  **Run OSS IQ**: Point the CLI to your project's manifest file (`package.json`, `pyproject.toml`, etc.). OSS IQ supports NPM and Python (uv, pip).
-2.  **Analyze Everything**: The tool cross-references version lag, CVEs, and maintainer activity against public databases in real-time.
-3.  **Get Your Report**: See a high-level health score and drill down into specific risks. The output is available as a rich console summary, an interactive HTML report, JSON export, or CSV export.
-4.  **Build Quality Gates**: Use the metrics and scores to set policies and build automated quality gates in your CI/CD pipelines.
+2.  **Analyze Everything**: Version lag, CVEs, transitive dependencies, and license compliance—all cross-referenced against public databases (OSV, npm, PyPI, ClearlyDefined) using MSR Engine.
+3.  **Get Your Report**: See your dependencies drift report, drill into each package details, and get a prioritized list of what to fix first.
+4.  **Build Quality Gates**: Use your project metrics to set up policies and drive organization behavior.
 
 ## Quick Start
 
-### 1. GitHub Token
-
-OSS IQ performs deep analysis by mining software repository history, which can involve hundreds of API requests to GitHub. To avoid being rate-limited, it's. best to provide a GitHub Personal Access Token (PAT).
-
-```bash
-export OSSIQ_GITHUB_TOKEN=$(gh auth token)
-```
-
-### 2. Run OSS IQ
+### 1. Run OSS IQ
 
 The fastest way is to run directly from [PyPI](https://pypi.org/) with [uvx](https://docs.astral.sh/uv/) with no install required:
 
@@ -54,6 +50,16 @@ uvx --from ossiq ossiq-cli scan --presentation=html --output report.html /path/t
 ```
 
 OSS IQ automatically detects the dependency manifest (`package.json`, `pyproject.toml`, etc.) in the target directory.
+
+
+#### GitHub Token
+
+OSS IQ performs deep analysis by mining software repository history, which can involve hundreds of API requests to GitHub. To avoid being rate-limited, it's. best to provide a GitHub Personal Access Token (PAT).
+
+```bash
+export OSSIQ_GITHUB_TOKEN=$(gh auth token)
+```
+
 
 If you prefer a persistent install:
 
@@ -161,13 +167,6 @@ The output mirrors the structure of the dependency detail panel:
 
 If the package appears in multiple places in the tree (hoisted duplicates, diamond dependencies), each occurrence is shown separately with a **SHARED NODE** indicator.
 
-## Key Features
-
--   **Security Blind Spots**: Go beyond `npm audit` to see which vulnerabilities actually matter and how to prioritize them.
--   **Silent Tech Debt**: Track your version lag in releases and in time (e.g., "your React version is 2 years old") to quantify technical debt.
--   **Multiple Output Formats**: Generate reports as interactive HTML, JSON, CSV exports, or a rich console view.
--   **CI/CD Integration**: Use scores and metrics to build quality gates and enforce dependency policies automatically.
-
 ## Supported Ecosystems
 
 ### NPM
@@ -202,13 +201,21 @@ OSS IQ aggregates data from the following public sources:
 
 ## FAQ
 
-**How is this different from `npm audit` or `pip-audit`?**
+**Why another Software Composition Analysis tool?**
+
+OSS IQ is not another vulnerability scanner. It helps platform teams evaluate open-source dependencies as long-term engineering assets by analyzing lockfiles, dependency graphs, and maintenance signals, producing stable scores suitable for CI and platform governance.
+
+**How is OSS IQ different from npm audit or pip-audit?**
+
 Audit tools are great at finding known vulnerabilities. OSS IQ goes further by also analyzing non-security risks, such as how far behind you are from the latest version (technical debt) and whether a package is still actively maintained. We give you the full picture of dependency health, not just one part of it.
 
-**What ecosystems does OSS IQ support?**
-OSS IQ currently supports npm for JavaScript and multiple dependency managers for Python (uv and classic pip). Yarn, pnpm, and Poetry support are on the roadmap — see the [issue tracker](https://github.com/ossiq/ossiq/issues) for status.
+
+**What ecosystems are supported?**
+
+OSS IQ currently supports popular ecosystems like npm for JavaScript and multiple dependency managers for Python (uv and classic pip). We are always working to add support for more ecosystems.
 
 **Is OSS IQ free?**
+
 Yes, OSS IQ is a completely free and open-source tool, licensed under the AGPL v3 license.
 
 ## License
