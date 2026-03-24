@@ -13,13 +13,13 @@
 
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>OSS IQ - Quantify Software Dependencies Maintenance Health</title>
+    <title>OSS IQ — Dependency Drift &amp; Maintenance Health for Platform Teams</title>
 
     <!-- SEO Meta Tags -->
     <meta name="description"
-        content="Instantly analyze your software dependencies with OSS IQ. Get a single health score to track vulnerabilities, outdated packages, and maintenance risks. Free &amp; open source CLI tool.">
+        content="Analyze version lag, maintenance signals, and transitive risk across your entire supply chain. Move from reactive CVE-chasing to a planned maintenance rhythm. Free &amp; open source CLI tool.">
     <meta name="author" content="OSS IQ">
-    <meta name="keywords" content="dependency health, SCA, software composition analysis, CVE, version lag, npm audit, pip audit, open source risk, dependency scanning, SBOM">
+    <meta name="keywords" content="dependency health, dependency drift, SCA, software composition analysis, CVE, version lag, npm audit, pip audit, open source risk, dependency scanning, SBOM, maintenance health">
     <meta name="robots" content="index, follow, max-snippet:-1, max-image-preview:large">
     <link rel="canonical" href="https://ossiq.dev/" />
 
@@ -29,17 +29,17 @@
     <!-- Open Graph / Facebook -->
     <meta property="og:type" content="website">
     <meta property="og:url" content="https://ossiq.dev/">
-    <meta property="og:title" content="OSS IQ - Know Your Dependency Risk in Minutes, Not Weeks">
+    <meta property="og:title" content="OSS IQ — Quantify Dependency Health. Control Your Drift.">
     <meta property="og:description"
-        content="Instantly analyze your software dependencies with OSS IQ. Get a single health score to track vulnerabilities, outdated packages, and maintenance risks.">
+        content="Analyze version lag, maintenance signals, and transitive risk across your entire supply chain. CLI + HTML reports. Free and open source.">
     <meta property="og:image" content="https://ossiq.dev/img/ossiq-report-html-light.png">
 
     <!-- Twitter -->
     <meta property="twitter:card" content="summary_large_image">
     <meta property="twitter:url" content="https://ossiq.dev/">
-    <meta property="twitter:title" content="OSS IQ - Know Your Dependency Risk in Minutes, Not Weeks">
+    <meta property="twitter:title" content="OSS IQ — Quantify Dependency Health. Control Your Drift.">
     <meta property="twitter:description"
-        content="Instantly analyze your software dependencies with OSS IQ. Get a single health score to track vulnerabilities, outdated packages, and maintenance risks.">
+        content="Analyze version lag, maintenance signals, and transitive risk across your entire supply chain. CLI + HTML reports. Free and open source.">
     <meta property="twitter:image" content="https://ossiq.dev/img/ossiq-report-html-light.png">
 
     <script src="https://cdn.tailwindcss.com"></script>
@@ -193,11 +193,24 @@
                 <a href="#faq" class="nav-link">FAQ</a>
                 <a href="https://github.com/ossiq/ossiq" class="nav-link text-[#ff4d00]">GitHub</a>
             </nav>
-            <button class="md:hidden">
-                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+            <button id="menu-btn" class="md:hidden p-1" aria-label="Toggle navigation menu" aria-expanded="false">
+                <svg id="menu-icon-open" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+                <svg id="menu-icon-close" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="hidden"><path d="M18 6L6 18M6 6l12 12"/></svg>
             </button>
         </div>
     </header>
+
+    <!-- Mobile nav drawer -->
+    <div id="mobile-menu" class="hidden md:hidden fixed top-[73px] left-0 w-full z-40 bg-[#fcfcfc]/95 backdrop-blur-md border-b border-zinc-100 shadow-sm">
+        <nav class="max-w-6xl mx-auto px-6 py-4 flex flex-col gap-1">
+            <a href="#how-it-works" class="nav-link py-3 border-b border-zinc-100">How It Works</a>
+            <a href="#features" class="nav-link py-3 border-b border-zinc-100">Features</a>
+            <a href="#try-it-out" class="nav-link py-3 border-b border-zinc-100">Try It</a>
+            <a href="getting-started.html" class="nav-link py-3 border-b border-zinc-100">Documentation</a>
+            <a href="#faq" class="nav-link py-3 border-b border-zinc-100">FAQ</a>
+            <a href="https://github.com/ossiq/ossiq" class="nav-link py-3 text-[#ff4d00]">GitHub</a>
+        </nav>
+    </div>
 
     <main>
         <div class="max-w-6xl mx-auto px-6 pt-32 md:pt-48 pb-16 flex-grow">
@@ -320,7 +333,7 @@
 
 
         <!-- Differentiator -->
-        <section id="differentiator" class="grid-main py-20 bg-zinc-900 text-white rounded-sm mb-32 px-8">
+        <section id="differentiator" class="grid-main py-20 bg-zinc-900 text-white rounded-sm mb-32 px-8 overflow-hidden">
             <div class="col-span-12 mb-16">
                 <p class="text-[10px] font-bold uppercase tracking-widest text-zinc-500 mb-4">Positioning</p>
                 <h2 class="text-4xl md:text-5xl heading-font font-bold mb-6">Not Another Audit Tool.</h2>
@@ -345,10 +358,12 @@
                 <div class="md:col-span-3 flex items-center">
                     <code class="font-mono font-bold text-zinc-300 text-base">npm audit</code>
                 </div>
-                <div class="md:col-span-4 flex items-center">
+                <div class="md:col-span-4 flex flex-col justify-center">
+                    <span class="block text-[10px] font-bold uppercase tracking-widest text-zinc-600 md:hidden mb-1">What it does</span>
                     <p class="text-sm text-zinc-400 font-light">Finds known security vulnerabilities (CVEs) in your direct and transitive dependencies.</p>
                 </div>
-                <div class="md:col-span-5 flex items-center">
+                <div class="md:col-span-5 flex flex-col justify-center">
+                    <span class="block text-[10px] font-bold uppercase tracking-widest text-zinc-600 md:hidden mb-1">What it misses</span>
                     <p class="text-sm text-zinc-500 font-light">Version lag, maintenance signals, abandoned packages, license risk, or whether a package is worth depending on at all.</p>
                 </div>
             </div>
@@ -358,10 +373,12 @@
                 <div class="md:col-span-3 flex items-center">
                     <span class="font-bold text-zinc-300 text-base">Dependabot</span>
                 </div>
-                <div class="md:col-span-4 flex items-center">
+                <div class="md:col-span-4 flex flex-col justify-center">
+                    <span class="block text-[10px] font-bold uppercase tracking-widest text-zinc-600 md:hidden mb-1">What it does</span>
                     <p class="text-sm text-zinc-400 font-light">Opens automated pull requests for every available package update, keeping versions current.</p>
                 </div>
-                <div class="md:col-span-5 flex items-center">
+                <div class="md:col-span-5 flex flex-col justify-center">
+                    <span class="block text-[10px] font-bold uppercase tracking-widest text-zinc-600 md:hidden mb-1">What it misses</span>
                     <p class="text-sm text-zinc-500 font-light">Priority. It spams you with PRs for trivial patch bumps while a package you rely on quietly goes unmaintained.</p>
                 </div>
             </div>
@@ -372,10 +389,12 @@
                     <span class="w-1.5 h-1.5 rounded-full bg-[#ff4d00] shrink-0"></span>
                     <span class="font-bold text-[#ff4d00] text-base heading-font">OSS IQ</span>
                 </div>
-                <div class="md:col-span-4 flex items-center">
+                <div class="md:col-span-4 flex flex-col justify-center">
+                    <span class="block text-[10px] font-bold uppercase tracking-widest text-zinc-500 md:hidden mb-1">What it does</span>
                     <p class="text-sm text-white font-medium">Analyzes the health and longevity of your entire supply chain — CVEs, version lag, maintenance status, transitive risk, and license compliance.</p>
                 </div>
-                <div class="md:col-span-5 flex items-center">
+                <div class="md:col-span-5 flex flex-col justify-center">
+                    <span class="block text-[10px] font-bold uppercase tracking-widest text-zinc-500 md:hidden mb-1">Why it's different</span>
                     <p class="text-sm text-zinc-300 font-light italic">"It tells you if you <span class="not-italic font-semibold text-white">should use</span> a package, not just if it's broken."</p>
                 </div>
             </div>
@@ -708,6 +727,32 @@
             if (e.key === "Escape")      closeLightbox();
             if (e.key === "ArrowLeft")   lightboxStep(-1);
             if (e.key === "ArrowRight")  lightboxStep(1);
+        });
+    </script>
+
+    <script>
+        // Mobile menu toggle
+        const menuBtn = document.getElementById('menu-btn');
+        const mobileMenu = document.getElementById('mobile-menu');
+        const menuIconOpen = document.getElementById('menu-icon-open');
+        const menuIconClose = document.getElementById('menu-icon-close');
+
+        menuBtn.addEventListener('click', () => {
+            const wasOpen = !mobileMenu.classList.contains('hidden');
+            mobileMenu.classList.toggle('hidden');
+            menuIconOpen.classList.toggle('hidden', !wasOpen);
+            menuIconClose.classList.toggle('hidden', wasOpen);
+            menuBtn.setAttribute('aria-expanded', String(!wasOpen));
+        });
+
+        // Close menu when a nav link is clicked
+        mobileMenu.querySelectorAll('a').forEach(a => {
+            a.addEventListener('click', () => {
+                mobileMenu.classList.add('hidden');
+                menuIconOpen.classList.remove('hidden');
+                menuIconClose.classList.add('hidden');
+                menuBtn.setAttribute('aria-expanded', 'false');
+            });
         });
     </script>
 </body>
