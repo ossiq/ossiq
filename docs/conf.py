@@ -16,6 +16,7 @@ html_extra_path = ["img", "samples", "_static/llms.txt", "_static/robots.txt"]
 # Custom landing page replaces index.html
 html_additional_pages = {"index": "landing.html"}
 html_css_files = ["ossiq.css"]
+html_js_files = [("search_compat.js", {"defer": "defer"})]
 
 myst_enable_extensions = [
     "colon_fence",
