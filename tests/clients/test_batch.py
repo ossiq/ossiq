@@ -276,11 +276,12 @@ class TestBatchClientRetry:
 
         # Assert: 2 sleeps (attempt 0 and 1; attempt 2 is the last, no sleep)
         assert len(sleep_args) == 2
-        assert 1.0 <= sleep_args[0] < 1.5   # base=1, jitter up to 0.5
-        assert 2.0 <= sleep_args[1] < 3.0   # base=2, jitter up to 1.0
+        assert 1.0 <= sleep_args[0] < 1.5  # base=1, jitter up to 0.5
+        assert 2.0 <= sleep_args[1] < 3.0  # base=2, jitter up to 1.0
 
     def test_failed_chunk_does_not_poison_successful_chunk(self):
         """When one chunk always fails, results from other chunks are still yielded."""
+
         # Arrange
         def post_side_effect(url, json, timeout):
             # The chunk containing item 99 always fails; others succeed.
@@ -441,7 +442,7 @@ class TestBatchClient429:
             client._gate.set()  # unblock immediately so test doesn't hang
             return True
 
-        client._gate.wait = fake_gate_wait
+        client._gate.wait = fake_gate_wait  # type: ignore[method-assign]
 
         resp_429 = make_response(429, {}, headers={})
 
@@ -512,7 +513,7 @@ class TestChunkResult:
         assert isinstance(result, ChunkResult)
         assert result.success is False
         assert isinstance(result.error, requests.Timeout)
-        assert "Max retries" in result.message
+        assert result.message is not None and "Max retries" in result.message
 
     def test_abort_before_first_attempt_returns_empty_list(self):
         """When _abort is set before _fetch_chunk runs, it returns [] immediately."""
@@ -587,7 +588,7 @@ class TestBatchClientShutdown:
             t = threading.Thread(target=do_handle)
             t.start()
             sleep_started.wait(timeout=2)  # wait until first tick fires
-            client.shutdown()              # abort mid-sleep
+            client.shutdown()  # abort mid-sleep
             t.join(timeout=2)
 
         # Assert: far fewer than 60 sleep(1) calls happened

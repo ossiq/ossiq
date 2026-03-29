@@ -146,4 +146,5 @@ dev = [
     "ty>=0.0.15",  # checking types
     "ipdb>=0.13.13",  # debugging
     "pylint>=4.0.4,<5",
+    "pytest-httpserver>=1.1.0",  # real HTTP server for integration tests
 ]

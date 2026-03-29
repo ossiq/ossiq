@@ -12,7 +12,6 @@ from abc import ABC, abstractmethod
 from collections.abc import Generator, Iterable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
-from itertools import batched
 from typing import Any
 
 import requests
@@ -22,6 +21,22 @@ MAX_WORKERS = 5
 MAX_RETRIES = 3
 CHUNK_TIMEOUT = 60
 
+
+def _chunked(items: Iterable, n: int) -> Generator:
+    """Yield successive n-sized chunks from items. Backport of itertools.batched (3.12+)."""
+    it = iter(items)
+    while True:
+        chunk: list = []
+        try:
+            for _ in range(n):
+                chunk.append(next(it))
+        except StopIteration:
+            if chunk:
+                yield chunk
+            return
+        yield chunk
+
+
 logger = logging.getLogger(__name__)
 
 
@@ -29,7 +44,7 @@ logger = logging.getLogger(__name__)
 class BatchStrategySettings:
     chunk_size: int
     max_retries: int
-    request_timeout: int
+    request_timeout: float
     has_pagination: bool
 
 
@@ -124,7 +139,7 @@ class BatchClient:
 
         chunk_size = self.strategy.config.chunk_size
         prepared_items = (self.strategy.prepare_item(item) for item in items)
-        chunks = batched(prepared_items, chunk_size)
+        chunks = _chunked(prepared_items, chunk_size)
 
         with ThreadPoolExecutor(max_workers=MAX_WORKERS) as pool:
             future_to_chunk: dict = {}
@@ -150,7 +165,7 @@ class BatchClient:
                 except Exception as exc:
                     logger.error("Chunk of %d items failed: %s", len(original_chunk), exc)
 
-    def _fetch_chunk(self, chunk: list, strategy: BatchStrategy) -> ChunkResult:
+    def _fetch_chunk(self, chunk: list, strategy: BatchStrategy) -> ChunkResult | list:
         """
         Worker thread: POST one chunk, retry on transient errors.
 
