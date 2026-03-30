@@ -42,6 +42,7 @@ class RealHTTPBatchStrategy(BatchStrategy):
         self._config = BatchStrategySettings(
             chunk_size=chunk_size,
             max_retries=max_retries,
+            max_workers=3,
             request_timeout=timeout,
             has_pagination=False,
         )

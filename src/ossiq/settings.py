@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 from ossiq.messages import (
     ARGS_HELP_CACHE_DESTINATION,
     ARGS_HELP_CACHE_TTL,
+    ARGS_HELP_DEBUG,
     ARGS_HELP_GITHUB_TOKEN,
     ARGS_HELP_PRESENTATION,
 )
@@ -36,6 +37,7 @@ class Settings(BaseModel):
     presentation: str = Field(default="console", description=ARGS_HELP_PRESENTATION)
 
     verbose: bool = Field(default=False, description="Enable verbose output")
+    debug: bool = Field(default=False, description=ARGS_HELP_DEBUG)
 
     # Store the environment prefix for reference (not a setting itself)
     ENV_PREFIX: ClassVar[str] = ENV_PREFIX

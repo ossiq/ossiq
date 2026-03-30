@@ -33,6 +33,10 @@ class DependencyDescriptor:
 
 @dataclass
 class ScanRecord:
+    """
+    Main aggregated output of the OSS IQ tool.
+    """
+
     package_name: str
     dependency_name: str
     is_optional_dependency: bool
@@ -114,6 +118,7 @@ def get_package_versions_since(
 
 def scan_record(
     packages_registry: AbstractPackageRegistryApi,
+    package_info: Package,
     package_name: str,
     canonical_name: str,
     package_version: str,
@@ -128,7 +133,7 @@ def scan_record(
     """
     # For npm alias packages (e.g. "chalk-legacy" -> "chalk"), use the canonical
     # registry name for lookups while keeping the alias name for display.
-    package_info = packages_registry.package_info(canonical_name)
+    # package_info = packages_registry.package_info(canonical_name)
 
     releases_since_installed = get_package_versions_since(packages_registry, package_info.name, package_version)
 
@@ -237,7 +242,8 @@ def scan(uow: unit_of_work.AbstractProjectUnitOfWork) -> ScanResult:
         package_infos = _prefetch_package_infos(uow.packages_registry, (dep.canonical_name for dep in all_deps))
 
         # Batch CVE fetch — single POST to /v1/querybatch for all packages
-        packages_for_cve = [(package_infos[dep.canonical_name], dep.version) for dep in all_deps]
+        # force unique pair package/version regardless position in the graph
+        packages_for_cve = list(set((package_infos[dep.canonical_name], dep.version) for dep in all_deps))
         cve_cache = uow.cve_database.get_cves_batch(packages_for_cve)
 
         # Batch license fetch — single POST to ClearlyDefined for all packages
@@ -248,6 +254,7 @@ def scan(uow: unit_of_work.AbstractProjectUnitOfWork) -> ScanResult:
             return [
                 scan_record(
                     uow.packages_registry,
+                    package_infos[dep.canonical_name],
                     dep.name,
                     dep.canonical_name,
                     dep.version,

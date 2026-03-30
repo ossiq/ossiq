@@ -10,6 +10,8 @@ This module tests the NPM registry adapter implementation, including:
 - Prerelease versions handling
 """
 
+from unittest.mock import Mock
+
 import pytest
 import semver
 
@@ -46,7 +48,11 @@ def mock_npm_response(monkeypatch):
 
     def mock_make_request(self, path: str, headers=None, timeout=15):
         if path in responses:
-            return responses[path]
+            mock_response = Mock()
+            mock_response.status_code = 200
+            mock_response.json.return_value = responses[path]
+            mock_response.raise_for_status = Mock()
+            return mock_response
         raise ValueError(f"No mock response for path: {path}")
 
     monkeypatch.setattr(PackageRegistryApiNpm, "_make_request", mock_make_request)

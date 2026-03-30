@@ -3,6 +3,7 @@ Put all the important constants in one place to avoid
 mutual dependencies.
 """
 
+import importlib.metadata
 import re
 from enum import Enum, StrEnum
 from urllib.parse import quote
@@ -167,3 +168,10 @@ def parse_spdx_expression(expr: str | None) -> list[str] | None:
     licenses = [lic for lic in licenses if lic and lic != "NOASSERTION"]
 
     return licenses if licenses else None
+
+
+def get_version():
+    """
+    Get OSS IQ version
+    """
+    return importlib.metadata.version("ossiq")

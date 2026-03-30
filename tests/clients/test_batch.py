@@ -45,6 +45,7 @@ class FakeBatchStrategy(BatchStrategy):
         self._config = BatchStrategySettings(
             chunk_size=chunk_size,
             max_retries=max_retries,
+            max_workers=3,
             request_timeout=10,
             has_pagination=False,
         )
@@ -257,7 +258,7 @@ class TestBatchClientRetry:
 
     def test_exponential_backoff_sleep_durations_with_jitter(self):
         """
-        Sleep durations are 2^attempt + jitter(0..0.5*base).
+        Sleep durations are 3^attempt + jitter(0..0.2*base).
         For max_retries=3 there are 2 sleeps (last attempt skips sleep).
         Assert ranges rather than exact values since jitter is random.
         """
@@ -276,8 +277,8 @@ class TestBatchClientRetry:
 
         # Assert: 2 sleeps (attempt 0 and 1; attempt 2 is the last, no sleep)
         assert len(sleep_args) == 2
-        assert 1.0 <= sleep_args[0] < 1.5  # base=1, jitter up to 0.5
-        assert 2.0 <= sleep_args[1] < 3.0  # base=2, jitter up to 1.0
+        assert 1.0 <= sleep_args[0] < 1.2  # base=3^0=1, jitter up to 0.2
+        assert 3.0 <= sleep_args[1] < 3.6  # base=3^1=3, jitter up to 0.6
 
     def test_failed_chunk_does_not_poison_successful_chunk(self):
         """When one chunk always fails, results from other chunks are still yielded."""

@@ -58,6 +58,12 @@ def mock_package_registry():
     return registry
 
 
+@pytest.fixture
+def mock_package(mock_package_registry):
+    """The Package object returned by mock_package_registry.package_info."""
+    return mock_package_registry.package_info.return_value
+
+
 # ============================================================================
 # Tests
 # ============================================================================
@@ -66,7 +72,7 @@ def mock_package_registry():
 class TestScanRecordVersionConstraint:
     """Test that scan_record() correctly propagates version_constraint."""
 
-    def test_version_constraint_is_stored_in_scan_record(self, mock_package_registry):
+    def test_version_constraint_is_stored_in_scan_record(self, mock_package_registry, mock_package):
         """Test scan_record stores version_constraint when provided.
 
         AAA Pattern:
@@ -80,6 +86,7 @@ class TestScanRecordVersionConstraint:
         # Act
         record = scan_record(
             packages_registry=mock_package_registry,
+            package_info=mock_package,
             package_name="requests",
             canonical_name="requests",
             package_version="2.31.0",
@@ -91,7 +98,7 @@ class TestScanRecordVersionConstraint:
         # Assert
         assert record.version_constraint == constraint
 
-    def test_version_constraint_defaults_to_none(self, mock_package_registry):
+    def test_version_constraint_defaults_to_none(self, mock_package_registry, mock_package):
         """Test scan_record sets version_constraint to None when not provided.
 
         AAA Pattern:
@@ -102,6 +109,7 @@ class TestScanRecordVersionConstraint:
         # Act
         record = scan_record(
             packages_registry=mock_package_registry,
+            package_info=mock_package,
             package_name="requests",
             canonical_name="requests",
             package_version="2.31.0",
@@ -123,7 +131,7 @@ class TestScanRecordVersionConstraint:
             "==2.31.0",
         ],
     )
-    def test_various_constraint_formats_are_preserved(self, mock_package_registry, constraint):
+    def test_various_constraint_formats_are_preserved(self, mock_package_registry, mock_package, constraint):
         """Test that raw constraint strings from different ecosystems are stored as-is.
 
         AAA Pattern:
@@ -134,6 +142,7 @@ class TestScanRecordVersionConstraint:
         # Act
         record = scan_record(
             packages_registry=mock_package_registry,
+            package_info=mock_package,
             package_name="requests",
             canonical_name="requests",
             package_version="2.31.0",
@@ -149,7 +158,7 @@ class TestScanRecordVersionConstraint:
 class TestScanRecordPurl:
     """Test that scan_record() correctly generates and stores the PURL field."""
 
-    def test_purl_is_populated_for_pypi_package(self, mock_package_registry):
+    def test_purl_is_populated_for_pypi_package(self, mock_package_registry, mock_package):
         """Test scan_record generates a valid PURL for a PyPI package.
 
         AAA Pattern:
@@ -160,6 +169,7 @@ class TestScanRecordPurl:
         # Act
         record = scan_record(
             packages_registry=mock_package_registry,
+            package_info=mock_package,
             package_name="requests",
             canonical_name="requests",
             package_version="2.31.0",
@@ -170,7 +180,7 @@ class TestScanRecordPurl:
         # Assert
         assert record.purl == "pkg:pypi/requests@2.31.0"
 
-    def test_purl_uses_canonical_name(self, mock_package_registry):
+    def test_purl_uses_canonical_name(self, mock_package_registry, mock_package):
         """Test scan_record uses canonical_name (not alias) when building PURL.
 
         AAA Pattern:
@@ -181,6 +191,7 @@ class TestScanRecordPurl:
         # Act
         record = scan_record(
             packages_registry=mock_package_registry,
+            package_info=mock_package,
             package_name="requests-alias",
             canonical_name="requests",
             package_version="2.31.0",

@@ -16,11 +16,6 @@ from typing import Any
 
 import requests
 
-CHUNK_SIZE = 25
-MAX_WORKERS = 5
-MAX_RETRIES = 3
-CHUNK_TIMEOUT = 60
-
 
 def _chunked(items: Iterable, n: int) -> Generator:
     """Yield successive n-sized chunks from items. Backport of itertools.batched (3.12+)."""
@@ -44,6 +39,7 @@ logger = logging.getLogger(__name__)
 class BatchStrategySettings:
     chunk_size: int
     max_retries: int
+    max_workers: int
     request_timeout: float
     has_pagination: bool
 
@@ -141,7 +137,7 @@ class BatchClient:
         prepared_items = (self.strategy.prepare_item(item) for item in items)
         chunks = _chunked(prepared_items, chunk_size)
 
-        with ThreadPoolExecutor(max_workers=MAX_WORKERS) as pool:
+        with ThreadPoolExecutor(max_workers=self.strategy.config.max_workers) as pool:
             future_to_chunk: dict = {}
 
             for chunk in chunks:
@@ -194,10 +190,15 @@ class BatchClient:
 
             except (requests.Timeout, requests.ConnectionError, requests.HTTPError) as exc:
                 if attempt < strategy.config.max_retries - 1:
-                    base_wait = 2**attempt
-                    wait = base_wait + random.uniform(0, 0.5 * base_wait)
-                    logger.info("Retrying chunk after error: %s. Waiting %.1fs", exc, wait)
+                    # Base 3 math: 3^0=1, 3^1=3, 3^2=9, 3^3=27
+                    base_wait = 3**attempt
+                    # Adding 10-20% jitter to prevent "thundering herd"
+                    wait = base_wait + random.uniform(0, 0.2 * base_wait)
+
+                    logger.info("Error: %s. Retrying in %.1fs...", exc, wait)
                     time.sleep(wait)
+                else:
+                    logger.error("Max retries reached. Final error: %s", exc)
 
                 error = exc
 

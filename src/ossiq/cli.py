@@ -1,12 +1,13 @@
 """Console script for ossiq-cli."""
 
 import importlib.metadata
+import logging
 from typing import Annotated, Literal
 
 import typer
 from rich.console import Console
 
-from ossiq.clients import install_requests_cache
+# from ossiq.clients import install_requests_cache
 from ossiq.commands.export import CommandExportOptions, commnad_export
 from ossiq.commands.package import CommandPackageOptions, command_package
 from ossiq.commands.scan import CommandScanOptions, commnad_scan
@@ -14,6 +15,7 @@ from ossiq.domain.common import UserInterfaceType
 from ossiq.messages import (
     ARGS_HELP_CACHE_DESTINATION,
     ARGS_HELP_CACHE_TTL,
+    ARGS_HELP_DEBUG,
     ARGS_HELP_GITHUB_TOKEN,
     ARGS_HELP_OUTPUT,
     ARGS_HELP_PRESENTATION,
@@ -60,6 +62,16 @@ def main(
             help=f"Enable verbose output. Overrides {Settings.ENV_PREFIX}VERBOSE env var.",
         ),
     ] = False,
+    debug: Annotated[
+        bool,
+        typer.Option(
+            "--debug",
+            "-d",
+            is_flag=True,
+            envvar=f"{Settings.ENV_PREFIX}DEBUG",
+            help=ARGS_HELP_DEBUG,
+        ),
+    ] = False,
     cache_destination: Annotated[
         str,
         typer.Option(
@@ -90,6 +102,7 @@ def main(
     cli_overrides = {
         "github_token": github_token,
         "verbose": verbose,
+        "debug": debug,
         "cache_destinatoin": cache_destination,
         "cache_ttl": cache_ttl,
     }
@@ -99,11 +112,18 @@ def main(
     # 3. Create a new, immutable settings object with the overrides
     settings = settings.model_copy(update=update_data)
     context.obj = settings
+
+    if settings.debug:
+        logging.basicConfig(
+            level=logging.DEBUG,
+            format="%(asctime)s [%(levelname)s] %(filename)s (%(funcName)s) %(name)s: %(message)s",
+        )
+
     if settings.verbose:
         show_settings(context, "Settings", settings.model_dump())
 
     # installed cache
-    install_requests_cache(cache_destination, cache_ttl)
+    # install_requests_cache(cache_destination, cache_ttl)
 
 
 @app.command()
