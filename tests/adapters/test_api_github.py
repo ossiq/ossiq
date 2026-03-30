@@ -16,7 +16,6 @@ from unittest.mock import Mock
 import pytest
 
 from ossiq.adapters.api_github import SourceCodeProviderApiGithub
-from ossiq.clients.github import GithubSession
 from ossiq.domain.common import (
     VERSION_DATA_SOURCE_GITHUB_RELEASES,
     VERSION_DATA_SOURCE_GITHUB_TAGS,
@@ -25,20 +24,19 @@ from ossiq.domain.common import (
 from ossiq.domain.exceptions import GithubRateLimitError
 from ossiq.domain.repository import Repository
 from ossiq.domain.version import PackageVersion
+from ossiq.settings import Settings
 
 
 @pytest.fixture
 def github_api_with_token():
     """Fixture providing a GitHub API instance with authentication token."""
-    session = GithubSession(token="test_token_12345")
-    return SourceCodeProviderApiGithub(session=session)
+    return SourceCodeProviderApiGithub(settings=Settings(github_token="test_token_12345"))
 
 
 @pytest.fixture
 def github_api_without_token():
     """Fixture providing a GitHub API instance without authentication token."""
-    session = GithubSession(token=None)
-    return SourceCodeProviderApiGithub(session=session)
+    return SourceCodeProviderApiGithub(settings=Settings(github_token=None))
 
 
 @pytest.fixture
@@ -93,16 +91,14 @@ class TestInitialization:
 
     def test_initialization_with_token(self):
         """Test initialization with GitHub token."""
-        session = GithubSession(token="my_token")
-        api = SourceCodeProviderApiGithub(session=session)
-        assert api.session.token == "my_token"
+        api = SourceCodeProviderApiGithub(settings=Settings(github_token="my_token"))
+        assert api.github_token == "my_token"
         assert api.repository_provider == RepositoryProvider.PROVIDER_GITHUB
 
     def test_initialization_without_token(self):
         """Test initialization without GitHub token."""
-        session = GithubSession(token=None)
-        api = SourceCodeProviderApiGithub(session=session)
-        assert api.session.token is None
+        api = SourceCodeProviderApiGithub(settings=Settings(github_token=None))
+        assert api.github_token is None
         assert api.repository_provider == RepositoryProvider.PROVIDER_GITHUB
 
     def test_repr(self, github_api_with_token):

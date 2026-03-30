@@ -6,59 +6,15 @@ Tests for LicenseApiClearlyDefined in ossiq.adapters.api_clearlydefined module.
 from unittest.mock import MagicMock, patch
 
 import pytest
-import requests
 
-from ossiq.adapters.api_clearlydefined import CHUNK_SIZE, LicenseApiClearlyDefined
+from ossiq.adapters.api_clearlydefined import LicenseApiClearlyDefined
+from ossiq.clients.batch import BatchClient
 from ossiq.domain.common import ProjectPackagesRegistry
 from ossiq.domain.package import Package
 
 
 def make_package(name: str, registry: ProjectPackagesRegistry = ProjectPackagesRegistry.PYPI) -> Package:
     return Package(registry=registry, name=name, latest_version="1.0.0", next_version=None, repo_url=None)
-
-
-def make_session(response: dict) -> MagicMock:
-    session = MagicMock()
-    session.post.return_value = MagicMock(status_code=200, json=MagicMock(return_value=response))
-    return session
-
-
-class TestBuildCoordinate:
-    def test_pypi_package(self):
-        """Test coordinate format for a PyPI package."""
-        # Arrange
-        api = LicenseApiClearlyDefined(MagicMock())
-        pkg = make_package("requests", ProjectPackagesRegistry.PYPI)
-
-        # Act
-        coord = api._build_coordinate(pkg, "2.28.2")
-
-        # Assert
-        assert coord == "pypi/pypi/-/requests/2.28.2"
-
-    def test_npm_unscoped_package(self):
-        """Test coordinate format for an unscoped NPM package."""
-        # Arrange
-        api = LicenseApiClearlyDefined(MagicMock())
-        pkg = make_package("lodash", ProjectPackagesRegistry.NPM)
-
-        # Act
-        coord = api._build_coordinate(pkg, "4.17.21")
-
-        # Assert
-        assert coord == "npm/npmjs/-/lodash/4.17.21"
-
-    def test_npm_scoped_package(self):
-        """Test coordinate format for a scoped NPM package (@scope/name)."""
-        # Arrange
-        api = LicenseApiClearlyDefined(MagicMock())
-        pkg = make_package("@babel/core", ProjectPackagesRegistry.NPM)
-
-        # Act
-        coord = api._build_coordinate(pkg, "7.22.0")
-
-        # Assert
-        assert coord == "npm/npmjs/@babel/core/7.22.0"
 
 
 class TestExtractLicense:
@@ -117,28 +73,30 @@ class TestExtractLicense:
 
 class TestGetLicensesBatch:
     def test_empty_input_returns_empty_dict(self):
-        """Test that an empty input list returns an empty dict without making any HTTP call."""
+        """Test that an empty input list returns an empty dict without calling run_batch."""
         # Arrange
-        session = MagicMock()
-        api = LicenseApiClearlyDefined(session)
+        api = LicenseApiClearlyDefined(MagicMock())
 
         # Act
-        result = api.get_licenses_batch([])
+        with patch.object(BatchClient, "run_batch") as mock_run:
+            result = api.get_licenses_batch([])
 
         # Assert
         assert result == {}
-        session.post.assert_not_called()
+        mock_run.assert_not_called()
 
     def test_returns_correct_mapping_for_single_pypi_package(self):
         """Test that a PyPI package result is keyed by (package.name, version) with SPDX license."""
         # Arrange
         pkg = make_package("requests", ProjectPackagesRegistry.PYPI)
         version = "2.28.2"
-        session = make_session({"pypi/pypi/-/requests/2.28.2": {"licensed": {"declared": "Apache-2.0"}}})
-        api = LicenseApiClearlyDefined(session)
+        coord = "pypi/pypi/-/requests/2.28.2"
+        chunk_data = {coord: {"licensed": {"declared": "Apache-2.0"}}}
+        api = LicenseApiClearlyDefined(MagicMock())
 
         # Act
-        result = api.get_licenses_batch([(pkg, version)])
+        with patch.object(BatchClient, "run_batch", return_value=iter([chunk_data])):
+            result = api.get_licenses_batch([(pkg, version)])
 
         # Assert
         assert result == {("requests", "2.28.2"): "Apache-2.0"}
@@ -148,35 +106,31 @@ class TestGetLicensesBatch:
         # Arrange
         pkg = make_package("obscure-internal-pkg", ProjectPackagesRegistry.PYPI)
         version = "1.0.0"
-        session = make_session({})  # ClearlyDefined returns empty object for unknown packages
-        api = LicenseApiClearlyDefined(session)
+        api = LicenseApiClearlyDefined(MagicMock())
 
         # Act
-        result = api.get_licenses_batch([(pkg, version)])
+        with patch.object(BatchClient, "run_batch", return_value=iter([{}])):
+            result = api.get_licenses_batch([(pkg, version)])
 
         # Assert
         assert result == {("obscure-internal-pkg", "1.0.0"): None}
 
-    def test_batch_sends_all_coordinates_in_single_request(self):
-        """Test that multiple packages are sent in a single POST request."""
+    def test_merges_results_from_multiple_chunks(self):
+        """Test that license results from multiple yielded chunks are combined."""
         # Arrange
         pkgs = [
             (make_package("requests", ProjectPackagesRegistry.PYPI), "2.28.2"),
             (make_package("lodash", ProjectPackagesRegistry.NPM), "4.17.21"),
         ]
-        session = make_session(
-            {
-                "pypi/pypi/-/requests/2.28.2": {"licensed": {"declared": "Apache-2.0"}},
-                "npm/npmjs/-/lodash/4.17.21": {"licensed": {"declared": "MIT"}},
-            }
-        )
-        api = LicenseApiClearlyDefined(session)
+        chunk1 = {"pypi/pypi/-/requests/2.28.2": {"licensed": {"declared": "Apache-2.0"}}}
+        chunk2 = {"npm/npmjs/-/lodash/4.17.21": {"licensed": {"declared": "MIT"}}}
+        api = LicenseApiClearlyDefined(MagicMock())
 
         # Act
-        result = api.get_licenses_batch(pkgs)
+        with patch.object(BatchClient, "run_batch", return_value=iter([chunk1, chunk2])):
+            result = api.get_licenses_batch(pkgs)
 
         # Assert
-        assert session.post.call_count == 1
         assert result == {
             ("requests", "2.28.2"): "Apache-2.0",
             ("lodash", "4.17.21"): "MIT",
@@ -190,97 +144,16 @@ class TestGetLicensesBatch:
             ("@babel/core", "7.22.0", ProjectPackagesRegistry.NPM, "npm/npmjs/@babel/core/7.22.0"),
         ],
     )
-    def test_coordinate_format_per_ecosystem(self, package_name, version, registry, expected_coord):
-        """Test that coordinates are built correctly for each supported ecosystem."""
+    def test_coordinate_lookup_per_ecosystem(self, package_name, version, registry, expected_coord):
+        """Test that each ecosystem's coordinate is used to look up the merged result."""
         # Arrange
         pkg = make_package(package_name, registry)
-        session = make_session({expected_coord: {"licensed": {"declared": "MIT"}}})
-        api = LicenseApiClearlyDefined(session)
+        chunk_data = {expected_coord: {"licensed": {"declared": "MIT"}}}
+        api = LicenseApiClearlyDefined(MagicMock())
 
         # Act
-        api.get_licenses_batch([(pkg, version)])
+        with patch.object(BatchClient, "run_batch", return_value=iter([chunk_data])):
+            result = api.get_licenses_batch([(pkg, version)])
 
         # Assert
-        called_body = session.post.call_args[1]["json"]
-        assert expected_coord in called_body
-
-
-class TestGetLicensesBatchChunking:
-    def test_large_batch_is_split_into_chunks(self):
-        """Test that a batch larger than CHUNK_SIZE triggers multiple POST requests."""
-        # Arrange
-        n = CHUNK_SIZE + 1
-        pkgs = [(make_package(f"pkg-{i}", ProjectPackagesRegistry.PYPI), "1.0.0") for i in range(n)]
-        session = MagicMock()
-        session.post.return_value = MagicMock(status_code=200, json=MagicMock(return_value={}))
-        api = LicenseApiClearlyDefined(session)
-
-        # Act
-        api.get_licenses_batch(pkgs)
-
-        # Assert
-        assert session.post.call_count == 2
-
-    def test_chunks_are_merged_correctly(self):
-        """Test that license results from multiple chunks are combined into one mapping."""
-        # Arrange
-        n = CHUNK_SIZE + 1
-        pkgs = [(make_package(f"pkg-{i}", ProjectPackagesRegistry.PYPI), "1.0.0") for i in range(n)]
-        # Only the last package (in the second chunk) has a known license
-        last_coord = f"pypi/pypi/-/pkg-{CHUNK_SIZE}/1.0.0"
-
-        def post_side_effect(url, json, timeout):
-            response = MagicMock(status_code=200)
-            if last_coord in json:
-                response.json.return_value = {last_coord: {"licensed": {"declared": "MIT"}}}
-            else:
-                response.json.return_value = {}
-            return response
-
-        session = MagicMock()
-        session.post.side_effect = post_side_effect
-        api = LicenseApiClearlyDefined(session)
-
-        # Act
-        result = api.get_licenses_batch(pkgs)
-
-        # Assert
-        assert result[(f"pkg-{CHUNK_SIZE}", "1.0.0")] == "MIT"
-        assert result[("pkg-0", "1.0.0")] is None
-
-    def test_chunk_retries_on_timeout_then_succeeds(self):
-        """Test that a chunk is retried after a Timeout and the eventual success is used."""
-        # Arrange
-        pkg = make_package("requests", ProjectPackagesRegistry.PYPI)
-        coord = "pypi/pypi/-/requests/2.28.2"
-        success_response = MagicMock(
-            status_code=200, json=MagicMock(return_value={coord: {"licensed": {"declared": "Apache-2.0"}}})
-        )
-
-        session = MagicMock()
-        session.post.side_effect = [requests.Timeout, success_response]
-        api = LicenseApiClearlyDefined(session)
-
-        # Act
-        with patch("ossiq.adapters.api_clearlydefined.time.sleep"):
-            result = api.get_licenses_batch([(pkg, "2.28.2")])
-
-        # Assert
-        assert session.post.call_count == 2
-        assert result == {("requests", "2.28.2"): "Apache-2.0"}
-
-    def test_chunk_returns_none_on_permanent_failure(self):
-        """Test that packages in a permanently failing chunk return None without raising."""
-        # Arrange
-        pkg = make_package("requests", ProjectPackagesRegistry.PYPI)
-        session = MagicMock()
-        session.post.side_effect = requests.Timeout
-        api = LicenseApiClearlyDefined(session)
-
-        # Act
-        with patch("ossiq.adapters.api_clearlydefined.time.sleep"):
-            result = api.get_licenses_batch([(pkg, "2.28.2")])
-
-        # Assert — no exception raised, result degrades gracefully to None
-        assert result == {("requests", "2.28.2"): None}
-        assert session.post.call_count == 3  # MAX_RETRIES attempts
+        assert result[(package_name, version)] == "MIT"

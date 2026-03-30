@@ -10,6 +10,7 @@ from packaging.version import Version as PackagingVersion
 from rich.console import Console
 
 from ossiq.adapters.api_interfaces import AbstractPackageRegistryApi
+from ossiq.clients.common import get_user_agent
 from ossiq.domain.common import ProjectPackagesRegistry
 from ossiq.domain.package import Package
 from ossiq.domain.version import (
@@ -195,12 +196,14 @@ class PackageRegistryApiPypi(AbstractPackageRegistryApi):
 
     def __init__(self, settings: Settings):
         self.settings = settings
+        self.session = requests.Session()
+        self.session.headers.update({"User-Agent": get_user_agent()})
 
     def __repr__(self):
         return "<PackageRegistryApiPypi instance>"
 
     def _make_request(self, path: str, headers: dict | None = None, timeout: int = 15) -> dict:
-        r = requests.get(f"{PYPI_REGISTRY}{path}", timeout=timeout, headers=headers)
+        r = self.session.get(f"{PYPI_REGISTRY}{path}", timeout=timeout, headers=headers)
         r.raise_for_status()
         return r.json()
 
