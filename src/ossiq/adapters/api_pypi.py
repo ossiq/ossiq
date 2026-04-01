@@ -10,8 +10,11 @@ from packaging.version import Version as PackagingVersion
 from rich.console import Console
 
 from ossiq.adapters.api_interfaces import AbstractPackageRegistryApi
+from ossiq.clients.batch import BatchClient
+from ossiq.clients.client_pypi import PypiBatchStrategy
 from ossiq.clients.common import get_user_agent
 from ossiq.domain.common import ProjectPackagesRegistry
+from ossiq.domain.exceptions import UnableLoadPackage
 from ossiq.domain.package import Package
 from ossiq.domain.version import (
     VERSION_DIFF_BUILD,
@@ -30,7 +33,6 @@ from ossiq.settings import Settings
 
 console = Console()
 
-PYPI_REGISTRY = "https://pypi.org/pypi"
 PYPI_REGISTRY_FRONT = "https://pypi.org"
 
 
@@ -71,6 +73,8 @@ class PackageRegistryApiPypi(AbstractPackageRegistryApi):
 
     package_registry = ProjectPackagesRegistry.PYPI
     settings: Settings
+
+    _raw_cache: dict[str, dict]
 
     @staticmethod
     def compare_versions(v1: str, v2: str) -> int:
@@ -198,30 +202,22 @@ class PackageRegistryApiPypi(AbstractPackageRegistryApi):
         self.settings = settings
         self.session = requests.Session()
         self.session.headers.update({"User-Agent": get_user_agent()})
+        self._raw_cache = {}
+        self._strategy = PypiBatchStrategy(self.session)
+        self._batch_client = BatchClient(self._strategy)
 
     def __repr__(self):
         return "<PackageRegistryApiPypi instance>"
 
-    def _make_request(self, path: str, headers: dict | None = None, timeout: int = 15) -> dict:
-        r = self.session.get(f"{PYPI_REGISTRY}{path}", timeout=timeout, headers=headers)
-        r.raise_for_status()
-        return r.json()
-
-    def package_info(self, package_name: str) -> Package:
-        """
-        Fetch PyPI info for a given package.
-        """
-        response = self._make_request(f"/{package_name}/json")
-        info = response["info"]
-
-        # PyPI API gap: No direct equivalent of NPM's 'dist-tags' like 'next'.
-        # 'latest' is just the highest non-prerelease version.
+    @staticmethod
+    def _map_raw_to_package(name: str, data: dict) -> Package:
+        info = data["info"]
         return Package(
             registry=ProjectPackagesRegistry.PYPI,
             # NOTE: package_name could be uppercase like Jinja2
-            name=package_name,
+            name=name,
             # PyPI has no alias support, so canonical_name always equals name
-            canonical_name=package_name,
+            canonical_name=name,
             latest_version=info["version"],
             next_version=None,
             repo_url=get_repo_url(info.get("project_urls", {})),
@@ -231,18 +227,38 @@ class PackageRegistryApiPypi(AbstractPackageRegistryApi):
             package_url=info.get("package_url"),
         )
 
+    def package_infos_batch(self, names: list[str]) -> dict[str, Package]:
+        """
+        Fetch PyPI info for a list of packages in parallel, returning name → Package.
+        Already-cached packages are served from _raw_cache without a network request.
+        """
+        names_to_fetch = [n for n in names if n not in self._raw_cache]
+
+        for chunk_data in self._batch_client.run_batch(names_to_fetch):
+            self._raw_cache.update(chunk_data)
+
+        for name in names:
+            if name not in self._raw_cache:
+                raise UnableLoadPackage(name)
+
+        return {name: self._map_raw_to_package(name, self._raw_cache[name]) for name in names}
+
     def package_versions(self, package_name: str) -> Iterable[PackageVersion]:
         """
         Fetch PyPI versions for a given package.
+        Uses _raw_cache populated by package_infos_batch; fetches if not cached.
 
         PyPI API gap: The main endpoint does not provide dependency information
         for older versions. A separate request per version is needed to get
         `requires_dist` for each, making it inefficient. This implementation
         only fetches dependencies for the latest version.
         """
-        response = self._make_request(f"/{package_name}/json")
-        info = response["info"]
-        releases = response["releases"]
+        if package_name not in self._raw_cache:
+            self.package_infos_batch([package_name])
+
+        data = self._raw_cache[package_name]
+        info = data["info"]
+        releases = data["releases"]
 
         latest_version_dependencies = info.get("requires_dist") or []
 
