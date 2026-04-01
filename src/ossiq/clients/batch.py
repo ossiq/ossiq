@@ -137,6 +137,9 @@ class BatchClient:
         prepared_items = (self.strategy.prepare_item(item) for item in items)
         chunks = _chunked(prepared_items, chunk_size)
 
+        t0 = time.perf_counter()
+        chunks_ok = chunks_failed = items_yielded = 0
+
         with ThreadPoolExecutor(max_workers=self.strategy.config.max_workers) as pool:
             future_to_chunk: dict = {}
 
@@ -151,15 +154,29 @@ class BatchClient:
                 try:
                     response = future.result()
                     if not response:  # [] from abort or max_retries=0
+                        chunks_failed += 1
                         continue
                     if not response.success:
                         logger.error("Permanent failure for chunk: %s", response.message)
+                        chunks_failed += 1
                         continue
 
+                    chunks_ok += 1
+                    items_yielded += 1
                     yield self.strategy.process_response(original_chunk, response)
 
                 except Exception as exc:
                     logger.error("Chunk of %d items failed: %s", len(original_chunk), exc)
+                    chunks_failed += 1
+
+        logger.debug(
+            "[%s] batch done: chunks_ok=%d chunks_failed=%d items=%d total_time=%.3fs",
+            type(self.strategy).__name__,
+            chunks_ok,
+            chunks_failed,
+            items_yielded,
+            time.perf_counter() - t0,
+        )
 
     def _fetch_chunk(self, chunk: list, strategy: BatchStrategy) -> ChunkResult | list:
         """
@@ -179,7 +196,17 @@ class BatchClient:
             self._gate.wait()
 
             try:
+                t0 = time.perf_counter()
                 resp = strategy.perform_request(chunk)
+                elapsed = time.perf_counter() - t0
+                logger.debug(
+                    "[%s] chunk=%d attempt=%d status=%d latency=%.3fs",
+                    type(strategy).__name__,
+                    len(chunk),
+                    attempt + 1,
+                    resp.status_code,
+                    elapsed,
+                )
 
                 if resp.status_code == 429:
                     self._handle_rate_limit(resp)

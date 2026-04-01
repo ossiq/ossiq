@@ -168,12 +168,9 @@ def scan_record(
 def _prefetch_package_infos(
     packages_registry: AbstractPackageRegistryApi, canonical_names: Iterable[str]
 ) -> dict[str, Package]:
-    """Pre-fetch package info for all unique canonical names (results are cached by requests-cache)."""
-    infos: dict[str, Package] = {}
-    for name in canonical_names:
-        if name not in infos:
-            infos[name] = packages_registry.package_info(name)
-    return infos
+    """Pre-fetch package info for all unique canonical names in parallel."""
+    unique = list(dict.fromkeys(canonical_names))
+    return packages_registry.package_infos_batch(unique)
 
 
 def scan(uow: unit_of_work.AbstractProjectUnitOfWork) -> ScanResult:

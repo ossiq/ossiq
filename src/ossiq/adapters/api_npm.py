@@ -10,7 +10,8 @@ import semver
 from rich.console import Console
 
 from ossiq.adapters.api_interfaces import AbstractPackageRegistryApi
-from ossiq.clients.client_http import request_with_retry
+from ossiq.clients.batch import BatchClient
+from ossiq.clients.client_npm import NpmBatchStrategy
 from ossiq.clients.common import get_user_agent
 from ossiq.domain.common import ProjectPackagesRegistry
 from ossiq.domain.exceptions import UnableLoadPackage, UnknownPackageVersion
@@ -33,7 +34,6 @@ from ossiq.settings import Settings
 logger = logging.getLogger(__name__)
 console = Console()
 
-NPM_REGISTRY = "https://registry.npmjs.org"
 NPM_REGISTRY_FRONT = "https://www.npmjs.com"
 
 NPM_DEPENDENCIES_SECTIONS = (
@@ -54,7 +54,7 @@ class PackageRegistryApiNpm(AbstractPackageRegistryApi):
     settings: Settings
     session: requests.Session
 
-    local_cache: dict[str, dict]
+    _raw_cache: dict[str, dict]
 
     @staticmethod
     def compare_versions(v1: str, v2: str) -> int:
@@ -147,36 +147,17 @@ class PackageRegistryApiNpm(AbstractPackageRegistryApi):
     def __init__(self, settings: Settings):
         self.settings = settings
         self.session = requests.Session()
-        self.session.headers.update(
-            {
-                "User-Agent": get_user_agent(),
-            }
-        )
-        self.local_cache = {}
+        self.session.headers.update({"User-Agent": get_user_agent()})
+        self._raw_cache = {}
+        self._strategy = NpmBatchStrategy(self.session)
+        self._batch_client = BatchClient(self._strategy)
 
     def __repr__(self):
         return "<PackageRegistryApiNpm instance>"
 
-    def _make_request(self, path: str, headers: dict | None = None, timeout: int = 15) -> dict:
-        """
-        Make request and handle retries and errors handling.
-        """
-        return self.session.get(f"{NPM_REGISTRY}{path}", timeout=timeout, headers=headers)
-
-    def package_info(self, package_name: str) -> Package:
-        """
-        Fetch npm info for a given package.
-        FIXME: raise custom exception if not found
-        """
-        response = request_with_retry(self._make_request, f"/{package_name}")
-        if not response.success:
-            logger.error("Couldn't load NPM packages: %s (%s)", response.message, str(response.error))
-            raise UnableLoadPackage(package_name)
-
-        distribution_tags = response.data.get("dist-tags", {"latest": None, "next": None})
-
-        data = response.data
-        self.local_cache[package_name] = data
+    @staticmethod
+    def _map_raw_to_package(name: str, data: dict) -> Package:
+        distribution_tags = data.get("dist-tags", {"latest": None, "next": None})
         return Package(
             registry=ProjectPackagesRegistry.NPM,
             name=data["name"],
@@ -186,21 +167,34 @@ class PackageRegistryApiNpm(AbstractPackageRegistryApi):
             author=data.get("author"),
             homepage_url=data.get("homepage"),
             description=data.get("description"),
-            package_url=f"{NPM_REGISTRY_FRONT}/package/{package_name}/",
+            package_url=f"{NPM_REGISTRY_FRONT}/package/{name}/",
         )
+
+    def package_infos_batch(self, names: list[str]) -> dict[str, Package]:
+        """
+        Fetch NPM info for a list of packages in parallel, returning name → Package.
+        Already-cached packages are served from _raw_cache without a network request.
+        """
+        names_to_fetch = [n for n in names if n not in self._raw_cache]
+
+        for chunk_data in self._batch_client.run_batch(names_to_fetch):
+            self._raw_cache.update(chunk_data)
+
+        for name in names:
+            if name not in self._raw_cache:
+                raise UnableLoadPackage(name)
+
+        return {name: self._map_raw_to_package(name, self._raw_cache[name]) for name in names}
 
     def package_versions(self, package_name: str) -> Iterable[PackageVersion]:
         """
         Fetch npm versions for a given package.
+        Uses _raw_cache populated by package_infos_batch; fetches if not cached.
         """
-        if not self.local_cache.get(package_name, None):
-            response = request_with_retry(self._make_request, f"/{package_name}")
-            if not response.success:
-                logger.error("Couldn't load NPM packages: %s (%s)", response.message, str(response.error))
-                raise UnableLoadPackage(package_name)
-            data = response.data
-        else:
-            data = self.local_cache[package_name]
+        if package_name not in self._raw_cache:
+            self.package_infos_batch([package_name])
+
+        data = self._raw_cache[package_name]
 
         # FIXME: raise custom exception if not found
         versions = data.get("versions", [])

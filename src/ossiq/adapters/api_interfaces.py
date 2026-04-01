@@ -75,11 +75,17 @@ class AbstractPackageRegistryApi(abc.ABC):
         raise NotImplementedError
 
     @abc.abstractmethod
-    def package_info(self, package_name: str) -> Package:
+    def package_infos_batch(self, names: list[str]) -> dict[str, Package]:
         """
-        Get a particular package info
+        Fetch info for a list of packages, returning a mapping of name → Package.
         """
         raise NotImplementedError
+
+    def package_info(self, package_name: str) -> Package:
+        """
+        Get a particular package info. Delegates to package_infos_batch by default.
+        """
+        return self.package_infos_batch([package_name])[package_name]
 
     @abc.abstractmethod
     def package_versions(self, package_name: str) -> Iterable[PackageVersion]:

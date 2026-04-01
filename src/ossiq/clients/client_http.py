@@ -52,7 +52,10 @@ def request_with_retry(perform_request, *args, max_retries=3, **kwargs) -> Resul
 
     for attempt in range(max_retries):
         try:
+            t0 = time.perf_counter()
             resp = perform_request(*args, **kwargs)
+            elapsed = time.perf_counter() - t0
+            logger.debug("request attempt=%d status=%d latency=%.3fs", attempt + 1, resp.status_code, elapsed)
 
             if resp.status_code == 429:
                 handle_rate_limit(resp)

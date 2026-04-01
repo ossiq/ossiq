@@ -31,10 +31,10 @@ class ClearlyDefinedBatchStrategy(BatchStrategy):
     @property
     def config(self) -> BatchStrategySettings:
         return BatchStrategySettings(
-            chunk_size=25,
+            chunk_size=15,
             max_retries=3,
-            request_timeout=60.0,
-            max_workers=3,
+            request_timeout=5.0,
+            max_workers=5,
             has_pagination=False,
         )
 
