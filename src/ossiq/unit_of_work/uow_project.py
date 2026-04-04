@@ -5,7 +5,6 @@ I/O for external sources
 
 from ossiq.adapters.api import (
     create_cve_database,
-    create_license_database,
     create_package_registry_api,
     create_source_code_provider,
 )
@@ -42,7 +41,6 @@ class ProjectUnitOfWork(AbstractProjectUnitOfWork):
         self.production = production
         self.narrow_package_registry = narrow_package_registry
         self.cve_database = create_cve_database(settings)
-        self.license_database = create_license_database(settings)
 
     def __enter__(self):
         """

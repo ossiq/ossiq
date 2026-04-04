@@ -12,6 +12,7 @@ from collections.abc import Callable, Iterable
 import requests
 from rich.console import Console
 
+from ossiq.clients.client_github import BatchClient, GithubRepoBatchStrategy
 from ossiq.clients.common import get_user_agent
 from ossiq.settings import Settings
 
@@ -239,6 +240,28 @@ class SourceCodeProviderApiGithub(AbstractSourceCodeProviderApi):
                 n += 1
             if n == len(versions_set):
                 break
+
+    def repositories_info_batch(self, repo_urls: list[str]) -> dict[str, Repository]:
+        """
+        Fetch GitHub repository metadata for a list of URLs in parallel.
+        """
+        client = BatchClient(GithubRepoBatchStrategy(self.session))
+        result: dict[str, Repository] = {}
+        for chunk_result in client.run_batch(repo_urls):
+            for url, repo_data in chunk_result.items():
+                s = url.strip().removeprefix("git+").removeprefix("https://")
+                m = re.search(r"github\.com[:/](?P<owner>[^/]+)/(?P<name>[^/.]+)", s)
+                if not m:
+                    continue
+                result[url] = Repository(
+                    provider=RepositoryProvider.PROVIDER_GITHUB,
+                    name=m.group("name"),
+                    owner=m.group("owner"),
+                    description=repo_data.get("description"),
+                    html_url=f"https://github.com/{m.group('owner')}/{m.group('name')}",
+                    license=(repo_data.get("license") or {}).get("spdx_id") or None,
+                )
+        return result
 
     def repository_info(self, repository_url: str | None) -> Repository:
         """
