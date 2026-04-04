@@ -13,7 +13,7 @@ from unittest.mock import patch
 import pytest
 from packaging.version import InvalidVersion
 
-from ossiq.adapters.api_pypi import PackageRegistryApiPypi, is_valid_pep440_version
+from ossiq.adapters.api_pypi import PackageRegistryApiPypi, extract_license_from_classifiers, is_valid_pep440_version
 from ossiq.clients.batch import BatchClient
 from ossiq.domain.common import ProjectPackagesRegistry
 from ossiq.domain.exceptions import UnableLoadPackage
@@ -45,7 +45,7 @@ def mock_pypi_response(pypi_api):
     """
     Fixture to mock PyPI registry API responses via _raw_cache.
 
-    Populates _raw_cache directly, bypassing HTTP, so package_infos_batch
+    Populates _raw_cache directly, bypassing HTTP, so packages_info_batch
     and package_versions use cached data without network calls.
     """
 
@@ -231,12 +231,12 @@ class TestDifferenceVersions:
 
 
 # ============================================================================
-# Test package_infos_batch
+# Test packages_info_batch
 # ============================================================================
 
 
 class TestPackageInfosBatch:
-    """Test package_infos_batch() method."""
+    """Test packages_info_batch() method."""
 
     def test_returns_mapping_of_name_to_package(self, pypi_api):
         """Batch result maps each name to a Package instance."""
@@ -256,7 +256,7 @@ class TestPackageInfosBatch:
             }
         }
         with patch.object(BatchClient, "run_batch", return_value=iter([raw])):
-            result = pypi_api.package_infos_batch(["requests"])
+            result = pypi_api.packages_info_batch(["requests"])
 
         assert "requests" in result
         assert result["requests"].name == "requests"
@@ -266,7 +266,7 @@ class TestPackageInfosBatch:
         """UnableLoadPackage is raised when a requested name is absent from the response."""
         with patch.object(BatchClient, "run_batch", return_value=iter([])):
             with pytest.raises(UnableLoadPackage):
-                pypi_api.package_infos_batch(["missing-pkg"])
+                pypi_api.packages_info_batch(["missing-pkg"])
 
     def test_uses_raw_cache_to_avoid_refetch(self, pypi_api):
         """Names already in _raw_cache are not passed to run_batch."""
@@ -284,7 +284,7 @@ class TestPackageInfosBatch:
             "releases": {},
         }
         with patch.object(BatchClient, "run_batch", return_value=iter([])) as mock_run:
-            result = pypi_api.package_infos_batch(["cached-pkg"])
+            result = pypi_api.packages_info_batch(["cached-pkg"])
 
         mock_run.assert_called_once_with([])
         assert result["cached-pkg"].latest_version == "1.0.0"
@@ -490,6 +490,115 @@ class TestCalculatePEP440DiffIndex:
 # ============================================================================
 # Test API attributes and initialization
 # ============================================================================
+
+
+class TestExtractLicenseFromClassifiers:
+    """Test extract_license_from_classifiers() helper."""
+
+    def test_returns_none_for_empty_list(self):
+        assert extract_license_from_classifiers([]) is None
+
+    def test_returns_none_for_unrecognized_classifier(self):
+        assert extract_license_from_classifiers(["License :: OSI Approved :: Unknown Exotic License"]) is None
+
+    def test_returns_none_when_no_license_classifier(self):
+        assert extract_license_from_classifiers(["Programming Language :: Python :: 3"]) is None
+
+    def test_maps_mit(self):
+        assert extract_license_from_classifiers(["License :: OSI Approved :: MIT License"]) == "MIT"
+
+    def test_maps_apache(self):
+        result = extract_license_from_classifiers(["License :: OSI Approved :: Apache Software License"])
+        assert result == "Apache-2.0"
+
+    def test_maps_gpl_v2(self):
+        result = extract_license_from_classifiers(["License :: OSI Approved :: GNU General Public License v2 (GPLv2)"])
+        assert result == "GPL-2.0-only"
+
+    def test_maps_gpl_v3(self):
+        result = extract_license_from_classifiers(["License :: OSI Approved :: GNU General Public License v3 (GPLv3)"])
+        assert result == "GPL-3.0-only"
+
+    def test_maps_isc(self):
+        assert extract_license_from_classifiers(["License :: OSI Approved :: ISC License (ISCL)"]) == "ISC"
+
+    def test_returns_first_match_when_multiple_classifiers(self):
+        classifiers = [
+            "Programming Language :: Python :: 3",
+            "License :: OSI Approved :: MIT License",
+            "License :: OSI Approved :: Apache Software License",
+        ]
+        assert extract_license_from_classifiers(classifiers) == "MIT"
+
+    def test_ignores_non_osi_approved_classifiers(self):
+        classifiers = ["License :: CC0 1.0 Universal (CC0 1.0) Public Domain Dedication"]
+        assert extract_license_from_classifiers(classifiers) is None
+
+
+class TestPackageLicenseFromRegistry:
+    """Test that Package.license is populated from PyPI classifiers."""
+
+    def test_license_extracted_from_classifiers(self, pypi_api):
+        raw = {
+            "requests": {
+                "info": {
+                    "name": "requests",
+                    "version": "2.31.0",
+                    "project_urls": {},
+                    "author": None,
+                    "home_page": None,
+                    "summary": None,
+                    "package_url": None,
+                    "classifiers": ["License :: OSI Approved :: Apache Software License"],
+                },
+                "releases": {},
+            }
+        }
+        with patch.object(BatchClient, "run_batch", return_value=iter([raw])):
+            result = pypi_api.packages_info_batch(["requests"])
+
+        assert result["requests"].license == "Apache-2.0"
+
+    def test_license_is_none_when_no_classifier_match(self, pypi_api):
+        raw = {
+            "mypkg": {
+                "info": {
+                    "name": "mypkg",
+                    "version": "1.0.0",
+                    "project_urls": {},
+                    "author": None,
+                    "home_page": None,
+                    "summary": None,
+                    "package_url": None,
+                    "classifiers": ["Programming Language :: Python :: 3"],
+                },
+                "releases": {},
+            }
+        }
+        with patch.object(BatchClient, "run_batch", return_value=iter([raw])):
+            result = pypi_api.packages_info_batch(["mypkg"])
+
+        assert result["mypkg"].license is None
+
+    def test_license_is_none_when_classifiers_absent(self, pypi_api):
+        raw = {
+            "mypkg": {
+                "info": {
+                    "name": "mypkg",
+                    "version": "1.0.0",
+                    "project_urls": {},
+                    "author": None,
+                    "home_page": None,
+                    "summary": None,
+                    "package_url": None,
+                },
+                "releases": {},
+            }
+        }
+        with patch.object(BatchClient, "run_batch", return_value=iter([raw])):
+            result = pypi_api.packages_info_batch(["mypkg"])
+
+        assert result["mypkg"].license is None
 
 
 class TestPackageRegistryApiPypiInit:

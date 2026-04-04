@@ -35,6 +35,52 @@ console = Console()
 
 PYPI_REGISTRY_FRONT = "https://pypi.org"
 
+_CLASSIFIER_PREFIX = "License :: OSI Approved :: "
+
+# Maps the suffix of a "License :: OSI Approved :: {name}" classifier to its SPDX identifier.
+PYPI_CLASSIFIER_TO_SPDX: dict[str, str] = {
+    "MIT License": "MIT",
+    "Apache Software License": "Apache-2.0",
+    "BSD License": "BSD-2-Clause",
+    'BSD 2-Clause "Simplified" License': "BSD-2-Clause",
+    'BSD 3-Clause "New" or "Revised" License': "BSD-3-Clause",
+    "GNU General Public License v2 (GPLv2)": "GPL-2.0-only",
+    "GNU General Public License v2 or later (GPLv2+)": "GPL-2.0-or-later",
+    "GNU General Public License v3 (GPLv3)": "GPL-3.0-only",
+    "GNU General Public License v3 or later (GPLv3+)": "GPL-3.0-or-later",
+    "GNU Lesser General Public License v2 (LGPLv2)": "LGPL-2.0-only",
+    "GNU Lesser General Public License v2 or later (LGPLv2+)": "LGPL-2.0-or-later",
+    "GNU Lesser General Public License v3 (LGPLv3)": "LGPL-3.0-only",
+    "GNU Lesser General Public License v3 or later (LGPLv3+)": "LGPL-3.0-or-later",
+    "ISC License (ISCL)": "ISC",
+    "Mozilla Public License 2.0 (MPL 2.0)": "MPL-2.0",
+    "European Union Public Licence 1.2 (EUPL 1.2)": "EUPL-1.2",
+    "Artistic License": "Artistic-2.0",
+    "Common Development and Distribution License 1.0 (CDDL-1.0)": "CDDL-1.0",
+    "Eclipse Public License 2.0 (EPL-2.0)": "EPL-2.0",
+    "The Unlicense (Unlicense)": "Unlicense",
+    "zlib/libpng License": "Zlib",
+    "Python Software Foundation License": "PSF-2.0",
+    "CC0 1.0 Universal (CC0 1.0) Public Domain Dedication": "CC0-1.0",
+}
+
+
+def extract_license_from_classifiers(classifiers: list[str]) -> str | None:
+    """
+    Extract an SPDX license identifier from PyPI classifiers.
+
+    Scans for "License :: OSI Approved :: {name}" entries and maps the suffix
+    to a known SPDX identifier. Returns the first match, or None if no recognized
+    classifier is found.
+    """
+    for classifier in classifiers:
+        if classifier.startswith(_CLASSIFIER_PREFIX):
+            suffix = classifier[len(_CLASSIFIER_PREFIX) :]
+            spdx = PYPI_CLASSIFIER_TO_SPDX.get(suffix)
+            if spdx:
+                return spdx
+    return None
+
 
 def is_valid_pep440_version(version_str: str) -> bool:
     """
@@ -225,9 +271,10 @@ class PackageRegistryApiPypi(AbstractPackageRegistryApi):
             homepage_url=info.get("home_page"),
             description=info.get("summary"),
             package_url=info.get("package_url"),
+            license=extract_license_from_classifiers(info.get("classifiers") or []),
         )
 
-    def package_infos_batch(self, names: list[str]) -> dict[str, Package]:
+    def packages_info_batch(self, names: list[str]) -> dict[str, Package]:
         """
         Fetch PyPI info for a list of packages in parallel, returning name → Package.
         Already-cached packages are served from _raw_cache without a network request.
@@ -254,7 +301,7 @@ class PackageRegistryApiPypi(AbstractPackageRegistryApi):
         only fetches dependencies for the latest version.
         """
         if package_name not in self._raw_cache:
-            self.package_infos_batch([package_name])
+            self.packages_info_batch([package_name])
 
         data = self._raw_cache[package_name]
         info = data["info"]

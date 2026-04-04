@@ -23,6 +23,7 @@ class Package:
     description: str | None
     author: str | None
     package_url: str | None
+    license: str | None
 
     _repository: Repository | None
     _versions: list[Version] | None
@@ -40,6 +41,7 @@ class Package:
         description: str | None = None,
         package_url: str | None = None,
         canonical_name: str | None = None,
+        license: str | None = None,
     ):
         self.registry = registry
         self.name = name
@@ -51,6 +53,7 @@ class Package:
         self.homepage_url = homepage_url
         self.description = description
         self.package_url = package_url
+        self.license = license
 
         self._repository = None
         self._versions = None

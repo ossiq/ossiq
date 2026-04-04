@@ -158,19 +158,22 @@ class PackageRegistryApiNpm(AbstractPackageRegistryApi):
     @staticmethod
     def _map_raw_to_package(name: str, data: dict) -> Package:
         distribution_tags = data.get("dist-tags", {"latest": None, "next": None})
+        latest_version = distribution_tags.get("latest", None)
+        latest_version_license = data.get("versions", {}).get(latest_version or "", {}).get("license")
         return Package(
             registry=ProjectPackagesRegistry.NPM,
             name=data["name"],
-            latest_version=distribution_tags.get("latest", None),
+            latest_version=latest_version,
             next_version=distribution_tags.get("next", None),
             repo_url=data.get("repository", {}).get("url", None),
             author=data.get("author"),
             homepage_url=data.get("homepage"),
             description=data.get("description"),
             package_url=f"{NPM_REGISTRY_FRONT}/package/{name}/",
+            license=latest_version_license,
         )
 
-    def package_infos_batch(self, names: list[str]) -> dict[str, Package]:
+    def packages_info_batch(self, names: list[str]) -> dict[str, Package]:
         """
         Fetch NPM info for a list of packages in parallel, returning name → Package.
         Already-cached packages are served from _raw_cache without a network request.
@@ -192,7 +195,7 @@ class PackageRegistryApiNpm(AbstractPackageRegistryApi):
         Uses _raw_cache populated by package_infos_batch; fetches if not cached.
         """
         if package_name not in self._raw_cache:
-            self.package_infos_batch([package_name])
+            self.packages_info_batch([package_name])
 
         data = self._raw_cache[package_name]
 

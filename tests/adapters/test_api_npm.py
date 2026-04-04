@@ -43,7 +43,7 @@ def mock_npm_response(npm_api):
     """
     Fixture to mock NPM registry API responses via _raw_cache.
 
-    Populates _raw_cache directly, bypassing HTTP, so package_infos_batch
+    Populates _raw_cache directly, bypassing HTTP, so packages_info_batch
     and package_versions use cached data without network calls.
     """
 
@@ -264,7 +264,7 @@ class TestDifferenceVersions:
 
 class TestPackageInfosBatch:
     """
-    Test suite for package_infos_batch() method.
+    Test suite for packages_info_batch() method.
 
     Tests fetching a batch of packages from NPM registry.
     """
@@ -279,7 +279,7 @@ class TestPackageInfosBatch:
             }
         }
         with patch.object(BatchClient, "run_batch", return_value=iter([raw])):
-            result = npm_api.package_infos_batch(["test-package"])
+            result = npm_api.packages_info_batch(["test-package"])
 
         assert "test-package" in result
         assert result["test-package"].name == "test-package"
@@ -289,7 +289,7 @@ class TestPackageInfosBatch:
         """UnableLoadPackage is raised when a requested name is absent from the response."""
         with patch.object(BatchClient, "run_batch", return_value=iter([])):
             with pytest.raises(UnableLoadPackage):
-                npm_api.package_infos_batch(["missing-pkg"])
+                npm_api.packages_info_batch(["missing-pkg"])
 
     def test_uses_raw_cache_to_avoid_refetch(self, npm_api):
         """Names already in _raw_cache are not passed to run_batch."""
@@ -298,7 +298,7 @@ class TestPackageInfosBatch:
             "dist-tags": {"latest": "2.0.0"},
         }
         with patch.object(BatchClient, "run_batch", return_value=iter([])) as mock_run:
-            result = npm_api.package_infos_batch(["cached-pkg"])
+            result = npm_api.packages_info_batch(["cached-pkg"])
 
         mock_run.assert_called_once_with([])
         assert result["cached-pkg"].latest_version == "2.0.0"
@@ -310,7 +310,7 @@ class TestPackageInfosBatch:
             "pkg-b": {"name": "pkg-b", "dist-tags": {"latest": "2.0.0"}},
         }
         with patch.object(BatchClient, "run_batch", return_value=iter([raw])):
-            result = npm_api.package_infos_batch(["pkg-a", "pkg-b"])
+            result = npm_api.packages_info_batch(["pkg-a", "pkg-b"])
 
         assert set(result.keys()) == {"pkg-a", "pkg-b"}
 
@@ -623,6 +623,54 @@ class TestPackageVersions:
         versions = list(npm_api.package_versions("empty-pkg"))
 
         assert len(versions) == 0
+
+
+class TestPackageLicenseFromRegistry:
+    """Test that Package.license is populated from the latest version's license field."""
+
+    def test_license_extracted_from_latest_version(self, npm_api):
+        raw = {
+            "chalk": {
+                "name": "chalk",
+                "dist-tags": {"latest": "5.3.0"},
+                "versions": {
+                    "5.3.0": {"license": "MIT"},
+                    "5.2.0": {"license": "MIT"},
+                },
+            }
+        }
+        with patch.object(BatchClient, "run_batch", return_value=iter([raw])):
+            result = npm_api.packages_info_batch(["chalk"])
+
+        assert result["chalk"].license == "MIT"
+
+    def test_license_is_none_when_version_missing_license(self, npm_api):
+        raw = {
+            "mypkg": {
+                "name": "mypkg",
+                "dist-tags": {"latest": "1.0.0"},
+                "versions": {
+                    "1.0.0": {"dependencies": {}},
+                },
+            }
+        }
+        with patch.object(BatchClient, "run_batch", return_value=iter([raw])):
+            result = npm_api.packages_info_batch(["mypkg"])
+
+        assert result["mypkg"].license is None
+
+    def test_license_is_none_when_no_versions(self, npm_api):
+        raw = {
+            "mypkg": {
+                "name": "mypkg",
+                "dist-tags": {"latest": "1.0.0"},
+                "versions": {},
+            }
+        }
+        with patch.object(BatchClient, "run_batch", return_value=iter([raw])):
+            result = npm_api.packages_info_batch(["mypkg"])
+
+        assert result["mypkg"].license is None
 
 
 class TestPackageRegistryApiNpmInit:

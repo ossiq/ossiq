@@ -2,7 +2,6 @@
 Factory to instantiate API clients
 """
 
-from ossiq.adapters.api_clearlydefined import LicenseApiClearlyDefined
 from ossiq.adapters.api_npm import PackageRegistryApiNpm
 from ossiq.adapters.api_osv import CveApiOsv
 from ossiq.adapters.api_pypi import PackageRegistryApiPypi
@@ -12,7 +11,6 @@ from ossiq.settings import Settings
 from .api_github import SourceCodeProviderApiGithub
 from .api_interfaces import (
     AbstractCveDatabaseApi,
-    AbstractLicenseDatabaseApi,
     AbstractPackageRegistryApi,
     AbstractSourceCodeProviderApi,
 )
@@ -51,11 +49,3 @@ def create_cve_database(settings: Settings) -> AbstractCveDatabaseApi:
     single database instance still.
     """
     return CveApiOsv(settings)
-
-
-def create_license_database(settings: Settings) -> AbstractLicenseDatabaseApi:
-    """
-    Return license database (ClearlyDefined) for normalized SPDX license lookups.
-    """
-    # ClearlyDefinedSession
-    return LicenseApiClearlyDefined(settings)

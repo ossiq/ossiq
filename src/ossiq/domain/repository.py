@@ -10,15 +10,24 @@ class Repository:
     name: str
     owner: str
     description: str | None
-
     html_url: str | None
+    license: str | None
 
-    def __init__(self, provider: str, name: str, owner: str, description: str | None, html_url: str | None):
+    def __init__(
+        self,
+        provider: str,
+        name: str,
+        owner: str,
+        description: str | None,
+        html_url: str | None,
+        license: str | None = None,
+    ):
         self.provider = provider
         self.owner = owner
         self.name = name
         self.description = description
         self.html_url = html_url
+        self.license = license
 
     def __repr__(self):
         return f"""{self.provider} Repository(
