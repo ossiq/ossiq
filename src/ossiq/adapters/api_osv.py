@@ -1,70 +1,59 @@
-from ossiq.clients.osv import OsvSession
-from ossiq.domain.common import CveDatabase, ProjectPackagesRegistry
+import requests
+
+from ossiq.clients.batch import BatchClient
+from ossiq.clients.client_osv import OsvBatchStrategy
+from ossiq.clients.common import get_user_agent
+from ossiq.domain.common import CveDatabase
 from ossiq.domain.cve import CVE, Severity
 from ossiq.domain.package import Package
+from ossiq.settings import Settings
 
 from .api_interfaces import AbstractCveDatabaseApi
-
-ECOSYSTEM_MAPPING = {ProjectPackagesRegistry.NPM: "npm", ProjectPackagesRegistry.PYPI: "PyPI"}
 
 
 class CveApiOsv(AbstractCveDatabaseApi):
     """
     An AbstractCveDatabaseApi implementation for osv.dev CVEs repository.
-    Uses the /v1/querybatch endpoint to fetch CVEs for all packages in a single request.
+    Uses BatchClient + OsvBatchStrategy to chunk, retry, and rate-limit requests
+    to the /v1/querybatch endpoint.
+
+    Note, that pagination is intentionally not implemented, since batch
+    sizes are relatively small (50) and limits are pretty high (more than 1K CVEs per request)
     """
 
-    def __init__(self, session: OsvSession):
-        self.base_url = "https://api.osv.dev/v1"
-        self.session = session
+    session: requests.Session
+
+    def __init__(self, settings: Settings):
+
+        self.session = requests.Session()
+        self.session.headers.update({"User-Agent": get_user_agent()})
+
+        self._strategy = OsvBatchStrategy(self.session)
+        self._batch_client = BatchClient(self._strategy)
 
     def __repr__(self):
-        return f"CveApiOsv(base_url='{self.base_url}')"
+        return f"CveApiOsv(base_url='{self._strategy.BASE_URL}')"
 
     def get_cves_batch(self, packages_with_versions: list[tuple[Package, str]]) -> dict[tuple[str, str], set[CVE]]:
         if not packages_with_versions:
             return {}
 
-        queries = [
-            {"package": {"name": pkg.name, "ecosystem": ECOSYSTEM_MAPPING[pkg.registry]}, "version": version}
+        pkg_map: dict[tuple[str, str], Package] = {(pkg.name, version): pkg for pkg, version in packages_with_versions}
+        merged: dict[tuple[str, str], list[dict]] = {}
+        for chunk_data in self._batch_client.run_batch(packages_with_versions):
+            merged.update(chunk_data)
+
+        return {
+            (pkg.name, version): self._parse_cves(
+                merged.get((pkg.name, version), []),
+                pkg_map[(pkg.name, version)],
+            )
             for pkg, version in packages_with_versions
-        ]
+        }
 
-        resp = self.session.post(f"{self.base_url}/querybatch", json={"queries": queries}, timeout=30)
-        resp.raise_for_status()
-
-        results: dict[tuple[str, str], set[CVE]] = {}
-        for (pkg, version), result in zip(packages_with_versions, resp.json().get("results", []), strict=True):
-            cves = self._parse_cves_from_result(result, pkg)
-
-            # Handle pagination (triggers when a single package exceeds ~1000 CVEs — extremely rare)
-            page_token = result.get("next_page_token")
-            while page_token:
-                page_resp = self.session.post(
-                    f"{self.base_url}/querybatch",
-                    json={
-                        "queries": [
-                            {
-                                "package": {"name": pkg.name, "ecosystem": ECOSYSTEM_MAPPING[pkg.registry]},
-                                "version": version,
-                                "page_token": page_token,
-                            }
-                        ]
-                    },
-                    timeout=30,
-                )
-                page_resp.raise_for_status()
-                page_result = page_resp.json().get("results", [{}])[0]
-                cves |= self._parse_cves_from_result(page_result, pkg)
-                page_token = page_result.get("next_page_token")
-
-            results[(pkg.name, version)] = cves
-
-        return results
-
-    def _parse_cves_from_result(self, result: dict, package: Package) -> set[CVE]:
+    def _parse_cves(self, raw_vulns: list[dict], package: Package) -> set[CVE]:
         cves = set()
-        for cve_raw in result.get("vulns", []):
+        for cve_raw in raw_vulns:
             cves.add(
                 CVE(
                     id=cve_raw["id"],

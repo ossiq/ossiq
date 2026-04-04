@@ -10,10 +10,11 @@ from rich.console import Console
 
 from ossiq.adapters.api_interfaces import AbstractPackageRegistryApi
 from ossiq.adapters.package_managers.dependency_tree import GraphExporter
-from ossiq.domain.common import build_purl, parse_spdx_expression
+from ossiq.domain.common import RepositoryProvider, build_purl, parse_spdx_expression
 from ossiq.domain.cve import CVE
 from ossiq.domain.exceptions import ProjectPathNotFoundError, UnknownPackageVersion
 from ossiq.domain.package import Package
+from ossiq.domain.repository import Repository
 from ossiq.domain.version import VersionsDifference
 from ossiq.service.common import package_versions
 from ossiq.unit_of_work import core as unit_of_work
@@ -33,6 +34,10 @@ class DependencyDescriptor:
 
 @dataclass
 class ScanRecord:
+    """
+    Main aggregated output of the OSS IQ tool.
+    """
+
     package_name: str
     dependency_name: str
     is_optional_dependency: bool
@@ -46,6 +51,7 @@ class ScanRecord:
     version_constraint: str | None = None
     license: list[str] | None = None
     repo_url: str | None = None
+    repository: Repository | None = None
     homepage_url: str | None = None
     package_url: str | None = None
     purl: str | None = None
@@ -114,6 +120,7 @@ def get_package_versions_since(
 
 def scan_record(
     packages_registry: AbstractPackageRegistryApi,
+    package_info: Package,
     package_name: str,
     canonical_name: str,
     package_version: str,
@@ -121,14 +128,14 @@ def scan_record(
     prefetched_cves: set[CVE],
     dependency_path: list[str] | None = None,
     version_constraint: str | None = None,
-    prefetched_license: str | None = None,
+    prefetched_repository: Repository | None = None,
 ) -> ScanRecord:
     """
     Factory to generate ScanRecord instances
     """
     # For npm alias packages (e.g. "chalk-legacy" -> "chalk"), use the canonical
     # registry name for lookups while keeping the alias name for display.
-    package_info = packages_registry.package_info(canonical_name)
+    # package_info = packages_registry.package_info(canonical_name)
 
     releases_since_installed = get_package_versions_since(packages_registry, package_info.name, package_version)
 
@@ -153,22 +160,36 @@ def scan_record(
         dependency_path=dependency_path,
         version_constraint=version_constraint,
         repo_url=package_info.repo_url,
+        repository=prefetched_repository,
         homepage_url=package_info.homepage_url,
         package_url=package_info.package_url,
-        license=parse_spdx_expression(prefetched_license),
+        license=parse_spdx_expression(
+            package_info.license or (prefetched_repository.license if prefetched_repository else None)
+        ),
         purl=build_purl(packages_registry.package_registry, canonical_name, package_version),
     )
 
 
-def _prefetch_package_infos(
+def prefetch_packages_info(
     packages_registry: AbstractPackageRegistryApi, canonical_names: Iterable[str]
 ) -> dict[str, Package]:
-    """Pre-fetch package info for all unique canonical names (results are cached by requests-cache)."""
-    infos: dict[str, Package] = {}
-    for name in canonical_names:
-        if name not in infos:
-            infos[name] = packages_registry.package_info(name)
-    return infos
+    """Pre-fetch package info for all unique canonical names in parallel."""
+    unique = list(dict.fromkeys(canonical_names))
+    return packages_registry.packages_info_batch(unique)
+
+
+def prefetch_source_code_repositories_info(
+    uow: unit_of_work.AbstractProjectUnitOfWork,
+    repo_urls: Iterable[str],
+) -> dict[str, Repository]:
+    """
+    Pre-fetch repository info for all unique GitHub repo URLs in parallel.
+    Returns a mapping of url -> Repository; non-GitHub URLs are skipped.
+    """
+    github_urls = [url for url in repo_urls if "github.com" in url]
+    if not github_urls:
+        return {}
+    return uow.get_source_code_provider(RepositoryProvider.PROVIDER_GITHUB).repositories_info_batch(github_urls)
 
 
 def scan(uow: unit_of_work.AbstractProjectUnitOfWork) -> ScanResult:
@@ -186,7 +207,6 @@ def scan(uow: unit_of_work.AbstractProjectUnitOfWork) -> ScanResult:
 
     with uow:
         project_info = uow.packages_manager.project_info()
-
         # FIXME: catch this issue way before as part of command validation
         if not project_info.project_path:
             raise ProjectPathNotFoundError("Project Path is not Specified")
@@ -234,28 +254,33 @@ def scan(uow: unit_of_work.AbstractProjectUnitOfWork) -> ScanResult:
         all_deps = prod_deps + opt_deps + trans_deps
 
         # Pass 1: pre-fetch package infos (GET requests, cached by requests-cache)
-        package_infos = _prefetch_package_infos(uow.packages_registry, (dep.canonical_name for dep in all_deps))
+        packages_info = prefetch_packages_info(uow.packages_registry, (dep.canonical_name for dep in all_deps))
 
-        # Batch CVE fetch — single POST to /v1/querybatch for all packages
-        packages_for_cve = [(package_infos[dep.canonical_name], dep.version) for dep in all_deps]
-        cve_cache = uow.cve_database.get_cves_batch(packages_for_cve)
+        # Github repository info
+        repositories_info = prefetch_source_code_repositories_info(
+            uow,
+            {pkg.repo_url for pkg in packages_info.values() if pkg.repo_url is not None},
+        )
+        # Batch CVE fetch for all unique packages
+        # force unique pair package/version regardless position in the graph
+        unique_packages = list(set((packages_info[dep.canonical_name], dep.version) for dep in all_deps))
 
-        # Batch license fetch — single POST to ClearlyDefined for all packages
-        license_cache = uow.license_database.get_licenses_batch(packages_for_cve)
+        cve_map = uow.cve_database.get_cves_batch(unique_packages)
 
-        # Pass 2: build ScanRecords using pre-fetched CVE and license data
+        # Pass 2: build ScanRecords using pre-fetched CVE data; license comes from registry + GitHub
         def build_records(descriptors: list[DependencyDescriptor]) -> list[ScanRecord]:
             return [
                 scan_record(
                     uow.packages_registry,
+                    packages_info[dep.canonical_name],
                     dep.name,
                     dep.canonical_name,
                     dep.version,
                     dep.is_optional,
-                    cve_cache.get((package_infos[dep.canonical_name].name, dep.version), set()),
+                    cve_map.get((packages_info[dep.canonical_name].name, dep.version), set()),
                     dep.dependency_path,
                     dep.version_constraint,
-                    license_cache.get((package_infos[dep.canonical_name].name, dep.version)),
+                    repositories_info.get(packages_info[dep.canonical_name].repo_url or ""),
                 )
                 for dep in descriptors
             ]

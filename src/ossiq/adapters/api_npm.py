@@ -2,6 +2,7 @@
 Implementation of Package Registry API client for NPM
 """
 
+import logging
 from collections.abc import Iterable
 
 import requests
@@ -9,8 +10,11 @@ import semver
 from rich.console import Console
 
 from ossiq.adapters.api_interfaces import AbstractPackageRegistryApi
+from ossiq.clients.batch import BatchClient
+from ossiq.clients.client_npm import NpmBatchStrategy
+from ossiq.clients.common import get_user_agent
 from ossiq.domain.common import ProjectPackagesRegistry
-from ossiq.domain.exceptions import UnknownPackageVersion
+from ossiq.domain.exceptions import UnableLoadPackage, UnknownPackageVersion
 from ossiq.domain.package import Package
 from ossiq.domain.version import (
     VERSION_DIFF_BUILD,
@@ -27,9 +31,9 @@ from ossiq.domain.version import (
 )
 from ossiq.settings import Settings
 
+logger = logging.getLogger(__name__)
 console = Console()
 
-NPM_REGISTRY = "https://registry.npmjs.org"
 NPM_REGISTRY_FRONT = "https://www.npmjs.com"
 
 NPM_DEPENDENCIES_SECTIONS = (
@@ -48,6 +52,9 @@ class PackageRegistryApiNpm(AbstractPackageRegistryApi):
 
     package_registry = ProjectPackagesRegistry.NPM
     settings: Settings
+    session: requests.Session
+
+    _raw_cache: dict[str, dict]
 
     @staticmethod
     def compare_versions(v1: str, v2: str) -> int:
@@ -139,46 +146,62 @@ class PackageRegistryApiNpm(AbstractPackageRegistryApi):
 
     def __init__(self, settings: Settings):
         self.settings = settings
+        self.session = requests.Session()
+        self.session.headers.update({"User-Agent": get_user_agent()})
+        self._raw_cache = {}
+        self._strategy = NpmBatchStrategy(self.session)
+        self._batch_client = BatchClient(self._strategy)
 
     def __repr__(self):
         return "<PackageRegistryApiNpm instance>"
 
-    def _make_request(self, path: str, headers: dict | None = None, timeout: int = 15) -> dict:
-        """
-        Make request and handle retries and errors handling.
-        """
-        r = requests.get(f"{NPM_REGISTRY}{path}", timeout=timeout, headers=headers)
-        r.raise_for_status()
-        return r.json()
-
-    def package_info(self, package_name: str) -> Package:
-        """
-        Fetch npm info for a given package.
-        FIXME: raise custom exception if not found
-        """
-        response = self._make_request(f"/{package_name}")
-        distribution_tags = response.get("dist-tags", {"latest": None, "next": None})
-
+    @staticmethod
+    def _map_raw_to_package(name: str, data: dict) -> Package:
+        distribution_tags = data.get("dist-tags", {"latest": None, "next": None})
+        latest_version = distribution_tags.get("latest", None)
+        latest_version_license = data.get("versions", {}).get(latest_version or "", {}).get("license")
         return Package(
             registry=ProjectPackagesRegistry.NPM,
-            name=response["name"],
-            latest_version=distribution_tags.get("latest", None),
+            name=data["name"],
+            latest_version=latest_version,
             next_version=distribution_tags.get("next", None),
-            repo_url=response.get("repository", {}).get("url", None),
-            author=response.get("author"),
-            homepage_url=response.get("homepage"),
-            description=response.get("description"),
-            package_url=f"{NPM_REGISTRY_FRONT}/package/{package_name}/",
+            repo_url=data.get("repository", {}).get("url", None),
+            author=data.get("author"),
+            homepage_url=data.get("homepage"),
+            description=data.get("description"),
+            package_url=f"{NPM_REGISTRY_FRONT}/package/{name}/",
+            license=latest_version_license,
         )
+
+    def packages_info_batch(self, names: list[str]) -> dict[str, Package]:
+        """
+        Fetch NPM info for a list of packages in parallel, returning name → Package.
+        Already-cached packages are served from _raw_cache without a network request.
+        """
+        names_to_fetch = [n for n in names if n not in self._raw_cache]
+
+        for chunk_data in self._batch_client.run_batch(names_to_fetch):
+            self._raw_cache.update(chunk_data)
+
+        for name in names:
+            if name not in self._raw_cache:
+                raise UnableLoadPackage(name)
+
+        return {name: self._map_raw_to_package(name, self._raw_cache[name]) for name in names}
 
     def package_versions(self, package_name: str) -> Iterable[PackageVersion]:
         """
         Fetch npm versions for a given package.
+        Uses _raw_cache populated by package_infos_batch; fetches if not cached.
         """
-        response = self._make_request(f"/{package_name}")
+        if package_name not in self._raw_cache:
+            self.packages_info_batch([package_name])
+
+        data = self._raw_cache[package_name]
+
         # FIXME: raise custom exception if not found
-        versions = response.get("versions", [])
-        timestamp_map = response.get("time", {})
+        versions = data.get("versions", [])
+        timestamp_map = data.get("time", {})
         unpublished_response = timestamp_map.pop("unpublished", {})
 
         # Package version is either published or unpublished

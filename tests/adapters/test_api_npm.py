@@ -10,11 +10,15 @@ This module tests the NPM registry adapter implementation, including:
 - Prerelease versions handling
 """
 
+from unittest.mock import patch
+
 import pytest
 import semver
 
 from ossiq.adapters.api_npm import PackageRegistryApiNpm
+from ossiq.clients.batch import BatchClient
 from ossiq.domain.common import ProjectPackagesRegistry
+from ossiq.domain.exceptions import UnableLoadPackage
 from ossiq.domain.version import (
     VERSION_DIFF_BUILD,
     VERSION_DIFF_MAJOR,
@@ -35,28 +39,20 @@ def npm_api():
 
 
 @pytest.fixture
-def mock_npm_response(monkeypatch):
+def mock_npm_response(npm_api):
     """
-    Fixture to mock NPM registry API responses.
+    Fixture to mock NPM registry API responses via _raw_cache.
 
-    Provides a helper class to set up mock responses for package info
-    and versions endpoints.
+    Populates _raw_cache directly, bypassing HTTP, so packages_info_batch
+    and package_versions use cached data without network calls.
     """
-    responses = {}
-
-    def mock_make_request(self, path: str, headers=None, timeout=15):
-        if path in responses:
-            return responses[path]
-        raise ValueError(f"No mock response for path: {path}")
-
-    monkeypatch.setattr(PackageRegistryApiNpm, "_make_request", mock_make_request)
 
     class MockHelper:
-        def set_response(self, path, data):
-            responses[path] = data
+        def set_response(self, name: str, data: dict):
+            npm_api._raw_cache[name] = data
 
         def clear(self):
-            responses.clear()
+            npm_api._raw_cache.clear()
 
     return MockHelper()
 
@@ -266,6 +262,59 @@ class TestDifferenceVersions:
         assert result.version2 == "2.0.0"
 
 
+class TestPackageInfosBatch:
+    """
+    Test suite for packages_info_batch() method.
+
+    Tests fetching a batch of packages from NPM registry.
+    """
+
+    def test_returns_mapping_of_name_to_package(self, npm_api):
+        """Batch result maps each name to a Package instance."""
+        raw = {
+            "test-package": {
+                "name": "test-package",
+                "dist-tags": {"latest": "1.0.0"},
+                "description": "A test package",
+            }
+        }
+        with patch.object(BatchClient, "run_batch", return_value=iter([raw])):
+            result = npm_api.packages_info_batch(["test-package"])
+
+        assert "test-package" in result
+        assert result["test-package"].name == "test-package"
+        assert result["test-package"].latest_version == "1.0.0"
+
+    def test_raises_for_missing_package(self, npm_api):
+        """UnableLoadPackage is raised when a requested name is absent from the response."""
+        with patch.object(BatchClient, "run_batch", return_value=iter([])):
+            with pytest.raises(UnableLoadPackage):
+                npm_api.packages_info_batch(["missing-pkg"])
+
+    def test_uses_raw_cache_to_avoid_refetch(self, npm_api):
+        """Names already in _raw_cache are not passed to run_batch."""
+        npm_api._raw_cache["cached-pkg"] = {
+            "name": "cached-pkg",
+            "dist-tags": {"latest": "2.0.0"},
+        }
+        with patch.object(BatchClient, "run_batch", return_value=iter([])) as mock_run:
+            result = npm_api.packages_info_batch(["cached-pkg"])
+
+        mock_run.assert_called_once_with([])
+        assert result["cached-pkg"].latest_version == "2.0.0"
+
+    def test_multiple_packages(self, npm_api):
+        """Multiple packages are all returned in one call."""
+        raw = {
+            "pkg-a": {"name": "pkg-a", "dist-tags": {"latest": "1.0.0"}},
+            "pkg-b": {"name": "pkg-b", "dist-tags": {"latest": "2.0.0"}},
+        }
+        with patch.object(BatchClient, "run_batch", return_value=iter([raw])):
+            result = npm_api.packages_info_batch(["pkg-a", "pkg-b"])
+
+        assert set(result.keys()) == {"pkg-a", "pkg-b"}
+
+
 class TestPackageInfo:
     """
     Test suite for package_info() method.
@@ -282,7 +331,7 @@ class TestPackageInfo:
         NPM registry response.
         """
         mock_npm_response.set_response(
-            "/test-package",
+            "test-package",
             {
                 "name": "test-package",
                 "description": "A test package",
@@ -313,7 +362,7 @@ class TestPackageInfo:
         dist-tag are correctly handled and distinguished from 'latest'.
         """
         mock_npm_response.set_response(
-            "/prerelease-pkg",
+            "prerelease-pkg",
             {
                 "name": "prerelease-pkg",
                 "description": "Package with prerelease",
@@ -339,7 +388,7 @@ class TestPackageInfo:
         Verifies that packages without a 'next' tag still work correctly.
         """
         mock_npm_response.set_response(
-            "/stable-pkg",
+            "stable-pkg",
             {
                 "name": "stable-pkg",
                 "description": "Stable package only",
@@ -361,7 +410,7 @@ class TestPackageInfo:
         are missing from the NPM response.
         """
         mock_npm_response.set_response(
-            "/minimal-pkg",
+            "minimal-pkg",
             {
                 "name": "minimal-pkg",
                 "dist-tags": {"latest": "1.0.0"},
@@ -393,7 +442,7 @@ class TestPackageVersions:
         their metadata and dependencies.
         """
         mock_npm_response.set_response(
-            "/simple-pkg",
+            "simple-pkg",
             {
                 "name": "simple-pkg",
                 "versions": {
@@ -442,7 +491,7 @@ class TestPackageVersions:
         is_published=False and include unpublished timestamp.
         """
         mock_npm_response.set_response(
-            "/unpublished-pkg",
+            "unpublished-pkg",
             {
                 "name": "unpublished-pkg",
                 "versions": {},
@@ -476,7 +525,7 @@ class TestPackageVersions:
         processed and not confused with stable releases.
         """
         mock_npm_response.set_response(
-            "/prerelease-pkg",
+            "prerelease-pkg",
             {
                 "name": "prerelease-pkg",
                 "versions": {
@@ -537,7 +586,7 @@ class TestPackageVersions:
         from regular dependencies.
         """
         mock_npm_response.set_response(
-            "/dev-deps-pkg",
+            "dev-deps-pkg",
             {
                 "name": "dev-deps-pkg",
                 "versions": {
@@ -569,11 +618,59 @@ class TestPackageVersions:
 
         Verifies graceful handling when a package has no published versions.
         """
-        mock_npm_response.set_response("/empty-pkg", {"name": "empty-pkg", "versions": {}, "time": {}})
+        mock_npm_response.set_response("empty-pkg", {"name": "empty-pkg", "versions": {}, "time": {}})
 
         versions = list(npm_api.package_versions("empty-pkg"))
 
         assert len(versions) == 0
+
+
+class TestPackageLicenseFromRegistry:
+    """Test that Package.license is populated from the latest version's license field."""
+
+    def test_license_extracted_from_latest_version(self, npm_api):
+        raw = {
+            "chalk": {
+                "name": "chalk",
+                "dist-tags": {"latest": "5.3.0"},
+                "versions": {
+                    "5.3.0": {"license": "MIT"},
+                    "5.2.0": {"license": "MIT"},
+                },
+            }
+        }
+        with patch.object(BatchClient, "run_batch", return_value=iter([raw])):
+            result = npm_api.packages_info_batch(["chalk"])
+
+        assert result["chalk"].license == "MIT"
+
+    def test_license_is_none_when_version_missing_license(self, npm_api):
+        raw = {
+            "mypkg": {
+                "name": "mypkg",
+                "dist-tags": {"latest": "1.0.0"},
+                "versions": {
+                    "1.0.0": {"dependencies": {}},
+                },
+            }
+        }
+        with patch.object(BatchClient, "run_batch", return_value=iter([raw])):
+            result = npm_api.packages_info_batch(["mypkg"])
+
+        assert result["mypkg"].license is None
+
+    def test_license_is_none_when_no_versions(self, npm_api):
+        raw = {
+            "mypkg": {
+                "name": "mypkg",
+                "dist-tags": {"latest": "1.0.0"},
+                "versions": {},
+            }
+        }
+        with patch.object(BatchClient, "run_batch", return_value=iter([raw])):
+            result = npm_api.packages_info_batch(["mypkg"])
+
+        assert result["mypkg"].license is None
 
 
 class TestPackageRegistryApiNpmInit:

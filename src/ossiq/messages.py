@@ -9,6 +9,8 @@ Time delta after which a package is considered to be lagging to highlight in the
 Supported units: y/m/w/d/h, default: d (days).
 """
 
+ARGS_HELP_DEBUG = "Enable debug logging output (logging module). Overrides OSSIQ_DEBUG env var."
+
 ARGS_HELP_GITHUB_TOKEN = """Github Token to increase requests limits"""
 ARGS_HELP_CACHE_DESTINATION = """Directory where cache will be stored"""
 ARGS_HELP_CACHE_TTL = """For how long cache is stored"""

@@ -26,6 +26,11 @@ class AbstractSourceCodeProviderApi(abc.ABC):
         raise NotImplementedError
 
     @abc.abstractmethod
+    def repositories_info_batch(self, repo_urls: list[str]) -> dict[str, Repository]:
+        """Fetch metadata for multiple repos in parallel. Returns url -> Repository."""
+        raise NotImplementedError
+
+    @abc.abstractmethod
     def repository_versions(
         self, repository: Repository, package_versions: list[PackageVersion], comparator: Callable
     ) -> Iterable[RepositoryVersion]:
@@ -75,11 +80,17 @@ class AbstractPackageRegistryApi(abc.ABC):
         raise NotImplementedError
 
     @abc.abstractmethod
-    def package_info(self, package_name: str) -> Package:
+    def packages_info_batch(self, names: list[str]) -> dict[str, Package]:
         """
-        Get a particular package info
+        Fetch info for a list of packages, returning a mapping of name → Package.
         """
         raise NotImplementedError
+
+    def package_info(self, package_name: str) -> Package:
+        """
+        Get a particular package info. Delegates to package_infos_batch by default.
+        """
+        return self.packages_info_batch([package_name])[package_name]
 
     @abc.abstractmethod
     def package_versions(self, package_name: str) -> Iterable[PackageVersion]:
@@ -103,27 +114,6 @@ class AbstractCveDatabaseApi(abc.ABC):
     def get_cves_batch(self, packages_with_versions: list[tuple[Package, str]]) -> dict[tuple[str, str], set[CVE]]:
         """
         Method to return a particular CVE info
-        """
-        raise NotImplementedError
-
-    @abc.abstractmethod
-    def __repr__(self):
-        raise NotImplementedError
-
-
-class AbstractLicenseDatabaseApi(abc.ABC):
-    """
-    Abstract client to communicate with license databases like ClearlyDefined.
-    """
-
-    @abc.abstractmethod
-    def get_licenses_batch(
-        self, packages_with_versions: list[tuple[Package, str]]
-    ) -> dict[tuple[str, str], str | None]:
-        """
-        Fetch normalized SPDX license identifiers for a batch of packages.
-
-        Returns a mapping of (package_name, version) -> SPDX license string or None.
         """
         raise NotImplementedError
 

@@ -10,7 +10,11 @@ from packaging.version import Version as PackagingVersion
 from rich.console import Console
 
 from ossiq.adapters.api_interfaces import AbstractPackageRegistryApi
+from ossiq.clients.batch import BatchClient
+from ossiq.clients.client_pypi import PypiBatchStrategy
+from ossiq.clients.common import get_user_agent
 from ossiq.domain.common import ProjectPackagesRegistry
+from ossiq.domain.exceptions import UnableLoadPackage
 from ossiq.domain.package import Package
 from ossiq.domain.version import (
     VERSION_DIFF_BUILD,
@@ -29,8 +33,53 @@ from ossiq.settings import Settings
 
 console = Console()
 
-PYPI_REGISTRY = "https://pypi.org/pypi"
 PYPI_REGISTRY_FRONT = "https://pypi.org"
+
+_CLASSIFIER_PREFIX = "License :: OSI Approved :: "
+
+# Maps the suffix of a "License :: OSI Approved :: {name}" classifier to its SPDX identifier.
+PYPI_CLASSIFIER_TO_SPDX: dict[str, str] = {
+    "MIT License": "MIT",
+    "Apache Software License": "Apache-2.0",
+    "BSD License": "BSD-2-Clause",
+    'BSD 2-Clause "Simplified" License': "BSD-2-Clause",
+    'BSD 3-Clause "New" or "Revised" License': "BSD-3-Clause",
+    "GNU General Public License v2 (GPLv2)": "GPL-2.0-only",
+    "GNU General Public License v2 or later (GPLv2+)": "GPL-2.0-or-later",
+    "GNU General Public License v3 (GPLv3)": "GPL-3.0-only",
+    "GNU General Public License v3 or later (GPLv3+)": "GPL-3.0-or-later",
+    "GNU Lesser General Public License v2 (LGPLv2)": "LGPL-2.0-only",
+    "GNU Lesser General Public License v2 or later (LGPLv2+)": "LGPL-2.0-or-later",
+    "GNU Lesser General Public License v3 (LGPLv3)": "LGPL-3.0-only",
+    "GNU Lesser General Public License v3 or later (LGPLv3+)": "LGPL-3.0-or-later",
+    "ISC License (ISCL)": "ISC",
+    "Mozilla Public License 2.0 (MPL 2.0)": "MPL-2.0",
+    "European Union Public Licence 1.2 (EUPL 1.2)": "EUPL-1.2",
+    "Artistic License": "Artistic-2.0",
+    "Common Development and Distribution License 1.0 (CDDL-1.0)": "CDDL-1.0",
+    "Eclipse Public License 2.0 (EPL-2.0)": "EPL-2.0",
+    "The Unlicense (Unlicense)": "Unlicense",
+    "zlib/libpng License": "Zlib",
+    "Python Software Foundation License": "PSF-2.0",
+    "CC0 1.0 Universal (CC0 1.0) Public Domain Dedication": "CC0-1.0",
+}
+
+
+def extract_license_from_classifiers(classifiers: list[str]) -> str | None:
+    """
+    Extract an SPDX license identifier from PyPI classifiers.
+
+    Scans for "License :: OSI Approved :: {name}" entries and maps the suffix
+    to a known SPDX identifier. Returns the first match, or None if no recognized
+    classifier is found.
+    """
+    for classifier in classifiers:
+        if classifier.startswith(_CLASSIFIER_PREFIX):
+            suffix = classifier[len(_CLASSIFIER_PREFIX) :]
+            spdx = PYPI_CLASSIFIER_TO_SPDX.get(suffix)
+            if spdx:
+                return spdx
+    return None
 
 
 def is_valid_pep440_version(version_str: str) -> bool:
@@ -70,6 +119,8 @@ class PackageRegistryApiPypi(AbstractPackageRegistryApi):
 
     package_registry = ProjectPackagesRegistry.PYPI
     settings: Settings
+
+    _raw_cache: dict[str, dict]
 
     @staticmethod
     def compare_versions(v1: str, v2: str) -> int:
@@ -195,30 +246,24 @@ class PackageRegistryApiPypi(AbstractPackageRegistryApi):
 
     def __init__(self, settings: Settings):
         self.settings = settings
+        self.session = requests.Session()
+        self.session.headers.update({"User-Agent": get_user_agent()})
+        self._raw_cache = {}
+        self._strategy = PypiBatchStrategy(self.session)
+        self._batch_client = BatchClient(self._strategy)
 
     def __repr__(self):
         return "<PackageRegistryApiPypi instance>"
 
-    def _make_request(self, path: str, headers: dict | None = None, timeout: int = 15) -> dict:
-        r = requests.get(f"{PYPI_REGISTRY}{path}", timeout=timeout, headers=headers)
-        r.raise_for_status()
-        return r.json()
-
-    def package_info(self, package_name: str) -> Package:
-        """
-        Fetch PyPI info for a given package.
-        """
-        response = self._make_request(f"/{package_name}/json")
-        info = response["info"]
-
-        # PyPI API gap: No direct equivalent of NPM's 'dist-tags' like 'next'.
-        # 'latest' is just the highest non-prerelease version.
+    @staticmethod
+    def _map_raw_to_package(name: str, data: dict) -> Package:
+        info = data["info"]
         return Package(
             registry=ProjectPackagesRegistry.PYPI,
             # NOTE: package_name could be uppercase like Jinja2
-            name=package_name,
+            name=name,
             # PyPI has no alias support, so canonical_name always equals name
-            canonical_name=package_name,
+            canonical_name=name,
             latest_version=info["version"],
             next_version=None,
             repo_url=get_repo_url(info.get("project_urls", {})),
@@ -226,20 +271,41 @@ class PackageRegistryApiPypi(AbstractPackageRegistryApi):
             homepage_url=info.get("home_page"),
             description=info.get("summary"),
             package_url=info.get("package_url"),
+            license=extract_license_from_classifiers(info.get("classifiers") or []),
         )
+
+    def packages_info_batch(self, names: list[str]) -> dict[str, Package]:
+        """
+        Fetch PyPI info for a list of packages in parallel, returning name → Package.
+        Already-cached packages are served from _raw_cache without a network request.
+        """
+        names_to_fetch = [n for n in names if n not in self._raw_cache]
+
+        for chunk_data in self._batch_client.run_batch(names_to_fetch):
+            self._raw_cache.update(chunk_data)
+
+        for name in names:
+            if name not in self._raw_cache:
+                raise UnableLoadPackage(name)
+
+        return {name: self._map_raw_to_package(name, self._raw_cache[name]) for name in names}
 
     def package_versions(self, package_name: str) -> Iterable[PackageVersion]:
         """
         Fetch PyPI versions for a given package.
+        Uses _raw_cache populated by package_infos_batch; fetches if not cached.
 
         PyPI API gap: The main endpoint does not provide dependency information
         for older versions. A separate request per version is needed to get
         `requires_dist` for each, making it inefficient. This implementation
         only fetches dependencies for the latest version.
         """
-        response = self._make_request(f"/{package_name}/json")
-        info = response["info"]
-        releases = response["releases"]
+        if package_name not in self._raw_cache:
+            self.packages_info_batch([package_name])
+
+        data = self._raw_cache[package_name]
+        info = data["info"]
+        releases = data["releases"]
 
         latest_version_dependencies = info.get("requires_dist") or []
 
