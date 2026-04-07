@@ -569,11 +569,9 @@ class TestGitHubService:
 
     def test_create_release_no_token(self):
         """Test error when no GitHub token is provided."""
-        # Arrange
-        service = GitHubService(api_url=self.API_URL, github_token=None)
-
-        # Act & Assert
+        # Service must be created inside the env patch so __init__ sees no token
         with patch.dict("os.environ", {}, clear=True):
+            service = GitHubService(api_url=self.API_URL, github_token=None)
             with pytest.raises(ValueError, match="OSSIQ_GITHUB_TOKEN"):
                 service.create_release("v1.0.0", "Release notes", dry_run=False)
 

@@ -132,7 +132,7 @@ class PackageManagerPythonUv(AbstractPackageManagerApi):
 
         return root_node
 
-    def get_lockfile_parser(self, version: str | None, revision: str | None) -> Callable[..., Dependency]:
+    def get_lockfile_parser(self, version: int | str | None, revision: int | str | None) -> Callable[..., Dependency]:
         """
         Find and return lockfile parser instance
         """

@@ -24,7 +24,7 @@ def mock_package_registry():
 
     # package_info returns a minimal Package
     package = Package(
-        registry=MagicMock(),  # type: ignore[arg-type]
+        registry=ProjectPackagesRegistry.PYPI,
         name="requests",
         latest_version="2.32.0",
         next_version=None,
@@ -92,6 +92,7 @@ class TestScanRecordVersionConstraint:
             package_version="2.31.0",
             is_optional_dependency=False,
             prefetched_cves=set(),
+            prefetched_versions_since=mock_package_registry.package_versions.return_value,
             version_constraint=constraint,
         )
 
@@ -115,6 +116,7 @@ class TestScanRecordVersionConstraint:
             package_version="2.31.0",
             is_optional_dependency=False,
             prefetched_cves=set(),
+            prefetched_versions_since=mock_package_registry.package_versions.return_value,
         )
 
         # Assert
@@ -148,6 +150,7 @@ class TestScanRecordVersionConstraint:
             package_version="2.31.0",
             is_optional_dependency=False,
             prefetched_cves=set(),
+            prefetched_versions_since=mock_package_registry.package_versions.return_value,
             version_constraint=constraint,
         )
 
@@ -175,6 +178,7 @@ class TestScanRecordPurl:
             package_version="2.31.0",
             is_optional_dependency=False,
             prefetched_cves=set(),
+            prefetched_versions_since=mock_package_registry.package_versions.return_value,
         )
 
         # Assert
@@ -197,6 +201,7 @@ class TestScanRecordPurl:
             package_version="2.31.0",
             is_optional_dependency=False,
             prefetched_cves=set(),
+            prefetched_versions_since=mock_package_registry.package_versions.return_value,
         )
 
         # Assert — PURL must reference canonical registry name

@@ -126,6 +126,7 @@ def scan_record(
     package_version: str,
     is_optional_dependency: bool,
     prefetched_cves: set[CVE],
+    prefetched_versions_since: list[package_versions.PackageVersion],
     dependency_path: list[str] | None = None,
     version_constraint: str | None = None,
     prefetched_repository: Repository | None = None,
@@ -133,11 +134,7 @@ def scan_record(
     """
     Factory to generate ScanRecord instances
     """
-    # For npm alias packages (e.g. "chalk-legacy" -> "chalk"), use the canonical
-    # registry name for lookups while keeping the alias name for display.
-    # package_info = packages_registry.package_info(canonical_name)
-
-    releases_since_installed = get_package_versions_since(packages_registry, package_info.name, package_version)
+    releases_since_installed = prefetched_versions_since
 
     time_lag_days = calculate_time_lag_in_days(releases_since_installed, package_version, package_info.latest_version)
 
@@ -168,6 +165,18 @@ def scan_record(
         ),
         purl=build_purl(packages_registry.package_registry, canonical_name, package_version),
     )
+
+
+def prefetch_versions_since(
+    packages_registry: AbstractPackageRegistryApi,
+    unique_pairs: Iterable[tuple[str, str]],
+) -> dict[tuple[str, str], list[package_versions.PackageVersion]]:
+    """Pre-compute versions-since-installed for all unique (package_name, installed_version) pairs."""
+    result: dict[tuple[str, str], list[package_versions.PackageVersion]] = {}
+    for name, version in unique_pairs:
+        if (name, version) not in result:
+            result[(name, version)] = get_package_versions_since(packages_registry, name, version)
+    return result
 
 
 def prefetch_packages_info(
@@ -267,7 +276,13 @@ def scan(uow: unit_of_work.AbstractProjectUnitOfWork) -> ScanResult:
 
         cve_map = uow.cve_database.get_cves_batch(unique_packages)
 
-        # Pass 2: build ScanRecords using pre-fetched CVE data; license comes from registry + GitHub
+        # Pre-compute versions-since-installed for all unique (package, version) pairs
+        versions_since_map = prefetch_versions_since(
+            uow.packages_registry,
+            {(packages_info[dep.canonical_name].name, dep.version) for dep in all_deps},
+        )
+
+        # Pass 2: build ScanRecords using pre-fetched data; license comes from registry + GitHub
         def build_records(descriptors: list[DependencyDescriptor]) -> list[ScanRecord]:
             return [
                 scan_record(
@@ -278,6 +293,7 @@ def scan(uow: unit_of_work.AbstractProjectUnitOfWork) -> ScanResult:
                     dep.version,
                     dep.is_optional,
                     cve_map.get((packages_info[dep.canonical_name].name, dep.version), set()),
+                    versions_since_map[(packages_info[dep.canonical_name].name, dep.version)],
                     dep.dependency_path,
                     dep.version_constraint,
                     repositories_info.get(packages_info[dep.canonical_name].repo_url or ""),

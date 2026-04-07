@@ -63,20 +63,3 @@ for yanked releases, and update `api_npm.py` to capture the `deprecated` field f
 registry responses.
 
 ---
-
-### GAP-6: No caching in `scan_record()` for transitive dependency scanning
-
-**Context:** `scan_record()` issues 2–3 external API calls per package (registry info,
-version history, CVE lookup). Transitive dependency scanning via `GraphExporter.walk_all_paths()`
-follows all distinct paths without cross-path deduplication, which is intentional for
-visualisation purposes. However, the same `package@version` reached via multiple parent
-chains triggers redundant API requests for identical data.
-
-For a typical project with 50 direct dependencies and 300+ transitive entries, this means
-hundreds of duplicate network calls, sharply increasing scan latency.
-
-**Future work:** Introduce a response cache keyed on `(package_name, installed_version)`
-within the scan service (or at the UoW/adapter level). The cache should be request-scoped
-(not persisted) to avoid stale CVE data across invocations. Evaluate whether lazy
-evaluation of transitive metrics (on-demand rather than eagerly in `scan()`) is preferable
-for interactive CLI use.

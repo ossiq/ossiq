@@ -553,8 +553,7 @@ class TestGetLockfileParser:
         """Test getting parser for version 1 revision 3."""
         uv_manager = PackageManagerPythonUv(uv_project_with_lockfile, settings)
 
-        # Type signature says str | None, but TOML loads as int
-        parser = uv_manager.get_lockfile_parser(1, 3)  # type: ignore[arg-type]
+        parser = uv_manager.get_lockfile_parser(1, 3)
 
         assert parser is not None
         assert parser == uv_manager.parse_lockfile_v1_r3
@@ -563,7 +562,7 @@ class TestGetLockfileParser:
         """Test that v1 r4+ falls back to v1 r3 parser (per CEL expression)."""
         uv_manager = PackageManagerPythonUv(uv_project_with_lockfile, settings)
 
-        parser = uv_manager.get_lockfile_parser(1, 4)  # type: ignore[arg-type]
+        parser = uv_manager.get_lockfile_parser(1, 4)
 
         # Should still get v1_r3 parser (version == 1 && revision >= 3)
         assert parser is not None
@@ -574,7 +573,7 @@ class TestGetLockfileParser:
         uv_manager = PackageManagerPythonUv(uv_project_with_lockfile, settings)
 
         with pytest.raises(PackageManagerLockfileParsingError) as excinfo:
-            uv_manager.get_lockfile_parser(99, 99)  # type: ignore[arg-type]
+            uv_manager.get_lockfile_parser(99, 99)
 
         assert "There's no parser for UV version `99` and revision `99`" in str(excinfo.value)
 
@@ -583,7 +582,7 @@ class TestGetLockfileParser:
         uv_manager = PackageManagerPythonUv(uv_project_with_lockfile, settings)
 
         with pytest.raises(PackageManagerLockfileParsingError) as excinfo:
-            uv_manager.get_lockfile_parser(1, 2)  # type: ignore[arg-type]
+            uv_manager.get_lockfile_parser(1, 2)
 
         assert "There's no parser for UV version `1` and revision `2`" in str(excinfo.value)
 
@@ -593,7 +592,7 @@ class TestGetLockfileParser:
 
         # When version is None, CEL condition doesn't match, returns None handler
         with pytest.raises(PackageManagerLockfileParsingError) as excinfo:
-            uv_manager.get_lockfile_parser(None, 3)  # type: ignore[arg-type]
+            uv_manager.get_lockfile_parser(None, 3)
 
         assert "There's no parser for UV version `None` and revision `3`" in str(excinfo.value)
 
@@ -603,7 +602,7 @@ class TestGetLockfileParser:
 
         # CEL evaluation with None raises ValueError, not our custom exception
         with pytest.raises(ValueError) as excinfo:
-            uv_manager.get_lockfile_parser(1, None)  # type: ignore[arg-type]
+            uv_manager.get_lockfile_parser(1, None)
 
         assert "CEL execution error" in str(excinfo.value)
 

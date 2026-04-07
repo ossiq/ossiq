@@ -443,11 +443,12 @@ class TestBatchClient429:
             client._gate.set()  # unblock immediately so test doesn't hang
             return True
 
-        client._gate.wait = fake_gate_wait  # type: ignore[method-assign]
-
         resp_429 = make_response(429, {}, headers={})
 
-        with patch("ossiq.clients.batch.time.sleep") as mock_sleep:
+        with (
+            patch.object(client._gate, "wait", side_effect=fake_gate_wait),
+            patch("ossiq.clients.batch.time.sleep") as mock_sleep,
+        ):
             client._handle_rate_limit(resp_429)
 
         # Assert: no sleep, but gate was waited on

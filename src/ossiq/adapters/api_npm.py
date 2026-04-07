@@ -2,8 +2,8 @@
 Implementation of Package Registry API client for NPM
 """
 
+import functools
 import logging
-from collections.abc import Iterable
 
 import requests
 import semver
@@ -36,6 +36,12 @@ console = Console()
 
 NPM_REGISTRY_FRONT = "https://www.npmjs.com"
 
+
+@functools.lru_cache(maxsize=4096)
+def _parse_semver(v: str) -> semver.Version:
+    return semver.Version.parse(v)
+
+
 NPM_DEPENDENCIES_SECTIONS = (
     "dependencies",
     "devDependencies",
@@ -62,7 +68,7 @@ class PackageRegistryApiNpm(AbstractPackageRegistryApi):
         Compare two versions following Semantic Versioning.
         """
         try:
-            return semver.Version.parse(v1).compare(semver.Version.parse(v2))
+            return _parse_semver(v1).compare(_parse_semver(v2))
         except ValueError as e:
             raise UnknownPackageVersion(str(e))  # noqa: B904
 
@@ -129,8 +135,8 @@ class PackageRegistryApiNpm(AbstractPackageRegistryApi):
 
         # Parse versions
         try:
-            v1 = semver.Version.parse(v1_str)
-            v2 = semver.Version.parse(v2_str)
+            v1 = _parse_semver(v1_str)
+            v2 = _parse_semver(v2_str)
         except ValueError:
             return VersionsDifference(
                 v1_str,
@@ -149,6 +155,7 @@ class PackageRegistryApiNpm(AbstractPackageRegistryApi):
         self.session = requests.Session()
         self.session.headers.update({"User-Agent": get_user_agent()})
         self._raw_cache = {}
+        self._versions_list_cache: dict[str, list[PackageVersion]] = {}
         self._strategy = NpmBatchStrategy(self.session)
         self._batch_client = BatchClient(self._strategy)
 
@@ -189,14 +196,7 @@ class PackageRegistryApiNpm(AbstractPackageRegistryApi):
 
         return {name: self._map_raw_to_package(name, self._raw_cache[name]) for name in names}
 
-    def package_versions(self, package_name: str) -> Iterable[PackageVersion]:
-        """
-        Fetch npm versions for a given package.
-        Uses _raw_cache populated by package_infos_batch; fetches if not cached.
-        """
-        if package_name not in self._raw_cache:
-            self.packages_info_batch([package_name])
-
+    def _build_package_versions(self, package_name: str) -> list[PackageVersion]:
         data = self._raw_cache[package_name]
 
         # FIXME: raise custom exception if not found
@@ -207,8 +207,8 @@ class PackageRegistryApiNpm(AbstractPackageRegistryApi):
         # Package version is either published or unpublished
         if unpublished_response:
             unpublished_date_iso = unpublished_response.get("time", None)
-            for version in unpublished_response.get("versions", []):
-                yield PackageVersion(
+            return [
+                PackageVersion(
                     version=version,
                     license=None,
                     declared_dependencies={},
@@ -216,16 +216,33 @@ class PackageRegistryApiNpm(AbstractPackageRegistryApi):
                     unpublished_date_iso=unpublished_date_iso,
                     is_published=False,
                 )
-        else:
-            # FIXME: filter out -beta and other suffixes: need to collect data to properly define rules
-            for version, details in versions.items():
-                yield PackageVersion(
-                    version=version,
-                    published_date_iso=timestamp_map.get(version, None),
-                    declared_dependencies=details.get("dependencies", {}),
-                    license=details.get("license", None),
-                    runtime_requirements=details.get("engines", None),
-                    declared_dev_dependencies=details.get("devDependencies", {}),
-                    description=details.get("description", None),
-                    package_url=f"{NPM_REGISTRY_FRONT}/package/{package_name}/v/{version}",
-                )
+                for version in unpublished_response.get("versions", [])
+            ]
+        # FIXME: filter out -beta and other suffixes: need to collect data to properly define rules
+        return [
+            PackageVersion(
+                version=version,
+                published_date_iso=timestamp_map.get(version, None),
+                declared_dependencies=details.get("dependencies", {}),
+                license=details.get("license", None),
+                runtime_requirements=details.get("engines", None),
+                declared_dev_dependencies=details.get("devDependencies", {}),
+                description=details.get("description", None),
+                package_url=f"{NPM_REGISTRY_FRONT}/package/{package_name}/v/{version}",
+            )
+            for version, details in versions.items()
+        ]
+
+    def package_versions(self, package_name: str) -> list[PackageVersion]:
+        """
+        Fetch npm versions for a given package.
+        Uses _raw_cache populated by package_infos_batch; fetches if not cached.
+        Result is cached to avoid rebuilding PackageVersion objects on repeated calls.
+        """
+        if package_name not in self._raw_cache:
+            self.packages_info_batch([package_name])
+
+        if package_name not in self._versions_list_cache:
+            self._versions_list_cache[package_name] = self._build_package_versions(package_name)
+
+        return self._versions_list_cache[package_name]
