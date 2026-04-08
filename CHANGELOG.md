@@ -2,6 +2,104 @@
 
 
 
+## v0.1.7 (2026-04-08)
+
+
+### Feature
+
+* feat: added 403 graceful handling for github rate limits and updated FE deps (GH-70) ([`7e6af47`](https://github.com/ossiq/ossiq/commit/7e6af47aa8c33bb00dd36063688a178ecf5e4705))
+Added separate  branch to handle combination of 403 and Retry-After header with
+X-Ratelimit-Remaining header (see more in Github APIs documentation
+"Checking the status of your rate limit") - hard stop for entire
+strategy.
+
+* feat: added caching versions comparison, fixed typing (GH-70) ([`0965a17`](https://github.com/ossiq/ossiq/commit/0965a17d90afcc907b662b5ce92acb1c842b591f))
+For larger projects with a lot of interdependent transitive
+dependencies (like @aws/* npm packages), there might be
+large amount of transitive dependencies on the same packages
+with the same version. There's a fix for this (via simple mapping)
+as well as semver comparison caching with LRU cache.
+
+* feat: refactored license source from clearlydefined to github (GH-70) ([`732b146`](https://github.com/ossiq/ossiq/commit/732b1465e56766307cf4d57e19c116f96e8cda49))
+Prototype of refactoring of clearlydefined.io API to Github API.
+
+* feat: batching request to the packages registries ([`795803f`](https://github.com/ossiq/ossiq/commit/795803f05e84299260febbe931e703324ae9f749))
+Refactored API client to make requests to NPM and
+PyPI using Batch API with batchSize=1, so that
+there are 3 requests in parallel.
+Identified serios performance issue with ClearlyDefined API.
+
+* feat: batched requets, debug parameter, simple NPM cache, requests pool (GH-70) ([`e402048`](https://github.com/ossiq/ossiq/commit/e40204848d3b2d4b28daa9cbd8bf1961443a414d))
+During debugging Batch fixed OSV strategy and ClearlyDefined strategy.
+For sample project, there was 170K transitive packages (mostly, duplicates,
+hello AWS) for around 40 dependencies. This led to fix for NPM (and local cache)
+and requests pooling.
+Removed requests-cache code, since semantically it wouldn't be useful for
+batched (any change would lead to discard entire cache).
+
+* feat: added integration test for the abstract batch client (GH-70) ([`7ee26eb`](https://github.com/ossiq/ossiq/commit/7ee26eb78d78342a88de1e06c97b424b7d80d397))
+Added integration tests to test retry-after, 500 errors,
+traffic light pattern and jitter to validate that
+batching client applies respective strategies correctly.
+
+* feat: added initial requests batching implementation (GH-70) ([`38c18bf`](https://github.com/ossiq/ossiq/commit/38c18bf9258bf8283be9199857e83fb0d6b0bc59))
+Added initial implementation of BatchClient and
+some tests to perform parallel requests to
+I/O network bound APIs in more robust manner.
+
+
+### Documentation
+
+* docs: fixed dark theme logo for documentation ([`f2a692c`](https://github.com/ossiq/ossiq/commit/f2a692c84b00c72fd0fbf8b217120fd3d32c27a6))
+
+* docs: fixed documentation search caused by sphinx-immaterial and sphinx 9.x ([`e0d2a30`](https://github.com/ossiq/ossiq/commit/e0d2a30d5b2c8cf50de8a966eb0f76788dfbb52e))
+
+* docs: updated landing to work on mobile ([`0484168`](https://github.com/ossiq/ossiq/commit/0484168f575afbd9d3583c048fd84c09805597ea))
+Updated landing so that hamburger menu works
+and update some wording for social platform shares.
+
+
+### Chore
+
+* chore: fixed typos, removed unused dependencies (GH-70) ([`f9d6078`](https://github.com/ossiq/ossiq/commit/f9d607875d690861b35f4a261970f5bc7ed35f3a))
+
+* chore: fixed dependency conflict between vite-plugin-vue-devtools and vite 8.x ([`7776062`](https://github.com/ossiq/ossiq/commit/77760629a6decd8304ac66457872e2f511ccddec))
+vite-plugin-vue-devtools constrained vite dependency version to 6.x and 7.x,
+so freshly released vite 8.x fail cannot be installed. This is exactly
+why OSS IQ is developed - to provide visibility and clear plan how to
+work this around.
+
+* chore: fixed uv.lock (GH-70) ([`176824d`](https://github.com/ossiq/ossiq/commit/176824d072eee0ed2b7f49eeab8ca94ec6495747))
+
+* chore: bumped requets due to CVE in the specified version ([`f8dfddb`](https://github.com/ossiq/ossiq/commit/f8dfddb4680f158d4d5b93f6b9576776bf7ca24b))
+
+* chore(deps): bump requests in the uv group across 1 directory ([`0367a96`](https://github.com/ossiq/ossiq/commit/0367a961d6aad45d5bc7e6d3d487d731d09bc71b))
+Bumps the uv group with 1 update in the / directory: [requests](https://github.com/psf/requests).
+Updates `requests` from 2.32.5 to 2.33.0
+- [Release notes](https://github.com/psf/requests/releases)
+- [Changelog](https://github.com/psf/requests/blob/main/HISTORY.md)
+- [Commits](https://github.com/psf/requests/compare/v2.32.5...v2.33.0)
+---
+updated-dependencies:
+- dependency-name: requests
+  dependency-version: 2.33.0
+  dependency-type: direct:production
+  dependency-group: uv
+...
+
+* chore(deps): bump simpleeval in the uv group across 1 directory ([`86ba4f0`](https://github.com/ossiq/ossiq/commit/86ba4f06a2934bb40478f7a1489cee5eaef0c3a9))
+Bumps the uv group with 1 update in the / directory: [simpleeval](https://github.com/danthedeckie/simpleeval).
+Updates `simpleeval` from 1.0.3 to 1.0.5
+- [Release notes](https://github.com/danthedeckie/simpleeval/releases)
+- [Commits](https://github.com/danthedeckie/simpleeval/compare/1.0.3...1.0.5)
+---
+updated-dependencies:
+- dependency-name: simpleeval
+  dependency-version: 1.0.5
+  dependency-type: indirect
+  dependency-group: uv
+...
+
 ## v0.1.6 (2026-03-20)
 
 
