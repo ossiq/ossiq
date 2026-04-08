@@ -9,7 +9,25 @@
 }
 
 .md-header__inner .md-logo img {
-    width:100px;
+    display: none;
+}
+
+.md-header__inner .md-logo::after {
+    content: '';
+    display: block;
+    width: 120px;
+    height: 22px;
+    background: url('/oss-iq-logo-dark.svg') no-repeat left center / contain;
+}
+
+[data-md-color-scheme="slate"] .md-header__inner .md-logo::after {
+    background-image: url('/oss-iq-logo-dark.svg');
+}
+
+@media (prefers-color-scheme:dark) {
+    .md-header__inner .md-logo::after {
+        background-image: url('/oss-iq-logo-light.svg');
+    }
 }
 /* Subtitle: inject "Dependencies Intelligence" after the logo text */
 
