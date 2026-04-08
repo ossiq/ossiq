@@ -208,7 +208,7 @@ class BatchClient:
                     elapsed,
                 )
 
-                if resp.status_code == 429:
+                if resp.status_code == 429 or resp.status_code == 403:
                     self._handle_rate_limit(resp)
                     continue  # Retry this chunk after the pause.
 
@@ -268,6 +268,14 @@ class BatchClient:
             if self._gate.is_set():
                 self._gate.clear()  # Close the gate (Red Light).
                 retry_after = response.headers.get("Retry-After")
+                ratelimit_remaining_requests = response.headers.get("x-ratelimit-remaining")
+
+                if ratelimit_remaining_requests and int(ratelimit_remaining_requests) == 0:
+                    logger.info("Limit Exceeded for the strategy %s, shutting down", str(self.strategy))
+                    self._gate.set()
+                    self._abort.set()
+                    return
+
                 wait_time = int(retry_after) if retry_after and retry_after.isdigit() else 30
         finally:
             self._lock.release()  # Always release BEFORE sleeping.

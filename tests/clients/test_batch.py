@@ -475,6 +475,46 @@ class TestBatchClient429:
         assert results == [{"result": "ok"}]
         assert session.post.call_count == 2
 
+    def test_zero_remaining_sets_abort_and_does_not_sleep(self):
+        """x-ratelimit-remaining: 0 → abort set, gate open, no sleep.
+
+        Unlike a normal 429 (which closes the gate and sleeps), the hard-limit
+        path must open the gate immediately, set _abort, and skip sleep entirely.
+        """
+        # Arrange
+        client = make_client()
+        resp = make_response(429, {}, headers={"x-ratelimit-remaining": "0"})
+
+        # Act
+        with patch("ossiq.clients.batch.time.sleep") as mock_sleep:
+            client._handle_rate_limit(resp)
+
+        # Assert
+        assert client._abort.is_set(), "_abort must be set on quota exhaustion"
+        assert client._gate.is_set(), "_gate must be open (not left closed)"
+        mock_sleep.assert_not_called()
+
+    def test_zero_remaining_via_run_batch_yields_nothing(self):
+        """429 with x-ratelimit-remaining: 0 during run_batch → empty results.
+
+        The worker calls _handle_rate_limit which sets _abort; on the next
+        retry-loop iteration the worker checks _abort and returns [] immediately.
+        """
+        # Arrange
+        session = MagicMock()
+        resp_zero = make_response(429, {}, headers={"x-ratelimit-remaining": "0"})
+        session.post.return_value = resp_zero
+        client = make_client(make_strategy(session, max_retries=3))
+
+        # Act
+        results = collect(client.run_batch([1]))
+
+        # Assert
+        assert results == []
+        assert client._abort.is_set()
+        # Only 1 HTTP call — the abort prevents any retry
+        assert session.post.call_count == 1
+
 
 # ---------------------------------------------------------------------------
 # D. ChunkResult wrapping

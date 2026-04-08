@@ -80,6 +80,17 @@ def server_timeout(httpserver: HTTPServer):
 
 
 @pytest.fixture
+def server_429_zero_remaining(httpserver: HTTPServer):
+    """Returns 429 with x-ratelimit-remaining: 0 — hard quota exhaustion.
+
+    Only one request is expected: the abort signal prevents any retry.
+    """
+    httpserver.expect_ordered_request("/test").respond_with_data("", status=429, headers={"x-ratelimit-remaining": "0"})
+    yield httpserver
+    httpserver.clear()
+
+
+@pytest.fixture
 def server_connection_error(httpserver: HTTPServer):
     """Stops the server mid-test to simulate a ConnectionError."""
     yield httpserver

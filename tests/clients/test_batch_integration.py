@@ -123,6 +123,19 @@ class TestBatch429RealServer:
         assert len(sleep_calls) == 30
         assert all(s == 1 for s in sleep_calls)
 
+    def test_zero_remaining_aborts_entire_batch(self, server_429_zero_remaining, httpserver):
+        """Real 429 + x-ratelimit-remaining: 0 → batch aborted with no results.
+
+        No sleep patching needed: this path never calls time.sleep.
+        Verifies the full stack: real TCP → _handle_rate_limit → _abort → run_batch exits.
+        """
+        strategy = RealHTTPBatchStrategy(httpserver.url_for("/test"), max_retries=3, chunk_size=5)
+        client = BatchClient(strategy)
+        results = list(client.run_batch(list(range(5))))
+
+        assert results == []
+        assert client._abort.is_set()
+
 
 # ---------------------------------------------------------------------------
 # Timeout handling
