@@ -20,6 +20,16 @@ class GithubRateLimitError(ApplicationError):
         super().__init__(message)
 
 
+class UnableLoadPackage(Exception):
+    """
+    In case NPM is not available or network is not stable
+    """
+
+    def __init__(self, package: str):
+        self.package = package
+        super().__init__(f"Unable to load package: {package}")
+
+
 class DestinationDoesntExist(Exception):
     """
     If there's no destination found

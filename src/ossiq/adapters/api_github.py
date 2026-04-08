@@ -4,13 +4,19 @@ Implementation of SourceCodeApiClient for Github
 
 import datetime
 import itertools
+import logging
+import os
 import re
 from collections.abc import Callable, Iterable
 
+import requests
 from rich.console import Console
 
-from ossiq.clients.github import GithubSession
+from ossiq.clients.client_github import BatchClient, GithubRepoBatchStrategy
+from ossiq.clients.common import get_user_agent
+from ossiq.settings import Settings
 
+# from ossiq.clients.github import GithubSession
 from ..domain.common import VERSION_DATA_SOURCE_GITHUB_RELEASES, VERSION_DATA_SOURCE_GITHUB_TAGS, RepositoryProvider
 from ..domain.exceptions import GithubRateLimitError
 from ..domain.repository import Repository
@@ -19,6 +25,7 @@ from .api_interfaces import AbstractSourceCodeProviderApi
 
 console = Console()
 
+logger = logging.getLogger(__name__)
 GITHUB_API = "https://api.github.com"
 
 
@@ -30,9 +37,24 @@ class SourceCodeProviderApiGithub(AbstractSourceCodeProviderApi):
     repository_provider: RepositoryProvider = RepositoryProvider.PROVIDER_GITHUB
 
     github_token: str | None
-    session: GithubSession
+    session: requests.Session
 
-    def __init__(self, session: GithubSession):
+    def __init__(self, settings: Settings):
+        self.github_token = settings.github_token or os.getenv("GITHUB_TOKEN")
+
+        session = requests.Session()
+        # Essential GitHub Headers
+        session.headers.update(
+            {
+                "Accept": "application/vnd.github+json",
+                "X-GitHub-Api-Version": "2022-11-28",
+                "User-Agent": get_user_agent(),
+            }
+        )
+
+        if self.github_token:
+            session.headers["Authorization"] = f"Bearer {self.github_token}"
+
         self.session = session
 
     def __repr__(self):
@@ -218,6 +240,28 @@ class SourceCodeProviderApiGithub(AbstractSourceCodeProviderApi):
                 n += 1
             if n == len(versions_set):
                 break
+
+    def repositories_info_batch(self, repo_urls: list[str]) -> dict[str, Repository]:
+        """
+        Fetch GitHub repository metadata for a list of URLs in parallel.
+        """
+        client = BatchClient(GithubRepoBatchStrategy(self.session))
+        result: dict[str, Repository] = {}
+        for chunk_result in client.run_batch(repo_urls):
+            for url, repo_data in chunk_result.items():
+                s = url.strip().removeprefix("git+").removeprefix("https://")
+                m = re.search(r"github\.com[:/](?P<owner>[^/]+)/(?P<name>[^/.]+)", s)
+                if not m:
+                    continue
+                result[url] = Repository(
+                    provider=RepositoryProvider.PROVIDER_GITHUB,
+                    name=m.group("name"),
+                    owner=m.group("owner"),
+                    description=repo_data.get("description"),
+                    html_url=f"https://github.com/{m.group('owner')}/{m.group('name')}",
+                    license=(repo_data.get("license") or {}).get("spdx_id") or None,
+                )
+        return result
 
     def repository_info(self, repository_url: str | None) -> Repository:
         """

@@ -7,6 +7,7 @@ import re
 import tomllib
 from collections import namedtuple
 from collections.abc import Callable, Iterable
+from typing import Any, cast
 
 from ossiq.adapters.api_interfaces import AbstractPackageManagerApi
 from ossiq.adapters.package_managers.dependency_tree import BaseDependencyResolver
@@ -40,7 +41,7 @@ class PyLockResolver(BaseDependencyResolver):
         """Extracts name and the specific installed version."""
         return pkg_data["name"], pkg_data["version"]
 
-    def extract_package_metadata(self, pkg_data: dict) -> tuple[str | None, str | None, str | None]:
+    def extract_package_metadata(self, pkg_data: dict[str, Any]) -> tuple[str | None, str | None, str | None]:
         """
         Extracts source details, environment markers, and the nominal requirement.
         """
@@ -49,7 +50,7 @@ class PyLockResolver(BaseDependencyResolver):
         source = None
         if isinstance(source_val, dict):
             # Extract the first available value from the source dict
-            source = next(iter(source_val.values()), None)
+            source = cast(str | None, next(iter(source_val.values()), None))
         elif isinstance(source_val, str):
             source = source_val
 

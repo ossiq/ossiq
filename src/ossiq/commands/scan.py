@@ -44,7 +44,7 @@ def commnad_scan(ctx: typer.Context, options: CommandScanOptions):
             "project_path": options.project_path,
             "lag_threshold_days": f"{threshold_parsed.days} days",
             "production": options.production,
-            "narrow_registry_type": registry_type_map.get(options.registry_type),
+            "narrow_registry_type": registry_type_map[options.registry_type] if options.registry_type else None,
         },
     )
 
@@ -52,7 +52,7 @@ def commnad_scan(ctx: typer.Context, options: CommandScanOptions):
         settings=settings,
         project_path=options.project_path,
         production=options.production,
-        narrow_package_registry=registry_type_map.get(options.registry_type),
+        narrow_package_registry=registry_type_map[options.registry_type] if options.registry_type else None,
     )
 
     with show_operation_progress(settings, "Collecting project packages data...") as progress:

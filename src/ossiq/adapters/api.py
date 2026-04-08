@@ -2,20 +2,15 @@
 Factory to instantiate API clients
 """
 
-from ossiq.adapters.api_clearlydefined import LicenseApiClearlyDefined
 from ossiq.adapters.api_npm import PackageRegistryApiNpm
 from ossiq.adapters.api_osv import CveApiOsv
 from ossiq.adapters.api_pypi import PackageRegistryApiPypi
-from ossiq.clients.clearlydefined import ClearlyDefinedSession
-from ossiq.clients.github import GithubSession
-from ossiq.clients.osv import OsvSession
 from ossiq.domain.common import ProjectPackagesRegistry, RepositoryProvider
 from ossiq.settings import Settings
 
 from .api_github import SourceCodeProviderApiGithub
 from .api_interfaces import (
     AbstractCveDatabaseApi,
-    AbstractLicenseDatabaseApi,
     AbstractPackageRegistryApi,
     AbstractSourceCodeProviderApi,
 )
@@ -26,7 +21,7 @@ def create_source_code_provider(provider_type: RepositoryProvider, settings: Set
     Return source code provider (like Github) using factory and respective type
     """
     if provider_type == RepositoryProvider.PROVIDER_GITHUB:
-        return SourceCodeProviderApiGithub(GithubSession(settings.github_token))
+        return SourceCodeProviderApiGithub(settings)
     else:
         raise ValueError(f"Unknown source code provider type: {provider_type}")
 
@@ -53,21 +48,4 @@ def create_cve_database(settings: Settings) -> AbstractCveDatabaseApi:
     more than one CSV database. For externel clients it should look like a
     single database instance still.
     """
-    return CveApiOsv(
-        OsvSession(
-            cache_destination=settings.cache_destination,
-            cache_ttl_hours=settings.cache_ttl,
-        )
-    )
-
-
-def create_license_database(settings: Settings) -> AbstractLicenseDatabaseApi:
-    """
-    Return license database (ClearlyDefined) for normalized SPDX license lookups.
-    """
-    return LicenseApiClearlyDefined(
-        ClearlyDefinedSession(
-            cache_destination=settings.cache_destination,
-            cache_ttl_hours=settings.cache_ttl,
-        )
-    )
+    return CveApiOsv(settings)

@@ -6,7 +6,6 @@ import abc
 
 from ossiq.adapters.api_interfaces import (
     AbstractCveDatabaseApi,
-    AbstractLicenseDatabaseApi,
     AbstractPackageManagerApi,
     AbstractPackageRegistryApi,
     AbstractSourceCodeProviderApi,
@@ -26,7 +25,6 @@ class AbstractProjectUnitOfWork(abc.ABC):
     packages_manager: AbstractPackageManagerApi
     packages_registry: AbstractPackageRegistryApi
     cve_database: AbstractCveDatabaseApi
-    license_database: AbstractLicenseDatabaseApi
     production: bool
 
     @abc.abstractmethod
