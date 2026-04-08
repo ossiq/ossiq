@@ -174,4 +174,7 @@ def get_version():
     """
     Get OSS IQ version
     """
-    return importlib.metadata.version("ossiq")
+    try:
+        return importlib.metadata.version("ossiq")
+    except importlib.metadata.PackageNotFoundError:
+        return "unknown"

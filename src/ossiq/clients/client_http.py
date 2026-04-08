@@ -27,7 +27,7 @@ def handle_rate_limit(response: requests.Response, default_wait_time=30) -> None
     Function to properly handle rate limit response
     """
     retry_after = response.headers.get("Retry-After")
-    wait_time = int(retry_after) if retry_after and retry_after.isdigit() else 30
+    wait_time = int(retry_after) if retry_after and retry_after.isdigit() else default_wait_time
 
     if wait_time is not None:
         # We won the election — sleep outside the lock, then reopen.
@@ -36,8 +36,6 @@ def handle_rate_limit(response: requests.Response, default_wait_time=30) -> None
         # Sleep in 1-second increments to allow graceful abort (Ctrl+C / shutdown()).
         time.sleep(wait_time)
         logger.info("Rate limit period over. Resuming...")
-    else:
-        time.sleep(default_wait_time)
 
 
 def request_with_retry(perform_request, *args, max_retries=3, **kwargs) -> Result:

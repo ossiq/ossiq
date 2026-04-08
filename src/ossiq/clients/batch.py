@@ -85,7 +85,8 @@ class BatchStrategy(ABC):
     def process_response(self, source_items: list, response: ChunkResult) -> Any:
         """
         Map a ChunkResult back to caller-meaningful results.
-        source_items is the original (unprepared) item list passed to run_batch.
+        source_items is the prepared chunk for this request, i.e. the output of
+        prepare_item for each item in the chunk passed to perform_request.
         Only called for successful chunks (response.success is True).
         """
 

@@ -103,7 +103,7 @@ def main(
         "github_token": github_token,
         "verbose": verbose,
         "debug": debug,
-        "cache_destinatoin": cache_destination,
+        "cache_destination": cache_destination,
         "cache_ttl": cache_ttl,
     }
     # Filter out None values so we only override with explicitly provided options

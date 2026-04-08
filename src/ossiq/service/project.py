@@ -262,7 +262,7 @@ def scan(uow: unit_of_work.AbstractProjectUnitOfWork) -> ScanResult:
 
         all_deps = prod_deps + opt_deps + trans_deps
 
-        # Pass 1: pre-fetch package infos (GET requests, cached by requests-cache)
+        # Pass 1: pre-fetch package infos
         packages_info = prefetch_packages_info(uow.packages_registry, (dep.canonical_name for dep in all_deps))
 
         # Github repository info
