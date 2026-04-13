@@ -26,8 +26,7 @@ from ossiq.adapters.package_managers.api_npm import (
     CATEGORIES_PEER,
     NPMResolverV3,
     PackageManagerJsNpm,
-    _npm_alias_constraint,
-    _npm_alias_package_name,
+    _parse_npm_alias,
 )
 from ossiq.domain.common import ProjectPackagesRegistry
 from ossiq.domain.exceptions import PackageManagerLockfileParsingError
@@ -746,53 +745,30 @@ def npm_project_with_overrides(temp_project_dir):
 
 
 # ============================================================================
-# Test _npm_alias_constraint helper
+# Test _parse_npm_alias helper
 # ============================================================================
 
 
-class TestNpmAliasConstraint:
-    """Test suite for the _npm_alias_constraint module-level helper."""
+class TestParseNpmAlias:
+    """Test suite for the _parse_npm_alias module-level helper."""
 
     @pytest.mark.parametrize(
-        "version,expected",
+        "version,expected_name,expected_constraint",
         [
-            ("npm:lodash@~4.17.0", "~4.17.0"),
-            ("npm:chalk@4.1.2", "4.1.2"),
-            ("npm:ms@^0.7.0", "^0.7.0"),
-            ("npm:@scope/pkg@^1.0.0", "^1.0.0"),
-            ("^4.18.0", "^4.18.0"),
-            ("~1.2.3", "~1.2.3"),
-            ("4.1.2", "4.1.2"),
+            ("npm:lodash@~4.17.0", "lodash", "~4.17.0"),
+            ("npm:chalk@4.1.2", "chalk", "4.1.2"),
+            ("npm:ms@^0.7.0", "ms", "^0.7.0"),
+            ("npm:@scope/pkg@^1.0.0", "@scope/pkg", "^1.0.0"),
+            ("^4.18.0", None, "^4.18.0"),
+            ("~1.2.3", None, "~1.2.3"),
+            ("4.1.2", None, "4.1.2"),
         ],
     )
-    def test_extracts_constraint(self, version, expected):
-        """Test that alias constraints are extracted and plain versions pass through."""
-        assert _npm_alias_constraint(version) == expected
-
-
-# ============================================================================
-# Test _npm_alias_package_name helper
-# ============================================================================
-
-
-class TestNpmAliasPackageName:
-    """Test suite for the _npm_alias_package_name module-level helper."""
-
-    @pytest.mark.parametrize(
-        "version,expected",
-        [
-            ("npm:chalk@4.1.2", "chalk"),
-            ("npm:lodash@~4.17.0", "lodash"),
-            ("npm:ms@^0.7.0", "ms"),
-            ("npm:@scope/pkg@^1.0.0", "@scope/pkg"),
-            ("^4.18.0", None),
-            ("~1.2.3", None),
-            ("4.1.2", None),
-        ],
-    )
-    def test_extracts_package_name(self, version, expected):
-        """Test that canonical package names are extracted from alias specs."""
-        assert _npm_alias_package_name(version) == expected
+    def test_parses_alias(self, version, expected_name, expected_constraint):
+        """Test that alias specifiers are parsed and plain versions pass through."""
+        canonical_name, constraint = _parse_npm_alias(version)
+        assert canonical_name == expected_name
+        assert constraint == expected_constraint
 
 
 # ============================================================================
@@ -990,27 +966,30 @@ class TestNpmOverrides:
     def test_flatten_overrides_flat(self):
         """Test flattening of simple {name: version} overrides."""
         # Arrange / Act
-        result = NPMResolverV3._flatten_overrides({"foo": "1.0.0", "bar": "2.0.0"})
+        flat, scope_paths = NPMResolverV3._flatten_overrides({"foo": "1.0.0", "bar": "2.0.0"})
 
         # Assert
-        assert result == {"foo": "1.0.0", "bar": "2.0.0"}
+        assert flat == {"foo": "1.0.0", "bar": "2.0.0"}
+        assert scope_paths == {}
 
     def test_flatten_overrides_nested_with_dot(self):
-        """Test that "." in a nested block maps to the outer package name."""
+        """Test that "." in a nested block maps to the outer package name and scope_paths captures nesting."""
         # Arrange / Act
-        result = NPMResolverV3._flatten_overrides({"foo": {".": "1.0.0", "bar": "2.0.0"}})
+        flat, scope_paths = NPMResolverV3._flatten_overrides({"foo": {".": "1.0.0", "bar": "2.0.0"}})
 
         # Assert
-        assert result["foo"] == "1.0.0"
-        assert result["bar"] == "2.0.0"
+        assert flat["foo"] == "1.0.0"
+        assert flat["bar"] == "2.0.0"
+        assert scope_paths.get("bar") == ["foo"]
 
     def test_flatten_overrides_empty(self):
         """Test that empty overrides produce an empty mapping."""
         # Arrange / Act
-        result = NPMResolverV3._flatten_overrides({})
+        flat, scope_paths = NPMResolverV3._flatten_overrides({})
 
         # Assert
-        assert result == {}
+        assert flat == {}
+        assert scope_paths == {}
 
     def test_project_without_overrides_has_no_overridden_packages(self, npm_project_with_lockfile, settings):
         """Test that a project without overrides has no packages with overridden category."""
