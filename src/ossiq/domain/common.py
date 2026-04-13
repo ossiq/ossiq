@@ -65,6 +65,7 @@ class ExportJsonSchemaVersion(StrEnum):
 
     V1_0 = "1.0"
     V1_1 = "1.1"
+    V1_2 = "1.2"
 
 
 class ExportCsvSchemaVersion(StrEnum):
@@ -72,6 +73,15 @@ class ExportCsvSchemaVersion(StrEnum):
 
     V1_0 = "1.0"
     V1_1 = "1.1"
+    V1_2 = "1.2"
+
+
+class ConstraintType(StrEnum):
+    """How a version constraint was applied for a dependency."""
+
+    DECLARED = "DECLARED"  # normal spec in manifest - default, existing behaviour
+    ADDITIVE = "ADDITIVE"  # narrows range without adding a direct dep (pip -c, uv constraint-dependencies)
+    OVERRIDE = "OVERRIDE"  # completely replaces resolution (npm overrides, uv override-dependencies)
 
 
 # Domain-specific Exceptions
