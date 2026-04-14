@@ -186,7 +186,7 @@ def export(
     ] = "./ossiq_export_report_{project_name}.{output_format}",
     production: Annotated[bool, typer.Option("--production", help=HELP_PRODUCTION_ONLY)] = False,
     schema_version: Annotated[
-        Literal["1.0", "1.1"] | None,
+        Literal["1.0", "1.1", "1.2"] | None,
         typer.Option("--schema-version", "-s", envvar=f"{Settings.ENV_PREFIX}SCHEMA_VERSION", help=HELP_SCHEMA_VERSION),
     ] = None,
 ):

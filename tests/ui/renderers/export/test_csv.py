@@ -13,9 +13,10 @@ import csv
 
 import pytest
 
-from ossiq.domain.common import Command, ProjectPackagesRegistry, UserInterfaceType
+from ossiq.domain.common import Command, ConstraintType, ProjectPackagesRegistry, UserInterfaceType
 from ossiq.domain.cve import CVE, CveDatabase, Severity
 from ossiq.domain.exceptions import DestinationDoesntExist
+from ossiq.domain.project import ConstraintSource
 from ossiq.domain.version import VersionsDifference
 from ossiq.service.project import ScanRecord, ScanResult
 from ossiq.settings import Settings
@@ -61,6 +62,7 @@ def sample_project_metrics_record(sample_cve):
         time_lag_days=245,
         releases_lag=12,
         cve=[sample_cve],
+        constraint_info=ConstraintSource(type=ConstraintType.DECLARED, source_file="package.json"),
     )
 
 
@@ -79,6 +81,7 @@ def sample_dev_dependency_record():
         time_lag_days=90,
         releases_lag=5,
         cve=[],
+        constraint_info=ConstraintSource(type=ConstraintType.DECLARED, source_file="package.json"),
     )
 
 
@@ -238,6 +241,8 @@ class TestCsvExportRenderer:
             "releases_lag",
             "cve_count",
             "version_constraint",
+            "constraint_type",
+            "constraint_source_file",
             "license",
             "purl",
         ]
@@ -295,7 +300,7 @@ class TestCsvExportRenderer:
             row = next(reader)
 
         # Assert
-        assert row["schema_version"] == "1.1"
+        assert row["schema_version"] == "1.2"
         assert row["project_name"] == "test-project"
         assert row["project_path"] == "/path/to/test-project"
         assert row["project_registry"] == "npm"
@@ -406,6 +411,7 @@ class TestCsvExportRenderer:
                     time_lag_days=None,  # None value
                     releases_lag=None,  # None value
                     cve=[],
+                    constraint_info=ConstraintSource(type=ConstraintType.DECLARED, source_file="package.json"),
                 )
             ],
             optional_packages=[],
@@ -504,6 +510,7 @@ class TestCsvExportRenderer:
                     time_lag_days=10,
                     releases_lag=1,
                     cve=[cve_with_comma],
+                    constraint_info=ConstraintSource(type=ConstraintType.DECLARED, source_file="package.json"),
                 )
             ],
             optional_packages=[],
@@ -752,6 +759,7 @@ class TestCsvExportRenderer:
                     time_lag_days=0,
                     releases_lag=0,
                     cve=[],  # No CVEs
+                    constraint_info=ConstraintSource(type=ConstraintType.DECLARED, source_file="package.json"),
                 )
             ],
             optional_packages=[],

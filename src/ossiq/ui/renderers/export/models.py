@@ -11,6 +11,7 @@ from datetime import UTC, datetime
 from pydantic import BaseModel, Field, field_serializer
 
 from ossiq.domain.common import (
+    ConstraintType,
     ExportCsvSchemaVersion,
     ExportJsonSchemaVersion,
     ExportUnknownSchemaVersion,
@@ -121,6 +122,14 @@ class PackageMetrics(BaseModel):
         default=None, description="SPDX license identifiers parsed from the package license expression"
     )
     purl: str | None = Field(default=None, description="Package URL (PURL) per ECMA-386, e.g. pkg:pypi/requests@2.25.1")
+    constraint_type: str = Field(
+        default=ConstraintType.DECLARED,
+        description="How the version constraint was applied: DECLARED (default), ADDITIVE, or OVERRIDE",
+    )
+    constraint_source_file: str | None = Field(
+        default=None,
+        description="File that introduced a non-DECLARED constraint (e.g. 'package.json', 'pyproject.toml')",
+    )
 
     @classmethod
     def from_domain(cls, record) -> "PackageMetrics":
@@ -141,6 +150,8 @@ class PackageMetrics(BaseModel):
             package_url=record.package_url,
             license=record.license,
             purl=record.purl,
+            constraint_type=record.constraint_info.type.value,
+            constraint_source_file=(record.constraint_info.source_file if record.constraint_info else None),
         )
 
 

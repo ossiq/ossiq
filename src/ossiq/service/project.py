@@ -31,7 +31,7 @@ class DependencyDescriptor:
     is_optional: bool
     dependency_path: list[str] | None
     version_constraint: str | None
-    constraint_info: ConstraintSource | None = None
+    constraint_info: ConstraintSource
 
 
 @dataclass
@@ -49,9 +49,9 @@ class ScanRecord:
     time_lag_days: int | None
     releases_lag: int | None
     cve: list[CVE]
-    dependency_path: list[str] | None = None
+    constraint_info: ConstraintSource
     version_constraint: str | None = None
-    constraint_info: ConstraintSource | None = None
+    dependency_path: list[str] | None = None
     license: list[str] | None = None
     repo_url: str | None = None
     repository: Repository | None = None
@@ -130,10 +130,10 @@ def scan_record(
     is_optional_dependency: bool,
     prefetched_cves: set[CVE],
     prefetched_versions_since: list[package_versions.PackageVersion],
+    constraint_info: ConstraintSource,
     dependency_path: list[str] | None = None,
     version_constraint: str | None = None,
     prefetched_repository: Repository | None = None,
-    constraint_info: ConstraintSource | None = None,
 ) -> ScanRecord:
     """
     Factory to generate ScanRecord instances
@@ -302,10 +302,10 @@ def scan(uow: unit_of_work.AbstractProjectUnitOfWork) -> ScanResult:
                     dep.is_optional,
                     cve_map.get((packages_info[dep.canonical_name].name, dep.version), set()),
                     versions_since_map[(packages_info[dep.canonical_name].name, dep.version)],
+                    dep.constraint_info,
                     dep.dependency_path,
                     dep.version_constraint,
                     repositories_info.get(packages_info[dep.canonical_name].repo_url or ""),
-                    dep.constraint_info,
                 )
                 for dep in descriptors
             ]

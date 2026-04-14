@@ -44,12 +44,17 @@ qa-integration:
     uv run hatch run ossiq-cli scan testdata/npm/project3
     uv run hatch run ossiq-cli export --output-format=json --output=./reports/scan_export_pypi0.json --registry-type=pypi testdata/mixed
     uv run hatch run ossiq-cli export --output-format=csv --output=./reports/scan_export_pypi1.json --registry-type=pypi testdata/pypi/uv
-    uv run hatch run ossiq-cli export --output-format=csv --schema-version=1.0 --output=./reports/scan_export_pypi2.json --registry-type=pypi testdata/pypi/uv
-    uv run hatch run ossiq-cli export --output-format=csv --schema-version=1.1 --output=./reports/scan_export_pypi3.json --registry-type=pypi testdata/pypi/uv
-    uv run hatch run ossiq-cli export --output-format=json --schema-version=1.0 --output=./reports/scan_export_pypi4.json --registry-type=pypi testdata/mixed
-    uv run hatch run ossiq-cli export --output-format=json --schema-version=1.1 --output=./reports/scan_export_npm2.json --registry-type=npm testdata/mixed
+    uv run hatch run ossiq-cli export --output-format=csv --schema-version=1.0 --output=./reports/scan_export_pypi_10.json --registry-type=pypi testdata/pypi/uv
+    uv run hatch run ossiq-cli export --output-format=csv --schema-version=1.1 --output=./reports/scan_export_pypi_11.json --registry-type=pypi testdata/pypi/uv
+    uv run hatch run ossiq-cli export --output-format=csv --schema-version=1.2 --output=./reports/scan_export_pypi_12.json --registry-type=pypi testdata/pypi/uv
+    uv run hatch run ossiq-cli export --output-format=json --schema-version=1.0 --output=./reports/scan_export_pypi_10.json --registry-type=pypi testdata/mixed
+    uv run hatch run ossiq-cli export --output-format=json --schema-version=1.1 --output=./reports/scan_export_npm_11.json --registry-type=npm testdata/mixed
+    uv run hatch run ossiq-cli export --output-format=json --schema-version=1.2 --output=./reports/scan_export_npm_12.json --registry-type=npm testdata/mixed
     uv run hatch run ossiq-cli package testdata/pypi/version-constraint scipy
-    uv run hatch run ossiq-cli package testdata/pypi/version-constraint numpy    
+    uv run hatch run ossiq-cli package testdata/pypi/version-constraint numpy
+    uv run hatch run ossiq-cli export --output-format=json --output=./reports/scan_export_pypi_version_constriant.json testdata/pypi/uv
+    uv run hatch run ossiq-cli export --output-format=json --output=./reports/scan_export_pypi_version_pylock.json testdata/pypi/pylock
+    cat ./reports/scan_export_pypi_version_constriant.json | jq | grep '"constraint_type": "ADDITIVE"'
 
 lint:
     uv run ruff check .

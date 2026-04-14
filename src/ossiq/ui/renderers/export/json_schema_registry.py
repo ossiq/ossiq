@@ -19,6 +19,7 @@ class SchemaRegistry:
     _SCHEMA_FILES: ClassVar[dict[ExportJsonSchemaVersion, str]] = {
         ExportJsonSchemaVersion.V1_0: "export_schema_v1.0.json",
         ExportJsonSchemaVersion.V1_1: "export_schema_v1.1.json",
+        ExportJsonSchemaVersion.V1_2: "export_schema_v1.2.json",
     }
 
     _schemas_dir: Path
@@ -52,7 +53,7 @@ class SchemaRegistry:
         """
         Get the latest supported schema version.
         """
-        return ExportJsonSchemaVersion.V1_1
+        return ExportJsonSchemaVersion.V1_2
 
     def list_versions(self) -> list[ExportJsonSchemaVersion]:
         """

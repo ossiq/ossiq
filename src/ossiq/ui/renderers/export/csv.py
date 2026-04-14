@@ -219,6 +219,8 @@ class CsvExportRenderer(AbstractUserInterfaceRenderer):
             "releases_lag",
             "cve_count",
             "version_constraint",
+            "constraint_type",
+            "constraint_source_file",
             "license",
             "purl",
         ]
@@ -240,6 +242,8 @@ class CsvExportRenderer(AbstractUserInterfaceRenderer):
                     "releases_lag": self._serialize_optional(pkg.releases_lag),
                     "cve_count": len(pkg.cve),
                     "version_constraint": self._serialize_optional(pkg.version_constraint),
+                    "constraint_type": self._serialize_optional(pkg.constraint_type),
+                    "constraint_source_file": self._serialize_optional(pkg.constraint_source_file),
                     "license": self._serialize_optional(", ".join(pkg.license) if pkg.license else None),
                     "purl": self._serialize_optional(pkg.purl),
                 }
@@ -259,6 +263,8 @@ class CsvExportRenderer(AbstractUserInterfaceRenderer):
                     "releases_lag": self._serialize_optional(pkg.releases_lag),
                     "cve_count": len(pkg.cve),
                     "version_constraint": self._serialize_optional(pkg.version_constraint),
+                    "constraint_type": self._serialize_optional(pkg.constraint_type),
+                    "constraint_source_file": self._serialize_optional(pkg.constraint_source_file),
                     "license": self._serialize_optional(", ".join(pkg.license) if pkg.license else None),
                     "purl": self._serialize_optional(pkg.purl),
                 }
