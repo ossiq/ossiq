@@ -82,6 +82,25 @@ class NPMResolverV3(BaseDependencyResolver):
         NPMResolverV3._collect_overrides(overrides, result, scope_paths, [])
         return result, scope_paths
 
+    def build_initial_dependency(
+        self,
+        name: str,
+        canonical_name: str,
+        version_installed: str,
+        source: str | None,
+        required_engine: str | None,
+        version_defined: str | None,
+    ):
+        return Dependency(
+            name=name,
+            canonical_name=canonical_name,
+            version_installed=version_installed,
+            source=source,
+            required_engine=required_engine,
+            version_defined=version_defined,
+            constraint_info=ConstraintSource(type=ConstraintType.DECLARED, source_file="package.json"),
+        )
+
     def build_graph(self, root_name: str) -> Dependency | None:
         root = super().build_graph(root_name)
         # Mark any package in the overrides dict with the "overridden" category and constraint_info
@@ -288,6 +307,7 @@ class PackageManagerJsNpm(AbstractPackageManagerApi):
                 version_installed=normalize_version(constraint),
                 version_defined=version,
                 categories=categories_map.get(name, []),
+                constraint_info=ConstraintSource(type=ConstraintType.DECLARED, source_file="package.json"),
             )
 
         dependencies = {
@@ -306,6 +326,7 @@ class PackageManagerJsNpm(AbstractPackageManagerApi):
             version_installed=project_data.get("version", ""),
             dependencies=dependencies,
             optional_dependencies=optional_dependencies,
+            constraint_info=ConstraintSource(type=ConstraintType.DECLARED, source_file="package.json"),
         )
 
     def project_info(self) -> Project:

@@ -56,6 +56,18 @@ class DummyResolver(BaseDependencyResolver):
     def extract_dependency_identity(self, dep_data):
         return dep_data["name"], dep_data.get("version")
 
+    def build_initial_dependency(
+        self, name, canonical_name, version_installed, source, required_engine, version_defined
+    ):
+        return Dependency(
+            name=name,
+            canonical_name=canonical_name,
+            version_installed=version_installed,
+            source=source,
+            required_engine=required_engine,
+            version_defined=version_defined,
+        )
+
 
 # ============================================================================
 # Helpers

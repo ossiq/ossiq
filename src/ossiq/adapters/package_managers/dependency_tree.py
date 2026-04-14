@@ -50,6 +50,18 @@ class BaseDependencyResolver(ABC):
         Returns None when name is already the canonical name. Override in subclasses as needed."""
         return None
 
+    @abstractmethod
+    def build_initial_dependency(
+        self,
+        name: str,
+        canonical_name: str,
+        version_installed: str,
+        source: str | None,
+        required_engine: str | None,
+        version_defined: str | None,
+    ) -> Dependency:
+        pass
+
     def build_graph(self, root_name: str) -> Dependency | None:
         """
         Builds the in-memory graph using a two-pass approach to handle
@@ -62,7 +74,7 @@ class BaseDependencyResolver(ABC):
             name, version = self.extract_package_identity(pkg_data)
             source, required_engine, v_def = self.extract_package_metadata(pkg_data)
 
-            node = Dependency(
+            node = self.build_initial_dependency(
                 name=name,
                 canonical_name=self.extract_canonical_name(pkg_data) or name,
                 version_installed=version,

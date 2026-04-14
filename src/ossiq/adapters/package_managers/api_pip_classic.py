@@ -10,16 +10,18 @@ import re
 from collections import namedtuple
 
 from ossiq.adapters.api_interfaces import AbstractPackageManagerApi
+from ossiq.adapters.package_managers.utils import normalize_pep503_name
+from ossiq.domain.common import ConstraintType
 from ossiq.domain.exceptions import PackageManagerLockfileParsingError
 from ossiq.domain.packages_manager import PIP_CLASSIC, PackageManagerType
-from ossiq.domain.project import Dependency, Project
+from ossiq.domain.project import ConstraintSource, Dependency, Project
 from ossiq.domain.version import normalize_version
 from ossiq.settings import Settings
 
 PipClassicProject = namedtuple("PipClassicProject", ["manifest"])
 
 # Compiled regex patterns for performance (avoid recompilation in loops)
-# Matches lines to skip: pip options, VCS deps, URL deps
+# Matches lines to skip: pip options (excluding -c), VCS deps, URL deps
 _SKIP_LINE_PATTERN = re.compile(
     r"^("
     r"-[a-z\-]|"  # Pip options like -e, --editable, -r, --requirement, etc.
@@ -28,6 +30,8 @@ _SKIP_LINE_PATTERN = re.compile(
     r")",
     re.IGNORECASE,
 )
+# Matches -c <file> constraint file directives
+_CONSTRAINT_FILE_PATTERN = re.compile(r"^-c\s+(.+)$", re.IGNORECASE)
 # Matches pinned dependencies: package==version or package[extras]==version
 _PINNED_DEPENDENCY_PATTERN = re.compile(r"^([a-zA-Z0-9._\-\[\]]+)==([^\s;]+)")
 # Matches extras specification in package names
@@ -107,19 +111,60 @@ class PackageManagerPythonPipClassic(AbstractPackageManagerApi):
             return None
         return match.group(1), match.group(2)
 
+    @staticmethod
+    def _load_constraint_file(path: str, constraint_names: set[str], visited: set[str] | None = None) -> None:
+        """
+        Read a pip constraints file and accumulate normalised package names into constraint_names.
+
+        Handles recursive -c includes with a visited-file guard to prevent infinite loops.
+        Only package name lines are collected; version specifiers are intentionally ignored
+        because the constraint is applied at resolution time — what matters for tagging is
+        *which* package is constrained, not the specific range.
+        """
+        if visited is None:
+            visited = set()
+        abs_path = os.path.realpath(path)
+        if abs_path in visited:
+            return
+        visited.add(abs_path)
+
+        try:
+            with open(path, encoding="utf-8") as f:
+                lines = f.readlines()
+        except (FileNotFoundError, UnicodeDecodeError):
+            return  # Silently skip unreadable constraint files
+
+        for raw_line in lines:
+            line = raw_line.split("#")[0].strip()
+            if not line:
+                continue
+            # Recurse into nested -c includes
+            c_match = _CONSTRAINT_FILE_PATTERN.match(line)
+            if c_match:
+                nested_path = os.path.join(os.path.dirname(path), c_match.group(1).strip())
+                PackageManagerPythonPipClassic._load_constraint_file(nested_path, constraint_names, visited)
+                continue
+            # Skip all other pip options and non-package lines
+            if _SKIP_LINE_PATTERN.match(line):
+                continue
+            constraint_names.add(normalize_pep503_name(line))
+
     def parse_requirements_txt(self) -> dict[str, Dependency]:
         """
         Parse requirements.txt file for pinned dependencies.
 
         Only processes lines with pinned versions (==).
         Skips editable installs, VCS dependencies, URL dependencies,
-        and range specifiers.
+        and range specifiers. Follows -c <file> constraint directives and
+        tags the corresponding packages with ConstraintType.ADDITIVE.
 
         Returns:
             Dictionary of dependencies {package_name: Dependency}
         """
         project_files = self.project_files(self.project_path)
-        dependencies = {}
+        manifest_dir = os.path.dirname(project_files.manifest)
+        dependencies: dict[str, Dependency] = {}
+        constraint_names: set[str] = set()
 
         lines = self._read_requirements_lines(project_files.manifest)
 
@@ -128,7 +173,17 @@ class PackageManagerPythonPipClassic(AbstractPackageManagerApi):
             if "#" in line:
                 line = line.split("#")[0].strip()
 
-            if not line or bool(_SKIP_LINE_PATTERN.match(line)):
+            if not line:
+                continue
+
+            # Intercept -c <file> before the general skip pattern
+            c_match = _CONSTRAINT_FILE_PATTERN.match(line)
+            if c_match:
+                constraint_path = os.path.join(manifest_dir, c_match.group(1).strip())
+                self._load_constraint_file(constraint_path, constraint_names)
+                continue
+
+            if _SKIP_LINE_PATTERN.match(line):
                 continue
 
             # Parse pinned dependency: package==version or package[extras]==version
@@ -155,8 +210,19 @@ class PackageManagerPythonPipClassic(AbstractPackageManagerApi):
                 canonical_name=package_name,
                 version_installed=version,
                 version_defined=f"=={version_spec}",  # Preserve original spec
-                categories=[],  # No categories in classic requirements.txt
+                categories=[],  # No categories in classic requirements.txt,
+                constraint_info=ConstraintSource(type=ConstraintType.DECLARED, source_file="requirements.txt"),
             )
+
+        # Second pass: tag packages that appear in constraint files
+        if constraint_names:
+            manifest_basename = os.path.basename(project_files.manifest)
+            for pkg_name, dep in dependencies.items():
+                if normalize_pep503_name(pkg_name) in constraint_names:
+                    dep.constraint_info = ConstraintSource(
+                        type=ConstraintType.ADDITIVE,
+                        source_file=manifest_basename,
+                    )
 
         return dependencies
 

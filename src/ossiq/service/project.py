@@ -14,6 +14,7 @@ from ossiq.domain.common import RepositoryProvider, build_purl, parse_spdx_expre
 from ossiq.domain.cve import CVE
 from ossiq.domain.exceptions import ProjectPathNotFoundError, UnknownPackageVersion
 from ossiq.domain.package import Package
+from ossiq.domain.project import ConstraintSource
 from ossiq.domain.repository import Repository
 from ossiq.domain.version import VersionsDifference
 from ossiq.service.common import package_versions
@@ -30,6 +31,7 @@ class DependencyDescriptor:
     is_optional: bool
     dependency_path: list[str] | None
     version_constraint: str | None
+    constraint_info: ConstraintSource | None = None
 
 
 @dataclass
@@ -49,6 +51,7 @@ class ScanRecord:
     cve: list[CVE]
     dependency_path: list[str] | None = None
     version_constraint: str | None = None
+    constraint_info: ConstraintSource | None = None
     license: list[str] | None = None
     repo_url: str | None = None
     repository: Repository | None = None
@@ -130,6 +133,7 @@ def scan_record(
     dependency_path: list[str] | None = None,
     version_constraint: str | None = None,
     prefetched_repository: Repository | None = None,
+    constraint_info: ConstraintSource | None = None,
 ) -> ScanRecord:
     """
     Factory to generate ScanRecord instances
@@ -156,6 +160,7 @@ def scan_record(
         is_optional_dependency=is_optional_dependency,
         dependency_path=dependency_path,
         version_constraint=version_constraint,
+        constraint_info=constraint_info,
         repo_url=package_info.repo_url,
         repository=prefetched_repository,
         homepage_url=package_info.homepage_url,
@@ -229,6 +234,7 @@ def scan(uow: unit_of_work.AbstractProjectUnitOfWork) -> ScanResult:
                 is_optional=False,
                 dependency_path=None,
                 version_constraint=dep.version_defined,
+                constraint_info=dep.constraint_info,
             )
             for dep in project_info.dependencies.values()
         ]
@@ -243,6 +249,7 @@ def scan(uow: unit_of_work.AbstractProjectUnitOfWork) -> ScanResult:
                     is_optional=True,
                     dependency_path=None,
                     version_constraint=dep.version_defined,
+                    constraint_info=dep.constraint_info,
                 )
                 for dep in project_info.optional_dependencies.values()
             ]
@@ -256,6 +263,7 @@ def scan(uow: unit_of_work.AbstractProjectUnitOfWork) -> ScanResult:
                 is_optional=False,
                 dependency_path=path,
                 version_constraint=node.version_defined,
+                constraint_info=node.constraint_info,
             )
             for node, path in walker.walk_all_paths()
         ]
@@ -297,6 +305,7 @@ def scan(uow: unit_of_work.AbstractProjectUnitOfWork) -> ScanResult:
                     dep.dependency_path,
                     dep.version_constraint,
                     repositories_info.get(packages_info[dep.canonical_name].repo_url or ""),
+                    dep.constraint_info,
                 )
                 for dep in descriptors
             ]

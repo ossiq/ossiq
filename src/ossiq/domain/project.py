@@ -40,8 +40,11 @@ class Dependency:
     dependencies: dict[str, "Dependency"] = field(default_factory=dict, compare=False, hash=False)
     optional_dependencies: dict[str, "Dependency"] = field(default_factory=dict, compare=False, hash=False)
 
-    # Constraint provenance; None means DECLARED
-    constraint_info: "ConstraintSource | None" = field(default=None, compare=False)
+    # Constraint provenance; defaults to DECLARED when not explicitly set
+    constraint_info: "ConstraintSource" = field(
+        default_factory=lambda: ConstraintSource(type=ConstraintType.DECLARED, source_file=""),
+        compare=False,
+    )
 
 
 class Project:

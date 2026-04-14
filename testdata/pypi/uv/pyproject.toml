@@ -109,3 +109,4 @@ select = [
 
 [tool.uv]
 package = true
+constraint-dependencies = ["requests<2.33.0"]

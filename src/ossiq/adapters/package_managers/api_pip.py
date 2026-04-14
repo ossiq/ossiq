@@ -12,9 +12,10 @@ from typing import Any, cast
 from ossiq.adapters.api_interfaces import AbstractPackageManagerApi
 from ossiq.adapters.package_managers.dependency_tree import BaseDependencyResolver
 from ossiq.adapters.package_managers.utils import find_lockfile_parser
+from ossiq.domain.common import ConstraintType
 from ossiq.domain.exceptions import PackageManagerLockfileParsingError
 from ossiq.domain.packages_manager import PIP, PackageManagerType
-from ossiq.domain.project import Dependency, Project
+from ossiq.domain.project import ConstraintSource, Dependency, Project
 from ossiq.settings import Settings
 
 PylockProject = namedtuple("PylockProject", ["manifest", "lockfile"])
@@ -36,6 +37,25 @@ class PyLockResolver(BaseDependencyResolver):
         root entry injected from pyproject.toml instead.
         """
         return [pkg for pkg in self.raw_data.get("packages", []) if "version" in pkg]
+
+    def build_initial_dependency(
+        self,
+        name: str,
+        canonical_name: str,
+        version_installed: str,
+        source: str | None,
+        required_engine: str | None,
+        version_defined: str | None,
+    ):
+        return Dependency(
+            name=name,
+            canonical_name=canonical_name,
+            version_installed=version_installed,
+            source=source,
+            required_engine=required_engine,
+            version_defined=version_defined,
+            constraint_info=ConstraintSource(type=ConstraintType.DECLARED, source_file="pyproject.toml"),
+        )
 
     def extract_package_identity(self, pkg_data: dict) -> tuple[str, str]:
         """Extracts name and the specific installed version."""
