@@ -15,7 +15,7 @@ from ossiq.domain.common import ConstraintType
 from ossiq.domain.exceptions import PackageManagerLockfileParsingError
 from ossiq.domain.packages_manager import PIP_CLASSIC, PackageManagerType
 from ossiq.domain.project import ConstraintSource, Dependency, Project
-from ossiq.domain.version import normalize_version
+from ossiq.domain.version import classify_pypi_specifier, normalize_version
 from ossiq.settings import Settings
 
 PipClassicProject = namedtuple("PipClassicProject", ["manifest"])
@@ -32,9 +32,16 @@ _SKIP_LINE_PATTERN = re.compile(
 )
 # Matches -c <file> constraint file directives
 _CONSTRAINT_FILE_PATTERN = re.compile(r"^-c\s+(.+)$", re.IGNORECASE)
-# Matches pinned dependencies: package==version or package[extras]==version
-_PINNED_DEPENDENCY_PATTERN = re.compile(r"^([a-zA-Z0-9._\-\[\]]+)==([^\s;]+)")
-# Matches extras specification in package names
+# General requirement pattern: name[extras] + any PEP 440 specifier(s)
+#   group 1 — package base name
+#   group 2 — optional [extras] (including brackets)
+#   group 3 — optional version specifier(s), e.g. "==2.31.0" or ">=2.0,<3.0"
+_REQUIREMENT_PATTERN = re.compile(
+    r"^([a-zA-Z0-9._\-]+)"
+    r"(\[[^\]]+\])?"
+    r"\s*((?:==|!=|>=|<=|~=|>|<)[^\s;]*)?"
+)
+# Matches extras specification in package names (used for stripping)
 _EXTRAS_PATTERN = re.compile(r"\[.*\]")
 
 
@@ -90,26 +97,37 @@ class PackageManagerPythonPipClassic(AbstractPackageManagerApi):
             raise PackageManagerLockfileParsingError(f"Failed to decode requirements.txt: {e}") from e
 
     @staticmethod
-    def _parse_pinned_requirement(line: str) -> tuple[str, str] | None:
+    def _parse_requirement(line: str) -> tuple[str, list[str] | None, str | None] | None:
         """
-        Extract package specification and version from pinned requirement line.
+        Extract package spec, extras, and full version specifier from a requirement line.
 
         Args:
-            line: Preprocessed requirement line
+            line: Preprocessed requirement line (comments and whitespace already stripped)
 
         Returns:
-            Tuple of (package_spec, version_spec) if line is pinned requirement,
-            None otherwise.
+            Tuple of (package_spec_with_extras, extras, version_spec) where:
+                - package_spec_with_extras includes the raw extras bracket, e.g. "requests[security]"
+                - extras is a parsed list like ["security", "tests"], or None
+                - version_spec is the full specifier string like "==2.31.0" or ">=2.0,<3.0", or None
+            Returns None if the line does not match a valid package requirement.
 
         Examples:
-            "requests==2.31.0" -> ("requests", "2.31.0")
-            "Django[extra]==4.2.0" -> ("Django[extra]", "4.2.0")
-            "package>=1.0.0" -> None (not pinned)
+            "requests==2.31.0"            -> ("requests",           None,               "==2.31.0")
+            "Django[extra]==4.2.0"        -> ("Django[extra]",      ["extra"],          "==4.2.0")
+            "httpx[http2]>=0.24,<1.0"     -> ("httpx[http2]",       ["http2"],          ">=0.24,<1.0")
+            "requests[sec,tests]>=2.28.0" -> ("requests[sec,tests]",["sec", "tests"],   ">=2.28.0")
+            "package~=1.2"               -> ("package",            None,               "~=1.2")
+            "bare-package"               -> ("bare-package",        None,               None)
         """
-        match = _PINNED_DEPENDENCY_PATTERN.match(line)
+        match = _REQUIREMENT_PATTERN.match(line)
         if not match:
             return None
-        return match.group(1), match.group(2)
+        base_name = match.group(1)
+        extras_raw = match.group(2)  # e.g. "[security,tests]" or None
+        version_spec = match.group(3) or None  # e.g. "==2.31.0" or None
+        extras = [e.strip() for e in extras_raw[1:-1].split(",")] if extras_raw else None
+        package_spec = base_name + (extras_raw or "")
+        return package_spec, extras, version_spec
 
     @staticmethod
     def _load_constraint_file(path: str, constraint_names: set[str], visited: set[str] | None = None) -> None:
@@ -151,12 +169,13 @@ class PackageManagerPythonPipClassic(AbstractPackageManagerApi):
 
     def parse_requirements_txt(self) -> dict[str, Dependency]:
         """
-        Parse requirements.txt file for pinned dependencies.
+        Parse requirements.txt for versioned dependencies.
 
-        Only processes lines with pinned versions (==).
-        Skips editable installs, VCS dependencies, URL dependencies,
-        and range specifiers. Follows -c <file> constraint directives and
-        tags the corresponding packages with ConstraintType.ADDITIVE.
+        Handles any PEP 440 specifier (==, >=, ~=, !=, compound ranges, etc.) and
+        preserves PyPI extras (e.g. requests[security]) as a structured list.
+        Skips bare package names (no version specifier), editable installs, VCS and
+        URL dependencies. Follows -c <file> constraint directives and tags the
+        corresponding packages with ConstraintType.ADDITIVE.
 
         Returns:
             Dictionary of dependencies {package_name: Dependency}
@@ -186,32 +205,36 @@ class PackageManagerPythonPipClassic(AbstractPackageManagerApi):
             if _SKIP_LINE_PATTERN.match(line):
                 continue
 
-            # Parse pinned dependency: package==version or package[extras]==version
-            parsed = self._parse_pinned_requirement(line)
+            parsed = self._parse_requirement(line)
             if not parsed:
-                # Not a pinned dependency, skip (could be >=, ~=, or other specifier)
                 continue
 
-            package_spec, version_spec = parsed
+            package_spec, extras, version_spec = parsed
 
-            # Normalize package name (removes extras, lowercases, etc.)
+            if not version_spec:
+                # Bare package name with no version specifier — skip
+                continue
+
+            # Normalize package name (strip extras, lowercase, underscores → hyphens)
             package_name = _EXTRAS_PATTERN.sub("", package_spec).lower().replace("_", "-").strip()
 
-            # Normalize version (remove any remaining modifiers)
+            # Best-effort installed version: exact for ==, lower bound for ranges
             version = normalize_version(version_spec)
 
             if not package_name or not version:
-                # Skip invalid entries
                 continue
 
-            # Create dependency instance
             dependencies[package_name] = Dependency(
-                name=package_spec,  # Keep original name with extras if present
+                name=package_spec,  # preserve original name with extras
                 canonical_name=package_name,
                 version_installed=version,
-                version_defined=f"=={version_spec}",  # Preserve original spec
-                categories=[],  # No categories in classic requirements.txt,
-                constraint_info=ConstraintSource(type=ConstraintType.DECLARED, source_file="requirements.txt"),
+                version_defined=version_spec,  # full specifier including operator(s)
+                extras=extras,
+                categories=[],
+                constraint_info=ConstraintSource(
+                    type=classify_pypi_specifier(version_spec),
+                    source_file="requirements.txt",
+                ),
             )
 
         # Second pass: tag packages that appear in constraint files

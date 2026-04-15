@@ -77,9 +77,14 @@ class ExportCsvSchemaVersion(StrEnum):
 
 
 class ConstraintType(StrEnum):
-    """How a version constraint was applied for a dependency."""
+    """How a version constraint was applied for a dependency.
 
-    DECLARED = "DECLARED"  # normal spec in manifest - default, existing behaviour
+    Priority ordering (highest wins for display): OVERRIDE > ADDITIVE > PINNED > NARROWED > DECLARED
+    """
+
+    DECLARED = "DECLARED"  # loose/default — any, ^x, ~x, >=x (lower-bound only)
+    NARROWED = "NARROWED"  # explicit range with bounds — >=x <y, ~=x, ==x.*, compound
+    PINNED = "PINNED"  # exactly one version — ==x.y.z (PyPI) or bare x.y.z (npm)
     ADDITIVE = "ADDITIVE"  # narrows range without adding a direct dep (pip -c, uv constraint-dependencies)
     OVERRIDE = "OVERRIDE"  # completely replaces resolution (npm overrides, uv override-dependencies)
 

@@ -18,7 +18,7 @@ from pathlib import Path
 import pytest
 
 from ossiq.adapters.package_managers.api_uv import PackageManagerPythonUv
-from ossiq.domain.common import ProjectPackagesRegistry
+from ossiq.domain.common import ConstraintType, ProjectPackagesRegistry
 from ossiq.domain.exceptions import PackageManagerLockfileParsingError
 from ossiq.domain.packages_manager import UV
 from ossiq.settings import Settings
@@ -778,3 +778,32 @@ class TestVersionConstraintIntegration:
         dep = project.dependencies.get(pkg_name)
         assert dep is not None, f"{pkg_name!r} not found in project dependencies"
         assert dep.version_defined == expected_constraint
+
+
+# ============================================================================
+# Test constraint classification for PyPI specifiers (via UV adapter)
+# ============================================================================
+
+
+class TestConstraintClassificationUv:
+    """Test that constraint_info.type is set correctly for PyPI/UV specifiers."""
+
+    @pytest.mark.parametrize(
+        "pkg_name,expected_type",
+        [
+            ("requests", ConstraintType.NARROWED),  # ~=2.31.0  → compatible release
+            ("pydantic", ConstraintType.DECLARED),  # >=2.0.0   → lower bound only
+            ("scikit-learn", ConstraintType.NARROWED),  # <2.0.0  → upper bound only
+            ("jsonschema", ConstraintType.NARROWED),  # >=4.0.0a6,<4.5.0  → compound
+            ("numpy", ConstraintType.NARROWED),  # >=1.20.0,!=1.24.2,<2.0.0  → compound
+        ],
+    )
+    def test_constraint_type_from_specifier(self, pkg_name: str, expected_type: ConstraintType, settings: Settings):
+        """constraint_info.type should reflect specifier specificity for UV packages."""
+        uv_manager = PackageManagerPythonUv(_VERSION_CONSTRAINT_TESTDATA, settings)
+        project = uv_manager.project_info()
+        dep = project.dependencies.get(pkg_name)
+        assert dep is not None, f"{pkg_name!r} not found"
+        assert dep.constraint_info.type == expected_type, (
+            f"{pkg_name}: expected {expected_type}, got {dep.constraint_info.type}"
+        )

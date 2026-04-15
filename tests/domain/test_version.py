@@ -10,6 +10,7 @@ This module tests:
 
 import pytest
 
+from ossiq.domain.common import ConstraintType
 from ossiq.domain.version import (
     VERSION_DIFF_BUILD,
     VERSION_DIFF_MAJOR,
@@ -25,6 +26,8 @@ from ossiq.domain.version import (
     User,
     Version,
     VersionsDifference,
+    classify_npm_specifier,
+    classify_pypi_specifier,
     create_version_difference_no_diff,
     normalize_version,
     sort_versions,
@@ -754,3 +757,100 @@ class TestVersion:
             )
 
         assert "Repository version info cannot be None" in str(excinfo.value)
+
+
+# ============================================================================
+# Tests for classify_npm_specifier / classify_pypi_specifier
+# ============================================================================
+
+
+class TestClassifyNpmSpecifier:
+    """Tests for classify_npm_specifier."""
+
+    def test_none_is_declared(self):
+        assert classify_npm_specifier(None) == ConstraintType.DECLARED
+
+    def test_empty_string_is_declared(self):
+        assert classify_npm_specifier("") == ConstraintType.DECLARED
+
+    def test_wildcard_is_declared(self):
+        assert classify_npm_specifier("*") == ConstraintType.DECLARED
+
+    def test_latest_is_declared(self):
+        assert classify_npm_specifier("latest") == ConstraintType.DECLARED
+
+    def test_caret_is_declared(self):
+        assert classify_npm_specifier("^4.18.0") == ConstraintType.DECLARED
+        assert classify_npm_specifier("^0.1.2") == ConstraintType.DECLARED
+        assert classify_npm_specifier("^1") == ConstraintType.DECLARED
+
+    def test_tilde_is_declared(self):
+        assert classify_npm_specifier("~4.17.0") == ConstraintType.DECLARED
+        assert classify_npm_specifier("~0.1.2") == ConstraintType.DECLARED
+
+    def test_bare_semver_is_pinned(self):
+        assert classify_npm_specifier("4.18.0") == ConstraintType.PINNED
+        assert classify_npm_specifier("1.0.0") == ConstraintType.PINNED
+        assert classify_npm_specifier("0.0.1") == ConstraintType.PINNED
+        assert classify_npm_specifier("18.2.0") == ConstraintType.PINNED
+
+    def test_bare_semver_with_v_prefix_is_pinned(self):
+        assert classify_npm_specifier("v4.18.0") == ConstraintType.PINNED
+
+    def test_bare_semver_short_is_pinned(self):
+        assert classify_npm_specifier("4.18") == ConstraintType.PINNED
+        assert classify_npm_specifier("4") == ConstraintType.PINNED
+
+    def test_comparison_operator_is_narrowed(self):
+        assert classify_npm_specifier(">=1.0.0") == ConstraintType.NARROWED
+        assert classify_npm_specifier(">1.0.0") == ConstraintType.NARROWED
+        assert classify_npm_specifier("<=2.0.0") == ConstraintType.NARROWED
+        assert classify_npm_specifier("<2.0.0") == ConstraintType.NARROWED
+
+    def test_range_is_narrowed(self):
+        assert classify_npm_specifier(">=1.0.0 <2.0.0") == ConstraintType.NARROWED
+        assert classify_npm_specifier("1.0.0 - 2.0.0") == ConstraintType.NARROWED
+
+    def test_or_range_is_narrowed(self):
+        assert classify_npm_specifier("1.0.0 || 2.0.0") == ConstraintType.NARROWED
+        assert classify_npm_specifier("<1.0.0 || >=2.3.1 <2.4.5") == ConstraintType.NARROWED
+
+
+class TestClassifyPypiSpecifier:
+    """Tests for classify_pypi_specifier."""
+
+    def test_none_is_declared(self):
+        assert classify_pypi_specifier(None) == ConstraintType.DECLARED
+
+    def test_empty_string_is_declared(self):
+        assert classify_pypi_specifier("") == ConstraintType.DECLARED
+
+    def test_single_lower_bound_is_declared(self):
+        assert classify_pypi_specifier(">=2.0") == ConstraintType.DECLARED
+        assert classify_pypi_specifier(">=2.28.0") == ConstraintType.DECLARED
+        assert classify_pypi_specifier(">=1.0.0") == ConstraintType.DECLARED
+
+    def test_exact_pin_is_pinned(self):
+        assert classify_pypi_specifier("==2.31.0") == ConstraintType.PINNED
+        assert classify_pypi_specifier("==1.0.0") == ConstraintType.PINNED
+        assert classify_pypi_specifier("==0.0.1.post1") == ConstraintType.PINNED
+
+    def test_wildcard_equals_is_narrowed(self):
+        assert classify_pypi_specifier("==2.8.*") == ConstraintType.NARROWED
+        assert classify_pypi_specifier("==1.*") == ConstraintType.NARROWED
+
+    def test_compatible_release_is_narrowed(self):
+        assert classify_pypi_specifier("~=1.2") == ConstraintType.NARROWED
+        assert classify_pypi_specifier("~=2.4.3") == ConstraintType.NARROWED
+
+    def test_exclusion_is_narrowed(self):
+        assert classify_pypi_specifier("!=1.3.0") == ConstraintType.NARROWED
+
+    def test_upper_bound_is_narrowed(self):
+        assert classify_pypi_specifier("<3.0") == ConstraintType.NARROWED
+        assert classify_pypi_specifier("<=2.9.9") == ConstraintType.NARROWED
+
+    def test_compound_specifier_is_narrowed(self):
+        assert classify_pypi_specifier(">=2.8.1,==2.8.*") == ConstraintType.NARROWED
+        assert classify_pypi_specifier(">=1.0,<2.0") == ConstraintType.NARROWED
+        assert classify_pypi_specifier(">=2.0,!=2.1.0,<3.0") == ConstraintType.NARROWED

@@ -28,7 +28,7 @@ from ossiq.adapters.package_managers.api_npm import (
     PackageManagerJsNpm,
     _parse_npm_alias,
 )
-from ossiq.domain.common import ProjectPackagesRegistry
+from ossiq.domain.common import ConstraintType, ProjectPackagesRegistry
 from ossiq.domain.exceptions import PackageManagerLockfileParsingError
 from ossiq.domain.packages_manager import NPM
 from ossiq.settings import Settings
@@ -1100,3 +1100,66 @@ class TestNpmProject3Integration:
         # Assert
         chalk = project.dependency_tree.dependencies["chalk"]
         assert chalk.canonical_name == "chalk"
+
+
+# ============================================================================
+# Test constraint classification for npm specifiers
+# ============================================================================
+
+
+class TestConstraintClassification:
+    """Test that constraint_info.type is set correctly based on version specifiers."""
+
+    def test_caret_range_is_declared(self, npm_project_with_lockfile, settings):
+        """^version (npm default) should be DECLARED."""
+        npm_manager = PackageManagerJsNpm(npm_project_with_lockfile, settings)
+        project = npm_manager.project_info()
+        # express: "^4.18.0" in package.json
+        express = project.dependency_tree.dependencies["express"]
+        assert express.constraint_info.type == ConstraintType.DECLARED
+
+    def test_tilde_range_is_declared(self, npm_project_with_lockfile, settings):
+        """~version should be DECLARED."""
+        npm_manager = PackageManagerJsNpm(npm_project_with_lockfile, settings)
+        project = npm_manager.project_info()
+        # lodash: "~4.17.21" in package.json
+        lodash = project.dependency_tree.dependencies["lodash"]
+        assert lodash.constraint_info.type == ConstraintType.DECLARED
+
+    def test_comparison_operator_is_narrowed(self, npm_project_with_lockfile, settings):
+        """>=version should be NARROWED."""
+        npm_manager = PackageManagerJsNpm(npm_project_with_lockfile, settings)
+        project = npm_manager.project_info()
+        # jest: ">=29.0.0" in package.json
+        jest = project.dependency_tree.optional_dependencies["jest"]
+        assert jest.constraint_info.type == ConstraintType.NARROWED
+
+    def test_bare_exact_version_is_pinned(self, temp_project_dir, settings):
+        """Bare x.y.z (no operator) should be PINNED."""
+        pkg_json = Path(temp_project_dir) / "package.json"
+        lockfile = Path(temp_project_dir) / "package-lock.json"
+        pkg_json.write_text(
+            json.dumps(
+                {
+                    "name": "pin-test",
+                    "version": "1.0.0",
+                    "dependencies": {"lodash": "4.17.21"},
+                }
+            )
+        )
+        lockfile.write_text(
+            json.dumps(
+                {
+                    "name": "pin-test",
+                    "version": "1.0.0",
+                    "lockfileVersion": 3,
+                    "packages": {
+                        "": {"name": "pin-test", "version": "1.0.0", "dependencies": {"lodash": "4.17.21"}},
+                        "node_modules/lodash": {"version": "4.17.21"},
+                    },
+                }
+            )
+        )
+        project = PackageManagerJsNpm(temp_project_dir, settings).project_info()
+        lodash = project.dependency_tree.dependencies["lodash"]
+        assert lodash.constraint_info.type == ConstraintType.PINNED

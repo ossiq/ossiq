@@ -14,7 +14,7 @@ from ossiq.domain.common import ConstraintType
 from ossiq.domain.exceptions import PackageManagerLockfileParsingError
 from ossiq.domain.packages_manager import NPM, PackageManagerType
 from ossiq.domain.project import ConstraintSource, Dependency, Project
-from ossiq.domain.version import normalize_version
+from ossiq.domain.version import classify_npm_specifier, normalize_version
 from ossiq.settings import Settings
 
 NpmProject = namedtuple("NpmProject", ["manifest", "lockfile"])
@@ -82,6 +82,9 @@ class NPMResolverV3(BaseDependencyResolver):
         NPMResolverV3._collect_overrides(overrides, result, scope_paths, [])
         return result, scope_paths
 
+    def classify_constraint(self, spec: str | None) -> ConstraintType:
+        return classify_npm_specifier(spec)
+
     def build_initial_dependency(
         self,
         name: str,
@@ -98,7 +101,10 @@ class NPMResolverV3(BaseDependencyResolver):
             source=source,
             required_engine=required_engine,
             version_defined=version_defined,
-            constraint_info=ConstraintSource(type=ConstraintType.DECLARED, source_file="package.json"),
+            constraint_info=ConstraintSource(
+                type=classify_npm_specifier(version_defined),
+                source_file="package.json",
+            ),
         )
 
     def build_graph(self, root_name: str) -> Dependency | None:

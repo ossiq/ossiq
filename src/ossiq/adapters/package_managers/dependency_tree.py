@@ -6,7 +6,8 @@ from abc import ABC, abstractmethod
 from collections.abc import Iterable, Iterator
 from typing import Any
 
-from ossiq.domain.project import Dependency
+from ossiq.domain.common import ConstraintType
+from ossiq.domain.project import ConstraintSource, Dependency
 from ossiq.domain.version import normalize_version
 
 
@@ -60,7 +61,15 @@ class BaseDependencyResolver(ABC):
         required_engine: str | None,
         version_defined: str | None,
     ) -> Dependency:
-        pass
+        """Abstract method to initialize Dependency instance specific to a package manager"""
+
+    def classify_constraint(self, spec: str | None) -> ConstraintType:
+        """Return the specificity type for a version specifier string.
+
+        Subclasses should override this for ecosystem-specific rules.
+        Default returns DECLARED so existing behaviour is preserved.
+        """
+        return ConstraintType.DECLARED
 
     def build_graph(self, root_name: str) -> Dependency | None:
         """
@@ -76,6 +85,8 @@ class BaseDependencyResolver(ABC):
 
             node = self.build_initial_dependency(
                 name=name,
+                # FIXME: it would be better to just implement it in each package
+                # manager explicitly instead of falling back to name
                 canonical_name=self.extract_canonical_name(pkg_data) or name,
                 version_installed=version,
                 source=source,
@@ -98,11 +109,23 @@ class BaseDependencyResolver(ABC):
 
                     child = self.match_child(d_name, d_ver)
                     if child:
-                        # Capture the declared constraint when it differs from the resolved version.
                         # Guard against None so that absent specifiers (e.g. UV entries without
-                        # a 'specifier' key) don't overwrite a value already set in Pass 1.
-                        if d_ver is not None and d_ver != child.version_installed:
-                            child.version_defined = d_ver
+                        # a 'specifier' key) don't overwrite values already set in Pass 1.
+                        if d_ver is not None:
+                            # Only update version_defined when the specifier differs from the
+                            # resolved version to avoid redundant data (e.g. "4.17.21" == "4.17.21").
+                            if d_ver != child.version_installed:
+                                child.version_defined = d_ver
+                            # Always reclassify specificity from the parent-declared specifier,
+                            # even when the specifier equals the installed version (e.g. bare
+                            # "4.17.21" pins — the specifier matches but it IS a pin).
+                            # ADDITIVE/OVERRIDE take priority and must not be downgraded.
+                            if child.constraint_info.type not in (ConstraintType.ADDITIVE, ConstraintType.OVERRIDE):
+                                child.constraint_info = ConstraintSource(
+                                    type=self.classify_constraint(d_ver),
+                                    source_file=child.constraint_info.source_file,
+                                    scope_path=child.constraint_info.scope_path,
+                                )
 
                         # NOTE: we intentionally do not need to use
                         # name+version combined b/c on every level

@@ -36,6 +36,9 @@ class Dependency:
     required_engine: str | None = None
     categories: list[str] = field(default_factory=list, compare=False)
 
+    # PyPI extras requested for this dependency, e.g. ["security", "tests"] for requests[security,tests]
+    extras: list[str] | None = field(default=None, compare=False)
+
     # list of direct dependencies for this particular dependency
     dependencies: dict[str, "Dependency"] = field(default_factory=dict, compare=False, hash=False)
     optional_dependencies: dict[str, "Dependency"] = field(default_factory=dict, compare=False, hash=False)

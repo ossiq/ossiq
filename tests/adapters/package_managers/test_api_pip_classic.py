@@ -16,6 +16,7 @@ from pathlib import Path
 import pytest
 
 from ossiq.adapters.package_managers.api_pip_classic import PackageManagerPythonPipClassic
+from ossiq.domain.common import ConstraintType
 from ossiq.domain.exceptions import PackageManagerLockfileParsingError
 from ossiq.domain.packages_manager import PIP_CLASSIC
 from ossiq.settings import Settings
@@ -63,13 +64,14 @@ def pip_classic_project_complex(temp_project_dir):
     Create a requirements.txt with various edge cases.
 
     Includes:
-    - Pinned versions
+    - Pinned (==) versions
+    - Range specifiers (>=, ~=, compound)
     - Extras
-    - Comments
-    - Blank lines
-    - Editable installs (should be skipped)
-    - VCS dependencies (should be skipped)
-    - Range specifiers (should be skipped)
+    - Comments and blank lines
+    - Editable installs (skipped)
+    - VCS dependencies (skipped)
+    - URL dependencies (skipped)
+    - Bare names without version (skipped)
     """
     requirements_path = Path(temp_project_dir) / "requirements.txt"
 
@@ -87,19 +89,19 @@ click==8.1.7  # CLI framework
 # Blank lines above and below
 
 
-# Editable install (should be skipped)
+# Editable install (skipped)
 -e file:///Users/max/Projects/my-project
 
-# VCS dependency (should be skipped)
+# VCS dependency (skipped)
 git+https://github.com/user/repo.git@v1.0#egg=package
 
-# URL dependency (should be skipped)
+# URL dependency (skipped)
 https://files.pythonhosted.org/packages/some-package-1.0.tar.gz
 
-# Range specifier (should be skipped)
+# Range specifier — now parsed as NARROWED
 numpy>=1.20.0
 
-# Another range specifier
+# Compatible-release specifier — NARROWED
 pandas~=2.0.0
 
 # Valid pinned with underscore
@@ -169,31 +171,47 @@ class TestInternalHelpers:
         with pytest.raises(PackageManagerLockfileParsingError, match="requirements.txt not found"):
             adapter._read_requirements_lines(nonexistent_path)
 
-    def test_parse_pinned_requirement_success(self):
-        """Test _parse_pinned_requirement extracts package and version."""
-        result = PackageManagerPythonPipClassic._parse_pinned_requirement("requests==2.31.0")
-        assert result == ("requests", "2.31.0")
+    def test_parse_requirement_exact_pin(self):
+        """Test _parse_requirement extracts package, no extras, and == specifier."""
+        result = PackageManagerPythonPipClassic._parse_requirement("requests==2.31.0")
+        assert result == ("requests", None, "==2.31.0")
 
-    def test_parse_pinned_requirement_with_extras(self):
-        """Test _parse_pinned_requirement handles extras."""
-        result = PackageManagerPythonPipClassic._parse_pinned_requirement("pydantic[email]==2.5.0")
-        assert result == ("pydantic[email]", "2.5.0")
+    def test_parse_requirement_with_extras(self):
+        """Test _parse_requirement parses extras as a list."""
+        result = PackageManagerPythonPipClassic._parse_requirement("pydantic[email]==2.5.0")
+        assert result == ("pydantic[email]", ["email"], "==2.5.0")
 
-    def test_parse_pinned_requirement_with_environment_marker(self):
-        """Test _parse_pinned_requirement handles environment markers."""
-        line = 'certifi==2023.11.17; python_version >= "3.8"'
-        result = PackageManagerPythonPipClassic._parse_pinned_requirement(line)
-        assert result == ("certifi", "2023.11.17")
+    def test_parse_requirement_multiple_extras(self):
+        """Test _parse_requirement handles multiple extras."""
+        result = PackageManagerPythonPipClassic._parse_requirement("requests[security,tests]>=2.28.0")
+        assert result == ("requests[security,tests]", ["security", "tests"], ">=2.28.0")
 
-    def test_parse_pinned_requirement_range_specifier(self):
-        """Test _parse_pinned_requirement returns None for range specifiers."""
-        assert PackageManagerPythonPipClassic._parse_pinned_requirement("numpy>=1.20.0") is None
-        assert PackageManagerPythonPipClassic._parse_pinned_requirement("pandas~=2.0.0") is None
-        assert PackageManagerPythonPipClassic._parse_pinned_requirement("flask>2.0") is None
+    def test_parse_requirement_range_specifier(self):
+        """Test _parse_requirement handles range specifiers."""
+        result = PackageManagerPythonPipClassic._parse_requirement("numpy>=1.20.0")
+        assert result == ("numpy", None, ">=1.20.0")
 
-    def test_parse_pinned_requirement_empty_line(self):
-        """Test _parse_pinned_requirement returns None for empty line."""
-        assert PackageManagerPythonPipClassic._parse_pinned_requirement("") is None
+        result = PackageManagerPythonPipClassic._parse_requirement("pandas~=2.0.0")
+        assert result == ("pandas", None, "~=2.0.0")
+
+    def test_parse_requirement_compound_specifier(self):
+        """Test _parse_requirement captures compound specifiers as a single string."""
+        result = PackageManagerPythonPipClassic._parse_requirement("django>=4.0,<5.0")
+        assert result == ("django", None, ">=4.0,<5.0")
+
+    def test_parse_requirement_bare_name(self):
+        """Test _parse_requirement returns (name, None, None) for bare package names."""
+        result = PackageManagerPythonPipClassic._parse_requirement("requests")
+        assert result == ("requests", None, None)
+
+    def test_parse_requirement_environment_marker(self):
+        """Test _parse_requirement handles environment markers (ignores after ;)."""
+        result = PackageManagerPythonPipClassic._parse_requirement('certifi==2023.11.17; python_version >= "3.8"')
+        assert result == ("certifi", None, "==2023.11.17")
+
+    def test_parse_requirement_empty_line(self):
+        """Test _parse_requirement returns None for empty line."""
+        assert PackageManagerPythonPipClassic._parse_requirement("") is None
 
     def test_skip_line_pattern_pip_options(self):
         """Test module-level _SKIP_LINE_PATTERN matches pip options."""
@@ -232,28 +250,42 @@ class TestInternalHelpers:
         assert not _SKIP_LINE_PATTERN.match("Django>=3.2")
         assert not _SKIP_LINE_PATTERN.match("pydantic[email]~=2.0")
 
-    def test_pinned_dependency_pattern_valid(self):
-        """Test module-level _PINNED_DEPENDENCY_PATTERN matches pinned deps."""
-        from ossiq.adapters.package_managers.api_pip_classic import _PINNED_DEPENDENCY_PATTERN
+    def test_requirement_pattern_exact_pin(self):
+        """Test _REQUIREMENT_PATTERN matches exact pinned deps."""
+        from ossiq.adapters.package_managers.api_pip_classic import _REQUIREMENT_PATTERN
 
-        match = _PINNED_DEPENDENCY_PATTERN.match("requests==2.31.0")
+        match = _REQUIREMENT_PATTERN.match("requests==2.31.0")
         assert match is not None
         assert match.group(1) == "requests"
-        assert match.group(2) == "2.31.0"
+        assert match.group(2) is None
+        assert match.group(3) == "==2.31.0"
 
-        # With extras
-        match = _PINNED_DEPENDENCY_PATTERN.match("pydantic[email]==2.5.0")
+    def test_requirement_pattern_extras(self):
+        """Test _REQUIREMENT_PATTERN captures extras."""
+        from ossiq.adapters.package_managers.api_pip_classic import _REQUIREMENT_PATTERN
+
+        match = _REQUIREMENT_PATTERN.match("pydantic[email]==2.5.0")
         assert match is not None
-        assert match.group(1) == "pydantic[email]"
-        assert match.group(2) == "2.5.0"
+        assert match.group(1) == "pydantic"
+        assert match.group(2) == "[email]"
+        assert match.group(3) == "==2.5.0"
 
-    def test_pinned_dependency_pattern_invalid(self):
-        """Test module-level _PINNED_DEPENDENCY_PATTERN doesn't match invalid."""
-        from ossiq.adapters.package_managers.api_pip_classic import _PINNED_DEPENDENCY_PATTERN
+    def test_requirement_pattern_range_specifier(self):
+        """Test _REQUIREMENT_PATTERN matches range specifiers."""
+        from ossiq.adapters.package_managers.api_pip_classic import _REQUIREMENT_PATTERN
 
-        assert not _PINNED_DEPENDENCY_PATTERN.match("requests>=2.31.0")
-        assert not _PINNED_DEPENDENCY_PATTERN.match("requests~=2.31.0")
-        assert not _PINNED_DEPENDENCY_PATTERN.match("requests")
+        match = _REQUIREMENT_PATTERN.match("numpy>=1.20.0")
+        assert match is not None
+        assert match.group(3) == ">=1.20.0"
+
+    def test_requirement_pattern_bare_name(self):
+        """Test _REQUIREMENT_PATTERN matches bare package name (no version)."""
+        from ossiq.adapters.package_managers.api_pip_classic import _REQUIREMENT_PATTERN
+
+        match = _REQUIREMENT_PATTERN.match("requests")
+        assert match is not None
+        assert match.group(1) == "requests"
+        assert match.group(3) is None
 
     def test_extras_pattern(self):
         """Test module-level _EXTRAS_PATTERN removes extras."""
@@ -296,22 +328,36 @@ class TestRequirementsParsing:
         adapter = PackageManagerPythonPipClassic(pip_classic_project_complex, settings)
         dependencies = adapter.parse_requirements_txt()
 
-        # Should parse only pinned dependencies
-        # Expected: requests, pydantic, click, some-package, django-rest-framework, certifi
-        assert len(dependencies) == 6
+        # Expected: requests, pydantic, click, numpy, pandas, some-package,
+        #           django-rest-framework, certifi  (range specifiers now parsed too)
+        assert len(dependencies) == 8
 
-        # Check basic pinned
+        # Check basic pinned — should be PINNED
         assert "requests" in dependencies
         assert dependencies["requests"].version_installed == "2.31.0"
+        assert dependencies["requests"].version_defined == "==2.31.0"
+        assert dependencies["requests"].constraint_info.type == ConstraintType.PINNED
 
-        # Check extras (extras should be in name but not in key)
+        # Check extras stored in structured field
         assert "pydantic" in dependencies
         assert dependencies["pydantic"].name == "pydantic[email]"
         assert dependencies["pydantic"].version_installed == "2.5.0"
+        assert dependencies["pydantic"].extras == ["email"]
+        assert dependencies["pydantic"].constraint_info.type == ConstraintType.PINNED
 
         # Check inline comment handled
         assert "click" in dependencies
         assert dependencies["click"].version_installed == "8.1.7"
+
+        # Range specifier — NARROWED, not skipped
+        assert "numpy" in dependencies
+        assert dependencies["numpy"].version_defined == ">=1.20.0"
+        assert dependencies["numpy"].constraint_info.type == ConstraintType.DECLARED  # single lower-bound
+
+        # Compatible-release — NARROWED
+        assert "pandas" in dependencies
+        assert dependencies["pandas"].version_defined == "~=2.0.0"
+        assert dependencies["pandas"].constraint_info.type == ConstraintType.NARROWED
 
         # Check underscore normalization
         assert "some-package" in dependencies  # Normalized from some_package
@@ -324,10 +370,6 @@ class TestRequirementsParsing:
         # Check environment marker handled (version extracted, marker ignored)
         assert "certifi" in dependencies
         assert dependencies["certifi"].version_installed == "2023.11.17"
-
-        # Ensure skipped entries are NOT present
-        assert "numpy" not in dependencies  # Range specifier
-        assert "pandas" not in dependencies  # Range specifier
 
     def test_parse_missing_file(self, temp_project_dir, settings):
         """Test parsing raises error when requirements.txt doesn't exist."""
@@ -388,8 +430,8 @@ class TestProjectInfo:
         adapter = PackageManagerPythonPipClassic(pip_classic_project_complex, settings)
         project = adapter.project_info()
 
-        # Should have 6 valid dependencies
-        assert len(project.dependencies) == 6
+        # 8 deps: pinned + range specifiers (numpy, pandas now parsed)
+        assert len(project.dependencies) == 8
 
         # Check no optional dependencies
         assert len(project.optional_dependencies) == 0
