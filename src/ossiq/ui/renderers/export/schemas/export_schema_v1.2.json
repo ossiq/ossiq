@@ -195,12 +195,17 @@
         },
         "constraint_type": {
           "type": ["string", "null"],
-          "enum": ["DECLARED", "ADDITIVE", "OVERRIDE", null],
-          "description": "How the version constraint was applied: DECLARED (normal manifest spec, default), ADDITIVE (narrows range via constraints file), or OVERRIDE (forces a version regardless of other requirements)"
+          "enum": ["DECLARED", "NARROWED", "PINNED", "ADDITIVE", "OVERRIDE", null],
+          "description": "How the version constraint was applied: DECLARED (loose/default spec), NARROWED (explicit range with bounds), PINNED (exact version), ADDITIVE (narrows via constraints file), or OVERRIDE (forces a version regardless of other requirements)"
         },
         "constraint_source_file": {
           "type": ["string", "null"],
           "description": "File that introduced a non-DECLARED constraint (e.g. 'package.json' for npm overrides, 'pyproject.toml' for uv, 'requirements.txt' for pip classic)"
+        },
+        "extras": {
+          "type": ["array", "null"],
+          "items": { "type": "string" },
+          "description": "PyPI extras requested for this dependency (e.g. [\"security\", \"tests\"] from requests[security,tests]); null for non-PyPI or when no extras are used"
         }
       }
     },

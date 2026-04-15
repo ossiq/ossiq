@@ -52,9 +52,10 @@ qa-integration:
     uv run hatch run ossiq-cli export --output-format=json --schema-version=1.2 --output=./reports/scan_export_npm_12.json --registry-type=npm testdata/mixed
     uv run hatch run ossiq-cli package testdata/pypi/version-constraint scipy
     uv run hatch run ossiq-cli package testdata/pypi/version-constraint numpy
-    uv run hatch run ossiq-cli export --output-format=json --output=./reports/scan_export_pypi_version_constriant.json testdata/pypi/uv
+    uv run hatch run ossiq-cli export --output-format=json --output=./reports/scan_export_pypi_version_constriant.json testdata/pypi/version-constraint
+    uv run hatch run ossiq-cli export --output-format=json --output=./reports/scan_export_pypi_version_uv.json testdata/pypi/uv
     uv run hatch run ossiq-cli export --output-format=json --output=./reports/scan_export_pypi_version_pylock.json testdata/pypi/pylock
-    cat ./reports/scan_export_pypi_version_constriant.json | jq | grep '"constraint_type": "ADDITIVE"'
+    cat ./reports/scan_export_pypi_version_uv.json | jq | grep '"constraint_type": "ADDITIVE"'
 
 lint:
     uv run ruff check .

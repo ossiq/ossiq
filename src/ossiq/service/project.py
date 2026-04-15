@@ -32,6 +32,7 @@ class DependencyDescriptor:
     dependency_path: list[str] | None
     version_constraint: str | None
     constraint_info: ConstraintSource
+    extras: list[str] | None = None
 
 
 @dataclass
@@ -52,6 +53,7 @@ class ScanRecord:
     constraint_info: ConstraintSource
     version_constraint: str | None = None
     dependency_path: list[str] | None = None
+    extras: list[str] | None = None
     license: list[str] | None = None
     repo_url: str | None = None
     repository: Repository | None = None
@@ -134,6 +136,7 @@ def scan_record(
     dependency_path: list[str] | None = None,
     version_constraint: str | None = None,
     prefetched_repository: Repository | None = None,
+    extras: list[str] | None = None,
 ) -> ScanRecord:
     """
     Factory to generate ScanRecord instances
@@ -160,6 +163,7 @@ def scan_record(
         is_optional_dependency=is_optional_dependency,
         dependency_path=dependency_path,
         version_constraint=version_constraint,
+        extras=extras,
         constraint_info=constraint_info,
         repo_url=package_info.repo_url,
         repository=prefetched_repository,
@@ -235,6 +239,7 @@ def scan(uow: unit_of_work.AbstractProjectUnitOfWork) -> ScanResult:
                 dependency_path=None,
                 version_constraint=dep.version_defined,
                 constraint_info=dep.constraint_info,
+                extras=dep.extras,
             )
             for dep in project_info.dependencies.values()
         ]
@@ -250,6 +255,7 @@ def scan(uow: unit_of_work.AbstractProjectUnitOfWork) -> ScanResult:
                     dependency_path=None,
                     version_constraint=dep.version_defined,
                     constraint_info=dep.constraint_info,
+                    extras=dep.extras,
                 )
                 for dep in project_info.optional_dependencies.values()
             ]
@@ -264,6 +270,7 @@ def scan(uow: unit_of_work.AbstractProjectUnitOfWork) -> ScanResult:
                 dependency_path=path,
                 version_constraint=node.version_defined,
                 constraint_info=node.constraint_info,
+                extras=node.extras,
             )
             for node, path in walker.walk_all_paths()
         ]
@@ -306,6 +313,7 @@ def scan(uow: unit_of_work.AbstractProjectUnitOfWork) -> ScanResult:
                     dep.dependency_path,
                     dep.version_constraint,
                     repositories_info.get(packages_info[dep.canonical_name].repo_url or ""),
+                    dep.extras,
                 )
                 for dep in descriptors
             ]

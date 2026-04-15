@@ -124,11 +124,24 @@ class PackageMetrics(BaseModel):
     purl: str | None = Field(default=None, description="Package URL (PURL) per ECMA-386, e.g. pkg:pypi/requests@2.25.1")
     constraint_type: str = Field(
         default=ConstraintType.DECLARED,
-        description="How the version constraint was applied: DECLARED (default), ADDITIVE, or OVERRIDE",
+        description=(
+            "How the version constraint was applied: DECLARED (loose/default spec), "
+            "NARROWED (explicit range with bounds), PINNED (exact version), "
+            "ADDITIVE (narrows via constraints file), or OVERRIDE (forces a version "
+            "regardless of other requirements)"
+        ),
     )
     constraint_source_file: str | None = Field(
         default=None,
         description="File that introduced a non-DECLARED constraint (e.g. 'package.json', 'pyproject.toml')",
+    )
+    extras: list[str] | None = Field(
+        default=None,
+        description=(
+            "PyPI extras requested for this dependency "
+            "(e.g. ['security', 'tests'] from requests[security,tests]); "
+            "None for non-PyPI or when no extras are used"
+        ),
     )
 
     @classmethod
@@ -152,6 +165,7 @@ class PackageMetrics(BaseModel):
             purl=record.purl,
             constraint_type=record.constraint_info.type.value,
             constraint_source_file=(record.constraint_info.source_file if record.constraint_info else None),
+            extras=record.extras,
         )
 
 

@@ -243,6 +243,7 @@ class TestCsvExportRenderer:
             "version_constraint",
             "constraint_type",
             "constraint_source_file",
+            "extras",
             "license",
             "purl",
         ]

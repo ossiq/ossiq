@@ -95,9 +95,9 @@
       "name": "constraint_type",
       "type": "string",
       "title": "Constraint Type",
-      "description": "How the version constraint was applied: DECLARED (default), ADDITIVE (narrows range via constraints file), or OVERRIDE (forces a version regardless of other requirements)",
+      "description": "How the version constraint was applied: DECLARED (loose/default spec), NARROWED (explicit range with bounds), PINNED (exact version), ADDITIVE (narrows via constraints file), or OVERRIDE (forces a version regardless of other requirements)",
       "constraints": {
-        "enum": ["DECLARED", "ADDITIVE", "OVERRIDE"]
+        "enum": ["DECLARED", "NARROWED", "PINNED", "ADDITIVE", "OVERRIDE"]
       }
     },
     {
@@ -105,6 +105,12 @@
       "type": "string",
       "title": "Constraint Source File",
       "description": "File that introduced a non-DECLARED constraint (e.g. 'package.json', 'pyproject.toml', 'requirements.txt')"
+    },
+    {
+      "name": "extras",
+      "type": "string",
+      "title": "Extras",
+      "description": "PyPI extras requested for this dependency, comma-separated (e.g. 'security,tests'); empty when none"
     },
     {
       "name": "license",
