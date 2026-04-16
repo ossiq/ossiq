@@ -10,6 +10,7 @@ from collections.abc import Callable, Iterable
 from typing import Any, cast
 
 from ossiq.adapters.api_interfaces import AbstractPackageManagerApi
+from ossiq.adapters.package_managers.api_pypi import enrich_registry_constraints
 from ossiq.adapters.package_managers.dependency_tree import BaseDependencyResolver
 from ossiq.adapters.package_managers.utils import find_lockfile_parser
 from ossiq.domain.common import ConstraintType
@@ -184,19 +185,18 @@ class PackageManagerPythonPip(AbstractPackageManagerApi):
 
         return name.strip()
 
-    def parse_lockfile_v1_0(self, project_package_name: str, pylock_data: dict) -> Dependency:
+    def parse_lockfile_v1_0(self, project_package_name: str, pylock_data: dict) -> tuple[Dependency, dict]:
         """
         Lockfile parser for pylock.toml lock-version "1.0"
         """
-
         resolver = PyLockResolver(pylock_data)
         root_node = resolver.build_graph(project_package_name)
         if not root_node:
             raise PackageManagerLockfileParsingError("Cannot parse pylock lockfile")
 
-        return root_node
+        return root_node, resolver.registry
 
-    def get_lockfile_parser(self, lock_version: str | None) -> Callable[..., Dependency]:
+    def get_lockfile_parser(self, lock_version: str | None) -> Callable[..., tuple[Dependency, dict]]:
         """
         Find and return lockfile parser instance based on lock-version field.
         """
@@ -303,7 +303,10 @@ class PackageManagerPythonPip(AbstractPackageManagerApi):
         # Get the appropriate parser based on lock-version
         lockfile_parser = self.get_lockfile_parser(pylock_data.get("lock-version", None))
 
-        dependency_tree = lockfile_parser(project_package_name, enriched_pylock_data)
+        dependency_tree, registry = lockfile_parser(project_package_name, enriched_pylock_data)
+
+        if not self.settings.skip_pypi_enrichment:
+            enrich_registry_constraints(registry)
 
         return Project(
             package_manager_type=self.package_manager_type,

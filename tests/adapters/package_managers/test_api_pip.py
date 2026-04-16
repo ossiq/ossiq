@@ -33,7 +33,7 @@ from ossiq.settings import Settings
 @pytest.fixture
 def settings():
     """Create Settings instance for testing."""
-    return Settings()
+    return Settings(skip_pypi_enrichment=True)
 
 
 @pytest.fixture
@@ -576,7 +576,7 @@ class TestParseLockfileV10:
             project_name, project_version, direct_deps, optional_deps_map, pylock_data
         )
 
-        dependency_tree = pylock_manager.parse_lockfile_v1_0(project_name, enriched)
+        dependency_tree, _ = pylock_manager.parse_lockfile_v1_0(project_name, enriched)
         dependencies = dependency_tree.dependencies
 
         # Main dependencies should contain requests and click
@@ -604,7 +604,7 @@ class TestParseLockfileV10:
             project_name, project_version, direct_deps, optional_deps_map, pylock_data
         )
 
-        dependency_tree = pylock_manager.parse_lockfile_v1_0(project_name, enriched)
+        dependency_tree, _ = pylock_manager.parse_lockfile_v1_0(project_name, enriched)
         optional_dependencies = dependency_tree.optional_dependencies
 
         # Optional dependencies should contain pytest and black
@@ -639,7 +639,7 @@ class TestParseLockfileV10:
             project_name, project_version, direct_deps, optional_deps_map, pylock_data
         )
 
-        dependency_tree = pylock_manager.parse_lockfile_v1_0(project_name, enriched)
+        dependency_tree, _ = pylock_manager.parse_lockfile_v1_0(project_name, enriched)
         dependencies = dependency_tree.dependencies
         optional_dependencies = dependency_tree.optional_dependencies
 
@@ -680,7 +680,7 @@ class TestParseLockfileV10:
             project_name, project_version, direct_deps, optional_deps_map, pylock_data
         )
 
-        dependency_tree = pylock_manager.parse_lockfile_v1_0(project_name, enriched)
+        dependency_tree, _ = pylock_manager.parse_lockfile_v1_0(project_name, enriched)
         dependencies = dependency_tree.dependencies
         optional_dependencies = dependency_tree.optional_dependencies
 
@@ -715,7 +715,7 @@ class TestParseLockfileV10:
             project_name, project_version, direct_deps, optional_deps_map, pylock_data
         )
 
-        dependency_tree = pylock_manager.parse_lockfile_v1_0(project_name, enriched)
+        dependency_tree, _ = pylock_manager.parse_lockfile_v1_0(project_name, enriched)
         dependencies = dependency_tree.dependencies
 
         # All packages should match despite name variations
@@ -751,7 +751,7 @@ created-by = "test-suite"
             "empty-deps-project", "1.0.0", direct_deps, optional_deps_map, pylock_data
         )
 
-        dependency_tree = pylock_manager.parse_lockfile_v1_0("empty-deps-project", enriched)
+        dependency_tree, _ = pylock_manager.parse_lockfile_v1_0("empty-deps-project", enriched)
         dependencies = dependency_tree.dependencies
         optional_dependencies = dependency_tree.optional_dependencies
 

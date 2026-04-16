@@ -10,6 +10,7 @@ import re
 from collections import namedtuple
 
 from ossiq.adapters.api_interfaces import AbstractPackageManagerApi
+from ossiq.adapters.package_managers.api_pypi import batch_fetch_requires_dist, make_session, parse_requires_dist
 from ossiq.adapters.package_managers.utils import normalize_pep503_name
 from ossiq.domain.common import ConstraintType
 from ossiq.domain.exceptions import PackageManagerLockfileParsingError
@@ -75,7 +76,7 @@ class PackageManagerPythonPipClassic(AbstractPackageManagerApi):
         self.settings = settings
         self.project_path = project_path
 
-    def _read_requirements_lines(self, manifest_path: str) -> list[str]:
+    def read_requirements_lines(self, manifest_path: str) -> list[str]:
         """
         Read and return lines from requirements.txt file.
 
@@ -97,7 +98,7 @@ class PackageManagerPythonPipClassic(AbstractPackageManagerApi):
             raise PackageManagerLockfileParsingError(f"Failed to decode requirements.txt: {e}") from e
 
     @staticmethod
-    def _parse_requirement(line: str) -> tuple[str, list[str] | None, str | None] | None:
+    def parse_requirement(line: str) -> tuple[str, list[str] | None, str | None] | None:
         """
         Extract package spec, extras, and full version specifier from a requirement line.
 
@@ -130,7 +131,7 @@ class PackageManagerPythonPipClassic(AbstractPackageManagerApi):
         return package_spec, extras, version_spec
 
     @staticmethod
-    def _load_constraint_file(path: str, constraint_names: set[str], visited: set[str] | None = None) -> None:
+    def load_constraint_file(path: str, constraint_names: set[str], visited: set[str] | None = None) -> None:
         """
         Read a pip constraints file and accumulate normalised package names into constraint_names.
 
@@ -160,7 +161,7 @@ class PackageManagerPythonPipClassic(AbstractPackageManagerApi):
             c_match = _CONSTRAINT_FILE_PATTERN.match(line)
             if c_match:
                 nested_path = os.path.join(os.path.dirname(path), c_match.group(1).strip())
-                PackageManagerPythonPipClassic._load_constraint_file(nested_path, constraint_names, visited)
+                PackageManagerPythonPipClassic.load_constraint_file(nested_path, constraint_names, visited)
                 continue
             # Skip all other pip options and non-package lines
             if _SKIP_LINE_PATTERN.match(line):
@@ -185,7 +186,7 @@ class PackageManagerPythonPipClassic(AbstractPackageManagerApi):
         dependencies: dict[str, Dependency] = {}
         constraint_names: set[str] = set()
 
-        lines = self._read_requirements_lines(project_files.manifest)
+        lines = self.read_requirements_lines(project_files.manifest)
 
         for line in lines:
             # Remove inline comments
@@ -199,13 +200,13 @@ class PackageManagerPythonPipClassic(AbstractPackageManagerApi):
             c_match = _CONSTRAINT_FILE_PATTERN.match(line)
             if c_match:
                 constraint_path = os.path.join(manifest_dir, c_match.group(1).strip())
-                self._load_constraint_file(constraint_path, constraint_names)
+                self.load_constraint_file(constraint_path, constraint_names)
                 continue
 
             if _SKIP_LINE_PATTERN.match(line):
                 continue
 
-            parsed = self._parse_requirement(line)
+            parsed = self.parse_requirement(line)
             if not parsed:
                 continue
 
@@ -249,6 +250,38 @@ class PackageManagerPythonPipClassic(AbstractPackageManagerApi):
 
         return dependencies
 
+    def enrich_and_build_tree(self, dependencies: dict[str, Dependency]) -> dict[str, Dependency]:
+        """Fetch requires_dist for all packages, build parent→child edges,
+        and return only true root packages (not required by any other listed package).
+        """
+        if not dependencies:
+            return {}
+
+        pkg_lookup: dict[str, Dependency] = {dep.canonical_name: dep for dep in dependencies.values()}
+
+        packages = [(dep.canonical_name, dep.version_installed) for dep in dependencies.values()]
+        requires_dist_map = batch_fetch_requires_dist(packages, make_session())
+
+        is_child: set[str] = set()
+
+        for dep in dependencies.values():
+            raw = requires_dist_map.get((dep.canonical_name, dep.version_installed), [])
+            spec_map = parse_requires_dist(raw)
+            for norm_name, specifier in spec_map.items():
+                child = pkg_lookup.get(norm_name)
+                if child is None or child.canonical_name == dep.canonical_name:
+                    continue
+                if child.version_defined is None and specifier:
+                    child.version_defined = specifier
+                    child.constraint_info = ConstraintSource(
+                        type=classify_pypi_specifier(specifier),
+                        source_file=child.constraint_info.source_file,
+                    )
+                dep.dependencies[child.canonical_name] = child
+                is_child.add(child.canonical_name)
+
+        return {name: dep for name, dep in dependencies.items() if dep.canonical_name not in is_child}
+
     def project_info(self) -> Project:
         """
         Extract project dependencies from requirements.txt.
@@ -262,11 +295,13 @@ class PackageManagerPythonPipClassic(AbstractPackageManagerApi):
         # Project name: fallback to directory basename
         project_package_name = os.path.basename(self.project_path)
 
+        root_deps = self.enrich_and_build_tree(dependencies) if not self.settings.skip_pypi_enrichment else dependencies
+
         dependency_tree = Dependency(
             name=project_package_name,
             canonical_name=project_package_name,
             version_installed="",  # Not applicable for the project itself
-            dependencies=dependencies,
+            dependencies=root_deps,
             optional_dependencies={},
         )
 

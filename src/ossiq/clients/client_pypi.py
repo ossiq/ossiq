@@ -47,4 +47,38 @@ class PypiBatchStrategy(BatchStrategy):
         return {source_items[0]: response.data[0]}
 
 
-__all__ = ("BatchClient", "PypiBatchStrategy")
+class PypiVersionBatchStrategy(BatchStrategy):
+    """Fetches requires_dist for specific (name, version) pairs from PyPI."""
+
+    BASE_URL = PYPI_REGISTRY
+
+    def __init__(self, session: requests.Session):
+        self.session = session
+
+    @property
+    def config(self) -> BatchStrategySettings:
+        return BatchStrategySettings(
+            chunk_size=1,
+            max_retries=3,
+            max_workers=5,
+            request_timeout=15.0,
+            has_pagination=False,
+        )
+
+    def prepare_item(self, item: tuple[str, str]) -> tuple[str, str]:
+        return item
+
+    def perform_request(self, chunk: list) -> requests.Response:
+        name, version = chunk[0]
+        return self.session.get(
+            f"{self.BASE_URL}/{name}/{version}/json",
+            timeout=self.config.request_timeout,
+        )
+
+    def process_response(self, source_items: list, response: ChunkResult) -> dict:
+        name, version = source_items[0]
+        info = response.data[0].get("info", {}) if response.data else {}
+        return {(name, version): info.get("requires_dist") or []}
+
+
+__all__ = ("BatchClient", "PypiBatchStrategy", "PypiVersionBatchStrategy")

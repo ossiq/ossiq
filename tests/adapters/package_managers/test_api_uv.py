@@ -31,7 +31,7 @@ from ossiq.settings import Settings
 @pytest.fixture
 def settings():
     """Create Settings instance for testing."""
-    return Settings()
+    return Settings(skip_pypi_enrichment=True)
 
 
 @pytest.fixture
@@ -374,7 +374,7 @@ class TestParseLockfileV1R3:
         with open(lockfile_path, "rb") as f:
             uv_lock_data = tomllib.load(f)
 
-        dependency_tree = uv_manager.parse_lockfile_v1_r3("test-project", uv_lock_data)
+        dependency_tree, _ = uv_manager.parse_lockfile_v1_r3("test-project", uv_lock_data)
 
         # Main dependencies should contain requests and click
         assert "requests" in dependency_tree.dependencies
@@ -394,7 +394,7 @@ class TestParseLockfileV1R3:
         with open(lockfile_path, "rb") as f:
             uv_lock_data = tomllib.load(f)
 
-        dependency_tree = uv_manager.parse_lockfile_v1_r3("test-project", uv_lock_data)
+        dependency_tree, _ = uv_manager.parse_lockfile_v1_r3("test-project", uv_lock_data)
 
         # Optional dependencies should contain pytest and black
         assert "pytest" in dependency_tree.optional_dependencies
@@ -420,7 +420,7 @@ class TestParseLockfileV1R3:
         with open(lockfile_path, "rb") as f:
             uv_lock_data = tomllib.load(f)
 
-        dependency_tree = uv_manager.parse_lockfile_v1_r3("test-project", uv_lock_data)
+        dependency_tree, _ = uv_manager.parse_lockfile_v1_r3("test-project", uv_lock_data)
 
         # Transitive dependencies should NOT be included
         for dep in ["urllib3", "certifi", "pluggy"]:
@@ -442,7 +442,7 @@ class TestParseLockfileV1R3:
         with open(lockfile_path, "rb") as f:
             uv_lock_data = tomllib.load(f)
 
-        dependency_tree = uv_manager.parse_lockfile_v1_r3("multi-category-project", uv_lock_data)
+        dependency_tree, _ = uv_manager.parse_lockfile_v1_r3("multi-category-project", uv_lock_data)
 
         # requests should be in both main dependencies and optional
         assert "requests" in dependency_tree.dependencies
@@ -474,7 +474,7 @@ class TestParseLockfileV1R3:
             uv_lock_data = tomllib.load(f)
 
         # Act
-        dependency_tree = uv_manager.parse_lockfile_v1_r3("test-project", uv_lock_data)
+        dependency_tree, _ = uv_manager.parse_lockfile_v1_r3("test-project", uv_lock_data)
 
         # Assert — direct production deps pick up the specifier from the root's entry
         requests_dep = dependency_tree.dependencies["requests"]
@@ -535,7 +535,7 @@ version = "1.0.0"
         with open(lockfile_path, "rb") as f:
             uv_lock_data = tomllib.load(f)
 
-        dependency_tree = uv_manager.parse_lockfile_v1_r3("empty-deps-project", uv_lock_data)
+        dependency_tree, _ = uv_manager.parse_lockfile_v1_r3("empty-deps-project", uv_lock_data)
 
         assert len(dependency_tree.dependencies) == 0
         assert len(dependency_tree.optional_dependencies) == 0

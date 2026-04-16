@@ -8,6 +8,7 @@ from collections import namedtuple
 from collections.abc import Callable, Iterable
 
 from ossiq.adapters.api_interfaces import AbstractPackageManagerApi
+from ossiq.adapters.package_managers.api_pypi import enrich_registry_constraints
 from ossiq.adapters.package_managers.dependency_tree import BaseDependencyResolver
 from ossiq.adapters.package_managers.utils import find_lockfile_parser, normalize_pep503_name
 from ossiq.domain.common import ConstraintType
@@ -147,19 +148,20 @@ class PackageManagerPythonUv(AbstractPackageManagerApi):
                     f"There's no handler for {version_handler} for the version condition: {version_condition}"
                 )
 
-    def parse_lockfile_v1_r3(self, project_package_name: str, uv_lock_data: dict) -> Dependency:
+    def parse_lockfile_v1_r3(self, project_package_name: str, uv_lock_data: dict) -> tuple[Dependency, dict]:
         """
         Lockfile parser for UV version `1` and revision `3`
         """
-
         resolver = UVResolverV1R3(uv_lock_data)
         root_node = resolver.build_graph(project_package_name)
         if not root_node:
             raise PackageManagerLockfileParsingError("Cannot parse UV lockfile")
 
-        return root_node
+        return root_node, resolver.registry
 
-    def get_lockfile_parser(self, version: int | str | None, revision: int | str | None) -> Callable[..., Dependency]:
+    def get_lockfile_parser(
+        self, version: int | str | None, revision: int | str | None
+    ) -> Callable[..., tuple[Dependency, dict]]:
         """
         Find and return lockfile parser instance
         """
@@ -224,7 +226,10 @@ class PackageManagerPythonUv(AbstractPackageManagerApi):
             uv_lock_data.get("version", None), uv_lock_data.get("revision", None)
         )
 
-        dependency_tree = lockfile_parser(project_package_name, uv_lock_data)
+        dependency_tree, registry = lockfile_parser(project_package_name, uv_lock_data)
+
+        if not self.settings.skip_pypi_enrichment:
+            enrich_registry_constraints(registry)
 
         # Constraint/Override settings from [tool.uv] section
         uv_section = pyproject_data.get("tool", {}).get("uv", {})

@@ -29,7 +29,7 @@ from ossiq.settings import Settings
 @pytest.fixture
 def settings():
     """Create Settings instance for testing."""
-    return Settings()
+    return Settings(skip_pypi_enrichment=True)
 
 
 @pytest.fixture
@@ -157,7 +157,7 @@ class TestInternalHelpers:
         adapter = PackageManagerPythonPipClassic(pip_classic_project_basic, settings)
         manifest_path = adapter.project_files(pip_classic_project_basic).manifest
 
-        lines = adapter._read_requirements_lines(manifest_path)
+        lines = adapter.read_requirements_lines(manifest_path)
 
         assert isinstance(lines, list)
         assert len(lines) > 0
@@ -169,49 +169,49 @@ class TestInternalHelpers:
         nonexistent_path = os.path.join(temp_project_dir, "nonexistent.txt")
 
         with pytest.raises(PackageManagerLockfileParsingError, match="requirements.txt not found"):
-            adapter._read_requirements_lines(nonexistent_path)
+            adapter.read_requirements_lines(nonexistent_path)
 
     def test_parse_requirement_exact_pin(self):
         """Test _parse_requirement extracts package, no extras, and == specifier."""
-        result = PackageManagerPythonPipClassic._parse_requirement("requests==2.31.0")
+        result = PackageManagerPythonPipClassic.parse_requirement("requests==2.31.0")
         assert result == ("requests", None, "==2.31.0")
 
     def test_parse_requirement_with_extras(self):
         """Test _parse_requirement parses extras as a list."""
-        result = PackageManagerPythonPipClassic._parse_requirement("pydantic[email]==2.5.0")
+        result = PackageManagerPythonPipClassic.parse_requirement("pydantic[email]==2.5.0")
         assert result == ("pydantic[email]", ["email"], "==2.5.0")
 
     def test_parse_requirement_multiple_extras(self):
         """Test _parse_requirement handles multiple extras."""
-        result = PackageManagerPythonPipClassic._parse_requirement("requests[security,tests]>=2.28.0")
+        result = PackageManagerPythonPipClassic.parse_requirement("requests[security,tests]>=2.28.0")
         assert result == ("requests[security,tests]", ["security", "tests"], ">=2.28.0")
 
     def test_parse_requirement_range_specifier(self):
         """Test _parse_requirement handles range specifiers."""
-        result = PackageManagerPythonPipClassic._parse_requirement("numpy>=1.20.0")
+        result = PackageManagerPythonPipClassic.parse_requirement("numpy>=1.20.0")
         assert result == ("numpy", None, ">=1.20.0")
 
-        result = PackageManagerPythonPipClassic._parse_requirement("pandas~=2.0.0")
+        result = PackageManagerPythonPipClassic.parse_requirement("pandas~=2.0.0")
         assert result == ("pandas", None, "~=2.0.0")
 
     def test_parse_requirement_compound_specifier(self):
         """Test _parse_requirement captures compound specifiers as a single string."""
-        result = PackageManagerPythonPipClassic._parse_requirement("django>=4.0,<5.0")
+        result = PackageManagerPythonPipClassic.parse_requirement("django>=4.0,<5.0")
         assert result == ("django", None, ">=4.0,<5.0")
 
     def test_parse_requirement_bare_name(self):
         """Test _parse_requirement returns (name, None, None) for bare package names."""
-        result = PackageManagerPythonPipClassic._parse_requirement("requests")
+        result = PackageManagerPythonPipClassic.parse_requirement("requests")
         assert result == ("requests", None, None)
 
     def test_parse_requirement_environment_marker(self):
         """Test _parse_requirement handles environment markers (ignores after ;)."""
-        result = PackageManagerPythonPipClassic._parse_requirement('certifi==2023.11.17; python_version >= "3.8"')
+        result = PackageManagerPythonPipClassic.parse_requirement('certifi==2023.11.17; python_version >= "3.8"')
         assert result == ("certifi", None, "==2023.11.17")
 
     def test_parse_requirement_empty_line(self):
         """Test _parse_requirement returns None for empty line."""
-        assert PackageManagerPythonPipClassic._parse_requirement("") is None
+        assert PackageManagerPythonPipClassic.parse_requirement("") is None
 
     def test_skip_line_pattern_pip_options(self):
         """Test module-level _SKIP_LINE_PATTERN matches pip options."""
