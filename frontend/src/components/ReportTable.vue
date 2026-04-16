@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { ReportRow, SortColumn, SortDirection } from '@/composables/useReportFilters'
+import { constraintCircleClasses } from '@/explorer/nodeStyle'
 
 defineProps<{
   rows: ReportRow[]
@@ -115,6 +116,11 @@ function spdxUrl(spdxId: string): string {
             <!-- Dependency -->
             <td class="px-6 py-3">
               <div class="flex items-center gap-2">
+                <span
+                  class="inline-block w-5 h-5 rounded-full shrink-0"
+                  :class="constraintCircleClasses(row.pkg.constraint_type)"
+                  :title="row.pkg.constraint_type ?? 'DECLARED'"
+                ></span>
                 <button
                   class="text-[#4800E2] hover:underline font-medium text-left cursor-pointer"
                   @click="emit('selectPackage', row)"

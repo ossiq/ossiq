@@ -21,14 +21,23 @@ export const TREE_CONFIG = {
   },
   colors: {
     // Base node states (first-match-wins in NODE_COLOR_RULES)
-    cveFill: '#fde68a',      // amber-200
-    cveStroke: '#d97706',    // amber-600
-    pinnedFill: '#fef08a',   // yellow-200
-    pinnedStroke: '#a16207', // yellow-700
-    ubcFill: '#fecaca',      // red-200
-    ubcStroke: '#dc2626',    // red-600
-    defaultFill: '#bfdbfe',  // blue-200
-    defaultStroke: '#1d4ed8', // blue-700
+    cveFill: '#fecaca',      // red-200
+    cveStroke: '#dc2626',    // red-600
+    pinnedFill: '#ffedd5',   // orange-100
+    pinnedStroke: '#c2410c', // orange-700
+    // Constrained: NARROWED (explicit range with bounds — >=x <y, ~=x, ==x.*, compound)
+    ubcFill: '#fef08a',          // yellow-200  (legacy alias — same as narrowedFill)
+    ubcStroke: '#a16207',        // yellow-700  (legacy alias — same as narrowedStroke)
+    narrowedFill: '#fef08a',     // yellow-200
+    narrowedStroke: '#a16207',   // yellow-700
+    // Constrained: ADDITIVE (narrows range via constraints file)
+    constrainedFill: '#bbf7d0',  // green-200
+    constrainedStroke: '#16a34a', // green-600
+    // Constrained: OVERRIDE (forces version regardless of other requirements)
+    overriddenFill: '#fed7aa',   // orange-200
+    overriddenStroke: '#ea580c', // orange-600
+    defaultFill: '#bfdbfe',      // blue-200
+    defaultStroke: '#1d4ed8',    // blue-700
     // Highlight overrides
     primaryFill: '#dbeafe',   // blue-100
     primaryStroke: '#1d4ed8', // blue-700

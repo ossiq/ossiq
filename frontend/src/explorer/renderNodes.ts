@@ -107,5 +107,6 @@ export function applyNodeStyles(
     .attr('fill', (d) => resolveStyle(d, highlight).fill)
     .attr('stroke', (d) => resolveStyle(d, highlight).stroke)
     .attr('stroke-width', (d) => resolveStyle(d, highlight).strokeWidth)
+    .attr('stroke-dasharray', (d) => resolveStyle(d, highlight).strokeDash)
     .attr('r', (d) => resolveStyle(d, highlight).radius)
 }

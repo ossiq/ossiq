@@ -38,8 +38,9 @@ function buildDependencyTree(report: OSSIQExportSchemaV11): DependencyNode {
       categories,
       name: pkg.package_name,
       version_installed: pkg.installed_version,
+      version_defined: pkg.version_constraint ?? undefined,
       latest_version: pkg.latest_version ?? undefined,
-      severity: cveMap.get(pkg.package_name),      
+      severity: cveMap.get(pkg.package_name),
       time_lag_days: pkg.time_lag_days,
       releases_lag: pkg.releases_lag,
       cve: pkg.cve,
@@ -50,6 +51,9 @@ function buildDependencyTree(report: OSSIQExportSchemaV11): DependencyNode {
       license: pkg.license,
       purl: pkg.purl,
       dependency_path: pkg.dependency_path,
+      constraint_type: pkg.constraint_type ?? null,
+      constraint_source_file: pkg.constraint_source_file ?? null,
+      extras: pkg.extras ?? null,
   })
 
   for (const pkg of report.production_packages) {    
@@ -108,7 +112,7 @@ function handlePanelClose() {
   isPanelOpen.value = false
 }
 
-const { searchQuery, filterCve, filterPinned, filterUpperBound, filteredTree, hasActiveFilters, clearFilters } =
+const { searchQuery, filterCve, filterNarrowed, filterOverridePinned, filteredTree, hasActiveFilters, clearFilters } =
   useTreeFilters({ dependencyTree })
 
 const { initializeTree, selectNodeByName, zoomIn, zoomOut, resetZoom } = useD3Tree({
@@ -168,32 +172,32 @@ watch(filteredTree, (tree) => {
             CVE
           </button>
 
-          <!-- Pinned toggle -->
+          <!-- Narrowed toggle -->
           <button
             :class="[
               'h-7 px-2.5 flex items-center gap-1 text-[10px] font-bold uppercase tracking-wide rounded-full border transition-all',
-              filterPinned
-                ? 'bg-[#4800E2] border-[#4800E2] text-white'
+              filterNarrowed
+                ? 'bg-[#a16207] border-[#a16207] text-white'
                 : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-50 hover:border-slate-300',
             ]"
-            @click="filterPinned = !filterPinned"
-          >
-            <span class="material-symbols-rounded text-sm leading-none">push_pin</span>
-            Pinned
-          </button>
-
-          <!-- Upper Bound Constrained toggle -->
-          <button
-            :class="[
-              'h-7 px-2.5 flex items-center gap-1 text-[10px] font-bold uppercase tracking-wide rounded-full border transition-all',
-              filterUpperBound
-                ? 'bg-amber-500 border-amber-500 text-white'
-                : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-50 hover:border-slate-300',
-            ]"
-            @click="filterUpperBound = !filterUpperBound"
+            @click="filterNarrowed = !filterNarrowed"
           >
             <span class="material-symbols-rounded text-sm leading-none">arrow_range</span>
-            UBC
+            Narrowed
+          </button>
+
+          <!-- Override/Pinned toggle -->
+          <button
+            :class="[
+              'h-7 px-2.5 flex items-center gap-1 text-[10px] font-bold uppercase tracking-wide rounded-full border transition-all',
+              filterOverridePinned
+                ? 'bg-[#ea580c] border-[#ea580c] text-white'
+                : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-50 hover:border-slate-300',
+            ]"
+            @click="filterOverridePinned = !filterOverridePinned"
+          >
+            <span class="material-symbols-rounded text-sm leading-none">push_pin</span>
+            Override/Pinned
           </button>
 
           <!-- Clear filters -->
@@ -239,16 +243,24 @@ watch(filteredTree, (tree) => {
             <p class="font-semibold text-[10px] uppercase tracking-wide text-slate-500 mb-1.5">Node colors</p>
             <div class="space-y-1.5">
               <div class="flex items-center gap-2">
-                <span class="inline-flex items-center justify-center w-4 h-4 rounded-full shrink-0 text-[8px] font-bold" style="background:#fde68a; outline:2px solid #d97706; outline-offset:-1px">!</span>
+                <span class="inline-flex items-center justify-center w-4 h-4 rounded-full shrink-0 text-[8px] font-bold" style="background:#fecaca; outline:2px solid #dc2626; outline-offset:-1px">!</span>
                 <span><strong class="text-slate-800">CVE detected</strong> — known vulnerability</span>
               </div>
               <div class="flex items-center gap-2">
-                <span class="inline-block w-4 h-4 rounded-full shrink-0" style="background:#fef08a; outline:2px solid #a16207; outline-offset:-1px"></span>
+                <span class="inline-block w-4 h-4 rounded-full shrink-0" style="background:#fef08a; outline:2px dashed #a16207; outline-offset:-1px"></span>
+                <span><strong class="text-slate-800">Narrowed</strong> — bounded range (e.g. <code>&lt;y</code>)</span>
+              </div>
+              <div class="flex items-center gap-2">
+                <span class="inline-block w-4 h-4 rounded-full shrink-0" style="background:#ffedd5; outline:3px solid #c2410c; outline-offset:-1px"></span>
                 <span><strong class="text-slate-800">Pinned</strong> — exact version (e.g. <code>1.2.3</code>)</span>
               </div>
               <div class="flex items-center gap-2">
-                <span class="inline-block w-4 h-4 rounded-full shrink-0" style="background:#fecaca; outline:2px solid #dc2626; outline-offset:-1px"></span>
-                <span><strong class="text-slate-800">Upper-bound</strong> — constraint contains <code>&lt;</code></span>
+                <span class="inline-block w-4 h-4 rounded-full shrink-0" style="background:#fed7aa; outline:3px dashed #ea580c; outline-offset:-1px"></span>
+                <span><strong class="text-slate-800">Override</strong> — forced version replacement</span>
+              </div>
+              <div class="flex items-center gap-2">
+                <span class="inline-block w-4 h-4 rounded-full shrink-0" style="background:#bbf7d0; outline:2px dotted #16a34a; outline-offset:-1px"></span>
+                <span><strong class="text-slate-800">Additive</strong> — external constraint file</span>
               </div>
               <div class="flex items-center gap-2">
                 <span class="inline-block w-4 h-4 rounded-full shrink-0" style="background:#bfdbfe; outline:2px solid #1d4ed8; outline-offset:-1px"></span>

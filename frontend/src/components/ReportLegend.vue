@@ -1,3 +1,7 @@
+<script setup lang="ts">
+import { constraintCircleClasses } from '@/explorer/nodeStyle'
+</script>
+
 <template>
   <section class="mb-6">
     <div class="border border-slate-200 border-b-[3px] border-b-slate-300 bg-white p-6">
@@ -80,6 +84,54 @@
             <div class="text-sm font-bold text-slate-900">Transitive CVE</div>
             <p class="text-xs text-slate-500 leading-relaxed">
               One or more transitive (indirect) dependencies of this package have known CVEs.
+            </p>
+          </div>
+        </div>
+
+        <!-- Constrained: NARROWED -->
+        <div class="flex items-start gap-3">
+          <span class="block w-5 h-5 mt-0.5 rounded-full shrink-0" :class="constraintCircleClasses('NARROWED')"></span>
+          <div>
+            <div class="text-sm font-bold text-slate-900">Constrained: NARROWED</div>
+            <p class="text-xs text-slate-500 leading-relaxed">
+              Version range explicitly bounded (e.g. <code class="font-mono">&gt;=x &lt;y</code>,
+              <code class="font-mono">~=x</code>, <code class="font-mono">==x.*</code>); resolver has less flexibility.
+            </p>
+          </div>
+        </div>
+
+        <!-- Constrained: PINNED -->
+        <div class="flex items-start gap-3">
+          <span class="block w-5 h-5 mt-0.5 rounded-full shrink-0" :class="constraintCircleClasses('PINNED')"></span>
+          <div>
+            <div class="text-sm font-bold text-slate-900">Constrained: PINNED</div>
+            <p class="text-xs text-slate-500 leading-relaxed">
+              Exact version required (<code class="font-mono">==x.y.z</code> or bare <code class="font-mono">x.y.z</code>);
+              no resolution flexibility.
+            </p>
+          </div>
+        </div>
+
+        <!-- Constrained: ADDITIVE -->
+        <div class="flex items-start gap-3">
+          <span class="block w-5 h-5 mt-0.5 rounded-full shrink-0" :class="constraintCircleClasses('ADDITIVE')"></span>
+          <div>
+            <div class="text-sm font-bold text-slate-900">Constrained: ADDITIVE</div>
+            <p class="text-xs text-slate-500 leading-relaxed">
+              Version range narrowed by an external constraint file (pip <code class="font-mono">-c</code>,
+              uv <code class="font-mono">constraint-dependencies</code>) without adding a direct dependency.
+            </p>
+          </div>
+        </div>
+
+        <!-- Constrained: OVERRIDE -->
+        <div class="flex items-start gap-3">
+          <span class="block w-5 h-5 mt-0.5 rounded-full shrink-0" :class="constraintCircleClasses('OVERRIDE')"></span>
+          <div>
+            <div class="text-sm font-bold text-slate-900">Constrained: OVERRIDE</div>
+            <p class="text-xs text-slate-500 leading-relaxed">
+              Version forcibly replaced by an override directive (npm <code class="font-mono">overrides</code>,
+              uv <code class="font-mono">override-dependencies</code>), bypassing normal resolution constraints.
             </p>
           </div>
         </div>

@@ -136,6 +136,18 @@ export interface PackageMetrics {
    * Version constraint declared in the project manifest
    */
   version_constraint?: string | null;
+  /**
+   * How the version constraint was applied
+   */
+  constraint_type?: 'DECLARED' | 'NARROWED' | 'PINNED' | 'ADDITIVE' | 'OVERRIDE' | null;
+  /**
+   * File that introduced a non-DECLARED constraint (e.g. 'package.json', 'pyproject.toml')
+   */
+  constraint_source_file?: string | null;
+  /**
+   * PyPI extras requested for this dependency (e.g. ["security", "tests"]); null when none
+   */
+  extras?: string[] | null;
   [k: string]: unknown;
 }
 /**

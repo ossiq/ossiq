@@ -15,8 +15,8 @@ export interface ToggleFilter {
 
 const TOGGLE_FILTERS: ToggleFilter[] = [
   { key: 'cve', test: (n) => !!n.severity },
-  { key: 'pinned', test: (n) => isPinned(n.version_defined) },
-  { key: 'upperBound', test: (n) => hasUpperConstraint(n.version_defined) },
+  { key: 'narrowed', test: (n) => n.constraint_type === 'NARROWED' || hasUpperConstraint(n.version_defined) },
+  { key: 'overridePinned', test: (n) => n.constraint_type === 'OVERRIDE' || n.constraint_type === 'PINNED' || isPinned(n.version_defined) },
 ]
 
 /** Recursively collects all DependencyNode instances (excluding the root) into a flat list. */
@@ -100,8 +100,8 @@ export interface UseTreeFiltersOptions {
 export function useTreeFilters({ dependencyTree }: UseTreeFiltersOptions) {
   const searchQuery = ref('')
   const filterCve = ref(false)
-  const filterPinned = ref(false)
-  const filterUpperBound = ref(false)
+  const filterNarrowed = ref(false)
+  const filterOverridePinned = ref(false)
 
   // Fuse.js index, rebuilt when the tree changes
   let fuseIndex: Fuse<DependencyNode> | null = null
@@ -140,19 +140,19 @@ export function useTreeFilters({ dependencyTree }: UseTreeFiltersOptions) {
 
   const toggleMap: Record<string, Ref<boolean>> = {
     cve: filterCve,
-    pinned: filterPinned,
-    upperBound: filterUpperBound,
+    narrowed: filterNarrowed,
+    overridePinned: filterOverridePinned,
   }
 
   const hasActiveFilters = computed(
-    () => !!searchQuery.value || filterCve.value || filterPinned.value || filterUpperBound.value,
+    () => !!searchQuery.value || filterCve.value || filterNarrowed.value || filterOverridePinned.value,
   )
 
   function clearFilters() {
     searchQuery.value = ''
     filterCve.value = false
-    filterPinned.value = false
-    filterUpperBound.value = false
+    filterNarrowed.value = false
+    filterOverridePinned.value = false
   }
 
   const filteredTree = computed<DependencyNode | null>(() => {
@@ -177,5 +177,5 @@ export function useTreeFilters({ dependencyTree }: UseTreeFiltersOptions) {
     return pruneTree(tree, predicate, true)
   })
 
-  return { searchQuery, filterCve, filterPinned, filterUpperBound, filteredTree, hasActiveFilters, clearFilters }
+  return { searchQuery, filterCve, filterNarrowed, filterOverridePinned, filteredTree, hasActiveFilters, clearFilters }
 }
