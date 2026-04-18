@@ -32,15 +32,19 @@ For a complete definition of all version-related data classes, see [`ossiq/domai
 
 Most packages in a scan report were installed the normal way: a manifest declared them, the resolver picked a version, and the lockfile recorded it. The `ConstraintSource` field on a `Dependency` tracks when that was *not* the case — when an extra mechanism outside the normal dependency graph was controlling the version.
 
-### The three constraint types
+### The five constraint types
+
+Priority ordering (highest wins when multiple rules apply): `OVERRIDE` > `ADDITIVE` > `PINNED` > `NARROWED` > `DECLARED`.
 
 | `ConstraintType` | What it means | How it gets set |
 |---|---|---|
-| `DECLARED` | Normal requirement in the manifest. | Default; `constraint_info` is `None`. |
-| `ADDITIVE` | A separate file or setting narrowed the allowed version range without adding the package as a direct dependency. | pip `-c constraints.txt`; uv `constraint-dependencies` |
-| `OVERRIDE` | A setting forced a specific version, bypassing what the normal dependency graph would have resolved. | npm `overrides`; uv `override-dependencies` |
+| `DECLARED` | Loose specifier in the manifest: open (`any`), caret (`^x`), tilde (`~x`), or lower-bound only (`>=x`). | Default; `constraint_info` is `None`. |
+| `NARROWED` | Explicit range with an upper bound in the manifest: `>=x <y`, `~=x`, `==x.*`, or a compound specifier. | Version specifier in the manifest contains an upper bound. |
+| `PINNED` | Exactly one version allowed: `==x.y.z` (PyPI) or a bare `x.y.z` (npm). | Exact-version pin in the manifest. |
+| `ADDITIVE` | A separate file or setting narrowed the allowed version range without adding the package as a direct dependency. | pip `-c constraints.txt`; uv `constraint-dependencies`. |
+| `OVERRIDE` | A setting forced a specific version, bypassing what the normal dependency graph would have resolved. | npm `overrides`; uv `override-dependencies`. |
 
-`DECLARED` is the default and is never explicitly stored — `constraint_info` is `None` when a dependency was resolved through normal manifest rules.
+`DECLARED` is the default and is never explicitly stored — `constraint_info` is `None` when a dependency uses a loose manifest specifier. `NARROWED` and `PINNED` are also manifest-level (no external source file) but are stored explicitly with their `constraint_type` so that OSS IQ can surface them separately from unconstrained dependencies.
 
 ### Why you need to watch this
 
@@ -201,12 +205,17 @@ Each `PackageMetrics` record contains a `cve` array. Each entry includes:
 
 ### Supply Chain Exposure
 
-OSS IQ identifies two version constraint risk patterns using the `version_constraint` field:
+OSS IQ surfaces constraint risk through the `constraint_type` field on each `PackageMetrics` record. Five tiers are recognized, ordered from highest to lowest concern:
 
-| Risk | Condition | Signal |
+| Risk tier | `constraint_type` | Signal |
 |---|---|---|
-| Pinned version | `version_constraint` is an exact version (e.g. `1.2.3`) | Prevents automatic updates |
-| Upper-bound constraint | `version_constraint` contains `<` | Actively excludes newer versions |
+| Override | `OVERRIDE` | Version forced outside the dependency graph — removing the override is the only fix |
+| Additive constraint | `ADDITIVE` | A separate constraints file is narrowing the range; the constraint file owner controls the update |
+| Pinned version | `PINNED` | Exactly one version allowed — automatic updates are blocked |
+| Narrowed range | `NARROWED` | An upper bound in the manifest actively excludes newer versions |
+| Declared | `DECLARED` | Loose specifier; no constraint risk beyond normal dependency resolution |
+
+For reports produced by OSS IQ before v1.2 (which lack a `constraint_type` field), the Explorer and export consumers fall back to heuristics on the `version_constraint` string: a bare semver (e.g. `1.2.3`) is treated as `PINNED`; a specifier containing `<` is treated as `NARROWED`.
 
 ### Output Formats
 
@@ -231,8 +240,8 @@ The `scan --presentation html` command produces a self-contained HTML file embed
 
 The Explorer supports:
 
-- Color-coded nodes by risk type (CVE, pinned version, upper-bound constraint)
-- Fuzzy search and toggle filters (CVE, Pinned, UBC)
+- Color-coded nodes by risk type — six priority tiers: CVE (red), OVERRIDE (orange dash-dot), ADDITIVE (green dotted), PINNED (orange solid-thick), NARROWED (yellow dashed), DECLARED (blue)
+- Fuzzy search and toggle filters (CVE, Narrowed, Override/Pinned)
 - Click to focus a node and highlight all ancestor and descendant paths
 - Alt+Click to collapse or expand a subtree
 - Dashed curved links between nodes sharing an identical `package_name@installed_version`
