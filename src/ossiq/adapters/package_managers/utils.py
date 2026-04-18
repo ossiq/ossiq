@@ -6,9 +6,9 @@ import re
 
 from cel import Context, evaluate
 
-# Compiled pattern to extract the leading package name from a PEP 508 requirement spec
+# Compiled pattern to extract the leading distribution name from a dependency specifier
 # (stops at version operators, extras bracket, environment markers, whitespace)
-_PEP508_NAME_RE = re.compile(r"^([A-Za-z0-9]([A-Za-z0-9._-]*[A-Za-z0-9])?)")
+_DIST_NAME_RE = re.compile(r"^([A-Za-z0-9]([A-Za-z0-9._-]*[A-Za-z0-9])?)")
 
 
 def find_lockfile_parser(
@@ -31,12 +31,12 @@ def find_lockfile_parser(
     return None
 
 
-def normalize_pep503_name(spec: str) -> str:
+def normalize_dist_name(spec: str) -> str:
     """
-    Extract and normalise a package name from a PEP 508 requirement specifier.
+    Extract and normalise a distribution name from a dependency specifier.
 
     Strips version operators, extras, environment markers, and whitespace, then
-    applies PEP 503 normalisation (lowercase; collapse runs of [-_.] to a single '-').
+    applies PyPA name normalization (lowercase; collapse runs of [-_.] to a single '-').
 
     Examples:
         "urllib3<2.0"             -> "urllib3"
@@ -45,6 +45,6 @@ def normalize_pep503_name(spec: str) -> str:
         "My_Package"              -> "my-package"
     """
     spec = spec.strip()
-    m = _PEP508_NAME_RE.match(spec)
+    m = _DIST_NAME_RE.match(spec)
     name = m.group(1) if m else spec
     return re.sub(r"[-_.]+", "-", name).lower()

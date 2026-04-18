@@ -26,7 +26,6 @@ from ossiq.adapters.package_managers.api_npm import (
     CATEGORIES_PEER,
     NPMResolverV3,
     PackageManagerJsNpm,
-    _parse_npm_alias,
 )
 from ossiq.domain.common import ConstraintType, ProjectPackagesRegistry
 from ossiq.domain.exceptions import PackageManagerLockfileParsingError
@@ -745,7 +744,7 @@ def npm_project_with_overrides(temp_project_dir):
 
 
 # ============================================================================
-# Test _parse_npm_alias helper
+# Test PackageManagerJsNpm.parse_npm_alias helper
 # ============================================================================
 
 
@@ -766,7 +765,7 @@ class TestParseNpmAlias:
     )
     def test_parses_alias(self, version, expected_name, expected_constraint):
         """Test that alias specifiers are parsed and plain versions pass through."""
-        canonical_name, constraint = _parse_npm_alias(version)
+        canonical_name, constraint = PackageManagerJsNpm.parse_npm_alias(version)
         assert canonical_name == expected_name
         assert constraint == expected_constraint
 

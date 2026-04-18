@@ -11,7 +11,7 @@ from collections import namedtuple
 
 from ossiq.adapters.api_interfaces import AbstractPackageManagerApi
 from ossiq.adapters.package_managers.api_pypi import batch_fetch_requires_dist, make_session, parse_requires_dist
-from ossiq.adapters.package_managers.utils import normalize_pep503_name
+from ossiq.adapters.package_managers.utils import normalize_dist_name
 from ossiq.domain.common import ConstraintType
 from ossiq.domain.exceptions import PackageManagerLockfileParsingError
 from ossiq.domain.packages_manager import PIP_CLASSIC, PackageManagerType
@@ -166,7 +166,7 @@ class PackageManagerPythonPipClassic(AbstractPackageManagerApi):
             # Skip all other pip options and non-package lines
             if _SKIP_LINE_PATTERN.match(line):
                 continue
-            constraint_names.add(normalize_pep503_name(line))
+            constraint_names.add(normalize_dist_name(line))
 
     def parse_requirements_txt(self) -> dict[str, Dependency]:
         """
@@ -242,7 +242,7 @@ class PackageManagerPythonPipClassic(AbstractPackageManagerApi):
         if constraint_names:
             manifest_basename = os.path.basename(project_files.manifest)
             for pkg_name, dep in dependencies.items():
-                if normalize_pep503_name(pkg_name) in constraint_names:
+                if normalize_dist_name(pkg_name) in constraint_names:
                     dep.constraint_info = ConstraintSource(
                         type=ConstraintType.ADDITIVE,
                         source_file=manifest_basename,

@@ -10,7 +10,7 @@ from collections.abc import Callable, Iterable
 from ossiq.adapters.api_interfaces import AbstractPackageManagerApi
 from ossiq.adapters.package_managers.api_pypi import enrich_registry_constraints
 from ossiq.adapters.package_managers.dependency_tree import BaseDependencyResolver
-from ossiq.adapters.package_managers.utils import find_lockfile_parser, normalize_pep503_name
+from ossiq.adapters.package_managers.utils import find_lockfile_parser, normalize_dist_name
 from ossiq.domain.common import ConstraintType
 from ossiq.domain.exceptions import PackageManagerLockfileParsingError
 from ossiq.domain.packages_manager import UV, PackageManagerType
@@ -185,7 +185,7 @@ class PackageManagerPythonUv(AbstractPackageManagerApi):
     ) -> None:
         """Walk dep_tree recursively and set constraint_info on matching nodes."""
         for dep in {**dep_tree.dependencies, **dep_tree.optional_dependencies}.values():
-            norm = normalize_pep503_name(dep.canonical_name)
+            norm = normalize_dist_name(dep.canonical_name)
             if norm in override_names:
                 dep.constraint_info = ConstraintSource(type=ConstraintType.OVERRIDE, source_file=source_file)
             elif norm in constraint_names:
@@ -236,8 +236,8 @@ class PackageManagerPythonUv(AbstractPackageManagerApi):
         constraint_specs: list[str] = uv_section.get("constraint-dependencies", [])
         override_specs: list[str] = uv_section.get("override-dependencies", [])
         if constraint_specs or override_specs:
-            constraint_names = {normalize_pep503_name(s) for s in constraint_specs}
-            override_names = {normalize_pep503_name(s) for s in override_specs}
+            constraint_names = {normalize_dist_name(s) for s in constraint_specs}
+            override_names = {normalize_dist_name(s) for s in override_specs}
             self.constraint_dependencies_setting(dependency_tree, constraint_names, override_names)
 
         return Project(

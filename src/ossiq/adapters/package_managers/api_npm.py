@@ -201,23 +201,6 @@ class NPMResolverV3(BaseDependencyResolver):
         return dep_data["name"], dep_data.get("version")
 
 
-def _parse_npm_alias(version: str) -> tuple[str | None, str]:
-    """
-    Parse an npm alias specifier into (canonical_name, constraint).
-
-    "npm:lodash@~4.17.0"   -> ("lodash",      "~4.17.0")
-    "npm:chalk@4.1.2"      -> ("chalk",        "4.1.2")
-    "npm:@scope/pkg@^1.0"  -> ("@scope/pkg",   "^1.0")
-    "^4.18.0"              -> (None,            "^4.18.0")  (not an alias, pass-through)
-    """
-    if version.startswith("npm:"):
-        without_prefix = version[4:]  # e.g. "chalk@4.1.2" or "@scope/pkg@^1.0.0"
-        at_idx = without_prefix.rfind("@")
-        if at_idx > 0:  # package name must be non-empty
-            return without_prefix[:at_idx], without_prefix[at_idx + 1 :]
-    return None, version
-
-
 class PackageManagerJsNpm(AbstractPackageManagerApi):
     """
     Abstract Package Manager to extract installed versions
@@ -251,6 +234,23 @@ class PackageManagerJsNpm(AbstractPackageManagerApi):
         project_files = PackageManagerJsNpm.project_files(project_path)
 
         return os.path.exists(project_files.manifest)
+
+    @staticmethod
+    def parse_npm_alias(version: str) -> tuple[str | None, str]:
+        """
+        Parse an npm alias specifier into (canonical_name, constraint).
+
+        "npm:lodash@~4.17.0"   -> ("lodash",      "~4.17.0")
+        "npm:chalk@4.1.2"      -> ("chalk",        "4.1.2")
+        "npm:@scope/pkg@^1.0"  -> ("@scope/pkg",   "^1.0")
+        "^4.18.0"              -> (None,            "^4.18.0")  (not an alias, pass-through)
+        """
+        if version.startswith("npm:"):
+            without_prefix = version[4:]  # e.g. "chalk@4.1.2" or "@scope/pkg@^1.0.0"
+            at_idx = without_prefix.rfind("@")
+            if at_idx > 0:  # package name must be non-empty
+                return without_prefix[:at_idx], without_prefix[at_idx + 1 :]
+        return None, version
 
     def __init__(self, project_path: str, settings: Settings):
         super().__init__()
@@ -305,7 +305,7 @@ class PackageManagerJsNpm(AbstractPackageManagerApi):
         def create_dependency(name: str, version: str) -> Dependency:
             # For npm alias specs like "npm:lodash@~4.17.0", extract the canonical
             # package name and constraint in one pass; plain versions pass through.
-            canonical_name, constraint = _parse_npm_alias(version)
+            canonical_name, constraint = PackageManagerJsNpm.parse_npm_alias(version)
 
             return Dependency(
                 name=name,

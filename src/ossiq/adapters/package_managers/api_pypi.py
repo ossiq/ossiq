@@ -7,7 +7,7 @@ import logging
 import requests
 from packaging.requirements import Requirement
 
-from ossiq.adapters.package_managers.utils import normalize_pep503_name
+from ossiq.adapters.package_managers.utils import normalize_dist_name
 from ossiq.clients.batch import BatchClient
 from ossiq.clients.client_pypi import PypiVersionBatchStrategy
 from ossiq.clients.common import get_user_agent
@@ -30,7 +30,7 @@ def parse_requires_dist(requires_dist: list[str]) -> dict[str, str]:
             req = Requirement(req_str)
             if req.marker and "extra" in str(req.marker):
                 continue
-            result[normalize_pep503_name(req.name)] = str(req.specifier)
+            result[normalize_dist_name(req.name)] = str(req.specifier)
         except Exception:
             continue
     return result
@@ -96,7 +96,7 @@ def enrich_registry_constraints(
         for child in {**node.dependencies, **node.optional_dependencies}.values():
             if child.version_defined is not None:
                 continue
-            specifier = spec_map.get(normalize_pep503_name(child.canonical_name))
+            specifier = spec_map.get(normalize_dist_name(child.canonical_name))
             if specifier is None:
                 continue
             child.version_defined = specifier or None
