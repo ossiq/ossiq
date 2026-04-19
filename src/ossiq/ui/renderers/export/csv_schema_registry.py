@@ -138,6 +138,9 @@ class CsvSchemaRegistry:
         errors = []
 
         schema_dict = self.load_schema(version, schema_type)
+        # Cross-resource foreign keys require a Package; strip them for single-file validation.
+        # Full FK validation happens in csv_datapackage.py via validate(..., type="package").
+        schema_dict = {k: v for k, v in schema_dict.items() if k != "foreignKeys"}
         schema = Schema.from_descriptor(schema_dict)
 
         # First, validate column headers match schema

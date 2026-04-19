@@ -55,7 +55,7 @@ dependencies = [
   "semver >= 3.0.0",
   "packaging >= 24.0",
   "jsonschema >= 4.18.0",
-  "frictionless >= 5.0.0",
+  "frictionless >= 5.19.0",
   "hatch>=1.16.5",
   "common-expression-language>=0.5.6",
 ]
