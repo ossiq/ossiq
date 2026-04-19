@@ -14,7 +14,7 @@
     "lint:oxlint": "oxlint . --fix",
     "lint:eslint": "eslint . --fix --cache",
     "format": "oxfmt src/",
-    "generate:types": "json2ts -i ../src/ossiq/ui/renderers/export/schemas/export_schema_v1.0.json -o src/types/report.ts"
+    "generate:types": "json2ts -i ../src/ossiq/ui/renderers/export/schemas/export_schema_v1.2.json -o src/types/report.ts"
   },
   "dependencies": {    
     "d3": "~7.9.0",    

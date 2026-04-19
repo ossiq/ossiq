@@ -5,7 +5,7 @@ import { useD3Tree } from '@/composables/useD3Tree'
 import { useTreeFilters } from '@/composables/useTreeFilters'
 import DependencyDetailPanel from '@/components/DependencyDetailPanel.vue'
 import type { DependencyNode, SelectedNodeDetail } from '@/types/dependency-tree'
-import type { OSSIQExportSchemaV11, PackageMetrics } from '@/types/report'
+import type { OSSIQExportSchemaV12, PackageMetrics } from '@/types/report'
 
 const store = useOssiqStore()
 const svgRef = ref<SVGSVGElement | null>(null)
@@ -13,7 +13,7 @@ const selectedNode = ref<SelectedNodeDetail | null>(null)
 const isPanelOpen = ref(false)
 const showLegend = ref(false)
 
-function buildDependencyTree(report: OSSIQExportSchemaV11): DependencyNode {
+function buildDependencyTree(report: OSSIQExportSchemaV12): DependencyNode {
   // Build a map of package name → highest CVE severity
   const severityRank: Record<string, number> = { LOW: 1, MEDIUM: 2, HIGH: 3, CRITICAL: 4 }
   const cveMap = new Map<string, string>()
