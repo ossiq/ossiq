@@ -129,7 +129,7 @@ class BatchClient:
         Yield results for all items, processing them in parallel chunks.
 
         Items that fail permanently after all retries are silently dropped
-        (logged at ERROR level) so a bad chunk never blocks good ones.
+        (logged at INFO level) so a bad chunk never blocks good ones.
         """
         if not items:
             return
@@ -223,10 +223,19 @@ class BatchClient:
                     )
 
                 # Retry on 5xx server errors
-                if resp.status_code is not None and resp.status_code >= 500:
+                if resp.status_code is None or resp.status_code >= 500:
                     resp.raise_for_status()
 
-                return ChunkResult(data=[resp.json()], success=True)
+                if resp.status_code is not None and resp.status_code >= 200 and resp.status_code < 300:
+                    return ChunkResult(data=[resp.json()], success=True)
+
+                # Other 4xx (400, 401, 422, …) — permanent failure, no retry
+                return ChunkResult(
+                    data=[],
+                    success=False,
+                    message=f"HTTP {resp.status_code}",
+                    error=requests.HTTPError(response=resp),
+                )
 
             except (requests.Timeout, requests.ConnectionError, requests.HTTPError) as exc:
                 if attempt < strategy.config.max_retries - 1:
