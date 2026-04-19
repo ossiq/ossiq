@@ -28,6 +28,90 @@ For a complete definition of all version-related data classes, see [`ossiq/domai
 
 ---
 
+## Constraint Provenance
+
+Most packages in a scan report were installed the normal way: a manifest declared them, the resolver picked a version, and the lockfile recorded it. The `ConstraintSource` field on a `Dependency` tracks when that was *not* the case — when an extra mechanism outside the normal dependency graph was controlling the version.
+
+### The five constraint types
+
+Priority ordering (highest wins when multiple rules apply): `OVERRIDE` > `ADDITIVE` > `PINNED` > `NARROWED` > `DECLARED`.
+
+| `ConstraintType` | What it means | How it gets set |
+|---|---|---|
+| `DECLARED` | Loose specifier in the manifest: open (`any`), caret (`^x`), tilde (`~x`), or lower-bound only (`>=x`). | Default |
+| `NARROWED` | Explicit range with an upper bound in the manifest: `>=x <y`, `~=x`, `==x.*`, or a compound specifier. | Version specifier in the manifest contains an upper bound. |
+| `PINNED` | Exactly one version allowed: `==x.y.z` (PyPI) or a bare `x.y.z` (npm). | Exact-version pin in the manifest. |
+| `ADDITIVE` | A separate file or setting narrowed the allowed version range without adding the package as a direct dependency. | pip `-c constraints.txt`; uv `constraint-dependencies`. |
+| `OVERRIDE` | A setting forced a specific version, bypassing what the normal dependency graph would have resolved. | npm `overrides`; uv `override-dependencies`. |
+
+### Why you need to watch this
+
+When a normal dependency becomes vulnerable, the fix is straightforward: update it, the resolver picks a patched version, done. Constraints and overrides break that flow. They impose version rules *from outside* the normal dependency graph. A constraint can pin a transitive package to a range that still contains a vulnerable version — and nothing in the lock file makes this obvious. You can stare at the lockfile, see `h11==0.13.0`, and have no idea that a rule somewhere else is preventing you from resolving `0.14.0`.
+
+This is the failure mode described in [Against Upper-Bound Version Constraints in Libraries](https://iscinumpy.dev/post/bound-version-constraints/): once a constraint caps a package below a patched version, *you* cannot fix it unilaterally. The person who wrote the constraint has to release a patch first. At scale, with many transitive constraints scattered across `pyproject.toml` entries and nested overrides, this creates invisible debt that surfaces only when a CVE forces a full audit.
+
+The key insight: **a constraint doesn't just describe what version is installed — it describes who has the power to change it.** An `OVERRIDE` means someone decided this package's own version declarations don't matter. An `ADDITIVE` constraint means a separate authority is narrowing the resolution space. Both are worth tracking separately from ordinary declared dependencies.
+
+OSS IQ surfaces `constraint_info` so you can see which packages are under a constraint, what kind of constraint, and which file introduced it — before a CVE forces you to find out.
+
+### Constraint provenance by package manager
+
+#### pip classic — `-c` constraint files
+
+pip's [`-c` flag](https://pip.pypa.io/en/stable/reference/requirements-file-format/) in `requirements.txt` references a separate constraints file. Packages listed there are not installed as direct dependencies — they only narrow the version range for anything the resolver would pull in anyway.
+
+```
+# requirements.txt
+-c constraints.txt
+requests==2.31.0
+```
+
+When OSS IQ encounters a `-c` directive, it reads the referenced file and tags every package that appears in both the resolved dependencies and the constraints file with `ConstraintType.ADDITIVE`. The `source_file` field is set to the `requirements.txt` that introduced the `-c` directive. Nested `-c` includes are followed recursively; circular includes are detected and skipped.
+
+A package tagged `ADDITIVE` in pip classic means: something outside your direct dependency list is controlling its allowed version range. If a CVE hits that package, check whether the constraint file is the thing blocking the update.
+
+#### uv — `constraint-dependencies` and `override-dependencies`
+
+uv exposes two settings under `[tool.uv]` in `pyproject.toml`:
+
+- [`constraint-dependencies`](https://docs.astral.sh/uv/reference/settings/#constraint-dependencies) — PEP 508 specifiers that narrow allowed versions without adding direct dependencies. These map to `ConstraintType.ADDITIVE`.
+- [`override-dependencies`](https://docs.astral.sh/uv/reference/settings/#override-dependencies) — PEP 508 specifiers that force a version regardless of what the dependency graph declares. These map to `ConstraintType.OVERRIDE`.
+
+```toml
+# pyproject.toml
+[tool.uv]
+constraint-dependencies = ["h11>=0.14.0"]
+override-dependencies = ["urllib3==1.26.18"]
+```
+
+The distinction matters: a `constraint-dependencies` entry cooperates with the normal resolver — it adds a lower bound, an upper bound, or an exclusion. An `override-dependencies` entry *overrules* it. If a package under `override-dependencies` is later found vulnerable in the forced version, no amount of updating its parents will help — the override itself is the thing to remove.
+
+Both lists are read from `pyproject.toml` at scan time. Matched packages in the resolved dependency tree are tagged accordingly, with `source_file` set to `pyproject.toml`.
+
+#### npm — `overrides`
+
+npm's [`overrides`](https://docs.npmjs.com/cli/v9/configuring-npm/package-json#overrides) field in `package.json` forces a specific version (or range) for a matching package anywhere in the dependency tree, regardless of what each package's own `dependencies` declaration says.
+
+```json
+// package.json
+{
+  "overrides": {
+    "semver": "^7.5.2",
+    "lodash": {
+      "dot-prop": "^6.0.1"
+    }
+  }
+}
+```
+
+OSS IQ reads the `overrides` block from `package-lock.json` (where npm records the resolved overrides) and tags matching packages with `ConstraintType.OVERRIDE`, adding an `overridden` category to their `categories` list.
+
+For *scoped* overrides — where a version is forced only when a package appears as a dependency of a specific parent — the `scope_path` field on `ConstraintSource` records the ancestor chain. In the example above, `dot-prop` would carry `scope_path: ["lodash"]`, meaning the override applies only when `dot-prop` is pulled in by `lodash`. A flat override like `semver` has `scope_path: null`.
+
+The `scope_path` matters for remediation: a scoped override targeting `dot-prop` inside `lodash` does not affect `dot-prop` when pulled in by other packages. Removing it may leave `dot-prop` under `lodash` unprotected, or free it to resolve a patched version — depending on which direction the version was being forced.
+
+---
+
 ## System Behavior
 
 ### Dependency Resolution
@@ -119,12 +203,17 @@ Each `PackageMetrics` record contains a `cve` array. Each entry includes:
 
 ### Supply Chain Exposure
 
-OSS IQ identifies two version constraint risk patterns using the `version_constraint` field:
+OSS IQ surfaces constraint risk through the `constraint_type` field on each `PackageMetrics` record. Five tiers are recognized, ordered from highest to lowest concern:
 
-| Risk | Condition | Signal |
+| Risk tier | `constraint_type` | Signal |
 |---|---|---|
-| Pinned version | `version_constraint` is an exact version (e.g. `1.2.3`) | Prevents automatic updates |
-| Upper-bound constraint | `version_constraint` contains `<` | Actively excludes newer versions |
+| Override | `OVERRIDE` | Version forced outside the dependency graph — removing the override is the only fix |
+| Additive constraint | `ADDITIVE` | A separate constraints file is narrowing the range; the constraint file owner controls the update |
+| Pinned version | `PINNED` | Exactly one version allowed — automatic updates are blocked |
+| Narrowed range | `NARROWED` | An upper bound in the manifest actively excludes newer versions |
+| Declared | `DECLARED` | Loose specifier; no constraint risk beyond normal dependency resolution |
+
+For reports produced by OSS IQ before v1.2 (which lack a `constraint_type` field), the Explorer and export consumers fall back to heuristics on the `version_constraint` string: a bare semver (e.g. `1.2.3`) is treated as `PINNED`; a specifier containing `<` is treated as `NARROWED`.
 
 ### Output Formats
 
@@ -149,8 +238,8 @@ The `scan --presentation html` command produces a self-contained HTML file embed
 
 The Explorer supports:
 
-- Color-coded nodes by risk type (CVE, pinned version, upper-bound constraint)
-- Fuzzy search and toggle filters (CVE, Pinned, UBC)
+- Color-coded nodes by risk type — six priority tiers: CVE (red), OVERRIDE (orange dash-dot), ADDITIVE (green dotted), PINNED (orange solid-thick), NARROWED (yellow dashed), DECLARED (blue)
+- Fuzzy search and toggle filters (CVE, Narrowed, Override/Pinned)
 - Click to focus a node and highlight all ancestor and descendant paths
 - Alt+Click to collapse or expand a subtree
 - Dashed curved links between nodes sharing an identical `package_name@installed_version`

@@ -39,6 +39,11 @@ class Settings(BaseModel):
     verbose: bool = Field(default=False, description="Enable verbose output")
     debug: bool = Field(default=False, description=ARGS_HELP_DEBUG)
 
+    skip_pypi_enrichment: bool = Field(
+        default=False,
+        description="Disable PyPI metadata fetching for transitive constraint enrichment",
+    )
+
     # Store the environment prefix for reference (not a setting itself)
     ENV_PREFIX: ClassVar[str] = ENV_PREFIX
 

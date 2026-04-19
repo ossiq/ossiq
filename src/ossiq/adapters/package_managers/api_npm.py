@@ -10,10 +10,11 @@ from collections.abc import Callable, Iterable
 from ossiq.adapters.api_interfaces import AbstractPackageManagerApi
 from ossiq.adapters.package_managers.dependency_tree import BaseDependencyResolver
 from ossiq.adapters.package_managers.utils import find_lockfile_parser
+from ossiq.domain.common import ConstraintType
 from ossiq.domain.exceptions import PackageManagerLockfileParsingError
 from ossiq.domain.packages_manager import NPM, PackageManagerType
-from ossiq.domain.project import Dependency, Project
-from ossiq.domain.version import normalize_version
+from ossiq.domain.project import ConstraintSource, Dependency, Project
+from ossiq.domain.version import classify_npm_specifier, normalize_version
 from ossiq.settings import Settings
 
 NpmProject = namedtuple("NpmProject", ["manifest", "lockfile"])
@@ -32,38 +33,93 @@ class NPMResolverV3(BaseDependencyResolver):
     def __init__(self, raw_data: dict):
         super().__init__(raw_data)
         root_entry = raw_data.get("packages", {}).get("", {})
-        self.overrides: dict[str, str] = self._flatten_overrides(root_entry.get("overrides", {}))
+        self.overrides, self._scope_paths = self._flatten_overrides(root_entry.get("overrides", {}))
 
     @staticmethod
-    def _flatten_overrides(overrides: dict, result: dict[str, str] | None = None) -> dict[str, str]:
+    def _collect_overrides(
+        overrides: dict,
+        result: dict[str, str],
+        scope_paths: dict[str, list[str]],
+        current_path: list[str],
+    ) -> None:
         """
-        Flatten nested npm overrides to a simple {package_name: forced_version} mapping.
+        Recursively walk an npm overrides block, accumulating results in-place.
 
-        Handles flat entries:  {"foo": "1.0.0"} -> {"foo": "1.0.0"}
-        Handles nested entries with "." self-reference:
-            {"foo": {".": "1.0.0", "bar": "2.0.0"}} -> {"foo": "1.0.0", "bar": "2.0.0"}
+        Handles flat entries:   {"foo": "1.0.0"}
+        Handles nested entries: {"foo": {".": "1.0.0", "bar": "2.0.0"}}
+          "." is npm's self-reference — the version for "foo" itself.
         """
-        if result is None:
-            result = {}
         for name, value in overrides.items():
             if isinstance(value, str):
                 result[name] = value
+                if current_path:
+                    scope_paths[name] = list(current_path)
             elif isinstance(value, dict):
-                # "." means the package itself in a nested override block
                 if "." in value and isinstance(value["."], str):
                     result[name] = value["."]
+                    if current_path:
+                        scope_paths[name] = list(current_path)
                 nested = {k: v for k, v in value.items() if k != "."}
                 if nested:
-                    NPMResolverV3._flatten_overrides(nested, result)
-        return result
+                    NPMResolverV3._collect_overrides(nested, result, scope_paths, current_path + [name])
+
+    @staticmethod
+    def _flatten_overrides(overrides: dict) -> tuple[dict[str, str], dict[str, list[str]]]:
+        """
+        Flatten a nested npm overrides block into two flat mappings:
+          - version_map:  {package_name: forced_version}
+          - scope_paths:  {package_name: [ancestor, ...]} for scoped (nested) overrides
+
+        Example:
+            {"foo": "1.0.0"}
+            -> ({"foo": "1.0.0"}, {})
+
+            {"foo": {".": "1.0.0", "bar": "2.0.0"}}
+            -> ({"foo": "1.0.0", "bar": "2.0.0"}, {"bar": ["foo"]})
+        """
+        result: dict[str, str] = {}
+        scope_paths: dict[str, list[str]] = {}
+        NPMResolverV3._collect_overrides(overrides, result, scope_paths, [])
+        return result, scope_paths
+
+    def classify_constraint(self, spec: str | None) -> ConstraintType:
+        return classify_npm_specifier(spec)
+
+    def build_initial_dependency(
+        self,
+        name: str,
+        canonical_name: str,
+        version_installed: str,
+        source: str | None,
+        required_engine: str | None,
+        version_defined: str | None,
+    ):
+        return Dependency(
+            name=name,
+            canonical_name=canonical_name,
+            version_installed=version_installed,
+            source=source,
+            required_engine=required_engine,
+            version_defined=version_defined,
+            constraint_info=ConstraintSource(
+                type=classify_npm_specifier(version_defined),
+                source_file="package.json",
+            ),
+        )
 
     def build_graph(self, root_name: str) -> Dependency | None:
         root = super().build_graph(root_name)
-        # Mark any package in the overrides dict with the "overridden" category
+        # Mark any package in the overrides dict with the "overridden" category and constraint_info
         for name in self.overrides:
             node = self.find_root(name)
-            if node and CATEGORIES_OVERRIDDEN not in node.categories:
-                node.categories.append(CATEGORIES_OVERRIDDEN)
+            if node:
+                if CATEGORIES_OVERRIDDEN not in node.categories:
+                    node.categories.append(CATEGORIES_OVERRIDDEN)
+                node.constraint_info = ConstraintSource(
+                    type=ConstraintType.OVERRIDE,
+                    source_file="package.json",
+                    scope_path=self._scope_paths.get(name),
+                )
         return root
 
     def get_all_packages(self) -> Iterable[dict]:
@@ -145,38 +201,6 @@ class NPMResolverV3(BaseDependencyResolver):
         return dep_data["name"], dep_data.get("version")
 
 
-def _npm_alias_constraint(version: str) -> str:
-    """
-    Extract the version constraint from an npm alias specifier.
-
-    "npm:lodash@~4.17.0" -> "~4.17.0"
-    "npm:chalk@4.1.2"    -> "4.1.2"
-    "^4.18.0"            -> "^4.18.0"  (pass-through for regular constraints)
-    """
-    if version.startswith("npm:"):
-        at_idx = version.rfind("@")
-        if at_idx > 4:  # "npm:" is 4 chars; package name must be non-empty
-            return version[at_idx + 1 :]
-    return version
-
-
-def _npm_alias_package_name(version: str) -> str | None:
-    """
-    Extract the canonical package name from an npm alias specifier.
-
-    "npm:chalk@4.1.2"        -> "chalk"
-    "npm:lodash@~4.17.0"     -> "lodash"
-    "npm:@scope/pkg@^1.0.0"  -> "@scope/pkg"
-    "^4.18.0"                -> None  (not an alias)
-    """
-    if version.startswith("npm:"):
-        without_prefix = version[4:]  # e.g. "chalk@4.1.2" or "@scope/pkg@^1.0.0"
-        at_idx = without_prefix.rfind("@")
-        if at_idx > 0:  # package name must be non-empty
-            return without_prefix[:at_idx]
-    return None
-
-
 class PackageManagerJsNpm(AbstractPackageManagerApi):
     """
     Abstract Package Manager to extract installed versions
@@ -210,6 +234,23 @@ class PackageManagerJsNpm(AbstractPackageManagerApi):
         project_files = PackageManagerJsNpm.project_files(project_path)
 
         return os.path.exists(project_files.manifest)
+
+    @staticmethod
+    def parse_npm_alias(version: str) -> tuple[str | None, str]:
+        """
+        Parse an npm alias specifier into (canonical_name, constraint).
+
+        "npm:lodash@~4.17.0"   -> ("lodash",      "~4.17.0")
+        "npm:chalk@4.1.2"      -> ("chalk",        "4.1.2")
+        "npm:@scope/pkg@^1.0"  -> ("@scope/pkg",   "^1.0")
+        "^4.18.0"              -> (None,            "^4.18.0")  (not an alias, pass-through)
+        """
+        if version.startswith("npm:"):
+            without_prefix = version[4:]  # e.g. "chalk@4.1.2" or "@scope/pkg@^1.0.0"
+            at_idx = without_prefix.rfind("@")
+            if at_idx > 0:  # package name must be non-empty
+                return without_prefix[:at_idx], without_prefix[at_idx + 1 :]
+        return None, version
 
     def __init__(self, project_path: str, settings: Settings):
         super().__init__()
@@ -262,17 +303,17 @@ class PackageManagerJsNpm(AbstractPackageManagerApi):
                 categories_map[package_name].append(category)
 
         def create_dependency(name: str, version: str) -> Dependency:
-            # For npm alias specs like "npm:lodash@~4.17.0", extract the constraint
-            # part ("~4.17.0") for version normalization, while preserving the full
-            # spec as version_defined so callers know the real package and constraint.
-            constraint = _npm_alias_constraint(version)
+            # For npm alias specs like "npm:lodash@~4.17.0", extract the canonical
+            # package name and constraint in one pass; plain versions pass through.
+            canonical_name, constraint = PackageManagerJsNpm.parse_npm_alias(version)
 
             return Dependency(
                 name=name,
-                canonical_name=_npm_alias_package_name(version) or name,
+                canonical_name=canonical_name or name,
                 version_installed=normalize_version(constraint),
                 version_defined=version,
                 categories=categories_map.get(name, []),
+                constraint_info=ConstraintSource(type=classify_npm_specifier(constraint), source_file="package.json"),
             )
 
         dependencies = {
@@ -291,6 +332,7 @@ class PackageManagerJsNpm(AbstractPackageManagerApi):
             version_installed=project_data.get("version", ""),
             dependencies=dependencies,
             optional_dependencies=optional_dependencies,
+            constraint_info=ConstraintSource(type=ConstraintType.DECLARED, source_file="package.json"),
         )
 
     def project_info(self) -> Project:

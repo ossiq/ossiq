@@ -259,6 +259,39 @@ const transitiveCVEGroups = computed<TransitiveCVEGroup[]>(() => {
               <span class="text-[10px] text-slate-400 uppercase">Latest</span>
               <span class="text-[10px] font-mono font-bold text-emerald-600">{{ node.latest_version || '—' }}</span>
             </div>
+            <div
+              v-if="node.constraint_type && node.constraint_type !== 'DECLARED'"
+              class="flex items-center justify-between py-2"
+            >
+              <span class="text-[10px] text-slate-400 uppercase">Constraint Type</span>
+              <span
+                class="text-[10px] font-mono font-bold"
+                :class="{
+                  'text-fuchsia-700': node.constraint_type === 'OVERRIDE',
+                  'text-purple-700': node.constraint_type === 'ADDITIVE',
+                  'text-red-600':    node.constraint_type === 'NARROWED',
+                  'text-yellow-700': node.constraint_type === 'PINNED',
+                }"
+              >
+                {{ node.constraint_type }}
+                <span v-if="node.constraint_source_file" class="font-normal text-slate-400">
+                  via {{ node.constraint_source_file }}
+                </span>
+              </span>
+            </div>
+            <div
+              v-if="node.extras && node.extras.length > 0"
+              class="flex items-center justify-between py-2"
+            >
+              <span class="text-[10px] text-slate-400 uppercase">Extras</span>
+              <div class="flex flex-wrap gap-1 justify-end">
+                <span
+                  v-for="extra in node.extras"
+                  :key="extra"
+                  class="text-[9px] font-mono font-bold px-1.5 py-0.5 bg-sky-50 text-sky-700 border border-sky-200"
+                >{{ extra }}</span>
+              </div>
+            </div>
           </div>
         </section>
 

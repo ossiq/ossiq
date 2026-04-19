@@ -18,7 +18,7 @@ from pathlib import Path
 import pytest
 
 from ossiq.adapters.package_managers.api_uv import PackageManagerPythonUv
-from ossiq.domain.common import ProjectPackagesRegistry
+from ossiq.domain.common import ConstraintType, ProjectPackagesRegistry
 from ossiq.domain.exceptions import PackageManagerLockfileParsingError
 from ossiq.domain.packages_manager import UV
 from ossiq.settings import Settings
@@ -31,7 +31,7 @@ from ossiq.settings import Settings
 @pytest.fixture
 def settings():
     """Create Settings instance for testing."""
-    return Settings()
+    return Settings(skip_pypi_enrichment=True)
 
 
 @pytest.fixture
@@ -374,7 +374,7 @@ class TestParseLockfileV1R3:
         with open(lockfile_path, "rb") as f:
             uv_lock_data = tomllib.load(f)
 
-        dependency_tree = uv_manager.parse_lockfile_v1_r3("test-project", uv_lock_data)
+        dependency_tree, _ = uv_manager.parse_lockfile_v1_r3("test-project", uv_lock_data)
 
         # Main dependencies should contain requests and click
         assert "requests" in dependency_tree.dependencies
@@ -394,7 +394,7 @@ class TestParseLockfileV1R3:
         with open(lockfile_path, "rb") as f:
             uv_lock_data = tomllib.load(f)
 
-        dependency_tree = uv_manager.parse_lockfile_v1_r3("test-project", uv_lock_data)
+        dependency_tree, _ = uv_manager.parse_lockfile_v1_r3("test-project", uv_lock_data)
 
         # Optional dependencies should contain pytest and black
         assert "pytest" in dependency_tree.optional_dependencies
@@ -420,7 +420,7 @@ class TestParseLockfileV1R3:
         with open(lockfile_path, "rb") as f:
             uv_lock_data = tomllib.load(f)
 
-        dependency_tree = uv_manager.parse_lockfile_v1_r3("test-project", uv_lock_data)
+        dependency_tree, _ = uv_manager.parse_lockfile_v1_r3("test-project", uv_lock_data)
 
         # Transitive dependencies should NOT be included
         for dep in ["urllib3", "certifi", "pluggy"]:
@@ -442,7 +442,7 @@ class TestParseLockfileV1R3:
         with open(lockfile_path, "rb") as f:
             uv_lock_data = tomllib.load(f)
 
-        dependency_tree = uv_manager.parse_lockfile_v1_r3("multi-category-project", uv_lock_data)
+        dependency_tree, _ = uv_manager.parse_lockfile_v1_r3("multi-category-project", uv_lock_data)
 
         # requests should be in both main dependencies and optional
         assert "requests" in dependency_tree.dependencies
@@ -474,7 +474,7 @@ class TestParseLockfileV1R3:
             uv_lock_data = tomllib.load(f)
 
         # Act
-        dependency_tree = uv_manager.parse_lockfile_v1_r3("test-project", uv_lock_data)
+        dependency_tree, _ = uv_manager.parse_lockfile_v1_r3("test-project", uv_lock_data)
 
         # Assert — direct production deps pick up the specifier from the root's entry
         requests_dep = dependency_tree.dependencies["requests"]
@@ -535,7 +535,7 @@ version = "1.0.0"
         with open(lockfile_path, "rb") as f:
             uv_lock_data = tomllib.load(f)
 
-        dependency_tree = uv_manager.parse_lockfile_v1_r3("empty-deps-project", uv_lock_data)
+        dependency_tree, _ = uv_manager.parse_lockfile_v1_r3("empty-deps-project", uv_lock_data)
 
         assert len(dependency_tree.dependencies) == 0
         assert len(dependency_tree.optional_dependencies) == 0
@@ -778,3 +778,32 @@ class TestVersionConstraintIntegration:
         dep = project.dependencies.get(pkg_name)
         assert dep is not None, f"{pkg_name!r} not found in project dependencies"
         assert dep.version_defined == expected_constraint
+
+
+# ============================================================================
+# Test constraint classification for PyPI specifiers (via UV adapter)
+# ============================================================================
+
+
+class TestConstraintClassificationUv:
+    """Test that constraint_info.type is set correctly for PyPI/UV specifiers."""
+
+    @pytest.mark.parametrize(
+        "pkg_name,expected_type",
+        [
+            ("requests", ConstraintType.NARROWED),  # ~=2.31.0  → compatible release
+            ("pydantic", ConstraintType.DECLARED),  # >=2.0.0   → lower bound only
+            ("scikit-learn", ConstraintType.NARROWED),  # <2.0.0  → upper bound only
+            ("jsonschema", ConstraintType.NARROWED),  # >=4.0.0a6,<4.5.0  → compound
+            ("numpy", ConstraintType.NARROWED),  # >=1.20.0,!=1.24.2,<2.0.0  → compound
+        ],
+    )
+    def test_constraint_type_from_specifier(self, pkg_name: str, expected_type: ConstraintType, settings: Settings):
+        """constraint_info.type should reflect specifier specificity for UV packages."""
+        uv_manager = PackageManagerPythonUv(_VERSION_CONSTRAINT_TESTDATA, settings)
+        project = uv_manager.project_info()
+        dep = project.dependencies.get(pkg_name)
+        assert dep is not None, f"{pkg_name!r} not found"
+        assert dep.constraint_info.type == expected_type, (
+            f"{pkg_name}: expected {expected_type}, got {dep.constraint_info.type}"
+        )

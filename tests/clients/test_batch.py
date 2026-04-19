@@ -280,6 +280,50 @@ class TestBatchClientRetry:
         assert 1.0 <= sleep_args[0] < 1.2  # base=3^0=1, jitter up to 0.2
         assert 3.0 <= sleep_args[1] < 3.6  # base=3^1=3, jitter up to 0.6
 
+    def test_4xx_is_permanent_failure_no_retry(self):
+        """A 4xx response (e.g. 422) must be treated as a permanent failure with no retry."""
+        session = MagicMock()
+        session.post.return_value = make_response(422, {"error": "unprocessable"})
+        client = make_client(make_strategy(session, max_retries=3))
+
+        results = collect(client.run_batch([1]))
+
+        assert results == []
+        assert session.post.call_count == 1  # no retry — permanent failure
+
+    def test_401_is_permanent_failure_no_retry(self):
+        """401 Unauthorized must be a permanent failure (not retried, not passed to process_response)."""
+        session = MagicMock()
+        session.post.return_value = make_response(401, {"error": "unauthorized"})
+        client = make_client(make_strategy(session, max_retries=3))
+
+        results = collect(client.run_batch([1]))
+
+        assert results == []
+        assert session.post.call_count == 1
+
+    def test_200_is_success(self):
+        """200 OK must produce a successful ChunkResult."""
+        session = MagicMock()
+        session.post.return_value = make_response(200, {"data": 42})
+        client = make_client(make_strategy(session))
+
+        results = collect(client.run_batch([1]))
+
+        assert results == [{"data": 42}]
+
+    def test_201_is_success(self):
+        """201 Created must also be treated as success."""
+        session = MagicMock()
+        resp = make_response(200, {"created": True})
+        resp.status_code = 201
+        session.post.return_value = resp
+        client = make_client(make_strategy(session))
+
+        results = collect(client.run_batch([1]))
+
+        assert results == [{"created": True}]
+
     def test_failed_chunk_does_not_poison_successful_chunk(self):
         """When one chunk always fails, results from other chunks are still yielded."""
 

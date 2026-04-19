@@ -65,6 +65,7 @@ class ExportJsonSchemaVersion(StrEnum):
 
     V1_0 = "1.0"
     V1_1 = "1.1"
+    V1_2 = "1.2"
 
 
 class ExportCsvSchemaVersion(StrEnum):
@@ -72,6 +73,20 @@ class ExportCsvSchemaVersion(StrEnum):
 
     V1_0 = "1.0"
     V1_1 = "1.1"
+    V1_2 = "1.2"
+
+
+class ConstraintType(StrEnum):
+    """How a version constraint was applied for a dependency.
+
+    Priority ordering (highest wins for display): OVERRIDE > ADDITIVE > PINNED > NARROWED > DECLARED
+    """
+
+    DECLARED = "DECLARED"  # loose/default — any, ^x, ~x, >=x (lower-bound only)
+    NARROWED = "NARROWED"  # explicit range with bounds — >=x <y, ~=x, ==x.*, compound
+    PINNED = "PINNED"  # exactly one version — ==x.y.z (PyPI) or bare x.y.z (npm)
+    ADDITIVE = "ADDITIVE"  # narrows range without adding a direct dep (pip -c, uv constraint-dependencies)
+    OVERRIDE = "OVERRIDE"  # completely replaces resolution (npm overrides, uv override-dependencies)
 
 
 # Domain-specific Exceptions

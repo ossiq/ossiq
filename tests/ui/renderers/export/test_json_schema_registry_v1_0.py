@@ -92,19 +92,19 @@ class TestSchemaRegistryV10:
         assert "properties" in v1_0_schema
         assert "required" in v1_0_schema
 
-    def test_get_latest_version_returns_v1_1(self, registry):
+    def test_get_latest_version_returns_v1_2(self, registry):
         """Test registry returns correct latest schema version.
 
         AAA Pattern:
         - Arrange: Registry fixture
         - Act: Get latest version
-        - Assert: Version is v1.1
+        - Assert: Version is v1.2
         """
         # Act
         latest = registry.get_latest_version()
 
         # Assert
-        assert latest == ExportJsonSchemaVersion.V1_1
+        assert latest == ExportJsonSchemaVersion.V1_2
 
     def test_list_versions_includes_v1_0(self, registry):
         """Test listing all registered versions includes v1.0.

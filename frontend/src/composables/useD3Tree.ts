@@ -83,6 +83,9 @@ export function useD3Tree(options: UseD3TreeOptions) {
       package_url: d.data.package_url,
       license: d.data.license,
       purl: d.data.purl,
+      constraint_type: d.data.constraint_type,
+      constraint_source_file: d.data.constraint_source_file,
+      extras: d.data.extras,
       dependencies: d.data.dependencies,
       optional_dependencies: d.data.optional_dependencies,
     })

@@ -28,7 +28,7 @@ OSS IQ bridges the gap between raw dependency data and actionable intelligence. 
 ## How It Works
 
 1.  **Run OSS IQ**: Point the CLI to your project's manifest file (`package.json`, `pyproject.toml`, etc.). OSS IQ supports NPM and Python (uv, pip).
-2.  **Analyze Everything**: Version lag, CVEs, transitive dependencies, and license compliance—all cross-referenced against public databases (OSV, npm, PyPI, ClearlyDefined) using MSR Engine.
+2.  **Analyze Everything**: Version lag, CVEs, transitive dependencies, and license compliance—all cross-referenced against public databases (OSV, npm, PyPI) using MSR Engine.
 3.  **Get Your Report**: See your dependencies drift report, drill into each package details, and get a prioritized list of what to fix first.
 4.  **Build Quality Gates**: Use your project metrics to set up policies and drive organization behavior.
 
@@ -194,7 +194,6 @@ OSS IQ aggregates data from the following public sources:
 | Source | Purpose |
 |---|---|
 | [OSV](https://osv.dev/) | Open-source vulnerability database (CVEs, security advisories) |
-| [ClearlyDefined](https://clearlydefined.io/) | License and curation data for open-source packages |
 | [NPM Registry](https://www.npmjs.com/) | Package metadata and version history for JavaScript packages |
 | [PyPI](https://pypi.org/) | Package metadata and version history for Python packages |
 | [GitHub](https://github.com/) | Repository activity, releases, and maintainer signals |

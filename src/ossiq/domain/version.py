@@ -8,6 +8,8 @@ from dataclasses import dataclass
 from functools import cmp_to_key
 from typing import TypeVar
 
+from ossiq.domain.common import ConstraintType
+
 # Version is unpublished from the Package Registry or Unknown
 VERSION_NO_DIFF = 10
 # Version installed and the latest in the Registry are the same
@@ -255,6 +257,62 @@ def normalize_version(version: str) -> str:
         version = version.split()[0].strip()
 
     return version
+
+
+# ---------------------------------------------------------------------------
+# Version-specifier classification
+# ---------------------------------------------------------------------------
+
+# npm: bare semver — optional leading "v", 1-3 dot-separated integers, optional pre-release/build
+_NPM_BARE_SEMVER = re.compile(r"^v?\d+(\.\d+){0,2}([.-][a-zA-Z0-9._-]+)*$")
+
+# PyPI: exact pin — ==x.y.z with no wildcard "*" suffix
+_PYPI_EXACT_PIN = re.compile(r"^==\d[^*]*$")
+
+# PyPI: single lower-bound only — >=x.y.z with nothing else
+_PYPI_LOWER_BOUND_ONLY = re.compile(r"^>=\s*\d[^\s,]*$")
+
+
+def classify_npm_specifier(spec: str | None) -> ConstraintType:
+    """Classify an npm version specifier as DECLARED, NARROWED, or PINNED.
+
+    Rules:
+    - None / "" / "*" / "latest"  → DECLARED
+    - Starts with "^" or "~"      → DECLARED  (npm conventions)
+    - Bare semver "x.y.z"         → PINNED
+    - Anything else               → NARROWED  (explicit range, OR, comparisons)
+    """
+    if not spec:
+        return ConstraintType.DECLARED
+    s = spec.strip()
+    if not s or s in ("*", "latest"):
+        return ConstraintType.DECLARED
+    if s.startswith("^") or s.startswith("~"):
+        return ConstraintType.DECLARED
+    if _NPM_BARE_SEMVER.fullmatch(s):
+        return ConstraintType.PINNED
+    return ConstraintType.NARROWED
+
+
+def classify_pypi_specifier(spec: str | None) -> ConstraintType:
+    """Classify a PEP 440 version specifier as DECLARED, NARROWED, or PINNED.
+
+    Rules:
+    - None / ""            → DECLARED
+    - Single ">=x.y.z"    → DECLARED  (standard lower-bound practice)
+    - "==x.y.z" (no "*")  → PINNED
+    - Everything else      → NARROWED  (~=, ==x.*, !=, compound ",", any "<"/"<=")
+    """
+    if not spec:
+        return ConstraintType.DECLARED
+    s = spec.strip()
+    if not s:
+        return ConstraintType.DECLARED
+    if _PYPI_LOWER_BOUND_ONLY.fullmatch(s):
+        return ConstraintType.DECLARED
+    if _PYPI_EXACT_PIN.fullmatch(s):
+        return ConstraintType.PINNED
+    return ConstraintType.NARROWED
 
 
 VersionType = TypeVar("VersionType", PackageVersion, RepositoryVersion)

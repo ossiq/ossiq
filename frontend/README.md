@@ -1,6 +1,15 @@
 # ossiq-frontend
 
-This template should help get you started developing with Vue 3 in Vite.
+Vue 3 + Vite single-file SPA that renders the OSS-IQ scan report. It is compiled into a single
+`dist/index.html` and embedded in the Python HTML renderer
+(`src/ossiq/ui/html_templates/spa_app.html`).
+
+## Visual system
+
+Each dependency carries a `constraint_type` from the backend (export schema v1.2), encoded
+with both color and a border/stroke pattern so the distinction is colorblind-friendly.
+Full details — colors, stroke patterns, focus mode, filters, edge coloring, interactions — are
+in [EXPLORER.md](./EXPLORER.md).
 
 ## Recommended IDE Setup
 

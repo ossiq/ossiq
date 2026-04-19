@@ -20,6 +20,7 @@ from pathlib import Path
 import pytest
 
 from ossiq.adapters.package_managers.api_pip import PackageManagerPythonPip
+from ossiq.adapters.package_managers.utils import normalize_dist_name
 from ossiq.domain.common import ProjectPackagesRegistry
 from ossiq.domain.exceptions import PackageManagerLockfileParsingError
 from ossiq.domain.packages_manager import PIP
@@ -33,7 +34,7 @@ from ossiq.settings import Settings
 @pytest.fixture
 def settings():
     """Create Settings instance for testing."""
-    return Settings()
+    return Settings(skip_pypi_enrichment=True)
 
 
 @pytest.fixture
@@ -389,53 +390,53 @@ class TestHasPackageManager:
 
 
 class TestPackageNameNormalization:
-    """Test suite for normalize_package_name() static method."""
+    """Test suite for normalize_dist_name()."""
 
     def test_normalize_extras_removal(self):
         """Test that extras are removed from package names."""
-        assert PackageManagerPythonPip.normalize_package_name("requests[security]") == "requests"
-        assert PackageManagerPythonPip.normalize_package_name("django[argon2,bcrypt]") == "django"
-        assert PackageManagerPythonPip.normalize_package_name("package[extra1,extra2]") == "package"
+        assert normalize_dist_name("requests[security]") == "requests"
+        assert normalize_dist_name("django[argon2,bcrypt]") == "django"
+        assert normalize_dist_name("package[extra1,extra2]") == "package"
 
     def test_normalize_case_conversion(self):
         """Test that package names are converted to lowercase."""
-        assert PackageManagerPythonPip.normalize_package_name("Django") == "django"
-        assert PackageManagerPythonPip.normalize_package_name("REQUESTS") == "requests"
-        assert PackageManagerPythonPip.normalize_package_name("PyYAML") == "pyyaml"
+        assert normalize_dist_name("Django") == "django"
+        assert normalize_dist_name("REQUESTS") == "requests"
+        assert normalize_dist_name("PyYAML") == "pyyaml"
 
     def test_normalize_underscore_to_hyphen(self):
         """Test that underscores are replaced with hyphens."""
-        assert PackageManagerPythonPip.normalize_package_name("some_package") == "some-package"
-        assert PackageManagerPythonPip.normalize_package_name("my_test_package") == "my-test-package"
+        assert normalize_dist_name("some_package") == "some-package"
+        assert normalize_dist_name("my_test_package") == "my-test-package"
 
     def test_normalize_combined_transformations(self):
         """Test normalization with multiple transformations."""
-        assert PackageManagerPythonPip.normalize_package_name("Django_REST[extras]") == "django-rest"
-        assert PackageManagerPythonPip.normalize_package_name("MY_Package[security,crypto]") == "my-package"
-        assert PackageManagerPythonPip.normalize_package_name("Test_PACKAGE_Name") == "test-package-name"
+        assert normalize_dist_name("Django_REST[extras]") == "django-rest"
+        assert normalize_dist_name("MY_Package[security,crypto]") == "my-package"
+        assert normalize_dist_name("Test_PACKAGE_Name") == "test-package-name"
 
     def test_normalize_already_normalized(self):
         """Test normalization of already normalized names."""
-        assert PackageManagerPythonPip.normalize_package_name("requests") == "requests"
-        assert PackageManagerPythonPip.normalize_package_name("django-rest-framework") == "django-rest-framework"
+        assert normalize_dist_name("requests") == "requests"
+        assert normalize_dist_name("django-rest-framework") == "django-rest-framework"
 
     def test_normalize_whitespace_handling(self):
         """Test that whitespace is stripped."""
-        assert PackageManagerPythonPip.normalize_package_name(" requests ") == "requests"
-        assert PackageManagerPythonPip.normalize_package_name("  django  ") == "django"
+        assert normalize_dist_name(" requests ") == "requests"
+        assert normalize_dist_name("  django  ") == "django"
 
     def test_normalize_version_specs(self):
         """Test normalization with version specifications."""
-        assert PackageManagerPythonPip.normalize_package_name("requests>=2.31.0") == "requests"
-        assert PackageManagerPythonPip.normalize_package_name("Django==4.2.0") == "django"
-        assert PackageManagerPythonPip.normalize_package_name("package~=1.0") == "package"
-        assert PackageManagerPythonPip.normalize_package_name("test-pkg<=2.0") == "test-pkg"
-        assert PackageManagerPythonPip.normalize_package_name("pkg!=1.5") == "pkg"
+        assert normalize_dist_name("requests>=2.31.0") == "requests"
+        assert normalize_dist_name("Django==4.2.0") == "django"
+        assert normalize_dist_name("package~=1.0") == "package"
+        assert normalize_dist_name("test-pkg<=2.0") == "test-pkg"
+        assert normalize_dist_name("pkg!=1.5") == "pkg"
 
     def test_normalize_version_specs_with_extras(self):
         """Test normalization with both version specs and extras."""
-        assert PackageManagerPythonPip.normalize_package_name("requests[security]>=2.31.0") == "requests"
-        assert PackageManagerPythonPip.normalize_package_name("Django[argon2]==4.2.0") == "django"
+        assert normalize_dist_name("requests[security]>=2.31.0") == "requests"
+        assert normalize_dist_name("Django[argon2]==4.2.0") == "django"
 
 
 # ============================================================================
@@ -576,7 +577,7 @@ class TestParseLockfileV10:
             project_name, project_version, direct_deps, optional_deps_map, pylock_data
         )
 
-        dependency_tree = pylock_manager.parse_lockfile_v1_0(project_name, enriched)
+        dependency_tree, _ = pylock_manager.parse_lockfile_v1_0(project_name, enriched)
         dependencies = dependency_tree.dependencies
 
         # Main dependencies should contain requests and click
@@ -604,7 +605,7 @@ class TestParseLockfileV10:
             project_name, project_version, direct_deps, optional_deps_map, pylock_data
         )
 
-        dependency_tree = pylock_manager.parse_lockfile_v1_0(project_name, enriched)
+        dependency_tree, _ = pylock_manager.parse_lockfile_v1_0(project_name, enriched)
         optional_dependencies = dependency_tree.optional_dependencies
 
         # Optional dependencies should contain pytest and black
@@ -639,7 +640,7 @@ class TestParseLockfileV10:
             project_name, project_version, direct_deps, optional_deps_map, pylock_data
         )
 
-        dependency_tree = pylock_manager.parse_lockfile_v1_0(project_name, enriched)
+        dependency_tree, _ = pylock_manager.parse_lockfile_v1_0(project_name, enriched)
         dependencies = dependency_tree.dependencies
         optional_dependencies = dependency_tree.optional_dependencies
 
@@ -680,7 +681,7 @@ class TestParseLockfileV10:
             project_name, project_version, direct_deps, optional_deps_map, pylock_data
         )
 
-        dependency_tree = pylock_manager.parse_lockfile_v1_0(project_name, enriched)
+        dependency_tree, _ = pylock_manager.parse_lockfile_v1_0(project_name, enriched)
         dependencies = dependency_tree.dependencies
         optional_dependencies = dependency_tree.optional_dependencies
 
@@ -715,7 +716,7 @@ class TestParseLockfileV10:
             project_name, project_version, direct_deps, optional_deps_map, pylock_data
         )
 
-        dependency_tree = pylock_manager.parse_lockfile_v1_0(project_name, enriched)
+        dependency_tree, _ = pylock_manager.parse_lockfile_v1_0(project_name, enriched)
         dependencies = dependency_tree.dependencies
 
         # All packages should match despite name variations
@@ -751,7 +752,7 @@ created-by = "test-suite"
             "empty-deps-project", "1.0.0", direct_deps, optional_deps_map, pylock_data
         )
 
-        dependency_tree = pylock_manager.parse_lockfile_v1_0("empty-deps-project", enriched)
+        dependency_tree, _ = pylock_manager.parse_lockfile_v1_0("empty-deps-project", enriched)
         dependencies = dependency_tree.dependencies
         optional_dependencies = dependency_tree.optional_dependencies
 

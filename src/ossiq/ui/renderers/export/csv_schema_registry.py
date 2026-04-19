@@ -32,6 +32,11 @@ class CsvSchemaRegistry:
             "packages": "packages-schema-v1.1.json",
             "cves": "cves-schema-v1.1.json",
         },
+        ExportCsvSchemaVersion.V1_2: {
+            "summary": "summary-schema-v1.2.json",
+            "packages": "packages-schema-v1.2.json",
+            "cves": "cves-schema-v1.2.json",
+        },
     }
 
     _schemas_dir: Path
@@ -133,6 +138,9 @@ class CsvSchemaRegistry:
         errors = []
 
         schema_dict = self.load_schema(version, schema_type)
+        # Cross-resource foreign keys require a Package; strip them for single-file validation.
+        # Full FK validation happens in csv_datapackage.py via validate(..., type="package").
+        schema_dict = {k: v for k, v in schema_dict.items() if k != "foreignKeys"}
         schema = Schema.from_descriptor(schema_dict)
 
         # First, validate column headers match schema
@@ -205,7 +213,7 @@ class CsvSchemaRegistry:
         """
         Get the latest supported schema version.
         """
-        return ExportCsvSchemaVersion.V1_1
+        return ExportCsvSchemaVersion.V1_2
 
     def list_versions(self) -> list[ExportCsvSchemaVersion]:
         """

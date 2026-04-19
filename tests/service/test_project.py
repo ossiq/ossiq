@@ -6,8 +6,9 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from ossiq.domain.common import ProjectPackagesRegistry
+from ossiq.domain.common import ConstraintType, ProjectPackagesRegistry
 from ossiq.domain.package import Package
+from ossiq.domain.project import ConstraintSource
 from ossiq.domain.version import PackageVersion, VersionsDifference
 from ossiq.service.project import scan_record
 
@@ -93,6 +94,7 @@ class TestScanRecordVersionConstraint:
             is_optional_dependency=False,
             prefetched_cves=set(),
             prefetched_versions_since=mock_package_registry.package_versions.return_value,
+            constraint_info=ConstraintSource(type=ConstraintType.DECLARED, source_file="pyproject.toml"),
             version_constraint=constraint,
         )
 
@@ -117,6 +119,7 @@ class TestScanRecordVersionConstraint:
             is_optional_dependency=False,
             prefetched_cves=set(),
             prefetched_versions_since=mock_package_registry.package_versions.return_value,
+            constraint_info=ConstraintSource(type=ConstraintType.DECLARED, source_file="pyproject.toml"),
         )
 
         # Assert
@@ -151,6 +154,7 @@ class TestScanRecordVersionConstraint:
             is_optional_dependency=False,
             prefetched_cves=set(),
             prefetched_versions_since=mock_package_registry.package_versions.return_value,
+            constraint_info=ConstraintSource(type=ConstraintType.DECLARED, source_file="pyproject.toml"),
             version_constraint=constraint,
         )
 
@@ -179,6 +183,7 @@ class TestScanRecordPurl:
             is_optional_dependency=False,
             prefetched_cves=set(),
             prefetched_versions_since=mock_package_registry.package_versions.return_value,
+            constraint_info=ConstraintSource(type=ConstraintType.DECLARED, source_file="pyproject.toml"),
         )
 
         # Assert
@@ -202,6 +207,7 @@ class TestScanRecordPurl:
             is_optional_dependency=False,
             prefetched_cves=set(),
             prefetched_versions_since=mock_package_registry.package_versions.return_value,
+            constraint_info=ConstraintSource(type=ConstraintType.DECLARED, source_file="pyproject.toml"),
         )
 
         # Assert — PURL must reference canonical registry name

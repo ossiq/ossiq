@@ -5,8 +5,17 @@ Module to define abstract Package
 import re
 from dataclasses import dataclass, field
 
-from .common import PackageNotInstalled
+from .common import ConstraintType, PackageNotInstalled
 from .packages_manager import PackageManagerType
+
+
+@dataclass(frozen=True)
+class ConstraintSource:
+    """Describes how a version constraint was introduced for a dependency."""
+
+    type: ConstraintType
+    source_file: str  # e.g. "package.json", "pyproject.toml", "requirements.txt"
+    scope_path: list[str] | None = None  # npm nested override path, e.g. ["foo", "bar"]; None for flat
 
 
 @dataclass(order=True)
@@ -27,10 +36,18 @@ class Dependency:
     required_engine: str | None = None
     categories: list[str] = field(default_factory=list, compare=False)
 
+    # PyPI extras requested for this dependency, e.g. ["security", "tests"] for requests[security,tests]
+    extras: list[str] | None = field(default=None, compare=False)
+
     # list of direct dependencies for this particular dependency
-    # NOTE: there's no segregation between Optional vs Non-Optional at this point
     dependencies: dict[str, "Dependency"] = field(default_factory=dict, compare=False, hash=False)
     optional_dependencies: dict[str, "Dependency"] = field(default_factory=dict, compare=False, hash=False)
+
+    # Constraint provenance; defaults to DECLARED when not explicitly set
+    constraint_info: "ConstraintSource" = field(
+        default_factory=lambda: ConstraintSource(type=ConstraintType.DECLARED, source_file=""),
+        compare=False,
+    )
 
 
 class Project:

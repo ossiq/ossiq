@@ -21,5 +21,10 @@ export default defineConfig({
   },
   build: {
     assetsInlineLimit: Infinity,
+    // NOTE: it will take more space (~2x), but
+    // would be transparent for the curious users
+    // what package is shipped with. Also, good
+    // for debugging.
+    minify: false
   },
 })

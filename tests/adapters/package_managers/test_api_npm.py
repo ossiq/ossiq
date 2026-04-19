@@ -26,10 +26,8 @@ from ossiq.adapters.package_managers.api_npm import (
     CATEGORIES_PEER,
     NPMResolverV3,
     PackageManagerJsNpm,
-    _npm_alias_constraint,
-    _npm_alias_package_name,
 )
-from ossiq.domain.common import ProjectPackagesRegistry
+from ossiq.domain.common import ConstraintType, ProjectPackagesRegistry
 from ossiq.domain.exceptions import PackageManagerLockfileParsingError
 from ossiq.domain.packages_manager import NPM
 from ossiq.settings import Settings
@@ -746,53 +744,30 @@ def npm_project_with_overrides(temp_project_dir):
 
 
 # ============================================================================
-# Test _npm_alias_constraint helper
+# Test PackageManagerJsNpm.parse_npm_alias helper
 # ============================================================================
 
 
-class TestNpmAliasConstraint:
-    """Test suite for the _npm_alias_constraint module-level helper."""
+class TestParseNpmAlias:
+    """Test suite for the _parse_npm_alias module-level helper."""
 
     @pytest.mark.parametrize(
-        "version,expected",
+        "version,expected_name,expected_constraint",
         [
-            ("npm:lodash@~4.17.0", "~4.17.0"),
-            ("npm:chalk@4.1.2", "4.1.2"),
-            ("npm:ms@^0.7.0", "^0.7.0"),
-            ("npm:@scope/pkg@^1.0.0", "^1.0.0"),
-            ("^4.18.0", "^4.18.0"),
-            ("~1.2.3", "~1.2.3"),
-            ("4.1.2", "4.1.2"),
+            ("npm:lodash@~4.17.0", "lodash", "~4.17.0"),
+            ("npm:chalk@4.1.2", "chalk", "4.1.2"),
+            ("npm:ms@^0.7.0", "ms", "^0.7.0"),
+            ("npm:@scope/pkg@^1.0.0", "@scope/pkg", "^1.0.0"),
+            ("^4.18.0", None, "^4.18.0"),
+            ("~1.2.3", None, "~1.2.3"),
+            ("4.1.2", None, "4.1.2"),
         ],
     )
-    def test_extracts_constraint(self, version, expected):
-        """Test that alias constraints are extracted and plain versions pass through."""
-        assert _npm_alias_constraint(version) == expected
-
-
-# ============================================================================
-# Test _npm_alias_package_name helper
-# ============================================================================
-
-
-class TestNpmAliasPackageName:
-    """Test suite for the _npm_alias_package_name module-level helper."""
-
-    @pytest.mark.parametrize(
-        "version,expected",
-        [
-            ("npm:chalk@4.1.2", "chalk"),
-            ("npm:lodash@~4.17.0", "lodash"),
-            ("npm:ms@^0.7.0", "ms"),
-            ("npm:@scope/pkg@^1.0.0", "@scope/pkg"),
-            ("^4.18.0", None),
-            ("~1.2.3", None),
-            ("4.1.2", None),
-        ],
-    )
-    def test_extracts_package_name(self, version, expected):
-        """Test that canonical package names are extracted from alias specs."""
-        assert _npm_alias_package_name(version) == expected
+    def test_parses_alias(self, version, expected_name, expected_constraint):
+        """Test that alias specifiers are parsed and plain versions pass through."""
+        canonical_name, constraint = PackageManagerJsNpm.parse_npm_alias(version)
+        assert canonical_name == expected_name
+        assert constraint == expected_constraint
 
 
 # ============================================================================
@@ -990,27 +965,30 @@ class TestNpmOverrides:
     def test_flatten_overrides_flat(self):
         """Test flattening of simple {name: version} overrides."""
         # Arrange / Act
-        result = NPMResolverV3._flatten_overrides({"foo": "1.0.0", "bar": "2.0.0"})
+        flat, scope_paths = NPMResolverV3._flatten_overrides({"foo": "1.0.0", "bar": "2.0.0"})
 
         # Assert
-        assert result == {"foo": "1.0.0", "bar": "2.0.0"}
+        assert flat == {"foo": "1.0.0", "bar": "2.0.0"}
+        assert scope_paths == {}
 
     def test_flatten_overrides_nested_with_dot(self):
-        """Test that "." in a nested block maps to the outer package name."""
+        """Test that "." in a nested block maps to the outer package name and scope_paths captures nesting."""
         # Arrange / Act
-        result = NPMResolverV3._flatten_overrides({"foo": {".": "1.0.0", "bar": "2.0.0"}})
+        flat, scope_paths = NPMResolverV3._flatten_overrides({"foo": {".": "1.0.0", "bar": "2.0.0"}})
 
         # Assert
-        assert result["foo"] == "1.0.0"
-        assert result["bar"] == "2.0.0"
+        assert flat["foo"] == "1.0.0"
+        assert flat["bar"] == "2.0.0"
+        assert scope_paths.get("bar") == ["foo"]
 
     def test_flatten_overrides_empty(self):
         """Test that empty overrides produce an empty mapping."""
         # Arrange / Act
-        result = NPMResolverV3._flatten_overrides({})
+        flat, scope_paths = NPMResolverV3._flatten_overrides({})
 
         # Assert
-        assert result == {}
+        assert flat == {}
+        assert scope_paths == {}
 
     def test_project_without_overrides_has_no_overridden_packages(self, npm_project_with_lockfile, settings):
         """Test that a project without overrides has no packages with overridden category."""
@@ -1121,3 +1099,87 @@ class TestNpmProject3Integration:
         # Assert
         chalk = project.dependency_tree.dependencies["chalk"]
         assert chalk.canonical_name == "chalk"
+
+
+# ============================================================================
+# Test constraint classification for npm specifiers
+# ============================================================================
+
+
+class TestConstraintClassification:
+    """Test that constraint_info.type is set correctly based on version specifiers."""
+
+    def test_caret_range_is_declared(self, npm_project_with_lockfile, settings):
+        """^version (npm default) should be DECLARED."""
+        npm_manager = PackageManagerJsNpm(npm_project_with_lockfile, settings)
+        project = npm_manager.project_info()
+        # express: "^4.18.0" in package.json
+        express = project.dependency_tree.dependencies["express"]
+        assert express.constraint_info.type == ConstraintType.DECLARED
+
+    def test_tilde_range_is_declared(self, npm_project_with_lockfile, settings):
+        """~version should be DECLARED."""
+        npm_manager = PackageManagerJsNpm(npm_project_with_lockfile, settings)
+        project = npm_manager.project_info()
+        # lodash: "~4.17.21" in package.json
+        lodash = project.dependency_tree.dependencies["lodash"]
+        assert lodash.constraint_info.type == ConstraintType.DECLARED
+
+    def test_comparison_operator_is_narrowed(self, npm_project_with_lockfile, settings):
+        """>=version should be NARROWED."""
+        npm_manager = PackageManagerJsNpm(npm_project_with_lockfile, settings)
+        project = npm_manager.project_info()
+        # jest: ">=29.0.0" in package.json
+        jest = project.dependency_tree.optional_dependencies["jest"]
+        assert jest.constraint_info.type == ConstraintType.NARROWED
+
+    def test_bare_exact_version_is_pinned(self, temp_project_dir, settings):
+        """Bare x.y.z (no operator) should be PINNED."""
+        pkg_json = Path(temp_project_dir) / "package.json"
+        lockfile = Path(temp_project_dir) / "package-lock.json"
+        pkg_json.write_text(
+            json.dumps(
+                {
+                    "name": "pin-test",
+                    "version": "1.0.0",
+                    "dependencies": {"lodash": "4.17.21"},
+                }
+            )
+        )
+        lockfile.write_text(
+            json.dumps(
+                {
+                    "name": "pin-test",
+                    "version": "1.0.0",
+                    "lockfileVersion": 3,
+                    "packages": {
+                        "": {"name": "pin-test", "version": "1.0.0", "dependencies": {"lodash": "4.17.21"}},
+                        "node_modules/lodash": {"version": "4.17.21"},
+                    },
+                }
+            )
+        )
+        project = PackageManagerJsNpm(temp_project_dir, settings).project_info()
+        lodash = project.dependency_tree.dependencies["lodash"]
+        assert lodash.constraint_info.type == ConstraintType.PINNED
+
+    def test_no_lockfile_caret_is_declared(self, temp_project_dir, settings):
+        """^version without lockfile should be DECLARED."""
+        pkg_json = Path(temp_project_dir) / "package.json"
+        pkg_json.write_text(json.dumps({"name": "t", "version": "1.0.0", "dependencies": {"express": "^4.18.0"}}))
+        project = PackageManagerJsNpm(temp_project_dir, settings).project_info()
+        assert project.dependency_tree.dependencies["express"].constraint_info.type == ConstraintType.DECLARED
+
+    def test_no_lockfile_pinned_version_is_pinned(self, temp_project_dir, settings):
+        """Bare x.y.z without lockfile should be PINNED."""
+        pkg_json = Path(temp_project_dir) / "package.json"
+        pkg_json.write_text(json.dumps({"name": "t", "version": "1.0.0", "dependencies": {"lodash": "4.17.21"}}))
+        project = PackageManagerJsNpm(temp_project_dir, settings).project_info()
+        assert project.dependency_tree.dependencies["lodash"].constraint_info.type == ConstraintType.PINNED
+
+    def test_no_lockfile_range_is_narrowed(self, temp_project_dir, settings):
+        """>=x <y without lockfile should be NARROWED."""
+        pkg_json = Path(temp_project_dir) / "package.json"
+        pkg_json.write_text(json.dumps({"name": "t", "version": "1.0.0", "dependencies": {"lodash": ">=1 <2"}}))
+        project = PackageManagerJsNpm(temp_project_dir, settings).project_info()
+        assert project.dependency_tree.dependencies["lodash"].constraint_info.type == ConstraintType.NARROWED

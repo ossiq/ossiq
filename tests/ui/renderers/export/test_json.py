@@ -14,9 +14,16 @@ import json
 import pytest
 from jsonschema import validate
 
-from ossiq.domain.common import Command, ExportJsonSchemaVersion, ProjectPackagesRegistry, UserInterfaceType
+from ossiq.domain.common import (
+    Command,
+    ConstraintType,
+    ExportJsonSchemaVersion,
+    ProjectPackagesRegistry,
+    UserInterfaceType,
+)
 from ossiq.domain.cve import CVE, CveDatabase, Severity
 from ossiq.domain.exceptions import DestinationDoesntExist
+from ossiq.domain.project import ConstraintSource
 from ossiq.domain.version import VersionsDifference
 from ossiq.service.project import ScanRecord, ScanResult
 from ossiq.settings import Settings
@@ -62,6 +69,7 @@ def sample_project_metrics_record(sample_cve):
         time_lag_days=245,
         releases_lag=12,
         cve=[sample_cve],
+        constraint_info=ConstraintSource(type=ConstraintType.DECLARED, source_file="package.json"),
     )
 
 
@@ -148,7 +156,7 @@ class TestJsonExportRenderer:
         metadata = data["metadata"]
 
         # Assert
-        assert metadata["schema_version"] == "1.1"
+        assert metadata["schema_version"] == "1.2"
         assert "export_timestamp" in metadata
         assert "ossiq_version" not in metadata
 

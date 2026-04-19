@@ -13,9 +13,10 @@ from pathlib import Path
 
 import pytest
 
-from ossiq.domain.common import Command, ProjectPackagesRegistry, UserInterfaceType
+from ossiq.domain.common import Command, ConstraintType, ProjectPackagesRegistry, UserInterfaceType
 from ossiq.domain.cve import CVE, CveDatabase, Severity
 from ossiq.domain.exceptions import DestinationDoesntExist
+from ossiq.domain.project import ConstraintSource
 from ossiq.domain.version import VersionsDifference
 from ossiq.service.project import ScanRecord, ScanResult
 from ossiq.settings import Settings
@@ -60,6 +61,7 @@ def sample_project_metrics_record(sample_cve):
         time_lag_days=245,
         releases_lag=12,
         cve=[sample_cve],
+        constraint_info=ConstraintSource(type=ConstraintType.DECLARED, source_file="package.json"),
     )
 
 

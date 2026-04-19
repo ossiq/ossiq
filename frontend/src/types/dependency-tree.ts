@@ -19,6 +19,9 @@ export interface DependencyNode {
   package_url?: string | null
   license?: string[] | null
   purl?: string | null
+  constraint_type?: 'DECLARED' | 'NARROWED' | 'PINNED' | 'ADDITIVE' | 'OVERRIDE' | null
+  constraint_source_file?: string | null
+  extras?: string[] | null
   dependencies?: Record<string, DependencyNode>
   optional_dependencies?: Record<string, DependencyNode>
 }
@@ -43,6 +46,9 @@ export interface SelectedNodeDetail {
   package_url?: string | null
   license?: string[] | null
   purl?: string | null
+  constraint_type?: 'DECLARED' | 'NARROWED' | 'PINNED' | 'ADDITIVE' | 'OVERRIDE' | null
+  constraint_source_file?: string | null
+  extras?: string[] | null
   dependencies?: Record<string, DependencyNode>
   optional_dependencies?: Record<string, DependencyNode>
 }
@@ -58,6 +64,7 @@ export interface NodeStyle {
   fill: string
   stroke: string
   strokeWidth: number
+  strokeDash: string
   opacity: number
   radius: number
 }

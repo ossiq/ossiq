@@ -8,11 +8,14 @@ from collections import namedtuple
 from collections.abc import Callable, Iterable
 
 from ossiq.adapters.api_interfaces import AbstractPackageManagerApi
+from ossiq.adapters.package_managers.api_pypi import enrich_registry_constraints
 from ossiq.adapters.package_managers.dependency_tree import BaseDependencyResolver
-from ossiq.adapters.package_managers.utils import find_lockfile_parser
+from ossiq.adapters.package_managers.utils import find_lockfile_parser, normalize_dist_name
+from ossiq.domain.common import ConstraintType
 from ossiq.domain.exceptions import PackageManagerLockfileParsingError
 from ossiq.domain.packages_manager import UV, PackageManagerType
-from ossiq.domain.project import Dependency, Project
+from ossiq.domain.project import ConstraintSource, Dependency, Project
+from ossiq.domain.version import classify_pypi_specifier
 from ossiq.settings import Settings
 
 UvProject = namedtuple("UvProject", ["manifest", "lockfile"])
@@ -22,6 +25,31 @@ class UVResolverV1R3(BaseDependencyResolver):
     """
     Concrete resolver for uv.lock files.
     """
+
+    def classify_constraint(self, spec: str | None) -> ConstraintType:
+        return classify_pypi_specifier(spec)
+
+    def build_initial_dependency(
+        self,
+        name: str,
+        canonical_name: str,
+        version_installed: str,
+        source: str | None,
+        required_engine: str | None,
+        version_defined: str | None,
+    ):
+        return Dependency(
+            name=name,
+            canonical_name=canonical_name,
+            version_installed=version_installed,
+            source=source,
+            required_engine=required_engine,
+            version_defined=version_defined,
+            constraint_info=ConstraintSource(
+                type=classify_pypi_specifier(version_defined),
+                source_file="pyproject.toml",
+            ),
+        )
 
     def get_all_packages(self) -> Iterable[dict]:
         # UV stores packages in a top-level list [[package]]
@@ -120,19 +148,20 @@ class PackageManagerPythonUv(AbstractPackageManagerApi):
                     f"There's no handler for {version_handler} for the version condition: {version_condition}"
                 )
 
-    def parse_lockfile_v1_r3(self, project_package_name: str, uv_lock_data: dict) -> Dependency:
+    def parse_lockfile_v1_r3(self, project_package_name: str, uv_lock_data: dict) -> tuple[Dependency, dict]:
         """
         Lockfile parser for UV version `1` and revision `3`
         """
-
         resolver = UVResolverV1R3(uv_lock_data)
         root_node = resolver.build_graph(project_package_name)
         if not root_node:
             raise PackageManagerLockfileParsingError("Cannot parse UV lockfile")
 
-        return root_node
+        return root_node, resolver.registry
 
-    def get_lockfile_parser(self, version: int | str | None, revision: int | str | None) -> Callable[..., Dependency]:
+    def get_lockfile_parser(
+        self, version: int | str | None, revision: int | str | None
+    ) -> Callable[..., tuple[Dependency, dict]]:
         """
         Find and return lockfile parser instance
         """
@@ -146,6 +175,23 @@ class PackageManagerPythonUv(AbstractPackageManagerApi):
             )
 
         return getattr(self, handler_name)
+
+    @staticmethod
+    def constraint_dependencies_setting(
+        dep_tree: Dependency,
+        constraint_names: set[str],
+        override_names: set[str],
+        source_file: str = "pyproject.toml",
+    ) -> None:
+        """Walk dep_tree recursively and set constraint_info on matching nodes."""
+        for dep in {**dep_tree.dependencies, **dep_tree.optional_dependencies}.values():
+            norm = normalize_dist_name(dep.canonical_name)
+            if norm in override_names:
+                dep.constraint_info = ConstraintSource(type=ConstraintType.OVERRIDE, source_file=source_file)
+            elif norm in constraint_names:
+                dep.constraint_info = ConstraintSource(type=ConstraintType.ADDITIVE, source_file=source_file)
+
+            PackageManagerPythonUv.constraint_dependencies_setting(dep, constraint_names, override_names, source_file)
 
     def load_pyproject_data(self):
         """
@@ -179,7 +225,19 @@ class PackageManagerPythonUv(AbstractPackageManagerApi):
             uv_lock_data.get("version", None), uv_lock_data.get("revision", None)
         )
 
-        dependency_tree = lockfile_parser(project_package_name, uv_lock_data)
+        dependency_tree, registry = lockfile_parser(project_package_name, uv_lock_data)
+
+        if not self.settings.skip_pypi_enrichment:
+            enrich_registry_constraints(registry)
+
+        # Constraint/Override settings from [tool.uv] section
+        uv_section = pyproject_data.get("tool", {}).get("uv", {})
+        constraint_specs: list[str] = uv_section.get("constraint-dependencies", [])
+        override_specs: list[str] = uv_section.get("override-dependencies", [])
+        if constraint_specs or override_specs:
+            constraint_names = {normalize_dist_name(s) for s in constraint_specs}
+            override_names = {normalize_dist_name(s) for s in override_specs}
+            self.constraint_dependencies_setting(dependency_tree, constraint_names, override_names)
 
         return Project(
             package_manager_type=self.package_manager_type,

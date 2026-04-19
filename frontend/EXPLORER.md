@@ -10,31 +10,41 @@ Key files: `src/views/TransitiveDependenciesView.vue`, `src/composables/useD3Tre
 
 ## Node Color Coding
 
-Semantic pastel colors are applied in priority order (first match wins):
+Nodes are styled with **both color and a stroke pattern** so the constraint type is
+distinguishable without relying on color alone (colorblind-friendly). Rules are evaluated
+first-match-wins inside `NODE_COLOR_RULES` in `src/explorer/nodeStyle.ts`.
 
-| Condition | Fill | Stroke |
-|---|---|---|
-| Has CVEs (`severity` set) | amber `#fde68a` | `#d97706` |
-| Pinned version (e.g. `1.2.3`, no operators) | yellow `#fef08a` | `#a16207` |
-| Upper-bound constraint (contains `<`) | red `#fecaca` | `#dc2626` |
-| Default | blue `#bfdbfe` | `#1d4ed8` |
+| Priority | Condition | Fill | Stroke | `stroke-dasharray` | Expanded radius |
+|---|---|---|---|---|---|
+| 1 | Has CVEs (`severity` set) | red `#fecaca` | `#dc2626` | solid | 6 |
+| 2 | `constraint_type === 'OVERRIDE'` | orange `#fed7aa` | `#ea580c` | `7,2,2,2` (dash-dot) | 8 |
+| 3 | `constraint_type === 'ADDITIVE'` | green `#bbf7d0` | `#16a34a` | `2,2.5` (dotted) | 6 |
+| 4 | `constraint_type === 'PINNED'` or `isPinned(version_defined)` | orange `#ffedd5` | `#c2410c` | solid thick (3 px) | 7 |
+| 5 | `constraint_type === 'NARROWED'` or `hasUpperConstraint(version_defined)` | yellow `#fef08a` | `#a16207` | `5,3` (dashed) | 6 |
+| 6 | Default / DECLARED | blue `#bfdbfe` | `#1d4ed8` | solid | 6 |
 
-CVE severity is populated from the report's `cve[]` arrays (highest severity wins per package).
-Pinned/UBC coloring activates when `version_defined` is present on the `DependencyNode`
-— this field requires backend wiring to be populated (not yet in export schema).
+OVERRIDE and PINNED share an orange family but are distinguishable by their stroke patterns
+(dash-dot vs solid thick) and slightly different shades (orange-200 vs orange-100).
+
+The `isPinned` / `hasUpperConstraint` heuristics act as **fallbacks** for pre-v1.2 reports that
+lack a `constraint_type` field. CVE severity is derived from the report's `cve[]` arrays
+(highest severity wins per package name).
 
 ### Solid-fill state (focus)
 
-When any node is clicked it switches to a **solid** appearance — fill equals the stroke color,
-making the circle a flat dark disc. Both the clicked node and all its same-version duplicates
-receive this treatment:
+When a node is clicked it switches to a **solid** appearance — fill equals its stroke color,
+making the circle a flat dark disc. The stroke pattern (dasharray) is retained, so constraint
+type remains readable even in focused state. Both the clicked node and all same-version
+duplicates receive this treatment:
 
-| Node type | Solid fill color |
-|---|---|
-| CVE (amber) | `#d97706` (amber-600) |
-| Pinned (yellow) | `#a16207` (yellow-700) |
-| UBC (red) | `#dc2626` (red-600) |
-| Default (blue) | `#1d4ed8` (blue-700) |
+| Node type | Solid fill | Stroke pattern retained |
+|---|---|---|
+| CVE (red) | `#dc2626` | solid |
+| OVERRIDE (orange) | `#ea580c` | `7,2,2,2` |
+| ADDITIVE (green) | `#16a34a` | `2,2.5` |
+| PINNED (orange) | `#c2410c` | solid thick |
+| NARROWED (yellow) | `#a16207` | `5,3` |
+| Default/DECLARED (blue) | `#1d4ed8` | solid |
 
 Logic lives in `resolveNodeStyle` in `src/explorer/nodeStyle.ts`.
 
@@ -51,10 +61,13 @@ Colors: fill `#fdba74`, stroke `#ea580c`, text `#7c2d12`.
 ## Collapsed Branch Indicator
 
 When a branch is folded, the node circle:
-- Grows from `r=6` → `r=8`
+- Grows to `r=8` (`radiusCollapsed`) regardless of constraint type
 - Fills with its semantic stroke color (solid dark), losing the pastel fill
+- Retains its stroke-dasharray pattern, so constraint type is still readable
 
-This makes folded subtrees immediately visually distinct at a glance.
+Note: PINNED nodes have an expanded radius of 7 and OVERRIDE nodes 8, so a collapsed PINNED
+node will look the same size as a collapsed default node. The stroke pattern and color remain
+the distinguishing signals. This makes folded subtrees immediately visually distinct at a glance.
 
 ---
 
@@ -83,7 +96,7 @@ Tree edges carry semantic colors in **both** normal and focus states.
 | Target node type | Edge color |
 |---|---|
 | Has CVE (`severity` set) | light red `#fecaca` (red-200) |
-| Pinned or UBC (`version_defined` set) | light orange `#fed7aa` (orange-200) |
+| PINNED or NARROWED (`version_defined` set) | light orange `#fed7aa` (orange-200) |
 | Default | slate `#cbd5e1` (CSS default) |
 
 This gives an at-a-glance risk map of the tree even before any interaction.
@@ -96,7 +109,7 @@ individually based on its **target node's** exceptional state:
 | Target node type | Ancestor edge color |
 |---|---|
 | Has CVE (`severity` set) | `#fca5a5` (red-300), 3px, full opacity |
-| Pinned or UBC (`version_defined` set) | `#fed7aa` (orange-200), 3px, full opacity |
+| PINNED or NARROWED (`version_defined` set) | `#fed7aa` (orange-200), 3px, full opacity |
 | Default | `#1d4ed8` (blue-700), 3px, full opacity |
 | Not on ancestor path | CSS default color, `opacity: 0.15` (dimmed) |
 
@@ -122,6 +135,10 @@ The `ℹ` icon button at the far right of the toolbar toggles a floating legend 
 
 The card has its own close button and also closes by toggling the Info button again.
 
+The legend circles in `ReportLegend.vue` use the same `constraintCircleClasses()` helper from
+`src/explorer/nodeStyle.ts` that drives the table indicators, so they stay in sync automatically.
+The inline floating legend in `TransitiveDependenciesView.vue` uses matching inline styles.
+
 ---
 
 ## Search & Filters
@@ -137,8 +154,8 @@ Typing in the search input fuzzy-matches against all package names in the tree (
 | Button | Condition | Active color |
 |---|---|---|
 | **CVE** | Node has `severity` set | red `#DE4514` |
-| **Pinned** | `version_defined` matches `^\d[\d.]*$` (no operators) | indigo `#4800E2` |
-| **UBC** | `version_defined` contains `<` (upper-bound constraint) | amber |
+| **Narrowed** | `constraint_type === 'NARROWED'` or `version_defined` contains `<` | yellow `#a16207` |
+| **Override/Pinned** | `constraint_type === 'OVERRIDE'` or `constraint_type === 'PINNED'` or `version_defined` matches bare semver | orange `#ea580c` |
 
 Multiple active toggles use **OR** logic — a branch is shown if it contains a node satisfying any active toggle.
 
@@ -179,7 +196,7 @@ showcasing all paths the dependency is used across the tree:
 | Target node type | Descendant edge color |
 |---|---|
 | Has CVE (`severity` set) | `#fca5a5` (red-300) |
-| Pinned or UBC (`version_defined` set) | `#fed7aa` (orange-200) |
+| PINNED or NARROWED (`version_defined` set) | `#fed7aa` (orange-200) |
 | Default | `#97c2f7` (blue-400) |
 
 Descendant node circles keep their normal semantic pastel fill — no solid fill — which visually

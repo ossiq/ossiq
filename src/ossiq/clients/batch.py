@@ -129,7 +129,7 @@ class BatchClient:
         Yield results for all items, processing them in parallel chunks.
 
         Items that fail permanently after all retries are silently dropped
-        (logged at ERROR level) so a bad chunk never blocks good ones.
+        (logged at INFO level) so a bad chunk never blocks good ones.
         """
         if not items:
             return
@@ -158,7 +158,7 @@ class BatchClient:
                         chunks_failed += 1
                         continue
                     if not response.success:
-                        logger.error("Permanent failure for chunk: %s", response.message)
+                        logger.info("Permanent failure for chunk: %s", response.message)
                         chunks_failed += 1
                         continue
 
@@ -167,7 +167,7 @@ class BatchClient:
                     yield self.strategy.process_response(original_chunk, response)
 
                 except Exception as exc:
-                    logger.error("Chunk of %d items failed: %s", len(original_chunk), exc)
+                    logger.info("Chunk of %d items failed: %s", len(original_chunk), exc)
                     chunks_failed += 1
 
         logger.debug(
@@ -213,8 +213,29 @@ class BatchClient:
                     self._handle_rate_limit(resp)
                     continue  # Retry this chunk after the pause.
 
-                resp.raise_for_status()
-                return ChunkResult(data=[resp.json()], success=True)
+                # short-circuit for 404 Not Found
+                if resp.status_code == 404:
+                    return ChunkResult(
+                        data=[],
+                        success=False,
+                        message="404 Not Found",
+                        error=Exception("404 Page Not Found"),
+                    )
+
+                # Retry on 5xx server errors
+                if resp.status_code is None or resp.status_code >= 500:
+                    resp.raise_for_status()
+
+                if resp.status_code is not None and resp.status_code >= 200 and resp.status_code < 300:
+                    return ChunkResult(data=[resp.json()], success=True)
+
+                # Other 4xx (400, 401, 422, …) — permanent failure, no retry
+                return ChunkResult(
+                    data=[],
+                    success=False,
+                    message=f"HTTP {resp.status_code}",
+                    error=requests.HTTPError(response=resp),
+                )
 
             except (requests.Timeout, requests.ConnectionError, requests.HTTPError) as exc:
                 if attempt < strategy.config.max_retries - 1:
@@ -223,10 +244,10 @@ class BatchClient:
                     # Adding 10-20% jitter to prevent "thundering herd"
                     wait = base_wait + random.uniform(0, 0.2 * base_wait)
 
-                    logger.info("Error: %s. Retrying in %.1fs...", exc, wait)
+                    logger.warning("Error: %s. Retrying in %.1fs...", exc, wait)
                     time.sleep(wait)
                 else:
-                    logger.error("Max retries reached. Final error: %s", exc)
+                    logger.info("Max retries reached. Final error: %s", exc)
 
                 error = exc
 

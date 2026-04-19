@@ -3,18 +3,20 @@ Support of pylock.toml package manager (PEP 751)
 """
 
 import os
-import re
 import tomllib
 from collections import namedtuple
 from collections.abc import Callable, Iterable
 from typing import Any, cast
 
 from ossiq.adapters.api_interfaces import AbstractPackageManagerApi
+from ossiq.adapters.package_managers.api_pypi import enrich_registry_constraints
 from ossiq.adapters.package_managers.dependency_tree import BaseDependencyResolver
-from ossiq.adapters.package_managers.utils import find_lockfile_parser
+from ossiq.adapters.package_managers.utils import find_lockfile_parser, normalize_dist_name
+from ossiq.domain.common import ConstraintType
 from ossiq.domain.exceptions import PackageManagerLockfileParsingError
 from ossiq.domain.packages_manager import PIP, PackageManagerType
-from ossiq.domain.project import Dependency, Project
+from ossiq.domain.project import ConstraintSource, Dependency, Project
+from ossiq.domain.version import classify_pypi_specifier
 from ossiq.settings import Settings
 
 PylockProject = namedtuple("PylockProject", ["manifest", "lockfile"])
@@ -36,6 +38,31 @@ class PyLockResolver(BaseDependencyResolver):
         root entry injected from pyproject.toml instead.
         """
         return [pkg for pkg in self.raw_data.get("packages", []) if "version" in pkg]
+
+    def classify_constraint(self, spec: str | None) -> ConstraintType:
+        return classify_pypi_specifier(spec)
+
+    def build_initial_dependency(
+        self,
+        name: str,
+        canonical_name: str,
+        version_installed: str,
+        source: str | None,
+        required_engine: str | None,
+        version_defined: str | None,
+    ):
+        return Dependency(
+            name=name,
+            canonical_name=canonical_name,
+            version_installed=version_installed,
+            source=source,
+            required_engine=required_engine,
+            version_defined=version_defined,
+            constraint_info=ConstraintSource(
+                type=classify_pypi_specifier(version_defined),
+                source_file="pyproject.toml",
+            ),
+        )
 
     def extract_package_identity(self, pkg_data: dict) -> tuple[str, str]:
         """Extracts name and the specific installed version."""
@@ -126,50 +153,18 @@ class PackageManagerPythonPip(AbstractPackageManagerApi):
                     f"There's no handler for {version_handler} for the version condition: {version_condition}"
                 )
 
-    @staticmethod
-    def normalize_package_name(name: str) -> str:
-        """
-        Normalize package name according to PEP 503.
-
-        PyPI package names are case-insensitive and treat hyphens/underscores
-        equivalently. This normalization ensures matching between pyproject.toml
-        dependency names (which may include extras) and pylock.toml package names.
-
-        Examples:
-            "requests[security]" -> "requests"
-            "requests>=2.31.0" -> "requests"
-            "Django-REST-Framework" -> "django-rest-framework"
-            "some_package" -> "some-package"
-        """
-        # First, extract package name from dependency specification
-        # Dependency specs can include version constraints (>=, ==, ~=, etc.)
-        # Split on common version operators to get just the package name
-        for operator in [">=", "<=", "==", "!=", "~=", ">", "<", "@"]:
-            if operator in name:
-                name = name.split(operator)[0]
-                break
-
-        # Remove extras specification (e.g., "requests[security]" -> "requests")
-        name = re.sub(r"\[.*\]", "", name)
-
-        # Convert to lowercase and replace underscores with hyphens
-        name = name.lower().replace("_", "-")
-
-        return name.strip()
-
-    def parse_lockfile_v1_0(self, project_package_name: str, pylock_data: dict) -> Dependency:
+    def parse_lockfile_v1_0(self, project_package_name: str, pylock_data: dict) -> tuple[Dependency, dict]:
         """
         Lockfile parser for pylock.toml lock-version "1.0"
         """
-
         resolver = PyLockResolver(pylock_data)
         root_node = resolver.build_graph(project_package_name)
         if not root_node:
             raise PackageManagerLockfileParsingError("Cannot parse pylock lockfile")
 
-        return root_node
+        return root_node, resolver.registry
 
-    def get_lockfile_parser(self, lock_version: str | None) -> Callable[..., Dependency]:
+    def get_lockfile_parser(self, lock_version: str | None) -> Callable[..., tuple[Dependency, dict]]:
         """
         Find and return lockfile parser instance based on lock-version field.
         """
@@ -211,14 +206,14 @@ class PackageManagerPythonPip(AbstractPackageManagerApi):
 
         # Extract direct dependencies
         direct_deps_raw = project_section.get("dependencies", [])
-        direct_dependencies = {self.normalize_package_name(dep) for dep in direct_deps_raw}
+        direct_dependencies = {normalize_dist_name(dep) for dep in direct_deps_raw}
 
         # Extract optional dependencies by category
         optional_deps_raw = project_section.get("optional-dependencies", {})
         optional_dependencies_map = {}
 
         for category, deps_list in optional_deps_raw.items():
-            normalized_deps = [self.normalize_package_name(dep) for dep in deps_list]
+            normalized_deps = [normalize_dist_name(dep) for dep in deps_list]
             optional_dependencies_map[category] = normalized_deps
 
         return direct_dependencies, optional_dependencies_map
@@ -276,7 +271,10 @@ class PackageManagerPythonPip(AbstractPackageManagerApi):
         # Get the appropriate parser based on lock-version
         lockfile_parser = self.get_lockfile_parser(pylock_data.get("lock-version", None))
 
-        dependency_tree = lockfile_parser(project_package_name, enriched_pylock_data)
+        dependency_tree, registry = lockfile_parser(project_package_name, enriched_pylock_data)
+
+        if not self.settings.skip_pypi_enrichment:
+            enrich_registry_constraints(registry)
 
         return Project(
             package_manager_type=self.package_manager_type,

@@ -8,7 +8,7 @@ from rich.rule import Rule
 from rich.table import Table
 from rich.text import Text
 
-from ossiq.domain.common import Command, UserInterfaceType
+from ossiq.domain.common import Command, ConstraintType, UserInterfaceType
 from ossiq.domain.version import (
     VERSION_DIFF_MAJOR,
     VERSION_DIFF_MINOR,
@@ -244,6 +244,12 @@ class ConsolePackageRenderer(AbstractUserInterfaceRenderer):
         table.add_row("Constraint", record.version_constraint or "—")
         table.add_row("Resolved", Text(record.installed_version, style="bold blue"))
         table.add_row("Latest", Text(record.latest_version or "—", style="bold green"))
+
+        if record.constraint_info and record.constraint_info.type != ConstraintType.DECLARED:
+            style = "bold red" if record.constraint_info.type == ConstraintType.OVERRIDE else "bold yellow"
+            label = record.constraint_info.type.value
+            src = record.constraint_info.source_file
+            table.add_row("Constraint Type", Text(f"{label}  (from {src})", style=style))
 
         self.console.print(table)
 
