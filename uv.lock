@@ -7,8 +7,8 @@ resolution-markers = [
 ]
 
 [options]
-exclude-newer = "2026-04-11T22:13:06.229982Z"
-exclude-newer-span = "P1W"
+exclude-newer = "2026-04-14T11:11:46.342561Z"
+exclude-newer-span = "P5D"
 
 [[package]]
 name = "alabaster"
@@ -740,7 +740,7 @@ wheels = [
 
 [[package]]
 name = "frictionless"
-version = "5.18.1"
+version = "5.19.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "attrs" },
@@ -763,9 +763,9 @@ dependencies = [
     { name = "typing-extensions" },
     { name = "validators" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/11/d0/c94675a1c1b8c12fd68489e2b4a924f80a2b122199cd986c58a5136197d2/frictionless-5.18.1.tar.gz", hash = "sha256:daeaf55f896eeb52b43e62600466af9528fe0aeeebd28b1b917e13322f370a8b", size = 74372478, upload-time = "2025-03-25T21:32:50.081Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/8d/21/3494557b8c72b8375597cdd5b85d46c76eb978994c2f34f5737262047438/frictionless-5.19.0.tar.gz", hash = "sha256:75a060c8806c4a84dd72112ceeb919277d84982b07420295b9b920e8e30a65ab", size = 74375968, upload-time = "2026-04-13T13:05:53.293Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/a9/7a/dac76d31584bb4f874ae860490c9465f5b59bd8c110f68fbbb07aba48845/frictionless-5.18.1-py3-none-any.whl", hash = "sha256:3f4c87469a89bdb88e9cc318088553a26f3d14839098f95c183ea01fc89628dd", size = 531615, upload-time = "2025-03-25T21:32:45.534Z" },
+    { url = "https://files.pythonhosted.org/packages/1b/3a/e568ea129fbcf9ee0f148178c67f8a2fc4e88de3aa34c840a180bcce4775/frictionless-5.19.0-py3-none-any.whl", hash = "sha256:81436b94a950b1a5cf83e953921e64dc888c00f51400f783ea0aa824319a6d67", size = 535173, upload-time = "2026-04-13T13:05:50.897Z" },
 ]
 
 [[package]]
