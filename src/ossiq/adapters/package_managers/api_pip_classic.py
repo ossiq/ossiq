@@ -22,10 +22,10 @@ from ossiq.settings import Settings
 PipClassicProject = namedtuple("PipClassicProject", ["manifest"])
 
 # Compiled regex patterns for performance (avoid recompilation in loops)
-# Matches lines to skip: pip options (excluding -c), VCS deps, URL deps
+# Matches lines to skip: pip options (except -c, handled separately), VCS deps, URL deps
 _SKIP_LINE_PATTERN = re.compile(
     r"^("
-    r"-[a-z\-]|"  # Pip options like -e, --editable, -r, --requirement, etc.
+    r"-(?!c(?:\s|$))[a-z\-]|"  # Pip options except -c (e.g. -e, --editable, -r, --requirement)
     r"(git|hg|svn|bzr)\+|"  # VCS dependencies (git+, hg+, svn+, bzr+)
     r"(https?|file)://"  # URL dependencies (http://, https://, file://)
     r")",

@@ -103,7 +103,7 @@ git+https://github.com/user/repo.git@v1.0#egg=package
 # URL dependency (skipped)
 https://files.pythonhosted.org/packages/some-package-1.0.tar.gz
 
-# Range specifier — now parsed as NARROWED
+# Range specifier — DECLARED (single lower-bound only)
 numpy>=1.20.0
 
 # Compatible-release specifier — NARROWED
@@ -219,13 +219,14 @@ class TestInternalHelpers:
         assert PackageManagerPythonPipClassic.parse_requirement("") is None
 
     def test_skip_line_pattern_pip_options(self):
-        """Test module-level _SKIP_LINE_PATTERN matches pip options."""
+        """Test module-level _SKIP_LINE_PATTERN matches pip options (except -c)."""
         # Should match various pip options
         assert _SKIP_LINE_PATTERN.match("-e file:///path/to/package")
         assert _SKIP_LINE_PATTERN.match("--editable file:///path/to/package")
         assert _SKIP_LINE_PATTERN.match("-r other-requirements.txt")
         assert _SKIP_LINE_PATTERN.match("--requirement other-requirements.txt")
-        assert _SKIP_LINE_PATTERN.match("-c constraints.txt")
+        # -c is excluded from skip pattern (handled separately as a constraint directive)
+        assert not _SKIP_LINE_PATTERN.match("-c constraints.txt")
 
     def test_skip_line_pattern_vcs_dependencies(self):
         """Test module-level _SKIP_LINE_PATTERN matches VCS dependencies."""
@@ -338,7 +339,7 @@ class TestRequirementsParsing:
         assert "click" in dependencies
         assert dependencies["click"].version_installed == "8.1.7"
 
-        # Range specifier — NARROWED, not skipped
+        # Range specifier — DECLARED (single lower-bound only), not skipped
         assert "numpy" in dependencies
         assert dependencies["numpy"].version_defined == ">=1.20.0"
         assert dependencies["numpy"].constraint_info.type == ConstraintType.DECLARED  # single lower-bound

@@ -164,7 +164,11 @@ class PackageMetrics(BaseModel):
             license=record.license,
             purl=record.purl,
             constraint_type=record.constraint_info.type.value,
-            constraint_source_file=(record.constraint_info.source_file if record.constraint_info else None),
+            constraint_source_file=(
+                record.constraint_info.source_file
+                if record.constraint_info and record.constraint_info.type != ConstraintType.DECLARED
+                else None
+            ),
             extras=record.extras,
         )
 

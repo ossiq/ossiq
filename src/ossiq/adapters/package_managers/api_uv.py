@@ -191,10 +191,6 @@ class PackageManagerPythonUv(AbstractPackageManagerApi):
             elif norm in constraint_names:
                 dep.constraint_info = ConstraintSource(type=ConstraintType.ADDITIVE, source_file=source_file)
 
-            # defualt to DECLARED only if there's no constraint info defined
-            if not dep.constraint_info:
-                dep.constraint_info = ConstraintSource(type=ConstraintType.DECLARED, source_file=source_file)
-
             PackageManagerPythonUv.constraint_dependencies_setting(dep, constraint_names, override_names, source_file)
 
     def load_pyproject_data(self):
