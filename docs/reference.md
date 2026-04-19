@@ -38,13 +38,11 @@ Priority ordering (highest wins when multiple rules apply): `OVERRIDE` > `ADDITI
 
 | `ConstraintType` | What it means | How it gets set |
 |---|---|---|
-| `DECLARED` | Loose specifier in the manifest: open (`any`), caret (`^x`), tilde (`~x`), or lower-bound only (`>=x`). | Default; `constraint_info` is `None`. |
+| `DECLARED` | Loose specifier in the manifest: open (`any`), caret (`^x`), tilde (`~x`), or lower-bound only (`>=x`). | Default |
 | `NARROWED` | Explicit range with an upper bound in the manifest: `>=x <y`, `~=x`, `==x.*`, or a compound specifier. | Version specifier in the manifest contains an upper bound. |
 | `PINNED` | Exactly one version allowed: `==x.y.z` (PyPI) or a bare `x.y.z` (npm). | Exact-version pin in the manifest. |
 | `ADDITIVE` | A separate file or setting narrowed the allowed version range without adding the package as a direct dependency. | pip `-c constraints.txt`; uv `constraint-dependencies`. |
 | `OVERRIDE` | A setting forced a specific version, bypassing what the normal dependency graph would have resolved. | npm `overrides`; uv `override-dependencies`. |
-
-`DECLARED` is the default and is never explicitly stored — `constraint_info` is `None` when a dependency uses a loose manifest specifier. `NARROWED` and `PINNED` are also manifest-level (no external source file) but are stored explicitly with their `constraint_type` so that OSS IQ can surface them separately from unconstrained dependencies.
 
 ### Why you need to watch this
 
