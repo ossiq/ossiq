@@ -1162,3 +1162,24 @@ class TestConstraintClassification:
         project = PackageManagerJsNpm(temp_project_dir, settings).project_info()
         lodash = project.dependency_tree.dependencies["lodash"]
         assert lodash.constraint_info.type == ConstraintType.PINNED
+
+    def test_no_lockfile_caret_is_declared(self, temp_project_dir, settings):
+        """^version without lockfile should be DECLARED."""
+        pkg_json = Path(temp_project_dir) / "package.json"
+        pkg_json.write_text(json.dumps({"name": "t", "version": "1.0.0", "dependencies": {"express": "^4.18.0"}}))
+        project = PackageManagerJsNpm(temp_project_dir, settings).project_info()
+        assert project.dependency_tree.dependencies["express"].constraint_info.type == ConstraintType.DECLARED
+
+    def test_no_lockfile_pinned_version_is_pinned(self, temp_project_dir, settings):
+        """Bare x.y.z without lockfile should be PINNED."""
+        pkg_json = Path(temp_project_dir) / "package.json"
+        pkg_json.write_text(json.dumps({"name": "t", "version": "1.0.0", "dependencies": {"lodash": "4.17.21"}}))
+        project = PackageManagerJsNpm(temp_project_dir, settings).project_info()
+        assert project.dependency_tree.dependencies["lodash"].constraint_info.type == ConstraintType.PINNED
+
+    def test_no_lockfile_range_is_narrowed(self, temp_project_dir, settings):
+        """>=x <y without lockfile should be NARROWED."""
+        pkg_json = Path(temp_project_dir) / "package.json"
+        pkg_json.write_text(json.dumps({"name": "t", "version": "1.0.0", "dependencies": {"lodash": ">=1 <2"}}))
+        project = PackageManagerJsNpm(temp_project_dir, settings).project_info()
+        assert project.dependency_tree.dependencies["lodash"].constraint_info.type == ConstraintType.NARROWED

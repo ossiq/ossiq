@@ -15,7 +15,12 @@ from pathlib import Path
 
 import pytest
 
-from ossiq.adapters.package_managers.api_pip_classic import PackageManagerPythonPipClassic
+from ossiq.adapters.package_managers.api_pip_classic import (
+    _REQUIREMENT_PATTERN,
+    _SKIP_LINE_PATTERN,
+    PackageManagerPythonPipClassic,
+)
+from ossiq.adapters.package_managers.utils import normalize_dist_name
 from ossiq.domain.common import ConstraintType
 from ossiq.domain.exceptions import PackageManagerLockfileParsingError
 from ossiq.domain.packages_manager import PIP_CLASSIC
@@ -215,8 +220,6 @@ class TestInternalHelpers:
 
     def test_skip_line_pattern_pip_options(self):
         """Test module-level _SKIP_LINE_PATTERN matches pip options."""
-        from ossiq.adapters.package_managers.api_pip_classic import _SKIP_LINE_PATTERN
-
         # Should match various pip options
         assert _SKIP_LINE_PATTERN.match("-e file:///path/to/package")
         assert _SKIP_LINE_PATTERN.match("--editable file:///path/to/package")
@@ -226,8 +229,6 @@ class TestInternalHelpers:
 
     def test_skip_line_pattern_vcs_dependencies(self):
         """Test module-level _SKIP_LINE_PATTERN matches VCS dependencies."""
-        from ossiq.adapters.package_managers.api_pip_classic import _SKIP_LINE_PATTERN
-
         assert _SKIP_LINE_PATTERN.match("git+https://github.com/user/repo.git")
         assert _SKIP_LINE_PATTERN.match("hg+https://hg.example.com/repo")
         assert _SKIP_LINE_PATTERN.match("svn+https://svn.example.com/repo")
@@ -235,16 +236,12 @@ class TestInternalHelpers:
 
     def test_skip_line_pattern_url_dependencies(self):
         """Test module-level _SKIP_LINE_PATTERN matches URL dependencies."""
-        from ossiq.adapters.package_managers.api_pip_classic import _SKIP_LINE_PATTERN
-
         assert _SKIP_LINE_PATTERN.match("https://files.pythonhosted.org/packages/package.tar.gz")
         assert _SKIP_LINE_PATTERN.match("http://example.com/package.whl")
         assert _SKIP_LINE_PATTERN.match("file:///local/path/to/package.tar.gz")
 
     def test_skip_line_pattern_normal_packages(self):
         """Test module-level _SKIP_LINE_PATTERN does NOT match normal packages."""
-        from ossiq.adapters.package_managers.api_pip_classic import _SKIP_LINE_PATTERN
-
         # Should NOT match normal package specifications
         assert not _SKIP_LINE_PATTERN.match("requests==2.31.0")
         assert not _SKIP_LINE_PATTERN.match("Django>=3.2")
@@ -252,8 +249,6 @@ class TestInternalHelpers:
 
     def test_requirement_pattern_exact_pin(self):
         """Test _REQUIREMENT_PATTERN matches exact pinned deps."""
-        from ossiq.adapters.package_managers.api_pip_classic import _REQUIREMENT_PATTERN
-
         match = _REQUIREMENT_PATTERN.match("requests==2.31.0")
         assert match is not None
         assert match.group(1) == "requests"
@@ -262,8 +257,6 @@ class TestInternalHelpers:
 
     def test_requirement_pattern_extras(self):
         """Test _REQUIREMENT_PATTERN captures extras."""
-        from ossiq.adapters.package_managers.api_pip_classic import _REQUIREMENT_PATTERN
-
         match = _REQUIREMENT_PATTERN.match("pydantic[email]==2.5.0")
         assert match is not None
         assert match.group(1) == "pydantic"
@@ -272,28 +265,24 @@ class TestInternalHelpers:
 
     def test_requirement_pattern_range_specifier(self):
         """Test _REQUIREMENT_PATTERN matches range specifiers."""
-        from ossiq.adapters.package_managers.api_pip_classic import _REQUIREMENT_PATTERN
-
         match = _REQUIREMENT_PATTERN.match("numpy>=1.20.0")
         assert match is not None
         assert match.group(3) == ">=1.20.0"
 
     def test_requirement_pattern_bare_name(self):
         """Test _REQUIREMENT_PATTERN matches bare package name (no version)."""
-        from ossiq.adapters.package_managers.api_pip_classic import _REQUIREMENT_PATTERN
-
         match = _REQUIREMENT_PATTERN.match("requests")
         assert match is not None
         assert match.group(1) == "requests"
         assert match.group(3) is None
 
-    def test_extras_pattern(self):
-        """Test module-level _EXTRAS_PATTERN removes extras."""
-        from ossiq.adapters.package_managers.api_pip_classic import _EXTRAS_PATTERN
-
-        assert _EXTRAS_PATTERN.sub("", "requests[security]") == "requests"
-        assert _EXTRAS_PATTERN.sub("", "pydantic[email,dotenv]") == "pydantic"
-        assert _EXTRAS_PATTERN.sub("", "package") == "package"
+    def test_normalize_dist_name_strips_extras(self):
+        """Test normalize_dist_name strips extras and normalizes the name."""
+        assert normalize_dist_name("requests[security]") == "requests"
+        assert normalize_dist_name("pydantic[email,dotenv]") == "pydantic"
+        assert normalize_dist_name("package") == "package"
+        assert normalize_dist_name("zope.interface") == "zope-interface"
+        assert normalize_dist_name("My_Package") == "my-package"
 
 
 # ============================================================================

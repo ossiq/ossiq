@@ -40,10 +40,8 @@ _CONSTRAINT_FILE_PATTERN = re.compile(r"^-c\s+(.+)$", re.IGNORECASE)
 _REQUIREMENT_PATTERN = re.compile(
     r"^([a-zA-Z0-9._\-]+)"
     r"(\[[^\]]+\])?"
-    r"\s*((?:==|!=|>=|<=|~=|>|<)[^\s;]*)?"
+    r"\s*((?:==|!=|>=|<=|~=|>|<)[^,\s;]+(?:\s*,\s*(?:==|!=|>=|<=|~=|>|<)[^,\s;]+)*)?"
 )
-# Matches extras specification in package names (used for stripping)
-_EXTRAS_PATTERN = re.compile(r"\[.*\]")
 
 
 class PackageManagerPythonPipClassic(AbstractPackageManagerApi):
@@ -216,8 +214,7 @@ class PackageManagerPythonPipClassic(AbstractPackageManagerApi):
                 # Bare package name with no version specifier — skip
                 continue
 
-            # Normalize package name (strip extras, lowercase, underscores → hyphens)
-            package_name = _EXTRAS_PATTERN.sub("", package_spec).lower().replace("_", "-").strip()
+            package_name = normalize_dist_name(package_spec)
 
             # Best-effort installed version: exact for ==, lower bound for ranges
             version = normalize_version(version_spec)

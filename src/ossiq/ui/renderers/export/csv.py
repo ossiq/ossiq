@@ -245,8 +245,8 @@ class CsvExportRenderer(AbstractUserInterfaceRenderer):
                     "version_constraint": self._serialize_optional(pkg.version_constraint),
                     "constraint_type": self._serialize_optional(pkg.constraint_type),
                     "constraint_source_file": self._serialize_optional(pkg.constraint_source_file),
-                    "extras": self._serialize_optional(", ".join(pkg.extras) if pkg.extras else None),
-                    "license": self._serialize_optional(", ".join(pkg.license) if pkg.license else None),
+                    "extras": self._serialize_optional(",".join(pkg.extras) if pkg.extras else None),
+                    "license": self._serialize_optional(",".join(pkg.license) if pkg.license else None),
                     "purl": self._serialize_optional(pkg.purl),
                 }
             )
@@ -267,8 +267,8 @@ class CsvExportRenderer(AbstractUserInterfaceRenderer):
                     "version_constraint": self._serialize_optional(pkg.version_constraint),
                     "constraint_type": self._serialize_optional(pkg.constraint_type),
                     "constraint_source_file": self._serialize_optional(pkg.constraint_source_file),
-                    "extras": self._serialize_optional(", ".join(pkg.extras) if pkg.extras else None),
-                    "license": self._serialize_optional(", ".join(pkg.license) if pkg.license else None),
+                    "extras": self._serialize_optional(",".join(pkg.extras) if pkg.extras else None),
+                    "license": self._serialize_optional(",".join(pkg.license) if pkg.license else None),
                     "purl": self._serialize_optional(pkg.purl),
                 }
             )

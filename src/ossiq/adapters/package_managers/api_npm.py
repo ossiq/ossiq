@@ -313,7 +313,7 @@ class PackageManagerJsNpm(AbstractPackageManagerApi):
                 version_installed=normalize_version(constraint),
                 version_defined=version,
                 categories=categories_map.get(name, []),
-                constraint_info=ConstraintSource(type=ConstraintType.DECLARED, source_file="package.json"),
+                constraint_info=ConstraintSource(type=classify_npm_specifier(constraint), source_file="package.json"),
             )
 
         dependencies = {
