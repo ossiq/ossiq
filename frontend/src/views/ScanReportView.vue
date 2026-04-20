@@ -61,7 +61,7 @@ function handleSelectPackage(row: ReportRow) {
   }
 
   const transitives = store.report?.transitive_packages ?? []
-  const subtree = transitives.filter(t => t.dependency_path?.includes(row.pkg.package_name))
+  const subtree = transitives.filter(t => t.dependency_paths.some(dp => dp.path.includes(row.pkg.package_name)))
   if (subtree.length > 0) {
     selectedNode.value.dependencies = Object.fromEntries(
       subtree.map(t => [t.package_name, { name: t.package_name, version_installed: t.installed_version, cve: t.cve }])

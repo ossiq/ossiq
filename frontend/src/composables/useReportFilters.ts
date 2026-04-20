@@ -74,8 +74,10 @@ export function useReportFilters() {
   const transitiveCveSet = computed<Set<string>>(() => {
     const set = new Set<string>()
     for (const pkg of store.transitivePackages) {
-      if (pkg.cve.length > 0 && pkg.dependency_path?.[0]) {
-        set.add(pkg.dependency_path[0])
+      if (pkg.cve.length > 0) {
+        for (const dp of pkg.dependency_paths) {
+          if (dp.path[0]) set.add(dp.path[0])
+        }
       }
     }
     return set

@@ -6,9 +6,9 @@
  */
 
 /**
- * Schema for OSS-IQ project metrics export data (v1.2 adds constraint_type and constraint_source_file)
+ * Schema for OSS-IQ project metrics export data (v1.3 eliminates transitive dependency path duplication via grouped dependency_paths)
  */
-export interface OSSIQExportSchemaV12 {
+export interface OSSIQExportSchemaV13 {
   /**
    * Metadata about the export itself
    */
@@ -16,7 +16,7 @@ export interface OSSIQExportSchemaV12 {
     /**
      * Version of the export schema format
      */
-    schema_version: "1.2";
+    schema_version: "1.3";
     /**
      * UTC timestamp when the export was generated
      */
@@ -80,13 +80,13 @@ export interface OSSIQExportSchemaV12 {
    */
   development_packages: PackageMetrics[];
   /**
-   * Transitive dependency metrics (all paths, production edges only)
+   * Transitive dependency metrics, one entry per unique (package_name, installed_version)
    */
-  transitive_packages: PackageMetrics[];
+  transitive_packages: TransitivePackageMetrics[];
   [k: string]: unknown;
 }
 /**
- * Metrics for a single package
+ * Metrics for a single package (used for production and development dependencies)
  */
 export interface PackageMetrics {
   /**
@@ -207,5 +207,95 @@ export interface CVEInfo {
    * URL to upstream advisory
    */
   link: string;
+  [k: string]: unknown;
+}
+/**
+ * Metrics for a transitive package, deduplicated by (package_name, installed_version)
+ */
+export interface TransitivePackageMetrics {
+  /**
+   * Package name (canonical registry name)
+   */
+  package_name: string;
+  /**
+   * Whether this is a development/optional dependency; always false for transitive deps
+   */
+  is_optional_dependency: boolean;
+  /**
+   * Currently installed version
+   */
+  installed_version: string;
+  /**
+   * Latest available version
+   */
+  latest_version: string | null;
+  /**
+   * Days between installed and latest version
+   */
+  time_lag_days: number | null;
+  /**
+   * Number of releases between installed and latest
+   */
+  releases_lag: number | null;
+  /**
+   * Known CVEs for this package
+   */
+  cve: CVEInfo[];
+  /**
+   * Source code repository URL
+   */
+  repo_url?: string | null;
+  /**
+   * Package homepage URL
+   */
+  homepage_url?: string | null;
+  /**
+   * Package registry page URL
+   */
+  package_url?: string | null;
+  /**
+   * SPDX license identifiers parsed from the package license expression
+   */
+  license?: string[] | null;
+  /**
+   * Package URL (PURL) per ECMA-386, e.g. pkg:pypi/requests@2.25.1 or pkg:npm/lodash@4.17.21
+   */
+  purl?: string | null;
+  /**
+   * All traversal paths through which this package is reached
+   *
+   * @minItems 1
+   */
+  dependency_paths: [DependencyPath, ...DependencyPath[]];
+  [k: string]: unknown;
+}
+/**
+ * One traversal path through which a transitive package is reached
+ */
+export interface DependencyPath {
+  /**
+   * Ancestor names from root's direct child down to (but not including) this package
+   */
+  path: string[];
+  /**
+   * Alias name declared by the immediate parent (null when no alias is used)
+   */
+  dependency_name?: string | null;
+  /**
+   * Version constraint declared by the immediate parent
+   */
+  version_constraint?: string | null;
+  /**
+   * How the version constraint was applied
+   */
+  constraint_type: "DECLARED" | "NARROWED" | "PINNED" | "ADDITIVE" | "OVERRIDE";
+  /**
+   * File that introduced a non-DECLARED constraint
+   */
+  constraint_source_file?: string | null;
+  /**
+   * PyPI extras for this path (null for non-PyPI or when unused)
+   */
+  extras?: string[] | null;
   [k: string]: unknown;
 }
