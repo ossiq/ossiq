@@ -12,7 +12,7 @@ from ossiq.domain.project import normalize_filename
 from ossiq.service.project import ScanResult
 from ossiq.ui.interfaces import AbstractUserInterfaceRenderer
 from ossiq.ui.renderers.export.json_schema_registry import json_schema_registry
-from ossiq.ui.renderers.export.models import ExportData
+from ossiq.ui.renderers.export.models import build_export_data
 
 
 class HtmlScanRenderer(AbstractUserInterfaceRenderer):
@@ -49,7 +49,7 @@ class HtmlScanRenderer(AbstractUserInterfaceRenderer):
         spa_template = spa_template_path.read_text(encoding="utf-8")
 
         # Convert ProjectMetrics to ExportData (reuses JSON export logic)
-        export_data = ExportData.from_project_metrics(
+        export_data = build_export_data(
             data,
             schema_version=json_schema_registry.get_latest_version(),
         )

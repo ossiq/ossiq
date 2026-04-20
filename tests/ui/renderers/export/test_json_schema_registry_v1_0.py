@@ -98,13 +98,13 @@ class TestSchemaRegistryV10:
         AAA Pattern:
         - Arrange: Registry fixture
         - Act: Get latest version
-        - Assert: Version is v1.2
+        - Assert: Version is v1.3
         """
         # Act
         latest = registry.get_latest_version()
 
         # Assert
-        assert latest == ExportJsonSchemaVersion.V1_2
+        assert latest == ExportJsonSchemaVersion.V1_3
 
     def test_list_versions_includes_v1_0(self, registry):
         """Test listing all registered versions includes v1.0.

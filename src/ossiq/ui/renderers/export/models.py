@@ -2,8 +2,6 @@
 Pydantic models for JSON export schema.
 
 These models define the structure of exported project metrics data.
-Version 1.0 schema includes metadata, project info, summary statistics,
-and detailed package information.
 """
 
 from datetime import UTC, datetime
@@ -94,7 +92,7 @@ class CVEInfo(BaseModel):
 
 
 class PackageMetrics(BaseModel):
-    """Metrics for a single package."""
+    """Metrics for a single package (schema v1.0–1.2)."""
 
     package_name: str = Field(description="Package name (canonical registry name)")
     dependency_name: str | None = Field(
@@ -173,8 +171,114 @@ class PackageMetrics(BaseModel):
         )
 
 
-class ExportData(BaseModel):
-    """Root export data structure (schema version 1.0)."""
+# ── v1.3 models ──────────────────────────────────────────────────────────────
+
+
+class DependencyPath(BaseModel):
+    """One traversal path through which a transitive package is reached (schema v1.3+)."""
+
+    path: list[str] = Field(
+        description=(
+            "Ancestor names from the root's direct child down to (but not including) "
+            "this package — e.g. ['react-dom'] for scheduler reached via react-dom"
+        )
+    )
+    dependency_name: str | None = Field(
+        default=None,
+        description="Alias name declared by the immediate parent (None when no alias is used)",
+    )
+    version_constraint: str | None = Field(
+        default=None,
+        description="Version constraint declared by the immediate parent",
+    )
+    constraint_type: str = Field(
+        default=ConstraintType.DECLARED,
+        description="How the version constraint was applied: DECLARED, NARROWED, PINNED, ADDITIVE, or OVERRIDE",
+    )
+    constraint_source_file: str | None = Field(
+        default=None,
+        description="File that introduced a non-DECLARED constraint",
+    )
+    extras: list[str] | None = Field(
+        default=None,
+        description="PyPI extras for this path (None for non-PyPI or when unused)",
+    )
+
+
+class TransitivePackageMetrics(BaseModel):
+    """
+    Metrics for a transitive package (schema v1.3+).
+
+    One entry per unique (package_name, installed_version). All path-specific
+    data is grouped into the dependency_paths list, eliminating duplication of
+    invariant fields (CVEs, URLs, version info) across multiple traversal paths.
+    """
+
+    package_name: str = Field(description="Package name (canonical registry name)")
+    is_optional_dependency: bool = Field(
+        description="Whether this is a development/optional dependency; always False for transitive deps"
+    )
+    installed_version: str = Field(description="Currently installed version")
+    latest_version: str | None = Field(description="Latest available version")
+    time_lag_days: int | None = Field(description="Days between installed and latest version")
+    releases_lag: int | None = Field(description="Number of releases between installed and latest")
+    cve: list[CVEInfo] = Field(default_factory=list, description="Known CVEs for this package")
+    repo_url: str | None = Field(default=None, description="Source code repository URL")
+    homepage_url: str | None = Field(default=None, description="Package homepage URL")
+    package_url: str | None = Field(default=None, description="Package registry page URL")
+    license: list[str] | None = Field(
+        default=None, description="SPDX license identifiers parsed from the package license expression"
+    )
+    purl: str | None = Field(default=None, description="Package URL (PURL) per ECMA-386")
+    dependency_paths: list[DependencyPath] = Field(
+        default_factory=list,
+        description="All traversal paths through which this package is reached",
+    )
+
+    @classmethod
+    def from_domain_group(cls, records: list) -> "TransitivePackageMetrics":
+        """
+        Build one TransitivePackageMetrics from a group of ScanRecords that all share
+        the same (package_name, installed_version). Invariant fields are read from
+        the first record; path-specific fields are extracted from each record.
+        """
+        first = records[0]
+        return cls(
+            package_name=first.package_name,
+            is_optional_dependency=first.is_optional_dependency,
+            installed_version=first.installed_version,
+            latest_version=first.latest_version,
+            time_lag_days=first.time_lag_days,
+            releases_lag=first.releases_lag,
+            cve=[CVEInfo.from_domain(cve) for cve in first.cve],
+            repo_url=first.repo_url,
+            homepage_url=first.homepage_url,
+            package_url=first.package_url,
+            license=first.license,
+            purl=first.purl,
+            dependency_paths=[
+                DependencyPath(
+                    path=rec.dependency_path or [],
+                    dependency_name=rec.dependency_name,
+                    version_constraint=rec.version_constraint,
+                    constraint_type=rec.constraint_info.type.value,
+                    constraint_source_file=(
+                        rec.constraint_info.source_file
+                        if rec.constraint_info and rec.constraint_info.type != ConstraintType.DECLARED
+                        else None
+                    ),
+                    extras=rec.extras,
+                )
+                for rec in records
+            ],
+        )
+
+
+# ── Export data containers ────────────────────────────────────────────────────
+
+
+class ExportDataBase(BaseModel):
+    """Common fields shared across all export schema versions."""
 
     metadata: ExportMetadata = Field(description="Export metadata")
     project: ProjectInfo = Field(description="Project information")
@@ -187,46 +291,82 @@ class ExportData(BaseModel):
         default_factory=list,
         description="Development dependency metrics",
     )
+
+
+class ExportData(ExportDataBase):
+    """Root export data structure (schema v1.0–1.2)."""
+
     transitive_packages: list[PackageMetrics] = Field(
         default_factory=list,
         description="Transitive dependency metrics (all paths, production edges only)",
     )
 
-    @classmethod
-    def from_project_metrics(
-        cls, data: ScanResult, schema_version: ExportJsonSchemaVersion | ExportCsvSchemaVersion
-    ) -> "ExportData":
-        """
-        Create ExportData from ScanResult domain model.
 
-        Args:
-            data: ScanResult instance from scan service
+class ExportDataV13(ExportDataBase):
+    """Root export data structure (schema v1.3+)."""
 
-        Returns:
-            ExportData with all fields populated
-        """
-        # Calculate summary statistics (direct deps only)
-        all_direct = data.production_packages + data.optional_packages
-        total_cves = sum(len(pkg.cve) for pkg in all_direct)
-        packages_with_cves = sum(1 for pkg in all_direct if len(pkg.cve) > 0)
-        packages_outdated = sum(1 for pkg in all_direct if pkg.versions_diff_index.diff_index > 0)
+    transitive_packages: list[TransitivePackageMetrics] = Field(
+        default_factory=list,
+        description="Transitive dependency metrics, one entry per unique (package_name, installed_version)",
+    )
 
-        return cls(
-            metadata=ExportMetadata(schema_version=schema_version),
-            project=ProjectInfo(
-                name=data.project_name,
-                path=data.project_path,
-                registry=data.packages_registry,
-            ),
-            summary=ProjectSummary(
-                total_packages=len(all_direct),
-                production_packages=len(data.production_packages),
-                development_packages=len(data.optional_packages),
-                packages_with_cves=packages_with_cves,
-                total_cves=total_cves,
-                packages_outdated=packages_outdated,
-            ),
-            production_packages=[PackageMetrics.from_domain(pkg) for pkg in data.production_packages],
-            development_packages=[PackageMetrics.from_domain(pkg) for pkg in data.optional_packages],
-            transitive_packages=[PackageMetrics.from_domain(pkg) for pkg in data.transitive_packages],
+
+# ── Factory ───────────────────────────────────────────────────────────────────
+
+
+def _build_v1_3_transitive(records) -> list[TransitivePackageMetrics]:
+    groups: dict[tuple[str, str], list] = {}
+    for r in records:
+        groups.setdefault((r.package_name, r.installed_version), []).append(r)
+    return [TransitivePackageMetrics.from_domain_group(g) for g in groups.values()]
+
+
+def build_export_data(
+    data: ScanResult,
+    schema_version: ExportJsonSchemaVersion | ExportCsvSchemaVersion,
+) -> ExportData | ExportDataV13:
+    """
+    Create export data from ScanResult domain model.
+
+    Returns ExportDataV13 for schema v1.3+; ExportData (v1.0–1.2) otherwise.
+    """
+    all_direct = data.production_packages + data.optional_packages
+    total_cves = sum(len(pkg.cve) for pkg in all_direct)
+    packages_with_cves = sum(1 for pkg in all_direct if len(pkg.cve) > 0)
+    packages_outdated = sum(1 for pkg in all_direct if pkg.versions_diff_index.diff_index > 0)
+
+    metadata = ExportMetadata(schema_version=schema_version)
+    project = ProjectInfo(
+        name=data.project_name,
+        path=data.project_path,
+        registry=data.packages_registry,
+    )
+    summary = ProjectSummary(
+        total_packages=len(all_direct),
+        production_packages=len(data.production_packages),
+        development_packages=len(data.optional_packages),
+        packages_with_cves=packages_with_cves,
+        total_cves=total_cves,
+        packages_outdated=packages_outdated,
+    )
+    production = [PackageMetrics.from_domain(pkg) for pkg in data.production_packages]
+    development = [PackageMetrics.from_domain(pkg) for pkg in data.optional_packages]
+
+    if schema_version == ExportJsonSchemaVersion.V1_3:
+        return ExportDataV13(
+            metadata=metadata,
+            project=project,
+            summary=summary,
+            production_packages=production,
+            development_packages=development,
+            transitive_packages=_build_v1_3_transitive(data.transitive_packages),
         )
+
+    return ExportData(
+        metadata=metadata,
+        project=project,
+        summary=summary,
+        production_packages=production,
+        development_packages=development,
+        transitive_packages=[PackageMetrics.from_domain(pkg) for pkg in data.transitive_packages],
+    )
