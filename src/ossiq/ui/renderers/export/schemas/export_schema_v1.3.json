@@ -2,9 +2,9 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://ossiq.org/schemas/export/v1.3.json",
   "title": "OSS-IQ Export Schema v1.3",
-  "description": "Schema for OSS-IQ project metrics export data (v1.3 eliminates transitive dependency path duplication via grouped dependency_paths)",
+  "description": "Schema for OSS-IQ project metrics export data (v1.3 uses a shared dependency_tree with integer ct references into constraint_type_map, explicit id on transitive packages, and omits null/empty fields for compact output)",
   "type": "object",
-  "required": ["metadata", "project", "summary", "production_packages", "development_packages", "transitive_packages"],
+  "required": ["metadata", "project", "summary", "production_packages", "development_packages", "transitive_packages", "dependency_tree", "constraint_type_map"],
   "properties": {
     "metadata": {
       "type": "object",
@@ -103,61 +103,97 @@
     },
     "transitive_packages": {
       "type": "array",
-      "description": "Transitive dependency metrics, one entry per unique (package_name, installed_version)",
+      "description": "Transitive dependency metrics, one entry per unique (package_name, installed_version); path and constraint data lives in dependency_tree",
       "items": {
         "$ref": "#/$defs/TransitivePackageMetrics"
       }
+    },
+    "dependency_tree": {
+      "type": "array",
+      "description": "Dependency tree rooted at each direct production dependency; nodes carry edge-specific constraint data and reference transitive_packages by id",
+      "items": {
+        "$ref": "#/$defs/DependencyTreeRoot"
+      }
+    },
+    "constraint_type_map": {
+      "type": "array",
+      "description": "Lookup table for ct integer field in DependencyTreeNode; index 0=DECLARED, 1=NARROWED, 2=PINNED, 3=ADDITIVE, 4=OVERRIDE",
+      "items": { "type": "string" },
+      "minItems": 5,
+      "maxItems": 5
     }
   },
   "$defs": {
-    "DependencyPath": {
+    "DependencyTreeRoot": {
       "type": "object",
-      "description": "One traversal path through which a transitive package is reached",
-      "required": ["path", "constraint_type"],
+      "description": "Root entry in the dependency tree, anchored at a direct production dependency",
+      "required": ["package_name"],
       "properties": {
-        "path": {
-          "type": "array",
-          "items": { "type": "string" },
-          "description": "Ancestor names from root's direct child down to (but not including) this package"
+        "package_name": {
+          "type": "string",
+          "description": "Name of the direct production dependency"
         },
-        "dependency_name": {
-          "type": ["string", "null"],
-          "description": "Alias name declared by the immediate parent (null when no alias is used)"
+        "children": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/DependencyTreeNode" },
+          "description": "Transitive packages directly required by this production dependency"
+        }
+      }
+    },
+    "DependencyTreeNode": {
+      "type": "object",
+      "description": "One node in the dependency tree; ref matches id in transitive_packages, ct indexes into constraint_type_map",
+      "required": ["ref", "ct"],
+      "properties": {
+        "ref": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Matches the id field of a TransitivePackageMetrics entry"
+        },
+        "ct": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4,
+          "description": "Index into the top-level constraint_type_map array"
         },
         "version_constraint": {
-          "type": ["string", "null"],
+          "type": "string",
           "description": "Version constraint declared by the immediate parent"
         },
-        "constraint_type": {
+        "dependency_name": {
           "type": "string",
-          "enum": ["DECLARED", "NARROWED", "PINNED", "ADDITIVE", "OVERRIDE"],
-          "description": "How the version constraint was applied"
-        },
-        "constraint_source_file": {
-          "type": ["string", "null"],
-          "description": "File that introduced a non-DECLARED constraint"
+          "description": "Alias name declared by the immediate parent (absent when same as package_name)"
         },
         "extras": {
-          "type": ["array", "null"],
+          "type": "array",
           "items": { "type": "string" },
-          "description": "PyPI extras for this path (null for non-PyPI or when unused)"
+          "description": "PyPI extras for this dependency (absent for non-PyPI or when unused)"
+        },
+        "children": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/DependencyTreeNode" },
+          "description": "Transitive packages directly required by this package"
         }
       }
     },
     "TransitivePackageMetrics": {
       "type": "object",
-      "description": "Metrics for a transitive package, deduplicated by (package_name, installed_version)",
+      "description": "Metrics for a transitive package, deduplicated by (package_name, installed_version); path and constraint data lives in dependency_tree",
       "required": [
+        "id",
         "package_name",
         "is_optional_dependency",
         "installed_version",
         "latest_version",
         "time_lag_days",
-        "releases_lag",
-        "cve",
-        "dependency_paths"
+        "releases_lag"
       ],
       "properties": {
+        "id": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Zero-based index into the transitive_packages array; matched by DependencyTreeNode.ref"
+        },
         "package_name": {
           "type": "string",
           "description": "Package name (canonical registry name)"
@@ -184,10 +220,14 @@
         },
         "cve": {
           "type": "array",
-          "description": "Known CVEs for this package",
+          "description": "Known CVEs for this package (absent when empty)",
           "items": {
             "$ref": "#/$defs/CVEInfo"
           }
+        },
+        "constraint_source_file": {
+          "type": "string",
+          "description": "File that introduced a non-DECLARED constraint for this package (absent when DECLARED)"
         },
         "repo_url": {
           "type": ["string", "null"],
@@ -212,14 +252,6 @@
         "purl": {
           "type": ["string", "null"],
           "description": "Package URL (PURL) per ECMA-386, e.g. pkg:pypi/requests@2.25.1 or pkg:npm/lodash@4.17.21"
-        },
-        "dependency_paths": {
-          "type": "array",
-          "minItems": 1,
-          "description": "All traversal paths through which this package is reached",
-          "items": {
-            "$ref": "#/$defs/DependencyPath"
-          }
         }
       }
     },

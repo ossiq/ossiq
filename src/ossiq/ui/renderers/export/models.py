@@ -6,7 +6,7 @@ These models define the structure of exported project metrics data.
 
 from datetime import UTC, datetime
 
-from pydantic import BaseModel, Field, field_serializer
+from pydantic import BaseModel, Field, field_serializer, model_serializer
 
 from ossiq.domain.common import (
     ConstraintType,
@@ -173,47 +173,66 @@ class PackageMetrics(BaseModel):
 
 # ── v1.3 models ──────────────────────────────────────────────────────────────
 
+CONSTRAINT_TYPE_MAP: list[str] = ["DECLARED", "NARROWED", "PINNED", "ADDITIVE", "OVERRIDE"]
+_CT_INDEX: dict[str, int] = {v: i for i, v in enumerate(CONSTRAINT_TYPE_MAP)}
 
-class DependencyPath(BaseModel):
-    """One traversal path through which a transitive package is reached (schema v1.3+)."""
 
-    path: list[str] = Field(
-        description=(
-            "Ancestor names from the root's direct child down to (but not including) "
-            "this package — e.g. ['react-dom'] for scheduler reached via react-dom"
-        )
+class DependencyTreeNode(BaseModel):
+    """One node in the dependency tree, carrying edge-specific constraint data."""
+
+    ref: int = Field(description="Index into the transitive_packages array")
+    ct: int = Field(description="Index into the top-level constraint_type_map array")
+    version_constraint: str | None = Field(
+        default=None,
+        description="Version constraint declared by the immediate parent",
     )
     dependency_name: str | None = Field(
         default=None,
         description="Alias name declared by the immediate parent (None when no alias is used)",
     )
-    version_constraint: str | None = Field(
-        default=None,
-        description="Version constraint declared by the immediate parent",
-    )
-    constraint_type: str = Field(
-        default=ConstraintType.DECLARED,
-        description="How the version constraint was applied: DECLARED, NARROWED, PINNED, ADDITIVE, or OVERRIDE",
-    )
-    constraint_source_file: str | None = Field(
-        default=None,
-        description="File that introduced a non-DECLARED constraint",
-    )
     extras: list[str] | None = Field(
         default=None,
-        description="PyPI extras for this path (None for non-PyPI or when unused)",
+        description="PyPI extras for this dependency (None for non-PyPI or when unused)",
     )
+    children: list["DependencyTreeNode"] = Field(
+        default_factory=list,
+        description="Transitive packages directly required by this package",
+    )
+
+    @model_serializer(mode="wrap")
+    def _compact(self, handler):
+        d = handler(self)
+        return {k: v for k, v in d.items() if not (v is None or (isinstance(v, list) and len(v) == 0))}
+
+
+DependencyTreeNode.model_rebuild()
+
+
+class DependencyTreeRoot(BaseModel):
+    """Root entry in the dependency tree, anchored at a direct production dependency."""
+
+    package_name: str = Field(description="Name of the direct production dependency")
+    children: list[DependencyTreeNode] = Field(
+        default_factory=list,
+        description="Transitive packages directly required by this production dependency",
+    )
+
+    @model_serializer(mode="wrap")
+    def _compact(self, handler):
+        d = handler(self)
+        return {k: v for k, v in d.items() if not (v is None or (isinstance(v, list) and len(v) == 0))}
 
 
 class TransitivePackageMetrics(BaseModel):
     """
     Metrics for a transitive package (schema v1.3+).
 
-    One entry per unique (package_name, installed_version). All path-specific
-    data is grouped into the dependency_paths list, eliminating duplication of
-    invariant fields (CVEs, URLs, version info) across multiple traversal paths.
+    One entry per unique (package_name, installed_version). Path-specific data
+    (constraint type, version constraint, ancestry) lives in the dependency_tree
+    top-level field; this model holds only package metrics.
     """
 
+    id: int = Field(description="Zero-based index into the transitive_packages array (used for ref cross-reference)")
     package_name: str = Field(description="Package name (canonical registry name)")
     is_optional_dependency: bool = Field(
         description="Whether this is a development/optional dependency; always False for transitive deps"
@@ -223,6 +242,10 @@ class TransitivePackageMetrics(BaseModel):
     time_lag_days: int | None = Field(description="Days between installed and latest version")
     releases_lag: int | None = Field(description="Number of releases between installed and latest")
     cve: list[CVEInfo] = Field(default_factory=list, description="Known CVEs for this package")
+    constraint_source_file: str | None = Field(
+        default=None,
+        description="File that introduced a non-DECLARED constraint for this package",
+    )
     repo_url: str | None = Field(default=None, description="Source code repository URL")
     homepage_url: str | None = Field(default=None, description="Package homepage URL")
     package_url: str | None = Field(default=None, description="Package registry page URL")
@@ -230,20 +253,15 @@ class TransitivePackageMetrics(BaseModel):
         default=None, description="SPDX license identifiers parsed from the package license expression"
     )
     purl: str | None = Field(default=None, description="Package URL (PURL) per ECMA-386")
-    dependency_paths: list[DependencyPath] = Field(
-        default_factory=list,
-        description="All traversal paths through which this package is reached",
-    )
 
     @classmethod
-    def from_domain_group(cls, records: list) -> "TransitivePackageMetrics":
-        """
-        Build one TransitivePackageMetrics from a group of ScanRecords that all share
-        the same (package_name, installed_version). Invariant fields are read from
-        the first record; path-specific fields are extracted from each record.
-        """
+    def from_domain_group(
+        cls, idx: int, records: list, constraint_source_file: str | None
+    ) -> "TransitivePackageMetrics":
+        """Build one TransitivePackageMetrics from a group of ScanRecords sharing (package_name, installed_version)."""
         first = records[0]
         return cls(
+            id=idx,
             package_name=first.package_name,
             is_optional_dependency=first.is_optional_dependency,
             installed_version=first.installed_version,
@@ -251,27 +269,18 @@ class TransitivePackageMetrics(BaseModel):
             time_lag_days=first.time_lag_days,
             releases_lag=first.releases_lag,
             cve=[CVEInfo.from_domain(cve) for cve in first.cve],
+            constraint_source_file=constraint_source_file,
             repo_url=first.repo_url,
             homepage_url=first.homepage_url,
             package_url=first.package_url,
             license=first.license,
             purl=first.purl,
-            dependency_paths=[
-                DependencyPath(
-                    path=rec.dependency_path or [],
-                    dependency_name=rec.dependency_name,
-                    version_constraint=rec.version_constraint,
-                    constraint_type=rec.constraint_info.type.value,
-                    constraint_source_file=(
-                        rec.constraint_info.source_file
-                        if rec.constraint_info and rec.constraint_info.type != ConstraintType.DECLARED
-                        else None
-                    ),
-                    extras=rec.extras,
-                )
-                for rec in records
-            ],
         )
+
+    @model_serializer(mode="wrap")
+    def _compact(self, handler):
+        d = handler(self)
+        return {k: v for k, v in d.items() if not (v is None or (isinstance(v, list) and len(v) == 0))}
 
 
 # ── Export data containers ────────────────────────────────────────────────────
@@ -305,20 +314,91 @@ class ExportData(ExportDataBase):
 class ExportDataV13(ExportDataBase):
     """Root export data structure (schema v1.3+)."""
 
+    constraint_type_map: list[str] = Field(
+        default_factory=lambda: list(CONSTRAINT_TYPE_MAP),
+        description="Lookup table for ct integer field in dependency_tree nodes",
+    )
     transitive_packages: list[TransitivePackageMetrics] = Field(
         default_factory=list,
         description="Transitive dependency metrics, one entry per unique (package_name, installed_version)",
+    )
+    dependency_tree: list[DependencyTreeRoot] = Field(
+        default_factory=list,
+        description="Dependency tree rooted at direct production dependencies; nodes carry edge constraint data",
     )
 
 
 # ── Factory ───────────────────────────────────────────────────────────────────
 
 
-def _build_v1_3_transitive(records) -> list[TransitivePackageMetrics]:
+def _build_v1_3_data(
+    records: list,
+) -> tuple[list[TransitivePackageMetrics], list[DependencyTreeRoot]]:
+    """Build the deduplicated transitive list and the dependency tree from raw ScanRecords."""
     groups: dict[tuple[str, str], list] = {}
+    first_csf: dict[tuple[str, str], str | None] = {}
     for r in records:
-        groups.setdefault((r.package_name, r.installed_version), []).append(r)
-    return [TransitivePackageMetrics.from_domain_group(g) for g in groups.values()]
+        key = (r.package_name, r.installed_version)
+        groups.setdefault(key, []).append(r)
+        if key not in first_csf:
+            first_csf[key] = None
+        if first_csf[key] is None and r.constraint_info and r.constraint_info.type != ConstraintType.DECLARED:
+            first_csf[key] = r.constraint_info.source_file
+
+    pkg_to_idx = {key: i for i, key in enumerate(groups.keys())}
+    transitive = [
+        TransitivePackageMetrics.from_domain_group(i, g, first_csf[key]) for i, (key, g) in enumerate(groups.items())
+    ]
+    tree = _build_dependency_tree(records, pkg_to_idx)
+    return transitive, tree
+
+
+def _build_dependency_tree(
+    records: list,
+    pkg_to_idx: dict[tuple[str, str], int],
+) -> list[DependencyTreeRoot]:
+    """Build a tree of DependencyTreeRoot from flat ScanRecords sorted by path length."""
+    roots: dict[str, DependencyTreeRoot] = {}
+    node_registry: dict[str, DependencyTreeNode] = {}
+
+    for rec in sorted(records, key=lambda r: len(r.dependency_path or [])):
+        path = rec.dependency_path or []
+        if not path:
+            continue
+
+        idx = pkg_to_idx.get((rec.package_name, rec.installed_version))
+        if idx is None:
+            continue
+
+        leaf_path_key = "/".join(path + [rec.package_name])
+        if leaf_path_key in node_registry:
+            continue
+
+        direct_dep = path[0]
+        if direct_dep not in roots:
+            roots[direct_dep] = DependencyTreeRoot(package_name=direct_dep, children=[])
+
+        dep_name = rec.dependency_name if rec.dependency_name != rec.package_name else None
+        leaf_node = DependencyTreeNode(
+            ref=idx,
+            ct=_CT_INDEX[rec.constraint_info.type.value],
+            version_constraint=rec.version_constraint,
+            dependency_name=dep_name,
+            extras=rec.extras,
+            children=[],
+        )
+
+        if len(path) == 1:
+            roots[direct_dep].children.append(leaf_node)
+        else:
+            parent_node = node_registry.get("/".join(path))
+            if parent_node is None:
+                continue
+            parent_node.children.append(leaf_node)
+
+        node_registry[leaf_path_key] = leaf_node
+
+    return list(roots.values())
 
 
 def build_export_data(
@@ -353,13 +433,15 @@ def build_export_data(
     development = [PackageMetrics.from_domain(pkg) for pkg in data.optional_packages]
 
     if schema_version == ExportJsonSchemaVersion.V1_3:
+        transitive, tree = _build_v1_3_data(data.transitive_packages)
         return ExportDataV13(
             metadata=metadata,
             project=project,
             summary=summary,
             production_packages=production,
             development_packages=development,
-            transitive_packages=_build_v1_3_transitive(data.transitive_packages),
+            transitive_packages=transitive,
+            dependency_tree=tree,
         )
 
     return ExportData(

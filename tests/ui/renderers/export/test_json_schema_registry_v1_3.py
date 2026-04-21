@@ -70,6 +70,8 @@ class TestSchemaRegistryV13:
             "production_packages",
             "development_packages",
             "transitive_packages",
+            "dependency_tree",
+            "constraint_type_map",
         ],
     )
     def test_schema_contains_required_properties(self, v1_3_schema, required_property):
@@ -128,16 +130,30 @@ class TestSchemaRegistryV13:
         # Assert
         assert items_ref == "#/$defs/PackageMetrics"
 
-    def test_schema_contains_dependency_path_definition(self, v1_3_schema):
-        """Test $defs contains the new DependencyPath definition.
+    def test_dependency_tree_items_ref_dependency_tree_root(self, v1_3_schema):
+        """Test dependency_tree array items reference DependencyTreeRoot.
+
+        AAA Pattern:
+        - Arrange: Load schema
+        - Act: Extract dependency_tree items $ref
+        - Assert: References DependencyTreeRoot definition
+        """
+        # Act
+        items_ref = v1_3_schema["properties"]["dependency_tree"]["items"]["$ref"]
+
+        # Assert
+        assert items_ref == "#/$defs/DependencyTreeRoot"
+
+    def test_schema_does_not_contain_dependency_path_definition(self, v1_3_schema):
+        """Test $defs no longer contains the old DependencyPath definition.
 
         AAA Pattern:
         - Arrange: Load schema
         - Act: Check $defs
-        - Assert: DependencyPath is defined
+        - Assert: DependencyPath is absent
         """
         # Assert
-        assert "DependencyPath" in v1_3_schema["$defs"]
+        assert "DependencyPath" not in v1_3_schema["$defs"]
 
     def test_schema_contains_transitive_package_metrics_definition(self, v1_3_schema):
         """Test $defs contains TransitivePackageMetrics definition.
@@ -150,52 +166,85 @@ class TestSchemaRegistryV13:
         # Assert
         assert "TransitivePackageMetrics" in v1_3_schema["$defs"]
 
-    def test_dependency_paths_field_requires_min_one_item(self, v1_3_schema):
-        """Test dependency_paths on TransitivePackageMetrics enforces minItems: 1.
+    def test_transitive_package_metrics_has_no_dependency_paths_field(self, v1_3_schema):
+        """TransitivePackageMetrics must not contain a dependency_paths property.
 
         AAA Pattern:
         - Arrange: Load schema
-        - Act: Extract dependency_paths constraint
-        - Assert: minItems is 1
+        - Act: Check TransitivePackageMetrics properties
+        - Assert: dependency_paths is absent
         """
         # Act
-        dependency_paths_schema = v1_3_schema["$defs"]["TransitivePackageMetrics"]["properties"]["dependency_paths"]
+        props = v1_3_schema["$defs"]["TransitivePackageMetrics"].get("properties", {})
 
         # Assert
-        assert dependency_paths_schema["minItems"] == 1
+        assert "dependency_paths" not in props
 
-    def test_dependency_paths_items_ref_dependency_path(self, v1_3_schema):
-        """Test dependency_paths items reference the DependencyPath definition.
+    def test_dependency_tree_node_ct_is_integer(self, v1_3_schema):
+        """Test DependencyTreeNode.ct is a non-negative integer (index into constraint_type_map).
 
         AAA Pattern:
         - Arrange: Load schema
-        - Act: Extract items $ref
-        - Assert: References DependencyPath
+        - Act: Extract ct definition from DependencyTreeNode
+        - Assert: Type is integer with minimum 0
         """
         # Act
-        items_ref = v1_3_schema["$defs"]["TransitivePackageMetrics"]["properties"]["dependency_paths"]["items"]["$ref"]
+        ct = v1_3_schema["$defs"]["DependencyTreeNode"]["properties"]["ct"]
 
         # Assert
-        assert items_ref == "#/$defs/DependencyPath"
+        assert ct["type"] == "integer"
+        assert ct["minimum"] == 0
 
-    def test_dependency_path_constraint_type_is_non_nullable_enum(self, v1_3_schema):
-        """Test DependencyPath.constraint_type is a non-nullable string enum.
+    def test_dependency_tree_node_has_no_constraint_type_string_field(self, v1_3_schema):
+        """Test DependencyTreeNode no longer has a constraint_type string field."""
+        props = v1_3_schema["$defs"]["DependencyTreeNode"].get("properties", {})
+        assert "constraint_type" not in props
+
+    def test_transitive_package_metrics_has_id_field(self, v1_3_schema):
+        """Test TransitivePackageMetrics has an id integer field."""
+        props = v1_3_schema["$defs"]["TransitivePackageMetrics"].get("properties", {})
+        assert "id" in props
+        assert props["id"]["type"] == "integer"
+        assert props["id"]["minimum"] == 0
+
+    def test_schema_has_constraint_type_map_property(self, v1_3_schema):
+        """Test top-level schema has a constraint_type_map array property."""
+        props = v1_3_schema["properties"]
+        assert "constraint_type_map" in props
+        assert props["constraint_type_map"]["type"] == "array"
+
+    def test_dependency_tree_node_ref_is_integer(self, v1_3_schema):
+        """Test DependencyTreeNode.ref is an integer with minimum 0.
 
         AAA Pattern:
         - Arrange: Load schema
-        - Act: Extract constraint_type definition
-        - Assert: Type is string (not array with null)
+        - Act: Extract ref definition
+        - Assert: Type is integer, minimum is 0
         """
         # Act
-        constraint_type = v1_3_schema["$defs"]["DependencyPath"]["properties"]["constraint_type"]
+        ref_schema = v1_3_schema["$defs"]["DependencyTreeNode"]["properties"]["ref"]
 
         # Assert
-        assert constraint_type["type"] == "string"
-        assert "null" not in constraint_type.get("enum", [])
+        assert ref_schema["type"] == "integer"
+        assert ref_schema["minimum"] == 0
+
+    def test_dependency_tree_node_children_ref_self(self, v1_3_schema):
+        """Test DependencyTreeNode.children items reference DependencyTreeNode (recursive).
+
+        AAA Pattern:
+        - Arrange: Load schema
+        - Act: Extract children items $ref
+        - Assert: Self-reference for recursive structure
+        """
+        # Act
+        children_ref = v1_3_schema["$defs"]["DependencyTreeNode"]["properties"]["children"]["items"]["$ref"]
+
+        # Assert
+        assert children_ref == "#/$defs/DependencyTreeNode"
 
     @pytest.mark.parametrize(
         "definition_name",
-        ["PackageMetrics", "CVEInfo", "DependencyPath", "TransitivePackageMetrics"],
+        ["PackageMetrics", "CVEInfo", "DependencyTreeRoot", "DependencyTreeNode", "TransitivePackageMetrics"],
     )
     def test_schema_contains_required_definitions(self, v1_3_schema, definition_name):
         """Test schema contains all expected model definitions in $defs.

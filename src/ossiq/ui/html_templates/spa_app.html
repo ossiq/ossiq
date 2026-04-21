@@ -7534,9 +7534,14 @@ function useReportFilters() {
 	const sortDirection = /* @__PURE__ */ ref("none");
 	const transitiveCveSet = computed(() => {
 		const set = /* @__PURE__ */ new Set();
-		for (const pkg of store.transitivePackages) if (pkg.cve.length > 0) {
-			for (const dp of pkg.dependency_paths) if (dp.path[0]) set.add(dp.path[0]);
+		const packages = store.transitivePackages;
+		function collect(nodes, rootName) {
+			for (const node of nodes) {
+				if ((packages[node.ref]?.cve?.length ?? 0) > 0) set.add(rootName);
+				collect(node.children ?? [], rootName);
+			}
 		}
+		for (const root of store.report?.dependency_tree ?? []) collect(root.children ?? [], root.package_name);
 		return set;
 	});
 	const allRows = computed(() => {
@@ -8659,11 +8664,21 @@ var ScanReportView_default = /* @__PURE__ */ defineComponent({
 				constraint_source_file: row.pkg.constraint_source_file ?? null,
 				extras: row.pkg.extras ?? null
 			};
-			const subtree = (store.report?.transitive_packages ?? []).filter((t) => t.dependency_paths.some((dp) => dp.path.includes(row.pkg.package_name)));
-			if (subtree.length > 0) selectedNode.value.dependencies = Object.fromEntries(subtree.map((t) => [t.package_name, {
+			const transitives = store.report?.transitive_packages ?? [];
+			const subtreePackages = [];
+			function collectSubtree(nodes) {
+				for (const node of nodes ?? []) {
+					const pkg = transitives[node.ref];
+					if (pkg) subtreePackages.push(pkg);
+					collectSubtree(node.children);
+				}
+			}
+			const treeRoot = store.report?.dependency_tree?.find((r) => r.package_name === row.pkg.package_name);
+			if (treeRoot) collectSubtree(treeRoot.children);
+			if (subtreePackages.length > 0) selectedNode.value.dependencies = Object.fromEntries(subtreePackages.map((t) => [t.package_name, {
 				name: t.package_name,
 				version_installed: t.installed_version,
-				cve: t.cve
+				cve: t.cve ?? []
 			}]));
 			isPanelOpen.value = true;
 		}
@@ -13965,7 +13980,7 @@ var TransitiveDependenciesView_vue_vue_type_script_setup_true_lang_default = /* 
 				...report.development_packages,
 				...report.transitive_packages
 			]) {
-				if (!pkg.cve.length) continue;
+				if (!pkg.cve?.length) continue;
 				const maxSev = pkg.cve.reduce((best, c) => (severityRank[c.severity] ?? 0) > (severityRank[best.severity] ?? 0) ? c : best).severity;
 				const existing = cveMap.get(pkg.package_name);
 				if (!existing || (severityRank[maxSev] ?? 0) > (severityRank[existing] ?? 0)) cveMap.set(pkg.package_name, maxSev);
@@ -13996,51 +14011,44 @@ var TransitiveDependenciesView_vue_vue_type_script_setup_true_lang_default = /* 
 				constraint_source_file: pkg.constraint_source_file ?? null,
 				extras: pkg.extras ?? null
 			});
-			const buildTransitiveNodeDetail = (pkg, dp, categories) => ({
-				categories,
-				name: pkg.package_name,
-				version_installed: pkg.installed_version,
-				version_defined: dp.version_constraint ?? void 0,
-				latest_version: pkg.latest_version ?? void 0,
-				severity: cveMap.get(pkg.package_name),
-				time_lag_days: pkg.time_lag_days,
-				releases_lag: pkg.releases_lag,
-				cve: pkg.cve,
-				repo_url: pkg.repo_url,
-				homepage_url: pkg.homepage_url,
-				package_url: pkg.package_url,
-				dependencies: {},
-				license: pkg.license,
-				purl: pkg.purl,
-				dependency_path: dp.path,
-				constraint_type: dp.constraint_type ?? null,
-				constraint_source_file: dp.constraint_source_file ?? null,
-				extras: dp.extras ?? null
-			});
 			for (const pkg of report.production_packages) root.dependencies[pkg.package_name] = buildDirectNodeDetail(pkg, ["production"]);
 			if (report.development_packages.length > 0) {
 				root.optional_dependencies = {};
 				for (const pkg of report.development_packages) root.optional_dependencies[pkg.package_name] = buildDirectNodeDetail(pkg, ["development"]);
 			}
-			const nodeByPath = /* @__PURE__ */ new Map();
-			for (const [name, node] of Object.entries(root.dependencies)) nodeByPath.set(name, node);
-			const expanded = [];
-			for (const pkg of report.transitive_packages) for (const dp of pkg.dependency_paths) expanded.push({
-				pkg,
-				dp
-			});
-			expanded.sort((a, b) => a.dp.path.length - b.dp.path.length);
-			for (const { pkg, dp } of expanded) {
-				if (dp.path.length === 0) continue;
-				const parentPathKey = dp.path.join("/");
-				const parent = nodeByPath.get(parentPathKey);
-				if (!parent) continue;
-				if (!parent.dependencies) parent.dependencies = {};
-				if (!parent.dependencies[pkg.package_name]) {
-					const thisNode = buildTransitiveNodeDetail(pkg, dp, ["transitive"]);
-					parent.dependencies[pkg.package_name] = thisNode;
-					nodeByPath.set(`${parentPathKey}/${pkg.package_name}`, thisNode);
-				}
+			const packages = report.transitive_packages;
+			function walkNode(treeNode, parentNode, parentPath) {
+				const pkg = packages[treeNode.ref];
+				if (!pkg) return;
+				const nodeDetail = {
+					categories: ["transitive"],
+					name: pkg.package_name,
+					version_installed: pkg.installed_version,
+					version_defined: treeNode.version_constraint ?? void 0,
+					latest_version: pkg.latest_version ?? void 0,
+					severity: cveMap.get(pkg.package_name),
+					time_lag_days: pkg.time_lag_days,
+					releases_lag: pkg.releases_lag,
+					cve: pkg.cve ?? [],
+					repo_url: pkg.repo_url,
+					homepage_url: pkg.homepage_url,
+					package_url: pkg.package_url,
+					dependencies: {},
+					license: pkg.license,
+					purl: pkg.purl,
+					dependency_path: parentPath,
+					constraint_type: report.constraint_type_map?.[treeNode.ct] ?? null,
+					constraint_source_file: pkg.constraint_source_file ?? null,
+					extras: treeNode.extras ?? null
+				};
+				if (!parentNode.dependencies) parentNode.dependencies = {};
+				parentNode.dependencies[pkg.package_name] = nodeDetail;
+				for (const child of treeNode.children ?? []) walkNode(child, nodeDetail, [...parentPath, pkg.package_name]);
+			}
+			for (const treeRoot of report.dependency_tree ?? []) {
+				const directDepNode = root.dependencies[treeRoot.package_name];
+				if (!directDepNode) continue;
+				for (const child of treeRoot.children ?? []) walkNode(child, directDepNode, [treeRoot.package_name]);
 			}
 			return root;
 		}
@@ -14102,7 +14110,7 @@ var TransitiveDependenciesView_vue_vue_type_script_setup_true_lang_default = /* 
 					showLegend.value ? (openBlock(), createElementBlock("div", _hoisted_7, [createBaseVNode("div", _hoisted_8, [_cache[18] || (_cache[18] = createBaseVNode("span", { class: "font-semibold text-slate-900 uppercase tracking-wide text-[10px]" }, "Legend", -1)), createBaseVNode("button", {
 						class: "text-slate-400 hover:text-slate-700 leading-none",
 						onClick: _cache[6] || (_cache[6] = ($event) => showLegend.value = false)
-					}, [..._cache[17] || (_cache[17] = [createBaseVNode("span", { class: "material-symbols-rounded text-base leading-none" }, "close", -1)])])]), _cache[19] || (_cache[19] = createStaticVNode("<div data-v-e316d907><p class=\"font-semibold text-[10px] uppercase tracking-wide text-slate-500 mb-1.5\" data-v-e316d907>Node colors</p><div class=\"space-y-1.5\" data-v-e316d907><div class=\"flex items-center gap-2\" data-v-e316d907><span class=\"inline-flex items-center justify-center w-4 h-4 rounded-full shrink-0 text-[8px] font-bold\" style=\"background:#fecaca;outline:2px solid #dc2626;outline-offset:-1px;\" data-v-e316d907>!</span><span data-v-e316d907><strong class=\"text-slate-800\" data-v-e316d907>CVE detected</strong> — known vulnerability</span></div><div class=\"flex items-center gap-2\" data-v-e316d907><span class=\"inline-block w-4 h-4 rounded-full shrink-0\" style=\"background:#fef08a;outline:2px dashed #a16207;outline-offset:-1px;\" data-v-e316d907></span><span data-v-e316d907><strong class=\"text-slate-800\" data-v-e316d907>Narrowed</strong> — bounded range (e.g. <code data-v-e316d907>&lt;y</code>)</span></div><div class=\"flex items-center gap-2\" data-v-e316d907><span class=\"inline-block w-4 h-4 rounded-full shrink-0\" style=\"background:#ffedd5;outline:3px solid #c2410c;outline-offset:-1px;\" data-v-e316d907></span><span data-v-e316d907><strong class=\"text-slate-800\" data-v-e316d907>Pinned</strong> — exact version (e.g. <code data-v-e316d907>1.2.3</code>)</span></div><div class=\"flex items-center gap-2\" data-v-e316d907><span class=\"inline-block w-4 h-4 rounded-full shrink-0\" style=\"background:#fed7aa;outline:3px dashed #ea580c;outline-offset:-1px;\" data-v-e316d907></span><span data-v-e316d907><strong class=\"text-slate-800\" data-v-e316d907>Override</strong> — forced version replacement</span></div><div class=\"flex items-center gap-2\" data-v-e316d907><span class=\"inline-block w-4 h-4 rounded-full shrink-0\" style=\"background:#bbf7d0;outline:2px dotted #16a34a;outline-offset:-1px;\" data-v-e316d907></span><span data-v-e316d907><strong class=\"text-slate-800\" data-v-e316d907>Additive</strong> — external constraint file</span></div><div class=\"flex items-center gap-2\" data-v-e316d907><span class=\"inline-block w-4 h-4 rounded-full shrink-0\" style=\"background:#bfdbfe;outline:2px solid #1d4ed8;outline-offset:-1px;\" data-v-e316d907></span><span data-v-e316d907><strong class=\"text-slate-800\" data-v-e316d907>Default</strong> — no specific concern</span></div></div></div><div data-v-e316d907><p class=\"font-semibold text-[10px] uppercase tracking-wide text-slate-500 mb-1.5\" data-v-e316d907>Interactions</p><ul class=\"space-y-1 text-slate-600 leading-snug\" data-v-e316d907><li data-v-e316d907>Click a <strong data-v-e316d907>tree edge</strong> → selects the child node</li><li data-v-e316d907>Click a <strong data-v-e316d907>dashed line</strong> → selects the connected duplicate</li><li data-v-e316d907><strong data-v-e316d907>Alt+Click</strong> a node → fold / unfold subtree</li><li data-v-e316d907>Click <strong data-v-e316d907>background</strong> → exit focus mode</li></ul></div><div data-v-e316d907><p class=\"font-semibold text-[10px] uppercase tracking-wide text-slate-500 mb-1.5\" data-v-e316d907>Duplicate packages</p><p class=\"text-slate-600 leading-snug\" data-v-e316d907> Dashed curved lines connect nodes sharing the same <em data-v-e316d907>name@version</em> across different subtrees. Clicking any one highlights all occurrences. </p></div>", 3))])) : createCommentVNode("", true)
+					}, [..._cache[17] || (_cache[17] = [createBaseVNode("span", { class: "material-symbols-rounded text-base leading-none" }, "close", -1)])])]), _cache[19] || (_cache[19] = createStaticVNode("<div data-v-1ae138ac><p class=\"font-semibold text-[10px] uppercase tracking-wide text-slate-500 mb-1.5\" data-v-1ae138ac>Node colors</p><div class=\"space-y-1.5\" data-v-1ae138ac><div class=\"flex items-center gap-2\" data-v-1ae138ac><span class=\"inline-flex items-center justify-center w-4 h-4 rounded-full shrink-0 text-[8px] font-bold\" style=\"background:#fecaca;outline:2px solid #dc2626;outline-offset:-1px;\" data-v-1ae138ac>!</span><span data-v-1ae138ac><strong class=\"text-slate-800\" data-v-1ae138ac>CVE detected</strong> — known vulnerability</span></div><div class=\"flex items-center gap-2\" data-v-1ae138ac><span class=\"inline-block w-4 h-4 rounded-full shrink-0\" style=\"background:#fef08a;outline:2px dashed #a16207;outline-offset:-1px;\" data-v-1ae138ac></span><span data-v-1ae138ac><strong class=\"text-slate-800\" data-v-1ae138ac>Narrowed</strong> — bounded range (e.g. <code data-v-1ae138ac>&lt;y</code>)</span></div><div class=\"flex items-center gap-2\" data-v-1ae138ac><span class=\"inline-block w-4 h-4 rounded-full shrink-0\" style=\"background:#ffedd5;outline:3px solid #c2410c;outline-offset:-1px;\" data-v-1ae138ac></span><span data-v-1ae138ac><strong class=\"text-slate-800\" data-v-1ae138ac>Pinned</strong> — exact version (e.g. <code data-v-1ae138ac>1.2.3</code>)</span></div><div class=\"flex items-center gap-2\" data-v-1ae138ac><span class=\"inline-block w-4 h-4 rounded-full shrink-0\" style=\"background:#fed7aa;outline:3px dashed #ea580c;outline-offset:-1px;\" data-v-1ae138ac></span><span data-v-1ae138ac><strong class=\"text-slate-800\" data-v-1ae138ac>Override</strong> — forced version replacement</span></div><div class=\"flex items-center gap-2\" data-v-1ae138ac><span class=\"inline-block w-4 h-4 rounded-full shrink-0\" style=\"background:#bbf7d0;outline:2px dotted #16a34a;outline-offset:-1px;\" data-v-1ae138ac></span><span data-v-1ae138ac><strong class=\"text-slate-800\" data-v-1ae138ac>Additive</strong> — external constraint file</span></div><div class=\"flex items-center gap-2\" data-v-1ae138ac><span class=\"inline-block w-4 h-4 rounded-full shrink-0\" style=\"background:#bfdbfe;outline:2px solid #1d4ed8;outline-offset:-1px;\" data-v-1ae138ac></span><span data-v-1ae138ac><strong class=\"text-slate-800\" data-v-1ae138ac>Default</strong> — no specific concern</span></div></div></div><div data-v-1ae138ac><p class=\"font-semibold text-[10px] uppercase tracking-wide text-slate-500 mb-1.5\" data-v-1ae138ac>Interactions</p><ul class=\"space-y-1 text-slate-600 leading-snug\" data-v-1ae138ac><li data-v-1ae138ac>Click a <strong data-v-1ae138ac>tree edge</strong> → selects the child node</li><li data-v-1ae138ac>Click a <strong data-v-1ae138ac>dashed line</strong> → selects the connected duplicate</li><li data-v-1ae138ac><strong data-v-1ae138ac>Alt+Click</strong> a node → fold / unfold subtree</li><li data-v-1ae138ac>Click <strong data-v-1ae138ac>background</strong> → exit focus mode</li></ul></div><div data-v-1ae138ac><p class=\"font-semibold text-[10px] uppercase tracking-wide text-slate-500 mb-1.5\" data-v-1ae138ac>Duplicate packages</p><p class=\"text-slate-600 leading-snug\" data-v-1ae138ac> Dashed curved lines connect nodes sharing the same <em data-v-1ae138ac>name@version</em> across different subtrees. Clicking any one highlights all occurrences. </p></div>", 3))])) : createCommentVNode("", true)
 				]),
 				createBaseVNode("div", _hoisted_9, [
 					createBaseVNode("button", {
@@ -14148,7 +14156,7 @@ var _plugin_vue_export_helper_default = (sfc, props) => {
 };
 //#endregion
 //#region src/views/TransitiveDependenciesView.vue
-var TransitiveDependenciesView_default = /* @__PURE__ */ _plugin_vue_export_helper_default(TransitiveDependenciesView_vue_vue_type_script_setup_true_lang_default, [["__scopeId", "data-v-e316d907"]]);
+var TransitiveDependenciesView_default = /* @__PURE__ */ _plugin_vue_export_helper_default(TransitiveDependenciesView_vue_vue_type_script_setup_true_lang_default, [["__scopeId", "data-v-1ae138ac"]]);
 //#endregion
 //#region src/router/index.ts
 var router = createRouter({
@@ -16112,39 +16120,39 @@ body {
   border-bottom-color: #4800E2;
 }
 
-[data-v-e316d907] .node {
+[data-v-1ae138ac] .node {
   cursor: pointer;
 }
-[data-v-e316d907] .node circle {
+[data-v-1ae138ac] .node circle {
   stroke-width: 2.5px;
   transition: all 0.2s;
 }
-[data-v-e316d907] .node:hover circle {
+[data-v-1ae138ac] .node:hover circle {
   r: 8px;
   filter: brightness(1.1);
 }
-[data-v-e316d907] .node text {
+[data-v-1ae138ac] .node text {
   font: 12px sans-serif;
   transition: opacity 0.2s;
 }
-[data-v-e316d907] .node-label {
+[data-v-1ae138ac] .node-label {
   font-size: 12px;
   font-weight: bold;
   fill: #1e293b;
 }
-[data-v-e316d907] .version-label {
+[data-v-1ae138ac] .version-label {
   font-size: 10px;
   fill: #64748b;
   font-weight: normal;
 }
-[data-v-e316d907] .link {
+[data-v-1ae138ac] .link {
   fill: none;
   stroke: #cbd5e1;
   stroke-width: 2.5px;
   opacity: 0.7;
   transition: all 0.3s;
 }
-[data-v-e316d907] .link-same-version {
+[data-v-1ae138ac] .link-same-version {
   fill: none;
   stroke: #94a3b8;
   stroke-width: 1px;
