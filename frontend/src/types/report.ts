@@ -6,7 +6,7 @@
  */
 
 /**
- * Schema for OSS-IQ project metrics export data (v1.3 eliminates transitive dependency path duplication via grouped dependency_paths)
+ * Schema for OSS-IQ project metrics export data (v1.3 uses a shared dependency_tree with integer ct references into constraint_type_map, explicit id on transitive packages, and omits null/empty fields for compact output)
  */
 export interface OSSIQExportSchemaV13 {
   /**
@@ -80,9 +80,20 @@ export interface OSSIQExportSchemaV13 {
    */
   development_packages: PackageMetrics[];
   /**
-   * Transitive dependency metrics, one entry per unique (package_name, installed_version)
+   * Transitive dependency metrics, one entry per unique (package_name, installed_version); path and constraint data lives in dependency_tree
    */
   transitive_packages: TransitivePackageMetrics[];
+  /**
+   * Dependency tree rooted at each direct production dependency; nodes carry edge-specific constraint data and reference transitive_packages by id
+   */
+  dependency_tree: DependencyTreeRoot[];
+  /**
+   * Lookup table for ct integer field in DependencyTreeNode; index 0=DECLARED, 1=NARROWED, 2=PINNED, 3=ADDITIVE, 4=OVERRIDE
+   *
+   * @minItems 5
+   * @maxItems 5
+   */
+  constraint_type_map: [string, string, string, string, string];
   [k: string]: unknown;
 }
 /**
@@ -210,9 +221,13 @@ export interface CVEInfo {
   [k: string]: unknown;
 }
 /**
- * Metrics for a transitive package, deduplicated by (package_name, installed_version)
+ * Metrics for a transitive package, deduplicated by (package_name, installed_version); path and constraint data lives in dependency_tree
  */
 export interface TransitivePackageMetrics {
+  /**
+   * Zero-based index into the transitive_packages array; matched by DependencyTreeNode.ref
+   */
+  id: number;
   /**
    * Package name (canonical registry name)
    */
@@ -238,9 +253,13 @@ export interface TransitivePackageMetrics {
    */
   releases_lag: number | null;
   /**
-   * Known CVEs for this package
+   * Known CVEs for this package (absent when empty)
    */
-  cve: CVEInfo[];
+  cve?: CVEInfo[];
+  /**
+   * File that introduced a non-DECLARED constraint for this package (absent when DECLARED)
+   */
+  constraint_source_file?: string;
   /**
    * Source code repository URL
    */
@@ -261,41 +280,49 @@ export interface TransitivePackageMetrics {
    * Package URL (PURL) per ECMA-386, e.g. pkg:pypi/requests@2.25.1 or pkg:npm/lodash@4.17.21
    */
   purl?: string | null;
-  /**
-   * All traversal paths through which this package is reached
-   *
-   * @minItems 1
-   */
-  dependency_paths: [DependencyPath, ...DependencyPath[]];
   [k: string]: unknown;
 }
 /**
- * One traversal path through which a transitive package is reached
+ * Root entry in the dependency tree, anchored at a direct production dependency
  */
-export interface DependencyPath {
+export interface DependencyTreeRoot {
   /**
-   * Ancestor names from root's direct child down to (but not including) this package
+   * Name of the direct production dependency
    */
-  path: string[];
+  package_name: string;
   /**
-   * Alias name declared by the immediate parent (null when no alias is used)
+   * Transitive packages directly required by this production dependency
    */
-  dependency_name?: string | null;
+  children?: DependencyTreeNode[];
+  [k: string]: unknown;
+}
+/**
+ * One node in the dependency tree; ref matches id in transitive_packages, ct indexes into constraint_type_map
+ */
+export interface DependencyTreeNode {
+  /**
+   * Matches the id field of a TransitivePackageMetrics entry
+   */
+  ref: number;
+  /**
+   * Index into the top-level constraint_type_map array
+   */
+  ct: number;
   /**
    * Version constraint declared by the immediate parent
    */
-  version_constraint?: string | null;
+  version_constraint?: string;
   /**
-   * How the version constraint was applied
+   * Alias name declared by the immediate parent (absent when same as package_name)
    */
-  constraint_type: "DECLARED" | "NARROWED" | "PINNED" | "ADDITIVE" | "OVERRIDE";
+  dependency_name?: string;
   /**
-   * File that introduced a non-DECLARED constraint
+   * PyPI extras for this dependency (absent for non-PyPI or when unused)
    */
-  constraint_source_file?: string | null;
+  extras?: string[];
   /**
-   * PyPI extras for this path (null for non-PyPI or when unused)
+   * Transitive packages directly required by this package
    */
-  extras?: string[] | null;
+  children?: DependencyTreeNode[];
   [k: string]: unknown;
 }

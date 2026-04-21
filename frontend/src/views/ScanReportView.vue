@@ -61,10 +61,19 @@ function handleSelectPackage(row: ReportRow) {
   }
 
   const transitives = store.report?.transitive_packages ?? []
-  const subtree = transitives.filter(t => t.dependency_paths.some(dp => dp.path.includes(row.pkg.package_name)))
-  if (subtree.length > 0) {
+  const subtreePackages: typeof transitives = []
+  function collectSubtree(nodes: NonNullable<typeof store.report>['dependency_tree'][number]['children']) {
+    for (const node of nodes ?? []) {
+      const pkg = transitives[node.ref]
+      if (pkg) subtreePackages.push(pkg)
+      collectSubtree(node.children)
+    }
+  }
+  const treeRoot = store.report?.dependency_tree?.find(r => r.package_name === row.pkg.package_name)
+  if (treeRoot) collectSubtree(treeRoot.children)
+  if (subtreePackages.length > 0) {
     selectedNode.value.dependencies = Object.fromEntries(
-      subtree.map(t => [t.package_name, { name: t.package_name, version_installed: t.installed_version, cve: t.cve }])
+      subtreePackages.map(t => [t.package_name, { name: t.package_name, version_installed: t.installed_version, cve: t.cve ?? [] }])
     )
   }
 

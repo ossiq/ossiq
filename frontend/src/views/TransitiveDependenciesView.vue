@@ -5,7 +5,7 @@ import { useD3Tree } from '@/composables/useD3Tree'
 import { useTreeFilters } from '@/composables/useTreeFilters'
 import DependencyDetailPanel from '@/components/DependencyDetailPanel.vue'
 import type { DependencyNode, SelectedNodeDetail } from '@/types/dependency-tree'
-import type { OSSIQExportSchemaV13, PackageMetrics, TransitivePackageMetrics, DependencyPath } from '@/types/report'
+import type { OSSIQExportSchemaV13, PackageMetrics, TransitivePackageMetrics, DependencyTreeNode, CVEInfo } from '@/types/report'
 
 const store = useOssiqStore()
 const svgRef = ref<SVGSVGElement | null>(null)
@@ -18,8 +18,8 @@ function buildDependencyTree(report: OSSIQExportSchemaV13): DependencyNode {
   const severityRank: Record<string, number> = { LOW: 1, MEDIUM: 2, HIGH: 3, CRITICAL: 4 }
   const cveMap = new Map<string, string>()
   for (const pkg of [...report.production_packages, ...report.development_packages, ...report.transitive_packages]) {
-    if (!pkg.cve.length) continue
-    const maxSev = pkg.cve.reduce((best: typeof pkg.cve[0], c: typeof pkg.cve[0]) =>
+    if (!pkg.cve?.length) continue
+    const maxSev = pkg.cve!.reduce((best: CVEInfo, c: CVEInfo) =>
       (severityRank[c.severity] ?? 0) > (severityRank[best.severity] ?? 0) ? c : best,
     ).severity
     const existing = cveMap.get(pkg.package_name)
@@ -56,28 +56,6 @@ function buildDependencyTree(report: OSSIQExportSchemaV13): DependencyNode {
     extras: pkg.extras ?? null,
   })
 
-  const buildTransitiveNodeDetail = (pkg: TransitivePackageMetrics, dp: DependencyPath, categories: string[]) => ({
-    categories,
-    name: pkg.package_name,
-    version_installed: pkg.installed_version,
-    version_defined: dp.version_constraint ?? undefined,
-    latest_version: pkg.latest_version ?? undefined,
-    severity: cveMap.get(pkg.package_name),
-    time_lag_days: pkg.time_lag_days,
-    releases_lag: pkg.releases_lag,
-    cve: pkg.cve,
-    repo_url: pkg.repo_url,
-    homepage_url: pkg.homepage_url,
-    package_url: pkg.package_url,
-    dependencies: {},
-    license: pkg.license,
-    purl: pkg.purl,
-    dependency_path: dp.path,
-    constraint_type: dp.constraint_type ?? null,
-    constraint_source_file: dp.constraint_source_file ?? null,
-    extras: dp.extras ?? null,
-  })
-
   for (const pkg of report.production_packages) {
     root.dependencies![pkg.package_name] = buildDirectNodeDetail(pkg, ['production'])
   }
@@ -89,36 +67,47 @@ function buildDependencyTree(report: OSSIQExportSchemaV13): DependencyNode {
     }
   }
 
-  // nodeByPath maps "ancestor1/ancestor2/.../parent" → DependencyNode
-  // seeded with direct production deps accessible by their name alone
-  const nodeByPath = new Map<string, DependencyNode>()
-  for (const [name, node] of Object.entries(root.dependencies!)) {
-    nodeByPath.set(name, node)
-  }
+  const packages = report.transitive_packages
 
-  // Expand deduplicated transitive packages back to per-path records,
-  // then sort by path length so parents are always registered before their children
-  const expanded: Array<{ pkg: TransitivePackageMetrics; dp: DependencyPath }> = []
-  for (const pkg of report.transitive_packages) {
-    for (const dp of pkg.dependency_paths) {
-      expanded.push({ pkg, dp })
+  function walkNode(treeNode: DependencyTreeNode, parentNode: DependencyNode, parentPath: string[]) {
+    const pkg: TransitivePackageMetrics = packages[treeNode.ref]
+    if (!pkg) return
+
+    const nodeDetail: DependencyNode = {
+      categories: ['transitive'],
+      name: pkg.package_name,
+      version_installed: pkg.installed_version,
+      version_defined: treeNode.version_constraint ?? undefined,
+      latest_version: pkg.latest_version ?? undefined,
+      severity: cveMap.get(pkg.package_name),
+      time_lag_days: pkg.time_lag_days,
+      releases_lag: pkg.releases_lag,
+      cve: pkg.cve ?? [],
+      repo_url: pkg.repo_url,
+      homepage_url: pkg.homepage_url,
+      package_url: pkg.package_url,
+      dependencies: {},
+      license: pkg.license,
+      purl: pkg.purl,
+      dependency_path: parentPath,
+      constraint_type: (report.constraint_type_map?.[treeNode.ct] ?? null) as DependencyNode['constraint_type'],
+      constraint_source_file: pkg.constraint_source_file ?? null,
+      extras: treeNode.extras ?? null,
+    }
+
+    if (!parentNode.dependencies) parentNode.dependencies = {}
+    parentNode.dependencies[pkg.package_name] = nodeDetail
+
+    for (const child of treeNode.children ?? []) {
+      walkNode(child, nodeDetail, [...parentPath, pkg.package_name])
     }
   }
-  expanded.sort((a, b) => a.dp.path.length - b.dp.path.length)
 
-  for (const { pkg, dp } of expanded) {
-    if (dp.path.length === 0) continue
-
-    const parentPathKey = dp.path.join('/')
-    const parent = nodeByPath.get(parentPathKey)
-    if (!parent) continue
-
-    if (!parent.dependencies) parent.dependencies = {}
-
-    if (!parent.dependencies[pkg.package_name]) {
-      const thisNode: DependencyNode = buildTransitiveNodeDetail(pkg, dp, ['transitive'])
-      parent.dependencies[pkg.package_name] = thisNode
-      nodeByPath.set(`${parentPathKey}/${pkg.package_name}`, thisNode)
+  for (const treeRoot of report.dependency_tree ?? []) {
+    const directDepNode = root.dependencies![treeRoot.package_name]
+    if (!directDepNode) continue
+    for (const child of treeRoot.children ?? []) {
+      walkNode(child, directDepNode, [treeRoot.package_name])
     }
   }
 
