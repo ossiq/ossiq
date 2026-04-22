@@ -28,6 +28,8 @@ export interface DependencyNode {
 
 export interface D3NodeData extends DependencyNode {
   children: D3NodeData[] | null
+  _isFolded?: boolean
+  _hiddenChildCount?: number
 }
 
 export interface SelectedNodeDetail {

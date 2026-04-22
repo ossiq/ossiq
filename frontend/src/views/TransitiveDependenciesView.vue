@@ -1,8 +1,10 @@
 <script setup lang="ts">
-import { ref, computed, watch, nextTick, onMounted } from 'vue'
+import { ref, computed, watch, nextTick, onMounted, markRaw } from 'vue'
 import { useOssiqStore } from '@/stores/ossiq'
 import { useD3Tree } from '@/composables/useD3Tree'
 import { useTreeFilters } from '@/composables/useTreeFilters'
+import { usePackageRegistry } from '@/composables/usePackageRegistry'
+import { buildVisibleState } from '@/explorer/visibleState'
 import DependencyDetailPanel from '@/components/DependencyDetailPanel.vue'
 import type { DependencyNode, SelectedNodeDetail } from '@/types/dependency-tree'
 import type { OSSIQExportSchemaV13, PackageMetrics, TransitivePackageMetrics, DependencyTreeNode, CVEInfo } from '@/types/report'
@@ -13,8 +15,16 @@ const selectedNode = ref<SelectedNodeDetail | null>(null)
 const isPanelOpen = ref(false)
 const showLegend = ref(false)
 
+// --- Registry path (primary — feeds D3) ---
+const { registry, projectName } = usePackageRegistry()
+
+const visibleState = computed(() => {
+  if (!registry.value) return null
+  return buildVisibleState(registry.value, projectName.value, 'root', 2)
+})
+
+// --- Filter path (interim — keeps filter UI functional; not yet wired to D3) ---
 function buildDependencyTree(report: OSSIQExportSchemaV13): DependencyNode {
-  // Build a map of package name → highest CVE severity
   const severityRank: Record<string, number> = { LOW: 1, MEDIUM: 2, HIGH: 3, CRITICAL: 4 }
   const cveMap = new Map<string, string>()
   for (const pkg of [...report.production_packages, ...report.development_packages, ...report.transitive_packages]) {
@@ -28,11 +38,7 @@ function buildDependencyTree(report: OSSIQExportSchemaV13): DependencyNode {
     }
   }
 
-  const root: DependencyNode = {
-    name: report.project.name,
-    version_installed: 'local',
-    dependencies: {},
-  }
+  const root: DependencyNode = { name: report.project.name, version_installed: 'local', dependencies: {} }
 
   const buildDirectNodeDetail = (pkg: PackageMetrics, categories: string[]) => ({
     categories,
@@ -59,7 +65,6 @@ function buildDependencyTree(report: OSSIQExportSchemaV13): DependencyNode {
   for (const pkg of report.production_packages) {
     root.dependencies![pkg.package_name] = buildDirectNodeDetail(pkg, ['production'])
   }
-
   if (report.development_packages.length > 0) {
     root.optional_dependencies = {}
     for (const pkg of report.development_packages) {
@@ -68,11 +73,9 @@ function buildDependencyTree(report: OSSIQExportSchemaV13): DependencyNode {
   }
 
   const packages = report.transitive_packages
-
   function walkNode(treeNode: DependencyTreeNode, parentNode: DependencyNode, parentPath: string[]) {
     const pkg: TransitivePackageMetrics = packages[treeNode.ref]
     if (!pkg) return
-
     const nodeDetail: DependencyNode = {
       categories: ['transitive'],
       name: pkg.package_name,
@@ -94,15 +97,12 @@ function buildDependencyTree(report: OSSIQExportSchemaV13): DependencyNode {
       constraint_source_file: pkg.constraint_source_file ?? null,
       extras: treeNode.extras ?? null,
     }
-
     if (!parentNode.dependencies) parentNode.dependencies = {}
     parentNode.dependencies[pkg.package_name] = nodeDetail
-
     for (const child of treeNode.children ?? []) {
       walkNode(child, nodeDetail, [...parentPath, pkg.package_name])
     }
   }
-
   for (const treeRoot of report.dependency_tree ?? []) {
     const directDepNode = root.dependencies![treeRoot.package_name]
     if (!directDepNode) continue
@@ -110,12 +110,12 @@ function buildDependencyTree(report: OSSIQExportSchemaV13): DependencyNode {
       walkNode(child, directDepNode, [treeRoot.package_name])
     }
   }
-
   return root
 }
 
+// markRaw prevents Vue from proxying the full tree; used only by useTreeFilters for search/toggle UI
 const dependencyTree = computed<DependencyNode | null>(() =>
-  store.report ? buildDependencyTree(store.report) : null,
+  store.report ? markRaw(buildDependencyTree(store.report)) : null,
 )
 
 function handleNodeSelect(node: SelectedNodeDetail | null) {
@@ -128,7 +128,7 @@ function handlePanelClose() {
   isPanelOpen.value = false
 }
 
-const { searchQuery, filterCve, filterNarrowed, filterOverridePinned, filteredTree, hasActiveFilters, clearFilters } =
+const { searchQuery, filterCve, filterNarrowed, filterOverridePinned, hasActiveFilters, clearFilters } =
   useTreeFilters({ dependencyTree })
 
 const { initializeTree, selectNodeByName, zoomIn, zoomOut, resetZoom } = useD3Tree({
@@ -137,11 +137,11 @@ const { initializeTree, selectNodeByName, zoomIn, zoomOut, resetZoom } = useD3Tr
 })
 
 onMounted(() => {
-  if (filteredTree.value) initializeTree(filteredTree.value)
+  if (visibleState.value && registry.value) initializeTree(registry.value, visibleState.value)
 })
 
-watch(filteredTree, (tree) => {
-  if (tree) nextTick(() => initializeTree(tree))
+watch(visibleState, (state) => {
+  if (state && registry.value) nextTick(() => initializeTree(registry.value!, state))
 })
 </script>
 

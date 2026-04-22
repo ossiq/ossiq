@@ -1,7 +1,8 @@
 import { onMounted, onUnmounted, type Ref } from 'vue'
 import * as d3 from 'd3'
-import type { DependencyNode, D3NodeData, TreeNode, SelectedNodeDetail } from '@/types/dependency-tree'
-import { transformToD3 } from '@/explorer/transform'
+import type { D3NodeData, TreeNode, SelectedNodeDetail } from '@/types/dependency-tree'
+import type { PackageRegistry, VisibleState } from '@/types/registry'
+import { buildD3DataFromVisibleState } from '@/explorer/transform'
 import { resolveNodeStyle } from '@/explorer/nodeStyle'
 import { renderNodes, applyNodeStyles } from '@/explorer/renderNodes'
 import { renderTreeLinks, applyTreeLinkStyles } from '@/explorer/renderTreeLinks'
@@ -112,7 +113,7 @@ export function useD3Tree(options: UseD3TreeOptions) {
     if (g) g.attr('transform', `translate(${TREE_CONFIG.layout.marginLeft},${height / 2})`)
   }
 
-  function initializeTree(data: DependencyNode) {
+  function initializeTree(registry: PackageRegistry, state: VisibleState) {
     if (!svgRef.value) return
     highlight.clearFocus()
 
@@ -137,7 +138,7 @@ export function useD3Tree(options: UseD3TreeOptions) {
       .attr('transform', `translate(${TREE_CONFIG.layout.marginLeft},${height / 2})`)
 
     treeLayout = d3.tree<D3NodeData>().nodeSize(TREE_CONFIG.layout.nodeSize)
-    root = d3.hierarchy(transformToD3(data, new Set([data.name]))) as unknown as TreeNode
+    root = d3.hierarchy(buildD3DataFromVisibleState(registry, state)) as unknown as TreeNode
     root.x0 = 0
     root.y0 = 0
 
