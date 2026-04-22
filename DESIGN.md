@@ -8,40 +8,6 @@ Architectural decisions, known gaps, and deferred work.
 
 Gaps identified during architectural review and deferred for separate implementation.
 
-### GAP-2: `PackageVersion.declared_dev_dependencies` is NPM-only at the registry level
-
-**Context:** `PackageVersion.declared_dev_dependencies` captures dev/optional dependencies
-as declared in the package's registry metadata. For NPM, this maps directly from
-`devDependencies` in the registry response. For PyPI, `devDependencies` is not a
-registry-level concept — `requires_dist` only exposes runtime deps — so this field
-will always be `None` for Python packages.
-
-**Rationale for keeping the field:** Dev dependencies installed on a developer machine
-represent a significant risk surface even if the signal is ecosystem-asymmetric. A
-Bayesian approach is preferred: each available piece of information strengthens the
-overall signal, and the absence of data for PyPI is not a reason to discard the data
-that exists for NPM.
-
-**Future work:** When PyPI expands its API or when a supplementary data source (e.g.
-repository-level `pyproject.toml` analysis) becomes available, populate this field
-for Python packages to close the asymmetry.
-
----
-
-### GAP-4: `runtime_requirements` is not populated for NPM packages
-
-**Context:** `PackageVersion.runtime_requirements` is intended to capture runtime
-environment constraints — `python_requires` for PyPI and `engines` for NPM. The NPM
-adapter currently maps `engines` from the registry response into `runtime_requirements`
-correctly. However, downstream consumers (service layer, export renderers) do not yet
-use this field for any analysis or reporting.
-
-**Future work:** Incorporate `runtime_requirements` into the risk scoring model.
-For example, a package requiring `node >= 18` when the project targets `node 16`
-is an implicit compatibility risk.
-
----
-
 ### GAP-5: No `is_yanked` / `is_deprecated` distinction in `PackageVersion`
 
 **Context:** `PackageVersion.is_published = False` covers the case where a version has

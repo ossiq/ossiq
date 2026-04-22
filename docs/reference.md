@@ -139,7 +139,6 @@ OSS IQ aggregates data from the following public sources:
 | Source | Purpose |
 |---|---|
 | [OSV](https://osv.dev/) | Open-source vulnerability database (CVEs, security advisories) |
-| [ClearlyDefined](https://clearlydefined.io/) | License and curation data for open-source packages |
 | [NPM Registry](https://www.npmjs.com/) | Package metadata and version history for JavaScript packages |
 | [PyPI](https://pypi.org/) | Package metadata and version history for Python packages |
 | [GitHub](https://github.com/) | Repository activity, releases, and maintainer signals |

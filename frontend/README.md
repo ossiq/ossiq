@@ -50,6 +50,46 @@ npm run dev
 npm run build
 ```
 
+### Inject a sample dataset for development
+
+The SPA reads scan data from an embedded `<script type="json/oss-iq-report">` tag in
+`index.html`. Use the `inject` script to replace that payload before running `npm run dev`.
+
+**Interactive picker** — lists all files in `frontend/datasets/` and prompts for a selection:
+
+```sh
+npm run inject
+```
+
+**Reset to empty** — injects `{}` so the SPA starts with no data (useful for a clean dev session):
+
+```sh
+npm run inject --default
+```
+
+After injecting, start the dev server as usual:
+
+```sh
+npm run dev
+```
+
+### Adding a new sample dataset
+
+1. Generate an export from the CLI and write it to a JSON file:
+   ```sh
+   ossiq scan ... --export export.json
+   ```
+2. Move the file into `frontend/datasets/`:
+   ```sh
+   mv export.json frontend/datasets/my_project.json
+   ```
+3. Compress it (keeps the directory tidy; the inject script handles `.json.gz` transparently):
+   ```sh
+   gzip frontend/datasets/my_project.json
+   # produces frontend/datasets/my_project.json.gz
+   ```
+4. Run `npm run inject` and select the new file.
+
 ### Run Unit Tests with [Vitest](https://vitest.dev/)
 
 ```sh

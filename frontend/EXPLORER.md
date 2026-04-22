@@ -4,22 +4,80 @@ The Explorer is a D3-based interactive tree visualization for transitive depende
 Key files: `src/views/TransitiveDependenciesView.vue`, `src/composables/useD3Tree.ts` (orchestrator),
 `src/composables/useHighlightState.ts`, `src/composables/useTreeZoom.ts`,
 `src/explorer/` — rendering modules: `config.ts`, `nodeStyle.ts`, `renderNodes.ts`,
-`renderTreeLinks.ts`, `renderSameVersionLinks.ts`, `transform.ts`.
+`renderTreeLinks.ts`, `renderSameVersionLinks.ts`, `renderAggregateLinks.ts`, `transform.ts`,
+`visibleState.ts`, `registry.ts`.
 
 ---
 
-## Node Color Coding
+## Node Types
 
-Nodes are styled with **both color and a stroke pattern** so the constraint type is
-distinguishable without relying on color alone (colorblind-friendly). Rules are evaluated
-first-match-wins inside `NODE_COLOR_RULES` in `src/explorer/nodeStyle.ts`.
+The tree renders four visually distinct node categories. Visual priority is evaluated in this order:
+Super Node → collapsed normal node → expanded node (semantic rules).
 
-| Priority | Condition | Fill | Stroke | `stroke-dasharray` | Expanded radius |
+### Super Node (folded subtree)
+
+A **Super Node** represents a subtree that has been automatically folded because it exceeds the
+current `maxDepth`. Its appearance encodes how many hidden descendants it carries via three tiers
+keyed on `_hiddenChildCount`. The `_isFolded` flag on the data object triggers this path in
+`resolveBaseStyle` — it takes priority over all semantic color rules.
+
+| Tier | `_hiddenChildCount` | Radius | Fill | Stroke |
+|---|---|---|---|---|
+| Small | ≤ 10 | 10 | indigo-100 `#e0e7ff` | indigo-700 `#4338ca` |
+| Medium | 11–50 | 12 | orange-200 `#fed7aa` | orange-600 `#ea580c` |
+| Large | > 50 | 14 | red-200 `#fecaca` | red-600 `#dc2626` |
+
+All Super Nodes share: `stroke-dasharray: 4,2`, `stroke-width: 2`.
+
+#### CVE highlight for Super Nodes (`_hasChildCve`)
+
+When the hidden subtree of a Super Node contains at least one CVE-affected package, the node's
+**fill and stroke are overridden to CVE red** regardless of size tier:
+
+| Condition | Fill | Stroke |
+|---|---|---|
+| `_hasChildCve === true` | red-200 `#fecaca` | red-600 `#dc2626` |
+| _(no CVE — tier-based)_ | see tier table above | see tier table above |
+
+The **radius stays tier-based** (`_hiddenChildCount`) even when `_hasChildCve` is set — the size
+still communicates how many packages are hidden.
+
+`_hasChildCve` is computed in `transform.ts` (`buildD3DataFromVisibleState`) via a BFS traversal
+(`hasCveInSubtree`) of the registry graph rooted at the Super Node's immediate children. It is
+set at build time so `resolveBaseStyle` in `nodeStyle.ts` can check it without traversing the tree
+again at render time.
+
+A bold **`+N` badge** (white text colored by the stroke, `font-size: 8px`) is rendered at the
+center of the circle, showing the exact hidden child count.
+
+Clicking a Super Node in the tree **navigates into** that subtree (shift-and-expand); the circle
+itself is not treated as a regular focus target.
+
+### Collapsed Normal Node
+
+A regular node whose subtree has been manually folded by the user via Alt+Click. The node
+retains its semantic color identity but switches to a "solid dark" appearance to signal that
+children are hidden:
+
+- **Radius**: 8 (`radiusCollapsed`) — same for all constraint types
+- **Fill**: equals its semantic stroke color (solid dark disc)
+- **Stroke**: semantic stroke color (unchanged)
+- **`stroke-dasharray`**: retained — constraint type is still readable at a glance
+
+Note: OVERRIDE (r=8 expanded) and a collapsed default node (r=8) end up the same size, so the
+stroke pattern and color remain the primary distinguishing signals for collapsed nodes.
+
+### Expanded Normal Node (semantic color rules)
+
+An ordinary visible node with no children hidden. Appearance is driven by `NODE_COLOR_RULES`
+(first-match-wins) in `src/explorer/nodeStyle.ts`. Rules are evaluated in priority order:
+
+| Priority | Condition | Fill | Stroke | `stroke-dasharray` | Radius |
 |---|---|---|---|---|---|
 | 1 | Has CVEs (`severity` set) | red `#fecaca` | `#dc2626` | solid | 6 |
 | 2 | `constraint_type === 'OVERRIDE'` | orange `#fed7aa` | `#ea580c` | `7,2,2,2` (dash-dot) | 8 |
 | 3 | `constraint_type === 'ADDITIVE'` | green `#bbf7d0` | `#16a34a` | `2,2.5` (dotted) | 6 |
-| 4 | `constraint_type === 'PINNED'` or `isPinned(version_defined)` | orange `#ffedd5` | `#c2410c` | solid thick (3 px) | 7 |
+| 4 | `constraint_type === 'PINNED'` or `isPinned(version_defined)` | orange `#ffedd5` | `#c2410c` | solid 3 px | 7 |
 | 5 | `constraint_type === 'NARROWED'` or `hasUpperConstraint(version_defined)` | yellow `#fef08a` | `#a16207` | `5,3` (dashed) | 6 |
 | 6 | Default / DECLARED | blue `#bfdbfe` | `#1d4ed8` | solid | 6 |
 
@@ -27,15 +85,26 @@ OVERRIDE and PINNED share an orange family but are distinguishable by their stro
 (dash-dot vs solid thick) and slightly different shades (orange-200 vs orange-100).
 
 The `isPinned` / `hasUpperConstraint` heuristics act as **fallbacks** for pre-v1.2 reports that
-lack a `constraint_type` field. CVE severity is derived from the report's `cve[]` arrays
-(highest severity wins per package name).
+lack a `constraint_type` field.
+
+### Node with CVEs
+
+Any node whose package has `severity` set (highest severity wins per package name, derived from
+the report's `cve[]` arrays) gets the CVE visual treatment on top of its normal circle:
+
+- Circle: red-200 fill `#fecaca`, red-600 stroke `#dc2626`, solid, r=6
+- **Warning triangle badge**: SVG `<polygon>` at `translate(-22, 0)`, points `0,-9 8,5 -8,5`
+  - Fill `#fdba74` (orange-300), stroke `#ea580c` (orange-600), 1.5 px
+  - Bold `!` glyph, fill `#7c2d12` (orange-900), `font-size: 9px`
+
+CVE takes the highest visual priority — a node that is both CVE-affected and OVERRIDE renders
+with the CVE red style, not the OVERRIDE orange.
 
 ### Solid-fill state (focus)
 
-When a node is clicked it switches to a **solid** appearance — fill equals its stroke color,
-making the circle a flat dark disc. The stroke pattern (dasharray) is retained, so constraint
-type remains readable even in focused state. Both the clicked node and all same-version
-duplicates receive this treatment:
+When a node is clicked it switches to a **solid** appearance — fill equals its stroke color.
+The stroke pattern (`stroke-dasharray`) is retained so constraint type stays readable. Both the
+primary (clicked) node and same-version duplicates receive this treatment:
 
 | Node type | Solid fill | Stroke pattern retained |
 |---|---|---|
@@ -50,6 +119,117 @@ Logic lives in `resolveNodeStyle` in `src/explorer/nodeStyle.ts`.
 
 ---
 
+## Edge Types
+
+### Tree Edge (`.link`)
+
+Solid horizontal bezier paths connecting a parent node to each of its children.
+Also has a 12 px transparent `.link-hit` overlay for easier clicking.
+
+**Normal state** (no focus active):
+
+| Target node condition | Edge color |
+|---|---|
+| Has CVE (`severity` set) | light red `#fecaca` (red-200) |
+| PINNED or NARROWED (`version_defined` set) | light orange `#fed7aa` (orange-200) |
+| Default | slate `#cbd5e1` (CSS default) |
+
+**Focus state — ancestor path** (edge leads toward the root from the focused node):
+
+| Target node condition | Color | Width |
+|---|---|---|
+| Has CVE | `#fca5a5` (red-300) | 3 px |
+| PINNED or NARROWED | `#fed7aa` (orange-200) | 3 px |
+| Default | `#1d4ed8` (blue-700) | 3 px |
+| Not on any path | CSS default | `opacity: 0.15` |
+
+**Focus state — descendant path** (edge leads away from the focused node into its subtree):
+
+| Target node condition | Color | Width |
+|---|---|---|
+| Has CVE | `#fca5a5` (red-300) | 3 px |
+| PINNED or NARROWED | `#fed7aa` (orange-200) | 3 px |
+| Default | `#97c2f7` (blue-400) | 3 px |
+
+All tree link styles are applied via `.style()` (inline) so they take precedence over the
+Vue `:deep(.link)` CSS rules. Passing `null` restores the CSS default.
+
+### Same-Version Dashed Link (`.link-same-version`)
+
+Curved quadratic bezier arcs connecting nodes that share an identical `name@version_installed`
+across different subtrees. Each arc is rendered as two stacked paths:
+
+- **Visual** (`.link-same-version`): slate-400 `#94a3b8`, 1 px, `stroke-dasharray: 4 6`, 30% opacity
+- **Hit target** (`.link-same-version-hit`): 12 px transparent — makes clicking easy
+
+**Focus state**:
+- Arc for the focused package: orange `#f97316`, 3 px, 85% opacity — still dashed
+- All other arcs: `opacity: 0.1` (dimmed)
+
+Clicking either the arc or its hit target focuses the source endpoint node (same as clicking the
+node directly). Full teardown-rebuild on each tree render; no D3 diff.
+
+### Aggregate Link (`.link-aggregate`)
+
+Curved dashed arcs drawn from a **Super Node** to a dependency that is already visible elsewhere
+in the tree. They appear when the Super Node's hidden children overlap with visible nodes,
+providing cross-tree context without expanding the subtree.
+
+Two variants exist depending on how many Super Nodes point to the same visible target:
+
+**Single arc** (one Super Node → one visible target):
+- Stroke: slate-400 `#94a3b8`, 1.5 px, `stroke-dasharray: 6,3`, 50% opacity
+
+**Bundle arc** (multiple Super Nodes → same visible target):
+- Drawn from the centroid of all source positions to the shared target
+- Carries a `(N)` source-count badge at the arc midpoint (`font-size: 7px`)
+- Same default appearance as single arc; styling config for a distinct bundle style
+  (`bundleStroke`, `bundleStrokeWidth`) exists in `TREE_CONFIG.aggregateLink` but is
+  not yet applied at render time
+
+Both variants include a 10 px transparent `.link-aggregate-hit` overlay. Clicking focuses the
+source Super Node (single) or the first source (bundle).
+
+**Focus state**:
+- Arc relevant to the focused node: orange `#f97316`, 3 px, 85% opacity
+- All other arcs: `opacity: 0.1` (dimmed)
+
+Full teardown-rebuild on each tree render (aggregate topology changes with every expand/filter).
+
+---
+
+## Focus Mode
+
+Clicking a node, a same-version dashed link, or a tree edge triggers unified focus mode.
+The highlight state is managed exclusively in `src/composables/useHighlightState.ts`.
+
+### Node roles in focus mode
+
+| Role | Trigger | Visual treatment |
+|---|---|---|
+| **Primary** | The clicked node | Solid fill (fill = semantic stroke color), 3.5 px border, full opacity |
+| **Secondary** | All nodes sharing `name@version_installed` with the primary | Same solid fill as primary, 3.5 px border, full opacity |
+| **Ancestor** | Nodes on the path from any primary/secondary up to the root | Normal semantic pastel fill, full opacity |
+| **Descendant** | All children/grandchildren of primary and secondary nodes | Normal semantic pastel fill (NOT solid), full opacity |
+| **Super Node (dimmed)** | Any Super Node not on an ancestor or descendant path | `opacity: 0.15` |
+| **Collapsed node (dimmed)** | Any manually collapsed node not on a relevant path | `opacity: 0.15` |
+| **Other nodes** | Any node not in the above categories | `opacity: 0.15` |
+
+Descendant nodes keep their pastel fill (not solid), which visually distinguishes them from the
+selected primary/secondary nodes even though both are full opacity.
+
+### Edge behavior in focus mode
+
+| Edge | On ancestor path | On descendant path | Otherwise |
+|---|---|---|---|
+| Tree edge | 3 px, full opacity, semantic color (see table above) | 3 px, full opacity, semantic color (see table above) | `opacity: 0.15` |
+| Same-version dashed link | orange `#f97316`, 3 px, 85% opacity (focused package) | — | `opacity: 0.1` |
+| Aggregate link | orange `#f97316`, 3 px, 85% opacity (source is focused) | — | `opacity: 0.1` |
+
+Clicking the SVG background exits focus mode and restores all nodes and edges to their default state.
+
+---
+
 ## CVE Warning Indicator
 
 Nodes with `severity` set render an orange triangle warning badge to the left of the circle
@@ -60,14 +240,14 @@ Colors: fill `#fdba74`, stroke `#ea580c`, text `#7c2d12`.
 
 ## Collapsed Branch Indicator
 
-When a branch is folded, the node circle:
+When a branch is folded via Alt+Click (collapsed normal node), the node circle:
 - Grows to `r=8` (`radiusCollapsed`) regardless of constraint type
 - Fills with its semantic stroke color (solid dark), losing the pastel fill
 - Retains its stroke-dasharray pattern, so constraint type is still readable
 
 Note: PINNED nodes have an expanded radius of 7 and OVERRIDE nodes 8, so a collapsed PINNED
 node will look the same size as a collapsed default node. The stroke pattern and color remain
-the distinguishing signals. This makes folded subtrees immediately visually distinct at a glance.
+the distinguishing signals.
 
 ---
 
@@ -79,39 +259,12 @@ the distinguishing signals. This makes folded subtrees immediately visually dist
 | **Alt+Click** a node | Folds / unfolds that node's subtree (500ms animated) |
 | **Click** a same-version dashed link | Identical to clicking the source endpoint node |
 | **Click** a tree edge (solid link) | Identical to clicking the child (target) endpoint node |
+| **Click** an aggregate link | Focuses the source Super Node (or first source in a bundle) |
 | **Click** SVG background | Exits focus mode; restores all highlights; closes sidebar |
 | `selectNodeByName(name)` | Programmatically focuses a node by package name; called from `DependencyDetailPanel` via `@select-node` |
 
-Tree edges have a 12px transparent hit-target overlay (`.link-hit`) for easier clicking,
-mirroring the same-version dashed link pattern.
-
----
-
-## Tree Edge Color Coding
-
-Tree edges carry semantic colors in **both** normal and focus states.
-
-### Normal state (no focus)
-
-| Target node type | Edge color |
-|---|---|
-| Has CVE (`severity` set) | light red `#fecaca` (red-200) |
-| PINNED or NARROWED (`version_defined` set) | light orange `#fed7aa` (orange-200) |
-| Default | slate `#cbd5e1` (CSS default) |
-
-This gives an at-a-glance risk map of the tree even before any interaction.
-
-### Focus state (ancestor path)
-
-When a node is clicked, its path to the root is highlighted. Each edge is colored
-individually based on its **target node's** exceptional state:
-
-| Target node type | Ancestor edge color |
-|---|---|
-| Has CVE (`severity` set) | `#fca5a5` (red-300), 3px, full opacity |
-| PINNED or NARROWED (`version_defined` set) | `#fed7aa` (orange-200), 3px, full opacity |
-| Default | `#1d4ed8` (blue-700), 3px, full opacity |
-| Not on ancestor path | CSS default color, `opacity: 0.15` (dimmed) |
+Tree edges and aggregate links have transparent hit-target overlays (12 px and 10 px respectively)
+for easier clicking, mirroring the same-version dashed link pattern.
 
 ---
 
@@ -172,37 +325,6 @@ To introduce a new toggle filter, only `useTreeFilters.ts` needs to change:
 4. Add the toggle button in `TransitiveDependenciesView.vue`.
 
 `pruneTree` and `buildPredicate` are untouched.
-
----
-
-## Focus Mode
-
-Clicking a node, a same-version dashed link, or a tree edge triggers unified focus mode,
-showcasing all paths the dependency is used across the tree:
-
-- **Clicked node** → solid fill (fill = its semantic stroke color), border 3.5px
-- **Duplicate nodes** (same `name@version_installed`) → solid fill (fill = their semantic stroke color), border 3.5px
-- **Ancestor nodes** (path to root for every focused node) → full opacity, default semantic color
-- **Descendant nodes** (all children/grandchildren of focused nodes) → full opacity, default semantic color
-- **All other nodes** → `opacity: 0.15` (dimmed)
-- **Tree links on ancestor paths** → 3px, full opacity; blue `#1d4ed8` or red `#fca5a5` (see above)
-- **Tree links on descendant paths** → 3px, full opacity; color depends on target node exceptional state (see below)
-- **All other tree links** → `opacity: 0.15` (dimmed)
-- **Same-version dashed links for the focused package** → orange `#f97316`, 3px, 85% opacity (remain dashed)
-- **All other dashed links** → `opacity: 0.1` (dimmed)
-
-### Descendant path edge colors
-
-| Target node type | Descendant edge color |
-|---|---|
-| Has CVE (`severity` set) | `#fca5a5` (red-300) |
-| PINNED or NARROWED (`version_defined` set) | `#fed7aa` (orange-200) |
-| Default | `#97c2f7` (blue-400) |
-
-Descendant node circles keep their normal semantic pastel fill — no solid fill — which visually
-distinguishes them from the selected (solid) primary node.
-
-Clicking the SVG background exits focus mode and restores all nodes and links to their default state.
 
 ---
 
