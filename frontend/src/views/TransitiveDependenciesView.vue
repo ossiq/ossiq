@@ -4,8 +4,10 @@ import { useOssiqStore } from '@/stores/ossiq'
 import { useD3Tree } from '@/composables/useD3Tree'
 import { useTreeFilters } from '@/composables/useTreeFilters'
 import { usePackageRegistry } from '@/composables/usePackageRegistry'
+import { useNavigationStack } from '@/composables/useNavigationStack'
 import { buildVisibleState } from '@/explorer/visibleState'
 import DependencyDetailPanel from '@/components/DependencyDetailPanel.vue'
+import NavigationBreadcrumb from '@/components/NavigationBreadcrumb.vue'
 import type { DependencyNode, SelectedNodeDetail } from '@/types/dependency-tree'
 import type { OSSIQExportSchemaV13, PackageMetrics, TransitivePackageMetrics, DependencyTreeNode, CVEInfo } from '@/types/report'
 
@@ -140,31 +142,56 @@ const filterMask = computed<Set<string> | null>(() => {
   return names
 })
 
+// --- Navigation stack: shift-and-expand navigation ---
+const { stack: navStack, current: navRoot, canGoBack, push: navPush, pop: navPop, jumpTo: navJumpTo, reset: navReset } =
+  useNavigationStack()
+
+// Package names from the nav stack — used to mark ancestor cross-ref nodes with "↩".
+const ancestorNames = computed(() => new Set(navStack.value.map((f) => f.label)))
+
 // --- Visible state: BFS slice fed to D3 ---
-const expandedKeys = ref<Set<string>>(new Set())
-
-function handleFoldedNodeExpand(key: string) {
-  expandedKeys.value = new Set([...expandedKeys.value, key])
-}
-
 const visibleState = computed(() => {
   if (!registry.value) return null
-  return buildVisibleState(registry.value, projectName.value, 'root', 2, filterMask.value, expandedKeys.value)
+  return buildVisibleState(
+    registry.value,
+    projectName.value,
+    'root',
+    2,
+    filterMask.value,
+    new Set(),
+    navRoot.value,
+  )
 })
+
+// True when navigated into a leaf package (no transitive deps to show)
+const isNavigatedLeaf = computed(
+  () => navRoot.value !== null && (visibleState.value?.nodes.size ?? 0) <= 1,
+)
+
+function handleFoldedNodeExpand(registryId: number | null, directName: string | null, packageName: string) {
+  navPush({ label: packageName, registryId, directName })
+}
 
 const { initializeTree, selectNodeByName, zoomIn, zoomOut, resetZoom } = useD3Tree({
   svgRef,
   onNodeSelect: handleNodeSelect,
   onFoldedNodeExpand: handleFoldedNodeExpand,
+  onNavigateBack: navPop,
 })
 
 onMounted(() => {
-  if (visibleState.value && registry.value) initializeTree(registry.value, visibleState.value)
+  if (visibleState.value && registry.value)
+    initializeTree(registry.value, visibleState.value, ancestorNames.value)
 })
 
 watch(visibleState, (state) => {
-  if (state && registry.value) nextTick(() => initializeTree(registry.value!, state))
+  if (state && registry.value)
+    nextTick(() => initializeTree(registry.value!, state, ancestorNames.value))
 })
+
+// Reset navigation when filters change or a new report loads
+watch(filterMask, () => navReset())
+watch(registry, () => navReset())
 </script>
 
 <template>
@@ -179,7 +206,7 @@ watch(visibleState, (state) => {
       >
         <div class="pointer-events-auto">
           <h1 class="text-xl font-bold text-slate-900 uppercase tracking-tight">Transitive Dependencies</h1>
-          <p class="text-sm text-slate-500 mt-0.5">Root positioned left. Click for details · Alt+Click to fold/unfold branch.</p>
+          <p class="text-sm text-slate-500 mt-0.5">Root positioned left. Click node for details · Click folded node to navigate · Click phantom root or dashed line to go back.</p>
         </div>
 
         <div class="flex items-center gap-2 mt-1 pointer-events-auto">
@@ -313,7 +340,8 @@ watch(visibleState, (state) => {
             <ul class="space-y-1 text-slate-600 leading-snug">
               <li>Click a <strong>tree edge</strong> → selects the child node</li>
               <li>Click a <strong>dashed line</strong> → selects the connected duplicate</li>
-              <li><strong>Alt+Click</strong> a node → fold / unfold subtree</li>
+              <li>Click a <strong>folded node</strong> → navigate into its subtree</li>
+              <li>Click <strong>phantom root</strong> or back line → go back one step</li>
               <li>Click <strong>background</strong> → exit focus mode</li>
             </ul>
           </div>
@@ -327,6 +355,15 @@ watch(visibleState, (state) => {
           </div>
         </div>
       </header>
+
+      <NavigationBreadcrumb
+        v-if="canGoBack"
+        :project-name="projectName"
+        :stack="navStack"
+        class="absolute top-17 left-0 right-0 z-10"
+        @jump-to-root="navReset()"
+        @jump-to="(index) => navJumpTo(index)"
+      />
 
       <div class="absolute bottom-4 right-4 z-10 flex flex-col gap-1">
         <button
@@ -350,6 +387,14 @@ watch(visibleState, (state) => {
         >
           1:1
         </button>
+      </div>
+
+      <div
+        v-if="isNavigatedLeaf"
+        class="absolute inset-0 flex flex-col items-center justify-center pointer-events-none gap-2"
+      >
+        <span class="material-symbols-rounded text-4xl text-slate-300">device_hub</span>
+        <p class="text-sm text-slate-400">No transitive dependencies</p>
       </div>
 
       <svg ref="svgRef" class="w-full h-full"></svg>

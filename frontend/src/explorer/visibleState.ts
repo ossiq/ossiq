@@ -1,4 +1,4 @@
-import type { PackageRegistry, VisibleState, VisibleNode, VisibleEdge, EdgeData } from '@/types/registry'
+import type { PackageRegistry, VisibleState, VisibleNode, VisibleEdge, EdgeData, NavFrame } from '@/types/registry'
 
 interface QueueEntry {
   key: string
@@ -12,13 +12,14 @@ interface QueueEntry {
 }
 
 /**
- * BFS from the project root up to maxDepth levels.
+ * BFS from the project root (or a navigated sub-tree root) up to maxDepth levels.
  *
  * - Nodes at depth === localMax that still have children are marked isFolded.
  * - filterMask: when non-null, only includes nodes whose package_name is in the set.
  *   Build from filteredTree (useTreeFilters) to keep both matched nodes and their ancestors.
- * - expandedKeys: path-based keys the user has clicked to expand in-place.
- *   Each such node gets localMax raised by 3, revealing 3 more levels from that point.
+ * - expandedKeys: kept for API compatibility; callers pass new Set() in Phase 3+.
+ * - navRoot: when provided, BFS seeds from that package's children instead of
+ *   registry.directEntries. Used for shift-and-expand navigation.
  * - After BFS, a second pass finds hidden children of folded nodes that are already visible
  *   elsewhere in the tree and adds isAggregate edges for them.
  */
@@ -29,6 +30,7 @@ export function buildVisibleState(
   maxDepth: number = 2,
   filterMask: Set<string> | null = null,
   expandedKeys: ReadonlySet<string> = new Set(),
+  navRoot: NavFrame | null = null,
 ): VisibleState {
   const nodes = new Map<string, VisibleNode>()
   const edges: VisibleEdge[] = []
@@ -37,31 +39,60 @@ export function buildVisibleState(
 
   nodes.set(rootKey, {
     key: rootKey,
-    registryId: null,
-    directName: null,
+    registryId: navRoot?.registryId ?? null,
+    directName: navRoot?.directName ?? null,
     depth: 0,
     isFolded: false,
     hiddenChildCount: 0,
   })
 
   const queue: QueueEntry[] = []
-  // Root's ancestor set seeds with the project name to prevent it re-appearing as a child
-  const rootAncestorNames = new Set<string>([projectName])
+  // Root ancestor set prevents the root package from re-appearing as its own descendant
+  const rootLabel = navRoot ? navRoot.label : projectName
+  const rootAncestorNames = new Set<string>([rootLabel])
 
-  for (const [name, directEntry] of registry.directEntries) {
-    if (filterMask !== null && !filterMask.has(name)) continue
-    const childKey = `${rootKey}/${name}`
-    const edgeData: EdgeData = { ct: directEntry.constraint_type ?? 'DECLARED' }
-    if (directEntry.version_constraint) edgeData.version_constraint = directEntry.version_constraint
-    edges.push({ sourceKey: rootKey, targetKey: childKey, edgeData, isAggregate: false })
-    queue.push({
-      key: childKey,
-      depth: 1,
-      registryId: null,
-      directName: name,
-      ancestorPackageNames: rootAncestorNames,
-      localMax: maxDepth,
-    })
+  if (navRoot === null) {
+    // Default: seed from all direct production dependencies
+    for (const [name, directEntry] of registry.directEntries) {
+      if (filterMask !== null && !filterMask.has(name)) continue
+      const childKey = `${rootKey}>${name}`
+      const edgeData: EdgeData = { ct: directEntry.constraint_type ?? 'DECLARED' }
+      if (directEntry.version_constraint) edgeData.version_constraint = directEntry.version_constraint
+      edges.push({ sourceKey: rootKey, targetKey: childKey, edgeData, isAggregate: false })
+      queue.push({
+        key: childKey,
+        depth: 1,
+        registryId: null,
+        directName: name,
+        ancestorPackageNames: rootAncestorNames,
+        localMax: maxDepth,
+      })
+    }
+  } else {
+    // Navigated: seed from the clicked package's children
+    const childRefSeed: Array<{ ref: number; edgeData: EdgeData }> = []
+    if (navRoot.directName !== null) {
+      const de = registry.directEntries.get(navRoot.directName)
+      if (de) childRefSeed.push(...de.childRefs)
+    } else if (navRoot.registryId !== null) {
+      const re = registry.byId.get(navRoot.registryId)
+      if (re) for (const [ref, edgeData] of re.childEdges) childRefSeed.push({ ref, edgeData })
+    }
+    for (const { ref, edgeData } of childRefSeed) {
+      const child = registry.byId.get(ref)
+      if (!child) continue
+      if (filterMask !== null && !filterMask.has(child.package_name)) continue
+      const childKey = `${rootKey}>${child.package_name}`
+      edges.push({ sourceKey: rootKey, targetKey: childKey, edgeData, isAggregate: false })
+      queue.push({
+        key: childKey,
+        depth: 1,
+        registryId: ref,
+        directName: null,
+        ancestorPackageNames: rootAncestorNames,
+        localMax: maxDepth,
+      })
+    }
   }
 
   while (queue.length > 0) {
@@ -109,7 +140,7 @@ export function buildVisibleState(
         if (!child) continue
         if (ancestorPackageNames.has(child.package_name)) continue // true cycle
         if (filterMask !== null && !filterMask.has(child.package_name)) continue
-        const childKey = `${key}/${child.package_name}`
+        const childKey = `${key}>${child.package_name}`
         edges.push({ sourceKey: key, targetKey: childKey, edgeData, isAggregate: false })
         queue.push({
           key: childKey,
@@ -156,5 +187,5 @@ export function buildVisibleState(
     }
   }
 
-  return { nodes, edges, rootKey, maxDepth, projectName }
+  return { nodes, edges, rootKey, maxDepth, projectName: rootLabel, isNavigated: navRoot !== null, actualProjectName: projectName }
 }

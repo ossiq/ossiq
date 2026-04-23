@@ -85,6 +85,18 @@ export function renderNodes({ g, nodes, source, onNodeClick }: NodeRenderOptions
     .attr('pointer-events', 'none')
     .text((d) => `+${d.data._hiddenChildCount ?? 0}`)
 
+  // "↩" badge for nodes whose package appeared in the navigation breadcrumb (ancestor views)
+  nodeEnter
+    .filter((d) => !!d.data._isAncestorRef)
+    .append('text')
+    .attr('class', 'ancestor-ref-badge')
+    .attr('text-anchor', 'middle')
+    .attr('dominant-baseline', 'middle')
+    .attr('dy', '-1.6em')
+    .attr('font-size', '9px')
+    .attr('pointer-events', 'none')
+    .text('↩')
+
   // Transition all nodes to their computed positions
   nodeEnter
     .merge(node)
@@ -126,4 +138,9 @@ export function applyNodeStyles(
   nodeGroups
     .select<SVGTextElement>('.folded-count')
     .attr('fill', (d) => resolveStyle(d, highlight).stroke)
+
+  nodeGroups
+    .select<SVGTextElement>('.ancestor-ref-badge')
+    .attr('fill', (d) => resolveStyle(d, highlight).stroke)
+    .attr('opacity', (d) => (highlight.mode === 'none' || highlight.primaryKeys.has(nodeKey(d))) ? 1 : 0.3)
 }

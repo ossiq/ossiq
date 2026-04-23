@@ -15,7 +15,8 @@ import { useTreeZoom } from './useTreeZoom'
 interface UseD3TreeOptions {
   svgRef: Ref<SVGSVGElement | null>
   onNodeSelect: (node: SelectedNodeDetail | null) => void
-  onFoldedNodeExpand?: (key: string) => void
+  onFoldedNodeExpand?: (registryId: number | null, directName: string | null, packageName: string) => void
+  onNavigateBack?: () => void
 }
 
 export function useD3Tree(options: UseD3TreeOptions) {
@@ -27,6 +28,7 @@ export function useD3Tree(options: UseD3TreeOptions) {
   let treeLayout: d3.TreeLayout<D3NodeData> | null = null
   let nameCountMap = new Map<string, number>()
   let aggregateEdges: VisibleEdge[] = []
+  let currentState: VisibleState | null = null
 
   const highlight = useHighlightState()
   const zoom = useTreeZoom(svgRef)
@@ -64,14 +66,22 @@ export function useD3Tree(options: UseD3TreeOptions) {
     })
 
     applyHighlights()
+    if (currentState?.isNavigated) renderBackEdge(currentState.actualProjectName)
   }
 
   function handleClick(event: MouseEvent, d: TreeNode) {
     event.stopPropagation()
-    if (event.altKey) {
+    if (d.data._hiddenChildCount && d.data?._hiddenChildCount > 0) {
+      // Super node: always navigate into that package's subtree.
+      if (options.onFoldedNodeExpand && currentState) {
+        const vnode = currentState.nodes.get(nodeKey(d))
+        if (vnode) {
+          options.onFoldedNodeExpand(vnode.registryId, vnode.directName, d.data.name)
+        }
+      }
+    } else if (d.children || d._children) {
+      // Regular node with D3-loaded children: toggle collapse.
       handleBranchToggle(d)
-    } else if (d.data._isFolded) {
-      options.onFoldedNodeExpand?.(nodeKey(d))
     } else {
       handleNodeSelect(d)
     }
@@ -117,16 +127,68 @@ export function useD3Tree(options: UseD3TreeOptions) {
     update(d)
   }
 
+  function renderBackEdge(actualProjectName: string) {
+    if (!g || !root) return
+    g.selectAll('.nav-back-group, .nav-back-edge, .nav-back-edge-hit').remove()
+
+    const colW = TREE_CONFIG.layout.nodeSize[1]
+    const rx = root.x
+    const phantomY = root.y - colW
+
+    const handleBack = (event: MouseEvent) => {
+      event.stopPropagation()
+      options.onNavigateBack?.()
+    }
+
+    g.insert('line', '.node')
+      .attr('class', 'nav-back-edge')
+      .attr('x1', phantomY).attr('y1', rx)
+      .attr('x2', root.y).attr('y2', rx)
+      .attr('stroke', '#94a3b8').attr('stroke-width', 2)
+      .attr('stroke-dasharray', '8,4').attr('opacity', 0.6)
+      .attr('pointer-events', 'none')
+
+    g.insert('line', '.node')
+      .attr('class', 'nav-back-edge-hit')
+      .attr('x1', phantomY).attr('y1', rx)
+      .attr('x2', root.y).attr('y2', rx)
+      .attr('stroke', 'transparent').attr('stroke-width', 14)
+      .style('cursor', 'pointer')
+      .on('click', handleBack)
+
+    const backGroup = g.insert('g', '.node')
+      .attr('class', 'nav-back-group')
+      .attr('transform', `translate(${phantomY},${rx})`)
+      .style('cursor', 'pointer')
+      .on('click', handleBack)
+
+    backGroup.append('circle')
+      .attr('r', TREE_CONFIG.node.radiusDefault)
+      .attr('fill', TREE_CONFIG.colors.defaultFill)
+      .attr('stroke', TREE_CONFIG.colors.defaultStroke)
+      .attr('stroke-width', TREE_CONFIG.node.strokeWidth)
+      .attr('stroke-dasharray', '4,2')
+
+    backGroup.append('text')
+      .attr('class', 'node-label')
+      .attr('dy', '-0.6em').attr('x', -12)
+      .attr('text-anchor', 'end')
+      .text(actualProjectName)
+  }
+
   function handleResize() {
     if (!svgRef.value) return
     const container = svgRef.value.parentElement!
     const width = container.offsetWidth
     const height = container.offsetHeight
     d3.select(svgRef.value).attr('width', width).attr('height', height)
-    if (g) g.attr('transform', `translate(${TREE_CONFIG.layout.marginLeft},${height / 2})`)
+    const effectiveMarginLeft = currentState?.isNavigated
+      ? TREE_CONFIG.layout.marginLeft + TREE_CONFIG.layout.nodeSize[1]
+      : TREE_CONFIG.layout.marginLeft
+    if (g) g.attr('transform', `translate(${effectiveMarginLeft},${height / 2})`)
   }
 
-  function initializeTree(registry: PackageRegistry, state: VisibleState) {
+  function buildTree(registry: PackageRegistry, state: VisibleState, ancestorNames: Set<string>) {
     if (!svgRef.value) return
     highlight.clearFocus()
 
@@ -146,17 +208,43 @@ export function useD3Tree(options: UseD3TreeOptions) {
       onNodeSelect(null)
     })
 
+    const effectiveMarginLeft = state.isNavigated
+      ? TREE_CONFIG.layout.marginLeft + TREE_CONFIG.layout.nodeSize[1]
+      : TREE_CONFIG.layout.marginLeft
+
     g = zoomGroup
       .append('g')
-      .attr('transform', `translate(${TREE_CONFIG.layout.marginLeft},${height / 2})`)
+      .attr('transform', `translate(${effectiveMarginLeft},${height / 2})`)
 
     treeLayout = d3.tree<D3NodeData>().nodeSize(TREE_CONFIG.layout.nodeSize)
-    root = d3.hierarchy(buildD3DataFromVisibleState(registry, state)) as unknown as TreeNode
+    root = d3.hierarchy(buildD3DataFromVisibleState(registry, state, ancestorNames)) as unknown as TreeNode
     root.x0 = 0
     root.y0 = 0
     aggregateEdges = state.edges.filter((e) => e.isAggregate)
+    currentState = state
 
     update(root)
+  }
+
+  function initializeTree(
+    registry: PackageRegistry,
+    state: VisibleState,
+    ancestorNames: Set<string> = new Set(),
+  ) {
+    if (!svgRef.value) return
+    const doRebuild = () => buildTree(registry, state, ancestorNames)
+    if (g) {
+      // Fade out the current tree, then rebuild. interrupt() cancels any pending transition
+      // without firing its 'end' callback, so rapid calls don't queue multiple rebuilds.
+      g.interrupt()
+        .style('pointer-events', 'none')
+        .transition()
+        .duration(TREE_CONFIG.animation.fadeDuration)
+        .style('opacity', '0')
+        .on('end', () => doRebuild())
+    } else {
+      doRebuild()
+    }
   }
 
   onMounted(() => window.addEventListener('resize', handleResize))

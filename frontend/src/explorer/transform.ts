@@ -7,18 +7,22 @@ import type { PackageRegistry, VisibleState } from '@/types/registry'
  * Path-based keys are necessary because duplicate package names appear in multiple subtrees.
  */
 export function nodeKey(d: d3.HierarchyNode<D3NodeData>): string {
-  return d
-    .ancestors()
-    .map((a) => a.data.name)
-    .reverse()
-    .join('/')
+  if (d.data._key !== undefined) return d.data._key
+  return d.ancestors().map((a) => a.data.name).reverse().join('>')
 }
 
 /**
  * Builds a D3NodeData tree from a VisibleState slice, looking up package metrics from the
  * registry. Only nodes present in state.nodes are included; children are derived from edges.
+ *
+ * ancestorNames: package names from the nav stack. Non-root nodes whose name matches get
+ * _isAncestorRef = true, which renders a "↩" badge to signal DAG loop-back to a parent view.
  */
-export function buildD3DataFromVisibleState(registry: PackageRegistry, state: VisibleState): D3NodeData {
+export function buildD3DataFromVisibleState(
+  registry: PackageRegistry,
+  state: VisibleState,
+  ancestorNames: Set<string> = new Set(),
+): D3NodeData {
   // Group edges by sourceKey for O(1) children lookup
   const childEdgeMap = new Map<string, typeof state.edges>()
   for (const edge of state.edges) {
@@ -34,19 +38,22 @@ export function buildD3DataFromVisibleState(registry: PackageRegistry, state: Vi
     const vnode = state.nodes.get(key)
     if (!vnode) {
       // Fallback for missing nodes (shouldn't happen in practice)
-      return { name: key, version_installed: '', children: null }
+      return { name: key, version_installed: '', children: null, _key: key }
     }
 
     const childEdges = childEdgeMap.get(key) ?? []
-    const children: D3NodeData[] = childEdges.map((edge) => buildNode(edge.targetKey, edge.edgeData.version_constraint))
+    const children: D3NodeData[] = childEdges
+      .filter((edge) => !edge.isAggregate)
+      .map((edge) => buildNode(edge.targetKey, edge.edgeData.version_constraint))
 
-    // Root node
+    // Root node — never gets _isAncestorRef
     if (key === state.rootKey) {
       return {
         name: state.projectName,
         version_installed: 'local',
         categories: [],
         children: children.length ? children : null,
+        _key: key,
         _isFolded: vnode.isFolded,
         _hiddenChildCount: vnode.hiddenChildCount,
       }
@@ -55,8 +62,9 @@ export function buildD3DataFromVisibleState(registry: PackageRegistry, state: Vi
     // Direct (production) package node
     if (vnode.directName !== null) {
       const de = registry.directEntries.get(vnode.directName)
+      const packageName = de?.package_name ?? vnode.directName
       return {
-        name: de?.package_name ?? vnode.directName,
+        name: packageName,
         version_installed: de?.installed_version ?? '',
         version_defined: versionDefinedOverride ?? de?.version_constraint ?? undefined,
         latest_version: de?.latest_version ?? undefined,
@@ -68,15 +76,18 @@ export function buildD3DataFromVisibleState(registry: PackageRegistry, state: Vi
         constraint_source_file: de?.constraint_source_file ?? null,
         categories: ['production'],
         children: children.length ? children : null,
+        _key: key,
         _isFolded: vnode.isFolded,
         _hiddenChildCount: vnode.hiddenChildCount,
+        _isAncestorRef: ancestorNames.size > 0 && ancestorNames.has(packageName),
       }
     }
 
     // Transitive package node
     const re = vnode.registryId !== null ? registry.byId.get(vnode.registryId) : undefined
+    const packageName = re?.package_name ?? key.split('>').at(-1) ?? key
     return {
-      name: re?.package_name ?? key.split('/').at(-1) ?? key,
+      name: packageName,
       version_installed: re?.installed_version ?? '',
       version_defined: versionDefinedOverride,
       latest_version: re?.latest_version ?? undefined,
@@ -92,8 +103,10 @@ export function buildD3DataFromVisibleState(registry: PackageRegistry, state: Vi
       purl: re?.purl ?? null,
       categories: ['transitive'],
       children: children.length ? children : null,
+      _key: key,
       _isFolded: vnode.isFolded,
       _hiddenChildCount: vnode.hiddenChildCount,
+      _isAncestorRef: ancestorNames.size > 0 && ancestorNames.has(packageName),
     }
   }
 

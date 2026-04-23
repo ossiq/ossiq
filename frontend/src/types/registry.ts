@@ -70,4 +70,16 @@ export interface VisibleState {
   rootKey: string
   maxDepth: number
   projectName: string
+  isNavigated: boolean
+  actualProjectName: string
+}
+
+/**
+ * One entry in the navigation stack. Represents the "root" of a navigated sub-tree view.
+ * Exactly one of registryId / directName is non-null, mirroring VisibleNode identity fields.
+ */
+export interface NavFrame {
+  label: string              // package_name — display label for breadcrumb
+  registryId: number | null  // non-null when navigated root is a transitive package
+  directName: string | null  // non-null when navigated root is a direct production dep
 }

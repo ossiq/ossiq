@@ -11,6 +11,7 @@ export const TREE_CONFIG = {
   animation: {
     nodeTransition: 500,
     linkTransition: 500,
+    fadeDuration: 120,
   },
   node: {
     radiusDefault: 6,
@@ -92,5 +93,10 @@ export const TREE_CONFIG = {
     hitTargetWidth: 10,
     opacityNormal: 0.5,
     opacityDimmed: 0.1,
+    bundleStroke: '#6366f1',      // indigo-500 — slightly darker than single arcs
+    bundleStrokeWidth: 2.5,
+    bundleStrokeDash: '8,3',
+    bundleOpacity: 0.65,
+    bundleBadgeFontSize: '7px',
   },
 } as const
