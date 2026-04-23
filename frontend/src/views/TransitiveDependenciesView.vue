@@ -15,15 +15,10 @@ const selectedNode = ref<SelectedNodeDetail | null>(null)
 const isPanelOpen = ref(false)
 const showLegend = ref(false)
 
-// --- Registry path (primary — feeds D3) ---
+// --- Registry (primary D3 data source, markRaw) ---
 const { registry, projectName } = usePackageRegistry()
 
-const visibleState = computed(() => {
-  if (!registry.value) return null
-  return buildVisibleState(registry.value, projectName.value, 'root', 2)
-})
-
-// --- Filter path (interim — keeps filter UI functional; not yet wired to D3) ---
+// --- Filter path — DependencyNode tree (markRaw) feeds Fuse.js search + toggle UI ---
 function buildDependencyTree(report: OSSIQExportSchemaV13): DependencyNode {
   const severityRank: Record<string, number> = { LOW: 1, MEDIUM: 2, HIGH: 3, CRITICAL: 4 }
   const cveMap = new Map<string, string>()
@@ -113,7 +108,6 @@ function buildDependencyTree(report: OSSIQExportSchemaV13): DependencyNode {
   return root
 }
 
-// markRaw prevents Vue from proxying the full tree; used only by useTreeFilters for search/toggle UI
 const dependencyTree = computed<DependencyNode | null>(() =>
   store.report ? markRaw(buildDependencyTree(store.report)) : null,
 )
@@ -128,12 +122,40 @@ function handlePanelClose() {
   isPanelOpen.value = false
 }
 
-const { searchQuery, filterCve, filterNarrowed, filterOverridePinned, hasActiveFilters, clearFilters } =
+const { searchQuery, filterCve, filterNarrowed, filterOverridePinned, filteredTree, hasActiveFilters, clearFilters } =
   useTreeFilters({ dependencyTree })
+
+// Collect all package names from the pruned filteredTree (ancestors of matches are included
+// by pruneTree in useTreeFilters, so checking name is sufficient for the BFS filter guard).
+function collectFilteredNames(node: DependencyNode, out: Set<string>) {
+  out.add(node.name)
+  for (const c of Object.values(node.dependencies ?? {})) collectFilteredNames(c, out)
+  for (const c of Object.values(node.optional_dependencies ?? {})) collectFilteredNames(c, out)
+}
+
+const filterMask = computed<Set<string> | null>(() => {
+  if (!hasActiveFilters.value || !filteredTree.value) return null
+  const names = new Set<string>()
+  collectFilteredNames(filteredTree.value, names)
+  return names
+})
+
+// --- Visible state: BFS slice fed to D3 ---
+const expandedKeys = ref<Set<string>>(new Set())
+
+function handleFoldedNodeExpand(key: string) {
+  expandedKeys.value = new Set([...expandedKeys.value, key])
+}
+
+const visibleState = computed(() => {
+  if (!registry.value) return null
+  return buildVisibleState(registry.value, projectName.value, 'root', 2, filterMask.value, expandedKeys.value)
+})
 
 const { initializeTree, selectNodeByName, zoomIn, zoomOut, resetZoom } = useD3Tree({
   svgRef,
   onNodeSelect: handleNodeSelect,
+  onFoldedNodeExpand: handleFoldedNodeExpand,
 })
 
 onMounted(() => {

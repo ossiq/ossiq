@@ -66,4 +66,31 @@ export const TREE_CONFIG = {
     opacityHighlighted: 0.85,
     opacityDimmed: 0.1,
   },
+  foldedNode: {
+    // Radius tiers keyed by hidden child count
+    radiusSmall:  10,  // hiddenChildCount ≤ 10
+    radiusMedium: 12,  // hiddenChildCount 11–50
+    radiusLarge:  14,  // hiddenChildCount > 50
+    // Fill colors (pastel)
+    fillSmall:   '#e0e7ff',  // indigo-100
+    fillMedium:  '#fed7aa',  // orange-200
+    fillLarge:   '#fecaca',  // red-200
+    // Stroke colors (dark)
+    strokeSmall:  '#4338ca', // indigo-700
+    strokeMedium: '#ea580c', // orange-600
+    strokeLarge:  '#dc2626', // red-600
+    strokeDash:   '4,2',
+    strokeWidth:  2,
+    badgeFontSize: '8px',
+  },
+  aggregateLink: {
+    bezierOffset: 60,
+    stroke: '#818cf8',            // indigo-400
+    strokeHighlighted: '#4f46e5', // indigo-600
+    strokeDash: '6,3',
+    strokeWidth: 1.5,
+    hitTargetWidth: 10,
+    opacityNormal: 0.5,
+    opacityDimmed: 0.1,
+  },
 } as const

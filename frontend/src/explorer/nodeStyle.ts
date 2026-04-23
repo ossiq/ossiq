@@ -86,6 +86,19 @@ function resolveBaseStyle(data: D3NodeData): {
   strokeWidthBase: number
   radiusBase: number
 } {
+  // Folded Super Nodes take visual priority over all semantic color rules
+  if (data._isFolded) {
+    const count = data._hiddenChildCount ?? 0
+    const tier = count > 50 ? 'Large' : count > 10 ? 'Medium' : 'Small'
+    const cfg = TREE_CONFIG.foldedNode
+    return {
+      fill: cfg[`fill${tier}`],
+      stroke: cfg[`stroke${tier}`],
+      strokeDash: cfg.strokeDash,
+      strokeWidthBase: cfg.strokeWidth,
+      radiusBase: cfg[`radius${tier}`],
+    }
+  }
   for (const rule of NODE_COLOR_RULES) {
     if (rule.test(data)) {
       return {

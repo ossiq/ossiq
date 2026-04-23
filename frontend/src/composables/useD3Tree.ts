@@ -1,12 +1,13 @@
 import { onMounted, onUnmounted, type Ref } from 'vue'
 import * as d3 from 'd3'
 import type { D3NodeData, TreeNode, SelectedNodeDetail } from '@/types/dependency-tree'
-import type { PackageRegistry, VisibleState } from '@/types/registry'
-import { buildD3DataFromVisibleState } from '@/explorer/transform'
+import type { PackageRegistry, VisibleState, VisibleEdge } from '@/types/registry'
+import { buildD3DataFromVisibleState, nodeKey } from '@/explorer/transform'
 import { resolveNodeStyle } from '@/explorer/nodeStyle'
 import { renderNodes, applyNodeStyles } from '@/explorer/renderNodes'
 import { renderTreeLinks, applyTreeLinkStyles } from '@/explorer/renderTreeLinks'
 import { renderSameVersionLinks, applySameVersionLinkStyles } from '@/explorer/renderSameVersionLinks'
+import { renderAggregateLinks, applyAggregateLinkStyles } from '@/explorer/renderAggregateLinks'
 import { TREE_CONFIG } from '@/explorer/config'
 import { useHighlightState } from './useHighlightState'
 import { useTreeZoom } from './useTreeZoom'
@@ -14,6 +15,7 @@ import { useTreeZoom } from './useTreeZoom'
 interface UseD3TreeOptions {
   svgRef: Ref<SVGSVGElement | null>
   onNodeSelect: (node: SelectedNodeDetail | null) => void
+  onFoldedNodeExpand?: (key: string) => void
 }
 
 export function useD3Tree(options: UseD3TreeOptions) {
@@ -24,6 +26,7 @@ export function useD3Tree(options: UseD3TreeOptions) {
   let g: d3.Selection<SVGGElement, unknown, null, undefined> | null = null
   let treeLayout: d3.TreeLayout<D3NodeData> | null = null
   let nameCountMap = new Map<string, number>()
+  let aggregateEdges: VisibleEdge[] = []
 
   const highlight = useHighlightState()
   const zoom = useTreeZoom(svgRef)
@@ -34,6 +37,7 @@ export function useD3Tree(options: UseD3TreeOptions) {
     applyNodeStyles(g, state, resolveNodeStyle)
     applyTreeLinkStyles(g, state)
     applySameVersionLinkStyles(g, state)
+    applyAggregateLinkStyles(g, state)
   }
 
   function update(source: TreeNode) {
@@ -50,6 +54,10 @@ export function useD3Tree(options: UseD3TreeOptions) {
     renderTreeLinks({ g, links, source, onLinkClick: (node) => handleNodeSelect(node) })
     renderNodes({ g, nodes, source, onNodeClick: handleClick })
 
+    const nodesByKey = new Map<string, TreeNode>()
+    nodes.forEach((d) => nodesByKey.set(nodeKey(d), d))
+    renderAggregateLinks({ g, aggregateEdges, nodesByKey, onLinkClick: handleNodeSelect })
+
     nodes.forEach((d) => {
       d.x0 = d.x
       d.y0 = d.y
@@ -60,8 +68,13 @@ export function useD3Tree(options: UseD3TreeOptions) {
 
   function handleClick(event: MouseEvent, d: TreeNode) {
     event.stopPropagation()
-    if (event.altKey) handleBranchToggle(d)
-    else handleNodeSelect(d)
+    if (event.altKey) {
+      handleBranchToggle(d)
+    } else if (d.data._isFolded) {
+      options.onFoldedNodeExpand?.(nodeKey(d))
+    } else {
+      handleNodeSelect(d)
+    }
   }
 
   function handleNodeSelect(d: TreeNode) {
@@ -141,6 +154,7 @@ export function useD3Tree(options: UseD3TreeOptions) {
     root = d3.hierarchy(buildD3DataFromVisibleState(registry, state)) as unknown as TreeNode
     root.x0 = 0
     root.y0 = 0
+    aggregateEdges = state.edges.filter((e) => e.isAggregate)
 
     update(root)
   }

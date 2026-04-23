@@ -73,6 +73,18 @@ export function renderNodes({ g, nodes, source, onNodeClick }: NodeRenderOptions
     .attr('fill', TREE_CONFIG.colors.cveIndicatorText)
     .text('!')
 
+  // "+N more" count badge for folded Super Nodes
+  nodeEnter
+    .filter((d) => !!d.data._isFolded)
+    .append('text')
+    .attr('class', 'folded-count')
+    .attr('text-anchor', 'middle')
+    .attr('dominant-baseline', 'middle')
+    .attr('font-size', TREE_CONFIG.foldedNode.badgeFontSize)
+    .attr('font-weight', 'bold')
+    .attr('pointer-events', 'none')
+    .text((d) => `+${d.data._hiddenChildCount ?? 0}`)
+
   // Transition all nodes to their computed positions
   nodeEnter
     .merge(node)
@@ -109,4 +121,9 @@ export function applyNodeStyles(
     .attr('stroke-width', (d) => resolveStyle(d, highlight).strokeWidth)
     .attr('stroke-dasharray', (d) => resolveStyle(d, highlight).strokeDash)
     .attr('r', (d) => resolveStyle(d, highlight).radius)
+
+  // Badge text color tracks the node's stroke color
+  nodeGroups
+    .select<SVGTextElement>('.folded-count')
+    .attr('fill', (d) => resolveStyle(d, highlight).stroke)
 }
