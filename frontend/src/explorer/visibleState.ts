@@ -178,12 +178,37 @@ export function buildVisibleState(
       seen.add(ref)
       const targetKey = registryIdToKey.get(ref)
       if (targetKey && targetKey !== node.key) {
-        edges.push({ sourceKey: node.key, targetKey, edgeData, isAggregate: true })
+        // source = visible dep, target = super node (arc points TO the super node circle)
+        edges.push({ sourceKey: targetKey, targetKey: node.key, edgeData, isAggregate: true })
         aggregated++
       }
     }
     if (aggregated > 0) {
       node.hiddenChildCount = Math.max(0, node.hiddenChildCount - aggregated)
+      if (node.hiddenChildCount === 0) {
+        node.isFolded = false // all hidden children are visible elsewhere via aggregate links
+      }
+    }
+  }
+
+  // Bug 3: in navigated views, any package that appears in 2+ branches (reused transitive dep)
+  // gets an aggregate back-edge to the view root — a visual signal of cross-cutting reuse.
+  if (navRoot !== null) {
+    const registryIdToNodeKeys = new Map<number, string[]>()
+    for (const [key, node] of nodes) {
+      if (key === rootKey || node.registryId === null) continue
+      const arr = registryIdToNodeKeys.get(node.registryId) ?? []
+      arr.push(key)
+      registryIdToNodeKeys.set(node.registryId, arr)
+    }
+    const addedToRoot = new Set<string>()
+    for (const [, keys] of registryIdToNodeKeys) {
+      if (keys.length < 2) continue
+      for (const key of keys) {
+        if (addedToRoot.has(key)) continue
+        addedToRoot.add(key)
+        edges.push({ sourceKey: key, targetKey: rootKey, edgeData: { ct: 'DECLARED' }, isAggregate: true })
+      }
     }
   }
 

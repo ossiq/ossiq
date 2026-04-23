@@ -1,5 +1,6 @@
 import * as d3 from 'd3'
 import { TREE_CONFIG } from './config'
+import { nodeKey } from './transform'
 import type { TreeNode, HighlightState } from '@/types/dependency-tree'
 import type { VisibleEdge } from '@/types/registry'
 
@@ -65,13 +66,13 @@ function renderSingleArc(
   onLinkClick: (node: TreeNode) => void,
 ) {
   const { path } = arcPath(source.y, source.x, target.y, target.x, cfg.bezierOffset)
-  const pairKey = `${source.data.name}--${target.data.name}`
+  const sourceKey = nodeKey(source)
 
   g.insert('path', '.node')
     .attr('class', 'link-aggregate')
-    .attr('data-pair', pairKey)
+    .attr('data-source-key', sourceKey)
     .attr('fill', 'none')
-    .attr('stroke', cfg.stroke)
+    .attr('stroke', TREE_CONFIG.colors.dashedLinkDefault)
     .attr('stroke-width', cfg.strokeWidth)
     .attr('stroke-dasharray', cfg.strokeDash)
     .attr('opacity', cfg.opacityNormal)
@@ -80,7 +81,7 @@ function renderSingleArc(
 
   g.insert('path', '.node')
     .attr('class', 'link-aggregate-hit')
-    .attr('data-pair', pairKey)
+    .attr('data-source-key', sourceKey)
     .attr('fill', 'none')
     .attr('stroke', 'transparent')
     .attr('stroke-width', cfg.hitTargetWidth)
@@ -88,7 +89,7 @@ function renderSingleArc(
     .style('cursor', 'pointer')
     .on('click', (event: MouseEvent) => {
       event.stopPropagation()
-      onLinkClick(target)
+      onLinkClick(source) // navigate to the visible dep (source)
     })
 }
 
@@ -103,22 +104,22 @@ function renderBundleArc(
   const avgSx = sources.reduce((sum, s) => sum + s.y, 0) / sources.length
   const avgSy = sources.reduce((sum, s) => sum + s.x, 0) / sources.length
   const { path, midX, midY } = arcPath(avgSx, avgSy, target.y, target.x, cfg.bezierOffset)
-  const bundleKey = `bundle--${target.data.name}`
+  const sourceKeysAttr = sources.map((s) => nodeKey(s)).join(',')
 
   g.insert('path', '.node')
     .attr('class', 'link-aggregate')
-    .attr('data-pair', bundleKey)
+    .attr('data-source-keys', sourceKeysAttr)
     .attr('fill', 'none')
-    .attr('stroke', cfg.bundleStroke)
-    .attr('stroke-width', cfg.bundleStrokeWidth)
-    .attr('stroke-dasharray', cfg.bundleStrokeDash)
-    .attr('opacity', cfg.bundleOpacity)
+    .attr('stroke', TREE_CONFIG.colors.dashedLinkDefault)
+    .attr('stroke-width', cfg.strokeWidth)
+    .attr('stroke-dasharray', cfg.strokeDash)
+    .attr('opacity', cfg.opacityNormal)
     .attr('pointer-events', 'none')
     .attr('d', path)
 
   g.insert('path', '.node')
     .attr('class', 'link-aggregate-hit')
-    .attr('data-pair', bundleKey)
+    .attr('data-source-keys', sourceKeysAttr)
     .attr('fill', 'none')
     .attr('stroke', 'transparent')
     .attr('stroke-width', cfg.hitTargetWidth)
@@ -126,7 +127,7 @@ function renderBundleArc(
     .style('cursor', 'pointer')
     .on('click', (event: MouseEvent) => {
       event.stopPropagation()
-      onLinkClick(target)
+      onLinkClick(sources[0]!) // focus first visible dep source (same as same-version link)
     })
 
   // Source-count badge at the arc midpoint
@@ -137,21 +138,39 @@ function renderBundleArc(
     .attr('text-anchor', 'middle')
     .attr('dominant-baseline', 'middle')
     .attr('font-size', cfg.bundleBadgeFontSize)
-    .attr('fill', cfg.bundleStroke)
+    .attr('fill', TREE_CONFIG.colors.dashedLinkDefault)
     .attr('pointer-events', 'none')
     .text(`(${sources.length})`)
 }
 
 /**
- * Dims all aggregate links uniformly in focus mode.
- * Aggregate links don't participate in the ancestor-path highlight scheme.
+ * Highlights aggregate arcs whose source node is currently focused, mirroring
+ * applySameVersionLinkStyles: orange stroke + 3px width when relevant, dim when not.
  */
 export function applyAggregateLinkStyles(
   g: d3.Selection<SVGGElement, unknown, null, undefined>,
   highlight: HighlightState,
 ) {
-  g.selectAll<SVGPathElement, unknown>('.link-aggregate').style('opacity', () => {
-    if (highlight.mode === 'none') return null
-    return String(TREE_CONFIG.aggregateLink.opacityDimmed)
-  })
+  function isRelevant(el: Element): boolean {
+    const multi = el.getAttribute('data-source-keys')
+    const single = el.getAttribute('data-source-key')
+    const keys = multi ? multi.split(',') : single ? [single] : []
+    return keys.some((k) => highlight.primaryKeys.has(k) || highlight.secondaryKeys.has(k))
+  }
+
+  g.selectAll<SVGPathElement, unknown>('.link-aggregate')
+    .style('stroke', function () {
+      if (highlight.mode === 'none') return null
+      return isRelevant(this) ? TREE_CONFIG.colors.dashedLinkDuplicateHighlighted : null
+    })
+    .style('opacity', function () {
+      if (highlight.mode === 'none') return null
+      return isRelevant(this)
+        ? String(TREE_CONFIG.sameVersionLink.opacityHighlighted)
+        : String(TREE_CONFIG.sameVersionLink.opacityDimmed)
+    })
+    .style('stroke-width', function () {
+      if (highlight.mode === 'none') return null
+      return isRelevant(this) ? '3px' : null
+    })
 }
