@@ -1,5 +1,7 @@
 import type { PackageRegistry, VisibleState, VisibleNode, VisibleEdge, EdgeData, NavFrame } from '@/types/registry'
 
+export const PHANTOM_ROOT_KEY = '__phantom_root__'
+
 interface QueueEntry {
   key: string
   depth: number
@@ -185,29 +187,35 @@ export function buildVisibleState(
     }
     if (aggregated > 0) {
       node.hiddenChildCount = Math.max(0, node.hiddenChildCount - aggregated)
-      if (node.hiddenChildCount === 0) {
-        node.isFolded = false // all hidden children are visible elsewhere via aggregate links
-      }
     }
   }
 
-  // Bug 3: in navigated views, any package that appears in 2+ branches (reused transitive dep)
-  // gets an aggregate back-edge to the view root — a visual signal of cross-cutting reuse.
+  // In navigated views, leaf nodes that appear in 2+ branches OR are also direct children
+  // of other top-level packages get aggregate back-edges to the phantom project root.
+  // Super nodes (isFolded) are excluded: they already carry context from main aggregate arcs
+  // and adding outbound phantom arcs produces ambiguous group-to-phantom topology.
   if (navRoot !== null) {
+    const allDirectChildIds = new Set<number>()
+    for (const [dName, de] of registry.directEntries) {
+      if (navRoot.directName !== null && dName === navRoot.directName) continue
+      for (const { ref } of de.childRefs) allDirectChildIds.add(ref)
+    }
+
     const registryIdToNodeKeys = new Map<number, string[]>()
     for (const [key, node] of nodes) {
-      if (key === rootKey || node.registryId === null) continue
+      if (key === rootKey || node.registryId === null || node.isFolded) continue
       const arr = registryIdToNodeKeys.get(node.registryId) ?? []
       arr.push(key)
       registryIdToNodeKeys.set(node.registryId, arr)
     }
     const addedToRoot = new Set<string>()
-    for (const [, keys] of registryIdToNodeKeys) {
-      if (keys.length < 2) continue
+    for (const [rid, keys] of registryIdToNodeKeys) {
+      const isOuterVisible = allDirectChildIds.has(rid)
+      if (keys.length < 2 && !isOuterVisible) continue
       for (const key of keys) {
         if (addedToRoot.has(key)) continue
         addedToRoot.add(key)
-        edges.push({ sourceKey: key, targetKey: rootKey, edgeData: { ct: 'DECLARED' }, isAggregate: true })
+        edges.push({ sourceKey: key, targetKey: PHANTOM_ROOT_KEY, edgeData: { ct: 'DECLARED' }, isAggregate: true })
       }
     }
   }

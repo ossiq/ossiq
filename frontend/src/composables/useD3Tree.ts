@@ -3,6 +3,7 @@ import * as d3 from 'd3'
 import type { D3NodeData, TreeNode, SelectedNodeDetail } from '@/types/dependency-tree'
 import type { PackageRegistry, VisibleState, VisibleEdge } from '@/types/registry'
 import { buildD3DataFromVisibleState, nodeKey } from '@/explorer/transform'
+import { PHANTOM_ROOT_KEY } from '@/explorer/visibleState'
 import { resolveNodeStyle } from '@/explorer/nodeStyle'
 import { renderNodes, applyNodeStyles } from '@/explorer/renderNodes'
 import { renderTreeLinks, applyTreeLinkStyles } from '@/explorer/renderTreeLinks'
@@ -58,6 +59,10 @@ export function useD3Tree(options: UseD3TreeOptions) {
 
     const nodesByKey = new Map<string, TreeNode>()
     nodes.forEach((d) => nodesByKey.set(nodeKey(d), d))
+    if (currentState?.isNavigated && root) {
+      const colW = TREE_CONFIG.layout.nodeSize[1]
+      nodesByKey.set(PHANTOM_ROOT_KEY, { x: root.x, y: root.y - colW } as TreeNode)
+    }
     renderAggregateLinks({ g, aggregateEdges, nodesByKey, onLinkClick: handleNodeSelect })
 
     nodes.forEach((d) => {
@@ -79,7 +84,8 @@ export function useD3Tree(options: UseD3TreeOptions) {
           options.onFoldedNodeExpand(vnode.registryId, vnode.directName, d.data.name)
         }
       }
-    } else if (d.children || d._children) {
+      // alt + click for normal nodes to "fold" and "unfold"
+    } else if (event.altKey && (d.children || d._children)) {
       // Regular node with D3-loaded children: toggle collapse.
       handleBranchToggle(d)
     } else {

@@ -83,7 +83,12 @@ export function renderNodes({ g, nodes, source, onNodeClick }: NodeRenderOptions
     .attr('font-size', TREE_CONFIG.foldedNode.badgeFontSize)
     .attr('font-weight', 'bold')
     .attr('pointer-events', 'none')
-    .text((d) => `+${d.data._hiddenChildCount ?? 0}`)
+    .text((d) => {
+      const hiddenChildCount = d.data._hiddenChildCount ?? 0;
+      return hiddenChildCount > 0 
+        ? `+${d.data._hiddenChildCount ?? 0}` 
+        : ''
+      })
 
   // "↩" badge for nodes whose package appeared in the navigation breadcrumb (ancestor views)
   nodeEnter
