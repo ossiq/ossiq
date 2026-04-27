@@ -15,13 +15,15 @@ export interface AggregateLinkRenderOptions {
  * Renders curved dashed arcs from visible dep nodes to the folded super nodes or phantom root
  * that contain them as hidden children.
  *
- * Grouping for super-node targets: edges are grouped by (depth-1 ancestor of sourceKey,
- * depth-1 ancestor of targetKey). This collapses multiple transitive-dep arcs sharing the same
- * direct-dep pair into one arc with a count badge (e.g. C→A "(2)" when C has two deps hidden in
- * super nodes under A). The arc points to the direct dep (A), not to the super node itself.
+ * Three cases for super-node targets:
+ * 1. Same direct-dep branch (source and target share a depth-1 ancestor): draw the arc
+ *    node-to-node directly without aggregating to the unfolded parent.
+ * 2. Cross-branch, but target super node already has a same-branch source: skip - the
+ *    same-dep link already connects the two occurrences, making this arc redundant.
+ * 3. Cross-branch, no same-branch dep: aggregate both ends to their depth-1 ancestors
+ *    (e.g. root>C>E -> root>A>G becomes C -> A with a count badge).
  *
- * For phantom-root edges: each source node gets its own individual arc with a "(1)" badge,
- * showing the user exactly which transitive deps are reused at upper levels.
+ * For phantom-root edges: each source node gets its own individual arc with a "(1)" badge.
  *
  * Full teardown-rebuild on each call (aggregate topology changes with every expand/filter).
  */
@@ -29,6 +31,15 @@ export function renderAggregateLinks({ g, aggregateEdges, nodesByKey, onLinkClic
   g.selectAll('.link-aggregate, .link-aggregate-hit, .link-aggregate-count').remove()
 
   const cfg = TREE_CONFIG.aggregateLink
+
+  // Pre-pass: which super-node targets already have a dep visible in the same direct-dep branch?
+  const hasSameBranchSource = new Set<string>()
+  for (const edge of aggregateEdges) {
+    if (edge.targetKey === PHANTOM_ROOT_KEY) continue
+    if (depth1AncestorKey(edge.sourceKey) === depth1AncestorKey(edge.targetKey)) {
+      hasSameBranchSource.add(edge.targetKey)
+    }
+  }
 
   const byGroup = new Map<string, { anchorNode: TreeNode; anchorKey: string; target: TreeNode; count: number }>()
   for (const edge of aggregateEdges) {
@@ -39,17 +50,31 @@ export function renderAggregateLinks({ g, aggregateEdges, nodesByKey, onLinkClic
       if (!anchorNode || !target) continue
       byGroup.set(`${edge.sourceKey}|${edge.targetKey}`, { anchorNode, anchorKey: edge.sourceKey, target, count: 1 })
     } else {
-      // Super-node target: arc points to the direct dep (parent of super node), not the super node itself
-      const anchorKey = depth1AncestorKey(edge.sourceKey)
-      const effectiveTargetKey = depth1AncestorKey(edge.targetKey)
-      if (anchorKey === effectiveTargetKey) continue
-      const anchorNode = nodesByKey.get(anchorKey)
-      const target = nodesByKey.get(effectiveTargetKey)
-      if (!anchorNode || !target) continue
-      const groupKey = `${anchorKey}|${effectiveTargetKey}`
-      const existing = byGroup.get(groupKey)
-      if (existing) existing.count++
-      else byGroup.set(groupKey, { anchorNode, anchorKey, target, count: 1 })
+      const d1Source = depth1AncestorKey(edge.sourceKey)
+      const d1Target = depth1AncestorKey(edge.targetKey)
+
+      if (d1Source === d1Target) {
+        // Same branch: draw dep → super-node directly (don't collapse to unfolded parent)
+        const anchorNode = nodesByKey.get(edge.sourceKey)
+        const target = nodesByKey.get(edge.targetKey)
+        if (!anchorNode || !target) continue
+        const groupKey = `${edge.sourceKey}|${edge.targetKey}`
+        const existing = byGroup.get(groupKey)
+        if (existing) existing.count++
+        else byGroup.set(groupKey, { anchorNode, anchorKey: edge.sourceKey, target, count: 1 })
+      } else if (hasSameBranchSource.has(edge.targetKey)) {
+        // Cross-branch, same-branch dep exists — skip redundant arc
+        continue
+      } else {
+        // Cross-branch, no same-branch dep: aggregate to direct-dep ancestors (C -> A style)
+        const anchorNode = nodesByKey.get(d1Source)
+        const target = nodesByKey.get(d1Target)
+        if (!anchorNode || !target) continue
+        const groupKey = `${d1Source}|${d1Target}`
+        const existing = byGroup.get(groupKey)
+        if (existing) existing.count++
+        else byGroup.set(groupKey, { anchorNode, anchorKey: d1Source, target, count: 1 })
+      }
     }
   }
 
