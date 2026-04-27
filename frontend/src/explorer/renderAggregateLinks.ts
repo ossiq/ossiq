@@ -1,5 +1,6 @@
 import * as d3 from 'd3'
 import { TREE_CONFIG } from './config'
+import { PHANTOM_ROOT_KEY } from '@/explorer/visibleState'
 import type { TreeNode, HighlightState } from '@/types/dependency-tree'
 import type { VisibleEdge } from '@/types/registry'
 
@@ -14,13 +15,13 @@ export interface AggregateLinkRenderOptions {
  * Renders curved dashed arcs from visible dep nodes to the folded super nodes or phantom root
  * that contain them as hidden children.
  *
- * Grouping: edges are grouped by (depth-1 ancestor of sourceKey, targetKey). This collapses
- * multiple transitive-dep arcs (e.g. root>B>G and root>B>H both hidden in root>A>B) into one
- * arc originating at the direct-dep node (root>B) with a count badge showing how many of its
- * descendants are hidden in the target super node.
+ * Grouping for super-node targets: edges are grouped by (depth-1 ancestor of sourceKey,
+ * depth-1 ancestor of targetKey). This collapses multiple transitive-dep arcs sharing the same
+ * direct-dep pair into one arc with a count badge (e.g. C→A "(2)" when C has two deps hidden in
+ * super nodes under A). The arc points to the direct dep (A), not to the super node itself.
  *
- * For phantom-root edges the sources are already at depth 1, so each remains an individual arc
- * with a "(1)" badge.
+ * For phantom-root edges: each source node gets its own individual arc with a "(1)" badge,
+ * showing the user exactly which transitive deps are reused at upper levels.
  *
  * Full teardown-rebuild on each call (aggregate topology changes with every expand/filter).
  */
@@ -29,19 +30,26 @@ export function renderAggregateLinks({ g, aggregateEdges, nodesByKey, onLinkClic
 
   const cfg = TREE_CONFIG.aggregateLink
 
-  // Group by (depth-1 ancestor of source, targetKey) — one arc per direct-dep→supernode pair
   const byGroup = new Map<string, { anchorNode: TreeNode; anchorKey: string; target: TreeNode; count: number }>()
   for (const edge of aggregateEdges) {
-    const anchorKey = depth1AncestorKey(edge.sourceKey)
-    const anchorNode = nodesByKey.get(anchorKey)
-    const target = nodesByKey.get(edge.targetKey)
-    if (!anchorNode || !target) continue
-    const groupKey = `${anchorKey}|${edge.targetKey}`
-    const existing = byGroup.get(groupKey)
-    if (existing) {
-      existing.count++
+    if (edge.targetKey === PHANTOM_ROOT_KEY) {
+      // Phantom root: each visible dep gets its own arc — no depth-1 grouping
+      const anchorNode = nodesByKey.get(edge.sourceKey)
+      const target = nodesByKey.get(edge.targetKey)
+      if (!anchorNode || !target) continue
+      byGroup.set(`${edge.sourceKey}|${edge.targetKey}`, { anchorNode, anchorKey: edge.sourceKey, target, count: 1 })
     } else {
-      byGroup.set(groupKey, { anchorNode, anchorKey, target, count: 1 })
+      // Super-node target: arc points to the direct dep (parent of super node), not the super node itself
+      const anchorKey = depth1AncestorKey(edge.sourceKey)
+      const effectiveTargetKey = depth1AncestorKey(edge.targetKey)
+      if (anchorKey === effectiveTargetKey) continue
+      const anchorNode = nodesByKey.get(anchorKey)
+      const target = nodesByKey.get(effectiveTargetKey)
+      if (!anchorNode || !target) continue
+      const groupKey = `${anchorKey}|${effectiveTargetKey}`
+      const existing = byGroup.get(groupKey)
+      if (existing) existing.count++
+      else byGroup.set(groupKey, { anchorNode, anchorKey, target, count: 1 })
     }
   }
 
