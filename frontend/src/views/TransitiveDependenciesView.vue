@@ -1,11 +1,15 @@
 <script setup lang="ts">
-import { ref, computed, watch, nextTick, onMounted } from 'vue'
+import { ref, computed, watch, nextTick, onMounted, markRaw } from 'vue'
 import { useOssiqStore } from '@/stores/ossiq'
 import { useD3Tree } from '@/composables/useD3Tree'
 import { useTreeFilters } from '@/composables/useTreeFilters'
+import { usePackageRegistry } from '@/composables/usePackageRegistry'
+import { useNavigationStack } from '@/composables/useNavigationStack'
+import { buildVisibleState } from '@/explorer/visibleState'
 import DependencyDetailPanel from '@/components/DependencyDetailPanel.vue'
+import NavigationBreadcrumb from '@/components/NavigationBreadcrumb.vue'
 import type { DependencyNode, SelectedNodeDetail } from '@/types/dependency-tree'
-import type { OSSIQExportSchemaV12, PackageMetrics } from '@/types/report'
+import type { OSSIQExportSchemaV13, PackageMetrics, TransitivePackageMetrics, DependencyTreeNode, CVEInfo } from '@/types/report'
 
 const store = useOssiqStore()
 const svgRef = ref<SVGSVGElement | null>(null)
@@ -13,13 +17,16 @@ const selectedNode = ref<SelectedNodeDetail | null>(null)
 const isPanelOpen = ref(false)
 const showLegend = ref(false)
 
-function buildDependencyTree(report: OSSIQExportSchemaV12): DependencyNode {
-  // Build a map of package name → highest CVE severity
+// --- Registry (primary D3 data source, markRaw) ---
+const { registry, projectName } = usePackageRegistry()
+
+// --- Filter path — DependencyNode tree (markRaw) feeds Fuse.js search + toggle UI ---
+function buildDependencyTree(report: OSSIQExportSchemaV13): DependencyNode {
   const severityRank: Record<string, number> = { LOW: 1, MEDIUM: 2, HIGH: 3, CRITICAL: 4 }
   const cveMap = new Map<string, string>()
   for (const pkg of [...report.production_packages, ...report.development_packages, ...report.transitive_packages]) {
-    if (!pkg.cve.length) continue
-    const maxSev = pkg.cve.reduce((best, c) =>
+    if (!pkg.cve?.length) continue
+    const maxSev = pkg.cve!.reduce((best: CVEInfo, c: CVEInfo) =>
       (severityRank[c.severity] ?? 0) > (severityRank[best.severity] ?? 0) ? c : best,
     ).severity
     const existing = cveMap.get(pkg.package_name)
@@ -28,78 +35,83 @@ function buildDependencyTree(report: OSSIQExportSchemaV12): DependencyNode {
     }
   }
 
-  const root: DependencyNode = {
-    name: report.project.name,
-    version_installed: 'local',
-    dependencies: {},
-  };
+  const root: DependencyNode = { name: report.project.name, version_installed: 'local', dependencies: {} }
 
-  const buildSelectedNodeDetail = (pkg: PackageMetrics, categories: string[]) => ({
-      categories,
+  const buildDirectNodeDetail = (pkg: PackageMetrics, categories: string[]) => ({
+    categories,
+    name: pkg.package_name,
+    version_installed: pkg.installed_version,
+    version_defined: pkg.version_constraint ?? undefined,
+    latest_version: pkg.latest_version ?? undefined,
+    severity: cveMap.get(pkg.package_name),
+    time_lag_days: pkg.time_lag_days,
+    releases_lag: pkg.releases_lag,
+    cve: pkg.cve,
+    repo_url: pkg.repo_url,
+    homepage_url: pkg.homepage_url,
+    package_url: pkg.package_url,
+    dependencies: {},
+    license: pkg.license,
+    purl: pkg.purl,
+    dependency_path: pkg.dependency_path,
+    constraint_type: pkg.constraint_type ?? null,
+    constraint_source_file: pkg.constraint_source_file ?? null,
+    extras: pkg.extras ?? null,
+  })
+
+  for (const pkg of report.production_packages) {
+    root.dependencies![pkg.package_name] = buildDirectNodeDetail(pkg, ['production'])
+  }
+  if (report.development_packages.length > 0) {
+    root.optional_dependencies = {}
+    for (const pkg of report.development_packages) {
+      root.optional_dependencies[pkg.package_name] = buildDirectNodeDetail(pkg, ['development'])
+    }
+  }
+
+  const packages = report.transitive_packages
+  function walkNode(treeNode: DependencyTreeNode, parentNode: DependencyNode, parentPath: string[]) {
+    const pkg: TransitivePackageMetrics = packages[treeNode.ref]
+    if (!pkg) return
+    const nodeDetail: DependencyNode = {
+      categories: ['transitive'],
       name: pkg.package_name,
       version_installed: pkg.installed_version,
-      version_defined: pkg.version_constraint ?? undefined,
+      version_defined: treeNode.version_constraint ?? undefined,
       latest_version: pkg.latest_version ?? undefined,
       severity: cveMap.get(pkg.package_name),
       time_lag_days: pkg.time_lag_days,
       releases_lag: pkg.releases_lag,
-      cve: pkg.cve,
+      cve: pkg.cve ?? [],
       repo_url: pkg.repo_url,
       homepage_url: pkg.homepage_url,
       package_url: pkg.package_url,
       dependencies: {},
       license: pkg.license,
       purl: pkg.purl,
-      dependency_path: pkg.dependency_path,
-      constraint_type: pkg.constraint_type ?? null,
+      dependency_path: parentPath,
+      constraint_type: (report.constraint_type_map?.[treeNode.ct] ?? null) as DependencyNode['constraint_type'],
       constraint_source_file: pkg.constraint_source_file ?? null,
-      extras: pkg.extras ?? null,
-  })
-
-  for (const pkg of report.production_packages) {    
-    root.dependencies![pkg.package_name] = buildSelectedNodeDetail(pkg, ['production'])
-  }
-
-  if (report.development_packages.length > 0) {
-    root.optional_dependencies = {}
-    for (const pkg of report.development_packages) {
-      root.optional_dependencies[pkg.package_name] = buildSelectedNodeDetail(pkg, ['development'])
+      extras: treeNode.extras ?? null,
+    }
+    if (!parentNode.dependencies) parentNode.dependencies = {}
+    parentNode.dependencies[pkg.package_name] = nodeDetail
+    for (const child of treeNode.children ?? []) {
+      walkNode(child, nodeDetail, [...parentPath, pkg.package_name])
     }
   }
-
-  // nodeByPath maps "ancestor1/ancestor2/.../parent" → DependencyNode
-  // seeded with direct production deps accessible by their name alone
-  const nodeByPath = new Map<string, DependencyNode>()
-  for (const [name, node] of Object.entries(root.dependencies!)) {
-    nodeByPath.set(name, node)
-  }
-
-  // Sort by path length so parents are always registered before their children
-  const sorted = [...report.transitive_packages].sort(
-    (a, b) => (a.dependency_path?.length ?? 0) - (b.dependency_path?.length ?? 0),
-  )
-
-  for (const pkg of sorted) {
-    if (!pkg.dependency_path || pkg.dependency_path.length === 0) continue
-
-    const parentPathKey = pkg.dependency_path.join('/')
-    const parent = nodeByPath.get(parentPathKey)
-    if (!parent) continue
-
-    if (!parent.dependencies) parent.dependencies = {}
-
-    if (!parent.dependencies[pkg.package_name]) {
-      const thisNode: DependencyNode = buildSelectedNodeDetail(pkg, ['transitive'])      
-      parent.dependencies[pkg.package_name] = thisNode
-      nodeByPath.set(`${parentPathKey}/${pkg.package_name}`, thisNode)
+  for (const treeRoot of report.dependency_tree ?? []) {
+    const directDepNode = root.dependencies![treeRoot.package_name]
+    if (!directDepNode) continue
+    for (const child of treeRoot.children ?? []) {
+      walkNode(child, directDepNode, [treeRoot.package_name])
     }
   }
-
   return root
 }
 
 const dependencyTree = computed<DependencyNode | null>(() =>
-  store.report ? buildDependencyTree(store.report) : null,
+  store.report ? markRaw(buildDependencyTree(store.report)) : null,
 )
 
 function handleNodeSelect(node: SelectedNodeDetail | null) {
@@ -115,18 +127,71 @@ function handlePanelClose() {
 const { searchQuery, filterCve, filterNarrowed, filterOverridePinned, filteredTree, hasActiveFilters, clearFilters } =
   useTreeFilters({ dependencyTree })
 
+// Collect all package names from the pruned filteredTree (ancestors of matches are included
+// by pruneTree in useTreeFilters, so checking name is sufficient for the BFS filter guard).
+function collectFilteredNames(node: DependencyNode, out: Set<string>) {
+  out.add(node.name)
+  for (const c of Object.values(node.dependencies ?? {})) collectFilteredNames(c, out)
+  for (const c of Object.values(node.optional_dependencies ?? {})) collectFilteredNames(c, out)
+}
+
+const filterMask = computed<Set<string> | null>(() => {
+  if (!hasActiveFilters.value || !filteredTree.value) return null
+  const names = new Set<string>()
+  collectFilteredNames(filteredTree.value, names)
+  return names
+})
+
+// --- Navigation stack: shift-and-expand navigation ---
+const { stack: navStack, current: navRoot, canGoBack, push: navPush, pop: navPop, jumpTo: navJumpTo, reset: navReset } =
+  useNavigationStack()
+
+// Package names from the nav stack — used to mark ancestor cross-ref nodes with "↩".
+const ancestorNames = computed(() => new Set(navStack.value.map((f) => f.label)))
+
+// --- Visible state: BFS slice fed to D3 ---
+const visibleState = computed(() => {
+  if (!registry.value) return null
+  return buildVisibleState(
+    registry.value,
+    projectName.value,
+    'root',
+    2,
+    filterMask.value,
+    new Set(),
+    navRoot.value,
+  )
+})
+
+// True when navigated into a leaf package (no transitive deps to show)
+const isNavigatedLeaf = computed(
+  () => navRoot.value !== null && (visibleState.value?.nodes.size ?? 0) <= 1,
+)
+
+function handleFoldedNodeExpand(registryId: number | null, directName: string | null, packageName: string) {
+  navPush({ label: packageName, registryId, directName })
+}
+
 const { initializeTree, selectNodeByName, zoomIn, zoomOut, resetZoom } = useD3Tree({
   svgRef,
   onNodeSelect: handleNodeSelect,
+  onFoldedNodeExpand: handleFoldedNodeExpand,
+  onNavigateBack: navPop,
 })
 
 onMounted(() => {
-  if (filteredTree.value) initializeTree(filteredTree.value)
+  if (visibleState.value && registry.value)
+    initializeTree(registry.value, visibleState.value, ancestorNames.value)
 })
 
-watch(filteredTree, (tree) => {
-  if (tree) nextTick(() => initializeTree(tree))
+watch(visibleState, (state) => {
+  if (state && registry.value)
+    nextTick(() => initializeTree(registry.value!, state, ancestorNames.value))
 })
+
+// Reset navigation when filters change or a new report loads
+watch(filterMask, () => navReset())
+watch(registry, () => navReset())
 </script>
 
 <template>
@@ -141,7 +206,7 @@ watch(filteredTree, (tree) => {
       >
         <div class="pointer-events-auto">
           <h1 class="text-xl font-bold text-slate-900 uppercase tracking-tight">Transitive Dependencies</h1>
-          <p class="text-sm text-slate-500 mt-0.5">Root positioned left. Click for details · Alt+Click to fold/unfold branch.</p>
+          <p class="text-sm text-slate-500 mt-0.5">Root positioned left. Click node for details · Click folded node to navigate · Click phantom root or dashed line to go back.</p>
         </div>
 
         <div class="flex items-center gap-2 mt-1 pointer-events-auto">
@@ -275,7 +340,8 @@ watch(filteredTree, (tree) => {
             <ul class="space-y-1 text-slate-600 leading-snug">
               <li>Click a <strong>tree edge</strong> → selects the child node</li>
               <li>Click a <strong>dashed line</strong> → selects the connected duplicate</li>
-              <li><strong>Alt+Click</strong> a node → fold / unfold subtree</li>
+              <li>Click a <strong>folded node</strong> → navigate into its subtree</li>
+              <li>Click <strong>phantom root</strong> or back line → go back one step</li>
               <li>Click <strong>background</strong> → exit focus mode</li>
             </ul>
           </div>
@@ -289,6 +355,15 @@ watch(filteredTree, (tree) => {
           </div>
         </div>
       </header>
+
+      <NavigationBreadcrumb
+        v-if="canGoBack"
+        :project-name="projectName"
+        :stack="navStack"
+        class="absolute top-17 left-0 right-0 z-10"
+        @jump-to-root="navReset()"
+        @jump-to="(index) => navJumpTo(index)"
+      />
 
       <div class="absolute bottom-4 right-4 z-10 flex flex-col gap-1">
         <button
@@ -312,6 +387,14 @@ watch(filteredTree, (tree) => {
         >
           1:1
         </button>
+      </div>
+
+      <div
+        v-if="isNavigatedLeaf"
+        class="absolute inset-0 flex flex-col items-center justify-center pointer-events-none gap-2"
+      >
+        <span class="material-symbols-rounded text-4xl text-slate-300">device_hub</span>
+        <p class="text-sm text-slate-400">No transitive dependencies</p>
       </div>
 
       <svg ref="svgRef" class="w-full h-full"></svg>

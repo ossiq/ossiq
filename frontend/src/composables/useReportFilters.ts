@@ -1,6 +1,6 @@
 import { ref, computed } from 'vue'
 import { useOssiqStore } from '@/stores/ossiq'
-import type { PackageMetrics } from '@/types/report'
+import type { DependencyTreeNode, PackageMetrics, TransitivePackageMetrics } from '@/types/report'
 
 export type DriftStatus = 'LATEST' | 'DIFF_MAJOR' | 'DIFF_MINOR' | 'DIFF_PATCH'
 export type SortDirection = 'none' | 'asc' | 'desc'
@@ -73,10 +73,17 @@ export function useReportFilters() {
   // Build set of direct package names that have transitive deps with CVEs
   const transitiveCveSet = computed<Set<string>>(() => {
     const set = new Set<string>()
-    for (const pkg of store.transitivePackages) {
-      if (pkg.cve.length > 0 && pkg.dependency_path?.[0]) {
-        set.add(pkg.dependency_path[0])
+    const packages = store.transitivePackages as TransitivePackageMetrics[]
+
+    function collect(nodes: DependencyTreeNode[], rootName: string) {
+      for (const node of nodes) {
+        if ((packages[node.ref]?.cve?.length ?? 0) > 0) set.add(rootName)
+        collect(node.children ?? [], rootName)
       }
+    }
+
+    for (const root of store.report?.dependency_tree ?? []) {
+      collect(root.children ?? [], root.package_name)
     }
     return set
   })

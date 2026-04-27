@@ -11,6 +11,7 @@ export const TREE_CONFIG = {
   animation: {
     nodeTransition: 500,
     linkTransition: 500,
+    fadeDuration: 120,
   },
   node: {
     radiusDefault: 6,
@@ -65,5 +66,37 @@ export const TREE_CONFIG = {
     hitTargetWidth: 12,      // transparent overlay for easier clicking
     opacityHighlighted: 0.85,
     opacityDimmed: 0.1,
+  },
+  foldedNode: {
+    // Radius tiers keyed by hidden child count
+    radiusSmall:  10,  // hiddenChildCount ≤ 10
+    radiusMedium: 12,  // hiddenChildCount 11–50
+    radiusLarge:  14,  // hiddenChildCount > 50
+    // Fill colors (pastel)
+    fillSmall:   '#e0e7ff',  // indigo-100
+    fillMedium:  '#fed7aa',  // orange-200
+    fillLarge:   '#fecaca',  // red-200
+    // Stroke colors (dark)
+    strokeSmall:  '#4338ca', // indigo-700
+    strokeMedium: '#ea580c', // orange-600
+    strokeLarge:  '#dc2626', // red-600
+    strokeDash:   '4,2',
+    strokeWidth:  2,
+    badgeFontSize: '8px',
+  },
+  aggregateLink: {
+    bezierOffset: 60,
+    stroke: '#818cf8',            // indigo-400
+    strokeHighlighted: '#4f46e5', // indigo-600
+    strokeDash: '6,3',
+    strokeWidth: 1.5,
+    hitTargetWidth: 10,
+    opacityNormal: 0.5,
+    opacityDimmed: 0.1,
+    bundleStroke: '#6366f1',      // indigo-500 — slightly darker than single arcs
+    bundleStrokeWidth: 2.5,
+    bundleStrokeDash: '8,3',
+    bundleOpacity: 0.65,
+    bundleBadgeFontSize: '7px',
   },
 } as const

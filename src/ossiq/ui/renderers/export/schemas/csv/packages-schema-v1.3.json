@@ -1,0 +1,130 @@
+{
+  "$schema": "https://specs.frictionlessdata.io/schemas/table-schema.json",
+  "fields": [
+    {
+      "name": "package_name",
+      "type": "string",
+      "title": "Package Name",
+      "description": "Canonical registry name of the package",
+      "constraints": {
+        "required": true,
+        "minLength": 1
+      }
+    },
+    {
+      "name": "dependency_name",
+      "type": "string",
+      "title": "Dependency Name",
+      "description": "Alias name as declared in the project manifest (same as package_name when no alias is used)"
+    },
+    {
+      "name": "dependency_type",
+      "type": "string",
+      "title": "Dependency Type",
+      "description": "Whether this is a production or development dependency",
+      "constraints": {
+        "required": true,
+        "enum": ["production", "development"]
+      }
+    },
+    {
+      "name": "is_optional_dependency",
+      "type": "boolean",
+      "title": "Is Optional Dependency",
+      "description": "Whether this is a development/optional dependency",
+      "trueValues": ["true"],
+      "falseValues": ["false"],
+      "constraints": {
+        "required": true
+      }
+    },
+    {
+      "name": "installed_version",
+      "type": "string",
+      "title": "Installed Version",
+      "description": "Currently installed version",
+      "constraints": {
+        "required": true,
+        "minLength": 1
+      }
+    },
+    {
+      "name": "latest_version",
+      "type": "string",
+      "title": "Latest Version",
+      "description": "Latest available version from registry",
+      "constraints": {
+        "pattern": "^(?:[0-9]+\\.[0-9]+\\.[0-9]+(?:[-.][0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?|[0-9]+(?:\\.[0-9]+)*(?:[a-zA-Z][a-zA-Z0-9_.-]*)?)$"
+      }
+    },
+    {
+      "name": "time_lag_days",
+      "type": "integer",
+      "title": "Time Lag (Days)",
+      "description": "Days between installed and latest version release",
+      "constraints": {
+        "minimum": 0
+      }
+    },
+    {
+      "name": "releases_lag",
+      "type": "integer",
+      "title": "Releases Lag",
+      "description": "Number of releases between installed and latest",
+      "constraints": {
+        "minimum": 0
+      }
+    },
+    {
+      "name": "cve_count",
+      "type": "integer",
+      "title": "CVE Count",
+      "description": "Number of known CVEs for this package",
+      "constraints": {
+        "required": true,
+        "minimum": 0
+      }
+    },
+    {
+      "name": "version_constraint",
+      "type": "string",
+      "title": "Version Constraint",
+      "description": "Version specifier declared in the project manifest (e.g. '^1.2.3', '>=1.0,<2.0')"
+    },
+    {
+      "name": "constraint_type",
+      "type": "string",
+      "title": "Constraint Type",
+      "description": "How the version constraint was applied: DECLARED (loose/default spec), NARROWED (explicit range with bounds), PINNED (exact version), ADDITIVE (narrows via constraints file), or OVERRIDE (forces a version regardless of other requirements)",
+      "constraints": {
+        "enum": ["DECLARED", "NARROWED", "PINNED", "ADDITIVE", "OVERRIDE"]
+      }
+    },
+    {
+      "name": "constraint_source_file",
+      "type": "string",
+      "title": "Constraint Source File",
+      "description": "File that introduced a non-DECLARED constraint (e.g. 'package.json', 'pyproject.toml', 'requirements.txt')"
+    },
+    {
+      "name": "extras",
+      "type": "string",
+      "title": "Extras",
+      "description": "PyPI extras requested for this dependency, comma-separated (e.g. 'security,tests'); empty when none"
+    },
+    {
+      "name": "license",
+      "type": "string",
+      "title": "License",
+      "description": "SPDX license identifier or license name as declared in the package registry"
+    },
+    {
+      "name": "purl",
+      "type": "string",
+      "title": "Package URL (PURL)",
+      "description": "Package URL per ECMA-386, e.g. pkg:pypi/requests@2.25.1 or pkg:npm/lodash@4.17.21"
+    }
+  ],
+  "primaryKey": ["package_name"],
+  "missingValues": [""]
+}

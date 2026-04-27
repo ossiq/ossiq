@@ -73,6 +73,35 @@ export function renderNodes({ g, nodes, source, onNodeClick }: NodeRenderOptions
     .attr('fill', TREE_CONFIG.colors.cveIndicatorText)
     .text('!')
 
+  // "+N more" count badge for folded Super Nodes
+  nodeEnter
+    .filter((d) => !!d.data._isFolded)
+    .append('text')
+    .attr('class', 'folded-count')
+    .attr('text-anchor', 'middle')
+    .attr('dominant-baseline', 'middle')
+    .attr('font-size', TREE_CONFIG.foldedNode.badgeFontSize)
+    .attr('font-weight', 'bold')
+    .attr('pointer-events', 'none')
+    .text((d) => {
+      const hiddenChildCount = d.data._hiddenChildCount ?? 0;
+      return hiddenChildCount > 0 
+        ? `+${d.data._hiddenChildCount ?? 0}` 
+        : ''
+      })
+
+  // "↩" badge for nodes whose package appeared in the navigation breadcrumb (ancestor views)
+  nodeEnter
+    .filter((d) => !!d.data._isAncestorRef)
+    .append('text')
+    .attr('class', 'ancestor-ref-badge')
+    .attr('text-anchor', 'middle')
+    .attr('dominant-baseline', 'middle')
+    .attr('dy', '-1.6em')
+    .attr('font-size', '9px')
+    .attr('pointer-events', 'none')
+    .text('↩')
+
   // Transition all nodes to their computed positions
   nodeEnter
     .merge(node)
@@ -109,4 +138,14 @@ export function applyNodeStyles(
     .attr('stroke-width', (d) => resolveStyle(d, highlight).strokeWidth)
     .attr('stroke-dasharray', (d) => resolveStyle(d, highlight).strokeDash)
     .attr('r', (d) => resolveStyle(d, highlight).radius)
+
+  // Badge text color tracks the node's stroke color
+  nodeGroups
+    .select<SVGTextElement>('.folded-count')
+    .attr('fill', (d) => resolveStyle(d, highlight).stroke)
+
+  nodeGroups
+    .select<SVGTextElement>('.ancestor-ref-badge')
+    .attr('fill', (d) => resolveStyle(d, highlight).stroke)
+    .attr('opacity', (d) => (highlight.mode === 'none' || highlight.primaryKeys.has(nodeKey(d))) ? 1 : 0.3)
 }

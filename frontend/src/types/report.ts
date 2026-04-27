@@ -6,9 +6,9 @@
  */
 
 /**
- * Schema for OSS-IQ project metrics export data (v1.2 adds constraint_type and constraint_source_file)
+ * Schema for OSS-IQ project metrics export data (v1.3 uses a shared dependency_tree with integer ct references into constraint_type_map, explicit id on transitive packages, and omits null/empty fields for compact output)
  */
-export interface OSSIQExportSchemaV12 {
+export interface OSSIQExportSchemaV13 {
   /**
    * Metadata about the export itself
    */
@@ -16,7 +16,7 @@ export interface OSSIQExportSchemaV12 {
     /**
      * Version of the export schema format
      */
-    schema_version: "1.2";
+    schema_version: "1.3";
     /**
      * UTC timestamp when the export was generated
      */
@@ -80,13 +80,24 @@ export interface OSSIQExportSchemaV12 {
    */
   development_packages: PackageMetrics[];
   /**
-   * Transitive dependency metrics (all paths, production edges only)
+   * Transitive dependency metrics, one entry per unique (package_name, installed_version); path and constraint data lives in dependency_tree
    */
-  transitive_packages: PackageMetrics[];
+  transitive_packages: TransitivePackageMetrics[];
+  /**
+   * Dependency tree rooted at each direct production dependency; nodes carry edge-specific constraint data and reference transitive_packages by id
+   */
+  dependency_tree: DependencyTreeRoot[];
+  /**
+   * Lookup table for ct integer field in DependencyTreeNode; index 0=DECLARED, 1=NARROWED, 2=PINNED, 3=ADDITIVE, 4=OVERRIDE
+   *
+   * @minItems 5
+   * @maxItems 5
+   */
+  constraint_type_map: [string, string, string, string, string];
   [k: string]: unknown;
 }
 /**
- * Metrics for a single package
+ * Metrics for a single package (used for production and development dependencies)
  */
 export interface PackageMetrics {
   /**
@@ -207,5 +218,111 @@ export interface CVEInfo {
    * URL to upstream advisory
    */
   link: string;
+  [k: string]: unknown;
+}
+/**
+ * Metrics for a transitive package, deduplicated by (package_name, installed_version); path and constraint data lives in dependency_tree
+ */
+export interface TransitivePackageMetrics {
+  /**
+   * Zero-based index into the transitive_packages array; matched by DependencyTreeNode.ref
+   */
+  id: number;
+  /**
+   * Package name (canonical registry name)
+   */
+  package_name: string;
+  /**
+   * Whether this is a development/optional dependency; always false for transitive deps
+   */
+  is_optional_dependency: boolean;
+  /**
+   * Currently installed version
+   */
+  installed_version: string;
+  /**
+   * Latest available version
+   */
+  latest_version: string | null;
+  /**
+   * Days between installed and latest version
+   */
+  time_lag_days: number | null;
+  /**
+   * Number of releases between installed and latest
+   */
+  releases_lag: number | null;
+  /**
+   * Known CVEs for this package (absent when empty)
+   */
+  cve?: CVEInfo[];
+  /**
+   * File that introduced a non-DECLARED constraint for this package (absent when DECLARED)
+   */
+  constraint_source_file?: string;
+  /**
+   * Source code repository URL
+   */
+  repo_url?: string | null;
+  /**
+   * Package homepage URL
+   */
+  homepage_url?: string | null;
+  /**
+   * Package registry page URL
+   */
+  package_url?: string | null;
+  /**
+   * SPDX license identifiers parsed from the package license expression
+   */
+  license?: string[] | null;
+  /**
+   * Package URL (PURL) per ECMA-386, e.g. pkg:pypi/requests@2.25.1 or pkg:npm/lodash@4.17.21
+   */
+  purl?: string | null;
+  [k: string]: unknown;
+}
+/**
+ * Root entry in the dependency tree, anchored at a direct production dependency
+ */
+export interface DependencyTreeRoot {
+  /**
+   * Name of the direct production dependency
+   */
+  package_name: string;
+  /**
+   * Transitive packages directly required by this production dependency
+   */
+  children?: DependencyTreeNode[];
+  [k: string]: unknown;
+}
+/**
+ * One node in the dependency tree; ref matches id in transitive_packages, ct indexes into constraint_type_map
+ */
+export interface DependencyTreeNode {
+  /**
+   * Matches the id field of a TransitivePackageMetrics entry
+   */
+  ref: number;
+  /**
+   * Index into the top-level constraint_type_map array
+   */
+  ct: number;
+  /**
+   * Version constraint declared by the immediate parent
+   */
+  version_constraint?: string;
+  /**
+   * Alias name declared by the immediate parent (absent when same as package_name)
+   */
+  dependency_name?: string;
+  /**
+   * PyPI extras for this dependency (absent for non-PyPI or when unused)
+   */
+  extras?: string[];
+  /**
+   * Transitive packages directly required by this package
+   */
+  children?: DependencyTreeNode[];
   [k: string]: unknown;
 }

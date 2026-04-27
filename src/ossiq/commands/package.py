@@ -30,7 +30,9 @@ class CommandPackageOptions:
 def _matches(record: ScanRecord, package_name: str) -> bool:
     """Case-insensitive exact match on dependency_name or package_name (canonical)."""
     needle = package_name.lower()
-    return record.dependency_name.lower() == needle or record.package_name.lower() == needle
+    return (
+        record.dependency_name is not None and record.dependency_name.lower() == needle
+    ) or record.package_name.lower() == needle
 
 
 def _collect_transitive_cve_groups(scan_result: ScanResult, package_name: str) -> list[TransitiveCVEGroup]:

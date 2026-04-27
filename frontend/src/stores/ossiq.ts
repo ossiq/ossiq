@@ -1,9 +1,9 @@
 import { ref, computed } from 'vue'
 import { defineStore } from 'pinia'
-import type { OSSIQExportSchemaV12 } from '@/types/report'
+import type { OSSIQExportSchemaV13 } from '@/types/report'
 
 export const useOssiqStore = defineStore('ossiq', () => {
-  const report = ref<OSSIQExportSchemaV12 | null>(null)
+  const report = ref<OSSIQExportSchemaV13 | null>(null)
 
   const isLoaded = computed(() => report.value !== null)
   const projectName = computed(() => report.value?.project.name ?? null)
@@ -11,7 +11,7 @@ export const useOssiqStore = defineStore('ossiq', () => {
   const developmentPackages = computed(() => report.value?.development_packages ?? [])
   const transitivePackages = computed(() => report.value?.transitive_packages ?? [])
 
-  function setReport(data: OSSIQExportSchemaV12) {
+  function setReport(data: OSSIQExportSchemaV13) {
     report.value = data
   }
 
