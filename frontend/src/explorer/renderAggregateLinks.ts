@@ -1,6 +1,5 @@
 import * as d3 from 'd3'
 import { TREE_CONFIG } from './config'
-import { nodeKey } from './transform'
 import type { TreeNode, HighlightState } from '@/types/dependency-tree'
 import type { VisibleEdge } from '@/types/registry'
 
@@ -12,9 +11,16 @@ export interface AggregateLinkRenderOptions {
 }
 
 /**
- * Renders curved dashed arcs from folded Super Nodes to already-visible nodes that share
- * a hidden dependency. When multiple folded nodes all point to the same target, they are
- * merged into a single thicker "bundle arc" with an (N) source-count badge.
+ * Renders curved dashed arcs from visible dep nodes to the folded super nodes or phantom root
+ * that contain them as hidden children.
+ *
+ * Grouping: edges are grouped by (depth-1 ancestor of sourceKey, targetKey). This collapses
+ * multiple transitive-dep arcs (e.g. root>B>G and root>B>H both hidden in root>A>B) into one
+ * arc originating at the direct-dep node (root>B) with a count badge showing how many of its
+ * descendants are hidden in the target super node.
+ *
+ * For phantom-root edges the sources are already at depth 1, so each remains an individual arc
+ * with a "(1)" badge.
  *
  * Full teardown-rebuild on each call (aggregate topology changes with every expand/filter).
  */
@@ -23,27 +29,33 @@ export function renderAggregateLinks({ g, aggregateEdges, nodesByKey, onLinkClic
 
   const cfg = TREE_CONFIG.aggregateLink
 
-  // Group edges by targetKey — single-source arcs render individually; multi-source → bundle
-  const byTarget = new Map<string, { sources: TreeNode[]; target: TreeNode }>()
+  // Group by (depth-1 ancestor of source, targetKey) — one arc per direct-dep→supernode pair
+  const byGroup = new Map<string, { anchorNode: TreeNode; anchorKey: string; target: TreeNode; count: number }>()
   for (const edge of aggregateEdges) {
-    const source = nodesByKey.get(edge.sourceKey)
+    const anchorKey = depth1AncestorKey(edge.sourceKey)
+    const anchorNode = nodesByKey.get(anchorKey)
     const target = nodesByKey.get(edge.targetKey)
-    if (!source || !target) continue
-    const existing = byTarget.get(edge.targetKey)
+    if (!anchorNode || !target) continue
+    const groupKey = `${anchorKey}|${edge.targetKey}`
+    const existing = byGroup.get(groupKey)
     if (existing) {
-      existing.sources.push(source)
+      existing.count++
     } else {
-      byTarget.set(edge.targetKey, { sources: [source], target })
+      byGroup.set(groupKey, { anchorNode, anchorKey, target, count: 1 })
     }
   }
 
-  for (const { sources, target } of byTarget.values()) {
-    if (sources.length === 1) {
-      renderSingleArc(g, sources[0], target, cfg, onLinkClick)
-    } else {
-      renderBundleArc(g, sources, target, cfg, onLinkClick)
-    }
+  for (const { anchorNode, anchorKey, target, count } of byGroup.values()) {
+    renderArc(g, anchorNode, anchorKey, target, count, cfg, onLinkClick)
   }
+}
+
+/** Returns the depth-1 ancestor key (first two path segments), e.g. "root>B" from "root>B>G>X". */
+function depth1AncestorKey(sourceKey: string): string {
+  const first = sourceKey.indexOf('>')
+  if (first === -1) return sourceKey
+  const second = sourceKey.indexOf('>', first + 1)
+  return second === -1 ? sourceKey : sourceKey.slice(0, second)
 }
 
 function arcPath(sx: number, sy: number, tx: number, ty: number, bezierOffset: number): { path: string; midX: number; midY: number } {
@@ -58,30 +70,32 @@ function arcPath(sx: number, sy: number, tx: number, ty: number, bezierOffset: n
   return { path: `M${sx},${sy} Q${cx},${cy} ${tx},${ty}`, midX, midY }
 }
 
-function renderSingleArc(
+function renderArc(
   g: d3.Selection<SVGGElement, unknown, null, undefined>,
-  source: TreeNode,
+  anchor: TreeNode,
+  anchorKey: string,
   target: TreeNode,
+  count: number,
   cfg: typeof TREE_CONFIG.aggregateLink,
   onLinkClick: (node: TreeNode) => void,
 ) {
-  const { path } = arcPath(source.y, source.x, target.y, target.x, cfg.bezierOffset)
-  const sourceKey = nodeKey(source)
+  const { path, midX, midY } = arcPath(anchor.y, anchor.x, target.y, target.x, cfg.bezierOffset)
+  const isBundle = count > 1
 
   g.insert('path', '.node')
     .attr('class', 'link-aggregate')
-    .attr('data-source-key', sourceKey)
+    .attr('data-source-key', anchorKey)
     .attr('fill', 'none')
     .attr('stroke', TREE_CONFIG.colors.dashedLinkDefault)
-    .attr('stroke-width', cfg.strokeWidth)
-    .attr('stroke-dasharray', cfg.strokeDash)
-    .attr('opacity', cfg.opacityNormal)
+    .attr('stroke-width', isBundle ? cfg.bundleStrokeWidth : cfg.strokeWidth)
+    .attr('stroke-dasharray', isBundle ? cfg.bundleStrokeDash : cfg.strokeDash)
+    .attr('opacity', isBundle ? cfg.bundleOpacity : cfg.opacityNormal)
     .attr('pointer-events', 'none')
     .attr('d', path)
 
   g.insert('path', '.node')
     .attr('class', 'link-aggregate-hit')
-    .attr('data-source-key', sourceKey)
+    .attr('data-source-key', anchorKey)
     .attr('fill', 'none')
     .attr('stroke', 'transparent')
     .attr('stroke-width', cfg.hitTargetWidth)
@@ -89,48 +103,9 @@ function renderSingleArc(
     .style('cursor', 'pointer')
     .on('click', (event: MouseEvent) => {
       event.stopPropagation()
-      onLinkClick(source) // navigate to the visible dep (source)
-    })
-}
-
-function renderBundleArc(
-  g: d3.Selection<SVGGElement, unknown, null, undefined>,
-  sources: TreeNode[],
-  target: TreeNode,
-  cfg: typeof TREE_CONFIG.aggregateLink,
-  onLinkClick: (node: TreeNode) => void,
-) {
-  // Centroid of all source node positions (SVG convention: node.y = horizontal, node.x = vertical)
-  const avgSx = sources.reduce((sum, s) => sum + s.y, 0) / sources.length
-  const avgSy = sources.reduce((sum, s) => sum + s.x, 0) / sources.length
-  const { path, midX, midY } = arcPath(avgSx, avgSy, target.y, target.x, cfg.bezierOffset)
-  const sourceKeysAttr = sources.map((s) => nodeKey(s)).join(',')
-
-  g.insert('path', '.node')
-    .attr('class', 'link-aggregate')
-    .attr('data-source-keys', sourceKeysAttr)
-    .attr('fill', 'none')
-    .attr('stroke', TREE_CONFIG.colors.dashedLinkDefault)
-    .attr('stroke-width', cfg.strokeWidth)
-    .attr('stroke-dasharray', cfg.strokeDash)
-    .attr('opacity', cfg.opacityNormal)
-    .attr('pointer-events', 'none')
-    .attr('d', path)
-
-  g.insert('path', '.node')
-    .attr('class', 'link-aggregate-hit')
-    .attr('data-source-keys', sourceKeysAttr)
-    .attr('fill', 'none')
-    .attr('stroke', 'transparent')
-    .attr('stroke-width', cfg.hitTargetWidth)
-    .attr('d', path)
-    .style('cursor', 'pointer')
-    .on('click', (event: MouseEvent) => {
-      event.stopPropagation()
-      onLinkClick(sources[0]!) // focus first visible dep source (same as same-version link)
+      onLinkClick(anchor)
     })
 
-  // Source-count badge at the arc midpoint
   g.insert('text', '.node')
     .attr('class', 'link-aggregate-count')
     .attr('x', midX)
@@ -140,22 +115,19 @@ function renderBundleArc(
     .attr('font-size', cfg.bundleBadgeFontSize)
     .attr('fill', TREE_CONFIG.colors.dashedLinkDefault)
     .attr('pointer-events', 'none')
-    .text(`(${sources.length})`)
+    .text(`(${count})`)
 }
 
 /**
- * Highlights aggregate arcs whose source node is currently focused, mirroring
- * applySameVersionLinkStyles: orange stroke + 3px width when relevant, dim when not.
+ * Highlights aggregate arcs whose anchor (depth-1 source) node is currently focused.
  */
 export function applyAggregateLinkStyles(
   g: d3.Selection<SVGGElement, unknown, null, undefined>,
   highlight: HighlightState,
 ) {
   function isRelevant(el: Element): boolean {
-    const multi = el.getAttribute('data-source-keys')
-    const single = el.getAttribute('data-source-key')
-    const keys = multi ? multi.split(',') : single ? [single] : []
-    return keys.some((k) => highlight.primaryKeys.has(k) || highlight.secondaryKeys.has(k))
+    const key = el.getAttribute('data-source-key')
+    return key !== null && (highlight.primaryKeys.has(key) || highlight.secondaryKeys.has(key))
   }
 
   g.selectAll<SVGPathElement, unknown>('.link-aggregate')
