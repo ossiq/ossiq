@@ -1,0 +1,425 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://ossiq.org/schemas/export/v1.3.json",
+  "title": "OSS-IQ Export Schema v1.3",
+  "description": "Schema for OSS-IQ project metrics export data (v1.3 uses a shared dependency_tree with integer ct references into constraint_type_map, explicit id on transitive packages, and omits null/empty fields for compact output)",
+  "type": "object",
+  "required": ["metadata", "project", "summary", "production_packages", "development_packages", "transitive_packages", "dependency_tree", "constraint_type_map"],
+  "properties": {
+    "metadata": {
+      "type": "object",
+      "description": "Metadata about the export itself",
+      "required": ["schema_version", "export_timestamp"],
+      "properties": {
+        "schema_version": {
+          "type": "string",
+          "const": "1.3",
+          "description": "Version of the export schema format"
+        },
+        "export_timestamp": {
+          "type": "string",
+          "format": "date-time",
+          "description": "UTC timestamp when the export was generated"
+        }
+      }
+    },
+    "project": {
+      "type": "object",
+      "description": "Basic project information",
+      "required": ["name", "path", "registry"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Project name"
+        },
+        "path": {
+          "type": "string",
+          "description": "Absolute path to the project"
+        },
+        "registry": {
+          "type": "string",
+          "description": "Package registry type (npm, pypi, etc.)",
+          "enum": ["npm", "pypi"]
+        }
+      }
+    },
+    "summary": {
+      "type": "object",
+      "description": "Summary statistics for the scanned project",
+      "required": [
+        "total_packages",
+        "production_packages",
+        "development_packages",
+        "packages_with_cves",
+        "total_cves",
+        "packages_outdated"
+      ],
+      "properties": {
+        "total_packages": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Total number of packages (production + development)"
+        },
+        "production_packages": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of production dependencies"
+        },
+        "development_packages": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of development dependencies"
+        },
+        "packages_with_cves": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of packages with known CVEs"
+        },
+        "total_cves": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Total number of CVEs across all packages"
+        },
+        "packages_outdated": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of packages behind the latest version"
+        }
+      }
+    },
+    "production_packages": {
+      "type": "array",
+      "description": "Production dependency metrics",
+      "items": {
+        "$ref": "#/$defs/PackageMetrics"
+      }
+    },
+    "development_packages": {
+      "type": "array",
+      "description": "Development dependency metrics",
+      "items": {
+        "$ref": "#/$defs/PackageMetrics"
+      }
+    },
+    "transitive_packages": {
+      "type": "array",
+      "description": "Transitive dependency metrics, one entry per unique (package_name, installed_version); path and constraint data lives in dependency_tree",
+      "items": {
+        "$ref": "#/$defs/TransitivePackageMetrics"
+      }
+    },
+    "dependency_tree": {
+      "type": "array",
+      "description": "Dependency tree rooted at each direct production dependency; nodes carry edge-specific constraint data and reference transitive_packages by id",
+      "items": {
+        "$ref": "#/$defs/DependencyTreeRoot"
+      }
+    },
+    "constraint_type_map": {
+      "type": "array",
+      "description": "Lookup table for ct integer field in DependencyTreeNode; index 0=DECLARED, 1=NARROWED, 2=PINNED, 3=ADDITIVE, 4=OVERRIDE",
+      "items": { "type": "string" },
+      "minItems": 5,
+      "maxItems": 5
+    }
+  },
+  "$defs": {
+    "DependencyTreeRoot": {
+      "type": "object",
+      "description": "Root entry in the dependency tree, anchored at a direct production dependency",
+      "required": ["package_name"],
+      "properties": {
+        "package_name": {
+          "type": "string",
+          "description": "Name of the direct production dependency"
+        },
+        "children": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/DependencyTreeNode" },
+          "description": "Transitive packages directly required by this production dependency"
+        }
+      }
+    },
+    "DependencyTreeNode": {
+      "type": "object",
+      "description": "One node in the dependency tree; ref matches id in transitive_packages, ct indexes into constraint_type_map",
+      "required": ["ref", "ct"],
+      "properties": {
+        "ref": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Matches the id field of a TransitivePackageMetrics entry"
+        },
+        "ct": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4,
+          "description": "Index into the top-level constraint_type_map array"
+        },
+        "version_constraint": {
+          "type": "string",
+          "description": "Version constraint declared by the immediate parent"
+        },
+        "dependency_name": {
+          "type": "string",
+          "description": "Alias name declared by the immediate parent (absent when same as package_name)"
+        },
+        "extras": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "PyPI extras for this dependency (absent for non-PyPI or when unused)"
+        },
+        "children": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/DependencyTreeNode" },
+          "description": "Transitive packages directly required by this package"
+        }
+      }
+    },
+    "TransitivePackageMetrics": {
+      "type": "object",
+      "description": "Metrics for a transitive package, deduplicated by (package_name, installed_version); path and constraint data lives in dependency_tree",
+      "required": [
+        "id",
+        "package_name",
+        "is_optional_dependency",
+        "installed_version",
+        "latest_version",
+        "time_lag_days",
+        "releases_lag"
+      ],
+      "properties": {
+        "id": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Zero-based index into the transitive_packages array; matched by DependencyTreeNode.ref"
+        },
+        "package_name": {
+          "type": "string",
+          "description": "Package name (canonical registry name)"
+        },
+        "is_optional_dependency": {
+          "type": "boolean",
+          "description": "Whether this is a development/optional dependency; always false for transitive deps"
+        },
+        "installed_version": {
+          "type": "string",
+          "description": "Currently installed version"
+        },
+        "latest_version": {
+          "type": ["string", "null"],
+          "description": "Latest available version"
+        },
+        "time_lag_days": {
+          "type": ["integer", "null"],
+          "description": "Days between installed and latest version"
+        },
+        "releases_lag": {
+          "type": ["integer", "null"],
+          "description": "Number of releases between installed and latest"
+        },
+        "cve": {
+          "type": "array",
+          "description": "Known CVEs for this package (absent when empty)",
+          "items": {
+            "$ref": "#/$defs/CVEInfo"
+          }
+        },
+        "constraint_source_file": {
+          "type": "string",
+          "description": "File that introduced a non-DECLARED constraint for this package (absent when DECLARED)"
+        },
+        "repo_url": {
+          "type": ["string", "null"],
+          "format": "uri",
+          "description": "Source code repository URL"
+        },
+        "homepage_url": {
+          "type": ["string", "null"],
+          "format": "uri",
+          "description": "Package homepage URL"
+        },
+        "package_url": {
+          "type": ["string", "null"],
+          "format": "uri",
+          "description": "Package registry page URL"
+        },
+        "license": {
+          "type": ["array", "null"],
+          "items": { "type": "string" },
+          "description": "SPDX license identifiers parsed from the package license expression"
+        },
+        "purl": {
+          "type": ["string", "null"],
+          "description": "Package URL (PURL) per ECMA-386, e.g. pkg:pypi/requests@2.25.1 or pkg:npm/lodash@4.17.21"
+        }
+      }
+    },
+    "PackageMetrics": {
+      "type": "object",
+      "description": "Metrics for a single package (used for production and development dependencies)",
+      "required": [
+        "package_name",
+        "is_optional_dependency",
+        "installed_version",
+        "latest_version",
+        "time_lag_days",
+        "releases_lag",
+        "cve"
+      ],
+      "properties": {
+        "package_name": {
+          "type": "string",
+          "description": "Package name (canonical registry name)"
+        },
+        "dependency_name": {
+          "type": ["string", "null"],
+          "description": "Alias name as declared in the project manifest (null or same as package_name when no alias is used)"
+        },
+        "is_optional_dependency": {
+          "type": "boolean",
+          "description": "Whether this is a development/optional dependency"
+        },
+        "installed_version": {
+          "type": "string",
+          "description": "Currently installed version"
+        },
+        "latest_version": {
+          "type": ["string", "null"],
+          "description": "Latest available version"
+        },
+        "time_lag_days": {
+          "type": ["integer", "null"],
+          "description": "Days between installed and latest version"
+        },
+        "releases_lag": {
+          "type": ["integer", "null"],
+          "description": "Number of releases between installed and latest"
+        },
+        "cve": {
+          "type": "array",
+          "description": "Known CVEs for this package",
+          "items": {
+            "$ref": "#/$defs/CVEInfo"
+          }
+        },
+        "dependency_path": {
+          "type": ["array", "null"],
+          "items": {
+            "type": "string"
+          },
+          "description": "Ancestor chain from root to this package (null for direct dependencies)"
+        },
+        "version_constraint": {
+          "type": ["string", "null"],
+          "description": "Version constraint declared in the project manifest (e.g. '^1.2.3', '>=1.0,<2.0')"
+        },
+        "repo_url": {
+          "type": ["string", "null"],
+          "format": "uri",
+          "description": "Source code repository URL"
+        },
+        "homepage_url": {
+          "type": ["string", "null"],
+          "format": "uri",
+          "description": "Package homepage URL"
+        },
+        "package_url": {
+          "type": ["string", "null"],
+          "format": "uri",
+          "description": "Package registry page URL"
+        },
+        "license": {
+          "type": ["array", "null"],
+          "items": { "type": "string" },
+          "description": "SPDX license identifiers parsed from the package license expression"
+        },
+        "purl": {
+          "type": ["string", "null"],
+          "description": "Package URL (PURL) per ECMA-386, e.g. pkg:pypi/requests@2.25.1 or pkg:npm/lodash@4.17.21"
+        },
+        "constraint_type": {
+          "type": ["string", "null"],
+          "enum": ["DECLARED", "NARROWED", "PINNED", "ADDITIVE", "OVERRIDE", null],
+          "description": "How the version constraint was applied: DECLARED (loose/default spec), NARROWED (explicit range with bounds), PINNED (exact version), ADDITIVE (narrows via constraints file), or OVERRIDE (forces a version regardless of other requirements)"
+        },
+        "constraint_source_file": {
+          "type": ["string", "null"],
+          "description": "File that introduced a non-DECLARED constraint (e.g. 'package.json' for npm overrides, 'pyproject.toml' for uv, 'requirements.txt' for pip classic)"
+        },
+        "extras": {
+          "type": ["array", "null"],
+          "items": { "type": "string" },
+          "description": "PyPI extras requested for this dependency (e.g. [\"security\", \"tests\"] from requests[security,tests]); null for non-PyPI or when no extras are used"
+        }
+      }
+    },
+    "CVEInfo": {
+      "type": "object",
+      "description": "CVE information for a package",
+      "required": [
+        "id",
+        "cve_ids",
+        "source",
+        "package_name",
+        "package_registry",
+        "summary",
+        "severity",
+        "affected_versions",
+        "published",
+        "link"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Primary CVE identifier"
+        },
+        "cve_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "All aliases (CVE, GHSA, OSV)"
+        },
+        "source": {
+          "type": "string",
+          "description": "CVE database source"
+        },
+        "package_name": {
+          "type": "string",
+          "description": "Affected package name"
+        },
+        "package_registry": {
+          "type": "string",
+          "description": "Package registry (npm, pypi, etc.)"
+        },
+        "summary": {
+          "type": "string",
+          "description": "Vulnerability description"
+        },
+        "severity": {
+          "type": "string",
+          "enum": ["LOW", "MEDIUM", "HIGH", "CRITICAL"],
+          "description": "Severity level"
+        },
+        "affected_versions": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "List of affected versions"
+        },
+        "published": {
+          "type": ["string", "null"],
+          "format": "date-time",
+          "description": "Publication date"
+        },
+        "link": {
+          "type": "string",
+          "format": "uri",
+          "description": "URL to upstream advisory"
+        }
+      }
+    }
+  }
+}

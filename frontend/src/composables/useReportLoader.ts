@@ -1,14 +1,14 @@
 import { onMounted, onUnmounted } from 'vue'
 import { useOssiqStore } from '@/stores/ossiq'
-import type { OSSIQExportSchemaV12 } from '@/types/report'
+import type { OSSIQExportSchemaV13 } from '@/types/report'
 
 const SCRIPT_TYPE = 'json/oss-iq-report'
 
-function parseReportScript(el: HTMLScriptElement): OSSIQExportSchemaV12 | null {
+function parseReportScript(el: HTMLScriptElement): OSSIQExportSchemaV13 | null {
   const text = el.textContent?.trim()
   if (!text) return null
   try {
-    return JSON.parse(text) as OSSIQExportSchemaV12
+    return JSON.parse(text) as OSSIQExportSchemaV13
   } catch {
     return null
   }

@@ -40,9 +40,13 @@ export function renderSameVersionLinks({ g, nodes, onLinkClick }: SameVersionLin
       const dx = tx - sx
       const dy = ty - sy
       const len = Math.sqrt(dx * dx + dy * dy) || 1
-      // Control point: midpoint + TREE_CONFIG.sameVersionLink.bezierOffset px perpendicular (90° CCW)
-      const cx = (sx + tx) / 2 + (-dy / len) * TREE_CONFIG.sameVersionLink.bezierOffset
-      const cy = (sy + ty) / 2 + (dx / len) * TREE_CONFIG.sameVersionLink.bezierOffset
+      // Control point: midpoint + proportional perpendicular offset (90° CCW), scaled with distance
+      const bezierOffset = Math.min(
+        TREE_CONFIG.sameVersionLink.bezierOffsetMax,
+        Math.max(TREE_CONFIG.sameVersionLink.bezierOffset, len * TREE_CONFIG.sameVersionLink.bezierOffsetScale),
+      )
+      const cx = (sx + tx) / 2 + (-dy / len) * bezierOffset
+      const cy = (sy + ty) / 2 + (dx / len) * bezierOffset
       const pathD = `M${sx},${sy} Q${cx},${cy} ${tx},${ty}`
       const pairKey = `${nodeKey(s)}--${nodeKey(t)}`
 

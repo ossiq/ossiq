@@ -14,7 +14,7 @@ from ossiq.domain.project import normalize_filename
 from ossiq.service.project import ScanResult
 from ossiq.ui.interfaces import AbstractUserInterfaceRenderer
 from ossiq.ui.renderers.export.json_schema_registry import json_schema_registry
-from ossiq.ui.renderers.export.models import ExportData
+from ossiq.ui.renderers.export.models import build_export_data
 
 
 class JsonExportRenderer(AbstractUserInterfaceRenderer):
@@ -59,7 +59,7 @@ class JsonExportRenderer(AbstractUserInterfaceRenderer):
         )
 
         # Convert domain model to export model
-        export_data = ExportData.from_project_metrics(
+        export_data = build_export_data(
             data,
             schema_version=resolved_version,
         )

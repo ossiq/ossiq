@@ -1,7 +1,9 @@
 export const TREE_CONFIG = {
   layout: {
-    nodeSize: [60, 220] as [number, number],
-    marginLeft: 100,
+    nodeSize: [60, 300] as [number, number],
+    marginLeft: 50,
+    densityThreshold: 10,
+    maxNodeSpacing: 90,
   },
   zoom: {
     scaleExtent: [0.1, 3] as [number, number],
@@ -11,6 +13,7 @@ export const TREE_CONFIG = {
   animation: {
     nodeTransition: 500,
     linkTransition: 500,
+    fadeDuration: 120,
   },
   node: {
     radiusDefault: 6,
@@ -61,9 +64,43 @@ export const TREE_CONFIG = {
     descendantLinkStroke: '#97c2f7',           // blue-400 — default descendant path edges
   },
   sameVersionLink: {
-    bezierOffset: 40,        // perpendicular offset (px) for quadratic bezier control point
-    hitTargetWidth: 12,      // transparent overlay for easier clicking
+    bezierOffset: 40,          // minimum perpendicular offset (px) for quadratic bezier control point
+    bezierOffsetScale: 0.15,   // scales offset with node-pair distance when distance is large
+    bezierOffsetMax: 120,      // cap so curves don't extend too far on very long spans
+    hitTargetWidth: 12,        // transparent overlay for easier clicking
     opacityHighlighted: 0.85,
     opacityDimmed: 0.1,
+  },
+  foldedNode: {
+    // Radius tiers keyed by hidden child count
+    radiusSmall:  10,  // hiddenChildCount ≤ 10
+    radiusMedium: 12,  // hiddenChildCount 11–50
+    radiusLarge:  14,  // hiddenChildCount > 50
+    // Fill colors (pastel)
+    fillSmall:   '#e0e7ff',  // indigo-100
+    fillMedium:  '#fed7aa',  // orange-200
+    fillLarge:   '#fecaca',  // red-200
+    // Stroke colors (dark)
+    strokeSmall:  '#4338ca', // indigo-700
+    strokeMedium: '#ea580c', // orange-600
+    strokeLarge:  '#dc2626', // red-600
+    strokeDash:   '4,2',
+    strokeWidth:  2,
+    badgeFontSize: '8px',
+  },
+  aggregateLink: {
+    bezierOffset: 220,
+    stroke: '#818cf8',            // indigo-400
+    strokeHighlighted: '#4f46e5', // indigo-600
+    strokeDash: '6,3',
+    strokeWidth: 1.5,
+    hitTargetWidth: 10,
+    opacityNormal: 0.5,
+    opacityDimmed: 0.1,
+    bundleStroke: '#6366f1',      // indigo-500 — slightly darker than single arcs
+    bundleStrokeWidth: 2.5,
+    bundleStrokeDash: '8,3',
+    bundleOpacity: 0.65,
+    bundleBadgeFontSize: '7px',
   },
 } as const

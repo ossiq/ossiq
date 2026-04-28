@@ -14,7 +14,7 @@ class ConstraintSource:
     """Describes how a version constraint was introduced for a dependency."""
 
     type: ConstraintType
-    source_file: str  # e.g. "package.json", "pyproject.toml", "requirements.txt"
+    source_file: str | None  # e.g. "package.json", "pyproject.toml", "requirements.txt"
     scope_path: list[str] | None = None  # npm nested override path, e.g. ["foo", "bar"]; None for flat
 
 

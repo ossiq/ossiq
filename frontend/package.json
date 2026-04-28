@@ -14,7 +14,8 @@
     "lint:oxlint": "oxlint . --fix",
     "lint:eslint": "eslint . --fix --cache",
     "format": "oxfmt src/",
-    "generate:types": "json2ts -i ../src/ossiq/ui/renderers/export/schemas/export_schema_v1.2.json -o src/types/report.ts"
+    "generate:types": "json2ts -i ../src/ossiq/ui/renderers/export/schemas/export_schema_v1.3.json -o src/types/report.ts",
+    "inject": "node scripts/inject-dataset.js"
   },
   "dependencies": {    
     "d3": "~7.9.0",    

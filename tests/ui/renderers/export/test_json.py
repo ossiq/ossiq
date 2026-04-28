@@ -156,7 +156,7 @@ class TestJsonExportRenderer:
         metadata = data["metadata"]
 
         # Assert
-        assert metadata["schema_version"] == "1.2"
+        assert metadata["schema_version"] == "1.3"
         assert "export_timestamp" in metadata
         assert "ossiq_version" not in metadata
 
@@ -389,3 +389,328 @@ class TestJsonExportRenderer:
         # Assert
         data = json.loads(output_file.read_text())
         assert data["metadata"]["schema_version"] == json_schema_registry.get_latest_version().value
+
+
+@pytest.fixture
+def transitive_record_a(sample_cve):
+    """Transitive ScanRecord for scheduler reached via react-dom."""
+    return ScanRecord(
+        package_name="scheduler",
+        dependency_name=None,
+        is_optional_dependency=False,
+        installed_version="0.23.0",
+        latest_version="0.23.0",
+        versions_diff_index=VersionsDifference(version1="0.23.0", version2="0.23.0", diff_index=0, diff_name="LATEST"),
+        time_lag_days=0,
+        releases_lag=0,
+        cve=[sample_cve],
+        dependency_path=["react-dom"],
+        version_constraint="^0.23.0",
+        constraint_info=ConstraintSource(type=ConstraintType.DECLARED, source_file=None),
+    )
+
+
+@pytest.fixture
+def transitive_record_b():
+    """Same package/version as record_a but reached via react."""
+    return ScanRecord(
+        package_name="scheduler",
+        dependency_name=None,
+        is_optional_dependency=False,
+        installed_version="0.23.0",
+        latest_version="0.23.0",
+        versions_diff_index=VersionsDifference(version1="0.23.0", version2="0.23.0", diff_index=0, diff_name="LATEST"),
+        time_lag_days=0,
+        releases_lag=0,
+        cve=[],
+        dependency_path=["react"],
+        version_constraint="~0.23.0",
+        constraint_info=ConstraintSource(type=ConstraintType.NARROWED, source_file="package.json"),
+    )
+
+
+@pytest.fixture
+def sample_project_with_transitives(sample_project_metrics_record, transitive_record_a, transitive_record_b):
+    """ScanResult with two transitive records for the same (package_name, installed_version)."""
+    return ScanResult(
+        project_name="test-project",
+        project_path="/path/to/test-project",
+        packages_registry=ProjectPackagesRegistry.NPM.value,
+        production_packages=[sample_project_metrics_record],
+        optional_packages=[],
+        transitive_packages=[transitive_record_a, transitive_record_b],
+    )
+
+
+class TestJsonExportRendererV13:
+    """Test suite for v1.3 JSON export: deduplicated transitive packages with dependency_tree."""
+
+    def test_v1_3_transitive_packages_are_deduplicated(self, output_file, sample_project_with_transitives, settings):
+        """Two ScanRecords with same (package_name, installed_version) produce one transitive entry."""
+        renderer = JsonExportRenderer(settings)
+        renderer.render(sample_project_with_transitives, destination=str(output_file), schema_version="1.3")
+
+        data = json.loads(output_file.read_text())
+        assert len(data["transitive_packages"]) == 1
+
+    def test_v1_3_output_has_dependency_tree(self, output_file, sample_project_with_transitives, settings):
+        """v1.3 output must contain a top-level dependency_tree array."""
+        renderer = JsonExportRenderer(settings)
+        renderer.render(sample_project_with_transitives, destination=str(output_file), schema_version="1.3")
+
+        data = json.loads(output_file.read_text())
+        assert "dependency_tree" in data
+        assert isinstance(data["dependency_tree"], list)
+
+    def test_v1_3_dependency_tree_has_roots_for_both_paths(
+        self, output_file, sample_project_with_transitives, settings
+    ):
+        """Tree must have roots for react-dom and react (the two direct parents from the test fixtures)."""
+        renderer = JsonExportRenderer(settings)
+        renderer.render(sample_project_with_transitives, destination=str(output_file), schema_version="1.3")
+
+        data = json.loads(output_file.read_text())
+        root_names = {r["package_name"] for r in data["dependency_tree"]}
+        assert "react-dom" in root_names
+        assert "react" in root_names
+
+    def test_v1_3_tree_nodes_carry_constraint_fields(self, output_file, sample_project_with_transitives, settings):
+        """Each tree node must carry ref, ct, and version_constraint."""
+        renderer = JsonExportRenderer(settings)
+        renderer.render(sample_project_with_transitives, destination=str(output_file), schema_version="1.3")
+
+        data = json.loads(output_file.read_text())
+        for root in data["dependency_tree"]:
+            for node in root["children"]:
+                assert "ref" in node
+                assert "ct" in node
+                assert "version_constraint" in node
+
+    def test_v1_3_same_package_different_constraints_in_tree(
+        self, output_file, sample_project_with_transitives, settings
+    ):
+        """The same package (scheduler ref=0) appears under two roots with different ct values."""
+        renderer = JsonExportRenderer(settings)
+        renderer.render(sample_project_with_transitives, destination=str(output_file), schema_version="1.3")
+
+        data = json.loads(output_file.read_text())
+        # Both roots point to scheduler (ref=0) but with different constraints
+        node_by_root = {r["package_name"]: r["children"][0] for r in data["dependency_tree"]}
+        assert node_by_root["react-dom"]["ref"] == node_by_root["react"]["ref"] == 0
+        ct_map = data["constraint_type_map"]
+        ct_by_root = {r["package_name"]: ct_map[node_by_root[r["package_name"]]["ct"]] for r in data["dependency_tree"]}
+        assert ct_by_root["react-dom"] == "DECLARED"
+        assert ct_by_root["react"] == "NARROWED"
+
+    def test_v1_3_tree_node_ref_indexes_into_transitive_packages(
+        self, output_file, sample_project_with_transitives, settings
+    ):
+        """Every ref value in the tree must be a valid index into transitive_packages."""
+        renderer = JsonExportRenderer(settings)
+        renderer.render(sample_project_with_transitives, destination=str(output_file), schema_version="1.3")
+
+        data = json.loads(output_file.read_text())
+        n = len(data["transitive_packages"])
+
+        def check_refs(nodes):
+            for node in nodes:
+                assert 0 <= node["ref"] < n
+                check_refs(node.get("children", []))
+
+        for root in data["dependency_tree"]:
+            check_refs(root["children"])
+
+    def test_v1_3_transitive_entry_has_no_path_fields(self, output_file, sample_project_with_transitives, settings):
+        """transitive_packages entries must not contain dependency_paths or dependency_path."""
+        renderer = JsonExportRenderer(settings)
+        renderer.render(sample_project_with_transitives, destination=str(output_file), schema_version="1.3")
+
+        data = json.loads(output_file.read_text())
+        entry = data["transitive_packages"][0]
+        assert "dependency_path" not in entry
+        assert "dependency_paths" not in entry
+
+    def test_v1_3_invariant_fields_on_transitive_entry(self, output_file, sample_project_with_transitives, settings):
+        """Invariant fields (id, package_name, installed_version, cve) must be on transitive entries."""
+        renderer = JsonExportRenderer(settings)
+        renderer.render(sample_project_with_transitives, destination=str(output_file), schema_version="1.3")
+
+        data = json.loads(output_file.read_text())
+        entry = data["transitive_packages"][0]
+        assert "id" in entry
+        assert entry["id"] == 0
+        assert "package_name" in entry
+        assert "installed_version" in entry
+        assert "cve" in entry
+
+    def test_v1_3_output_has_constraint_type_map(self, output_file, sample_project_with_transitives, settings):
+        """v1.3 output must contain a top-level constraint_type_map with 5 entries."""
+        renderer = JsonExportRenderer(settings)
+        renderer.render(sample_project_with_transitives, destination=str(output_file), schema_version="1.3")
+
+        data = json.loads(output_file.read_text())
+        assert "constraint_type_map" in data
+        assert data["constraint_type_map"] == ["DECLARED", "NARROWED", "PINNED", "ADDITIVE", "OVERRIDE"]
+
+    def test_v1_3_tree_node_has_no_null_fields(self, output_file, sample_project_with_transitives, settings):
+        """Tree nodes must not contain null or empty-list fields."""
+        renderer = JsonExportRenderer(settings)
+        renderer.render(sample_project_with_transitives, destination=str(output_file), schema_version="1.3")
+
+        data = json.loads(output_file.read_text())
+        for root in data["dependency_tree"]:
+            for node in root.get("children", []):
+                assert "constraint_source_file" not in node
+                assert "dependency_name" not in node
+                for key, val in node.items():
+                    assert val is not None, f"Node field {key!r} should be absent, not null"
+                    assert val != [], f"Node field {key!r} should be absent, not empty list"
+
+    def test_v1_3_constraint_source_file_on_transitive_package(
+        self, output_file, sample_project_with_transitives, settings
+    ):
+        """constraint_source_file from NARROWED record must appear on the transitive package entry."""
+        renderer = JsonExportRenderer(settings)
+        renderer.render(sample_project_with_transitives, destination=str(output_file), schema_version="1.3")
+
+        data = json.loads(output_file.read_text())
+        # transitive_record_b has NARROWED constraint with source_file="package.json"
+        entry = data["transitive_packages"][0]
+        assert entry.get("constraint_source_file") == "package.json"
+
+    def test_v1_3_cve_taken_from_first_record(self, output_file, sample_project_with_transitives, settings):
+        """CVE data is read from the first record in the group (invariant field)."""
+        renderer = JsonExportRenderer(settings)
+        renderer.render(sample_project_with_transitives, destination=str(output_file), schema_version="1.3")
+
+        data = json.loads(output_file.read_text())
+        # transitive_record_a (first) has 1 CVE; transitive_record_b has 0
+        assert len(data["transitive_packages"][0]["cve"]) == 1
+
+    def test_v1_3_output_validates_against_v1_3_schema(self, output_file, sample_project_with_transitives, settings):
+        """v1.3 output must pass jsonschema validation against the v1.3 schema."""
+        from jsonschema import validate
+
+        renderer = JsonExportRenderer(settings)
+        renderer.render(sample_project_with_transitives, destination=str(output_file), schema_version="1.3")
+
+        data = json.loads(output_file.read_text())
+        schema = json_schema_registry.load_schema(ExportJsonSchemaVersion.V1_3)
+        validate(instance=data, schema=schema)
+
+    def test_v1_2_still_produces_flat_transitive_list(self, output_file, sample_project_with_transitives, settings):
+        """v1.2 export must retain the old flat structure with dependency_path at top level."""
+        renderer = JsonExportRenderer(settings)
+        renderer.render(sample_project_with_transitives, destination=str(output_file), schema_version="1.2")
+
+        data = json.loads(output_file.read_text())
+        assert data["metadata"]["schema_version"] == "1.2"
+        assert len(data["transitive_packages"]) == 2
+        for entry in data["transitive_packages"]:
+            assert "dependency_path" in entry
+            assert "dependency_paths" not in entry
+
+    def test_v1_3_grouping_key_is_package_name_and_version(self, output_file, settings, sample_project_metrics_record):
+        """Two records with different package names produce two separate transitive entries."""
+        other_record = ScanRecord(
+            package_name="loose-envify",
+            dependency_name=None,
+            is_optional_dependency=False,
+            installed_version="1.4.0",
+            latest_version="1.4.0",
+            versions_diff_index=VersionsDifference(
+                version1="1.4.0", version2="1.4.0", diff_index=0, diff_name="LATEST"
+            ),
+            time_lag_days=0,
+            releases_lag=0,
+            cve=[],
+            dependency_path=["react"],
+            constraint_info=ConstraintSource(type=ConstraintType.DECLARED, source_file=None),
+        )
+        scheduler_record = ScanRecord(
+            package_name="scheduler",
+            dependency_name=None,
+            is_optional_dependency=False,
+            installed_version="0.23.0",
+            latest_version="0.23.0",
+            versions_diff_index=VersionsDifference(
+                version1="0.23.0", version2="0.23.0", diff_index=0, diff_name="LATEST"
+            ),
+            time_lag_days=0,
+            releases_lag=0,
+            cve=[],
+            dependency_path=["react"],
+            constraint_info=ConstraintSource(type=ConstraintType.DECLARED, source_file=None),
+        )
+        metrics = ScanResult(
+            project_name="test-project",
+            project_path="/path/to/test-project",
+            packages_registry=ProjectPackagesRegistry.NPM.value,
+            production_packages=[sample_project_metrics_record],
+            optional_packages=[],
+            transitive_packages=[other_record, scheduler_record],
+        )
+        renderer = JsonExportRenderer(settings)
+        renderer.render(metrics, destination=str(output_file), schema_version="1.3")
+
+        data = json.loads(output_file.read_text())
+        assert len(data["transitive_packages"]) == 2
+
+    def test_v1_3_deep_path_produces_nested_tree(self, output_file, settings, sample_project_metrics_record):
+        """A package reached via a two-level path produces a nested tree node."""
+        # react-dom → scheduler → loose-envify
+        scheduler_record = ScanRecord(
+            package_name="scheduler",
+            dependency_name=None,
+            is_optional_dependency=False,
+            installed_version="0.23.0",
+            latest_version="0.23.0",
+            versions_diff_index=VersionsDifference(
+                version1="0.23.0", version2="0.23.0", diff_index=0, diff_name="LATEST"
+            ),
+            time_lag_days=0,
+            releases_lag=0,
+            cve=[],
+            dependency_path=["react-dom"],
+            constraint_info=ConstraintSource(type=ConstraintType.DECLARED, source_file=None),
+        )
+        loose_envify_record = ScanRecord(
+            package_name="loose-envify",
+            dependency_name=None,
+            is_optional_dependency=False,
+            installed_version="1.4.0",
+            latest_version="1.4.0",
+            versions_diff_index=VersionsDifference(
+                version1="1.4.0", version2="1.4.0", diff_index=0, diff_name="LATEST"
+            ),
+            time_lag_days=0,
+            releases_lag=0,
+            cve=[],
+            dependency_path=["react-dom", "scheduler"],
+            constraint_info=ConstraintSource(type=ConstraintType.DECLARED, source_file=None),
+        )
+        metrics = ScanResult(
+            project_name="test-project",
+            project_path="/path/to/test-project",
+            packages_registry=ProjectPackagesRegistry.NPM.value,
+            production_packages=[sample_project_metrics_record],
+            optional_packages=[],
+            transitive_packages=[scheduler_record, loose_envify_record],
+        )
+        renderer = JsonExportRenderer(settings)
+        renderer.render(metrics, destination=str(output_file), schema_version="1.3")
+
+        data = json.loads(output_file.read_text())
+        # transitive_packages: scheduler=0, loose-envify=1
+        assert len(data["transitive_packages"]) == 2
+        # tree: react-dom → scheduler → loose-envify
+        tree = data["dependency_tree"]
+        assert len(tree) == 1
+        root = tree[0]
+        assert root["package_name"] == "react-dom"
+        assert len(root["children"]) == 1
+        scheduler_node = root["children"][0]
+        assert scheduler_node["ref"] == 0
+        assert len(scheduler_node["children"]) == 1
+        loose_node = scheduler_node["children"][0]
+        assert loose_node["ref"] == 1

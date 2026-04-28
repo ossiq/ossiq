@@ -23,7 +23,7 @@ from ossiq.service.project import ScanResult
 from ossiq.ui.interfaces import AbstractUserInterfaceRenderer
 from ossiq.ui.renderers.export.csv_datapackage import generate_datapackage_descriptor
 from ossiq.ui.renderers.export.csv_schema_registry import csv_schema_registry
-from ossiq.ui.renderers.export.models import ExportData
+from ossiq.ui.renderers.export.models import ExportDataBase, build_export_data
 
 
 class ExportPaths(NamedTuple):
@@ -87,7 +87,7 @@ class CsvExportRenderer(AbstractUserInterfaceRenderer):
         )
 
         # Convert domain model to export model
-        export_data = ExportData.from_project_metrics(
+        export_data = build_export_data(
             data,
             schema_version=resolved_version,
         )
@@ -144,7 +144,7 @@ class CsvExportRenderer(AbstractUserInterfaceRenderer):
             datapackage_json=target_directory / "datapackage.json",
         )
 
-    def _write_summary_csv(self, file_path: Path, export_data: ExportData) -> None:
+    def _write_summary_csv(self, file_path: Path, export_data: ExportDataBase) -> None:
         """
         Write summary CSV with metadata and aggregate statistics.
 
@@ -198,7 +198,7 @@ class CsvExportRenderer(AbstractUserInterfaceRenderer):
             writer.writeheader()
             writer.writerow(row)
 
-    def _write_packages_csv(self, file_path: Path, export_data: ExportData) -> None:
+    def _write_packages_csv(self, file_path: Path, export_data: ExportDataBase) -> None:
         """
         Write packages CSV with package metrics and CVE counts.
 
@@ -279,7 +279,7 @@ class CsvExportRenderer(AbstractUserInterfaceRenderer):
             writer.writeheader()
             writer.writerows(rows)
 
-    def _write_cves_csv(self, file_path: Path, export_data: ExportData) -> None:
+    def _write_cves_csv(self, file_path: Path, export_data: ExportDataBase) -> None:
         """
         Write CVEs CSV with detailed vulnerability information.
 
@@ -347,7 +347,7 @@ class CsvExportRenderer(AbstractUserInterfaceRenderer):
             writer.writeheader()
             writer.writerows(rows)
 
-    def _write_datapackage(self, export_paths: ExportPaths, export_data: ExportData) -> None:
+    def _write_datapackage(self, export_paths: ExportPaths, export_data: ExportDataBase) -> None:
         """
         Generate and write Frictionless Data Package descriptor.
 
@@ -457,7 +457,7 @@ class CsvExportRenderer(AbstractUserInterfaceRenderer):
         return value
 
     def _validate_csv_files(
-        self, summary_path: Path, packages_path: Path, cves_path: Path, export_data: ExportData
+        self, summary_path: Path, packages_path: Path, cves_path: Path, export_data: ExportDataBase
     ) -> None:
         """
         Validate all three CSV files against their schemas.

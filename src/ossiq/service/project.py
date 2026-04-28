@@ -42,7 +42,7 @@ class ScanRecord:
     """
 
     package_name: str
-    dependency_name: str
+    dependency_name: str | None
     is_optional_dependency: bool
     installed_version: str
     latest_version: str | None

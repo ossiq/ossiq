@@ -16,11 +16,11 @@ from frictionless import validate
 
 from ossiq.domain.common import ExportCsvSchemaVersion
 from ossiq.ui.renderers.export.csv_schema_registry import csv_schema_registry
-from ossiq.ui.renderers.export.models import ExportData
+from ossiq.ui.renderers.export.models import ExportDataBase
 
 
 def generate_datapackage_descriptor(
-    export_data: ExportData,
+    export_data: ExportDataBase,
     schema_version: ExportCsvSchemaVersion = ExportCsvSchemaVersion.V1_0,
 ) -> dict[str, Any]:
     """
@@ -102,7 +102,7 @@ def generate_datapackage_descriptor(
 
 def write_datapackage(
     output_dir: Path,
-    export_data: ExportData,
+    export_data: ExportDataBase,
     schema_version: ExportCsvSchemaVersion = ExportCsvSchemaVersion.V1_0,
 ) -> Path:
     """
