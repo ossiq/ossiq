@@ -184,7 +184,7 @@ class TestCsvSchemaRegistryV10:
         latest = registry.get_latest_version()
 
         # Assert
-        assert latest == ExportCsvSchemaVersion.V1_3
+        assert latest == ExportCsvSchemaVersion.V1_4
 
     def test_list_versions_includes_v1_0(self, registry):
         """Test listing all registered versions includes v1.0.

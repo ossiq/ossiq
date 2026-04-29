@@ -244,6 +244,8 @@ class TestCsvExportRenderer:
             "constraint_type",
             "constraint_source_file",
             "extras",
+            "is_prerelease",
+            "is_yanked",
             "license",
             "purl",
         ]
@@ -301,7 +303,7 @@ class TestCsvExportRenderer:
             row = next(reader)
 
         # Assert
-        assert row["schema_version"] == "1.3"
+        assert row["schema_version"] == "1.4"
         assert row["project_name"] == "test-project"
         assert row["project_path"] == "/path/to/test-project"
         assert row["project_registry"] == "npm"
@@ -934,3 +936,155 @@ class TestCsvSchemaValidation:
         purl_values = [row["purl"] for row in rows]
         assert "pkg:npm/react@17.0.2" in purl_values
         assert "pkg:npm/pytest@7.0.0" in purl_values
+
+
+class TestCsvExportV14:
+    """Test suite for v1.4 CSV export: is_prerelease and is_yanked columns."""
+
+    @pytest.fixture
+    def prerelease_record(self):
+        """ScanRecord with is_installed_prerelease=True."""
+        return ScanRecord(
+            package_name="mylib",
+            dependency_name="mylib",
+            is_optional_dependency=False,
+            installed_version="1.0.0b2",
+            latest_version="1.0.0",
+            versions_diff_index=VersionsDifference(
+                version1="1.0.0b2", version2="1.0.0", diff_index=1, diff_name="DIFF_PATCH"
+            ),
+            time_lag_days=10,
+            releases_lag=1,
+            cve=[],
+            constraint_info=ConstraintSource(type=ConstraintType.DECLARED, source_file=None),
+            is_installed_prerelease=True,
+            is_installed_yanked=False,
+        )
+
+    @pytest.fixture
+    def yanked_record(self):
+        """ScanRecord with is_installed_yanked=True."""
+        return ScanRecord(
+            package_name="oldlib",
+            dependency_name="oldlib",
+            is_optional_dependency=False,
+            installed_version="0.9.0",
+            latest_version="1.0.0",
+            versions_diff_index=VersionsDifference(
+                version1="0.9.0", version2="1.0.0", diff_index=2, diff_name="DIFF_MAJOR"
+            ),
+            time_lag_days=100,
+            releases_lag=5,
+            cve=[],
+            constraint_info=ConstraintSource(type=ConstraintType.DECLARED, source_file=None),
+            is_installed_prerelease=False,
+            is_installed_yanked=True,
+        )
+
+    def test_v1_4_packages_csv_has_is_prerelease_column(self, tmp_path, settings, prerelease_record):
+        """v1.4 packages CSV must include is_prerelease column.
+
+        AAA Pattern:
+        - Arrange: Render with schema_version="1.4"
+        - Act: Read packages CSV fieldnames
+        - Assert: is_prerelease column exists
+        """
+        metrics = ScanResult(
+            project_name="test-project",
+            project_path="/path/to/test-project",
+            packages_registry="npm",
+            production_packages=[prerelease_record],
+            optional_packages=[],
+        )
+        renderer = CsvExportRenderer(settings)
+        output_path = tmp_path / "export.csv"
+        renderer.render(metrics, destination=str(output_path), schema_version="1.4")
+
+        packages_file = tmp_path / "export" / "packages.csv"
+        with open(packages_file, encoding="utf-8-sig", newline="") as f:
+            reader = csv.DictReader(f)
+            list(reader)
+
+        assert reader.fieldnames is not None
+        assert "is_prerelease" in reader.fieldnames
+        assert "is_yanked" in reader.fieldnames
+
+    def test_v1_4_is_prerelease_column_value_true(self, tmp_path, settings, prerelease_record):
+        """is_prerelease column value is 'true' for a prerelease package.
+
+        AAA Pattern:
+        - Arrange: ScanRecord with is_installed_prerelease=True
+        - Act: Render v1.4 CSV and read packages row
+        - Assert: is_prerelease is "true"
+        """
+        metrics = ScanResult(
+            project_name="test-project",
+            project_path="/path/to/test-project",
+            packages_registry="npm",
+            production_packages=[prerelease_record],
+            optional_packages=[],
+        )
+        renderer = CsvExportRenderer(settings)
+        output_path = tmp_path / "export.csv"
+        renderer.render(metrics, destination=str(output_path), schema_version="1.4")
+
+        packages_file = tmp_path / "export" / "packages.csv"
+        with open(packages_file, encoding="utf-8-sig", newline="") as f:
+            row = next(csv.DictReader(f))
+
+        assert row["is_prerelease"] == "true"
+        assert row["is_yanked"] == "false"
+
+    def test_v1_4_is_yanked_column_value_true(self, tmp_path, settings, yanked_record):
+        """is_yanked column value is 'true' for a yanked package.
+
+        AAA Pattern:
+        - Arrange: ScanRecord with is_installed_yanked=True
+        - Act: Render v1.4 CSV and read packages row
+        - Assert: is_yanked is "true"
+        """
+        metrics = ScanResult(
+            project_name="test-project",
+            project_path="/path/to/test-project",
+            packages_registry="npm",
+            production_packages=[yanked_record],
+            optional_packages=[],
+        )
+        renderer = CsvExportRenderer(settings)
+        output_path = tmp_path / "export.csv"
+        renderer.render(metrics, destination=str(output_path), schema_version="1.4")
+
+        packages_file = tmp_path / "export" / "packages.csv"
+        with open(packages_file, encoding="utf-8-sig", newline="") as f:
+            row = next(csv.DictReader(f))
+
+        assert row["is_prerelease"] == "false"
+        assert row["is_yanked"] == "true"
+
+    def test_v1_3_packages_csv_does_not_have_is_prerelease_column(self, tmp_path, settings, prerelease_record):
+        """v1.3 packages CSV must NOT include is_prerelease or is_yanked columns (regression guard).
+
+        AAA Pattern:
+        - Arrange: Render with explicit schema_version="1.3"
+        - Act: Read packages CSV fieldnames
+        - Assert: is_prerelease and is_yanked columns are absent
+        """
+        metrics = ScanResult(
+            project_name="test-project",
+            project_path="/path/to/test-project",
+            packages_registry="npm",
+            production_packages=[prerelease_record],
+            optional_packages=[],
+        )
+        renderer = CsvExportRenderer(settings)
+        output_path = tmp_path / "export.csv"
+        renderer.render(metrics, destination=str(output_path), schema_version="1.3")
+
+        packages_file = tmp_path / "export" / "packages.csv"
+        with open(packages_file, encoding="utf-8-sig", newline="") as f:
+            reader = csv.DictReader(f)
+            list(reader)
+
+        assert reader.fieldnames is not None
+        assert "is_prerelease" not in reader.fieldnames
+        assert "is_yanked" not in reader.fieldnames

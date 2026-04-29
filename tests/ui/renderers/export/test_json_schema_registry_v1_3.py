@@ -272,7 +272,7 @@ class TestSchemaRegistryV13:
         latest = registry.get_latest_version()
 
         # Assert
-        assert latest == ExportJsonSchemaVersion.V1_3
+        assert latest == ExportJsonSchemaVersion.V1_4
 
     def test_list_versions_includes_all_four_versions(self, registry):
         """Test listing all registered versions includes v1.0 through v1.3.

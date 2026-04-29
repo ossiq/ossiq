@@ -141,6 +141,8 @@ class PackageMetrics(BaseModel):
             "None for non-PyPI or when no extras are used"
         ),
     )
+    is_prerelease: bool = Field(default=False, description="Whether the installed version is a pre-release")
+    is_yanked: bool = Field(default=False, description="Whether the installed version is yanked or unpublished")
 
     @classmethod
     def from_domain(cls, record) -> "PackageMetrics":
@@ -168,6 +170,8 @@ class PackageMetrics(BaseModel):
                 else None
             ),
             extras=record.extras,
+            is_prerelease=record.is_installed_prerelease,
+            is_yanked=record.is_installed_yanked,
         )
 
 
@@ -253,6 +257,8 @@ class TransitivePackageMetrics(BaseModel):
         default=None, description="SPDX license identifiers parsed from the package license expression"
     )
     purl: str | None = Field(default=None, description="Package URL (PURL) per ECMA-386")
+    is_prerelease: bool = Field(default=False, description="Whether the installed version is a pre-release")
+    is_yanked: bool = Field(default=False, description="Whether the installed version is yanked or unpublished")
 
     @classmethod
     def from_domain_group(
@@ -275,6 +281,8 @@ class TransitivePackageMetrics(BaseModel):
             package_url=first.package_url,
             license=first.license,
             purl=first.purl,
+            is_prerelease=first.is_installed_prerelease,
+            is_yanked=first.is_installed_yanked,
         )
 
     @model_serializer(mode="wrap")
@@ -432,7 +440,7 @@ def build_export_data(
     production = [PackageMetrics.from_domain(pkg) for pkg in data.production_packages]
     development = [PackageMetrics.from_domain(pkg) for pkg in data.optional_packages]
 
-    if schema_version == ExportJsonSchemaVersion.V1_3:
+    if schema_version in (ExportJsonSchemaVersion.V1_3, ExportJsonSchemaVersion.V1_4):
         transitive, tree = _build_v1_3_data(data.transitive_packages)
         return ExportDataV13(
             metadata=metadata,
