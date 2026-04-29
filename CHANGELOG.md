@@ -2,6 +2,130 @@
 
 
 
+## v0.1.8 (2026-04-29)
+
+
+### Feature
+
+* feat: Optimized dependency tree explorer (GH-78) ([`652466d`](https://github.com/ossiq/ossiq/commit/652466dee2531f03893dce68c998329c3847a9ed))
+Updated UI and UX of the dependency tree representation
+with overly deep transitive dependencies. Introduced
+new concept of the "super", aggregated node and
+separate subtree visualisation. Added CVE highlight
+and aggregated duplicate dependencies links to
+the grouped nodes.
+Additionally, updated documentation, integration
+test and UI description for the frontend.
+
+* feat: updated frontend to support compressed schema v1.3 (GH-78) ([`4ed665c`](https://github.com/ossiq/ossiq/commit/4ed665c07c7951842dbfdc184f793b907ebf5768))
+
+* feat: compressed json schema even more (GH-78) ([`a6beedc`](https://github.com/ossiq/ossiq/commit/a6beedc89d55c0cb763715f45ac0f01f23f98d06))
+Compressed schema a bit over 10x (120mb to 9mb)
+for larger transitive dependencies trees.
+
+* feat: udpated frontend to support schema v1.3 (GH-78) ([`0d66185`](https://github.com/ossiq/ossiq/commit/0d6618557c337ed4775adf88b3558f12fc349bc0))
+Added support of the new schema for the frontend.
+
+* feat: introduced initial export schema optimization (GH-78) ([`a40735b`](https://github.com/ossiq/ossiq/commit/a40735bfd16531c33c49ac981dbf7c4947743d74))
+Introduced export schema optimization to avoid
+duplication of transitive dependency details.
+
+* feat: added version constraints enrichment and tree parser for pip classic (GH-36) ([`ce5df44`](https://github.com/ossiq/ossiq/commit/ce5df44fe4ad13245a98403c444382e69f7afcc7))
+Added fetching of version constraints from the PyPI for all python package
+managers, since this information is not available in the lockfile unlike
+in NPM. Additionally, extended PIP classic (requirements.txt) package
+manager to traverse dependencies tree, so it is not flat in
+the Transitive Dependencies Explorer.
+
+* feat: updated color coding, filtering to support constraint types (GH-36) ([`ac5e733`](https://github.com/ossiq/ossiq/commit/ac5e7336b66dafeaa787be549e7e7fd14b12d121))
+Changed color coding to communicate version constraints types.
+Added same color coding to the table report as well. Updated
+filters in Transitive Dependencies viewer.
+
+* feat: extend v1.2 export schemas with NARROWED/PINNED constraint types and extras field (GH-36) ([`240fff7`](https://github.com/ossiq/ossiq/commit/240fff7b5b51bfa70fea6df3b2afcc4c10df6a9e))
+Added NARROWED and PINNED to constraint_type enum in JSON and CSV v1.2 schemas,
+and extras field (PyPI extras, e.g. requests[security,tests]) to
+the export pipeline: DependencyDescriptor, ScanRecord, PackageMetrics, JSON schema,
+CSV packages schema, and CSV renderer
+
+* feat: add PINNED/NARROWED constraint types and PyPI extras parsing (GH-36) ([`64ae6f2`](https://github.com/ossiq/ossiq/commit/64ae6f220ce9483737617cfaa65120c73fbf253e))
+Extend ConstraintType with PINNED (exact version) and NARROWED (explicit
+range with bounds) to enable color-coding of dependency constraints in
+the UI. Add structured extras storage for PyPI deps.
+Classification rules:
+- npm: ^/~ - DECLARED, bare x.y.z - PINNED, >=/<= ranges - NARROWED
+- PyPI: single >= - DECLARED, ==x.y.z - PINNED, ~=/==x.*/compound - NARROWED
+Also expands api_pip_classic to parse non-== specifiers (>=, ~=,
+ranges) and stores PyPI extras (e.g. requests[security]) as a structured
+list on Dependency.extras.
+
+* feat: new export schema version v1.2 (GH-36) ([`be721b8`](https://github.com/ossiq/ossiq/commit/be721b8ef537f728e147893cb36069a1e6402edc))
+Added new schema version v1.2 to make sure version constraints
+exposed both to CSV and JSON formats. Additionally,
+updated UIs to highlight versions difference with
+exception of the HTML report part.
+
+* feat: added support of global version constraint mechanisms in uv and pip (GH-36) ([`b0e03fa`](https://github.com/ossiq/ossiq/commit/b0e03facc0a63e6ce805749a3f0f5162e889aefb))
+Added support of constraint-dependencies and override-dependencies for
+UV and pip -c Constrain versions directive inside requirements.txt
+The intent is to provide additional insights into project
+direct and transitive dependencies versions constraints.
+
+* feat: added constraints parsing to NPM lockfile parser (GH-36) ([`6d90b05`](https://github.com/ossiq/ossiq/commit/6d90b05d62d5ac9fd38f15cb9d6cf79ca5b3c2f1))
+Added NPM to parse transitive dependencies constraints
+extracted from the package-lock.json. Also, additionally
+refactored parser to aggregate similar logic.
+
+* feat: added domain schemas for dependency version constraint (GH-36) ([`c755c0f`](https://github.com/ossiq/ossiq/commit/c755c0f471be9b0e18b47c2a25b7aee0ab82c235))
+Added initial ConstraintSource schema to represent type
+of constraint override and its source. Possible options are
+DECLARED, ADDITIVE or OVERRIDE. In this iteration the constraint
+itself is not parsed.
+
+
+### Fix
+
+* fix: fixed some minor mismaatches with export schema and comments (GH-36) ([`20b3ecc`](https://github.com/ossiq/ossiq/commit/20b3ecc5e297beadb54111452c72b81efa94bb4a))
+
+* fix: fixed batch status code processing (GH-36) ([`1207b4d`](https://github.com/ossiq/ossiq/commit/1207b4df02997ee8830cab168b4a720e67a4cbd3))
+After some response from github optimizations,
+there was a gap to process non-20x codes
+and any non 429/403 or 404 code.
+
+* fix: fixed gaps in uv, pip classic and npm implementations (GH-36) ([`f103265`](https://github.com/ossiq/ossiq/commit/f103265fe58ac5941b1f897e0d311067a18236be))
+Fixed gaps in transitive dependnecy version constraint
+classification in uv, pip classic and npm without lockfile.
+
+* fix: fixed typos and inconsistencies in integration tests (GH-36) ([`92b4c3f`](https://github.com/ossiq/ossiq/commit/92b4c3f451bb9e6dee58da26b4cb2889e39178dd))
+
+* fix: fixed tests for CSV export with frictionless (GH-36) ([`b366608`](https://github.com/ossiq/ossiq/commit/b366608a34481a2fb5e8f27ae15187ac5d0b0f2e))
+Bumped frictionless version to 5.19.1 and fixed
+tests.
+
+
+### Chore
+
+* chore: generated fresh version of spa_app.html (GH-36) ([`526fb96`](https://github.com/ossiq/ossiq/commit/526fb96b8441c7df70394576249c04f8d91e84fd))
+Generated fresh version of the nuxt/vue-based SPA
+html template with non-minified code.
+
+* chore: fixed type scheme generation for FE (GH-36) ([`115309b`](https://github.com/ossiq/ossiq/commit/115309b9bc9388b7687896eb20705016b7d3865f))
+
+* chore: updated frictionless and reduced cooldown  period to 5d (GH-36) ([`a36f3a1`](https://github.com/ossiq/ossiq/commit/a36f3a1133e1b04c0b4b92fb96a350608bfd9374))
+This is something needed to be addressed later in future
+versions of the OSS IQ: When target library released
+before the max distance between versions, but new
+version is within dependency cooldown period.
+
+* chore: docs: lowered down min dependencies and update docs (GH-36) ([`47f036e`](https://github.com/ossiq/ossiq/commit/47f036e5568345ddbe0f78d73268f54c16e6d7b7))
+There's no need to constraint min versions of packages,
+since there's no hard dependencies on its particular
+functionality. Also, updated documentation with very
+description of why chasing latest version for
+a package.
+
+* chore: fixed issues with naming for PyPI and NPM package managers (GH-36) ([`fe713bb`](https://github.com/ossiq/ossiq/commit/fe713bb33f84c8a003634c66f7067ecf56be06ce))
+
 ## v0.1.7 (2026-04-08)
 
 

@@ -7,7 +7,7 @@ resolution-markers = [
 ]
 
 [options]
-exclude-newer = "2026-04-14T18:25:18.463171Z"
+exclude-newer = "2026-04-24T19:01:34.957968Z"
 exclude-newer-span = "P5D"
 
 [[package]]
@@ -1460,7 +1460,7 @@ wheels = [
 
 [[package]]
 name = "ossiq"
-version = "0.1.7"
+version = "0.1.8"
 source = { editable = "." }
 dependencies = [
     { name = "common-expression-language" },
