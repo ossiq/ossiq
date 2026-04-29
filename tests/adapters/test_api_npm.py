@@ -15,7 +15,7 @@ from unittest.mock import patch
 import pytest
 import semver
 
-from ossiq.adapters.api_npm import PackageRegistryApiNpm
+from ossiq.adapters.api_npm import PackageRegistryApiNpm, is_npm_prerelease
 from ossiq.clients.batch import BatchClient
 from ossiq.domain.common import ProjectPackagesRegistry
 from ossiq.domain.exceptions import UnableLoadPackage
@@ -567,6 +567,7 @@ class TestPackageVersions:
         stable = next(v for v in versions if v.version == "1.0.0")
         assert "-" not in stable.version
         assert stable.is_published is True
+        assert stable.is_prerelease is False
 
         # Verify prerelease versions
         alpha = next(v for v in versions if "alpha" in v.version)
@@ -576,6 +577,7 @@ class TestPackageVersions:
         for prerelease in [alpha, beta, rc]:
             assert "-" in prerelease.version  # Prerelease indicator
             assert prerelease.is_published is True
+            assert prerelease.is_prerelease is True
             assert prerelease.declared_dependencies == {"new-dep": "^1.0.0"}
 
     def test_package_versions_dev_dependencies(self, npm_api, mock_npm_response):
@@ -695,3 +697,26 @@ class TestPackageRegistryApiNpmInit:
     def test_package_registry_constant(self, npm_api):
         """Test that package_registry attribute is set correctly."""
         assert npm_api.package_registry == ProjectPackagesRegistry.NPM
+
+
+# ============================================================================
+# Test is_npm_prerelease helper
+# ============================================================================
+
+
+class TestIsNpmPrerelease:
+    """Test the is_npm_prerelease() module-level helper."""
+
+    @pytest.mark.parametrize(
+        "version_str, expected",
+        [
+            ("1.2.3", False),
+            ("1.2.3-beta.1", True),
+            ("1.2.3-rc.1", True),
+            ("1.2.3-0", True),
+            ("2.0.0-alpha.1", True),
+            ("1.0", False),  # non-strict semver: fallback to stable
+        ],
+    )
+    def test_prerelease_detection(self, version_str, expected):
+        assert is_npm_prerelease(version_str) is expected

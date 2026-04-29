@@ -60,6 +60,8 @@ class ScanRecord:
     homepage_url: str | None = None
     package_url: str | None = None
     purl: str | None = None
+    is_installed_prerelease: bool = False
+    is_installed_yanked: bool = False
 
 
 @dataclass
@@ -173,6 +175,8 @@ def scan_record(
             package_info.license or (prefetched_repository.license if prefetched_repository else None)
         ),
         purl=build_purl(packages_registry.package_registry, canonical_name, package_version),
+        is_installed_prerelease=installed_release.is_prerelease if installed_release else False,
+        is_installed_yanked=installed_release is not None and not installed_release.is_published,
     )
 
 

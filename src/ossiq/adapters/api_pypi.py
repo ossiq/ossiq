@@ -340,4 +340,5 @@ class PackageRegistryApiPypi(AbstractPackageRegistryApi):
                 package_url=f"{PYPI_REGISTRY_FRONT}/project/{package_name}/{version}/",
                 is_published=not is_yanked,
                 unpublished_date_iso=None,
+                is_prerelease=PackagingVersion(version).is_prerelease,
             )

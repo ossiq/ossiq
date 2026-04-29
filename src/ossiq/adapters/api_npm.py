@@ -38,8 +38,16 @@ NPM_REGISTRY_FRONT = "https://www.npmjs.com"
 
 
 @functools.lru_cache(maxsize=4096)
-def _parse_semver(v: str) -> semver.Version:
+def parse_semver(v: str) -> semver.Version:
     return semver.Version.parse(v)
+
+
+@functools.lru_cache(maxsize=4096)
+def is_npm_prerelease(version_str: str) -> bool:
+    try:
+        return semver.Version.parse(version_str).prerelease is not None
+    except ValueError:
+        return False
 
 
 NPM_DEPENDENCIES_SECTIONS = (
@@ -68,7 +76,7 @@ class PackageRegistryApiNpm(AbstractPackageRegistryApi):
         Compare two versions following Semantic Versioning.
         """
         try:
-            return _parse_semver(v1).compare(_parse_semver(v2))
+            return parse_semver(v1).compare(parse_semver(v2))
         except ValueError as e:
             raise UnknownPackageVersion(str(e))  # noqa: B904
 
@@ -135,8 +143,8 @@ class PackageRegistryApiNpm(AbstractPackageRegistryApi):
 
         # Parse versions
         try:
-            v1 = _parse_semver(v1_str)
-            v2 = _parse_semver(v2_str)
+            v1 = parse_semver(v1_str)
+            v2 = parse_semver(v2_str)
         except ValueError:
             return VersionsDifference(
                 v1_str,
@@ -218,7 +226,6 @@ class PackageRegistryApiNpm(AbstractPackageRegistryApi):
                 )
                 for version in unpublished_response.get("versions", [])
             ]
-        # FIXME: filter out -beta and other suffixes: need to collect data to properly define rules
         return [
             PackageVersion(
                 version=version,
@@ -229,6 +236,7 @@ class PackageRegistryApiNpm(AbstractPackageRegistryApi):
                 declared_dev_dependencies=details.get("devDependencies", {}),
                 description=details.get("description", None),
                 package_url=f"{NPM_REGISTRY_FRONT}/package/{package_name}/v/{version}",
+                is_prerelease=is_npm_prerelease(version),
             )
             for version, details in versions.items()
         ]

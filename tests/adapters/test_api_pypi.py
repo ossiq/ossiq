@@ -435,6 +435,39 @@ class TestPackageVersions:
         assert len(versions) == 1
         assert versions[0].is_published is False
 
+    @pytest.mark.parametrize(
+        "version_str, expected",
+        [
+            ("1.2.3", False),
+            ("1.2.3rc1", True),
+            ("1.2.3a1", True),
+            ("1.2.3b2", True),
+            ("1.2.3.dev1", True),
+            ("1.2.3.post1", False),
+        ],
+    )
+    def test_prerelease_flag(self, pypi_api, mock_pypi_response, version_str, expected):
+        """is_prerelease is set correctly for PEP 440 prerelease and stable versions."""
+        mock_pypi_response.set_response(
+            "test-pkg",
+            {
+                "info": {
+                    "name": "test-pkg",
+                    "version": version_str,
+                    "requires_dist": [],
+                    "license": None,
+                    "summary": None,
+                },
+                "releases": {
+                    version_str: [{"upload_time_iso_8601": "2023-01-01T00:00:00Z", "yanked": False}],
+                },
+            },
+        )
+
+        versions = list(pypi_api.package_versions("test-pkg"))
+        assert len(versions) == 1
+        assert versions[0].is_prerelease is expected
+
     def test_partial_yanked_files_keeps_version_published(self, pypi_api, mock_pypi_response):
         """If some files are not yanked, version should remain published."""
         mock_pypi_response.set_response(

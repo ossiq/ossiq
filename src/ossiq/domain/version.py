@@ -104,6 +104,7 @@ class PackageVersion:
     published_date_iso: str | None = None
     unpublished_date_iso: str | None = None
     is_published: bool = True
+    is_prerelease: bool = False
     # Version constraint as declared in the project manifest (e.g. "^1.2.3", ">=1.0,<2.0").
     # Not populated by registry adapters — set at scan time from Dependency.version_defined.
     version_constraint: str | None = None
