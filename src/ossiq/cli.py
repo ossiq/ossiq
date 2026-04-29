@@ -138,6 +138,13 @@ def scan(
     project_path: str,
     lag_threshold_days: Annotated[str, typer.Option("--lag-threshold-delta", "-l", help=HELP_LAG_THRESHOULD)] = "1y",
     production: Annotated[bool, typer.Option("--production", help=HELP_PRODUCTION_ONLY)] = False,
+    allow_prerelease: Annotated[
+        bool, typer.Option("--allow-prerelease", help="Include pre-release versions in drift calculations")
+    ] = False,
+    allow_prerelease_package: Annotated[
+        list[str] | None,
+        typer.Option("--allow-prerelease-package", help="Allow pre-release for a specific package (repeatable)"),
+    ] = None,
     registry_type: Annotated[
         Literal["npm", "pypi"] | None,
         typer.Option("--registry-type", "-r", help=HELP_REGISTRY_TYPE),
@@ -163,6 +170,8 @@ def scan(
             project_path=project_path,
             lag_threshold_days=lag_threshold_days,
             production=production,
+            allow_prerelease=allow_prerelease,
+            allow_prerelease_packages=tuple(allow_prerelease_package or []),
             registry_type=registry_type,
             presentation=presentation,
             output_destination=output,
@@ -177,6 +186,13 @@ def export(
     registry_type: Annotated[
         Literal["npm", "pypi"] | None, typer.Option("--registry-type", "-r", help=HELP_REGISTRY_TYPE)
     ] = None,
+    allow_prerelease: Annotated[
+        bool, typer.Option("--allow-prerelease", help="Include pre-release versions in drift calculations")
+    ] = False,
+    allow_prerelease_package: Annotated[
+        list[str] | None,
+        typer.Option("--allow-prerelease-package", help="Allow pre-release for a specific package (repeatable)"),
+    ] = None,
     output_format: Annotated[
         Literal["json", "csv"],
         typer.Option("--output-format", "-f", envvar=f"{Settings.ENV_PREFIX}OUTPUT_FORMAT", help=HELP_OUTPUT_FORMAT),
@@ -186,7 +202,7 @@ def export(
     ] = "./ossiq_export_report_{project_name}.{output_format}",
     production: Annotated[bool, typer.Option("--production", help=HELP_PRODUCTION_ONLY)] = False,
     schema_version: Annotated[
-        Literal["1.0", "1.1", "1.2", "1.3"] | None,
+        Literal["1.0", "1.1", "1.2", "1.3", "1.4"] | None,
         typer.Option("--schema-version", "-s", envvar=f"{Settings.ENV_PREFIX}SCHEMA_VERSION", help=HELP_SCHEMA_VERSION),
     ] = None,
 ):
@@ -205,6 +221,8 @@ def export(
             output_format=output_format,
             output_destination=output,
             schema_version=schema_version,
+            allow_prerelease=allow_prerelease,
+            allow_prerelease_packages=tuple(allow_prerelease_package or []),
         ),
     )
 

@@ -5,6 +5,7 @@ Service to take care of a Package versions
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 from datetime import datetime
+from functools import cmp_to_key
 
 from rich.console import Console
 
@@ -109,18 +110,26 @@ def calculate_time_lag_in_days(
 
 
 def get_package_versions_since(
-    packages_registry: AbstractPackageRegistryApi, package_name: str, installed_version: str
+    packages_registry: AbstractPackageRegistryApi,
+    package_name: str,
+    installed_version: str,
+    *,
+    allow_prerelease: bool = False,
+    allow_prerelease_packages: tuple[str, ...] = (),
 ) -> list[package_versions.PackageVersion]:
     """
     Calculate Package versions lag: delta between
     installed package and the latest one.
     """
     try:
-        return [
+        versions = [
             v
             for v in packages_registry.package_versions(package_name)
             if packages_registry.compare_versions(v.version, installed_version) >= 0
         ]
+        if not allow_prerelease and package_name not in allow_prerelease_packages:
+            versions = [v for v in versions if not v.is_prerelease]
+        return versions
     except UnknownPackageVersion:
         return []
 
@@ -180,15 +189,47 @@ def scan_record(
     )
 
 
+def update_latest_versions_for_prerelease(
+    packages_registry: AbstractPackageRegistryApi,
+    packages_info: dict[str, Package],
+    *,
+    allow_prerelease: bool,
+    allow_prerelease_packages: tuple[str, ...],
+) -> None:
+    """Update latest_version in-place for packages where prerelease should be considered."""
+    for pkg in packages_info.values():
+        if not allow_prerelease and pkg.name not in allow_prerelease_packages:
+            continue
+        try:
+            all_versions = list(packages_registry.package_versions(pkg.name))
+            if all_versions:
+                latest = max(
+                    all_versions,
+                    key=cmp_to_key(lambda a, b: packages_registry.compare_versions(a.version, b.version)),
+                )
+                pkg.latest_version = latest.version
+        except UnknownPackageVersion:
+            pass
+
+
 def prefetch_versions_since(
     packages_registry: AbstractPackageRegistryApi,
     unique_pairs: Iterable[tuple[str, str]],
+    *,
+    allow_prerelease: bool = False,
+    allow_prerelease_packages: tuple[str, ...] = (),
 ) -> dict[tuple[str, str], list[package_versions.PackageVersion]]:
     """Pre-compute versions-since-installed for all unique (package_name, installed_version) pairs."""
     result: dict[tuple[str, str], list[package_versions.PackageVersion]] = {}
     for name, version in unique_pairs:
         if (name, version) not in result:
-            result[(name, version)] = get_package_versions_since(packages_registry, name, version)
+            result[(name, version)] = get_package_versions_since(
+                packages_registry,
+                name,
+                version,
+                allow_prerelease=allow_prerelease,
+                allow_prerelease_packages=allow_prerelease_packages,
+            )
     return result
 
 
@@ -284,6 +325,14 @@ def scan(uow: unit_of_work.AbstractProjectUnitOfWork) -> ScanResult:
         # Pass 1: pre-fetch package infos
         packages_info = prefetch_packages_info(uow.packages_registry, (dep.canonical_name for dep in all_deps))
 
+        if uow.allow_prerelease or uow.allow_prerelease_packages:
+            update_latest_versions_for_prerelease(
+                uow.packages_registry,
+                packages_info,
+                allow_prerelease=uow.allow_prerelease,
+                allow_prerelease_packages=uow.allow_prerelease_packages,
+            )
+
         # Github repository info
         repositories_info = prefetch_source_code_repositories_info(
             uow,
@@ -299,6 +348,8 @@ def scan(uow: unit_of_work.AbstractProjectUnitOfWork) -> ScanResult:
         versions_since_map = prefetch_versions_since(
             uow.packages_registry,
             {(packages_info[dep.canonical_name].name, dep.version) for dep in all_deps},
+            allow_prerelease=uow.allow_prerelease,
+            allow_prerelease_packages=uow.allow_prerelease_packages,
         )
 
         # Pass 2: build ScanRecords using pre-fetched data; license comes from registry + GitHub
