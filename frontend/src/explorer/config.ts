@@ -39,6 +39,12 @@ export const TREE_CONFIG = {
     // Constrained: OVERRIDE (forces version regardless of other requirements)
     overriddenFill: '#fed7aa',   // orange-200
     overriddenStroke: '#ea580c', // orange-600
+    // Yanked — version was retracted by the publisher
+    yankedFill: '#f3e8ff',       // purple-100
+    yankedStroke: '#7e22ce',     // purple-800
+    // Prerelease — installed version is alpha/beta/rc
+    prereleaseFill: '#fef3c7',   // amber-100
+    prereleaseStroke: '#b45309', // amber-700
     defaultFill: '#bfdbfe',      // blue-200
     defaultStroke: '#1d4ed8',    // blue-700
     // Highlight overrides

@@ -22,6 +22,8 @@ export interface ReportRow {
   registryUrl: string
   license: string[]
   hasTransitiveCve: boolean
+  isPrerelease: boolean
+  isYanked: boolean
 }
 
 export function computeDriftStatus(
@@ -91,7 +93,7 @@ export function useReportFilters() {
   // Build unified row list
   const allRows = computed<ReportRow[]>(() => {
     const registry = store.report?.project.registry ?? 'npm'
-    const prodRows: ReportRow[] = store.productionPackages.map((pkg) => ({
+    const prodRows: ReportRow[] = (store.productionPackages as PackageMetrics[]).map((pkg) => ({
       pkg,
       isDev: false,
       driftStatus: computeDriftStatus(pkg.installed_version, pkg.latest_version),
@@ -100,8 +102,10 @@ export function useReportFilters() {
       registryUrl: registryUrl(registry, pkg.package_name),
       license: pkg.license ?? [],
       hasTransitiveCve: transitiveCveSet.value.has(pkg.package_name),
+      isPrerelease: pkg.is_prerelease ?? false,
+      isYanked: pkg.is_yanked ?? false,
     }))
-    const devRows: ReportRow[] = store.developmentPackages.map((pkg) => ({
+    const devRows: ReportRow[] = (store.developmentPackages as PackageMetrics[]).map((pkg) => ({
       pkg,
       isDev: true,
       driftStatus: computeDriftStatus(pkg.installed_version, pkg.latest_version),
@@ -110,6 +114,8 @@ export function useReportFilters() {
       registryUrl: registryUrl(registry, pkg.package_name),
       license: pkg.license ?? [],
       hasTransitiveCve: transitiveCveSet.value.has(pkg.package_name),
+      isPrerelease: pkg.is_prerelease ?? false,
+      isYanked: pkg.is_yanked ?? false,
     }))
     return [...prodRows, ...devRows]
   })

@@ -25,6 +25,8 @@ export interface RegistryEntry {
   package_url: string | null
   license: string[] | null
   purl: string | null
+  is_yanked: boolean
+  is_prerelease: boolean
   childEdges: Map<number, EdgeData>
 }
 
@@ -39,6 +41,8 @@ export interface DirectEntry {
   constraint_type: ConstraintType | null
   constraint_source_file: string | null
   version_constraint: string | null
+  is_yanked: boolean
+  is_prerelease: boolean
   childRefs: Array<{ ref: number; edgeData: EdgeData }>
 }
 

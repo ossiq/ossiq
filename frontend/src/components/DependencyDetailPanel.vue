@@ -105,6 +105,14 @@ const transitiveCVEGroups = computed<TransitiveCVEGroup[]>(() => {
                 v-if="node.isDuplicate"
                 class="px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-widest text-amber-700 bg-amber-100 border border-amber-200"
               >Shared Node</span>
+              <span
+                v-if="node.is_yanked"
+                class="px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-widest text-red-700 bg-red-100 border border-red-300"
+              >Yanked</span>
+              <span
+                v-else-if="node.is_prerelease"
+                class="px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-widest text-amber-700 bg-amber-100 border border-amber-300"
+              >Pre-release</span>
             </div>
             <!-- Package name + version -->
             <h1 class="text-2xl font-bold tracking-tight leading-none font-mono break-all">

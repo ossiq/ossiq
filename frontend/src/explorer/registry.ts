@@ -1,5 +1,5 @@
 import { markRaw } from 'vue'
-import type { OSSIQExportSchemaV13, CVEInfo, DependencyTreeNode } from '@/types/report'
+import type { OSSIQExportSchemaV14, CVEInfo, DependencyTreeNode } from '@/types/report'
 import type { ConstraintType, DirectEntry, EdgeData, PackageRegistry, RegistryEntry, Severity } from '@/types/registry'
 
 const SEVERITY_RANK: Record<string, number> = { LOW: 1, MEDIUM: 2, HIGH: 3, CRITICAL: 4 }
@@ -11,7 +11,7 @@ function maxSeverity(cves: CVEInfo[]): Severity | null {
   ).severity as Severity
 }
 
-export function buildPackageRegistry(report: OSSIQExportSchemaV13): PackageRegistry {
+export function buildPackageRegistry(report: OSSIQExportSchemaV14): PackageRegistry {
   const constraintTypeMap = report.constraint_type_map
 
   // Step 1: Build transitive package lookup by id
@@ -32,6 +32,8 @@ export function buildPackageRegistry(report: OSSIQExportSchemaV13): PackageRegis
       package_url: pkg.package_url ?? null,
       license: pkg.license ?? null,
       purl: pkg.purl ?? null,
+      is_yanked: pkg.is_yanked,
+      is_prerelease: pkg.is_prerelease,
       childEdges: new Map(),
     })
   }
@@ -63,6 +65,8 @@ export function buildPackageRegistry(report: OSSIQExportSchemaV13): PackageRegis
       constraint_type: (pkg.constraint_type ?? null) as ConstraintType | null,
       constraint_source_file: pkg.constraint_source_file ?? null,
       version_constraint: pkg.version_constraint ?? null,
+      is_yanked: pkg.is_yanked,
+      is_prerelease: pkg.is_prerelease,
       childRefs: [],
     })
   }

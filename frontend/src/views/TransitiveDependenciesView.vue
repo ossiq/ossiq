@@ -9,7 +9,7 @@ import { buildVisibleState } from '@/explorer/visibleState'
 import DependencyDetailPanel from '@/components/DependencyDetailPanel.vue'
 import NavigationBreadcrumb from '@/components/NavigationBreadcrumb.vue'
 import type { DependencyNode, SelectedNodeDetail } from '@/types/dependency-tree'
-import type { OSSIQExportSchemaV13, PackageMetrics, TransitivePackageMetrics, DependencyTreeNode, CVEInfo } from '@/types/report'
+import type { OSSIQExportSchemaV14, PackageMetrics, TransitivePackageMetrics, DependencyTreeNode, CVEInfo } from '@/types/report'
 
 const store = useOssiqStore()
 const svgRef = ref<SVGSVGElement | null>(null)
@@ -21,7 +21,7 @@ const showLegend = ref(false)
 const { registry, projectName } = usePackageRegistry()
 
 // --- Filter path — DependencyNode tree (markRaw) feeds Fuse.js search + toggle UI ---
-function buildDependencyTree(report: OSSIQExportSchemaV13): DependencyNode {
+function buildDependencyTree(report: OSSIQExportSchemaV14): DependencyNode {
   const severityRank: Record<string, number> = { LOW: 1, MEDIUM: 2, HIGH: 3, CRITICAL: 4 }
   const cveMap = new Map<string, string>()
   for (const pkg of [...report.production_packages, ...report.development_packages, ...report.transitive_packages]) {
@@ -57,6 +57,8 @@ function buildDependencyTree(report: OSSIQExportSchemaV13): DependencyNode {
     constraint_type: pkg.constraint_type ?? null,
     constraint_source_file: pkg.constraint_source_file ?? null,
     extras: pkg.extras ?? null,
+    is_prerelease: pkg.is_prerelease ?? false,
+    is_yanked: pkg.is_yanked ?? false,
   })
 
   for (const pkg of report.production_packages) {
@@ -93,6 +95,8 @@ function buildDependencyTree(report: OSSIQExportSchemaV13): DependencyNode {
       constraint_type: (report.constraint_type_map?.[treeNode.ct] ?? null) as DependencyNode['constraint_type'],
       constraint_source_file: pkg.constraint_source_file ?? null,
       extras: treeNode.extras ?? null,
+      is_prerelease: pkg.is_prerelease ?? false,
+      is_yanked: pkg.is_yanked ?? false,
     }
     if (!parentNode.dependencies) parentNode.dependencies = {}
     parentNode.dependencies[pkg.package_name] = nodeDetail
@@ -312,6 +316,10 @@ watch(registry, () => navReset())
                 <span><strong class="text-slate-800">CVE detected</strong> — known vulnerability</span>
               </div>
               <div class="flex items-center gap-2">
+                <span class="inline-flex items-center justify-center w-4 h-4 rounded-full shrink-0 text-[8px] font-bold text-white" style="background:#f3e8ff; outline:2px dashed #7e22ce; outline-offset:-1px">✕</span>
+                <span><strong class="text-slate-800">Yanked</strong> — version retracted by publisher</span>
+              </div>
+              <div class="flex items-center gap-2">
                 <span class="inline-block w-4 h-4 rounded-full shrink-0" style="background:#fef08a; outline:2px dashed #a16207; outline-offset:-1px"></span>
                 <span><strong class="text-slate-800">Narrowed</strong> — bounded range (e.g. <code>&lt;y</code>)</span>
               </div>
@@ -326,6 +334,10 @@ watch(registry, () => navReset())
               <div class="flex items-center gap-2">
                 <span class="inline-block w-4 h-4 rounded-full shrink-0" style="background:#bbf7d0; outline:2px dotted #16a34a; outline-offset:-1px"></span>
                 <span><strong class="text-slate-800">Additive</strong> — external constraint file</span>
+              </div>
+              <div class="flex items-center gap-2">
+                <span class="inline-block w-4 h-4 rounded-full shrink-0" style="background:#fef3c7; outline:2px dotted #b45309; outline-offset:-1px"></span>
+                <span><strong class="text-slate-800">Pre-release</strong> — alpha/beta/rc version installed</span>
               </div>
               <div class="flex items-center gap-2">
                 <span class="inline-block w-4 h-4 rounded-full shrink-0" style="background:#bfdbfe; outline:2px solid #1d4ed8; outline-offset:-1px"></span>

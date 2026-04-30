@@ -22,6 +22,8 @@ export interface DependencyNode {
   constraint_type?: 'DECLARED' | 'NARROWED' | 'PINNED' | 'ADDITIVE' | 'OVERRIDE' | null
   constraint_source_file?: string | null
   extras?: string[] | null
+  is_prerelease?: boolean
+  is_yanked?: boolean
   dependencies?: Record<string, DependencyNode>
   optional_dependencies?: Record<string, DependencyNode>
 }
@@ -54,6 +56,8 @@ export interface SelectedNodeDetail {
   constraint_type?: 'DECLARED' | 'NARROWED' | 'PINNED' | 'ADDITIVE' | 'OVERRIDE' | null
   constraint_source_file?: string | null
   extras?: string[] | null
+  is_prerelease?: boolean
+  is_yanked?: boolean
   dependencies?: Record<string, DependencyNode>
   optional_dependencies?: Record<string, DependencyNode>
 }

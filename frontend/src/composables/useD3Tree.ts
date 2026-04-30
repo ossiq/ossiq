@@ -147,6 +147,8 @@ export function useD3Tree(options: UseD3TreeOptions) {
       constraint_type: d.data.constraint_type,
       constraint_source_file: d.data.constraint_source_file,
       extras: d.data.extras,
+      is_yanked: d.data.is_yanked,
+      is_prerelease: d.data.is_prerelease,
       dependencies: d.data.dependencies,
       optional_dependencies: d.data.optional_dependencies,
     })

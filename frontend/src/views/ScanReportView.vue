@@ -8,6 +8,7 @@ import ReportTable from '@/components/ReportTable.vue'
 import ReportLegend from '@/components/ReportLegend.vue'
 import DependencyDetailPanel from '@/components/DependencyDetailPanel.vue'
 import type { SelectedNodeDetail } from '@/types/dependency-tree'
+import type { DependencyTreeRoot, TransitivePackageMetrics } from '@/types/report'
 
 const store = useOssiqStore()
 const {
@@ -58,6 +59,8 @@ function handleSelectPackage(row: ReportRow) {
     constraint_type: row.pkg.constraint_type ?? null,
     constraint_source_file: row.pkg.constraint_source_file ?? null,
     extras: row.pkg.extras ?? null,
+    is_prerelease: row.pkg.is_prerelease ?? false,
+    is_yanked: row.pkg.is_yanked ?? false,
   }
 
   const transitives = store.report?.transitive_packages ?? []
@@ -69,11 +72,11 @@ function handleSelectPackage(row: ReportRow) {
       collectSubtree(node.children)
     }
   }
-  const treeRoot = store.report?.dependency_tree?.find(r => r.package_name === row.pkg.package_name)
+  const treeRoot = store.report?.dependency_tree?.find((r: DependencyTreeRoot) => r.package_name === row.pkg.package_name)
   if (treeRoot) collectSubtree(treeRoot.children)
   if (subtreePackages.length > 0) {
     selectedNode.value.dependencies = Object.fromEntries(
-      subtreePackages.map(t => [t.package_name, { name: t.package_name, version_installed: t.installed_version, cve: t.cve ?? [] }])
+      subtreePackages.map((t: TransitivePackageMetrics) => [t.package_name, { name: t.package_name, version_installed: t.installed_version, cve: t.cve ?? [] }])
     )
   }
 

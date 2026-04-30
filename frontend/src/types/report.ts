@@ -6,9 +6,9 @@
  */
 
 /**
- * Schema for OSS-IQ project metrics export data (v1.3 uses a shared dependency_tree with integer ct references into constraint_type_map, explicit id on transitive packages, and omits null/empty fields for compact output)
+ * Schema for OSS-IQ project metrics export data (v1.4 adds is_prerelease and is_yanked fields to PackageMetrics and TransitivePackageMetrics)
  */
-export interface OSSIQExportSchemaV13 {
+export interface OSSIQExportSchemaV14 {
   /**
    * Metadata about the export itself
    */
@@ -16,7 +16,7 @@ export interface OSSIQExportSchemaV13 {
     /**
      * Version of the export schema format
      */
-    schema_version: "1.3";
+    schema_version: "1.4";
     /**
      * UTC timestamp when the export was generated
      */
@@ -172,6 +172,14 @@ export interface PackageMetrics {
    * PyPI extras requested for this dependency (e.g. ["security", "tests"] from requests[security,tests]); null for non-PyPI or when no extras are used
    */
   extras?: string[] | null;
+  /**
+   * Whether the installed version is a pre-release (alpha/beta/rc/dev)
+   */
+  is_prerelease: boolean;
+  /**
+   * Whether the installed version has been yanked or unpublished from the registry
+   */
+  is_yanked: boolean;
   [k: string]: unknown;
 }
 /**
@@ -280,6 +288,14 @@ export interface TransitivePackageMetrics {
    * Package URL (PURL) per ECMA-386, e.g. pkg:pypi/requests@2.25.1 or pkg:npm/lodash@4.17.21
    */
   purl?: string | null;
+  /**
+   * Whether the installed version is a pre-release (alpha/beta/rc/dev)
+   */
+  is_prerelease: boolean;
+  /**
+   * Whether the installed version has been yanked or unpublished from the registry
+   */
+  is_yanked: boolean;
   [k: string]: unknown;
 }
 /**

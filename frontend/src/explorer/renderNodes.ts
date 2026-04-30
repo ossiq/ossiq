@@ -73,6 +73,27 @@ export function renderNodes({ g, nodes, source, onNodeClick }: NodeRenderOptions
     .attr('fill', TREE_CONFIG.colors.cveIndicatorText)
     .text('!')
 
+  // Yanked indicator — small circle badge to the right of the node
+  const yankedGroup = nodeEnter
+    .filter((d) => !!d.data.is_yanked)
+    .append('g')
+    .attr('class', 'yanked-indicator')
+    .attr('transform', 'translate(18, 0)')
+
+  yankedGroup
+    .append('circle')
+    .attr('r', 6)
+    .attr('fill', TREE_CONFIG.colors.yankedStroke)
+
+  yankedGroup
+    .append('text')
+    .attr('text-anchor', 'middle')
+    .attr('dominant-baseline', 'middle')
+    .attr('font-size', '8px')
+    .attr('font-weight', 'bold')
+    .attr('fill', 'white')
+    .text('✕')
+
   // "+N more" count badge for folded Super Nodes
   nodeEnter
     .filter((d) => !!d.data._isFolded)
