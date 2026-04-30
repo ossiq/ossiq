@@ -74,6 +74,7 @@ class CsvExportRenderer(AbstractUserInterfaceRenderer):
             # Creates folder: ./reports/export_my-project/
             # Containing: summary.csv, packages.csv, cves.csv, datapackage.json
         """
+        destination = os.path.expanduser(destination)
         # Validate destination directory
         dest_dir = os.path.dirname(destination)
         if dest_dir and not os.path.exists(dest_dir):

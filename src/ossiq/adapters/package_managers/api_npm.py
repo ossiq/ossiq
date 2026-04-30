@@ -185,7 +185,13 @@ class NPMResolverV3(BaseDependencyResolver):
 
         # Mapping engines (node version) to the marker concept
         engines = pkg_data.get("engines", {})
-        node = engines.get("node")
+        node = None
+        if isinstance(engines, dict):
+            node = engines.get("node")
+        # let's keep it simple and take just first from the list
+        elif isinstance(engines, list):
+            node = engines[0]
+
         required_engine = f"node: {node}" if node else None
 
         # NPM doesn't store the original 'version_defined' inside the package

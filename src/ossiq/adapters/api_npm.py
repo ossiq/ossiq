@@ -50,6 +50,14 @@ def is_npm_prerelease(version_str: str) -> bool:
         return False
 
 
+def normalize_npm_license(value: object) -> str | None:
+    # Older npm packages use {"type": "MIT", "url": "..."} instead of a plain string.
+    # See https://docs.npmjs.com/cli/v8/configuring-npm/package-json#license
+    if isinstance(value, dict):
+        return value.get("type") or None
+    return value or None
+
+
 NPM_DEPENDENCIES_SECTIONS = (
     "dependencies",
     "devDependencies",
@@ -174,7 +182,9 @@ class PackageRegistryApiNpm(AbstractPackageRegistryApi):
     def _map_raw_to_package(name: str, data: dict) -> Package:
         distribution_tags = data.get("dist-tags", {"latest": None, "next": None})
         latest_version = distribution_tags.get("latest", None)
-        latest_version_license = data.get("versions", {}).get(latest_version or "", {}).get("license")
+        latest_version_license = normalize_npm_license(
+            data.get("versions", {}).get(latest_version or "", {}).get("license")
+        )
         return Package(
             registry=ProjectPackagesRegistry.NPM,
             name=data["name"],
@@ -231,7 +241,7 @@ class PackageRegistryApiNpm(AbstractPackageRegistryApi):
                 version=version,
                 published_date_iso=timestamp_map.get(version, None),
                 declared_dependencies=details.get("dependencies", {}),
-                license=details.get("license", None),
+                license=normalize_npm_license(details.get("license")),
                 runtime_requirements=details.get("engines", None),
                 declared_dev_dependencies=details.get("devDependencies", {}),
                 description=details.get("description", None),
