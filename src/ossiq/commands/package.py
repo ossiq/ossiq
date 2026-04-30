@@ -25,6 +25,8 @@ class CommandPackageOptions:
     project_path: str
     package_name: str
     registry_type: Literal["npm", "pypi"] | None
+    allow_prerelease: bool = False
+    allow_prerelease_packages: tuple[str, ...] = ()
 
 
 def _matches(record: ScanRecord, package_name: str) -> bool:
@@ -76,6 +78,8 @@ def command_package(ctx: typer.Context, options: CommandPackageOptions) -> None:
         project_path=options.project_path,
         production=False,
         narrow_package_registry=registry_type_map.get(options.registry_type or ""),
+        allow_prerelease=options.allow_prerelease,
+        allow_prerelease_packages=options.allow_prerelease_packages,
     )
 
     with show_operation_progress(settings, "Collecting project packages data...") as progress:

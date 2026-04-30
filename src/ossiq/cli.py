@@ -236,6 +236,13 @@ def package(
         Literal["npm", "pypi"] | None,
         typer.Option("--registry-type", "-r", help=HELP_REGISTRY_TYPE),
     ] = None,
+    allow_prerelease: Annotated[
+        bool, typer.Option("--allow-prerelease", help="Include pre-release versions in drift calculations")
+    ] = False,
+    allow_prerelease_package: Annotated[
+        list[str] | None,
+        typer.Option("--allow-prerelease-package", help="Allow pre-release for a specific package (repeatable)"),
+    ] = None,
 ):
     """
     Deep-dive into a single package: drift status, CVEs, and transitive vulnerabilities.
@@ -249,6 +256,8 @@ def package(
             project_path=project_path,
             package_name=package_name,
             registry_type=registry_type,
+            allow_prerelease=allow_prerelease,
+            allow_prerelease_packages=tuple(allow_prerelease_package or []),
         ),
     )
 

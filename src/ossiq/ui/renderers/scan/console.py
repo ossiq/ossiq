@@ -96,11 +96,17 @@ class ConsoleScanRenderer(AbstractUserInterfaceRenderer):
         table.add_column("Time Lag", justify="right")
 
         for pkg in dependencies:
+            installed_cell = pkg.installed_version
+            if pkg.is_installed_yanked:
+                installed_cell += " [bold red][YANKED][/]"
+            elif pkg.is_installed_prerelease:
+                installed_cell += " [yellow][pre][/]"
+
             table.add_row(
                 pkg.package_name,
                 f"[bold][red]{len(pkg.cve)}" if pkg.cve else "",
                 self._format_lag_status(pkg.versions_diff_index),
-                pkg.installed_version,
+                installed_cell,
                 pkg.latest_version if pkg.latest_version else "[bold][red]N/A",
                 str(pkg.releases_lag),
                 self._format_time_delta(pkg.time_lag_days, lag_threshold_days),

@@ -147,6 +147,10 @@ class ConsolePackageRenderer(AbstractUserInterfaceRenderer):
         title = Text()
         title.append(record.package_name, style="bold cyan")
         title.append(f"  {record.installed_version}", style="bold blue")
+        if record.is_installed_yanked:
+            title.append("  [YANKED]", style="bold red")
+        elif record.is_installed_prerelease:
+            title.append("  [pre]", style="yellow")
 
         meta = Text()
 
@@ -185,6 +189,10 @@ class ConsolePackageRenderer(AbstractUserInterfaceRenderer):
         installed_text = Text()
         installed_text.append("  Installed   : ")
         installed_text.append(record.installed_version, style="bold")
+        if record.is_installed_yanked:
+            installed_text.append("  [YANKED]", style="bold red")
+        elif record.is_installed_prerelease:
+            installed_text.append("  [pre]", style="yellow")
         self.console.print(installed_text)
 
         latest_text = Text()
