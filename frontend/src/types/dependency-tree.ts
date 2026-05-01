@@ -24,6 +24,8 @@ export interface DependencyNode {
   extras?: string[] | null
   is_prerelease?: boolean
   is_yanked?: boolean
+  is_deprecated?: boolean
+  is_package_unpublished?: boolean
   dependencies?: Record<string, DependencyNode>
   optional_dependencies?: Record<string, DependencyNode>
 }
@@ -58,6 +60,8 @@ export interface SelectedNodeDetail {
   extras?: string[] | null
   is_prerelease?: boolean
   is_yanked?: boolean
+  is_deprecated?: boolean
+  is_package_unpublished?: boolean
   dependencies?: Record<string, DependencyNode>
   optional_dependencies?: Record<string, DependencyNode>
 }

@@ -180,6 +180,14 @@ export interface PackageMetrics {
    * Whether the installed version has been yanked or unpublished from the registry
    */
   is_yanked: boolean;
+  /**
+   * Whether the installed package or version is deprecated (npm-only; false otherwise)
+   */
+  is_deprecated: boolean;
+  /**
+   * Whether the entire package has been removed from the registry (npm-only; false otherwise)
+   */
+  is_package_unpublished: boolean;
   [k: string]: unknown;
 }
 /**
@@ -296,6 +304,14 @@ export interface TransitivePackageMetrics {
    * Whether the installed version has been yanked or unpublished from the registry
    */
   is_yanked: boolean;
+  /**
+   * Whether the installed package or version is deprecated (npm-only; false otherwise)
+   */
+  is_deprecated: boolean;
+  /**
+   * Whether the entire package has been removed from the registry (npm-only; false otherwise)
+   */
+  is_package_unpublished: boolean;
   [k: string]: unknown;
 }
 /**

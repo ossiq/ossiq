@@ -34,6 +34,8 @@ export function buildPackageRegistry(report: OSSIQExportSchemaV14): PackageRegis
       purl: pkg.purl ?? null,
       is_yanked: pkg.is_yanked,
       is_prerelease: pkg.is_prerelease,
+      is_deprecated: pkg.is_deprecated ?? false,
+      is_package_unpublished: pkg.is_package_unpublished ?? false,
       childEdges: new Map(),
     })
   }
@@ -65,8 +67,16 @@ export function buildPackageRegistry(report: OSSIQExportSchemaV14): PackageRegis
       constraint_type: (pkg.constraint_type ?? null) as ConstraintType | null,
       constraint_source_file: pkg.constraint_source_file ?? null,
       version_constraint: pkg.version_constraint ?? null,
+      repo_url: pkg.repo_url ?? null,
+      homepage_url: pkg.homepage_url ?? null,
+      package_url: pkg.package_url ?? null,
+      license: pkg.license ?? null,
+      purl: pkg.purl ?? null,
+      extras: pkg.extras ?? null,
       is_yanked: pkg.is_yanked,
       is_prerelease: pkg.is_prerelease,
+      is_deprecated: pkg.is_deprecated ?? false,
+      is_package_unpublished: pkg.is_package_unpublished ?? false,
       childRefs: [],
     })
   }

@@ -24,6 +24,8 @@ export interface ReportRow {
   hasTransitiveCve: boolean
   isPrerelease: boolean
   isYanked: boolean
+  isDeprecated: boolean
+  isPackageUnpublished: boolean
 }
 
 export function computeDriftStatus(
@@ -104,6 +106,8 @@ export function useReportFilters() {
       hasTransitiveCve: transitiveCveSet.value.has(pkg.package_name),
       isPrerelease: pkg.is_prerelease ?? false,
       isYanked: pkg.is_yanked ?? false,
+      isDeprecated: pkg.is_deprecated ?? false,
+      isPackageUnpublished: pkg.is_package_unpublished ?? false,
     }))
     const devRows: ReportRow[] = (store.developmentPackages as PackageMetrics[]).map((pkg) => ({
       pkg,
@@ -116,6 +120,8 @@ export function useReportFilters() {
       hasTransitiveCve: transitiveCveSet.value.has(pkg.package_name),
       isPrerelease: pkg.is_prerelease ?? false,
       isYanked: pkg.is_yanked ?? false,
+      isDeprecated: pkg.is_deprecated ?? false,
+      isPackageUnpublished: pkg.is_package_unpublished ?? false,
     }))
     return [...prodRows, ...devRows]
   })

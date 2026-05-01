@@ -39,6 +39,15 @@ export const NODE_COLOR_RULES: NodeColorRule[] = [
     fill: TREE_CONFIG.colors.cveFill,
     stroke: TREE_CONFIG.colors.cveStroke,
   },
+  // Unpublished — entire package removed from registry (red, solid, larger; higher priority than yanked)
+  {
+    test: (data) => !!data.is_package_unpublished,
+    fill: TREE_CONFIG.colors.unpublishedFill,
+    stroke: TREE_CONFIG.colors.unpublishedStroke,
+    strokeDash: '4,2',
+    strokeWidthBase: 2.5,
+    radiusBase: 7,
+  },
   // Yanked — installed version was retracted by the publisher (purple, dashed, slightly larger)
   {
     test: (data) => !!data.is_yanked,
@@ -47,6 +56,13 @@ export const NODE_COLOR_RULES: NodeColorRule[] = [
     strokeDash: '3,2',
     strokeWidthBase: 2,
     radiusBase: 7,
+  },
+  // Deprecated — package/version marked deprecated by publisher (yellow, dotted)
+  {
+    test: (data) => !!data.is_deprecated,
+    fill: TREE_CONFIG.colors.deprecatedFill,
+    stroke: TREE_CONFIG.colors.deprecatedStroke,
+    strokeDash: '2,3',
   },
   // OVERRIDE — forced version replacement (fuchsia, thick dash-dot, larger radius)
   {

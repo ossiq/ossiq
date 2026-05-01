@@ -149,6 +149,8 @@ export function useD3Tree(options: UseD3TreeOptions) {
       extras: d.data.extras,
       is_yanked: d.data.is_yanked,
       is_prerelease: d.data.is_prerelease,
+      is_deprecated: d.data.is_deprecated,
+      is_package_unpublished: d.data.is_package_unpublished,
       dependencies: d.data.dependencies,
       optional_dependencies: d.data.optional_dependencies,
     })

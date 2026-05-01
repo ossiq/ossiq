@@ -39,6 +39,12 @@ export const TREE_CONFIG = {
     // Constrained: OVERRIDE (forces version regardless of other requirements)
     overriddenFill: '#fed7aa',   // orange-200
     overriddenStroke: '#ea580c', // orange-600
+    // Unpublished — entire package removed from the registry (higher priority than yanked)
+    unpublishedFill: '#fee2e2',      // red-100
+    unpublishedStroke: '#b91c1c',    // red-700
+    // Deprecated — package/version marked deprecated by publisher
+    deprecatedFill: '#fef9c3',       // yellow-100
+    deprecatedStroke: '#a16207',     // yellow-700
     // Yanked — version was retracted by the publisher
     yankedFill: '#f3e8ff',       // purple-100
     yankedStroke: '#7e22ce',     // purple-800

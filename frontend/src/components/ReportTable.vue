@@ -166,9 +166,17 @@ function spdxUrl(spdxId: string): string {
             <td class="px-6 py-3 text-sm text-slate-800">
               <span class="font-mono">{{ row.pkg.installed_version }}</span>
               <span
-                v-if="row.isYanked"
+                v-if="row.isPackageUnpublished"
+                class="ml-1.5 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide bg-red-100 text-red-700 border border-red-300 rounded"
+              >unpublished</span>
+              <span
+                v-else-if="row.isYanked"
                 class="ml-1.5 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide bg-red-100 text-red-700 border border-red-300 rounded"
               >yanked</span>
+              <span
+                v-else-if="row.isDeprecated"
+                class="ml-1.5 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide bg-yellow-100 text-yellow-700 border border-yellow-300 rounded"
+              >deprecated</span>
               <span
                 v-else-if="row.isPrerelease"
                 class="ml-1.5 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide bg-amber-100 text-amber-700 border border-amber-300 rounded"
