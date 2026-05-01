@@ -246,6 +246,8 @@ class TestCsvExportRenderer:
             "extras",
             "is_prerelease",
             "is_yanked",
+            "is_deprecated",
+            "is_package_unpublished",
             "license",
             "purl",
         ]

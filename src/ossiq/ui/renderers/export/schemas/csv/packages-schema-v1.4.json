@@ -135,6 +135,28 @@
       }
     },
     {
+      "name": "is_deprecated",
+      "type": "boolean",
+      "title": "Is Deprecated",
+      "description": "Whether the installed package or version is deprecated (npm-only; false otherwise)",
+      "trueValues": ["true"],
+      "falseValues": ["false"],
+      "constraints": {
+        "required": true
+      }
+    },
+    {
+      "name": "is_package_unpublished",
+      "type": "boolean",
+      "title": "Is Package Unpublished",
+      "description": "Whether the entire package has been removed from the registry (npm-only; false otherwise)",
+      "trueValues": ["true"],
+      "falseValues": ["false"],
+      "constraints": {
+        "required": true
+      }
+    },
+    {
       "name": "license",
       "type": "string",
       "title": "License",

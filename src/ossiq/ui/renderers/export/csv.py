@@ -231,7 +231,7 @@ class CsvExportRenderer(AbstractUserInterfaceRenderer):
         ]
 
         if is_schema_v1_4:
-            fieldnames += ["is_prerelease", "is_yanked"]
+            fieldnames += ["is_prerelease", "is_yanked", "is_deprecated", "is_package_unpublished"]
         fieldnames += ["license", "purl"]
 
         def _pkg_row(pkg) -> dict:
@@ -255,6 +255,8 @@ class CsvExportRenderer(AbstractUserInterfaceRenderer):
             if is_schema_v1_4:
                 row["is_yanked"] = self._serialize_bool(pkg.is_yanked)
                 row["is_prerelease"] = self._serialize_bool(pkg.is_prerelease)
+                row["is_deprecated"] = self._serialize_bool(pkg.is_deprecated)
+                row["is_package_unpublished"] = self._serialize_bool(pkg.is_package_unpublished)
             return row
 
         # Generate rows for all packages

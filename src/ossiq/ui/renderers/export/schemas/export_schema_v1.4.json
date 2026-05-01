@@ -2,7 +2,7 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://ossiq.org/schemas/export/v1.4.json",
   "title": "OSS-IQ Export Schema v1.4",
-  "description": "Schema for OSS-IQ project metrics export data (v1.4 adds is_prerelease and is_yanked fields to PackageMetrics and TransitivePackageMetrics)",
+  "description": "Schema for OSS-IQ project metrics export data (v1.4 adds is_prerelease, is_yanked, is_deprecated, and is_package_unpublished fields to PackageMetrics and TransitivePackageMetrics)",
   "type": "object",
   "required": ["metadata", "project", "summary", "production_packages", "development_packages", "transitive_packages", "dependency_tree", "constraint_type_map"],
   "properties": {
@@ -188,7 +188,9 @@
         "time_lag_days",
         "releases_lag",
         "is_prerelease",
-        "is_yanked"
+        "is_yanked",
+        "is_deprecated",
+        "is_package_unpublished"
       ],
       "properties": {
         "id": {
@@ -262,6 +264,14 @@
         "is_yanked": {
           "type": "boolean",
           "description": "Whether the installed version has been yanked or unpublished from the registry"
+        },
+        "is_deprecated": {
+          "type": "boolean",
+          "description": "Whether the installed package or version is deprecated (npm-only; false otherwise)"
+        },
+        "is_package_unpublished": {
+          "type": "boolean",
+          "description": "Whether the entire package has been removed from the registry (npm-only; false otherwise)"
         }
       }
     },
@@ -277,7 +287,9 @@
         "releases_lag",
         "cve",
         "is_prerelease",
-        "is_yanked"
+        "is_yanked",
+        "is_deprecated",
+        "is_package_unpublished"
       ],
       "properties": {
         "package_name": {
@@ -371,6 +383,14 @@
         "is_yanked": {
           "type": "boolean",
           "description": "Whether the installed version has been yanked or unpublished from the registry"
+        },
+        "is_deprecated": {
+          "type": "boolean",
+          "description": "Whether the installed package or version is deprecated (npm-only; false otherwise)"
+        },
+        "is_package_unpublished": {
+          "type": "boolean",
+          "description": "Whether the entire package has been removed from the registry (npm-only; false otherwise)"
         }
       }
     },

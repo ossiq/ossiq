@@ -143,6 +143,12 @@ class PackageMetrics(BaseModel):
     )
     is_prerelease: bool = Field(default=False, description="Whether the installed version is a pre-release")
     is_yanked: bool = Field(default=False, description="Whether the installed version is yanked or unpublished")
+    is_deprecated: bool = Field(
+        default=False, description="Whether the installed package or version is deprecated (npm-only)"
+    )  # noqa: E501
+    is_package_unpublished: bool = Field(
+        default=False, description="Whether the entire package has been removed from the registry (npm-only)"
+    )  # noqa: E501
 
     @classmethod
     def from_domain(cls, record) -> "PackageMetrics":
@@ -172,6 +178,8 @@ class PackageMetrics(BaseModel):
             extras=record.extras,
             is_prerelease=record.is_installed_prerelease,
             is_yanked=record.is_installed_yanked,
+            is_deprecated=record.is_installed_deprecated,
+            is_package_unpublished=record.is_installed_package_unpublished,
         )
 
 
@@ -259,6 +267,12 @@ class TransitivePackageMetrics(BaseModel):
     purl: str | None = Field(default=None, description="Package URL (PURL) per ECMA-386")
     is_prerelease: bool = Field(default=False, description="Whether the installed version is a pre-release")
     is_yanked: bool = Field(default=False, description="Whether the installed version is yanked or unpublished")
+    is_deprecated: bool = Field(
+        default=False, description="Whether the installed package or version is deprecated (npm-only)"
+    )  # noqa: E501
+    is_package_unpublished: bool = Field(
+        default=False, description="Whether the entire package has been removed from the registry (npm-only)"
+    )  # noqa: E501
 
     @classmethod
     def from_domain_group(
@@ -283,6 +297,8 @@ class TransitivePackageMetrics(BaseModel):
             purl=first.purl,
             is_prerelease=first.is_installed_prerelease,
             is_yanked=first.is_installed_yanked,
+            is_deprecated=first.is_installed_deprecated,
+            is_package_unpublished=first.is_installed_package_unpublished,
         )
 
     @model_serializer(mode="wrap")
