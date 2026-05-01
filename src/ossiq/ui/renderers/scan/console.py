@@ -97,8 +97,12 @@ class ConsoleScanRenderer(AbstractUserInterfaceRenderer):
 
         for pkg in dependencies:
             installed_cell = pkg.installed_version
-            if pkg.is_installed_yanked:
+            if pkg.is_installed_package_unpublished:
+                installed_cell += " [bold red][UNPUBLISHED][/]"
+            elif pkg.is_installed_yanked:
                 installed_cell += " [bold red][YANKED][/]"
+            elif pkg.is_installed_deprecated:
+                installed_cell += " [bold yellow][DEPRECATED][/]"
             elif pkg.is_installed_prerelease:
                 installed_cell += " [yellow][pre][/]"
 
