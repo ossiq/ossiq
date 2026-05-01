@@ -28,6 +28,7 @@ const columns: ColumnDef[] = [
   { id: 'latest',    label: 'Latest',       width: '8%'  },
   { id: 'releases',  label: 'Releases',     width: '8%'  },
   { id: 'timeLag',   label: 'Time Lag',     width: '8%'  },
+  { id: 'versionAge', label: 'Version Age', width: '8%'  },
 ]
 
 function sortIcon(col: SortColumn, currentCol: SortColumn | null, dir: SortDirection): string {
@@ -197,6 +198,14 @@ function spdxUrl(spdxId: string): string {
               >{{ row.timeLagDisplay }}</strong>
             </td>
 
+            <!-- Version Age -->
+            <td class="px-6 py-3">
+              <strong
+                class="font-semibold"
+                :class="timeLagColor(row.pkg.version_age_days)"
+              >{{ row.versionAgeDisplay }}</strong>
+            </td>
+
             <!-- License -->
             <td class="px-6 py-3">
               <div class="flex flex-wrap gap-1">
@@ -215,7 +224,7 @@ function spdxUrl(spdxId: string): string {
           </tr>
 
           <tr v-if="rows.length === 0">
-            <td colspan="8" class="px-6 py-8 text-center text-sm text-slate-400">
+            <td colspan="9" class="px-6 py-8 text-center text-sm text-slate-400">
               No dependencies match the current filters.
             </td>
           </tr>

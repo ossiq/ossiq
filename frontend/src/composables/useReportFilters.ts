@@ -12,12 +12,14 @@ export type SortColumn =
   | 'latest'
   | 'releases'
   | 'timeLag'
+  | 'versionAge'
 
 export interface ReportRow {
   pkg: PackageMetrics
   isDev: boolean
   driftStatus: DriftStatus
   timeLagDisplay: string
+  versionAgeDisplay: string
   cveCount: number
   registryUrl: string
   license: string[]
@@ -100,6 +102,7 @@ export function useReportFilters() {
       isDev: false,
       driftStatus: computeDriftStatus(pkg.installed_version, pkg.latest_version),
       timeLagDisplay: formatTimeLag(pkg.time_lag_days),
+      versionAgeDisplay: formatTimeLag(pkg.version_age_days),
       cveCount: pkg.cve.length,
       registryUrl: registryUrl(registry, pkg.package_name),
       license: pkg.license ?? [],
@@ -114,6 +117,7 @@ export function useReportFilters() {
       isDev: true,
       driftStatus: computeDriftStatus(pkg.installed_version, pkg.latest_version),
       timeLagDisplay: formatTimeLag(pkg.time_lag_days),
+      versionAgeDisplay: formatTimeLag(pkg.version_age_days),
       cveCount: pkg.cve.length,
       registryUrl: registryUrl(registry, pkg.package_name),
       license: pkg.license ?? [],
@@ -199,6 +203,9 @@ export function useReportFilters() {
           break
         case 'timeLag':
           cmp = (a.pkg.time_lag_days ?? 0) - (b.pkg.time_lag_days ?? 0)
+          break
+        case 'versionAge':
+          cmp = (a.pkg.version_age_days ?? 0) - (b.pkg.version_age_days ?? 0)
           break
       }
       return dir === 'asc' ? cmp : -cmp

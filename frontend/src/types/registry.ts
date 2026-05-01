@@ -16,6 +16,7 @@ export interface RegistryEntry {
   installed_version: string
   latest_version: string | null
   time_lag_days: number | null
+  version_age_days: number | null
   releases_lag: number | null
   cve: CVEInfo[]
   severity: Severity | null
@@ -37,6 +38,7 @@ export interface DirectEntry {
   installed_version: string
   latest_version: string | null
   time_lag_days: number | null
+  version_age_days: number | null
   releases_lag: number | null
   cve: CVEInfo[]
   severity: Severity | null

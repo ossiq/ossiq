@@ -11,6 +11,7 @@ export interface DependencyNode {
   severity?: string
   categories?: string[]
   time_lag_days?: number | null
+  version_age_days?: number | null
   releases_lag?: number | null
   cve?: CVEInfo[]
   dependency_path?: string[] | null
@@ -47,6 +48,7 @@ export interface SelectedNodeDetail {
   categories?: string[]
   isDuplicate: boolean
   time_lag_days?: number | null
+  version_age_days?: number | null
   releases_lag?: number | null
   cve?: CVEInfo[]
   dependency_path?: string[] | null

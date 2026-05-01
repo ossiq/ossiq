@@ -63,6 +63,7 @@ function handleSelectPackage(row: ReportRow) {
     is_yanked: row.pkg.is_yanked ?? false,
     is_deprecated: row.pkg.is_deprecated ?? false,
     is_package_unpublished: row.pkg.is_package_unpublished ?? false,
+    version_age_days: row.pkg.version_age_days,
   }
 
   const transitives = store.report?.transitive_packages ?? []

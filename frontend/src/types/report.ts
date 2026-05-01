@@ -125,6 +125,10 @@ export interface PackageMetrics {
    */
   time_lag_days: number | null;
   /**
+   * Days since the installed version was published to the registry
+   */
+  version_age_days: number | null;
+  /**
    * Number of releases between installed and latest
    */
   releases_lag: number | null;
@@ -264,6 +268,10 @@ export interface TransitivePackageMetrics {
    * Days between installed and latest version
    */
   time_lag_days: number | null;
+  /**
+   * Days since the installed version was published to the registry
+   */
+  version_age_days: number | null;
   /**
    * Number of releases between installed and latest
    */

@@ -185,14 +185,14 @@ const transitiveCVEGroups = computed<TransitiveCVEGroup[]>(() => {
             >{{ driftConfig[driftStatus]?.label ?? driftStatus }}</span>
           </div>
           <div
-            v-if="!node.time_lag_days && !node.releases_lag"
+            v-if="!node.time_lag_days && !node.releases_lag && (node.version_age_days && node.version_age_days < 30)"
             class="flex items-center gap-1.5 text-[11px] font-semibold text-emerald-600"
           >
             <span class="w-2 h-2 bg-emerald-500 rounded-full shrink-0"></span>
             Up to date
           </div>
           <div v-else class="border-t border-slate-100 pt-4 space-y-4">
-            <div class="grid grid-cols-3 gap-4">
+            <div class="grid grid-cols-4 gap-4">
               <div class="space-y-0.5">
                 <p class="text-[10px] font-bold text-slate-400 uppercase">Time Lag</p>
                 <p
@@ -206,6 +206,18 @@ const transitiveCVEGroups = computed<TransitiveCVEGroup[]>(() => {
                     : ''
                   "
                 >{{ node.time_lag_days != null ? formatTimeLag(node.time_lag_days) : '—' }}</p>
+              </div>
+              <div class="space-y-0.5">
+                <p class="text-[10px] font-bold text-slate-400 uppercase">Version Age</p>
+                <p
+                  class="text-xl font-bold font-mono"
+                  :class="
+                    !node.version_age_days ? 'text-green-600'
+                    : (node.version_age_days ?? 0) > 730 ? 'text-red-700'
+                    : (node.version_age_days ?? 0) > 365 ? 'text-amber-600'
+                    : ''
+                  "
+                >{{ node.version_age_days != null ? formatTimeLag(node.version_age_days) : '—' }}</p>
               </div>
               <div class="space-y-0.5">
                 <p class="text-[10px] font-bold text-slate-400 uppercase">Releases</p>

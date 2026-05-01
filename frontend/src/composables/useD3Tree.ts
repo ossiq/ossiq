@@ -136,6 +136,7 @@ export function useD3Tree(options: UseD3TreeOptions) {
       categories: d.data.categories,
       isDuplicate: (nameCountMap.get(d.data.name) ?? 0) > 1,
       time_lag_days: d.data.time_lag_days,
+      version_age_days: d.data.version_age_days,
       releases_lag: d.data.releases_lag,
       cve: d.data.cve,
       dependency_path: d.data.dependency_path,
