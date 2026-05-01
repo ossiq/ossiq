@@ -4,6 +4,9 @@
 .claude/
 CLAUDE.md
 
+# test dataset
+frontend/datasets/
+
 # Caches
 *.sqlite3
 *.prof

@@ -86,6 +86,15 @@ coverage:
     uv run --python=3.13 --group dev coverage report -m
     uv run --python=3.13 --group dev coverage html
 
+frontend-dataset:
+    mkdir frontend/datasets || echo "Frontend -> Datasets is there already"
+    uv run hatch run ossiq-cli export testdata/npm/deprecated --output frontend/datasets/npm_deprecated.json
+    uv run hatch run ossiq-cli export testdata/pypi/yanked --output frontend/datasets/pypi_yanked.json
+    uv run hatch run ossiq-cli export testdata/pypi/version-constraint --output frontend/datasets/pypi_version_constraint.json
+    uv run hatch run ossiq-cli export . --output frontend/datasets/pypi_ossiq_cli.json
+    uv run hatch run ossiq-cli export ./frontend --output frontend/datasets/pypi_ossiq_frontend.json
+    cd frontend/datasets && gzip *.json
+
 # Build Vue.js SPA frontend and produce the SPA template for HTML reports
 frontend-build:
     npm run --prefix frontend inject --default

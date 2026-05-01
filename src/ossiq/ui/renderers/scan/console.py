@@ -94,6 +94,7 @@ class ConsoleScanRenderer(AbstractUserInterfaceRenderer):
         table.add_column("Latest", justify="left")
         table.add_column("Releases Distance", justify="right")
         table.add_column("Time Lag", justify="right")
+        table.add_column("Version Age", justify="right")
 
         for pkg in dependencies:
             installed_cell = pkg.installed_version
@@ -114,6 +115,7 @@ class ConsoleScanRenderer(AbstractUserInterfaceRenderer):
                 pkg.latest_version if pkg.latest_version else "[bold][red]N/A",
                 str(pkg.releases_lag),
                 self._format_time_delta(pkg.time_lag_days, lag_threshold_days),
+                self._format_time_delta(pkg.version_age_days, 365),
             )
 
         return table

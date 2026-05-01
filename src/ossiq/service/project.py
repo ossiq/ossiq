@@ -4,7 +4,7 @@ Service to take care of a Package versions
 
 from collections.abc import Iterable
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 from functools import cmp_to_key
 
 from rich.console import Console
@@ -53,6 +53,7 @@ class ScanRecord:
     cve: list[CVE]
     constraint_info: ConstraintSource
     version_constraint: str | None = None
+    version_age_days: int | None = None
     dependency_path: list[str] | None = None
     extras: list[str] | None = None
     license: list[str] | None = None
@@ -111,6 +112,19 @@ def calculate_time_lag_in_days(
     return None
 
 
+def calculate_version_age_days(versions: list[package_versions.PackageVersion], installed_version: str) -> int | None:
+    """
+    Calculates how many days ago the installed version was published.
+    """
+    for pv in versions:
+        if pv.version == installed_version and pv.published_date_iso:
+            installed_date = parse_iso(pv.published_date_iso)
+            if installed_date:
+                now = datetime.now(tz=UTC) if installed_date.tzinfo else datetime.now()  # noqa: DTZ005
+                return (now - installed_date).days
+    return None
+
+
 def get_package_versions_since(
     packages_registry: AbstractPackageRegistryApi,
     package_name: str,
@@ -156,7 +170,9 @@ def scan_record(
     """
     releases_since_installed = prefetched_versions_since
 
+    # FIXME: here is pretty large opportunity to improve performance, but it is impractical to do it now.
     time_lag_days = calculate_time_lag_in_days(releases_since_installed, package_version, package_info.latest_version)
+    version_age_days = calculate_version_age_days(releases_since_installed, package_version)
 
     installed_release = next(
         (release for release in releases_since_installed if release.version == package_version), None
@@ -170,6 +186,7 @@ def scan_record(
         installed_version=package_version,
         latest_version=package_info.latest_version,
         time_lag_days=time_lag_days,
+        version_age_days=version_age_days,
         releases_lag=len(releases_since_installed) - 1,
         versions_diff_index=version_diff_index,
         cve=list(prefetched_cves) if installed_release else [],

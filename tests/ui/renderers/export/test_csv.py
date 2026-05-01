@@ -238,6 +238,7 @@ class TestCsvExportRenderer:
             "installed_version",
             "latest_version",
             "time_lag_days",
+            "version_age_days",
             "releases_lag",
             "cve_count",
             "version_constraint",
@@ -1090,3 +1091,155 @@ class TestCsvExportV14:
         assert reader.fieldnames is not None
         assert "is_prerelease" not in reader.fieldnames
         assert "is_yanked" not in reader.fieldnames
+
+    @pytest.fixture
+    def deprecated_record(self):
+        """ScanRecord with is_installed_deprecated=True."""
+        return ScanRecord(
+            package_name="oldutil",
+            dependency_name="oldutil",
+            is_optional_dependency=False,
+            installed_version="1.0.0",
+            latest_version="2.0.0",
+            versions_diff_index=VersionsDifference(
+                version1="1.0.0", version2="2.0.0", diff_index=2, diff_name="DIFF_MAJOR"
+            ),
+            time_lag_days=200,
+            releases_lag=10,
+            cve=[],
+            constraint_info=ConstraintSource(type=ConstraintType.DECLARED, source_file=None),
+            is_installed_prerelease=False,
+            is_installed_yanked=False,
+            is_installed_deprecated=True,
+            is_installed_package_unpublished=False,
+        )
+
+    @pytest.fixture
+    def unpublished_record(self):
+        """ScanRecord with is_installed_package_unpublished=True."""
+        return ScanRecord(
+            package_name="gone-pkg",
+            dependency_name="gone-pkg",
+            is_optional_dependency=False,
+            installed_version="1.0.0",
+            latest_version="1.0.0",
+            versions_diff_index=VersionsDifference(
+                version1="1.0.0", version2="1.0.0", diff_index=0, diff_name="NO_DIFF"
+            ),
+            time_lag_days=0,
+            releases_lag=0,
+            cve=[],
+            constraint_info=ConstraintSource(type=ConstraintType.DECLARED, source_file=None),
+            is_installed_prerelease=False,
+            is_installed_yanked=False,
+            is_installed_deprecated=False,
+            is_installed_package_unpublished=True,
+        )
+
+    def test_v1_4_packages_csv_has_is_deprecated_column(self, tmp_path, settings, deprecated_record):
+        """v1.4 packages CSV must include is_deprecated column.
+
+        AAA Pattern:
+        - Arrange: Render with schema_version="1.4"
+        - Act: Read packages CSV fieldnames
+        - Assert: is_deprecated column exists
+        """
+        metrics = ScanResult(
+            project_name="test-project",
+            project_path="/path/to/test-project",
+            packages_registry="npm",
+            production_packages=[deprecated_record],
+            optional_packages=[],
+        )
+        renderer = CsvExportRenderer(settings)
+        output_path = tmp_path / "export.csv"
+        renderer.render(metrics, destination=str(output_path), schema_version="1.4")
+
+        packages_file = tmp_path / "export" / "packages.csv"
+        with open(packages_file, encoding="utf-8-sig", newline="") as f:
+            reader = csv.DictReader(f)
+            list(reader)
+
+        assert reader.fieldnames is not None
+        assert "is_deprecated" in reader.fieldnames
+        assert "is_package_unpublished" in reader.fieldnames
+
+    def test_v1_4_is_deprecated_column_value_true(self, tmp_path, settings, deprecated_record):
+        """is_deprecated column value is 'true' for a deprecated package.
+
+        AAA Pattern:
+        - Arrange: ScanRecord with is_installed_deprecated=True
+        - Act: Render v1.4 CSV and read packages row
+        - Assert: is_deprecated is "true", is_package_unpublished is "false"
+        """
+        metrics = ScanResult(
+            project_name="test-project",
+            project_path="/path/to/test-project",
+            packages_registry="npm",
+            production_packages=[deprecated_record],
+            optional_packages=[],
+        )
+        renderer = CsvExportRenderer(settings)
+        output_path = tmp_path / "export.csv"
+        renderer.render(metrics, destination=str(output_path), schema_version="1.4")
+
+        packages_file = tmp_path / "export" / "packages.csv"
+        with open(packages_file, encoding="utf-8-sig", newline="") as f:
+            row = next(csv.DictReader(f))
+
+        assert row["is_deprecated"] == "true"
+        assert row["is_package_unpublished"] == "false"
+
+    def test_v1_4_is_package_unpublished_column_value_true(self, tmp_path, settings, unpublished_record):
+        """is_package_unpublished column value is 'true' for an unpublished package.
+
+        AAA Pattern:
+        - Arrange: ScanRecord with is_installed_package_unpublished=True
+        - Act: Render v1.4 CSV and read packages row
+        - Assert: is_package_unpublished is "true", is_deprecated is "false"
+        """
+        metrics = ScanResult(
+            project_name="test-project",
+            project_path="/path/to/test-project",
+            packages_registry="npm",
+            production_packages=[unpublished_record],
+            optional_packages=[],
+        )
+        renderer = CsvExportRenderer(settings)
+        output_path = tmp_path / "export.csv"
+        renderer.render(metrics, destination=str(output_path), schema_version="1.4")
+
+        packages_file = tmp_path / "export" / "packages.csv"
+        with open(packages_file, encoding="utf-8-sig", newline="") as f:
+            row = next(csv.DictReader(f))
+
+        assert row["is_package_unpublished"] == "true"
+        assert row["is_deprecated"] == "false"
+
+    def test_v1_3_packages_csv_does_not_have_is_deprecated_column(self, tmp_path, settings, deprecated_record):
+        """v1.3 packages CSV must NOT include is_deprecated or is_package_unpublished columns (regression guard).
+
+        AAA Pattern:
+        - Arrange: Render with explicit schema_version="1.3"
+        - Act: Read packages CSV fieldnames
+        - Assert: is_deprecated and is_package_unpublished columns are absent
+        """
+        metrics = ScanResult(
+            project_name="test-project",
+            project_path="/path/to/test-project",
+            packages_registry="npm",
+            production_packages=[deprecated_record],
+            optional_packages=[],
+        )
+        renderer = CsvExportRenderer(settings)
+        output_path = tmp_path / "export.csv"
+        renderer.render(metrics, destination=str(output_path), schema_version="1.3")
+
+        packages_file = tmp_path / "export" / "packages.csv"
+        with open(packages_file, encoding="utf-8-sig", newline="") as f:
+            reader = csv.DictReader(f)
+            list(reader)
+
+        assert reader.fieldnames is not None
+        assert "is_deprecated" not in reader.fieldnames
+        assert "is_package_unpublished" not in reader.fieldnames

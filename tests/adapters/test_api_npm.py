@@ -700,6 +700,209 @@ class TestPackageRegistryApiNpmInit:
 
 
 # ============================================================================
+# Test deprecation flags
+# ============================================================================
+
+
+class TestPackageDeprecation:
+    """Tests for is_deprecated on PackageVersion and Package."""
+
+    def test_version_with_deprecated_message_is_deprecated(self, npm_api, mock_npm_response):
+        mock_npm_response.set_response(
+            "dep-pkg",
+            {
+                "name": "dep-pkg",
+                "dist-tags": {"latest": "1.0.0"},
+                "versions": {
+                    "1.0.0": {
+                        "version": "1.0.0",
+                        "license": "MIT",
+                        "dependencies": {},
+                        "deprecated": "Use new-pkg instead",
+                    },
+                    "0.9.0": {
+                        "version": "0.9.0",
+                        "license": "MIT",
+                        "dependencies": {},
+                    },
+                },
+                "time": {
+                    "0.9.0": "2019-01-01T00:00:00.000Z",
+                    "1.0.0": "2020-01-01T00:00:00.000Z",
+                },
+            },
+        )
+
+        versions = list(npm_api.package_versions("dep-pkg"))
+        v100 = next(v for v in versions if v.version == "1.0.0")
+        v090 = next(v for v in versions if v.version == "0.9.0")
+
+        assert v100.is_deprecated is True
+        assert v090.is_deprecated is False
+
+    def test_version_with_empty_deprecated_field_is_not_deprecated(self, npm_api, mock_npm_response):
+        mock_npm_response.set_response(
+            "empty-dep-pkg",
+            {
+                "name": "empty-dep-pkg",
+                "dist-tags": {"latest": "1.0.0"},
+                "versions": {
+                    "1.0.0": {
+                        "version": "1.0.0",
+                        "license": "MIT",
+                        "dependencies": {},
+                        "deprecated": "",
+                    },
+                },
+                "time": {"1.0.0": "2020-01-01T00:00:00.000Z"},
+            },
+        )
+
+        versions = list(npm_api.package_versions("empty-dep-pkg"))
+        assert versions[0].is_deprecated is False
+
+    def test_package_is_deprecated_when_latest_version_deprecated(self, npm_api):
+        raw = {
+            "dep-whole-pkg": {
+                "name": "dep-whole-pkg",
+                "dist-tags": {"latest": "2.0.0"},
+                "versions": {
+                    "1.0.0": {"license": "MIT", "dependencies": {}},
+                    "2.0.0": {"license": "MIT", "dependencies": {}, "deprecated": "Use other-pkg instead"},
+                },
+            }
+        }
+        with patch.object(BatchClient, "run_batch", return_value=iter([raw])):
+            result = npm_api.packages_info_batch(["dep-whole-pkg"])
+
+        assert result["dep-whole-pkg"].is_deprecated is True
+
+    def test_package_is_not_deprecated_when_latest_version_not_deprecated(self, npm_api):
+        raw = {
+            "normal-pkg": {
+                "name": "normal-pkg",
+                "dist-tags": {"latest": "1.0.0"},
+                "versions": {
+                    "1.0.0": {"license": "MIT", "dependencies": {}},
+                },
+            }
+        }
+        with patch.object(BatchClient, "run_batch", return_value=iter([raw])):
+            result = npm_api.packages_info_batch(["normal-pkg"])
+
+        assert result["normal-pkg"].is_deprecated is False
+
+
+class TestPackageUnpublished:
+    """Tests for Package.is_unpublished (entire-package unpublish)."""
+
+    def test_package_is_unpublished_when_time_unpublished_present(self, npm_api):
+        raw = {
+            "gone-pkg": {
+                "name": "gone-pkg",
+                "dist-tags": {},
+                "versions": {},
+                "time": {
+                    "unpublished": {
+                        "time": "2021-06-01T00:00:00.000Z",
+                        "versions": ["1.0.0"],
+                    }
+                },
+            }
+        }
+        with patch.object(BatchClient, "run_batch", return_value=iter([raw])):
+            result = npm_api.packages_info_batch(["gone-pkg"])
+
+        assert result["gone-pkg"].is_unpublished is True
+
+    def test_package_is_not_unpublished_for_normal_package(self, npm_api):
+        raw = {
+            "live-pkg": {
+                "name": "live-pkg",
+                "dist-tags": {"latest": "1.0.0"},
+                "versions": {"1.0.0": {"license": "MIT", "dependencies": {}}},
+                "time": {"1.0.0": "2020-01-01T00:00:00.000Z"},
+            }
+        }
+        with patch.object(BatchClient, "run_batch", return_value=iter([raw])):
+            result = npm_api.packages_info_batch(["live-pkg"])
+
+        assert result["live-pkg"].is_unpublished is False
+
+
+class TestIndividuallyDeletedVersions:
+    """Tests for versions present in time but absent from versions dict (individual unpublish)."""
+
+    def test_individually_deleted_version_is_marked_unpublished(self, npm_api, mock_npm_response):
+        mock_npm_response.set_response(
+            "partial-pkg",
+            {
+                "name": "partial-pkg",
+                "dist-tags": {"latest": "1.1.0"},
+                "versions": {
+                    "1.1.0": {"version": "1.1.0", "license": "MIT", "dependencies": {}},
+                },
+                "time": {
+                    "1.0.0": "2019-06-01T00:00:00.000Z",
+                    "1.1.0": "2020-01-01T00:00:00.000Z",
+                },
+            },
+        )
+
+        versions = list(npm_api.package_versions("partial-pkg"))
+        deleted = next(v for v in versions if v.version == "1.0.0")
+        live = next(v for v in versions if v.version == "1.1.0")
+
+        assert deleted.is_unpublished is True
+        assert deleted.published_date_iso == "2019-06-01T00:00:00.000Z"
+        assert live.is_unpublished is False
+
+    def test_created_and_modified_keys_are_not_treated_as_versions(self, npm_api, mock_npm_response):
+        mock_npm_response.set_response(
+            "meta-keys-pkg",
+            {
+                "name": "meta-keys-pkg",
+                "dist-tags": {"latest": "1.0.0"},
+                "versions": {
+                    "1.0.0": {"version": "1.0.0", "license": "MIT", "dependencies": {}},
+                },
+                "time": {
+                    "created": "2019-01-01T00:00:00.000Z",
+                    "modified": "2020-01-01T00:00:00.000Z",
+                    "1.0.0": "2020-01-01T00:00:00.000Z",
+                },
+            },
+        )
+
+        versions = list(npm_api.package_versions("meta-keys-pkg"))
+
+        assert len(versions) == 1
+        assert versions[0].version == "1.0.0"
+
+    def test_non_semver_time_key_is_skipped(self, npm_api, mock_npm_response):
+        mock_npm_response.set_response(
+            "noise-pkg",
+            {
+                "name": "noise-pkg",
+                "dist-tags": {"latest": "1.0.0"},
+                "versions": {
+                    "1.0.0": {"version": "1.0.0", "license": "MIT", "dependencies": {}},
+                },
+                "time": {
+                    "1.0": "2019-06-01T00:00:00.000Z",
+                    "1.0.0": "2020-01-01T00:00:00.000Z",
+                },
+            },
+        )
+
+        versions = list(npm_api.package_versions("noise-pkg"))
+        version_strings = [v.version for v in versions]
+
+        assert "1.0" not in version_strings
+        assert "1.0.0" in version_strings
+
+
+# ============================================================================
 # Test is_npm_prerelease helper
 # ============================================================================
 

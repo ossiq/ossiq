@@ -218,6 +218,10 @@
           "type": ["integer", "null"],
           "description": "Days between installed and latest version"
         },
+        "version_age_days": {
+          "type": ["integer", "null"],
+          "description": "Days since the installed version was published to the registry"
+        },
         "releases_lag": {
           "type": ["integer", "null"],
           "description": "Number of releases between installed and latest"
@@ -284,6 +288,7 @@
         "installed_version",
         "latest_version",
         "time_lag_days",
+        "version_age_days",
         "releases_lag",
         "cve",
         "is_prerelease",
@@ -315,6 +320,10 @@
         "time_lag_days": {
           "type": ["integer", "null"],
           "description": "Days between installed and latest version"
+        },
+        "version_age_days": {
+          "type": ["integer", "null"],
+          "description": "Days since the installed version was published to the registry"
         },
         "releases_lag": {
           "type": ["integer", "null"],

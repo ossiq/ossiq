@@ -143,6 +143,74 @@ class TestSchemaRegistryV14:
         assert props["is_yanked"]["type"] == "boolean"
         assert "is_yanked" in required
 
+    def test_schema_contains_is_deprecated_in_package_metrics(self, v1_4_schema):
+        """Test PackageMetrics definition contains is_deprecated boolean field.
+
+        AAA Pattern:
+        - Arrange: Load schema
+        - Act: Extract PackageMetrics properties
+        - Assert: is_deprecated is a required boolean
+        """
+        # Act
+        props = v1_4_schema["$defs"]["PackageMetrics"]["properties"]
+        required = v1_4_schema["$defs"]["PackageMetrics"]["required"]
+
+        # Assert
+        assert "is_deprecated" in props
+        assert props["is_deprecated"]["type"] == "boolean"
+        assert "is_deprecated" in required
+
+    def test_schema_contains_is_package_unpublished_in_package_metrics(self, v1_4_schema):
+        """Test PackageMetrics definition contains is_package_unpublished boolean field.
+
+        AAA Pattern:
+        - Arrange: Load schema
+        - Act: Extract PackageMetrics properties
+        - Assert: is_package_unpublished is a required boolean
+        """
+        # Act
+        props = v1_4_schema["$defs"]["PackageMetrics"]["properties"]
+        required = v1_4_schema["$defs"]["PackageMetrics"]["required"]
+
+        # Assert
+        assert "is_package_unpublished" in props
+        assert props["is_package_unpublished"]["type"] == "boolean"
+        assert "is_package_unpublished" in required
+
+    def test_schema_contains_is_deprecated_in_transitive_package_metrics(self, v1_4_schema):
+        """Test TransitivePackageMetrics definition contains is_deprecated boolean field.
+
+        AAA Pattern:
+        - Arrange: Load schema
+        - Act: Extract TransitivePackageMetrics properties
+        - Assert: is_deprecated is a required boolean
+        """
+        # Act
+        props = v1_4_schema["$defs"]["TransitivePackageMetrics"]["properties"]
+        required = v1_4_schema["$defs"]["TransitivePackageMetrics"]["required"]
+
+        # Assert
+        assert "is_deprecated" in props
+        assert props["is_deprecated"]["type"] == "boolean"
+        assert "is_deprecated" in required
+
+    def test_schema_contains_is_package_unpublished_in_transitive_package_metrics(self, v1_4_schema):
+        """Test TransitivePackageMetrics definition contains is_package_unpublished boolean field.
+
+        AAA Pattern:
+        - Arrange: Load schema
+        - Act: Extract TransitivePackageMetrics properties
+        - Assert: is_package_unpublished is a required boolean
+        """
+        # Act
+        props = v1_4_schema["$defs"]["TransitivePackageMetrics"]["properties"]
+        required = v1_4_schema["$defs"]["TransitivePackageMetrics"]["required"]
+
+        # Assert
+        assert "is_package_unpublished" in props
+        assert props["is_package_unpublished"]["type"] == "boolean"
+        assert "is_package_unpublished" in required
+
     def test_get_latest_version_returns_v1_4(self, registry):
         """Test registry returns v1.4 as the latest schema version.
 

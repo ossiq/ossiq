@@ -67,6 +67,15 @@
       }
     },
     {
+      "name": "version_age_days",
+      "type": "integer",
+      "title": "Version Age (Days)",
+      "description": "Days since the installed version was published to the registry",
+      "constraints": {
+        "minimum": 0
+      }
+    },
+    {
       "name": "releases_lag",
       "type": "integer",
       "title": "Releases Lag",

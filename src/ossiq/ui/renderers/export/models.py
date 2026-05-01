@@ -103,6 +103,9 @@ class PackageMetrics(BaseModel):
     installed_version: str = Field(description="Currently installed version")
     latest_version: str | None = Field(description="Latest available version")
     time_lag_days: int | None = Field(description="Days between installed and latest version")
+    version_age_days: int | None = Field(
+        default=None, description="Days since the installed version was published to the registry"
+    )
     releases_lag: int | None = Field(description="Number of releases between installed and latest")
     cve: list[CVEInfo] = Field(default_factory=list, description="Known CVEs for this package")
     dependency_path: list[str] | None = Field(
@@ -160,6 +163,7 @@ class PackageMetrics(BaseModel):
             installed_version=record.installed_version,
             latest_version=record.latest_version,
             time_lag_days=record.time_lag_days,
+            version_age_days=record.version_age_days,
             releases_lag=record.releases_lag,
             cve=[CVEInfo.from_domain(cve) for cve in record.cve],
             dependency_path=record.dependency_path,
@@ -252,6 +256,9 @@ class TransitivePackageMetrics(BaseModel):
     installed_version: str = Field(description="Currently installed version")
     latest_version: str | None = Field(description="Latest available version")
     time_lag_days: int | None = Field(description="Days between installed and latest version")
+    version_age_days: int | None = Field(
+        default=None, description="Days since the installed version was published to the registry"
+    )
     releases_lag: int | None = Field(description="Number of releases between installed and latest")
     cve: list[CVEInfo] = Field(default_factory=list, description="Known CVEs for this package")
     constraint_source_file: str | None = Field(
@@ -287,6 +294,7 @@ class TransitivePackageMetrics(BaseModel):
             installed_version=first.installed_version,
             latest_version=first.latest_version,
             time_lag_days=first.time_lag_days,
+            version_age_days=first.version_age_days,
             releases_lag=first.releases_lag,
             cve=[CVEInfo.from_domain(cve) for cve in first.cve],
             constraint_source_file=constraint_source_file,
