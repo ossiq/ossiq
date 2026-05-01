@@ -63,6 +63,8 @@ class ScanRecord:
     purl: str | None = None
     is_installed_prerelease: bool = False
     is_installed_yanked: bool = False
+    is_installed_deprecated: bool = False
+    is_installed_package_unpublished: bool = False
 
 
 @dataclass
@@ -185,7 +187,13 @@ def scan_record(
         ),
         purl=build_purl(packages_registry.package_registry, canonical_name, package_version),
         is_installed_prerelease=installed_release.is_prerelease if installed_release else False,
-        is_installed_yanked=installed_release is not None and not installed_release.is_published,
+        is_installed_yanked=(
+            installed_release is not None and (installed_release.is_yanked or installed_release.is_unpublished)
+        ),
+        is_installed_deprecated=(
+            (installed_release.is_deprecated if installed_release else False) or package_info.is_deprecated
+        ),
+        is_installed_package_unpublished=package_info.is_unpublished,
     )
 
 

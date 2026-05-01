@@ -24,6 +24,8 @@ class Package:
     author: str | None
     package_url: str | None
     license: str | None
+    is_deprecated: bool
+    is_unpublished: bool
 
     _repository: Repository | None
     _versions: list[Version] | None
@@ -42,6 +44,8 @@ class Package:
         package_url: str | None = None,
         canonical_name: str | None = None,
         license: str | None = None,
+        is_deprecated: bool = False,
+        is_unpublished: bool = False,
     ):
         self.registry = registry
         self.name = name
@@ -54,6 +58,8 @@ class Package:
         self.description = description
         self.package_url = package_url
         self.license = license
+        self.is_deprecated = is_deprecated
+        self.is_unpublished = is_unpublished
 
         self._repository = None
         self._versions = None

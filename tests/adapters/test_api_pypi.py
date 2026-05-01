@@ -349,11 +349,11 @@ class TestPackageVersions:
 
         # Find the yanked version
         yanked_version = next(v for v in versions if v.version == "1.0.0")
-        assert yanked_version.is_published is False
+        assert yanked_version.is_yanked is True
 
         # Find the non-yanked version
         published_version = next(v for v in versions if v.version == "2.0.0")
-        assert published_version.is_published is True
+        assert published_version.is_yanked is False
 
     def test_skips_empty_release_files(self, pypi_api, mock_pypi_response):
         """Versions with no files should be skipped."""
@@ -433,7 +433,7 @@ class TestPackageVersions:
         versions = list(pypi_api.package_versions("test-package"))
 
         assert len(versions) == 1
-        assert versions[0].is_published is False
+        assert versions[0].is_yanked is True
 
     @pytest.mark.parametrize(
         "version_str, expected",
@@ -492,7 +492,7 @@ class TestPackageVersions:
         versions = list(pypi_api.package_versions("test-package"))
 
         assert len(versions) == 1
-        assert versions[0].is_published is True
+        assert versions[0].is_yanked is False
 
 
 # ============================================================================

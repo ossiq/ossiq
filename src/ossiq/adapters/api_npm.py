@@ -50,11 +50,12 @@ def is_npm_prerelease(version_str: str) -> bool:
         return False
 
 
-def normalize_npm_license(value: object) -> str | None:
+def normalize_npm_license(value: str | dict[str, object] | None) -> str | None:
     # Older npm packages use {"type": "MIT", "url": "..."} instead of a plain string.
     # See https://docs.npmjs.com/cli/v8/configuring-npm/package-json#license
     if isinstance(value, dict):
-        return value.get("type") or None
+        t = value.get("type")
+        return t if isinstance(t, str) else None
     return value or None
 
 
@@ -182,9 +183,8 @@ class PackageRegistryApiNpm(AbstractPackageRegistryApi):
     def _map_raw_to_package(name: str, data: dict) -> Package:
         distribution_tags = data.get("dist-tags", {"latest": None, "next": None})
         latest_version = distribution_tags.get("latest", None)
-        latest_version_license = normalize_npm_license(
-            data.get("versions", {}).get(latest_version or "", {}).get("license")
-        )
+        latest_details = data.get("versions", {}).get(latest_version or "", {})
+        latest_version_license = normalize_npm_license(latest_details.get("license"))
         return Package(
             registry=ProjectPackagesRegistry.NPM,
             name=data["name"],
@@ -196,6 +196,8 @@ class PackageRegistryApiNpm(AbstractPackageRegistryApi):
             description=data.get("description"),
             package_url=f"{NPM_REGISTRY_FRONT}/package/{name}/",
             license=latest_version_license,
+            is_deprecated=bool(latest_details.get("deprecated")),
+            is_unpublished="unpublished" in data.get("time", {}),
         )
 
     def packages_info_batch(self, names: list[str]) -> dict[str, Package]:
@@ -214,15 +216,17 @@ class PackageRegistryApiNpm(AbstractPackageRegistryApi):
 
         return {name: self._map_raw_to_package(name, self._raw_cache[name]) for name in names}
 
+    _META_KEYS = frozenset({"created", "modified"})
+
     def _build_package_versions(self, package_name: str) -> list[PackageVersion]:
         data = self._raw_cache[package_name]
 
         # FIXME: raise custom exception if not found
-        versions = data.get("versions", [])
-        timestamp_map = data.get("time", {})
+        versions = data.get("versions", {})
+        timestamp_map = dict(data.get("time", {}))
         unpublished_response = timestamp_map.pop("unpublished", {})
 
-        # Package version is either published or unpublished
+        # Entire package unpublished path
         if unpublished_response:
             unpublished_date_iso = unpublished_response.get("time", None)
             return [
@@ -232,11 +236,13 @@ class PackageRegistryApiNpm(AbstractPackageRegistryApi):
                     declared_dependencies={},
                     package_url=f"{NPM_REGISTRY_FRONT}/package/{package_name}/v/{version}",
                     unpublished_date_iso=unpublished_date_iso,
-                    is_published=False,
+                    is_unpublished=True,
                 )
                 for version in unpublished_response.get("versions", [])
             ]
-        return [
+
+        # Published package — phase 1: existing versions
+        result = [
             PackageVersion(
                 version=version,
                 published_date_iso=timestamp_map.get(version, None),
@@ -247,9 +253,32 @@ class PackageRegistryApiNpm(AbstractPackageRegistryApi):
                 description=details.get("description", None),
                 package_url=f"{NPM_REGISTRY_FRONT}/package/{package_name}/v/{version}",
                 is_prerelease=is_npm_prerelease(version),
+                is_deprecated=bool(details.get("deprecated")),
             )
             for version, details in versions.items()
         ]
+
+        # Phase 2: individually deleted versions (in time map but absent from versions)
+        published_set = set(versions)
+        for ver, timestamp in timestamp_map.items():
+            if ver in self._META_KEYS or ver in published_set:
+                continue
+            try:
+                semver.Version.parse(ver)
+            except ValueError:
+                continue
+            result.append(
+                PackageVersion(
+                    version=ver,
+                    license=None,
+                    declared_dependencies={},
+                    package_url=f"{NPM_REGISTRY_FRONT}/package/{package_name}/v/{ver}",
+                    published_date_iso=timestamp,
+                    is_unpublished=True,
+                )
+            )
+
+        return result
 
     def package_versions(self, package_name: str) -> list[PackageVersion]:
         """

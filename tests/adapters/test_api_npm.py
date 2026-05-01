@@ -471,7 +471,7 @@ class TestPackageVersions:
 
         assert len(versions) == 2
         assert versions[0].version == "1.0.0"
-        assert versions[0].is_published is True
+        assert versions[0].is_unpublished is False
         assert versions[0].unpublished_date_iso is None
         assert versions[0].license == "MIT"
         assert versions[0].declared_dependencies == {"lodash": "^4.17.0"}
@@ -488,7 +488,7 @@ class TestPackageVersions:
         Test handling of unpublished package versions.
 
         Verifies that unpublished versions are correctly marked with
-        is_published=False and include unpublished timestamp.
+        is_unpublished=True and include unpublished timestamp.
         """
         mock_npm_response.set_response(
             "unpublished-pkg",
@@ -508,7 +508,7 @@ class TestPackageVersions:
 
         assert len(versions) == 3
         for version in versions:
-            assert version.is_published is False
+            assert version.is_unpublished is True
             assert version.unpublished_date_iso == "2021-03-15T10:30:00.000Z"
             assert version.license is None
             assert version.declared_dependencies == {}
@@ -566,7 +566,7 @@ class TestPackageVersions:
         # Verify stable version
         stable = next(v for v in versions if v.version == "1.0.0")
         assert "-" not in stable.version
-        assert stable.is_published is True
+        assert stable.is_unpublished is False
         assert stable.is_prerelease is False
 
         # Verify prerelease versions
@@ -576,7 +576,7 @@ class TestPackageVersions:
 
         for prerelease in [alpha, beta, rc]:
             assert "-" in prerelease.version  # Prerelease indicator
-            assert prerelease.is_published is True
+            assert prerelease.is_unpublished is False
             assert prerelease.is_prerelease is True
             assert prerelease.declared_dependencies == {"new-dep": "^1.0.0"}
 
