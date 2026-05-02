@@ -144,7 +144,9 @@ def get_package_versions_since(
             if packages_registry.compare_versions(v.version, installed_version) >= 0
         ]
         if not allow_prerelease and package_name not in allow_prerelease_packages:
-            versions = [v for v in versions if not v.is_prerelease]
+            # Always retain the installed version so installed_release is never None,
+            # even when the installed version itself is a prerelease.
+            versions = [v for v in versions if not v.is_prerelease or v.version == installed_version]
         return versions
     except UnknownPackageVersion:
         return []
