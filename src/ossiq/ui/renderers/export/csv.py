@@ -222,7 +222,12 @@ class CsvExportRenderer(AbstractUserInterfaceRenderer):
             "installed_version",
             "latest_version",
             "time_lag_days",
-            "version_age_days",
+        ]
+
+        if is_schema_v1_4:
+            fieldnames.append("version_age_days")
+
+        fieldnames += [
             "releases_lag",
             "cve_count",
             "version_constraint",
@@ -244,7 +249,6 @@ class CsvExportRenderer(AbstractUserInterfaceRenderer):
                 "installed_version": pkg.installed_version,
                 "latest_version": self._serialize_optional(pkg.latest_version),
                 "time_lag_days": self._serialize_optional(pkg.time_lag_days),
-                "version_age_days": self._serialize_optional(pkg.version_age_days),
                 "releases_lag": self._serialize_optional(pkg.releases_lag),
                 "cve_count": len(pkg.cve),
                 "version_constraint": self._serialize_optional(pkg.version_constraint),
@@ -255,6 +259,7 @@ class CsvExportRenderer(AbstractUserInterfaceRenderer):
                 "purl": self._serialize_optional(pkg.purl),
             }
             if is_schema_v1_4:
+                row["version_age_days"] = self._serialize_optional(pkg.version_age_days)
                 row["is_yanked"] = self._serialize_bool(pkg.is_yanked)
                 row["is_prerelease"] = self._serialize_bool(pkg.is_prerelease)
                 row["is_deprecated"] = self._serialize_bool(pkg.is_deprecated)
