@@ -1,5 +1,5 @@
 import { markRaw } from 'vue'
-import type { OSSIQExportSchemaV13, CVEInfo, DependencyTreeNode } from '@/types/report'
+import type { OSSIQExportSchemaV14, CVEInfo, DependencyTreeNode } from '@/types/report'
 import type { ConstraintType, DirectEntry, EdgeData, PackageRegistry, RegistryEntry, Severity } from '@/types/registry'
 
 const SEVERITY_RANK: Record<string, number> = { LOW: 1, MEDIUM: 2, HIGH: 3, CRITICAL: 4 }
@@ -11,7 +11,7 @@ function maxSeverity(cves: CVEInfo[]): Severity | null {
   ).severity as Severity
 }
 
-export function buildPackageRegistry(report: OSSIQExportSchemaV13): PackageRegistry {
+export function buildPackageRegistry(report: OSSIQExportSchemaV14): PackageRegistry {
   const constraintTypeMap = report.constraint_type_map
 
   // Step 1: Build transitive package lookup by id
@@ -23,6 +23,7 @@ export function buildPackageRegistry(report: OSSIQExportSchemaV13): PackageRegis
       installed_version: pkg.installed_version,
       latest_version: pkg.latest_version ?? null,
       time_lag_days: pkg.time_lag_days ?? null,
+      version_age_days: pkg.version_age_days ?? null,
       releases_lag: pkg.releases_lag ?? null,
       cve: pkg.cve ?? [],
       severity: maxSeverity(pkg.cve ?? []),
@@ -32,6 +33,10 @@ export function buildPackageRegistry(report: OSSIQExportSchemaV13): PackageRegis
       package_url: pkg.package_url ?? null,
       license: pkg.license ?? null,
       purl: pkg.purl ?? null,
+      is_yanked: pkg.is_yanked,
+      is_prerelease: pkg.is_prerelease,
+      is_deprecated: pkg.is_deprecated ?? false,
+      is_package_unpublished: pkg.is_package_unpublished ?? false,
       childEdges: new Map(),
     })
   }
@@ -57,12 +62,23 @@ export function buildPackageRegistry(report: OSSIQExportSchemaV13): PackageRegis
       installed_version: pkg.installed_version,
       latest_version: pkg.latest_version ?? null,
       time_lag_days: pkg.time_lag_days ?? null,
+      version_age_days: pkg.version_age_days ?? null,
       releases_lag: pkg.releases_lag ?? null,
       cve: pkg.cve ?? [],
       severity: cveMap.get(pkg.package_name) ?? null,
       constraint_type: (pkg.constraint_type ?? null) as ConstraintType | null,
       constraint_source_file: pkg.constraint_source_file ?? null,
       version_constraint: pkg.version_constraint ?? null,
+      repo_url: pkg.repo_url ?? null,
+      homepage_url: pkg.homepage_url ?? null,
+      package_url: pkg.package_url ?? null,
+      license: pkg.license ?? null,
+      purl: pkg.purl ?? null,
+      extras: pkg.extras ?? null,
+      is_yanked: pkg.is_yanked,
+      is_prerelease: pkg.is_prerelease,
+      is_deprecated: pkg.is_deprecated ?? false,
+      is_package_unpublished: pkg.is_package_unpublished ?? false,
       childRefs: [],
     })
   }

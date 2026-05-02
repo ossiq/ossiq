@@ -156,7 +156,7 @@ class TestJsonExportRenderer:
         metadata = data["metadata"]
 
         # Assert
-        assert metadata["schema_version"] == "1.3"
+        assert metadata["schema_version"] == "1.4"
         assert "export_timestamp" in metadata
         assert "ossiq_version" not in metadata
 
@@ -714,3 +714,165 @@ class TestJsonExportRendererV13:
         assert len(scheduler_node["children"]) == 1
         loose_node = scheduler_node["children"][0]
         assert loose_node["ref"] == 1
+
+
+@pytest.fixture
+def prerelease_record():
+    """ScanRecord with is_installed_prerelease=True."""
+    return ScanRecord(
+        package_name="mylib",
+        dependency_name="mylib",
+        is_optional_dependency=False,
+        installed_version="1.0.0b2",
+        latest_version="1.0.0",
+        versions_diff_index=VersionsDifference(
+            version1="1.0.0b2", version2="1.0.0", diff_index=1, diff_name="DIFF_PATCH"
+        ),
+        time_lag_days=10,
+        releases_lag=1,
+        cve=[],
+        constraint_info=ConstraintSource(type=ConstraintType.DECLARED, source_file=None),
+        is_installed_prerelease=True,
+        is_installed_yanked=False,
+    )
+
+
+@pytest.fixture
+def yanked_record():
+    """ScanRecord with is_installed_yanked=True."""
+    return ScanRecord(
+        package_name="oldlib",
+        dependency_name="oldlib",
+        is_optional_dependency=False,
+        installed_version="0.9.0",
+        latest_version="1.0.0",
+        versions_diff_index=VersionsDifference(
+            version1="0.9.0", version2="1.0.0", diff_index=2, diff_name="DIFF_MAJOR"
+        ),
+        time_lag_days=100,
+        releases_lag=5,
+        cve=[],
+        constraint_info=ConstraintSource(type=ConstraintType.DECLARED, source_file=None),
+        is_installed_prerelease=False,
+        is_installed_yanked=True,
+    )
+
+
+class TestJsonExportRendererV14:
+    """Test suite for v1.4 JSON export: is_prerelease and is_yanked fields."""
+
+    def test_v1_4_output_has_is_prerelease_on_packages(self, output_file, settings, prerelease_record):
+        """v1.4 production packages must include is_prerelease field."""
+        metrics = ScanResult(
+            project_name="test-project",
+            project_path="/path/to/test-project",
+            packages_registry=ProjectPackagesRegistry.NPM.value,
+            production_packages=[prerelease_record],
+            optional_packages=[],
+        )
+        renderer = JsonExportRenderer(settings)
+        renderer.render(metrics, destination=str(output_file), schema_version="1.4")
+
+        data = json.loads(output_file.read_text())
+        pkg = data["production_packages"][0]
+        assert "is_prerelease" in pkg
+        assert "is_yanked" in pkg
+
+    def test_v1_4_is_prerelease_true_when_installed_prerelease(self, output_file, settings, prerelease_record):
+        """is_prerelease field is True when ScanRecord.is_installed_prerelease is True."""
+        metrics = ScanResult(
+            project_name="test-project",
+            project_path="/path/to/test-project",
+            packages_registry=ProjectPackagesRegistry.NPM.value,
+            production_packages=[prerelease_record],
+            optional_packages=[],
+        )
+        renderer = JsonExportRenderer(settings)
+        renderer.render(metrics, destination=str(output_file), schema_version="1.4")
+
+        data = json.loads(output_file.read_text())
+        pkg = data["production_packages"][0]
+        assert pkg["is_prerelease"] is True
+        assert pkg["is_yanked"] is False
+
+    def test_v1_4_is_yanked_true_when_installed_yanked(self, output_file, settings, yanked_record):
+        """is_yanked field is True when ScanRecord.is_installed_yanked is True."""
+        metrics = ScanResult(
+            project_name="test-project",
+            project_path="/path/to/test-project",
+            packages_registry=ProjectPackagesRegistry.NPM.value,
+            production_packages=[yanked_record],
+            optional_packages=[],
+        )
+        renderer = JsonExportRenderer(settings)
+        renderer.render(metrics, destination=str(output_file), schema_version="1.4")
+
+        data = json.loads(output_file.read_text())
+        pkg = data["production_packages"][0]
+        assert pkg["is_prerelease"] is False
+        assert pkg["is_yanked"] is True
+
+    def test_v1_4_defaults_both_false_for_normal_package(self, output_file, settings, sample_project_metrics_record):
+        """is_prerelease and is_yanked default to False for a normal package."""
+        metrics = ScanResult(
+            project_name="test-project",
+            project_path="/path/to/test-project",
+            packages_registry=ProjectPackagesRegistry.NPM.value,
+            production_packages=[sample_project_metrics_record],
+            optional_packages=[],
+        )
+        renderer = JsonExportRenderer(settings)
+        renderer.render(metrics, destination=str(output_file), schema_version="1.4")
+
+        data = json.loads(output_file.read_text())
+        pkg = data["production_packages"][0]
+        assert pkg["is_prerelease"] is False
+        assert pkg["is_yanked"] is False
+
+    def test_v1_4_transitive_packages_have_is_prerelease_and_is_yanked(
+        self, output_file, settings, sample_project_metrics_record, prerelease_record
+    ):
+        """Transitive packages in v1.4 output must include is_prerelease and is_yanked."""
+        transitive = ScanRecord(
+            package_name="dep",
+            dependency_name=None,
+            is_optional_dependency=False,
+            installed_version="2.0.0a1",
+            latest_version="2.0.0",
+            versions_diff_index=VersionsDifference(
+                version1="2.0.0a1", version2="2.0.0", diff_index=1, diff_name="DIFF_PATCH"
+            ),
+            time_lag_days=5,
+            releases_lag=1,
+            cve=[],
+            dependency_path=["mylib"],
+            constraint_info=ConstraintSource(type=ConstraintType.DECLARED, source_file=None),
+            is_installed_prerelease=True,
+            is_installed_yanked=False,
+        )
+        metrics = ScanResult(
+            project_name="test-project",
+            project_path="/path/to/test-project",
+            packages_registry=ProjectPackagesRegistry.NPM.value,
+            production_packages=[sample_project_metrics_record],
+            optional_packages=[],
+            transitive_packages=[transitive],
+        )
+        renderer = JsonExportRenderer(settings)
+        renderer.render(metrics, destination=str(output_file), schema_version="1.4")
+
+        data = json.loads(output_file.read_text())
+        entry = data["transitive_packages"][0]
+        assert entry["is_prerelease"] is True
+        assert entry["is_yanked"] is False
+
+    def test_v1_4_output_validates_against_v1_4_schema(self, output_file, settings, sample_project_with_transitives):
+        """v1.4 output must pass jsonschema validation against the v1.4 schema."""
+        from jsonschema import validate
+
+        renderer = JsonExportRenderer(settings)
+        renderer.render(sample_project_with_transitives, destination=str(output_file), schema_version="1.4")
+
+        data = json.loads(output_file.read_text())
+        schema = json_schema_registry.load_schema(ExportJsonSchemaVersion.V1_4)
+        validate(instance=data, schema=schema)

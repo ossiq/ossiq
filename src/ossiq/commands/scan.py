@@ -21,6 +21,8 @@ class CommandScanOptions:
     project_path: str
     lag_threshold_days: str
     production: bool
+    allow_prerelease: bool
+    allow_prerelease_packages: tuple[str, ...]
     registry_type: Literal["npm", "pypi"] | None
     presentation: Literal["console", "html"]
     output_destination: str
@@ -52,6 +54,8 @@ def commnad_scan(ctx: typer.Context, options: CommandScanOptions):
         settings=settings,
         project_path=options.project_path,
         production=options.production,
+        allow_prerelease=options.allow_prerelease,
+        allow_prerelease_packages=options.allow_prerelease_packages,
         narrow_package_registry=registry_type_map[options.registry_type] if options.registry_type else None,
     )
 

@@ -103,6 +103,9 @@ class PackageMetrics(BaseModel):
     installed_version: str = Field(description="Currently installed version")
     latest_version: str | None = Field(description="Latest available version")
     time_lag_days: int | None = Field(description="Days between installed and latest version")
+    version_age_days: int | None = Field(
+        default=None, description="Days since the installed version was published to the registry"
+    )
     releases_lag: int | None = Field(description="Number of releases between installed and latest")
     cve: list[CVEInfo] = Field(default_factory=list, description="Known CVEs for this package")
     dependency_path: list[str] | None = Field(
@@ -141,6 +144,14 @@ class PackageMetrics(BaseModel):
             "None for non-PyPI or when no extras are used"
         ),
     )
+    is_prerelease: bool = Field(default=False, description="Whether the installed version is a pre-release")
+    is_yanked: bool = Field(default=False, description="Whether the installed version is yanked or unpublished")
+    is_deprecated: bool = Field(
+        default=False, description="Whether the installed package or version is deprecated (npm-only)"
+    )  # noqa: E501
+    is_package_unpublished: bool = Field(
+        default=False, description="Whether the entire package has been removed from the registry (npm-only)"
+    )  # noqa: E501
 
     @classmethod
     def from_domain(cls, record) -> "PackageMetrics":
@@ -152,6 +163,7 @@ class PackageMetrics(BaseModel):
             installed_version=record.installed_version,
             latest_version=record.latest_version,
             time_lag_days=record.time_lag_days,
+            version_age_days=record.version_age_days,
             releases_lag=record.releases_lag,
             cve=[CVEInfo.from_domain(cve) for cve in record.cve],
             dependency_path=record.dependency_path,
@@ -168,6 +180,10 @@ class PackageMetrics(BaseModel):
                 else None
             ),
             extras=record.extras,
+            is_prerelease=record.is_installed_prerelease,
+            is_yanked=record.is_installed_yanked,
+            is_deprecated=record.is_installed_deprecated,
+            is_package_unpublished=record.is_installed_package_unpublished,
         )
 
 
@@ -240,6 +256,9 @@ class TransitivePackageMetrics(BaseModel):
     installed_version: str = Field(description="Currently installed version")
     latest_version: str | None = Field(description="Latest available version")
     time_lag_days: int | None = Field(description="Days between installed and latest version")
+    version_age_days: int | None = Field(
+        default=None, description="Days since the installed version was published to the registry"
+    )
     releases_lag: int | None = Field(description="Number of releases between installed and latest")
     cve: list[CVEInfo] = Field(default_factory=list, description="Known CVEs for this package")
     constraint_source_file: str | None = Field(
@@ -253,6 +272,14 @@ class TransitivePackageMetrics(BaseModel):
         default=None, description="SPDX license identifiers parsed from the package license expression"
     )
     purl: str | None = Field(default=None, description="Package URL (PURL) per ECMA-386")
+    is_prerelease: bool = Field(default=False, description="Whether the installed version is a pre-release")
+    is_yanked: bool = Field(default=False, description="Whether the installed version is yanked or unpublished")
+    is_deprecated: bool = Field(
+        default=False, description="Whether the installed package or version is deprecated (npm-only)"
+    )  # noqa: E501
+    is_package_unpublished: bool = Field(
+        default=False, description="Whether the entire package has been removed from the registry (npm-only)"
+    )  # noqa: E501
 
     @classmethod
     def from_domain_group(
@@ -267,6 +294,7 @@ class TransitivePackageMetrics(BaseModel):
             installed_version=first.installed_version,
             latest_version=first.latest_version,
             time_lag_days=first.time_lag_days,
+            version_age_days=first.version_age_days,
             releases_lag=first.releases_lag,
             cve=[CVEInfo.from_domain(cve) for cve in first.cve],
             constraint_source_file=constraint_source_file,
@@ -275,6 +303,10 @@ class TransitivePackageMetrics(BaseModel):
             package_url=first.package_url,
             license=first.license,
             purl=first.purl,
+            is_prerelease=first.is_installed_prerelease,
+            is_yanked=first.is_installed_yanked,
+            is_deprecated=first.is_installed_deprecated,
+            is_package_unpublished=first.is_installed_package_unpublished,
         )
 
     @model_serializer(mode="wrap")
@@ -432,7 +464,7 @@ def build_export_data(
     production = [PackageMetrics.from_domain(pkg) for pkg in data.production_packages]
     development = [PackageMetrics.from_domain(pkg) for pkg in data.optional_packages]
 
-    if schema_version == ExportJsonSchemaVersion.V1_3:
+    if schema_version in (ExportJsonSchemaVersion.V1_3, ExportJsonSchemaVersion.V1_4):
         transitive, tree = _build_v1_3_data(data.transitive_packages)
         return ExportDataV13(
             metadata=metadata,

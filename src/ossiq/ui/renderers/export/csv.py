@@ -74,6 +74,7 @@ class CsvExportRenderer(AbstractUserInterfaceRenderer):
             # Creates folder: ./reports/export_my-project/
             # Containing: summary.csv, packages.csv, cves.csv, datapackage.json
         """
+        destination = os.path.expanduser(destination)
         # Validate destination directory
         dest_dir = os.path.dirname(destination)
         if dest_dir and not os.path.exists(dest_dir):
@@ -106,7 +107,7 @@ class CsvExportRenderer(AbstractUserInterfaceRenderer):
 
         # Write all three CSV files
         self._write_summary_csv(export_paths.summary_csv, export_data)
-        self._write_packages_csv(export_paths.packages_csv, export_data)
+        self._write_packages_csv(export_paths.packages_csv, export_data, resolved_version)
         self._write_cves_csv(export_paths.cves_csv, export_data)
 
         # Generate and write datapackage.json
@@ -198,7 +199,9 @@ class CsvExportRenderer(AbstractUserInterfaceRenderer):
             writer.writeheader()
             writer.writerow(row)
 
-    def _write_packages_csv(self, file_path: Path, export_data: ExportDataBase) -> None:
+    def _write_packages_csv(
+        self, file_path: Path, export_data: ExportDataBase, schema_version: ExportCsvSchemaVersion
+    ) -> None:
         """
         Write packages CSV with package metrics and CVE counts.
 
@@ -207,7 +210,10 @@ class CsvExportRenderer(AbstractUserInterfaceRenderer):
         Args:
             file_path: Output file path for packages CSV
             export_data: Export data model with production and development packages
+            schema_version: Schema version controlling which columns are included
         """
+        is_schema_v1_4 = schema_version == ExportCsvSchemaVersion.V1_4
+
         fieldnames = [
             "package_name",
             "dependency_name",
@@ -216,62 +222,53 @@ class CsvExportRenderer(AbstractUserInterfaceRenderer):
             "installed_version",
             "latest_version",
             "time_lag_days",
+        ]
+
+        if is_schema_v1_4:
+            fieldnames.append("version_age_days")
+
+        fieldnames += [
             "releases_lag",
             "cve_count",
             "version_constraint",
             "constraint_type",
             "constraint_source_file",
             "extras",
-            "license",
-            "purl",
         ]
 
+        if is_schema_v1_4:
+            fieldnames += ["is_prerelease", "is_yanked", "is_deprecated", "is_package_unpublished"]
+        fieldnames += ["license", "purl"]
+
+        def _pkg_row(pkg) -> dict:
+            row = {
+                "package_name": pkg.package_name,
+                "dependency_name": pkg.dependency_name,
+                "dependency_type": "development" if pkg.is_optional_dependency else "production",
+                "is_optional_dependency": self._serialize_bool(pkg.is_optional_dependency),
+                "installed_version": pkg.installed_version,
+                "latest_version": self._serialize_optional(pkg.latest_version),
+                "time_lag_days": self._serialize_optional(pkg.time_lag_days),
+                "releases_lag": self._serialize_optional(pkg.releases_lag),
+                "cve_count": len(pkg.cve),
+                "version_constraint": self._serialize_optional(pkg.version_constraint),
+                "constraint_type": self._serialize_optional(pkg.constraint_type),
+                "constraint_source_file": self._serialize_optional(pkg.constraint_source_file),
+                "extras": self._serialize_optional(",".join(pkg.extras) if pkg.extras else None),
+                "license": self._serialize_optional(",".join(pkg.license) if pkg.license else None),
+                "purl": self._serialize_optional(pkg.purl),
+            }
+            if is_schema_v1_4:
+                row["version_age_days"] = self._serialize_optional(pkg.version_age_days)
+                row["is_yanked"] = self._serialize_bool(pkg.is_yanked)
+                row["is_prerelease"] = self._serialize_bool(pkg.is_prerelease)
+                row["is_deprecated"] = self._serialize_bool(pkg.is_deprecated)
+                row["is_package_unpublished"] = self._serialize_bool(pkg.is_package_unpublished)
+            return row
+
         # Generate rows for all packages
-        rows = []
-
-        # Production packages
-        for pkg in export_data.production_packages:
-            rows.append(
-                {
-                    "package_name": pkg.package_name,
-                    "dependency_name": pkg.dependency_name,
-                    "dependency_type": "development" if pkg.is_optional_dependency else "production",
-                    "is_optional_dependency": self._serialize_bool(pkg.is_optional_dependency),
-                    "installed_version": pkg.installed_version,
-                    "latest_version": self._serialize_optional(pkg.latest_version),
-                    "time_lag_days": self._serialize_optional(pkg.time_lag_days),
-                    "releases_lag": self._serialize_optional(pkg.releases_lag),
-                    "cve_count": len(pkg.cve),
-                    "version_constraint": self._serialize_optional(pkg.version_constraint),
-                    "constraint_type": self._serialize_optional(pkg.constraint_type),
-                    "constraint_source_file": self._serialize_optional(pkg.constraint_source_file),
-                    "extras": self._serialize_optional(",".join(pkg.extras) if pkg.extras else None),
-                    "license": self._serialize_optional(",".join(pkg.license) if pkg.license else None),
-                    "purl": self._serialize_optional(pkg.purl),
-                }
-            )
-
-        # Development packages
-        for pkg in export_data.development_packages:
-            rows.append(
-                {
-                    "package_name": pkg.package_name,
-                    "dependency_name": pkg.dependency_name,
-                    "dependency_type": "development" if pkg.is_optional_dependency else "production",
-                    "is_optional_dependency": self._serialize_bool(pkg.is_optional_dependency),
-                    "installed_version": pkg.installed_version,
-                    "latest_version": self._serialize_optional(pkg.latest_version),
-                    "time_lag_days": self._serialize_optional(pkg.time_lag_days),
-                    "releases_lag": self._serialize_optional(pkg.releases_lag),
-                    "cve_count": len(pkg.cve),
-                    "version_constraint": self._serialize_optional(pkg.version_constraint),
-                    "constraint_type": self._serialize_optional(pkg.constraint_type),
-                    "constraint_source_file": self._serialize_optional(pkg.constraint_source_file),
-                    "extras": self._serialize_optional(",".join(pkg.extras) if pkg.extras else None),
-                    "license": self._serialize_optional(",".join(pkg.license) if pkg.license else None),
-                    "purl": self._serialize_optional(pkg.purl),
-                }
-            )
+        rows = [_pkg_row(pkg) for pkg in export_data.production_packages]
+        rows += [_pkg_row(pkg) for pkg in export_data.development_packages]
 
         # Write CSV with UTF-8 BOM for Excel compatibility
         with open(file_path, "w", encoding="utf-8-sig", newline="") as f:

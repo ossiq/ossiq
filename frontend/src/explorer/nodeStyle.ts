@@ -29,7 +29,7 @@ export function hasUpperConstraint(v?: string): boolean {
  * Ordered color rules for nodes. Add a new entry here to introduce a new node color category.
  * The first rule whose `test` returns true wins — put more specific rules before general ones.
  *
- * Priority: CVE > OVERRIDE > ADDITIVE > PINNED > NARROWED > default
+ * Priority: CVE > yanked > OVERRIDE > ADDITIVE > PINNED > NARROWED > prerelease > default
  * For backwards-compat with pre-v1.2 reports, PINNED and NARROWED fall back to version-string heuristics.
  */
 export const NODE_COLOR_RULES: NodeColorRule[] = [
@@ -38,6 +38,31 @@ export const NODE_COLOR_RULES: NodeColorRule[] = [
     test: (data) => !!data.severity,
     fill: TREE_CONFIG.colors.cveFill,
     stroke: TREE_CONFIG.colors.cveStroke,
+  },
+  // Unpublished — entire package removed from registry (red, solid, larger; higher priority than yanked)
+  {
+    test: (data) => !!data.is_package_unpublished,
+    fill: TREE_CONFIG.colors.unpublishedFill,
+    stroke: TREE_CONFIG.colors.unpublishedStroke,
+    strokeDash: '4,2',
+    strokeWidthBase: 2.5,
+    radiusBase: 7,
+  },
+  // Yanked — installed version was retracted by the publisher (purple, dashed, slightly larger)
+  {
+    test: (data) => !!data.is_yanked,
+    fill: TREE_CONFIG.colors.yankedFill,
+    stroke: TREE_CONFIG.colors.yankedStroke,
+    strokeDash: '3,2',
+    strokeWidthBase: 2,
+    radiusBase: 7,
+  },
+  // Deprecated — package/version marked deprecated by publisher (yellow, dotted)
+  {
+    test: (data) => !!data.is_deprecated,
+    fill: TREE_CONFIG.colors.deprecatedFill,
+    stroke: TREE_CONFIG.colors.deprecatedStroke,
+    strokeDash: '2,3',
   },
   // OVERRIDE — forced version replacement (fuchsia, thick dash-dot, larger radius)
   {
@@ -70,6 +95,13 @@ export const NODE_COLOR_RULES: NodeColorRule[] = [
     fill: TREE_CONFIG.colors.narrowedFill,
     stroke: TREE_CONFIG.colors.narrowedStroke,
     strokeDash: '5,3',
+  },
+  // Prerelease — installed version is alpha/beta/rc (amber, dotted)
+  {
+    test: (data) => !!data.is_prerelease,
+    fill: TREE_CONFIG.colors.prereleaseFill,
+    stroke: TREE_CONFIG.colors.prereleaseStroke,
+    strokeDash: '2,2',
   },
   // Default / DECLARED
   {

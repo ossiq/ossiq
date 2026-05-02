@@ -38,7 +38,7 @@ class HtmlScanRenderer(AbstractUserInterfaceRenderer):
         Raises:
             DestinationDoesntExist: If destination directory doesn't exist
         """
-        destination = kwargs.get("destination", ".")
+        destination = os.path.expanduser(kwargs.get("destination", "."))
         # Validate destination directory (fixed edge case: empty dirname)
         dest_dir = os.path.dirname(destination)
         if dest_dir and not os.path.exists(dest_dir):

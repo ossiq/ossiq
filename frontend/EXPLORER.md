@@ -75,11 +75,13 @@ An ordinary visible node with no children hidden. Appearance is driven by `NODE_
 | Priority | Condition | Fill | Stroke | `stroke-dasharray` | Radius |
 |---|---|---|---|---|---|
 | 1 | Has CVEs (`severity` set) | red `#fecaca` | `#dc2626` | solid | 6 |
-| 2 | `constraint_type === 'OVERRIDE'` | orange `#fed7aa` | `#ea580c` | `7,2,2,2` (dash-dot) | 8 |
-| 3 | `constraint_type === 'ADDITIVE'` | green `#bbf7d0` | `#16a34a` | `2,2.5` (dotted) | 6 |
-| 4 | `constraint_type === 'PINNED'` or `isPinned(version_defined)` | orange `#ffedd5` | `#c2410c` | solid 3 px | 7 |
-| 5 | `constraint_type === 'NARROWED'` or `hasUpperConstraint(version_defined)` | yellow `#fef08a` | `#a16207` | `5,3` (dashed) | 6 |
-| 6 | Default / DECLARED | blue `#bfdbfe` | `#1d4ed8` | solid | 6 |
+| 2 | `is_yanked` | purple `#f3e8ff` | `#7e22ce` | `3,2` | 7 |
+| 3 | `constraint_type === 'OVERRIDE'` | orange `#fed7aa` | `#ea580c` | `7,2,2,2` (dash-dot) | 8 |
+| 4 | `constraint_type === 'ADDITIVE'` | green `#bbf7d0` | `#16a34a` | `2,2.5` (dotted) | 6 |
+| 5 | `constraint_type === 'PINNED'` or `isPinned(version_defined)` | orange `#ffedd5` | `#c2410c` | solid 3 px | 7 |
+| 6 | `constraint_type === 'NARROWED'` or `hasUpperConstraint(version_defined)` | yellow `#fef08a` | `#a16207` | `5,3` (dashed) | 6 |
+| 7 | `is_prerelease` | amber `#fef3c7` | `#b45309` | `2,2` (dotted) | 6 |
+| 8 | Default / DECLARED | blue `#bfdbfe` | `#1d4ed8` | solid | 6 |
 
 OVERRIDE and PINNED share an orange family but are distinguishable by their stroke patterns
 (dash-dot vs solid thick) and slightly different shades (orange-200 vs orange-100).
@@ -235,6 +237,13 @@ Clicking the SVG background exits focus mode and restores all nodes and edges to
 Nodes with `severity` set render an orange triangle warning badge to the left of the circle
 (SVG polygon at `translate(-22, 0)`, points `0,-9 8,5 -8,5`) with a bold `!` glyph.
 Colors: fill `#fdba74`, stroke `#ea580c`, text `#7c2d12`.
+
+## Yanked Version Indicator
+
+Nodes where `is_yanked` is true render a filled purple circle badge to the right of the node
+circle (SVG circle `r=6` at `translate(+18, 0)`) with a bold `✕` glyph in white (`font-size: 8px`).
+Circle fill: `#7e22ce` (purple-800). This badge is composable with the CVE triangle — a yanked
+node with a CVE will show both the triangle on the left and the `✕` circle on the right.
 
 ---
 

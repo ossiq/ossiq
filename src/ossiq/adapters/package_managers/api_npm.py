@@ -184,8 +184,15 @@ class NPMResolverV3(BaseDependencyResolver):
         source = pkg_data.get("resolved")  # The registry URL or git link
 
         # Mapping engines (node version) to the marker concept
+        # FIXME: convert engines into something more consumable for the solver later
         engines = pkg_data.get("engines", {})
-        node = engines.get("node")
+        node = None
+        if isinstance(engines, dict):
+            node = engines.get("node")
+        # let's keep it simple and take just first from the list
+        elif isinstance(engines, list) and len(engines) > 0:
+            node = engines[0]
+
         required_engine = f"node: {node}" if node else None
 
         # NPM doesn't store the original 'version_defined' inside the package

@@ -16,6 +16,7 @@ export interface RegistryEntry {
   installed_version: string
   latest_version: string | null
   time_lag_days: number | null
+  version_age_days: number | null
   releases_lag: number | null
   cve: CVEInfo[]
   severity: Severity | null
@@ -25,6 +26,10 @@ export interface RegistryEntry {
   package_url: string | null
   license: string[] | null
   purl: string | null
+  is_yanked: boolean
+  is_prerelease: boolean
+  is_deprecated: boolean
+  is_package_unpublished: boolean
   childEdges: Map<number, EdgeData>
 }
 
@@ -33,12 +38,23 @@ export interface DirectEntry {
   installed_version: string
   latest_version: string | null
   time_lag_days: number | null
+  version_age_days: number | null
   releases_lag: number | null
   cve: CVEInfo[]
   severity: Severity | null
   constraint_type: ConstraintType | null
   constraint_source_file: string | null
   version_constraint: string | null
+  repo_url: string | null
+  homepage_url: string | null
+  package_url: string | null
+  license: string[] | null
+  purl: string | null
+  extras: string[] | null
+  is_yanked: boolean
+  is_prerelease: boolean
+  is_deprecated: boolean
+  is_package_unpublished: boolean
   childRefs: Array<{ ref: number; edgeData: EdgeData }>
 }
 

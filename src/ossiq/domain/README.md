@@ -4,6 +4,37 @@ This document lists the external specifications that define or inform the domain
 
 ---
 
+## Registry Health Fields
+
+`Package` and `PackageVersion` carry explicit flags for the two ways a package can become unavailable or inadvisable to use. These are set by the registry adapters and surfaced through `ScanRecord` into all export formats and UI renderers.
+
+### `Package` flags
+
+| Field | Registry | Meaning |
+|-------|----------|---------|
+| `is_deprecated: bool` | npm | The package's latest version carries a `deprecated` field — the whole package is considered deprecated. Set via `npm deprecate <pkg>`. |
+| `is_unpublished: bool` | npm | `time.unpublished` is present in the packument — the entire package was removed from the registry. |
+
+### `PackageVersion` flags
+
+| Field | Registry | Meaning |
+|-------|----------|---------|
+| `is_deprecated: bool` | npm | This specific version's manifest has a truthy `deprecated` field. |
+| `is_yanked: bool` | PyPI | The version exists on PyPI but is marked yanked — excluded from normal resolution. |
+| `is_unpublished: bool` | npm | The version was individually deleted after release (present in `time` but absent from `versions`), or the entire package was unpublished (all versions inherit this flag). |
+
+### `ScanRecord` derived flags
+
+| Field | Derived from | Meaning |
+|-------|-------------|---------|
+| `is_installed_yanked` | `version.is_yanked or version.is_unpublished` | Installed version was pulled from the registry (covers both PyPI yanked and npm unpublished). |
+| `is_installed_deprecated` | `version.is_deprecated or package.is_deprecated` | Installed version or its parent package is deprecated. |
+| `is_installed_package_unpublished` | `package.is_unpublished` | The entire package has been removed from the registry. |
+
+Display priority in all renderers: **UNPUBLISHED** > **YANKED** > **DEPRECATED** > pre-release.
+
+---
+
 ## Versioning
 
 ### Semantic Versioning (SemVer)
@@ -212,6 +243,8 @@ Key response fields used:
 - `info.requires_python` — Python version constraint
 - `releases` — map of version → list of distribution file objects (with `upload_time`, `yanked`)
 
+`yanked` maps to `PackageVersion.is_yanked`. A yanked version still exists on PyPI but is excluded from normal resolution; pip will refuse to install it unless the version is pinned exactly.
+
 ### npm Registry API
 **Spec**: https://github.com/npm/registry/blob/master/docs/REGISTRY.md
 **Applies to**: `Package`, `PackageVersion`, `ProjectPackagesRegistry.NPM`
@@ -221,9 +254,13 @@ Endpoint: `https://registry.npmjs.org/{name}` (full packument) or `https://regis
 Key response fields used:
 - `name`, `description`, `author`, `homepage`, `repository.url`
 - `versions.{ver}.dependencies`, `versions.{ver}.devDependencies`, `versions.{ver}.peerDependencies`
-- `dist-tags.latest` — current latest version
+- `versions.{ver}.deprecated` — non-empty string means this version is deprecated → `PackageVersion.is_deprecated`
+- `dist-tags.latest` — current latest version; if `versions[latest].deprecated` is set → `Package.is_deprecated`
 - `time.{ver}` — publish timestamp per version
+- `time.unpublished` — present when the entire package was unpublished → `Package.is_unpublished`; every version also gets `PackageVersion.is_unpublished=True`
 - `dist.integrity`, `dist.tarball` — download and verification
+
+**Individually deleted versions**: a version key present in `time` but absent from `versions` was individually unpublished after release. These phantom entries are surfaced as `PackageVersion` objects with `is_unpublished=True` and `published_date_iso` from the `time` value. Non-semver keys (`created`, `modified`, and any registry metadata keys) are excluded.
 
 ---
 

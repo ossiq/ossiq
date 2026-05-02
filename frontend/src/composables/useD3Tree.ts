@@ -136,6 +136,7 @@ export function useD3Tree(options: UseD3TreeOptions) {
       categories: d.data.categories,
       isDuplicate: (nameCountMap.get(d.data.name) ?? 0) > 1,
       time_lag_days: d.data.time_lag_days,
+      version_age_days: d.data.version_age_days,
       releases_lag: d.data.releases_lag,
       cve: d.data.cve,
       dependency_path: d.data.dependency_path,
@@ -147,6 +148,10 @@ export function useD3Tree(options: UseD3TreeOptions) {
       constraint_type: d.data.constraint_type,
       constraint_source_file: d.data.constraint_source_file,
       extras: d.data.extras,
+      is_yanked: d.data.is_yanked,
+      is_prerelease: d.data.is_prerelease,
+      is_deprecated: d.data.is_deprecated,
+      is_package_unpublished: d.data.is_package_unpublished,
       dependencies: d.data.dependencies,
       optional_dependencies: d.data.optional_dependencies,
     })

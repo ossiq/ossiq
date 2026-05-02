@@ -11,6 +11,7 @@ export interface DependencyNode {
   severity?: string
   categories?: string[]
   time_lag_days?: number | null
+  version_age_days?: number | null
   releases_lag?: number | null
   cve?: CVEInfo[]
   dependency_path?: string[] | null
@@ -22,6 +23,10 @@ export interface DependencyNode {
   constraint_type?: 'DECLARED' | 'NARROWED' | 'PINNED' | 'ADDITIVE' | 'OVERRIDE' | null
   constraint_source_file?: string | null
   extras?: string[] | null
+  is_prerelease?: boolean
+  is_yanked?: boolean
+  is_deprecated?: boolean
+  is_package_unpublished?: boolean
   dependencies?: Record<string, DependencyNode>
   optional_dependencies?: Record<string, DependencyNode>
 }
@@ -43,6 +48,7 @@ export interface SelectedNodeDetail {
   categories?: string[]
   isDuplicate: boolean
   time_lag_days?: number | null
+  version_age_days?: number | null
   releases_lag?: number | null
   cve?: CVEInfo[]
   dependency_path?: string[] | null
@@ -54,6 +60,10 @@ export interface SelectedNodeDetail {
   constraint_type?: 'DECLARED' | 'NARROWED' | 'PINNED' | 'ADDITIVE' | 'OVERRIDE' | null
   constraint_source_file?: string | null
   extras?: string[] | null
+  is_prerelease?: boolean
+  is_yanked?: boolean
+  is_deprecated?: boolean
+  is_package_unpublished?: boolean
   dependencies?: Record<string, DependencyNode>
   optional_dependencies?: Record<string, DependencyNode>
 }

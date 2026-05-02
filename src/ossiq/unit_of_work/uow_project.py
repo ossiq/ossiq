@@ -30,6 +30,8 @@ class ProjectUnitOfWork(AbstractProjectUnitOfWork):
         project_path: str,
         narrow_package_registry: ProjectPackagesRegistry | None = None,
         production: bool = False,
+        allow_prerelease: bool = False,
+        allow_prerelease_packages: tuple[str, ...] = (),
     ):
         """
         Takes a single package details pulled from
@@ -39,6 +41,8 @@ class ProjectUnitOfWork(AbstractProjectUnitOfWork):
         self.project_path = project_path
         self.settings = settings
         self.production = production
+        self.allow_prerelease = allow_prerelease
+        self.allow_prerelease_packages = allow_prerelease_packages
         self.narrow_package_registry = narrow_package_registry
         self.cve_database = create_cve_database(settings)
 

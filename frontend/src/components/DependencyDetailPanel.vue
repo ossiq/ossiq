@@ -105,6 +105,22 @@ const transitiveCVEGroups = computed<TransitiveCVEGroup[]>(() => {
                 v-if="node.isDuplicate"
                 class="px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-widest text-amber-700 bg-amber-100 border border-amber-200"
               >Shared Node</span>
+              <span
+                v-if="node.is_package_unpublished"
+                class="px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-widest text-red-700 bg-red-100 border border-red-300"
+              >Unpublished</span>
+              <span
+                v-else-if="node.is_yanked"
+                class="px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-widest text-red-700 bg-red-100 border border-red-300"
+              >Yanked</span>
+              <span
+                v-else-if="node.is_deprecated"
+                class="px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-widest text-yellow-700 bg-yellow-100 border border-yellow-300"
+              >Deprecated</span>
+              <span
+                v-else-if="node.is_prerelease"
+                class="px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-widest text-amber-700 bg-amber-100 border border-amber-300"
+              >Pre-release</span>
             </div>
             <!-- Package name + version -->
             <h1 class="text-2xl font-bold tracking-tight leading-none font-mono break-all">
@@ -169,14 +185,14 @@ const transitiveCVEGroups = computed<TransitiveCVEGroup[]>(() => {
             >{{ driftConfig[driftStatus]?.label ?? driftStatus }}</span>
           </div>
           <div
-            v-if="!node.time_lag_days && !node.releases_lag"
+            v-if="!node.time_lag_days && !node.releases_lag && (node.version_age_days && node.version_age_days < 30)"
             class="flex items-center gap-1.5 text-[11px] font-semibold text-emerald-600"
           >
             <span class="w-2 h-2 bg-emerald-500 rounded-full shrink-0"></span>
             Up to date
           </div>
           <div v-else class="border-t border-slate-100 pt-4 space-y-4">
-            <div class="grid grid-cols-3 gap-4">
+            <div class="grid grid-cols-4 gap-4">
               <div class="space-y-0.5">
                 <p class="text-[10px] font-bold text-slate-400 uppercase">Time Lag</p>
                 <p
@@ -190,6 +206,18 @@ const transitiveCVEGroups = computed<TransitiveCVEGroup[]>(() => {
                     : ''
                   "
                 >{{ node.time_lag_days != null ? formatTimeLag(node.time_lag_days) : '—' }}</p>
+              </div>
+              <div class="space-y-0.5">
+                <p class="text-[10px] font-bold text-slate-400 uppercase">Version Age</p>
+                <p
+                  class="text-xl font-bold font-mono"
+                  :class="
+                    !node.version_age_days ? 'text-green-600'
+                    : (node.version_age_days ?? 0) > 730 ? 'text-red-700'
+                    : (node.version_age_days ?? 0) > 365 ? 'text-amber-600'
+                    : ''
+                  "
+                >{{ node.version_age_days != null ? formatTimeLag(node.version_age_days) : '—' }}</p>
               </div>
               <div class="space-y-0.5">
                 <p class="text-[10px] font-bold text-slate-400 uppercase">Releases</p>

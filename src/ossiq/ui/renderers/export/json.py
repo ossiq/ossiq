@@ -46,6 +46,7 @@ class JsonExportRenderer(AbstractUserInterfaceRenderer):
             DestinationDoesntExist: If destination directory doesn't exist
             jsonschema.ValidationError: If schema validation fails
         """
+        destination = os.path.expanduser(destination)
         # Validate destination directory
         dest_dir = os.path.dirname(destination)
         if dest_dir and not os.path.exists(dest_dir):

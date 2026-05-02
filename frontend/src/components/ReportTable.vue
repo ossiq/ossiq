@@ -28,6 +28,7 @@ const columns: ColumnDef[] = [
   { id: 'latest',    label: 'Latest',       width: '8%'  },
   { id: 'releases',  label: 'Releases',     width: '8%'  },
   { id: 'timeLag',   label: 'Time Lag',     width: '8%'  },
+  { id: 'versionAge', label: 'Version Age', width: '8%'  },
 ]
 
 function sortIcon(col: SortColumn, currentCol: SortColumn | null, dir: SortDirection): string {
@@ -163,7 +164,25 @@ function spdxUrl(spdxId: string): string {
             </td>
 
             <!-- Installed -->
-            <td class="px-6 py-3 text-sm text-slate-800">{{ row.pkg.installed_version }}</td>
+            <td class="px-6 py-3 text-sm text-slate-800">
+              <span class="font-mono">{{ row.pkg.installed_version }}</span>
+              <span
+                v-if="row.isPackageUnpublished"
+                class="ml-1.5 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide bg-red-100 text-red-700 border border-red-300 rounded"
+              >unpublished</span>
+              <span
+                v-else-if="row.isYanked"
+                class="ml-1.5 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide bg-red-100 text-red-700 border border-red-300 rounded"
+              >yanked</span>
+              <span
+                v-else-if="row.isDeprecated"
+                class="ml-1.5 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide bg-yellow-100 text-yellow-700 border border-yellow-300 rounded"
+              >deprecated</span>
+              <span
+                v-else-if="row.isPrerelease"
+                class="ml-1.5 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide bg-amber-100 text-amber-700 border border-amber-300 rounded"
+              >pre</span>
+            </td>
 
             <!-- Latest -->
             <td class="px-6 py-3 text-sm">{{ row.pkg.latest_version ?? '—' }}</td>
@@ -177,6 +196,14 @@ function spdxUrl(spdxId: string): string {
                 class="font-semibold"
                 :class="timeLagColor(row.pkg.time_lag_days)"
               >{{ row.timeLagDisplay }}</strong>
+            </td>
+
+            <!-- Version Age -->
+            <td class="px-6 py-3">
+              <strong
+                class="font-semibold"
+                :class="timeLagColor(row.pkg.version_age_days)"
+              >{{ row.versionAgeDisplay }}</strong>
             </td>
 
             <!-- License -->
@@ -197,7 +224,7 @@ function spdxUrl(spdxId: string): string {
           </tr>
 
           <tr v-if="rows.length === 0">
-            <td colspan="8" class="px-6 py-8 text-center text-sm text-slate-400">
+            <td colspan="9" class="px-6 py-8 text-center text-sm text-slate-400">
               No dependencies match the current filters.
             </td>
           </tr>

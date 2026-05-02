@@ -527,7 +527,7 @@ class TestPackageVersion:
         assert pv.version == "1.0.0"
         assert pv.license == "MIT"
         assert pv.declared_dependencies == {}
-        assert pv.is_published is True
+        assert pv.is_unpublished is False
 
     def test_package_version_with_dependencies(self):
         """Test PackageVersion with dependencies."""
@@ -549,11 +549,11 @@ class TestPackageVersion:
             license=None,
             package_url="https://pypi.org/project/test/",
             declared_dependencies={},
-            is_published=False,
+            is_unpublished=True,
             unpublished_date_iso="2023-01-01T00:00:00Z",
         )
 
-        assert pv.is_published is False
+        assert pv.is_unpublished is True
         assert pv.unpublished_date_iso == "2023-01-01T00:00:00Z"
 
     def test_package_version_is_frozen(self):
