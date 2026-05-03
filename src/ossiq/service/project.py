@@ -20,6 +20,7 @@ from ossiq.domain.repository import Repository
 from ossiq.domain.version import VersionsDifference
 from ossiq.service.common import package_versions
 from ossiq.unit_of_work import core as unit_of_work
+from ossiq.unit_of_work.solver import uow_dependencies_solver
 
 console = Console()
 
@@ -66,6 +67,7 @@ class ScanRecord:
     is_installed_yanked: bool = False
     is_installed_deprecated: bool = False
     is_installed_package_unpublished: bool = False
+    recommended_version: str | None = None
 
 
 @dataclass
@@ -379,6 +381,18 @@ def scan(uow: unit_of_work.AbstractProjectUnitOfWork) -> ScanResult:
             allow_prerelease_packages=uow.allow_prerelease_packages,
         )
 
+        # Pass 1.5: optionally run HPDR solver over direct deps (cache is warm after prefetch)
+        # engine_context={} in Phase 4 — L2 (engine mismatch) clauses inactive; L3/L4 still fire.
+        # TODO (Phase 5): populate engine_context from project_info engine metadata.
+        recommendations: dict[str, str] = {}
+        if uow.use_solver:
+            recommendations = uow_dependencies_solver.solve_direct(
+                prod_deps + opt_deps,
+                uow.packages_registry,
+                {},
+                allow_prerelease=uow.allow_prerelease,
+            )
+
         # Pass 2: build ScanRecords using pre-fetched data; license comes from registry + GitHub
         def build_records(descriptors: list[DependencyDescriptor]) -> list[ScanRecord]:
             return [
@@ -403,6 +417,27 @@ def scan(uow: unit_of_work.AbstractProjectUnitOfWork) -> ScanResult:
         production_packages = sorted(build_records(prod_deps), key=sort_function, reverse=True)
         optional_packages = sorted(build_records(opt_deps), key=sort_function, reverse=True)
         transitive_packages = build_records(trans_deps)
+
+        if recommendations:
+            for record in production_packages + optional_packages:
+                rec = recommendations.get(record.package_name)
+                if rec is not None:
+                    record.recommended_version = rec
+
+        # Pass 1.6: HPDR solver over flagged transitive deps (CVE or <7 days old).
+        # engine_context={} — populating from project metadata deferred to Phase 6+.
+        if uow.use_solver and transitive_packages:
+            transitive_recommendations = uow_dependencies_solver.solve_transitive(
+                transitive_packages,
+                uow.packages_registry,
+                {},
+                allow_prerelease=uow.allow_prerelease,
+            )
+            if transitive_recommendations:
+                for record in transitive_packages:
+                    rec = transitive_recommendations.get(record.package_name)
+                    if rec is not None:
+                        record.recommended_version = rec
 
         return ScanResult(
             project_name=project_info.name,

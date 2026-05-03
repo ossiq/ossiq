@@ -3,7 +3,7 @@ Collection of utility functions to work with time.
 """
 
 import re
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 
 
 def parse_relative_time_delta(time_unit_str: str, units_supported=("y", "m", "w", "d", "h")) -> timedelta:
@@ -50,3 +50,22 @@ def format_time_days(duration_days: int) -> str:
         formatted_string = f"{duration_days}d"
 
     return formatted_string
+
+
+def parse_iso_datetime(datetime_str: str | None) -> datetime | None:
+    """Parse an ISO 8601 string to a tz-aware datetime, or None."""
+    if datetime_str:
+        return datetime.fromisoformat(datetime_str.replace("Z", "+00:00"))
+    return None
+
+
+def age_days_from_iso(published_date_iso: str | None, *, now: datetime | None = None) -> int | None:
+    """Days elapsed since published_date_iso. None when date is absent.
+
+    `now` is injectable for deterministic tests; defaults to datetime.now(UTC).
+    """
+    dt = parse_iso_datetime(published_date_iso)
+    if dt is None:
+        return None
+    _now = now if now is not None else (datetime.now(tz=UTC) if dt.tzinfo else datetime.now())  # noqa: DTZ005
+    return (_now - dt).days

@@ -157,6 +157,10 @@ def scan(
         str,
         typer.Option("--output", "-o", envvar=f"{Settings.ENV_PREFIX}OUTPUT", help=ARGS_HELP_OUTPUT),
     ] = "./ossiq_scan_report_{project_name}.html",
+    use_solver: Annotated[
+        bool,
+        typer.Option("--solver", is_flag=True, help="Use HPDR solver to compute recommended versions"),
+    ] = False,
 ):
     """
     Scan project dependencies and produce metrics
@@ -175,6 +179,7 @@ def scan(
             registry_type=registry_type,
             presentation=presentation,
             output_destination=output,
+            use_solver=use_solver,
         ),
     )
 

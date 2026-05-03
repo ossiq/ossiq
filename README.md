@@ -2,7 +2,7 @@
 
 [![PyPI version](https://img.shields.io/pypi/v/ossiq.svg)](https://pypi.org/project/ossiq)
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL%20v3-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
-
+![maintenance-status](https://img.shields.io/badge/maintenance-actively--developed-brightgreen.svg)
 > Quantify Maintenance Health. Control Your Drift.
 
 **OSS IQ** is a free & open-source CLI tool that analyzes dependency drift at scale. Track version lag and transitive risk directly from your dependency files. It helps to move from reactive CVE-chasing to a planned, predictable maintenance rhythm.

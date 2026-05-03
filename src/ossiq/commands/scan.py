@@ -26,6 +26,7 @@ class CommandScanOptions:
     registry_type: Literal["npm", "pypi"] | None
     presentation: Literal["console", "html"]
     output_destination: str
+    use_solver: bool = False
 
 
 def commnad_scan(ctx: typer.Context, options: CommandScanOptions):
@@ -46,6 +47,7 @@ def commnad_scan(ctx: typer.Context, options: CommandScanOptions):
             "project_path": options.project_path,
             "lag_threshold_days": f"{threshold_parsed.days} days",
             "production": options.production,
+            "use_solver": options.use_solver,
             "narrow_registry_type": registry_type_map[options.registry_type] if options.registry_type else None,
         },
     )
@@ -57,6 +59,7 @@ def commnad_scan(ctx: typer.Context, options: CommandScanOptions):
         allow_prerelease=options.allow_prerelease,
         allow_prerelease_packages=options.allow_prerelease_packages,
         narrow_package_registry=registry_type_map[options.registry_type] if options.registry_type else None,
+        use_solver=options.use_solver,
     )
 
     with show_operation_progress(settings, "Collecting project packages data...") as progress:
