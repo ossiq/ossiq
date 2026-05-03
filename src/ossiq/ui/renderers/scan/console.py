@@ -96,6 +96,10 @@ class ConsoleScanRenderer(AbstractUserInterfaceRenderer):
         table.add_column("Time Lag", justify="right")
         table.add_column("Version Age", justify="right")
 
+        show_recommended = any(pkg.recommended_version is not None for pkg in dependencies)
+        if show_recommended:
+            table.add_column("Recommended", justify="left")
+
         for pkg in dependencies:
             installed_cell = pkg.installed_version
             if pkg.is_installed_package_unpublished:
@@ -107,7 +111,7 @@ class ConsoleScanRenderer(AbstractUserInterfaceRenderer):
             elif pkg.is_installed_prerelease:
                 installed_cell += " [yellow][pre][/]"
 
-            table.add_row(
+            row_args = [
                 pkg.package_name,
                 f"[bold][red]{len(pkg.cve)}" if pkg.cve else "",
                 self._format_lag_status(pkg.versions_diff_index),
@@ -116,7 +120,10 @@ class ConsoleScanRenderer(AbstractUserInterfaceRenderer):
                 str(pkg.releases_lag),
                 self._format_time_delta(pkg.time_lag_days, lag_threshold_days),
                 self._format_time_delta(pkg.version_age_days, 365),
-            )
+            ]
+            if show_recommended:
+                row_args.append(pkg.recommended_version if pkg.recommended_version is not None else "")
+            table.add_row(*row_args)
 
         return table
 
