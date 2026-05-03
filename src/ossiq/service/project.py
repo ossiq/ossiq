@@ -424,6 +424,21 @@ def scan(uow: unit_of_work.AbstractProjectUnitOfWork) -> ScanResult:
                 if rec is not None:
                     record.recommended_version = rec
 
+        # Pass 1.6: HPDR solver over flagged transitive deps (CVE or <7 days old).
+        # engine_context={} — populating from project metadata deferred to Phase 6+.
+        if uow.use_solver and transitive_packages:
+            transitive_recommendations = uow_dependencies_solver.solve_transitive(
+                transitive_packages,
+                uow.packages_registry,
+                {},
+                allow_prerelease=uow.allow_prerelease,
+            )
+            if transitive_recommendations:
+                for record in transitive_packages:
+                    rec = transitive_recommendations.get(record.package_name)
+                    if rec is not None:
+                        record.recommended_version = rec
+
         return ScanResult(
             project_name=project_info.name,
             project_path=project_info.project_path,

@@ -8,7 +8,7 @@ from packaging.specifiers import InvalidSpecifier, SpecifierSet
 from ossiq.unit_of_work.solver.driver import EncodedProblem
 from ossiq.unit_of_work.solver.driver_pysat import VarAllocator
 from ossiq.unit_of_work.solver.problem import CandidateVersion, SolverProblem
-from ossiq.unit_of_work.solver.weights import W_DEPRECATED, W_ENGINE, age_weight
+from ossiq.unit_of_work.solver.weights import W_DEPRECATED, W_ENGINE, W_VERY_FRESH, age_weight
 
 _BARE_VERSION_RE = re.compile(r"^\d[\d.]*$")
 _OPERATOR_VERSION_RE = re.compile(r"^([><=^~!]{1,2})\s*(\d[\d.]*)$")
@@ -106,6 +106,15 @@ def has_engine_mismatch(cv: CandidateVersion, engine_context: dict[str, str]) ->
 class ConstraintEncoder:
     """Translates a SolverProblem into an EncodedProblem (hard + soft WCNF clauses)."""
 
+    def __init__(self, penalize_fresh_days: int = 0) -> None:
+        """Configure the encoder.
+
+        Args:
+            penalize_fresh_days: When > 0, candidate versions with age_days < this value
+                                 receive a W_VERY_FRESH (1M) soft penalty (L6). Default 0 disables L6.
+        """
+        self._penalize_fresh_days = penalize_fresh_days
+
     def encode(self, problem: SolverProblem) -> EncodedProblem:
         """Encode a SolverProblem into hard and soft clauses for the MaxSAT solver."""
         alloc = VarAllocator()
@@ -127,13 +136,15 @@ class ConstraintEncoder:
                 var_map[vid] = (pkg, cv.version)
                 all_vids.append(vid)
 
-            # L1 Hard: forbid versions outside the declared constraint
+            # L1 + L5 Hard: forbid out-of-constraint versions and CVE-affected versions
             eligible_vids: list[int] = []
             for cv, vid in zip(candidates, all_vids, strict=True):
-                if version_matches(cv.version, constraint.version_constraint):
-                    eligible_vids.append(vid)
+                if not version_matches(cv.version, constraint.version_constraint):
+                    hard_clauses.append([-vid])  # L1 constraint mismatch
+                elif cv.has_cve:
+                    hard_clauses.append([-vid])  # L5 CVE hard-forbidden
                 else:
-                    hard_clauses.append([-vid])
+                    eligible_vids.append(vid)
 
             # Structural: AMO (pairwise) + ALO over eligible candidates
             if len(eligible_vids) >= 2:
@@ -153,7 +164,14 @@ class ConstraintEncoder:
                 soft_clauses.append((age_weight(cv.age_days), [vid]))  # L3
                 if cv.is_deprecated:
                     soft_clauses.append((W_DEPRECATED, [-vid]))  # L4
-                # L5: health score — reserved, not implemented
+                # L6: very fresh — strongly discourage supply-chain risks
+                if (
+                    self._penalize_fresh_days > 0
+                    and cv.age_days is not None
+                    and cv.age_days < self._penalize_fresh_days
+                ):
+                    soft_clauses.append((W_VERY_FRESH, [-vid]))
+                # L7: health score — reserved, not implemented
 
         return EncodedProblem(
             hard_clauses=hard_clauses,

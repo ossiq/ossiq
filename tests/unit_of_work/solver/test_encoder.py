@@ -5,7 +5,7 @@ from ossiq.unit_of_work.solver.driver import SolverResult
 from ossiq.unit_of_work.solver.driver_pysat import PySATDriver
 from ossiq.unit_of_work.solver.encoder import ConstraintEncoder
 from ossiq.unit_of_work.solver.problem import CandidateVersion, PackageConstraint, SolverProblem
-from ossiq.unit_of_work.solver.weights import W_DEPRECATED, W_ENGINE, age_weight
+from ossiq.unit_of_work.solver.weights import W_DEPRECATED, W_ENGINE, W_VERY_FRESH, age_weight
 
 # ---------------------------------------------------------------------------
 # Test helpers
@@ -20,6 +20,7 @@ def _cv(
     is_prerelease: bool = False,
     is_yanked: bool = False,
     runtime_requirements: dict[str, str] | None = None,
+    has_cve: bool = False,
 ) -> CandidateVersion:
     return CandidateVersion(
         version=version,
@@ -28,6 +29,7 @@ def _cv(
         is_prerelease=is_prerelease,
         is_yanked=is_yanked,
         runtime_requirements=runtime_requirements,
+        has_cve=has_cve,
     )
 
 
@@ -68,6 +70,7 @@ class TestWeightConstants:
     def test_weight_constants_values(self) -> None:
         assert W_ENGINE == 1_000_000
         assert W_DEPRECATED == 10_000
+        assert W_VERY_FRESH == 1_000_000
 
     def test_age_weight_zero_days(self) -> None:
         assert age_weight(0) == 100_000
@@ -263,6 +266,102 @@ class TestConstraintEncoderSoftClauses:
         enc = ConstraintEncoder().encode(problem)
         vid = next(iter(enc.var_map))
         assert (W_DEPRECATED, [-vid]) in enc.soft_clauses
+
+
+# ---------------------------------------------------------------------------
+# TestConstraintEncoderL5L6
+# ---------------------------------------------------------------------------
+
+
+class TestConstraintEncoderL5L6:
+    def test_l5_cve_version_hard_forbidden(self) -> None:
+        # has_cve=True on 1.0.0 → hard clause [-vid]; 2.0.0 is eligible
+        problem = _sp(
+            [_pc("pkg")],
+            {"pkg": [_cv("1.0.0", has_cve=True), _cv("2.0.0")]},
+        )
+        enc = ConstraintEncoder().encode(problem)
+        vid_100 = next(vid for vid, (_, v) in enc.var_map.items() if v == "1.0.0")
+        vid_200 = next(vid for vid, (_, v) in enc.var_map.items() if v == "2.0.0")
+        assert [-vid_100] in enc.hard_clauses
+        # 2.0.0 must be in the ALO (only eligible candidate)
+        assert [vid_200] in enc.hard_clauses
+
+    def test_l5_all_cve_versions_skips_alo(self) -> None:
+        # Both candidates have CVEs → no ALO clause (eligible_vids empty)
+        problem = _sp(
+            [_pc("pkg")],
+            {"pkg": [_cv("1.0.0", has_cve=True), _cv("2.0.0", has_cve=True)]},
+        )
+        enc = ConstraintEncoder().encode(problem)
+        positive_clauses = [c for c in enc.hard_clauses if all(v > 0 for v in c)]
+        assert positive_clauses == []
+        # Both must be hard-forbidden
+        unit_negated = [c for c in enc.hard_clauses if len(c) == 1 and c[0] < 0]
+        assert len(unit_negated) == 2
+
+    def test_l6_very_fresh_soft_hard_when_enabled(self) -> None:
+        # age_days=3 < penalize_fresh_days=7 → W_VERY_FRESH penalty clause
+        problem = _sp(
+            [_pc("pkg")],
+            {"pkg": [_cv("1.0.0", age_days=3)]},
+        )
+        enc = ConstraintEncoder(penalize_fresh_days=7).encode(problem)
+        vid = next(iter(enc.var_map))
+        assert (W_VERY_FRESH, [-vid]) in enc.soft_clauses
+
+    def test_l6_disabled_by_default(self) -> None:
+        # penalize_fresh_days=0 (default) → no W_VERY_FRESH clause regardless of age
+        problem = _sp(
+            [_pc("pkg")],
+            {"pkg": [_cv("1.0.0", age_days=1)]},
+        )
+        enc = ConstraintEncoder().encode(problem)
+        assert not any(w == W_VERY_FRESH for w, _ in enc.soft_clauses)
+
+    def test_l6_age_at_threshold_not_penalised(self) -> None:
+        # age_days == penalize_fresh_days → not < threshold → no L6 penalty
+        problem = _sp(
+            [_pc("pkg")],
+            {"pkg": [_cv("1.0.0", age_days=7)]},
+        )
+        enc = ConstraintEncoder(penalize_fresh_days=7).encode(problem)
+        assert not any(w == W_VERY_FRESH for w, _ in enc.soft_clauses)
+
+    def test_l5_cve_excluded_from_soft_clauses(self) -> None:
+        # CVE-forbidden version should not appear in any soft clause (hard-forbidden, ineligible)
+        problem = _sp(
+            [_pc("pkg")],
+            {"pkg": [_cv("1.0.0", has_cve=True, age_days=50), _cv("2.0.0")]},
+        )
+        enc = ConstraintEncoder(penalize_fresh_days=7).encode(problem)
+        vid_100 = next(vid for vid, (_, v) in enc.var_map.items() if v == "1.0.0")
+        soft_vars = {abs(clause[0]) for _, clause in enc.soft_clauses if len(clause) == 1}
+        assert vid_100 not in soft_vars
+
+    def test_l5_l6_roundtrip_cve_forbidden_picks_older(self) -> None:
+        # 2.0.0 has CVE → hard-forbidden; solver must pick 1.0.0 even though it's older
+        problem = _sp(
+            [_pc("pkg", version_constraint=">=1.0")],
+            {"pkg": [_cv("2.0.0", age_days=10, has_cve=True), _cv("1.0.0", age_days=365)]},
+        )
+        enc = ConstraintEncoder().encode(problem)
+        result = PySATDriver().solve(enc)
+        assert isinstance(result, SolverResult)
+        assert result.selected == [("pkg", "1.0.0")]
+
+    def test_l6_roundtrip_very_fresh_loses_to_older(self) -> None:
+        # 2.0.0: age=2 (fresh, big L3 bonus but L6 penalty 1M); 1.0.0: age=200 (L3 bonus ~99800)
+        # Cost selecting 2.0.0: miss 1.0.0 (99_800) + L6 (1_000_000) = 1_099_800
+        # Cost selecting 1.0.0: miss 2.0.0 (99_998)
+        problem = _sp(
+            [_pc("pkg", version_constraint=">=1.0")],
+            {"pkg": [_cv("2.0.0", age_days=2), _cv("1.0.0", age_days=200)]},
+        )
+        enc = ConstraintEncoder(penalize_fresh_days=7).encode(problem)
+        result = PySATDriver().solve(enc)
+        assert isinstance(result, SolverResult)
+        assert result.selected == [("pkg", "1.0.0")]
 
 
 # ---------------------------------------------------------------------------

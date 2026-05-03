@@ -17,6 +17,7 @@ class CandidateVersion:
     is_prerelease: bool
     is_yanked: bool
     runtime_requirements: dict[str, str] | None
+    has_cve: bool = False
 
 
 @dataclass(frozen=True)
@@ -63,6 +64,7 @@ class SolverProblem:
                         {
                             "v": cv.version,
                             "age_days": cv.age_days,
+                            "cve": cv.has_cve,
                             "deprecated": cv.is_deprecated,
                             "prerelease": cv.is_prerelease,
                             "yanked": cv.is_yanked,

@@ -61,6 +61,11 @@ class ConsoleScanRenderer(AbstractUserInterfaceRenderer):
                 "Optional Dependency Drift Report", "bold cyan", data.optional_packages, lag_threshold_days
             )
 
+        transitive_flagged = [r for r in data.transitive_packages if r.recommended_version is not None]
+        table_transitive = None
+        if transitive_flagged:
+            table_transitive = self._transitive_safety_table(transitive_flagged)
+
         # Header
         header_text = Text()
         header_text.append("📦 Project: ", style="bold white")
@@ -81,6 +86,30 @@ class ConsoleScanRenderer(AbstractUserInterfaceRenderer):
         if table_dev:
             self.console.print("\n")
             self.console.print(table_dev)
+
+        if table_transitive:
+            self.console.print("\n")
+            self.console.print(table_transitive)
+
+    def _transitive_safety_table(self, packages: list[ScanRecord]) -> Table:
+        """Table showing transitive packages that have solver-recommended safer versions."""
+        table = Table(title="Transitive Safety Recommendations", title_style="bold yellow")
+        table.add_column("Package", justify="left", style="bold cyan")
+        table.add_column("Installed", justify="left")
+        table.add_column("CVEs", justify="center")
+        table.add_column("Age", justify="right")
+        table.add_column("Recommended", justify="left", style="bold green")
+
+        for pkg in packages:
+            cve_cell = f"[bold red]{len(pkg.cve)}" if pkg.cve else ""
+            table.add_row(
+                pkg.package_name,
+                pkg.installed_version,
+                cve_cell,
+                self._format_time_delta(pkg.version_age_days, 365),
+                pkg.recommended_version or "",
+            )
+        return table
 
     def _table_factory(
         self, title: str, title_style: str, dependencies: list[ScanRecord], lag_threshold_days: int

@@ -45,6 +45,7 @@ class SolvablePool:
         registry: AbstractPackageRegistryApi,
         engine_context: dict[str, str],
         *,
+        cve_affected: dict[str, set[str]] | None = None,
         allow_prerelease: bool = False,
         _now: datetime | None = None,
     ) -> SolverProblem:
@@ -57,6 +58,8 @@ class SolvablePool:
             deps: Flat sequence of dependency descriptors (direct + transitive).
             registry: Registry instance with warm cache from the scan pass.
             engine_context: Project engine versions, e.g. {"python": "3.11.9"}.
+            cve_affected: Optional mapping of {canonical_name: {affected_version, ...}}.
+                          Versions present here get has_cve=True on their CandidateVersion.
             allow_prerelease: When True, include pre-release candidates.
             _now: Injectable reference time for deterministic age computation in tests.
         """
@@ -99,6 +102,7 @@ class SolvablePool:
                 key=cmp_to_key(lambda a, b: registry.compare_versions(b.version, a.version)),
             )
 
+            affected_versions: set[str] = (cve_affected or {}).get(canonical_name, set())
             candidates[canonical_name] = tuple(
                 CandidateVersion(
                     version=pv.version,
@@ -107,6 +111,7 @@ class SolvablePool:
                     is_prerelease=pv.is_prerelease,
                     is_yanked=pv.is_yanked,
                     runtime_requirements=pv.runtime_requirements,
+                    has_cve=pv.version in affected_versions,
                 )
                 for pv in sorted_pvs
             )

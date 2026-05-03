@@ -2,7 +2,11 @@ from __future__ import annotations
 
 W_ENGINE: int = 1_000_000
 W_DEPRECATED: int = 10_000
-# L5 – health score weight: reserved, not implemented.
+W_VERY_FRESH: int = 1_000_000
+VERY_FRESH_THRESHOLD_DAYS: int = 7
+# L5 – CVE hard clause (see encoder.py)
+# L6 – very-fresh soft-hard: W_VERY_FRESH penalty for versions published < VERY_FRESH_THRESHOLD_DAYS
+# L7 – health score weight: reserved, not implemented.
 
 
 def age_weight(age_days: int | None) -> int:
