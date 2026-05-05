@@ -10,7 +10,7 @@ from ossiq.domain.common import ConstraintType
 from ossiq.domain.project import ConstraintSource
 from ossiq.domain.version import PackageVersion
 from ossiq.unit_of_work.solver.problem import CandidateVersion, PackageConstraint, SolverProblem
-from ossiq.unit_of_work.solver.universe import SolvablePool
+from ossiq.unit_of_work.solver.universe import SolvablePool, parse_requires
 
 # ---------------------------------------------------------------------------
 # Shared helpers
@@ -221,3 +221,55 @@ class TestSolverProblemFingerprint:
         p1 = _make_problem(engine={"python": "3.11"})
         p2 = _make_problem(engine={"python": "3.12"})
         assert p1.fingerprint() != p2.fingerprint()
+
+
+# ---------------------------------------------------------------------------
+# TestParseRequires
+# ---------------------------------------------------------------------------
+
+
+class TestParseRequires:
+    def test_npm_format_constraint(self) -> None:
+        result = parse_requires({"thinc": ">=8.1.8,<8.4.0", "numpy": ">=1.19.0"})
+        assert result["thinc"] == ">=8.1.8,<8.4.0"
+        assert result["numpy"] == ">=1.19.0"
+
+    def test_npm_format_wildcard_becomes_none(self) -> None:
+        result = parse_requires({"lodash": "*", "underscore": "latest"})
+        assert result["lodash"] is None
+        assert result["underscore"] is None
+
+    def test_npm_format_empty_value_treated_as_pypi(self) -> None:
+        # empty value triggers PyPI path — but "lodash" is not PEP 508, gets skipped
+        result = parse_requires({"lodash": ""})
+        # "lodash" with no specifier parses as Requirement with name=lodash, specifier=""
+        assert result.get("lodash") is None  # no specifier → None
+
+    def test_pypi_format_with_specifier(self) -> None:
+        from packaging.specifiers import SpecifierSet
+
+        result = parse_requires({"thinc>=8.1.8,<8.4.0": "", "numpy>=1.19.0": ""})
+        assert result["thinc"] is not None
+        assert result["numpy"] is not None
+        assert SpecifierSet(result["thinc"]) == SpecifierSet(">=8.1.8,<8.4.0")
+        assert SpecifierSet(result["numpy"]) == SpecifierSet(">=1.19.0")
+
+    def test_pypi_format_no_specifier_becomes_none(self) -> None:
+        result = parse_requires({"requests": ""})
+        assert result["requests"] is None
+
+    def test_pypi_format_extras_marker_skipped(self) -> None:
+        result = parse_requires({"uvicorn[standard]>=0.12.0; extra == 'all'": ""})
+        assert "uvicorn" not in result
+
+    def test_pypi_format_python_version_marker_included(self) -> None:
+        result = parse_requires({"numpy>=1.19.0; python_version>='3.9'": ""})
+        assert result["numpy"] == ">=1.19.0"
+
+    def test_empty_dict_returns_empty(self) -> None:
+        assert parse_requires({}) == {}
+
+    def test_canonical_name_normalisation(self) -> None:
+        # PyPI canonicalization: underscores/dashes normalized
+        result = parse_requires({"Pillow": ">=9.0"})
+        assert "pillow" in result

@@ -13,10 +13,22 @@ from ossiq.unit_of_work.solver.driver import ConflictSet
 from ossiq.unit_of_work.solver.driver_pysat import PySATDriver
 from ossiq.unit_of_work.solver.encoder import ConstraintEncoder
 from ossiq.unit_of_work.solver.kernel import HPDRKernel
+from ossiq.unit_of_work.solver.reason import RecommendationReason, build_reason
 from ossiq.unit_of_work.solver.universe import SolvablePool
 from ossiq.unit_of_work.solver.weights import VERY_FRESH_THRESHOLD_DAYS
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class SolverOutput:
+    """Combined result of the HPDR solver: recommendations and their rationales."""
+
+    recommendations: dict[str, str]
+    reasons: dict[str, RecommendationReason]
+
+
+_EMPTY_OUTPUT = SolverOutput(recommendations={}, reasons={})
 
 
 def solve_direct(
@@ -25,7 +37,7 @@ def solve_direct(
     engine_context: dict[str, str],
     *,
     allow_prerelease: bool = False,
-) -> dict[str, str]:
+) -> SolverOutput:
     """Run HPDR solver over direct dependencies.
 
     Args:
@@ -37,11 +49,11 @@ def solve_direct(
         allow_prerelease: When True, include pre-release candidates.
 
     Returns:
-        Mapping of canonical_name → recommended version string.
-        Returns {} when the solver cannot select any version or when deps is empty.
+        SolverOutput with recommendations and per-package rationales.
+        Returns empty SolverOutput when solver cannot select any version or deps is empty.
     """
     if not deps:
-        return {}
+        return _EMPTY_OUTPUT
 
     problem = SolvablePool.build(deps, registry, engine_context, allow_prerelease=allow_prerelease)
     encoded = ConstraintEncoder().encode(problem)
@@ -49,9 +61,11 @@ def solve_direct(
 
     if isinstance(result, ConflictSet):
         logger.debug("HPDR solver returned ConflictSet: %s", result.unsatisfied_clauses)
-        return {}
+        return _EMPTY_OUTPUT
 
-    return dict(result.selected)
+    recommendations = dict(result.selected)
+    reasons = {pkg: build_reason(pkg, ver, problem) for pkg, ver in recommendations.items()}
+    return SolverOutput(recommendations=recommendations, reasons=reasons)
 
 
 class _TransitiveDepLike(Protocol):
@@ -84,7 +98,7 @@ def solve_transitive(
     engine_context: dict[str, str],
     *,
     allow_prerelease: bool = False,
-) -> dict[str, str]:
+) -> SolverOutput:
     """Run HPDR solver over flagged transitive dependencies.
 
     Flagged = installed version has ≥1 CVE or version_age_days < VERY_FRESH_THRESHOLD_DAYS.
@@ -98,8 +112,8 @@ def solve_transitive(
         allow_prerelease: When True, include pre-release candidates.
 
     Returns:
-        Mapping of canonical_name → recommended version string.
-        Returns {} when no flagged records exist, deps is empty, or solver conflicts.
+        SolverOutput with recommendations and per-package rationales.
+        Returns empty SolverOutput when no flagged records exist, deps is empty, or solver conflicts.
     """
     # 1. Filter to flagged records only (CVE or very fresh installed version).
     flagged = [
@@ -108,7 +122,7 @@ def solve_transitive(
         if r.cve or (r.version_age_days is not None and r.version_age_days < VERY_FRESH_THRESHOLD_DAYS)
     ]
     if not flagged:
-        return {}
+        return _EMPTY_OUTPUT
 
     # 2. Deduplicate by package_name — keep first occurrence (same as direct pass).
     seen: set[str] = set()
@@ -148,6 +162,11 @@ def solve_transitive(
 
     if isinstance(result, ConflictSet):
         logger.debug("HPDR transitive solver returned ConflictSet: %s", result.unsatisfied_clauses)
-        return {}
+        return _EMPTY_OUTPUT
 
-    return dict(result.selected)
+    recommendations = dict(result.selected)
+    reasons = {
+        pkg: build_reason(pkg, ver, problem, penalize_fresh_days=VERY_FRESH_THRESHOLD_DAYS)
+        for pkg, ver in recommendations.items()
+    }
+    return SolverOutput(recommendations=recommendations, reasons=reasons)

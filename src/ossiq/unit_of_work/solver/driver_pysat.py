@@ -27,6 +27,16 @@ class VarAllocator:
         """Return the (package_name, version) pair for a given variable ID."""
         return self._reverse[var_id]
 
+    def allocate_fresh(self) -> int:
+        """Allocate a fresh auxiliary variable with no (package, version) mapping.
+
+        Used for ladder AMO encoding. Auxiliary variables are not added to forward/reverse
+        maps, so decode() cannot be called on them and they are excluded from var_map.
+        """
+        var_id = self._next
+        self._next += 1
+        return var_id
+
     @property
     def next_id(self) -> int:
         """The next variable ID that will be allocated."""

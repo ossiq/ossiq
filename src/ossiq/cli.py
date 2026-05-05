@@ -248,6 +248,10 @@ def package(
         list[str] | None,
         typer.Option("--allow-prerelease-package", help="Allow pre-release for a specific package (repeatable)"),
     ] = None,
+    use_solver: Annotated[
+        bool,
+        typer.Option("--solver", is_flag=True, help="Use HPDR solver to compute recommended version and rationale"),
+    ] = False,
 ):
     """
     Deep-dive into a single package: drift status, CVEs, and transitive vulnerabilities.
@@ -263,6 +267,7 @@ def package(
             registry_type=registry_type,
             allow_prerelease=allow_prerelease,
             allow_prerelease_packages=tuple(allow_prerelease_package or []),
+            use_solver=use_solver,
         ),
     )
 

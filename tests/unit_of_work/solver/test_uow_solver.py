@@ -79,7 +79,7 @@ class TestSolveDirectEmptyDeps:
     def test_empty_deps_returns_empty_dict(self) -> None:
         registry = _make_registry({})
         result = solve_direct([], registry, {})
-        assert result == {}
+        assert result.recommendations == {}
         registry.package_versions.assert_not_called()
 
 
@@ -103,8 +103,8 @@ class TestSolveDirectHappyPath:
             }
         )
         result = solve_direct(deps, registry, {})
-        assert result.get("requests") == "2.32.0"
-        assert result.get("flask") == "3.1.0"
+        assert result.recommendations.get("requests") == "2.32.0"
+        assert result.recommendations.get("flask") == "3.1.0"
 
     def test_result_is_dict_of_str_to_str(self) -> None:
         deps = [_FakeDep("requests", "2.28.0")]
@@ -117,8 +117,8 @@ class TestSolveDirectHappyPath:
             }
         )
         result = solve_direct(deps, registry, {})
-        assert isinstance(result, dict)
-        assert all(isinstance(k, str) and isinstance(v, str) for k, v in result.items())
+        assert isinstance(result.recommendations, dict)
+        assert all(isinstance(k, str) and isinstance(v, str) for k, v in result.recommendations.items())
 
 
 class TestSolveDirectNoEligibleCandidates:
@@ -127,7 +127,7 @@ class TestSolveDirectNoEligibleCandidates:
         deps = [_FakeDep("requests", "1.0.0", constraint=">=5.0.0")]
         registry = _make_registry({"requests": [_pv("1.0.0"), _pv("2.0.0")]})
         result = solve_direct(deps, registry, {})
-        assert result == {}
+        assert result.recommendations == {}
 
 
 class TestSolveDirectPrereleaseFiltering:
@@ -143,7 +143,7 @@ class TestSolveDirectPrereleaseFiltering:
             }
         )
         result = solve_direct(deps, registry, {}, allow_prerelease=False)
-        assert result.get("requests") == "2.28.0"
+        assert result.recommendations.get("requests") == "2.28.0"
 
     def test_prerelease_included_when_flag_true(self) -> None:
         """Pre-release candidates are eligible when allow_prerelease=True."""
@@ -157,5 +157,5 @@ class TestSolveDirectPrereleaseFiltering:
             }
         )
         result = solve_direct(deps, registry, {}, allow_prerelease=True)
-        assert "requests" in result
-        assert result["requests"] == "3.0.0a1"
+        assert "requests" in result.recommendations
+        assert result.recommendations["requests"] == "3.0.0a1"

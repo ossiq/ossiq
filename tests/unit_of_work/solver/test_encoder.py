@@ -21,6 +21,7 @@ def _cv(
     is_yanked: bool = False,
     runtime_requirements: dict[str, str] | None = None,
     has_cve: bool = False,
+    requires: dict[str, str | None] | None = None,
 ) -> CandidateVersion:
     return CandidateVersion(
         version=version,
@@ -30,6 +31,7 @@ def _cv(
         is_yanked=is_yanked,
         runtime_requirements=runtime_requirements,
         has_cve=has_cve,
+        requires=requires,
     )
 
 
@@ -172,14 +174,32 @@ class TestConstraintEncoderStructural:
         assert len(positive_clauses) == 1
         assert len(positive_clauses[0]) == 2
 
-    def test_amo_pairwise_clauses(self) -> None:
+    def test_amo_ladder_no_pairwise_between_candidates(self) -> None:
+        # Ladder AMO must not produce pairwise binary negative clauses between candidate vars
         problem = _sp(
             [_pc("pkg")],
             {"pkg": [_cv("1.0.0"), _cv("2.0.0"), _cv("3.0.0")]},
         )
         enc = ConstraintEncoder().encode(problem)
-        amo = [c for c in enc.hard_clauses if len(c) == 2 and all(v < 0 for v in c)]
-        assert len(amo) == 3  # C(3,2)
+        candidate_var_ids = set(enc.var_map.keys())
+        pairwise_candidate_clauses = [
+            c
+            for c in enc.hard_clauses
+            if len(c) == 2 and all(v < 0 for v in c) and all(-v in candidate_var_ids for v in c)
+        ]
+        assert pairwise_candidate_clauses == []
+
+    def test_amo_ladder_clause_count_is_linear(self) -> None:
+        # Ladder AMO: 3n-4 clauses involving auxiliary variables (linear, not quadratic)
+        n = 10
+        problem = _sp(
+            [_pc("pkg")],
+            {"pkg": [_cv(f"{i}.0.0") for i in range(1, n + 1)]},
+        )
+        enc = ConstraintEncoder().encode(problem)
+        candidate_var_ids = set(enc.var_map.keys())
+        aux_clauses = [c for c in enc.hard_clauses if any(abs(v) not in candidate_var_ids for v in c)]
+        assert len(aux_clauses) == 3 * n - 4  # 26 for n=10
 
     def test_no_candidates_produces_no_clauses(self) -> None:
         problem = _sp(
@@ -400,6 +420,19 @@ class TestConstraintEncoderRoundtrip:
         assert isinstance(result, SolverResult)
         assert result.selected == [("pkg", "2.0.0")]
 
+    def test_roundtrip_two_packages_independent(self) -> None:
+        problem = _sp(
+            [_pc("a"), _pc("b")],
+            {
+                "a": [_cv("1.0.0", age_days=365), _cv("2.0.0", age_days=10)],
+                "b": [_cv("1.0.0", age_days=365), _cv("2.0.0", age_days=10)],
+            },
+        )
+        enc = ConstraintEncoder().encode(problem)
+        result = PySATDriver().solve(enc)
+        assert isinstance(result, SolverResult)
+        assert set(result.selected) == {("a", "2.0.0"), ("b", "2.0.0")}
+
     def test_roundtrip_deprecated_loses_to_non_deprecated(self) -> None:
         # "2.0.0": age=50, deprecated → freshness bonus 99_950, deprecated penalty 10_000
         # "1.9.0": age=100, clean → freshness bonus 99_900
@@ -418,3 +451,87 @@ class TestConstraintEncoderRoundtrip:
         result = PySATDriver().solve(enc)
         assert isinstance(result, SolverResult)
         assert result.selected == [("pkg", "1.9.0")]
+
+
+# ---------------------------------------------------------------------------
+# TestConstraintEncoderInterPackage
+# ---------------------------------------------------------------------------
+
+
+class TestConstraintEncoderInterPackage:
+    def test_implication_clause_generated_for_compatible_dep(self) -> None:
+        # a@1.0.0 requires b>=2.0 → implication clause [-a_vid, b_2_vid]
+        problem = _sp(
+            [_pc("a"), _pc("b")],
+            {
+                "a": [_cv("1.0.0", requires={"b": ">=2.0"})],
+                "b": [_cv("1.0.0"), _cv("2.0.0")],
+            },
+        )
+        enc = ConstraintEncoder().encode(problem)
+        a_vid = next(vid for vid, (p, v) in enc.var_map.items() if p == "a" and v == "1.0.0")
+        b2_vid = next(vid for vid, (p, v) in enc.var_map.items() if p == "b" and v == "2.0.0")
+        b1_vid = next(vid for vid, (p, v) in enc.var_map.items() if p == "b" and v == "1.0.0")
+        # Implication: [-a_vid, b2_vid] — b1 doesn't satisfy >=2.0 so excluded
+        assert [-a_vid, b2_vid] in enc.hard_clauses
+        # b1_vid must NOT appear in implication clauses for a@1.0.0
+        implication_with_b1 = [c for c in enc.hard_clauses if -a_vid in c and b1_vid in c]
+        assert implication_with_b1 == []
+
+    def test_no_implication_for_dep_not_in_problem(self) -> None:
+        # a@1.0.0 requires c>=1.0, but "c" is not a constraint in the problem
+        problem = _sp(
+            [_pc("a")],
+            {"a": [_cv("1.0.0", requires={"c": ">=1.0"})]},
+        )
+        enc = ConstraintEncoder().encode(problem)
+        assert enc.hard_clauses  # still has AMO/ALO/L1 clauses
+        a_vid = next(iter(enc.var_map))
+        implication_clauses = [c for c in enc.hard_clauses if -a_vid in c and len(c) > 1]
+        assert implication_clauses == []
+
+    def test_no_implication_when_no_compatible_dep_candidate(self) -> None:
+        # a@1.0.0 requires b>=5.0, but b only has 2.0.0 — skip conservatively (no hard-forbid)
+        problem = _sp(
+            [_pc("a"), _pc("b")],
+            {
+                "a": [_cv("1.0.0", requires={"b": ">=5.0"})],
+                "b": [_cv("2.0.0")],
+            },
+        )
+        enc = ConstraintEncoder().encode(problem)
+        a_vid = next(vid for vid, (p, _) in enc.var_map.items() if p == "a")
+        # a@1.0.0 must NOT be hard-forbidden just because b can't satisfy >=5.0
+        assert [-a_vid] not in enc.hard_clauses
+        # And no implication clause either
+        implication_clauses = [c for c in enc.hard_clauses if -a_vid in c and len(c) > 1]
+        assert implication_clauses == []
+
+    def test_no_implication_when_requires_is_none(self) -> None:
+        problem = _sp(
+            [_pc("a"), _pc("b")],
+            {
+                "a": [_cv("1.0.0", requires=None)],
+                "b": [_cv("1.0.0"), _cv("2.0.0")],
+            },
+        )
+        enc = ConstraintEncoder().encode(problem)
+        a_vid = next(vid for vid, (p, _) in enc.var_map.items() if p == "a")
+        implication_clauses = [c for c in enc.hard_clauses if -a_vid in c and len(c) > 1]
+        assert implication_clauses == []
+
+    def test_roundtrip_implication_forces_compatible_b(self) -> None:
+        # a@1.0.0 requires b>=2.0; b has 1.0.0 and 2.0.0 → solver must pick b@2.0.0
+        problem = _sp(
+            [_pc("a"), _pc("b")],
+            {
+                "a": [_cv("1.0.0", age_days=100, requires={"b": ">=2.0"})],
+                "b": [_cv("1.0.0", age_days=100), _cv("2.0.0", age_days=100)],
+            },
+        )
+        enc = ConstraintEncoder().encode(problem)
+        result = PySATDriver().solve(enc)
+        assert isinstance(result, SolverResult)
+        selected = dict(result.selected)
+        assert selected["a"] == "1.0.0"
+        assert selected["b"] == "2.0.0"

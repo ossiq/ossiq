@@ -104,7 +104,7 @@ class TestSolveTransitiveEmpty:
     def test_empty_records_returns_empty_dict(self) -> None:
         registry = _make_registry({})
         result = solve_transitive([], registry, {})
-        assert result == {}
+        assert result.recommendations == {}
         registry.package_versions.assert_not_called()
 
 
@@ -114,7 +114,7 @@ class TestSolveTransitiveUnflagged:
         records = [_rec("requests", "2.28.0", age_days=30)]
         registry = _make_registry({"requests": [_pv("2.32.0")]})
         result = solve_transitive(records, registry, {})
-        assert result == {}
+        assert result.recommendations == {}
         registry.package_versions.assert_not_called()
 
 
@@ -131,7 +131,7 @@ class TestSolveTransitiveCVE:
             }
         )
         result = solve_transitive(records, registry, {})
-        assert result.get("vuln-pkg") == "2.0.0"
+        assert result.recommendations.get("vuln-pkg") == "2.0.0"
 
     def test_all_candidates_cve_returns_empty(self) -> None:
         """When every candidate version is CVE-affected, solver returns ConflictSet → {}."""
@@ -145,7 +145,7 @@ class TestSolveTransitiveCVE:
             }
         )
         result = solve_transitive(records, registry, {})
-        assert result == {}
+        assert result.recommendations == {}
 
 
 class TestSolveTransitiveVeryFresh:
@@ -163,7 +163,7 @@ class TestSolveTransitiveVeryFresh:
         # Solver should recommend 1.0.0 because 2.0.0 has L6 penalty and 1.0.0 has none
         result = solve_transitive(records, registry, {})
         # Package was flagged (age < 7) so solver runs — result should contain a recommendation
-        assert "new-pkg" in result
+        assert "new-pkg" in result.recommendations
 
     def test_very_fresh_solver_prefers_older_stable_version(self) -> None:
         """Solver avoids a very-fresh candidate in favour of a stable older one."""
@@ -179,7 +179,7 @@ class TestSolveTransitiveVeryFresh:
             }
         )
         result = solve_transitive(records, registry, {})
-        assert result.get("new-pkg") == "1.0.0"
+        assert result.recommendations.get("new-pkg") == "1.0.0"
 
 
 class TestSolveTransitiveDeduplication:
@@ -198,4 +198,4 @@ class TestSolveTransitiveDeduplication:
         result = solve_transitive([rec1, rec2], registry, {})
         # Only one call per unique package name
         assert registry.package_versions.call_count == 1
-        assert result.get("shared") == "2.0.0"
+        assert result.recommendations.get("shared") == "2.0.0"

@@ -18,6 +18,7 @@ class CandidateVersion:
     is_yanked: bool
     runtime_requirements: dict[str, str] | None
     has_cve: bool = False
+    requires: dict[str, str | None] | None = None
 
 
 @dataclass(frozen=True)
@@ -69,6 +70,7 @@ class SolverProblem:
                             "prerelease": cv.is_prerelease,
                             "yanked": cv.is_yanked,
                             "rt": sorted((cv.runtime_requirements or {}).items()),
+                            "requires": sorted((cv.requires or {}).items()),
                         }
                         for cv in cvs
                     ],
@@ -77,5 +79,6 @@ class SolverProblem:
                 for pkg, cvs in sorted(self.candidates.items())
             },
         }
+
         raw = json.dumps(payload, sort_keys=True, separators=(",", ":"))
         return hashlib.sha256(raw.encode()).hexdigest()

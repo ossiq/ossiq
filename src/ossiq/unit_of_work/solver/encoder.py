@@ -4,6 +4,7 @@ import re
 
 import semver  # type: ignore[import]
 from packaging.specifiers import InvalidSpecifier, SpecifierSet
+from packaging.utils import canonicalize_name
 
 from ossiq.unit_of_work.solver.driver import EncodedProblem
 from ossiq.unit_of_work.solver.driver_pysat import VarAllocator
@@ -103,6 +104,23 @@ def has_engine_mismatch(cv: CandidateVersion, engine_context: dict[str, str]) ->
     return False
 
 
+def _ladder_amo(eligible_vids: list[int], alloc: VarAllocator) -> list[list[int]]:
+    """Return hard clauses enforcing At-Most-One over eligible_vids using ladder encoding.
+
+    Uses the Sinz (2005) sequential-counter encoding: n-1 auxiliary variables and
+    3n-4 clauses (linear), replacing the O(n²) pairwise encoding.
+    """
+    n = len(eligible_vids)
+    if n <= 1:
+        return []
+    s = [alloc.allocate_fresh() for _ in range(n - 1)]
+    x = eligible_vids
+    clauses: list[list[int]] = [[-x[0], s[0]], [-x[n - 1], -s[n - 2]]]
+    for i in range(1, n - 1):
+        clauses.extend([[-x[i], s[i]], [-x[i], -s[i - 1]], [-s[i - 1], s[i]]])
+    return clauses
+
+
 class ConstraintEncoder:
     """Translates a SolverProblem into an EncodedProblem (hard + soft WCNF clauses)."""
 
@@ -116,27 +134,43 @@ class ConstraintEncoder:
         self._penalize_fresh_days = penalize_fresh_days
 
     def encode(self, problem: SolverProblem) -> EncodedProblem:
-        """Encode a SolverProblem into hard and soft clauses for the MaxSAT solver."""
+        """Encode a SolverProblem into hard and soft clauses for the MaxSAT solver.
+
+        Three-pass encoding:
+        1. Allocate all SAT variables (enables inter-package implication lookup in pass 3).
+        2. Emit per-package hard (L1, L5, AMO, ALO) and soft (L2, L3, L4, L6) clauses.
+        3. Emit inter-package implication clauses from CandidateVersion.requires.
+        """
         alloc = VarAllocator()
         hard_clauses: list[list[int]] = []
         soft_clauses: list[tuple[int, list[int]]] = []
         var_map: dict[int, tuple[str, str]] = {}
 
+        # pkg_state: pkg → (candidates, all_vids, eligible_vids, eligible_set)
+        # eligible_vids/eligible_set populated in pass 2.
+        pkg_state: dict[str, tuple[tuple[CandidateVersion, ...], list[int], list[int], set[int]]] = {}
+
+        # Pass 1: Allocate all variables
         for constraint in problem.constraints:
             pkg = constraint.package_name
             candidates = problem.candidates.get(pkg, ())
-
             if not candidates:
                 continue
-
-            # Allocate vars for all candidates
             all_vids: list[int] = []
             for cv in candidates:
                 vid = alloc.allocate(pkg, cv.version)
                 var_map[vid] = (pkg, cv.version)
                 all_vids.append(vid)
+            pkg_state[pkg] = (candidates, all_vids, [], set())
 
-            # L1 + L5 Hard: forbid out-of-constraint versions and CVE-affected versions
+        # Pass 2: Per-package hard and soft clauses
+        for constraint in problem.constraints:
+            pkg = constraint.package_name
+            if pkg not in pkg_state:
+                continue
+            candidates, all_vids, _, _ = pkg_state[pkg]
+
+            # L1 + L5: forbid out-of-constraint and CVE-affected versions
             eligible_vids: list[int] = []
             for cv, vid in zip(candidates, all_vids, strict=True):
                 if not version_matches(cv.version, constraint.version_constraint):
@@ -146,16 +180,15 @@ class ConstraintEncoder:
                 else:
                     eligible_vids.append(vid)
 
-            # Structural: AMO (pairwise) + ALO over eligible candidates
-            if len(eligible_vids) >= 2:
-                for i in range(len(eligible_vids)):
-                    for j in range(i + 1, len(eligible_vids)):
-                        hard_clauses.append([-eligible_vids[i], -eligible_vids[j]])
+            eligible_set = set(eligible_vids)
+            pkg_state[pkg] = (candidates, all_vids, eligible_vids, eligible_set)
+
+            # Structural: ladder AMO + ALO over eligible candidates
+            hard_clauses.extend(_ladder_amo(eligible_vids, alloc))
             if eligible_vids:
                 hard_clauses.append(list(eligible_vids))  # ALO; skip if empty (UNSAT by design)
 
             # Soft clauses — eligible candidates only
-            eligible_set = set(eligible_vids)
             for cv, vid in zip(candidates, all_vids, strict=True):
                 if vid not in eligible_set:
                     continue
@@ -172,6 +205,30 @@ class ConstraintEncoder:
                 ):
                     soft_clauses.append((W_VERY_FRESH, [-vid]))
                 # L7: health score — reserved, not implemented
+
+        # Pass 3: Inter-package implication clauses from CandidateVersion.requires
+        for constraint in problem.constraints:
+            pkg = constraint.package_name
+            if pkg not in pkg_state:
+                continue
+            candidates, all_vids, _, eligible_set = pkg_state[pkg]
+
+            for cv, vid in zip(candidates, all_vids, strict=True):
+                if vid not in eligible_set or cv.requires is None:
+                    continue
+                for dep_pkg_raw, dep_constraint in cv.requires.items():
+                    dep_pkg = canonicalize_name(dep_pkg_raw)
+                    if dep_pkg not in pkg_state:
+                        continue  # dependency not in this problem — skip
+                    dep_candidates, dep_all_vids, _, dep_eligible_set = pkg_state[dep_pkg]
+                    compatible = [
+                        dep_vid
+                        for dep_cv, dep_vid in zip(dep_candidates, dep_all_vids, strict=True)
+                        if dep_vid in dep_eligible_set and version_matches(dep_cv.version, dep_constraint)
+                    ]
+                    if not compatible:
+                        continue  # no satisfying candidate — skip conservatively
+                    hard_clauses.append([-vid] + compatible)  # implication: A@v → ∃ compatible B
 
         return EncodedProblem(
             hard_clauses=hard_clauses,

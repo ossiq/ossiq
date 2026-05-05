@@ -39,6 +39,26 @@ class TestVarAllocator:
             var_id = alloc.allocate(pkg, ver)
             assert alloc.decode(var_id) == (pkg, ver)
 
+    def test_allocate_fresh_returns_positive_unique_id(self) -> None:
+        import pytest
+
+        alloc = VarAllocator()
+        v1 = alloc.allocate("pkg", "1.0")
+        aux = alloc.allocate_fresh()
+        v2 = alloc.allocate("pkg", "2.0")
+        assert len({v1, aux, v2}) == 3
+        assert aux > 0
+        with pytest.raises(KeyError):
+            alloc.decode(aux)
+
+    def test_allocate_fresh_ids_sequential_with_regular(self) -> None:
+        alloc = VarAllocator()
+        a = alloc.allocate("pkg", "1.0")
+        b = alloc.allocate_fresh()
+        c = alloc.allocate("pkg", "2.0")
+        assert b == a + 1
+        assert c == b + 1
+
 
 class TestPySATDriverSolving:
     def test_selects_higher_weighted_version(self) -> None:
