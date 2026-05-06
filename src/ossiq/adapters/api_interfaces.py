@@ -82,7 +82,7 @@ class AbstractPackageRegistryApi(abc.ABC):
     @abc.abstractmethod
     def packages_info_batch(self, names: list[str]) -> dict[str, Package]:
         """
-        Fetch info for a list of packages, returning a mapping of name → Package.
+        Fetch info for a list of packages, returning a mapping of name -> Package.
         """
         raise NotImplementedError
 

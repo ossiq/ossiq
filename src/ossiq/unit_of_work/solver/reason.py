@@ -5,8 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal
 
-from ossiq.unit_of_work.solver.encoder import has_engine_mismatch, version_matches
 from ossiq.unit_of_work.solver.problem import SolverProblem
+from ossiq.unit_of_work.solver.version_matchers import has_engine_mismatch, version_satisfies_constraint
 
 RejectionCause = Literal["constraint_mismatch", "cve", "engine_mismatch", "deprecated", "very_fresh"]
 
@@ -56,7 +56,7 @@ def build_reason(
     - soft-rejected (L2 engine mismatch, L4 deprecated, L6 very fresh) — penalised enough to lose
     - age-preference loss (L3) — eligible but selected had higher age_weight; no entry emitted
 
-    Reuses version_matches() and has_engine_mismatch() from encoder.py.
+    Reuses version_satisfies_constraint() and has_engine_mismatch() from version_matchers.py.
     """
     constraint = next((c for c in problem.constraints if c.package_name == pkg), None)
     candidates = problem.candidates.get(pkg, ())
@@ -64,7 +64,7 @@ def build_reason(
     if not candidates:
         return _empty_reason(selected_version, constraint.version_constraint if constraint else None)
 
-    # Find the index of the selected version in candidates (newest→oldest order).
+    # Find the index of the selected version in candidates (newest->oldest order).
     selected_index: int | None = None
     for i, cv in enumerate(candidates):
         if cv.version == selected_version:
@@ -80,7 +80,7 @@ def build_reason(
 
     for cv in candidates[:selected_index]:
         # L1 hard: constraint mismatch
-        if not version_matches(cv.version, version_constraint):
+        if not version_satisfies_constraint(cv.version, version_constraint):
             hard_rejections.append(
                 VersionRejection(
                     version=cv.version,

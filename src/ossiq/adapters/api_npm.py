@@ -202,7 +202,7 @@ class PackageRegistryApiNpm(AbstractPackageRegistryApi):
 
     def packages_info_batch(self, names: list[str]) -> dict[str, Package]:
         """
-        Fetch NPM info for a list of packages in parallel, returning name → Package.
+        Fetch NPM info for a list of packages in parallel, returning name -> Package.
         Already-cached packages are served from _raw_cache without a network request.
         """
         names_to_fetch = [n for n in names if n not in self._raw_cache]

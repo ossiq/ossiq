@@ -280,10 +280,10 @@ def classify_npm_specifier(spec: str | None) -> ConstraintType:
     """Classify an npm version specifier as DECLARED, NARROWED, or PINNED.
 
     Rules:
-    - None / "" / "*" / "latest"  → DECLARED
-    - Starts with "^" or "~"      → DECLARED  (npm conventions)
-    - Bare semver "x.y.z"         → PINNED
-    - Anything else               → NARROWED  (explicit range, OR, comparisons)
+    - None / "" / "*" / "latest"  -> DECLARED
+    - Starts with "^" or "~"      -> DECLARED  (npm conventions)
+    - Bare semver "x.y.z"         -> PINNED
+    - Anything else               -> NARROWED  (explicit range, OR, comparisons)
     """
     if not spec:
         return ConstraintType.DECLARED
@@ -301,10 +301,10 @@ def classify_pypi_specifier(spec: str | None) -> ConstraintType:
     """Classify a PEP 440 version specifier as DECLARED, NARROWED, or PINNED.
 
     Rules:
-    - None / ""            → DECLARED
-    - Single ">=x.y.z"    → DECLARED  (standard lower-bound practice)
-    - "==x.y.z" (no "*")  → PINNED
-    - Everything else      → NARROWED  (~=, ==x.*, !=, compound ",", any "<"/"<=")
+    - None / ""            -> DECLARED
+    - Single ">=x.y.z"    -> DECLARED  (standard lower-bound practice)
+    - "==x.y.z" (no "*")  -> PINNED
+    - Everything else      -> NARROWED  (~=, ==x.*, !=, compound ",", any "<"/"<=")
     """
     if not spec:
         return ConstraintType.DECLARED

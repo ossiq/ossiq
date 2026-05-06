@@ -18,9 +18,9 @@ class OsvBatchStrategy(BatchStrategy):
     """
     BatchStrategy implementation for the OSV.dev /v1/querybatch endpoint.
 
-    prepare_item  : (Package, version) → OSV query dict
+    prepare_item  : (Package, version) -> OSV query dict
     perform_request: POST /querybatch with a list of query dicts
-    process_response: returns (pkg_name, version) → list of raw OSV vuln dicts,
+    process_response: returns (pkg_name, version) -> list of raw OSV vuln dicts,
                       handling pagination via self.session
     """
 

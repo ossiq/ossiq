@@ -39,7 +39,7 @@ def parse_requires(declared: dict[str, str]) -> dict[str, str | None]:
     PyPI format: key = PEP 508 dependency string, value = empty string.
         e.g. {"thinc>=8.1.8,<8.4.0": "", "numpy>=1.19.0; python_version>='3.9'": ""}
 
-    Discriminator: non-empty value → npm format; empty value → PyPI format.
+    Discriminator: non-empty value -> npm format; empty value -> PyPI format.
     Optional extras dependencies (marker contains 'extra') are silently skipped.
     Invalid dependency strings are silently skipped.
 
@@ -70,7 +70,7 @@ def parse_requires(declared: dict[str, str]) -> dict[str, str | None]:
     return result
 
 
-class _DepLike(Protocol):
+class DepLike(Protocol):
     """Structural interface satisfied by DependencyDescriptor (service/project.py).
 
     Using a Protocol avoids the import cycle: service/ already imports unit_of_work/.
@@ -89,7 +89,7 @@ class SolvablePool:
     @classmethod
     def build(
         cls,
-        deps: Sequence[_DepLike],
+        deps: Sequence[DepLike],
         registry: AbstractPackageRegistryApi,
         engine_context: dict[str, str],
         *,
@@ -114,7 +114,7 @@ class SolvablePool:
         # 1. Deduplicate by canonical_name — highest constraint priority wins.
         # TODO: When two descriptors share the same type, resolve by specifier
         #       narrowness rather than insertion order.
-        best: dict[str, _DepLike] = {}
+        best: dict[str, DepLike] = {}
         for dep in deps:
             existing = best.get(dep.canonical_name)
             if existing is None:
@@ -144,7 +144,7 @@ class SolvablePool:
                 if not pv.is_yanked and not pv.is_unpublished and (allow_prerelease or not pv.is_prerelease)
             ]
 
-            # Sort descending: b before a in comparator → newest first.
+            # Sort descending: b before a in comparator -> newest first.
             sorted_pvs = sorted(
                 filtered,
                 key=cmp_to_key(lambda a, b: registry.compare_versions(b.version, a.version)),

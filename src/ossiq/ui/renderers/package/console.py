@@ -241,7 +241,7 @@ class ConsolePackageRenderer(AbstractUserInterfaceRenderer):
         path = record.dependency_path or []
         indent = "  "
 
-        self.console.print(f"{indent}[bold cyan]→[/bold cyan] root")
+        self.console.print(f"{indent}[bold cyan]->[/bold cyan] root")
         for i, ancestor in enumerate(path):
             pad = "  " * (i + 1)
             self.console.print(f"{indent}{pad}└─ {ancestor}")

@@ -13,6 +13,7 @@ solver/
 ├── kernel.py              HPDRKernel — thin delegating wrapper
 ├── problem.py             SolverProblem, CandidateVersion, PackageConstraint
 ├── universe.py            SolvablePool — builds SolverProblem from registry
+├── version_matchers.py    npm semver + PEP 440 range matching — raw constraint → bool
 ├── encoder.py             ConstraintEncoder — produces EncodedProblem (WCNF)
 ├── weights.py             Constraint weight constants + age_weight()
 └── uow_dependencies_solver.py   Public API: solve_direct(), solve_transitive()
@@ -93,7 +94,7 @@ Structural clauses per package (encoder):
 
 ### Version constraint dispatch (encoder.py)
 
-`version_matches()` tries PEP 440 `SpecifierSet` first; falls back to npm semver on `InvalidSpecifier`. Bare npm versions (e.g. `"14"`) are treated as caret ranges (`^14.0.0`). Unparseable constraints pass through (`True`) — unknown format is never a hard block.
+`version_satisfies_constraint()` (in `version_matchers.py`) tries PEP 440 `SpecifierSet` first; falls back to npm semver on `InvalidSpecifier`. Bare npm versions (e.g. `"14"`) are treated as caret ranges (`^14.0.0`). Unparseable constraints pass through (`True`) — unknown format is never a hard block.
 
 ---
 

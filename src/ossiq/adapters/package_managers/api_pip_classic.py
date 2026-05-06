@@ -248,7 +248,7 @@ class PackageManagerPythonPipClassic(AbstractPackageManagerApi):
         return dependencies
 
     def enrich_and_build_tree(self, dependencies: dict[str, Dependency]) -> dict[str, Dependency]:
-        """Fetch requires_dist for all packages, build parent→child edges,
+        """Fetch requires_dist for all packages, build parent->child edges,
         and return only true root packages (not required by any other listed package).
         """
         if not dependencies:
