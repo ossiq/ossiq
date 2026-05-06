@@ -88,7 +88,7 @@ class ConstraintEncoder:
         pkg_state: dict[str, PackageState],
         alloc: VarAllocator,
     ) -> tuple[list[list[int]], list[tuple[int, list[int]]]]:
-        """Pass 2: emit per-package hard (L1, L5, AMO, ALO) and soft (L2–L6) clauses.
+        """Pass 2: emit per-package hard (L1, L5, AMO, ALO) and soft (L2-L6) clauses.
 
         Mutates pkg_state in-place to populate eligible_vids and eligible_set.
         """
@@ -165,6 +165,6 @@ class ConstraintEncoder:
                     ]
                     if not compatible:
                         continue  # no satisfying candidate — skip conservatively
-                    hard_clauses.append([-vid] + compatible)  # implication: A@v → ∃ compatible B
+                    hard_clauses.append([-vid] + compatible)  # implication: A@v -> ∃ compatible B
 
         return hard_clauses
