@@ -14,20 +14,32 @@ from ossiq.unit_of_work.solver.weights import W_DEPRECATED, W_ENGINE, W_VERY_FRE
 logger = logging.getLogger(__name__)
 
 
-def _ladder_amo(eligible_vids: list[int], alloc: VarAllocator) -> list[list[int]]:
-    """Return hard clauses enforcing At-Most-One over eligible_vids using ladder encoding.
+def ladder_amo(eligible_vids: list[int], alloc: VarAllocator) -> list[list[int]]:
+    """Enforce At-Most-One over eligible_vids via the Sinz (2005) ladder encoding.
 
-    Uses the Sinz (2005) sequential-counter encoding: n-1 auxiliary variables and
-    3n-4 clauses (linear), replacing the O(n²) pairwise encoding.
+    Uses n-1 auxiliary carry variables that propagate a "someone was already picked"
+    flag down the chain. Any later candidate colliding with a raised flag makes the
+    formula unsatisfiable, ensuring only one version is selected.
+    Uses ~3n clauses instead of the O(n²) pairwise approach.
     """
     n = len(eligible_vids)
     if n <= 1:
         return []
-    s = [alloc.allocate_fresh() for _ in range(n - 1)]
+
     x = eligible_vids
-    clauses: list[list[int]] = [[-x[0], s[0]], [-x[n - 1], -s[n - 2]]]
+    carry = [alloc.allocate_fresh() for _ in range(n - 1)]
+    clauses: list[list[int]] = []
+
+    # Boundary: first candidate raises carry[0]; last requires carry[n-2] still unset
+    clauses.append([-x[0], carry[0]])
+    clauses.append([-x[n - 1], -carry[n - 2]])
+
+    # Middle candidates: raise carry, assert no earlier pick, propagate carry forward
     for i in range(1, n - 1):
-        clauses.extend([[-x[i], s[i]], [-x[i], -s[i - 1]], [-s[i - 1], s[i]]])
+        clauses.append([-x[i], carry[i]])  # if picked -> raise carry
+        clauses.append([-x[i], -carry[i - 1]])  # if picked -> nobody before was picked
+        clauses.append([-carry[i - 1], carry[i]])  # propagate carry forward
+
     return clauses
 
 
@@ -145,7 +157,7 @@ class ConstraintEncoder:
                 logger.debug("Pass 2: %s has NO eligible candidates — will be UNSAT", pkg)
 
             # Structural: ladder AMO + ALO over eligible candidates
-            hard_clauses.extend(_ladder_amo(eligible_vids, alloc))
+            hard_clauses.extend(ladder_amo(eligible_vids, alloc))
             if eligible_vids:
                 hard_clauses.append(list(eligible_vids))  # ALO; skip if empty (UNSAT by design)
 
