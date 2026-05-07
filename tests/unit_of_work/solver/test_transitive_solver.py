@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import Any
 from unittest.mock import MagicMock
 
@@ -167,18 +168,21 @@ class TestSolveTransitiveVeryFresh:
 
     def test_very_fresh_solver_prefers_older_stable_version(self) -> None:
         """Solver avoids a very-fresh candidate in favour of a stable older one."""
+        _now = datetime(2026, 5, 7, tzinfo=UTC)
         records = [_rec("new-pkg", "2.0.0", age_days=3)]
         registry = _make_registry(
             {
                 "new-pkg": [
-                    # age=200 → L3 weight=99_800; no L6 penalty
+                    # age=206 days → [90, 365) tier → L3 weight=40_000; no L6 penalty
                     _pv("1.0.0", published="2025-10-13T00:00:00Z"),
-                    # age=3 → L3 weight=99_997; L6 penalty=1_000_000
-                    _pv("2.0.0", published="2026-04-30T00:00:00Z"),
+                    # age=3 days → [0, 30) tier → L3 weight=80_000; L6 penalty=100_000
+                    # Cost selecting 2.0.0: miss 40_000 + miss penalty avoidance 100_000 = 140_000
+                    # Cost selecting 1.0.0: miss 80_000 → 1.0.0 wins
+                    _pv("2.0.0", published="2026-05-04T00:00:00Z"),
                 ]
             }
         )
-        result = solve_transitive(records, registry, {})
+        result = solve_transitive(records, registry, {}, now=_now)
         assert result.recommendations.get("new-pkg") == "1.0.0"
 
 

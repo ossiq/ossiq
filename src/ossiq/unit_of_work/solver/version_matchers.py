@@ -30,12 +30,15 @@ Pipeline:
 
 from __future__ import annotations
 
+import logging
 import re
 
 from univers.version_range import InvalidVersionRange, NpmVersionRange, PypiVersionRange
 from univers.versions import PypiVersion, SemverVersion
 
 from ossiq.unit_of_work.solver.problem import CandidateVersion
+
+logger = logging.getLogger(__name__)
 
 # ── npm / Node.js semver ───────────────────────────────────────────────────
 # Spec: https://github.com/npm/node-semver#versions
@@ -92,7 +95,13 @@ def npm_version_satisfies_range(version: str, range_constraint: str) -> bool:
 
     try:
         return SemverVersion(version) in NpmVersionRange.from_native(processed)  # type: ignore
-    except Exception:
+    except Exception as exc:
+        logger.debug(
+            "npm_version_satisfies_range: unparseable version=%r constraint=%r error=%s",
+            version,
+            range_constraint,
+            exc,
+        )
         return True
 
 
@@ -128,8 +137,19 @@ def version_satisfies_constraint(version: str, constraint: str | None) -> bool:
         try:
             return _pypi_version_satisfies_specifier(version, constraint)
         except InvalidVersionRange:
+            logger.debug(
+                "version_satisfies_constraint: PyPI parse failed, falling back to npm version=%r constraint=%r",
+                version,
+                constraint,
+            )
             return npm_version_satisfies_range(version, constraint)
-    except Exception:
+    except Exception as exc:
+        logger.debug(
+            "version_satisfies_constraint: both parsers failed version=%r constraint=%r error=%s",
+            version,
+            constraint,
+            exc,
+        )
         return True
 
 

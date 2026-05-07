@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Sequence
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Protocol
 
 from ossiq.adapters.api_interfaces import AbstractPackageRegistryApi
@@ -49,6 +50,7 @@ def solve_direct(
     engine_context: dict[str, str],
     *,
     allow_prerelease: bool = False,
+    _now: datetime | None = None,
 ) -> SolverOutput:
     """Run HPDR solver over direct dependencies.
 
@@ -67,8 +69,11 @@ def solve_direct(
     if not deps:
         return EMPTY_OUTPUT
 
-    problem = SolvablePool.build(deps, registry, engine_context, allow_prerelease=allow_prerelease)
+    logger.debug("solve_direct: building pool for %d deps", len(deps))
+    problem = SolvablePool.build(deps, registry, engine_context, allow_prerelease=allow_prerelease, _now=_now)
+    logger.debug("solve_direct: pool built — packages=%d", len(problem.constraints))
     encoded = ConstraintEncoder().encode(problem)
+    logger.debug("solve_direct: encoded — hard=%d soft=%d", len(encoded.hard_clauses), len(encoded.soft_clauses))
     result = HPDRKernel(PySATDriver()).solve(encoded)
 
     if isinstance(result, ConflictSet):
@@ -76,6 +81,7 @@ def solve_direct(
         return EMPTY_OUTPUT
 
     recommendations = dict(result.selected)
+    logger.debug("solve_direct: selected %d recommendations", len(recommendations))
     reasons = {pkg: build_reason(pkg, ver, problem) for pkg, ver in recommendations.items()}
     return SolverOutput(recommendations=recommendations, reasons=reasons)
 
@@ -96,6 +102,7 @@ def solve_transitive(
     engine_context: dict[str, str],
     *,
     allow_prerelease: bool = False,
+    now: datetime | None = None,
 ) -> SolverOutput:
     """Run HPDR solver over flagged transitive dependencies.
 
@@ -113,12 +120,14 @@ def solve_transitive(
         SolverOutput with recommendations and per-package rationales.
         Returns empty SolverOutput when no flagged records exist, deps is empty, or solver conflicts.
     """
+    logger.debug("solve_transitive: received %d records", len(transitive_records))
     # 1. Filter to flagged records only (CVE or very fresh installed version).
     flagged = [
         r
         for r in transitive_records
         if r.cve or (r.version_age_days is not None and r.version_age_days < VERY_FRESH_THRESHOLD_DAYS)
     ]
+    logger.debug("solve_transitive: %d flagged (CVE or very fresh)", len(flagged))
     if not flagged:
         return EMPTY_OUTPUT
 
@@ -148,14 +157,18 @@ def solve_transitive(
     ]
 
     # 5. Build -> encode -> solve.
+    logger.debug("solve_transitive: building pool for %d unique flagged deps", len(deps))
     problem = SolvablePool.build(
         deps,
         registry,
         engine_context,
         cve_affected=cve_affected,
         allow_prerelease=allow_prerelease,
+        _now=now,
     )
+    logger.debug("solve_transitive: pool built — packages=%d", len(problem.constraints))
     encoded = ConstraintEncoder(penalize_fresh_days=VERY_FRESH_THRESHOLD_DAYS).encode(problem)
+    logger.debug("solve_transitive: encoded — hard=%d soft=%d", len(encoded.hard_clauses), len(encoded.soft_clauses))
     result = HPDRKernel(PySATDriver()).solve(encoded)
 
     if isinstance(result, ConflictSet):
@@ -163,6 +176,7 @@ def solve_transitive(
         return EMPTY_OUTPUT
 
     recommendations = dict(result.selected)
+    logger.debug("solve_transitive: selected %d recommendations", len(recommendations))
     reasons = {
         pkg: build_reason(pkg, ver, problem, penalize_fresh_days=VERY_FRESH_THRESHOLD_DAYS)
         for pkg, ver in recommendations.items()

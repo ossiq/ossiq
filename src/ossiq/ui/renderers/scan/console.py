@@ -61,7 +61,15 @@ class ConsoleScanRenderer(AbstractUserInterfaceRenderer):
                 "Optional Dependency Drift Report", "bold cyan", data.optional_packages, lag_threshold_days
             )
 
-        transitive_flagged = [r for r in data.transitive_packages if r.recommended_version is not None]
+        seen: set[tuple[str, str, str]] = set()
+        transitive_flagged: list[ScanRecord] = []
+        for r in data.transitive_packages:
+            if r.recommended_version is None:
+                continue
+            key = (r.package_name, r.installed_version, r.recommended_version)
+            if key not in seen:
+                seen.add(key)
+                transitive_flagged.append(r)
         table_transitive = None
         if transitive_flagged:
             table_transitive = self._transitive_safety_table(transitive_flagged)
@@ -115,19 +123,22 @@ class ConsoleScanRenderer(AbstractUserInterfaceRenderer):
         self, title: str, title_style: str, dependencies: list[ScanRecord], lag_threshold_days: int
     ) -> Table:
         """Create Rich table with dependency data."""
+
+        show_recommended = any(pkg.recommended_version is not None for pkg in dependencies)
+
         table = Table(title=title, title_style=title_style)
         table.add_column("Dependency", justify="left", style="bold cyan")
         table.add_column("CVEs", justify="center")
-        table.add_column("Drift Status", justify="center")
+        table.add_column("Status", justify="center")
         table.add_column("Installed", justify="left")
-        table.add_column("Latest", justify="left")
-        table.add_column("Releases Distance", justify="right")
-        table.add_column("Time Lag", justify="right")
-        table.add_column("Version Age", justify="right")
 
-        show_recommended = any(pkg.recommended_version is not None for pkg in dependencies)
         if show_recommended:
             table.add_column("Recommended", justify="left")
+
+        table.add_column("Latest", justify="left")
+        table.add_column("Distance", justify="right")
+        table.add_column("Time Lag", justify="right")
+        table.add_column("Version Age", justify="right")
 
         for pkg in dependencies:
             installed_cell = pkg.installed_version
@@ -145,13 +156,22 @@ class ConsoleScanRenderer(AbstractUserInterfaceRenderer):
                 f"[bold][red]{len(pkg.cve)}" if pkg.cve else "",
                 self._format_lag_status(pkg.versions_diff_index),
                 installed_cell,
+            ]
+
+            if show_recommended:
+                recommended_version = pkg.recommended_version if pkg.recommended_version is not None else ""
+                if pkg.recommended_version != pkg.latest_version:
+                    row_args.append(f"[yellow][bold]{recommended_version}[/]")
+                else:
+                    row_args.append(recommended_version)
+
+            row_args += [
                 pkg.latest_version if pkg.latest_version else "[bold][red]N/A",
                 str(pkg.releases_lag),
                 self._format_time_delta(pkg.time_lag_days, lag_threshold_days),
                 self._format_time_delta(pkg.version_age_days, 365),
             ]
-            if show_recommended:
-                row_args.append(pkg.recommended_version if pkg.recommended_version is not None else "")
+
             table.add_row(*row_args)
 
         return table

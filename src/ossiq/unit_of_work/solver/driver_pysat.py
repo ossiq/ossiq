@@ -1,9 +1,16 @@
 from __future__ import annotations
 
-from pysat.examples.rc2 import RC2  # type: ignore[import]
+import logging
+import threading
+
+from pysat.examples.rc2 import RC2Stratified  # type: ignore[import]
 from pysat.formula import WCNF  # type: ignore[import]
 
 from ossiq.unit_of_work.solver.driver import AbstractSolverDriver, ConflictSet, EncodedProblem, SolverResult
+
+logger = logging.getLogger(__name__)
+
+SOLVER_TIMEOUT_SECONDS: int = 30
 
 
 class VarAllocator:
@@ -44,26 +51,43 @@ class VarAllocator:
 
 
 class PySATDriver(AbstractSolverDriver):
-    """Solver driver backed by pysat RC2 (Weighted Partial MaxSAT)."""
+    """Solver driver backed by pysat RC2Stratified (Weighted Partial MaxSAT)."""
 
     def solve(self, problem: EncodedProblem) -> SolverResult | ConflictSet:
-        """Solve the encoded WCNF problem using RC2."""
+        """Solve the encoded WCNF problem using RC2Stratified with a thread-based timeout."""
         wcnf = WCNF()
         for clause in problem.hard_clauses:
             wcnf.append(clause)
         for weight, clause in problem.soft_clauses:
             wcnf.append(clause, weight=weight)
 
-        with RC2(wcnf) as rc2:
-            model = rc2.compute()
-            if model is None:
-                rc2.get_core()
-                core: list[int] = getattr(rc2, "core", None) or []
-                return ConflictSet(unsatisfied_clauses=[f"literal {v}" for v in core])
+        result_holder: list[SolverResult | ConflictSet] = []
 
-            selected_vars = [v for v in model if v > 0 and v in problem.var_map]
-            selected = [problem.var_map[v] for v in sorted(selected_vars)]
-            return SolverResult(selected=selected)
+        def run() -> None:
+            try:
+                with RC2Stratified(wcnf) as rc2:
+                    model = rc2.compute()
+                    if model is None:
+                        rc2.get_core()
+                        core: list[int] = getattr(rc2, "core", None) or []
+                        result_holder.append(ConflictSet(unsatisfied_clauses=[f"literal {v}" for v in core]))
+                        return
+                    selected_vars = [v for v in model if v > 0 and v in problem.var_map]
+                    selected = [problem.var_map[v] for v in sorted(selected_vars)]
+                    result_holder.append(SolverResult(selected=selected))
+            except TypeError:
+                # RC2Stratified raises TypeError when filtering a None model (UNSAT bug in pysat).
+                result_holder.append(ConflictSet(unsatisfied_clauses=["unsat"]))
+
+        t = threading.Thread(target=run, daemon=True)
+        t.start()
+        t.join(timeout=SOLVER_TIMEOUT_SECONDS)
+
+        if not result_holder:
+            logger.warning("PySATDriver: solver timed out after %ds — returning ConflictSet", SOLVER_TIMEOUT_SECONDS)
+            return ConflictSet(unsatisfied_clauses=["timeout"])
+
+        return result_holder[0]
 
     def name(self) -> str:
-        return "pysat-rc2"
+        return "pysat-rc2-stratified"

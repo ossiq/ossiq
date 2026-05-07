@@ -70,19 +70,19 @@ def _sp(
 
 class TestWeightConstants:
     def test_weight_constants_values(self) -> None:
-        assert W_ENGINE == 1_000_000
+        assert W_ENGINE == 100_000
         assert W_DEPRECATED == 10_000
-        assert W_VERY_FRESH == 1_000_000
+        assert W_VERY_FRESH == 100_000
 
     def test_age_weight_zero_days(self) -> None:
-        assert age_weight(0) == 100_000
+        assert age_weight(0) == 80_000  # < 30 days tier
 
     def test_age_weight_large_age_clamped(self) -> None:
-        assert age_weight(200_000) == 1
-        assert age_weight(100_000) == 1
+        assert age_weight(200_000) == 1_000  # 3+ years tier
+        assert age_weight(100_000) == 1_000
 
     def test_age_weight_none_returns_one(self) -> None:
-        assert age_weight(None) == 1
+        assert age_weight(None) == 1_000  # unknown age -> minimum tier
 
 
 # ---------------------------------------------------------------------------
@@ -261,22 +261,24 @@ class TestConstraintEncoderSoftClauses:
         assert engine_penalties == []
 
     def test_l3_freshness_weight_from_age_days(self) -> None:
+        # age=500 days → [365, 1095) tier → weight 10_000
         problem = _sp(
             [_pc("pkg")],
             {"pkg": [_cv("1.0.0", age_days=500)]},
         )
         enc = ConstraintEncoder().encode(problem)
         vid = next(iter(enc.var_map))
-        assert (99_500, [vid]) in enc.soft_clauses
+        assert (10_000, [vid]) in enc.soft_clauses
 
     def test_l3_freshness_none_age_gets_weight_one(self) -> None:
+        # unknown age → minimum tier (1_000)
         problem = _sp(
             [_pc("pkg")],
             {"pkg": [_cv("1.0.0", age_days=None)]},
         )
         enc = ConstraintEncoder().encode(problem)
         vid = next(iter(enc.var_map))
-        assert (1, [vid]) in enc.soft_clauses
+        assert (1_000, [vid]) in enc.soft_clauses
 
     def test_l4_deprecated_adds_penalty_clause(self) -> None:
         problem = _sp(
@@ -434,16 +436,15 @@ class TestConstraintEncoderRoundtrip:
         assert set(result.selected) == {("a", "2.0.0"), ("b", "2.0.0")}
 
     def test_roundtrip_deprecated_loses_to_non_deprecated(self) -> None:
-        # "2.0.0": age=50, deprecated → freshness bonus 99_950, deprecated penalty 10_000
-        # "1.9.0": age=100, clean → freshness bonus 99_900
-        # Cost selecting 2.0.0: miss 1.9.0 (99_900) + deprecated (10_000) = 109_900
-        # Cost selecting 1.9.0: miss 2.0.0 (99_950)
+        # Both in the [30, 90) tier → same age weight 60_000, so deprecated penalty (10_000) decides.
+        # Cost selecting 2.0.0 (deprecated): miss 1.9.0 (60_000) + miss penalty avoidance (10_000) = 70_000
+        # Cost selecting 1.9.0 (clean):      miss 2.0.0 (60_000) = 60_000  → 1.9.0 wins
         problem = _sp(
             [_pc("pkg", version_constraint=">=1.0")],
             {
                 "pkg": [
                     _cv("2.0.0", age_days=50, is_deprecated=True),
-                    _cv("1.9.0", age_days=100),
+                    _cv("1.9.0", age_days=60),
                 ]
             },
         )

@@ -24,7 +24,7 @@ class EncodedProblem:
 
     hard_clauses: list[list[int]]
     soft_clauses: list[tuple[int, list[int]]]  # (weight, clause)
-    var_map: dict[int, tuple[str, str]]  # var_id → (package_name, version)
+    var_map: dict[int, tuple[str, str]]  # var_id -> (package_name, version)
 
 
 class AbstractSolverDriver(abc.ABC):
