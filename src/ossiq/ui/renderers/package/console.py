@@ -123,6 +123,9 @@ class ConsolePackageRenderer(AbstractUserInterfaceRenderer):
             self.console.print()
             self._render_policy_compliance(record)
             self.console.print()
+            if record.recommended_version is not None:
+                self._render_recommendation_rationale(record)
+                self.console.print()
 
         self._render_security_advisories(data.records)
         self.console.print()
@@ -238,7 +241,7 @@ class ConsolePackageRenderer(AbstractUserInterfaceRenderer):
         path = record.dependency_path or []
         indent = "  "
 
-        self.console.print(f"{indent}[bold cyan]→[/bold cyan] root")
+        self.console.print(f"{indent}[bold cyan]->[/bold cyan] root")
         for i, ancestor in enumerate(path):
             pad = "  " * (i + 1)
             self.console.print(f"{indent}{pad}└─ {ancestor}")
@@ -260,6 +263,12 @@ class ConsolePackageRenderer(AbstractUserInterfaceRenderer):
         table.add_row("Constraint", record.version_constraint or "—")
         table.add_row("Resolved", Text(record.installed_version, style="bold blue"))
         table.add_row("Latest", Text(record.latest_version or "—", style="bold green"))
+
+        if record.recommended_version:
+            reason = record.recommended_version_reason
+            is_latest = reason is not None and reason.is_latest
+            rec_style = "bold green" if is_latest else "bold yellow"
+            table.add_row("Recommended", Text(record.recommended_version, style=rec_style))
 
         if record.constraint_info and record.constraint_info.type != ConstraintType.DECLARED:
             style = "bold red" if record.constraint_info.type == ConstraintType.OVERRIDE else "bold yellow"
@@ -325,6 +334,52 @@ class ConsolePackageRenderer(AbstractUserInterfaceRenderer):
                     self.console.print(f"    {cve.summary}")
 
             self.console.print()
+
+    # ── [07] Recommendation Rationale ─────────────────────────────────────────
+
+    def _render_recommendation_rationale(self, record: ScanRecord) -> None:
+        self.console.print("[bold][07] RECOMMENDATION RATIONALE[/bold]")
+
+        reason = record.recommended_version_reason
+        age_str = f"  ({reason.age_days} days old)" if reason and reason.age_days is not None else ""
+        rec_text = Text()
+        rec_text.append("  Recommended : ")
+        rec_text.append(record.recommended_version or "N/A", style="bold yellow")
+        rec_text.append(age_str)
+        self.console.print(rec_text)
+
+        if reason and reason.constraint:
+            self.console.print(f"  Constraint  : {reason.constraint}")
+
+        if reason is None:
+            self.console.print("  (no rationale available)")
+            return
+
+        if reason.hard_rejections:
+            self.console.print()
+            self.console.print("  Eliminated (hard constraints):")
+            # Group versions by their shared detail message for compact display.
+            by_detail: dict[str, list[str]] = {}
+            for r in reason.hard_rejections:
+                by_detail.setdefault(r.detail, []).append(r.version)
+            for detail, versions in by_detail.items():
+                self.console.print(f"    [bold red]•[/bold red] {', '.join(versions)}  — {detail}")
+
+        if reason.soft_rejections:
+            self.console.print()
+            self.console.print("  Penalised (soft constraints):")
+            for r in reason.soft_rejections:
+                self.console.print(f"    [bold yellow]•[/bold yellow] {r.version}  — {r.detail}")
+
+        self.console.print()
+        ok_line = Text()
+        ok_line.append("  ✓ ", style="bold green")
+        if reason.is_latest:
+            ok_line.append(f"{record.recommended_version} selected: latest eligible version")
+        else:
+            age_part = f" ({reason.age_days} days old)" if reason.age_days is not None else ""
+            ok_line.append(f"{record.recommended_version} selected: best stable candidate{age_part}")
+        self.console.print(ok_line)
 
     # ── [06] Licenses ─────────────────────────────────────────────────────────
 

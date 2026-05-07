@@ -1,0 +1,184 @@
+"""HPDR solver adapter: chains SolvablePool -> ConstraintEncoder -> HPDRKernel."""
+
+from __future__ import annotations
+
+import logging
+from collections.abc import Sequence
+from dataclasses import dataclass
+from datetime import datetime
+from typing import Protocol
+
+from ossiq.adapters.api_interfaces import AbstractPackageRegistryApi
+from ossiq.domain.cve import CVE
+from ossiq.domain.project import ConstraintSource
+from ossiq.unit_of_work.solver.driver import ConflictSet
+from ossiq.unit_of_work.solver.driver_pysat import PySATDriver
+from ossiq.unit_of_work.solver.encoder import ConstraintEncoder
+from ossiq.unit_of_work.solver.kernel import HPDRKernel
+from ossiq.unit_of_work.solver.reason import RecommendationReason, build_reason
+from ossiq.unit_of_work.solver.universe import DepLike, SolvablePool
+from ossiq.unit_of_work.solver.weights import VERY_FRESH_THRESHOLD_DAYS
+
+logger = logging.getLogger(__name__)
+
+
+class TransitiveRecord(Protocol):
+    """Structural interface for transitive ScanRecord objects passed to solve_transitive."""
+
+    package_name: str
+    installed_version: str
+    version_constraint: str | None
+    constraint_info: ConstraintSource
+    cve: list[CVE]
+    version_age_days: int | None
+
+
+@dataclass(frozen=True)
+class SolverOutput:
+    """Combined result of the HPDR solver: recommendations and their rationales."""
+
+    recommendations: dict[str, str]
+    reasons: dict[str, RecommendationReason]
+
+
+EMPTY_OUTPUT = SolverOutput(recommendations={}, reasons={})
+
+
+def solve_direct(
+    deps: Sequence[DepLike],
+    registry: AbstractPackageRegistryApi,
+    engine_context: dict[str, str],
+    *,
+    allow_prerelease: bool = False,
+    _now: datetime | None = None,
+) -> SolverOutput:
+    """Run HPDR solver over direct dependencies.
+
+    Args:
+        deps: Direct dependency descriptors satisfying the DepLike Protocol
+              (canonical_name, version, version_constraint, constraint_info).
+        registry: Registry instance with warm cache from the preceding scan pass.
+        engine_context: Project engine versions for L2 clause generation.
+                        Pass {} in Phase 4 — populating from project metadata is Phase 5+.
+        allow_prerelease: When True, include pre-release candidates.
+
+    Returns:
+        SolverOutput with recommendations and per-package rationales.
+        Returns empty SolverOutput when solver cannot select any version or deps is empty.
+    """
+    if not deps:
+        return EMPTY_OUTPUT
+
+    logger.debug("solve_direct: building pool for %d deps", len(deps))
+    problem = SolvablePool.build(deps, registry, engine_context, allow_prerelease=allow_prerelease, _now=_now)
+    logger.debug("solve_direct: pool built — packages=%d", len(problem.constraints))
+    encoded = ConstraintEncoder().encode(problem)
+    logger.debug("solve_direct: encoded — hard=%d soft=%d", len(encoded.hard_clauses), len(encoded.soft_clauses))
+    result = HPDRKernel(PySATDriver()).solve(encoded)
+
+    if isinstance(result, ConflictSet):
+        logger.debug("HPDR solver returned ConflictSet: %s", result.unsatisfied_clauses)
+        return EMPTY_OUTPUT
+
+    recommendations = dict(result.selected)
+    logger.debug("solve_direct: selected %d recommendations", len(recommendations))
+    reasons = {pkg: build_reason(pkg, ver, problem) for pkg, ver in recommendations.items()}
+    return SolverOutput(recommendations=recommendations, reasons=reasons)
+
+
+@dataclass(frozen=True)
+class TransitiveDependency:
+    """Minimal DepLike adapter built from a transitive ScanRecord."""
+
+    canonical_name: str
+    version: str
+    version_constraint: str | None
+    constraint_info: ConstraintSource
+
+
+def solve_transitive(
+    transitive_records: Sequence[TransitiveRecord],
+    registry: AbstractPackageRegistryApi,
+    engine_context: dict[str, str],
+    *,
+    allow_prerelease: bool = False,
+    now: datetime | None = None,
+) -> SolverOutput:
+    """Run HPDR solver over flagged transitive dependencies.
+
+    Flagged = installed version has ≥1 CVE or version_age_days < VERY_FRESH_THRESHOLD_DAYS.
+    CVE-affected candidate versions receive L5 hard-forbidden clauses.
+    Candidate versions < VERY_FRESH_THRESHOLD_DAYS old receive L6 (1M) soft penalty.
+
+    Args:
+        transitive_records: Sequence satisfying TransitiveRecord (i.e. ScanRecord objects).
+        registry: Registry instance with warm cache from the preceding scan pass.
+        engine_context: Project engine versions. Pass {} — populating deferred to Phase 6+.
+        allow_prerelease: When True, include pre-release candidates.
+
+    Returns:
+        SolverOutput with recommendations and per-package rationales.
+        Returns empty SolverOutput when no flagged records exist, deps is empty, or solver conflicts.
+    """
+    logger.debug("solve_transitive: received %d records", len(transitive_records))
+    # 1. Filter to flagged records only (CVE or very fresh installed version).
+    flagged = [
+        r
+        for r in transitive_records
+        if r.cve or (r.version_age_days is not None and r.version_age_days < VERY_FRESH_THRESHOLD_DAYS)
+    ]
+    logger.debug("solve_transitive: %d flagged (CVE or very fresh)", len(flagged))
+    if not flagged:
+        return EMPTY_OUTPUT
+
+    # 2. Deduplicate by package_name — keep first occurrence (same as direct pass).
+    seen: set[str] = set()
+    unique_flagged: list[TransitiveRecord] = []
+    for r in flagged:
+        if r.package_name not in seen:
+            seen.add(r.package_name)
+            unique_flagged.append(r)
+
+    # 3. Build CVE-affected-versions map: {canonical_name: {version, ...}}.
+    cve_affected: dict[str, set[str]] = {}
+    for r in unique_flagged:
+        for cve in r.cve:
+            cve_affected.setdefault(r.package_name, set()).update(cve.affected_versions)
+
+    # 4. Convert to DepLike-compatible adapters.
+    deps: list[TransitiveDependency] = [
+        TransitiveDependency(
+            canonical_name=r.package_name,
+            version=r.installed_version,
+            version_constraint=r.version_constraint,
+            constraint_info=r.constraint_info,
+        )
+        for r in unique_flagged
+    ]
+
+    # 5. Build -> encode -> solve.
+    logger.debug("solve_transitive: building pool for %d unique flagged deps", len(deps))
+    problem = SolvablePool.build(
+        deps,
+        registry,
+        engine_context,
+        cve_affected=cve_affected,
+        allow_prerelease=allow_prerelease,
+        _now=now,
+    )
+    logger.debug("solve_transitive: pool built — packages=%d", len(problem.constraints))
+    encoded = ConstraintEncoder(penalize_fresh_days=VERY_FRESH_THRESHOLD_DAYS).encode(problem)
+    logger.debug("solve_transitive: encoded — hard=%d soft=%d", len(encoded.hard_clauses), len(encoded.soft_clauses))
+    result = HPDRKernel(PySATDriver()).solve(encoded)
+
+    if isinstance(result, ConflictSet):
+        logger.debug("HPDR transitive solver returned ConflictSet: %s", result.unsatisfied_clauses)
+        return EMPTY_OUTPUT
+
+    recommendations = dict(result.selected)
+    logger.debug("solve_transitive: selected %d recommendations", len(recommendations))
+    reasons = {
+        pkg: build_reason(pkg, ver, problem, penalize_fresh_days=VERY_FRESH_THRESHOLD_DAYS)
+        for pkg, ver in recommendations.items()
+    }
+    return SolverOutput(recommendations=recommendations, reasons=reasons)

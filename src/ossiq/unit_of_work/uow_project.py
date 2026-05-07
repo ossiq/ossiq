@@ -32,6 +32,7 @@ class ProjectUnitOfWork(AbstractProjectUnitOfWork):
         production: bool = False,
         allow_prerelease: bool = False,
         allow_prerelease_packages: tuple[str, ...] = (),
+        use_solver: bool = False,
     ):
         """
         Takes a single package details pulled from
@@ -43,6 +44,7 @@ class ProjectUnitOfWork(AbstractProjectUnitOfWork):
         self.production = production
         self.allow_prerelease = allow_prerelease
         self.allow_prerelease_packages = allow_prerelease_packages
+        self.use_solver = use_solver
         self.narrow_package_registry = narrow_package_registry
         self.cve_database = create_cve_database(settings)
 
