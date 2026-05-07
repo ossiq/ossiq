@@ -10,7 +10,8 @@ from ossiq.unit_of_work.solver.driver import AbstractSolverDriver, ConflictSet, 
 
 logger = logging.getLogger(__name__)
 
-SOLVER_TIMEOUT_SECONDS: int = 30
+# two minutes by default
+SOLVER_TIMEOUT_SECONDS: int = 120
 
 
 class VarAllocator:
