@@ -16,6 +16,7 @@ from ossiq.ui.renderers.export.json import JsonExportRenderer
 from ossiq.ui.renderers.package.console import ConsolePackageRenderer
 from ossiq.ui.renderers.scan.console import ConsoleScanRenderer
 from ossiq.ui.renderers.scan.html import HtmlScanRenderer
+from ossiq.ui.renderers.update.console import ConsoleUpdateRenderer
 
 # Registry of all available renderers (populated via register_renderers)
 # Similar to PACKAGE_MANAGERS tuple
@@ -25,6 +26,7 @@ RENDERERS: tuple[type[AbstractUserInterfaceRenderer], ...] = (
     JsonExportRenderer,
     CsvExportRenderer,
     ConsolePackageRenderer,
+    ConsoleUpdateRenderer,
 )
 
 
