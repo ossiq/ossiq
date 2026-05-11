@@ -8,7 +8,7 @@ from typing import Literal
 from ossiq.unit_of_work.solver.problem import SolverProblem
 from ossiq.unit_of_work.solver.version_matchers import has_engine_mismatch, version_satisfies_constraint
 
-RejectionCause = Literal["constraint_mismatch", "cve", "engine_mismatch", "deprecated", "very_fresh"]
+RejectionCause = Literal["constraint_mismatch", "cve", "engine_mismatch", "deprecated", "very_fresh", "lower_semver"]
 
 
 @dataclass(frozen=True)
@@ -28,6 +28,7 @@ class RecommendationReason:
     constraint: str | None
     hard_rejections: list[VersionRejection]
     soft_rejections: list[VersionRejection]
+    lower_semver_alternatives: list[VersionRejection]
     age_days: int | None
     is_latest: bool
 
@@ -38,6 +39,7 @@ def _empty_reason(selected_version: str, constraint: str | None = None) -> Recom
         constraint=constraint,
         hard_rejections=[],
         soft_rejections=[],
+        lower_semver_alternatives=[],
         age_days=None,
         is_latest=False,
     )
@@ -135,13 +137,32 @@ def build_reason(
             )
             continue
 
-        # L3 age-preference: selected has higher age_weight — no rejection entry needed.
+        # L3 semver-rank: selected has higher rank — no rejection entry needed.
+
+    # Lower-semver alternatives: eligible candidates ranked below selected (lower version).
+    # These lost purely because they have a lower semver rank, not due to any hard/soft rejection.
+    lower_semver_alternatives: list[VersionRejection] = []
+    for cv in candidates[selected_index + 1 :]:
+        if not version_satisfies_constraint(cv.version, version_constraint):
+            continue
+        if cv.has_cve:
+            continue
+        lower_semver_alternatives.append(
+            VersionRejection(
+                version=cv.version,
+                cause="lower_semver",
+                detail=f"lower semver than {selected_version}",
+            )
+        )
+        if len(lower_semver_alternatives) >= 5:
+            break
 
     return RecommendationReason(
         selected_version=selected_version,
         constraint=version_constraint,
         hard_rejections=hard_rejections,
         soft_rejections=soft_rejections,
+        lower_semver_alternatives=lower_semver_alternatives,
         age_days=candidates[selected_index].age_days,
         is_latest=selected_index == 0,
     )

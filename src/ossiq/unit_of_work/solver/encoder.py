@@ -9,7 +9,7 @@ from ossiq.unit_of_work.solver.driver import EncodedProblem
 from ossiq.unit_of_work.solver.driver_pysat import VarAllocator
 from ossiq.unit_of_work.solver.problem import CandidateVersion, SolverProblem
 from ossiq.unit_of_work.solver.version_matchers import has_engine_mismatch, version_satisfies_constraint
-from ossiq.unit_of_work.solver.weights import W_DEPRECATED, W_ENGINE, W_VERY_FRESH, age_weight
+from ossiq.unit_of_work.solver.weights import W_DEPRECATED, W_ENGINE, W_VERY_FRESH, semver_rank_weight
 
 logger = logging.getLogger(__name__)
 
@@ -128,13 +128,19 @@ class ConstraintEncoder:
                 continue
             state = pkg_state[pkg]
 
-            # L1 + L5: forbid out-of-constraint and CVE-affected versions
+            # L1 + L5: forbid out-of-constraint and CVE-affected versions.
+            # When all_constraints is populated (transitive deps with multiple parents),
+            # a version must satisfy every parent's specifier — diamond-dep correctness.
+            # Falls back to the single version_constraint for direct deps and simple transitives.
+            l1_constraints = constraint.all_constraints or (
+                (constraint.version_constraint,) if constraint.version_constraint else ()
+            )
             eligible_vids: list[int] = []
             l1_forbidden = 0
             l5_forbidden = 0
             for cv, vid in zip(state.candidates, state.all_vids, strict=True):
-                if not version_satisfies_constraint(cv.version, constraint.version_constraint):
-                    hard_clauses.append([-vid])  # L1 constraint mismatch
+                if any(not version_satisfies_constraint(cv.version, c) for c in l1_constraints):
+                    hard_clauses.append([-vid])  # L1 constraint mismatch (any parent violated)
                     l1_forbidden += 1
                 elif cv.has_cve:
                     hard_clauses.append([-vid])  # L5 CVE hard-forbidden
@@ -144,6 +150,7 @@ class ConstraintEncoder:
 
             state.eligible_vids = eligible_vids
             state.eligible_set = set(eligible_vids)
+            eligible_rank: dict[int, int] = {vid: rank for rank, vid in enumerate(eligible_vids)}
 
             logger.debug(
                 "Pass 2: %s candidates=%d eligible=%d l1_constraint_forbidden=%d l5_cve_forbidden=%d",
@@ -167,7 +174,7 @@ class ConstraintEncoder:
                     continue
                 if has_engine_mismatch(cv, problem.engine_context):
                     soft_clauses.append((W_ENGINE, [-vid]))  # L2
-                soft_clauses.append((age_weight(cv.age_days), [vid]))  # L3
+                soft_clauses.append((semver_rank_weight(eligible_rank[vid]), [vid]))  # L3: semver rank
                 if cv.is_deprecated:
                     soft_clauses.append((W_DEPRECATED, [-vid]))  # L4
                 # L6: very fresh — strongly discourage supply-chain risks

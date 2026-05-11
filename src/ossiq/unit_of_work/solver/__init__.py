@@ -8,7 +8,7 @@ from ossiq.unit_of_work.solver.weights import (
     W_DEPRECATED,
     W_ENGINE,
     W_VERY_FRESH,
-    age_weight,
+    semver_rank_weight,
 )
 
 __all__ = [
@@ -26,5 +26,5 @@ __all__ = [
     "W_DEPRECATED",
     "W_ENGINE",
     "W_VERY_FRESH",
-    "age_weight",
+    "semver_rank_weight",
 ]

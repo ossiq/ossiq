@@ -81,6 +81,7 @@ class DepLike(Protocol):
     version: str
     version_constraint: str | None
     constraint_info: ConstraintSource
+    all_constraints: list[str]
 
 
 class SolvablePool:
@@ -123,12 +124,15 @@ class SolvablePool:
                 best[dep.canonical_name] = dep
 
         # 2. Build PackageConstraints from winning descriptors.
+        # all_constraints carries every parent specifier so the encoder can apply
+        # each as an independent L1 hard rejection (diamond-dep correctness).
         constraints = tuple(
             PackageConstraint(
                 package_name=dep.canonical_name,
                 version_constraint=dep.version_constraint,
                 constraint_type=dep.constraint_info.type,
                 installed_version=dep.version,
+                all_constraints=tuple(dict.fromkeys(dep.all_constraints)),
             )
             for dep in best.values()
         )

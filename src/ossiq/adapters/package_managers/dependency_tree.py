@@ -112,6 +112,11 @@ class BaseDependencyResolver(ABC):
                         # Guard against None so that absent specifiers (e.g. UV entries without
                         # a 'specifier' key) don't overwrite values already set in Pass 1.
                         if d_ver is not None:
+                            # Accumulate every parent's specifier for multi-parent L1 enforcement
+                            # in the solver (diamond-dependency correctness). Done before the
+                            # version_defined overwrite so every occurrence is captured.
+                            child.parent_constraints.append(d_ver)
+
                             # Only update version_defined when the specifier differs from the
                             # resolved version to avoid redundant data (e.g. "4.17.21" == "4.17.21").
                             if d_ver != child.version_installed:

@@ -29,6 +29,10 @@ class PackageConstraint:
     version_constraint: str | None
     constraint_type: ConstraintType
     installed_version: str
+    # All version specifiers from every direct parent; empty for direct deps.
+    # When non-empty, the encoder applies each as an independent L1 hard rejection
+    # so a version must satisfy ALL parent constraints (diamond-dep correctness).
+    all_constraints: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -54,6 +58,7 @@ class SolverProblem:
                         "constraint": c.version_constraint,
                         "type": c.constraint_type,
                         "installed": c.installed_version,
+                        "all_constraints": sorted(c.all_constraints),
                     }
                     for c in self.constraints
                 ],

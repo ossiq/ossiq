@@ -51,11 +51,13 @@ class _FakeDep:
         *,
         constraint: str | None = None,
         constraint_type: ConstraintType = ConstraintType.DECLARED,
+        all_constraints: list[str] | None = None,
     ) -> None:
         self.canonical_name = canonical_name
         self.version = version
         self.version_constraint = constraint
         self.constraint_info = ConstraintSource(type=constraint_type, source_file="pyproject.toml")
+        self.all_constraints = all_constraints or []
 
 
 def _make_registry(versions_by_name: dict[str, list[PackageVersion]]) -> MagicMock:

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Protocol
 
@@ -31,6 +31,7 @@ class TransitiveRecord(Protocol):
     constraint_info: ConstraintSource
     cve: list[CVE]
     version_age_days: int | None
+    all_constraints: list[str]
 
 
 @dataclass(frozen=True)
@@ -72,7 +73,7 @@ def solve_direct(
     logger.debug("solve_direct: building pool for %d deps", len(deps))
     problem = SolvablePool.build(deps, registry, engine_context, allow_prerelease=allow_prerelease, _now=_now)
     logger.debug("solve_direct: pool built — packages=%d", len(problem.constraints))
-    encoded = ConstraintEncoder().encode(problem)
+    encoded = ConstraintEncoder(penalize_fresh_days=VERY_FRESH_THRESHOLD_DAYS).encode(problem)
     logger.debug("solve_direct: encoded — hard=%d soft=%d", len(encoded.hard_clauses), len(encoded.soft_clauses))
     result = HPDRKernel(PySATDriver()).solve(encoded)
 
@@ -82,7 +83,10 @@ def solve_direct(
 
     recommendations = dict(result.selected)
     logger.debug("solve_direct: selected %d recommendations", len(recommendations))
-    reasons = {pkg: build_reason(pkg, ver, problem) for pkg, ver in recommendations.items()}
+    reasons = {
+        pkg: build_reason(pkg, ver, problem, penalize_fresh_days=VERY_FRESH_THRESHOLD_DAYS)
+        for pkg, ver in recommendations.items()
+    }
     return SolverOutput(recommendations=recommendations, reasons=reasons)
 
 
@@ -94,6 +98,7 @@ class TransitiveDependency:
     version: str
     version_constraint: str | None
     constraint_info: ConstraintSource
+    all_constraints: list[str] = field(default_factory=list)
 
 
 def solve_transitive(
@@ -152,6 +157,7 @@ def solve_transitive(
             version=r.installed_version,
             version_constraint=r.version_constraint,
             constraint_info=r.constraint_info,
+            all_constraints=list(r.all_constraints),
         )
         for r in unique_flagged
     ]

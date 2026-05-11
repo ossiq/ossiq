@@ -36,6 +36,9 @@ class DependencyDescriptor:
     version_constraint: str | None
     constraint_info: ConstraintSource
     extras: list[str] | None = None
+    # All version specifiers from every direct parent in the dependency graph.
+    # Empty for direct (root-level) dependencies; populated for transitive deps.
+    all_constraints: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -70,6 +73,9 @@ class ScanRecord:
     is_installed_package_unpublished: bool = False
     recommended_version: str | None = None
     recommended_version_reason: RecommendationReason | None = None
+    # All version specifiers from every direct parent; mirrors DependencyDescriptor.all_constraints.
+    # Passed to the transitive solver so each parent constraint is enforced as a separate L1 clause.
+    all_constraints: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -170,6 +176,7 @@ def scan_record(
     version_constraint: str | None = None,
     prefetched_repository: Repository | None = None,
     extras: list[str] | None = None,
+    all_constraints: list[str] | None = None,
 ) -> ScanRecord:
     """
     Factory to generate ScanRecord instances
@@ -209,6 +216,7 @@ def scan_record(
             package_info.license or (prefetched_repository.license if prefetched_repository else None)
         ),
         purl=build_purl(packages_registry.package_registry, canonical_name, package_version),
+        all_constraints=all_constraints or [],
         is_installed_prerelease=installed_release.is_prerelease if installed_release else False,
         is_installed_yanked=(
             installed_release is not None and (installed_release.is_yanked or installed_release.is_unpublished)
@@ -347,6 +355,7 @@ def scan(uow: unit_of_work.AbstractProjectUnitOfWork) -> ScanResult:
                 version_constraint=node.version_defined,
                 constraint_info=node.constraint_info,
                 extras=node.extras,
+                all_constraints=list(node.parent_constraints),
             )
             for node, path in walker.walk_all_paths()
         ]
@@ -412,6 +421,7 @@ def scan(uow: unit_of_work.AbstractProjectUnitOfWork) -> ScanResult:
                     dep.version_constraint,
                     repositories_info.get(packages_info[dep.canonical_name].repo_url or ""),
                     dep.extras,
+                    dep.all_constraints,
                 )
                 for dep in descriptors
             ]

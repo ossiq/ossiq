@@ -49,6 +49,11 @@ class Dependency:
         compare=False,
     )
 
+    # All version specifiers declared by every direct parent of this node.
+    # Populated during graph construction (dependency_tree.py Pass 2).
+    # Used by the solver to apply multi-parent L1 hard rejections for diamond deps.
+    parent_constraints: list[str] = field(default_factory=list, compare=False)
+
 
 class Project:
     """Class for a package."""

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
 from unittest.mock import MagicMock
@@ -39,6 +39,7 @@ class _FakeRecord:
     constraint_info: ConstraintSource
     cve: list[Any]
     version_age_days: int | None
+    all_constraints: list[str] = field(default_factory=list)
 
 
 def _rec(
