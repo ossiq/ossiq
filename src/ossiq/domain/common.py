@@ -52,6 +52,7 @@ class Command(Enum):
     SCAN = "scan"
     EXPORT = "export"
     PACKAGE = "package"
+    UPDATE = "update"
 
 
 class ExportUnknownSchemaVersion(StrEnum):

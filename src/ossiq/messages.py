@@ -54,3 +54,15 @@ security advisories, and transitive dependency CVEs.
 ERROR_PACKAGE_NOT_FOUND = """
 Package `{package_name}` not found in the project dependency tree.
 """
+
+HELP_UPDATE_COMMAND = """
+Generate an atomic update script for all solver-recommended package versions.
+
+The solver runs automatically. Copy and review the printed bash script,
+then run it to apply updates. Use --production to limit to production
+dependencies only.
+"""
+
+HELP_UPDATE_NO_RECOMMENDATIONS = (
+    "No updates recommended — the solver found all packages are already at optimal versions."
+)

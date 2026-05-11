@@ -2,8 +2,11 @@
 Interfaces related to external APIs
 """
 
+from __future__ import annotations
+
 import abc
 from collections.abc import Callable, Iterable
+from typing import TYPE_CHECKING
 
 from ossiq.domain.common import ProjectPackagesRegistry
 from ossiq.domain.cve import CVE
@@ -14,6 +17,9 @@ from ossiq.settings import Settings
 
 from ..domain.repository import Repository
 from ..domain.version import PackageVersion, RepositoryVersion, VersionsDifference
+
+if TYPE_CHECKING:
+    from ossiq.service.update import UpdatePlan
 
 
 class AbstractSourceCodeProviderApi(abc.ABC):
@@ -147,3 +153,19 @@ class AbstractPackageManagerApi(abc.ABC):
         package manager.
         """
         pass
+
+    def generate_update_script(self, plan: UpdatePlan) -> str:
+        """Generate a bash update script for the recommended versions in plan.
+
+        Default returns an unsupported notice with the version list as comments.
+        Supported package managers override this with an atomic update script.
+        """
+        lines = [
+            f"# OSS IQ update — {self.package_manager_type.name}  |  project: {plan.project_name}",
+            f"# Automated update scripts are not yet supported for {self.package_manager_type.name}.",
+            "# Apply the following recommended versions manually:",
+            "#",
+        ]
+        for entry in plan.all_entries:
+            lines.append(f"#   {entry.package_name}: {entry.current_version} -> {entry.recommended_version}")
+        return "\n".join(lines)

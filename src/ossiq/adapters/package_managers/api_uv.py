@@ -2,10 +2,13 @@
 Support of UV package manager
 """
 
+from __future__ import annotations
+
 import os
 import tomllib
 from collections import namedtuple
 from collections.abc import Callable, Iterable
+from typing import TYPE_CHECKING
 
 from ossiq.adapters.api_interfaces import AbstractPackageManagerApi
 from ossiq.adapters.package_managers.api_pypi import enrich_registry_constraints
@@ -17,6 +20,10 @@ from ossiq.domain.packages_manager import UV, PackageManagerType
 from ossiq.domain.project import ConstraintSource, Dependency, Project
 from ossiq.domain.version import classify_pypi_specifier
 from ossiq.settings import Settings
+
+if TYPE_CHECKING:
+    from ossiq.service.update import UpdatePlan
+
 
 UvProject = namedtuple("UvProject", ["manifest", "lockfile"])
 
@@ -245,6 +252,35 @@ class PackageManagerPythonUv(AbstractPackageManagerApi):
             project_path=self.project_path,
             dependency_tree=dependency_tree,
         )
+
+    def generate_update_script(self, plan: UpdatePlan) -> str:
+        """Constraint-based uv update: write constraints file, sync, clean up."""
+        lines = [
+            "#!/usr/bin/env bash",
+            f"# OSS IQ update — uv  |  project: {plan.project_name}",
+            f"# {len(plan.direct_entries)} direct, {len(plan.transitive_entries)} transitive updates",
+            "set -euo pipefail",
+            "",
+            f'cd "{plan.project_path}"',
+            "",
+            "CONSTRAINTS=/tmp/ossiq-constraints.txt",
+            '> "$CONSTRAINTS"',
+            "",
+            'echo "Writing constraints..."',
+        ]
+        for entry in plan.all_entries:
+            lines.append(f'echo "{entry.package_name}=={entry.recommended_version}" >> "$CONSTRAINTS"')
+        lines += [
+            "",
+            'echo "Syncing with constraints..."',
+            'uv sync --constraint "$CONSTRAINTS"',
+            "",
+            'rm "$CONSTRAINTS"',
+            'echo "Done."',
+            "",
+            "# ROLLBACK: uv sync",
+        ]
+        return "\n".join(lines)
 
     def __repr__(self):
         return f"{self.package_manager_type.name} Package Manager"

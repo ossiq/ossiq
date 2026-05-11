@@ -5,9 +5,12 @@ This adapter handles legacy Python projects that use simple requirements.txt
 files with pinned versions (package==version format).
 """
 
+from __future__ import annotations
+
 import os
 import re
 from collections import namedtuple
+from typing import TYPE_CHECKING
 
 from ossiq.adapters.api_interfaces import AbstractPackageManagerApi
 from ossiq.adapters.package_managers.api_pypi import batch_fetch_requires_dist, make_session, parse_requires_dist
@@ -18,6 +21,9 @@ from ossiq.domain.packages_manager import PIP_CLASSIC, PackageManagerType
 from ossiq.domain.project import ConstraintSource, Dependency, Project
 from ossiq.domain.version import classify_pypi_specifier, normalize_version
 from ossiq.settings import Settings
+
+if TYPE_CHECKING:
+    from ossiq.service.update import UpdatePlan
 
 PipClassicProject = namedtuple("PipClassicProject", ["manifest"])
 
@@ -308,6 +314,35 @@ class PackageManagerPythonPipClassic(AbstractPackageManagerApi):
             project_path=self.project_path,
             dependency_tree=dependency_tree,
         )
+
+    def generate_update_script(self, plan: UpdatePlan) -> str:
+        """Constraint-based pip update: write constraints file, install, clean up."""
+        lines = [
+            "#!/usr/bin/env bash",
+            f"# OSS IQ update — pip  |  project: {plan.project_name}",
+            f"# {len(plan.direct_entries)} direct, {len(plan.transitive_entries)} transitive updates",
+            "set -euo pipefail",
+            "",
+            f'cd "{plan.project_path}"',
+            "",
+            "CONSTRAINTS=/tmp/ossiq-constraints.txt",
+            '> "$CONSTRAINTS"',
+            "",
+            'echo "Writing constraints..."',
+        ]
+        for entry in plan.all_entries:
+            lines.append(f'echo "{entry.package_name}=={entry.recommended_version}" >> "$CONSTRAINTS"')
+        lines += [
+            "",
+            'echo "Installing with constraints..."',
+            'pip install -r requirements.txt -c "$CONSTRAINTS"',
+            "",
+            'rm "$CONSTRAINTS"',
+            'echo "Done."',
+            "",
+            "# ROLLBACK: pip install -r requirements.txt",
+        ]
+        return "\n".join(lines)
 
     def __repr__(self):
         return f"{self.package_manager_type.name} Package Manager"

@@ -2,10 +2,13 @@
 Support of NPM package manager
 """
 
+from __future__ import annotations
+
 import json
 import os
 from collections import defaultdict, namedtuple
 from collections.abc import Callable, Iterable
+from typing import TYPE_CHECKING
 
 from ossiq.adapters.api_interfaces import AbstractPackageManagerApi
 from ossiq.adapters.package_managers.dependency_tree import BaseDependencyResolver
@@ -17,12 +20,27 @@ from ossiq.domain.project import ConstraintSource, Dependency, Project
 from ossiq.domain.version import classify_npm_specifier, normalize_version
 from ossiq.settings import Settings
 
+if TYPE_CHECKING:
+    from ossiq.service.update import UpdatePlan
+
+
 NpmProject = namedtuple("NpmProject", ["manifest", "lockfile"])
 
 CATEGORIES_DEV = "development"
 CATEGORIES_OPTIONAL = "optional"
 CATEGORIES_PEER = "peer"
 CATEGORIES_OVERRIDDEN = "overridden"
+
+
+def npm_override_set_command(package_name: str, version: str) -> str:
+    """Return the npm pkg set command for one override entry.
+
+    Scoped packages (e.g. @scope/pkg) require bracket notation because the slash
+    in their name is not valid in npm's dot-path syntax.
+    """
+    if package_name.startswith("@"):
+        return f'npm pkg set \'overrides["{package_name}"]="{version}"\''
+    return f'npm pkg set overrides.{package_name}="{version}"'
 
 
 class NPMResolverV3(BaseDependencyResolver):
@@ -378,6 +396,37 @@ class PackageManagerJsNpm(AbstractPackageManagerApi):
             raise PackageManagerLockfileParsingError("Could not find a parser for the given lockfile version")
 
         return create_project(dependency_tree=lockfile_parser(lockfile_data))
+
+    def generate_update_script(self, plan: UpdatePlan) -> str:
+        """Atomic npm update: backup package.json, inject all overrides, install, restore."""
+        lines = [
+            "#!/usr/bin/env bash",
+            f"# OSS IQ update — npm  |  project: {plan.project_name}",
+            f"# {len(plan.direct_entries)} direct, {len(plan.transitive_entries)} transitive updates",
+            "set -euo pipefail",
+            "",
+            f'cd "{plan.project_path}"',
+            "",
+            'echo "Backing up package.json..."',
+            "cp package.json package.json.ossiq.bak",
+            "",
+            'echo "Injecting overrides..."',
+        ]
+        for entry in plan.all_entries:
+            lines.append(npm_override_set_command(entry.package_name, entry.recommended_version))
+        lines += [
+            "",
+            'echo "Installing..."',
+            "npm install",
+            "",
+            'echo "Removing overrides..."',
+            "npm pkg delete overrides",
+            "rm package.json.ossiq.bak",
+            'echo "Done."',
+            "",
+            "# ROLLBACK: cp package.json.ossiq.bak package.json",
+        ]
+        return "\n".join(lines)
 
     def __repr__(self):
         return f"{self.package_manager_type.name} Package Manager"

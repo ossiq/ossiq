@@ -11,6 +11,7 @@ from rich.console import Console
 from ossiq.commands.export import CommandExportOptions, commnad_export
 from ossiq.commands.package import CommandPackageOptions, command_package
 from ossiq.commands.scan import CommandScanOptions, commnad_scan
+from ossiq.commands.update import CommandUpdateOptions, command_update
 from ossiq.domain.common import UserInterfaceType
 from ossiq.messages import (
     ARGS_HELP_CACHE_DESTINATION,
@@ -268,6 +269,39 @@ def package(
             allow_prerelease=allow_prerelease,
             allow_prerelease_packages=tuple(allow_prerelease_package or []),
             use_solver=use_solver,
+        ),
+    )
+
+
+@app.command()
+def update(
+    context: typer.Context,
+    project_path: str,
+    registry_type: Annotated[
+        Literal["npm", "pypi"] | None,
+        typer.Option("--registry-type", "-r", help=HELP_REGISTRY_TYPE),
+    ] = None,
+    allow_prerelease: Annotated[
+        bool, typer.Option("--allow-prerelease", help="Include pre-release versions in drift calculations")
+    ] = False,
+    allow_prerelease_package: Annotated[
+        list[str] | None,
+        typer.Option("--allow-prerelease-package", help="Allow pre-release for a specific package (repeatable)"),
+    ] = None,
+    production: Annotated[bool, typer.Option("--production", help=HELP_PRODUCTION_ONLY)] = False,
+):
+    """Generate an atomic update script for solver-recommended package versions."""
+    if registry_type and registry_type.lower() not in ["npm", "pypi"]:
+        raise typer.BadParameter("Only `npm` and `pypi` allowed")
+
+    command_update(
+        ctx=context,
+        options=CommandUpdateOptions(
+            project_path=project_path,
+            registry_type=registry_type,
+            allow_prerelease=allow_prerelease,
+            allow_prerelease_packages=tuple(allow_prerelease_package or []),
+            production=production,
         ),
     )
 
