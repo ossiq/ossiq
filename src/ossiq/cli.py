@@ -162,6 +162,10 @@ def scan(
         bool,
         typer.Option("--solver", is_flag=True, help="Use HPDR solver to compute recommended versions"),
     ] = False,
+    transitive: Annotated[
+        bool,
+        typer.Option("--transitive", is_flag=True, help="Show full transitive dependency update recommendations"),
+    ] = False,
 ):
     """
     Scan project dependencies and produce metrics
@@ -180,7 +184,8 @@ def scan(
             registry_type=registry_type,
             presentation=presentation,
             output_destination=output,
-            use_solver=use_solver,
+            use_solver=use_solver or transitive,
+            include_transitive_recommendations=transitive,
         ),
     )
 

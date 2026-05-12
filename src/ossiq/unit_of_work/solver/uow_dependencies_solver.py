@@ -109,9 +109,9 @@ def solve_transitive(
     allow_prerelease: bool = False,
     now: datetime | None = None,
 ) -> SolverOutput:
-    """Run HPDR solver over flagged transitive dependencies.
+    """Run HPDR solver over transitive dependencies.
 
-    Flagged = installed version has ≥1 CVE or version_age_days < VERY_FRESH_THRESHOLD_DAYS.
+    Caller is responsible for pre-filtering (e.g. CVE-only or all-transitive).
     CVE-affected candidate versions receive L5 hard-forbidden clauses.
     Candidate versions < VERY_FRESH_THRESHOLD_DAYS old receive L6 (1M) soft penalty.
 
@@ -123,34 +123,27 @@ def solve_transitive(
 
     Returns:
         SolverOutput with recommendations and per-package rationales.
-        Returns empty SolverOutput when no flagged records exist, deps is empty, or solver conflicts.
+        Returns empty SolverOutput when deps is empty or solver conflicts.
     """
     logger.debug("solve_transitive: received %d records", len(transitive_records))
-    # 1. Filter to flagged records only (CVE or very fresh installed version).
-    flagged = [
-        r
-        for r in transitive_records
-        if r.cve or (r.version_age_days is not None and r.version_age_days < VERY_FRESH_THRESHOLD_DAYS)
-    ]
-    logger.debug("solve_transitive: %d flagged (CVE or very fresh)", len(flagged))
-    if not flagged:
+    if not transitive_records:
         return EMPTY_OUTPUT
 
-    # 2. Deduplicate by package_name — keep first occurrence (same as direct pass).
+    # 1. Deduplicate by package_name — keep first occurrence (same as direct pass).
     seen: set[str] = set()
-    unique_flagged: list[TransitiveRecord] = []
-    for r in flagged:
+    unique_records: list[TransitiveRecord] = []
+    for r in transitive_records:
         if r.package_name not in seen:
             seen.add(r.package_name)
-            unique_flagged.append(r)
+            unique_records.append(r)
 
-    # 3. Build CVE-affected-versions map: {canonical_name: {version, ...}}.
+    # 2. Build CVE-affected-versions map: {canonical_name: {version, ...}}.
     cve_affected: dict[str, set[str]] = {}
-    for r in unique_flagged:
+    for r in unique_records:
         for cve in r.cve:
             cve_affected.setdefault(r.package_name, set()).update(cve.affected_versions)
 
-    # 4. Convert to DepLike-compatible adapters.
+    # 3. Convert to DepLike-compatible adapters.
     deps: list[TransitiveDependency] = [
         TransitiveDependency(
             canonical_name=r.package_name,
@@ -159,11 +152,11 @@ def solve_transitive(
             constraint_info=r.constraint_info,
             all_constraints=list(r.all_constraints),
         )
-        for r in unique_flagged
+        for r in unique_records
     ]
 
-    # 5. Build -> encode -> solve.
-    logger.debug("solve_transitive: building pool for %d unique flagged deps", len(deps))
+    # 4. Build -> encode -> solve.
+    logger.debug("solve_transitive: building pool for %d unique records", len(deps))
     problem = SolvablePool.build(
         deps,
         registry,

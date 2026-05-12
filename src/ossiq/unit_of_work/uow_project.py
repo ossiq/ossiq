@@ -33,6 +33,7 @@ class ProjectUnitOfWork(AbstractProjectUnitOfWork):
         allow_prerelease: bool = False,
         allow_prerelease_packages: tuple[str, ...] = (),
         use_solver: bool = False,
+        include_transitive_recommendations: bool = False,
     ):
         """
         Takes a single package details pulled from
@@ -45,6 +46,7 @@ class ProjectUnitOfWork(AbstractProjectUnitOfWork):
         self.allow_prerelease = allow_prerelease
         self.allow_prerelease_packages = allow_prerelease_packages
         self.use_solver = use_solver
+        self.include_transitive_recommendations = include_transitive_recommendations
         self.narrow_package_registry = narrow_package_registry
         self.cve_database = create_cve_database(settings)
 

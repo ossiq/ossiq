@@ -437,11 +437,25 @@ def scan(uow: unit_of_work.AbstractProjectUnitOfWork) -> ScanResult:
                     record.recommended_version = rec
                     record.recommended_version_reason = solver_output.reasons.get(record.package_name)
 
-        # Pass 1.6: HPDR solver over flagged transitive deps (CVE or <7 days old).
+        # Pass 1.6: HPDR solver over transitive deps.
+        # When include_transitive_recommendations is False (default), only CVE/freshness-flagged
+        # records are solved (existing behavior). When True, all transitive records are solved.
         # engine_context={} — populating from project metadata deferred to Phase 6+.
         if uow.use_solver and transitive_packages:
+            if uow.include_transitive_recommendations:
+                records_to_solve = transitive_packages
+            else:
+                records_to_solve = [
+                    r
+                    for r in transitive_packages
+                    if r.cve
+                    or (
+                        r.version_age_days is not None
+                        and r.version_age_days < uow_dependencies_solver.VERY_FRESH_THRESHOLD_DAYS
+                    )
+                ]
             transitive_output = uow_dependencies_solver.solve_transitive(
-                transitive_packages,
+                records_to_solve,
                 uow.packages_registry,
                 {},
                 allow_prerelease=uow.allow_prerelease,
@@ -449,7 +463,7 @@ def scan(uow: unit_of_work.AbstractProjectUnitOfWork) -> ScanResult:
             if transitive_output.recommendations:
                 for record in transitive_packages:
                     rec = transitive_output.recommendations.get(record.package_name)
-                    if rec is not None:
+                    if rec is not None and rec != record.installed_version:
                         record.recommended_version = rec
                         record.recommended_version_reason = transitive_output.reasons.get(record.package_name)
 

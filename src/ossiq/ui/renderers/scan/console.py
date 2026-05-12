@@ -46,10 +46,12 @@ class ConsoleScanRenderer(AbstractUserInterfaceRenderer):
             data: ProjectMetrics from scan service
             **kwargs: Rendering options
                 - lag_threshold_days: int - Threshold for highlighting time lag
+                - transitive: bool - When True show all transitive update recommendations
         """
         lag_threshold_days = kwargs.get("lag_threshold_days", 180)
-        table_prod = None
+        show_full_transitive = kwargs.get("transitive", False)
 
+        table_prod = None
         if data.production_packages:
             table_prod = self._table_factory(
                 "Production Dependency Drift Report", "bold green", data.production_packages, lag_threshold_days
@@ -62,17 +64,27 @@ class ConsoleScanRenderer(AbstractUserInterfaceRenderer):
             )
 
         seen: set[tuple[str, str, str]] = set()
-        transitive_flagged: list[ScanRecord] = []
+        transitive_with_recs: list[ScanRecord] = []
         for r in data.transitive_packages:
             if r.recommended_version is None:
                 continue
             key = (r.package_name, r.installed_version, r.recommended_version)
             if key not in seen:
                 seen.add(key)
-                transitive_flagged.append(r)
+                transitive_with_recs.append(r)
+
         table_transitive = None
-        if transitive_flagged:
-            table_transitive = self._transitive_safety_table(transitive_flagged)
+        if transitive_with_recs:
+            if show_full_transitive:
+                table_transitive = self._transitive_table(
+                    transitive_with_recs, "Transitive Recommendations", show_cve_column=True
+                )
+            else:
+                safety_recs = [r for r in transitive_with_recs if r.cve]
+                if safety_recs:
+                    table_transitive = self._transitive_table(
+                        safety_recs, "Transitive Safety Recommendations", show_cve_column=True
+                    )
 
         # Header
         header_text = Text()
@@ -99,24 +111,24 @@ class ConsoleScanRenderer(AbstractUserInterfaceRenderer):
             self.console.print("\n")
             self.console.print(table_transitive)
 
-    def _transitive_safety_table(self, packages: list[ScanRecord]) -> Table:
-        """Table showing transitive packages that have solver-recommended safer versions."""
-        table = Table(title="Transitive Safety Recommendations", title_style="bold yellow")
+    def _transitive_table(self, packages: list[ScanRecord], title: str, *, show_cve_column: bool) -> Table:
+        """Table showing transitive packages with solver-recommended versions."""
+        title_style = "bold yellow" if show_cve_column else "bold cyan"
+        table = Table(title=title, title_style=title_style)
         table.add_column("Package", justify="left", style="bold cyan")
         table.add_column("Installed", justify="left")
-        table.add_column("CVEs", justify="center")
+        if show_cve_column:
+            table.add_column("CVEs", justify="center")
         table.add_column("Age", justify="right")
         table.add_column("Recommended", justify="left", style="bold green")
 
         for pkg in packages:
-            cve_cell = f"[bold red]{len(pkg.cve)}" if pkg.cve else ""
-            table.add_row(
-                pkg.package_name,
-                pkg.installed_version,
-                cve_cell,
-                self._format_time_delta(pkg.version_age_days, 365),
-                pkg.recommended_version or "",
-            )
+            row: list[str] = [pkg.package_name, pkg.installed_version]
+            if show_cve_column:
+                row.append(f"[bold red]{len(pkg.cve)}" if pkg.cve else "")
+            row.append(self._format_time_delta(pkg.version_age_days, 365))
+            row.append(pkg.recommended_version or "")
+            table.add_row(*row)
         return table
 
     def _table_factory(

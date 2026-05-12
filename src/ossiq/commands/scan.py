@@ -27,6 +27,7 @@ class CommandScanOptions:
     presentation: Literal["console", "html"]
     output_destination: str
     use_solver: bool = False
+    include_transitive_recommendations: bool = False
 
 
 def commnad_scan(ctx: typer.Context, options: CommandScanOptions):
@@ -48,6 +49,7 @@ def commnad_scan(ctx: typer.Context, options: CommandScanOptions):
             "lag_threshold_days": f"{threshold_parsed.days} days",
             "production": options.production,
             "use_solver": options.use_solver,
+            "transitive": options.include_transitive_recommendations,
             "narrow_registry_type": registry_type_map[options.registry_type] if options.registry_type else None,
         },
     )
@@ -60,6 +62,7 @@ def commnad_scan(ctx: typer.Context, options: CommandScanOptions):
         allow_prerelease_packages=options.allow_prerelease_packages,
         narrow_package_registry=registry_type_map[options.registry_type] if options.registry_type else None,
         use_solver=options.use_solver,
+        include_transitive_recommendations=options.include_transitive_recommendations,
     )
 
     with show_operation_progress(settings, "Collecting project packages data...") as progress:
@@ -75,4 +78,5 @@ def commnad_scan(ctx: typer.Context, options: CommandScanOptions):
         data=project_scan,
         lag_threshold_days=threshold_parsed.days,
         destination=options.output_destination,
+        transitive=options.include_transitive_recommendations,
     )

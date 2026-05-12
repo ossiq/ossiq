@@ -111,13 +111,13 @@ class TestSolveTransitiveEmpty:
 
 
 class TestSolveTransitiveUnflagged:
-    def test_no_cve_and_age_over_threshold_not_solved(self) -> None:
-        """A package with no CVEs and age well above threshold should be skipped."""
+    def test_no_cve_package_is_solved_when_passed_directly(self) -> None:
+        """solve_transitive no longer filters — caller decides what to pass.
+        A non-CVE package passed directly should receive a recommendation."""
         records = [_rec("requests", "2.28.0", age_days=30)]
         registry = _make_registry({"requests": [_pv("2.32.0")]})
         result = solve_transitive(records, registry, {})
-        assert result.recommendations == {}
-        registry.package_versions.assert_not_called()
+        assert result.recommendations.get("requests") == "2.32.0"
 
 
 class TestSolveTransitiveCVE:
