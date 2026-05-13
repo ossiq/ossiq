@@ -30,6 +30,7 @@ class AbstractProjectUnitOfWork(abc.ABC):
     allow_prerelease_packages: tuple[str, ...]
     use_solver: bool
     include_transitive_recommendations: bool
+    security_only: bool
 
     @abc.abstractmethod
     def get_source_code_provider(self, repository_provider_type: RepositoryProvider) -> AbstractSourceCodeProviderApi:

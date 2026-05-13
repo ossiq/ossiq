@@ -166,6 +166,14 @@ def scan(
         bool,
         typer.Option("--transitive", is_flag=True, help="Show full transitive dependency update recommendations"),
     ] = False,
+    security: Annotated[
+        bool,
+        typer.Option(
+            "--security",
+            is_flag=True,
+            help="Narrow transitive recommendations to CVE-carrying packages only",
+        ),
+    ] = False,
 ):
     """
     Scan project dependencies and produce metrics
@@ -184,8 +192,9 @@ def scan(
             registry_type=registry_type,
             presentation=presentation,
             output_destination=output,
-            use_solver=use_solver or transitive,
+            use_solver=use_solver or transitive or security,
             include_transitive_recommendations=transitive,
+            security_only=security,
         ),
     )
 
@@ -294,6 +303,14 @@ def update(
         typer.Option("--allow-prerelease-package", help="Allow pre-release for a specific package (repeatable)"),
     ] = None,
     production: Annotated[bool, typer.Option("--production", help=HELP_PRODUCTION_ONLY)] = False,
+    security: Annotated[
+        bool,
+        typer.Option(
+            "--security",
+            is_flag=True,
+            help="Narrow transitive recommendations to CVE-carrying packages only",
+        ),
+    ] = False,
 ):
     """Generate an atomic update script for solver-recommended package versions."""
     if registry_type and registry_type.lower() not in ["npm", "pypi"]:
@@ -307,6 +324,7 @@ def update(
             allow_prerelease=allow_prerelease,
             allow_prerelease_packages=tuple(allow_prerelease_package or []),
             production=production,
+            security_only=security,
         ),
     )
 

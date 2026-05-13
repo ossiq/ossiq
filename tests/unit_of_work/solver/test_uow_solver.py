@@ -161,3 +161,84 @@ class TestSolveDirectPrereleaseFiltering:
         result = solve_direct(deps, registry, {}, allow_prerelease=True)
         assert "requests" in result.recommendations
         assert result.recommendations["requests"] == "3.0.0a1"
+
+
+class TestSolveDirectPostSolveValidator:
+    """Phase 4c: post_solve_validator triggers fallback when the top pick fails."""
+
+    def test_validator_accepted_leaves_output_unchanged(self) -> None:
+        deps = [_FakeDep("requests", "2.28.0")]
+        registry = _make_registry(
+            {
+                "requests": [
+                    _pv("2.28.0", published="2023-01-01T00:00:00Z"),
+                    _pv("2.32.0", published="2024-06-01T00:00:00Z"),
+                ]
+            }
+        )
+        result = solve_direct(deps, registry, {}, post_solve_validator=lambda _pkg, _ver: True)
+        assert result.recommendations.get("requests") == "2.32.0"
+
+    def test_validator_fallback_to_second_candidate(self) -> None:
+        """When validator rejects the top pick, the next eligible candidate is used."""
+        deps = [_FakeDep("requests", "2.28.0")]
+        registry = _make_registry(
+            {
+                "requests": [
+                    _pv("2.28.0", published="2022-01-01T00:00:00Z"),
+                    _pv("2.31.0", published="2023-06-01T00:00:00Z"),
+                    _pv("2.32.0", published="2024-06-01T00:00:00Z"),
+                ]
+            }
+        )
+        # Reject 2.32.0 (top pick), accept 2.31.0.
+        result = solve_direct(
+            deps,
+            registry,
+            {},
+            post_solve_validator=lambda _pkg, ver: ver != "2.32.0",
+        )
+        assert result.recommendations.get("requests") == "2.31.0"
+        assert result.reasons.get("requests") is not None
+
+    def test_validator_drops_package_when_no_fallback(self) -> None:
+        """When all candidates are rejected, the package is dropped from recommendations."""
+        deps = [_FakeDep("requests", "2.28.0")]
+        registry = _make_registry(
+            {
+                "requests": [
+                    _pv("2.28.0", published="2022-01-01T00:00:00Z"),
+                    _pv("2.32.0", published="2024-06-01T00:00:00Z"),
+                ]
+            }
+        )
+        result = solve_direct(deps, registry, {}, post_solve_validator=lambda _pkg, _ver: False)
+        assert "requests" not in result.recommendations
+
+    def test_validator_independent_per_package(self) -> None:
+        """Validator rejection of one package does not affect another."""
+        deps = [
+            _FakeDep("requests", "2.28.0"),
+            _FakeDep("flask", "2.0.0"),
+        ]
+        registry = _make_registry(
+            {
+                "requests": [
+                    _pv("2.28.0", published="2022-01-01T00:00:00Z"),
+                    _pv("2.32.0", published="2024-06-01T00:00:00Z"),
+                ],
+                "flask": [
+                    _pv("2.0.0", published="2022-01-01T00:00:00Z"),
+                    _pv("3.1.0", published="2024-06-01T00:00:00Z"),
+                ],
+            }
+        )
+        # Reject all requests versions; accept all flask versions.
+        result = solve_direct(
+            deps,
+            registry,
+            {},
+            post_solve_validator=lambda pkg, _ver: pkg != "requests",
+        )
+        assert "requests" not in result.recommendations
+        assert result.recommendations.get("flask") == "3.1.0"

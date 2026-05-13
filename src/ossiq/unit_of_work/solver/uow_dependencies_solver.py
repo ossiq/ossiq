@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Protocol
@@ -15,8 +15,10 @@ from ossiq.unit_of_work.solver.driver import ConflictSet
 from ossiq.unit_of_work.solver.driver_pysat import PySATDriver
 from ossiq.unit_of_work.solver.encoder import ConstraintEncoder
 from ossiq.unit_of_work.solver.kernel import HPDRKernel
+from ossiq.unit_of_work.solver.problem import SolverProblem
 from ossiq.unit_of_work.solver.reason import RecommendationReason, build_reason
 from ossiq.unit_of_work.solver.universe import DepLike, SolvablePool
+from ossiq.unit_of_work.solver.version_matchers import satisfies_all_constraints, version_satisfies_constraint
 from ossiq.unit_of_work.solver.weights import VERY_FRESH_THRESHOLD_DAYS
 
 logger = logging.getLogger(__name__)
@@ -45,12 +47,101 @@ class SolverOutput:
 EMPTY_OUTPUT = SolverOutput(recommendations={}, reasons={})
 
 
+def _apply_fallback(
+    output: SolverOutput,
+    problem: SolverProblem,
+    validator: Callable[[str, str], bool],
+) -> SolverOutput:
+    """Replace solver picks that fail validation with the next-best acceptable candidate.
+
+    Iterates problem.candidates in descending preference order (newest-first as produced
+    by SolvablePool.build). Skips L1-violating and CVE versions — mirroring the hard
+    rejections the encoder would have applied. Drops a package entirely when no candidate
+    passes the validator.
+    """
+    constraints_by_name = {c.package_name: c for c in problem.constraints}
+    new_recs: dict[str, str] = {}
+    new_reasons: dict[str, RecommendationReason] = {}
+
+    for pkg, version in output.recommendations.items():
+        if validator(pkg, version):
+            new_recs[pkg] = version
+            new_reasons[pkg] = output.reasons[pkg]
+            continue
+
+        constraint = constraints_by_name.get(pkg)
+        all_specs = list(constraint.all_constraints) if constraint else []
+        declared = constraint.version_constraint if constraint else None
+
+        fallback = next(
+            (
+                cv.version
+                for cv in problem.candidates.get(pkg, ())
+                if cv.version != version
+                and not cv.has_cve
+                and version_satisfies_constraint(cv.version, declared)
+                and satisfies_all_constraints(cv.version, all_specs)
+                and validator(pkg, cv.version)
+            ),
+            None,
+        )
+
+        if fallback is not None:
+            new_recs[pkg] = fallback
+            new_reasons[pkg] = build_reason(pkg, fallback, problem, penalize_fresh_days=VERY_FRESH_THRESHOLD_DAYS)
+
+    return SolverOutput(recommendations=new_recs, reasons=new_reasons)
+
+
+def _run_solve(
+    label: str,
+    deps: Sequence[DepLike],
+    registry: AbstractPackageRegistryApi,
+    engine_context: dict[str, str],
+    *,
+    allow_prerelease: bool = False,
+    cve_affected: dict[str, set[str]] | None = None,
+    now: datetime | None = None,
+) -> tuple[SolverOutput, SolverProblem]:
+    """Run the SolvablePool → ConstraintEncoder → HPDRKernel pipeline.
+
+    Returns (SolverOutput, SolverProblem) so callers can apply post-processing
+    (e.g. fallback validation). Returns (EMPTY_OUTPUT, empty problem) on conflict.
+    """
+    logger.debug("%s: building pool for %d deps", label, len(deps))
+    problem = SolvablePool.build(
+        deps,
+        registry,
+        engine_context,
+        cve_affected=cve_affected or {},
+        allow_prerelease=allow_prerelease,
+        _now=now,
+    )
+    logger.debug("%s: pool built — packages=%d", label, len(problem.constraints))
+    encoded = ConstraintEncoder(penalize_fresh_days=VERY_FRESH_THRESHOLD_DAYS).encode(problem)
+    logger.debug("%s: encoded — hard=%d soft=%d", label, len(encoded.hard_clauses), len(encoded.soft_clauses))
+    result = HPDRKernel(PySATDriver()).solve(encoded)
+
+    if isinstance(result, ConflictSet):
+        logger.debug("%s: solver returned ConflictSet: %s", label, result.unsatisfied_clauses)
+        return EMPTY_OUTPUT, problem
+
+    recommendations = dict(result.selected)
+    logger.debug("%s: selected %d recommendations", label, len(recommendations))
+    reasons = {
+        pkg: build_reason(pkg, ver, problem, penalize_fresh_days=VERY_FRESH_THRESHOLD_DAYS)
+        for pkg, ver in recommendations.items()
+    }
+    return SolverOutput(recommendations=recommendations, reasons=reasons), problem
+
+
 def solve_direct(
     deps: Sequence[DepLike],
     registry: AbstractPackageRegistryApi,
     engine_context: dict[str, str],
     *,
     allow_prerelease: bool = False,
+    post_solve_validator: Callable[[str, str], bool] | None = None,
     _now: datetime | None = None,
 ) -> SolverOutput:
     """Run HPDR solver over direct dependencies.
@@ -70,24 +161,12 @@ def solve_direct(
     if not deps:
         return EMPTY_OUTPUT
 
-    logger.debug("solve_direct: building pool for %d deps", len(deps))
-    problem = SolvablePool.build(deps, registry, engine_context, allow_prerelease=allow_prerelease, _now=_now)
-    logger.debug("solve_direct: pool built — packages=%d", len(problem.constraints))
-    encoded = ConstraintEncoder(penalize_fresh_days=VERY_FRESH_THRESHOLD_DAYS).encode(problem)
-    logger.debug("solve_direct: encoded — hard=%d soft=%d", len(encoded.hard_clauses), len(encoded.soft_clauses))
-    result = HPDRKernel(PySATDriver()).solve(encoded)
-
-    if isinstance(result, ConflictSet):
-        logger.debug("HPDR solver returned ConflictSet: %s", result.unsatisfied_clauses)
-        return EMPTY_OUTPUT
-
-    recommendations = dict(result.selected)
-    logger.debug("solve_direct: selected %d recommendations", len(recommendations))
-    reasons = {
-        pkg: build_reason(pkg, ver, problem, penalize_fresh_days=VERY_FRESH_THRESHOLD_DAYS)
-        for pkg, ver in recommendations.items()
-    }
-    return SolverOutput(recommendations=recommendations, reasons=reasons)
+    output, problem = _run_solve(
+        "solve_direct", deps, registry, engine_context, allow_prerelease=allow_prerelease, now=_now
+    )
+    if post_solve_validator is not None and output.recommendations:
+        return _apply_fallback(output, problem, post_solve_validator)
+    return output
 
 
 @dataclass(frozen=True)
@@ -130,12 +209,7 @@ def solve_transitive(
         return EMPTY_OUTPUT
 
     # 1. Deduplicate by package_name — keep first occurrence (same as direct pass).
-    seen: set[str] = set()
-    unique_records: list[TransitiveRecord] = []
-    for r in transitive_records:
-        if r.package_name not in seen:
-            seen.add(r.package_name)
-            unique_records.append(r)
+    unique_records = list({r.package_name: r for r in transitive_records}.values())
 
     # 2. Build CVE-affected-versions map: {canonical_name: {version, ...}}.
     cve_affected: dict[str, set[str]] = {}
@@ -156,28 +230,13 @@ def solve_transitive(
     ]
 
     # 4. Build -> encode -> solve.
-    logger.debug("solve_transitive: building pool for %d unique records", len(deps))
-    problem = SolvablePool.build(
+    output, _ = _run_solve(
+        "solve_transitive",
         deps,
         registry,
         engine_context,
-        cve_affected=cve_affected,
         allow_prerelease=allow_prerelease,
-        _now=now,
+        cve_affected=cve_affected,
+        now=now,
     )
-    logger.debug("solve_transitive: pool built — packages=%d", len(problem.constraints))
-    encoded = ConstraintEncoder(penalize_fresh_days=VERY_FRESH_THRESHOLD_DAYS).encode(problem)
-    logger.debug("solve_transitive: encoded — hard=%d soft=%d", len(encoded.hard_clauses), len(encoded.soft_clauses))
-    result = HPDRKernel(PySATDriver()).solve(encoded)
-
-    if isinstance(result, ConflictSet):
-        logger.debug("HPDR transitive solver returned ConflictSet: %s", result.unsatisfied_clauses)
-        return EMPTY_OUTPUT
-
-    recommendations = dict(result.selected)
-    logger.debug("solve_transitive: selected %d recommendations", len(recommendations))
-    reasons = {
-        pkg: build_reason(pkg, ver, problem, penalize_fresh_days=VERY_FRESH_THRESHOLD_DAYS)
-        for pkg, ver in recommendations.items()
-    }
-    return SolverOutput(recommendations=recommendations, reasons=reasons)
+    return output

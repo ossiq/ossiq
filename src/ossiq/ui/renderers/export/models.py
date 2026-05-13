@@ -91,6 +91,23 @@ class CVEInfo(BaseModel):
         )
 
 
+class TransitiveImpactExport(BaseModel):
+    """Transitive dependency impact caused by a direct package update."""
+
+    package_name: str
+    current_version: str | None = None
+    projected_version: str | None = None
+    new_constraint: str
+    driven_by: str
+    has_conflict: bool
+    conflict_detail: str | None = None
+
+    @model_serializer(mode="wrap")
+    def _compact(self, handler):
+        d = handler(self)
+        return {k: v for k, v in d.items() if v is not None}
+
+
 class PackageMetrics(BaseModel):
     """Metrics for a single package (schema v1.0–1.2)."""
 
@@ -144,6 +161,14 @@ class PackageMetrics(BaseModel):
             "None for non-PyPI or when no extras are used"
         ),
     )
+    recommended_version: str | None = Field(
+        default=None,
+        description="Solver-recommended version; None when the package is already at the optimal version",
+    )
+    update_transitive_impacts: list[TransitiveImpactExport] = Field(
+        default_factory=list,
+        description="Transitive dependency impacts projected from the recommended update",
+    )
     is_prerelease: bool = Field(default=False, description="Whether the installed version is a pre-release")
     is_yanked: bool = Field(default=False, description="Whether the installed version is yanked or unpublished")
     is_deprecated: bool = Field(
@@ -180,6 +205,19 @@ class PackageMetrics(BaseModel):
                 else None
             ),
             extras=record.extras,
+            recommended_version=record.recommended_version,
+            update_transitive_impacts=[
+                TransitiveImpactExport(
+                    package_name=i.package_name,
+                    current_version=i.current_version,
+                    projected_version=i.projected_version,
+                    new_constraint=i.new_constraint,
+                    driven_by=i.driven_by,
+                    has_conflict=i.has_conflict,
+                    conflict_detail=i.conflict_detail,
+                )
+                for i in record.update_transitive_impacts
+            ],
             is_prerelease=record.is_installed_prerelease,
             is_yanked=record.is_installed_yanked,
             is_deprecated=record.is_installed_deprecated,

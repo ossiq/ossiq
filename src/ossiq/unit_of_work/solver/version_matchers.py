@@ -153,6 +153,11 @@ def version_satisfies_constraint(version: str, constraint: str | None) -> bool:
         return True
 
 
+def satisfies_all_constraints(version: str, constraints: list[str]) -> bool:
+    """Return True when version satisfies every non-empty constraint in the list."""
+    return all(version_satisfies_constraint(version, c) for c in constraints if c)
+
+
 # ── Engine requirement checks ──────────────────────────────────────────────
 
 

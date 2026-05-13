@@ -34,6 +34,7 @@ class ProjectUnitOfWork(AbstractProjectUnitOfWork):
         allow_prerelease_packages: tuple[str, ...] = (),
         use_solver: bool = False,
         include_transitive_recommendations: bool = False,
+        security_only: bool = False,
     ):
         """
         Takes a single package details pulled from
@@ -47,6 +48,7 @@ class ProjectUnitOfWork(AbstractProjectUnitOfWork):
         self.allow_prerelease_packages = allow_prerelease_packages
         self.use_solver = use_solver
         self.include_transitive_recommendations = include_transitive_recommendations
+        self.security_only = security_only
         self.narrow_package_registry = narrow_package_registry
         self.cve_database = create_cve_database(settings)
 
@@ -93,3 +95,35 @@ class ProjectUnitOfWork(AbstractProjectUnitOfWork):
         Return source code provider (like Github) using factory and respective type
         """
         return create_source_code_provider(repository_provider_type, self.settings)
+
+
+REGISTRY_TYPE_MAP: dict[str, ProjectPackagesRegistry] = {
+    "npm": ProjectPackagesRegistry.NPM,
+    "pypi": ProjectPackagesRegistry.PYPI,
+}
+
+
+def build_project_uow(
+    settings: Settings,
+    project_path: str,
+    production: bool,
+    allow_prerelease: bool,
+    allow_prerelease_packages: tuple[str, ...],
+    registry_type: str | None,
+    *,
+    use_solver: bool = False,
+    include_transitive_recommendations: bool = False,
+    security_only: bool = False,
+) -> ProjectUnitOfWork:
+    """Factory for ProjectUnitOfWork with registry-type string mapping applied."""
+    return ProjectUnitOfWork(
+        settings=settings,
+        project_path=project_path,
+        production=production,
+        allow_prerelease=allow_prerelease,
+        allow_prerelease_packages=allow_prerelease_packages,
+        narrow_package_registry=REGISTRY_TYPE_MAP.get(registry_type or ""),
+        use_solver=use_solver,
+        include_transitive_recommendations=include_transitive_recommendations,
+        security_only=security_only,
+    )

@@ -5,7 +5,6 @@ Service to take care of a Package versions
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from functools import cmp_to_key
 
 from rich.console import Console
 
@@ -19,6 +18,7 @@ from ossiq.domain.project import ConstraintSource
 from ossiq.domain.repository import Repository
 from ossiq.domain.version import VersionsDifference
 from ossiq.service.common import package_versions
+from ossiq.service.update_impact import TransitiveImpact, simulate_single, simulate_update_impacts
 from ossiq.unit_of_work import core as unit_of_work
 from ossiq.unit_of_work.solver import uow_dependencies_solver
 from ossiq.unit_of_work.solver.reason import RecommendationReason
@@ -76,6 +76,18 @@ class ScanRecord:
     # All version specifiers from every direct parent; mirrors DependencyDescriptor.all_constraints.
     # Passed to the transitive solver so each parent constraint is enforced as a separate L1 clause.
     all_constraints: list[str] = field(default_factory=list)
+    # Populated by Phase 4c after solve_direct: transitive impacts of the final recommendation.
+    update_transitive_impacts: list[TransitiveImpact] = field(default_factory=list)
+
+
+@dataclass
+class PrefetchedData:
+    """Data pre-fetched in bulk before building ScanRecords, passed explicitly to build_records."""
+
+    packages_info: dict[str, Package]
+    cve_map: dict[tuple[str, str], set[CVE]]
+    versions_since_map: dict[tuple[str, str], list[package_versions.PackageVersion]]
+    repositories_info: dict[str, Repository]
 
 
 @dataclass
@@ -240,13 +252,9 @@ def update_latest_versions_for_prerelease(
         if not allow_prerelease and pkg.name not in allow_prerelease_packages:
             continue
         try:
-            all_versions = list(packages_registry.package_versions(pkg.name))
-            if all_versions:
-                latest = max(
-                    all_versions,
-                    key=cmp_to_key(lambda a, b: packages_registry.compare_versions(a.version, b.version)),
-                )
-                pkg.latest_version = latest.version
+            best = packages_registry.newest_version(packages_registry.package_versions(pkg.name))
+            if best:
+                pkg.latest_version = best.version
         except UnknownPackageVersion:
             pass
 
@@ -292,6 +300,47 @@ def prefetch_source_code_repositories_info(
     if not github_urls:
         return {}
     return uow.get_source_code_provider(RepositoryProvider.PROVIDER_GITHUB).repositories_info_batch(github_urls)
+
+
+def build_records(
+    descriptors: list[DependencyDescriptor],
+    registry: AbstractPackageRegistryApi,
+    prefetched: PrefetchedData,
+) -> list[ScanRecord]:
+    """Build ScanRecord instances from dependency descriptors and pre-fetched data."""
+    return [
+        scan_record(
+            registry,
+            prefetched.packages_info[dep.canonical_name],
+            dep.name,
+            dep.canonical_name,
+            dep.version,
+            dep.is_optional,
+            prefetched.cve_map.get((prefetched.packages_info[dep.canonical_name].name, dep.version), set()),
+            prefetched.versions_since_map[(prefetched.packages_info[dep.canonical_name].name, dep.version)],
+            dep.constraint_info,
+            dep.dependency_path,
+            dep.version_constraint,
+            prefetched.repositories_info.get(prefetched.packages_info[dep.canonical_name].repo_url or ""),
+            dep.extras,
+            dep.all_constraints,
+        )
+        for dep in descriptors
+    ]
+
+
+def apply_recommendations(
+    records: list[ScanRecord],
+    output: uow_dependencies_solver.SolverOutput,
+    *,
+    skip_current: bool = False,
+) -> None:
+    """Write solver recommendations back onto ScanRecord instances in-place."""
+    for record in records:
+        rec = output.recommendations.get(record.package_name)
+        if rec is not None and (not skip_current or rec != record.installed_version):
+            record.recommended_version = rec
+            record.recommended_version_reason = output.reasons.get(record.package_name)
 
 
 def scan(uow: unit_of_work.AbstractProjectUnitOfWork) -> ScanResult:
@@ -344,21 +393,25 @@ def scan(uow: unit_of_work.AbstractProjectUnitOfWork) -> ScanResult:
                 for dep in project_info.optional_dependencies.values()
             ]
 
+        direct_canonical_names = {dep.canonical_name for dep in prod_deps + opt_deps}
         walker = GraphExporter(project_info.dependency_tree)
-        trans_deps = [
-            DependencyDescriptor(
-                name=node.name,
-                canonical_name=node.canonical_name,
-                version=node.version_installed,
-                is_optional=False,
-                dependency_path=path,
-                version_constraint=node.version_defined,
-                constraint_info=node.constraint_info,
-                extras=node.extras,
-                all_constraints=list(node.parent_constraints),
-            )
-            for node, path in walker.walk_all_paths()
-        ]
+        trans_deps = list(
+            {
+                node.canonical_name: DependencyDescriptor(
+                    name=node.name,
+                    canonical_name=node.canonical_name,
+                    version=node.version_installed,
+                    is_optional=False,
+                    dependency_path=path,
+                    version_constraint=node.version_defined,
+                    constraint_info=node.constraint_info,
+                    extras=node.extras,
+                    all_constraints=list(node.parent_constraints),
+                )
+                for node, path in walker.walk_all_paths()
+                if node.canonical_name not in direct_canonical_names
+            }.values()
+        )
 
         all_deps = prod_deps + opt_deps + trans_deps
 
@@ -392,57 +445,70 @@ def scan(uow: unit_of_work.AbstractProjectUnitOfWork) -> ScanResult:
             allow_prerelease_packages=uow.allow_prerelease_packages,
         )
 
-        # Pass 1.5: optionally run HPDR solver over direct deps (cache is warm after prefetch)
+        prefetched = PrefetchedData(
+            packages_info=packages_info,
+            cve_map=cve_map,
+            versions_since_map=versions_since_map,
+            repositories_info=repositories_info,
+        )
+
+        # Transitive records built first — the Phase 4c validator needs them to assess impacts.
+        transitive_packages = build_records(trans_deps, uow.packages_registry, prefetched)
+
+        # Pass 1.5: optionally run HPDR solver over direct deps (cache is warm after prefetch).
         # engine_context={} in Phase 4 — L2 (engine mismatch) clauses inactive; L3/L4 still fire.
         # TODO (Phase 5): populate engine_context from project_info engine metadata.
         solver_output = uow_dependencies_solver.SolverOutput(recommendations={}, reasons={})
         if uow.use_solver:
+            transitive_by_name = {r.package_name: r for r in transitive_packages}
+
+            def validate_recommendation(pkg_name: str, candidate_version: str) -> bool:
+                return simulate_single(
+                    pkg_name,
+                    candidate_version,
+                    transitive_by_name,
+                    uow.packages_registry,
+                    uow.allow_prerelease,
+                ).is_actionable
+
             solver_output = uow_dependencies_solver.solve_direct(
                 prod_deps + opt_deps,
                 uow.packages_registry,
                 {},
                 allow_prerelease=uow.allow_prerelease,
+                post_solve_validator=validate_recommendation,
             )
 
-        # Pass 2: build ScanRecords using pre-fetched data; license comes from registry + GitHub
-        def build_records(descriptors: list[DependencyDescriptor]) -> list[ScanRecord]:
-            return [
-                scan_record(
-                    uow.packages_registry,
-                    packages_info[dep.canonical_name],
-                    dep.name,
-                    dep.canonical_name,
-                    dep.version,
-                    dep.is_optional,
-                    cve_map.get((packages_info[dep.canonical_name].name, dep.version), set()),
-                    versions_since_map[(packages_info[dep.canonical_name].name, dep.version)],
-                    dep.constraint_info,
-                    dep.dependency_path,
-                    dep.version_constraint,
-                    repositories_info.get(packages_info[dep.canonical_name].repo_url or ""),
-                    dep.extras,
-                    dep.all_constraints,
-                )
-                for dep in descriptors
-            ]
-
-        production_packages = sorted(build_records(prod_deps), key=sort_function, reverse=True)
-        optional_packages = sorted(build_records(opt_deps), key=sort_function, reverse=True)
-        transitive_packages = build_records(trans_deps)
+        production_packages = sorted(
+            build_records(prod_deps, uow.packages_registry, prefetched), key=sort_function, reverse=True
+        )
+        optional_packages = sorted(
+            build_records(opt_deps, uow.packages_registry, prefetched), key=sort_function, reverse=True
+        )
 
         if solver_output.recommendations:
+            apply_recommendations(production_packages + optional_packages, solver_output)
+
+            impacts = simulate_update_impacts(
+                solver_output.recommendations,
+                production_packages + optional_packages + transitive_packages,
+                uow.packages_registry,
+                uow.allow_prerelease,
+            )
             for record in production_packages + optional_packages:
-                rec = solver_output.recommendations.get(record.package_name)
-                if rec is not None:
-                    record.recommended_version = rec
-                    record.recommended_version_reason = solver_output.reasons.get(record.package_name)
+                impact = impacts.get(record.package_name)
+                if impact is not None:
+                    record.update_transitive_impacts = impact.transitive_impacts
 
         # Pass 1.6: HPDR solver over transitive deps.
-        # When include_transitive_recommendations is False (default), only CVE/freshness-flagged
-        # records are solved (existing behavior). When True, all transitive records are solved.
+        # security_only (highest priority): CVE packages only, ignores include_transitive_recommendations.
+        # include_transitive_recommendations: all transitive packages.
+        # default: CVE + freshness-flagged packages only.
         # engine_context={} — populating from project metadata deferred to Phase 6+.
         if uow.use_solver and transitive_packages:
-            if uow.include_transitive_recommendations:
+            if uow.security_only:
+                records_to_solve = [r for r in transitive_packages if r.cve]
+            elif uow.include_transitive_recommendations:
                 records_to_solve = transitive_packages
             else:
                 records_to_solve = [
@@ -461,11 +527,7 @@ def scan(uow: unit_of_work.AbstractProjectUnitOfWork) -> ScanResult:
                 allow_prerelease=uow.allow_prerelease,
             )
             if transitive_output.recommendations:
-                for record in transitive_packages:
-                    rec = transitive_output.recommendations.get(record.package_name)
-                    if rec is not None and rec != record.installed_version:
-                        record.recommended_version = rec
-                        record.recommended_version_reason = transitive_output.reasons.get(record.package_name)
+                apply_recommendations(transitive_packages, transitive_output, skip_current=True)
 
         return ScanResult(
             project_name=project_info.name,

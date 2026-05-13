@@ -5,7 +5,7 @@ from typing import Literal
 
 import typer
 
-from ossiq.domain.common import Command, ProjectPackagesRegistry, UserInterfaceType
+from ossiq.domain.common import Command, UserInterfaceType
 from ossiq.messages import HELP_UPDATE_NO_RECOMMENDATIONS
 from ossiq.service import project
 from ossiq.service.update import build_update_plan
@@ -13,11 +13,6 @@ from ossiq.settings import Settings
 from ossiq.ui.registry import get_renderer
 from ossiq.ui.system import show_operation_progress
 from ossiq.unit_of_work import uow_project
-
-REGISTRY_TYPE_MAP = {
-    "npm": ProjectPackagesRegistry.NPM,
-    "pypi": ProjectPackagesRegistry.PYPI,
-}
 
 
 @dataclass(frozen=True)
@@ -29,20 +24,22 @@ class CommandUpdateOptions:
     allow_prerelease: bool = False
     allow_prerelease_packages: tuple[str, ...] = ()
     production: bool = False
+    security_only: bool = False
 
 
 def command_update(ctx: typer.Context, options: CommandUpdateOptions) -> None:
     """Generate atomic update script for solver-recommended package versions."""
     settings: Settings = ctx.obj
 
-    uow = uow_project.ProjectUnitOfWork(
-        settings=settings,
-        project_path=options.project_path,
-        production=options.production,
-        allow_prerelease=options.allow_prerelease,
-        allow_prerelease_packages=options.allow_prerelease_packages,
-        narrow_package_registry=REGISTRY_TYPE_MAP.get(options.registry_type or ""),
+    uow = uow_project.build_project_uow(
+        settings,
+        options.project_path,
+        options.production,
+        options.allow_prerelease,
+        options.allow_prerelease_packages,
+        options.registry_type,
         use_solver=True,
+        security_only=options.security_only,
     )
 
     with show_operation_progress(settings, "Resolving recommended versions...") as progress:

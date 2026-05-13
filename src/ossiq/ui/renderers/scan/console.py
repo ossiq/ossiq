@@ -8,19 +8,15 @@ from rich.table import Table
 from rich.text import Text
 
 from ossiq.domain.common import Command, UserInterfaceType
-from ossiq.domain.version import (
-    VERSION_DIFF_BUILD,
-    VERSION_DIFF_MAJOR,
-    VERSION_DIFF_MINOR,
-    VERSION_DIFF_PATCH,
-    VERSION_DIFF_PRERELEASE,
-    VERSION_LATEST,
-    VersionsDifference,
-)
 from ossiq.service.project import ScanRecord, ScanResult
 from ossiq.settings import Settings
-from ossiq.timeutil import format_time_days
 from ossiq.ui.interfaces import AbstractUserInterfaceRenderer
+from ossiq.ui.renderers.impact_utils import (
+    format_lag_status,
+    format_time_delta,
+    impact_sub_row_texts,
+    new_transitive_deps_table,
+)
 
 
 class ConsoleScanRenderer(AbstractUserInterfaceRenderer):
@@ -47,9 +43,11 @@ class ConsoleScanRenderer(AbstractUserInterfaceRenderer):
             **kwargs: Rendering options
                 - lag_threshold_days: int - Threshold for highlighting time lag
                 - transitive: bool - When True show all transitive update recommendations
+                - security: bool - When True, label transitive table as security-scoped
         """
         lag_threshold_days = kwargs.get("lag_threshold_days", 180)
         show_full_transitive = kwargs.get("transitive", False)
+        security_only = kwargs.get("security", False)
 
         table_prod = None
         if data.production_packages:
@@ -63,22 +61,16 @@ class ConsoleScanRenderer(AbstractUserInterfaceRenderer):
                 "Optional Dependency Drift Report", "bold cyan", data.optional_packages, lag_threshold_days
             )
 
-        seen: set[tuple[str, str, str]] = set()
-        transitive_with_recs: list[ScanRecord] = []
-        for r in data.transitive_packages:
-            if r.recommended_version is None:
-                continue
-            key = (r.package_name, r.installed_version, r.recommended_version)
-            if key not in seen:
-                seen.add(key)
-                transitive_with_recs.append(r)
+        transitive_with_recs = sorted(
+            (r for r in data.transitive_packages if r.recommended_version is not None),
+            key=lambda r: r.package_name,
+        )
 
         table_transitive = None
         if transitive_with_recs:
             if show_full_transitive:
-                table_transitive = self._transitive_table(
-                    transitive_with_recs, "Transitive Recommendations", show_cve_column=True
-                )
+                title = "Transitive Security Recommendations" if security_only else "Transitive Recommendations"
+                table_transitive = self._transitive_table(transitive_with_recs, title, show_cve_column=True)
             else:
                 safety_recs = [r for r in transitive_with_recs if r.cve]
                 if safety_recs:
@@ -107,9 +99,23 @@ class ConsoleScanRenderer(AbstractUserInterfaceRenderer):
             self.console.print("\n")
             self.console.print(table_dev)
 
+        new_dep_impacts = [
+            i
+            for records in [data.production_packages, data.optional_packages]
+            for r in records
+            if r.recommended_version and r.recommended_version != r.installed_version
+            for i in r.update_transitive_impacts
+            if i.current_version is None
+        ]
+        table_new_deps = new_transitive_deps_table(new_dep_impacts)
+
         if table_transitive:
             self.console.print("\n")
             self.console.print(table_transitive)
+
+        if table_new_deps:
+            self.console.print("\n")
+            self.console.print(table_new_deps)
 
     def _transitive_table(self, packages: list[ScanRecord], title: str, *, show_cve_column: bool) -> Table:
         """Table showing transitive packages with solver-recommended versions."""
@@ -126,7 +132,7 @@ class ConsoleScanRenderer(AbstractUserInterfaceRenderer):
             row: list[str] = [pkg.package_name, pkg.installed_version]
             if show_cve_column:
                 row.append(f"[bold red]{len(pkg.cve)}" if pkg.cve else "")
-            row.append(self._format_time_delta(pkg.version_age_days, 365))
+            row.append(format_time_delta(pkg.version_age_days, 365))
             row.append(pkg.recommended_version or "")
             table.add_row(*row)
         return table
@@ -166,7 +172,7 @@ class ConsoleScanRenderer(AbstractUserInterfaceRenderer):
             row_args = [
                 pkg.package_name,
                 f"[bold][red]{len(pkg.cve)}" if pkg.cve else "",
-                self._format_lag_status(pkg.versions_diff_index),
+                format_lag_status(pkg.versions_diff_index),
                 installed_cell,
             ]
 
@@ -180,37 +186,15 @@ class ConsoleScanRenderer(AbstractUserInterfaceRenderer):
             row_args += [
                 pkg.latest_version if pkg.latest_version else "[bold][red]N/A",
                 str(pkg.releases_lag),
-                self._format_time_delta(pkg.time_lag_days, lag_threshold_days),
-                self._format_time_delta(pkg.version_age_days, 365),
+                format_time_delta(pkg.time_lag_days, lag_threshold_days),
+                format_time_delta(pkg.version_age_days, 365),
             ]
 
             table.add_row(*row_args)
 
+            if pkg.update_transitive_impacts and pkg.recommended_version != pkg.installed_version:
+                blanks = [""] * (len(table.columns) - 1)
+                for text in impact_sub_row_texts(pkg.update_transitive_impacts):
+                    table.add_row(text, *blanks)
+
         return table
-
-    @staticmethod
-    def _format_time_delta(days: int | None, lag_threshold_days: int) -> str:
-        """Format time delta with color highlighting."""
-        if days is None:
-            return "N/A"
-
-        formatted_string = format_time_days(days)
-        return f"[bold red]{formatted_string}" if days >= lag_threshold_days else formatted_string
-
-    @staticmethod
-    def _format_lag_status(vdiff: VersionsDifference) -> str:
-        """Format lag status with color coding."""
-        if vdiff.diff_index == VERSION_DIFF_MAJOR:
-            return "[red][bold]Major"
-        elif vdiff.diff_index == VERSION_DIFF_MINOR:
-            return "[yellow][bold]Minor"
-        elif vdiff.diff_index == VERSION_DIFF_PATCH:
-            return "[white]Patch"
-        elif vdiff.diff_index == VERSION_DIFF_PRERELEASE:
-            return "[yellow][bold]Prerelease"
-        elif vdiff.diff_index == VERSION_DIFF_BUILD:
-            return "[white]Build"
-        elif vdiff.diff_index == VERSION_LATEST:
-            return "[green][bold]Latest"
-        else:
-            return "[white][bold]N/A"

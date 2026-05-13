@@ -7,6 +7,7 @@ from rich.table import Table
 from ossiq.domain.common import Command, UserInterfaceType
 from ossiq.service.update import UpdatePlan
 from ossiq.ui.interfaces import AbstractUserInterfaceRenderer
+from ossiq.ui.renderers.impact_utils import impact_sub_row_texts, new_transitive_deps_table
 
 console = Console()
 
@@ -41,13 +42,24 @@ class ConsoleUpdateRenderer(AbstractUserInterfaceRenderer):
 
             for entry in data.direct_entries:
                 age = f"{entry.reason.age_days}d" if entry.reason and entry.reason.age_days is not None else "—"
-                table.add_row(entry.package_name, entry.current_version, entry.recommended_version, age, "direct")
+                pkg_cell = entry.package_name if entry.is_actionable else f"[red]✗ {entry.package_name}[/red]"
+                table.add_row(pkg_cell, entry.current_version, entry.recommended_version, age, "direct")
+                for text in impact_sub_row_texts(entry.transitive_impacts):
+                    table.add_row(text, "", "", "", "")
             for entry in data.transitive_entries:
                 age = f"{entry.reason.age_days}d" if entry.reason and entry.reason.age_days is not None else "—"
                 table.add_row(entry.package_name, entry.current_version, entry.recommended_version, age, "transitive")
 
             console.print(table)
             console.print()
+
+            new_dep_impacts = [
+                i for entry in data.direct_entries for i in entry.transitive_impacts if i.current_version is None
+            ]
+            table_new_deps = new_transitive_deps_table(new_dep_impacts)
+            if table_new_deps:
+                console.print(table_new_deps)
+                console.print()
 
         if script:
             console.print(Rule("Update Script — review before running", style="bold yellow"))

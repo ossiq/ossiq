@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from ossiq.service.project import ScanRecord, ScanResult
+from ossiq.service.update_impact import TransitiveImpact
 from ossiq.unit_of_work.solver.reason import RecommendationReason
 
 
@@ -17,6 +18,9 @@ class UpdateEntry:
     recommended_version: str
     is_direct: bool
     reason: RecommendationReason | None
+    transitive_impacts: list[TransitiveImpact] = field(default_factory=list)
+    # False when transitive conflicts exist and no conflict-free candidate was found.
+    is_actionable: bool = True
 
 
 @dataclass(frozen=True)
@@ -44,6 +48,8 @@ def entry_from_record(record: ScanRecord, is_direct: bool) -> UpdateEntry:
         recommended_version=record.recommended_version,
         is_direct=is_direct,
         reason=record.recommended_version_reason,
+        transitive_impacts=list(record.update_transitive_impacts),
+        is_actionable=all(not i.has_conflict for i in record.update_transitive_impacts),
     )
 
 
@@ -54,11 +60,17 @@ def build_update_plan(scan_result: ScanResult, package_manager_name: str) -> Upd
         for r in scan_result.production_packages + scan_result.optional_packages
         if r.recommended_version and r.recommended_version != r.installed_version
     ]
-    transitive = [
-        entry_from_record(r, is_direct=False)
-        for r in scan_result.transitive_packages
-        if r.recommended_version and r.recommended_version != r.installed_version
-    ]
+    direct_names = {e.package_name for e in direct}
+    transitive = sorted(
+        {
+            r.package_name: entry_from_record(r, is_direct=False)
+            for r in scan_result.transitive_packages
+            if r.recommended_version
+            and r.recommended_version != r.installed_version
+            and r.package_name not in direct_names
+        }.values(),
+        key=lambda e: e.package_name,
+    )
     return UpdatePlan(
         project_name=scan_result.project_name,
         project_path=scan_result.project_path,
