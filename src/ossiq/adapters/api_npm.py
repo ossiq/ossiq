@@ -218,48 +218,26 @@ class PackageRegistryApiNpm(AbstractPackageRegistryApi):
 
     _META_KEYS = frozenset({"created", "modified"})
 
-    def _build_package_versions(self, package_name: str) -> list[PackageVersion]:
-        data = self._raw_cache[package_name]
-
-        # FIXME: raise custom exception if not found
-        versions = data.get("versions", {})
-        timestamp_map = dict(data.get("time", {}))
-        unpublished_response = timestamp_map.pop("unpublished", {})
-
-        # Entire package unpublished path
-        if unpublished_response:
-            unpublished_date_iso = unpublished_response.get("time", None)
-            return [
-                PackageVersion(
-                    version=version,
-                    license=None,
-                    declared_dependencies={},
-                    package_url=f"{NPM_REGISTRY_FRONT}/package/{package_name}/v/{version}",
-                    unpublished_date_iso=unpublished_date_iso,
-                    is_unpublished=True,
-                )
-                for version in unpublished_response.get("versions", [])
-            ]
-
-        # Published package — phase 1: existing versions
-        result = [
+    def versions_for_unpublished(self, package_name: str, unpublished_response: dict) -> list[PackageVersion]:
+        """Build PackageVersion list for an entirely unpublished package."""
+        unpublished_date_iso = unpublished_response.get("time", None)
+        return [
             PackageVersion(
                 version=version,
-                published_date_iso=timestamp_map.get(version, None),
-                declared_dependencies=details.get("dependencies", {}),
-                license=normalize_npm_license(details.get("license")),
-                runtime_requirements=details.get("engines", None),
-                declared_dev_dependencies=details.get("devDependencies", {}),
-                description=details.get("description", None),
+                license=None,
+                declared_dependencies={},
                 package_url=f"{NPM_REGISTRY_FRONT}/package/{package_name}/v/{version}",
-                is_prerelease=is_npm_prerelease(version),
-                is_deprecated=bool(details.get("deprecated")),
+                unpublished_date_iso=unpublished_date_iso,
+                is_unpublished=True,
             )
-            for version, details in versions.items()
+            for version in unpublished_response.get("versions", [])
         ]
 
-        # Phase 2: individually deleted versions (in time map but absent from versions)
-        published_set = set(versions)
+    def versions_for_deleted(
+        self, package_name: str, published_set: set[str], timestamp_map: dict
+    ) -> list[PackageVersion]:
+        """Build PackageVersion list for individually deleted versions (in time map but absent from versions)."""
+        result = []
         for ver, timestamp in timestamp_map.items():
             if ver in self._META_KEYS or ver in published_set:
                 continue
@@ -277,7 +255,35 @@ class PackageRegistryApiNpm(AbstractPackageRegistryApi):
                     is_unpublished=True,
                 )
             )
+        return result
 
+    def _build_package_versions(self, package_name: str) -> list[PackageVersion]:
+        data = self._raw_cache[package_name]
+
+        # FIXME: raise custom exception if not found
+        versions = data.get("versions", {})
+        timestamp_map = dict(data.get("time", {}))
+        unpublished_response = timestamp_map.pop("unpublished", {})
+
+        if unpublished_response:
+            return self.versions_for_unpublished(package_name, unpublished_response)
+
+        result = [
+            PackageVersion(
+                version=version,
+                published_date_iso=timestamp_map.get(version, None),
+                declared_dependencies=details.get("dependencies", {}),
+                license=normalize_npm_license(details.get("license")),
+                runtime_requirements=details.get("engines", None),
+                declared_dev_dependencies=details.get("devDependencies", {}),
+                description=details.get("description", None),
+                package_url=f"{NPM_REGISTRY_FRONT}/package/{package_name}/v/{version}",
+                is_prerelease=is_npm_prerelease(version),
+                is_deprecated=bool(details.get("deprecated")),
+            )
+            for version, details in versions.items()
+        ]
+        result.extend(self.versions_for_deleted(package_name, set(versions), timestamp_map))
         return result
 
     def package_versions(self, package_name: str) -> list[PackageVersion]:
@@ -293,3 +299,13 @@ class PackageRegistryApiNpm(AbstractPackageRegistryApi):
             self._versions_list_cache[package_name] = self._build_package_versions(package_name)
 
         return self._versions_list_cache[package_name]
+
+    def package_version_requires(self, package_name: str, version: str) -> dict[str, str]:
+        """Return {dep_name: version_range} for a specific published version.
+
+        Returns empty dict if the version is not found or has no runtime dependencies.
+        """
+        if package_name not in self._raw_cache:
+            self.packages_info_batch([package_name])
+        versions = self._raw_cache.get(package_name, {}).get("versions", {})
+        return dict(versions.get(version, {}).get("dependencies", {}))

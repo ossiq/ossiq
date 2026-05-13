@@ -923,3 +923,34 @@ class TestIsNpmPrerelease:
     )
     def test_prerelease_detection(self, version_str, expected):
         assert is_npm_prerelease(version_str) is expected
+
+
+class TestPackageVersionRequiresNpm:
+    """Test package_version_requires for NPM."""
+
+    def test_returns_dependencies_for_known_version(self, npm_api, mock_npm_response):
+        mock_npm_response.set_response(
+            "lodash",
+            {
+                "versions": {
+                    "4.17.21": {"dependencies": {"some-dep": "^1.0.0"}},
+                },
+            },
+        )
+        result = npm_api.package_version_requires("lodash", "4.17.21")
+        assert result == {"some-dep": "^1.0.0"}
+
+    def test_returns_empty_for_unknown_version(self, npm_api, mock_npm_response):
+        mock_npm_response.set_response("lodash", {"versions": {}})
+        result = npm_api.package_version_requires("lodash", "9.9.9")
+        assert result == {}
+
+    def test_returns_empty_for_no_dependencies(self, npm_api, mock_npm_response):
+        mock_npm_response.set_response(
+            "lodash",
+            {
+                "versions": {"4.17.21": {}},
+            },
+        )
+        result = npm_api.package_version_requires("lodash", "4.17.21")
+        assert result == {}

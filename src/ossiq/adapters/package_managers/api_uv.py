@@ -254,7 +254,7 @@ class PackageManagerPythonUv(AbstractPackageManagerApi):
         )
 
     def generate_update_script(self, plan: UpdatePlan) -> str:
-        """Constraint-based uv update: write constraints file, sync, clean up."""
+        """Pin direct deps in pyproject.toml via sed; upgrade transitive deps via uv lock."""
         lines = [
             "#!/usr/bin/env bash",
             f"# OSS IQ update — uv  |  project: {plan.project_name}",
@@ -262,23 +262,29 @@ class PackageManagerPythonUv(AbstractPackageManagerApi):
             "set -euo pipefail",
             "",
             f'cd "{plan.project_path}"',
-            "",
-            "CONSTRAINTS=/tmp/ossiq-constraints.txt",
-            '> "$CONSTRAINTS"',
-            "",
-            'echo "Writing constraints..."',
         ]
-        for entry in plan.all_entries:
-            lines.append(f'echo "{entry.package_name}=={entry.recommended_version}" >> "$CONSTRAINTS"')
+
+        if plan.direct_entries:
+            lines += ["", "# --- direct dependencies: pin in pyproject.toml ---"]
+            for entry in plan.direct_entries:
+                lines.append(f"# {entry.package_name}: {entry.current_version} -> {entry.recommended_version}")
+                name, ver = entry.package_name, entry.recommended_version
+                lines.append(f"""sed -i '' 's/"{name}[^"]*"/"{name}=={ver}"/g' pyproject.toml""")
+
+        upgrade_flags = [
+            f"    --upgrade-package {entry.package_name}=={entry.recommended_version}"
+            for entry in plan.transitive_entries
+        ]
+        lock_cmd = "uv lock" if not upgrade_flags else "uv lock \\\n" + " \\\n".join(upgrade_flags)
+
         lines += [
             "",
-            'echo "Syncing with constraints..."',
-            'uv sync --constraint "$CONSTRAINTS"',
+            "# --- update lockfile ---",
+            lock_cmd,
             "",
-            'rm "$CONSTRAINTS"',
-            'echo "Done."',
+            "uv sync",
             "",
-            "# ROLLBACK: uv sync",
+            "# ROLLBACK: git checkout pyproject.toml && uv sync",
         ]
         return "\n".join(lines)
 

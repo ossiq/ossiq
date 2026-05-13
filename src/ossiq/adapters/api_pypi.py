@@ -10,6 +10,7 @@ from packaging.version import Version as PackagingVersion
 from rich.console import Console
 
 from ossiq.adapters.api_interfaces import AbstractPackageRegistryApi
+from ossiq.adapters.package_managers.api_pypi import batch_fetch_requires_dist, parse_requires_dist
 from ossiq.clients.batch import BatchClient
 from ossiq.clients.client_pypi import PypiBatchStrategy
 from ossiq.clients.common import get_user_agent
@@ -249,6 +250,7 @@ class PackageRegistryApiPypi(AbstractPackageRegistryApi):
         self.session = requests.Session()
         self.session.headers.update({"User-Agent": get_user_agent()})
         self._raw_cache = {}
+        self._version_requires_cache: dict[tuple[str, str], dict[str, str]] = {}
         self._strategy = PypiBatchStrategy(self.session)
         self._batch_client = BatchClient(self._strategy)
 
@@ -342,3 +344,14 @@ class PackageRegistryApiPypi(AbstractPackageRegistryApi):
                 unpublished_date_iso=None,
                 is_prerelease=PackagingVersion(version).is_prerelease,
             )
+
+    def package_version_requires(self, package_name: str, version: str) -> dict[str, str]:
+        """Return {normalized_dep_name: version_specifier} for a specific published version.
+
+        Returns empty dict if the version is not found or has no runtime dependencies.
+        """
+        key = (package_name, version)
+        if key not in self._version_requires_cache:
+            raw = batch_fetch_requires_dist([key], self.session)
+            self._version_requires_cache[key] = parse_requires_dist(raw.get(key, []))
+        return self._version_requires_cache[key]

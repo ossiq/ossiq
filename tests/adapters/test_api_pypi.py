@@ -650,3 +650,47 @@ class TestPackageRegistryApiPypiInit:
         settings = Settings()
         api = PackageRegistryApiPypi(settings)
         assert api.settings is settings
+
+
+class TestPackageVersionRequiresPypi:
+    """Test package_version_requires for PyPI."""
+
+    def test_returns_parsed_requires_for_known_version(self, pypi_api):
+        from packaging.specifiers import SpecifierSet
+
+        requires = [
+            "urllib3>=1.21.1,<3",
+            "certifi>=2017.4.17",
+            "charset-normalizer<4,>=2",
+            "idna<4,>=2.5",
+            "extra-dep; extra == 'security'",
+        ]
+        with patch(
+            "ossiq.adapters.api_pypi.batch_fetch_requires_dist",
+            return_value={("requests", "2.32.3"): requires},
+        ):
+            result = pypi_api.package_version_requires("requests", "2.32.3")
+        assert set(result.keys()) == {"urllib3", "certifi", "charset-normalizer", "idna"}
+        assert "extra-dep" not in result
+        assert SpecifierSet(result["urllib3"]) == SpecifierSet(">=1.21.1,<3")
+        assert SpecifierSet(result["certifi"]) == SpecifierSet(">=2017.4.17")
+        assert SpecifierSet(result["charset-normalizer"]) == SpecifierSet("<4,>=2")
+        assert SpecifierSet(result["idna"]) == SpecifierSet("<4,>=2.5")
+
+    def test_caches_result_avoids_second_http_call(self, pypi_api):
+        requires = ["certifi>=2017.4.17"]
+        with patch(
+            "ossiq.adapters.api_pypi.batch_fetch_requires_dist",
+            return_value={("requests", "2.32.3"): requires},
+        ) as mock_fetch:
+            pypi_api.package_version_requires("requests", "2.32.3")
+            pypi_api.package_version_requires("requests", "2.32.3")
+        assert mock_fetch.call_count == 1
+
+    def test_returns_empty_dict_for_unknown_version(self, pypi_api):
+        with patch(
+            "ossiq.adapters.api_pypi.batch_fetch_requires_dist",
+            return_value={},
+        ):
+            result = pypi_api.package_version_requires("requests", "0.0.0")
+        assert result == {}

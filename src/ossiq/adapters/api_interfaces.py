@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import abc
 from collections.abc import Callable, Iterable
+from functools import cmp_to_key
 from typing import TYPE_CHECKING
 
 from ossiq.domain.common import ProjectPackagesRegistry
@@ -103,6 +104,24 @@ class AbstractPackageRegistryApi(abc.ABC):
         """
         Get a particular package versions between what is installed
         currently in the project and the latest version available
+        """
+        raise NotImplementedError
+
+    def newest_version(self, candidates: Iterable[PackageVersion]) -> PackageVersion | None:
+        """Return the newest PackageVersion from candidates using registry-specific comparison.
+
+        Returns None when candidates is empty.
+        """
+        as_list = list(candidates)
+        if not as_list:
+            return None
+        return max(as_list, key=cmp_to_key(lambda a, b: self.compare_versions(a.version, b.version)))
+
+    @abc.abstractmethod
+    def package_version_requires(self, package_name: str, version: str) -> dict[str, str]:
+        """Return {normalized_dep_name: version_specifier} for a specific published version.
+
+        Returns empty dict if the version is not found or has no runtime dependencies.
         """
         raise NotImplementedError
 
