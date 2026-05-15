@@ -1,5 +1,7 @@
 <script setup lang="ts">
+import { ref } from 'vue'
 import type { ReportRow, SortColumn, SortDirection } from '@/composables/useReportFilters'
+import type { TransitiveImpactExport } from '@/types/report'
 import { constraintCircleClasses } from '@/explorer/nodeStyle'
 
 defineProps<{
@@ -13,6 +15,33 @@ const emit = defineEmits<{
   sort: [column: SortColumn]
   selectPackage: [row: ReportRow]
 }>()
+
+const expandedImpacts = ref<Set<string>>(new Set())
+
+function toggleImpact(packageName: string): void {
+  if (expandedImpacts.value.has(packageName)) expandedImpacts.value.delete(packageName)
+  else expandedImpacts.value.add(packageName)
+}
+
+function hasImpacts(row: ReportRow): boolean {
+  return (row.pkg.update_transitive_impacts?.length ?? 0) > 0
+}
+
+function hasConflict(row: ReportRow): boolean {
+  return row.pkg.update_transitive_impacts?.some(i => i.has_conflict) ?? false
+}
+
+function impactStatus(impact: TransitiveImpactExport): string {
+  if (impact.has_conflict) return '⚠ conflict'
+  if (impact.current_version == null) return '+ new dep'
+  return '✓ update'
+}
+
+function impactRowClass(impact: TransitiveImpactExport): string {
+  if (impact.has_conflict) return '[&>td]:text-amber-800 [&>td]:bg-yellow-50'
+  if (impact.current_version == null) return '[&>td]:text-blue-700'
+  return ''
+}
 
 interface ColumnDef {
   id: SortColumn
@@ -106,14 +135,12 @@ function spdxUrl(spdxId: string): string {
               </span>
             </th>
             <th class="px-6 py-4 text-[10px] font-bold uppercase tracking-widest text-slate-500" width="12%">License</th>
+            <th class="px-6 py-4 text-[10px] font-bold uppercase tracking-widest text-slate-500" width="6%">Impact</th>
           </tr>
         </thead>
         <tbody class="divide-y divide-slate-100">
-          <tr
-            v-for="row in rows"
-            :key="row.pkg.package_name"
-            class="hover:bg-slate-50 transition-colors"
-          >
+          <template v-for="row in rows" :key="row.pkg.package_name">
+          <tr class="hover:bg-slate-50 transition-colors">
             <!-- Dependency -->
             <td class="px-6 py-3">
               <div class="flex items-center gap-2">
@@ -221,10 +248,72 @@ function spdxUrl(spdxId: string): string {
                 <span v-else class="text-xs text-slate-300">—</span>
               </div>
             </td>
+
+            <!-- Impact toggle -->
+            <td class="px-6 py-3 text-center">
+              <button
+                v-if="hasImpacts(row)"
+                class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold border cursor-pointer transition-colors"
+                :class="hasConflict(row)
+                  ? 'bg-yellow-100 text-amber-800 border-yellow-300 hover:bg-yellow-200'
+                  : 'bg-violet-100 text-violet-800 border-violet-300 hover:bg-violet-200'"
+                :title="hasConflict(row) ? 'Transitive conflict — click to expand' : 'Transitive impacts — click to expand'"
+                @click.stop="toggleImpact(row.pkg.package_name)"
+              >
+                <span>{{ hasConflict(row) ? '⚠' : '↳' }}</span>
+                <span>{{ row.pkg.update_transitive_impacts!.length }}</span>
+              </button>
+            </td>
           </tr>
 
+          <!-- Impact sub-row -->
+          <tr
+            v-if="hasImpacts(row) && expandedImpacts.has(row.pkg.package_name)"
+            class="bg-stone-50"
+          >
+            <td colspan="10" class="px-8 py-3">
+              <p v-if="row.pkg.recommended_version" class="text-xs text-slate-500 mb-2">
+                Recommended update:
+                <span class="font-mono font-semibold text-slate-700">{{ row.pkg.installed_version }}</span>
+                →
+                <span class="font-mono font-semibold text-violet-700">{{ row.pkg.recommended_version }}</span>
+              </p>
+              <table class="w-full border-collapse text-xs">
+                <thead>
+                  <tr>
+                    <th class="px-2.5 py-1 text-left text-[10px] font-bold uppercase tracking-widest text-slate-400 border-b border-slate-200">Package</th>
+                    <th class="px-2.5 py-1 text-left text-[10px] font-bold uppercase tracking-widest text-slate-400 border-b border-slate-200">Current</th>
+                    <th class="px-2.5 py-1 text-left text-[10px] font-bold uppercase tracking-widest text-slate-400 border-b border-slate-200">Projected</th>
+                    <th class="px-2.5 py-1 text-left text-[10px] font-bold uppercase tracking-widest text-slate-400 border-b border-slate-200">Constraint</th>
+                    <th class="px-2.5 py-1 text-left text-[10px] font-bold uppercase tracking-widest text-slate-400 border-b border-slate-200">Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr
+                    v-for="impact in row.pkg.update_transitive_impacts"
+                    :key="impact.package_name"
+                    :class="impactRowClass(impact)"
+                  >
+                    <td class="font-mono px-2.5 py-1 text-gray-700">{{ impact.package_name }}</td>
+                    <td class="font-mono px-2.5 py-1 text-gray-700">{{ impact.current_version ?? '(new)' }}</td>
+                    <td class="font-mono px-2.5 py-1 text-gray-700">{{ impact.projected_version ?? '—' }}</td>
+                    <td class="font-mono px-2.5 py-1 text-slate-500">{{ impact.new_constraint }}</td>
+                    <td class="px-2.5 py-1 text-gray-700">{{ impactStatus(impact) }}</td>
+                  </tr>
+                </tbody>
+              </table>
+              <p
+                v-if="row.pkg.update_transitive_impacts!.some(i => i.has_conflict)"
+                class="mt-2 text-xs text-red-600 font-medium"
+              >
+                ✗ No conflict-free candidate found — this recommendation may not be fully actionable.
+              </p>
+            </td>
+          </tr>
+          </template>
+
           <tr v-if="rows.length === 0">
-            <td colspan="9" class="px-6 py-8 text-center text-sm text-slate-400">
+            <td colspan="10" class="px-6 py-8 text-center text-sm text-slate-400">
               No dependencies match the current filters.
             </td>
           </tr>

@@ -4476,6 +4476,37 @@ function setSelected(el, value) {
 function getValue(el) {
 	return "_value" in el ? el._value : el.value;
 }
+var systemModifiers = [
+	"ctrl",
+	"shift",
+	"alt",
+	"meta"
+];
+var modifierGuards = {
+	stop: (e) => e.stopPropagation(),
+	prevent: (e) => e.preventDefault(),
+	self: (e) => e.target !== e.currentTarget,
+	ctrl: (e) => !e.ctrlKey,
+	shift: (e) => !e.shiftKey,
+	alt: (e) => !e.altKey,
+	meta: (e) => !e.metaKey,
+	left: (e) => "button" in e && e.button !== 0,
+	middle: (e) => "button" in e && e.button !== 1,
+	right: (e) => "button" in e && e.button !== 2,
+	exact: (e, modifiers) => systemModifiers.some((m) => e[`${m}Key`] && !modifiers.includes(m))
+};
+var withModifiers = (fn, modifiers) => {
+	if (!fn) return fn;
+	const cache = fn._withMods || (fn._withMods = {});
+	const cacheKey = modifiers.join(".");
+	return cache[cacheKey] || (cache[cacheKey] = ((event, ...args) => {
+		for (let i = 0; i < modifiers.length; i++) {
+			const guard = modifierGuards[modifiers[i]];
+			if (guard && guard(event, modifiers)) return;
+		}
+		return fn(event, ...args);
+	}));
+};
 var rendererOptions = /* @__PURE__ */ extend$1({ patchProp }, nodeOps);
 var renderer;
 function ensureRenderer() {
@@ -8196,59 +8227,86 @@ var _hoisted_4$4 = ["width"];
 var _hoisted_5$4 = { class: "flex items-center gap-2" };
 var _hoisted_6$4 = ["onClick"];
 var _hoisted_7$4 = { class: "divide-y divide-slate-100" };
-var _hoisted_8$3 = { class: "px-6 py-3" };
-var _hoisted_9$3 = { class: "flex items-center gap-2" };
-var _hoisted_10$3 = ["title"];
-var _hoisted_11$2 = ["onClick"];
-var _hoisted_12$2 = {
+var _hoisted_8$3 = { class: "hover:bg-slate-50 transition-colors" };
+var _hoisted_9$3 = { class: "px-6 py-3" };
+var _hoisted_10$3 = { class: "flex items-center gap-2" };
+var _hoisted_11$2 = ["title"];
+var _hoisted_12$2 = ["onClick"];
+var _hoisted_13$2 = {
 	key: 0,
 	class: "text-orange-500 font-black leading-none",
 	title: "Has transitive dependency CVEs"
 };
-var _hoisted_13$2 = {
+var _hoisted_14$2 = {
 	key: 1,
 	class: "material-symbols-rounded text-xl text-slate-400",
 	title: "Development dependency"
 };
-var _hoisted_14$2 = { class: "px-6 py-3 text-center" };
-var _hoisted_15$1 = ["href"];
-var _hoisted_16$1 = { class: "px-6 py-3" };
-var _hoisted_17$1 = { class: "flex items-center gap-2" };
-var _hoisted_18$1 = { class: "material-symbols-rounded text-xl text-slate-400" };
-var _hoisted_19$1 = { class: "px-6 py-3 text-sm text-slate-800" };
-var _hoisted_20$1 = { class: "font-mono" };
-var _hoisted_21$1 = {
-	key: 0,
-	class: "ml-1.5 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide bg-red-100 text-red-700 border border-red-300 rounded"
-};
+var _hoisted_15$1 = { class: "px-6 py-3 text-center" };
+var _hoisted_16$1 = ["href"];
+var _hoisted_17$1 = { class: "px-6 py-3" };
+var _hoisted_18$1 = { class: "flex items-center gap-2" };
+var _hoisted_19$1 = { class: "material-symbols-rounded text-xl text-slate-400" };
+var _hoisted_20$1 = { class: "px-6 py-3 text-sm text-slate-800" };
+var _hoisted_21$1 = { class: "font-mono" };
 var _hoisted_22$1 = {
-	key: 1,
+	key: 0,
 	class: "ml-1.5 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide bg-red-100 text-red-700 border border-red-300 rounded"
 };
 var _hoisted_23$1 = {
+	key: 1,
+	class: "ml-1.5 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide bg-red-100 text-red-700 border border-red-300 rounded"
+};
+var _hoisted_24$1 = {
 	key: 2,
 	class: "ml-1.5 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide bg-yellow-100 text-yellow-700 border border-yellow-300 rounded"
 };
-var _hoisted_24$1 = {
+var _hoisted_25$1 = {
 	key: 3,
 	class: "ml-1.5 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide bg-amber-100 text-amber-700 border border-amber-300 rounded"
 };
-var _hoisted_25$1 = { class: "px-6 py-3 text-sm" };
 var _hoisted_26$1 = { class: "px-6 py-3 text-sm" };
-var _hoisted_27$1 = { class: "px-6 py-3" };
+var _hoisted_27$1 = { class: "px-6 py-3 text-sm" };
 var _hoisted_28$1 = { class: "px-6 py-3" };
 var _hoisted_29$1 = { class: "px-6 py-3" };
-var _hoisted_30$1 = { class: "flex flex-wrap gap-1" };
-var _hoisted_31$1 = ["href"];
-var _hoisted_32$1 = {
+var _hoisted_30$1 = { class: "px-6 py-3" };
+var _hoisted_31$1 = { class: "flex flex-wrap gap-1" };
+var _hoisted_32$1 = ["href"];
+var _hoisted_33$1 = {
 	key: 0,
 	class: "text-[10px] text-slate-400 self-center"
 };
-var _hoisted_33$1 = {
+var _hoisted_34$1 = {
 	key: 1,
 	class: "text-xs text-slate-300"
 };
-var _hoisted_34$1 = { key: 0 };
+var _hoisted_35$1 = { class: "px-6 py-3 text-center" };
+var _hoisted_36$1 = ["title", "onClick"];
+var _hoisted_37$1 = {
+	key: 0,
+	class: "bg-stone-50"
+};
+var _hoisted_38$1 = {
+	colspan: "10",
+	class: "px-8 py-3"
+};
+var _hoisted_39$1 = {
+	key: 0,
+	class: "text-xs text-slate-500 mb-2"
+};
+var _hoisted_40$1 = { class: "font-mono font-semibold text-slate-700" };
+var _hoisted_41$1 = { class: "font-mono font-semibold text-violet-700" };
+var _hoisted_42$1 = { class: "w-full border-collapse text-xs" };
+var _hoisted_43$1 = { class: "font-mono px-2.5 py-1 text-gray-700" };
+var _hoisted_44$1 = { class: "font-mono px-2.5 py-1 text-gray-700" };
+var _hoisted_45$1 = { class: "font-mono px-2.5 py-1 text-gray-700" };
+var _hoisted_46$1 = { class: "font-mono px-2.5 py-1 text-slate-500" };
+var _hoisted_47$1 = { class: "px-2.5 py-1 text-gray-700" };
+var _hoisted_48$1 = {
+	key: 1,
+	class: "mt-2 text-xs text-red-600 font-medium"
+};
+var _hoisted_49$1 = { key: 0 };
 //#endregion
 //#region src/components/ReportTable.vue
 var ReportTable_default = /* @__PURE__ */ defineComponent({
@@ -8262,6 +8320,27 @@ var ReportTable_default = /* @__PURE__ */ defineComponent({
 	emits: ["sort", "selectPackage"],
 	setup(__props, { emit: __emit }) {
 		const emit = __emit;
+		const expandedImpacts = /* @__PURE__ */ ref(/* @__PURE__ */ new Set());
+		function toggleImpact(packageName) {
+			if (expandedImpacts.value.has(packageName)) expandedImpacts.value.delete(packageName);
+			else expandedImpacts.value.add(packageName);
+		}
+		function hasImpacts(row) {
+			return (row.pkg.update_transitive_impacts?.length ?? 0) > 0;
+		}
+		function hasConflict(row) {
+			return row.pkg.update_transitive_impacts?.some((i) => i.has_conflict) ?? false;
+		}
+		function impactStatus(impact) {
+			if (impact.has_conflict) return "⚠ conflict";
+			if (impact.current_version == null) return "+ new dep";
+			return "✓ update";
+		}
+		function impactRowClass(impact) {
+			if (impact.has_conflict) return "[&>td]:text-amber-800 [&>td]:bg-yellow-50";
+			if (impact.current_version == null) return "[&>td]:text-blue-700";
+			return "";
+		}
 		const columns = [
 			{
 				id: "name",
@@ -8348,56 +8427,92 @@ var ReportTable_default = /* @__PURE__ */ defineComponent({
 			return `https://spdx.org/licenses/${spdxId}.html`;
 		}
 		return (_ctx, _cache) => {
-			return openBlock(), createElementBlock("section", null, [createBaseVNode("div", _hoisted_1$5, [createBaseVNode("table", _hoisted_2$5, [createBaseVNode("thead", _hoisted_3$5, [createBaseVNode("tr", null, [(openBlock(), createElementBlock(Fragment, null, renderList(columns, (col) => {
-				return createBaseVNode("th", {
-					key: col.id,
-					width: col.width,
-					class: "px-6 py-4 text-[10px] font-bold uppercase tracking-widest text-slate-500"
-				}, [createBaseVNode("span", _hoisted_5$4, [createBaseVNode("span", null, toDisplayString(col.label), 1), createBaseVNode("button", {
-					class: "material-symbols-rounded text-xl text-slate-400 hover:text-slate-700 transition",
-					onClick: ($event) => emit("sort", col.id)
-				}, toDisplayString(sortIcon(col.id, __props.sortColumn, __props.sortDirection)), 9, _hoisted_6$4)])], 8, _hoisted_4$4);
-			}), 64)), _cache[0] || (_cache[0] = createBaseVNode("th", {
-				class: "px-6 py-4 text-[10px] font-bold uppercase tracking-widest text-slate-500",
-				width: "12%"
-			}, "License", -1))])]), createBaseVNode("tbody", _hoisted_7$4, [(openBlock(true), createElementBlock(Fragment, null, renderList(__props.rows, (row) => {
-				return openBlock(), createElementBlock("tr", {
-					key: row.pkg.package_name,
-					class: "hover:bg-slate-50 transition-colors"
-				}, [
-					createBaseVNode("td", _hoisted_8$3, [createBaseVNode("div", _hoisted_9$3, [
+			return openBlock(), createElementBlock("section", null, [createBaseVNode("div", _hoisted_1$5, [createBaseVNode("table", _hoisted_2$5, [createBaseVNode("thead", _hoisted_3$5, [createBaseVNode("tr", null, [
+				(openBlock(), createElementBlock(Fragment, null, renderList(columns, (col) => {
+					return createBaseVNode("th", {
+						key: col.id,
+						width: col.width,
+						class: "px-6 py-4 text-[10px] font-bold uppercase tracking-widest text-slate-500"
+					}, [createBaseVNode("span", _hoisted_5$4, [createBaseVNode("span", null, toDisplayString(col.label), 1), createBaseVNode("button", {
+						class: "material-symbols-rounded text-xl text-slate-400 hover:text-slate-700 transition",
+						onClick: ($event) => emit("sort", col.id)
+					}, toDisplayString(sortIcon(col.id, __props.sortColumn, __props.sortDirection)), 9, _hoisted_6$4)])], 8, _hoisted_4$4);
+				}), 64)),
+				_cache[0] || (_cache[0] = createBaseVNode("th", {
+					class: "px-6 py-4 text-[10px] font-bold uppercase tracking-widest text-slate-500",
+					width: "12%"
+				}, "License", -1)),
+				_cache[1] || (_cache[1] = createBaseVNode("th", {
+					class: "px-6 py-4 text-[10px] font-bold uppercase tracking-widest text-slate-500",
+					width: "6%"
+				}, "Impact", -1))
+			])]), createBaseVNode("tbody", _hoisted_7$4, [(openBlock(true), createElementBlock(Fragment, null, renderList(__props.rows, (row) => {
+				return openBlock(), createElementBlock(Fragment, { key: row.pkg.package_name }, [createBaseVNode("tr", _hoisted_8$3, [
+					createBaseVNode("td", _hoisted_9$3, [createBaseVNode("div", _hoisted_10$3, [
 						createBaseVNode("span", {
 							class: normalizeClass(["inline-block w-5 h-5 rounded-full shrink-0", unref(constraintCircleClasses)(row.pkg.constraint_type)]),
 							title: row.pkg.constraint_type ?? "DECLARED"
-						}, null, 10, _hoisted_10$3),
+						}, null, 10, _hoisted_11$2),
 						createBaseVNode("button", {
 							class: "text-[#4800E2] hover:underline font-medium text-left cursor-pointer",
 							onClick: ($event) => emit("selectPackage", row)
-						}, toDisplayString(row.pkg.package_name), 9, _hoisted_11$2),
-						row.hasTransitiveCve ? (openBlock(), createElementBlock("span", _hoisted_12$2, "*")) : createCommentVNode("", true),
-						row.isDev ? (openBlock(), createElementBlock("span", _hoisted_13$2, "logo_dev")) : createCommentVNode("", true)
+						}, toDisplayString(row.pkg.package_name), 9, _hoisted_12$2),
+						row.hasTransitiveCve ? (openBlock(), createElementBlock("span", _hoisted_13$2, "*")) : createCommentVNode("", true),
+						row.isDev ? (openBlock(), createElementBlock("span", _hoisted_14$2, "logo_dev")) : createCommentVNode("", true)
 					])]),
-					createBaseVNode("td", _hoisted_14$2, [row.cveCount > 0 ? (openBlock(), createElementBlock("a", {
+					createBaseVNode("td", _hoisted_15$1, [row.cveCount > 0 ? (openBlock(), createElementBlock("a", {
 						key: 0,
 						href: osvUrl(row.pkg.package_name, __props.registry),
 						target: "_blank",
 						class: "inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold text-white bg-[#DE4514]"
-					}, [_cache[1] || (_cache[1] = createBaseVNode("span", { class: "material-symbols-rounded text-base" }, "security", -1)), createTextVNode(" " + toDisplayString(row.cveCount) + " CVE" + toDisplayString(row.cveCount > 1 ? "s" : ""), 1)], 8, _hoisted_15$1)) : createCommentVNode("", true)]),
-					createBaseVNode("td", _hoisted_16$1, [createBaseVNode("div", _hoisted_17$1, [createBaseVNode("span", _hoisted_18$1, toDisplayString(driftIcon(row.driftStatus)), 1), createBaseVNode("span", { class: normalizeClass(["px-3 py-1 rounded-full text-sm font-bold", driftClasses(row.driftStatus)]) }, toDisplayString(driftLabel(row.driftStatus)), 3)])]),
-					createBaseVNode("td", _hoisted_19$1, [createBaseVNode("span", _hoisted_20$1, toDisplayString(row.pkg.installed_version), 1), row.isPackageUnpublished ? (openBlock(), createElementBlock("span", _hoisted_21$1, "unpublished")) : row.isYanked ? (openBlock(), createElementBlock("span", _hoisted_22$1, "yanked")) : row.isDeprecated ? (openBlock(), createElementBlock("span", _hoisted_23$1, "deprecated")) : row.isPrerelease ? (openBlock(), createElementBlock("span", _hoisted_24$1, "pre")) : createCommentVNode("", true)]),
-					createBaseVNode("td", _hoisted_25$1, toDisplayString(row.pkg.latest_version ?? "—"), 1),
-					createBaseVNode("td", _hoisted_26$1, toDisplayString(row.pkg.releases_lag ?? 0), 1),
-					createBaseVNode("td", _hoisted_27$1, [createBaseVNode("strong", { class: normalizeClass(["font-semibold", timeLagColor(row.pkg.time_lag_days)]) }, toDisplayString(row.timeLagDisplay), 3)]),
-					createBaseVNode("td", _hoisted_28$1, [createBaseVNode("strong", { class: normalizeClass(["font-semibold", timeLagColor(row.pkg.version_age_days)]) }, toDisplayString(row.versionAgeDisplay), 3)]),
-					createBaseVNode("td", _hoisted_29$1, [createBaseVNode("div", _hoisted_30$1, [row.license.length > 0 ? (openBlock(), createElementBlock(Fragment, { key: 0 }, [createBaseVNode("a", {
+					}, [_cache[2] || (_cache[2] = createBaseVNode("span", { class: "material-symbols-rounded text-base" }, "security", -1)), createTextVNode(" " + toDisplayString(row.cveCount) + " CVE" + toDisplayString(row.cveCount > 1 ? "s" : ""), 1)], 8, _hoisted_16$1)) : createCommentVNode("", true)]),
+					createBaseVNode("td", _hoisted_17$1, [createBaseVNode("div", _hoisted_18$1, [createBaseVNode("span", _hoisted_19$1, toDisplayString(driftIcon(row.driftStatus)), 1), createBaseVNode("span", { class: normalizeClass(["px-3 py-1 rounded-full text-sm font-bold", driftClasses(row.driftStatus)]) }, toDisplayString(driftLabel(row.driftStatus)), 3)])]),
+					createBaseVNode("td", _hoisted_20$1, [createBaseVNode("span", _hoisted_21$1, toDisplayString(row.pkg.installed_version), 1), row.isPackageUnpublished ? (openBlock(), createElementBlock("span", _hoisted_22$1, "unpublished")) : row.isYanked ? (openBlock(), createElementBlock("span", _hoisted_23$1, "yanked")) : row.isDeprecated ? (openBlock(), createElementBlock("span", _hoisted_24$1, "deprecated")) : row.isPrerelease ? (openBlock(), createElementBlock("span", _hoisted_25$1, "pre")) : createCommentVNode("", true)]),
+					createBaseVNode("td", _hoisted_26$1, toDisplayString(row.pkg.latest_version ?? "—"), 1),
+					createBaseVNode("td", _hoisted_27$1, toDisplayString(row.pkg.releases_lag ?? 0), 1),
+					createBaseVNode("td", _hoisted_28$1, [createBaseVNode("strong", { class: normalizeClass(["font-semibold", timeLagColor(row.pkg.time_lag_days)]) }, toDisplayString(row.timeLagDisplay), 3)]),
+					createBaseVNode("td", _hoisted_29$1, [createBaseVNode("strong", { class: normalizeClass(["font-semibold", timeLagColor(row.pkg.version_age_days)]) }, toDisplayString(row.versionAgeDisplay), 3)]),
+					createBaseVNode("td", _hoisted_30$1, [createBaseVNode("div", _hoisted_31$1, [row.license.length > 0 ? (openBlock(), createElementBlock(Fragment, { key: 0 }, [createBaseVNode("a", {
 						href: spdxUrl(row.license[0]),
 						target: "_blank",
 						rel: "noopener noreferrer",
 						class: "inline-flex px-1.5 py-0.5 rounded text-[10px] font-bold font-mono bg-slate-100 text-slate-600 hover:text-sky-600 transition-colors border border-slate-200"
-					}, toDisplayString(row.license[0]), 9, _hoisted_31$1), row.license.length > 1 ? (openBlock(), createElementBlock("span", _hoisted_32$1, "+" + toDisplayString(row.license.length - 1), 1)) : createCommentVNode("", true)], 64)) : (openBlock(), createElementBlock("span", _hoisted_33$1, "—"))])])
-				]);
-			}), 128)), __props.rows.length === 0 ? (openBlock(), createElementBlock("tr", _hoisted_34$1, [..._cache[2] || (_cache[2] = [createBaseVNode("td", {
-				colspan: "9",
+					}, toDisplayString(row.license[0]), 9, _hoisted_32$1), row.license.length > 1 ? (openBlock(), createElementBlock("span", _hoisted_33$1, "+" + toDisplayString(row.license.length - 1), 1)) : createCommentVNode("", true)], 64)) : (openBlock(), createElementBlock("span", _hoisted_34$1, "—"))])]),
+					createBaseVNode("td", _hoisted_35$1, [hasImpacts(row) ? (openBlock(), createElementBlock("button", {
+						key: 0,
+						class: normalizeClass(["inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold border cursor-pointer transition-colors", hasConflict(row) ? "bg-yellow-100 text-amber-800 border-yellow-300 hover:bg-yellow-200" : "bg-violet-100 text-violet-800 border-violet-300 hover:bg-violet-200"]),
+						title: hasConflict(row) ? "Transitive conflict — click to expand" : "Transitive impacts — click to expand",
+						onClick: withModifiers(($event) => toggleImpact(row.pkg.package_name), ["stop"])
+					}, [createBaseVNode("span", null, toDisplayString(hasConflict(row) ? "⚠" : "↳"), 1), createBaseVNode("span", null, toDisplayString(row.pkg.update_transitive_impacts.length), 1)], 10, _hoisted_36$1)) : createCommentVNode("", true)])
+				]), hasImpacts(row) && expandedImpacts.value.has(row.pkg.package_name) ? (openBlock(), createElementBlock("tr", _hoisted_37$1, [createBaseVNode("td", _hoisted_38$1, [
+					row.pkg.recommended_version ? (openBlock(), createElementBlock("p", _hoisted_39$1, [
+						_cache[3] || (_cache[3] = createTextVNode(" Recommended update: ", -1)),
+						createBaseVNode("span", _hoisted_40$1, toDisplayString(row.pkg.installed_version), 1),
+						_cache[4] || (_cache[4] = createTextVNode(" → ", -1)),
+						createBaseVNode("span", _hoisted_41$1, toDisplayString(row.pkg.recommended_version), 1)
+					])) : createCommentVNode("", true),
+					createBaseVNode("table", _hoisted_42$1, [_cache[5] || (_cache[5] = createBaseVNode("thead", null, [createBaseVNode("tr", null, [
+						createBaseVNode("th", { class: "px-2.5 py-1 text-left text-[10px] font-bold uppercase tracking-widest text-slate-400 border-b border-slate-200" }, "Package"),
+						createBaseVNode("th", { class: "px-2.5 py-1 text-left text-[10px] font-bold uppercase tracking-widest text-slate-400 border-b border-slate-200" }, "Current"),
+						createBaseVNode("th", { class: "px-2.5 py-1 text-left text-[10px] font-bold uppercase tracking-widest text-slate-400 border-b border-slate-200" }, "Projected"),
+						createBaseVNode("th", { class: "px-2.5 py-1 text-left text-[10px] font-bold uppercase tracking-widest text-slate-400 border-b border-slate-200" }, "Constraint"),
+						createBaseVNode("th", { class: "px-2.5 py-1 text-left text-[10px] font-bold uppercase tracking-widest text-slate-400 border-b border-slate-200" }, "Status")
+					])], -1)), createBaseVNode("tbody", null, [(openBlock(true), createElementBlock(Fragment, null, renderList(row.pkg.update_transitive_impacts, (impact) => {
+						return openBlock(), createElementBlock("tr", {
+							key: impact.package_name,
+							class: normalizeClass(impactRowClass(impact))
+						}, [
+							createBaseVNode("td", _hoisted_43$1, toDisplayString(impact.package_name), 1),
+							createBaseVNode("td", _hoisted_44$1, toDisplayString(impact.current_version ?? "(new)"), 1),
+							createBaseVNode("td", _hoisted_45$1, toDisplayString(impact.projected_version ?? "—"), 1),
+							createBaseVNode("td", _hoisted_46$1, toDisplayString(impact.new_constraint), 1),
+							createBaseVNode("td", _hoisted_47$1, toDisplayString(impactStatus(impact)), 1)
+						], 2);
+					}), 128))])]),
+					row.pkg.update_transitive_impacts.some((i) => i.has_conflict) ? (openBlock(), createElementBlock("p", _hoisted_48$1, " ✗ No conflict-free candidate found — this recommendation may not be fully actionable. ")) : createCommentVNode("", true)
+				])])) : createCommentVNode("", true)], 64);
+			}), 128)), __props.rows.length === 0 ? (openBlock(), createElementBlock("tr", _hoisted_49$1, [..._cache[6] || (_cache[6] = [createBaseVNode("td", {
+				colspan: "10",
 				class: "px-6 py-8 text-center text-sm text-slate-400"
 			}, " No dependencies match the current filters. ", -1)])])) : createCommentVNode("", true)])])])]);
 		};
@@ -15161,6 +15276,8 @@ app.mount("#app");
     --color-amber-500: oklch(76.9% .188 70.08);
     --color-amber-600: oklch(66.6% .179 58.318);
     --color-amber-700: oklch(55.5% .163 48.998);
+    --color-amber-800: oklch(47.3% .137 46.201);
+    --color-yellow-50: oklch(98.7% .026 102.212);
     --color-yellow-100: oklch(97.3% .071 103.193);
     --color-yellow-200: oklch(94.5% .129 101.54);
     --color-yellow-300: oklch(90.5% .182 98.111);
@@ -15179,6 +15296,11 @@ app.mount("#app");
     --color-blue-200: oklch(88.2% .059 254.128);
     --color-blue-500: oklch(62.3% .214 259.815);
     --color-blue-700: oklch(48.8% .243 264.376);
+    --color-violet-100: oklch(94.3% .029 294.588);
+    --color-violet-200: oklch(89.4% .057 293.283);
+    --color-violet-300: oklch(81.1% .111 293.571);
+    --color-violet-700: oklch(49.1% .27 292.581);
+    --color-violet-800: oklch(43.2% .232 292.759);
     --color-purple-700: oklch(49.6% .265 301.924);
     --color-fuchsia-700: oklch(51.8% .253 323.949);
     --color-rose-50: oklch(96.9% .015 12.422);
@@ -15196,6 +15318,8 @@ app.mount("#app");
     --color-slate-700: oklch(37.2% .044 257.287);
     --color-slate-800: oklch(27.9% .041 260.031);
     --color-slate-900: oklch(20.8% .042 265.755);
+    --color-gray-700: oklch(37.3% .034 259.733);
+    --color-stone-50: oklch(98.5% .001 106.423);
     --color-black: #000;
     --color-white: #fff;
     --spacing: .25rem;
@@ -15618,6 +15742,10 @@ app.mount("#app");
 
   .mt-1 {
     margin-top: calc(var(--spacing) * 1);
+  }
+
+  .mt-2 {
+    margin-top: calc(var(--spacing) * 2);
   }
 
   .mt-6 {
@@ -16154,6 +16282,10 @@ app.mount("#app");
     border-color: var(--color-slate-700);
   }
 
+  .border-violet-300 {
+    border-color: var(--color-violet-300);
+  }
+
   .border-yellow-300 {
     border-color: var(--color-yellow-300);
   }
@@ -16274,6 +16406,14 @@ app.mount("#app");
     background-color: var(--color-slate-700);
   }
 
+  .bg-stone-50 {
+    background-color: var(--color-stone-50);
+  }
+
+  .bg-violet-100 {
+    background-color: var(--color-violet-100);
+  }
+
   .bg-white {
     background-color: var(--color-white);
   }
@@ -16346,6 +16486,10 @@ app.mount("#app");
 
   .px-6 {
     padding-inline: calc(var(--spacing) * 6);
+  }
+
+  .px-8 {
+    padding-inline: calc(var(--spacing) * 8);
   }
 
   .py-0\.5 {
@@ -16559,6 +16703,10 @@ app.mount("#app");
     color: var(--color-amber-700);
   }
 
+  .text-amber-800 {
+    color: var(--color-amber-800);
+  }
+
   .text-black {
     color: var(--color-black);
   }
@@ -16573,6 +16721,10 @@ app.mount("#app");
 
   .text-fuchsia-700 {
     color: var(--color-fuchsia-700);
+  }
+
+  .text-gray-700 {
+    color: var(--color-gray-700);
   }
 
   .text-green-600 {
@@ -16649,6 +16801,14 @@ app.mount("#app");
 
   .text-slate-900 {
     color: var(--color-slate-900);
+  }
+
+  .text-violet-700 {
+    color: var(--color-violet-700);
+  }
+
+  .text-violet-800 {
+    color: var(--color-violet-800);
   }
 
   .text-white {
@@ -16747,6 +16907,14 @@ app.mount("#app");
       background-color: var(--color-slate-200);
     }
 
+    .hover\:bg-violet-200:hover {
+      background-color: var(--color-violet-200);
+    }
+
+    .hover\:bg-yellow-200:hover {
+      background-color: var(--color-yellow-200);
+    }
+
     .hover\:text-black:hover {
       color: var(--color-black);
     }
@@ -16843,6 +17011,18 @@ app.mount("#app");
     .lg\:items-end {
       align-items: flex-end;
     }
+  }
+
+  .\[\&\>td\]\:bg-yellow-50 > td {
+    background-color: var(--color-yellow-50);
+  }
+
+  .\[\&\>td\]\:text-amber-800 > td {
+    color: var(--color-amber-800);
+  }
+
+  .\[\&\>td\]\:text-blue-700 > td {
+    color: var(--color-blue-700);
   }
 }
 

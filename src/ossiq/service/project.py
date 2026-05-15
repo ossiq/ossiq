@@ -458,26 +458,24 @@ def scan(uow: unit_of_work.AbstractProjectUnitOfWork) -> ScanResult:
         # Pass 1.5: optionally run HPDR solver over direct deps (cache is warm after prefetch).
         # engine_context={} in Phase 4 — L2 (engine mismatch) clauses inactive; L3/L4 still fire.
         # TODO (Phase 5): populate engine_context from project_info engine metadata.
-        solver_output = uow_dependencies_solver.SolverOutput(recommendations={}, reasons={})
-        if uow.use_solver:
-            transitive_by_name = {r.package_name: r for r in transitive_packages}
+        transitive_by_name = {r.package_name: r for r in transitive_packages}
 
-            def validate_recommendation(pkg_name: str, candidate_version: str) -> bool:
-                return simulate_single(
-                    pkg_name,
-                    candidate_version,
-                    transitive_by_name,
-                    uow.packages_registry,
-                    uow.allow_prerelease,
-                ).is_actionable
-
-            solver_output = uow_dependencies_solver.solve_direct(
-                prod_deps + opt_deps,
+        def validate_recommendation(pkg_name: str, candidate_version: str) -> bool:
+            return simulate_single(
+                pkg_name,
+                candidate_version,
+                transitive_by_name,
                 uow.packages_registry,
-                {},
-                allow_prerelease=uow.allow_prerelease,
-                post_solve_validator=validate_recommendation,
-            )
+                uow.allow_prerelease,
+            ).is_actionable
+
+        solver_output = uow_dependencies_solver.solve_direct(
+            prod_deps + opt_deps,
+            uow.packages_registry,
+            {},
+            allow_prerelease=uow.allow_prerelease,
+            post_solve_validator=validate_recommendation,
+        )
 
         production_packages = sorted(
             build_records(prod_deps, uow.packages_registry, prefetched), key=sort_function, reverse=True
@@ -489,11 +487,19 @@ def scan(uow: unit_of_work.AbstractProjectUnitOfWork) -> ScanResult:
         if solver_output.recommendations:
             apply_recommendations(production_packages + optional_packages, solver_output)
 
+            # Build a complete set of installed canonical names — includes transitive deps
+            # of dev/optional packages that walk_all_paths() skips by default. Used to
+            # distinguish truly new packages from ones already present in the lock file.
+            all_installed_names: set[str] = {dep.canonical_name for dep in prod_deps + opt_deps} | {
+                node.canonical_name for node, _ in walker.walk_all_paths(include_optional_roots=True)
+            }
+
             impacts = simulate_update_impacts(
                 solver_output.recommendations,
                 production_packages + optional_packages + transitive_packages,
                 uow.packages_registry,
                 uow.allow_prerelease,
+                installed_names=all_installed_names,
             )
             for record in production_packages + optional_packages:
                 impact = impacts.get(record.package_name)
@@ -501,25 +507,10 @@ def scan(uow: unit_of_work.AbstractProjectUnitOfWork) -> ScanResult:
                     record.update_transitive_impacts = impact.transitive_impacts
 
         # Pass 1.6: HPDR solver over transitive deps.
-        # security_only (highest priority): CVE packages only, ignores include_transitive_recommendations.
-        # include_transitive_recommendations: all transitive packages.
-        # default: CVE + freshness-flagged packages only.
+        # security_only: CVE packages only. Default: all transitive packages.
         # engine_context={} — populating from project metadata deferred to Phase 6+.
-        if uow.use_solver and transitive_packages:
-            if uow.security_only:
-                records_to_solve = [r for r in transitive_packages if r.cve]
-            elif uow.include_transitive_recommendations:
-                records_to_solve = transitive_packages
-            else:
-                records_to_solve = [
-                    r
-                    for r in transitive_packages
-                    if r.cve
-                    or (
-                        r.version_age_days is not None
-                        and r.version_age_days < uow_dependencies_solver.VERY_FRESH_THRESHOLD_DAYS
-                    )
-                ]
+        if transitive_packages:
+            records_to_solve = [r for r in transitive_packages if r.cve] if uow.security_only else transitive_packages
             transitive_output = uow_dependencies_solver.solve_transitive(
                 records_to_solve,
                 uow.packages_registry,

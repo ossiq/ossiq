@@ -213,7 +213,7 @@ class GraphExporter:
         self.visited.clear()
         return self._to_dict(self.root)
 
-    def walk_all_paths(self) -> Iterator[tuple[Dependency, list[str]]]:
+    def walk_all_paths(self, *, include_optional_roots: bool = False) -> Iterator[tuple[Dependency, list[str]]]:
         """
         Yields (node, path) for every transitive dependency reachable from root,
         following all distinct paths without cross-path deduplication.
@@ -228,9 +228,17 @@ class GraphExporter:
 
         Only production edges (Dependency.dependencies) are followed; optional
         edges (dev/test/peer groups of transitive packages) are skipped.
+
+        When include_optional_roots=True, also starts the walk from root's
+        optional_dependencies (dev/peer/optional direct deps), enabling callers
+        to build a complete "installed packages" set without changing the core
+        transitive scan output.
         """
         for direct_dep in self.root.dependencies.values():
             yield from self._walk_node(direct_dep, [direct_dep.name], {id(direct_dep)})
+        if include_optional_roots:
+            for direct_dep in self.root.optional_dependencies.values():
+                yield from self._walk_node(direct_dep, [direct_dep.name], {id(direct_dep)})
 
     def _walk_node(
         self,

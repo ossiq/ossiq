@@ -77,16 +77,21 @@ def assess_transitive_impact(
     transitive_by_name: dict[str, ScanRecord],
     registry: AbstractPackageRegistryApi,
     allow_prerelease: bool = False,
+    installed_names: set[str] | None = None,
 ) -> TransitiveImpact | None:
     """Assess whether a new constraint on dep_name creates an impact.
 
-    Returns None when the installed version already satisfies the new constraint.
+    Returns None when the installed version already satisfies the new constraint,
+    or when the package is already installed (present in installed_names) but outside
+    the production-path scan scope (e.g. a transitive dep of a dev package).
     Returns TransitiveImpact with current_version=None for brand-new transitive deps.
     Returns TransitiveImpact with has_conflict=True when no version satisfies all constraints.
     """
     record = transitive_by_name.get(dep_name)
 
     if record is None:
+        if installed_names and dep_name in installed_names:
+            return None
         return TransitiveImpact(
             package_name=dep_name,
             current_version=None,
@@ -132,6 +137,7 @@ def simulate_single(
     transitive_by_name: dict[str, ScanRecord],
     registry: AbstractPackageRegistryApi,
     allow_prerelease: bool = False,
+    installed_names: set[str] | None = None,
 ) -> DirectUpdateImpact:
     """Simulate the transitive impact of updating package_name to candidate_version.
 
@@ -143,7 +149,7 @@ def simulate_single(
     impacts: list[TransitiveImpact] = []
     for dep_name, constraint in new_requires.items():
         impact = assess_transitive_impact(
-            dep_name, constraint, package_name, transitive_by_name, registry, allow_prerelease
+            dep_name, constraint, package_name, transitive_by_name, registry, allow_prerelease, installed_names
         )
         if impact is not None:
             impacts.append(impact)
@@ -166,16 +172,20 @@ def simulate_update_impacts(
     transitive_records: list[ScanRecord],
     registry: AbstractPackageRegistryApi,
     allow_prerelease: bool = False,
+    installed_names: set[str] | None = None,
 ) -> dict[str, DirectUpdateImpact]:
     """Simulate transitive impacts for all recommended direct dep updates.
 
     recommendations: {canonical_package_name: recommended_version} from the solver
     transitive_records: all transitive ScanRecords from the scan (all_constraints populated)
+    installed_names: complete set of canonical package names currently installed in the project
+        (including transitive deps of dev packages). When provided, packages present here are
+        not flagged as new transitive deps even if absent from the scan's transitive_records.
 
     Keys in the returned dict match the keys of recommendations.
     """
     transitive_by_name = {r.package_name: r for r in transitive_records}
     return {
-        pkg: simulate_single(pkg, ver, transitive_by_name, registry, allow_prerelease)
+        pkg: simulate_single(pkg, ver, transitive_by_name, registry, allow_prerelease, installed_names)
         for pkg, ver in recommendations.items()
     }
