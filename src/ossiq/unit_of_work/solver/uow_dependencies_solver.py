@@ -37,11 +37,20 @@ class TransitiveRecord(Protocol):
 
 
 @dataclass(frozen=True)
+class ConstraintConflict:
+    """A package for which no valid version satisfies all collected constraints."""
+
+    package_name: str
+    conflicting_constraints: list[str]
+
+
+@dataclass(frozen=True)
 class SolverOutput:
     """Combined result of the HPDR solver: recommendations and their rationales."""
 
     recommendations: dict[str, str]
     reasons: dict[str, RecommendationReason]
+    conflicts: list[ConstraintConflict] = field(default_factory=list)
 
 
 EMPTY_OUTPUT = SolverOutput(recommendations={}, reasons={})
@@ -93,6 +102,26 @@ def _apply_fallback(
     return SolverOutput(recommendations=new_recs, reasons=new_reasons)
 
 
+def _detect_conflicts(problem: SolverProblem) -> list[ConstraintConflict]:
+    """Return one ConstraintConflict per package that has no viable candidate under its full constraint set."""
+    result = []
+    for constraint in problem.constraints:
+        all_specs = [s for s in constraint.all_constraints if s]
+        if constraint.version_constraint:
+            all_specs = [constraint.version_constraint, *all_specs]
+        if not all_specs:
+            continue
+        candidates = problem.candidates.get(constraint.package_name, ())
+        viable = [
+            cv
+            for cv in candidates
+            if not cv.has_cve and not cv.is_yanked and satisfies_all_constraints(cv.version, all_specs)
+        ]
+        if not viable:
+            result.append(ConstraintConflict(constraint.package_name, all_specs))
+    return result
+
+
 def _run_solve(
     label: str,
     deps: Sequence[DepLike],
@@ -124,7 +153,8 @@ def _run_solve(
 
     if isinstance(result, ConflictSet):
         logger.debug("%s: solver returned ConflictSet: %s", label, result.unsatisfied_clauses)
-        return EMPTY_OUTPUT, problem
+        conflicts = _detect_conflicts(problem)
+        return SolverOutput(recommendations={}, reasons={}, conflicts=conflicts), problem
 
     recommendations = dict(result.selected)
     logger.debug("%s: selected %d recommendations", label, len(recommendations))

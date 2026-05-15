@@ -7,7 +7,7 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
-from ossiq.domain.common import Command, UserInterfaceType
+from ossiq.domain.common import Command, ConstraintType, UserInterfaceType
 from ossiq.service.project import ScanRecord, ScanResult
 from ossiq.settings import Settings
 from ossiq.ui.interfaces import AbstractUserInterfaceRenderer
@@ -105,6 +105,61 @@ class ConsoleScanRenderer(AbstractUserInterfaceRenderer):
             self.console.print("\n")
             self.console.print(table_new_deps)
 
+        table_peer = self._peer_status_table(
+            data.production_packages + data.optional_packages + data.transitive_packages,
+            full=full,
+        )
+        if table_peer:
+            self.console.print("\n")
+            self.console.print(table_peer)
+
+    def _peer_status_table(self, packages: list[ScanRecord], *, full: bool) -> Table | None:
+        """Table showing peer constraint status for all packages that have peer requirements."""
+        violated_specs_by_pkg: dict[str, set[str]] = {
+            record.package_name: {req.spec for req in record.peer_violations}
+            for record in packages
+            if record.peer_violations
+        }
+
+        rows: list[tuple[str, str, str, str, str]] = []
+        for record in sorted(packages, key=lambda r: r.package_name):
+            if not record.peer_requirements:
+                continue
+            violated = violated_specs_by_pkg.get(record.package_name, set())
+            via_override = record.constraint_info.type == ConstraintType.OVERRIDE
+            for req in record.peer_requirements:
+                if req.spec in violated:
+                    status = "violation"
+                elif via_override:
+                    status = "override"
+                else:
+                    status = "ok"
+                if full or status == "violation":
+                    rows.append((record.package_name, record.installed_version, req.spec, req.requirer_name, status))
+
+        if not rows:
+            return None
+
+        has_violations = any(status == "violation" for *_, status in rows)
+        title_style = "bold red" if has_violations else "bold yellow"
+        table = Table(title="Peer Constraint Status", title_style=title_style)
+        table.add_column("Package", justify="left", style="bold cyan")
+        table.add_column("Installed", justify="left")
+        table.add_column("Peer Constraint", justify="left")
+        table.add_column("Required By", justify="left")
+        table.add_column("Status", justify="center")
+
+        for pkg_name, installed, spec, requirer, status in rows:
+            if status == "violation":
+                status_cell = "[bold red]✗ violation[/]"
+            elif status == "override":
+                status_cell = "[bold yellow]✓ via override[/]"
+            else:
+                status_cell = "[bold green]✓ satisfied[/]"
+            table.add_row(pkg_name, installed, spec, requirer, status_cell)
+
+        return table
+
     def _transitive_table(self, packages: list[ScanRecord], title: str, *, show_cve_column: bool) -> Table:
         """Table showing transitive packages with solver-recommended versions."""
         title_style = "bold yellow" if show_cve_column else "bold cyan"
@@ -145,7 +200,7 @@ class ConsoleScanRenderer(AbstractUserInterfaceRenderer):
         if not dependencies:
             return None
 
-        show_recommended = any(pkg.recommended_version is not None for pkg in dependencies)
+        show_recommended = any(pkg.recommended_version is not None or pkg.constraint_conflict for pkg in dependencies)
 
         table = Table(title=title, title_style=title_style)
         table.add_column("Dependency", justify="left", style="bold cyan")
@@ -180,11 +235,15 @@ class ConsoleScanRenderer(AbstractUserInterfaceRenderer):
             ]
 
             if show_recommended:
-                recommended_version = pkg.recommended_version if pkg.recommended_version is not None else ""
-                if pkg.recommended_version != pkg.latest_version:
-                    row_args.append(f"[yellow][bold]{recommended_version}[/]")
+                if pkg.constraint_conflict:
+                    row_args.append("[bold red][NO RESOLUTION][/]")
+                elif pkg.recommended_version is not None:
+                    if pkg.recommended_version != pkg.latest_version:
+                        row_args.append(f"[yellow][bold]{pkg.recommended_version}[/]")
+                    else:
+                        row_args.append(pkg.recommended_version)
                 else:
-                    row_args.append(recommended_version)
+                    row_args.append("")
 
             row_args += [
                 pkg.latest_version if pkg.latest_version else "[bold][red]N/A",
@@ -199,5 +258,10 @@ class ConsoleScanRenderer(AbstractUserInterfaceRenderer):
                 blanks = [""] * (len(table.columns) - 1)
                 for text in impact_sub_row_texts(pkg.update_transitive_impacts):
                     table.add_row(text, *blanks)
+
+            if pkg.constraint_conflict:
+                blanks = [""] * (len(table.columns) - 1)
+                specs = " + ".join(pkg.constraint_conflict)
+                table.add_row(f"  [bold red]↳ no version satisfies: {specs}[/]", *blanks)
 
         return table

@@ -7,8 +7,10 @@ from collections.abc import Iterable, Iterator
 from typing import Any
 
 from ossiq.domain.common import ConstraintType
-from ossiq.domain.project import ConstraintSource, Dependency
+from ossiq.domain.project import ConstraintSource, Dependency, PeerRequirement
 from ossiq.domain.version import normalize_version
+
+CATEGORY_PEER = "peer"
 
 
 class BaseDependencyResolver(ABC):
@@ -116,6 +118,8 @@ class BaseDependencyResolver(ABC):
                             # in the solver (diamond-dependency correctness). Done before the
                             # version_defined overwrite so every occurrence is captured.
                             child.parent_constraints.append(d_ver)
+                            if category == CATEGORY_PEER:
+                                child.peer_requirements.append(PeerRequirement(requirer_name=name, spec=d_ver))
 
                             # Only update version_defined when the specifier differs from the
                             # resolved version to avoid redundant data (e.g. "4.17.21" == "4.17.21").

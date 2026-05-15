@@ -14,7 +14,7 @@ from ossiq.domain.common import RepositoryProvider, build_purl, parse_spdx_expre
 from ossiq.domain.cve import CVE
 from ossiq.domain.exceptions import ProjectPathNotFoundError, UnknownPackageVersion
 from ossiq.domain.package import Package
-from ossiq.domain.project import ConstraintSource
+from ossiq.domain.project import ConstraintSource, PeerRequirement
 from ossiq.domain.repository import Repository
 from ossiq.domain.version import VersionsDifference
 from ossiq.service.common import package_versions
@@ -22,6 +22,7 @@ from ossiq.service.update_impact import TransitiveImpact, simulate_single, simul
 from ossiq.unit_of_work import core as unit_of_work
 from ossiq.unit_of_work.solver import uow_dependencies_solver
 from ossiq.unit_of_work.solver.reason import RecommendationReason
+from ossiq.unit_of_work.solver.version_matchers import version_satisfies_constraint
 
 console = Console()
 
@@ -39,6 +40,7 @@ class DependencyDescriptor:
     # All version specifiers from every direct parent in the dependency graph.
     # Empty for direct (root-level) dependencies; populated for transitive deps.
     all_constraints: list[str] = field(default_factory=list)
+    peer_requirements: list[PeerRequirement] = field(default_factory=list)
 
 
 @dataclass
@@ -78,6 +80,12 @@ class ScanRecord:
     all_constraints: list[str] = field(default_factory=list)
     # Populated by Phase 4c after solve_direct: transitive impacts of the final recommendation.
     update_transitive_impacts: list[TransitiveImpact] = field(default_factory=list)
+    # All peer requirements placed on this package by other installed packages.
+    peer_requirements: list[PeerRequirement] = field(default_factory=list)
+    # Subset of peer_requirements where installed_version doesn't satisfy the spec.
+    peer_violations: list[PeerRequirement] = field(default_factory=list)
+    # Populated when the solver found no valid version satisfying all constraints.
+    constraint_conflict: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -189,6 +197,7 @@ def scan_record(
     prefetched_repository: Repository | None = None,
     extras: list[str] | None = None,
     all_constraints: list[str] | None = None,
+    peer_requirements: list[PeerRequirement] | None = None,
 ) -> ScanRecord:
     """
     Factory to generate ScanRecord instances
@@ -229,6 +238,10 @@ def scan_record(
         ),
         purl=build_purl(packages_registry.package_registry, canonical_name, package_version),
         all_constraints=all_constraints or [],
+        peer_requirements=list(peer_requirements or []),
+        peer_violations=[
+            req for req in (peer_requirements or []) if not version_satisfies_constraint(package_version, req.spec)
+        ],
         is_installed_prerelease=installed_release.is_prerelease if installed_release else False,
         is_installed_yanked=(
             installed_release is not None and (installed_release.is_yanked or installed_release.is_unpublished)
@@ -324,9 +337,24 @@ def build_records(
             prefetched.repositories_info.get(prefetched.packages_info[dep.canonical_name].repo_url or ""),
             dep.extras,
             dep.all_constraints,
+            dep.peer_requirements,
         )
         for dep in descriptors
     ]
+
+
+def _apply_conflicts(
+    output: uow_dependencies_solver.SolverOutput,
+    records: list[ScanRecord],
+) -> None:
+    """Write solver conflict info onto ScanRecord instances in-place."""
+    if not output.conflicts:
+        return
+    by_name = {c.package_name: c for c in output.conflicts}
+    for record in records:
+        conflict = by_name.get(record.package_name)
+        if conflict is not None:
+            record.constraint_conflict = conflict.conflicting_constraints
 
 
 def apply_recommendations(
@@ -373,6 +401,7 @@ def scan(uow: unit_of_work.AbstractProjectUnitOfWork) -> ScanResult:
                 version_constraint=dep.version_defined,
                 constraint_info=dep.constraint_info,
                 extras=dep.extras,
+                peer_requirements=list(dep.peer_requirements),
             )
             for dep in project_info.dependencies.values()
         ]
@@ -389,6 +418,7 @@ def scan(uow: unit_of_work.AbstractProjectUnitOfWork) -> ScanResult:
                     version_constraint=dep.version_defined,
                     constraint_info=dep.constraint_info,
                     extras=dep.extras,
+                    peer_requirements=list(dep.peer_requirements),
                 )
                 for dep in project_info.optional_dependencies.values()
             ]
@@ -407,6 +437,7 @@ def scan(uow: unit_of_work.AbstractProjectUnitOfWork) -> ScanResult:
                     constraint_info=node.constraint_info,
                     extras=node.extras,
                     all_constraints=list(node.parent_constraints),
+                    peer_requirements=list(node.peer_requirements),
                 )
                 for node, path in walker.walk_all_paths()
                 if node.canonical_name not in direct_canonical_names
@@ -484,6 +515,7 @@ def scan(uow: unit_of_work.AbstractProjectUnitOfWork) -> ScanResult:
             build_records(opt_deps, uow.packages_registry, prefetched), key=sort_function, reverse=True
         )
 
+        _apply_conflicts(solver_output, production_packages + optional_packages)
         if solver_output.recommendations:
             apply_recommendations(production_packages + optional_packages, solver_output)
 
@@ -517,6 +549,7 @@ def scan(uow: unit_of_work.AbstractProjectUnitOfWork) -> ScanResult:
                 {},
                 allow_prerelease=uow.allow_prerelease,
             )
+            _apply_conflicts(transitive_output, transitive_packages)
             if transitive_output.recommendations:
                 apply_recommendations(transitive_packages, transitive_output, skip_current=True)
 

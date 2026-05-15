@@ -18,6 +18,14 @@ class ConstraintSource:
     scope_path: list[str] | None = None  # npm nested override path, e.g. ["foo", "bar"]; None for flat
 
 
+@dataclass(frozen=True)
+class PeerRequirement:
+    """A peer dependency constraint placed on this package by another installed package."""
+
+    requirer_name: str
+    spec: str
+
+
 @dataclass(order=True)
 class Dependency:
     """
@@ -53,6 +61,10 @@ class Dependency:
     # Populated during graph construction (dependency_tree.py Pass 2).
     # Used by the solver to apply multi-parent L1 hard rejections for diamond deps.
     parent_constraints: list[str] = field(default_factory=list, compare=False)
+
+    # Peer requirements placed on this package by other installed packages.
+    # Populated during graph construction alongside parent_constraints.
+    peer_requirements: list[PeerRequirement] = field(default_factory=list, compare=False)
 
 
 class Project:
