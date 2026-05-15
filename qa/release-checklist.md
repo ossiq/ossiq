@@ -46,5 +46,12 @@
 - [ ] TC-E03: CSV export produces file with header row and correct row count
 - [ ] TC-E04: npm JSON export has `registry: "npm"`
 
+## 06 — Transitive Impacts ([details](06-transitive-impacts.md))
+
+- [ ] TC-T01: `--security` and `--full` listed in `scan --help`; `--security` in `update --help`
+- [ ] TC-T02: `scan` shows `↳ also updates:` sub-rows under at least one recommendation
+- [ ] TC-T03: `scan --full` shows all packages including up-to-date ones; row count ≥ default run
+- [ ] TC-T07: `update` renders without crash, shows transitive impact sub-rows, and produces an update script block
+
 ## Notes
 <!-- Anything unexpected observed during QA -->

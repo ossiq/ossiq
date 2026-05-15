@@ -110,7 +110,7 @@ Structural clauses per package (encoder):
 
 ### Version constraint dispatch (encoder.py)
 
-`version_satisfies_constraint()` (in `version_matchers.py`) tries PEP 440 `SpecifierSet` first; falls back to npm semver on `InvalidSpecifier`. Bare npm versions (e.g. `"14"`) are treated as caret ranges (`^14.0.0`). Unparseable constraints pass through (`True`) — unknown format is never a hard block.
+`version_satisfies_constraint(version, constraint, registry)` (in `version_matchers.py`) dispatches directly to PyPI (PEP 440) or npm (semver) based on the `ProjectPackagesRegistry` passed in — no exception-based fallback. Bare npm versions (e.g. `"14"`) are treated as caret ranges (`^14.0.0`). Unparseable constraints pass through (`True`) — unknown format is never a hard block.
 
 ---
 

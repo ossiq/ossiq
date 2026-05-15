@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import threading
 
-from pysat.solvers import Glucose3  # type: ignore[import]
+from pysat.solvers import Glucose42
 
 from ossiq.unit_of_work.solver.driver import AbstractSolverDriver, ConflictSet, EncodedProblem, SolverResult
 
@@ -60,7 +60,7 @@ class GlucoseDriver(AbstractSolverDriver):
         def run() -> None:
             preferred_vids = compute_preferred_vids(problem)
 
-            with Glucose3(bootstrap_with=problem.hard_clauses) as solver:
+            with Glucose42(bootstrap_with=problem.hard_clauses) as solver:
                 # Greedily commit the preferred vid for each package: if adding it
                 # remains satisfiable alongside already-committed choices, lock it in.
                 committed: list[int] = []

@@ -47,11 +47,11 @@ class ConsoleScanRenderer(AbstractUserInterfaceRenderer):
         lag_threshold_days = kwargs.get("lag_threshold_days", 180)
         full = kwargs.get("full", True)
 
-        table_prod = self._table_factory(
+        table_prod = self.table_factory(
             "Production Dependency Drift Report", "bold green", data.production_packages, lag_threshold_days, full=full
         )
 
-        table_dev = self._table_factory(
+        table_dev = self.table_factory(
             "Optional Dependency Drift Report", "bold cyan", data.optional_packages, lag_threshold_days, full=full
         )
 
@@ -62,7 +62,7 @@ class ConsoleScanRenderer(AbstractUserInterfaceRenderer):
 
         table_transitive = None
         if transitive_with_recs:
-            table_transitive = self._transitive_table(
+            table_transitive = self.transitive_table(
                 transitive_with_recs, "Transitive Recommendations", show_cve_column=True
             )
 
@@ -105,7 +105,7 @@ class ConsoleScanRenderer(AbstractUserInterfaceRenderer):
             self.console.print("\n")
             self.console.print(table_new_deps)
 
-        table_peer = self._peer_status_table(
+        table_peer = self.peer_status_table(
             data.production_packages + data.optional_packages + data.transitive_packages,
             full=full,
         )
@@ -113,7 +113,7 @@ class ConsoleScanRenderer(AbstractUserInterfaceRenderer):
             self.console.print("\n")
             self.console.print(table_peer)
 
-    def _peer_status_table(self, packages: list[ScanRecord], *, full: bool) -> Table | None:
+    def peer_status_table(self, packages: list[ScanRecord], *, full: bool) -> Table | None:
         """Table showing peer constraint status for all packages that have peer requirements."""
         violated_specs_by_pkg: dict[str, set[str]] = {
             record.package_name: {req.spec for req in record.peer_violations}
@@ -160,7 +160,7 @@ class ConsoleScanRenderer(AbstractUserInterfaceRenderer):
 
         return table
 
-    def _transitive_table(self, packages: list[ScanRecord], title: str, *, show_cve_column: bool) -> Table:
+    def transitive_table(self, packages: list[ScanRecord], title: str, *, show_cve_column: bool) -> Table:
         """Table showing transitive packages with solver-recommended versions."""
         title_style = "bold yellow" if show_cve_column else "bold cyan"
         table = Table(title=title, title_style=title_style)
@@ -180,7 +180,7 @@ class ConsoleScanRenderer(AbstractUserInterfaceRenderer):
             table.add_row(*row)
         return table
 
-    def _table_factory(
+    def table_factory(
         self,
         title: str,
         title_style: str,

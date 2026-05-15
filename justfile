@@ -59,6 +59,11 @@ qa-integration:
     uv run hatch run ossiq-cli export --output-format=json --output=./reports/scan_export_pypi_version_pylock.json testdata/pypi/pylock
     cat ./reports/scan_export_pypi_version_uv.json | jq | grep '"constraint_type": "ADDITIVE"'
 
+# Profile scan command with cProfile + snakeviz; e.g. just profile testdata/npm/project1
+profile PATH:
+    uv run python -m cProfile -o /tmp/ossiq_profile.prof -m ossiq.cli scan {{PATH}}
+    uv run snakeviz /tmp/ossiq_profile.prof
+
 lint:
     uv run ruff check .
     uv run ruff check --exit-zero --statistics .

@@ -20,8 +20,10 @@ In a typical project with hundreds of dependencies, how do you answer these ques
 ## Key Features
 
 - **Security Blind Spots**: Go beyond `npm audit` to see which vulnerabilities actually matter and how to prioritize them.
-- **Multiple Output Formats**: CLI and interactive HTML per-project dependnecies exploration tools as well as export into clearly defined JSON or CSV schemas.
+- **Multiple Output Formats**: CLI and interactive HTML per-project dependencies exploration tools as well as export into clearly defined JSON or CSV schemas.
 - **CI/CD Integration**: Use scores and metrics to build quality gates and enforce dependency policies automatically.
+- **Peer Dependency Analysis**: Detect peer constraint violations, compliance-by-override status, and dead-end configurations where no compatible version exists across both npm and Python ecosystems.
+- **Transitive Impact Simulation**: Before recommending an update, simulate the full transitive cascade — see exactly which downstream packages would change, whether conflicts arise, and get a fallback recommendation when the best version is blocked.
 
 OSS IQ bridges the gap between raw dependency data and actionable intelligence. It analyzes version lag, CVEs, transitive dependencies, and maintainer activity to produce a single, holistic view of your project dependencies.
 
@@ -47,6 +49,12 @@ uvx --from ossiq ossiq-cli scan /path/to/your/project
 
 # Generate HTML report
 uvx --from ossiq ossiq-cli scan --presentation=html --output report.html /path/to/your/project
+
+# Include full transitive dependency recommendations
+uvx --from ossiq ossiq-cli scan --transitive /path/to/your/project
+
+# Narrow to CVE-affected packages only (security-first workflow)
+uvx --from ossiq ossiq-cli scan --security /path/to/your/project
 ```
 
 OSS IQ automatically detects the dependency manifest (`package.json`, `pyproject.toml`, etc.) in the target directory.
@@ -158,14 +166,41 @@ ossiq-cli package /path/to/your/project lodash --registry-type npm
 The output mirrors the structure of the dependency detail panel:
 
 ```
-[01] DRIFT STATUS       — version lag bar, releases behind, latest version
-[02] DEPENDENCY TREE TRACE — ancestry path from root to the package
-[03] POLICY COMPLIANCE  — declared constraint vs. resolved vs. latest
-[04] SECURITY ADVISORIES — direct CVEs with severity and source
+[01] DRIFT STATUS            — version lag bar, releases behind, latest version
+[02] DEPENDENCY TREE TRACE   — ancestry path from root to the package
+[03] POLICY COMPLIANCE       — declared constraint vs. resolved vs. latest
+[04] SECURITY ADVISORIES     — direct CVEs with severity and source
 [05] VIA TRANSITIVE DEPENDENCIES — CVEs in packages pulled in by this one
+[08] PEER REQUIREMENTS       — per-requirement status: ok / violation / compliance-via-override
 ```
 
 If the package appears in multiple places in the tree (hoisted duplicates, diamond dependencies), each occurrence is shown separately with a **SHARED NODE** indicator.
+
+### Atomic Dependency Update
+
+Generate a safe, copy-pasteable bash script that upgrades your dependencies to the versions recommended by the HPDR solver:
+
+```bash
+ossiq-cli update /path/to/your/project
+```
+
+The solver runs automatically and outputs a script tailored to your package manager. **Review the script before running it** — it is designed to be atomic so that **no unvetted versions are pulled in by the package manager's own resolver**.
+
+Before emitting the script, the solver simulates the full transitive impact of each recommendation. When the top candidate would create a downstream conflict, it falls back to the next-best version automatically. The plan table shows a `↳` sub-row for each transitive package that would also move, and marks non-actionable entries with `✗`.
+
+**npm** — backs up `package.json`, injects all recommended versions as `overrides` in one pass, runs `npm install`, then removes the overrides block.
+
+**uv / pip** — writes all recommended versions to a temporary constraints file, syncs with that constraint so the resolver cannot pick unvetted versions, then deletes the file.
+
+Options mirror the `scan` command:
+
+| Option | Description |
+|---|---|
+| `--production` | Limit to production dependencies only |
+| `--registry-type npm\|pypi` | Narrow to a specific ecosystem |
+| `--security` | Include only CVE-affected packages in the update plan |
+| `--allow-prerelease` | Include pre-release candidates in solver |
+| `--allow-prerelease-package <name>` | Allow pre-release for a specific package (repeatable) |
 
 ## Supported Ecosystems
 

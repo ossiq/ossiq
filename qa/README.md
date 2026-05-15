@@ -11,6 +11,7 @@ Pre-release validation process for ossiq-cli. One person, under 45 minutes.
 | [03-html-report.md](03-html-report.md) | HTML scan output, dependency table, explorer | TC-H01–H05 |
 | [04-solver.md](04-solver.md) | HPDR solver correctness | TC-S01–S10 |
 | [05-export.md](05-export.md) | JSON and CSV export | TC-E01–E05 |
+| [06-transitive-impacts.md](06-transitive-impacts.md) | `--security`/`--full` flags, impact sub-rows, update command | TC-T01–T07 |
 | [release-checklist.md](release-checklist.md) | Abbreviated checklist for GitHub Issues | — |
 
 ## Release Process
