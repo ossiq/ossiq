@@ -375,12 +375,17 @@ class PackageManagerJsNpm(AbstractPackageManagerApi):
         fallback_name = os.path.basename(self.project_path)
         project_package_name = project_data.get("name", fallback_name)
 
+        engines = project_data.get("engines", {})
+        node_constraint = engines.get("node") if isinstance(engines, dict) else None
+        engine_constraints = {"node": node_constraint} if node_constraint else None
+
         def create_project(dependency_tree: Dependency) -> Project:
             return Project(
                 package_manager_type=self.package_manager_type,
                 name=project_package_name,
                 project_path=self.project_path,
                 dependency_tree=dependency_tree,
+                engine_constraints=engine_constraints,
             )
 
         # Exceptional case, no lockfile

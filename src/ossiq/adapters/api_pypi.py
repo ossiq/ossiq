@@ -326,6 +326,12 @@ class PackageRegistryApiPypi(AbstractPackageRegistryApi):
             # A version is considered yanked if all its files are yanked.
             is_yanked = all(f.get("yanked") for f in release_files)
 
+            # requires_python is per-file but consistent across files for a given version.
+            requires_python = next(
+                (f.get("requires_python") for f in release_files if f.get("requires_python")),
+                None,
+            )
+
             # Only the latest version has requires_dist in the main response.
             dependencies = {}
             if version == info["version"]:
@@ -347,6 +353,7 @@ class PackageRegistryApiPypi(AbstractPackageRegistryApi):
                 is_yanked=is_yanked,
                 unpublished_date_iso=None,
                 is_prerelease=PackagingVersion(version).is_prerelease,
+                runtime_requirements={"python": requires_python} if requires_python else None,
             )
 
     def package_version_requires(self, package_name: str, version: str) -> dict[str, str]:

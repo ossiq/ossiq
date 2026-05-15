@@ -507,8 +507,7 @@ def scan(uow: unit_of_work.AbstractProjectUnitOfWork) -> ScanResult:
         transitive_packages = build_records(trans_deps, uow.packages_registry, prefetched)
 
         # Pass 1.5: optionally run HPDR solver over direct deps (cache is warm after prefetch).
-        # engine_context={} in Phase 4 — L2 (engine mismatch) clauses inactive; L3/L4 still fire.
-        # TODO (Phase 5): populate engine_context from project_info engine metadata.
+        engine_context = project_info.engine_constraints or {}
         transitive_by_name = {r.package_name: r for r in transitive_packages}
 
         def validate_recommendation(pkg_name: str, candidate_version: str) -> bool:
@@ -524,7 +523,7 @@ def scan(uow: unit_of_work.AbstractProjectUnitOfWork) -> ScanResult:
         solver_output = uow_dependencies_solver.solve_direct(
             prod_deps + opt_deps,
             uow.packages_registry,
-            {},
+            engine_context,
             allow_prerelease=uow.allow_prerelease,
             post_solve_validator=validate_recommendation,
         )
@@ -568,14 +567,13 @@ def scan(uow: unit_of_work.AbstractProjectUnitOfWork) -> ScanResult:
 
         # Pass 1.6: HPDR solver over transitive deps.
         # security_only: CVE packages only. Default: all transitive packages.
-        # engine_context={} — populating from project metadata deferred to Phase 6+.
         if transitive_packages:
             records_to_solve = [r for r in transitive_packages if r.cve] if uow.security_only else transitive_packages
             t3 = time.perf_counter()
             transitive_output = uow_dependencies_solver.solve_transitive(
                 records_to_solve,
                 uow.packages_registry,
-                {},
+                engine_context,
                 allow_prerelease=uow.allow_prerelease,
             )
             logger.debug(

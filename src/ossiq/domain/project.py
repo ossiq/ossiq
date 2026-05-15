@@ -73,8 +73,8 @@ class Project:
     package_manager_type: PackageManagerType
     name: str
     project_path: str | None
-
     dependency_tree: Dependency
+    engine_constraints: dict[str, str] | None  # e.g. {"python": "3.11"} or {"node": ">=18"}
 
     def __init__(
         self,
@@ -82,11 +82,13 @@ class Project:
         name: str,
         project_path: str,
         dependency_tree: Dependency,
+        engine_constraints: dict[str, str] | None = None,
     ):
         self.package_manager_type = package_manager_type
         self.name = name
         self.project_path = project_path
         self.dependency_tree = dependency_tree
+        self.engine_constraints = engine_constraints
 
     def __repr__(self):
         return f"""{self.package_manager_type.name} Package(

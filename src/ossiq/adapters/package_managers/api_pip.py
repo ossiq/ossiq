@@ -11,7 +11,7 @@ from typing import Any, cast
 from ossiq.adapters.api_interfaces import AbstractPackageManagerApi
 from ossiq.adapters.package_managers.api_pypi import enrich_registry_constraints
 from ossiq.adapters.package_managers.dependency_tree import BaseDependencyResolver
-from ossiq.adapters.package_managers.utils import find_lockfile_parser, normalize_dist_name
+from ossiq.adapters.package_managers.utils import extract_min_python_version, find_lockfile_parser, normalize_dist_name
 from ossiq.domain.common import ConstraintType
 from ossiq.domain.exceptions import PackageManagerLockfileParsingError
 from ossiq.domain.packages_manager import PIP, PackageManagerType
@@ -276,11 +276,19 @@ class PackageManagerPythonPip(AbstractPackageManagerApi):
         if not self.settings.skip_pypi_enrichment:
             enrich_registry_constraints(registry)
 
+        requires_python = project_section.get("requires-python")
+        engine_constraints = None
+        if requires_python:
+            min_py = extract_min_python_version(requires_python)
+            if min_py:
+                engine_constraints = {"python": min_py}
+
         return Project(
             package_manager_type=self.package_manager_type,
             name=project_package_name,
             project_path=self.project_path,
             dependency_tree=dependency_tree,
+            engine_constraints=engine_constraints,
         )
 
     def __repr__(self):

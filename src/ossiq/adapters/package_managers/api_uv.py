@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING
 from ossiq.adapters.api_interfaces import AbstractPackageManagerApi
 from ossiq.adapters.package_managers.api_pypi import enrich_registry_constraints
 from ossiq.adapters.package_managers.dependency_tree import BaseDependencyResolver
-from ossiq.adapters.package_managers.utils import find_lockfile_parser, normalize_dist_name
+from ossiq.adapters.package_managers.utils import extract_min_python_version, find_lockfile_parser, normalize_dist_name
 from ossiq.domain.common import ConstraintType
 from ossiq.domain.exceptions import PackageManagerLockfileParsingError
 from ossiq.domain.packages_manager import UV, PackageManagerType
@@ -246,11 +246,19 @@ class PackageManagerPythonUv(AbstractPackageManagerApi):
             override_names = {normalize_dist_name(s) for s in override_specs}
             self.constraint_dependencies_setting(dependency_tree, constraint_names, override_names)
 
+        requires_python = pyproject_data.get("project", {}).get("requires-python")
+        engine_constraints = None
+        if requires_python:
+            min_py = extract_min_python_version(requires_python)
+            if min_py:
+                engine_constraints = {"python": min_py}
+
         return Project(
             package_manager_type=self.package_manager_type,
             name=project_package_name,
             project_path=self.project_path,
             dependency_tree=dependency_tree,
+            engine_constraints=engine_constraints,
         )
 
     def generate_update_script(self, plan: UpdatePlan) -> str:

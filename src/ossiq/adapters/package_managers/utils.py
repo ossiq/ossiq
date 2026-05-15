@@ -5,6 +5,8 @@ Utils related to package managers
 import re
 
 from cel import Context, evaluate
+from packaging.specifiers import SpecifierSet
+from packaging.version import Version
 
 # Compiled pattern to extract the leading distribution name from a dependency specifier
 # (stops at version operators, extras bracket, environment markers, whitespace)
@@ -28,6 +30,23 @@ def find_lockfile_parser(
         if evaluate(version_condition, context):
             return version_handler
 
+    return None
+
+
+def extract_min_python_version(requires_python: str) -> str | None:
+    """Return 'X.Y' for the minimum Python declared in a requires-python specifier.
+
+    Parses >= / ~= / == operators to find the lowest declared lower bound.
+    Returns None when the specifier is unparseable or has no lower bound.
+    """
+
+    try:
+        bounds = [Version(s.version) for s in SpecifierSet(requires_python) if s.operator in (">=", "~=", "==")]
+        if bounds:
+            m = min(bounds)
+            return f"{m.major}.{m.minor}"
+    except Exception:
+        pass
     return None
 
 
