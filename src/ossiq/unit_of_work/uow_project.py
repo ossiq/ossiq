@@ -32,8 +32,6 @@ class ProjectUnitOfWork(AbstractProjectUnitOfWork):
         production: bool = False,
         allow_prerelease: bool = False,
         allow_prerelease_packages: tuple[str, ...] = (),
-        use_solver: bool = False,
-        include_transitive_recommendations: bool = False,
         security_only: bool = False,
     ):
         """
@@ -46,8 +44,6 @@ class ProjectUnitOfWork(AbstractProjectUnitOfWork):
         self.production = production
         self.allow_prerelease = allow_prerelease
         self.allow_prerelease_packages = allow_prerelease_packages
-        self.use_solver = use_solver
-        self.include_transitive_recommendations = include_transitive_recommendations
         self.security_only = security_only
         self.narrow_package_registry = narrow_package_registry
         self.cve_database = create_cve_database(settings)
@@ -111,8 +107,6 @@ def build_project_uow(
     allow_prerelease_packages: tuple[str, ...],
     registry_type: str | None,
     *,
-    use_solver: bool = False,
-    include_transitive_recommendations: bool = False,
     security_only: bool = False,
 ) -> ProjectUnitOfWork:
     """Factory for ProjectUnitOfWork with registry-type string mapping applied."""
@@ -123,7 +117,5 @@ def build_project_uow(
         allow_prerelease=allow_prerelease,
         allow_prerelease_packages=allow_prerelease_packages,
         narrow_package_registry=REGISTRY_TYPE_MAP.get(registry_type or ""),
-        use_solver=use_solver,
-        include_transitive_recommendations=include_transitive_recommendations,
         security_only=security_only,
     )

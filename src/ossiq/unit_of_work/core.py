@@ -28,8 +28,6 @@ class AbstractProjectUnitOfWork(abc.ABC):
     production: bool
     allow_prerelease: bool
     allow_prerelease_packages: tuple[str, ...]
-    use_solver: bool
-    include_transitive_recommendations: bool
     security_only: bool
 
     @abc.abstractmethod

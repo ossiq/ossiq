@@ -42,24 +42,18 @@ class ConsoleScanRenderer(AbstractUserInterfaceRenderer):
             data: ProjectMetrics from scan service
             **kwargs: Rendering options
                 - lag_threshold_days: int - Threshold for highlighting time lag
-                - transitive: bool - When True show all transitive update recommendations
-                - security: bool - When True, label transitive table as security-scoped
+                - full: bool - When True show all packages; default shows only packages with updates or CVEs
         """
         lag_threshold_days = kwargs.get("lag_threshold_days", 180)
-        show_full_transitive = kwargs.get("transitive", False)
-        security_only = kwargs.get("security", False)
+        full = kwargs.get("full", True)
 
-        table_prod = None
-        if data.production_packages:
-            table_prod = self._table_factory(
-                "Production Dependency Drift Report", "bold green", data.production_packages, lag_threshold_days
-            )
+        table_prod = self._table_factory(
+            "Production Dependency Drift Report", "bold green", data.production_packages, lag_threshold_days, full=full
+        )
 
-        table_dev = None
-        if data.optional_packages:
-            table_dev = self._table_factory(
-                "Optional Dependency Drift Report", "bold cyan", data.optional_packages, lag_threshold_days
-            )
+        table_dev = self._table_factory(
+            "Optional Dependency Drift Report", "bold cyan", data.optional_packages, lag_threshold_days, full=full
+        )
 
         transitive_with_recs = sorted(
             (r for r in data.transitive_packages if r.recommended_version is not None),
@@ -68,15 +62,9 @@ class ConsoleScanRenderer(AbstractUserInterfaceRenderer):
 
         table_transitive = None
         if transitive_with_recs:
-            if show_full_transitive:
-                title = "Transitive Security Recommendations" if security_only else "Transitive Recommendations"
-                table_transitive = self._transitive_table(transitive_with_recs, title, show_cve_column=True)
-            else:
-                safety_recs = [r for r in transitive_with_recs if r.cve]
-                if safety_recs:
-                    table_transitive = self._transitive_table(
-                        safety_recs, "Transitive Safety Recommendations", show_cve_column=True
-                    )
+            table_transitive = self._transitive_table(
+                transitive_with_recs, "Transitive Recommendations", show_cve_column=True
+            )
 
         # Header
         header_text = Text()
@@ -138,9 +126,24 @@ class ConsoleScanRenderer(AbstractUserInterfaceRenderer):
         return table
 
     def _table_factory(
-        self, title: str, title_style: str, dependencies: list[ScanRecord], lag_threshold_days: int
-    ) -> Table:
+        self,
+        title: str,
+        title_style: str,
+        dependencies: list[ScanRecord],
+        lag_threshold_days: int,
+        *,
+        full: bool = True,
+    ) -> Table | None:
         """Create Rich table with dependency data."""
+        if not full:
+            dependencies = [
+                pkg
+                for pkg in dependencies
+                if (pkg.recommended_version is not None and pkg.recommended_version != pkg.installed_version)
+                or bool(pkg.cve)
+            ]
+        if not dependencies:
+            return None
 
         show_recommended = any(pkg.recommended_version is not None for pkg in dependencies)
 

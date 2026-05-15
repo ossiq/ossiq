@@ -26,8 +26,7 @@ class CommandScanOptions:
     registry_type: Literal["npm", "pypi"] | None
     presentation: Literal["console", "html"]
     output_destination: str
-    use_solver: bool = False
-    include_transitive_recommendations: bool = False
+    full_output: bool = False
     security_only: bool = False
 
 
@@ -44,8 +43,6 @@ def commnad_scan(ctx: typer.Context, options: CommandScanOptions):
             "project_path": options.project_path,
             "lag_threshold_days": f"{threshold_parsed.days} days",
             "production": options.production,
-            "use_solver": options.use_solver,
-            "transitive": options.include_transitive_recommendations,
             "security": options.security_only,
             "narrow_registry_type": uow_project.REGISTRY_TYPE_MAP.get(options.registry_type or ""),
         },
@@ -58,8 +55,6 @@ def commnad_scan(ctx: typer.Context, options: CommandScanOptions):
         options.allow_prerelease,
         options.allow_prerelease_packages,
         options.registry_type,
-        use_solver=options.use_solver,
-        include_transitive_recommendations=options.include_transitive_recommendations,
         security_only=options.security_only,
     )
 
@@ -76,6 +71,5 @@ def commnad_scan(ctx: typer.Context, options: CommandScanOptions):
         data=project_scan,
         lag_threshold_days=threshold_parsed.days,
         destination=options.output_destination,
-        transitive=options.include_transitive_recommendations,
-        security=options.security_only,
+        full=options.full_output,
     )

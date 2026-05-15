@@ -38,7 +38,6 @@ def command_update(ctx: typer.Context, options: CommandUpdateOptions) -> None:
         options.allow_prerelease,
         options.allow_prerelease_packages,
         options.registry_type,
-        use_solver=True,
         security_only=options.security_only,
     )
 
