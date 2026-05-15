@@ -73,7 +73,10 @@ def make_registry(
 ) -> MagicMock:
     from functools import cmp_to_key
 
+    from ossiq.domain.common import ProjectPackagesRegistry
+
     registry = MagicMock()
+    registry.package_registry = ProjectPackagesRegistry.PYPI
     registry.package_versions.side_effect = lambda name: (versions_by_name or {}).get(name, [])
     registry.package_version_requires.side_effect = lambda name, ver: (requires_by_pkg_ver or {}).get((name, ver), {})
 

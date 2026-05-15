@@ -2,6 +2,8 @@
 Service to take care of a Package versions
 """
 
+import logging
+import time
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -9,6 +11,7 @@ from datetime import UTC, datetime
 from rich.console import Console
 
 from ossiq.adapters.api_interfaces import AbstractPackageRegistryApi
+from ossiq.adapters.api_pypi import PackageRegistryApiPypi
 from ossiq.adapters.package_managers.dependency_tree import GraphExporter
 from ossiq.domain.common import RepositoryProvider, build_purl, parse_spdx_expression
 from ossiq.domain.cve import CVE
@@ -25,6 +28,7 @@ from ossiq.unit_of_work.solver.reason import RecommendationReason
 from ossiq.unit_of_work.solver.version_matchers import version_satisfies_constraint
 
 console = Console()
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -240,7 +244,9 @@ def scan_record(
         all_constraints=all_constraints or [],
         peer_requirements=list(peer_requirements or []),
         peer_violations=[
-            req for req in (peer_requirements or []) if not version_satisfies_constraint(package_version, req.spec)
+            req
+            for req in (peer_requirements or [])
+            if not version_satisfies_constraint(package_version, req.spec, packages_registry.package_registry)
         ],
         is_installed_prerelease=installed_release.is_prerelease if installed_release else False,
         is_installed_yanked=(
@@ -343,7 +349,7 @@ def build_records(
     ]
 
 
-def _apply_conflicts(
+def apply_conflicts(
     output: uow_dependencies_solver.SolverOutput,
     records: list[ScanRecord],
 ) -> None:
@@ -446,7 +452,8 @@ def scan(uow: unit_of_work.AbstractProjectUnitOfWork) -> ScanResult:
 
         all_deps = prod_deps + opt_deps + trans_deps
 
-        # Pass 1: pre-fetch package infos
+        # Pass 1: pre-fetch package infos, repos, CVEs, versions-since
+        t0 = time.perf_counter()
         packages_info = prefetch_packages_info(uow.packages_registry, (dep.canonical_name for dep in all_deps))
 
         if uow.allow_prerelease or uow.allow_prerelease_packages:
@@ -476,6 +483,19 @@ def scan(uow: unit_of_work.AbstractProjectUnitOfWork) -> ScanResult:
             allow_prerelease_packages=uow.allow_prerelease_packages,
         )
 
+        logger.debug("Pass 1 prefetch: %.2fs — %d packages", time.perf_counter() - t0, len(packages_info))
+
+        # Warm version-requires cache for top solver candidates before solve_direct runs.
+        # Converts N sequential per-call HTTP fetches (in post_solve_validator) into one parallel batch.
+        # Only needed for PyPI — NPM embeds all version deps in its main package JSON.
+        if isinstance(uow.packages_registry, PackageRegistryApiPypi):
+            warmup_pairs = [
+                (dep.canonical_name, pv.version)
+                for dep in prod_deps + opt_deps
+                for pv in list(uow.packages_registry.package_versions(dep.canonical_name))[:10]
+            ]
+            uow.packages_registry.warmup_version_requires(warmup_pairs)
+
         prefetched = PrefetchedData(
             packages_info=packages_info,
             cve_map=cve_map,
@@ -500,12 +520,18 @@ def scan(uow: unit_of_work.AbstractProjectUnitOfWork) -> ScanResult:
                 uow.allow_prerelease,
             ).is_actionable
 
+        t1 = time.perf_counter()
         solver_output = uow_dependencies_solver.solve_direct(
             prod_deps + opt_deps,
             uow.packages_registry,
             {},
             allow_prerelease=uow.allow_prerelease,
             post_solve_validator=validate_recommendation,
+        )
+        logger.debug(
+            "Pass 1.5 solve_direct: %.2fs — %d recommendations",
+            time.perf_counter() - t1,
+            len(solver_output.recommendations),
         )
 
         production_packages = sorted(
@@ -515,7 +541,7 @@ def scan(uow: unit_of_work.AbstractProjectUnitOfWork) -> ScanResult:
             build_records(opt_deps, uow.packages_registry, prefetched), key=sort_function, reverse=True
         )
 
-        _apply_conflicts(solver_output, production_packages + optional_packages)
+        apply_conflicts(solver_output, production_packages + optional_packages)
         if solver_output.recommendations:
             apply_recommendations(production_packages + optional_packages, solver_output)
 
@@ -526,6 +552,7 @@ def scan(uow: unit_of_work.AbstractProjectUnitOfWork) -> ScanResult:
                 node.canonical_name for node, _ in walker.walk_all_paths(include_optional_roots=True)
             }
 
+            t2 = time.perf_counter()
             impacts = simulate_update_impacts(
                 solver_output.recommendations,
                 production_packages + optional_packages + transitive_packages,
@@ -533,6 +560,7 @@ def scan(uow: unit_of_work.AbstractProjectUnitOfWork) -> ScanResult:
                 uow.allow_prerelease,
                 installed_names=all_installed_names,
             )
+            logger.debug("Pass 1.5b simulate_impacts: %.2fs — %d packages", time.perf_counter() - t2, len(impacts))
             for record in production_packages + optional_packages:
                 impact = impacts.get(record.package_name)
                 if impact is not None:
@@ -543,13 +571,20 @@ def scan(uow: unit_of_work.AbstractProjectUnitOfWork) -> ScanResult:
         # engine_context={} — populating from project metadata deferred to Phase 6+.
         if transitive_packages:
             records_to_solve = [r for r in transitive_packages if r.cve] if uow.security_only else transitive_packages
+            t3 = time.perf_counter()
             transitive_output = uow_dependencies_solver.solve_transitive(
                 records_to_solve,
                 uow.packages_registry,
                 {},
                 allow_prerelease=uow.allow_prerelease,
             )
-            _apply_conflicts(transitive_output, transitive_packages)
+            logger.debug(
+                "Pass 1.6 solve_transitive: %.2fs — %d records, %d recommendations",
+                time.perf_counter() - t3,
+                len(records_to_solve),
+                len(transitive_output.recommendations),
+            )
+            apply_conflicts(transitive_output, transitive_packages)
             if transitive_output.recommendations:
                 apply_recommendations(transitive_packages, transitive_output, skip_current=True)
 

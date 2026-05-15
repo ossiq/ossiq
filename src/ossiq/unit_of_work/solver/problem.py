@@ -4,7 +4,7 @@ import hashlib
 import json
 from dataclasses import dataclass
 
-from ossiq.domain.common import ConstraintType
+from ossiq.domain.common import ConstraintType, ProjectPackagesRegistry
 
 
 @dataclass(frozen=True)
@@ -46,10 +46,12 @@ class SolverProblem:
     constraints: tuple[PackageConstraint, ...]
     candidates: dict[str, tuple[CandidateVersion, ...]]
     engine_context: dict[str, str]
+    registry: ProjectPackagesRegistry = ProjectPackagesRegistry.PYPI
 
     def fingerprint(self) -> str:
         """SHA-256 of canonical JSON — stable cache key for future memoisation."""
         payload = {
+            "registry": self.registry.value,
             "engine_context": sorted(self.engine_context.items()),
             "constraints": sorted(
                 [

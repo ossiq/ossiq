@@ -1,5 +1,6 @@
 # config.py
 
+from pathlib import Path
 from typing import ClassVar
 
 from pydantic import BaseModel, Field
@@ -32,7 +33,9 @@ class Settings(BaseModel):
     # Configuration Fields
     github_token: str | None = Field(default=None, description=ARGS_HELP_GITHUB_TOKEN)
 
-    cache_destination: str = Field(default="./ossiq_cache.sqlite3", description=ARGS_HELP_CACHE_DESTINATION)
+    cache_destination: str = Field(
+        default=str(Path.home() / ".ossiq_cache.sqlite3"), description=ARGS_HELP_CACHE_DESTINATION
+    )
     cache_ttl: int = Field(default=24, description=ARGS_HELP_CACHE_TTL)
     presentation: str = Field(default="console", description=ARGS_HELP_PRESENTATION)
 

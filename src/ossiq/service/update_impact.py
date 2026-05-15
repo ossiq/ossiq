@@ -64,7 +64,7 @@ def find_best_satisfying_version(
         if not pv.is_yanked
         and not pv.is_unpublished
         and (allow_prerelease or not pv.is_prerelease)
-        and satisfies_all_constraints(pv.version, constraints)
+        and satisfies_all_constraints(pv.version, constraints, registry.package_registry)
     )
     best = registry.newest_version(filtered)
     return best.version if best else None
@@ -102,7 +102,7 @@ def assess_transitive_impact(
             conflict_detail=None,
         )
 
-    if version_satisfies_constraint(record.installed_version, new_constraint):
+    if version_satisfies_constraint(record.installed_version, new_constraint, registry.package_registry):
         return None
 
     merged_constraints = list(record.all_constraints) + [new_constraint]
@@ -119,7 +119,9 @@ def assess_transitive_impact(
             conflict_detail=f"no version satisfies: {', '.join(merged_constraints)}",
         )
 
-    violating = [c for c in record.all_constraints if not version_satisfies_constraint(projected, c)]
+    violating = [
+        c for c in record.all_constraints if not version_satisfies_constraint(projected, c, registry.package_registry)
+    ]
     return TransitiveImpact(
         package_name=dep_name,
         current_version=record.installed_version,

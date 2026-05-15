@@ -331,6 +331,10 @@ class PackageRegistryApiPypi(AbstractPackageRegistryApi):
             if version == info["version"]:
                 # This is a list of strings, convert it to the dict format like npm's.
                 dependencies = {dep: "" for dep in latest_version_dependencies}
+                # Zero-cost cache warmup: populate _version_requires_cache from data we already have.
+                key = (package_name, version)
+                if key not in self._version_requires_cache:
+                    self._version_requires_cache[key] = parse_requires_dist(latest_version_dependencies)
 
             # PyPI API gap: No equivalent for 'unpublished_date_iso'.
             yield PackageVersion(
@@ -355,3 +359,16 @@ class PackageRegistryApiPypi(AbstractPackageRegistryApi):
             raw = batch_fetch_requires_dist([key], self.session)
             self._version_requires_cache[key] = parse_requires_dist(raw.get(key, []))
         return self._version_requires_cache[key]
+
+    def warmup_version_requires(self, pairs: list[tuple[str, str]]) -> None:
+        """Batch-fetch requires_dist for (package, version) pairs not yet in the cache.
+
+        Uses the existing parallel batch client — replaces N sequential HTTP calls
+        (one per simulate_single invocation) with a single parallel prefetch.
+        """
+        missing = [p for p in pairs if p not in self._version_requires_cache]
+        if not missing:
+            return
+        raw = batch_fetch_requires_dist(missing, self.session)
+        for key in missing:
+            self._version_requires_cache[key] = parse_requires_dist(raw.get(key, []))

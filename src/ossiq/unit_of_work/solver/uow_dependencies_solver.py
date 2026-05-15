@@ -12,7 +12,7 @@ from ossiq.adapters.api_interfaces import AbstractPackageRegistryApi
 from ossiq.domain.cve import CVE
 from ossiq.domain.project import ConstraintSource
 from ossiq.unit_of_work.solver.driver import ConflictSet
-from ossiq.unit_of_work.solver.driver_pysat import PySATDriver
+from ossiq.unit_of_work.solver.driver_glucose import GlucoseDriver
 from ossiq.unit_of_work.solver.encoder import ConstraintEncoder
 from ossiq.unit_of_work.solver.kernel import HPDRKernel
 from ossiq.unit_of_work.solver.problem import SolverProblem
@@ -56,7 +56,7 @@ class SolverOutput:
 EMPTY_OUTPUT = SolverOutput(recommendations={}, reasons={})
 
 
-def _apply_fallback(
+def apply_fallback(
     output: SolverOutput,
     problem: SolverProblem,
     validator: Callable[[str, str], bool],
@@ -88,8 +88,8 @@ def _apply_fallback(
                 for cv in problem.candidates.get(pkg, ())
                 if cv.version != version
                 and not cv.has_cve
-                and version_satisfies_constraint(cv.version, declared)
-                and satisfies_all_constraints(cv.version, all_specs)
+                and version_satisfies_constraint(cv.version, declared, problem.registry)
+                and satisfies_all_constraints(cv.version, all_specs, problem.registry)
                 and validator(pkg, cv.version)
             ),
             None,
@@ -102,7 +102,7 @@ def _apply_fallback(
     return SolverOutput(recommendations=new_recs, reasons=new_reasons)
 
 
-def _detect_conflicts(problem: SolverProblem) -> list[ConstraintConflict]:
+def detect_conflicts(problem: SolverProblem) -> list[ConstraintConflict]:
     """Return one ConstraintConflict per package that has no viable candidate under its full constraint set."""
     result = []
     for constraint in problem.constraints:
@@ -115,7 +115,9 @@ def _detect_conflicts(problem: SolverProblem) -> list[ConstraintConflict]:
         viable = [
             cv
             for cv in candidates
-            if not cv.has_cve and not cv.is_yanked and satisfies_all_constraints(cv.version, all_specs)
+            if not cv.has_cve
+            and not cv.is_yanked
+            and satisfies_all_constraints(cv.version, all_specs, problem.registry)
         ]
         if not viable:
             result.append(ConstraintConflict(constraint.package_name, all_specs))
@@ -149,11 +151,11 @@ def _run_solve(
     logger.debug("%s: pool built — packages=%d", label, len(problem.constraints))
     encoded = ConstraintEncoder(penalize_fresh_days=VERY_FRESH_THRESHOLD_DAYS).encode(problem)
     logger.debug("%s: encoded — hard=%d soft=%d", label, len(encoded.hard_clauses), len(encoded.soft_clauses))
-    result = HPDRKernel(PySATDriver()).solve(encoded)
+    result = HPDRKernel(GlucoseDriver()).solve(encoded)
 
     if isinstance(result, ConflictSet):
         logger.debug("%s: solver returned ConflictSet: %s", label, result.unsatisfied_clauses)
-        conflicts = _detect_conflicts(problem)
+        conflicts = detect_conflicts(problem)
         return SolverOutput(recommendations={}, reasons={}, conflicts=conflicts), problem
 
     recommendations = dict(result.selected)
@@ -195,7 +197,7 @@ def solve_direct(
         "solve_direct", deps, registry, engine_context, allow_prerelease=allow_prerelease, now=_now
     )
     if post_solve_validator is not None and output.recommendations:
-        return _apply_fallback(output, problem, post_solve_validator)
+        return apply_fallback(output, problem, post_solve_validator)
     return output
 
 

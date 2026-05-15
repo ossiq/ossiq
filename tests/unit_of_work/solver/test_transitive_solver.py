@@ -86,7 +86,10 @@ def _pv(
 
 
 def _make_registry(versions_by_name: dict[str, list[PackageVersion]]) -> MagicMock:
+    from ossiq.domain.common import ProjectPackagesRegistry
+
     registry = MagicMock(spec=AbstractPackageRegistryApi)
+    registry.package_registry = ProjectPackagesRegistry.PYPI
     registry.package_versions.side_effect = lambda name: versions_by_name.get(name, [])
 
     def _cmp(v1: str, v2: str) -> int:

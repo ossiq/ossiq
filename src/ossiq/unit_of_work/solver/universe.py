@@ -173,4 +173,5 @@ class SolvablePool:
             constraints=constraints,
             candidates=candidates,
             engine_context=dict(engine_context),
+            registry=registry.package_registry,
         )

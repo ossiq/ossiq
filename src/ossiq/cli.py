@@ -2,12 +2,13 @@
 
 import importlib.metadata
 import logging
+from pathlib import Path
 from typing import Annotated, Literal
 
 import typer
 from rich.console import Console
 
-# from ossiq.clients import install_requests_cache
+from ossiq.clients import install_requests_cache
 from ossiq.commands.export import CommandExportOptions, commnad_export
 from ossiq.commands.package import CommandPackageOptions, command_package
 from ossiq.commands.scan import CommandScanOptions, commnad_scan
@@ -78,11 +79,15 @@ def main(
         typer.Option(
             "--cache-destination", envvar=f"{Settings.ENV_PREFIX}CACHE_DESTINATION", help=ARGS_HELP_CACHE_DESTINATION
         ),
-    ] = "./ossiq_cache.sqlite3",
+    ] = str(Path.home() / ".ossiq_cache.sqlite3"),
     cache_ttl: Annotated[
         int,
         typer.Option("--cache-ttl", envvar=f"{Settings.ENV_PREFIX}CACHE_TTL", help=ARGS_HELP_CACHE_TTL),
     ] = 24,
+    no_cache: Annotated[
+        bool,
+        typer.Option("--no-cache", is_flag=True, help="Disable persistent HTTP cache for this run."),
+    ] = False,
     version: Annotated[  # pylint: disable=unused-argument
         bool,
         typer.Option(
@@ -123,8 +128,8 @@ def main(
     if settings.verbose:
         show_settings(context, "Settings", settings.model_dump())
 
-    # installed cache
-    # install_requests_cache(cache_destination, cache_ttl)
+    if not no_cache:
+        install_requests_cache(settings.cache_destination, settings.cache_ttl)
 
 
 @app.command()

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from ossiq.domain.common import ConstraintType
+from ossiq.domain.common import ConstraintType, ProjectPackagesRegistry
 from ossiq.unit_of_work.solver.driver import SolverResult
 from ossiq.unit_of_work.solver.driver_pysat import PySATDriver
 from ossiq.unit_of_work.solver.encoder import ConstraintEncoder
@@ -63,11 +63,13 @@ def _sp(
     candidates_dict: dict[str, list[CandidateVersion]],
     *,
     engine_context: dict[str, str] | None = None,
+    registry: ProjectPackagesRegistry = ProjectPackagesRegistry.PYPI,
 ) -> SolverProblem:
     return SolverProblem(
         constraints=tuple(constraints),
         candidates={pkg: tuple(cvs) for pkg, cvs in candidates_dict.items()},
         engine_context=engine_context or {},
+        registry=registry,
     )
 
 
@@ -159,6 +161,7 @@ class TestConstraintEncoderL1Hard:
         problem = _sp(
             [_pc("pkg", version_constraint="^2.0.0")],
             {"pkg": [_cv("1.9.9"), _cv("2.5.0"), _cv("3.0.0")]},
+            registry=ProjectPackagesRegistry.NPM,
         )
         enc = ConstraintEncoder().encode(problem)
         vid_199 = next(vid for vid, (_, v) in enc.var_map.items() if v == "1.9.9")

@@ -139,7 +139,7 @@ class ConstraintEncoder:
             l1_forbidden = 0
             l5_forbidden = 0
             for cv, vid in zip(state.candidates, state.all_vids, strict=True):
-                if any(not version_satisfies_constraint(cv.version, c) for c in l1_constraints):
+                if any(not version_satisfies_constraint(cv.version, c, problem.registry) for c in l1_constraints):
                     hard_clauses.append([-vid])  # L1 constraint mismatch (any parent violated)
                     l1_forbidden += 1
                 elif cv.has_cve:
@@ -191,6 +191,9 @@ class ConstraintEncoder:
     ) -> list[list[int]]:
         """Pass 3: emit inter-package implication clauses from CandidateVersion.requires."""
         hard_clauses: list[list[int]] = []
+        # Cache version_satisfies_constraint results: (version, constraint) -> bool.
+        # The same pair is evaluated O(packages × deps) times across all candidates.
+        sat_cache: dict[tuple[str, str | None], bool] = {}
 
         for constraint in problem.constraints:
             pkg = constraint.package_name
@@ -206,12 +209,17 @@ class ConstraintEncoder:
                     if dep_pkg not in pkg_state:
                         continue  # dependency not in this problem — skip
                     dep_state = pkg_state[dep_pkg]
-                    compatible = [
-                        dep_vid
-                        for dep_cv, dep_vid in zip(dep_state.candidates, dep_state.all_vids, strict=True)
-                        if dep_vid in dep_state.eligible_set
-                        and version_satisfies_constraint(dep_cv.version, dep_constraint)
-                    ]
+                    compatible = []
+                    for dep_cv, dep_vid in zip(dep_state.candidates, dep_state.all_vids, strict=True):
+                        if dep_vid not in dep_state.eligible_set:
+                            continue
+                        key = (dep_cv.version, dep_constraint)
+                        satisfies = sat_cache.get(key)
+                        if satisfies is None:
+                            satisfies = version_satisfies_constraint(dep_cv.version, dep_constraint, problem.registry)
+                            sat_cache[key] = satisfies
+                        if satisfies:
+                            compatible.append(dep_vid)
                     if not compatible:
                         continue  # no satisfying candidate — skip conservatively
                     hard_clauses.append([-vid] + compatible)  # implication: A@v -> ∃ compatible B

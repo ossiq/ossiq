@@ -82,7 +82,7 @@ def build_reason(
 
     for cv in candidates[:selected_index]:
         # L1 hard: constraint mismatch
-        if not version_satisfies_constraint(cv.version, version_constraint):
+        if not version_satisfies_constraint(cv.version, version_constraint, problem.registry):
             hard_rejections.append(
                 VersionRejection(
                     version=cv.version,
@@ -143,7 +143,7 @@ def build_reason(
     # These lost purely because they have a lower semver rank, not due to any hard/soft rejection.
     lower_semver_alternatives: list[VersionRejection] = []
     for cv in candidates[selected_index + 1 :]:
-        if not version_satisfies_constraint(cv.version, version_constraint):
+        if not version_satisfies_constraint(cv.version, version_constraint, problem.registry):
             continue
         if cv.has_cve:
             continue

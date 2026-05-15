@@ -11,12 +11,13 @@ from __future__ import annotations
 
 import pytest
 
+from ossiq.domain.common import ProjectPackagesRegistry
 from ossiq.unit_of_work.solver.problem import CandidateVersion
 from ossiq.unit_of_work.solver.version_matchers import (
-    _pypi_version_satisfies_specifier,
     engine_version_satisfies_requirement,
     has_engine_mismatch,
     npm_version_satisfies_range,
+    pypi_version_satisfies_specifier,
     version_satisfies_constraint,
 )
 
@@ -86,24 +87,33 @@ def test_npm_version_satisfies_range(version: str, range_constraint: str, expect
     ],
 )
 def test_pypi_version_satisfies_specifier(version: str, specifier: str, expected: bool) -> None:
-    assert _pypi_version_satisfies_specifier(version, specifier) == expected
+    assert pypi_version_satisfies_specifier(version, specifier) == expected
 
 
 # ── version_satisfies_constraint (unified) ────────────────────────────────
 
 
 def test_version_satisfies_constraint_none_always_true() -> None:
-    assert version_satisfies_constraint("1.2.3", None) is True
+    assert version_satisfies_constraint("1.2.3", None, ProjectPackagesRegistry.PYPI) is True
 
 
 @pytest.mark.parametrize(
     "version, constraint, expected",
     [
-        # PEP 440 dispatch
         ("1.5.0", ">=1.0.0,<2.0.0", True),
         ("2.0.0", ">=1.0.0,<2.0.0", False),
         ("1.2.3", "==1.2.3", True),
-        # npm semver fallback (PEP 440 InvalidSpecifier)
+        # unknown/unparseable → passthrough True
+        ("1.0.0", "???", True),
+    ],
+)
+def test_version_satisfies_constraint_pypi(version: str, constraint: str, expected: bool) -> None:
+    assert version_satisfies_constraint(version, constraint, ProjectPackagesRegistry.PYPI) == expected
+
+
+@pytest.mark.parametrize(
+    "version, constraint, expected",
+    [
         ("1.3.0", "^1.2.0", True),
         ("2.0.0", "^1.2.0", False),
         ("14.1.0", "14 || 16", True),
@@ -112,8 +122,8 @@ def test_version_satisfies_constraint_none_always_true() -> None:
         ("1.0.0", "???", True),
     ],
 )
-def test_version_satisfies_constraint(version: str, constraint: str, expected: bool) -> None:
-    assert version_satisfies_constraint(version, constraint) == expected
+def test_version_satisfies_constraint_npm(version: str, constraint: str, expected: bool) -> None:
+    assert version_satisfies_constraint(version, constraint, ProjectPackagesRegistry.NPM) == expected
 
 
 # ── engine_version_satisfies_requirement ──────────────────────────────────
