@@ -433,3 +433,20 @@ class TestEntryFromRecordPropagation:
         record = make_scan_record_with_recommendation("requests", "2.28.0", "2.32.0", impacts=[impact])
         entry = entry_from_record(record, is_direct=True)
         assert entry.transitive_impacts is not record.update_transitive_impacts
+
+    def test_version_defined_propagated(self):
+        record = make_scan_record_with_recommendation("requests", "2.28.0", "2.32.0")
+        record.version_constraint = "~=2.28.0"
+        entry = entry_from_record(record, is_direct=True)
+        assert entry.version_defined == "~=2.28.0"
+
+    def test_version_defined_none_when_not_set(self):
+        record = make_scan_record_with_recommendation("requests", "2.28.0", "2.32.0")
+        entry = entry_from_record(record, is_direct=True)
+        assert entry.version_defined is None
+
+    def test_constraint_type_propagated(self):
+        record = make_scan_record_with_recommendation("requests", "2.28.0", "2.32.0")
+        record.constraint_info = ConstraintSource(type=ConstraintType.NARROWED, source_file="pyproject.toml")
+        entry = entry_from_record(record, is_direct=True)
+        assert entry.constraint_type == ConstraintType.NARROWED

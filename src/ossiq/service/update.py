@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from ossiq.domain.common import ConstraintType
 from ossiq.service.project import ScanRecord, ScanResult
 from ossiq.service.update_impact import TransitiveImpact
 from ossiq.unit_of_work.solver.reason import RecommendationReason
@@ -21,6 +22,8 @@ class UpdateEntry:
     transitive_impacts: list[TransitiveImpact] = field(default_factory=list)
     # False when transitive conflicts exist and no conflict-free candidate was found.
     is_actionable: bool = True
+    version_defined: str | None = None
+    constraint_type: ConstraintType = ConstraintType.DECLARED
 
 
 @dataclass(frozen=True)
@@ -33,6 +36,8 @@ class UpdatePlan:
     package_manager_name: str
     direct_entries: list[UpdateEntry]
     transitive_entries: list[UpdateEntry]
+    pin: bool = False
+    installed_versions: dict[str, str] = field(default_factory=dict)
 
     @property
     def all_entries(self) -> list[UpdateEntry]:
@@ -50,11 +55,15 @@ def entry_from_record(record: ScanRecord, is_direct: bool) -> UpdateEntry:
         reason=record.recommended_version_reason,
         transitive_impacts=list(record.update_transitive_impacts),
         is_actionable=all(not i.has_conflict for i in record.update_transitive_impacts),
+        version_defined=record.version_constraint,
+        constraint_type=record.constraint_info.type,
     )
 
 
-def build_update_plan(scan_result: ScanResult, package_manager_name: str) -> UpdatePlan:
+def build_update_plan(scan_result: ScanResult, package_manager_name: str, pin: bool = False) -> UpdatePlan:
     """Filter scan results to packages with solver recommendations that differ from installed."""
+    all_records = scan_result.production_packages + scan_result.optional_packages + scan_result.transitive_packages
+    installed_versions = {r.package_name: r.installed_version for r in all_records}
     direct = [
         entry_from_record(r, is_direct=True)
         for r in scan_result.production_packages + scan_result.optional_packages
@@ -78,4 +87,6 @@ def build_update_plan(scan_result: ScanResult, package_manager_name: str) -> Upd
         package_manager_name=package_manager_name,
         direct_entries=direct,
         transitive_entries=transitive,
+        pin=pin,
+        installed_versions=installed_versions,
     )
