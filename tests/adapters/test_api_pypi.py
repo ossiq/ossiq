@@ -15,7 +15,7 @@ from packaging.version import InvalidVersion
 
 from ossiq.adapters.api_pypi import PackageRegistryApiPypi, extract_license_from_classifiers, is_valid_pep440_version
 from ossiq.clients.batch import BatchClient
-from ossiq.domain.common import ProjectPackagesRegistry
+from ossiq.domain.common import ConstraintType, ProjectPackagesRegistry
 from ossiq.domain.exceptions import UnableLoadPackage
 from ossiq.domain.version import (
     VERSION_DIFF_BUILD,
@@ -694,3 +694,53 @@ class TestPackageVersionRequiresPypi:
         ):
             result = pypi_api.package_version_requires("requests", "0.0.0")
         assert result == {}
+
+
+class TestRewriteSpecifier:
+    def test_declared_specifier_is_unchanged(self):
+        result = PackageRegistryApiPypi.rewrite_specifier(">=8.0.0", "9.0.4", ConstraintType.DECLARED)
+        assert result == ">=8.0.0"
+
+    def test_declared_none_specifier_is_unchanged(self):
+        result = PackageRegistryApiPypi.rewrite_specifier(None, "9.0.4", ConstraintType.DECLARED)
+        assert result is None
+
+    def test_pinned_rewrites_to_exact_version(self):
+        result = PackageRegistryApiPypi.rewrite_specifier("==8.0.0", "9.0.4", ConstraintType.PINNED)
+        assert result == "==9.0.4"
+
+    def test_narrowed_tilde_three_parts(self):
+        result = PackageRegistryApiPypi.rewrite_specifier("~=8.0.0", "9.0.4", ConstraintType.NARROWED)
+        assert result == "~=9.0.4"
+
+    def test_narrowed_tilde_two_parts(self):
+        result = PackageRegistryApiPypi.rewrite_specifier("~=8.0", "9.0.4", ConstraintType.NARROWED)
+        assert result == "~=9.0"
+
+    def test_narrowed_tilde_one_part(self):
+        result = PackageRegistryApiPypi.rewrite_specifier("~=8", "9.0.4", ConstraintType.NARROWED)
+        assert result == "~=9"
+
+    def test_narrowed_tilde_four_parts_pads(self):
+        result = PackageRegistryApiPypi.rewrite_specifier("~=8.0.0.0", "9.0.4", ConstraintType.NARROWED)
+        assert result == "~=9.0.4.0"
+
+    def test_narrowed_compound_falls_back_to_pin(self):
+        result = PackageRegistryApiPypi.rewrite_specifier(">=8.0,<9.0", "9.0.4", ConstraintType.NARROWED)
+        assert result == "==9.0.4"
+
+    def test_narrowed_wildcard_falls_back_to_pin(self):
+        result = PackageRegistryApiPypi.rewrite_specifier("==8.*", "9.0.4", ConstraintType.NARROWED)
+        assert result == "==9.0.4"
+
+    def test_narrowed_exclusion_falls_back_to_pin(self):
+        result = PackageRegistryApiPypi.rewrite_specifier("!=8.0.0", "9.0.4", ConstraintType.NARROWED)
+        assert result == "==9.0.4"
+
+    def test_additive_is_unchanged(self):
+        result = PackageRegistryApiPypi.rewrite_specifier(">=8.0.0", "9.0.4", ConstraintType.ADDITIVE)
+        assert result == ">=8.0.0"
+
+    def test_override_is_unchanged(self):
+        result = PackageRegistryApiPypi.rewrite_specifier("==8.0.0", "9.0.4", ConstraintType.OVERRIDE)
+        assert result == "==8.0.0"

@@ -4,6 +4,7 @@ Implementation of Package Registry API client for NPM
 
 import functools
 import logging
+import re
 
 import requests
 import semver
@@ -13,7 +14,7 @@ from ossiq.adapters.api_interfaces import AbstractPackageRegistryApi
 from ossiq.clients.batch import BatchClient
 from ossiq.clients.client_npm import NpmBatchStrategy
 from ossiq.clients.common import get_user_agent
-from ossiq.domain.common import ProjectPackagesRegistry
+from ossiq.domain.common import ConstraintType, ProjectPackagesRegistry
 from ossiq.domain.exceptions import UnableLoadPackage, UnknownPackageVersion
 from ossiq.domain.package import Package
 from ossiq.domain.version import (
@@ -35,6 +36,8 @@ logger = logging.getLogger(__name__)
 console = Console()
 
 NPM_REGISTRY_FRONT = "https://www.npmjs.com"
+
+_NPM_BARE_SEMVER = re.compile(r"^v?\d+(\.\d+){0,2}([.-][a-zA-Z0-9._-]+)*$")
 
 
 @functools.lru_cache(maxsize=4096)
@@ -299,6 +302,47 @@ class PackageRegistryApiNpm(AbstractPackageRegistryApi):
             self._versions_list_cache[package_name] = self._build_package_versions(package_name)
 
         return self._versions_list_cache[package_name]
+
+    @staticmethod
+    def rewrite_specifier(
+        specifier: str | None,
+        new_version: str,
+        constraint_type: ConstraintType | None = None,
+    ) -> str:
+        """Rewrite an npm version specifier for an updated package version.
+
+        Returns the rewritten specifier. When the return value equals the input specifier,
+        callers should skip package.json edits (the current range already satisfies the
+        new version).
+
+        ^ (caret): compatible within major — same major returns unchanged, new major → ^M.0.0.
+        ~ (tilde): compatible within minor — always rewrites to ~M.N.0 of new_version.
+        bare semver: exact pin — returns new_version bare.
+        Complex / wildcard / file: / git+: falls back to exact new_version.
+        """
+        if not specifier:
+            return new_version
+
+        s = specifier.strip()
+
+        if s.startswith("^"):
+            old_major = s[1:].split(".")[0]
+            new_parts = new_version.split(".")
+            new_major = new_parts[0]
+            if new_major == old_major:
+                return specifier  # already within range — caller skips package.json edit
+            return f"^{new_major}.0.0"
+
+        if s.startswith("~"):
+            new_parts = new_version.split(".")
+            new_major = new_parts[0]
+            new_minor = new_parts[1] if len(new_parts) > 1 else "0"
+            return f"~{new_major}.{new_minor}.0"
+
+        if _NPM_BARE_SEMVER.fullmatch(s):
+            return new_version  # PINNED bare semver
+
+        return new_version  # complex specifier — range, file:, git+, workspace:, etc.
 
     def package_version_requires(self, package_name: str, version: str) -> dict[str, str]:
         """Return {dep_name: version_range} for a specific published version.

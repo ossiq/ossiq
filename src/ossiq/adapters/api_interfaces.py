@@ -9,7 +9,7 @@ from collections.abc import Callable, Iterable
 from functools import cmp_to_key
 from typing import TYPE_CHECKING
 
-from ossiq.domain.common import ProjectPackagesRegistry
+from ossiq.domain.common import ConstraintType, ProjectPackagesRegistry
 from ossiq.domain.cve import CVE
 from ossiq.domain.package import Package
 from ossiq.domain.packages_manager import PackageManagerType
@@ -123,6 +123,16 @@ class AbstractPackageRegistryApi(abc.ABC):
 
         Returns empty dict if the version is not found or has no runtime dependencies.
         """
+        raise NotImplementedError
+
+    @staticmethod
+    @abc.abstractmethod
+    def rewrite_specifier(
+        specifier: str | None,
+        new_version: str,
+        constraint_type: ConstraintType | None = None,
+    ) -> str | None:
+        """Rewrite a version specifier for an updated package version."""
         raise NotImplementedError
 
     @abc.abstractmethod

@@ -954,3 +954,57 @@ class TestPackageVersionRequiresNpm:
         )
         result = npm_api.package_version_requires("lodash", "4.17.21")
         assert result == {}
+
+
+class TestRewriteSpecifier:
+    def test_caret_same_major_returns_unchanged(self):
+        result = PackageRegistryApiNpm.rewrite_specifier("^4.17.0", "4.18.2")
+        assert result == "^4.17.0"
+
+    def test_caret_new_major_rewrites(self):
+        result = PackageRegistryApiNpm.rewrite_specifier("^4.17.0", "5.0.1")
+        assert result == "^5.0.0"
+
+    def test_caret_zero_major_same_returns_unchanged(self):
+        result = PackageRegistryApiNpm.rewrite_specifier("^0.17.0", "0.18.2")
+        assert result == "^0.17.0"
+
+    def test_caret_zero_major_new_major_rewrites(self):
+        result = PackageRegistryApiNpm.rewrite_specifier("^0.17.0", "1.0.0")
+        assert result == "^1.0.0"
+
+    def test_tilde_rewrites_to_new_minor(self):
+        result = PackageRegistryApiNpm.rewrite_specifier("~4.17.0", "4.18.2")
+        assert result == "~4.18.0"
+
+    def test_tilde_rewrites_to_new_major_minor(self):
+        result = PackageRegistryApiNpm.rewrite_specifier("~4.17.0", "5.0.1")
+        assert result == "~5.0.0"
+
+    def test_bare_semver_returns_new_version(self):
+        result = PackageRegistryApiNpm.rewrite_specifier("4.17.0", "4.18.2")
+        assert result == "4.18.2"
+
+    def test_none_specifier_returns_new_version(self):
+        result = PackageRegistryApiNpm.rewrite_specifier(None, "4.18.2")
+        assert result == "4.18.2"
+
+    def test_empty_specifier_returns_new_version(self):
+        result = PackageRegistryApiNpm.rewrite_specifier("", "4.18.2")
+        assert result == "4.18.2"
+
+    def test_range_specifier_falls_back_to_exact(self):
+        result = PackageRegistryApiNpm.rewrite_specifier(">=4.0.0 <5.0.0", "5.0.1")
+        assert result == "5.0.1"
+
+    def test_file_ref_falls_back_to_exact(self):
+        result = PackageRegistryApiNpm.rewrite_specifier("file:../local-pkg", "4.18.2")
+        assert result == "4.18.2"
+
+    def test_wildcard_falls_back_to_exact(self):
+        result = PackageRegistryApiNpm.rewrite_specifier("*", "4.18.2")
+        assert result == "4.18.2"
+
+    def test_latest_tag_falls_back_to_exact(self):
+        result = PackageRegistryApiNpm.rewrite_specifier("latest", "4.18.2")
+        assert result == "4.18.2"
