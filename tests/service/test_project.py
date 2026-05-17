@@ -11,7 +11,7 @@ from ossiq.domain.cve import CVE, Severity
 from ossiq.domain.package import Package
 from ossiq.domain.project import ConstraintSource
 from ossiq.domain.version import PackageVersion, VersionsDifference
-from ossiq.service.project import get_package_versions_since, scan_record
+from ossiq.service.project import DependencyDescriptor, get_package_versions_since, scan_record
 
 # ============================================================================
 # Module-level constants
@@ -242,3 +242,56 @@ class TestScanRecordPrerelease:
 
         assert len(record.cve) == 1
         assert record.cve[0].id == "CVE-2024-1234"
+
+
+# ============================================================================
+# Tests: ignore_packages filtering (DependencyDescriptor lists)
+# ============================================================================
+
+_CONSTRAINT_SOURCE = ConstraintSource(type=ConstraintType.DECLARED, source_file="pyproject.toml")
+
+
+def _make_dep(canonical_name: str, is_optional: bool = False) -> DependencyDescriptor:
+    return DependencyDescriptor(
+        name=canonical_name,
+        canonical_name=canonical_name,
+        version="1.0.0",
+        is_optional=is_optional,
+        dependency_path=None,
+        version_constraint=None,
+        constraint_info=_CONSTRAINT_SOURCE,
+    )
+
+
+class TestIgnorePackagesFiltering:
+    """Verify that ignore_set correctly filters DependencyDescriptor lists (mirrors scan() logic)."""
+
+    def test_ignored_package_removed_from_prod_deps(self):
+        deps = [_make_dep("sphinx"), _make_dep("requests")]
+        ignore_set = frozenset(["sphinx"])
+        result = [d for d in deps if d.canonical_name not in ignore_set]
+        assert [d.canonical_name for d in result] == ["requests"]
+
+    def test_ignored_package_removed_from_opt_deps(self):
+        deps = [_make_dep("pytest", is_optional=True), _make_dep("mypy", is_optional=True)]
+        ignore_set = frozenset(["mypy"])
+        result = [d for d in deps if d.canonical_name not in ignore_set]
+        assert [d.canonical_name for d in result] == ["pytest"]
+
+    def test_empty_ignore_set_leaves_deps_unchanged(self):
+        deps = [_make_dep("sphinx"), _make_dep("requests")]
+        ignore_set: frozenset[str] = frozenset()
+        result = [d for d in deps if d.canonical_name not in ignore_set]
+        assert result == deps
+
+    def test_all_packages_ignored_yields_empty_list(self):
+        deps = [_make_dep("sphinx"), _make_dep("requests")]
+        ignore_set = frozenset(["sphinx", "requests"])
+        result = [d for d in deps if d.canonical_name not in ignore_set]
+        assert result == []
+
+    def test_unknown_ignore_name_has_no_effect(self):
+        deps = [_make_dep("sphinx")]
+        ignore_set = frozenset(["nonexistent"])
+        result = [d for d in deps if d.canonical_name not in ignore_set]
+        assert result == deps

@@ -21,6 +21,7 @@ from ossiq.messages import (
     ARGS_HELP_GITHUB_TOKEN,
     ARGS_HELP_OUTPUT,
     ARGS_HELP_PRESENTATION,
+    HELP_IGNORE_PACKAGE,
     HELP_LAG_THRESHOULD,
     HELP_OUTPUT_FORMAT,
     HELP_PACKAGE_NAME,
@@ -175,6 +176,10 @@ def scan(
         bool,
         typer.Option("--full", is_flag=True, help="Show all packages; default hides up-to-date packages with no CVEs"),
     ] = False,
+    ignore: Annotated[
+        list[str] | None,
+        typer.Option("--ignore", "-i", help=HELP_IGNORE_PACKAGE),
+    ] = None,
 ):
     """
     Scan project dependencies and produce metrics
@@ -195,6 +200,7 @@ def scan(
             output_destination=output,
             full_output=full,
             security_only=security,
+            ignore_packages=tuple(ignore or []),
         ),
     )
 
@@ -225,6 +231,10 @@ def export(
         Literal["1.0", "1.1", "1.2", "1.3", "1.4"] | None,
         typer.Option("--schema-version", "-s", envvar=f"{Settings.ENV_PREFIX}SCHEMA_VERSION", help=HELP_SCHEMA_VERSION),
     ] = None,
+    ignore: Annotated[
+        list[str] | None,
+        typer.Option("--ignore", "-i", help=HELP_IGNORE_PACKAGE),
+    ] = None,
 ):
     """
     Export project metrics to a file
@@ -243,6 +253,7 @@ def export(
             schema_version=schema_version,
             allow_prerelease=allow_prerelease,
             allow_prerelease_packages=tuple(allow_prerelease_package or []),
+            ignore_packages=tuple(ignore or []),
         ),
     )
 
@@ -263,6 +274,10 @@ def package(
         list[str] | None,
         typer.Option("--allow-prerelease-package", help="Allow pre-release for a specific package (repeatable)"),
     ] = None,
+    ignore: Annotated[
+        list[str] | None,
+        typer.Option("--ignore", "-i", help=HELP_IGNORE_PACKAGE),
+    ] = None,
 ):
     """
     Deep-dive into a single package: drift status, CVEs, and transitive vulnerabilities.
@@ -278,6 +293,7 @@ def package(
             registry_type=registry_type,
             allow_prerelease=allow_prerelease,
             allow_prerelease_packages=tuple(allow_prerelease_package or []),
+            ignore_packages=tuple(ignore or []),
         ),
     )
 
@@ -306,6 +322,10 @@ def update(
             help="Narrow transitive recommendations to CVE-carrying packages only",
         ),
     ] = False,
+    ignore: Annotated[
+        list[str] | None,
+        typer.Option("--ignore", "-i", help=HELP_IGNORE_PACKAGE),
+    ] = None,
 ):
     """Generate an atomic update script for solver-recommended package versions."""
     if registry_type and registry_type.lower() not in ["npm", "pypi"]:
@@ -320,6 +340,7 @@ def update(
             allow_prerelease_packages=tuple(allow_prerelease_package or []),
             production=production,
             security_only=security,
+            ignore_packages=tuple(ignore or []),
         ),
     )
 

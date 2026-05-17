@@ -46,6 +46,8 @@ HELP_PACKAGE_NAME = """
 Name of the package to inspect. Exact match against the package name or its alias (case-insensitive).
 """
 
+HELP_IGNORE_PACKAGE = "Exclude package from solver recommendations (repeatable)."
+
 HELP_PACKAGE_COMMAND = """
 Deep-dive into a single package: drift status, dependency tree trace, policy compliance,
 security advisories, and transitive dependency CVEs.

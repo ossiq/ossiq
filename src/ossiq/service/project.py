@@ -396,6 +396,8 @@ def scan(uow: unit_of_work.AbstractProjectUnitOfWork) -> ScanResult:
         if not project_info.project_path:
             raise ProjectPathNotFoundError("Project Path is not Specified")
 
+        ignore_set: frozenset[str] = frozenset(uow.ignore_packages)
+
         # Collect all dependency descriptors
         prod_deps = [
             DependencyDescriptor(
@@ -411,6 +413,8 @@ def scan(uow: unit_of_work.AbstractProjectUnitOfWork) -> ScanResult:
             )
             for dep in project_info.dependencies.values()
         ]
+        if ignore_set:
+            prod_deps = [d for d in prod_deps if d.canonical_name not in ignore_set]
 
         opt_deps: list[DependencyDescriptor] = []
         if not uow.production:
@@ -428,6 +432,8 @@ def scan(uow: unit_of_work.AbstractProjectUnitOfWork) -> ScanResult:
                 )
                 for dep in project_info.optional_dependencies.values()
             ]
+        if ignore_set:
+            opt_deps = [d for d in opt_deps if d.canonical_name not in ignore_set]
 
         direct_canonical_names = {dep.canonical_name for dep in prod_deps + opt_deps}
         walker = GraphExporter(project_info.dependency_tree)
@@ -446,7 +452,7 @@ def scan(uow: unit_of_work.AbstractProjectUnitOfWork) -> ScanResult:
                     peer_requirements=list(node.peer_requirements),
                 )
                 for node, path in walker.walk_all_paths()
-                if node.canonical_name not in direct_canonical_names
+                if node.canonical_name not in direct_canonical_names and node.canonical_name not in ignore_set
             }.values()
         )
 

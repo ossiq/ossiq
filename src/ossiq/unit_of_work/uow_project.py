@@ -10,6 +10,7 @@ from ossiq.adapters.api import (
 )
 from ossiq.adapters.api_interfaces import AbstractSourceCodeProviderApi
 from ossiq.adapters.package_managers.api import create_package_managers
+from ossiq.adapters.package_managers.utils import normalize_dist_name
 from ossiq.domain.common import ProjectPackagesRegistry, RepositoryProvider
 from ossiq.domain.exceptions import UnknownProjectPackageManager
 from ossiq.messages import WARNING_MULTIPLE_REGISTRY_TYPES
@@ -33,6 +34,7 @@ class ProjectUnitOfWork(AbstractProjectUnitOfWork):
         allow_prerelease: bool = False,
         allow_prerelease_packages: tuple[str, ...] = (),
         security_only: bool = False,
+        ignore_packages: tuple[str, ...] = (),
     ):
         """
         Takes a single package details pulled from
@@ -45,6 +47,7 @@ class ProjectUnitOfWork(AbstractProjectUnitOfWork):
         self.allow_prerelease = allow_prerelease
         self.allow_prerelease_packages = allow_prerelease_packages
         self.security_only = security_only
+        self.ignore_packages = tuple(normalize_dist_name(p) for p in ignore_packages)
         self.narrow_package_registry = narrow_package_registry
         self.cve_database = create_cve_database(settings)
 
@@ -108,6 +111,7 @@ def build_project_uow(
     registry_type: str | None,
     *,
     security_only: bool = False,
+    ignore_packages: tuple[str, ...] = (),
 ) -> ProjectUnitOfWork:
     """Factory for ProjectUnitOfWork with registry-type string mapping applied."""
     return ProjectUnitOfWork(
@@ -118,4 +122,5 @@ def build_project_uow(
         allow_prerelease_packages=allow_prerelease_packages,
         narrow_package_registry=REGISTRY_TYPE_MAP.get(registry_type or ""),
         security_only=security_only,
+        ignore_packages=ignore_packages,
     )

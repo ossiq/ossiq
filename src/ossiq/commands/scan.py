@@ -28,6 +28,7 @@ class CommandScanOptions:
     output_destination: str
     full_output: bool = False
     security_only: bool = False
+    ignore_packages: tuple[str, ...] = ()
 
 
 def commnad_scan(ctx: typer.Context, options: CommandScanOptions):
@@ -45,6 +46,7 @@ def commnad_scan(ctx: typer.Context, options: CommandScanOptions):
             "production": options.production,
             "security": options.security_only,
             "narrow_registry_type": uow_project.REGISTRY_TYPE_MAP.get(options.registry_type or ""),
+            "ignore_packages": options.ignore_packages or None,
         },
     )
 
@@ -56,6 +58,7 @@ def commnad_scan(ctx: typer.Context, options: CommandScanOptions):
         options.allow_prerelease_packages,
         options.registry_type,
         security_only=options.security_only,
+        ignore_packages=options.ignore_packages,
     )
 
     with show_operation_progress(settings, "Collecting project packages data...") as progress:

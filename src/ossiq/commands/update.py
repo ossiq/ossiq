@@ -25,6 +25,7 @@ class CommandUpdateOptions:
     allow_prerelease_packages: tuple[str, ...] = ()
     production: bool = False
     security_only: bool = False
+    ignore_packages: tuple[str, ...] = ()
 
 
 def command_update(ctx: typer.Context, options: CommandUpdateOptions) -> None:
@@ -39,6 +40,7 @@ def command_update(ctx: typer.Context, options: CommandUpdateOptions) -> None:
         options.allow_prerelease_packages,
         options.registry_type,
         security_only=options.security_only,
+        ignore_packages=options.ignore_packages,
     )
 
     with show_operation_progress(settings, "Resolving recommended versions...") as progress:
