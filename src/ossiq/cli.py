@@ -326,6 +326,13 @@ def update(
         list[str] | None,
         typer.Option("--ignore", "-i", help=HELP_IGNORE_PACKAGE),
     ] = None,
+    pin: Annotated[
+        bool, typer.Option("--pin", is_flag=True, help="Pin direct deps to exact version in manifest")
+    ] = False,
+    npm_overrides_diff: Annotated[
+        bool,
+        typer.Option("--npm-overrides-diff", is_flag=True, help="Clean up temporary NPM overrides after install"),
+    ] = False,
 ):
     """Generate an atomic update script for solver-recommended package versions."""
     if registry_type and registry_type.lower() not in ["npm", "pypi"]:
@@ -341,6 +348,8 @@ def update(
             production=production,
             security_only=security,
             ignore_packages=tuple(ignore or []),
+            pin=pin,
+            npm_overrides_diff=npm_overrides_diff,
         ),
     )
 
