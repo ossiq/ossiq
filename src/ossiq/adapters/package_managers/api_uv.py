@@ -11,6 +11,7 @@ from collections.abc import Callable, Iterable
 from typing import TYPE_CHECKING
 
 from ossiq.adapters.api_interfaces import AbstractPackageManagerApi
+from ossiq.adapters.api_pypi import PackageRegistryApiPypi
 from ossiq.adapters.package_managers.api_pypi import enrich_registry_constraints
 from ossiq.adapters.package_managers.dependency_tree import BaseDependencyResolver
 from ossiq.adapters.package_managers.utils import extract_min_python_version, find_lockfile_parser, normalize_dist_name
@@ -22,7 +23,7 @@ from ossiq.domain.version import classify_pypi_specifier
 from ossiq.settings import Settings
 
 if TYPE_CHECKING:
-    from ossiq.service.update import UpdatePlan
+    from ossiq.service.update import UpdateEntry, UpdatePlan
 
 
 UvProject = namedtuple("UvProject", ["manifest", "lockfile"])
@@ -261,8 +262,21 @@ class PackageManagerPythonUv(AbstractPackageManagerApi):
             engine_constraints=engine_constraints,
         )
 
-    def generate_update_script(self, plan: UpdatePlan) -> str:
-        """Pin direct deps in pyproject.toml via sed; upgrade transitive deps via uv lock."""
+    @staticmethod
+    def resolve_direct_specifier(entry: UpdateEntry, pin: bool) -> str | None:
+        """Return the new specifier string to write into pyproject.toml, or the original when lockfile-only.
+
+        When the return value equals entry.version_defined, no pyproject.toml edit is needed —
+        the caller should add the package to --upgrade-package on uv lock instead.
+        """
+        if pin:
+            return f"=={entry.recommended_version}"
+        return PackageRegistryApiPypi.rewrite_specifier(
+            entry.version_defined, entry.recommended_version, entry.constraint_type
+        )
+
+    def generate_update_script(self, plan: UpdatePlan, cli_extra_args: str = "") -> str:
+        """Generate bash script: smart specifier rewrite (or --pin), then uv lock + uv sync."""
         lines = [
             "#!/usr/bin/env bash",
             f"# OSS IQ update — uv  |  project: {plan.project_name}",
@@ -272,14 +286,27 @@ class PackageManagerPythonUv(AbstractPackageManagerApi):
             f'cd "{plan.project_path}"',
         ]
 
-        if plan.direct_entries:
-            lines += ["", "# --- direct dependencies: pin in pyproject.toml ---"]
-            for entry in plan.direct_entries:
-                lines.append(f"# {entry.package_name}: {entry.current_version} -> {entry.recommended_version}")
-                name, ver = entry.package_name, entry.recommended_version
-                lines.append(f"""sed -i '' 's/"{name}[^"]*"/"{name}=={ver}"/g' pyproject.toml""")
+        upgrade_flags: list[str] = []
 
-        upgrade_flags = [
+        if plan.direct_entries:
+            lines += ["", "# --- direct dependencies: update specifiers in pyproject.toml ---"]
+            for entry in plan.direct_entries:
+                new_spec = self.resolve_direct_specifier(entry, plan.pin)
+                orig = entry.version_defined or entry.current_version
+
+                if new_spec == entry.version_defined:
+                    lines.append(f"# {entry.package_name}: {orig} -> (lockfile only)")
+                    upgrade_flags.append(f"    --upgrade-package {entry.package_name}=={entry.recommended_version}")
+                else:
+                    spec_to_write = new_spec or f"=={entry.recommended_version}"
+                    lines.append(f"# {entry.package_name}: {orig} -> {spec_to_write}")
+                    lines.append(
+                        f"sed -i '' "
+                        f"""'s|"{entry.package_name}[^"]*"|"{entry.package_name}{spec_to_write}"|g'"""
+                        " pyproject.toml"
+                    )
+
+        upgrade_flags += [
             f"    --upgrade-package {entry.package_name}=={entry.recommended_version}"
             for entry in plan.transitive_entries
         ]

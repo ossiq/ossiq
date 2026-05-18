@@ -1,15 +1,15 @@
-"""Tests for commands/update.py — handle_npm_overrides_diff() and pin wiring."""
+"""Tests for update command and NPM adapter helper methods."""
 
 from __future__ import annotations
 
 import json
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
-import typer
 
-from ossiq.commands.update import NPM_STATE_FILE, CommandUpdateOptions, handle_npm_overrides_diff
+from ossiq.adapters.package_managers.api_npm import NPM_STATE_FILE, PackageManagerJsNpm
+from ossiq.commands.update import CommandUpdateOptions, _build_npm_freeze_args
 
 
 def write_state(tmp_path: Path, original_overrides: dict, recommended: list[str], locked: dict | None = None) -> None:
@@ -26,52 +26,56 @@ def write_manifest(tmp_path: Path, overrides: dict) -> None:
     (tmp_path / "package.json").write_text(json.dumps(pkg))
 
 
-class TestHandleNpmOverridesDiff:
+def make_npm_pm(project_path: str) -> PackageManagerJsNpm:
+    return PackageManagerJsNpm(project_path, MagicMock())
+
+
+class TestRestoreState:
     def test_removes_recommended_from_overrides(self, tmp_path: Path) -> None:
         write_state(tmp_path, original_overrides={"lodash": "4.17.0", "express": "4.17.0"}, recommended=["lodash"])
         write_manifest(tmp_path, overrides={"lodash": "4.18.0", "express": "4.17.0"})
 
-        handle_npm_overrides_diff(str(tmp_path))
+        make_npm_pm(str(tmp_path)).restore_state(str(tmp_path))
 
         pkg = json.loads((tmp_path / "package.json").read_text())
         assert pkg["overrides"] == {"express": "4.17.0"}
         assert not (tmp_path / NPM_STATE_FILE).exists()
 
-    def test_all_recommended_yields_empty_overrides(self, tmp_path: Path) -> None:
+    def test_all_recommended_removes_overrides_key(self, tmp_path: Path) -> None:
         write_state(tmp_path, original_overrides={"lodash": "4.17.0"}, recommended=["lodash"])
         write_manifest(tmp_path, overrides={"lodash": "4.18.0"})
 
-        handle_npm_overrides_diff(str(tmp_path))
+        make_npm_pm(str(tmp_path)).restore_state(str(tmp_path))
 
         pkg = json.loads((tmp_path / "package.json").read_text())
-        assert pkg["overrides"] == {}
+        assert "overrides" not in pkg
 
-    def test_empty_original_overrides_yields_empty_overrides(self, tmp_path: Path) -> None:
+    def test_empty_original_overrides_removes_overrides_key(self, tmp_path: Path) -> None:
         write_state(tmp_path, original_overrides={}, recommended=["lodash"])
         write_manifest(tmp_path, overrides={"lodash": "4.18.0"})
 
-        handle_npm_overrides_diff(str(tmp_path))
+        make_npm_pm(str(tmp_path)).restore_state(str(tmp_path))
 
         pkg = json.loads((tmp_path / "package.json").read_text())
-        assert pkg["overrides"] == {}
+        assert "overrides" not in pkg
 
-    def test_missing_state_file_exits_with_error(self, tmp_path: Path) -> None:
+    def test_missing_state_file_raises(self, tmp_path: Path) -> None:
         write_manifest(tmp_path, overrides={})
 
-        with pytest.raises(typer.Exit):
-            handle_npm_overrides_diff(str(tmp_path))
+        with pytest.raises(FileNotFoundError):
+            make_npm_pm(str(tmp_path)).restore_state(str(tmp_path))
 
     def test_state_file_deleted_after_restore(self, tmp_path: Path) -> None:
         write_state(tmp_path, original_overrides={}, recommended=[])
         write_manifest(tmp_path, overrides={})
 
-        handle_npm_overrides_diff(str(tmp_path))
+        make_npm_pm(str(tmp_path)).restore_state(str(tmp_path))
 
         assert not (tmp_path / NPM_STATE_FILE).exists()
 
 
 class TestCommandUpdatePinWiring:
-    def test_pin_true_passed_to_build_update_plan(self) -> None:
+    def test_pin_true_passed_to_options(self) -> None:
         options = CommandUpdateOptions(project_path="/some/path", pin=True)
         assert options.pin is True
 
@@ -79,21 +83,30 @@ class TestCommandUpdatePinWiring:
         options = CommandUpdateOptions(project_path="/some/path")
         assert options.pin is False
 
-    def test_npm_overrides_diff_false_by_default(self) -> None:
-        options = CommandUpdateOptions(project_path="/some/path")
-        assert options.npm_overrides_diff is False
 
-    def test_npm_overrides_diff_triggers_early_return(self, tmp_path: Path) -> None:
-        write_state(tmp_path, original_overrides={}, recommended=[])
-        write_manifest(tmp_path, overrides={})
+class TestBuildNpmFreezeArgs:
+    def test_base_always_includes_registry_type(self) -> None:
+        options = CommandUpdateOptions(project_path="/p")
+        assert "--registry-type npm" in _build_npm_freeze_args(options)
 
-        options = CommandUpdateOptions(project_path=str(tmp_path), npm_overrides_diff=True)
-        ctx = MagicMock(spec=typer.Context)
+    def test_pin_flag_included_when_set(self) -> None:
+        options = CommandUpdateOptions(project_path="/p", pin=True)
+        assert "--pin" in _build_npm_freeze_args(options)
 
-        with patch("ossiq.commands.update.handle_npm_overrides_diff") as mock_handle:
-            from ossiq.commands.update import command_update
+    def test_pin_flag_absent_when_not_set(self) -> None:
+        options = CommandUpdateOptions(project_path="/p", pin=False)
+        assert "--pin" not in _build_npm_freeze_args(options)
 
-            command_update(ctx=ctx, options=options)
+    def test_ignore_packages_included(self) -> None:
+        options = CommandUpdateOptions(project_path="/p", ignore_packages=("lodash", "express"))
+        args = _build_npm_freeze_args(options)
+        assert "--ignore lodash" in args
+        assert "--ignore express" in args
 
-        mock_handle.assert_called_once_with(str(tmp_path))
-        ctx.assert_not_called()
+    def test_security_flag_included(self) -> None:
+        options = CommandUpdateOptions(project_path="/p", security_only=True)
+        assert "--security" in _build_npm_freeze_args(options)
+
+    def test_production_flag_included(self) -> None:
+        options = CommandUpdateOptions(project_path="/p", production=True)
+        assert "--production" in _build_npm_freeze_args(options)

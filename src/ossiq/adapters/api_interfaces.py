@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import abc
 from collections.abc import Callable, Iterable
+from dataclasses import dataclass
 from functools import cmp_to_key
 from typing import TYPE_CHECKING
 
@@ -157,6 +158,14 @@ class AbstractCveDatabaseApi(abc.ABC):
         raise NotImplementedError
 
 
+@dataclass(frozen=True)
+class HelperSpec:
+    """Metadata for a package manager helper sub-command."""
+
+    name: str
+    description: str
+
+
 class AbstractPackageManagerApi(abc.ABC):
     """
     Abstract Package Manager to extract installed versions
@@ -183,11 +192,17 @@ class AbstractPackageManagerApi(abc.ABC):
         """
         pass
 
-    def generate_update_script(self, plan: UpdatePlan) -> str:
+    @classmethod
+    def helper_specs(cls) -> list[HelperSpec]:
+        """Return metadata for available helper sub-commands. Override per package manager."""
+        return []
+
+    def generate_update_script(self, plan: UpdatePlan, cli_extra_args: str = "") -> str:
         """Generate a bash update script for the recommended versions in plan.
 
         Default returns an unsupported notice with the version list as comments.
         Supported package managers override this with an atomic update script.
+        cli_extra_args is forwarded to sub-command invocations in the script (NPM only).
         """
         lines = [
             f"# OSS IQ update — {self.package_manager_type.name}  |  project: {plan.project_name}",

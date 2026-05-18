@@ -6,11 +6,13 @@ from __future__ import annotations
 
 import json
 import os
+import shlex
 from collections import defaultdict, namedtuple
 from collections.abc import Callable, Iterable
 from typing import TYPE_CHECKING
 
-from ossiq.adapters.api_interfaces import AbstractPackageManagerApi
+from ossiq.adapters.api_interfaces import AbstractPackageManagerApi, HelperSpec
+from ossiq.adapters.api_npm import PackageRegistryApiNpm
 from ossiq.adapters.package_managers.dependency_tree import BaseDependencyResolver
 from ossiq.adapters.package_managers.utils import find_lockfile_parser
 from ossiq.domain.common import ConstraintType
@@ -31,16 +33,8 @@ CATEGORIES_OPTIONAL = "optional"
 CATEGORIES_PEER = "peer"
 CATEGORIES_OVERRIDDEN = "overridden"
 
-
-def npm_override_set_command(package_name: str, version: str) -> str:
-    """Return the npm pkg set command for one override entry.
-
-    Scoped packages (e.g. @scope/pkg) require bracket notation because the slash
-    in their name is not valid in npm's dot-path syntax.
-    """
-    if package_name.startswith("@"):
-        return f'npm pkg set \'overrides["{package_name}"]="{version}"\''
-    return f'npm pkg set overrides.{package_name}="{version}"'
+NPM_STATE_FILE = ".ossiq_npm_state.json"
+DEP_SECTIONS = ("dependencies", "devDependencies", "optionalDependencies", "peerDependencies")
 
 
 class NPMResolverV3(BaseDependencyResolver):
@@ -402,34 +396,140 @@ class PackageManagerJsNpm(AbstractPackageManagerApi):
 
         return create_project(dependency_tree=lockfile_parser(lockfile_data))
 
-    def generate_update_script(self, plan: UpdatePlan) -> str:
-        """Atomic npm update: backup package.json, inject all overrides, install, restore."""
+    @classmethod
+    def helper_specs(cls) -> list[HelperSpec]:
+        """Advertise NPM helper sub-commands."""
+        return [
+            HelperSpec("freeze-state", "Lock full dependency tree in package.json overrides for safe update"),
+            HelperSpec("restore-state", "Restore original package.json overrides after npm install"),
+            HelperSpec("overrides-diff", "Show diff between current and original overrides (read-only)"),
+        ]
+
+    def freeze_state(self, plan: UpdatePlan) -> None:
+        """Write state file and lock package.json overrides + rewrite direct dep specifiers."""
+        manifest_path = os.path.join(plan.project_path, "package.json")
+        state_path = os.path.join(plan.project_path, NPM_STATE_FILE)
+
+        with open(manifest_path, encoding="utf-8") as f:
+            pkg = json.load(f)
+
+        original_overrides = pkg.get("overrides", {})
+        locked_overrides = dict(plan.installed_versions)
+        for entry in plan.all_entries:
+            locked_overrides[entry.package_name] = entry.recommended_version
+
+        state = {
+            "original_overrides": original_overrides,
+            "recommended_packages": [e.package_name for e in plan.all_entries],
+            "locked_overrides": locked_overrides,
+        }
+        with open(state_path, "w", encoding="utf-8") as f:
+            json.dump(state, f, indent=2)
+
+        pkg["overrides"] = locked_overrides
+        for entry in plan.direct_entries:
+            for section in DEP_SECTIONS:
+                if entry.package_name in pkg.get(section, {}):
+                    if plan.pin:
+                        pkg[section][entry.package_name] = entry.recommended_version
+                    else:
+                        new_spec = PackageRegistryApiNpm.rewrite_specifier(
+                            entry.version_defined, entry.recommended_version
+                        )
+                        if new_spec and new_spec != entry.version_defined:
+                            pkg[section][entry.package_name] = new_spec
+                    break
+
+        with open(manifest_path, "w", encoding="utf-8") as f:
+            json.dump(pkg, f, indent=2)
+
+    def restore_state(self, project_path: str) -> str:
+        """Restore original package.json overrides from state file and delete it.
+
+        Returns a summary message.
+        """
+        state_path = os.path.join(project_path, NPM_STATE_FILE)
+        manifest_path = os.path.join(project_path, "package.json")
+
+        if not os.path.exists(state_path):
+            raise FileNotFoundError(f"State file not found: {state_path}")
+
+        with open(state_path, encoding="utf-8") as f:
+            state = json.load(f)
+        with open(manifest_path, encoding="utf-8") as f:
+            pkg = json.load(f)
+
+        recommended = set(state["recommended_packages"])
+        restored = {k: v for k, v in state["original_overrides"].items() if k not in recommended}
+        if restored:
+            pkg["overrides"] = restored
+        elif "overrides" in pkg:
+            del pkg["overrides"]
+
+        with open(manifest_path, "w", encoding="utf-8") as f:
+            json.dump(pkg, f, indent=2)
+
+        os.unlink(state_path)
+        return f"Overrides restored: {len(restored)} entries kept, {len(recommended)} recommended packages removed."
+
+    def overrides_diff(self, project_path: str) -> str:
+        """Return a read-only diff of current overrides vs original (from state file)."""
+        state_path = os.path.join(project_path, NPM_STATE_FILE)
+        manifest_path = os.path.join(project_path, "package.json")
+
+        if not os.path.exists(state_path):
+            raise FileNotFoundError(f"State file not found: {state_path}")
+
+        with open(state_path, encoding="utf-8") as f:
+            state = json.load(f)
+        with open(manifest_path, encoding="utf-8") as f:
+            pkg = json.load(f)
+
+        original = state["original_overrides"]
+        current = pkg.get("overrides", {})
+        all_keys = sorted(set(original) | set(current))
+
+        lines = ["package.json overrides diff (original → current):"]
+        for key in all_keys:
+            orig_v = original.get(key)
+            curr_v = current.get(key)
+            if orig_v == curr_v:
+                lines.append(f"  = {key}: {curr_v}")
+            elif orig_v is None:
+                lines.append(f"  + {key}: {curr_v}  (added)")
+            elif curr_v is None:
+                lines.append(f"  - {key}: {orig_v}  (removed)")
+            else:
+                lines.append(f"  ~ {key}: {orig_v} → {curr_v}")
+        return "\n".join(lines)
+
+    def generate_update_script(self, plan: UpdatePlan, cli_extra_args: str = "") -> str:
+        """Generate bash script that delegates all JSON manipulation to ossiq helpers."""
+        path_q = shlex.quote(plan.project_path)
+        freeze = f"ossiq helpers npm freeze-state {path_q}"
+        if cli_extra_args:
+            freeze += f" {cli_extra_args}"
+        restore = f"ossiq helpers npm restore-state {path_q}"
         lines = [
             "#!/usr/bin/env bash",
             f"# OSS IQ update — npm  |  project: {plan.project_name}",
             f"# {len(plan.direct_entries)} direct, {len(plan.transitive_entries)} transitive updates",
             "set -euo pipefail",
             "",
-            f'cd "{plan.project_path}"',
+            f"cd {path_q}",
             "",
-            'echo "Backing up package.json..."',
-            "cp package.json package.json.ossiq.bak",
-            "",
-            'echo "Injecting overrides..."',
-        ]
-        for entry in plan.all_entries:
-            lines.append(npm_override_set_command(entry.package_name, entry.recommended_version))
-        lines += [
+            'echo "Freezing dependency tree and saving state..."',
+            freeze,
             "",
             'echo "Installing..."',
             "npm install",
             "",
-            'echo "Removing overrides..."',
-            "npm pkg delete overrides",
-            "rm package.json.ossiq.bak",
+            'echo "Restoring overrides..."',
+            restore,
+            "",
             'echo "Done."',
             "",
-            "# ROLLBACK: cp package.json.ossiq.bak package.json",
+            f"# ROLLBACK: {restore}",
         ]
         return "\n".join(lines)
 

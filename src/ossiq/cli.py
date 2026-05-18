@@ -10,6 +10,7 @@ from rich.console import Console
 
 from ossiq.clients import install_requests_cache
 from ossiq.commands.export import CommandExportOptions, commnad_export
+from ossiq.commands.helpers_npm import npm_helpers_app
 from ossiq.commands.package import CommandPackageOptions, command_package
 from ossiq.commands.scan import CommandScanOptions, commnad_scan
 from ossiq.commands.update import CommandUpdateOptions, command_update
@@ -35,6 +36,10 @@ from ossiq.ui.system import show_settings
 
 app = typer.Typer()
 console = Console()
+
+helpers_app = typer.Typer(name="helpers", help="Package manager helper utilities")
+helpers_app.add_typer(npm_helpers_app, name="npm")
+app.add_typer(helpers_app, name="helpers")
 
 
 def version_callback(value: bool):
@@ -329,10 +334,6 @@ def update(
     pin: Annotated[
         bool, typer.Option("--pin", is_flag=True, help="Pin direct deps to exact version in manifest")
     ] = False,
-    npm_overrides_diff: Annotated[
-        bool,
-        typer.Option("--npm-overrides-diff", is_flag=True, help="Clean up temporary NPM overrides after install"),
-    ] = False,
 ):
     """Generate an atomic update script for solver-recommended package versions."""
     if registry_type and registry_type.lower() not in ["npm", "pypi"]:
@@ -349,7 +350,6 @@ def update(
             security_only=security,
             ignore_packages=tuple(ignore or []),
             pin=pin,
-            npm_overrides_diff=npm_overrides_diff,
         ),
     )
 

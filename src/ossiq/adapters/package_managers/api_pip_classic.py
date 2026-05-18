@@ -315,7 +315,7 @@ class PackageManagerPythonPipClassic(AbstractPackageManagerApi):
             dependency_tree=dependency_tree,
         )
 
-    def generate_update_script(self, plan: UpdatePlan) -> str:
+    def generate_update_script(self, plan: UpdatePlan, cli_extra_args: str = "") -> str:
         """Constraint-based pip update: write constraints file, install, clean up."""
         lines = [
             "#!/usr/bin/env bash",
