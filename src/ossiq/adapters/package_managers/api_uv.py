@@ -296,7 +296,6 @@ class PackageManagerPythonUv(AbstractPackageManagerApi):
 
                 if new_spec == entry.version_defined:
                     lines.append(f"# {entry.package_name}: {orig} -> (lockfile only)")
-                    upgrade_flags.append(f"    --upgrade-package {entry.package_name}=={entry.recommended_version}")
                 else:
                     spec_to_write = new_spec or f"=={entry.recommended_version}"
                     lines.append(f"# {entry.package_name}: {orig} -> {spec_to_write}")
@@ -305,6 +304,9 @@ class PackageManagerPythonUv(AbstractPackageManagerApi):
                         f"""'s|"{entry.package_name}[^"]*"|"{entry.package_name}{spec_to_write}"|g'"""
                         " pyproject.toml"
                     )
+
+                # Always pin direct deps explicitly — prevents uv from resolving a different version.
+                upgrade_flags.append(f"    --upgrade-package {entry.package_name}=={entry.recommended_version}")
 
         upgrade_flags += [
             f"    --upgrade-package {entry.package_name}=={entry.recommended_version}"

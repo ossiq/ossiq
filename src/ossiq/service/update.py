@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 from dataclasses import dataclass, field
 
 from ossiq.domain.common import ConstraintType
@@ -70,9 +71,26 @@ def build_update_plan(scan_result: ScanResult, package_manager_name: str, pin: b
         if r.recommended_version and r.recommended_version != r.installed_version
     ]
     direct_names = {e.package_name for e in direct}
+
+    # The transitive solver uses current-lockfile constraints, so its recommendations may be
+    # lower than what a recommended direct dep update will actually require. Impact simulation
+    # (Pass 1.5b) computes the correct post-upgrade version for each affected transitive dep.
+    # Example: solver says modelsearch 1.2.2, but wagtail 7.4 requires >=1.3,<1.4 → use 1.3.1.
+    impact_versions: dict[str, str] = {}
+    for record in scan_result.production_packages + scan_result.optional_packages:
+        for impact in record.update_transitive_impacts:
+            if impact.projected_version and not impact.has_conflict:
+                impact_versions[impact.package_name] = impact.projected_version
+
+    def with_impact_version(entry: UpdateEntry) -> UpdateEntry:
+        impact = impact_versions.get(entry.package_name)
+        if impact and impact != entry.recommended_version:
+            return dataclasses.replace(entry, recommended_version=impact)
+        return entry
+
     transitive = sorted(
         {
-            r.package_name: entry_from_record(r, is_direct=False)
+            r.package_name: with_impact_version(entry_from_record(r, is_direct=False))
             for r in scan_result.transitive_packages
             if r.recommended_version
             and r.recommended_version != r.installed_version

@@ -7,6 +7,7 @@ from ossiq.domain.project import ConstraintSource
 from ossiq.domain.version import VersionsDifference
 from ossiq.service.project import ScanRecord, ScanResult
 from ossiq.service.update import build_update_plan
+from ossiq.service.update_impact import TransitiveImpact
 
 NO_DIFF = VersionsDifference("1.0.0", "1.0.0", 0, diff_name="LATEST")
 CONSTRAINT_SOURCE = ConstraintSource(type=ConstraintType.DECLARED, source_file="pyproject.toml")
@@ -97,3 +98,52 @@ class TestBuildUpdatePlan:
         assert [e.package_name for e in plan.transitive_entries] == ["attrs", "zlib"]
         zlib_entry = next(e for e in plan.transitive_entries if e.package_name == "zlib")
         assert zlib_entry.recommended_version == "1.4.0"
+
+    def test_transitive_version_overridden_by_impact(self):
+        """Impact projected version beats the transitive solver's recommendation.
+
+        Scenario: wagtail 7.4 requires modelsearch>=1.3,<1.4, but the transitive solver
+        (using current-lockfile constraints) recommends modelsearch 1.2.2. The impact's
+        projected_version (1.3.1) must win to avoid a uv lock conflict.
+        """
+        modelsearch_impact = TransitiveImpact(
+            package_name="modelsearch",
+            current_version="1.1.1",
+            projected_version="1.3.1",
+            new_constraint=">=1.3,<1.4",
+            driven_by="wagtail",
+            has_conflict=False,
+            conflict_detail=None,
+        )
+        wagtail = make_record("wagtail", "7.3.1", "7.4")
+        wagtail.update_transitive_impacts = [modelsearch_impact]
+
+        modelsearch = make_record("modelsearch", "1.1.1", "1.2.2")
+
+        result = make_scan_result(production=[wagtail], transitive=[modelsearch])
+        plan = build_update_plan(result, "uv")
+
+        modelsearch_entry = next(e for e in plan.transitive_entries if e.package_name == "modelsearch")
+        assert modelsearch_entry.recommended_version == "1.3.1"
+
+    def test_transitive_impact_with_conflict_not_applied(self):
+        """Impact with has_conflict=True must not override the solver's recommendation."""
+        conflicting_impact = TransitiveImpact(
+            package_name="modelsearch",
+            current_version="1.1.1",
+            projected_version=None,
+            new_constraint=">=1.3,<1.4",
+            driven_by="wagtail",
+            has_conflict=True,
+            conflict_detail="no version satisfies all constraints",
+        )
+        wagtail = make_record("wagtail", "7.3.1", "7.4")
+        wagtail.update_transitive_impacts = [conflicting_impact]
+
+        modelsearch = make_record("modelsearch", "1.1.1", "1.2.2")
+
+        result = make_scan_result(production=[wagtail], transitive=[modelsearch])
+        plan = build_update_plan(result, "uv")
+
+        modelsearch_entry = next(e for e in plan.transitive_entries if e.package_name == "modelsearch")
+        assert modelsearch_entry.recommended_version == "1.2.2"

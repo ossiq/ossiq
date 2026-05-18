@@ -8,9 +8,9 @@ from typing import Annotated, Literal
 import typer
 from rich.console import Console
 
+from ossiq.adapters.package_managers.helpers.helpers_npm import npm_helpers_app
 from ossiq.clients import install_requests_cache
 from ossiq.commands.export import CommandExportOptions, commnad_export
-from ossiq.commands.helpers_npm import npm_helpers_app
 from ossiq.commands.package import CommandPackageOptions, command_package
 from ossiq.commands.scan import CommandScanOptions, commnad_scan
 from ossiq.commands.update import CommandUpdateOptions, command_update

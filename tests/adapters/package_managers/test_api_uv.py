@@ -904,13 +904,13 @@ class TestGenerateUpdateScript:
         entry = make_update_entry("sphinx", "8.0.0", "9.0.4", "~=8.0.0", ConstraintType.NARROWED)
         script = uv.generate_update_script(make_update_plan(direct=[entry], pin=True))
         assert """'s|"sphinx[^"]*"|"sphinx==9.0.4"|g'""" in script
-        assert "--upgrade-package sphinx" not in script
+        assert "--upgrade-package sphinx==9.0.4" in script
 
     def test_smart_narrowed_tilde_emits_sed(self, uv):
         entry = make_update_entry("sphinx", "8.0.0", "9.0.4", "~=8.0.0", ConstraintType.NARROWED)
         script = uv.generate_update_script(make_update_plan(direct=[entry]))
         assert """'s|"sphinx[^"]*"|"sphinx~=9.0.4"|g'""" in script
-        assert "--upgrade-package sphinx" not in script
+        assert "--upgrade-package sphinx==9.0.4" in script
 
     def test_smart_declared_lockfile_only(self, uv):
         entry = make_update_entry("requests", "2.28.0", "2.32.0", ">=2.28.0", ConstraintType.DECLARED)
@@ -922,7 +922,7 @@ class TestGenerateUpdateScript:
         entry = make_update_entry("sphinx", "8.0.0", "9.0.4", "==8.0.0", ConstraintType.PINNED)
         script = uv.generate_update_script(make_update_plan(direct=[entry]))
         assert """'s|"sphinx[^"]*"|"sphinx==9.0.4"|g'""" in script
-        assert "--upgrade-package sphinx" not in script
+        assert "--upgrade-package sphinx==9.0.4" in script
 
     def test_transitive_always_upgrade_flag(self, uv):
         entry = make_update_entry("urllib3", "1.26.0", "2.0.7", is_direct=False)
@@ -957,7 +957,7 @@ class TestGenerateUpdateScript:
         script = uv.generate_update_script(make_update_plan(direct=[declared, narrowed]))
         assert "--upgrade-package requests==2.32.0" in script
         assert """'s|"sphinx[^"]*"|"sphinx~=9.0.4"|g'""" in script
-        assert "--upgrade-package sphinx" not in script
+        assert "--upgrade-package sphinx==9.0.4" in script
 
     def test_declared_direct_and_transitive_both_in_uv_lock(self, uv):
         direct = make_update_entry("requests", "2.28.0", "2.32.0", ">=2.28.0", ConstraintType.DECLARED)
@@ -966,3 +966,13 @@ class TestGenerateUpdateScript:
         assert "--upgrade-package requests==2.32.0" in script
         assert "--upgrade-package urllib3==2.0.7" in script
         assert "sed" not in script
+
+    def test_sed_direct_dep_also_gets_upgrade_flag(self, uv):
+        """Specifier-rewritten direct deps must also appear as --upgrade-package."""
+        narrowed = make_update_entry("pydantic", "2.13.3", "2.13.4", "~=2.13.3", ConstraintType.NARROWED)
+        pinned = make_update_entry("ty", "0.0.32", "0.0.35", "==0.0.32", ConstraintType.PINNED)
+        script = uv.generate_update_script(make_update_plan(direct=[narrowed, pinned]))
+        assert """'s|"pydantic[^"]*"|"pydantic~=2.13.4"|g'""" in script
+        assert "--upgrade-package pydantic==2.13.4" in script
+        assert """'s|"ty[^"]*"|"ty==0.0.35"|g'""" in script
+        assert "--upgrade-package ty==0.0.35" in script
