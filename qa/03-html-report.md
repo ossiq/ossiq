@@ -66,7 +66,7 @@ uv run hatch run ossiq-cli scan --presentation=html --output=reports/deprecated_
 ## TC-H06: HTML report — transitive impact sub-rows
 
 ```bash
-uv run hatch run ossiq-cli scan --solver --presentation=html --output=reports/solver_report.html testdata/pypi/version-constraint
+uv run hatch run ossiq-cli scan --presentation=html --output=reports/solver_report.html testdata/pypi/version-constraint
 ```
 
 Open `reports/solver_report.html` in browser.

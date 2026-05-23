@@ -68,6 +68,35 @@ OSS IQ performs deep analysis by mining software repository history, which can i
 export OSSIQ_GITHUB_TOKEN=$(gh auth token)
 ```
 
+#### Temporal Analysis Options
+
+Two global options let you control how OSS IQ perceives time. They apply to all subcommands (`scan`, `export`, `update`, `package`) and can be combined freely.
+
+| Option | Env var | Default | Description |
+|---|---|---|---|
+| `--cutoff-date YYYY-MM-DD` | `OSSIQ_CUTOFF_DATE` | today | Treat versions published after this date as invisible (23:59:59 UTC of that day). Enables time-travel QA. |
+| `--cooldown-period N` | `OSSIQ_COOLDOWN_PERIOD` | `7` | Versions younger than N days receive a freshness soft-penalty in the solver, reducing the risk of picking very new releases. |
+
+```bash
+# Reproduce the exact state of your dependencies as of a past date
+ossiq-cli --cutoff-date 2025-01-01 scan /path/to/your/project
+
+# Widen the freshness buffer to 14 days (versions < 14 days old are soft-penalized)
+ossiq-cli --cooldown-period 14 scan /path/to/your/project
+
+# Both together: time-travel view with a custom freshness window
+ossiq-cli --cutoff-date 2025-01-01 --cooldown-period 14 scan /path/to/your/project
+
+# Disable the freshness penalty entirely
+ossiq-cli --cooldown-period 0 scan /path/to/your/project
+```
+
+The options are also readable from environment variables, which is useful for CI pipelines:
+
+```bash
+OSSIQ_CUTOFF_DATE=2025-01-01 OSSIQ_COOLDOWN_PERIOD=14 ossiq-cli scan /path/to/your/project
+```
+
 
 If you prefer a persistent install:
 
@@ -135,6 +164,105 @@ jobs:
             ossiq/ossiq-cli scan /project
 ```
 
+### Atomic Dependency Update
+
+The `update` command plans and executes safe dependency upgrades to the versions recommended by the HPDR solver. It has two subcommands: `plan` (inspect only) and `execute` (apply changes).
+
+```bash
+# Show the update plan table
+ossiq-cli update plan /path/to/your/project
+
+# Emit a copy-pasteable bash script instead of the table
+ossiq-cli update plan --script /path/to/your/project
+
+# Apply updates interactively (shows the plan, then prompts for confirmation)
+ossiq-cli update execute /path/to/your/project
+
+# Apply updates non-interactively (skip confirmation, for CI)
+ossiq-cli update execute --yes /path/to/your/project
+```
+
+The solver simulates the full transitive impact of each recommendation before committing to it. When the top candidate would create a downstream conflict, it falls back to the next-best version automatically. The plan table shows a `↳` sub-row for each transitive package that would also move, and marks non-actionable entries with `✗`.
+
+**npm** — backs up `package.json`, injects all recommended versions as `overrides` in one pass, runs `npm install --ignore-scripts`, then removes the overrides block.
+
+**uv / pip** — rewrites specifiers in `pyproject.toml` or `requirements.txt` in-place, then runs `uv lock --upgrade-package` / `pip install -c <constraints>`. Changes are rolled back automatically if the update fails.
+
+#### Options
+
+| Option | Description |
+|---|---|
+| `--production` | Limit to production dependencies only |
+| `--registry-type npm\|pypi` | Narrow to a specific ecosystem |
+| `--security` | Include only CVE-affected packages in the update plan |
+| `--allow-prerelease` | Include pre-release versions across all packages |
+| `--allow-prerelease-package <name>` | Allow pre-release for a specific package (repeatable) |
+| `--ignore <name>`, `-i` | Exclude a package from the update plan entirely (repeatable) |
+| `--pin-all` | Write `==new_version` for every updated direct dependency, converting loose specifiers (`^`, `~=`, `>=`) to exact pins |
+| `--rewrite-versions` | Include already-pinned (`==x.y.z`) dependencies in the update and rewrite their pinned version |
+| `--script` | (`plan` only) Print the bash script instead of the plan table — safe to pipe directly to `bash` |
+| `--yes`, `-y` | (`execute` only) Skip the confirmation prompt |
+
+#### Pinning workflow — `--pin-all` and `--rewrite-versions`
+
+By default, packages already pinned with an exact specifier (`==x.y.z`) are **frozen** and excluded from the update plan. This prevents accidental upgrades when you have intentionally locked a version. Use `--pin-all` and `--rewrite-versions` together to manage a fully-pinned dependency file:
+
+```bash
+# Step 1: migrate all direct deps to exact pins (==x.y.z)
+ossiq-cli update execute --pin-all /path/to/your/project
+
+# Step 2: on subsequent runs, view what newer versions are available
+#         (pinned deps are frozen and not shown by default)
+ossiq-cli update plan /path/to/your/project
+
+# Step 3: upgrade and re-pin everything in one pass
+ossiq-cli update execute --pin-all --rewrite-versions /path/to/your/project
+
+# Step 3 (selective): hold back specific packages while updating the rest
+ossiq-cli update execute --pin-all --rewrite-versions --ignore requests --ignore django /path/to/your/project
+```
+
+**Flag behaviour summary:**
+
+| Flags | `>=x` (declared) | `~=x` (narrowed) | `==x` (pinned) |
+|---|---|---|---|
+| *(none)* | lockfile-only update | rewrite `~=new` | frozen / skipped |
+| `--pin-all` | rewrite `==new` | rewrite `==new` | frozen / skipped |
+| `--rewrite-versions` | lockfile-only update | rewrite `~=new` | rewrite `==new` |
+| `--pin-all --rewrite-versions` | rewrite `==new` | rewrite `==new` | rewrite `==new` |
+
+## Supported Ecosystems
+
+### NPM
+
+**Supported:**
+- **[npm](https://docs.npmjs.com/cli/v11/commands/npm)** – Package manager for JavaScript (`package.json` + `package-lock.json`)
+
+**Not yet supported:**
+- **[Yarn](https://yarnpkg.com/)** and **[pnpm](https://pnpm.io/)** – See the [issue tracker](https://github.com/ossiq/ossiq/issues) for roadmap status.
+
+### Python
+
+**Supported:**
+- **[uv](https://docs.astral.sh/uv/)** – Fast Rust-based package manager (`pyproject.toml` + `uv.lock`)
+- **[pip lock](https://pip.pypa.io/en/stable/cli/pip_lock/)** – [pylock.toml](https://packaging.python.org/en/latest/specifications/pylock-toml/#pylock-toml-spec) lockfile format (`pyproject.toml` + `pylock.toml`)
+- **[pip classic](https://pip.pypa.io/en/stable/reference/requirements-file-format/)** – Traditional `requirements.txt` (best with `pip freeze` output)
+
+**Not yet supported:**
+- **[Poetry](https://python-poetry.org/)** – Consider exporting to `pylock.toml` as a workaround ([discussion](https://github.com/orgs/python-poetry/discussions/10322))
+
+## Data Sources
+
+OSS IQ aggregates data from the following public sources:
+
+| Source | Purpose |
+|---|---|
+| [OSV](https://osv.dev/) | Open-source vulnerability database (CVEs, security advisories) |
+| [NPM Registry](https://www.npmjs.com/) | Package metadata and version history for JavaScript packages |
+| [PyPI](https://pypi.org/) | Package metadata and version history for Python packages |
+| [GitHub](https://github.com/) | Repository activity, releases, and maintainer signals |
+
+
 ### Development Mode
 
 To contribute or run from source:
@@ -176,62 +304,6 @@ The output mirrors the structure of the dependency detail panel:
 
 If the package appears in multiple places in the tree (hoisted duplicates, diamond dependencies), each occurrence is shown separately with a **SHARED NODE** indicator.
 
-### Atomic Dependency Update
-
-Generate a safe, copy-pasteable bash script that upgrades your dependencies to the versions recommended by the HPDR solver:
-
-```bash
-ossiq-cli update /path/to/your/project
-```
-
-The solver runs automatically and outputs a script tailored to your package manager. **Review the script before running it** — it is designed to be atomic so that **no unvetted versions are pulled in by the package manager's own resolver**.
-
-Before emitting the script, the solver simulates the full transitive impact of each recommendation. When the top candidate would create a downstream conflict, it falls back to the next-best version automatically. The plan table shows a `↳` sub-row for each transitive package that would also move, and marks non-actionable entries with `✗`.
-
-**npm** — backs up `package.json`, injects all recommended versions as `overrides` in one pass, runs `npm install`, then removes the overrides block.
-
-**uv / pip** — writes all recommended versions to a temporary constraints file, syncs with that constraint so the resolver cannot pick unvetted versions, then deletes the file.
-
-Options mirror the `scan` command:
-
-| Option | Description |
-|---|---|
-| `--production` | Limit to production dependencies only |
-| `--registry-type npm\|pypi` | Narrow to a specific ecosystem |
-| `--security` | Include only CVE-affected packages in the update plan |
-| `--allow-prerelease` | Include pre-release candidates in solver |
-| `--allow-prerelease-package <name>` | Allow pre-release for a specific package (repeatable) |
-
-## Supported Ecosystems
-
-### NPM
-
-**Supported:**
-- **[npm](https://docs.npmjs.com/cli/v11/commands/npm)** – Package manager for JavaScript (`package.json` + `package-lock.json`)
-
-**Not yet supported:**
-- **[Yarn](https://yarnpkg.com/)** and **[pnpm](https://pnpm.io/)** – See the [issue tracker](https://github.com/ossiq/ossiq/issues) for roadmap status.
-
-### Python
-
-**Supported:**
-- **[uv](https://docs.astral.sh/uv/)** – Fast Rust-based package manager (`pyproject.toml` + `uv.lock`)
-- **[pip lock](https://pip.pypa.io/en/stable/cli/pip_lock/)** – [pylock.toml](https://packaging.python.org/en/latest/specifications/pylock-toml/#pylock-toml-spec) lockfile format (`pyproject.toml` + `pylock.toml`)
-- **[pip classic](https://pip.pypa.io/en/stable/reference/requirements-file-format/)** – Traditional `requirements.txt` (best with `pip freeze` output)
-
-**Not yet supported:**
-- **[Poetry](https://python-poetry.org/)** – Consider exporting to `pylock.toml` as a workaround ([discussion](https://github.com/orgs/python-poetry/discussions/10322))
-
-## Data Sources
-
-OSS IQ aggregates data from the following public sources:
-
-| Source | Purpose |
-|---|---|
-| [OSV](https://osv.dev/) | Open-source vulnerability database (CVEs, security advisories) |
-| [NPM Registry](https://www.npmjs.com/) | Package metadata and version history for JavaScript packages |
-| [PyPI](https://pypi.org/) | Package metadata and version history for Python packages |
-| [GitHub](https://github.com/) | Repository activity, releases, and maintainer signals |
 
 ## FAQ
 

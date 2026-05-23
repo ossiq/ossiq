@@ -10,25 +10,31 @@ Run from repo root. All cases require network (registry lookups).
 
 ```bash
 uv run hatch run ossiq-cli scan --help
-uv run hatch run ossiq-cli update --help
+uv run hatch run ossiq-cli update plan --help
+uv run hatch run ossiq-cli update execute --help
 ```
 
 - [ ] `--security` flag listed in `scan --help`
 - [ ] `--full` flag listed in `scan --help`
-- [ ] `--security` flag listed in `update --help`
+- [ ] `--security` flag listed in `update plan --help`
+- [ ] `--pin-all` flag listed in `update plan --help`
+- [ ] `--ignore` / `-i` flag listed in `update plan --help`
 
 ---
 
 ## TC-T01: New flags in help
 
 ```bash
-uv run hatch run ossiq-cli scan --help | grep -E "security|full"
-uv run hatch run ossiq-cli update --help | grep security
+uv run hatch run ossiq-cli scan --help | grep -E "security|full|ignore"
+uv run hatch run ossiq-cli update plan --help | grep -E "security|pin-all|ignore"
 ```
 
 - [ ] `--security` appears in scan help output
 - [ ] `--full` appears in scan help output
-- [ ] `--security` appears in update help output
+- [ ] `--ignore` appears in scan help output
+- [ ] `--security` appears in `update plan` help output
+- [ ] `--pin-all` appears in `update plan` help output
+- [ ] `--ignore` appears in `update plan` help output
 
 ---
 
@@ -110,17 +116,25 @@ uv run hatch run ossiq-cli scan .
 
 ---
 
-## TC-T07: Update command — transitive impact rows
+## TC-T07: Update command — transitive impact rows, --pin-all, --ignore
 
 ```bash
-uv run hatch run ossiq-cli update testdata/pypi/version-constraint
+uv run hatch run ossiq-cli update plan testdata/pypi/version-constraint
 ```
 
 ```bash
-uv run hatch run ossiq-cli update --security testdata/pypi/version-constraint
+uv run hatch run ossiq-cli update plan --security testdata/pypi/version-constraint
 ```
 
-- [ ] `update` (no flags): renders an update plan without crash; at least one entry shows a `↳ also updates:` sub-row, or the new-transitive-deps section appears after the plan table
-- [ ] `update` (no flags): "Update Script — review before running" section appears with a bash/pip/npm install block
-- [ ] `update --security`: completes without crash; if transitive CVE packages exist they are included; if none, plan is empty or shows only direct deps
+```bash
+uv run hatch run ossiq-cli update plan --pin-all testdata/pypi/version-constraint
+```
+
+- [ ] `update plan` (no flags): renders an update plan without crash; at least one entry shows a `↳ also updates:` sub-row, or the new-transitive-deps section appears after the plan table
+- [ ] `update plan --script` (no flags): "Update Script — review before running" section appears with a bash/pip/npm install block
+- [ ] `update plan --script` (no flags): generated script uses smart specifier rewrite — `~=` packages get a `sed` line; `>=`-only packages get `--upgrade-package` in `uv lock` instead
+- [ ] `update plan --security`: completes without crash; if transitive CVE packages exist they are included; if none, plan is empty or shows only direct deps
+- [ ] `update plan --pin-all`: plan table uses `==<version>` for every entry regardless of original specifier
 - [ ] Any non-actionable package row shows `✗ package_name` in the Package column with no recommended version
+
+For `--ignore` interaction with the update command, see TC-U02 in `07-update-command.md`.
