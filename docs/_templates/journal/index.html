@@ -1,0 +1,471 @@
+<!DOCTYPE html>
+<html lang="en" class="scroll-smooth">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Journal | OSS IQ</title>
+    <!-- Runs before CSS to avoid flash of wrong theme -->
+    <script>
+    (function () {
+      const saved = localStorage.getItem('theme');
+      const preferred = window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+      document.documentElement.setAttribute('data-theme', saved ?? preferred);
+    })();
+    </script>
+    <!-- Google tag (gtag.js) -->
+    <script async src="https://www.googletagmanager.com/gtag/js?id=G-6GG5NRKT0J"></script>
+    <script>
+    window.dataLayer = window.dataLayer || [];
+    function gtag(){dataLayer.push(arguments);}
+    gtag('js', new Date());
+    gtag('config', 'G-6GG5NRKT0J');
+    </script>
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+    <!-- ═══════════════════════════════════════════════════════════════════
+         SEO — Google · Social sharing · LLM / AI-search
+         ═══════════════════════════════════════════════════════════════════
+
+         HOW TO ADAPT THIS BLOCK FOR EACH NEW PAGE
+         ──────────────────────────────────────────
+         1. Search for "[ADAPT]" — every tag that needs a per-page value is marked.
+         2. After publishing, validate with:
+              • Google Rich Results Test  → https://search.google.com/test/rich-results
+              • Facebook OG Debugger      → https://developers.facebook.com/tools/debug/
+              • Twitter Card Validator    → https://cards-dev.twitter.com/validator
+              • Schema.org validator      → https://validator.schema.org/
+         ═══════════════════════════════════════════════════════════════════ -->
+
+    <!-- ── Google core ────────────────────────────────────────────────────
+         description  : 150–160 chars, plain text (no HTML tags).
+                        First ~155 chars appear in the Google snippet.
+         robots       : max-snippet:-1 + max-image-preview:large opts this page
+                        into Google AI Overviews and full-featured search snippets.
+                        Remove or tighten if you want to restrict AI usage.
+         canonical    : Always use an absolute URL. Tells Google (and LLMs) the
+                        single authoritative URL for this content.
+    ──────────────────────────────────────────────────────────────────── -->
+    <meta name="description" content="In-depth research and analysis on open-source dependency health, software supply chain risk, and the hidden costs of modern development.">
+    <meta name="robots" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1">
+    <link rel="canonical" href="https://ossiq.dev/journal/"><!-- [ADAPT] confirm base domain -->
+
+    <!-- ── Open Graph — Facebook, LinkedIn, Slack, Discord, iMessage ────
+         og:image     : REQUIRED for rich link previews. Create a 1200×630 px
+                        JPG or PNG. Plain, high-contrast images perform best.
+                        [ADAPT] create the image and update the path below.
+         og:type      : "website" for index/listing pages.
+                        Use "article" on individual article pages (see article template).
+    ──────────────────────────────────────────────────────────────────── -->
+    <meta property="og:type"         content="website">
+    <meta property="og:url"          content="https://ossiq.dev/journal/"><!-- [ADAPT] -->
+    <meta property="og:site_name"    content="OSS IQ">
+    <meta property="og:title"        content="Journal | OSS IQ">
+    <meta property="og:description"  content="Research and analysis on open-source dependency health and software supply chain risk.">
+    <meta property="og:image"        content="https://ossiq.dev/assets/og-journal.jpg"><!-- [ADAPT] create 1200×630 image -->
+    <meta property="og:image:width"  content="1200">
+    <meta property="og:image:height" content="630">
+    <meta property="og:image:alt"    content="OSS IQ Journal — Research on open-source dependency health">
+    <meta property="og:locale"       content="en_US">
+
+    <!-- ── Twitter / X Card ──────────────────────────────────────────────
+         summary_large_image : full-width banner preview (best for articles).
+         twitter:site        : your brand's @handle.  [ADAPT]
+         twitter:image       : same 1200×630 image as og:image is fine.
+    ──────────────────────────────────────────────────────────────────── -->
+    <meta name="twitter:card"        content="summary_large_image">
+    <meta name="twitter:site"        content="@ossiq_dev"><!-- [ADAPT] brand Twitter/X handle -->
+    <meta name="twitter:title"       content="Journal | OSS IQ">
+    <meta name="twitter:description" content="Research and analysis on open-source dependency health and software supply chain risk.">
+    <meta name="twitter:image"       content="https://ossiq.dev/assets/og-journal.jpg"><!-- [ADAPT] same as og:image -->
+    <meta name="twitter:image:alt"   content="OSS IQ Journal">
+
+    <!-- ── LLMs & AI-search crawlers ─────────────────────────────────────
+         llms-txt     : Points AI crawlers to /llms.txt — a plain-text manifest
+                        that describes what content they are welcome to use.
+                        Format spec: https://llmstxt.org/
+                        [ADAPT] Create /llms.txt and keep this link, OR remove it.
+         max-snippet  : Already set above in robots meta — that is the primary
+                        opt-in for Google AI Overviews.
+         JSON-LD      : The structured data block below is the main machine-readable
+                        signal consumed by Perplexity, ChatGPT Search, Google AI,
+                        and Bing Copilot. Keep it accurate and up-to-date.
+    ──────────────────────────────────────────────────────────────────── -->
+    <link rel="llms-txt" href="https://ossiq.dev/llms.txt"><!-- [ADAPT] create /llms.txt or remove this line -->
+
+    <!-- ── Structured data (JSON-LD) ─────────────────────────────────────
+         CollectionPage wraps a journal / blog index.
+         hasPart      : list every published article. Each entry becomes a
+                        citable source in AI-powered search results.
+         [ADAPT]      : Append a new object to "hasPart" for every new article.
+                        Update "dateModified" whenever any article changes.
+    ──────────────────────────────────────────────────────────────────── -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "CollectionPage",
+      "name": "Journal | OSS IQ",
+      "description": "In-depth research and analysis on open-source dependency health, software supply chain risk, and the hidden costs of modern development.",
+      "url": "https://ossiq.dev/journal/",
+      "inLanguage": "en-US",
+      "publisher": {
+        "@type": "Organization",
+        "name": "OSS IQ",
+        "url": "https://ossiq.dev",
+        "logo": {
+          "@type": "ImageObject",
+          "url": "https://ossiq.dev/assets/logo.png",
+          "width": 112,
+          "height": 112
+        }
+      },
+      "hasPart": [
+        {
+          "@type": "Article",
+          "headline": "The Hidden Cost of AI-Generated Code",
+          "url": "https://ossiq.dev/journal/the-hidden-cost-of-ai-generated-code.html",
+          "datePublished": "2026-04-01",
+          "description": "AI tools accelerate output but introduce hidden costs in code quality, security, and long-term maintenance — and the data is starting to confirm it."
+        }
+      ]
+    }
+    </script>
+    <!-- [ADAPT] To add a new article to hasPart, append inside the array:
+         {
+           "@type": "Article",
+           "headline": "Your Article Title",
+           "url": "https://ossiq.dev/journal/your-article-slug.html",
+           "datePublished": "YYYY-MM-DD",
+           "description": "One-sentence summary."
+         }
+    -->
+
+    <style type="text/tailwindcss">
+        @import "tailwindcss";
+
+        @theme {
+            --color-bg:            #1E1E1E;
+            --color-secondary:     #181818;
+            --color-navigation:    #272727;
+            --color-card:          #1A1A1A;
+            --color-surface-a:     #2A2A2A;
+            --color-surface-b:     #333333;
+            --color-surface-c:     #cccccc;
+            --color-accent-green:  #00FF85;
+            --color-accent-pink:   #FF4D80;
+            --color-accent-yellow: #FFB800;
+            --font-sans: 'Inter', system-ui, sans-serif;
+            --font-mono: 'JetBrains Mono', monospace;
+        }
+
+        [data-theme="light"] {
+            --color-bg:            #F5F2EB;
+            --color-secondary:     #E8E4DC;
+            --color-navigation:    #E8E4DC;
+            --color-card:          #ffffff;
+            --color-surface-a:     #E8E4DC;
+            --color-surface-b:     #E8E4DC;
+            --color-surface-c:     #E0DCD4;
+            --color-accent-green:  #008F50;
+            --color-accent-pink:   #C4305A;
+            --color-accent-yellow: #A07200;
+            --color-gray-200: #3A3935; --color-gray-300: #4A4843;
+            --color-gray-400: #706D66; --color-gray-500: #9C9890;
+            --color-gray-600: #B8B4AC;
+            --color-gray-800: #E0DCD4; --color-gray-900: #E8E4DC;
+        }
+
+        [data-theme="light"] body { color: #1C1B18; }
+        [data-theme="light"] ::selection { background: rgba(0,143,80,.15); }
+        [data-theme="light"] .text-white { color: #1C1B18 !important; }
+        [data-theme="light"] .text-white:hover { color: #65635d !important; }
+        [data-theme="light"] .border-white\/10 { border-color: rgba(0,0,0,.1) !important; }
+        [data-theme="light"] .border-white\/06 { border-color: rgba(0,0,0,.06) !important; }
+        [data-theme="light"] .theme-switcher { background: rgba(0,0,0,.06); border-color: rgba(0,0,0,.1); }
+        [data-theme="light"] .theme-option { color: rgba(0,0,0,.35); }
+        [data-theme="light"] .theme-option.active { background: rgba(0,0,0,.1); color: #1C1B18; }
+        [data-theme="light"] .theme-option:not(.active):hover { color: rgba(0,0,0,.7); }
+        [data-theme="light"] .card-article { border-color: rgba(0,0,0,.08); }
+        [data-theme="light"] .card-article:hover { border-color: rgba(0,0,0,.2); }
+        [data-theme="light"] .featured-card { border-color: var(--color-accent-green); }
+        [data-theme="light"] .metric-chip { border-color: rgba(0,0,0,.08); }
+        [data-theme="light"] .section-divider { border-color: rgba(0,0,0,.1); }
+
+        @layer base {
+            body {
+                background: var(--color-bg);
+                color: #fff;
+                font-family: var(--font-sans);
+                -webkit-font-smoothing: antialiased;
+                font-size: 16px;
+                line-height: 1.75;
+            }
+            ::selection { background: rgba(0,255,133,.2); }
+        }
+
+        @layer components {
+            .theme-switcher {
+                display: inline-flex;
+                background: rgba(255,255,255,.06);
+                border: 1px solid rgba(255,255,255,.1);
+                border-radius: 999px;
+                padding: 2px;
+            }
+            .theme-option {
+                display: inline-flex;
+                align-items: center;
+                gap: 5px;
+                padding: 4px 10px;
+                border-radius: 999px;
+                font-family: var(--font-mono);
+                font-size: 11px;
+                font-weight: 500;
+                color: rgba(255,255,255,.35);
+                cursor: pointer;
+                transition: background .15s, color .15s;
+                background: transparent;
+                border: none;
+                white-space: nowrap;
+            }
+            .theme-option.active { background: rgba(255,255,255,.12); color: #fff; }
+            .theme-option:not(.active):hover { color: rgba(255,255,255,.7); }
+
+            .theme-dark  { display: none; }
+            .theme-light { display: none; }
+            :root[data-theme="dark"]  .theme-dark  { display: revert; }
+            :root[data-theme="light"] .theme-light { display: revert; }
+
+            .fade-in { opacity: 0; transform: translateY(16px); transition: opacity .6s ease, transform .6s ease; }
+            .fade-in.visible { opacity: 1; transform: translateY(0); }
+
+            .card-article {
+                background: var(--color-card);
+                border: 1px solid rgba(255,255,255,.06);
+                transition: border-color .2s, transform .2s;
+                display: flex;
+                flex-direction: column;
+            }
+            .card-article:hover {
+                border-color: rgba(255,255,255,.14);
+                transform: translateY(-2px);
+            }
+
+            .featured-card {
+                background: var(--color-card);
+                border: 1px solid rgba(255,255,255,.06);
+                border-left: 4px solid var(--color-accent-green);
+            }
+
+            .metric-chip {
+                background: var(--color-surface-a);
+                border: 1px solid rgba(255,255,255,.06);
+            }
+
+            .category-tag {
+                font-family: var(--font-mono);
+                font-size: 11px;
+                font-weight: 600;
+                letter-spacing: .08em;
+                text-transform: uppercase;
+                color: var(--color-accent-green);
+            }
+
+            .section-divider { border-color: rgba(255,255,255,.08); }
+        }
+        /*
+        body {
+            background-image:url(../_static/ossiq-journal.png);
+            background-repeat: no-repeat;
+            background-position: center;
+            background-size: cover;
+        }
+            */
+    </style>
+</head>
+<body class="antialiased overflow-x-hidden">
+<!-- ═══════════════════ HEADER ═══════════════════ -->
+<header class="w-full py-6 px-6 md:px-12 flex justify-between items-center max-w-7xl mx-auto">
+    <div class="flex items-center">
+        <a href="/">
+            <svg class="theme-dark" width="109" height="20" viewBox="0 0 382 70" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <g clip-path="url(#clip0_idx_dark)">
+            <path d="M68.4092 66.2344L58.5049 56.2979C60.267 53.5069 61.2823 50.2993 61.4268 46.9834L61.4463 46.1416C61.4455 42.3383 60.3122 38.6213 58.1982 35.4609C56.0836 32.3002 53.079 29.8356 49.5615 28.3799C48.463 27.9254 47.3297 27.5759 46.1768 27.332C45.7154 27.2345 45.2509 27.1533 44.7842 27.0898C42.6849 26.8044 40.5411 26.8652 38.4404 27.2822C36.3397 27.6996 34.334 28.4626 32.502 29.5283C32.0947 29.7652 31.6959 30.0168 31.3066 30.2832C30.334 30.949 29.4203 31.7056 28.5791 32.5459C25.8868 35.2352 24.0524 38.666 23.3096 42.3965C22.9385 44.2619 22.8497 46.1612 23.0352 48.0332C23.0815 48.5011 23.145 48.9672 23.2256 49.4307C23.4674 50.8213 23.8622 52.1881 24.4082 53.5049C25.5923 56.3596 27.4433 58.8763 29.793 60.8525C30.1544 61.1566 30.5276 61.4479 30.9121 61.7256C31.1043 61.8644 31.2993 61.9998 31.4971 62.1318C34.6609 64.2435 38.3819 65.3723 42.1895 65.373L42.1934 65.377C44.6789 65.3783 47.119 64.8906 49.3857 63.9658C49.7979 63.7977 50.2046 63.6157 50.6045 63.4189C51.2044 63.1238 51.7894 62.7963 52.3574 62.4385L63.9834 74L59.8252 69.8652H0V38.667L37.1719 1.53613H68.4092V66.2344ZM123.031 0.0478516C129.741 0.0479055 135.581 1.53047 140.549 4.49512C145.582 7.45985 149.485 11.5852 152.26 16.8701C155.099 22.0905 156.518 28.1488 156.518 35.0449C156.518 42.0054 155.099 48.1282 152.26 53.4131C149.485 58.6336 145.582 62.7267 140.549 65.6914C135.581 68.5916 129.741 70.0419 123.031 70.042C116.385 70.042 110.545 68.5917 105.513 65.6914C100.48 62.7267 96.544 58.6335 93.7051 53.4131C90.9308 48.1282 89.5439 42.0054 89.5439 35.0449C89.544 28.1489 90.9307 22.0905 93.7051 16.8701C96.544 11.5852 100.48 7.45984 105.513 4.49512C110.545 1.53038 116.385 0.0478516 123.031 0.0478516ZM183.564 0.0478516C187.952 0.0478713 191.888 0.82137 195.372 2.36816C198.856 3.85051 201.663 6.10663 203.792 9.13574C205.986 12.1005 207.276 15.8068 207.663 20.2539H199.05C198.727 17.2892 197.856 14.9042 196.437 13.0996C195.082 11.2305 193.307 9.84469 191.113 8.94238C188.92 8.04013 186.435 7.58888 183.661 7.58887C180.951 7.58887 178.467 8.00792 176.209 8.8457C173.951 9.68353 172.112 10.9406 170.692 12.6162C169.273 14.2919 168.562 16.419 168.562 18.9971C168.563 21.6394 169.531 23.8634 171.467 25.668C173.402 27.4079 175.983 28.5997 179.209 29.2441L191.984 31.5645C197.469 32.5957 201.631 34.6583 204.47 37.752C207.373 40.8456 208.825 44.842 208.825 49.7402C208.825 53.2204 208.115 56.217 206.695 58.7305C205.34 61.244 203.502 63.3389 201.179 65.0146C198.856 66.6903 196.21 67.9473 193.242 68.7852C190.339 69.6229 187.306 70.042 184.145 70.042C180.725 70.042 177.467 69.5907 174.37 68.6885C171.273 67.7862 168.499 66.4324 166.047 64.6279C163.595 62.8233 161.594 60.5351 160.046 57.7637C158.562 54.928 157.723 51.609 157.529 47.8066H166.047C166.37 51.2867 167.369 54.1223 169.047 56.3135C170.724 58.4403 172.886 60.0196 175.531 61.0508C178.241 62.0175 181.145 62.501 184.242 62.501C187.145 62.5009 189.823 62.0819 192.274 61.2441C194.726 60.4063 196.663 59.0849 198.082 57.2803C199.566 55.4113 200.308 53.0269 200.308 50.127C200.308 47.6135 199.566 45.3895 198.082 43.4561C196.663 41.5225 194.017 40.2011 190.146 39.4922L176.596 36.9785C171.692 36.0762 167.724 34.078 164.691 30.9844C161.659 27.8264 160.143 24.0241 160.143 19.5771C160.143 15.4523 161.208 11.9393 163.337 9.03906C165.531 6.13892 168.402 3.91493 171.95 2.36816C175.563 0.821378 179.435 0.0478516 183.564 0.0478516ZM236.902 0.0478516C241.29 0.0478516 245.226 0.821411 248.71 2.36816C252.194 3.85049 255.001 6.10668 257.13 9.13574C259.324 12.1005 260.615 15.8068 261.002 20.2539H252.388C252.065 17.2892 251.194 14.9042 249.774 13.0996C248.419 11.2306 246.645 9.84467 244.451 8.94238C242.257 8.04017 239.773 7.58887 236.999 7.58887C234.289 7.58888 231.805 8.00788 229.547 8.8457C227.289 9.68355 225.45 10.9405 224.03 12.6162C222.611 14.2919 221.901 16.419 221.901 18.9971C221.901 21.6394 222.869 23.8634 224.805 25.668C226.74 27.4079 229.321 28.5997 232.547 29.2441L245.322 31.5645C250.807 32.5957 254.969 34.6584 257.808 37.752C260.711 40.8456 262.163 44.842 262.163 49.7402C262.163 53.2202 261.453 56.2171 260.034 58.7305C258.679 61.244 256.839 63.3389 254.517 65.0146C252.194 66.6902 249.549 67.9473 246.581 68.7852C243.678 69.623 240.645 70.042 237.483 70.042C234.064 70.042 230.805 69.5908 227.708 68.6885C224.611 67.7862 221.837 66.4325 219.385 64.6279C216.933 62.8233 214.932 60.5351 213.384 57.7637C211.9 54.928 211.061 51.609 210.867 47.8066H219.385C219.707 51.2867 220.707 54.1223 222.385 56.3135C224.062 58.4403 226.224 60.0196 228.869 61.0508C231.579 62.0175 234.483 62.501 237.58 62.501C240.484 62.501 243.161 62.082 245.613 61.2441C248.065 60.4063 250 59.0848 251.42 57.2803C252.904 55.4113 253.646 53.027 253.646 50.127C253.646 47.6134 252.904 45.3896 251.42 43.4561C250 41.5225 247.355 40.2011 243.483 39.4922L229.934 36.9785C225.03 36.0762 221.062 34.0779 218.029 30.9844C214.997 27.8264 213.481 24.024 213.48 19.5771C213.48 15.4523 214.546 11.9393 216.675 9.03906C218.869 6.1389 221.739 3.91495 225.288 2.36816C228.901 0.821357 232.773 0.0478611 236.902 0.0478516ZM343.504 0.0478516C350.214 0.047901 356.053 1.53047 361.021 4.49512C366.054 7.45985 369.958 11.5852 372.732 16.8701C375.571 22.0905 376.991 28.1488 376.991 35.0449C376.991 42.0054 375.571 48.1282 372.732 53.4131C372.067 54.6646 371.336 55.8508 370.541 56.9727L373.216 59.8906C373.861 60.4706 374.378 60.8574 374.765 61.0508C375.152 61.1797 375.829 61.2441 376.797 61.2441H381.927V68.8818H374.571C373.41 68.8818 372.41 68.7528 371.571 68.4951C370.797 68.1729 370.022 67.5605 369.248 66.6582L365.506 62.4971C364.126 63.677 362.632 64.7425 361.021 65.6914C356.053 68.5916 350.214 70.0419 343.504 70.042C336.858 70.042 331.018 68.5917 325.985 65.6914C320.953 62.7267 317.017 58.6335 314.178 53.4131C311.403 48.1282 310.017 42.0054 310.017 35.0449C310.017 28.1489 311.403 22.0905 314.178 16.8701C317.017 11.5852 320.953 7.45984 325.985 4.49512C331.018 1.53038 336.858 0.0478516 343.504 0.0478516ZM68.4092 69.5781V69.8652H68.1221L68.4092 69.5781ZM303.754 68.8818H295.043V1.20801H303.754V68.8818ZM123.031 7.78223C118.192 7.78223 113.901 8.87801 110.158 11.0693C106.481 13.2607 103.61 16.387 101.545 20.4473C99.5448 24.5076 98.5449 29.3734 98.5449 35.0449C98.5449 40.7166 99.5447 45.6154 101.545 49.7402C103.61 53.8003 106.481 56.9259 110.158 59.1172C113.901 61.2441 118.192 62.3076 123.031 62.3076C127.935 62.3076 132.226 61.244 135.903 59.1172C139.581 56.9259 142.452 53.8003 144.517 49.7402C146.581 45.6154 147.614 40.7166 147.614 35.0449C147.614 29.3734 146.581 24.5076 144.517 20.4473C142.452 16.3869 139.581 13.2607 135.903 11.0693C132.226 8.87807 127.935 7.78228 123.031 7.78223ZM343.504 7.78223C338.665 7.78223 334.374 8.87817 330.632 11.0693C326.954 13.2607 324.082 16.3869 322.018 20.4473C320.017 24.5076 319.018 29.3734 319.018 35.0449C319.018 40.7166 320.017 45.6154 322.018 49.7402C324.082 53.8005 326.954 56.9259 330.632 59.1172C334.374 61.244 338.665 62.3076 343.504 62.3076C348.407 62.3076 352.698 61.244 356.376 59.1172C357.695 58.3314 358.907 57.4226 360.019 56.3965L347.858 42.876L353.278 38.1387L364.595 50.4854C364.729 50.2405 364.861 49.9923 364.989 49.7402C367.054 45.6154 368.087 40.7166 368.087 35.0449C368.087 29.3734 367.054 24.5076 364.989 20.4473C362.925 16.3869 360.054 13.2607 356.376 11.0693C352.698 8.87806 348.407 7.78228 343.504 7.78223ZM40.1221 35.7402C42.1812 35.3313 44.3149 35.544 46.2539 36.3457C48.1941 37.1485 49.8557 38.5078 51.0225 40.252C51.2777 40.6336 51.5067 41.0303 51.709 41.4385C51.8102 41.6426 51.9045 41.8498 51.9922 42.0596C52.4304 43.1085 52.6988 44.2235 52.7832 45.3623L52.8105 46.1455C52.808 47.9028 52.3694 49.614 51.5547 51.1357C51.3103 51.5922 51.0321 52.0317 50.7217 52.4502C50.4113 52.8686 50.0685 53.2659 49.6953 53.6387C47.7038 55.628 45.0053 56.7429 42.1895 56.7461C41.9272 56.746 41.6655 56.737 41.4053 56.7178C41.1448 56.6986 40.8855 56.6699 40.6279 56.6318C40.1134 56.5558 39.6059 56.4418 39.1094 56.292C38.861 56.217 38.6154 56.1331 38.373 56.04C37.6461 55.761 36.9485 55.4016 36.2939 54.9648C34.7664 53.9453 33.533 52.5481 32.71 50.917L32.3838 50.2012C31.5812 48.2643 31.367 46.133 31.7764 44.0762C32.0068 42.9189 32.4282 41.8139 33.0166 40.8047C33.1474 40.5804 33.2865 40.3609 33.4336 40.1465C33.8013 39.6106 34.2195 39.1072 34.6836 38.6436C36.1687 37.1601 38.0623 36.1495 40.1221 35.7402Z" fill="white"/>
+            </g>
+            <defs><clipPath id="clip0_idx_dark"><rect width="382" height="70" fill="white"/></clipPath></defs>
+            </svg>
+
+            <svg class="theme-light" width="109" height="20" viewBox="0 0 382 70" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <g clip-path="url(#clip0_idx_light)">
+            <path d="M68.4092 66.2344L58.5049 56.2979C60.267 53.5069 61.2823 50.2993 61.4268 46.9834L61.4463 46.1416C61.4455 42.3383 60.3122 38.6213 58.1982 35.4609C56.0836 32.3002 53.079 29.8356 49.5615 28.3799C48.463 27.9254 47.3297 27.5759 46.1768 27.332C45.7154 27.2345 45.2509 27.1533 44.7842 27.0898C42.6849 26.8044 40.5411 26.8652 38.4404 27.2822C36.3397 27.6996 34.334 28.4626 32.502 29.5283C32.0947 29.7652 31.6959 30.0168 31.3066 30.2832C30.334 30.949 29.4203 31.7056 28.5791 32.5459C25.8868 35.2352 24.0524 38.666 23.3096 42.3965C22.9385 44.2619 22.8497 46.1612 23.0352 48.0332C23.0815 48.5011 23.145 48.9672 23.2256 49.4307C23.4674 50.8213 23.8622 52.1881 24.4082 53.5049C25.5923 56.3596 27.4433 58.8763 29.793 60.8525C30.1544 61.1566 30.5276 61.4479 30.9121 61.7256C31.1043 61.8644 31.2993 61.9998 31.4971 62.1318C34.6609 64.2435 38.3819 65.3723 42.1895 65.373L42.1934 65.377C44.6789 65.3783 47.119 64.8906 49.3857 63.9658C49.7979 63.7977 50.2046 63.6157 50.6045 63.4189C51.2044 63.1238 51.7894 62.7963 52.3574 62.4385L63.9834 74L59.8252 69.8652H0V38.667L37.1719 1.53613H68.4092V66.2344ZM123.031 0.0478516C129.741 0.0479055 135.581 1.53047 140.549 4.49512C145.582 7.45985 149.485 11.5852 152.26 16.8701C155.099 22.0905 156.518 28.1488 156.518 35.0449C156.518 42.0054 155.099 48.1282 152.26 53.4131C149.485 58.6336 145.582 62.7267 140.549 65.6914C135.581 68.5916 129.741 70.0419 123.031 70.042C116.385 70.042 110.545 68.5917 105.513 65.6914C100.48 62.7267 96.544 58.6335 93.7051 53.4131C90.9308 48.1282 89.5439 42.0054 89.5439 35.0449C89.544 28.1489 90.9307 22.0905 93.7051 16.8701C96.544 11.5852 100.48 7.45984 105.513 4.49512C110.545 1.53038 116.385 0.0478516 123.031 0.0478516ZM183.564 0.0478516C187.952 0.0478713 191.888 0.82137 195.372 2.36816C198.856 3.85051 201.663 6.10663 203.792 9.13574C205.986 12.1005 207.276 15.8068 207.663 20.2539H199.05C198.727 17.2892 197.856 14.9042 196.437 13.0996C195.082 11.2305 193.307 9.84469 191.113 8.94238C188.92 8.04013 186.435 7.58888 183.661 7.58887C180.951 7.58887 178.467 8.00792 176.209 8.8457C173.951 9.68353 172.112 10.9406 170.692 12.6162C169.273 14.2919 168.562 16.419 168.562 18.9971C168.563 21.6394 169.531 23.8634 171.467 25.668C173.402 27.4079 175.983 28.5997 179.209 29.2441L191.984 31.5645C197.469 32.5957 201.631 34.6583 204.47 37.752C207.373 40.8456 208.825 44.842 208.825 49.7402C208.825 53.2204 208.115 56.217 206.695 58.7305C205.34 61.244 203.502 63.3389 201.179 65.0146C198.856 66.6903 196.21 67.9473 193.242 68.7852C190.339 69.6229 187.306 70.042 184.145 70.042C180.725 70.042 177.467 69.5907 174.37 68.6885C171.273 67.7862 168.499 66.4324 166.047 64.6279C163.595 62.8233 161.594 60.5351 160.046 57.7637C158.562 54.928 157.723 51.609 157.529 47.8066H166.047C166.37 51.2867 167.369 54.1223 169.047 56.3135C170.724 58.4403 172.886 60.0196 175.531 61.0508C178.241 62.0175 181.145 62.501 184.242 62.501C187.145 62.5009 189.823 62.0819 192.274 61.2441C194.726 60.4063 196.663 59.0849 198.082 57.2803C199.566 55.4113 200.308 53.0269 200.308 50.127C200.308 47.6135 199.566 45.3895 198.082 43.4561C196.663 41.5225 194.017 40.2011 190.146 39.4922L176.596 36.9785C171.692 36.0762 167.724 34.078 164.691 30.9844C161.659 27.8264 160.143 24.0241 160.143 19.5771C160.143 15.4523 161.208 11.9393 163.337 9.03906C165.531 6.13892 168.402 3.91493 171.95 2.36816C175.563 0.821378 179.435 0.0478516 183.564 0.0478516ZM236.902 0.0478516C241.29 0.0478516 245.226 0.821411 248.71 2.36816C252.194 3.85049 255.001 6.10668 257.13 9.13574C259.324 12.1005 260.615 15.8068 261.002 20.2539H252.388C252.065 17.2892 251.194 14.9042 249.774 13.0996C248.419 11.2306 246.645 9.84467 244.451 8.94238C242.257 8.04017 239.773 7.58887 236.999 7.58887C234.289 7.58888 231.805 8.00788 229.547 8.8457C227.289 9.68355 225.45 10.9405 224.03 12.6162C222.611 14.2919 221.901 16.419 221.901 18.9971C221.901 21.6394 222.869 23.8634 224.805 25.668C226.74 27.4079 229.321 28.5997 232.547 29.2441L245.322 31.5645C250.807 32.5957 254.969 34.6584 257.808 37.752C260.711 40.8456 262.163 44.842 262.163 49.7402C262.163 53.2202 261.453 56.2171 260.034 58.7305C258.679 61.244 256.839 63.3389 254.517 65.0146C252.194 66.6902 249.549 67.9473 246.581 68.7852C243.678 69.623 240.645 70.042 237.483 70.042C234.064 70.042 230.805 69.5908 227.708 68.6885C224.611 67.7862 221.837 66.4325 219.385 64.6279C216.933 62.8233 214.932 60.5351 213.384 57.7637C211.9 54.928 211.061 51.609 210.867 47.8066H219.385C219.707 51.2867 220.707 54.1223 222.385 56.3135C224.062 58.4403 226.224 60.0196 228.869 61.0508C231.579 62.0175 234.483 62.501 237.58 62.501C240.484 62.501 243.161 62.082 245.613 61.2441C248.065 60.4063 250 59.0848 251.42 57.2803C252.904 55.4113 253.646 53.027 253.646 50.127C253.646 47.6134 252.904 45.3896 251.42 43.4561C250 41.5225 247.355 40.2011 243.483 39.4922L229.934 36.9785C225.03 36.0762 221.062 34.0779 218.029 30.9844C214.997 27.8264 213.481 24.024 213.48 19.5771C213.48 15.4523 214.546 11.9393 216.675 9.03906C218.869 6.1389 221.739 3.91495 225.288 2.36816C228.901 0.821357 232.773 0.0478611 236.902 0.0478516ZM343.504 0.0478516C350.214 0.047901 356.053 1.53047 361.021 4.49512C366.054 7.45985 369.958 11.5852 372.732 16.8701C375.571 22.0905 376.991 28.1488 376.991 35.0449C376.991 42.0054 375.571 48.1282 372.732 53.4131C372.067 54.6646 371.336 55.8508 370.541 56.9727L373.216 59.8906C373.861 60.4706 374.378 60.8574 374.765 61.0508C375.152 61.1797 375.829 61.2441 376.797 61.2441H381.927V68.8818H374.571C373.41 68.8818 372.41 68.7528 371.571 68.4951C370.797 68.1729 370.022 67.5605 369.248 66.6582L365.506 62.4971C364.126 63.677 362.632 64.7425 361.021 65.6914C356.053 68.5916 350.214 70.0419 343.504 70.042C336.858 70.042 331.018 68.5917 325.985 65.6914C320.953 62.7267 317.017 58.6335 314.178 53.4131C311.403 48.1282 310.017 42.0054 310.017 35.0449C310.017 28.1489 311.403 22.0905 314.178 16.8701C317.017 11.5852 320.953 7.45984 325.985 4.49512C331.018 1.53038 336.858 0.0478516 343.504 0.0478516ZM68.4092 69.5781V69.8652H68.1221L68.4092 69.5781ZM303.754 68.8818H295.043V1.20801H303.754V68.8818ZM123.031 7.78223C118.192 7.78223 113.901 8.87801 110.158 11.0693C106.481 13.2607 103.61 16.387 101.545 20.4473C99.5448 24.5076 98.5449 29.3734 98.5449 35.0449C98.5449 40.7166 99.5447 45.6154 101.545 49.7402C103.61 53.8003 106.481 56.9259 110.158 59.1172C113.901 61.2441 118.192 62.3076 123.031 62.3076C127.935 62.3076 132.226 61.244 135.903 59.1172C139.581 56.9259 142.452 53.8003 144.517 49.7402C146.581 45.6154 147.614 40.7166 147.614 35.0449C147.614 29.3734 146.581 24.5076 144.517 20.4473C142.452 16.3869 139.581 13.2607 135.903 11.0693C132.226 8.87807 127.935 7.78228 123.031 7.78223ZM343.504 7.78223C338.665 7.78223 334.374 8.87817 330.632 11.0693C326.954 13.2607 324.082 16.3869 322.018 20.4473C320.017 24.5076 319.018 29.3734 319.018 35.0449C319.018 40.7166 320.017 45.6154 322.018 49.7402C324.082 53.8005 326.954 56.9259 330.632 59.1172C334.374 61.244 338.665 62.3076 343.504 62.3076C348.407 62.3076 352.698 61.244 356.376 59.1172C357.695 58.3314 358.907 57.4226 360.019 56.3965L347.858 42.876L353.278 38.1387L364.595 50.4854C364.729 50.2405 364.861 49.9923 364.989 49.7402C367.054 45.6154 368.087 40.7166 368.087 35.0449C368.087 29.3734 367.054 24.5076 364.989 20.4473C362.925 16.3869 360.054 13.2607 356.376 11.0693C352.698 8.87806 348.407 7.78228 343.504 7.78223ZM40.1221 35.7402C42.1812 35.3313 44.3149 35.544 46.2539 36.3457C48.1941 37.1485 49.8557 38.5078 51.0225 40.252C51.2777 40.6336 51.5067 41.0303 51.709 41.4385C51.8102 41.6426 51.9045 41.8498 51.9922 42.0596C52.4304 43.1085 52.6988 44.2235 52.7832 45.3623L52.8105 46.1455C52.808 47.9028 52.3694 49.614 51.5547 51.1357C51.3103 51.5922 51.0321 52.0317 50.7217 52.4502C50.4113 52.8686 50.0685 53.2659 49.6953 53.6387C47.7038 55.628 45.0053 56.7429 42.1895 56.7461C41.9272 56.746 41.6655 56.737 41.4053 56.7178C41.1448 56.6986 40.8855 56.6699 40.6279 56.6318C40.1134 56.5558 39.6059 56.4418 39.1094 56.292C38.861 56.217 38.6154 56.1331 38.373 56.04C37.6461 55.761 36.9485 55.4016 36.2939 54.9648C34.7664 53.9453 33.533 52.5481 32.71 50.917L32.3838 50.2012C31.5812 48.2643 31.367 46.133 31.7764 44.0762C32.0068 42.9189 32.4282 41.8139 33.0166 40.8047C33.1474 40.5804 33.2865 40.3609 33.4336 40.1465C33.8013 39.6106 34.2195 39.1072 34.6836 38.6436C36.1687 37.1601 38.0623 36.1495 40.1221 35.7402Z" fill="#1D1D1F"/>
+            </g>
+            <defs><clipPath id="clip0_idx_light"><rect width="382" height="70" fill="white"/></clipPath></defs>
+            </svg>
+        </a>
+    </div>
+
+    <nav class="hidden md:flex items-center gap-8 text-sm font-medium text-gray-400">
+        <a href="/#how-it-works" class="hover:text-white transition-colors">How It Works</a>
+        <a href="/#features" class="hover:text-white transition-colors">Features</a>
+        <a href="/#try-it" class="hover:text-white transition-colors">Try It</a>
+        <a href="/getting-started.html" class="hover:text-white transition-colors">Documentation</a>
+        <a href="/journal/" class="text-accent-green font-semibold">Journal</a>
+        <div class="theme-switcher" role="group" aria-label="Select theme">
+            <button class="theme-option" data-theme="dark" onclick="setTheme('dark')" aria-label="Dark mode">
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+                Dark
+            </button>
+            <button class="theme-option" data-theme="light" onclick="setTheme('light')" aria-label="Light mode">
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="5" fill="currentColor" stroke="none"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+                Light
+            </button>
+        </div>
+    </nav>
+</header>
+
+<main class="max-w-7xl mx-auto px-6 md:px-12 pb-32">
+
+    <!-- ═══════════════════ HERO ═══════════════════ -->
+    <section class="pt-16 pb-20 border-b section-divider">
+        <p class="text-accent-green font-mono text-sm mb-6 tracking-widest uppercase fade-in">&gt; OSS IQ Journal</p>
+        <h1 class="text-5xl md:text-7xl font-extrabold leading-[1.05] tracking-tight mb-6 max-w-3xl fade-in">
+            Research &amp; Analysis<br>
+            <span class="text-accent-green">on Open-Source<br>Dependency Health</span>
+        </h1>
+        <p class="text-gray-400 text-lg md:text-xl max-w-2xl leading-relaxed fade-in">
+            In-depth reports on software supply chain risk, dependency drift,
+            maintenance signals, and the hidden costs of modern development.
+        </p>
+    </section>
+
+    <!-- ═══════════════════ FEATURED ARTICLE ═══════════════════ -->
+    <section class="pt-16 pb-16 border-b section-divider">
+        <!-- <p class="category-tag mb-8 fade-in">Latest</p> -->
+
+        <a href="/journal/the-hidden-cost-of-ai-generated-code.html" class="block rounded-xl fade-in hover:opacity-95 transition-opacity">
+            <div class="grid grid-cols-1 lg:grid-cols-5 gap-4 lg:gap-8">
+
+                <!-- Left: article info -->
+                <div class="lg:col-span-3 flex flex-col justify-between">
+                    <div>
+                        <p class="category-tag mb-5">&gt; Analytics &middot; April 2026</p>
+                        <h2 class="text-2xl md:text-4xl lg:text-6xl leading-[1.1] tracking-tight mb-4 text-white hover:text-gray-300 transition-colors">
+                            The Hidden Cost of AI&#8209;Generated Code
+                        </h2>
+                        <p class="text-gray-300 text-lg md:text-l leading-relaxed mb-8">
+                            Why Faster Code Writing Is Making Software Worse?
+                        </p>
+                    </div>
+                    <div class="flex flex-wrap items-center gap-6">
+                        <span class="text-gray-500 font-mono text-xs uppercase tracking-widest">15 min read &nbsp;&middot;&nbsp; April 2026</span>
+                        <span class="text-accent-green font-mono text-sm font-semibold">Read the report &rarr;</span>
+                    </div>
+                </div>
+
+                <!-- Right: key metrics -->
+                <div class="lg:col-span-2 flex flex-col gap-3 justify-center">
+                    <div class="metric-chip rounded-lg p-4 flex items-baseline gap-4">
+                        <span class="text-accent-pink font-mono font-bold text-2xl tracking-tight shrink-0">$2.41T</span>
+                        <span class="text-gray-400 text-sm leading-snug">Cost of poor software quality <span class="text-gray-600 text-xs">(CISQ, U.S.)</span></span>
+                    </div>
+                    <div class="metric-chip rounded-lg p-4 flex items-baseline gap-4">
+                        <span class="text-accent-pink font-mono font-bold text-2xl tracking-tight shrink-0">-7.2%</span>
+                        <span class="text-gray-400 text-sm leading-snug">Delivery stability per 25% AI adoption <span class="text-gray-600 text-xs">(DORA 2024)</span></span>
+                    </div>
+                    <div class="metric-chip rounded-lg p-4 flex items-baseline gap-4">
+                        <span class="text-accent-pink font-mono font-bold text-2xl tracking-tight shrink-0">15–25%</span>
+                        <span class="text-gray-400 text-sm leading-snug">Of AI-generated code contains security vulnerabilities</span>
+                    </div>
+                </div>
+
+            </div>
+        </a>
+    </section>
+
+    <!-- ═══════════════════ ALL RESEARCH ═══════════════════ -->
+    <section class="pt-16">
+        <p class="category-tag mb-10 fade-in">All Research</p>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+
+            <!-- Article card: The Hidden Cost of AI-Generated Code -->
+            <a href="/journal/the-hidden-cost-of-ai-generated-code.html"
+               class="card-article rounded-xl p-7 fade-in group">
+                <div class="flex flex-col h-full">
+                    <div class="mb-auto">
+                        <p class="category-tag mb-4">Research Report</p>
+                        <h3 class="text-white font-bold text-xl leading-snug tracking-tight mb-3 group-hover:text-accent-green transition-colors">
+                            The Hidden Cost of AI-Generated Code
+                        </h3>
+                        <p class="text-gray-500 text-sm leading-relaxed">
+                            AI tools accelerate output but introduce hidden costs in code quality, security, and long-term maintenance — and the data is starting to confirm it.
+                        </p>
+                    </div>
+                    <div class="flex items-center justify-between mt-6 pt-5 border-t border-white/[.06]">
+                        <span class="text-gray-600 font-mono text-xs uppercase tracking-widest">April 2026 &nbsp;&middot;&nbsp; 15 min</span>
+                        <span class="text-accent-green font-mono text-xs font-semibold opacity-0 group-hover:opacity-100 transition-opacity">Read &rarr;</span>
+                    </div>
+                </div>
+            </a>
+
+        </div>
+    </section>
+
+</main>
+
+<!-- ═══════════════════ FOOTER ═══════════════════ -->
+<footer class="bg-secondary border-t section-divider mt-auto">
+    <div class="max-w-7xl mx-auto px-6 md:px-12 py-12 flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
+        <div>
+            <a href="/">
+                <svg class="theme-dark mb-3" width="82" height="15" viewBox="0 0 382 70" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <g clip-path="url(#clip0_idx_footer_dark)">
+                <path d="M68.4092 66.2344L58.5049 56.2979C60.267 53.5069 61.2823 50.2993 61.4268 46.9834L61.4463 46.1416C61.4455 42.3383 60.3122 38.6213 58.1982 35.4609C56.0836 32.3002 53.079 29.8356 49.5615 28.3799C48.463 27.9254 47.3297 27.5759 46.1768 27.332C45.7154 27.2345 45.2509 27.1533 44.7842 27.0898C42.6849 26.8044 40.5411 26.8652 38.4404 27.2822C36.3397 27.6996 34.334 28.4626 32.502 29.5283C32.0947 29.7652 31.6959 30.0168 31.3066 30.2832C30.334 30.949 29.4203 31.7056 28.5791 32.5459C25.8868 35.2352 24.0524 38.666 23.3096 42.3965C22.9385 44.2619 22.8497 46.1612 23.0352 48.0332C23.0815 48.5011 23.145 48.9672 23.2256 49.4307C23.4674 50.8213 23.8622 52.1881 24.4082 53.5049C25.5923 56.3596 27.4433 58.8763 29.793 60.8525C30.1544 61.1566 30.5276 61.4479 30.9121 61.7256C31.1043 61.8644 31.2993 61.9998 31.4971 62.1318C34.6609 64.2435 38.3819 65.3723 42.1895 65.373L42.1934 65.377C44.6789 65.3783 47.119 64.8906 49.3857 63.9658C49.7979 63.7977 50.2046 63.6157 50.6045 63.4189C51.2044 63.1238 51.7894 62.7963 52.3574 62.4385L63.9834 74L59.8252 69.8652H0V38.667L37.1719 1.53613H68.4092V66.2344ZM123.031 0.0478516C129.741 0.0479055 135.581 1.53047 140.549 4.49512C145.582 7.45985 149.485 11.5852 152.26 16.8701C155.099 22.0905 156.518 28.1488 156.518 35.0449C156.518 42.0054 155.099 48.1282 152.26 53.4131C149.485 58.6336 145.582 62.7267 140.549 65.6914C135.581 68.5916 129.741 70.0419 123.031 70.042C116.385 70.042 110.545 68.5917 105.513 65.6914C100.48 62.7267 96.544 58.6335 93.7051 53.4131C90.9308 48.1282 89.5439 42.0054 89.5439 35.0449C89.544 28.1489 90.9307 22.0905 93.7051 16.8701C96.544 11.5852 100.48 7.45984 105.513 4.49512C110.545 1.53038 116.385 0.0478516 123.031 0.0478516ZM183.564 0.0478516C187.952 0.0478713 191.888 0.82137 195.372 2.36816C198.856 3.85051 201.663 6.10663 203.792 9.13574C205.986 12.1005 207.276 15.8068 207.663 20.2539H199.05C198.727 17.2892 197.856 14.9042 196.437 13.0996C195.082 11.2305 193.307 9.84469 191.113 8.94238C188.92 8.04013 186.435 7.58888 183.661 7.58887C180.951 7.58887 178.467 8.00792 176.209 8.8457C173.951 9.68353 172.112 10.9406 170.692 12.6162C169.273 14.2919 168.562 16.419 168.562 18.9971C168.563 21.6394 169.531 23.8634 171.467 25.668C173.402 27.4079 175.983 28.5997 179.209 29.2441L191.984 31.5645C197.469 32.5957 201.631 34.6583 204.47 37.752C207.373 40.8456 208.825 44.842 208.825 49.7402C208.825 53.2204 208.115 56.217 206.695 58.7305C205.34 61.244 203.502 63.3389 201.179 65.0146C198.856 66.6903 196.21 67.9473 193.242 68.7852C190.339 69.6229 187.306 70.042 184.145 70.042C180.725 70.042 177.467 69.5907 174.37 68.6885C171.273 67.7862 168.499 66.4324 166.047 64.6279C163.595 62.8233 161.594 60.5351 160.046 57.7637C158.562 54.928 157.723 51.609 157.529 47.8066H166.047C166.37 51.2867 167.369 54.1223 169.047 56.3135C170.724 58.4403 172.886 60.0196 175.531 61.0508C178.241 62.0175 181.145 62.501 184.242 62.501C187.145 62.5009 189.823 62.0819 192.274 61.2441C194.726 60.4063 196.663 59.0849 198.082 57.2803C199.566 55.4113 200.308 53.0269 200.308 50.127C200.308 47.6135 199.566 45.3895 198.082 43.4561C196.663 41.5225 194.017 40.2011 190.146 39.4922L176.596 36.9785C171.692 36.0762 167.724 34.078 164.691 30.9844C161.659 27.8264 160.143 24.0241 160.143 19.5771C160.143 15.4523 161.208 11.9393 163.337 9.03906C165.531 6.13892 168.402 3.91493 171.95 2.36816C175.563 0.821378 179.435 0.0478516 183.564 0.0478516ZM236.902 0.0478516C241.29 0.0478516 245.226 0.821411 248.71 2.36816C252.194 3.85049 255.001 6.10668 257.13 9.13574C259.324 12.1005 260.615 15.8068 261.002 20.2539H252.388C252.065 17.2892 251.194 14.9042 249.774 13.0996C248.419 11.2306 246.645 9.84467 244.451 8.94238C242.257 8.04017 239.773 7.58887 236.999 7.58887C234.289 7.58888 231.805 8.00788 229.547 8.8457C227.289 9.68355 225.45 10.9405 224.03 12.6162C222.611 14.2919 221.901 16.419 221.901 18.9971C221.901 21.6394 222.869 23.8634 224.805 25.668C226.74 27.4079 229.321 28.5997 232.547 29.2441L245.322 31.5645C250.807 32.5957 254.969 34.6584 257.808 37.752C260.711 40.8456 262.163 44.842 262.163 49.7402C262.163 53.2202 261.453 56.2171 260.034 58.7305C258.679 61.244 256.839 63.3389 254.517 65.0146C252.194 66.6902 249.549 67.9473 246.581 68.7852C243.678 69.623 240.645 70.042 237.483 70.042C234.064 70.042 230.805 69.5908 227.708 68.6885C224.611 67.7862 221.837 66.4325 219.385 64.6279C216.933 62.8233 214.932 60.5351 213.384 57.7637C211.9 54.928 211.061 51.609 210.867 47.8066H219.385C219.707 51.2867 220.707 54.1223 222.385 56.3135C224.062 58.4403 226.224 60.0196 228.869 61.0508C231.579 62.0175 234.483 62.501 237.58 62.501C240.484 62.501 243.161 62.082 245.613 61.2441C248.065 60.4063 250 59.0848 251.42 57.2803C252.904 55.4113 253.646 53.027 253.646 50.127C253.646 47.6134 252.904 45.3896 251.42 43.4561C250 41.5225 247.355 40.2011 243.483 39.4922L229.934 36.9785C225.03 36.0762 221.062 34.0779 218.029 30.9844C214.997 27.8264 213.481 24.024 213.48 19.5771C213.48 15.4523 214.546 11.9393 216.675 9.03906C218.869 6.1389 221.739 3.91495 225.288 2.36816C228.901 0.821357 232.773 0.0478611 236.902 0.0478516ZM343.504 0.0478516C350.214 0.047901 356.053 1.53047 361.021 4.49512C366.054 7.45985 369.958 11.5852 372.732 16.8701C375.571 22.0905 376.991 28.1488 376.991 35.0449C376.991 42.0054 375.571 48.1282 372.732 53.4131C372.067 54.6646 371.336 55.8508 370.541 56.9727L373.216 59.8906C373.861 60.4706 374.378 60.8574 374.765 61.0508C375.152 61.1797 375.829 61.2441 376.797 61.2441H381.927V68.8818H374.571C373.41 68.8818 372.41 68.7528 371.571 68.4951C370.797 68.1729 370.022 67.5605 369.248 66.6582L365.506 62.4971C364.126 63.677 362.632 64.7425 361.021 65.6914C356.053 68.5916 350.214 70.0419 343.504 70.042C336.858 70.042 331.018 68.5917 325.985 65.6914C320.953 62.7267 317.017 58.6335 314.178 53.4131C311.403 48.1282 310.017 42.0054 310.017 35.0449C310.017 28.1489 311.403 22.0905 314.178 16.8701C317.017 11.5852 320.953 7.45984 325.985 4.49512C331.018 1.53038 336.858 0.0478516 343.504 0.0478516ZM68.4092 69.5781V69.8652H68.1221L68.4092 69.5781ZM303.754 68.8818H295.043V1.20801H303.754V68.8818ZM123.031 7.78223C118.192 7.78223 113.901 8.87801 110.158 11.0693C106.481 13.2607 103.61 16.387 101.545 20.4473C99.5448 24.5076 98.5449 29.3734 98.5449 35.0449C98.5449 40.7166 99.5447 45.6154 101.545 49.7402C103.61 53.8003 106.481 56.9259 110.158 59.1172C113.901 61.2441 118.192 62.3076 123.031 62.3076C127.935 62.3076 132.226 61.244 135.903 59.1172C139.581 56.9259 142.452 53.8003 144.517 49.7402C146.581 45.6154 147.614 40.7166 147.614 35.0449C147.614 29.3734 146.581 24.5076 144.517 20.4473C142.452 16.3869 139.581 13.2607 135.903 11.0693C132.226 8.87807 127.935 7.78228 123.031 7.78223ZM343.504 7.78223C338.665 7.78223 334.374 8.87817 330.632 11.0693C326.954 13.2607 324.082 16.3869 322.018 20.4473C320.017 24.5076 319.018 29.3734 319.018 35.0449C319.018 40.7166 320.017 45.6154 322.018 49.7402C324.082 53.8005 326.954 56.9259 330.632 59.1172C334.374 61.244 338.665 62.3076 343.504 62.3076C348.407 62.3076 352.698 61.244 356.376 59.1172C357.695 58.3314 358.907 57.4226 360.019 56.3965L347.858 42.876L353.278 38.1387L364.595 50.4854C364.729 50.2405 364.861 49.9923 364.989 49.7402C367.054 45.6154 368.087 40.7166 368.087 35.0449C368.087 29.3734 367.054 24.5076 364.989 20.4473C362.925 16.3869 360.054 13.2607 356.376 11.0693C352.698 8.87806 348.407 7.78228 343.504 7.78223ZM40.1221 35.7402C42.1812 35.3313 44.3149 35.544 46.2539 36.3457C48.1941 37.1485 49.8557 38.5078 51.0225 40.252C51.2777 40.6336 51.5067 41.0303 51.709 41.4385C51.8102 41.6426 51.9045 41.8498 51.9922 42.0596C52.4304 43.1085 52.6988 44.2235 52.7832 45.3623L52.8105 46.1455C52.808 47.9028 52.3694 49.614 51.5547 51.1357C51.3103 51.5922 51.0321 52.0317 50.7217 52.4502C50.4113 52.8686 50.0685 53.2659 49.6953 53.6387C47.7038 55.628 45.0053 56.7429 42.1895 56.7461C41.9272 56.746 41.6655 56.737 41.4053 56.7178C41.1448 56.6986 40.8855 56.6699 40.6279 56.6318C40.1134 56.5558 39.6059 56.4418 39.1094 56.292C38.861 56.217 38.6154 56.1331 38.373 56.04C37.6461 55.761 36.9485 55.4016 36.2939 54.9648C34.7664 53.9453 33.533 52.5481 32.71 50.917L32.3838 50.2012C31.5812 48.2643 31.367 46.133 31.7764 44.0762C32.0068 42.9189 32.4282 41.8139 33.0166 40.8047C33.1474 40.5804 33.2865 40.3609 33.4336 40.1465C33.8013 39.6106 34.2195 39.1072 34.6836 38.6436C36.1687 37.1601 38.0623 36.1495 40.1221 35.7402Z" fill="white"/>
+                </g>
+                <defs><clipPath id="clip0_idx_footer_dark"><rect width="382" height="70" fill="white"/></clipPath></defs>
+                </svg>
+                <svg class="theme-light mb-3" width="82" height="15" viewBox="0 0 382 70" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <g clip-path="url(#clip0_idx_footer_light)">
+                <path d="M68.4092 66.2344L58.5049 56.2979C60.267 53.5069 61.2823 50.2993 61.4268 46.9834L61.4463 46.1416C61.4455 42.3383 60.3122 38.6213 58.1982 35.4609C56.0836 32.3002 53.079 29.8356 49.5615 28.3799C48.463 27.9254 47.3297 27.5759 46.1768 27.332C45.7154 27.2345 45.2509 27.1533 44.7842 27.0898C42.6849 26.8044 40.5411 26.8652 38.4404 27.2822C36.3397 27.6996 34.334 28.4626 32.502 29.5283C32.0947 29.7652 31.6959 30.0168 31.3066 30.2832C30.334 30.949 29.4203 31.7056 28.5791 32.5459C25.8868 35.2352 24.0524 38.666 23.3096 42.3965C22.9385 44.2619 22.8497 46.1612 23.0352 48.0332C23.0815 48.5011 23.145 48.9672 23.2256 49.4307C23.4674 50.8213 23.8622 52.1881 24.4082 53.5049C25.5923 56.3596 27.4433 58.8763 29.793 60.8525C30.1544 61.1566 30.5276 61.4479 30.9121 61.7256C31.1043 61.8644 31.2993 61.9998 31.4971 62.1318C34.6609 64.2435 38.3819 65.3723 42.1895 65.373L42.1934 65.377C44.6789 65.3783 47.119 64.8906 49.3857 63.9658C49.7979 63.7977 50.2046 63.6157 50.6045 63.4189C51.2044 63.1238 51.7894 62.7963 52.3574 62.4385L63.9834 74L59.8252 69.8652H0V38.667L37.1719 1.53613H68.4092V66.2344ZM123.031 0.0478516C129.741 0.0479055 135.581 1.53047 140.549 4.49512C145.582 7.45985 149.485 11.5852 152.26 16.8701C155.099 22.0905 156.518 28.1488 156.518 35.0449C156.518 42.0054 155.099 48.1282 152.26 53.4131C149.485 58.6336 145.582 62.7267 140.549 65.6914C135.581 68.5916 129.741 70.0419 123.031 70.042C116.385 70.042 110.545 68.5917 105.513 65.6914C100.48 62.7267 96.544 58.6335 93.7051 53.4131C90.9308 48.1282 89.5439 42.0054 89.5439 35.0449C89.544 28.1489 90.9307 22.0905 93.7051 16.8701C96.544 11.5852 100.48 7.45984 105.513 4.49512C110.545 1.53038 116.385 0.0478516 123.031 0.0478516ZM183.564 0.0478516C187.952 0.0478713 191.888 0.82137 195.372 2.36816C198.856 3.85051 201.663 6.10663 203.792 9.13574C205.986 12.1005 207.276 15.8068 207.663 20.2539H199.05C198.727 17.2892 197.856 14.9042 196.437 13.0996C195.082 11.2305 193.307 9.84469 191.113 8.94238C188.92 8.04013 186.435 7.58888 183.661 7.58887C180.951 7.58887 178.467 8.00792 176.209 8.8457C173.951 9.68353 172.112 10.9406 170.692 12.6162C169.273 14.2919 168.562 16.419 168.562 18.9971C168.563 21.6394 169.531 23.8634 171.467 25.668C173.402 27.4079 175.983 28.5997 179.209 29.2441L191.984 31.5645C197.469 32.5957 201.631 34.6583 204.47 37.752C207.373 40.8456 208.825 44.842 208.825 49.7402C208.825 53.2204 208.115 56.217 206.695 58.7305C205.34 61.244 203.502 63.3389 201.179 65.0146C198.856 66.6903 196.21 67.9473 193.242 68.7852C190.339 69.6229 187.306 70.042 184.145 70.042C180.725 70.042 177.467 69.5907 174.37 68.6885C171.273 67.7862 168.499 66.4324 166.047 64.6279C163.595 62.8233 161.594 60.5351 160.046 57.7637C158.562 54.928 157.723 51.609 157.529 47.8066H166.047C166.37 51.2867 167.369 54.1223 169.047 56.3135C170.724 58.4403 172.886 60.0196 175.531 61.0508C178.241 62.0175 181.145 62.501 184.242 62.501C187.145 62.5009 189.823 62.0819 192.274 61.2441C194.726 60.4063 196.663 59.0849 198.082 57.2803C199.566 55.4113 200.308 53.0269 200.308 50.127C200.308 47.6135 199.566 45.3895 198.082 43.4561C196.663 41.5225 194.017 40.2011 190.146 39.4922L176.596 36.9785C171.692 36.0762 167.724 34.078 164.691 30.9844C161.659 27.8264 160.143 24.0241 160.143 19.5771C160.143 15.4523 161.208 11.9393 163.337 9.03906C165.531 6.13892 168.402 3.91493 171.95 2.36816C175.563 0.821378 179.435 0.0478516 183.564 0.0478516ZM236.902 0.0478516C241.29 0.0478516 245.226 0.821411 248.71 2.36816C252.194 3.85049 255.001 6.10668 257.13 9.13574C259.324 12.1005 260.615 15.8068 261.002 20.2539H252.388C252.065 17.2892 251.194 14.9042 249.774 13.0996C248.419 11.2306 246.645 9.84467 244.451 8.94238C242.257 8.04017 239.773 7.58887 236.999 7.58887C234.289 7.58888 231.805 8.00788 229.547 8.8457C227.289 9.68355 225.45 10.9405 224.03 12.6162C222.611 14.2919 221.901 16.419 221.901 18.9971C221.901 21.6394 222.869 23.8634 224.805 25.668C226.74 27.4079 229.321 28.5997 232.547 29.2441L245.322 31.5645C250.807 32.5957 254.969 34.6584 257.808 37.752C260.711 40.8456 262.163 44.842 262.163 49.7402C262.163 53.2202 261.453 56.2171 260.034 58.7305C258.679 61.244 256.839 63.3389 254.517 65.0146C252.194 66.6902 249.549 67.9473 246.581 68.7852C243.678 69.623 240.645 70.042 237.483 70.042C234.064 70.042 230.805 69.5908 227.708 68.6885C224.611 67.7862 221.837 66.4325 219.385 64.6279C216.933 62.8233 214.932 60.5351 213.384 57.7637C211.9 54.928 211.061 51.609 210.867 47.8066H219.385C219.707 51.2867 220.707 54.1223 222.385 56.3135C224.062 58.4403 226.224 60.0196 228.869 61.0508C231.579 62.0175 234.483 62.501 237.58 62.501C240.484 62.501 243.161 62.082 245.613 61.2441C248.065 60.4063 250 59.0848 251.42 57.2803C252.904 55.4113 253.646 53.027 253.646 50.127C253.646 47.6134 252.904 45.3896 251.42 43.4561C250 41.5225 247.355 40.2011 243.483 39.4922L229.934 36.9785C225.03 36.0762 221.062 34.0779 218.029 30.9844C214.997 27.8264 213.481 24.024 213.48 19.5771C213.48 15.4523 214.546 11.9393 216.675 9.03906C218.869 6.1389 221.739 3.91495 225.288 2.36816C228.901 0.821357 232.773 0.0478611 236.902 0.0478516ZM343.504 0.0478516C350.214 0.047901 356.053 1.53047 361.021 4.49512C366.054 7.45985 369.958 11.5852 372.732 16.8701C375.571 22.0905 376.991 28.1488 376.991 35.0449C376.991 42.0054 375.571 48.1282 372.732 53.4131C372.067 54.6646 371.336 55.8508 370.541 56.9727L373.216 59.8906C373.861 60.4706 374.378 60.8574 374.765 61.0508C375.152 61.1797 375.829 61.2441 376.797 61.2441H381.927V68.8818H374.571C373.41 68.8818 372.41 68.7528 371.571 68.4951C370.797 68.1729 370.022 67.5605 369.248 66.6582L365.506 62.4971C364.126 63.677 362.632 64.7425 361.021 65.6914C356.053 68.5916 350.214 70.0419 343.504 70.042C336.858 70.042 331.018 68.5917 325.985 65.6914C320.953 62.7267 317.017 58.6335 314.178 53.4131C311.403 48.1282 310.017 42.0054 310.017 35.0449C310.017 28.1489 311.403 22.0905 314.178 16.8701C317.017 11.5852 320.953 7.45984 325.985 4.49512C331.018 1.53038 336.858 0.0478516 343.504 0.0478516ZM68.4092 69.5781V69.8652H68.1221L68.4092 69.5781ZM303.754 68.8818H295.043V1.20801H303.754V68.8818ZM123.031 7.78223C118.192 7.78223 113.901 8.87801 110.158 11.0693C106.481 13.2607 103.61 16.387 101.545 20.4473C99.5448 24.5076 98.5449 29.3734 98.5449 35.0449C98.5449 40.7166 99.5447 45.6154 101.545 49.7402C103.61 53.8003 106.481 56.9259 110.158 59.1172C113.901 61.2441 118.192 62.3076 123.031 62.3076C127.935 62.3076 132.226 61.244 135.903 59.1172C139.581 56.9259 142.452 53.8003 144.517 49.7402C146.581 45.6154 147.614 40.7166 147.614 35.0449C147.614 29.3734 146.581 24.5076 144.517 20.4473C142.452 16.3869 139.581 13.2607 135.903 11.0693C132.226 8.87807 127.935 7.78228 123.031 7.78223ZM343.504 7.78223C338.665 7.78223 334.374 8.87817 330.632 11.0693C326.954 13.2607 324.082 16.3869 322.018 20.4473C320.017 24.5076 319.018 29.3734 319.018 35.0449C319.018 40.7166 320.017 45.6154 322.018 49.7402C324.082 53.8005 326.954 56.9259 330.632 59.1172C334.374 61.244 338.665 62.3076 343.504 62.3076C348.407 62.3076 352.698 61.244 356.376 59.1172C357.695 58.3314 358.907 57.4226 360.019 56.3965L347.858 42.876L353.278 38.1387L364.595 50.4854C364.729 50.2405 364.861 49.9923 364.989 49.7402C367.054 45.6154 368.087 40.7166 368.087 35.0449C368.087 29.3734 367.054 24.5076 364.989 20.4473C362.925 16.3869 360.054 13.2607 356.376 11.0693C352.698 8.87806 348.407 7.78228 343.504 7.78223ZM40.1221 35.7402C42.1812 35.3313 44.3149 35.544 46.2539 36.3457C48.1941 37.1485 49.8557 38.5078 51.0225 40.252C51.2777 40.6336 51.5067 41.0303 51.709 41.4385C51.8102 41.6426 51.9045 41.8498 51.9922 42.0596C52.4304 43.1085 52.6988 44.2235 52.7832 45.3623L52.8105 46.1455C52.808 47.9028 52.3694 49.614 51.5547 51.1357C51.3103 51.5922 51.0321 52.0317 50.7217 52.4502C50.4113 52.8686 50.0685 53.2659 49.6953 53.6387C47.7038 55.628 45.0053 56.7429 42.1895 56.7461C41.9272 56.746 41.6655 56.737 41.4053 56.7178C41.1448 56.6986 40.8855 56.6699 40.6279 56.6318C40.1134 56.5558 39.6059 56.4418 39.1094 56.292C38.861 56.217 38.6154 56.1331 38.373 56.04C37.6461 55.761 36.9485 55.4016 36.2939 54.9648C34.7664 53.9453 33.533 52.5481 32.71 50.917L32.3838 50.2012C31.5812 48.2643 31.367 46.133 31.7764 44.0762C32.0068 42.9189 32.4282 41.8139 33.0166 40.8047C33.1474 40.5804 33.2865 40.3609 33.4336 40.1465C33.8013 39.6106 34.2195 39.1072 34.6836 38.6436C36.1687 37.1601 38.0623 36.1495 40.1221 35.7402Z" fill="#1D1D1F"/>
+                </g>
+                <defs><clipPath id="clip0_idx_footer_light"><rect width="382" height="70" fill="white"/></clipPath></defs>
+                </svg>
+            </a>
+            <p class="text-gray-600 font-mono text-xs">&copy; 2026 Maksym Klymyshyn, Oleksandr Shulika</p>
+        </div>
+        <div class="flex items-center gap-6 text-gray-500 font-mono text-xs">
+            <a href="https://github.com/ossiq/ossiq" class="hover:text-accent-green transition-colors">GitHub</a>
+            <a href="/getting-started.html" class="hover:text-accent-green transition-colors">Docs</a>
+        </div>
+    </div>
+</footer>
+
+<script>
+function syncThemeUI(theme) {
+    document.querySelectorAll('.theme-option').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.theme === theme);
+    });
+}
+
+function setTheme(theme) {
+    document.documentElement.setAttribute('data-theme', theme);
+    localStorage.setItem('theme', theme);
+    syncThemeUI(theme);
+}
+
+syncThemeUI(document.documentElement.getAttribute('data-theme') ?? 'dark');
+
+const fadeObserver = new IntersectionObserver(entries => {
+    entries.forEach(entry => {
+        if (!entry.isIntersecting) return;
+        entry.target.classList.add('visible');
+        fadeObserver.unobserve(entry.target);
+    });
+}, { threshold: 0.1 });
+
+document.querySelectorAll('.fade-in').forEach(el => fadeObserver.observe(el));
+</script>
+
+</body>
+</html>

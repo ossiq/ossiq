@@ -14,7 +14,11 @@ html_static_path = ["_static"]
 html_extra_path = ["img", "samples", "_static/llms.txt", "_static/robots.txt"]
 
 # Custom landing page replaces index.html
-html_additional_pages = {"index": "landing.html"}
+html_additional_pages = {
+    "index": "landing.html",
+    "journal/index": "journal/index.html",
+    "journal/the-hidden-cost-of-ai-generated-code": "journal/the-hidden-cost-of-ai-generated-code.html",
+}
 html_css_files = ["ossiq.css"]
 html_js_files = [("search_compat.js", {"defer": "defer"})]
 
