@@ -59,6 +59,12 @@ def parse_iso_datetime(datetime_str: str | None) -> datetime | None:
     return None
 
 
+def cutoff_datetime_from_iso_date(date_str: str) -> datetime:
+    """Convert ISO date string 'YYYY-MM-DD' to end-of-day UTC datetime (23:59:59)."""
+    d = parse_iso_datetime(date_str).date()
+    return datetime(d.year, d.month, d.day, 23, 59, 59, tzinfo=UTC)
+
+
 def age_days_from_iso(published_date_iso: str | None, *, now: datetime | None = None) -> int | None:
     """Days elapsed since published_date_iso. None when date is absent.
 
@@ -67,5 +73,12 @@ def age_days_from_iso(published_date_iso: str | None, *, now: datetime | None = 
     dt = parse_iso_datetime(published_date_iso)
     if dt is None:
         return None
-    _now = now if now is not None else (datetime.now(tz=UTC) if dt.tzinfo else datetime.now())  # noqa: DTZ005
-    return (_now - dt).days
+
+    if now is not None:
+        current_time = now
+    elif dt.tzinfo:
+        current_time = datetime.now(tz=UTC)
+    else:
+        current_time = datetime.now()  # noqa: DTZ005
+
+    return (current_time - dt).days

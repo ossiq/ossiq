@@ -5,10 +5,15 @@ Support of UV package manager
 from __future__ import annotations
 
 import os
+import re
+import subprocess
 import tomllib
 from collections import namedtuple
 from collections.abc import Callable, Iterable
+from pathlib import Path
 from typing import TYPE_CHECKING
+
+from packaging.requirements import InvalidRequirement, Requirement
 
 from ossiq.adapters.api_interfaces import AbstractPackageManagerApi
 from ossiq.adapters.api_pypi import PackageRegistryApiPypi
@@ -27,6 +32,50 @@ if TYPE_CHECKING:
 
 
 UvProject = namedtuple("UvProject", ["manifest", "lockfile"])
+
+
+def parse_pyproject_direct_specifiers(pyproject_data: dict) -> dict[str, str | None]:
+    """Return {canonical_name: specifier} for all direct deps declared in pyproject.toml.
+
+    Covers [project.dependencies] and [project.optional-dependencies].
+    Used to authoritative-override stale lockfile metadata.requires-dist specifiers.
+    """
+    project_section = pyproject_data.get("project", {})
+    dep_strings: list[str] = list(project_section.get("dependencies", []))
+    for group_deps in project_section.get("optional-dependencies", {}).values():
+        dep_strings.extend(group_deps)
+
+    result: dict[str, str | None] = {}
+    for dep_str in dep_strings:
+        try:
+            req = Requirement(dep_str)
+            result[normalize_dist_name(req.name)] = str(req.specifier) or None
+        except (InvalidRequirement, ValueError):
+            pass
+    return result
+
+
+def apply_pyproject_constraints(root: Dependency, pyproject_specs: dict[str, str | None]) -> list[str]:
+    """Override version_defined/constraint_info on root's direct deps from pyproject.toml.
+
+    Returns names of packages whose lockfile specifier differed from pyproject.toml
+    (i.e. the lockfile is stale and needs `uv lock` to regenerate).
+    """
+    divergent: list[str] = []
+    for dep in {**root.dependencies, **root.optional_dependencies}.values():
+        canonical = normalize_dist_name(dep.canonical_name)
+        if canonical not in pyproject_specs:
+            continue
+        pyproject_spec = pyproject_specs[canonical]
+        if dep.version_defined == pyproject_spec:
+            continue
+        divergent.append(dep.name)
+        dep.version_defined = pyproject_spec
+        dep.constraint_info = ConstraintSource(
+            type=classify_pypi_specifier(pyproject_spec),
+            source_file="pyproject.toml",
+        )
+    return divergent
 
 
 class UVResolverV1R3(BaseDependencyResolver):
@@ -235,6 +284,9 @@ class PackageManagerPythonUv(AbstractPackageManagerApi):
 
         dependency_tree, registry = lockfile_parser(project_package_name, uv_lock_data)
 
+        pyproject_specs = parse_pyproject_direct_specifiers(pyproject_data)
+        divergent = apply_pyproject_constraints(dependency_tree, pyproject_specs)
+
         if not self.settings.skip_pypi_enrichment:
             enrich_registry_constraints(registry)
 
@@ -260,23 +312,24 @@ class PackageManagerPythonUv(AbstractPackageManagerApi):
             project_path=self.project_path,
             dependency_tree=dependency_tree,
             engine_constraints=engine_constraints,
+            manifest_lock_divergent=divergent,
         )
 
     @staticmethod
-    def resolve_direct_specifier(entry: UpdateEntry, pin: bool) -> str | None:
+    def resolve_direct_specifier(entry: UpdateEntry, pin_all: bool) -> str | None:
         """Return the new specifier string to write into pyproject.toml, or the original when lockfile-only.
 
         When the return value equals entry.version_defined, no pyproject.toml edit is needed —
         the caller should add the package to --upgrade-package on uv lock instead.
         """
-        if pin:
+        if pin_all:
             return f"=={entry.recommended_version}"
         return PackageRegistryApiPypi.rewrite_specifier(
             entry.version_defined, entry.recommended_version, entry.constraint_type
         )
 
     def generate_update_script(self, plan: UpdatePlan, cli_extra_args: str = "") -> str:
-        """Generate bash script: smart specifier rewrite (or --pin), then uv lock + uv sync."""
+        """Generate bash script: smart specifier rewrite (or --pin-all), then uv lock + uv sync."""
         lines = [
             "#!/usr/bin/env bash",
             f"# OSS IQ update — uv  |  project: {plan.project_name}",
@@ -291,7 +344,7 @@ class PackageManagerPythonUv(AbstractPackageManagerApi):
         if plan.direct_entries:
             lines += ["", "# --- direct dependencies: update specifiers in pyproject.toml ---"]
             for entry in plan.direct_entries:
-                new_spec = self.resolve_direct_specifier(entry, plan.pin)
+                new_spec = self.resolve_direct_specifier(entry, plan.pin_all)
                 orig = entry.version_defined or entry.current_version
 
                 if new_spec == entry.version_defined:
@@ -324,6 +377,37 @@ class PackageManagerPythonUv(AbstractPackageManagerApi):
             "# ROLLBACK: git checkout pyproject.toml && uv sync",
         ]
         return "\n".join(lines)
+
+    def execute_update(self, plan: UpdatePlan) -> None:
+        """Apply specifier rewrites, run uv lock + uv sync in-process. Restores pyproject.toml on failure."""
+        manifest_path = Path(plan.project_path) / "pyproject.toml"
+        original_content = manifest_path.read_text(encoding="utf-8")
+
+        try:
+            content = original_content
+            for entry in plan.direct_entries:
+                new_spec = self.resolve_direct_specifier(entry, plan.pin_all)
+                if new_spec != entry.version_defined:
+                    spec_to_write = new_spec or f"=={entry.recommended_version}"
+                    content = re.sub(
+                        rf'"{re.escape(entry.package_name)}[^"]*"',
+                        f'"{entry.package_name}{spec_to_write}"',
+                        content,
+                    )
+
+            if content != original_content:
+                manifest_path.write_text(content, encoding="utf-8")
+
+            upgrade_args = [
+                arg
+                for entry in plan.all_entries
+                for arg in ("--upgrade-package", f"{entry.package_name}=={entry.recommended_version}")
+            ]
+            subprocess.run(["uv", "lock"] + upgrade_args, cwd=plan.project_path, check=True)
+            subprocess.run(["uv", "sync"], cwd=plan.project_path, check=True)
+        except Exception:
+            manifest_path.write_text(original_content, encoding="utf-8")
+            raise
 
     def __repr__(self):
         return f"{self.package_manager_type.name} Package Manager"

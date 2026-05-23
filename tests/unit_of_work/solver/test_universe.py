@@ -127,6 +127,68 @@ class TestCandidateVersionAgeComputation:
         problem = SolvablePool.build([_FakeDep("pkg", "1.0.0")], registry, {}, _now=_FIXED_NOW)
         assert problem.candidates["pkg"][0].age_days == 30
 
+
+# ---------------------------------------------------------------------------
+# TestCutoffDateFiltering
+# ---------------------------------------------------------------------------
+
+
+class TestCutoffDateFiltering:
+    def test_versions_after_cutoff_excluded(self) -> None:
+        cutoff = datetime(2024, 1, 15, 23, 59, 59, tzinfo=UTC)
+        registry = _make_registry(
+            {
+                "pkg": [
+                    _pv("1.0.0", published="2024-01-01T00:00:00Z"),
+                    _pv("2.0.0", published="2024-01-20T00:00:00Z"),
+                ]
+            }
+        )
+        problem = SolvablePool.build([_FakeDep("pkg", "1.0.0")], registry, {}, _now=cutoff)
+        versions = [cv.version for cv in problem.candidates["pkg"]]
+        assert "1.0.0" in versions
+        assert "2.0.0" not in versions
+
+    def test_versions_on_cutoff_date_included(self) -> None:
+        cutoff = datetime(2024, 1, 15, 23, 59, 59, tzinfo=UTC)
+        registry = _make_registry(
+            {
+                "pkg": [
+                    _pv("1.0.0", published="2024-01-15T12:00:00Z"),
+                ]
+            }
+        )
+        problem = SolvablePool.build([_FakeDep("pkg", "1.0.0")], registry, {}, _now=cutoff)
+        versions = [cv.version for cv in problem.candidates["pkg"]]
+        assert "1.0.0" in versions
+
+    def test_versions_without_published_date_retained(self) -> None:
+        cutoff = datetime(2024, 1, 15, 23, 59, 59, tzinfo=UTC)
+        registry = _make_registry(
+            {
+                "pkg": [
+                    _pv("1.0.0", published=None),
+                ]
+            }
+        )
+        problem = SolvablePool.build([_FakeDep("pkg", "1.0.0")], registry, {}, _now=cutoff)
+        versions = [cv.version for cv in problem.candidates["pkg"]]
+        assert "1.0.0" in versions
+
+    def test_no_cutoff_retains_all_versions(self) -> None:
+        registry = _make_registry(
+            {
+                "pkg": [
+                    _pv("1.0.0", published="2020-01-01T00:00:00Z"),
+                    _pv("2.0.0", published="2099-01-01T00:00:00Z"),
+                ]
+            }
+        )
+        problem = SolvablePool.build([_FakeDep("pkg", "1.0.0")], registry, {})
+        versions = [cv.version for cv in problem.candidates["pkg"]]
+        assert "1.0.0" in versions
+        assert "2.0.0" in versions
+
     def test_age_days_none_when_no_publish_date(self) -> None:
         registry = _make_registry({"pkg": [_pv("1.0.0", published=None)]})
         problem = SolvablePool.build([_FakeDep("pkg", "1.0.0")], registry, {}, _now=_FIXED_NOW)

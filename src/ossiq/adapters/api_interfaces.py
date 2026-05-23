@@ -213,3 +213,13 @@ class AbstractPackageManagerApi(abc.ABC):
         for entry in plan.all_entries:
             lines.append(f"#   {entry.package_name}: {entry.current_version} -> {entry.recommended_version}")
         return "\n".join(lines)
+
+    def execute_update(self, plan: UpdatePlan) -> None:
+        """Execute the update plan in-process.
+
+        Supported package managers override this. Default raises NotImplementedError.
+        """
+        raise NotImplementedError(
+            f"In-process execution is not yet supported for {self.package_manager_type.name}. "
+            "Use 'ossiq update plan --script' to generate a bash script instead."
+        )

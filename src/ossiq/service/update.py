@@ -37,7 +37,8 @@ class UpdatePlan:
     package_manager_name: str
     direct_entries: list[UpdateEntry]
     transitive_entries: list[UpdateEntry]
-    pin: bool = False
+    pin_all: bool = False
+    rewrite_versions: bool = False
     installed_versions: dict[str, str] = field(default_factory=dict)
 
     @property
@@ -61,16 +62,26 @@ def entry_from_record(record: ScanRecord, is_direct: bool) -> UpdateEntry:
     )
 
 
-def build_update_plan(scan_result: ScanResult, package_manager_name: str, pin: bool = False) -> UpdatePlan:
-    """Filter scan results to packages with solver recommendations that differ from installed."""
+def build_update_plan(
+    scan_result: ScanResult,
+    package_manager_name: str,
+    pin_all: bool = False,
+    rewrite_versions: bool = False,
+) -> UpdatePlan:
+    """Filter scan results to packages with solver recommendations that differ from installed.
+
+    PINNED (==x.y.z) direct entries are excluded unless rewrite_versions=True.
+    """
     all_records = scan_result.production_packages + scan_result.optional_packages + scan_result.transitive_packages
     installed_versions = {r.package_name: r.installed_version for r in all_records}
+    all_direct_names = {r.package_name for r in scan_result.production_packages + scan_result.optional_packages}
     direct = [
         entry_from_record(r, is_direct=True)
         for r in scan_result.production_packages + scan_result.optional_packages
-        if r.recommended_version and r.recommended_version != r.installed_version
+        if r.recommended_version
+        and r.recommended_version != r.installed_version
+        and (rewrite_versions or r.constraint_info.type != ConstraintType.PINNED)
     ]
-    direct_names = {e.package_name for e in direct}
 
     # The transitive solver uses current-lockfile constraints, so its recommendations may be
     # lower than what a recommended direct dep update will actually require. Impact simulation
@@ -94,7 +105,7 @@ def build_update_plan(scan_result: ScanResult, package_manager_name: str, pin: b
             for r in scan_result.transitive_packages
             if r.recommended_version
             and r.recommended_version != r.installed_version
-            and r.package_name not in direct_names
+            and r.package_name not in all_direct_names
         }.values(),
         key=lambda e: e.package_name,
     )
@@ -105,6 +116,7 @@ def build_update_plan(scan_result: ScanResult, package_manager_name: str, pin: b
         package_manager_name=package_manager_name,
         direct_entries=direct,
         transitive_entries=transitive,
-        pin=pin,
+        pin_all=pin_all,
+        rewrite_versions=rewrite_versions,
         installed_versions=installed_versions,
     )

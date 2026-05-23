@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Literal
 
 import typer
+from rich.console import Console
 
 from ossiq.domain.common import Command, ProjectPackagesRegistry, UserInterfaceType
 from ossiq.messages import ERROR_PACKAGE_NOT_FOUND
@@ -87,6 +88,13 @@ def command_package(ctx: typer.Context, options: CommandPackageOptions) -> None:
     with show_operation_progress(settings, "Collecting project packages data...") as progress:
         with progress():
             scan_result = project.scan(uow)
+
+    if scan_result.manifest_lock_divergent:
+        Console().print(
+            f"[yellow]Warning:[/yellow] pyproject.toml and uv.lock are out of sync for: "
+            f"[bold]{', '.join(scan_result.manifest_lock_divergent)}[/bold]. "
+            "Run [bold]uv lock[/bold] to regenerate the lockfile."
+        )
 
     all_records = scan_result.production_packages + scan_result.optional_packages + scan_result.transitive_packages
     matched = [r for r in all_records if _matches(r, options.package_name)]

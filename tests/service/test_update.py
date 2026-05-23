@@ -45,14 +45,46 @@ def make_scan_result(
     )
 
 
-class TestBuildUpdatePlan:
-    def test_pin_defaults_to_false(self):
-        plan = build_update_plan(make_scan_result(), "uv")
-        assert plan.pin is False
+def make_pinned_record(name: str, installed: str, recommended: str | None = None) -> ScanRecord:
+    record = make_record(name, installed, recommended)
+    record.constraint_info = ConstraintSource(type=ConstraintType.PINNED, source_file="pyproject.toml")
+    return record
 
-    def test_pin_propagated(self):
-        plan = build_update_plan(make_scan_result(), "uv", pin=True)
-        assert plan.pin is True
+
+class TestBuildUpdatePlan:
+    def test_pin_all_defaults_to_false(self):
+        plan = build_update_plan(make_scan_result(), "uv")
+        assert plan.pin_all is False
+
+    def test_pin_all_propagated(self):
+        plan = build_update_plan(make_scan_result(), "uv", pin_all=True)
+        assert plan.pin_all is True
+
+    def test_rewrite_versions_defaults_to_false(self):
+        plan = build_update_plan(make_scan_result(), "uv")
+        assert plan.rewrite_versions is False
+
+    def test_rewrite_versions_propagated(self):
+        plan = build_update_plan(make_scan_result(), "uv", rewrite_versions=True)
+        assert plan.rewrite_versions is True
+
+    def test_pinned_entry_excluded_by_default(self):
+        result = make_scan_result(production=[make_pinned_record("requests", "2.28.0", "2.31.0")])
+        plan = build_update_plan(result, "uv")
+        assert not plan.direct_entries
+
+    def test_pinned_entry_included_when_rewrite_versions(self):
+        result = make_scan_result(production=[make_pinned_record("requests", "2.28.0", "2.31.0")])
+        plan = build_update_plan(result, "uv", rewrite_versions=True)
+        assert len(plan.direct_entries) == 1
+        assert plan.direct_entries[0].package_name == "requests"
+
+    def test_declared_entry_not_affected_by_rewrite_versions_flag(self):
+        result = make_scan_result(production=[make_record("requests", "2.28.0", "2.31.0")])
+        plan_without = build_update_plan(result, "uv")
+        plan_with = build_update_plan(result, "uv", rewrite_versions=True)
+        assert len(plan_without.direct_entries) == 1
+        assert len(plan_with.direct_entries) == 1
 
     def test_installed_versions_includes_all_packages(self):
         result = make_scan_result(
@@ -125,6 +157,18 @@ class TestBuildUpdatePlan:
 
         modelsearch_entry = next(e for e in plan.transitive_entries if e.package_name == "modelsearch")
         assert modelsearch_entry.recommended_version == "1.3.1"
+
+    def test_direct_package_not_in_transitive_when_no_direct_update(self):
+        """Direct dep with no pending update must not appear in transitive_entries
+        even if the transitive solver recommends a higher version."""
+        typer_direct = make_record("typer", "0.24.2")
+        typer_transitive = make_record("typer", "0.24.2", "0.25.1")
+
+        result = make_scan_result(production=[typer_direct], transitive=[typer_transitive])
+        plan = build_update_plan(result, "uv")
+
+        assert not plan.direct_entries
+        assert not plan.transitive_entries
 
     def test_transitive_impact_with_conflict_not_applied(self):
         """Impact with has_conflict=True must not override the solver's recommendation."""

@@ -48,6 +48,15 @@ Name of the package to inspect. Exact match against the package name or its alia
 
 HELP_IGNORE_PACKAGE = "Exclude package from solver recommendations (repeatable)."
 
+ARGS_HELP_CUTOFF_DATE = (
+    "Treat versions published after this ISO date (e.g. 2026-05-01) as invisible. "
+    "Translates to 23:59:59 UTC of that date. Overrides OSSIQ_CUTOFF_DATE env var."
+)
+ARGS_HELP_COOLDOWN_PERIOD = (
+    "Versions younger than this many days receive a freshness soft-penalty in the solver "
+    "(default: 7). Overrides OSSIQ_COOLDOWN_PERIOD env var."
+)
+
 HELP_PACKAGE_COMMAND = """
 Deep-dive into a single package: drift status, dependency tree trace, policy compliance,
 security advisories, and transitive dependency CVEs.
@@ -58,11 +67,12 @@ Package `{package_name}` not found in the project dependency tree.
 """
 
 HELP_UPDATE_COMMAND = """
-Generate an atomic update script for all solver-recommended package versions.
+Plan or execute solver-recommended package version updates.
 
-The solver runs automatically. Copy and review the printed bash script,
-then run it to apply updates. Use --production to limit to production
-dependencies only.
+Use `ossiq update plan` to preview what would change.
+Use `ossiq update execute` to apply updates in-process with rollback on failure.
+Use `--pin-all` to write exact ==version specifiers for updated deps.
+Use `--rewrite-versions` to also update PINNED (==x.y.z) deps that are otherwise frozen.
 """
 
 HELP_UPDATE_NO_RECOMMENDATIONS = (

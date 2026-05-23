@@ -36,8 +36,16 @@ def npm_freeze_state(
         list[str] | None,
         typer.Option("--ignore", "-i", help="Exclude package from solver recommendations (repeatable)"),
     ] = None,
-    pin: Annotated[
-        bool, typer.Option("--pin", is_flag=True, help="Pin direct deps to exact version in manifest")
+    pin_all: Annotated[
+        bool, typer.Option("--pin-all", is_flag=True, help="Write ==new_version for all updated direct deps")
+    ] = False,
+    rewrite_versions: Annotated[
+        bool,
+        typer.Option(
+            "--rewrite-versions",
+            is_flag=True,
+            help="Include PINNED (==x.y.z) deps in the update and rewrite their specifiers",
+        ),
     ] = False,
 ) -> None:
     """Lock full dependency tree in package.json overrides and save state for safe update."""
@@ -59,7 +67,7 @@ def npm_freeze_state(
             scan_result = project.scan(uow)
 
     package_manager_name = uow.packages_manager.package_manager_type.name
-    plan = build_update_plan(scan_result, package_manager_name, pin=pin)
+    plan = build_update_plan(scan_result, package_manager_name, pin_all=pin_all, rewrite_versions=rewrite_versions)
 
     assert isinstance(uow.packages_manager, PackageManagerJsNpm)
     uow.packages_manager.freeze_state(plan)

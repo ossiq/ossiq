@@ -2,6 +2,7 @@
 Tests for service/project.py — ScanRecord factory and version_constraint propagation.
 """
 
+from datetime import UTC, datetime
 from unittest.mock import MagicMock
 
 import pytest
@@ -11,7 +12,12 @@ from ossiq.domain.cve import CVE, Severity
 from ossiq.domain.package import Package
 from ossiq.domain.project import ConstraintSource
 from ossiq.domain.version import PackageVersion, VersionsDifference
-from ossiq.service.project import DependencyDescriptor, get_package_versions_since, scan_record
+from ossiq.service.project import (
+    DependencyDescriptor,
+    calculate_version_age_days,
+    get_package_versions_since,
+    scan_record,
+)
 
 # ============================================================================
 # Module-level constants
@@ -295,3 +301,40 @@ class TestIgnorePackagesFiltering:
         ignore_set = frozenset(["nonexistent"])
         result = [d for d in deps if d.canonical_name not in ignore_set]
         assert result == deps
+
+
+# ============================================================================
+# TestCalculateVersionAgeDays
+# ============================================================================
+
+
+class TestCalculateVersionAgeDays:
+    def _pv(self, version: str, published: str | None) -> PackageVersion:
+        return PackageVersion(
+            version=version,
+            license=None,
+            package_url=f"https://example.com/{version}",
+            declared_dependencies={},
+            published_date_iso=published,
+        )
+
+    def test_returns_days_since_publish_with_explicit_now(self) -> None:
+        versions = [self._pv("1.0.0", "2024-01-01T00:00:00Z")]
+        now = datetime(2024, 1, 11, tzinfo=UTC)
+        assert calculate_version_age_days(versions, "1.0.0", now=now) == 10
+
+    def test_returns_none_when_version_not_found(self) -> None:
+        versions = [self._pv("1.0.0", "2024-01-01T00:00:00Z")]
+        now = datetime(2024, 1, 11, tzinfo=UTC)
+        assert calculate_version_age_days(versions, "2.0.0", now=now) is None
+
+    def test_returns_none_when_no_published_date(self) -> None:
+        versions = [self._pv("1.0.0", None)]
+        now = datetime(2024, 1, 11, tzinfo=UTC)
+        assert calculate_version_age_days(versions, "1.0.0", now=now) is None
+
+    def test_without_now_returns_non_none_int(self) -> None:
+        versions = [self._pv("1.0.0", "2020-01-01T00:00:00Z")]
+        result = calculate_version_age_days(versions, "1.0.0")
+        assert isinstance(result, int)
+        assert result > 0

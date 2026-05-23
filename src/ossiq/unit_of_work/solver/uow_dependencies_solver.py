@@ -60,6 +60,8 @@ def apply_fallback(
     output: SolverOutput,
     problem: SolverProblem,
     validator: Callable[[str, str], bool],
+    *,
+    cooldown_period: int = VERY_FRESH_THRESHOLD_DAYS,
 ) -> SolverOutput:
     """Replace solver picks that fail validation with the next-best acceptable candidate.
 
@@ -97,7 +99,7 @@ def apply_fallback(
 
         if fallback is not None:
             new_recs[pkg] = fallback
-            new_reasons[pkg] = build_reason(pkg, fallback, problem, penalize_fresh_days=VERY_FRESH_THRESHOLD_DAYS)
+            new_reasons[pkg] = build_reason(pkg, fallback, problem, penalize_fresh_days=cooldown_period)
 
     return SolverOutput(recommendations=new_recs, reasons=new_reasons)
 
@@ -133,6 +135,7 @@ def _run_solve(
     allow_prerelease: bool = False,
     cve_affected: dict[str, set[str]] | None = None,
     now: datetime | None = None,
+    cooldown_period: int = VERY_FRESH_THRESHOLD_DAYS,
 ) -> tuple[SolverOutput, SolverProblem]:
     """Run the SolvablePool → ConstraintEncoder → HPDRKernel pipeline.
 
@@ -149,7 +152,7 @@ def _run_solve(
         _now=now,
     )
     logger.debug("%s: pool built — packages=%d", label, len(problem.constraints))
-    encoded = ConstraintEncoder(penalize_fresh_days=VERY_FRESH_THRESHOLD_DAYS).encode(problem)
+    encoded = ConstraintEncoder(penalize_fresh_days=cooldown_period).encode(problem)
     logger.debug("%s: encoded — hard=%d soft=%d", label, len(encoded.hard_clauses), len(encoded.soft_clauses))
     result = HPDRKernel(GlucoseDriver()).solve(encoded)
 
@@ -161,7 +164,7 @@ def _run_solve(
     recommendations = dict(result.selected)
     logger.debug("%s: selected %d recommendations", label, len(recommendations))
     reasons = {
-        pkg: build_reason(pkg, ver, problem, penalize_fresh_days=VERY_FRESH_THRESHOLD_DAYS)
+        pkg: build_reason(pkg, ver, problem, penalize_fresh_days=cooldown_period)
         for pkg, ver in recommendations.items()
     }
     return SolverOutput(recommendations=recommendations, reasons=reasons), problem
@@ -175,6 +178,7 @@ def solve_direct(
     allow_prerelease: bool = False,
     post_solve_validator: Callable[[str, str], bool] | None = None,
     _now: datetime | None = None,
+    cooldown_period: int = VERY_FRESH_THRESHOLD_DAYS,
 ) -> SolverOutput:
     """Run HPDR solver over direct dependencies.
 
@@ -194,10 +198,16 @@ def solve_direct(
         return EMPTY_OUTPUT
 
     output, problem = _run_solve(
-        "solve_direct", deps, registry, engine_context, allow_prerelease=allow_prerelease, now=_now
+        "solve_direct",
+        deps,
+        registry,
+        engine_context,
+        allow_prerelease=allow_prerelease,
+        now=_now,
+        cooldown_period=cooldown_period,
     )
     if post_solve_validator is not None and output.recommendations:
-        return apply_fallback(output, problem, post_solve_validator)
+        return apply_fallback(output, problem, post_solve_validator, cooldown_period=cooldown_period)
     return output
 
 
@@ -219,6 +229,7 @@ def solve_transitive(
     *,
     allow_prerelease: bool = False,
     now: datetime | None = None,
+    cooldown_period: int = VERY_FRESH_THRESHOLD_DAYS,
 ) -> SolverOutput:
     """Run HPDR solver over transitive dependencies.
 
@@ -270,5 +281,6 @@ def solve_transitive(
         allow_prerelease=allow_prerelease,
         cve_affected=cve_affected,
         now=now,
+        cooldown_period=cooldown_period,
     )
     return output

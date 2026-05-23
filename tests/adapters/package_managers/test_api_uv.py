@@ -755,8 +755,8 @@ class TestVersionConstraintIntegration:
             ("requests", "~=2.31.0"),
             ("pydantic", ">=2.0.0"),
             ("scikit-learn", "<2.0.0"),
-            ("jsonschema", ">=4.0.0a6,<4.5.0"),
-            ("numpy", ">=1.20.0,!=1.24.2,<2.0.0"),
+            ("jsonschema", "<4.5.0,>=4.0.0a6"),
+            ("numpy", "!=1.24.2,<2.0.0,>=1.20.0"),
         ],
     )
     def test_version_constraint_extracted_from_metadata_requires_dist(
@@ -837,7 +837,7 @@ def make_update_entry(
 def make_update_plan(
     direct: list[UpdateEntry] | None = None,
     transitive: list[UpdateEntry] | None = None,
-    pin: bool = False,
+    pin_all: bool = False,
     project_path: str = "/tmp/test-project",
 ) -> UpdatePlan:
     return UpdatePlan(
@@ -847,7 +847,7 @@ def make_update_plan(
         package_manager_name="uv",
         direct_entries=direct or [],
         transitive_entries=transitive or [],
-        pin=pin,
+        pin_all=pin_all,
     )
 
 
@@ -861,31 +861,31 @@ class TestResolveDirectSpecifier:
 
     def test_pin_returns_exact_version(self):
         entry = make_update_entry("sphinx", "8.0.0", "9.0.4", "~=8.0.0", ConstraintType.NARROWED)
-        assert PackageManagerPythonUv.resolve_direct_specifier(entry, pin=True) == "==9.0.4"
+        assert PackageManagerPythonUv.resolve_direct_specifier(entry, pin_all=True) == "==9.0.4"
 
     def test_declared_specifier_unchanged(self):
         entry = make_update_entry("sphinx", "8.0.0", "9.0.4", ">=8.0.0", ConstraintType.DECLARED)
-        assert PackageManagerPythonUv.resolve_direct_specifier(entry, pin=False) == ">=8.0.0"
+        assert PackageManagerPythonUv.resolve_direct_specifier(entry, pin_all=False) == ">=8.0.0"
 
     def test_narrowed_tilde_rewritten(self):
         entry = make_update_entry("sphinx", "8.0.0", "9.0.4", "~=8.0.0", ConstraintType.NARROWED)
-        assert PackageManagerPythonUv.resolve_direct_specifier(entry, pin=False) == "~=9.0.4"
+        assert PackageManagerPythonUv.resolve_direct_specifier(entry, pin_all=False) == "~=9.0.4"
 
     def test_narrowed_tilde_two_part(self):
         entry = make_update_entry("sphinx", "8.0", "9.0.4", "~=8.0", ConstraintType.NARROWED)
-        assert PackageManagerPythonUv.resolve_direct_specifier(entry, pin=False) == "~=9.0"
+        assert PackageManagerPythonUv.resolve_direct_specifier(entry, pin_all=False) == "~=9.0"
 
     def test_pinned_eq_rewritten(self):
         entry = make_update_entry("sphinx", "8.0.0", "9.0.4", "==8.0.0", ConstraintType.PINNED)
-        assert PackageManagerPythonUv.resolve_direct_specifier(entry, pin=False) == "==9.0.4"
+        assert PackageManagerPythonUv.resolve_direct_specifier(entry, pin_all=False) == "==9.0.4"
 
     def test_narrowed_compound_falls_back_to_pin(self):
         entry = make_update_entry("sphinx", "8.0.0", "9.0.4", ">=8.0,<9.0", ConstraintType.NARROWED)
-        assert PackageManagerPythonUv.resolve_direct_specifier(entry, pin=False) == "==9.0.4"
+        assert PackageManagerPythonUv.resolve_direct_specifier(entry, pin_all=False) == "==9.0.4"
 
     def test_none_version_defined_declared_stays_none(self):
         entry = make_update_entry("sphinx", "8.0.0", "9.0.4", None, ConstraintType.DECLARED)
-        assert PackageManagerPythonUv.resolve_direct_specifier(entry, pin=False) is None
+        assert PackageManagerPythonUv.resolve_direct_specifier(entry, pin_all=False) is None
 
 
 # ============================================================================
@@ -902,7 +902,7 @@ class TestGenerateUpdateScript:
 
     def test_pin_mode_emits_exact_sed(self, uv):
         entry = make_update_entry("sphinx", "8.0.0", "9.0.4", "~=8.0.0", ConstraintType.NARROWED)
-        script = uv.generate_update_script(make_update_plan(direct=[entry], pin=True))
+        script = uv.generate_update_script(make_update_plan(direct=[entry], pin_all=True))
         assert """'s|"sphinx[^"]*"|"sphinx==9.0.4"|g'""" in script
         assert "--upgrade-package sphinx==9.0.4" in script
 

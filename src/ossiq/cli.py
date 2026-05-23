@@ -13,11 +13,13 @@ from ossiq.clients import install_requests_cache
 from ossiq.commands.export import CommandExportOptions, commnad_export
 from ossiq.commands.package import CommandPackageOptions, command_package
 from ossiq.commands.scan import CommandScanOptions, commnad_scan
-from ossiq.commands.update import CommandUpdateOptions, command_update
+from ossiq.commands.update import CommandUpdateOptions, command_update_execute, command_update_plan
 from ossiq.domain.common import UserInterfaceType
 from ossiq.messages import (
     ARGS_HELP_CACHE_DESTINATION,
     ARGS_HELP_CACHE_TTL,
+    ARGS_HELP_COOLDOWN_PERIOD,
+    ARGS_HELP_CUTOFF_DATE,
     ARGS_HELP_DEBUG,
     ARGS_HELP_GITHUB_TOKEN,
     ARGS_HELP_OUTPUT,
@@ -32,6 +34,7 @@ from ossiq.messages import (
     HELP_TEXT,
 )
 from ossiq.settings import Settings
+from ossiq.timeutil import cutoff_datetime_from_iso_date
 from ossiq.ui.system import show_settings
 
 app = typer.Typer()
@@ -40,6 +43,9 @@ console = Console()
 helpers_app = typer.Typer(name="helpers", help="Package manager helper utilities")
 helpers_app.add_typer(npm_helpers_app, name="npm")
 app.add_typer(helpers_app, name="helpers")
+
+update_app = typer.Typer(name="update", help="Plan or execute solver-recommended package updates")
+app.add_typer(update_app, name="update")
 
 
 def version_callback(value: bool):
@@ -94,6 +100,23 @@ def main(
         bool,
         typer.Option("--no-cache", is_flag=True, help="Disable persistent HTTP cache for this run."),
     ] = False,
+    cutoff_date: Annotated[
+        str | None,
+        typer.Option(
+            "--cutoff-date",
+            "-C",
+            envvar=f"{Settings.ENV_PREFIX}CUTOFF_DATE",
+            help=ARGS_HELP_CUTOFF_DATE,
+        ),
+    ] = None,
+    cooldown_period: Annotated[
+        int | None,
+        typer.Option(
+            "--cooldown-period",
+            envvar=f"{Settings.ENV_PREFIX}COOLDOWN_PERIOD",
+            help=ARGS_HELP_COOLDOWN_PERIOD,
+        ),
+    ] = None,
     version: Annotated[  # pylint: disable=unused-argument
         bool,
         typer.Option(
@@ -117,6 +140,8 @@ def main(
         "debug": debug,
         "cache_destination": cache_destination,
         "cache_ttl": cache_ttl,
+        "cutoff_date": cutoff_datetime_from_iso_date(cutoff_date) if cutoff_date else None,
+        "cooldown_period": cooldown_period,
     }
     # Filter out None values so we only override with explicitly provided options
     update_data = {k: v for k, v in cli_overrides.items() if v is not None}
@@ -303,8 +328,8 @@ def package(
     )
 
 
-@app.command()
-def update(
+@update_app.command("plan")
+def update_plan(
     context: typer.Context,
     project_path: str,
     registry_type: Annotated[
@@ -321,25 +346,31 @@ def update(
     production: Annotated[bool, typer.Option("--production", help=HELP_PRODUCTION_ONLY)] = False,
     security: Annotated[
         bool,
+        typer.Option("--security", is_flag=True, help="Narrow transitive recommendations to CVE-carrying packages"),
+    ] = False,
+    ignore: Annotated[list[str] | None, typer.Option("--ignore", "-i", help=HELP_IGNORE_PACKAGE)] = None,
+    pin_all: Annotated[
+        bool,
+        typer.Option("--pin-all", is_flag=True, help="Write ==new_version for all updated direct deps"),
+    ] = False,
+    rewrite_versions: Annotated[
+        bool,
         typer.Option(
-            "--security",
+            "--rewrite-versions",
             is_flag=True,
-            help="Narrow transitive recommendations to CVE-carrying packages only",
+            help="Include PINNED (==x.y.z) deps in the update and rewrite their specifiers",
         ),
     ] = False,
-    ignore: Annotated[
-        list[str] | None,
-        typer.Option("--ignore", "-i", help=HELP_IGNORE_PACKAGE),
-    ] = None,
-    pin: Annotated[
-        bool, typer.Option("--pin", is_flag=True, help="Pin direct deps to exact version in manifest")
+    script: Annotated[
+        bool,
+        typer.Option("--script", is_flag=True, help="Emit the bash update script instead of the plan table"),
     ] = False,
 ):
-    """Generate an atomic update script for solver-recommended package versions."""
+    """Show what would be updated, or emit the bash script with --script."""
     if registry_type and registry_type.lower() not in ["npm", "pypi"]:
         raise typer.BadParameter("Only `npm` and `pypi` allowed")
 
-    command_update(
+    command_update_plan(
         ctx=context,
         options=CommandUpdateOptions(
             project_path=project_path,
@@ -349,8 +380,69 @@ def update(
             production=production,
             security_only=security,
             ignore_packages=tuple(ignore or []),
-            pin=pin,
+            pin_all=pin_all,
+            rewrite_versions=rewrite_versions,
         ),
+        script=script,
+    )
+
+
+@update_app.command("execute")
+def update_execute(
+    context: typer.Context,
+    project_path: str,
+    registry_type: Annotated[
+        Literal["npm", "pypi"] | None,
+        typer.Option("--registry-type", "-r", help=HELP_REGISTRY_TYPE),
+    ] = None,
+    allow_prerelease: Annotated[
+        bool, typer.Option("--allow-prerelease", help="Include pre-release versions in drift calculations")
+    ] = False,
+    allow_prerelease_package: Annotated[
+        list[str] | None,
+        typer.Option("--allow-prerelease-package", help="Allow pre-release for a specific package (repeatable)"),
+    ] = None,
+    production: Annotated[bool, typer.Option("--production", help=HELP_PRODUCTION_ONLY)] = False,
+    security: Annotated[
+        bool,
+        typer.Option("--security", is_flag=True, help="Narrow transitive recommendations to CVE-carrying packages"),
+    ] = False,
+    ignore: Annotated[list[str] | None, typer.Option("--ignore", "-i", help=HELP_IGNORE_PACKAGE)] = None,
+    pin_all: Annotated[
+        bool,
+        typer.Option("--pin-all", is_flag=True, help="Write ==new_version for all updated direct deps"),
+    ] = False,
+    rewrite_versions: Annotated[
+        bool,
+        typer.Option(
+            "--rewrite-versions",
+            is_flag=True,
+            help="Include PINNED (==x.y.z) deps in the update and rewrite their specifiers",
+        ),
+    ] = False,
+    yes: Annotated[
+        bool,
+        typer.Option("--yes", "-y", is_flag=True, help="Skip confirmation prompt (for CI)"),
+    ] = False,
+):
+    """Run the updates in-process; shows the plan first, then confirms before executing."""
+    if registry_type and registry_type.lower() not in ["npm", "pypi"]:
+        raise typer.BadParameter("Only `npm` and `pypi` allowed")
+
+    command_update_execute(
+        ctx=context,
+        options=CommandUpdateOptions(
+            project_path=project_path,
+            registry_type=registry_type,
+            allow_prerelease=allow_prerelease,
+            allow_prerelease_packages=tuple(allow_prerelease_package or []),
+            production=production,
+            security_only=security,
+            ignore_packages=tuple(ignore or []),
+            pin_all=pin_all,
+            rewrite_versions=rewrite_versions,
+        ),
+        yes=yes,
     )
 
 

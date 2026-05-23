@@ -75,13 +75,13 @@ class TestRestoreState:
 
 
 class TestCommandUpdatePinWiring:
-    def test_pin_true_passed_to_options(self) -> None:
-        options = CommandUpdateOptions(project_path="/some/path", pin=True)
-        assert options.pin is True
+    def test_pin_all_true_passed_to_options(self) -> None:
+        options = CommandUpdateOptions(project_path="/some/path", pin_all=True)
+        assert options.pin_all is True
 
-    def test_pin_false_by_default(self) -> None:
+    def test_pin_all_false_by_default(self) -> None:
         options = CommandUpdateOptions(project_path="/some/path")
-        assert options.pin is False
+        assert options.pin_all is False
 
 
 class TestBuildNpmFreezeArgs:
@@ -89,13 +89,13 @@ class TestBuildNpmFreezeArgs:
         options = CommandUpdateOptions(project_path="/p")
         assert "--registry-type npm" in _build_npm_freeze_args(options)
 
-    def test_pin_flag_included_when_set(self) -> None:
-        options = CommandUpdateOptions(project_path="/p", pin=True)
-        assert "--pin" in _build_npm_freeze_args(options)
+    def test_pin_all_flag_included_when_set(self) -> None:
+        options = CommandUpdateOptions(project_path="/p", pin_all=True)
+        assert "--pin-all" in _build_npm_freeze_args(options)
 
-    def test_pin_flag_absent_when_not_set(self) -> None:
-        options = CommandUpdateOptions(project_path="/p", pin=False)
-        assert "--pin" not in _build_npm_freeze_args(options)
+    def test_pin_all_flag_absent_when_not_set(self) -> None:
+        options = CommandUpdateOptions(project_path="/p", pin_all=False)
+        assert "--pin-all" not in _build_npm_freeze_args(options)
 
     def test_ignore_packages_included(self) -> None:
         options = CommandUpdateOptions(project_path="/p", ignore_packages=("lodash", "express"))

@@ -22,6 +22,7 @@ from ossiq.domain.repository import Repository
 from ossiq.domain.version import VersionsDifference
 from ossiq.service.common import package_versions
 from ossiq.service.update_impact import TransitiveImpact, simulate_single, simulate_update_impacts
+from ossiq.timeutil import parse_iso_datetime
 from ossiq.unit_of_work import core as unit_of_work
 from ossiq.unit_of_work.solver import uow_dependencies_solver
 from ossiq.unit_of_work.solver.reason import RecommendationReason
@@ -110,6 +111,7 @@ class ScanResult:
     production_packages: list[ScanRecord]
     optional_packages: list[ScanRecord]
     transitive_packages: list[ScanRecord] = field(default_factory=list)
+    manifest_lock_divergent: list[str] = field(default_factory=list)
 
 
 def parse_iso(datetime_str: str | None):
@@ -146,7 +148,12 @@ def calculate_time_lag_in_days(
     return None
 
 
-def calculate_version_age_days(versions: list[package_versions.PackageVersion], installed_version: str) -> int | None:
+def calculate_version_age_days(
+    versions: list[package_versions.PackageVersion],
+    installed_version: str,
+    *,
+    now: datetime | None = None,
+) -> int | None:
     """
     Calculates how many days ago the installed version was published.
     """
@@ -154,8 +161,14 @@ def calculate_version_age_days(versions: list[package_versions.PackageVersion], 
         if pv.version == installed_version and pv.published_date_iso:
             installed_date = parse_iso(pv.published_date_iso)
             if installed_date:
-                now = datetime.now(tz=UTC) if installed_date.tzinfo else datetime.now()  # noqa: DTZ005
-                return (now - installed_date).days
+                reference = (
+                    now
+                    if now is not None
+                    else (
+                        datetime.now(tz=UTC) if installed_date.tzinfo else datetime.now()  # noqa: DTZ005
+                    )
+                )
+                return (reference - installed_date).days
     return None
 
 
@@ -202,6 +215,8 @@ def scan_record(
     extras: list[str] | None = None,
     all_constraints: list[str] | None = None,
     peer_requirements: list[PeerRequirement] | None = None,
+    *,
+    now: datetime | None = None,
 ) -> ScanRecord:
     """
     Factory to generate ScanRecord instances
@@ -210,7 +225,7 @@ def scan_record(
 
     # FIXME: here is pretty large opportunity to improve performance, but it is impractical to do it now.
     time_lag_days = calculate_time_lag_in_days(releases_since_installed, package_version, package_info.latest_version)
-    version_age_days = calculate_version_age_days(releases_since_installed, package_version)
+    version_age_days = calculate_version_age_days(releases_since_installed, package_version, now=now)
 
     installed_release = next(
         (release for release in releases_since_installed if release.version == package_version), None
@@ -325,6 +340,8 @@ def build_records(
     descriptors: list[DependencyDescriptor],
     registry: AbstractPackageRegistryApi,
     prefetched: PrefetchedData,
+    *,
+    now: datetime | None = None,
 ) -> list[ScanRecord]:
     """Build ScanRecord instances from dependency descriptors and pre-fetched data."""
     return [
@@ -344,6 +361,7 @@ def build_records(
             dep.extras,
             dep.all_constraints,
             dep.peer_requirements,
+            now=now,
         )
         for dep in descriptors
     ]
@@ -470,6 +488,22 @@ def scan(uow: unit_of_work.AbstractProjectUnitOfWork) -> ScanResult:
                 allow_prerelease_packages=uow.allow_prerelease_packages,
             )
 
+        now = uow.settings.cutoff_date
+        if now is not None:
+            for pkg in packages_info.values():
+                eligible = [
+                    v
+                    for v in uow.packages_registry.package_versions(pkg.name)
+                    if not v.is_yanked
+                    and not v.is_unpublished
+                    and v.published_date_iso is not None
+                    and (pdt := parse_iso_datetime(v.published_date_iso)) is not None
+                    and pdt <= now
+                ]
+                best = uow.packages_registry.newest_version(iter(eligible))
+                if best:
+                    pkg.latest_version = best.version
+
         # Github repository info
         repositories_info = prefetch_source_code_repositories_info(
             uow,
@@ -510,7 +544,7 @@ def scan(uow: unit_of_work.AbstractProjectUnitOfWork) -> ScanResult:
         )
 
         # Transitive records built first — the Phase 4c validator needs them to assess impacts.
-        transitive_packages = build_records(trans_deps, uow.packages_registry, prefetched)
+        transitive_packages = build_records(trans_deps, uow.packages_registry, prefetched, now=now)
 
         # Pass 1.5: optionally run HPDR solver over direct deps (cache is warm after prefetch).
         engine_context = project_info.engine_constraints or {}
@@ -532,6 +566,8 @@ def scan(uow: unit_of_work.AbstractProjectUnitOfWork) -> ScanResult:
             engine_context,
             allow_prerelease=uow.allow_prerelease,
             post_solve_validator=validate_recommendation,
+            _now=now,
+            cooldown_period=uow.settings.cooldown_period,
         )
         logger.debug(
             "Pass 1.5 solve_direct: %.2fs — %d recommendations",
@@ -540,10 +576,10 @@ def scan(uow: unit_of_work.AbstractProjectUnitOfWork) -> ScanResult:
         )
 
         production_packages = sorted(
-            build_records(prod_deps, uow.packages_registry, prefetched), key=sort_function, reverse=True
+            build_records(prod_deps, uow.packages_registry, prefetched, now=now), key=sort_function, reverse=True
         )
         optional_packages = sorted(
-            build_records(opt_deps, uow.packages_registry, prefetched), key=sort_function, reverse=True
+            build_records(opt_deps, uow.packages_registry, prefetched, now=now), key=sort_function, reverse=True
         )
 
         apply_conflicts(solver_output, production_packages + optional_packages)
@@ -581,6 +617,8 @@ def scan(uow: unit_of_work.AbstractProjectUnitOfWork) -> ScanResult:
                 uow.packages_registry,
                 engine_context,
                 allow_prerelease=uow.allow_prerelease,
+                now=now,
+                cooldown_period=uow.settings.cooldown_period,
             )
             logger.debug(
                 "Pass 1.6 solve_transitive: %.2fs — %d records, %d recommendations",
@@ -599,4 +637,5 @@ def scan(uow: unit_of_work.AbstractProjectUnitOfWork) -> ScanResult:
             production_packages=production_packages,
             optional_packages=optional_packages,
             transitive_packages=transitive_packages,
+            manifest_lock_divergent=list(project_info.manifest_lock_divergent),
         )

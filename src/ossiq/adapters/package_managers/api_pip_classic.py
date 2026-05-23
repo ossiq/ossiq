@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import os
 import re
+import subprocess
+import tempfile
 from collections import namedtuple
 from typing import TYPE_CHECKING
 
@@ -314,6 +316,21 @@ class PackageManagerPythonPipClassic(AbstractPackageManagerApi):
             project_path=self.project_path,
             dependency_tree=dependency_tree,
         )
+
+    def execute_update(self, plan: UpdatePlan) -> None:
+        """Write a temp constraints file, run pip install in-process, then clean up."""
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False, encoding="utf-8") as f:
+            for entry in plan.all_entries:
+                f.write(f"{entry.package_name}=={entry.recommended_version}\n")
+            constraints_path = f.name
+        try:
+            subprocess.run(
+                ["pip", "install", "-r", "requirements.txt", "-c", constraints_path],
+                cwd=plan.project_path,
+                check=True,
+            )
+        finally:
+            os.unlink(constraints_path)
 
     def generate_update_script(self, plan: UpdatePlan, cli_extra_args: str = "") -> str:
         """Constraint-based pip update: write constraints file, install, clean up."""

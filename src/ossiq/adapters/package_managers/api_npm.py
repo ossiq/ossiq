@@ -7,6 +7,7 @@ from __future__ import annotations
 import json
 import os
 import shlex
+import subprocess
 from collections import defaultdict, namedtuple
 from collections.abc import Callable, Iterable
 from typing import TYPE_CHECKING
@@ -430,7 +431,7 @@ class PackageManagerJsNpm(AbstractPackageManagerApi):
         for entry in plan.direct_entries:
             for section in DEP_SECTIONS:
                 if entry.package_name in pkg.get(section, {}):
-                    if plan.pin:
+                    if plan.pin_all:
                         pkg[section][entry.package_name] = entry.recommended_version
                     else:
                         new_spec = PackageRegistryApiNpm.rewrite_specifier(
@@ -503,6 +504,16 @@ class PackageManagerJsNpm(AbstractPackageManagerApi):
                 lines.append(f"  ~ {key}: {orig_v} → {curr_v}")
         return "\n".join(lines)
 
+    def execute_update(self, plan: UpdatePlan) -> None:
+        """Freeze state, run npm install in-process, then restore overrides. Restores on failure."""
+        self.freeze_state(plan)
+        try:
+            subprocess.run(["npm", "install", "--ignore-scripts"], cwd=plan.project_path, check=True)
+            self.restore_state(plan.project_path)
+        except Exception:
+            self.restore_state(plan.project_path)
+            raise
+
     def generate_update_script(self, plan: UpdatePlan, cli_extra_args: str = "") -> str:
         """Generate bash script that delegates all JSON manipulation to ossiq helpers."""
         path_q = shlex.quote(plan.project_path)
@@ -522,7 +533,7 @@ class PackageManagerJsNpm(AbstractPackageManagerApi):
             freeze,
             "",
             'echo "Installing..."',
-            "npm install",
+            "npm install --ignore-scripts",
             "",
             'echo "Restoring overrides..."',
             restore,

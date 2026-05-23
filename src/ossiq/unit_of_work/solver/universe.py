@@ -11,7 +11,7 @@ from packaging.utils import canonicalize_name
 from ossiq.adapters.api_interfaces import AbstractPackageRegistryApi
 from ossiq.domain.common import ConstraintType
 from ossiq.domain.project import ConstraintSource
-from ossiq.timeutil import age_days_from_iso
+from ossiq.timeutil import age_days_from_iso, parse_iso_datetime
 from ossiq.unit_of_work.solver.problem import CandidateVersion, PackageConstraint, SolverProblem
 
 CANDIDATE_CAP: int = 30
@@ -145,7 +145,15 @@ class SolvablePool:
             filtered = [
                 pv
                 for pv in raw
-                if not pv.is_yanked and not pv.is_unpublished and (allow_prerelease or not pv.is_prerelease)
+                if not pv.is_yanked
+                and not pv.is_unpublished
+                and (allow_prerelease or not pv.is_prerelease)
+                and (
+                    _now is None
+                    or pv.published_date_iso is None
+                    or (pdt := parse_iso_datetime(pv.published_date_iso)) is None
+                    or pdt <= _now
+                )
             ]
 
             # Sort descending: b before a in comparator -> newest first.
