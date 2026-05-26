@@ -100,7 +100,7 @@ class TestJsonExportRenderer:
         "command,user_interface_type,expected",
         [
             (Command.EXPORT, UserInterfaceType.JSON, True),
-            (Command.SCAN, UserInterfaceType.JSON, False),
+            (Command.STATUS, UserInterfaceType.JSON, False),
             (Command.EXPORT, UserInterfaceType.HTML, False),
             (Command.EXPORT, UserInterfaceType.CONSOLE, False),
         ],

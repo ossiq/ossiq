@@ -1,4 +1,4 @@
-"""Plan and execute atomic updates for solver-recommended package versions."""
+"""Plan and preview solver-recommended package version changes."""
 
 import shlex
 import subprocess
@@ -8,7 +8,7 @@ from typing import Literal
 import typer
 
 from ossiq.domain.common import Command, UserInterfaceType
-from ossiq.messages import HELP_UPDATE_NO_RECOMMENDATIONS
+from ossiq.messages import HELP_PLAN_NO_RECOMMENDATIONS
 from ossiq.service import project
 from ossiq.service.update import UpdatePlan, build_update_plan
 from ossiq.settings import Settings
@@ -19,8 +19,8 @@ from ossiq.unit_of_work.uow_project import ProjectUnitOfWork
 
 
 @dataclass(frozen=True)
-class CommandUpdateOptions:
-    """Options for the update plan/execute subcommands."""
+class CommandPlanOptions:
+    """Options for the plan/apply subcommands."""
 
     project_path: str
     registry_type: Literal["npm", "pypi"] | None = None
@@ -33,7 +33,7 @@ class CommandUpdateOptions:
     rewrite_versions: bool = False
 
 
-def _build_npm_freeze_args(options: CommandUpdateOptions) -> str:
+def build_npm_freeze_args(options: CommandPlanOptions) -> str:
     """Build CLI flags for embedding in the generated script's freeze-state invocation."""
     args = ["--registry-type npm"]
     for pkg in options.ignore_packages:
@@ -53,7 +53,7 @@ def _build_npm_freeze_args(options: CommandUpdateOptions) -> str:
     return " ".join(args)
 
 
-def _prepare_update(ctx: typer.Context, options: CommandUpdateOptions) -> tuple[ProjectUnitOfWork, UpdatePlan] | None:
+def prepare_plan(ctx: typer.Context, options: CommandPlanOptions) -> tuple[ProjectUnitOfWork, UpdatePlan] | None:
     """Scan the project and build the update plan. Returns None when nothing needs updating."""
     settings: Settings = ctx.obj
 
@@ -81,38 +81,38 @@ def _prepare_update(ctx: typer.Context, options: CommandUpdateOptions) -> tuple[
     )
 
     if not plan.direct_entries and not plan.transitive_entries:
-        typer.echo(HELP_UPDATE_NO_RECOMMENDATIONS)
+        typer.echo(HELP_PLAN_NO_RECOMMENDATIONS)
         return None
 
     return uow, plan
 
 
-def command_update_plan(ctx: typer.Context, options: CommandUpdateOptions, script: bool = False) -> None:
-    """Show the update plan table, or emit the bash script when --script is set."""
-    result = _prepare_update(ctx, options)
+def command_plan(ctx: typer.Context, options: CommandPlanOptions, script: bool = False) -> None:
+    """Show the plan table, or emit the bash script when --script is set."""
+    result = prepare_plan(ctx, options)
     if result is None:
         return
 
     uow, plan = result
-    cli_extra_args = _build_npm_freeze_args(options) if plan.registry_type == "npm" else ""
+    cli_extra_args = build_npm_freeze_args(options) if plan.registry_type == "npm" else ""
     bash_script = uow.packages_manager.generate_update_script(plan, cli_extra_args=cli_extra_args)
 
     if script:
         typer.echo(bash_script)
         return
 
-    renderer = get_renderer(Command.UPDATE, UserInterfaceType.CONSOLE, ctx.obj)
+    renderer = get_renderer(Command.PLAN, UserInterfaceType.CONSOLE, ctx.obj)
     renderer.render(data=plan, script="")
 
 
-def command_update_execute(ctx: typer.Context, options: CommandUpdateOptions, yes: bool = False) -> None:
-    """Show the update plan, confirm, then run updates in-process with rollback on failure."""
-    result = _prepare_update(ctx, options)
+def command_apply(ctx: typer.Context, options: CommandPlanOptions, yes: bool = False) -> None:
+    """Show the plan, confirm, then run updates in-process with rollback on failure."""
+    result = prepare_plan(ctx, options)
     if result is None:
         return
 
     uow, plan = result
-    renderer = get_renderer(Command.UPDATE, UserInterfaceType.CONSOLE, ctx.obj)
+    renderer = get_renderer(Command.PLAN, UserInterfaceType.CONSOLE, ctx.obj)
     renderer.render(data=plan, script="")
 
     if not yes:

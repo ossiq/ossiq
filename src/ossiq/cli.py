@@ -11,9 +11,9 @@ from rich.console import Console
 from ossiq.adapters.package_managers.helpers.helpers_npm import npm_helpers_app
 from ossiq.clients import install_requests_cache
 from ossiq.commands.export import CommandExportOptions, commnad_export
-from ossiq.commands.package import CommandPackageOptions, command_package
-from ossiq.commands.scan import CommandScanOptions, commnad_scan
-from ossiq.commands.update import CommandUpdateOptions, command_update_execute, command_update_plan
+from ossiq.commands.package import CommandInfoOptions, command_info
+from ossiq.commands.plan import CommandPlanOptions, command_apply, command_plan
+from ossiq.commands.status import CommandStatusOptions, command_status
 from ossiq.domain.common import UserInterfaceType
 from ossiq.messages import (
     ARGS_HELP_CACHE_DESTINATION,
@@ -44,9 +44,6 @@ helpers_app = typer.Typer(name="helpers", help="Package manager helper utilities
 helpers_app.add_typer(npm_helpers_app, name="npm")
 app.add_typer(helpers_app, name="helpers")
 
-update_app = typer.Typer(name="update", help="Plan or execute solver-recommended package updates")
-app.add_typer(update_app, name="update")
-
 
 def version_callback(value: bool):
     """
@@ -59,7 +56,7 @@ def version_callback(value: bool):
         raise typer.Exit()
 
 
-@app.callback()
+@app.callback(invoke_without_command=True)
 def main(
     context: typer.Context,
     github_token: Annotated[
@@ -162,6 +159,9 @@ def main(
     if not no_cache:
         install_requests_cache(settings.cache_destination, settings.cache_ttl)
 
+    if context.invoked_subcommand is None:
+        command_status(ctx=context, options=CommandStatusOptions(project_path="."))
+
 
 @app.command()
 def help():  # pylint: disable=redefined-builtin
@@ -170,9 +170,9 @@ def help():  # pylint: disable=redefined-builtin
 
 
 @app.command()
-def scan(
+def status(
     context: typer.Context,
-    project_path: str,
+    project_path: Annotated[str, typer.Argument()] = ".",
     lag_threshold_days: Annotated[str, typer.Option("--lag-threshold-delta", "-l", help=HELP_LAG_THRESHOULD)] = "1y",
     production: Annotated[bool, typer.Option("--production", help=HELP_PRODUCTION_ONLY)] = False,
     allow_prerelease: Annotated[
@@ -212,14 +212,14 @@ def scan(
     ] = None,
 ):
     """
-    Scan project dependencies and produce metrics
+    Show dependency health: drift, CVEs, and solver recommendations.
     """
     if registry_type and registry_type.lower() not in ["npm", "pypi"]:
         raise typer.BadParameter("Only `npm` and `pypi` allowed")
 
-    commnad_scan(
+    command_status(
         ctx=context,
-        options=CommandScanOptions(
+        options=CommandStatusOptions(
             project_path=project_path,
             lag_threshold_days=lag_threshold_days,
             production=production,
@@ -238,7 +238,7 @@ def scan(
 @app.command()
 def export(
     context: typer.Context,
-    project_path: str,
+    project_path: Annotated[str, typer.Argument()] = ".",
     registry_type: Annotated[
         Literal["npm", "pypi"] | None, typer.Option("--registry-type", "-r", help=HELP_REGISTRY_TYPE)
     ] = None,
@@ -289,10 +289,10 @@ def export(
 
 
 @app.command()
-def package(
+def info(
     context: typer.Context,
-    project_path: str,
     package_name: Annotated[str, typer.Argument(help=HELP_PACKAGE_NAME)],
+    project_path: Annotated[str, typer.Argument()] = ".",
     registry_type: Annotated[
         Literal["npm", "pypi"] | None,
         typer.Option("--registry-type", "-r", help=HELP_REGISTRY_TYPE),
@@ -315,9 +315,9 @@ def package(
     if registry_type and registry_type.lower() not in ["npm", "pypi"]:
         raise typer.BadParameter("Only `npm` and `pypi` allowed")
 
-    command_package(
+    command_info(
         ctx=context,
-        options=CommandPackageOptions(
+        options=CommandInfoOptions(
             project_path=project_path,
             package_name=package_name,
             registry_type=registry_type,
@@ -328,10 +328,10 @@ def package(
     )
 
 
-@update_app.command("plan")
-def update_plan(
+@app.command()
+def plan(
     context: typer.Context,
-    project_path: str,
+    project_path: Annotated[str, typer.Argument()] = ".",
     registry_type: Annotated[
         Literal["npm", "pypi"] | None,
         typer.Option("--registry-type", "-r", help=HELP_REGISTRY_TYPE),
@@ -366,13 +366,13 @@ def update_plan(
         typer.Option("--script", is_flag=True, help="Emit the bash update script instead of the plan table"),
     ] = False,
 ):
-    """Show what would be updated, or emit the bash script with --script."""
+    """Show what would change, or emit the bash script with --script."""
     if registry_type and registry_type.lower() not in ["npm", "pypi"]:
         raise typer.BadParameter("Only `npm` and `pypi` allowed")
 
-    command_update_plan(
+    command_plan(
         ctx=context,
-        options=CommandUpdateOptions(
+        options=CommandPlanOptions(
             project_path=project_path,
             registry_type=registry_type,
             allow_prerelease=allow_prerelease,
@@ -387,10 +387,10 @@ def update_plan(
     )
 
 
-@update_app.command("execute")
-def update_execute(
+@app.command()
+def apply(
     context: typer.Context,
-    project_path: str,
+    project_path: Annotated[str, typer.Argument()] = ".",
     registry_type: Annotated[
         Literal["npm", "pypi"] | None,
         typer.Option("--registry-type", "-r", help=HELP_REGISTRY_TYPE),
@@ -425,13 +425,13 @@ def update_execute(
         typer.Option("--yes", "-y", is_flag=True, help="Skip confirmation prompt (for CI)"),
     ] = False,
 ):
-    """Run the updates in-process; shows the plan first, then confirms before executing."""
+    """Apply solver-recommended updates; shows the plan first, then confirms before executing."""
     if registry_type and registry_type.lower() not in ["npm", "pypi"]:
         raise typer.BadParameter("Only `npm` and `pypi` allowed")
 
-    command_update_execute(
+    command_apply(
         ctx=context,
-        options=CommandUpdateOptions(
+        options=CommandPlanOptions(
             project_path=project_path,
             registry_type=registry_type,
             allow_prerelease=allow_prerelease,

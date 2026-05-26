@@ -49,10 +49,11 @@ class Command(Enum):
     command with respective presentation layer.
     """
 
-    SCAN = "scan"
+    STATUS = "status"
     EXPORT = "export"
-    PACKAGE = "package"
-    UPDATE = "update"
+    INFO = "info"
+    PLAN = "plan"
+    APPLY = "apply"
 
 
 class ExportUnknownSchemaVersion(StrEnum):

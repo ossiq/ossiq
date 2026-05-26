@@ -1,5 +1,5 @@
 """
-Project packages scan command
+Project packages status command
 """
 
 from dataclasses import dataclass
@@ -17,29 +17,29 @@ from ossiq.unit_of_work import uow_project
 
 
 @dataclass(frozen=True)
-class CommandScanOptions:
+class CommandStatusOptions:
     project_path: str
-    lag_threshold_days: str
-    production: bool
-    allow_prerelease: bool
-    allow_prerelease_packages: tuple[str, ...]
-    registry_type: Literal["npm", "pypi"] | None
-    presentation: Literal["console", "html"]
-    output_destination: str
+    lag_threshold_days: str = "1y"
+    production: bool = False
+    allow_prerelease: bool = False
+    allow_prerelease_packages: tuple[str, ...] = ()
+    registry_type: Literal["npm", "pypi"] | None = None
+    presentation: Literal["console", "html"] = "console"
+    output_destination: str = "./ossiq_scan_report_{project_name}.html"
     full_output: bool = False
     security_only: bool = False
     ignore_packages: tuple[str, ...] = ()
 
 
-def commnad_scan(ctx: typer.Context, options: CommandScanOptions):
+def command_status(ctx: typer.Context, options: CommandStatusOptions):
     """
-    Project scan command.
+    Project status command.
     """
     settings: Settings = ctx.obj
     threshold_parsed = timeutil.parse_relative_time_delta(options.lag_threshold_days)
     show_settings(
         ctx,
-        "Scan Settings",
+        "Status Settings",
         {
             "project_path": options.project_path,
             "lag_threshold_days": f"{threshold_parsed.days} days",
@@ -65,9 +65,8 @@ def commnad_scan(ctx: typer.Context, options: CommandScanOptions):
         with progress():
             project_scan = project.scan(uow)
 
-    # Get renderer using new registry pattern (mirrors package manager adapter pattern)
     renderer = get_renderer(
-        command=Command.SCAN, user_interface_type=UserInterfaceType(options.presentation), settings=settings
+        command=Command.STATUS, user_interface_type=UserInterfaceType(options.presentation), settings=settings
     )
 
     renderer.render(

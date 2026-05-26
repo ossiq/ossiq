@@ -1,40 +1,38 @@
-# 07 — Update Command: plan/execute, --pin-all, --rewrite-versions, --ignore, NPM Helpers
+# 07 — Plan Command: --pin-all, --rewrite-versions, --ignore, NPM Helpers
 
-New features: `update plan` / `update execute` subcommands, `--pin-all` flag (renamed from `--pin`),
-`--rewrite-versions` flag, smart specifier rewrite for UV/PyPI,
-and the `ossiq helpers npm` subcommand group replacing inline JavaScript.
+`plan` shows solver recommendations read-only. `apply` executes them. Both share the same option surface.
 
 Run from repo root. UV specifier and helpers tests require network (registry lookups).
 
 **Precondition:**
 
 ```bash
-uv run hatch run ossiq-cli update --help
-uv run hatch run ossiq-cli update plan --help | grep -E "pin-all|rewrite-versions|ignore|script"
-uv run hatch run ossiq-cli update execute --help | grep -E "yes|pin-all|rewrite-versions"
+uv run hatch run ossiq-cli plan --help
+uv run hatch run ossiq-cli plan --help | grep -E "pin-all|rewrite-versions|ignore|script"
+uv run hatch run ossiq-cli apply --help | grep -E "yes|pin-all|rewrite-versions"
 uv run hatch run ossiq-cli helpers --help
 uv run hatch run ossiq-cli helpers npm --help
 ```
 
-- [ ] `update --help` lists `plan` and `execute` as subcommands
-- [ ] `--pin-all` listed in `update plan --help`
-- [ ] `--rewrite-versions` listed in `update plan --help`
-- [ ] `--script` listed in `update plan --help`
-- [ ] `--yes` / `-y` listed in `update execute --help`
-- [ ] `--ignore` / `-i` listed in both subcommand help outputs
+- [ ] `plan --help` lists `--script`, `--pin-all`, `--rewrite-versions`, `--ignore`
+- [ ] `--pin-all` listed in `plan --help`
+- [ ] `--rewrite-versions` listed in `plan --help`
+- [ ] `--script` listed in `plan --help`
+- [ ] `--yes` / `-y` listed in `apply --help`
+- [ ] `--ignore` / `-i` listed in both `plan` and `apply` help outputs
 - [ ] `helpers --help` shows `npm` subcommand
 - [ ] `helpers npm --help` shows `freeze-state`, `restore-state`, `overrides-diff`
 
 ---
 
-## TC-U01: `--ignore/-i` on scan — recommendation excluded, package still visible
+## TC-U01: `--ignore/-i` on status — recommendation excluded, package still visible
 
 ```bash
 # Identify a package with a pending recommendation first
-uv run hatch run ossiq-cli scan testdata/pypi/version-constraint
+uv run hatch run ossiq-cli status testdata/pypi/version-constraint
 
 # Now ignore it (substitute actual package name)
-uv run hatch run ossiq-cli scan --ignore requests testdata/pypi/version-constraint
+uv run hatch run ossiq-cli status --ignore requests testdata/pypi/version-constraint
 ```
 
 - [ ] Ignored package row still appears in the table (not hidden)
@@ -44,13 +42,13 @@ uv run hatch run ossiq-cli scan --ignore requests testdata/pypi/version-constrai
 
 ---
 
-## TC-U02: `--ignore/-i` on update plan — package absent from plan
+## TC-U02: `--ignore/-i` on plan — package absent from plan
 
 ```bash
-uv run hatch run ossiq-cli update plan --ignore requests testdata/pypi/version-constraint
+uv run hatch run ossiq-cli plan --ignore requests testdata/pypi/version-constraint
 ```
 
-- [ ] `requests` does not appear in the update plan table
+- [ ] `requests` does not appear in the plan table
 - [ ] Other packages (if any) still appear in plan
 - [ ] No crash
 
@@ -67,10 +65,10 @@ uv run hatch run ossiq-cli export --ignore requests --output-format=json --outpu
 
 ---
 
-## TC-U04: `--ignore/-i` on package — flag accepted, no crash
+## TC-U04: `--ignore/-i` on info — flag accepted, no crash
 
 ```bash
-uv run hatch run ossiq-cli package --ignore requests testdata/pypi/version-constraint pydantic
+uv run hatch run ossiq-cli info --ignore requests testdata/pypi/version-constraint pydantic
 ```
 
 - [ ] Command completes without crash
@@ -81,7 +79,7 @@ uv run hatch run ossiq-cli package --ignore requests testdata/pypi/version-const
 ## TC-U05: UV smart specifier — NARROWED (`~=`): sed line with new compatible-release version
 
 ```bash
-uv run hatch run ossiq-cli update plan --script testdata/pypi/version-constraint
+uv run hatch run ossiq-cli plan --script testdata/pypi/version-constraint
 ```
 
 Inspect the generated script block for `requests` (specifier `~= 2.31.0`):
@@ -96,7 +94,7 @@ Inspect the generated script block for `requests` (specifier `~= 2.31.0`):
 ## TC-U06: UV smart specifier — DECLARED (`>=`): no sed; upgrade-package instead
 
 ```bash
-uv run hatch run ossiq-cli update plan --script testdata/pypi/version-constraint
+uv run hatch run ossiq-cli plan --script testdata/pypi/version-constraint
 ```
 
 Inspect the generated script block for `pydantic` (specifier `>= 2.0.0`):
@@ -110,7 +108,7 @@ Inspect the generated script block for `pydantic` (specifier `>= 2.0.0`):
 ## TC-U07: UV `--pin-all` flag — all direct deps pinned exactly with `==`
 
 ```bash
-uv run hatch run ossiq-cli update plan --pin-all --script testdata/pypi/version-constraint
+uv run hatch run ossiq-cli plan --pin-all --script testdata/pypi/version-constraint
 ```
 
 - [ ] Script contains a `sed` line for every direct dep with a pending update
@@ -122,7 +120,7 @@ uv run hatch run ossiq-cli update plan --pin-all --script testdata/pypi/version-
 ## TC-U08: NPM generated script — no inline JavaScript, uses helpers subcommands
 
 ```bash
-uv run hatch run ossiq-cli update plan --script testdata/npm/version-constrained
+uv run hatch run ossiq-cli plan --script testdata/npm/version-constrained
 ```
 
 Inspect the generated script block:
@@ -197,7 +195,7 @@ uv run hatch run ossiq-cli helpers npm freeze-state testdata/npm/version-constra
 ```
 
 - [ ] Direct dependency entries in `package.json` (`dependencies`, `devDependencies`, etc.) are rewritten to exact versions (no `^`, `~`, or range operators)
-- [ ] Exact versions match the recommended versions in the update plan
+- [ ] Exact versions match the recommended versions in the plan
 - [ ] No crash
 
 ```bash
@@ -210,7 +208,7 @@ uv run hatch run ossiq-cli helpers npm restore-state testdata/npm/version-constr
 ## TC-U13: NPM caret spec — same major version, specifier unchanged in package.json
 
 ```bash
-uv run hatch run ossiq-cli update plan --script testdata/npm/version-constrained
+uv run hatch run ossiq-cli plan --script testdata/npm/version-constrained
 ```
 
 Find a package in `testdata/npm/version-constrained/package.json` that uses `^major.x.x` and whose recommended version is within the same major:
@@ -224,19 +222,19 @@ Find a package in `testdata/npm/version-constrained/package.json` that uses `^ma
 ## TC-U14: Removed flag `--npm-overrides-diff` is rejected
 
 ```bash
-uv run hatch run ossiq-cli update --npm-overrides-diff testdata/npm/version-constrained 2>&1 | head -5
+uv run hatch run ossiq-cli plan --npm-overrides-diff testdata/npm/version-constrained 2>&1 | head -5
 ```
 
 - [ ] Command exits with a non-zero code
-- [ ] Error output contains "No such command" or similar — the flag no longer exists
+- [ ] Error output contains "No such option" or similar — the flag no longer exists
 - [ ] No Python traceback
 
 ---
 
-## TC-U15: `update plan` shows table only (no script)
+## TC-U15: `plan` shows table only (no script)
 
 ```bash
-uv run hatch run ossiq-cli update plan testdata/pypi/version-constraint
+uv run hatch run ossiq-cli plan testdata/pypi/version-constraint
 ```
 
 - [ ] Plan table is printed (Package / Current / Recommended columns visible)
@@ -245,41 +243,41 @@ uv run hatch run ossiq-cli update plan testdata/pypi/version-constraint
 
 ---
 
-## TC-U16: `update plan --script` emits script only (no table)
+## TC-U16: `plan --script` emits script only (no table)
 
 ```bash
-uv run hatch run ossiq-cli update plan --script testdata/pypi/version-constraint
+uv run hatch run ossiq-cli plan --script testdata/pypi/version-constraint
 ```
 
 - [ ] Output starts with `#!/usr/bin/env bash` (no Rich table header)
-- [ ] No "OSS IQ — Update Plan" header line in output
-- [ ] Script can be piped cleanly: `ossiq update plan --script testdata/pypi/version-constraint | bash` (dry-run review)
+- [ ] No "OSS IQ — Plan" header line in output
+- [ ] Script can be piped cleanly: `ossiq-cli plan --script testdata/pypi/version-constraint | bash` (dry-run review)
 - [ ] No crash
 
 ---
 
-## TC-U17: Bare `ossiq update <path>` shows help, not an error traceback
+## TC-U17: `plan --help` shows plan options
 
 ```bash
-uv run hatch run ossiq-cli update testdata/pypi/version-constraint 2>&1 | head -10
+uv run hatch run ossiq-cli plan --help
 ```
 
-- [ ] Output shows help text listing `plan` and `execute` as available subcommands
+- [ ] Output shows plan help text listing `--script`, `--pin-all`, `--rewrite-versions`, `--ignore`
 - [ ] No Python traceback
-- [ ] Exit code is non-zero (help display) — verify with `echo $?`
+- [ ] Exit code is zero
 
 ---
 
-## TC-U18: `update execute` shows plan, prompts, and runs (PyPI project)
+## TC-U18: `apply` shows plan, prompts, and runs (PyPI project)
 
 > This test modifies `pyproject.toml`. Run on a copy or restore with `git checkout` afterwards.
 
 ```bash
 # First preview
-uv run hatch run ossiq-cli update plan testdata/pypi/version-constraint
+uv run hatch run ossiq-cli plan testdata/pypi/version-constraint
 
 # Then execute (answer 'y' at prompt)
-uv run hatch run ossiq-cli update execute testdata/pypi/version-constraint
+uv run hatch run ossiq-cli apply testdata/pypi/version-constraint
 ```
 
 - [ ] Plan table appears before the confirmation prompt
@@ -298,12 +296,12 @@ git checkout testdata/pypi/version-constraint/pyproject.toml testdata/pypi/versi
 
 ---
 
-## TC-U19: `update execute --yes` skips confirmation (CI mode)
+## TC-U19: `apply --yes` skips confirmation (CI mode)
 
 > This test modifies `pyproject.toml`. Run on a copy or restore with `git checkout` afterwards.
 
 ```bash
-uv run hatch run ossiq-cli update execute --yes testdata/pypi/version-constraint
+uv run hatch run ossiq-cli apply --yes testdata/pypi/version-constraint
 ```
 
 - [ ] No confirmation prompt appears
@@ -321,13 +319,11 @@ git checkout testdata/pypi/version-constraint/pyproject.toml testdata/pypi/versi
 ## TC-U20: `--rewrite-versions` includes PINNED deps that are normally frozen
 
 ```bash
-# First pin everything to exact versions
-uv run hatch run ossiq-cli update plan --pin-all testdata/pypi/version-constraint
-# Note which packages appear in the plan
+# Without --rewrite-versions: PINNED deps are frozen and absent from plan
+uv run hatch run ossiq-cli plan testdata/pypi/version-constraint
 
-# After running execute --pin-all, future plan runs should show fewer/no direct entries
-# because PINNED deps are frozen. With --rewrite-versions they reappear:
-uv run hatch run ossiq-cli update plan --rewrite-versions testdata/pypi/version-constraint
+# With --rewrite-versions: PINNED deps appear in plan
+uv run hatch run ossiq-cli plan --rewrite-versions testdata/pypi/version-constraint
 ```
 
 - [ ] Without `--rewrite-versions`: packages with `==x.y.z` specifiers do NOT appear in plan (frozen)
@@ -336,7 +332,7 @@ uv run hatch run ossiq-cli update plan --rewrite-versions testdata/pypi/version-
 
 ---
 
-## TC-U21: `update execute` rollback — `pyproject.toml` restored if `uv lock` fails
+## TC-U21: `apply` rollback — `pyproject.toml` restored if `uv lock` fails
 
 > Simulate a failure by passing an invalid package path or registry-type mismatch.
 
@@ -351,7 +347,7 @@ cp testdata/pypi/version-constraint/pyproject.toml /tmp/pyproject_backup.toml
 diff testdata/pypi/version-constraint/pyproject.toml /tmp/pyproject_backup.toml
 ```
 
-- [ ] After a failed `execute`, `pyproject.toml` is identical to its pre-run state
+- [ ] After a failed `apply`, `pyproject.toml` is identical to its pre-run state
 - [ ] Error message printed to stderr explaining the failure
 - [ ] Exit code non-zero
 - [ ] No Python traceback beyond the error message

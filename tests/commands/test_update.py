@@ -9,7 +9,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from ossiq.adapters.package_managers.api_npm import NPM_STATE_FILE, PackageManagerJsNpm
-from ossiq.commands.update import CommandUpdateOptions, _build_npm_freeze_args
+from ossiq.commands.plan import CommandPlanOptions, build_npm_freeze_args
 
 
 def write_state(tmp_path: Path, original_overrides: dict, recommended: list[str], locked: dict | None = None) -> None:
@@ -76,37 +76,37 @@ class TestRestoreState:
 
 class TestCommandUpdatePinWiring:
     def test_pin_all_true_passed_to_options(self) -> None:
-        options = CommandUpdateOptions(project_path="/some/path", pin_all=True)
+        options = CommandPlanOptions(project_path="/some/path", pin_all=True)
         assert options.pin_all is True
 
     def test_pin_all_false_by_default(self) -> None:
-        options = CommandUpdateOptions(project_path="/some/path")
+        options = CommandPlanOptions(project_path="/some/path")
         assert options.pin_all is False
 
 
 class TestBuildNpmFreezeArgs:
     def test_base_always_includes_registry_type(self) -> None:
-        options = CommandUpdateOptions(project_path="/p")
-        assert "--registry-type npm" in _build_npm_freeze_args(options)
+        options = CommandPlanOptions(project_path="/p")
+        assert "--registry-type npm" in build_npm_freeze_args(options)
 
     def test_pin_all_flag_included_when_set(self) -> None:
-        options = CommandUpdateOptions(project_path="/p", pin_all=True)
-        assert "--pin-all" in _build_npm_freeze_args(options)
+        options = CommandPlanOptions(project_path="/p", pin_all=True)
+        assert "--pin-all" in build_npm_freeze_args(options)
 
     def test_pin_all_flag_absent_when_not_set(self) -> None:
-        options = CommandUpdateOptions(project_path="/p", pin_all=False)
-        assert "--pin-all" not in _build_npm_freeze_args(options)
+        options = CommandPlanOptions(project_path="/p", pin_all=False)
+        assert "--pin-all" not in build_npm_freeze_args(options)
 
     def test_ignore_packages_included(self) -> None:
-        options = CommandUpdateOptions(project_path="/p", ignore_packages=("lodash", "express"))
-        args = _build_npm_freeze_args(options)
+        options = CommandPlanOptions(project_path="/p", ignore_packages=("lodash", "express"))
+        args = build_npm_freeze_args(options)
         assert "--ignore lodash" in args
         assert "--ignore express" in args
 
     def test_security_flag_included(self) -> None:
-        options = CommandUpdateOptions(project_path="/p", security_only=True)
-        assert "--security" in _build_npm_freeze_args(options)
+        options = CommandPlanOptions(project_path="/p", security_only=True)
+        assert "--security" in build_npm_freeze_args(options)
 
     def test_production_flag_included(self) -> None:
-        options = CommandUpdateOptions(project_path="/p", production=True)
-        assert "--production" in _build_npm_freeze_args(options)
+        options = CommandPlanOptions(project_path="/p", production=True)
+        assert "--production" in build_npm_freeze_args(options)

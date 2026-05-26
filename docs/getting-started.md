@@ -54,7 +54,7 @@ export OSSIQ_GITHUB_TOKEN=$(gh auth token);
     Point `ossiq-cli` at an existing python or javascript project and OSS IQ will **detect proejct dependencies**.
 
     ```bash
-    uvx --from ossiq ossiq-cli scan testdata/npm/project1/ 
+    uvx --from ossiq ossiq-cli status testdata/npm/project1/
     ```
 
     You always can install [ossiq](https://pypi.org/project/ossiq/) package with respective python tools `uv add ossiq` or `pip install ossiq`.
@@ -70,7 +70,7 @@ export OSSIQ_GITHUB_TOKEN=$(gh auth token);
 
 Get a specific package details:
 ```bash
-uvx --from ossiq ossiq-cli package . sphinx
+uvx --from ossiq ossiq-cli info sphinx
 ```
 
 ![OSS IQ Terminal/CLI Package Details](/img/ossiq-cli-package-2026-03-14.png)
@@ -80,7 +80,7 @@ uvx --from ossiq ossiq-cli package . sphinx
 
  1. Generate HTML report:
     ```bash
-    uvx --from ossiq ossiq-cli scan --presentation=html --output report.html .
+    uvx --from ossiq ossiq-cli status --presentation=html --output report.html
     ```
 
  2. Open `report.html` and you'll get table view of your dependencies:

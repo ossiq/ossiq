@@ -61,7 +61,7 @@ def parse_iso_datetime(datetime_str: str | None) -> datetime | None:
 
 def cutoff_datetime_from_iso_date(date_str: str) -> datetime:
     """Convert ISO date string 'YYYY-MM-DD' to end-of-day UTC datetime (23:59:59)."""
-    d = parse_iso_datetime(date_str).date()
+    d = datetime.fromisoformat(date_str).date()
     return datetime(d.year, d.month, d.day, 23, 59, 59, tzinfo=UTC)
 
 

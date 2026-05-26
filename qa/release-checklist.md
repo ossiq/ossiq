@@ -11,12 +11,12 @@
 ## 01 — General ([details](01-general.md))
 
 - [ ] TC-G07: `uv run just qa` — all tests pass
-- [ ] TC-G01: `--version`, `--help`, `scan --help`, `update --help`, `update plan --help`, `update execute --help` all work; `scan --help` lists `--security`, `--full`, `--ignore`; `update plan --help` lists `--pin-all`, `--rewrite-versions`, `--script`, `--ignore`; `update execute --help` lists `--yes`, `--pin-all`, `--rewrite-versions`, `--ignore`
+- [ ] TC-G01: `--version`, `--help`, `status --help`, `plan --help`, `apply --help` all work; `status --help` lists `--security`, `--full`, `--ignore`; `plan --help` lists `--pin-all`, `--rewrite-versions`, `--script`, `--ignore`; `apply --help` lists `--yes`, `--pin-all`, `--rewrite-versions`, `--ignore`
 - [ ] TC-G03/G04: Ecosystem auto-detected (PyPI and npm)
 - [ ] TC-G02: `--verbose` shows settings panel; without it, panel is absent
 - [ ] TC-G08: `helpers --help` lists `npm`; `helpers npm --help` lists `freeze-state`, `restore-state`, `overrides-diff`
 
-## 02 — Console Scan ([details](02-console-scan.md))
+## 02 — Console Scan ([details](02-console-status.md))
 
 - [ ] TC-C01: PyPI scan renders table with all expected columns
 - [ ] TC-C02: npm scan renders table
@@ -48,15 +48,15 @@
 
 ## 06 — Transitive Impacts ([details](06-transitive-impacts.md))
 
-- [ ] TC-T01: `--security`, `--full`, `--ignore` in `scan --help`; `--security`, `--pin-all`, `--ignore` in `update plan --help`
-- [ ] TC-T02: `scan` shows `↳ also updates:` sub-rows under at least one recommendation
-- [ ] TC-T03: `scan --full` shows all packages including up-to-date ones; row count ≥ default run
-- [ ] TC-T07: `update plan` renders without crash, shows transitive impact sub-rows; `update plan --script` produces an update script block
+- [ ] TC-T01: `--security`, `--full`, `--ignore` in `status --help`; `--security`, `--pin-all`, `--ignore` in `plan --help`
+- [ ] TC-T02: `status` shows `↳ also updates:` sub-rows under at least one recommendation
+- [ ] TC-T03: `status --full` shows all packages including up-to-date ones; row count ≥ default run
+- [ ] TC-T07: `plan` renders without crash, shows transitive impact sub-rows; `plan --script` produces an update script block
 
-## 07 — Update Command: --pin-all, --rewrite-versions, --ignore, Specifier Rewrite, NPM Helpers ([details](07-update-command.md))
+## 07 — Plan Command: --pin-all, --rewrite-versions, --ignore, Specifier Rewrite, NPM Helpers ([details](07-plan-apply-command.md))
 
-- [ ] TC-U01: `--ignore` on scan — ignored package has no recommendation; still visible in table
-- [ ] TC-U02: `--ignore` on update — ignored package absent from plan and generated script
+- [ ] TC-U01: `--ignore` on status — ignored package has no recommendation; still visible in table
+- [ ] TC-U02: `--ignore` on plan — ignored package absent from plan and generated script
 - [ ] TC-U05: UV NARROWED (`~=`): script contains `sed` with `~=<new_version>`; no `--upgrade-package` for that entry
 - [ ] TC-U06: UV DECLARED (`>=`): no `sed`; `uv lock --upgrade-package <pkg>==<ver>` present
 - [ ] TC-U07: UV `--pin-all`: all direct dep `sed` lines use `==<ver>` regardless of original specifier
@@ -64,7 +64,7 @@
 - [ ] TC-U09: `ossiq helpers npm freeze-state` creates `.ossiq_npm_state.json` and locks `package.json` overrides
 - [ ] TC-U10: `ossiq helpers npm restore-state` restores original overrides and deletes state file
 - [ ] TC-U11: `ossiq helpers npm overrides-diff` prints diff table without modifying any file
-- [ ] TC-U14: `ossiq update --npm-overrides-diff` rejected with "No such option" (flag removed)
+- [ ] TC-U14: `ossiq plan --npm-overrides-diff` rejected with "No such option" (flag removed)
 
 ## Notes
 <!-- Anything unexpected observed during QA -->

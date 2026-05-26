@@ -17,7 +17,7 @@ npm_helpers_app = typer.Typer(name="npm", help="NPM helper utilities")
 @npm_helpers_app.command("freeze-state")
 def npm_freeze_state(
     ctx: typer.Context,
-    project_path: str,
+    project_path: Annotated[str, typer.Argument()] = ".",
     allow_prerelease: Annotated[
         bool, typer.Option("--allow-prerelease", help="Include pre-release versions in drift calculations")
     ] = False,
@@ -77,7 +77,7 @@ def npm_freeze_state(
 @npm_helpers_app.command("restore-state")
 def npm_restore_state(
     ctx: typer.Context,
-    project_path: str,
+    project_path: Annotated[str, typer.Argument()] = ".",
 ) -> None:
     """Restore original package.json overrides after npm install and delete state file."""
     settings: Settings = ctx.obj
@@ -93,7 +93,7 @@ def npm_restore_state(
 @npm_helpers_app.command("overrides-diff")
 def npm_overrides_diff(
     ctx: typer.Context,
-    project_path: str,
+    project_path: Annotated[str, typer.Argument()] = ".",
 ) -> None:
     """Show diff between current package.json overrides and original (read-only)."""
     settings: Settings = ctx.obj

@@ -41,20 +41,17 @@ OSS IQ bridges the gap between raw dependency data and actionable intelligence. 
 The fastest way is to run directly from [PyPI](https://pypi.org/) with [uvx](https://docs.astral.sh/uv/) with no install required:
 
 ```bash
-# JavaScript / npm
-uvx --from ossiq ossiq-cli scan /path/to/your/project
-
-# Python / uv / pip
-uvx --from ossiq ossiq-cli scan /path/to/your/project
+# JavaScript / npm or Python / uv / pip — run from your project directory
+uvx --from ossiq ossiq-cli status
 
 # Generate HTML report
-uvx --from ossiq ossiq-cli scan --presentation=html --output report.html /path/to/your/project
+uvx --from ossiq ossiq-cli status --presentation=html --output report.html
 
-# Include full transitive dependency recommendations
-uvx --from ossiq ossiq-cli scan --transitive /path/to/your/project
+# Show all packages, including up-to-date ones
+uvx --from ossiq ossiq-cli status --full
 
 # Narrow to CVE-affected packages only (security-first workflow)
-uvx --from ossiq ossiq-cli scan --security /path/to/your/project
+uvx --from ossiq ossiq-cli status --security
 ```
 
 OSS IQ automatically detects the dependency manifest (`package.json`, `pyproject.toml`, etc.) in the target directory.
@@ -70,7 +67,7 @@ export OSSIQ_GITHUB_TOKEN=$(gh auth token)
 
 #### Temporal Analysis Options
 
-Two global options let you control how OSS IQ perceives time. They apply to all subcommands (`scan`, `export`, `update`, `package`) and can be combined freely.
+Two global options let you control how OSS IQ perceives time. They apply to all subcommands (`status`, `export`, `plan`, `apply`, `info`) and can be combined freely.
 
 | Option | Env var | Default | Description |
 |---|---|---|---|
@@ -79,22 +76,22 @@ Two global options let you control how OSS IQ perceives time. They apply to all 
 
 ```bash
 # Reproduce the exact state of your dependencies as of a past date
-ossiq-cli --cutoff-date 2025-01-01 scan /path/to/your/project
+ossiq-cli --cutoff-date 2025-01-01 status
 
 # Widen the freshness buffer to 14 days (versions < 14 days old are soft-penalized)
-ossiq-cli --cooldown-period 14 scan /path/to/your/project
+ossiq-cli --cooldown-period 14 status
 
 # Both together: time-travel view with a custom freshness window
-ossiq-cli --cutoff-date 2025-01-01 --cooldown-period 14 scan /path/to/your/project
+ossiq-cli --cutoff-date 2025-01-01 --cooldown-period 14 status
 
 # Disable the freshness penalty entirely
-ossiq-cli --cooldown-period 0 scan /path/to/your/project
+ossiq-cli --cooldown-period 0 status
 ```
 
 The options are also readable from environment variables, which is useful for CI pipelines:
 
 ```bash
-OSSIQ_CUTOFF_DATE=2025-01-01 OSSIQ_COOLDOWN_PERIOD=14 ossiq-cli scan /path/to/your/project
+OSSIQ_CUTOFF_DATE=2025-01-01 OSSIQ_COOLDOWN_PERIOD=14 ossiq-cli status
 ```
 
 
@@ -108,7 +105,7 @@ uv add ossiq
 pip install ossiq
 
 # Then run directly
-ossiq-cli scan /path/to/your/project
+ossiq-cli status
 ```
 
 ### Using Docker
@@ -122,18 +119,18 @@ docker pull ossiq/ossiq-cli
 # Set your GitHub token (required)
 export OSSIQ_GITHUB_TOKEN=$(gh auth token)
 
-# Scan a local project
+# Show dependency status
 docker run --rm \
   -e OSSIQ_GITHUB_TOKEN \
   -v /path/to/your/project:/project:ro \
-  ossiq/ossiq-cli scan /project
+  ossiq/ossiq-cli status /project
 
 # Generate an HTML report
 docker run --rm \
   -e OSSIQ_GITHUB_TOKEN \
   -v /path/to/your/project:/project:ro \
   -v $(pwd)/reports:/output \
-  ossiq/ossiq-cli scan -p html -o /output/report.html /project
+  ossiq/ossiq-cli status -p html -o /output/report.html /project
 
 # Export to JSON for CI/CD pipelines
 docker run --rm \
@@ -161,25 +158,25 @@ jobs:
           docker run --rm \
             -e OSSIQ_GITHUB_TOKEN=${{ secrets.GITHUB_TOKEN }} \
             -v ${{ github.workspace }}:/project:ro \
-            ossiq/ossiq-cli scan /project
+            ossiq/ossiq-cli status /project
 ```
 
-### Atomic Dependency Update
+### Dependency Update Plan
 
-The `update` command plans and executes safe dependency upgrades to the versions recommended by the HPDR solver. It has two subcommands: `plan` (inspect only) and `execute` (apply changes).
+`ossiq-cli plan` shows what the solver recommends without touching any files. `ossiq-cli apply` executes those changes with rollback on failure.
 
 ```bash
-# Show the update plan table
-ossiq-cli update plan /path/to/your/project
+# Show the plan table (read-only, no changes made)
+ossiq-cli plan
 
 # Emit a copy-pasteable bash script instead of the table
-ossiq-cli update plan --script /path/to/your/project
+ossiq-cli plan --script
 
 # Apply updates interactively (shows the plan, then prompts for confirmation)
-ossiq-cli update execute /path/to/your/project
+ossiq-cli apply
 
 # Apply updates non-interactively (skip confirmation, for CI)
-ossiq-cli update execute --yes /path/to/your/project
+ossiq-cli apply --yes
 ```
 
 The solver simulates the full transitive impact of each recommendation before committing to it. When the top candidate would create a downstream conflict, it falls back to the next-best version automatically. The plan table shows a `↳` sub-row for each transitive package that would also move, and marks non-actionable entries with `✗`.
@@ -201,7 +198,7 @@ The solver simulates the full transitive impact of each recommendation before co
 | `--pin-all` | Write `==new_version` for every updated direct dependency, converting loose specifiers (`^`, `~=`, `>=`) to exact pins |
 | `--rewrite-versions` | Include already-pinned (`==x.y.z`) dependencies in the update and rewrite their pinned version |
 | `--script` | (`plan` only) Print the bash script instead of the plan table — safe to pipe directly to `bash` |
-| `--yes`, `-y` | (`execute` only) Skip the confirmation prompt |
+| `--yes`, `-y` | (`apply` only) Skip the confirmation prompt |
 
 #### Pinning workflow — `--pin-all` and `--rewrite-versions`
 
@@ -209,17 +206,17 @@ By default, packages already pinned with an exact specifier (`==x.y.z`) are **fr
 
 ```bash
 # Step 1: migrate all direct deps to exact pins (==x.y.z)
-ossiq-cli update execute --pin-all /path/to/your/project
+ossiq-cli apply --pin-all
 
-# Step 2: on subsequent runs, view what newer versions are available
+# Step 2: on subsequent runs, preview what newer versions are available
 #         (pinned deps are frozen and not shown by default)
-ossiq-cli update plan /path/to/your/project
+ossiq-cli plan
 
 # Step 3: upgrade and re-pin everything in one pass
-ossiq-cli update execute --pin-all --rewrite-versions /path/to/your/project
+ossiq-cli apply --pin-all --rewrite-versions
 
 # Step 3 (selective): hold back specific packages while updating the rest
-ossiq-cli update execute --pin-all --rewrite-versions --ignore requests --ignore django /path/to/your/project
+ossiq-cli apply --pin-all --rewrite-versions --ignore requests --ignore django
 ```
 
 **Flag behaviour summary:**
@@ -276,10 +273,10 @@ cd ossiq
 uv sync
 
 # Run the CLI
-uv run hatch run ossiq-cli scan /path/to/your/project
+uv run hatch run ossiq-cli status
 
 # Generate HTML report
-uv run hatch run ossiq-cli scan -p html -o ./test_report.html /path/to/your/project
+uv run hatch run ossiq-cli status -p html -o ./test_report.html
 ```
 
 ### Package Deep-Dive
@@ -287,8 +284,8 @@ uv run hatch run ossiq-cli scan -p html -o ./test_report.html /path/to/your/proj
 Inspect a single package in detail — drift status, CVEs, transitive vulnerabilities, and its exact path in the dependency tree:
 
 ```bash
-ossiq-cli package /path/to/your/project react
-ossiq-cli package /path/to/your/project lodash --registry-type npm
+ossiq-cli info react
+ossiq-cli info lodash --registry-type npm
 ```
 
 The output mirrors the structure of the dependency detail panel:

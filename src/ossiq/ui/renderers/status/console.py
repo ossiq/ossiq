@@ -1,6 +1,4 @@
-"""
-Console renderer for scan command.
-"""
+"""Console renderer for status command."""
 
 from rich.console import Console
 from rich.panel import Panel
@@ -19,10 +17,10 @@ from ossiq.ui.renderers.impact_utils import (
 )
 
 
-class ConsoleScanRenderer(AbstractUserInterfaceRenderer):
-    """Console renderer for scan command."""
+class ConsoleStatusRenderer(AbstractUserInterfaceRenderer):
+    """Console renderer for status command."""
 
-    command = Command.SCAN
+    command = Command.STATUS
     user_interface_type = UserInterfaceType.CONSOLE
 
     def __init__(self, settings: Settings):
@@ -31,8 +29,8 @@ class ConsoleScanRenderer(AbstractUserInterfaceRenderer):
 
     @staticmethod
     def supports(command: Command, user_interface_type: UserInterfaceType) -> bool:
-        """Check if this renderer handles scan/console combination."""
-        return command == Command.SCAN and user_interface_type == UserInterfaceType.CONSOLE
+        """Check if this renderer handles status/console combination."""
+        return command == Command.STATUS and user_interface_type == UserInterfaceType.CONSOLE
 
     def render(self, data: ScanResult, **kwargs) -> None:
         """

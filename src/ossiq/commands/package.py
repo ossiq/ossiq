@@ -22,7 +22,7 @@ _SEVERITY_ORDER: dict[str, int] = {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2, "LOW":
 
 
 @dataclass(frozen=True)
-class CommandPackageOptions:
+class CommandInfoOptions:
     project_path: str
     package_name: str
     registry_type: Literal["npm", "pypi"] | None
@@ -67,7 +67,7 @@ def _collect_transitive_cve_groups(scan_result: ScanResult, package_name: str) -
     return sorted(acc.values(), key=worst_severity)
 
 
-def command_package(ctx: typer.Context, options: CommandPackageOptions) -> None:
+def command_info(ctx: typer.Context, options: CommandInfoOptions) -> None:
     """Single package deep-dive command."""
     settings: Settings = ctx.obj
     registry_type_map = {
@@ -111,7 +111,7 @@ def command_package(ctx: typer.Context, options: CommandPackageOptions) -> None:
     )
 
     renderer = get_renderer(
-        command=Command.PACKAGE,
+        command=Command.INFO,
         user_interface_type=UserInterfaceType.CONSOLE,
         settings=settings,
     )

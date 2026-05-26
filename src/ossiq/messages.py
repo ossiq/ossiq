@@ -1,7 +1,8 @@
 HELP_TEXT = """
-Utility to determine difference between versions of the same package.
-Currently supported ecosystems:
- - NPM: TypeScript, JavaScript
+Dependency health and update tool for NPM and PyPI projects.
+
+Run `ossiq` (or `ossiq status`) from your project directory for an overview.
+Use `ossiq plan` to see what would change, `ossiq apply` to execute updates.
 """
 
 HELP_LAG_THRESHOULD = """
@@ -57,7 +58,7 @@ ARGS_HELP_COOLDOWN_PERIOD = (
     "(default: 7). Overrides OSSIQ_COOLDOWN_PERIOD env var."
 )
 
-HELP_PACKAGE_COMMAND = """
+HELP_INFO_COMMAND = """
 Deep-dive into a single package: drift status, dependency tree trace, policy compliance,
 security advisories, and transitive dependency CVEs.
 """
@@ -66,15 +67,18 @@ ERROR_PACKAGE_NOT_FOUND = """
 Package `{package_name}` not found in the project dependency tree.
 """
 
-HELP_UPDATE_COMMAND = """
-Plan or execute solver-recommended package version updates.
+HELP_PLAN_COMMAND = """
+Show solver-recommended package version changes without making any changes.
 
-Use `ossiq update plan` to preview what would change.
-Use `ossiq update execute` to apply updates in-process with rollback on failure.
+Use `--script` to emit a bash update script instead of the plan table.
 Use `--pin-all` to write exact ==version specifiers for updated deps.
-Use `--rewrite-versions` to also update PINNED (==x.y.z) deps that are otherwise frozen.
+Use `--rewrite-versions` to also include PINNED (==x.y.z) deps that are otherwise frozen.
 """
 
-HELP_UPDATE_NO_RECOMMENDATIONS = (
-    "No updates recommended — the solver found all packages are already at optimal versions."
-)
+HELP_APPLY_COMMAND = """
+Apply solver-recommended updates in-process with rollback on failure.
+
+Shows the plan first and prompts for confirmation (use `--yes` for CI).
+"""
+
+HELP_PLAN_NO_RECOMMENDATIONS = "No updates recommended — the solver found all packages are already at optimal versions."

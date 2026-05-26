@@ -180,7 +180,7 @@ class CsvExportRendererBaseTest:
         "command,user_interface_type,expected",
         [
             (Command.EXPORT, UserInterfaceType.CSV, True),
-            (Command.SCAN, UserInterfaceType.CSV, False),
+            (Command.STATUS, UserInterfaceType.CSV, False),
             (Command.EXPORT, UserInterfaceType.JSON, False),
             (Command.EXPORT, UserInterfaceType.HTML, False),
             (Command.EXPORT, UserInterfaceType.CONSOLE, False),

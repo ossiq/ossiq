@@ -95,7 +95,7 @@ def _collect_licenses(records: list[ScanRecord]) -> list[str]:
 class ConsolePackageRenderer(AbstractUserInterfaceRenderer):
     """Console renderer for the package deep-dive command."""
 
-    command = Command.PACKAGE
+    command = Command.INFO
     user_interface_type = UserInterfaceType.CONSOLE
 
     def __init__(self, settings: Settings):
@@ -104,7 +104,7 @@ class ConsolePackageRenderer(AbstractUserInterfaceRenderer):
 
     @staticmethod
     def supports(command: Command, user_interface_type: UserInterfaceType) -> bool:
-        return command == Command.PACKAGE and user_interface_type == UserInterfaceType.CONSOLE
+        return command == Command.INFO and user_interface_type == UserInterfaceType.CONSOLE
 
     def render(self, data: PackageDetailResult, **kwargs) -> None:
         """Render single-package deep-dive to console."""

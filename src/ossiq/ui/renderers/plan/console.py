@@ -1,4 +1,4 @@
-"""Console renderer for the update command."""
+"""Console renderer for the plan command."""
 
 from rich.console import Console
 from rich.rule import Rule
@@ -12,19 +12,19 @@ from ossiq.ui.renderers.impact_utils import impact_sub_row_texts, new_transitive
 console = Console()
 
 
-class ConsoleUpdateRenderer(AbstractUserInterfaceRenderer):
-    """Renders the update plan as a summary table followed by a bash script block."""
+class ConsolePlanRenderer(AbstractUserInterfaceRenderer):
+    """Renders the plan as a summary table followed by an optional bash script block."""
 
-    command = Command.UPDATE
+    command = Command.PLAN
     user_interface_type = UserInterfaceType.CONSOLE
 
     @staticmethod
     def supports(command: Command, user_interface_type: UserInterfaceType) -> bool:
-        return command == Command.UPDATE and user_interface_type == UserInterfaceType.CONSOLE
+        return command == Command.PLAN and user_interface_type == UserInterfaceType.CONSOLE
 
     def render(self, data: UpdatePlan, script: str = "", **kwargs) -> None:
         console.print()
-        console.print(Rule(f"OSS IQ — Update Plan: {data.project_name}", style="bold cyan"))
+        console.print(Rule(f"OSS IQ — Plan: {data.project_name}", style="bold cyan"))
         console.print(
             f"  Package Manager: [bold]{data.package_manager_name}[/bold]  |  "
             f"Direct: [bold green]{len(data.direct_entries)}[/bold green]  |  "
@@ -62,8 +62,8 @@ class ConsoleUpdateRenderer(AbstractUserInterfaceRenderer):
                 console.print()
 
         if script:
-            console.print(Rule("Update Script — review before running", style="bold yellow"))
+            console.print(Rule("Plan Script — review before running", style="bold yellow"))
             console.print()
             console.print(script)
             console.print()
-            console.print(Rule("End of Update Script", style="dim"))
+            console.print(Rule("End of Plan Script", style="dim"))
