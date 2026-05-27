@@ -25,6 +25,7 @@ from ossiq.adapters.package_managers.api_npm import (
     CATEGORIES_OPTIONAL,
     CATEGORIES_OVERRIDDEN,
     CATEGORIES_PEER,
+    NPM_STATE_FILE,
     NPMResolverV3,
     PackageManagerJsNpm,
 )
@@ -1330,3 +1331,149 @@ class TestExecuteUpdate:
             with pytest.raises(RuntimeError):
                 npm.execute_update(plan)
         mock_restore.assert_called_once_with(temp_project_dir)
+
+
+# ============================================================================
+# Test restore_state
+# ============================================================================
+
+
+def write_state_file(
+    project_dir: str,
+    original_overrides: dict,
+    locked_overrides: dict | None = None,
+    recommended_versions: dict | None = None,
+) -> None:
+    """Write a minimal .ossiq_npm_state.json to project_dir."""
+    import json as _json
+
+    state = {
+        "original_overrides": original_overrides,
+        "locked_overrides": locked_overrides or {},
+        "recommended_versions": recommended_versions or {},
+    }
+    state_path = os.path.join(project_dir, NPM_STATE_FILE)
+    with open(state_path, "w", encoding="utf-8") as f:
+        _json.dump(state, f)
+
+
+def write_pkg_json(project_dir: str, overrides: dict | None = None) -> None:
+    """Write a minimal package.json with optional overrides to project_dir."""
+    import json as _json
+
+    pkg: dict = {"name": "test", "version": "1.0.0"}
+    if overrides is not None:
+        pkg["overrides"] = overrides
+    manifest_path = os.path.join(project_dir, "package.json")
+    with open(manifest_path, "w", encoding="utf-8") as f:
+        _json.dump(pkg, f)
+
+
+class TestRestoreState:
+    """Tests for restore_state() — verifies overrides are fully restored and state file deleted."""
+
+    @pytest.fixture
+    def npm(self, settings, temp_project_dir):
+        return PackageManagerJsNpm(temp_project_dir, settings)
+
+    def test_fully_restores_original_overrides(self, npm, temp_project_dir):
+        write_state_file(temp_project_dir, original_overrides={"lodash": "4.0.0"})
+        write_pkg_json(temp_project_dir, overrides={"lodash": "4.17.21", "ms": "2.1.3"})
+
+        npm.restore_state(temp_project_dir)
+
+        import json as _json
+
+        with open(os.path.join(temp_project_dir, "package.json"), encoding="utf-8") as f:
+            pkg = _json.load(f)
+        assert pkg["overrides"] == {"lodash": "4.0.0"}
+
+    def test_recommended_version_applied_to_original_override(self, npm, temp_project_dir):
+        write_state_file(
+            temp_project_dir,
+            original_overrides={"lodash": "4.0.0", "express": "4.18.0"},
+            recommended_versions={"express": "4.19.0"},
+        )
+        write_pkg_json(temp_project_dir, overrides={"lodash": "4.17.21", "express": "4.19.0", "ms": "2.1.3"})
+
+        npm.restore_state(temp_project_dir)
+
+        import json as _json
+
+        with open(os.path.join(temp_project_dir, "package.json"), encoding="utf-8") as f:
+            pkg = _json.load(f)
+        assert pkg["overrides"] == {"lodash": "4.0.0", "express": "4.19.0"}
+
+    def test_original_override_kept_when_no_recommended_version(self, npm, temp_project_dir):
+        write_state_file(temp_project_dir, original_overrides={"lodash": "4.0.0"})
+        write_pkg_json(temp_project_dir, overrides={"lodash": "4.17.21", "ms": "2.1.3"})
+
+        npm.restore_state(temp_project_dir)
+
+        import json as _json
+
+        with open(os.path.join(temp_project_dir, "package.json"), encoding="utf-8") as f:
+            pkg = _json.load(f)
+        assert pkg["overrides"] == {"lodash": "4.0.0"}
+
+    def test_dollar_sign_override_not_replaced_by_recommended(self, npm, temp_project_dir):
+        write_state_file(
+            temp_project_dir,
+            original_overrides={"foo": "$bar"},
+            recommended_versions={"foo": "2.0.0"},
+        )
+        write_pkg_json(temp_project_dir, overrides={"foo": "2.0.0"})
+
+        npm.restore_state(temp_project_dir)
+
+        import json as _json
+
+        with open(os.path.join(temp_project_dir, "package.json"), encoding="utf-8") as f:
+            pkg = _json.load(f)
+        assert pkg["overrides"] == {"foo": "$bar"}
+
+    def test_recommended_but_not_in_original_not_added(self, npm, temp_project_dir):
+        write_state_file(
+            temp_project_dir,
+            original_overrides={"lodash": "4.0.0"},
+            recommended_versions={"ms": "2.1.3", "lodash": "4.17.21"},
+        )
+        write_pkg_json(temp_project_dir, overrides={"lodash": "4.17.21", "ms": "2.1.3"})
+
+        npm.restore_state(temp_project_dir)
+
+        import json as _json
+
+        with open(os.path.join(temp_project_dir, "package.json"), encoding="utf-8") as f:
+            pkg = _json.load(f)
+        assert "ms" not in pkg["overrides"]
+        assert pkg["overrides"] == {"lodash": "4.17.21"}
+
+    def test_removes_overrides_key_when_originally_absent(self, npm, temp_project_dir):
+        write_state_file(temp_project_dir, original_overrides={})
+        write_pkg_json(temp_project_dir, overrides={"lodash": "4.17.21"})
+
+        npm.restore_state(temp_project_dir)
+
+        import json as _json
+
+        with open(os.path.join(temp_project_dir, "package.json"), encoding="utf-8") as f:
+            pkg = _json.load(f)
+        assert "overrides" not in pkg
+
+    def test_deletes_state_file_after_restore(self, npm, temp_project_dir):
+        write_state_file(temp_project_dir, original_overrides={})
+        write_pkg_json(temp_project_dir)
+
+        npm.restore_state(temp_project_dir)
+
+        assert not os.path.exists(os.path.join(temp_project_dir, NPM_STATE_FILE))
+
+    def test_returns_summary_string(self, npm, temp_project_dir):
+        write_state_file(temp_project_dir, original_overrides={"lodash": "4.0.0"})
+        write_pkg_json(temp_project_dir, overrides={"lodash": "4.17.21"})
+
+        result = npm.restore_state(temp_project_dir)
+
+        assert isinstance(result, str)
+        assert len(result) > 0

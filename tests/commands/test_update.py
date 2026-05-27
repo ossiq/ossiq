@@ -12,17 +12,16 @@ from ossiq.adapters.package_managers.api_npm import NPM_STATE_FILE, PackageManag
 from ossiq.commands.plan import CommandPlanOptions, build_npm_freeze_args
 
 
-def write_state(tmp_path: Path, original_overrides: dict, recommended: list[str], locked: dict | None = None) -> None:
+def write_state(tmp_path: Path, original_overrides: dict, locked: dict | None = None) -> None:
     state = {
         "original_overrides": original_overrides,
-        "recommended_packages": recommended,
         "locked_overrides": locked or {},
     }
     (tmp_path / NPM_STATE_FILE).write_text(json.dumps(state))
 
 
 def write_manifest(tmp_path: Path, overrides: dict) -> None:
-    pkg = {"name": "test", "overrides": overrides}
+    pkg: dict = {"name": "test", "overrides": overrides}
     (tmp_path / "package.json").write_text(json.dumps(pkg))
 
 
@@ -31,27 +30,27 @@ def make_npm_pm(project_path: str) -> PackageManagerJsNpm:
 
 
 class TestRestoreState:
-    def test_removes_recommended_from_overrides(self, tmp_path: Path) -> None:
-        write_state(tmp_path, original_overrides={"lodash": "4.17.0", "express": "4.17.0"}, recommended=["lodash"])
-        write_manifest(tmp_path, overrides={"lodash": "4.18.0", "express": "4.17.0"})
+    def test_restores_original_overrides_fully(self, tmp_path: Path) -> None:
+        write_state(tmp_path, original_overrides={"lodash": "4.17.0", "express": "4.17.0"})
+        write_manifest(tmp_path, overrides={"lodash": "4.18.0", "express": "4.17.0", "ms": "2.1.3"})
 
         make_npm_pm(str(tmp_path)).restore_state(str(tmp_path))
 
         pkg = json.loads((tmp_path / "package.json").read_text())
-        assert pkg["overrides"] == {"express": "4.17.0"}
+        assert pkg["overrides"] == {"lodash": "4.17.0", "express": "4.17.0"}
         assert not (tmp_path / NPM_STATE_FILE).exists()
 
-    def test_all_recommended_removes_overrides_key(self, tmp_path: Path) -> None:
-        write_state(tmp_path, original_overrides={"lodash": "4.17.0"}, recommended=["lodash"])
+    def test_preserves_override_for_recommended_package(self, tmp_path: Path) -> None:
+        write_state(tmp_path, original_overrides={"lodash": "4.17.0"})
         write_manifest(tmp_path, overrides={"lodash": "4.18.0"})
 
         make_npm_pm(str(tmp_path)).restore_state(str(tmp_path))
 
         pkg = json.loads((tmp_path / "package.json").read_text())
-        assert "overrides" not in pkg
+        assert pkg["overrides"] == {"lodash": "4.17.0"}
 
     def test_empty_original_overrides_removes_overrides_key(self, tmp_path: Path) -> None:
-        write_state(tmp_path, original_overrides={}, recommended=["lodash"])
+        write_state(tmp_path, original_overrides={})
         write_manifest(tmp_path, overrides={"lodash": "4.18.0"})
 
         make_npm_pm(str(tmp_path)).restore_state(str(tmp_path))
@@ -66,7 +65,7 @@ class TestRestoreState:
             make_npm_pm(str(tmp_path)).restore_state(str(tmp_path))
 
     def test_state_file_deleted_after_restore(self, tmp_path: Path) -> None:
-        write_state(tmp_path, original_overrides={}, recommended=[])
+        write_state(tmp_path, original_overrides={})
         write_manifest(tmp_path, overrides={})
 
         make_npm_pm(str(tmp_path)).restore_state(str(tmp_path))

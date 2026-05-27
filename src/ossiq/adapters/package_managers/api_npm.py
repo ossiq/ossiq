@@ -421,8 +421,8 @@ class PackageManagerJsNpm(AbstractPackageManagerApi):
 
         state = {
             "original_overrides": original_overrides,
-            "recommended_packages": [e.package_name for e in plan.all_entries],
             "locked_overrides": locked_overrides,
+            "recommended_versions": {entry.package_name: entry.recommended_version for entry in plan.all_entries},
         }
         with open(state_path, "w", encoding="utf-8") as f:
             json.dump(state, f, indent=2)
@@ -460,8 +460,16 @@ class PackageManagerJsNpm(AbstractPackageManagerApi):
         with open(manifest_path, encoding="utf-8") as f:
             pkg = json.load(f)
 
-        recommended = set(state["recommended_packages"])
-        restored = {k: v for k, v in state["original_overrides"].items() if k not in recommended}
+        original = state["original_overrides"]
+        recommended = state.get("recommended_versions", {})
+
+        restored = {
+            name: (
+                orig_val if isinstance(orig_val, str) and orig_val.startswith("$") else recommended.get(name, orig_val)
+            )
+            for name, orig_val in original.items()
+        }
+
         if restored:
             pkg["overrides"] = restored
         elif "overrides" in pkg:
@@ -471,7 +479,7 @@ class PackageManagerJsNpm(AbstractPackageManagerApi):
             json.dump(pkg, f, indent=2)
 
         os.unlink(state_path)
-        return f"Overrides restored: {len(restored)} entries kept, {len(recommended)} recommended packages removed."
+        return f"Overrides restored: {len(original)} original entries."
 
     def overrides_diff(self, project_path: str) -> str:
         """Return a read-only diff of current overrides vs original (from state file)."""

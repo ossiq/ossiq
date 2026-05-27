@@ -876,3 +876,45 @@ class TestJsonExportRendererV14:
         data = json.loads(output_file.read_text())
         schema = json_schema_registry.load_schema(ExportJsonSchemaVersion.V1_4)
         validate(instance=data, schema=schema)
+
+    def test_recommended_version_populated_when_solver_recommendation_exists(
+        self, output_file, settings, sample_project_metrics_record
+    ):
+        """recommended_version in v1.5 export matches ScanRecord.recommended_version."""
+        import dataclasses
+
+        record_with_rec = dataclasses.replace(sample_project_metrics_record, recommended_version="18.2.0")
+        metrics = ScanResult(
+            project_name="test-project",
+            project_path="/path/to/test-project",
+            packages_registry=ProjectPackagesRegistry.NPM.value,
+            production_packages=[record_with_rec],
+            optional_packages=[],
+        )
+        renderer = JsonExportRenderer(settings)
+        renderer.render(metrics, destination=str(output_file), schema_version="1.4")
+
+        data = json.loads(output_file.read_text())
+        pkg = data["production_packages"][0]
+        assert pkg["recommended_version"] == "18.2.0"
+
+    def test_recommended_version_is_null_when_no_recommendation(
+        self, output_file, settings, sample_project_metrics_record
+    ):
+        """recommended_version is null in v1.5 export when ScanRecord has no recommendation."""
+        import dataclasses
+
+        record_no_rec = dataclasses.replace(sample_project_metrics_record, recommended_version=None)
+        metrics = ScanResult(
+            project_name="test-project",
+            project_path="/path/to/test-project",
+            packages_registry=ProjectPackagesRegistry.NPM.value,
+            production_packages=[record_no_rec],
+            optional_packages=[],
+        )
+        renderer = JsonExportRenderer(settings)
+        renderer.render(metrics, destination=str(output_file), schema_version="1.4")
+
+        data = json.loads(output_file.read_text())
+        pkg = data["production_packages"][0]
+        assert pkg["recommended_version"] is None
