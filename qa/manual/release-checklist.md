@@ -66,5 +66,9 @@
 - [ ] TC-U11: `ossiq helpers npm overrides-diff` prints diff table without modifying any file
 - [ ] TC-U14: `ossiq plan --npm-overrides-diff` rejected with "No such option" (flag removed)
 
+## 08 — Automated Matrix ([details](README.md#automated-matrix))
+
+- [ ] TC-M01: `just qa-matrix` exits 0 with `FAIL=0`; SKIPs acceptable; `qa_logs/summary.log` shows no FAILs
+
 ## Notes
 <!-- Anything unexpected observed during QA -->

@@ -1,3 +1,4 @@
+import os
 import re
 import shutil
 import subprocess
@@ -79,10 +80,9 @@ def build_frontend(project_root: Path) -> Path:
 class CustomBuildHook(BuildHookInterface):
     def initialize(self, version, build_data):
         """Build frontend assets before packaging."""
+        if os.environ.get("OSSIQ_SKIP_FRONTEND_BUILD"):
+            return
 
         root = Path(self.root)
-
-        # Import the shared build function from frontend_build.py at project root
         sys.path.insert(0, str(root))
-
         build_frontend(root)
