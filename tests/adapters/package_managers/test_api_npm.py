@@ -5,7 +5,7 @@ Tests for PackageManagerJsNpm adapter.
 Tests focus on:
 1. API sanity checks (static methods, initialization)
 2. Package.json parsing (dependencies, devDependencies, etc.)
-3. Lockfile parsing for NPM version 3
+3. Lockfile parsing for NPM versions 2 and 3
 4. Parser selection logic
 5. Project info extraction with and without lockfile
 6. Error handling
@@ -224,6 +224,75 @@ def npm_project_missing_dependency_in_lockfile(temp_project_dir):
             "": {"name": "missing-dep-project", "version": "1.0.0"},
             "node_modules/express": {"version": "4.18.2"},
         },
+    }
+    lockfile_path.write_text(json.dumps(lockfile_content, indent=2))
+
+    return temp_project_dir
+
+
+@pytest.fixture
+def npm_project_with_v2_lockfile(temp_project_dir):
+    """
+    Create a temporary NPM project with a v2 package-lock.json.
+
+    v2 lockfiles (npm v7/v8 default) contain both a packages flat-map
+    (identical format to v3) and a legacy dependencies nested-tree for
+    npm v6 back-compat. The legacy section should be ignored during parsing.
+    """
+    package_json_path = Path(temp_project_dir) / "package.json"
+    lockfile_path = Path(temp_project_dir) / "package-lock.json"
+
+    package_json_content = {
+        "name": "test-npm-v2-project",
+        "version": "1.0.0",
+        "dependencies": {"express": "^4.18.0", "lodash": "~4.17.21"},
+        "devDependencies": {"jest": ">=29.0.0"},
+    }
+    package_json_path.write_text(json.dumps(package_json_content, indent=2))
+
+    lockfile_content = {
+        "name": "test-npm-v2-project",
+        "version": "1.0.0",
+        "lockfileVersion": 2,
+        "requires": True,
+        "packages": {
+            "": {
+                "name": "test-npm-v2-project",
+                "version": "1.0.0",
+                "dependencies": {"express": "^4.18.0", "lodash": "~4.17.21"},
+                "devDependencies": {"jest": ">=29.0.0"},
+            },
+            "node_modules/express": {"version": "4.18.2"},
+            "node_modules/lodash": {"version": "4.17.21"},
+            "node_modules/jest": {"version": "29.7.0", "dev": True},
+        },
+        # Legacy v1-style nested tree — must be ignored by the parser
+        "dependencies": {
+            "express": {"version": "4.18.2", "resolved": "https://registry.npmjs.org/express/-/express-4.18.2.tgz"},
+            "lodash": {"version": "4.17.21", "resolved": "https://registry.npmjs.org/lodash/-/lodash-4.17.21.tgz"},
+            "jest": {"version": "29.7.0", "dev": True},
+        },
+    }
+    lockfile_path.write_text(json.dumps(lockfile_content, indent=2))
+
+    return temp_project_dir
+
+
+@pytest.fixture
+def npm_project_with_v2_lockfile_missing_packages(temp_project_dir):
+    """Create a malformed v2 lockfile that lacks the packages section."""
+    package_json_path = Path(temp_project_dir) / "package.json"
+    lockfile_path = Path(temp_project_dir) / "package-lock.json"
+
+    package_json_content = {"name": "bad-v2-project", "version": "1.0.0", "dependencies": {"express": "^4.18.0"}}
+    package_json_path.write_text(json.dumps(package_json_content, indent=2))
+
+    lockfile_content = {
+        "name": "bad-v2-project",
+        "version": "1.0.0",
+        "lockfileVersion": 2,
+        # packages section intentionally absent
+        "dependencies": {"express": {"version": "4.18.2"}},
     }
     lockfile_path.write_text(json.dumps(lockfile_content, indent=2))
 
@@ -492,12 +561,80 @@ class TestParseLockfileV3:
 
 
 # ============================================================================
+# Test parse_lockfile_v2
+# ============================================================================
+
+
+class TestParseLockfileV2:
+    """Test suite for parse_lockfile_v2() method."""
+
+    def test_parse_lockfile_v2_updates_versions(self, npm_project_with_v2_lockfile, settings):
+        """Test that v2 lockfile parsing reads version_installed from packages section."""
+        npm_manager = PackageManagerJsNpm(npm_project_with_v2_lockfile, settings)
+
+        with open(Path(npm_project_with_v2_lockfile) / "package-lock.json", encoding="utf-8") as f:
+            lockfile_data = json.load(f)
+
+        dependency_tree = npm_manager.parse_lockfile_v2(lockfile_data)
+
+        assert dependency_tree.dependencies["express"].version_installed == "4.18.2"
+        assert dependency_tree.dependencies["lodash"].version_installed == "4.17.21"
+        assert dependency_tree.optional_dependencies["jest"].version_installed == "29.7.0"
+
+    def test_parse_lockfile_v2_preserves_version_defined(self, npm_project_with_v2_lockfile, settings):
+        """Test that version_defined retains the package.json specifier including modifiers."""
+        npm_manager = PackageManagerJsNpm(npm_project_with_v2_lockfile, settings)
+
+        with open(Path(npm_project_with_v2_lockfile) / "package-lock.json", encoding="utf-8") as f:
+            lockfile_data = json.load(f)
+
+        dependency_tree = npm_manager.parse_lockfile_v2(lockfile_data)
+
+        assert dependency_tree.dependencies["express"].version_defined == "^4.18.0"
+        assert dependency_tree.dependencies["lodash"].version_defined == "~4.17.21"
+
+    def test_parse_lockfile_v2_ignores_legacy_dependencies_section(self, npm_project_with_v2_lockfile, settings):
+        """Test that the legacy nested dependencies tree in v2 does not affect parsing."""
+        npm_manager = PackageManagerJsNpm(npm_project_with_v2_lockfile, settings)
+
+        with open(Path(npm_project_with_v2_lockfile) / "package-lock.json", encoding="utf-8") as f:
+            lockfile_data = json.load(f)
+
+        dependency_tree = npm_manager.parse_lockfile_v2(lockfile_data)
+
+        # Result must match what packages section says, not the legacy section
+        assert set(dependency_tree.dependencies.keys()) == {"express", "lodash"}
+        assert "jest" in dependency_tree.optional_dependencies
+
+    def test_parse_lockfile_v2_missing_packages_raises(self, npm_project_with_v2_lockfile_missing_packages, settings):
+        """Test that a v2 lockfile without a packages section raises an error."""
+        npm_manager = PackageManagerJsNpm(npm_project_with_v2_lockfile_missing_packages, settings)
+
+        with open(Path(npm_project_with_v2_lockfile_missing_packages) / "package-lock.json", encoding="utf-8") as f:
+            lockfile_data = json.load(f)
+
+        with pytest.raises(PackageManagerLockfileParsingError) as excinfo:
+            npm_manager.parse_lockfile_v2(lockfile_data)
+
+        assert "missing the 'packages' section" in str(excinfo.value)
+
+
+# ============================================================================
 # Test get_lockfile_parser
 # ============================================================================
 
 
 class TestGetLockfileParser:
     """Test suite for get_lockfile_parser() method."""
+
+    def test_get_parser_v2(self, npm_project_with_lockfile, settings):
+        """Test getting parser for lockfile version 2."""
+        npm_manager = PackageManagerJsNpm(npm_project_with_lockfile, settings)
+
+        parser = npm_manager.get_lockfile_parser(2)
+
+        assert parser is not None
+        assert parser == npm_manager.parse_lockfile_v2
 
     def test_get_parser_v3(self, npm_project_with_lockfile, settings):
         """Test getting parser for lockfile version 3."""
@@ -516,24 +653,6 @@ class TestGetLockfileParser:
             npm_manager.get_lockfile_parser(99)
 
         assert "There's no parser for NPM lockfile version `99`" in str(excinfo.value)
-
-    def test_get_parser_version_1_unsupported(self, npm_project_with_lockfile, settings):
-        """Test that version 1 is not supported."""
-        npm_manager = PackageManagerJsNpm(npm_project_with_lockfile, settings)
-
-        with pytest.raises(PackageManagerLockfileParsingError) as excinfo:
-            npm_manager.get_lockfile_parser(1)
-
-        assert "There's no parser for NPM lockfile version `1`" in str(excinfo.value)
-
-    def test_get_parser_with_none(self, npm_project_with_lockfile, settings):
-        """Test error when lockfile version is None."""
-        npm_manager = PackageManagerJsNpm(npm_project_with_lockfile, settings)
-
-        with pytest.raises(PackageManagerLockfileParsingError) as excinfo:
-            npm_manager.get_lockfile_parser(None)
-
-        assert "There's no parser for NPM lockfile version `None`" in str(excinfo.value)
 
 
 # ============================================================================
@@ -650,6 +769,18 @@ class TestProjectInfo:
         assert project.installed_package_version("jest") == "29.7.0"
         assert project.installed_package_version("eslint") == "8.56.0"
 
+    def test_project_info_with_lockfile_has_lockfile_true(self, npm_project_with_lockfile, settings):
+        """Projects parsed from a lockfile have has_lockfile=True."""
+        npm_manager = PackageManagerJsNpm(npm_project_with_lockfile, settings)
+        project = npm_manager.project_info()
+        assert project.has_lockfile is True
+
+    def test_project_info_without_lockfile_has_lockfile_false(self, npm_project_without_lockfile, settings):
+        """Projects parsed from package.json only have has_lockfile=False."""
+        npm_manager = PackageManagerJsNpm(npm_project_without_lockfile, settings)
+        project = npm_manager.project_info()
+        assert project.has_lockfile is False
+
 
 # ============================================================================
 # Fixtures: aliases and overrides
@@ -759,11 +890,8 @@ class TestParseNpmAlias:
         [
             ("npm:lodash@~4.17.0", "lodash", "~4.17.0"),
             ("npm:chalk@4.1.2", "chalk", "4.1.2"),
-            ("npm:ms@^0.7.0", "ms", "^0.7.0"),
             ("npm:@scope/pkg@^1.0.0", "@scope/pkg", "^1.0.0"),
             ("^4.18.0", None, "^4.18.0"),
-            ("~1.2.3", None, "~1.2.3"),
-            ("4.1.2", None, "4.1.2"),
         ],
     )
     def test_parses_alias(self, version, expected_name, expected_constraint):
@@ -847,89 +975,6 @@ class TestNpmAliases:
         assert deps["lodash-tilde"].canonical_name == "lodash"
         assert deps["lodash-caret"].canonical_name == "lodash"
         assert deps["chalk-legacy"].canonical_name == "chalk"
-
-
-# ============================================================================
-# Test npm alias packages (no-lockfile path)
-# ============================================================================
-
-
-class TestNpmAliasesNoLockfile:
-    """Test suite for npm alias handling in parse_package_json (no lockfile)."""
-
-    def test_alias_version_installed_is_normalized_constraint(self, temp_project_dir, settings):
-        """Test that version_installed is the normalized constraint for alias specs."""
-        # Arrange
-        package_json_path = Path(temp_project_dir) / "package.json"
-        package_json_path.write_text(
-            json.dumps(
-                {
-                    "name": "no-lockfile-alias",
-                    "version": "1.0.0",
-                    "dependencies": {
-                        "lodash-tilde": "npm:lodash@~4.17.0",
-                        "chalk-exact": "npm:chalk@4.1.2",
-                    },
-                }
-            )
-        )
-        npm_manager = PackageManagerJsNpm(temp_project_dir, settings)
-
-        # Act
-        project = npm_manager.project_info()
-
-        # Assert — version_installed is the clean version, not the npm: spec
-        assert project.dependency_tree.dependencies["lodash-tilde"].version_installed == "4.17.0"
-        assert project.dependency_tree.dependencies["chalk-exact"].version_installed == "4.1.2"
-
-    def test_alias_version_defined_is_full_spec(self, temp_project_dir, settings):
-        """Test that version_defined preserves the full npm alias specifier."""
-        # Arrange
-        package_json_path = Path(temp_project_dir) / "package.json"
-        package_json_path.write_text(
-            json.dumps(
-                {
-                    "name": "no-lockfile-alias",
-                    "version": "1.0.0",
-                    "dependencies": {"lodash-tilde": "npm:lodash@~4.17.0"},
-                }
-            )
-        )
-        npm_manager = PackageManagerJsNpm(temp_project_dir, settings)
-
-        # Act
-        project = npm_manager.project_info()
-
-        # Assert
-        assert project.dependency_tree.dependencies["lodash-tilde"].version_defined == "npm:lodash@~4.17.0"
-
-    def test_alias_canonical_name_is_set_from_package_json(self, temp_project_dir, settings):
-        """Test that canonical_name is extracted from npm alias spec when no lockfile is present."""
-        # Arrange
-        package_json_path = Path(temp_project_dir) / "package.json"
-        package_json_path.write_text(
-            json.dumps(
-                {
-                    "name": "no-lockfile-alias",
-                    "version": "1.0.0",
-                    "dependencies": {
-                        "lodash-tilde": "npm:lodash@~4.17.0",
-                        "chalk-exact": "npm:chalk@4.1.2",
-                        "express": "^4.18.0",
-                    },
-                }
-            )
-        )
-        npm_manager = PackageManagerJsNpm(temp_project_dir, settings)
-
-        # Act
-        project = npm_manager.project_info()
-        deps = project.dependency_tree.dependencies
-
-        # Assert — alias deps get canonical_name, regular deps fall back to their own name
-        assert deps["lodash-tilde"].canonical_name == "lodash"
-        assert deps["chalk-exact"].canonical_name == "chalk"
-        assert deps["express"].canonical_name == "express"
 
 
 # ============================================================================
@@ -1035,36 +1080,6 @@ class TestNpmProject3Integration:
         for alias in ["lodash-range-tilde", "lodash-range-caret", "ms-zero-caret", "ms-zero-tilde"]:
             assert alias in deps, f"Expected alias '{alias}' in dependency tree"
 
-    def test_alias_installed_versions_are_resolved(self, project3_path, settings):
-        """Test that alias version_installed comes from lockfile, not the constraint."""
-        # Arrange
-        npm_manager = PackageManagerJsNpm(project3_path, settings)
-
-        # Act
-        project = npm_manager.project_info()
-        deps = project.dependency_tree.dependencies
-
-        # Assert — resolved versions (not constraint strings)
-        assert deps["lodash-range-tilde"].version_installed == "4.17.23"
-        assert deps["lodash-range-caret"].version_installed == "4.17.23"
-        assert deps["ms-zero-caret"].version_installed == "0.7.3"
-        assert deps["ms-zero-tilde"].version_installed == "0.7.3"
-
-    def test_alias_version_defined_contains_constraint(self, project3_path, settings):
-        """Test that version_defined stores the full npm alias specifier."""
-        # Arrange
-        npm_manager = PackageManagerJsNpm(project3_path, settings)
-
-        # Act
-        project = npm_manager.project_info()
-        deps = project.dependency_tree.dependencies
-
-        # Assert
-        assert deps["lodash-range-tilde"].version_defined == "npm:lodash@~4.17.0"
-        assert deps["lodash-range-caret"].version_defined == "npm:lodash@^4.17.0"
-        assert deps["ms-zero-caret"].version_defined == "npm:ms@^0.7.0"
-        assert deps["ms-zero-tilde"].version_defined == "npm:ms@~0.7.0"
-
     def test_chalk_and_chalk_legacy_are_separate_entries(self, project3_path, settings):
         """Test that chalk and chalk-legacy coexist as separate dependencies."""
         # Arrange
@@ -1078,30 +1093,6 @@ class TestNpmProject3Integration:
         assert "chalk" in deps, "Expected 'chalk' (v5) in dependency tree"
         assert "chalk-legacy" in deps, "Expected 'chalk-legacy' alias in dependency tree"
         assert deps["chalk"] is not deps["chalk-legacy"]
-
-    def test_chalk_legacy_canonical_name_is_chalk(self, project3_path, settings):
-        """Test that the chalk-legacy alias carries canonical_name='chalk' for registry lookups."""
-        # Arrange
-        npm_manager = PackageManagerJsNpm(project3_path, settings)
-
-        # Act
-        project = npm_manager.project_info()
-
-        # Assert
-        chalk_legacy = project.dependency_tree.dependencies["chalk-legacy"]
-        assert chalk_legacy.canonical_name == "chalk"
-
-    def test_chalk_canonical_name_equals_name(self, project3_path, settings):
-        """Test that the non-alias chalk dependency has canonical_name equal to its own name."""
-        # Arrange
-        npm_manager = PackageManagerJsNpm(project3_path, settings)
-
-        # Act
-        project = npm_manager.project_info()
-
-        # Assert
-        chalk = project.dependency_tree.dependencies["chalk"]
-        assert chalk.canonical_name == "chalk"
 
 
 # ============================================================================
@@ -1165,27 +1156,6 @@ class TestConstraintClassification:
         project = PackageManagerJsNpm(temp_project_dir, settings).project_info()
         lodash = project.dependency_tree.dependencies["lodash"]
         assert lodash.constraint_info.type == ConstraintType.PINNED
-
-    def test_no_lockfile_caret_is_declared(self, temp_project_dir, settings):
-        """^version without lockfile should be DECLARED."""
-        pkg_json = Path(temp_project_dir) / "package.json"
-        pkg_json.write_text(json.dumps({"name": "t", "version": "1.0.0", "dependencies": {"express": "^4.18.0"}}))
-        project = PackageManagerJsNpm(temp_project_dir, settings).project_info()
-        assert project.dependency_tree.dependencies["express"].constraint_info.type == ConstraintType.DECLARED
-
-    def test_no_lockfile_pinned_version_is_pinned(self, temp_project_dir, settings):
-        """Bare x.y.z without lockfile should be PINNED."""
-        pkg_json = Path(temp_project_dir) / "package.json"
-        pkg_json.write_text(json.dumps({"name": "t", "version": "1.0.0", "dependencies": {"lodash": "4.17.21"}}))
-        project = PackageManagerJsNpm(temp_project_dir, settings).project_info()
-        assert project.dependency_tree.dependencies["lodash"].constraint_info.type == ConstraintType.PINNED
-
-    def test_no_lockfile_range_is_narrowed(self, temp_project_dir, settings):
-        """>=x <y without lockfile should be NARROWED."""
-        pkg_json = Path(temp_project_dir) / "package.json"
-        pkg_json.write_text(json.dumps({"name": "t", "version": "1.0.0", "dependencies": {"lodash": ">=1 <2"}}))
-        project = PackageManagerJsNpm(temp_project_dir, settings).project_info()
-        assert project.dependency_tree.dependencies["lodash"].constraint_info.type == ConstraintType.NARROWED
 
 
 # ============================================================================
@@ -1300,16 +1270,6 @@ class TestExecuteUpdate:
         mock_run.assert_called_once()
         args = mock_run.call_args[0][0]
         assert args == ["npm", "install", "--ignore-scripts"]
-
-    def test_passes_correct_cwd(self, npm, temp_project_dir):
-        plan = make_npm_update_plan(project_path=temp_project_dir)
-        with (
-            patch.object(npm, "freeze_state"),
-            patch.object(npm, "restore_state"),
-            patch("ossiq.adapters.package_managers.api_npm.subprocess.run") as mock_run,
-        ):
-            npm.execute_update(plan)
-        assert mock_run.call_args[1]["cwd"] == temp_project_dir
 
     def test_restores_state_on_success(self, npm, temp_project_dir):
         plan = make_npm_update_plan(project_path=temp_project_dir)

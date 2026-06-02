@@ -232,7 +232,10 @@ class PackageManagerJsNpm(AbstractPackageManagerApi):
     project_path: str
 
     # Dynamic mapping between NPM lockfile versions
-    supported_versions: dict[str, str] = {"lockfileVersion == 3": "parse_lockfile_v3"}
+    supported_versions: dict[str, str] = {
+        "lockfileVersion == 3": "parse_lockfile_v3",
+        "lockfileVersion == 2": "parse_lockfile_v2",
+    }
 
     @staticmethod
     def project_files(project_path: str) -> NpmProject:
@@ -289,6 +292,16 @@ class PackageManagerJsNpm(AbstractPackageManagerApi):
             raise PackageManagerLockfileParsingError(f"There's no parser for NPM lockfile version `{lockfile_version}`")
 
         return getattr(self, handler_name)
+
+    def parse_lockfile_v2(self, lockfile_data: dict) -> Dependency:
+        """Lockfile parser for NPM v2 (npm v7/v8 default).
+
+        v2 carries the same flat packages map as v3, plus a legacy dependencies
+        nested-tree for npm v6 back-compat. We parse via the packages section.
+        """
+        if "packages" not in lockfile_data:
+            raise PackageManagerLockfileParsingError("NPM v2 lockfile is missing the 'packages' section")
+        return self.parse_lockfile_v3(lockfile_data)
 
     def parse_lockfile_v3(
         self,
@@ -374,18 +387,19 @@ class PackageManagerJsNpm(AbstractPackageManagerApi):
         node_constraint = engines.get("node") if isinstance(engines, dict) else None
         engine_constraints = {"node": node_constraint} if node_constraint else None
 
-        def create_project(dependency_tree: Dependency) -> Project:
+        def create_project(dependency_tree: Dependency, has_lockfile: bool = True) -> Project:
             return Project(
                 package_manager_type=self.package_manager_type,
                 name=project_package_name,
                 project_path=self.project_path,
                 dependency_tree=dependency_tree,
                 engine_constraints=engine_constraints,
+                has_lockfile=has_lockfile,
             )
 
         # Exceptional case, no lockfile
         if not project_files.lockfile:
-            return create_project(dependency_tree=self.parse_package_json(project_data))
+            return create_project(dependency_tree=self.parse_package_json(project_data), has_lockfile=False)
 
         # Lockfile present, let's parse it
         with open(project_files.lockfile, encoding="utf-8") as f:

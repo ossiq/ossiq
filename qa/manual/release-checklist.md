@@ -25,6 +25,7 @@
 - [ ] TC-C05: Deprecated npm packages show `[DEPRECATED]`
 - [ ] TC-C09: `package` command renders detail view for a known package
 - [ ] TC-C10: `package` command on unknown package shows error (no traceback)
+- [ ] TC-C11: pip-classic library scan shows "Constraint widening opportunities" section for range-constrained deps with newer majors available
 
 ## 03 — HTML Report ([details](03-html-report.md))
 

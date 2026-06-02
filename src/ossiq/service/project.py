@@ -21,6 +21,7 @@ from ossiq.domain.project import ConstraintSource, PeerRequirement
 from ossiq.domain.repository import Repository
 from ossiq.domain.version import VersionsDifference
 from ossiq.service.common import package_versions
+from ossiq.service.library_scan import UpgradePath, compute_upgrade_paths, resolve_library_constraints
 from ossiq.service.update_impact import TransitiveImpact, simulate_single, simulate_update_impacts
 from ossiq.timeutil import parse_iso_datetime
 from ossiq.unit_of_work import core as unit_of_work
@@ -112,6 +113,7 @@ class ScanResult:
     optional_packages: list[ScanRecord]
     transitive_packages: list[ScanRecord] = field(default_factory=list)
     manifest_lock_divergent: list[str] = field(default_factory=list)
+    upgrade_paths: list[UpgradePath] = field(default_factory=list)
 
 
 def parse_iso(datetime_str: str | None):
@@ -410,6 +412,7 @@ def scan(uow: unit_of_work.AbstractProjectUnitOfWork) -> ScanResult:
 
     with uow:
         project_info = uow.packages_manager.project_info()
+        project_info = resolve_library_constraints(project_info, uow.packages_registry)
         # FIXME: catch this issue way before as part of command validation
         if not project_info.project_path:
             raise ProjectPathNotFoundError("Project Path is not Specified")
@@ -630,6 +633,7 @@ def scan(uow: unit_of_work.AbstractProjectUnitOfWork) -> ScanResult:
             if transitive_output.recommendations:
                 apply_recommendations(transitive_packages, transitive_output, skip_current=True)
 
+        upgrade_paths = compute_upgrade_paths(project_info, uow.packages_registry)
         return ScanResult(
             project_name=project_info.name,
             project_path=project_info.project_path,
@@ -638,4 +642,5 @@ def scan(uow: unit_of_work.AbstractProjectUnitOfWork) -> ScanResult:
             optional_packages=optional_packages,
             transitive_packages=transitive_packages,
             manifest_lock_divergent=list(project_info.manifest_lock_divergent),
+            upgrade_paths=upgrade_paths,
         )

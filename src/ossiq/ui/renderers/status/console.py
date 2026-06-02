@@ -6,6 +6,7 @@ from rich.table import Table
 from rich.text import Text
 
 from ossiq.domain.common import Command, ConstraintType, UserInterfaceType
+from ossiq.service.library_scan import UpgradePath
 from ossiq.service.project import ScanRecord, ScanResult
 from ossiq.settings import Settings
 from ossiq.ui.interfaces import AbstractUserInterfaceRenderer
@@ -110,6 +111,34 @@ class ConsoleStatusRenderer(AbstractUserInterfaceRenderer):
         if table_peer:
             self.console.print("\n")
             self.console.print(table_peer)
+
+        table_upgrade = self.upgrade_paths_table(data.upgrade_paths)
+        if table_upgrade:
+            self.console.print("\n")
+            self.console.print(table_upgrade)
+
+    def upgrade_paths_table(self, paths: list[UpgradePath]) -> Table | None:
+        """Table showing constraint widening opportunities for library projects."""
+        if not paths:
+            return None
+
+        table = Table(title="Constraint Widening Opportunities", title_style="bold yellow")
+        table.add_column("Package", style="cyan", no_wrap=True)
+        table.add_column("Current Range", style="white")
+        table.add_column("Latest In-Range", style="green")
+        table.add_column("Latest Available", style="yellow")
+        table.add_column("Suggested Range", style="bold yellow")
+
+        for path in sorted(paths, key=lambda p: p.package_name):
+            table.add_row(
+                path.package_name,
+                path.current_constraint,
+                path.latest_in_range,
+                path.latest_available,
+                path.suggested_constraint,
+            )
+
+        return table
 
     def peer_status_table(self, packages: list[ScanRecord], *, full: bool) -> Table | None:
         """Table showing peer constraint status for all packages that have peer requirements."""

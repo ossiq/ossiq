@@ -315,6 +315,7 @@ class PackageManagerPythonPipClassic(AbstractPackageManagerApi):
             name=project_package_name,
             project_path=self.project_path,
             dependency_tree=dependency_tree,
+            has_lockfile=False,
         )
 
     def execute_update(self, plan: UpdatePlan) -> None:

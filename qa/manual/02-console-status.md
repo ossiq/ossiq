@@ -126,3 +126,23 @@ uv run hatch run ossiq-cli package testdata/pypi/version-constraint this-package
 
 - [ ] Error message shown (not a raw Python traceback)
 - [ ] Exit code non-zero
+
+---
+
+## TC-C11: pip-classic library scan — constraint widening opportunities
+
+```bash
+uv run hatch run ossiq-cli scan testdata/pypi/pip-classic-library
+```
+
+- [ ] "Constraint widening opportunities" table is rendered below the main scan table
+- [ ] Table columns: Package, Current Range, Latest In-Range, Latest Available, Suggested Range
+- [ ] At least one row appears (requests and/or click showing a newer major if available)
+- [ ] No crash or traceback
+
+```bash
+uv run hatch run ossiq-cli scan testdata/pypi/pip-classic
+```
+
+- [ ] Scan runs without crash
+- [ ] If all exact-pinned versions are at latest, no widening table appears; otherwise exact-pin upgrade suggestions are shown
