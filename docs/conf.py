@@ -11,7 +11,7 @@ extensions = [
 
 templates_path = ["_templates"]
 html_static_path = ["_static"]
-html_extra_path = ["img", "samples", "_static/llms.txt", "_static/robots.txt"]
+html_extra_path = ["_static/llms.txt", "_static/robots.txt"]
 
 # Custom landing page replaces index.html
 html_additional_pages = {
