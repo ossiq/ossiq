@@ -1008,3 +1008,22 @@ class TestRewriteSpecifier:
     def test_latest_tag_falls_back_to_exact(self):
         result = PackageRegistryApiNpm.rewrite_specifier("latest", "4.18.2")
         assert result == "4.18.2"
+
+
+class TestExtractRepoUrl:
+    """Tests for _extract_repo_url — handles both dict and plain-string 'repository' fields."""
+
+    def test_dict_with_url_key(self):
+        data = {"repository": {"type": "git", "url": "https://github.com/owner/repo"}}
+        assert PackageRegistryApiNpm.extract_repo_url(data) == "https://github.com/owner/repo"
+
+    def test_plain_string_repository(self):
+        data = {"repository": "https://github.com/owner/repo"}
+        assert PackageRegistryApiNpm.extract_repo_url(data) == "https://github.com/owner/repo"
+
+    def test_missing_repository_returns_none(self):
+        assert PackageRegistryApiNpm.extract_repo_url({}) is None
+
+    def test_dict_without_url_key_returns_none(self):
+        data = {"repository": {"type": "git"}}
+        assert PackageRegistryApiNpm.extract_repo_url(data) is None

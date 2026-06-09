@@ -429,9 +429,13 @@ class PackageManagerJsNpm(AbstractPackageManagerApi):
             pkg = json.load(f)
 
         original_overrides = pkg.get("overrides", {})
-        locked_overrides = dict(plan.installed_versions)
+        direct_dep_names = {name for section in DEP_SECTIONS for name in pkg.get(section, {})}
+        locked_overrides = {
+            name: version for name, version in plan.installed_versions.items() if name not in direct_dep_names
+        }
         for entry in plan.all_entries:
-            locked_overrides[entry.package_name] = entry.recommended_version
+            if entry.package_name not in direct_dep_names:
+                locked_overrides[entry.package_name] = entry.recommended_version
 
         state = {
             "original_overrides": original_overrides,
@@ -454,6 +458,13 @@ class PackageManagerJsNpm(AbstractPackageManagerApi):
                         if new_spec and new_spec != entry.version_defined:
                             pkg[section][entry.package_name] = new_spec
                     break
+
+        if plan.pin_all:
+            updated_names = {e.package_name for e in plan.direct_entries}
+            for section in DEP_SECTIONS:
+                for name in list(pkg.get(section, {})):
+                    if name not in updated_names and name in plan.installed_versions:
+                        pkg[section][name] = plan.installed_versions[name]
 
         with open(manifest_path, "w", encoding="utf-8") as f:
             json.dump(pkg, f, indent=2)
@@ -527,11 +538,12 @@ class PackageManagerJsNpm(AbstractPackageManagerApi):
         return "\n".join(lines)
 
     def execute_update(self, plan: UpdatePlan) -> None:
-        """Freeze state, run npm install in-process, then restore overrides. Restores on failure."""
+        """Freeze state, run npm install in-process. Overrides stay in package.json. Rolls back on failure."""
         self.freeze_state(plan)
+        state_path = os.path.join(plan.project_path, NPM_STATE_FILE)
         try:
             subprocess.run(["npm", "install", "--ignore-scripts"], cwd=plan.project_path, check=True)
-            self.restore_state(plan.project_path)
+            os.unlink(state_path)
         except Exception:
             self.restore_state(plan.project_path)
             raise
@@ -543,6 +555,7 @@ class PackageManagerJsNpm(AbstractPackageManagerApi):
         if cli_extra_args:
             freeze += f" {cli_extra_args}"
         restore = f"ossiq helpers npm restore-state {path_q}"
+        state_file = shlex.quote(os.path.join(plan.project_path, NPM_STATE_FILE))
         lines = [
             "#!/usr/bin/env bash",
             f"# OSS IQ update — npm  |  project: {plan.project_name}",
@@ -555,10 +568,7 @@ class PackageManagerJsNpm(AbstractPackageManagerApi):
             freeze,
             "",
             'echo "Installing..."',
-            "npm install --ignore-scripts",
-            "",
-            'echo "Restoring overrides..."',
-            restore,
+            f"npm install --ignore-scripts && rm -f {state_file}",
             "",
             'echo "Done."',
             "",

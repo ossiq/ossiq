@@ -29,6 +29,7 @@ from ossiq.adapters.package_managers.api_npm import (
     NPMResolverV3,
     PackageManagerJsNpm,
 )
+from ossiq.adapters.package_managers.dependency_tree import GraphExporter
 from ossiq.domain.common import ConstraintType, ProjectPackagesRegistry
 from ossiq.domain.exceptions import PackageManagerLockfileParsingError
 from ossiq.domain.packages_manager import NPM
@@ -1261,6 +1262,8 @@ class TestExecuteUpdate:
 
     def test_calls_npm_install_with_ignore_scripts(self, npm, temp_project_dir):
         plan = make_npm_update_plan(project_path=temp_project_dir)
+        state_path = os.path.join(temp_project_dir, NPM_STATE_FILE)
+        open(state_path, "w").close()
         with (
             patch.object(npm, "freeze_state"),
             patch.object(npm, "restore_state"),
@@ -1271,15 +1274,18 @@ class TestExecuteUpdate:
         args = mock_run.call_args[0][0]
         assert args == ["npm", "install", "--ignore-scripts"]
 
-    def test_restores_state_on_success(self, npm, temp_project_dir):
+    def test_deletes_state_file_on_success(self, npm, temp_project_dir):
         plan = make_npm_update_plan(project_path=temp_project_dir)
+        state_path = os.path.join(temp_project_dir, NPM_STATE_FILE)
+        open(state_path, "w").close()
         with (
             patch.object(npm, "freeze_state"),
             patch.object(npm, "restore_state") as mock_restore,
             patch("ossiq.adapters.package_managers.api_npm.subprocess.run"),
         ):
             npm.execute_update(plan)
-        mock_restore.assert_called_once_with(temp_project_dir)
+        assert not os.path.exists(state_path)
+        mock_restore.assert_not_called()
 
     def test_restores_state_on_failure(self, npm, temp_project_dir):
         plan = make_npm_update_plan(project_path=temp_project_dir)
@@ -1437,3 +1443,88 @@ class TestRestoreState:
 
         assert isinstance(result, str)
         assert len(result) > 0
+
+
+# ============================================================================
+# Test dev-chain transitive dependency visibility (js-cookie / CVE scenario)
+# ============================================================================
+
+
+@pytest.fixture
+def npm_project_with_dev_transitive_deps(temp_project_dir):
+    """
+    Project where a devDependency (test-utils) has a production dep (js-helper)
+    which in turn has a production dep (js-cookie).
+
+    This mirrors the real-world scenario:
+      root (devDependencies) → @vue/test-utils
+      @vue/test-utils (dependencies) → js-beautify
+      js-beautify (dependencies) → js-cookie  ← has CVE, must not be invisible
+    """
+    package_json_path = Path(temp_project_dir) / "package.json"
+    lockfile_path = Path(temp_project_dir) / "package-lock.json"
+
+    package_json_content = {
+        "name": "test-project",
+        "version": "1.0.0",
+        "devDependencies": {"test-utils": "^1.0.0"},
+    }
+    package_json_path.write_text(json.dumps(package_json_content, indent=2))
+
+    lockfile_content = {
+        "name": "test-project",
+        "lockfileVersion": 3,
+        "requires": True,
+        "packages": {
+            "": {"name": "test-project", "devDependencies": {"test-utils": "^1.0.0"}},
+            "node_modules/test-utils": {
+                "version": "1.0.0",
+                "dev": True,
+                "dependencies": {"js-helper": "^2.0.0"},
+            },
+            "node_modules/js-helper": {
+                "version": "2.0.0",
+                "dev": True,
+                "dependencies": {"js-cookie": "^3.0.5"},
+            },
+            "node_modules/js-cookie": {"version": "3.0.5", "dev": True},
+        },
+    }
+    lockfile_path.write_text(json.dumps(lockfile_content, indent=2))
+
+    return temp_project_dir
+
+
+class TestDevTransitiveDeps:
+    """Test that transitive deps of devDependencies are reachable in the graph."""
+
+    def test_graph_links_dev_transitive_chain(self, npm_project_with_dev_transitive_deps, settings):
+        """The graph must correctly wire dev dep → js-helper → js-cookie via production edges."""
+        npm_manager = PackageManagerJsNpm(npm_project_with_dev_transitive_deps, settings)
+        project = npm_manager.project_info()
+        tree = project.dependency_tree
+
+        test_utils = tree.optional_dependencies["test-utils"]
+        assert "js-helper" in test_utils.dependencies, "js-helper must be a production edge of test-utils"
+        js_helper = test_utils.dependencies["js-helper"]
+        assert "js-cookie" in js_helper.dependencies, "js-cookie must be a production edge of js-helper"
+
+    def test_walk_with_optional_roots_discovers_dev_transitive(self, npm_project_with_dev_transitive_deps, settings):
+        """walk_all_paths(include_optional_roots=True) must yield js-cookie."""
+        npm_manager = PackageManagerJsNpm(npm_project_with_dev_transitive_deps, settings)
+        project = npm_manager.project_info()
+        walker = GraphExporter(project.dependency_tree)
+
+        discovered = {node.name for node, _ in walker.walk_all_paths(include_optional_roots=True)}
+        assert "js-cookie" in discovered
+        assert "js-helper" in discovered
+
+    def test_walk_without_optional_roots_misses_dev_transitive(self, npm_project_with_dev_transitive_deps, settings):
+        """walk_all_paths(include_optional_roots=False) must NOT yield js-cookie (no prod chain)."""
+        npm_manager = PackageManagerJsNpm(npm_project_with_dev_transitive_deps, settings)
+        project = npm_manager.project_info()
+        walker = GraphExporter(project.dependency_tree)
+
+        discovered = {node.name for node, _ in walker.walk_all_paths(include_optional_roots=False)}
+        assert "js-cookie" not in discovered
+        assert "js-helper" not in discovered

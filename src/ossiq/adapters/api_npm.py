@@ -37,7 +37,7 @@ console = Console()
 
 NPM_REGISTRY_FRONT = "https://www.npmjs.com"
 
-_NPM_BARE_SEMVER = re.compile(r"^v?\d+(\.\d+){0,2}([.-][a-zA-Z0-9._-]+)*$")
+NPM_BARE_SEMVER = re.compile(r"^v?\d+(\.\d+){0,2}([.-][a-zA-Z0-9_]+)*$")
 
 
 @functools.lru_cache(maxsize=4096)
@@ -183,7 +183,15 @@ class PackageRegistryApiNpm(AbstractPackageRegistryApi):
         return "<PackageRegistryApiNpm instance>"
 
     @staticmethod
-    def _map_raw_to_package(name: str, data: dict) -> Package:
+    def extract_repo_url(data: dict) -> str | None:
+        """Extract repository URL from npm metadata. The 'repository' field can be a dict or a plain string."""
+        repository = data.get("repository")
+        if isinstance(repository, dict):
+            return repository.get("url")
+        return repository
+
+    @staticmethod
+    def map_raw_to_package(name: str, data: dict) -> Package:
         distribution_tags = data.get("dist-tags", {"latest": None, "next": None})
         latest_version = distribution_tags.get("latest", None)
         latest_details = data.get("versions", {}).get(latest_version or "", {})
@@ -193,7 +201,7 @@ class PackageRegistryApiNpm(AbstractPackageRegistryApi):
             name=data["name"],
             latest_version=latest_version,
             next_version=distribution_tags.get("next", None),
-            repo_url=data.get("repository", {}).get("url", None),
+            repo_url=PackageRegistryApiNpm.extract_repo_url(data),
             author=data.get("author"),
             homepage_url=data.get("homepage"),
             description=data.get("description"),
@@ -217,9 +225,9 @@ class PackageRegistryApiNpm(AbstractPackageRegistryApi):
             if name not in self._raw_cache:
                 raise UnableLoadPackage(name)
 
-        return {name: self._map_raw_to_package(name, self._raw_cache[name]) for name in names}
+        return {name: self.map_raw_to_package(name, self._raw_cache[name]) for name in names}
 
-    _META_KEYS = frozenset({"created", "modified"})
+    META_KEYS = frozenset({"created", "modified"})
 
     def versions_for_unpublished(self, package_name: str, unpublished_response: dict) -> list[PackageVersion]:
         """Build PackageVersion list for an entirely unpublished package."""
@@ -242,7 +250,7 @@ class PackageRegistryApiNpm(AbstractPackageRegistryApi):
         """Build PackageVersion list for individually deleted versions (in time map but absent from versions)."""
         result = []
         for ver, timestamp in timestamp_map.items():
-            if ver in self._META_KEYS or ver in published_set:
+            if ver in self.META_KEYS or ver in published_set:
                 continue
             try:
                 semver.Version.parse(ver)
@@ -260,7 +268,7 @@ class PackageRegistryApiNpm(AbstractPackageRegistryApi):
             )
         return result
 
-    def _build_package_versions(self, package_name: str) -> list[PackageVersion]:
+    def build_package_versions(self, package_name: str) -> list[PackageVersion]:
         data = self._raw_cache[package_name]
 
         # FIXME: raise custom exception if not found
@@ -299,7 +307,7 @@ class PackageRegistryApiNpm(AbstractPackageRegistryApi):
             self.packages_info_batch([package_name])
 
         if package_name not in self._versions_list_cache:
-            self._versions_list_cache[package_name] = self._build_package_versions(package_name)
+            self._versions_list_cache[package_name] = self.build_package_versions(package_name)
 
         return self._versions_list_cache[package_name]
 
@@ -339,7 +347,7 @@ class PackageRegistryApiNpm(AbstractPackageRegistryApi):
             new_minor = new_parts[1] if len(new_parts) > 1 else "0"
             return f"~{new_major}.{new_minor}.0"
 
-        if _NPM_BARE_SEMVER.fullmatch(s):
+        if NPM_BARE_SEMVER.fullmatch(s):
             return new_version  # PINNED bare semver
 
         return new_version  # complex specifier — range, file:, git+, workspace:, etc.

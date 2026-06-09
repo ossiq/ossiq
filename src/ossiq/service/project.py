@@ -472,7 +472,7 @@ def scan(uow: unit_of_work.AbstractProjectUnitOfWork) -> ScanResult:
                     all_constraints=list(node.parent_constraints),
                     peer_requirements=list(node.peer_requirements),
                 )
-                for node, path in walker.walk_all_paths()
+                for node, path in walker.walk_all_paths(include_optional_roots=not uow.production)
                 if node.canonical_name not in direct_canonical_names and node.canonical_name not in ignore_set
             }.values()
         )
