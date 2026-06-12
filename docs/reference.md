@@ -119,6 +119,32 @@ The `scope_path` matters for remediation: a scoped override targeting `dot-prop`
 -   **Dependency Graph**: The system operates on a flat list of dependencies resolved from a lockfile (e.g., `package-lock.json`).
 -   **Transitive Dependencies**: Transitive dependency resolution is not performed. The tool relies on the dependency resolution of the target project's native package manager (e.g., `npm`, `pip`, `uv`).
 
+### Update Solver (`plan` / `apply`)
+
+-   **Single pass.** The solver recommends versions against the *current* lockfile. Applying a plan
+    re-resolves the tree, which can surface further recommendations; re-run `plan` until it reports
+    no updates (most projects converge in one or two passes).
+-   **Cooldown.** Candidate versions younger than `--cooldown-period` days (default 7) receive a
+    heavy soft-penalty in the solver; recommendations that are still younger than the cooldown after
+    solving are withheld into the plan's *Held for cooldown* section and never applied.
+-   **CVE bypass.** When the installed version of a package carries a CVE, its recommendation is
+    exempt from the cooldown hold. CVE-affected candidate versions themselves are hard-forbidden.
+-   **New transitive dependencies.** Packages entering the tree for the first time are resolved by
+    the native package manager at apply time, outside the cooldown. The plan projects their version
+    and age and flags entries younger than the cooldown with `⚠`. Under `--cutoff-date`, projections
+    exclude versions published after the cutoff for deterministic time-travel runs.
+-   **Forced versions (`--override pkg==version`).** Bypass the solver and the cooldown for one
+    package. Persistence per ecosystem:
+
+| Ecosystem | Direct dependency | Transitive dependency |
+|---|---|---|
+| npm | specifier rewritten to the exact version | persistent `overrides` entry in `package.json` |
+| uv | specifier rewritten to `==version` | persistent `override-dependencies` entry under `[tool.uv]` |
+| pip classic | constraints-file pin for the run | constraints-file pin for the run (not persistent) |
+
+    Forced packages are reported with `ConstraintType.OVERRIDE` on subsequent scans, so they remain
+    visible until the override is removed.
+
 ### Data Provenance
 
 Package metadata is sourced from ecosystem-specific repositories (e.g., npm registry, PyPI). This is handled by a set of adapters in the `ossiq.adapters` module (e.g., `ossiq.adapters.api_npm`).

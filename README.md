@@ -191,14 +191,18 @@ The solver simulates the full transitive impact of each recommendation before co
 |---|---|
 | `--production` | Limit to production dependencies only |
 | `--registry-type npm\|pypi` | Narrow to a specific ecosystem |
-| `--security` | Include only CVE-affected packages in the update plan |
+| `--security` | Include only CVE-affected packages (direct and transitive) in the update plan |
 | `--allow-prerelease` | Include pre-release versions across all packages |
 | `--allow-prerelease-package <name>` | Allow pre-release for a specific package (repeatable) |
 | `--ignore <name>`, `-i` | Exclude a package from the update plan entirely (repeatable) |
+| `--override <pkg>==<ver>` | Force a package to an exact version, bypassing the solver and the cooldown (repeatable) |
 | `--pin-all` | Write `==new_version` for every updated direct dependency, converting loose specifiers (`^`, `~=`, `>=`) to exact pins |
 | `--rewrite-versions` | Include already-pinned (`==x.y.z`) dependencies in the update and rewrite their pinned version |
 | `--script` | (`plan` only) Print the bash script instead of the plan table — safe to pipe directly to `bash` |
 | `--yes`, `-y` | (`apply` only) Skip the confirmation prompt |
+
+All flags are accepted by both `plan` and `apply` (except where noted), so a `plan` invocation is always
+a faithful preview of the matching `apply`.
 
 #### Pinning workflow — `--pin-all` and `--rewrite-versions`
 
@@ -227,6 +231,66 @@ ossiq-cli apply --pin-all --rewrite-versions --ignore requests --ignore django
 | `--pin-all` | rewrite `==new` | rewrite `==new` | frozen / skipped |
 | `--rewrite-versions` | lockfile-only update | rewrite `~=new` | rewrite `==new` |
 | `--pin-all --rewrite-versions` | rewrite `==new` | rewrite `==new` | rewrite `==new` |
+
+#### Cooldown: how freshness is handled
+
+The `--cooldown-period` (default: 7 days) protects you from supply-chain attacks that ride on
+freshly published releases. It acts at two levels:
+
+1. **Inside the solver**, versions younger than the cooldown receive a heavy soft-penalty, so an
+   older stable version wins whenever one satisfies the constraints.
+2. **After solving**, any remaining recommendation younger than the cooldown is withheld from the
+   plan and listed in a separate *"Held for cooldown"* section — it is never applied.
+
+Two deliberate exceptions:
+
+- **CVE fixes bypass the hold.** When the *installed* version of a package carries a known CVE, its
+  recommendation is applied even if the target version is brand-new — the known-vulnerability
+  exposure outweighs the freshness risk. These entries are tagged `CVE` in the plan table, and a
+  `cooldown bypassed` note explains why a fresh version got through.
+- **Brand-new transitive dependencies are outside the hold.** When an upgrade pulls in a package
+  that was not previously in your tree, its version is resolved by npm/uv at apply time, not by the
+  solver. The plan's *"New transitive dependencies"* table shows the projected version and its age,
+  and flags entries younger than the cooldown with `⚠` so you can review them before applying.
+
+#### What if a quarantined version fixes a CVE?
+
+Sometimes the only version that fixes a CVE is younger than your cooldown period — it is, in
+cooldown terms, still "quarantined". You are trading one risk against another: the *known* risk of
+the unpatched CVE versus the *statistical* risk of a very fresh release (supply-chain compromise,
+regressions). OSS IQ gives you three levers, from automatic to fully manual:
+
+1. **Default behaviour** — if the installed version carries a CVE, the fix is recommended and
+   applied regardless of its age. For most teams this is the right default: a concrete CVE beats a
+   hypothetical supply-chain risk.
+2. **`--security`** — narrow the run to CVE-affected packages only: `ossiq-cli apply --security --yes`
+   patches vulnerabilities and touches nothing else. Ideal for an out-of-band security patch while
+   the regular update cadence stays on cooldown.
+3. **`--override pkg==version`** — force one exact version when you have vetted it yourself:
+   `ossiq-cli apply --override urllib3==2.0.7`. This bypasses the solver's compatibility checks and
+   the cooldown for that package. For a direct dependency the specifier is rewritten to the exact
+   version; for a transitive dependency a **persistent** override entry is written (`overrides` in
+   `package.json`, `override-dependencies` under `[tool.uv]`) so the forced version survives future
+   installs. Remove the entry once a compatible release exists — `ossiq-cli status` reports such
+   packages with the `OVERRIDE` constraint type so they stay visible.
+
+#### Iterative updates: why a second `plan` can show more
+
+The solver resolves updates in a **single pass** against your current lockfile. Applying a plan
+re-resolves the dependency tree — updated packages bring new constraints and sometimes new
+transitive dependencies — which can unlock further recommendations that were not visible before.
+
+```bash
+# Typical convergence loop: repeat until the plan is empty
+ossiq-cli apply --yes
+ossiq-cli plan       # may show new recommendations against the re-resolved tree
+ossiq-cli apply --yes
+ossiq-cli plan       # "No updates recommended" → converged
+```
+
+This is expected behaviour, not an incomplete first run: recommending against the *actual* resolved
+tree (rather than a speculative future tree) keeps every step verifiable. Most projects converge in
+one or two passes.
 
 ## Supported Ecosystems
 
