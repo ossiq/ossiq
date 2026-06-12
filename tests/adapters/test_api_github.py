@@ -112,40 +112,40 @@ class TestInitialization:
 
 class TestExtractNextUrl:
     """
-    Test suite for _extract_next_url() method.
+    Test suite for extract_next_url() method.
 
     Tests GitHub Link header parsing for pagination support.
     """
 
-    def test_extract_next_url_with_valid_header(self, github_api_with_token):
+    def testextract_next_url_with_valid_header(self, github_api_with_token):
         """Test extraction of next URL from Link header."""
         link_header = (
             '<https://api.github.com/repos/owner/repo/tags?page=2>; rel="next", '
             '<https://api.github.com/repos/owner/repo/tags?page=5>; rel="last"'
         )
-        next_url = github_api_with_token._extract_next_url(link_header)
+        next_url = github_api_with_token.extract_next_url(link_header)
         assert next_url == "https://api.github.com/repos/owner/repo/tags?page=2"
 
-    def test_extract_next_url_without_next(self, github_api_with_token):
+    def testextract_next_url_without_next(self, github_api_with_token):
         """Test extraction when there's no next link."""
         link_header = '<https://api.github.com/repos/owner/repo/tags?page=5>; rel="last"'
-        next_url = github_api_with_token._extract_next_url(link_header)
+        next_url = github_api_with_token.extract_next_url(link_header)
         assert next_url is None
 
-    def test_extract_next_url_with_none_header(self, github_api_with_token):
+    def testextract_next_url_with_none_header(self, github_api_with_token):
         """Test extraction with None header."""
-        next_url = github_api_with_token._extract_next_url(None)
+        next_url = github_api_with_token.extract_next_url(None)
         assert next_url is None
 
-    def test_extract_next_url_empty_string(self, github_api_with_token):
+    def testextract_next_url_empty_string(self, github_api_with_token):
         """Test extraction with empty string."""
-        next_url = github_api_with_token._extract_next_url("")
+        next_url = github_api_with_token.extract_next_url("")
         assert next_url is None
 
 
 class TestMakeGithubApiRequest:
     """
-    Test suite for _make_github_api_request() method.
+    Test suite for make_github_api_request() method.
 
     Tests API request handling with authentication, rate limits,
     and pagination headers.
@@ -163,7 +163,7 @@ class TestMakeGithubApiRequest:
             headers={"Link": '<https://api.github.com/test?page=2>; rel="next"'},
         )
 
-        next_url, data = github_api_with_token._make_github_api_request("https://api.github.com/test")
+        next_url, data = github_api_with_token.make_github_api_request("https://api.github.com/test")
 
         assert data == {"data": "test"}
         assert next_url == "https://api.github.com/test?page=2"
@@ -176,7 +176,7 @@ class TestMakeGithubApiRequest:
         """
         mock_github_response.set_response("https://api.github.com/test", {"data": "test_no_token"})
 
-        next_url, data = github_api_without_token._make_github_api_request("https://api.github.com/test")
+        next_url, data = github_api_without_token.make_github_api_request("https://api.github.com/test")
 
         assert data == {"data": "test_no_token"}
         assert next_url is None
@@ -201,7 +201,7 @@ class TestMakeGithubApiRequest:
         )
 
         with pytest.raises(GithubRateLimitError) as excinfo:
-            github_api_with_token._make_github_api_request("https://api.github.com/test")
+            github_api_with_token.make_github_api_request("https://api.github.com/test")
 
         error = excinfo.value
         assert error.remaining == "0"
@@ -229,7 +229,7 @@ class TestMakeGithubApiRequest:
         )
 
         with pytest.raises(GithubRateLimitError) as excinfo:
-            github_api_without_token._make_github_api_request("https://api.github.com/test")
+            github_api_without_token.make_github_api_request("https://api.github.com/test")
 
         error = excinfo.value
         assert error.remaining == "0"
@@ -250,7 +250,7 @@ class TestMakeGithubApiRequest:
         )
 
         with pytest.raises(GithubRateLimitError) as excinfo:
-            github_api_with_token._make_github_api_request("https://api.github.com/test")
+            github_api_with_token.make_github_api_request("https://api.github.com/test")
 
         error = excinfo.value
         assert error.remaining == "N/A"
@@ -357,12 +357,12 @@ class TestRepositoryInfo:
 
 class TestLoadReleases:
     """
-    Test suite for _load_releases() method.
+    Test suite for load_releases() method.
 
     Tests fetching GitHub releases and matching them with package versions.
     """
 
-    def test_load_releases_basic(self, github_api_with_token, mock_github_response):
+    def testload_releases_basic(self, github_api_with_token, mock_github_response):
         """Test basic release loading."""
         repository = Repository(
             provider=RepositoryProvider.PROVIDER_GITHUB,
@@ -391,7 +391,7 @@ class TestLoadReleases:
         )
 
         versions_set = {"v1.0.0", "v1.1.0"}
-        releases = list(github_api_with_token._load_releases(repository, versions_set))
+        releases = list(github_api_with_token.load_releases(repository, versions_set))
 
         assert len(releases) == 2
         assert releases[0].version == "v1.0.0"
@@ -400,7 +400,7 @@ class TestLoadReleases:
         assert releases[0].release_notes == "First release"
         assert releases[1].version == "v1.1.0"
 
-    def test_load_releases_partial_match(self, github_api_with_token, mock_github_response):
+    def testload_releases_partial_match(self, github_api_with_token, mock_github_response):
         """Test loading when only some versions have releases."""
         repository = Repository(
             provider=RepositoryProvider.PROVIDER_GITHUB,
@@ -429,12 +429,12 @@ class TestLoadReleases:
         )
 
         versions_set = {"v1.0.0", "v1.1.0"}  # v1.1.0 not in releases
-        releases = list(github_api_with_token._load_releases(repository, versions_set))
+        releases = list(github_api_with_token.load_releases(repository, versions_set))
 
         assert len(releases) == 1
         assert releases[0].version == "v1.0.0"
 
-    def test_load_releases_no_body(self, github_api_with_token, mock_github_response):
+    def testload_releases_no_body(self, github_api_with_token, mock_github_response):
         """Test release without body/notes."""
         repository = Repository(
             provider=RepositoryProvider.PROVIDER_GITHUB,
@@ -456,14 +456,14 @@ class TestLoadReleases:
         )
 
         versions_set = {"v1.0.0"}
-        releases = list(github_api_with_token._load_releases(repository, versions_set))
+        releases = list(github_api_with_token.load_releases(repository, versions_set))
 
         assert releases[0].release_notes is None
 
 
 class TestLoadVersionsFromTags:
     """
-    Test suite for _load_versions_from_tags() method.
+    Test suite for load_versions_from_tags() method.
 
     Tests fallback to tags when releases are not available.
     """
@@ -487,7 +487,7 @@ class TestLoadVersionsFromTags:
         )
 
         versions_set = {"v1.0.0", "v1.1.0"}
-        tags = list(github_api_with_token._load_versions_from_tags(repository, versions_set))
+        tags = list(github_api_with_token.load_versions_from_tags(repository, versions_set))
 
         assert len(tags) == 2
         assert tags[0].version == "v1.0.0"
@@ -513,7 +513,7 @@ class TestLoadVersionsFromTags:
         )
 
         versions_set = {"v1.0.0", "v2.0.0"}
-        tags = list(github_api_with_token._load_versions_from_tags(repository, versions_set))
+        tags = list(github_api_with_token.load_versions_from_tags(repository, versions_set))
 
         assert len(tags) == 1
         assert tags[0].version == "v1.0.0"
@@ -521,7 +521,7 @@ class TestLoadVersionsFromTags:
 
 class TestPaginateGithubApiRequest:
     """
-    Test suite for _paginate_github_api_request() method.
+    Test suite for paginate_github_api_request() method.
 
     Tests automatic pagination handling for multi-page API responses.
     """
@@ -530,7 +530,7 @@ class TestPaginateGithubApiRequest:
         """Test pagination with single page response."""
         mock_github_response.set_response("https://api.github.com/test", [{"id": 1}, {"id": 2}])
 
-        results = list(github_api_with_token._paginate_github_api_request("https://api.github.com/test"))
+        results = list(github_api_with_token.paginate_github_api_request("https://api.github.com/test"))
 
         assert len(results) == 2
         assert results[0]["id"] == 1
@@ -547,7 +547,7 @@ class TestPaginateGithubApiRequest:
         # Page 2
         mock_github_response.set_response("https://api.github.com/test?page=2", [{"id": 3}, {"id": 4}])
 
-        results = list(github_api_with_token._paginate_github_api_request("https://api.github.com/test"))
+        results = list(github_api_with_token.paginate_github_api_request("https://api.github.com/test"))
 
         assert len(results) == 4
         assert results[0]["id"] == 1

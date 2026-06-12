@@ -602,10 +602,10 @@ class TestGetLockfileParser:
         uv_manager = PackageManagerPythonUv(uv_project_with_lockfile, settings)
 
         # CEL evaluation with None raises ValueError, not our custom exception
-        with pytest.raises(ValueError) as excinfo:
+        with pytest.raises(TypeError) as excinfo:
             uv_manager.get_lockfile_parser(1, None)
 
-        assert "CEL execution error" in str(excinfo.value)
+        assert "No such overload" in str(excinfo.value)
 
 
 # ============================================================================
