@@ -136,6 +136,7 @@ def _run_solve(
     cve_affected: dict[str, set[str]] | None = None,
     now: datetime | None = None,
     cooldown_period: int = VERY_FRESH_THRESHOLD_DAYS,
+    rewrite_pinned: bool = False,
 ) -> tuple[SolverOutput, SolverProblem]:
     """Run the SolvablePool → ConstraintEncoder → HPDRKernel pipeline.
 
@@ -150,6 +151,7 @@ def _run_solve(
         cve_affected=cve_affected or {},
         allow_prerelease=allow_prerelease,
         _now=now,
+        rewrite_pinned=rewrite_pinned,
     )
     logger.debug("%s: pool built — packages=%d", label, len(problem.constraints))
     encoded = ConstraintEncoder(penalize_fresh_days=cooldown_period).encode(problem)
@@ -179,6 +181,7 @@ def solve_direct(
     post_solve_validator: Callable[[str, str], bool] | None = None,
     _now: datetime | None = None,
     cooldown_period: int = VERY_FRESH_THRESHOLD_DAYS,
+    rewrite_pinned: bool = False,
 ) -> SolverOutput:
     """Run HPDR solver over direct dependencies.
 
@@ -189,6 +192,8 @@ def solve_direct(
         engine_context: Project engine versions for L2 clause generation.
                         Pass {} in Phase 4 — populating from project metadata is Phase 5+.
         allow_prerelease: When True, include pre-release candidates.
+        rewrite_pinned: When True, PINNED (==x.y.z) deps become solver-eligible
+                        so their pinned version can be rewritten.
 
     Returns:
         SolverOutput with recommendations and per-package rationales.
@@ -205,6 +210,7 @@ def solve_direct(
         allow_prerelease=allow_prerelease,
         now=_now,
         cooldown_period=cooldown_period,
+        rewrite_pinned=rewrite_pinned,
     )
     if post_solve_validator is not None and output.recommendations:
         return apply_fallback(output, problem, post_solve_validator, cooldown_period=cooldown_period)

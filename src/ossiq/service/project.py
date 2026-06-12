@@ -397,18 +397,25 @@ def apply_recommendations(
             record.recommended_version_reason = output.reasons.get(record.package_name)
 
 
+def scan_sort_key(pkg: ScanRecord) -> tuple[int, int, int, str]:
+    """Sort key for scan tables: drift severity, CVE count, time lag, then name.
+
+    time_lag_days can be None (e.g. the latest version is invisible under --cutoff-date);
+    unknown lag ranks lowest so tuple comparison never mixes None with int.
+    """
+    time_lag = pkg.time_lag_days if pkg.time_lag_days is not None else -1
+    return (
+        pkg.versions_diff_index.diff_index,
+        len(pkg.cve),
+        time_lag,
+        pkg.package_name,
+    )
+
+
 def scan(uow: unit_of_work.AbstractProjectUnitOfWork) -> ScanResult:
     """
     Project scan service to leverage Project UoW to gather metrics
     """
-
-    def sort_function(pkg: ScanRecord):
-        return (
-            pkg.versions_diff_index.diff_index,
-            len(pkg.cve),
-            pkg.time_lag_days,
-            pkg.package_name,
-        )
 
     with uow:
         project_info = uow.packages_manager.project_info()
@@ -560,6 +567,7 @@ def scan(uow: unit_of_work.AbstractProjectUnitOfWork) -> ScanResult:
                 transitive_by_name,
                 uow.packages_registry,
                 uow.allow_prerelease,
+                now=now,
             ).is_actionable
 
         t1 = time.perf_counter()
@@ -571,6 +579,7 @@ def scan(uow: unit_of_work.AbstractProjectUnitOfWork) -> ScanResult:
             post_solve_validator=validate_recommendation,
             _now=now,
             cooldown_period=uow.settings.cooldown_period,
+            rewrite_pinned=uow.rewrite_versions,
         )
         logger.debug(
             "Pass 1.5 solve_direct: %.2fs — %d recommendations",
@@ -579,10 +588,10 @@ def scan(uow: unit_of_work.AbstractProjectUnitOfWork) -> ScanResult:
         )
 
         production_packages = sorted(
-            build_records(prod_deps, uow.packages_registry, prefetched, now=now), key=sort_function, reverse=True
+            build_records(prod_deps, uow.packages_registry, prefetched, now=now), key=scan_sort_key, reverse=True
         )
         optional_packages = sorted(
-            build_records(opt_deps, uow.packages_registry, prefetched, now=now), key=sort_function, reverse=True
+            build_records(opt_deps, uow.packages_registry, prefetched, now=now), key=scan_sort_key, reverse=True
         )
 
         apply_conflicts(solver_output, production_packages + optional_packages)
@@ -603,6 +612,7 @@ def scan(uow: unit_of_work.AbstractProjectUnitOfWork) -> ScanResult:
                 uow.packages_registry,
                 uow.allow_prerelease,
                 installed_names=all_installed_names,
+                now=now,
             )
             logger.debug("Pass 1.5b simulate_impacts: %.2fs — %d packages", time.perf_counter() - t2, len(impacts))
             for record in production_packages + optional_packages:

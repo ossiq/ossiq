@@ -17,7 +17,7 @@ from pathlib import Path
 
 import pytest
 
-from ossiq.adapters.package_managers.api_uv import PackageManagerPythonUv
+from ossiq.adapters.package_managers.api_uv import PackageManagerPythonUv, upsert_uv_override_dependencies
 from ossiq.domain.common import ConstraintType, ProjectPackagesRegistry
 from ossiq.domain.exceptions import PackageManagerLockfileParsingError
 from ossiq.domain.packages_manager import UV
@@ -822,6 +822,7 @@ def make_update_entry(
     version_defined: str | None = None,
     constraint_type: ConstraintType = ConstraintType.DECLARED,
     is_direct: bool = True,
+    is_forced: bool = False,
 ) -> UpdateEntry:
     return UpdateEntry(
         package_name=name,
@@ -831,6 +832,7 @@ def make_update_entry(
         reason=None,
         version_defined=version_defined,
         constraint_type=constraint_type,
+        is_forced=is_forced,
     )
 
 
@@ -886,6 +888,49 @@ class TestResolveDirectSpecifier:
     def test_none_version_defined_declared_stays_none(self):
         entry = make_update_entry("sphinx", "8.0.0", "9.0.4", None, ConstraintType.DECLARED)
         assert PackageManagerPythonUv.resolve_direct_specifier(entry, pin_all=False) is None
+
+    def test_forced_returns_exact_version_regardless_of_mode(self):
+        entry = make_update_entry("sphinx", "8.0.0", "9.0.4", ">=8.0.0", ConstraintType.DECLARED, is_forced=True)
+        assert PackageManagerPythonUv.resolve_direct_specifier(entry, pin_all=False) == "==9.0.4"
+
+
+# ============================================================================
+# Test upsert_uv_override_dependencies
+# ============================================================================
+
+
+class TestUpsertUvOverrideDependencies:
+    """Tests for the pure pyproject.toml override-dependencies merger."""
+
+    def test_creates_tool_uv_section_when_missing(self):
+        content = '[project]\nname = "app"\nversion = "1.0.0"\n'
+        result = upsert_uv_override_dependencies(content, {"urllib3": "1.26.19"})
+        data = tomllib.loads(result)
+        assert data["tool"]["uv"]["override-dependencies"] == ["urllib3==1.26.19"]
+        assert data["project"]["name"] == "app"
+
+    def test_adds_key_to_existing_tool_uv_section(self):
+        content = '[project]\nname = "app"\n\n[tool.uv]\ndev-dependencies = ["pytest"]\n'
+        result = upsert_uv_override_dependencies(content, {"urllib3": "1.26.19"})
+        data = tomllib.loads(result)
+        assert data["tool"]["uv"]["override-dependencies"] == ["urllib3==1.26.19"]
+        assert data["tool"]["uv"]["dev-dependencies"] == ["pytest"]
+
+    def test_merges_into_existing_override_list(self):
+        content = '[project]\nname = "app"\n\n[tool.uv]\noverride-dependencies = [\n    "certifi==2023.7.22",\n]\n'
+        result = upsert_uv_override_dependencies(content, {"urllib3": "1.26.19"})
+        data = tomllib.loads(result)
+        assert sorted(data["tool"]["uv"]["override-dependencies"]) == ["certifi==2023.7.22", "urllib3==1.26.19"]
+
+    def test_replaces_existing_entry_for_same_package(self):
+        content = '[tool.uv]\noverride-dependencies = ["urllib3==1.26.0"]\n'
+        result = upsert_uv_override_dependencies(content, {"urllib3": "1.26.19"})
+        data = tomllib.loads(result)
+        assert data["tool"]["uv"]["override-dependencies"] == ["urllib3==1.26.19"]
+
+    def test_empty_overrides_returns_content_unchanged(self):
+        content = '[project]\nname = "app"\n'
+        assert upsert_uv_override_dependencies(content, {}) == content
 
 
 # ============================================================================
@@ -976,3 +1021,14 @@ class TestGenerateUpdateScript:
         assert "--upgrade-package pydantic==2.13.4" in script
         assert """'s|"ty[^"]*"|"ty==0.0.35"|g'""" in script
         assert "--upgrade-package ty==0.0.35" in script
+
+    def test_forced_transitive_emits_set_override_helper(self, uv):
+        entry = make_update_entry("urllib3", "1.26.0", "1.26.19", is_direct=False, is_forced=True)
+        script = uv.generate_update_script(make_update_plan(transitive=[entry]))
+        assert "ossiq helpers uv set-override" in script
+        assert "urllib3==1.26.19" in script
+
+    def test_non_forced_transitive_has_no_set_override(self, uv):
+        entry = make_update_entry("urllib3", "1.26.0", "2.0.7", is_direct=False)
+        script = uv.generate_update_script(make_update_plan(transitive=[entry]))
+        assert "set-override" not in script

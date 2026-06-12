@@ -9,10 +9,17 @@ import typer
 from rich.console import Console
 
 from ossiq.adapters.package_managers.helpers.helpers_npm import npm_helpers_app
+from ossiq.adapters.package_managers.helpers.helpers_uv import uv_helpers_app
 from ossiq.clients import install_requests_cache
 from ossiq.commands.export import CommandExportOptions, commnad_export
 from ossiq.commands.package import CommandInfoOptions, command_info
-from ossiq.commands.plan import CommandPlanOptions, command_apply, command_plan
+from ossiq.commands.plan import (
+    CommandPlanOptions,
+    check_override_ignore_conflict,
+    command_apply,
+    command_plan,
+    parse_override_specs,
+)
 from ossiq.commands.status import CommandStatusOptions, command_status
 from ossiq.domain.common import UserInterfaceType
 from ossiq.messages import (
@@ -27,10 +34,14 @@ from ossiq.messages import (
     HELP_IGNORE_PACKAGE,
     HELP_LAG_THRESHOULD,
     HELP_OUTPUT_FORMAT,
+    HELP_OVERRIDE_PACKAGE,
     HELP_PACKAGE_NAME,
+    HELP_PIN_ALL,
     HELP_PRODUCTION_ONLY,
     HELP_REGISTRY_TYPE,
+    HELP_REWRITE_VERSIONS,
     HELP_SCHEMA_VERSION,
+    HELP_SECURITY_ONLY,
     HELP_TEXT,
 )
 from ossiq.settings import Settings
@@ -42,6 +53,7 @@ console = Console()
 
 helpers_app = typer.Typer(name="helpers", help="Package manager helper utilities")
 helpers_app.add_typer(npm_helpers_app, name="npm")
+helpers_app.add_typer(uv_helpers_app, name="uv")
 app.add_typer(helpers_app, name="helpers")
 
 
@@ -346,21 +358,21 @@ def plan(
     production: Annotated[bool, typer.Option("--production", help=HELP_PRODUCTION_ONLY)] = False,
     security: Annotated[
         bool,
-        typer.Option("--security", is_flag=True, help="Narrow transitive recommendations to CVE-carrying packages"),
+        typer.Option("--security", is_flag=True, help=HELP_SECURITY_ONLY),
     ] = False,
     ignore: Annotated[list[str] | None, typer.Option("--ignore", "-i", help=HELP_IGNORE_PACKAGE)] = None,
     pin_all: Annotated[
         bool,
-        typer.Option("--pin-all", is_flag=True, help="Write ==new_version for all updated direct deps"),
+        typer.Option("--pin-all", is_flag=True, help=HELP_PIN_ALL),
     ] = False,
     rewrite_versions: Annotated[
         bool,
-        typer.Option(
-            "--rewrite-versions",
-            is_flag=True,
-            help="Include PINNED (==x.y.z) deps in the update and rewrite their specifiers",
-        ),
+        typer.Option("--rewrite-versions", is_flag=True, help=HELP_REWRITE_VERSIONS),
     ] = False,
+    override: Annotated[
+        list[str] | None,
+        typer.Option("--override", help=HELP_OVERRIDE_PACKAGE),
+    ] = None,
     script: Annotated[
         bool,
         typer.Option("--script", is_flag=True, help="Emit the bash update script instead of the plan table"),
@@ -369,6 +381,9 @@ def plan(
     """Show what would change, or emit the bash script with --script."""
     if registry_type and registry_type.lower() not in ["npm", "pypi"]:
         raise typer.BadParameter("Only `npm` and `pypi` allowed")
+
+    overrides = parse_override_specs(override)
+    check_override_ignore_conflict(overrides, tuple(ignore or []))
 
     command_plan(
         ctx=context,
@@ -382,6 +397,7 @@ def plan(
             ignore_packages=tuple(ignore or []),
             pin_all=pin_all,
             rewrite_versions=rewrite_versions,
+            overrides=overrides,
         ),
         script=script,
     )
@@ -405,21 +421,21 @@ def apply(
     production: Annotated[bool, typer.Option("--production", help=HELP_PRODUCTION_ONLY)] = False,
     security: Annotated[
         bool,
-        typer.Option("--security", is_flag=True, help="Narrow transitive recommendations to CVE-carrying packages"),
+        typer.Option("--security", is_flag=True, help=HELP_SECURITY_ONLY),
     ] = False,
     ignore: Annotated[list[str] | None, typer.Option("--ignore", "-i", help=HELP_IGNORE_PACKAGE)] = None,
     pin_all: Annotated[
         bool,
-        typer.Option("--pin-all", is_flag=True, help="Write ==new_version for all updated direct deps"),
+        typer.Option("--pin-all", is_flag=True, help=HELP_PIN_ALL),
     ] = False,
     rewrite_versions: Annotated[
         bool,
-        typer.Option(
-            "--rewrite-versions",
-            is_flag=True,
-            help="Include PINNED (==x.y.z) deps in the update and rewrite their specifiers",
-        ),
+        typer.Option("--rewrite-versions", is_flag=True, help=HELP_REWRITE_VERSIONS),
     ] = False,
+    override: Annotated[
+        list[str] | None,
+        typer.Option("--override", help=HELP_OVERRIDE_PACKAGE),
+    ] = None,
     yes: Annotated[
         bool,
         typer.Option("--yes", "-y", is_flag=True, help="Skip confirmation prompt (for CI)"),
@@ -428,6 +444,9 @@ def apply(
     """Apply solver-recommended updates; shows the plan first, then confirms before executing."""
     if registry_type and registry_type.lower() not in ["npm", "pypi"]:
         raise typer.BadParameter("Only `npm` and `pypi` allowed")
+
+    overrides = parse_override_specs(override)
+    check_override_ignore_conflict(overrides, tuple(ignore or []))
 
     command_apply(
         ctx=context,
@@ -441,6 +460,7 @@ def apply(
             ignore_packages=tuple(ignore or []),
             pin_all=pin_all,
             rewrite_versions=rewrite_versions,
+            overrides=overrides,
         ),
         yes=yes,
     )

@@ -35,6 +35,7 @@ class ProjectUnitOfWork(AbstractProjectUnitOfWork):
         allow_prerelease_packages: tuple[str, ...] = (),
         security_only: bool = False,
         ignore_packages: tuple[str, ...] = (),
+        rewrite_versions: bool = False,
     ):
         """
         Takes a single package details pulled from
@@ -47,6 +48,7 @@ class ProjectUnitOfWork(AbstractProjectUnitOfWork):
         self.allow_prerelease = allow_prerelease
         self.allow_prerelease_packages = allow_prerelease_packages
         self.security_only = security_only
+        self.rewrite_versions = rewrite_versions
         self.ignore_packages = tuple(normalize_dist_name(p) for p in ignore_packages)
         self.narrow_package_registry = narrow_package_registry
         self.cve_database = create_cve_database(settings)
@@ -112,6 +114,7 @@ def build_project_uow(
     *,
     security_only: bool = False,
     ignore_packages: tuple[str, ...] = (),
+    rewrite_versions: bool = False,
 ) -> ProjectUnitOfWork:
     """Factory for ProjectUnitOfWork with registry-type string mapping applied."""
     return ProjectUnitOfWork(
@@ -123,4 +126,5 @@ def build_project_uow(
         narrow_package_registry=REGISTRY_TYPE_MAP.get(registry_type or ""),
         security_only=security_only,
         ignore_packages=ignore_packages,
+        rewrite_versions=rewrite_versions,
     )

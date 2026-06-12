@@ -5,6 +5,8 @@ from typing import Annotated
 import typer
 
 from ossiq.adapters.package_managers.api_npm import PackageManagerJsNpm
+from ossiq.commands.plan import parse_override_specs
+from ossiq.messages import HELP_OVERRIDE_PACKAGE, HELP_PIN_ALL, HELP_REWRITE_VERSIONS, HELP_SECURITY_ONLY
 from ossiq.service import project
 from ossiq.service.update import build_update_plan
 from ossiq.settings import Settings
@@ -28,28 +30,21 @@ def npm_freeze_state(
     production: Annotated[bool, typer.Option("--production", help="Consider production dependencies only")] = False,
     security: Annotated[
         bool,
-        typer.Option(
-            "--security", is_flag=True, help="Narrow transitive recommendations to CVE-carrying packages only"
-        ),
+        typer.Option("--security", is_flag=True, help=HELP_SECURITY_ONLY),
     ] = False,
     ignore: Annotated[
         list[str] | None,
         typer.Option("--ignore", "-i", help="Exclude package from solver recommendations (repeatable)"),
     ] = None,
-    pin_all: Annotated[
-        bool, typer.Option("--pin-all", is_flag=True, help="Write ==new_version for all updated direct deps")
-    ] = False,
+    pin_all: Annotated[bool, typer.Option("--pin-all", is_flag=True, help=HELP_PIN_ALL)] = False,
     rewrite_versions: Annotated[
-        bool,
-        typer.Option(
-            "--rewrite-versions",
-            is_flag=True,
-            help="Include PINNED (==x.y.z) deps in the update and rewrite their specifiers",
-        ),
+        bool, typer.Option("--rewrite-versions", is_flag=True, help=HELP_REWRITE_VERSIONS)
     ] = False,
+    override: Annotated[list[str] | None, typer.Option("--override", help=HELP_OVERRIDE_PACKAGE)] = None,
 ) -> None:
     """Lock full dependency tree in package.json overrides and save state for safe update."""
     settings: Settings = ctx.obj
+    overrides = parse_override_specs(override)
 
     uow = uow_project.build_project_uow(
         settings,
@@ -60,6 +55,7 @@ def npm_freeze_state(
         "npm",
         security_only=security,
         ignore_packages=tuple(ignore or []),
+        rewrite_versions=rewrite_versions,
     )
 
     with show_operation_progress(settings, "Resolving recommended versions...") as progress:
@@ -67,11 +63,34 @@ def npm_freeze_state(
             scan_result = project.scan(uow)
 
     package_manager_name = uow.packages_manager.package_manager_type.name
-    plan = build_update_plan(scan_result, package_manager_name, pin_all=pin_all, rewrite_versions=rewrite_versions)
+    plan = build_update_plan(
+        scan_result,
+        package_manager_name,
+        pin_all=pin_all,
+        cooldown_period=settings.cooldown_period,
+        security_only=security,
+        forced_overrides=dict(overrides),
+    )
 
     assert isinstance(uow.packages_manager, PackageManagerJsNpm)
     uow.packages_manager.freeze_state(plan)
     typer.echo(f"State saved. Overrides written: {len(plan.installed_versions)} packages locked.")
+
+
+@npm_helpers_app.command("finalize-state")
+def npm_finalize_state(
+    ctx: typer.Context,
+    project_path: Annotated[str, typer.Argument()] = ".",
+) -> None:
+    """Relax direct specifiers to their final form and sync the lockfile after npm install."""
+    settings: Settings = ctx.obj
+    npm_pm = PackageManagerJsNpm(project_path, settings)
+    try:
+        message = npm_pm.finalize_state(project_path)
+        typer.echo(message)
+    except FileNotFoundError as e:
+        typer.echo(str(e), err=True)
+        raise typer.Exit(1) from None
 
 
 @npm_helpers_app.command("restore-state")

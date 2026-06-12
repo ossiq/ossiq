@@ -328,6 +328,7 @@ class PackageRegistryApiNpm(AbstractPackageRegistryApi):
         bare semver: exact pin — returns new_version bare.
         Complex / wildcard / file: / git+: falls back to exact new_version.
         """
+
         if not specifier:
             return new_version
 

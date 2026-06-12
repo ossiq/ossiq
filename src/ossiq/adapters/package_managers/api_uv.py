@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import os
 import re
+import shlex
 import subprocess
 import tomllib
 from collections import namedtuple
@@ -76,6 +77,47 @@ def apply_pyproject_constraints(root: Dependency, pyproject_specs: dict[str, str
             source_file="pyproject.toml",
         )
     return divergent
+
+
+def upsert_uv_override_dependencies(content: str, overrides: dict[str, str]) -> str:
+    """Merge forced pkg==version entries into [tool.uv] override-dependencies in pyproject.toml.
+
+    Existing entries for other packages are preserved; an entry for a forced package is replaced.
+    The [tool.uv] section and the override-dependencies key are created when missing. Editing is
+    text-based so the rest of the file stays byte-identical; the result is re-parsed to guarantee
+    valid TOML before it is returned.
+    """
+    if not overrides:
+        return content
+
+    data = tomllib.loads(content)
+    existing_specs: list[str] = data.get("tool", {}).get("uv", {}).get("override-dependencies", [])
+
+    merged: dict[str, str] = {}
+    for spec in existing_specs:
+        try:
+            merged[normalize_dist_name(Requirement(spec).name)] = spec
+        except InvalidRequirement:
+            merged[spec] = spec
+    for name, version in overrides.items():
+        merged[normalize_dist_name(name)] = f"{name}=={version}"
+
+    entries = "\n".join(f'    "{spec}",' for spec in merged.values())
+    block = f"override-dependencies = [\n{entries}\n]"
+
+    if "override-dependencies" in data.get("tool", {}).get("uv", {}):
+        new_content = re.sub(
+            r"override-dependencies\s*=\s*\[.*?\]", lambda match: block, content, count=1, flags=re.DOTALL
+        )
+    elif re.search(r"^\[tool\.uv\]\s*$", content, flags=re.MULTILINE):
+        new_content = re.sub(
+            r"^\[tool\.uv\]\s*$", lambda match: f"[tool.uv]\n{block}", content, count=1, flags=re.MULTILINE
+        )
+    else:
+        new_content = f"{content.rstrip()}\n\n[tool.uv]\n{block}\n"
+
+    tomllib.loads(new_content)  # raises TOMLDecodeError when the edit produced invalid TOML
+    return new_content
 
 
 class UVResolverV1R3(BaseDependencyResolver):
@@ -321,8 +363,9 @@ class PackageManagerPythonUv(AbstractPackageManagerApi):
 
         When the return value equals entry.version_defined, no pyproject.toml edit is needed —
         the caller should add the package to --upgrade-package on uv lock instead.
+        Forced (--override) entries always pin exact, regardless of mode.
         """
-        if pin_all:
+        if entry.is_forced or pin_all:
             return f"=={entry.recommended_version}"
         return PackageRegistryApiPypi.rewrite_specifier(
             entry.version_defined, entry.recommended_version, entry.constraint_type
@@ -365,6 +408,14 @@ class PackageManagerPythonUv(AbstractPackageManagerApi):
             f"    --upgrade-package {entry.package_name}=={entry.recommended_version}"
             for entry in plan.transitive_entries
         ]
+
+        forced_transitive = [entry for entry in plan.transitive_entries if entry.is_forced]
+        if forced_transitive:
+            lines += ["", "# --- forced overrides (--override): persist in [tool.uv] override-dependencies ---"]
+            for entry in forced_transitive:
+                spec = shlex.quote(f"{entry.package_name}=={entry.recommended_version}")
+                lines.append(f"ossiq helpers uv set-override {spec} .")
+
         lock_cmd = "uv lock" if not upgrade_flags else "uv lock \\\n" + " \\\n".join(upgrade_flags)
 
         lines += [
@@ -394,6 +445,12 @@ class PackageManagerPythonUv(AbstractPackageManagerApi):
                         f'"{entry.package_name}{spec_to_write}"',
                         content,
                     )
+
+            forced_transitive = {
+                entry.package_name: entry.recommended_version for entry in plan.transitive_entries if entry.is_forced
+            }
+            if forced_transitive:
+                content = upsert_uv_override_dependencies(content, forced_transitive)
 
             if content != original_content:
                 manifest_path.write_text(content, encoding="utf-8")

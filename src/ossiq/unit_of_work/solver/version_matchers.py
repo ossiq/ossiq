@@ -52,6 +52,21 @@ _BARE_VERSION_RE = re.compile(r"^\d[\d.]*$")
 _NOT_EQUAL_RE = re.compile(r"^!=\s*(\d[\d.]*)$")
 
 
+def strip_npm_alias(constraint: str) -> str:
+    """Return the embedded range of an npm alias specifier, or the constraint unchanged.
+
+    ``npm:wrap-ansi@^7.0.0`` -> ``^7.0.0``;  ``npm:@scope/pkg@~1.2`` -> ``~1.2``.
+    The range is the part after the final ``@``; a non-alias string passes through.
+    """
+    s = constraint.strip()
+    if not s.startswith("npm:"):
+        return constraint
+    at_idx = s.rfind("@")
+    if at_idx > len("npm:"):
+        return s[at_idx + 1 :]
+    return constraint
+
+
 def expand_compatible_release(part: str) -> str:
     """Expand ~=X.Y.Z -> >=X.Y.Z,<X.(Y+1).0 for univers compatibility."""
     ver = part[2:].strip()
@@ -77,11 +92,12 @@ def npm_version_satisfies_range(version: str, range_constraint: str) -> bool:
       - ``~``  tilde  — "~1.2.3"  compatible with the same minor
       - bare version  — "14"  treated as a caret range (^14.0.0)
       - comparison operators  — ">", ">=", "<", "<=", "=", "!="
+      - npm alias  — "npm:pkg@^1.2.3"  matched against the embedded range
 
     An unparseable version or constraint passes through as True so that an
     unknown format never becomes a hard block.
     """
-    constraint = range_constraint.strip()
+    constraint = strip_npm_alias(range_constraint).strip()
 
     m = _NOT_EQUAL_RE.match(constraint)
     if m:

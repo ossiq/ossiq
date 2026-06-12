@@ -1,9 +1,10 @@
 """Tests for ui/renderers/impact_utils.py."""
 
+from rich.console import Console
 from rich.table import Table
 
 from ossiq.service.update_impact import TransitiveImpact
-from ossiq.ui.renderers.impact_utils import impact_sub_row_texts, new_transitive_deps_table
+from ossiq.ui.renderers.impact_utils import impact_sub_row_texts, is_fresh_new_dep, new_transitive_deps_table
 
 
 def make_impact(
@@ -15,6 +16,7 @@ def make_impact(
     driven_by: str = "requests",
     has_conflict: bool = False,
     conflict_detail: str | None = None,
+    projected_age_days: int | None = None,
 ) -> TransitiveImpact:
     return TransitiveImpact(
         package_name=package_name,
@@ -24,7 +26,14 @@ def make_impact(
         driven_by=driven_by,
         has_conflict=has_conflict,
         conflict_detail=conflict_detail,
+        projected_age_days=projected_age_days,
     )
+
+
+def render_table(table: Table) -> str:
+    recording = Console(record=True, width=120)
+    recording.print(table)
+    return recording.export_text()
 
 
 # ============================================================================
@@ -65,6 +74,42 @@ def test_new_transitive_deps_table_multiple_new_deps():
     result = new_transitive_deps_table(impacts)
     assert isinstance(result, Table)
     assert result.row_count == 2
+
+
+def test_new_transitive_deps_table_shows_age_and_version():
+    impacts = [make_impact("h2", current_version=None, projected_version="4.1.0", projected_age_days=30)]
+    result = new_transitive_deps_table(impacts, cooldown_period=7)
+    assert isinstance(result, Table)
+    output = render_table(result)
+    assert "4.1.0" in output
+    assert "30d" in output
+
+
+def test_new_transitive_deps_table_marks_fresh_dep():
+    impacts = [make_impact("h2", current_version=None, projected_version="4.1.0", projected_age_days=2)]
+    result = new_transitive_deps_table(impacts, cooldown_period=7)
+    assert isinstance(result, Table)
+    output = render_table(result)
+    assert "⚠" in output
+
+
+def test_new_transitive_deps_table_unknown_age_renders_dash():
+    impacts = [make_impact("h2", current_version=None, projected_version=None, projected_age_days=None)]
+    result = new_transitive_deps_table(impacts, cooldown_period=7)
+    assert isinstance(result, Table)
+    output = render_table(result)
+    assert "⚠" not in output
+    assert "—" in output
+
+
+def test_is_fresh_new_dep_thresholds():
+    fresh = make_impact("h2", current_version=None, projected_age_days=2)
+    mature = make_impact("h2", current_version=None, projected_age_days=30)
+    unknown = make_impact("h2", current_version=None, projected_age_days=None)
+    assert is_fresh_new_dep(fresh, cooldown_period=7) is True
+    assert is_fresh_new_dep(mature, cooldown_period=7) is False
+    assert is_fresh_new_dep(unknown, cooldown_period=7) is False
+    assert is_fresh_new_dep(fresh, cooldown_period=0) is False
 
 
 # ============================================================================

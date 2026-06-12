@@ -171,9 +171,13 @@ class TestSolveTransitiveVeryFresh:
         assert "new-pkg" in result.recommendations
 
     def test_very_fresh_solver_prefers_older_stable_version(self) -> None:
-        """Solver avoids a very-fresh candidate in favour of a stable older one."""
+        """Solver avoids a very-fresh candidate in favour of a stable one that is still an upgrade.
+
+        Installed 0.9.0; both 1.0.0 (stable) and 2.0.0 (very fresh) are upgrades, so the floor keeps
+        both and the L6 penalty steers the pick to the older-but-stable 1.0.0.
+        """
         _now = datetime(2026, 5, 7, tzinfo=UTC)
-        records = [_rec("new-pkg", "2.0.0", age_days=3)]
+        records = [_rec("new-pkg", "0.9.0", age_days=3)]
         registry = _make_registry(
             {
                 "new-pkg": [
@@ -188,6 +192,25 @@ class TestSolveTransitiveVeryFresh:
         )
         result = solve_transitive(records, registry, {}, now=_now)
         assert result.recommendations.get("new-pkg") == "1.0.0"
+
+    def test_never_downgrades_below_installed_when_installed_is_fresh(self) -> None:
+        """A fresh installed version is never downgraded to an older release (no-downgrade floor).
+
+        The cooldown only steers away from fresh *upgrades*; it must not pull an already-installed
+        version backwards. Installed 2.0.0 (fresh) → solver keeps 2.0.0, never 1.0.0.
+        """
+        _now = datetime(2026, 5, 7, tzinfo=UTC)
+        records = [_rec("new-pkg", "2.0.0", age_days=3)]
+        registry = _make_registry(
+            {
+                "new-pkg": [
+                    _pv("1.0.0", published="2025-10-13T00:00:00Z"),
+                    _pv("2.0.0", published="2026-05-04T00:00:00Z"),
+                ]
+            }
+        )
+        result = solve_transitive(records, registry, {}, now=_now)
+        assert result.recommendations.get("new-pkg") == "2.0.0"
 
 
 class TestSolveTransitiveDeduplication:

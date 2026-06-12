@@ -58,6 +58,11 @@ from ossiq.unit_of_work.solver.version_matchers import (
         ("3.5.0", ">=3.0.0 <4.0.0 || >=5.0.0 <6.0.0", True),
         ("5.5.0", ">=3.0.0 <4.0.0 || >=5.0.0 <6.0.0", True),
         ("4.5.0", ">=3.0.0 <4.0.0 || >=5.0.0 <6.0.0", False),
+        # npm alias — match against the embedded range, not the aliased name
+        ("7.5.0", "npm:wrap-ansi@^7.0.0", True),
+        ("8.1.0", "npm:wrap-ansi@^7.0.0", False),
+        ("1.2.5", "npm:@scope/pkg@~1.2.0", True),
+        ("1.3.0", "npm:@scope/pkg@~1.2.0", False),
         # unparseable version/constraint → pass through (True)
         ("not-a-version", "^1.0.0", True),
         ("1.0.0", "???", True),

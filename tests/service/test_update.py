@@ -2,15 +2,29 @@
 
 from __future__ import annotations
 
-from ossiq.domain.common import ConstraintType
+from ossiq.domain.common import ConstraintType, CveDatabase, ProjectPackagesRegistry
+from ossiq.domain.cve import CVE, Severity
 from ossiq.domain.project import ConstraintSource
 from ossiq.domain.version import VersionsDifference
 from ossiq.service.project import ScanRecord, ScanResult
 from ossiq.service.update import build_update_plan
 from ossiq.service.update_impact import TransitiveImpact
+from ossiq.unit_of_work.solver.reason import RecommendationReason
 
 NO_DIFF = VersionsDifference("1.0.0", "1.0.0", 0, diff_name="LATEST")
 CONSTRAINT_SOURCE = ConstraintSource(type=ConstraintType.DECLARED, source_file="pyproject.toml")
+
+
+def reason_with_age(selected_version: str, age_days: int) -> RecommendationReason:
+    return RecommendationReason(
+        selected_version=selected_version,
+        constraint=None,
+        hard_rejections=[],
+        soft_rejections=[],
+        lower_semver_alternatives=[],
+        age_days=age_days,
+        is_latest=False,
+    )
 
 
 def make_record(name: str, installed: str, recommended: str | None = None) -> ScanRecord:
@@ -60,31 +74,11 @@ class TestBuildUpdatePlan:
         plan = build_update_plan(make_scan_result(), "uv", pin_all=True)
         assert plan.pin_all is True
 
-    def test_rewrite_versions_defaults_to_false(self):
-        plan = build_update_plan(make_scan_result(), "uv")
-        assert plan.rewrite_versions is False
-
-    def test_rewrite_versions_propagated(self):
-        plan = build_update_plan(make_scan_result(), "uv", rewrite_versions=True)
-        assert plan.rewrite_versions is True
-
-    def test_pinned_entry_excluded_by_default(self):
+    def test_pinned_entry_included(self):
         result = make_scan_result(production=[make_pinned_record("requests", "2.28.0", "2.31.0")])
         plan = build_update_plan(result, "uv")
-        assert not plan.direct_entries
-
-    def test_pinned_entry_included_when_rewrite_versions(self):
-        result = make_scan_result(production=[make_pinned_record("requests", "2.28.0", "2.31.0")])
-        plan = build_update_plan(result, "uv", rewrite_versions=True)
         assert len(plan.direct_entries) == 1
         assert plan.direct_entries[0].package_name == "requests"
-
-    def test_declared_entry_not_affected_by_rewrite_versions_flag(self):
-        result = make_scan_result(production=[make_record("requests", "2.28.0", "2.31.0")])
-        plan_without = build_update_plan(result, "uv")
-        plan_with = build_update_plan(result, "uv", rewrite_versions=True)
-        assert len(plan_without.direct_entries) == 1
-        assert len(plan_with.direct_entries) == 1
 
     def test_installed_versions_includes_all_packages(self):
         result = make_scan_result(
@@ -191,3 +185,163 @@ class TestBuildUpdatePlan:
 
         modelsearch_entry = next(e for e in plan.transitive_entries if e.package_name == "modelsearch")
         assert modelsearch_entry.recommended_version == "1.2.2"
+
+
+def make_cve(package_name: str) -> CVE:
+    return CVE(
+        id="CVE-0000-0000",
+        cve_ids=("CVE-0000-0000",),
+        source=CveDatabase.OSV,
+        package_name=package_name,
+        package_registry=ProjectPackagesRegistry.PYPI,
+        summary="test",
+        severity=Severity.HIGH,
+        affected_versions=("1.0.0",),
+        published=None,
+        link="https://example.com",
+    )
+
+
+class TestCooldownHold:
+    def fresh_record(self, name: str, installed: str, recommended: str, age_days: int) -> ScanRecord:
+        record = make_record(name, installed, recommended)
+        record.recommended_version_reason = reason_with_age(recommended, age_days)
+        return record
+
+    def test_fresh_transitive_held_back(self):
+        result = make_scan_result(transitive=[self.fresh_record("@vue/reactivity", "3.5.35", "3.5.38", age_days=0)])
+        plan = build_update_plan(result, "npm", cooldown_period=7)
+        assert not plan.transitive_entries
+        assert [e.package_name for e in plan.held_for_cooldown] == ["@vue/reactivity"]
+
+    def test_fresh_direct_held_back(self):
+        result = make_scan_result(production=[self.fresh_record("requests", "2.28.0", "2.32.0", age_days=2)])
+        plan = build_update_plan(result, "uv", cooldown_period=7)
+        assert not plan.direct_entries
+        assert [e.package_name for e in plan.held_for_cooldown] == ["requests"]
+
+    def test_mature_version_recommended_normally(self):
+        result = make_scan_result(transitive=[self.fresh_record("open", "10.2.0", "11.0.0", age_days=208)])
+        plan = build_update_plan(result, "npm", cooldown_period=7)
+        assert [e.package_name for e in plan.transitive_entries] == ["open"]
+        assert not plan.held_for_cooldown
+
+    def test_security_fresh_not_held(self):
+        record = self.fresh_record("urllib3", "1.26.0", "1.26.19", age_days=1)
+        record.cve = [make_cve("urllib3")]
+        result = make_scan_result(production=[record])
+        plan = build_update_plan(result, "uv", cooldown_period=7)
+        assert [e.package_name for e in plan.direct_entries] == ["urllib3"]
+        assert plan.direct_entries[0].is_security is True
+        assert not plan.held_for_cooldown
+
+    def test_no_cooldown_when_period_zero(self):
+        result = make_scan_result(transitive=[self.fresh_record("@vue/reactivity", "3.5.35", "3.5.38", age_days=0)])
+        plan = build_update_plan(result, "npm", cooldown_period=0)
+        assert [e.package_name for e in plan.transitive_entries] == ["@vue/reactivity"]
+        assert not plan.held_for_cooldown
+
+    def test_missing_reason_not_held(self):
+        result = make_scan_result(production=[make_record("requests", "2.28.0", "2.32.0")])
+        plan = build_update_plan(result, "uv", cooldown_period=7)
+        assert [e.package_name for e in plan.direct_entries] == ["requests"]
+        assert not plan.held_for_cooldown
+
+
+class TestSecurityFilter:
+    def cve_record(self, name: str, installed: str, recommended: str) -> ScanRecord:
+        record = make_record(name, installed, recommended)
+        record.cve = [make_cve(name)]
+        return record
+
+    def test_direct_cve_entry_kept(self):
+        result = make_scan_result(
+            production=[
+                self.cve_record("urllib3", "1.26.0", "1.26.19"),
+                make_record("requests", "2.28.0", "2.32.0"),
+            ]
+        )
+        plan = build_update_plan(result, "uv", security_only=True)
+        assert [e.package_name for e in plan.direct_entries] == ["urllib3"]
+
+    def test_transitive_cve_entry_kept(self):
+        result = make_scan_result(
+            transitive=[
+                self.cve_record("certifi", "2022.12.7", "2023.7.22"),
+                make_record("idna", "3.3", "3.6"),
+            ]
+        )
+        plan = build_update_plan(result, "uv", security_only=True)
+        assert [e.package_name for e in plan.transitive_entries] == ["certifi"]
+
+    def test_empty_plan_when_no_cve_packages(self):
+        result = make_scan_result(
+            production=[make_record("requests", "2.28.0", "2.32.0")],
+            transitive=[make_record("idna", "3.3", "3.6")],
+        )
+        plan = build_update_plan(result, "uv", security_only=True)
+        assert not plan.direct_entries
+        assert not plan.transitive_entries
+        assert not plan.held_for_cooldown
+
+    def test_held_for_cooldown_empty_under_security(self):
+        """Security entries bypass the cooldown hold, so nothing can be held in security-only mode."""
+        record = self.cve_record("urllib3", "1.26.0", "1.26.19")
+        record.recommended_version_reason = reason_with_age("1.26.19", age_days=1)
+        result = make_scan_result(production=[record])
+        plan = build_update_plan(result, "uv", cooldown_period=7, security_only=True)
+        assert [e.package_name for e in plan.direct_entries] == ["urllib3"]
+        assert not plan.held_for_cooldown
+
+    def test_default_keeps_non_cve_entries(self):
+        result = make_scan_result(production=[make_record("requests", "2.28.0", "2.32.0")])
+        plan = build_update_plan(result, "uv", security_only=False)
+        assert [e.package_name for e in plan.direct_entries] == ["requests"]
+
+
+class TestForcedOverrides:
+    def test_forced_replaces_solver_recommendation(self):
+        result = make_scan_result(production=[make_record("requests", "2.28.0", "2.32.0")])
+        plan = build_update_plan(result, "uv", forced_overrides={"requests": "2.30.0"})
+        assert len(plan.direct_entries) == 1
+        entry = plan.direct_entries[0]
+        assert entry.recommended_version == "2.30.0"
+        assert entry.is_forced is True
+        assert entry.reason is None
+
+    def test_forced_creates_entry_without_solver_recommendation(self):
+        result = make_scan_result(production=[make_record("requests", "2.28.0")])
+        plan = build_update_plan(result, "uv", forced_overrides={"requests": "2.30.0"})
+        assert [e.package_name for e in plan.direct_entries] == ["requests"]
+        assert plan.direct_entries[0].is_forced is True
+
+    def test_forced_transitive_marked_override(self):
+        result = make_scan_result(transitive=[make_record("urllib3", "1.26.0")])
+        plan = build_update_plan(result, "uv", forced_overrides={"urllib3": "1.26.19"})
+        assert [e.package_name for e in plan.transitive_entries] == ["urllib3"]
+        entry = plan.transitive_entries[0]
+        assert entry.is_forced is True
+        assert entry.constraint_type == ConstraintType.OVERRIDE
+
+    def test_unknown_override_collected(self):
+        result = make_scan_result(production=[make_record("requests", "2.28.0")])
+        plan = build_update_plan(result, "uv", forced_overrides={"no-such-pkg": "1.0.0"})
+        assert plan.unknown_override_packages == ("no-such-pkg",)
+        assert not plan.direct_entries
+
+    def test_forced_equal_to_installed_skipped(self):
+        result = make_scan_result(production=[make_record("requests", "2.28.0", "2.32.0")])
+        plan = build_update_plan(result, "uv", forced_overrides={"requests": "2.28.0"})
+        assert not plan.direct_entries
+
+    def test_forced_never_held_for_cooldown(self):
+        result = make_scan_result(production=[make_record("requests", "2.28.0")])
+        plan = build_update_plan(result, "uv", cooldown_period=7, forced_overrides={"requests": "2.32.0"})
+        assert [e.package_name for e in plan.direct_entries] == ["requests"]
+        assert not plan.held_for_cooldown
+
+    def test_forced_survives_security_filter(self):
+        result = make_scan_result(production=[make_record("requests", "2.28.0", "2.32.0")])
+        plan = build_update_plan(result, "uv", security_only=True, forced_overrides={"requests": "2.30.0"})
+        assert [e.package_name for e in plan.direct_entries] == ["requests"]
+        assert plan.direct_entries[0].is_forced is True

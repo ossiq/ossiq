@@ -14,9 +14,11 @@ from ossiq.domain.project import ConstraintSource
 from ossiq.domain.version import PackageVersion, VersionsDifference
 from ossiq.service.project import (
     DependencyDescriptor,
+    ScanRecord,
     calculate_version_age_days,
     get_package_versions_since,
     scan_record,
+    scan_sort_key,
 )
 
 # ============================================================================
@@ -338,3 +340,31 @@ class TestCalculateVersionAgeDays:
         result = calculate_version_age_days(versions, "1.0.0")
         assert isinstance(result, int)
         assert result > 0
+
+
+class TestScanSortKey:
+    """Regression: sorting must not crash when time_lag_days is None (cutoff-date scans)."""
+
+    def make_record(self, name: str, time_lag_days: int | None) -> ScanRecord:
+        return ScanRecord(
+            package_name=name,
+            dependency_name=name,
+            is_optional_dependency=False,
+            installed_version="1.0.0",
+            latest_version=None,
+            versions_diff_index=VersionsDifference("1.0.0", "1.0.0", 0, diff_name="LATEST"),
+            time_lag_days=time_lag_days,
+            releases_lag=None,
+            cve=[],
+            constraint_info=ConstraintSource(type=ConstraintType.DECLARED, source_file="pyproject.toml"),
+        )
+
+    def test_mixed_none_and_int_lag_sortable(self) -> None:
+        records = [self.make_record("a", None), self.make_record("b", 10), self.make_record("c", None)]
+        ordered = sorted(records, key=scan_sort_key, reverse=True)
+        assert [r.package_name for r in ordered] == ["b", "c", "a"]
+
+    def test_unknown_lag_ranks_below_known_lag(self) -> None:
+        unknown = self.make_record("pkg", None)
+        known = self.make_record("pkg", 0)
+        assert scan_sort_key(unknown) < scan_sort_key(known)

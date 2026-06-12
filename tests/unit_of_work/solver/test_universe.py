@@ -6,11 +6,11 @@ from unittest.mock import MagicMock
 from packaging.version import Version as PV
 
 from ossiq.adapters.api_interfaces import AbstractPackageRegistryApi
-from ossiq.domain.common import ConstraintType
+from ossiq.domain.common import ConstraintType, ProjectPackagesRegistry
 from ossiq.domain.project import ConstraintSource
 from ossiq.domain.version import PackageVersion
 from ossiq.unit_of_work.solver.problem import CandidateVersion, PackageConstraint, SolverProblem
-from ossiq.unit_of_work.solver.universe import SolvablePool, parse_requires
+from ossiq.unit_of_work.solver.universe import SolvablePool, parse_requires, relevant_constraints
 
 # ---------------------------------------------------------------------------
 # Shared helpers
@@ -114,6 +114,44 @@ class TestCandidateVersionFiltering:
         problem = SolvablePool.build([_FakeDep("pkg", "1.0.0")], registry, {})
         versions = [cv.version for cv in problem.candidates["pkg"]]
         assert versions == ["3.0.0", "2.0.0", "1.0.0"]
+
+    def test_versions_below_installed_excluded(self) -> None:
+        """No downgrades: candidates older than the installed version are dropped."""
+        registry = _make_registry({"pkg": [_pv("1.0.0"), _pv("2.0.0"), _pv("3.0.0")]})
+        problem = SolvablePool.build([_FakeDep("pkg", "2.0.0")], registry, {})
+        versions = [cv.version for cv in problem.candidates["pkg"]]
+        assert versions == ["3.0.0", "2.0.0"]
+        assert "1.0.0" not in versions
+
+
+# ---------------------------------------------------------------------------
+# TestRelevantConstraints — scoping a multiply-installed package to one copy
+# ---------------------------------------------------------------------------
+
+
+class TestRelevantConstraints:
+    def test_cross_copy_constraints_scoped_to_installed_version(self) -> None:
+        """Specifiers the installed version cannot satisfy belong to a different copy → dropped."""
+        registry = _make_registry({"brace-expansion": [_pv("5.0.5"), _pv("5.1.0")]})
+        registry.package_registry = ProjectPackagesRegistry.NPM
+        dep = _FakeDep("brace-expansion", "5.0.5", all_constraints=["^2.0.2", "^5.0.5"])
+        problem = SolvablePool.build([dep], registry, {})
+        constraint = next(c for c in problem.constraints if c.package_name == "brace-expansion")
+        assert constraint.all_constraints == ("^5.0.5",)
+
+    def test_falls_back_to_all_when_none_satisfied(self) -> None:
+        """When the installed version satisfies none (genuine drift), keep every specifier."""
+        registry = _make_registry({"pkg": [_pv("1.0.0")]})
+        registry.package_registry = ProjectPackagesRegistry.NPM
+        dep = _FakeDep("pkg", "1.0.0", all_constraints=["^2.0.0", "^3.0.0"])
+        problem = SolvablePool.build([dep], registry, {})
+        constraint = next(c for c in problem.constraints if c.package_name == "pkg")
+        assert constraint.all_constraints == ("^2.0.0", "^3.0.0")
+
+    def test_helper_dedupes_and_preserves_order(self) -> None:
+        registry = _make_registry({})
+        registry.package_registry = ProjectPackagesRegistry.NPM
+        assert relevant_constraints("5.0.5", ["^5.0.5", "^5.0.5", "^2.0.0"], registry) == ("^5.0.5",)
 
 
 # ---------------------------------------------------------------------------
@@ -230,6 +268,39 @@ class TestSolvablePoolConstraintBuilding:
         assert c.version_constraint == ">=3.0.0,<4.0.0"
         assert c.installed_version == "3.0.0"
         assert c.constraint_type == ConstraintType.NARROWED
+
+
+# ---------------------------------------------------------------------------
+# TestRewritePinned
+# ---------------------------------------------------------------------------
+
+
+class TestRewritePinned:
+    def test_pinned_constraint_dropped_when_rewrite_pinned(self) -> None:
+        dep = _FakeDep("requests", "2.28.0", constraint="==2.28.0", constraint_type=ConstraintType.PINNED)
+        registry = _make_registry({"requests": [_pv("2.28.0"), _pv("2.32.0")]})
+        problem = SolvablePool.build([dep], registry, {}, rewrite_pinned=True)
+        c = problem.constraints[0]
+        assert c.version_constraint is None
+        assert c.constraint_type == ConstraintType.PINNED
+
+    def test_pinned_constraint_kept_by_default(self) -> None:
+        dep = _FakeDep("requests", "2.28.0", constraint="==2.28.0", constraint_type=ConstraintType.PINNED)
+        registry = _make_registry({"requests": [_pv("2.28.0"), _pv("2.32.0")]})
+        problem = SolvablePool.build([dep], registry, {})
+        assert problem.constraints[0].version_constraint == "==2.28.0"
+
+    def test_narrowed_constraint_not_relaxed(self) -> None:
+        dep = _FakeDep("flask", "3.0.0", constraint="~=3.0", constraint_type=ConstraintType.NARROWED)
+        registry = _make_registry({"flask": [_pv("3.0.0")]})
+        problem = SolvablePool.build([dep], registry, {}, rewrite_pinned=True)
+        assert problem.constraints[0].version_constraint == "~=3.0"
+
+    def test_override_constraint_not_relaxed(self) -> None:
+        dep = _FakeDep("lodash", "4.17.21", constraint="==4.17.21", constraint_type=ConstraintType.OVERRIDE)
+        registry = _make_registry({"lodash": [_pv("4.17.21")]})
+        problem = SolvablePool.build([dep], registry, {}, rewrite_pinned=True)
+        assert problem.constraints[0].version_constraint == "==4.17.21"
 
 
 # ---------------------------------------------------------------------------

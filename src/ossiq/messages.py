@@ -49,6 +49,10 @@ Name of the package to inspect. Exact match against the package name or its alia
 
 HELP_IGNORE_PACKAGE = "Exclude package from solver recommendations (repeatable)."
 
+HELP_PIN_ALL = "Write exact ==version specifiers for every updated direct dependency."
+
+HELP_REWRITE_VERSIONS = "Include already-pinned (==x.y.z) dependencies in the plan and rewrite their pinned version."
+
 ARGS_HELP_CUTOFF_DATE = (
     "Treat versions published after this ISO date (e.g. 2026-05-01) as invisible. "
     "Translates to 23:59:59 UTC of that date. Overrides OSSIQ_CUTOFF_DATE env var."
@@ -73,6 +77,8 @@ Show solver-recommended package version changes without making any changes.
 Use `--script` to emit a bash update script instead of the plan table.
 Use `--pin-all` to write exact ==version specifiers for updated deps.
 Use `--rewrite-versions` to also include PINNED (==x.y.z) deps that are otherwise frozen.
+Use `--override pkg==version` to force an exact version, bypassing the solver and cooldown.
+Use `--security` to narrow the plan to CVE-affected packages only.
 """
 
 HELP_APPLY_COMMAND = """
@@ -82,3 +88,54 @@ Shows the plan first and prompts for confirmation (use `--yes` for CI).
 """
 
 HELP_PLAN_NO_RECOMMENDATIONS = "No updates recommended — the solver found all packages are already at optimal versions."
+
+HELP_SECURITY_ONLY = "Include only CVE-affected packages (direct and transitive) in the update plan."
+
+HELP_PLAN_NO_SECURITY_RECOMMENDATIONS = "No CVE-affected packages need updates — nothing to do under --security."
+
+HELP_OVERRIDE_PACKAGE = (
+    "Force a package to an exact version, bypassing the solver and the cooldown: --override pkg==1.2.3 "
+    "(repeatable). Direct deps get their specifier rewritten; transitive deps get a persistent override entry."
+)
+
+ERROR_OVERRIDE_SPEC_INVALID = (
+    "Invalid --override value `{value}`. Expected format: package==version (e.g. lodash==4.17.21)."
+)
+
+ERROR_OVERRIDE_DUPLICATE = "Conflicting --override values for `{package}`: specify each package only once."
+
+ERROR_OVERRIDE_IGNORE_CONFLICT = "Cannot both --override and --ignore the same package(s): {packages}."
+
+ERROR_OVERRIDE_UNKNOWN_PACKAGES = (
+    "--override target(s) not found in the dependency tree: {packages}. Check the spelling, or remove the override."
+)
+
+WARNING_OVERRIDE_VERSION_UNKNOWN = (
+    "--override {package}=={version}: version not found in the registry — install may fail."
+)
+
+HELP_PLAN_FORCED_WARNING = (
+    "Forced versions (--override) bypass solver compatibility checks and the cooldown period. "
+    "OSS IQ has not verified these versions satisfy parent constraints — review and test before shipping."
+)
+
+HELP_PLAN_NEW_DEP_FRESH_WARNING = (
+    "⚠ new dependencies younger than the {days}-day cooldown — the cooldown hold does not apply to packages "
+    "entering your tree for the first time; review them before applying."
+)
+
+HELP_PLAN_CONVERGENCE_NOTICE = (
+    "Applying this plan re-resolves the dependency tree, which can surface further updates. "
+    "Re-run `ossiq plan` after `ossiq apply` to evaluate the updated tree."
+)
+
+HELP_PLAN_HELD_FOR_COOLDOWN_HEADER = (
+    "Held for cooldown — newer versions exist but are younger than the {days}-day cooldown:"
+)
+
+HELP_PLAN_CVE_BYPASS_NOTE = "↳ cooldown bypassed — installed version has a known CVE"
+
+HELP_APPLY_RERUN_HINT = (
+    "Updates are resolved in a single pass; applying them re-resolves the dependency tree and can surface "
+    "further recommendations. Re-run `ossiq plan` to check whether a follow-up pass is needed."
+)

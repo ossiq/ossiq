@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from unittest.mock import MagicMock
 
 from ossiq.domain.common import ConstraintType
@@ -32,13 +33,14 @@ def pv(
     yanked: bool = False,
     unpublished: bool = False,
     prerelease: bool = False,
+    published: str | None = "2024-01-01T00:00:00Z",
 ) -> PackageVersion:
     return PackageVersion(
         version=version,
         license=None,
         package_url=f"https://example.com/{version}",
         declared_dependencies={},
-        published_date_iso="2024-01-01T00:00:00Z",
+        published_date_iso=published,
         is_yanked=yanked,
         is_unpublished=unpublished,
         is_prerelease=prerelease,
@@ -243,6 +245,70 @@ class TestAssessTransitiveImpact:
         assert result is not None
         assert result.projected_version == "2.8.0"
         assert result.has_conflict is False
+
+
+# ============================================================================
+# Tests: new-dep projection (version, age, cutoff determinism)
+# ============================================================================
+
+FIXED_NOW = datetime(2024, 1, 31, 0, 0, 0, tzinfo=UTC)
+
+
+class TestNewDepProjection:
+    def test_new_dep_projected_version_and_age_populated(self):
+        registry = make_registry(
+            versions_by_name={
+                "newpkg": [pv("2.0.0", published="2024-01-01T00:00:00Z"), pv("1.0.0", published="2023-01-01T00:00:00Z")]
+            }
+        )
+
+        result = assess_transitive_impact("newpkg", ">=1.0", "driver", {}, registry, now=FIXED_NOW)
+
+        assert result is not None
+        assert result.current_version is None
+        assert result.projected_version == "2.0.0"
+        assert result.projected_age_days == 30
+
+    def test_new_dep_no_satisfying_version_stays_none(self):
+        registry = make_registry(versions_by_name={"newpkg": [pv("1.0.0")]})
+
+        result = assess_transitive_impact("newpkg", ">=2.0", "driver", {}, registry)
+
+        assert result is not None
+        assert result.projected_version is None
+        assert result.projected_age_days is None
+        assert result.has_conflict is False
+
+    def test_new_dep_cutoff_excludes_later_versions(self):
+        registry = make_registry(
+            versions_by_name={
+                "newpkg": [pv("2.0.0", published="2024-06-01T00:00:00Z"), pv("1.0.0", published="2023-01-01T00:00:00Z")]
+            }
+        )
+
+        result = assess_transitive_impact("newpkg", ">=1.0", "driver", {}, registry, now=FIXED_NOW)
+
+        assert result is not None
+        assert result.projected_version == "1.0.0"
+
+    def test_new_dep_missing_publish_date_age_none(self):
+        registry = make_registry(versions_by_name={"newpkg": [pv("1.0.0", published=None)]})
+
+        result = assess_transitive_impact("newpkg", ">=1.0", "driver", {}, registry, now=FIXED_NOW)
+
+        assert result is not None
+        assert result.projected_version == "1.0.0"
+        assert result.projected_age_days is None
+
+    def test_existing_dep_impact_gets_projected_age(self):
+        record = make_scan_record("urllib3", "1.26.0", all_constraints=[">=1.0"])
+        registry = make_registry(versions_by_name={"urllib3": [pv("2.0.7", published="2024-01-01T00:00:00Z")]})
+
+        result = assess_transitive_impact("urllib3", ">=2.0", "requests", {"urllib3": record}, registry, now=FIXED_NOW)
+
+        assert result is not None
+        assert result.projected_version == "2.0.7"
+        assert result.projected_age_days == 30
 
 
 # ============================================================================

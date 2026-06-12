@@ -70,9 +70,18 @@ def impact_sub_row_texts(impacts: list[TransitiveImpact]) -> list[str]:
     return rows
 
 
-def new_transitive_deps_table(impacts: list[TransitiveImpact]) -> Table | None:
+def is_fresh_new_dep(impact: TransitiveImpact, cooldown_period: int) -> bool:
+    """True when a new dep's projected version is younger than the cooldown period."""
+    if cooldown_period <= 0 or impact.projected_age_days is None:
+        return False
+    return impact.projected_age_days < cooldown_period
+
+
+def new_transitive_deps_table(impacts: list[TransitiveImpact], cooldown_period: int = 0) -> Table | None:
     """Build a Rich table of brand-new transitive deps introduced by recommended updates.
 
+    New deps are resolved by the package manager outside the cooldown hold, so versions
+    younger than cooldown_period are flagged with a ⚠ marker instead of being withheld.
     Returns None when there are no new deps, so the caller can skip printing.
     """
     new_deps = [i for i in impacts if i.current_version is None]
@@ -84,10 +93,17 @@ def new_transitive_deps_table(impacts: list[TransitiveImpact]) -> Table | None:
         title_style="bold cyan",
     )
     table.add_column("Package", justify="left", style="bold cyan")
+    table.add_column("Version", justify="left")
     table.add_column("Constraint", justify="left")
+    table.add_column("Age", justify="left", style="dim")
     table.add_column("Required By", justify="left", style="dim")
 
     for impact in new_deps:
-        table.add_row(impact.package_name, impact.new_constraint, impact.driven_by)
+        pkg_cell = impact.package_name
+        if is_fresh_new_dep(impact, cooldown_period):
+            pkg_cell = f"[yellow]⚠ {impact.package_name}[/yellow]"
+        age = f"{impact.projected_age_days}d" if impact.projected_age_days is not None else "—"
+        version = impact.projected_version or "—"
+        table.add_row(pkg_cell, version, impact.new_constraint, age, impact.driven_by)
 
     return table

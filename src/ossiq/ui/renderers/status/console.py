@@ -94,7 +94,7 @@ class ConsoleStatusRenderer(AbstractUserInterfaceRenderer):
             for i in r.update_transitive_impacts
             if i.current_version is None
         ]
-        table_new_deps = new_transitive_deps_table(new_dep_impacts)
+        table_new_deps = new_transitive_deps_table(new_dep_impacts, cooldown_period=self.settings.cooldown_period)
 
         if table_transitive:
             self.console.print("\n")

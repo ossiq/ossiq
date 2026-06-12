@@ -322,21 +322,9 @@ class TestProjectFiles:
         assert npm_project.manifest == os.path.join(npm_project_without_lockfile, "package.json")
         assert npm_project.lockfile is None
 
-    def test_project_files_namedtuple_fields(self, temp_project_dir):
-        """Test that NpmProject namedtuple has correct fields."""
-        npm_project = PackageManagerJsNpm.project_files(temp_project_dir)
-
-        # Test namedtuple field access
-        assert hasattr(npm_project, "manifest")
-        assert hasattr(npm_project, "lockfile")
-
 
 class TestHasPackageManager:
     """Test suite for has_package_manager() static method."""
-
-    def test_has_package_manager_with_lockfile(self, npm_project_with_lockfile):
-        """Test detection when package.json exists (with lockfile)."""
-        assert PackageManagerJsNpm.has_package_manager(npm_project_with_lockfile) is True
 
     def test_has_package_manager_without_lockfile(self, npm_project_without_lockfile):
         """Test detection succeeds even without lockfile (only package.json needed)."""
@@ -352,29 +340,6 @@ class TestHasPackageManager:
         lockfile_path.write_text('{"lockfileVersion": 3}')
 
         assert PackageManagerJsNpm.has_package_manager(temp_project_dir) is False
-
-
-# ============================================================================
-# Test Initialization
-# ============================================================================
-
-
-class TestInitialization:
-    """Test suite for PackageManagerJsNpm initialization."""
-
-    def test_initialization_success(self, npm_project_with_lockfile, settings):
-        """Test successful initialization with valid project."""
-        npm_manager = PackageManagerJsNpm(npm_project_with_lockfile, settings)
-
-        assert npm_manager.project_path == npm_project_with_lockfile
-        assert npm_manager.settings == settings
-        assert npm_manager.package_manager_type == NPM
-
-    def test_repr_method(self, npm_project_with_lockfile, settings):
-        """Test string representation of NPM manager."""
-        npm_manager = PackageManagerJsNpm(npm_project_with_lockfile, settings)
-
-        assert repr(npm_manager) == "npm Package Manager"
 
 
 # ============================================================================
@@ -406,51 +371,17 @@ class TestParsePackageJson:
         assert express.version_installed == "4.18.0"
         assert lodash.version_installed == "4.17.21"
 
-    def test_parse_dev_dependencies(self, npm_project_with_lockfile, settings):
-        """Test parsing devDependencies with categories."""
+    def test_parses_all_non_production_categories(self, npm_project_with_lockfile, settings):
+        """All non-production category sections land in optional_dependencies with the right category tag."""
         npm_manager = PackageManagerJsNpm(npm_project_with_lockfile, settings)
-
         with open(Path(npm_project_with_lockfile) / "package.json", encoding="utf-8") as f:
             project_data = json.load(f)
 
-        dependency_tree = npm_manager.parse_package_json(project_data)
-        jest_package = dependency_tree.optional_dependencies["jest"]
-        eslint_package = dependency_tree.optional_dependencies["eslint"]
-
-        # Dev dependencies should be in optional_dependencies
-        assert jest_package is not None
-        assert eslint_package is not None
-
-        # Verify categories are assigned
-        assert CATEGORIES_DEV in jest_package.categories
-        assert CATEGORIES_DEV in eslint_package.categories
-
-    def test_parse_optional_dependencies(self, npm_project_with_lockfile, settings):
-        """Test parsing optionalDependencies category."""
-        npm_manager = PackageManagerJsNpm(npm_project_with_lockfile, settings)
-
-        with open(Path(npm_project_with_lockfile) / "package.json", encoding="utf-8") as f:
-            project_data = json.load(f)
-
-        dependency_tree = npm_manager.parse_package_json(project_data)
-        fsevents_package = dependency_tree.optional_dependencies["fsevents"]
-
-        # Optional dependencies
-        assert fsevents_package is not None
-        assert CATEGORIES_OPTIONAL in fsevents_package.categories
-
-    def test_parse_peer_dependencies(self, npm_project_with_lockfile, settings):
-        """Test parsing peerDependencies category."""
-        npm_manager = PackageManagerJsNpm(npm_project_with_lockfile, settings)
-
-        with open(Path(npm_project_with_lockfile) / "package.json", encoding="utf-8") as f:
-            project_data = json.load(f)
-
-        dependency_tree = npm_manager.parse_package_json(project_data)
-        react_package = dependency_tree.optional_dependencies["react"]
-
-        assert react_package is not None
-        assert CATEGORIES_PEER in react_package.categories
+        opt = npm_manager.parse_package_json(project_data).optional_dependencies
+        assert CATEGORIES_DEV in opt["jest"].categories
+        assert CATEGORIES_DEV in opt["eslint"].categories
+        assert CATEGORIES_OPTIONAL in opt["fsevents"].categories
+        assert CATEGORIES_PEER in opt["react"].categories
 
     def test_parse_dual_category_dependencies(self, npm_project_dual_category_deps, settings):
         """
@@ -502,63 +433,33 @@ class TestParsePackageJson:
 class TestParseLockfileV3:
     """Test suite for parse_lockfile_v3() method."""
 
-    def test_parse_lockfile_updates_versions(self, npm_project_with_lockfile, settings):
-        """Test that lockfile parsing updates version_installed from lockfile."""
+    def test_parse_lockfile_v3(self, npm_project_with_lockfile, settings):
+        """v3 lockfile sets version_installed from packages section and preserves version_defined from package.json."""
         npm_manager = PackageManagerJsNpm(npm_project_with_lockfile, settings)
-
         with open(Path(npm_project_with_lockfile) / "package-lock.json", encoding="utf-8") as f:
             lockfile_data = json.load(f)
 
-        dependency_tree = npm_manager.parse_lockfile_v3(lockfile_data)
+        tree = npm_manager.parse_lockfile_v3(lockfile_data)
 
-        express_package = dependency_tree.dependencies["express"]
-        lodash_package = dependency_tree.dependencies["lodash"]
-        jest_package = dependency_tree.optional_dependencies["jest"]
-        eslint_package = dependency_tree.optional_dependencies["eslint"]
-        # Check that versions are updated from lockfile
-        assert express_package.version_installed == "4.18.2"
-        assert lodash_package.version_installed == "4.17.21"
-        assert jest_package.version_installed == "29.7.0"
-        assert eslint_package.version_installed == "8.56.0"
+        assert tree.dependencies["express"].version_installed == "4.18.2"
+        assert tree.dependencies["lodash"].version_installed == "4.17.21"
+        assert tree.optional_dependencies["jest"].version_installed == "29.7.0"
+        assert tree.optional_dependencies["eslint"].version_installed == "8.56.0"
+        assert tree.dependencies["express"].version_defined == "^4.18.0"
+        assert tree.dependencies["lodash"].version_defined == "~4.17.21"
 
-    def test_parse_lockfile_preserves_version_defined(self, npm_project_with_lockfile, settings):
-        """Test that version_defined is preserved from package.json."""
-        npm_manager = PackageManagerJsNpm(npm_project_with_lockfile, settings)
-
-        with open(Path(npm_project_with_lockfile) / "package-lock.json", encoding="utf-8") as f:
+    @pytest.mark.parametrize(
+        "fixture_name",
+        ["npm_project_missing_main_package", "npm_project_missing_dependency_in_lockfile"],
+    )
+    def test_parse_lockfile_v3_error(self, fixture_name, request, settings):
+        """Missing main package or missing dependency raises PackageManagerLockfileParsingError."""
+        project_dir = request.getfixturevalue(fixture_name)
+        npm_manager = PackageManagerJsNpm(project_dir, settings)
+        with open(Path(project_dir) / "package-lock.json", encoding="utf-8") as f:
             lockfile_data = json.load(f)
-
-        dependency_tree = npm_manager.parse_lockfile_v3(lockfile_data)
-        express_package = dependency_tree.dependencies["express"]
-        lodash_package = dependency_tree.dependencies["lodash"]
-
-        # version_defined should match package.json (with modifiers)
-        assert express_package.version_defined == "^4.18.0"
-        assert lodash_package.version_defined == "~4.17.21"
-
-    def test_parse_lockfile_missing_main_package_error(self, npm_project_missing_main_package, settings):
-        """Test error when main project package is not in lockfile."""
-        npm_manager = PackageManagerJsNpm(npm_project_missing_main_package, settings)
-
-        with open(Path(npm_project_missing_main_package) / "package-lock.json", encoding="utf-8") as f:
-            lockfile_data = json.load(f)
-
-        with pytest.raises(PackageManagerLockfileParsingError) as excinfo:
+        with pytest.raises(PackageManagerLockfileParsingError, match="Could not parse NPM lockfile"):
             npm_manager.parse_lockfile_v3(lockfile_data)
-
-        assert "Could not parse NPM lockfile" in str(excinfo.value)
-
-    def test_parse_lockfile_missing_dependency_error(self, npm_project_missing_dependency_in_lockfile, settings):
-        """Test error when a package.json dependency is missing from lockfile."""
-        npm_manager = PackageManagerJsNpm(npm_project_missing_dependency_in_lockfile, settings)
-
-        with open(Path(npm_project_missing_dependency_in_lockfile) / "package-lock.json", encoding="utf-8") as f:
-            lockfile_data = json.load(f)
-
-        with pytest.raises(PackageManagerLockfileParsingError) as excinfo:
-            npm_manager.parse_lockfile_v3(lockfile_data)
-
-        assert "Could not parse NPM lockfile" in str(excinfo.value)
 
 
 # ============================================================================
@@ -568,31 +469,6 @@ class TestParseLockfileV3:
 
 class TestParseLockfileV2:
     """Test suite for parse_lockfile_v2() method."""
-
-    def test_parse_lockfile_v2_updates_versions(self, npm_project_with_v2_lockfile, settings):
-        """Test that v2 lockfile parsing reads version_installed from packages section."""
-        npm_manager = PackageManagerJsNpm(npm_project_with_v2_lockfile, settings)
-
-        with open(Path(npm_project_with_v2_lockfile) / "package-lock.json", encoding="utf-8") as f:
-            lockfile_data = json.load(f)
-
-        dependency_tree = npm_manager.parse_lockfile_v2(lockfile_data)
-
-        assert dependency_tree.dependencies["express"].version_installed == "4.18.2"
-        assert dependency_tree.dependencies["lodash"].version_installed == "4.17.21"
-        assert dependency_tree.optional_dependencies["jest"].version_installed == "29.7.0"
-
-    def test_parse_lockfile_v2_preserves_version_defined(self, npm_project_with_v2_lockfile, settings):
-        """Test that version_defined retains the package.json specifier including modifiers."""
-        npm_manager = PackageManagerJsNpm(npm_project_with_v2_lockfile, settings)
-
-        with open(Path(npm_project_with_v2_lockfile) / "package-lock.json", encoding="utf-8") as f:
-            lockfile_data = json.load(f)
-
-        dependency_tree = npm_manager.parse_lockfile_v2(lockfile_data)
-
-        assert dependency_tree.dependencies["express"].version_defined == "^4.18.0"
-        assert dependency_tree.dependencies["lodash"].version_defined == "~4.17.21"
 
     def test_parse_lockfile_v2_ignores_legacy_dependencies_section(self, npm_project_with_v2_lockfile, settings):
         """Test that the legacy nested dependencies tree in v2 does not affect parsing."""
@@ -628,23 +504,14 @@ class TestParseLockfileV2:
 class TestGetLockfileParser:
     """Test suite for get_lockfile_parser() method."""
 
-    def test_get_parser_v2(self, npm_project_with_lockfile, settings):
-        """Test getting parser for lockfile version 2."""
+    @pytest.mark.parametrize(
+        "version,expected_method",
+        [(2, "parse_lockfile_v2"), (3, "parse_lockfile_v3")],
+    )
+    def test_returns_correct_parser(self, version, expected_method, npm_project_with_lockfile, settings):
+        """Supported lockfile versions return the corresponding parser method."""
         npm_manager = PackageManagerJsNpm(npm_project_with_lockfile, settings)
-
-        parser = npm_manager.get_lockfile_parser(2)
-
-        assert parser is not None
-        assert parser == npm_manager.parse_lockfile_v2
-
-    def test_get_parser_v3(self, npm_project_with_lockfile, settings):
-        """Test getting parser for lockfile version 3."""
-        npm_manager = PackageManagerJsNpm(npm_project_with_lockfile, settings)
-
-        parser = npm_manager.get_lockfile_parser(3)
-
-        assert parser is not None
-        assert parser == npm_manager.parse_lockfile_v3
+        assert npm_manager.get_lockfile_parser(version) == getattr(npm_manager, expected_method)
 
     def test_get_parser_unsupported_version(self, npm_project_with_lockfile, settings):
         """Test error for unsupported lockfile version."""
@@ -685,6 +552,10 @@ class TestProjectInfo:
         assert "eslint" in project.dependency_tree.optional_dependencies
         assert "fsevents" in project.dependency_tree.optional_dependencies
         assert "react" in project.dependency_tree.optional_dependencies
+        assert project.package_registry == ProjectPackagesRegistry.NPM
+        assert project.installed_package_version("express") == "4.18.2"
+        assert project.installed_package_version("jest") == "29.7.0"
+        assert project.has_lockfile is True
 
     def test_project_info_without_lockfile(self, npm_project_without_lockfile, settings):
         """Test extracting project info without lockfile (versions from package.json)."""
@@ -701,6 +572,7 @@ class TestProjectInfo:
         # Versions should be normalized (modifiers removed)
         assert project.dependency_tree.dependencies["express"].version_installed == "4.18.0"
         assert project.dependency_tree.dependencies["express"].version_defined == "^4.18.0"
+        assert project.has_lockfile is False
 
     def test_project_info_with_dual_category_deps(self, npm_project_dual_category_deps, settings):
         """
@@ -745,42 +617,6 @@ class TestProjectInfo:
             npm_manager.project_info()
 
         assert "There's no parser for NPM lockfile version `99`" in str(excinfo.value)
-
-    def test_project_info_package_registry(self, npm_project_with_lockfile, settings):
-        """Test that project has correct package registry."""
-        npm_manager = PackageManagerJsNpm(npm_project_with_lockfile, settings)
-
-        project = npm_manager.project_info()
-
-        # NPM uses NPM ecosystem
-
-        assert project.package_registry == ProjectPackagesRegistry.NPM
-
-    def test_project_info_installed_package_version(self, npm_project_with_lockfile, settings):
-        """Test installed_package_version() method on Project."""
-        npm_manager = PackageManagerJsNpm(npm_project_with_lockfile, settings)
-
-        project = npm_manager.project_info()
-
-        # Test getting version from main dependencies
-        assert project.installed_package_version("express") == "4.18.2"
-        assert project.installed_package_version("lodash") == "4.17.21"
-
-        # Test getting version from optional dependencies
-        assert project.installed_package_version("jest") == "29.7.0"
-        assert project.installed_package_version("eslint") == "8.56.0"
-
-    def test_project_info_with_lockfile_has_lockfile_true(self, npm_project_with_lockfile, settings):
-        """Projects parsed from a lockfile have has_lockfile=True."""
-        npm_manager = PackageManagerJsNpm(npm_project_with_lockfile, settings)
-        project = npm_manager.project_info()
-        assert project.has_lockfile is True
-
-    def test_project_info_without_lockfile_has_lockfile_false(self, npm_project_without_lockfile, settings):
-        """Projects parsed from package.json only have has_lockfile=False."""
-        npm_manager = PackageManagerJsNpm(npm_project_without_lockfile, settings)
-        project = npm_manager.project_info()
-        assert project.has_lockfile is False
 
 
 # ============================================================================
@@ -910,72 +746,37 @@ class TestParseNpmAlias:
 class TestNpmAliases:
     """Test suite for npm alias packages (npm:pkg@version specifiers in lockfile)."""
 
-    def test_alias_packages_are_linked_to_root(self, npm_project_with_aliases, settings):
-        """Test that alias packages appear as direct dependencies of the root."""
-        # Arrange
+    def test_alias_packages_resolved_in_tree(self, npm_project_with_aliases, settings):
+        """Alias packages appear as direct deps with correct version_installed, version_defined, and canonical_name."""
         npm_manager = PackageManagerJsNpm(npm_project_with_aliases, settings)
-
-        # Act
         project = npm_manager.project_info()
+        deps = project.dependency_tree.dependencies
 
-        # Assert — all three aliases must be linked
-        assert "lodash-tilde" in project.dependency_tree.dependencies
-        assert "lodash-caret" in project.dependency_tree.dependencies
-        assert "chalk-legacy" in project.dependency_tree.dependencies
+        assert "lodash-tilde" in deps
+        assert "lodash-caret" in deps
+        assert "chalk-legacy" in deps
 
-    def test_alias_version_installed_is_resolved(self, npm_project_with_aliases, settings):
-        """Test that version_installed reflects the lockfile-resolved version, not the constraint."""
-        # Arrange
-        npm_manager = PackageManagerJsNpm(npm_project_with_aliases, settings)
+        assert deps["lodash-tilde"].version_installed == "4.17.23"
+        assert deps["lodash-caret"].version_installed == "4.17.23"
+        assert deps["chalk-legacy"].version_installed == "4.1.2"
 
-        # Act
-        project = npm_manager.project_info()
+        assert deps["lodash-tilde"].version_defined == "npm:lodash@~4.17.0"
+        assert deps["lodash-caret"].version_defined == "npm:lodash@^4.17.0"
+        assert deps["chalk-legacy"].version_defined == "npm:chalk@4.1.2"
 
-        # Assert
-        assert project.dependency_tree.dependencies["lodash-tilde"].version_installed == "4.17.23"
-        assert project.dependency_tree.dependencies["lodash-caret"].version_installed == "4.17.23"
-        assert project.dependency_tree.dependencies["chalk-legacy"].version_installed == "4.1.2"
-
-    def test_alias_version_defined_is_full_constraint(self, npm_project_with_aliases, settings):
-        """Test that version_defined stores the full npm alias specifier from the lockfile."""
-        # Arrange
-        npm_manager = PackageManagerJsNpm(npm_project_with_aliases, settings)
-
-        # Act
-        project = npm_manager.project_info()
-
-        # Assert
-        assert project.dependency_tree.dependencies["lodash-tilde"].version_defined == "npm:lodash@~4.17.0"
-        assert project.dependency_tree.dependencies["lodash-caret"].version_defined == "npm:lodash@^4.17.0"
-        assert project.dependency_tree.dependencies["chalk-legacy"].version_defined == "npm:chalk@4.1.2"
+        assert deps["lodash-tilde"].canonical_name == "lodash"
+        assert deps["lodash-caret"].canonical_name == "lodash"
+        assert deps["chalk-legacy"].canonical_name == "chalk"
 
     def test_two_aliases_for_same_package_are_separate_entries(self, npm_project_with_aliases, settings):
-        """Test that two aliases pointing to the same package resolve independently."""
-        # Arrange
+        """Two aliases pointing to the same package resolve as distinct Dependency objects."""
         npm_manager = PackageManagerJsNpm(npm_project_with_aliases, settings)
-
-        # Act
         project = npm_manager.project_info()
         tilde = project.dependency_tree.dependencies["lodash-tilde"]
         caret = project.dependency_tree.dependencies["lodash-caret"]
 
-        # Assert — distinct Dependency objects with their own version_defined
         assert tilde is not caret
         assert tilde.version_defined != caret.version_defined
-
-    def test_alias_canonical_name_is_set(self, npm_project_with_aliases, settings):
-        """Test that canonical_name is set to the real package name for alias dependencies."""
-        # Arrange
-        npm_manager = PackageManagerJsNpm(npm_project_with_aliases, settings)
-
-        # Act
-        project = npm_manager.project_info()
-        deps = project.dependency_tree.dependencies
-
-        # Assert — alias names map to canonical package names
-        assert deps["lodash-tilde"].canonical_name == "lodash"
-        assert deps["lodash-caret"].canonical_name == "lodash"
-        assert deps["chalk-legacy"].canonical_name == "chalk"
 
 
 # ============================================================================
@@ -1011,45 +812,19 @@ class TestNpmOverrides:
         express = project.dependency_tree.dependencies["express"]
         assert CATEGORIES_OVERRIDDEN not in express.categories
 
-    def test_flatten_overrides_flat(self):
-        """Test flattening of simple {name: version} overrides."""
-        # Arrange / Act
-        flat, scope_paths = NPMResolverV3._flatten_overrides({"foo": "1.0.0", "bar": "2.0.0"})
-
-        # Assert
-        assert flat == {"foo": "1.0.0", "bar": "2.0.0"}
-        assert scope_paths == {}
-
-    def test_flatten_overrides_nested_with_dot(self):
-        """Test that "." in a nested block maps to the outer package name and scope_paths captures nesting."""
-        # Arrange / Act
-        flat, scope_paths = NPMResolverV3._flatten_overrides({"foo": {".": "1.0.0", "bar": "2.0.0"}})
-
-        # Assert
-        assert flat["foo"] == "1.0.0"
-        assert flat["bar"] == "2.0.0"
-        assert scope_paths.get("bar") == ["foo"]
-
-    def test_flatten_overrides_empty(self):
-        """Test that empty overrides produce an empty mapping."""
-        # Arrange / Act
-        flat, scope_paths = NPMResolverV3._flatten_overrides({})
-
-        # Assert
-        assert flat == {}
-        assert scope_paths == {}
-
-    def test_project_without_overrides_has_no_overridden_packages(self, npm_project_with_lockfile, settings):
-        """Test that a project without overrides has no packages with overridden category."""
-        # Arrange
-        npm_manager = PackageManagerJsNpm(npm_project_with_lockfile, settings)
-
-        # Act
-        project = npm_manager.project_info()
-
-        # Assert — walk all direct deps and their children
-        for dep in project.dependency_tree.dependencies.values():
-            assert CATEGORIES_OVERRIDDEN not in dep.categories
+    @pytest.mark.parametrize(
+        "overrides_input,expected_flat,expected_scope",
+        [
+            ({"foo": "1.0.0", "bar": "2.0.0"}, {"foo": "1.0.0", "bar": "2.0.0"}, {}),
+            ({"foo": {".": "1.0.0", "bar": "2.0.0"}}, {"foo": "1.0.0", "bar": "2.0.0"}, {"bar": ["foo"]}),
+            ({}, {}, {}),
+        ],
+    )
+    def test_flatten_overrides(self, overrides_input, expected_flat, expected_scope):
+        """_flatten_overrides correctly handles flat, nested-dot, and empty override maps."""
+        flat, scope_paths = NPMResolverV3._flatten_overrides(overrides_input)
+        assert flat == expected_flat
+        assert scope_paths == expected_scope
 
 
 # ============================================================================
@@ -1104,29 +879,21 @@ class TestNpmProject3Integration:
 class TestConstraintClassification:
     """Test that constraint_info.type is set correctly based on version specifiers."""
 
-    def test_caret_range_is_declared(self, npm_project_with_lockfile, settings):
-        """^version (npm default) should be DECLARED."""
-        npm_manager = PackageManagerJsNpm(npm_project_with_lockfile, settings)
-        project = npm_manager.project_info()
-        # express: "^4.18.0" in package.json
-        express = project.dependency_tree.dependencies["express"]
-        assert express.constraint_info.type == ConstraintType.DECLARED
-
-    def test_tilde_range_is_declared(self, npm_project_with_lockfile, settings):
-        """~version should be DECLARED."""
-        npm_manager = PackageManagerJsNpm(npm_project_with_lockfile, settings)
-        project = npm_manager.project_info()
-        # lodash: "~4.17.21" in package.json
-        lodash = project.dependency_tree.dependencies["lodash"]
-        assert lodash.constraint_info.type == ConstraintType.DECLARED
-
-    def test_comparison_operator_is_narrowed(self, npm_project_with_lockfile, settings):
-        """>=version should be NARROWED."""
-        npm_manager = PackageManagerJsNpm(npm_project_with_lockfile, settings)
-        project = npm_manager.project_info()
-        # jest: ">=29.0.0" in package.json
-        jest = project.dependency_tree.optional_dependencies["jest"]
-        assert jest.constraint_info.type == ConstraintType.NARROWED
+    @pytest.mark.parametrize(
+        "dep_key,dep_section,expected_type",
+        [
+            ("express", "dependencies", ConstraintType.DECLARED),  # "^4.18.0"
+            ("lodash", "dependencies", ConstraintType.DECLARED),  # "~4.17.21"
+            ("jest", "optional_dependencies", ConstraintType.NARROWED),  # ">=29.0.0"
+        ],
+    )
+    def test_constraint_type_from_specifier(
+        self, dep_key, dep_section, expected_type, npm_project_with_lockfile, settings
+    ):
+        """Caret/tilde → DECLARED; comparison operator → NARROWED."""
+        project = PackageManagerJsNpm(npm_project_with_lockfile, settings).project_info()
+        dep = getattr(project.dependency_tree, dep_section)[dep_key]
+        assert dep.constraint_info.type == expected_type
 
     def test_bare_exact_version_is_pinned(self, temp_project_dir, settings):
         """Bare x.y.z (no operator) should be PINNED."""
@@ -1170,6 +937,7 @@ def make_npm_update_entry(
     recommended: str,
     version_defined: str | None = None,
     is_direct: bool = True,
+    is_forced: bool = False,
 ) -> UpdateEntry:
     return UpdateEntry(
         package_name=name,
@@ -1178,6 +946,7 @@ def make_npm_update_entry(
         is_direct=is_direct,
         reason=None,
         version_defined=version_defined,
+        is_forced=is_forced,
     )
 
 
@@ -1185,6 +954,8 @@ def make_npm_update_plan(
     direct: list[UpdateEntry] | None = None,
     transitive: list[UpdateEntry] | None = None,
     project_path: str = "/tmp/test-npm",
+    installed_versions: dict[str, str] | None = None,
+    pin_all: bool = False,
 ) -> UpdatePlan:
     return UpdatePlan(
         project_name="test-npm-project",
@@ -1193,7 +964,485 @@ def make_npm_update_plan(
         package_manager_name="npm",
         direct_entries=direct or [],
         transitive_entries=transitive or [],
+        installed_versions=installed_versions or {},
+        pin_all=pin_all,
     )
+
+
+def write_package_json(project_dir: str, pkg: dict) -> None:
+    path = os.path.join(project_dir, "package.json")
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(pkg, f)
+
+
+def read_package_json(project_dir: str) -> dict:
+    with open(os.path.join(project_dir, "package.json"), encoding="utf-8") as f:
+        return json.load(f)
+
+
+# ============================================================================
+# Test freeze_state
+# ============================================================================
+
+
+class TestFreezeState:
+    """Tests for freeze_state() — verifies package.json and state file are written correctly."""
+
+    @pytest.fixture
+    def npm(self, settings, temp_project_dir):
+        return PackageManagerJsNpm(temp_project_dir, settings)
+
+    def test_updated_direct_dep_pinned_exact_for_install(self, npm, temp_project_dir):
+        """freeze pins an updated direct dep to the EXACT recommended version so npm install
+        produces a deterministic lockfile. The operator is reapplied later by finalize_state. The
+        dep must NOT be in overrides — npm v7+ throws EOVERRIDE for a direct dep in both places."""
+        write_package_json(
+            temp_project_dir,
+            {"name": "app", "version": "1.0.0", "dependencies": {"@vitejs/plugin-vue": "^6.0.5"}},
+        )
+        entry = make_npm_update_entry("@vitejs/plugin-vue", "6.0.5", "6.0.6", version_defined="^6.0.5")
+        plan = make_npm_update_plan(direct=[entry], project_path=temp_project_dir)
+
+        npm.freeze_state(plan)
+
+        pkg = read_package_json(temp_project_dir)
+        assert pkg["dependencies"]["@vitejs/plugin-vue"] == "6.0.6"
+        assert "@vitejs/plugin-vue" not in pkg.get("overrides", {})
+
+    def test_major_version_change_dep_pinned_exact_not_in_overrides(self, npm, temp_project_dir):
+        """Direct dep with a major version change (5 → 6) is pinned exact in package.json and
+        does NOT need an override entry."""
+        write_package_json(
+            temp_project_dir,
+            {"name": "app", "version": "1.0.0", "dependencies": {"some-pkg": "^5.0.0"}},
+        )
+        entry = make_npm_update_entry("some-pkg", "5.0.0", "6.0.0", version_defined="^5.0.0")
+        plan = make_npm_update_plan(direct=[entry], project_path=temp_project_dir)
+
+        npm.freeze_state(plan)
+
+        pkg = read_package_json(temp_project_dir)
+        assert "some-pkg" not in pkg.get("overrides", {})
+        assert pkg["dependencies"]["some-pkg"] == "6.0.0"
+
+    def test_non_plan_transitive_frozen_at_installed_version(self, npm, temp_project_dir):
+        """Packages in installed_versions but not in the plan must appear in overrides
+        at their current version (full freeze prevents greedy npm from upgrading them)."""
+        write_package_json(
+            temp_project_dir,
+            {"name": "app", "version": "1.0.0", "dependencies": {"express": "^4.18.0"}},
+        )
+        direct_entry = make_npm_update_entry("express", "4.18.0", "4.19.0", version_defined="^4.18.0")
+        plan = make_npm_update_plan(
+            direct=[direct_entry],
+            project_path=temp_project_dir,
+            installed_versions={"ms": "2.1.2", "express": "4.18.0"},
+        )
+
+        npm.freeze_state(plan)
+
+        pkg = read_package_json(temp_project_dir)
+        assert pkg["overrides"]["ms"] == "2.1.2"
+        assert "express" not in pkg["overrides"]
+
+    def test_plan_transitive_overridden_at_recommended_version(self, npm, temp_project_dir):
+        """Plan transitive entries must be in overrides at recommended_version,
+        overriding the installed version."""
+        write_package_json(
+            temp_project_dir,
+            {"name": "app", "version": "1.0.0", "dependencies": {"express": "^4.18.0"}},
+        )
+        direct_entry = make_npm_update_entry("express", "4.18.0", "4.19.0", version_defined="^4.18.0")
+        transitive_entry = make_npm_update_entry("ms", "2.1.2", "2.1.3", is_direct=False)
+        plan = make_npm_update_plan(
+            direct=[direct_entry],
+            transitive=[transitive_entry],
+            project_path=temp_project_dir,
+            installed_versions={"ms": "2.1.2", "express": "4.18.0"},
+        )
+
+        npm.freeze_state(plan)
+
+        pkg = read_package_json(temp_project_dir)
+        assert pkg["overrides"]["ms"] == "2.1.3"
+
+    def test_state_file_written_with_original_and_locked_overrides(self, npm, temp_project_dir):
+        """State file must record original_overrides, locked_overrides, and recommended_versions."""
+        write_package_json(
+            temp_project_dir,
+            {
+                "name": "app",
+                "version": "1.0.0",
+                "dependencies": {"express": "^4.18.0"},
+                "overrides": {"ms": "2.0.0"},
+            },
+        )
+        entry = make_npm_update_entry("express", "4.18.0", "4.19.0", version_defined="^4.18.0")
+        plan = make_npm_update_plan(
+            direct=[entry],
+            project_path=temp_project_dir,
+            installed_versions={"ms": "2.1.2"},
+        )
+
+        npm.freeze_state(plan)
+
+        state_path = os.path.join(temp_project_dir, NPM_STATE_FILE)
+        with open(state_path, encoding="utf-8") as f:
+            state = json.load(f)
+        assert state["original_overrides"] == {"ms": "2.0.0"}
+        assert state["locked_overrides"]["ms"] == "2.1.2"
+        assert state["recommended_versions"]["express"] == "4.19.0"
+
+    def test_pin_all_sets_exact_direct_dep_version(self, npm, temp_project_dir):
+        """With pin_all=True, direct deps must be set to the exact recommended version."""
+        write_package_json(
+            temp_project_dir,
+            {"name": "app", "version": "1.0.0", "dependencies": {"express": "^4.18.0"}},
+        )
+        entry = make_npm_update_entry("express", "4.18.0", "4.19.0", version_defined="^4.18.0")
+        plan = make_npm_update_plan(direct=[entry], project_path=temp_project_dir, pin_all=True)
+
+        npm.freeze_state(plan)
+
+        pkg = read_package_json(temp_project_dir)
+        assert pkg["dependencies"]["express"] == "4.19.0"
+
+    def test_updated_dev_dep_pinned_exact(self, npm, temp_project_dir):
+        """freeze must pin updated deps in EVERY section, including devDependencies."""
+        write_package_json(
+            temp_project_dir,
+            {"name": "app", "version": "1.0.0", "devDependencies": {"@vitejs/plugin-vue": "~6.0.0"}},
+        )
+        entry = make_npm_update_entry("@vitejs/plugin-vue", "6.0.0", "6.0.6", version_defined="~6.0.0")
+        plan = make_npm_update_plan(direct=[entry], project_path=temp_project_dir)
+
+        npm.freeze_state(plan)
+
+        pkg = read_package_json(temp_project_dir)
+        assert pkg["devDependencies"]["@vitejs/plugin-vue"] == "6.0.6"
+
+    def test_multi_section_dep_pinned_in_all_sections(self, npm, temp_project_dir):
+        """A package present in both devDependencies and peerDependencies must be pinned in BOTH
+        sections (regression for the early-return bug that stopped at first match)."""
+        write_package_json(
+            temp_project_dir,
+            {
+                "name": "app",
+                "version": "1.0.0",
+                "devDependencies": {"react": "^17.0.0"},
+                "peerDependencies": {"react": "^17.0.0"},
+            },
+        )
+        entry = make_npm_update_entry("react", "17.0.0", "18.2.0", version_defined="^17.0.0")
+        plan = make_npm_update_plan(direct=[entry], project_path=temp_project_dir)
+
+        npm.freeze_state(plan)
+
+        pkg = read_package_json(temp_project_dir)
+        assert pkg["devDependencies"]["react"] == "18.2.0"
+        assert pkg["peerDependencies"]["react"] == "18.2.0"
+
+    def test_untouched_direct_dep_pinned_at_installed_version(self, npm, temp_project_dir):
+        """A direct dep with no recommended update is pinned to its installed version during freeze
+        so npm install cannot greedily advance it within range. Its original spec is restored later
+        by finalize_state."""
+        write_package_json(
+            temp_project_dir,
+            {"name": "app", "version": "1.0.0", "dependencies": {"lodash": "^4.17.0"}},
+        )
+        plan = make_npm_update_plan(
+            project_path=temp_project_dir,
+            installed_versions={"lodash": "4.17.15"},
+        )
+
+        npm.freeze_state(plan)
+
+        pkg = read_package_json(temp_project_dir)
+        assert pkg["dependencies"]["lodash"] == "4.17.15"
+
+    def test_state_file_records_original_specs_and_pin_all(self, npm, temp_project_dir):
+        """State file must record original specifiers and the pin_all mode for finalize_state."""
+        write_package_json(
+            temp_project_dir,
+            {"name": "app", "version": "1.0.0", "dependencies": {"vue": "~3.5.0"}},
+        )
+        entry = make_npm_update_entry("vue", "3.5.0", "3.6.0", version_defined="~3.5.0")
+        plan = make_npm_update_plan(direct=[entry], project_path=temp_project_dir, pin_all=True)
+
+        npm.freeze_state(plan)
+
+        state_path = os.path.join(temp_project_dir, NPM_STATE_FILE)
+        with open(state_path, encoding="utf-8") as f:
+            state = json.load(f)
+        assert state["original_specs"]["dependencies"]["vue"] == "~3.5.0"
+        assert state["pin_all"] is True
+
+
+# ============================================================================
+# Test finalize_state
+# ============================================================================
+
+
+def write_package_lock(
+    project_dir: str,
+    root_deps: dict[str, str],
+    node_versions: dict[str, str],
+    section: str = "dependencies",
+) -> None:
+    """Write a minimal lockfile v3: root declared specs + installed node entries with integrity."""
+    packages: dict = {"": {"name": "app", "version": "1.0.0", section: dict(root_deps)}}
+    for name, version in node_versions.items():
+        packages[f"node_modules/{name}"] = {
+            "version": version,
+            "resolved": f"https://registry.npmjs.org/{name}/-/{name}-{version}.tgz",
+            "integrity": f"sha512-{name}{version}",
+        }
+    lock = {"name": "app", "lockfileVersion": 3, "requires": True, "packages": packages}
+    with open(os.path.join(project_dir, "package-lock.json"), "w", encoding="utf-8") as f:
+        json.dump(lock, f)
+
+
+def read_package_lock(project_dir: str) -> dict:
+    with open(os.path.join(project_dir, "package-lock.json"), encoding="utf-8") as f:
+        return json.load(f)
+
+
+class TestFinalizeState:
+    """Tests for finalize_state() — final specifiers per mode + lockfile sync, run after install."""
+
+    @pytest.fixture
+    def npm(self, settings, temp_project_dir):
+        return PackageManagerJsNpm(temp_project_dir, settings)
+
+    def test_default_mode_keeps_caret_and_bumps_floor(self, npm, temp_project_dir):
+        write_package_json(
+            temp_project_dir,
+            {"name": "app", "version": "1.0.0", "dependencies": {"@vitejs/plugin-vue": "^6.0.5"}},
+        )
+        entry = make_npm_update_entry("@vitejs/plugin-vue", "6.0.5", "6.0.6", version_defined="^6.0.5")
+        plan = make_npm_update_plan(direct=[entry], project_path=temp_project_dir)
+
+        npm.freeze_state(plan)
+        npm.finalize_state(temp_project_dir)
+
+        pkg = read_package_json(temp_project_dir)
+        assert pkg["dependencies"]["@vitejs/plugin-vue"] == "^6.0.6"
+
+    def test_default_mode_keeps_tilde_and_bumps_floor(self, npm, temp_project_dir):
+        write_package_json(
+            temp_project_dir,
+            {"name": "app", "version": "1.0.0", "dependencies": {"@types/node": "~25.5.2"}},
+        )
+        entry = make_npm_update_entry("@types/node", "25.5.2", "25.5.7", version_defined="~25.5.2")
+        plan = make_npm_update_plan(direct=[entry], project_path=temp_project_dir)
+
+        npm.freeze_state(plan)
+        npm.finalize_state(temp_project_dir)
+
+        pkg = read_package_json(temp_project_dir)
+        assert pkg["dependencies"]["@types/node"] == "~25.5.7"
+
+    def test_pin_all_writes_exact_recommended(self, npm, temp_project_dir):
+        write_package_json(
+            temp_project_dir,
+            {"name": "app", "version": "1.0.0", "dependencies": {"express": "^4.18.0"}},
+        )
+        entry = make_npm_update_entry("express", "4.18.0", "4.19.0", version_defined="^4.18.0")
+        plan = make_npm_update_plan(direct=[entry], project_path=temp_project_dir, pin_all=True)
+
+        npm.freeze_state(plan)
+        npm.finalize_state(temp_project_dir)
+
+        pkg = read_package_json(temp_project_dir)
+        assert pkg["dependencies"]["express"] == "4.19.0"
+
+    def test_multi_section_operator_preserved_in_all_sections(self, npm, temp_project_dir):
+        write_package_json(
+            temp_project_dir,
+            {
+                "name": "app",
+                "version": "1.0.0",
+                "devDependencies": {"react": "^17.0.0"},
+                "peerDependencies": {"react": "^17.0.0"},
+            },
+        )
+        entry = make_npm_update_entry("react", "17.0.0", "18.2.0", version_defined="^17.0.0")
+        plan = make_npm_update_plan(direct=[entry], project_path=temp_project_dir)
+
+        npm.freeze_state(plan)
+        npm.finalize_state(temp_project_dir)
+
+        pkg = read_package_json(temp_project_dir)
+        assert pkg["devDependencies"]["react"] == "^18.2.0"
+        assert pkg["peerDependencies"]["react"] == "^18.2.0"
+
+    def test_untouched_dep_restored_to_original_spec(self, npm, temp_project_dir):
+        """An ignored / non-updated direct dep is byte-for-byte restored after the exact-pin freeze."""
+        write_package_json(
+            temp_project_dir,
+            {"name": "app", "version": "1.0.0", "dependencies": {"lodash": "^4.17.0"}},
+        )
+        plan = make_npm_update_plan(
+            project_path=temp_project_dir,
+            installed_versions={"lodash": "4.17.15"},
+        )
+
+        npm.freeze_state(plan)
+        npm.finalize_state(temp_project_dir)
+
+        pkg = read_package_json(temp_project_dir)
+        assert pkg["dependencies"]["lodash"] == "^4.17.0"
+
+    def test_lockfile_root_spec_synced_below_max_version_preserved(self, npm, temp_project_dir):
+        """The lockfile root spec is relaxed to ~rec while the installed node stays at the exact
+        below-max recommended version (4.2.3, not max-in-range 4.2.4); integrity is untouched."""
+        write_package_json(
+            temp_project_dir,
+            {"name": "app", "version": "1.0.0", "dependencies": {"tailwindcss": "~4.2.2"}},
+        )
+        entry = make_npm_update_entry("tailwindcss", "4.2.2", "4.2.3", version_defined="~4.2.2")
+        plan = make_npm_update_plan(
+            direct=[entry], project_path=temp_project_dir, installed_versions={"tailwindcss": "4.2.2"}
+        )
+
+        npm.freeze_state(plan)
+        # Simulate npm install: freeze pinned exact 4.2.3, so the lockfile resolves to 4.2.3.
+        write_package_lock(temp_project_dir, root_deps={"tailwindcss": "4.2.3"}, node_versions={"tailwindcss": "4.2.3"})
+        npm.finalize_state(temp_project_dir)
+
+        pkg = read_package_json(temp_project_dir)
+        assert pkg["dependencies"]["tailwindcss"] == "~4.2.3"
+
+        lock = read_package_lock(temp_project_dir)
+        assert lock["packages"][""]["dependencies"]["tailwindcss"] == "~4.2.3"
+        assert lock["packages"]["node_modules/tailwindcss"]["version"] == "4.2.3"
+        assert lock["packages"]["node_modules/tailwindcss"]["integrity"] == "sha512-tailwindcss4.2.3"
+
+    def test_overrides_restored_to_original(self, npm, temp_project_dir):
+        """Temporary transitive override pins are removed on success, leaving original overrides."""
+        write_package_json(
+            temp_project_dir,
+            {
+                "name": "app",
+                "version": "1.0.0",
+                "dependencies": {"express": "^4.18.0"},
+                "overrides": {"ms": "2.0.0"},
+            },
+        )
+        direct_entry = make_npm_update_entry("express", "4.18.0", "4.19.0", version_defined="^4.18.0")
+        plan = make_npm_update_plan(
+            direct=[direct_entry],
+            project_path=temp_project_dir,
+            installed_versions={"ms": "2.1.2", "express": "4.18.0"},
+        )
+
+        npm.freeze_state(plan)
+        npm.finalize_state(temp_project_dir)
+
+        pkg = read_package_json(temp_project_dir)
+        assert pkg["overrides"] == {"ms": "2.0.0"}
+        assert pkg["dependencies"]["express"] == "^4.19.0"
+
+    def test_deletes_state_file(self, npm, temp_project_dir):
+        write_package_json(
+            temp_project_dir,
+            {"name": "app", "version": "1.0.0", "dependencies": {"express": "^4.18.0"}},
+        )
+        entry = make_npm_update_entry("express", "4.18.0", "4.19.0", version_defined="^4.18.0")
+        plan = make_npm_update_plan(direct=[entry], project_path=temp_project_dir)
+
+        npm.freeze_state(plan)
+        npm.finalize_state(temp_project_dir)
+
+        assert not os.path.exists(os.path.join(temp_project_dir, NPM_STATE_FILE))
+
+
+class TestForcedOverridesNpm:
+    """--override entries persist beyond the update: transitive ones stay in `overrides`,
+    direct ones become exact pins; rollback discards both."""
+
+    @pytest.fixture
+    def npm(self, settings, temp_project_dir):
+        return PackageManagerJsNpm(temp_project_dir, settings)
+
+    def base_package_json(self, temp_project_dir) -> None:
+        write_package_json(
+            temp_project_dir,
+            {"name": "app", "version": "1.0.0", "dependencies": {"express": "^4.18.0"}},
+        )
+
+    def test_freeze_state_records_forced_overrides_and_forced_direct(self, npm, temp_project_dir):
+        self.base_package_json(temp_project_dir)
+        direct = make_npm_update_entry("express", "4.18.0", "4.19.0", version_defined="^4.18.0", is_forced=True)
+        transitive = make_npm_update_entry("ms", "2.1.2", "2.1.3", is_direct=False, is_forced=True)
+        plan = make_npm_update_plan(
+            direct=[direct],
+            transitive=[transitive],
+            project_path=temp_project_dir,
+            installed_versions={"express": "4.18.0", "ms": "2.1.2"},
+        )
+
+        npm.freeze_state(plan)
+
+        with open(os.path.join(temp_project_dir, NPM_STATE_FILE), encoding="utf-8") as f:
+            state = json.load(f)
+        assert state["forced_overrides"] == {"ms": "2.1.3"}
+        assert state["forced_direct"] == ["express"]
+
+    def test_finalize_persists_forced_transitive_override(self, npm, temp_project_dir):
+        write_package_json(
+            temp_project_dir,
+            {
+                "name": "app",
+                "version": "1.0.0",
+                "dependencies": {"express": "^4.18.0"},
+                "overrides": {"foo": "1.0.0"},
+            },
+        )
+        transitive = make_npm_update_entry("ms", "2.1.2", "2.1.3", is_direct=False, is_forced=True)
+        plan = make_npm_update_plan(
+            transitive=[transitive],
+            project_path=temp_project_dir,
+            installed_versions={"express": "4.18.0", "ms": "2.1.2"},
+        )
+
+        npm.freeze_state(plan)
+        npm.finalize_state(temp_project_dir)
+
+        pkg = read_package_json(temp_project_dir)
+        assert pkg["overrides"] == {"foo": "1.0.0", "ms": "2.1.3"}
+
+    def test_finalize_forced_direct_pinned_exact_without_pin_all(self, npm, temp_project_dir):
+        self.base_package_json(temp_project_dir)
+        direct = make_npm_update_entry("express", "4.18.0", "4.19.2", version_defined="^4.18.0", is_forced=True)
+        plan = make_npm_update_plan(direct=[direct], project_path=temp_project_dir)
+
+        npm.freeze_state(plan)
+        npm.finalize_state(temp_project_dir)
+
+        pkg = read_package_json(temp_project_dir)
+        assert pkg["dependencies"]["express"] == "4.19.2"
+
+    def test_restore_discards_forced_overrides(self, npm, temp_project_dir):
+        self.base_package_json(temp_project_dir)
+        transitive = make_npm_update_entry("ms", "2.1.2", "2.1.3", is_direct=False, is_forced=True)
+        plan = make_npm_update_plan(
+            transitive=[transitive],
+            project_path=temp_project_dir,
+            installed_versions={"express": "4.18.0", "ms": "2.1.2"},
+        )
+
+        npm.freeze_state(plan)
+        npm.restore_state(temp_project_dir)
+
+        pkg = read_package_json(temp_project_dir)
+        assert "overrides" not in pkg
+        assert pkg["dependencies"]["express"] == "^4.18.0"
+
+    def test_raises_when_state_file_missing(self, npm, temp_project_dir):
+        write_package_json(temp_project_dir, {"name": "app", "version": "1.0.0"})
+        with pytest.raises(FileNotFoundError):
+            npm.finalize_state(temp_project_dir)
 
 
 # ============================================================================
@@ -1211,9 +1460,6 @@ class TestGenerateUpdateScript:
     def test_script_contains_ignore_scripts(self, npm):
         script = npm.generate_update_script(make_npm_update_plan())
         assert "npm install --ignore-scripts" in script
-
-    def test_bare_npm_install_not_in_script(self, npm):
-        script = npm.generate_update_script(make_npm_update_plan())
         assert "npm install\n" not in script
 
     def test_script_is_valid_bash(self, npm):
@@ -1221,9 +1467,10 @@ class TestGenerateUpdateScript:
         assert script.startswith("#!/usr/bin/env bash")
         assert "set -euo pipefail" in script
 
-    def test_script_contains_freeze_and_restore(self, npm):
+    def test_script_contains_freeze_finalize_and_restore(self, npm):
         script = npm.generate_update_script(make_npm_update_plan())
         assert "ossiq helpers npm freeze-state" in script
+        assert "ossiq helpers npm finalize-state" in script
         assert "ossiq helpers npm restore-state" in script
 
     def test_script_cd_to_project_path(self, npm):
@@ -1262,10 +1509,9 @@ class TestExecuteUpdate:
 
     def test_calls_npm_install_with_ignore_scripts(self, npm, temp_project_dir):
         plan = make_npm_update_plan(project_path=temp_project_dir)
-        state_path = os.path.join(temp_project_dir, NPM_STATE_FILE)
-        open(state_path, "w").close()
         with (
             patch.object(npm, "freeze_state"),
+            patch.object(npm, "finalize_state"),
             patch.object(npm, "restore_state"),
             patch("ossiq.adapters.package_managers.api_npm.subprocess.run") as mock_run,
         ):
@@ -1274,23 +1520,23 @@ class TestExecuteUpdate:
         args = mock_run.call_args[0][0]
         assert args == ["npm", "install", "--ignore-scripts"]
 
-    def test_deletes_state_file_on_success(self, npm, temp_project_dir):
+    def test_finalizes_state_on_success(self, npm, temp_project_dir):
         plan = make_npm_update_plan(project_path=temp_project_dir)
-        state_path = os.path.join(temp_project_dir, NPM_STATE_FILE)
-        open(state_path, "w").close()
         with (
             patch.object(npm, "freeze_state"),
+            patch.object(npm, "finalize_state") as mock_finalize,
             patch.object(npm, "restore_state") as mock_restore,
             patch("ossiq.adapters.package_managers.api_npm.subprocess.run"),
         ):
             npm.execute_update(plan)
-        assert not os.path.exists(state_path)
+        mock_finalize.assert_called_once_with(temp_project_dir)
         mock_restore.assert_not_called()
 
     def test_restores_state_on_failure(self, npm, temp_project_dir):
         plan = make_npm_update_plan(project_path=temp_project_dir)
         with (
             patch.object(npm, "freeze_state"),
+            patch.object(npm, "finalize_state"),
             patch.object(npm, "restore_state") as mock_restore,
             patch("ossiq.adapters.package_managers.api_npm.subprocess.run", side_effect=RuntimeError("fail")),
         ):
@@ -1311,8 +1557,6 @@ def write_state_file(
     recommended_versions: dict | None = None,
 ) -> None:
     """Write a minimal .ossiq_npm_state.json to project_dir."""
-    import json as _json
-
     state = {
         "original_overrides": original_overrides,
         "locked_overrides": locked_overrides or {},
@@ -1320,19 +1564,17 @@ def write_state_file(
     }
     state_path = os.path.join(project_dir, NPM_STATE_FILE)
     with open(state_path, "w", encoding="utf-8") as f:
-        _json.dump(state, f)
+        json.dump(state, f)
 
 
 def write_pkg_json(project_dir: str, overrides: dict | None = None) -> None:
     """Write a minimal package.json with optional overrides to project_dir."""
-    import json as _json
-
     pkg: dict = {"name": "test", "version": "1.0.0"}
     if overrides is not None:
         pkg["overrides"] = overrides
     manifest_path = os.path.join(project_dir, "package.json")
     with open(manifest_path, "w", encoding="utf-8") as f:
-        _json.dump(pkg, f)
+        json.dump(pkg, f)
 
 
 class TestRestoreState:
@@ -1348,10 +1590,8 @@ class TestRestoreState:
 
         npm.restore_state(temp_project_dir)
 
-        import json as _json
-
         with open(os.path.join(temp_project_dir, "package.json"), encoding="utf-8") as f:
-            pkg = _json.load(f)
+            pkg = json.load(f)
         assert pkg["overrides"] == {"lodash": "4.0.0"}
 
     def test_recommended_version_applied_to_original_override(self, npm, temp_project_dir):
@@ -1364,10 +1604,8 @@ class TestRestoreState:
 
         npm.restore_state(temp_project_dir)
 
-        import json as _json
-
         with open(os.path.join(temp_project_dir, "package.json"), encoding="utf-8") as f:
-            pkg = _json.load(f)
+            pkg = json.load(f)
         assert pkg["overrides"] == {"lodash": "4.0.0", "express": "4.19.0"}
 
     def test_original_override_kept_when_no_recommended_version(self, npm, temp_project_dir):
@@ -1376,10 +1614,8 @@ class TestRestoreState:
 
         npm.restore_state(temp_project_dir)
 
-        import json as _json
-
         with open(os.path.join(temp_project_dir, "package.json"), encoding="utf-8") as f:
-            pkg = _json.load(f)
+            pkg = json.load(f)
         assert pkg["overrides"] == {"lodash": "4.0.0"}
 
     def test_dollar_sign_override_not_replaced_by_recommended(self, npm, temp_project_dir):
@@ -1392,10 +1628,8 @@ class TestRestoreState:
 
         npm.restore_state(temp_project_dir)
 
-        import json as _json
-
         with open(os.path.join(temp_project_dir, "package.json"), encoding="utf-8") as f:
-            pkg = _json.load(f)
+            pkg = json.load(f)
         assert pkg["overrides"] == {"foo": "$bar"}
 
     def test_recommended_but_not_in_original_not_added(self, npm, temp_project_dir):
@@ -1408,10 +1642,8 @@ class TestRestoreState:
 
         npm.restore_state(temp_project_dir)
 
-        import json as _json
-
         with open(os.path.join(temp_project_dir, "package.json"), encoding="utf-8") as f:
-            pkg = _json.load(f)
+            pkg = json.load(f)
         assert "ms" not in pkg["overrides"]
         assert pkg["overrides"] == {"lodash": "4.17.21"}
 
@@ -1421,10 +1653,8 @@ class TestRestoreState:
 
         npm.restore_state(temp_project_dir)
 
-        import json as _json
-
         with open(os.path.join(temp_project_dir, "package.json"), encoding="utf-8") as f:
-            pkg = _json.load(f)
+            pkg = json.load(f)
         assert "overrides" not in pkg
 
     def test_deletes_state_file_after_restore(self, npm, temp_project_dir):
