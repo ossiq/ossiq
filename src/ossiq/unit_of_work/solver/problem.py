@@ -4,7 +4,7 @@ import hashlib
 import json
 from dataclasses import dataclass
 
-from ossiq.domain.common import ConstraintType
+from ossiq.domain.common import ConstraintType, ProjectPackagesRegistry
 
 
 @dataclass(frozen=True)
@@ -29,6 +29,10 @@ class PackageConstraint:
     version_constraint: str | None
     constraint_type: ConstraintType
     installed_version: str
+    # All version specifiers from every direct parent; empty for direct deps.
+    # When non-empty, the encoder applies each as an independent L1 hard rejection
+    # so a version must satisfy ALL parent constraints (diamond-dep correctness).
+    all_constraints: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -42,10 +46,12 @@ class SolverProblem:
     constraints: tuple[PackageConstraint, ...]
     candidates: dict[str, tuple[CandidateVersion, ...]]
     engine_context: dict[str, str]
+    registry: ProjectPackagesRegistry = ProjectPackagesRegistry.PYPI
 
     def fingerprint(self) -> str:
         """SHA-256 of canonical JSON — stable cache key for future memoisation."""
         payload = {
+            "registry": self.registry.value,
             "engine_context": sorted(self.engine_context.items()),
             "constraints": sorted(
                 [
@@ -54,6 +60,7 @@ class SolverProblem:
                         "constraint": c.version_constraint,
                         "type": c.constraint_type,
                         "installed": c.installed_version,
+                        "all_constraints": sorted(c.all_constraints),
                     }
                     for c in self.constraints
                 ],

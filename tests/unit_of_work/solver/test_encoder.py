@@ -1,11 +1,19 @@
 from __future__ import annotations
 
-from ossiq.domain.common import ConstraintType
+from ossiq.domain.common import ConstraintType, ProjectPackagesRegistry
 from ossiq.unit_of_work.solver.driver import SolverResult
 from ossiq.unit_of_work.solver.driver_pysat import PySATDriver
 from ossiq.unit_of_work.solver.encoder import ConstraintEncoder
 from ossiq.unit_of_work.solver.problem import CandidateVersion, PackageConstraint, SolverProblem
-from ossiq.unit_of_work.solver.weights import W_DEPRECATED, W_ENGINE, W_VERY_FRESH, age_weight
+from ossiq.unit_of_work.solver.weights import (
+    SEMVER_RANK_STEP,
+    SEMVER_RANK_WEIGHT_BASE,
+    SEMVER_RANK_WEIGHT_MIN,
+    W_DEPRECATED,
+    W_ENGINE,
+    W_VERY_FRESH,
+    semver_rank_weight,
+)
 
 # ---------------------------------------------------------------------------
 # Test helpers
@@ -55,11 +63,13 @@ def _sp(
     candidates_dict: dict[str, list[CandidateVersion]],
     *,
     engine_context: dict[str, str] | None = None,
+    registry: ProjectPackagesRegistry = ProjectPackagesRegistry.PYPI,
 ) -> SolverProblem:
     return SolverProblem(
         constraints=tuple(constraints),
         candidates={pkg: tuple(cvs) for pkg, cvs in candidates_dict.items()},
         engine_context=engine_context or {},
+        registry=registry,
     )
 
 
@@ -74,15 +84,20 @@ class TestWeightConstants:
         assert W_DEPRECATED == 10_000
         assert W_VERY_FRESH == 100_000
 
-    def test_age_weight_zero_days(self) -> None:
-        assert age_weight(0) == 80_000  # < 30 days tier
+    def test_semver_rank_weight_rank_zero_is_max(self) -> None:
+        assert semver_rank_weight(0) == SEMVER_RANK_WEIGHT_BASE
 
-    def test_age_weight_large_age_clamped(self) -> None:
-        assert age_weight(200_000) == 1_000  # 3+ years tier
-        assert age_weight(100_000) == 1_000
+    def test_semver_rank_weight_decreases_by_step(self) -> None:
+        assert semver_rank_weight(1) == SEMVER_RANK_WEIGHT_BASE - SEMVER_RANK_STEP
+        assert semver_rank_weight(2) == SEMVER_RANK_WEIGHT_BASE - 2 * SEMVER_RANK_STEP
 
-    def test_age_weight_none_returns_one(self) -> None:
-        assert age_weight(None) == 1_000  # unknown age -> minimum tier
+    def test_semver_rank_weight_floors_at_min(self) -> None:
+        assert semver_rank_weight(100) == SEMVER_RANK_WEIGHT_MIN
+
+    def test_deprecated_penalty_overrides_adjacent_rank(self) -> None:
+        # W_DEPRECATED (10_000) > SEMVER_RANK_STEP (5_000), so a deprecated rank-0 candidate
+        # loses to a clean rank-1 candidate. Verifies the step is sized correctly.
+        assert W_DEPRECATED > SEMVER_RANK_STEP
 
 
 # ---------------------------------------------------------------------------
@@ -146,6 +161,7 @@ class TestConstraintEncoderL1Hard:
         problem = _sp(
             [_pc("pkg", version_constraint="^2.0.0")],
             {"pkg": [_cv("1.9.9"), _cv("2.5.0"), _cv("3.0.0")]},
+            registry=ProjectPackagesRegistry.NPM,
         )
         enc = ConstraintEncoder().encode(problem)
         vid_199 = next(vid for vid, (_, v) in enc.var_map.items() if v == "1.9.9")
@@ -260,25 +276,27 @@ class TestConstraintEncoderSoftClauses:
         engine_penalties = [(w, c) for w, c in enc.soft_clauses if w == W_ENGINE]
         assert engine_penalties == []
 
-    def test_l3_freshness_weight_from_age_days(self) -> None:
-        # age=500 days → [365, 1095) tier → weight 10_000
+    def test_l3_rank_zero_gets_base_weight(self) -> None:
+        # Single candidate → rank 0 → semver_rank_weight(0) = SEMVER_RANK_WEIGHT_BASE = 80_000
         problem = _sp(
             [_pc("pkg")],
             {"pkg": [_cv("1.0.0", age_days=500)]},
         )
         enc = ConstraintEncoder().encode(problem)
         vid = next(iter(enc.var_map))
-        assert (10_000, [vid]) in enc.soft_clauses
+        assert (SEMVER_RANK_WEIGHT_BASE, [vid]) in enc.soft_clauses
 
-    def test_l3_freshness_none_age_gets_weight_one(self) -> None:
-        # unknown age → minimum tier (1_000)
+    def test_l3_rank_one_gets_step_reduced_weight(self) -> None:
+        # Two candidates: rank 0 → 80K, rank 1 → 75K (regardless of age_days)
         problem = _sp(
             [_pc("pkg")],
-            {"pkg": [_cv("1.0.0", age_days=None)]},
+            {"pkg": [_cv("2.0.0", age_days=None), _cv("1.0.0", age_days=500)]},
         )
         enc = ConstraintEncoder().encode(problem)
-        vid = next(iter(enc.var_map))
-        assert (1_000, [vid]) in enc.soft_clauses
+        vid_200 = next(vid for vid, (_, v) in enc.var_map.items() if v == "2.0.0")
+        vid_100 = next(vid for vid, (_, v) in enc.var_map.items() if v == "1.0.0")
+        assert (semver_rank_weight(0), [vid_200]) in enc.soft_clauses
+        assert (semver_rank_weight(1), [vid_100]) in enc.soft_clauses
 
     def test_l4_deprecated_adds_penalty_clause(self) -> None:
         problem = _sp(
@@ -373,9 +391,9 @@ class TestConstraintEncoderL5L6:
         assert result.selected == [("pkg", "1.0.0")]
 
     def test_l6_roundtrip_very_fresh_loses_to_older(self) -> None:
-        # 2.0.0: age=2 (fresh, big L3 bonus but L6 penalty 1M); 1.0.0: age=200 (L3 bonus ~99800)
-        # Cost selecting 2.0.0: miss 1.0.0 (99_800) + L6 (1_000_000) = 1_099_800
-        # Cost selecting 1.0.0: miss 2.0.0 (99_998)
+        # 2.0.0: rank 0 (weight 80K) but age=2 → L6 penalty 100K
+        # Cost selecting 2.0.0: miss 1.0.0 (75K) + L6 (100K) = 175K
+        # Cost selecting 1.0.0: miss 2.0.0 (80K) = 80K → 1.0.0 wins
         problem = _sp(
             [_pc("pkg", version_constraint=">=1.0")],
             {"pkg": [_cv("2.0.0", age_days=2), _cv("1.0.0", age_days=200)]},
@@ -392,21 +410,22 @@ class TestConstraintEncoderL5L6:
 
 
 class TestConstraintEncoderRoundtrip:
-    def test_roundtrip_selects_freshest_version(self) -> None:
+    def test_roundtrip_selects_highest_semver(self) -> None:
+        # Candidates in descending version order (as SolvablePool.build() produces).
+        # Rank 0 = 3.0.0 (weight 80K) wins regardless of its age_days.
         problem = _sp(
             [_pc("pkg", version_constraint=">=1.0")],
-            {"pkg": [_cv("1.0.0", age_days=365), _cv("2.0.0", age_days=100), _cv("3.0.0", age_days=10)]},
+            {"pkg": [_cv("3.0.0", age_days=365), _cv("2.0.0", age_days=100), _cv("1.0.0", age_days=10)]},
         )
         enc = ConstraintEncoder().encode(problem)
         result = PySATDriver().solve(enc)
         assert isinstance(result, SolverResult)
         assert result.selected == [("pkg", "3.0.0")]
 
-    def test_roundtrip_engine_incompatible_loses_to_older_compatible(self) -> None:
-        # "3.0.0": freshest (age=0, weight=100_000) but needs python>=3.13 → engine penalty 1_000_000
-        # "2.0.0": older (age=200, weight=99_800), compatible
-        # Cost selecting 3.0.0: miss 2.0.0 (99_800) + engine mismatch (1_000_000) = 1_099_800
-        # Cost selecting 2.0.0: miss 3.0.0 (100_000)
+    def test_roundtrip_engine_incompatible_loses_to_lower_semver(self) -> None:
+        # 3.0.0 (rank 0, weight 80K) needs python>=3.13 → engine penalty 100K.
+        # Cost selecting 3.0.0: miss 2.0.0 (75K) + engine (100K) = 175K
+        # Cost selecting 2.0.0: miss 3.0.0 (80K) = 80K → 2.0.0 wins
         problem = _sp(
             [_pc("pkg", version_constraint=">=1.0")],
             {
@@ -423,11 +442,12 @@ class TestConstraintEncoderRoundtrip:
         assert result.selected == [("pkg", "2.0.0")]
 
     def test_roundtrip_two_packages_independent(self) -> None:
+        # Candidates in descending order: rank 0 = 2.0.0 (weight 80K) wins for each package.
         problem = _sp(
             [_pc("a"), _pc("b")],
             {
-                "a": [_cv("1.0.0", age_days=365), _cv("2.0.0", age_days=10)],
-                "b": [_cv("1.0.0", age_days=365), _cv("2.0.0", age_days=10)],
+                "a": [_cv("2.0.0", age_days=10), _cv("1.0.0", age_days=365)],
+                "b": [_cv("2.0.0", age_days=10), _cv("1.0.0", age_days=365)],
             },
         )
         enc = ConstraintEncoder().encode(problem)
@@ -436,9 +456,10 @@ class TestConstraintEncoderRoundtrip:
         assert set(result.selected) == {("a", "2.0.0"), ("b", "2.0.0")}
 
     def test_roundtrip_deprecated_loses_to_non_deprecated(self) -> None:
-        # Both in the [30, 90) tier → same age weight 60_000, so deprecated penalty (10_000) decides.
-        # Cost selecting 2.0.0 (deprecated): miss 1.9.0 (60_000) + miss penalty avoidance (10_000) = 70_000
-        # Cost selecting 1.9.0 (clean):      miss 2.0.0 (60_000) = 60_000  → 1.9.0 wins
+        # 2.0.0 rank 0 (weight 80K, deprecated) vs 1.9.0 rank 1 (weight 75K, clean).
+        # Cost selecting 2.0.0: miss 1.9.0 (75K) + deprecated penalty (10K) = 85K
+        # Cost selecting 1.9.0: miss 2.0.0 (80K) = 80K → 1.9.0 wins
+        # W_DEPRECATED (10K) > SEMVER_RANK_STEP (5K), so deprecated rank-0 loses to clean rank-1.
         problem = _sp(
             [_pc("pkg", version_constraint=">=1.0")],
             {
@@ -452,6 +473,21 @@ class TestConstraintEncoderRoundtrip:
         result = PySATDriver().solve(enc)
         assert isinstance(result, SolverResult)
         assert result.selected == [("pkg", "1.9.0")]
+
+    def test_roundtrip_parallel_major_versions_prefers_higher_semver(self) -> None:
+        # Simulates vite 8.x + 7.x parallel streams. 8.0.7 is older (45d) but higher semver.
+        # With rank-based L3: 8.0.7 (rank 0, 80K) vs 7.3.2 (rank 1, 75K).
+        # Cost selecting 8.0.7: miss 7.3.2 (75K) = 75K
+        # Cost selecting 7.3.2: miss 8.0.7 (80K) = 80K → 8.0.7 wins
+        # (With old age-based L3, 7.3.2 (3d → 80K) would have beaten 8.0.7 (45d → 60K).)
+        problem = _sp(
+            [_pc("vite", version_constraint=">=7.0.0")],
+            {"vite": [_cv("8.0.7", age_days=45), _cv("7.3.2", age_days=3)]},
+        )
+        enc = ConstraintEncoder().encode(problem)
+        result = PySATDriver().solve(enc)
+        assert isinstance(result, SolverResult)
+        assert result.selected == [("vite", "8.0.7")]
 
 
 # ---------------------------------------------------------------------------

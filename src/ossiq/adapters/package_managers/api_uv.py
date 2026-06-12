@@ -2,15 +2,25 @@
 Support of UV package manager
 """
 
+from __future__ import annotations
+
 import os
+import re
+import shlex
+import subprocess
 import tomllib
 from collections import namedtuple
 from collections.abc import Callable, Iterable
+from pathlib import Path
+from typing import TYPE_CHECKING
+
+from packaging.requirements import InvalidRequirement, Requirement
 
 from ossiq.adapters.api_interfaces import AbstractPackageManagerApi
+from ossiq.adapters.api_pypi import PackageRegistryApiPypi
 from ossiq.adapters.package_managers.api_pypi import enrich_registry_constraints
 from ossiq.adapters.package_managers.dependency_tree import BaseDependencyResolver
-from ossiq.adapters.package_managers.utils import find_lockfile_parser, normalize_dist_name
+from ossiq.adapters.package_managers.utils import extract_min_python_version, find_lockfile_parser, normalize_dist_name
 from ossiq.domain.common import ConstraintType
 from ossiq.domain.exceptions import PackageManagerLockfileParsingError
 from ossiq.domain.packages_manager import UV, PackageManagerType
@@ -18,7 +28,96 @@ from ossiq.domain.project import ConstraintSource, Dependency, Project
 from ossiq.domain.version import classify_pypi_specifier
 from ossiq.settings import Settings
 
+if TYPE_CHECKING:
+    from ossiq.service.update import UpdateEntry, UpdatePlan
+
+
 UvProject = namedtuple("UvProject", ["manifest", "lockfile"])
+
+
+def parse_pyproject_direct_specifiers(pyproject_data: dict) -> dict[str, str | None]:
+    """Return {canonical_name: specifier} for all direct deps declared in pyproject.toml.
+
+    Covers [project.dependencies] and [project.optional-dependencies].
+    Used to authoritative-override stale lockfile metadata.requires-dist specifiers.
+    """
+    project_section = pyproject_data.get("project", {})
+    dep_strings: list[str] = list(project_section.get("dependencies", []))
+    for group_deps in project_section.get("optional-dependencies", {}).values():
+        dep_strings.extend(group_deps)
+
+    result: dict[str, str | None] = {}
+    for dep_str in dep_strings:
+        try:
+            req = Requirement(dep_str)
+            result[normalize_dist_name(req.name)] = str(req.specifier) or None
+        except (InvalidRequirement, ValueError):
+            pass
+    return result
+
+
+def apply_pyproject_constraints(root: Dependency, pyproject_specs: dict[str, str | None]) -> list[str]:
+    """Override version_defined/constraint_info on root's direct deps from pyproject.toml.
+
+    Returns names of packages whose lockfile specifier differed from pyproject.toml
+    (i.e. the lockfile is stale and needs `uv lock` to regenerate).
+    """
+    divergent: list[str] = []
+    for dep in {**root.dependencies, **root.optional_dependencies}.values():
+        canonical = normalize_dist_name(dep.canonical_name)
+        if canonical not in pyproject_specs:
+            continue
+        pyproject_spec = pyproject_specs[canonical]
+        if dep.version_defined == pyproject_spec:
+            continue
+        divergent.append(dep.name)
+        dep.version_defined = pyproject_spec
+        dep.constraint_info = ConstraintSource(
+            type=classify_pypi_specifier(pyproject_spec),
+            source_file="pyproject.toml",
+        )
+    return divergent
+
+
+def upsert_uv_override_dependencies(content: str, overrides: dict[str, str]) -> str:
+    """Merge forced pkg==version entries into [tool.uv] override-dependencies in pyproject.toml.
+
+    Existing entries for other packages are preserved; an entry for a forced package is replaced.
+    The [tool.uv] section and the override-dependencies key are created when missing. Editing is
+    text-based so the rest of the file stays byte-identical; the result is re-parsed to guarantee
+    valid TOML before it is returned.
+    """
+    if not overrides:
+        return content
+
+    data = tomllib.loads(content)
+    existing_specs: list[str] = data.get("tool", {}).get("uv", {}).get("override-dependencies", [])
+
+    merged: dict[str, str] = {}
+    for spec in existing_specs:
+        try:
+            merged[normalize_dist_name(Requirement(spec).name)] = spec
+        except InvalidRequirement:
+            merged[spec] = spec
+    for name, version in overrides.items():
+        merged[normalize_dist_name(name)] = f"{name}=={version}"
+
+    entries = "\n".join(f'    "{spec}",' for spec in merged.values())
+    block = f"override-dependencies = [\n{entries}\n]"
+
+    if "override-dependencies" in data.get("tool", {}).get("uv", {}):
+        new_content = re.sub(
+            r"override-dependencies\s*=\s*\[.*?\]", lambda match: block, content, count=1, flags=re.DOTALL
+        )
+    elif re.search(r"^\[tool\.uv\]\s*$", content, flags=re.MULTILINE):
+        new_content = re.sub(
+            r"^\[tool\.uv\]\s*$", lambda match: f"[tool.uv]\n{block}", content, count=1, flags=re.MULTILINE
+        )
+    else:
+        new_content = f"{content.rstrip()}\n\n[tool.uv]\n{block}\n"
+
+    tomllib.loads(new_content)  # raises TOMLDecodeError when the edit produced invalid TOML
+    return new_content
 
 
 class UVResolverV1R3(BaseDependencyResolver):
@@ -227,6 +326,9 @@ class PackageManagerPythonUv(AbstractPackageManagerApi):
 
         dependency_tree, registry = lockfile_parser(project_package_name, uv_lock_data)
 
+        pyproject_specs = parse_pyproject_direct_specifiers(pyproject_data)
+        divergent = apply_pyproject_constraints(dependency_tree, pyproject_specs)
+
         if not self.settings.skip_pypi_enrichment:
             enrich_registry_constraints(registry)
 
@@ -239,12 +341,130 @@ class PackageManagerPythonUv(AbstractPackageManagerApi):
             override_names = {normalize_dist_name(s) for s in override_specs}
             self.constraint_dependencies_setting(dependency_tree, constraint_names, override_names)
 
+        requires_python = pyproject_data.get("project", {}).get("requires-python")
+        engine_constraints = None
+        if requires_python:
+            min_py = extract_min_python_version(requires_python)
+            if min_py:
+                engine_constraints = {"python": min_py}
+
         return Project(
             package_manager_type=self.package_manager_type,
             name=project_package_name,
             project_path=self.project_path,
             dependency_tree=dependency_tree,
+            engine_constraints=engine_constraints,
+            manifest_lock_divergent=divergent,
         )
+
+    @staticmethod
+    def resolve_direct_specifier(entry: UpdateEntry, pin_all: bool) -> str | None:
+        """Return the new specifier string to write into pyproject.toml, or the original when lockfile-only.
+
+        When the return value equals entry.version_defined, no pyproject.toml edit is needed —
+        the caller should add the package to --upgrade-package on uv lock instead.
+        Forced (--override) entries always pin exact, regardless of mode.
+        """
+        if entry.is_forced or pin_all:
+            return f"=={entry.recommended_version}"
+        return PackageRegistryApiPypi.rewrite_specifier(
+            entry.version_defined, entry.recommended_version, entry.constraint_type
+        )
+
+    def generate_update_script(self, plan: UpdatePlan, cli_extra_args: str = "") -> str:
+        """Generate bash script: smart specifier rewrite (or --pin-all), then uv lock + uv sync."""
+        lines = [
+            "#!/usr/bin/env bash",
+            f"# OSS IQ update — uv  |  project: {plan.project_name}",
+            f"# {len(plan.direct_entries)} direct, {len(plan.transitive_entries)} transitive updates",
+            "set -euo pipefail",
+            "",
+            f'cd "{plan.project_path}"',
+        ]
+
+        upgrade_flags: list[str] = []
+
+        if plan.direct_entries:
+            lines += ["", "# --- direct dependencies: update specifiers in pyproject.toml ---"]
+            for entry in plan.direct_entries:
+                new_spec = self.resolve_direct_specifier(entry, plan.pin_all)
+                orig = entry.version_defined or entry.current_version
+
+                if new_spec == entry.version_defined:
+                    lines.append(f"# {entry.package_name}: {orig} -> (lockfile only)")
+                else:
+                    spec_to_write = new_spec or f"=={entry.recommended_version}"
+                    lines.append(f"# {entry.package_name}: {orig} -> {spec_to_write}")
+                    lines.append(
+                        f"sed -i '' "
+                        f"""'s|"{entry.package_name}[^"]*"|"{entry.package_name}{spec_to_write}"|g'"""
+                        " pyproject.toml"
+                    )
+
+                # Always pin direct deps explicitly — prevents uv from resolving a different version.
+                upgrade_flags.append(f"    --upgrade-package {entry.package_name}=={entry.recommended_version}")
+
+        upgrade_flags += [
+            f"    --upgrade-package {entry.package_name}=={entry.recommended_version}"
+            for entry in plan.transitive_entries
+        ]
+
+        forced_transitive = [entry for entry in plan.transitive_entries if entry.is_forced]
+        if forced_transitive:
+            lines += ["", "# --- forced overrides (--override): persist in [tool.uv] override-dependencies ---"]
+            for entry in forced_transitive:
+                spec = shlex.quote(f"{entry.package_name}=={entry.recommended_version}")
+                lines.append(f"ossiq helpers uv set-override {spec} .")
+
+        lock_cmd = "uv lock" if not upgrade_flags else "uv lock \\\n" + " \\\n".join(upgrade_flags)
+
+        lines += [
+            "",
+            "# --- update lockfile ---",
+            lock_cmd,
+            "",
+            "uv sync",
+            "",
+            "# ROLLBACK: git checkout pyproject.toml && uv sync",
+        ]
+        return "\n".join(lines)
+
+    def execute_update(self, plan: UpdatePlan) -> None:
+        """Apply specifier rewrites, run uv lock + uv sync in-process. Restores pyproject.toml on failure."""
+        manifest_path = Path(plan.project_path) / "pyproject.toml"
+        original_content = manifest_path.read_text(encoding="utf-8")
+
+        try:
+            content = original_content
+            for entry in plan.direct_entries:
+                new_spec = self.resolve_direct_specifier(entry, plan.pin_all)
+                if new_spec != entry.version_defined:
+                    spec_to_write = new_spec or f"=={entry.recommended_version}"
+                    content = re.sub(
+                        rf'"{re.escape(entry.package_name)}[^"]*"',
+                        f'"{entry.package_name}{spec_to_write}"',
+                        content,
+                    )
+
+            forced_transitive = {
+                entry.package_name: entry.recommended_version for entry in plan.transitive_entries if entry.is_forced
+            }
+            if forced_transitive:
+                content = upsert_uv_override_dependencies(content, forced_transitive)
+
+            if content != original_content:
+                manifest_path.write_text(content, encoding="utf-8")
+
+            upgrade_args = [
+                arg
+                for entry in plan.all_entries
+                for arg in ("--upgrade-package", f"{entry.package_name}=={entry.recommended_version}")
+            ]
+            subprocess.run(["uv", "lock"] + upgrade_args, cwd=plan.project_path, check=True)
+            subprocess.run(["uv", "sync"], cwd=plan.project_path, check=True)
+        except Exception:
+            manifest_path.write_text(original_content, encoding="utf-8")
+            raise
 
     def __repr__(self):
         return f"{self.package_manager_type.name} Package Manager"

@@ -385,6 +385,10 @@
           "items": { "type": "string" },
           "description": "PyPI extras requested for this dependency (e.g. [\"security\", \"tests\"] from requests[security,tests]); null for non-PyPI or when no extras are used"
         },
+        "recommended_version": {
+          "type": ["string", "null"],
+          "description": "Solver-recommended version; null when the package is already at the optimal version"
+        },
         "is_prerelease": {
           "type": "boolean",
           "description": "Whether the installed version is a pre-release (alpha/beta/rc/dev)"

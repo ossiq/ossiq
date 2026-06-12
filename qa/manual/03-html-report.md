@@ -60,3 +60,19 @@ uv run hatch run ossiq-cli scan --presentation=html --output=reports/deprecated_
 
 - [ ] Yanked packages are visually indicated in the HTML table
 - [ ] Deprecated packages are visually indicated in the HTML table
+
+---
+
+## TC-H06: HTML report — transitive impact sub-rows
+
+```bash
+uv run hatch run ossiq-cli scan --presentation=html --output=reports/solver_report.html testdata/pypi/version-constraint
+```
+
+Open `reports/solver_report.html` in browser.
+
+- [ ] Page loads without JS errors in browser console
+- [ ] Direct dep rows that have a recommended version show an inline expandable control (chevron, button, or similar)
+- [ ] Expanding a row reveals the transitive impact detail: package names and version arrows (e.g. `urllib3 1.26 → 2.2`)
+- [ ] No `undefined` or blank cells in the expanded sub-rows
+- [ ] `⚠` and `✗` markers visible on conflicting / non-actionable rows if any exist

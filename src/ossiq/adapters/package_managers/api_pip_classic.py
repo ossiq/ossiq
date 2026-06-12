@@ -5,9 +5,14 @@ This adapter handles legacy Python projects that use simple requirements.txt
 files with pinned versions (package==version format).
 """
 
+from __future__ import annotations
+
 import os
 import re
+import subprocess
+import tempfile
 from collections import namedtuple
+from typing import TYPE_CHECKING
 
 from ossiq.adapters.api_interfaces import AbstractPackageManagerApi
 from ossiq.adapters.package_managers.api_pypi import batch_fetch_requires_dist, make_session, parse_requires_dist
@@ -18,6 +23,9 @@ from ossiq.domain.packages_manager import PIP_CLASSIC, PackageManagerType
 from ossiq.domain.project import ConstraintSource, Dependency, Project
 from ossiq.domain.version import classify_pypi_specifier, normalize_version
 from ossiq.settings import Settings
+
+if TYPE_CHECKING:
+    from ossiq.service.update import UpdatePlan
 
 PipClassicProject = namedtuple("PipClassicProject", ["manifest"])
 
@@ -307,7 +315,52 @@ class PackageManagerPythonPipClassic(AbstractPackageManagerApi):
             name=project_package_name,
             project_path=self.project_path,
             dependency_tree=dependency_tree,
+            has_lockfile=False,
         )
+
+    def execute_update(self, plan: UpdatePlan) -> None:
+        """Write a temp constraints file, run pip install in-process, then clean up."""
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False, encoding="utf-8") as f:
+            for entry in plan.all_entries:
+                f.write(f"{entry.package_name}=={entry.recommended_version}\n")
+            constraints_path = f.name
+        try:
+            subprocess.run(
+                ["pip", "install", "-r", "requirements.txt", "-c", constraints_path],
+                cwd=plan.project_path,
+                check=True,
+            )
+        finally:
+            os.unlink(constraints_path)
+
+    def generate_update_script(self, plan: UpdatePlan, cli_extra_args: str = "") -> str:
+        """Constraint-based pip update: write constraints file, install, clean up."""
+        lines = [
+            "#!/usr/bin/env bash",
+            f"# OSS IQ update — pip  |  project: {plan.project_name}",
+            f"# {len(plan.direct_entries)} direct, {len(plan.transitive_entries)} transitive updates",
+            "set -euo pipefail",
+            "",
+            f'cd "{plan.project_path}"',
+            "",
+            "CONSTRAINTS=/tmp/ossiq-constraints.txt",
+            '> "$CONSTRAINTS"',
+            "",
+            'echo "Writing constraints..."',
+        ]
+        for entry in plan.all_entries:
+            lines.append(f'echo "{entry.package_name}=={entry.recommended_version}" >> "$CONSTRAINTS"')
+        lines += [
+            "",
+            'echo "Installing with constraints..."',
+            'pip install -r requirements.txt -c "$CONSTRAINTS"',
+            "",
+            'rm "$CONSTRAINTS"',
+            'echo "Done."',
+            "",
+            "# ROLLBACK: pip install -r requirements.txt",
+        ]
+        return "\n".join(lines)
 
     def __repr__(self):
         return f"{self.package_manager_type.name} Package Manager"

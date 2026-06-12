@@ -25,6 +25,7 @@ class CommandExportOptions:
     schema_version: str | None
     allow_prerelease: bool
     allow_prerelease_packages: tuple[str, ...]
+    ignore_packages: tuple[str, ...] = ()
 
 
 def commnad_export(ctx: typer.Context, options: CommandExportOptions):
@@ -55,6 +56,7 @@ def commnad_export(ctx: typer.Context, options: CommandExportOptions):
         allow_prerelease=options.allow_prerelease,
         allow_prerelease_packages=options.allow_prerelease_packages,
         narrow_package_registry=registry_type_map[options.registry_type] if options.registry_type else None,
+        ignore_packages=options.ignore_packages,
     )
 
     with show_operation_progress(settings, "Collecting project packages data...") as progress:

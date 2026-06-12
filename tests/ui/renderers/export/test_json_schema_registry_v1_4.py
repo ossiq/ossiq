@@ -93,6 +93,17 @@ class TestSchemaRegistryV14(SchemaRegistryBaseTest):
         assert props["is_package_unpublished"]["type"] == "boolean"
         assert "is_package_unpublished" in required
 
+    def test_schema_contains_recommended_version_in_package_metrics(self, schema):
+        props = schema["$defs"]["PackageMetrics"]["properties"]
+        required = schema["$defs"]["PackageMetrics"]["required"]
+        assert "recommended_version" in props
+        assert props["recommended_version"]["type"] == ["string", "null"]
+        assert "recommended_version" not in required
+
+    def test_recommended_version_not_in_transitive_package_metrics(self, schema):
+        props = schema["$defs"]["TransitivePackageMetrics"]["properties"]
+        assert "recommended_version" not in props
+
     def test_v1_3_schema_still_registered(self, registry):
         path = registry.get_schema_path(ExportJsonSchemaVersion.V1_3)
         assert path.exists()

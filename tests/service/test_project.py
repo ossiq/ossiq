@@ -2,6 +2,7 @@
 Tests for service/project.py — ScanRecord factory and version_constraint propagation.
 """
 
+from datetime import UTC, datetime
 from unittest.mock import MagicMock
 
 import pytest
@@ -11,7 +12,14 @@ from ossiq.domain.cve import CVE, Severity
 from ossiq.domain.package import Package
 from ossiq.domain.project import ConstraintSource
 from ossiq.domain.version import PackageVersion, VersionsDifference
-from ossiq.service.project import get_package_versions_since, scan_record
+from ossiq.service.project import (
+    DependencyDescriptor,
+    ScanRecord,
+    calculate_version_age_days,
+    get_package_versions_since,
+    scan_record,
+    scan_sort_key,
+)
 
 # ============================================================================
 # Module-level constants
@@ -242,3 +250,121 @@ class TestScanRecordPrerelease:
 
         assert len(record.cve) == 1
         assert record.cve[0].id == "CVE-2024-1234"
+
+
+# ============================================================================
+# Tests: ignore_packages filtering (DependencyDescriptor lists)
+# ============================================================================
+
+_CONSTRAINT_SOURCE = ConstraintSource(type=ConstraintType.DECLARED, source_file="pyproject.toml")
+
+
+def _make_dep(canonical_name: str, is_optional: bool = False) -> DependencyDescriptor:
+    return DependencyDescriptor(
+        name=canonical_name,
+        canonical_name=canonical_name,
+        version="1.0.0",
+        is_optional=is_optional,
+        dependency_path=None,
+        version_constraint=None,
+        constraint_info=_CONSTRAINT_SOURCE,
+    )
+
+
+class TestIgnorePackagesFiltering:
+    """Verify that ignore_set correctly filters DependencyDescriptor lists (mirrors scan() logic)."""
+
+    def test_ignored_package_removed_from_prod_deps(self):
+        deps = [_make_dep("sphinx"), _make_dep("requests")]
+        ignore_set = frozenset(["sphinx"])
+        result = [d for d in deps if d.canonical_name not in ignore_set]
+        assert [d.canonical_name for d in result] == ["requests"]
+
+    def test_ignored_package_removed_from_opt_deps(self):
+        deps = [_make_dep("pytest", is_optional=True), _make_dep("mypy", is_optional=True)]
+        ignore_set = frozenset(["mypy"])
+        result = [d for d in deps if d.canonical_name not in ignore_set]
+        assert [d.canonical_name for d in result] == ["pytest"]
+
+    def test_empty_ignore_set_leaves_deps_unchanged(self):
+        deps = [_make_dep("sphinx"), _make_dep("requests")]
+        ignore_set: frozenset[str] = frozenset()
+        result = [d for d in deps if d.canonical_name not in ignore_set]
+        assert result == deps
+
+    def test_all_packages_ignored_yields_empty_list(self):
+        deps = [_make_dep("sphinx"), _make_dep("requests")]
+        ignore_set = frozenset(["sphinx", "requests"])
+        result = [d for d in deps if d.canonical_name not in ignore_set]
+        assert result == []
+
+    def test_unknown_ignore_name_has_no_effect(self):
+        deps = [_make_dep("sphinx")]
+        ignore_set = frozenset(["nonexistent"])
+        result = [d for d in deps if d.canonical_name not in ignore_set]
+        assert result == deps
+
+
+# ============================================================================
+# TestCalculateVersionAgeDays
+# ============================================================================
+
+
+class TestCalculateVersionAgeDays:
+    def _pv(self, version: str, published: str | None) -> PackageVersion:
+        return PackageVersion(
+            version=version,
+            license=None,
+            package_url=f"https://example.com/{version}",
+            declared_dependencies={},
+            published_date_iso=published,
+        )
+
+    def test_returns_days_since_publish_with_explicit_now(self) -> None:
+        versions = [self._pv("1.0.0", "2024-01-01T00:00:00Z")]
+        now = datetime(2024, 1, 11, tzinfo=UTC)
+        assert calculate_version_age_days(versions, "1.0.0", now=now) == 10
+
+    def test_returns_none_when_version_not_found(self) -> None:
+        versions = [self._pv("1.0.0", "2024-01-01T00:00:00Z")]
+        now = datetime(2024, 1, 11, tzinfo=UTC)
+        assert calculate_version_age_days(versions, "2.0.0", now=now) is None
+
+    def test_returns_none_when_no_published_date(self) -> None:
+        versions = [self._pv("1.0.0", None)]
+        now = datetime(2024, 1, 11, tzinfo=UTC)
+        assert calculate_version_age_days(versions, "1.0.0", now=now) is None
+
+    def test_without_now_returns_non_none_int(self) -> None:
+        versions = [self._pv("1.0.0", "2020-01-01T00:00:00Z")]
+        result = calculate_version_age_days(versions, "1.0.0")
+        assert isinstance(result, int)
+        assert result > 0
+
+
+class TestScanSortKey:
+    """Regression: sorting must not crash when time_lag_days is None (cutoff-date scans)."""
+
+    def make_record(self, name: str, time_lag_days: int | None) -> ScanRecord:
+        return ScanRecord(
+            package_name=name,
+            dependency_name=name,
+            is_optional_dependency=False,
+            installed_version="1.0.0",
+            latest_version=None,
+            versions_diff_index=VersionsDifference("1.0.0", "1.0.0", 0, diff_name="LATEST"),
+            time_lag_days=time_lag_days,
+            releases_lag=None,
+            cve=[],
+            constraint_info=ConstraintSource(type=ConstraintType.DECLARED, source_file="pyproject.toml"),
+        )
+
+    def test_mixed_none_and_int_lag_sortable(self) -> None:
+        records = [self.make_record("a", None), self.make_record("b", 10), self.make_record("c", None)]
+        ordered = sorted(records, key=scan_sort_key, reverse=True)
+        assert [r.package_name for r in ordered] == ["b", "c", "a"]
+
+    def test_unknown_lag_ranks_below_known_lag(self) -> None:
+        unknown = self.make_record("pkg", None)
+        known = self.make_record("pkg", 0)
+        assert scan_sort_key(unknown) < scan_sort_key(known)

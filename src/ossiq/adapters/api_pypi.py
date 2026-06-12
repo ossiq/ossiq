@@ -7,13 +7,13 @@ from collections.abc import Iterable
 import requests
 from packaging.version import InvalidVersion
 from packaging.version import Version as PackagingVersion
-from rich.console import Console
 
 from ossiq.adapters.api_interfaces import AbstractPackageRegistryApi
+from ossiq.adapters.package_managers.api_pypi import batch_fetch_requires_dist, parse_requires_dist
 from ossiq.clients.batch import BatchClient
 from ossiq.clients.client_pypi import PypiBatchStrategy
 from ossiq.clients.common import get_user_agent
-from ossiq.domain.common import ProjectPackagesRegistry
+from ossiq.domain.common import ConstraintType, ProjectPackagesRegistry
 from ossiq.domain.exceptions import UnableLoadPackage
 from ossiq.domain.package import Package
 from ossiq.domain.version import (
@@ -30,8 +30,6 @@ from ossiq.domain.version import (
     create_version_difference_no_diff,
 )
 from ossiq.settings import Settings
-
-console = Console()
 
 PYPI_REGISTRY_FRONT = "https://pypi.org"
 
@@ -249,6 +247,7 @@ class PackageRegistryApiPypi(AbstractPackageRegistryApi):
         self.session = requests.Session()
         self.session.headers.update({"User-Agent": get_user_agent()})
         self._raw_cache = {}
+        self._version_requires_cache: dict[tuple[str, str], dict[str, str]] = {}
         self._strategy = PypiBatchStrategy(self.session)
         self._batch_client = BatchClient(self._strategy)
 
@@ -324,11 +323,21 @@ class PackageRegistryApiPypi(AbstractPackageRegistryApi):
             # A version is considered yanked if all its files are yanked.
             is_yanked = all(f.get("yanked") for f in release_files)
 
+            # requires_python is per-file but consistent across files for a given version.
+            requires_python = next(
+                (f.get("requires_python") for f in release_files if f.get("requires_python")),
+                None,
+            )
+
             # Only the latest version has requires_dist in the main response.
             dependencies = {}
             if version == info["version"]:
                 # This is a list of strings, convert it to the dict format like npm's.
                 dependencies = {dep: "" for dep in latest_version_dependencies}
+                # Zero-cost cache warmup: populate _version_requires_cache from data we already have.
+                key = (package_name, version)
+                if key not in self._version_requires_cache:
+                    self._version_requires_cache[key] = parse_requires_dist(latest_version_dependencies)
 
             # PyPI API gap: No equivalent for 'unpublished_date_iso'.
             yield PackageVersion(
@@ -341,4 +350,65 @@ class PackageRegistryApiPypi(AbstractPackageRegistryApi):
                 is_yanked=is_yanked,
                 unpublished_date_iso=None,
                 is_prerelease=PackagingVersion(version).is_prerelease,
+                runtime_requirements={"python": requires_python} if requires_python else None,
             )
+
+    def package_version_requires(self, package_name: str, version: str) -> dict[str, str]:
+        """Return {normalized_dep_name: version_specifier} for a specific published version.
+
+        Returns empty dict if the version is not found or has no runtime dependencies.
+        """
+        key = (package_name, version)
+        if key not in self._version_requires_cache:
+            raw = batch_fetch_requires_dist([key], self.session)
+            self._version_requires_cache[key] = parse_requires_dist(raw.get(key, []))
+        return self._version_requires_cache[key]
+
+    @staticmethod
+    def rewrite_specifier(
+        specifier: str | None,
+        new_version: str,
+        constraint_type: ConstraintType | None = None,
+    ) -> str | None:
+        """Rewrite a PyPI version specifier for an updated package version.
+
+        Returns the rewritten specifier, or the original value if no manifest edit is needed.
+        When the return value equals the input specifier, callers should skip pyproject.toml
+        edits and pass the package to --upgrade-package on uv lock instead.
+
+        DECLARED (>=x): returned unchanged — lockfile-only update.
+        PINNED (==x.y.z): rewritten to ==new_version.
+        NARROWED with ~=: preserves the N-part format using parts of new_version.
+        NARROWED other (compound, ==x.*, !=, etc.): falls back to ==new_version.
+        OVERRIDE / ADDITIVE: returned unchanged — managed by external tooling.
+        """
+        if constraint_type in (ConstraintType.DECLARED, ConstraintType.OVERRIDE, ConstraintType.ADDITIVE):
+            return specifier
+
+        if constraint_type == ConstraintType.PINNED:
+            return f"=={new_version}"
+
+        # NARROWED: try to preserve ~= operator
+        if specifier and specifier.startswith("~="):
+            old_parts = specifier[2:].strip().split(".")
+            new_parts = new_version.split(".")
+            result_parts = new_parts[: len(old_parts)]
+            while len(result_parts) < len(old_parts):
+                result_parts.append("0")
+            return f"~={'.'.join(result_parts)}"
+
+        # Other NARROWED (compound >=x,<y, ==x.*, !=x, <x, etc.) — fall back to exact pin
+        return f"=={new_version}"
+
+    def warmup_version_requires(self, pairs: list[tuple[str, str]]) -> None:
+        """Batch-fetch requires_dist for (package, version) pairs not yet in the cache.
+
+        Uses the existing parallel batch client — replaces N sequential HTTP calls
+        (one per simulate_single invocation) with a single parallel prefetch.
+        """
+        missing = [p for p in pairs if p not in self._version_requires_cache]
+        if not missing:
+            return
+        raw = batch_fetch_requires_dist(missing, self.session)
+        for key in missing:
+            self._version_requires_cache[key] = parse_requires_dist(raw.get(key, []))

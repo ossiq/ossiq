@@ -10,11 +10,17 @@ Run from repo root. No network-sensitive operations.
 uv run hatch run ossiq-cli --version
 uv run hatch run ossiq-cli --help
 uv run hatch run ossiq-cli scan --help
+uv run hatch run ossiq-cli update --help
+uv run hatch run ossiq-cli update plan --help
+uv run hatch run ossiq-cli update execute --help
 ```
 
 - [ ] `--version` prints a semver string
-- [ ] `--help` lists `scan`, `package`, `export`, `help` subcommands
-- [ ] `scan --help` lists `--solver`, `--production`, `--allow-prerelease`, `--registry-type`, `--presentation`, `--output`
+- [ ] `--help` lists `scan`, `package`, `export`, `update`, `helpers` subcommands
+- [ ] `scan --help` lists `--security`, `--full`, `--production`, `--allow-prerelease`, `--registry-type`, `--presentation`, `--output`, `--ignore`
+- [ ] `update --help` lists `plan` and `execute` as subcommands (no direct flags)
+- [ ] `update plan --help` lists `--pin-all`, `--rewrite-versions`, `--script`, `--ignore` / `-i`
+- [ ] `update execute --help` lists `--yes` / `-y`, `--pin-all`, `--rewrite-versions`, `--ignore` / `-i`
 
 ---
 
@@ -80,3 +86,16 @@ uv run just qa
 ```
 
 - [ ] All tests pass (0 failures; any skips/xfails are expected and documented)
+
+---
+
+## TC-G08: `helpers` command group help
+
+```bash
+uv run hatch run ossiq-cli helpers --help
+uv run hatch run ossiq-cli helpers npm --help
+```
+
+- [ ] `helpers --help` lists `npm` as a subcommand with a description
+- [ ] `helpers npm --help` lists `freeze-state`, `restore-state`, and `overrides-diff` with descriptions
+- [ ] No crash or traceback

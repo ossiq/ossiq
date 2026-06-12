@@ -20,8 +20,10 @@ In a typical project with hundreds of dependencies, how do you answer these ques
 ## Key Features
 
 - **Security Blind Spots**: Go beyond `npm audit` to see which vulnerabilities actually matter and how to prioritize them.
-- **Multiple Output Formats**: CLI and interactive HTML per-project dependnecies exploration tools as well as export into clearly defined JSON or CSV schemas.
+- **Multiple Output Formats**: CLI and interactive HTML per-project dependencies exploration tools as well as export into clearly defined JSON or CSV schemas.
 - **CI/CD Integration**: Use scores and metrics to build quality gates and enforce dependency policies automatically.
+- **Peer Dependency Analysis**: Detect peer constraint violations, compliance-by-override status, and dead-end configurations where no compatible version exists across both npm and Python ecosystems.
+- **Transitive Impact Simulation**: Before recommending an update, simulate the full transitive cascade — see exactly which downstream packages would change, whether conflicts arise, and get a fallback recommendation when the best version is blocked.
 
 OSS IQ bridges the gap between raw dependency data and actionable intelligence. It analyzes version lag, CVEs, transitive dependencies, and maintainer activity to produce a single, holistic view of your project dependencies.
 
@@ -39,14 +41,17 @@ OSS IQ bridges the gap between raw dependency data and actionable intelligence. 
 The fastest way is to run directly from [PyPI](https://pypi.org/) with [uvx](https://docs.astral.sh/uv/) with no install required:
 
 ```bash
-# JavaScript / npm
-uvx --from ossiq ossiq-cli scan /path/to/your/project
-
-# Python / uv / pip
-uvx --from ossiq ossiq-cli scan /path/to/your/project
+# JavaScript / npm or Python / uv / pip — run from your project directory
+uvx --from ossiq ossiq-cli status
 
 # Generate HTML report
-uvx --from ossiq ossiq-cli scan --presentation=html --output report.html /path/to/your/project
+uvx --from ossiq ossiq-cli status --presentation=html --output report.html
+
+# Show all packages, including up-to-date ones
+uvx --from ossiq ossiq-cli status --full
+
+# Narrow to CVE-affected packages only (security-first workflow)
+uvx --from ossiq ossiq-cli status --security
 ```
 
 OSS IQ automatically detects the dependency manifest (`package.json`, `pyproject.toml`, etc.) in the target directory.
@@ -60,6 +65,35 @@ OSS IQ performs deep analysis by mining software repository history, which can i
 export OSSIQ_GITHUB_TOKEN=$(gh auth token)
 ```
 
+#### Temporal Analysis Options
+
+Two global options let you control how OSS IQ perceives time. They apply to all subcommands (`status`, `export`, `plan`, `apply`, `info`) and can be combined freely.
+
+| Option | Env var | Default | Description |
+|---|---|---|---|
+| `--cutoff-date YYYY-MM-DD` | `OSSIQ_CUTOFF_DATE` | today | Treat versions published after this date as invisible (23:59:59 UTC of that day). Enables time-travel QA. |
+| `--cooldown-period N` | `OSSIQ_COOLDOWN_PERIOD` | `7` | Versions younger than N days receive a freshness soft-penalty in the solver, reducing the risk of picking very new releases. |
+
+```bash
+# Reproduce the exact state of your dependencies as of a past date
+ossiq-cli --cutoff-date 2025-01-01 status
+
+# Widen the freshness buffer to 14 days (versions < 14 days old are soft-penalized)
+ossiq-cli --cooldown-period 14 status
+
+# Both together: time-travel view with a custom freshness window
+ossiq-cli --cutoff-date 2025-01-01 --cooldown-period 14 status
+
+# Disable the freshness penalty entirely
+ossiq-cli --cooldown-period 0 status
+```
+
+The options are also readable from environment variables, which is useful for CI pipelines:
+
+```bash
+OSSIQ_CUTOFF_DATE=2025-01-01 OSSIQ_COOLDOWN_PERIOD=14 ossiq-cli status
+```
+
 
 If you prefer a persistent install:
 
@@ -71,7 +105,7 @@ uv add ossiq
 pip install ossiq
 
 # Then run directly
-ossiq-cli scan /path/to/your/project
+ossiq-cli status
 ```
 
 ### Using Docker
@@ -85,18 +119,18 @@ docker pull ossiq/ossiq-cli
 # Set your GitHub token (required)
 export OSSIQ_GITHUB_TOKEN=$(gh auth token)
 
-# Scan a local project
+# Show dependency status
 docker run --rm \
   -e OSSIQ_GITHUB_TOKEN \
   -v /path/to/your/project:/project:ro \
-  ossiq/ossiq-cli scan /project
+  ossiq/ossiq-cli status /project
 
 # Generate an HTML report
 docker run --rm \
   -e OSSIQ_GITHUB_TOKEN \
   -v /path/to/your/project:/project:ro \
   -v $(pwd)/reports:/output \
-  ossiq/ossiq-cli scan -p html -o /output/report.html /project
+  ossiq/ossiq-cli status -p html -o /output/report.html /project
 
 # Export to JSON for CI/CD pipelines
 docker run --rm \
@@ -124,48 +158,139 @@ jobs:
           docker run --rm \
             -e OSSIQ_GITHUB_TOKEN=${{ secrets.GITHUB_TOKEN }} \
             -v ${{ github.workspace }}:/project:ro \
-            ossiq/ossiq-cli scan /project
+            ossiq/ossiq-cli status /project
 ```
 
-### Development Mode
+### Dependency Update Plan
 
-To contribute or run from source:
+`ossiq-cli plan` shows what the solver recommends without touching any files. `ossiq-cli apply` executes those changes with rollback on failure.
 
 ```bash
-# Clone the repository
-git clone https://github.com/ossiq/ossiq.git
-cd ossiq
+# Show the plan table (read-only, no changes made)
+ossiq-cli plan
 
-# Install dependencies
-uv sync
+# Emit a copy-pasteable bash script instead of the table
+ossiq-cli plan --script
 
-# Run the CLI
-uv run hatch run ossiq-cli scan /path/to/your/project
+# Apply updates interactively (shows the plan, then prompts for confirmation)
+ossiq-cli apply
 
-# Generate HTML report
-uv run hatch run ossiq-cli scan -p html -o ./test_report.html /path/to/your/project
+# Apply updates non-interactively (skip confirmation, for CI)
+ossiq-cli apply --yes
 ```
 
-### Package Deep-Dive
+The solver simulates the full transitive impact of each recommendation before committing to it. When the top candidate would create a downstream conflict, it falls back to the next-best version automatically. The plan table shows a `↳` sub-row for each transitive package that would also move, and marks non-actionable entries with `✗`.
 
-Inspect a single package in detail — drift status, CVEs, transitive vulnerabilities, and its exact path in the dependency tree:
+**npm** — backs up `package.json`, injects all recommended versions as `overrides` in one pass, runs `npm install --ignore-scripts`, then removes the overrides block.
+
+**uv / pip** — rewrites specifiers in `pyproject.toml` or `requirements.txt` in-place, then runs `uv lock --upgrade-package` / `pip install -c <constraints>`. Changes are rolled back automatically if the update fails.
+
+#### Options
+
+| Option | Description |
+|---|---|
+| `--production` | Limit to production dependencies only |
+| `--registry-type npm\|pypi` | Narrow to a specific ecosystem |
+| `--security` | Include only CVE-affected packages (direct and transitive) in the update plan |
+| `--allow-prerelease` | Include pre-release versions across all packages |
+| `--allow-prerelease-package <name>` | Allow pre-release for a specific package (repeatable) |
+| `--ignore <name>`, `-i` | Exclude a package from the update plan entirely (repeatable) |
+| `--override <pkg>==<ver>` | Force a package to an exact version, bypassing the solver and the cooldown (repeatable) |
+| `--pin-all` | Write `==new_version` for every updated direct dependency, converting loose specifiers (`^`, `~=`, `>=`) to exact pins |
+| `--rewrite-versions` | Include already-pinned (`==x.y.z`) dependencies in the update and rewrite their pinned version |
+| `--script` | (`plan` only) Print the bash script instead of the plan table — safe to pipe directly to `bash` |
+| `--yes`, `-y` | (`apply` only) Skip the confirmation prompt |
+
+All flags are accepted by both `plan` and `apply` (except where noted), so a `plan` invocation is always
+a faithful preview of the matching `apply`.
+
+#### Pinning workflow — `--pin-all` and `--rewrite-versions`
+
+By default, packages already pinned with an exact specifier (`==x.y.z`) are **frozen** and excluded from the update plan. This prevents accidental upgrades when you have intentionally locked a version. Use `--pin-all` and `--rewrite-versions` together to manage a fully-pinned dependency file:
 
 ```bash
-ossiq-cli package /path/to/your/project react
-ossiq-cli package /path/to/your/project lodash --registry-type npm
+# Step 1: migrate all direct deps to exact pins (==x.y.z)
+ossiq-cli apply --pin-all
+
+# Step 2: on subsequent runs, preview what newer versions are available
+#         (pinned deps are frozen and not shown by default)
+ossiq-cli plan
+
+# Step 3: upgrade and re-pin everything in one pass
+ossiq-cli apply --pin-all --rewrite-versions
+
+# Step 3 (selective): hold back specific packages while updating the rest
+ossiq-cli apply --pin-all --rewrite-versions --ignore requests --ignore django
 ```
 
-The output mirrors the structure of the dependency detail panel:
+**Flag behaviour summary:**
 
-```
-[01] DRIFT STATUS       — version lag bar, releases behind, latest version
-[02] DEPENDENCY TREE TRACE — ancestry path from root to the package
-[03] POLICY COMPLIANCE  — declared constraint vs. resolved vs. latest
-[04] SECURITY ADVISORIES — direct CVEs with severity and source
-[05] VIA TRANSITIVE DEPENDENCIES — CVEs in packages pulled in by this one
+| Flags | `>=x` (declared) | `~=x` (narrowed) | `==x` (pinned) |
+|---|---|---|---|
+| *(none)* | lockfile-only update | rewrite `~=new` | frozen / skipped |
+| `--pin-all` | rewrite `==new` | rewrite `==new` | frozen / skipped |
+| `--rewrite-versions` | lockfile-only update | rewrite `~=new` | rewrite `==new` |
+| `--pin-all --rewrite-versions` | rewrite `==new` | rewrite `==new` | rewrite `==new` |
+
+#### Cooldown: how freshness is handled
+
+The `--cooldown-period` (default: 7 days) protects you from supply-chain attacks that ride on
+freshly published releases. It acts at two levels:
+
+1. **Inside the solver**, versions younger than the cooldown receive a heavy soft-penalty, so an
+   older stable version wins whenever one satisfies the constraints.
+2. **After solving**, any remaining recommendation younger than the cooldown is withheld from the
+   plan and listed in a separate *"Held for cooldown"* section — it is never applied.
+
+Two deliberate exceptions:
+
+- **CVE fixes bypass the hold.** When the *installed* version of a package carries a known CVE, its
+  recommendation is applied even if the target version is brand-new — the known-vulnerability
+  exposure outweighs the freshness risk. These entries are tagged `CVE` in the plan table, and a
+  `cooldown bypassed` note explains why a fresh version got through.
+- **Brand-new transitive dependencies are outside the hold.** When an upgrade pulls in a package
+  that was not previously in your tree, its version is resolved by npm/uv at apply time, not by the
+  solver. The plan's *"New transitive dependencies"* table shows the projected version and its age,
+  and flags entries younger than the cooldown with `⚠` so you can review them before applying.
+
+#### What if a quarantined version fixes a CVE?
+
+Sometimes the only version that fixes a CVE is younger than your cooldown period — it is, in
+cooldown terms, still "quarantined". You are trading one risk against another: the *known* risk of
+the unpatched CVE versus the *statistical* risk of a very fresh release (supply-chain compromise,
+regressions). OSS IQ gives you three levers, from automatic to fully manual:
+
+1. **Default behaviour** — if the installed version carries a CVE, the fix is recommended and
+   applied regardless of its age. For most teams this is the right default: a concrete CVE beats a
+   hypothetical supply-chain risk.
+2. **`--security`** — narrow the run to CVE-affected packages only: `ossiq-cli apply --security --yes`
+   patches vulnerabilities and touches nothing else. Ideal for an out-of-band security patch while
+   the regular update cadence stays on cooldown.
+3. **`--override pkg==version`** — force one exact version when you have vetted it yourself:
+   `ossiq-cli apply --override urllib3==2.0.7`. This bypasses the solver's compatibility checks and
+   the cooldown for that package. For a direct dependency the specifier is rewritten to the exact
+   version; for a transitive dependency a **persistent** override entry is written (`overrides` in
+   `package.json`, `override-dependencies` under `[tool.uv]`) so the forced version survives future
+   installs. Remove the entry once a compatible release exists — `ossiq-cli status` reports such
+   packages with the `OVERRIDE` constraint type so they stay visible.
+
+#### Iterative updates: why a second `plan` can show more
+
+The solver resolves updates in a **single pass** against your current lockfile. Applying a plan
+re-resolves the dependency tree — updated packages bring new constraints and sometimes new
+transitive dependencies — which can unlock further recommendations that were not visible before.
+
+```bash
+# Typical convergence loop: repeat until the plan is empty
+ossiq-cli apply --yes
+ossiq-cli plan       # may show new recommendations against the re-resolved tree
+ossiq-cli apply --yes
+ossiq-cli plan       # "No updates recommended" → converged
 ```
 
-If the package appears in multiple places in the tree (hoisted duplicates, diamond dependencies), each occurrence is shown separately with a **SHARED NODE** indicator.
+This is expected behaviour, not an incomplete first run: recommending against the *actual* resolved
+tree (rather than a speculative future tree) keeps every step verifiable. Most projects converge in
+one or two passes.
 
 ## Supported Ecosystems
 
@@ -197,6 +322,49 @@ OSS IQ aggregates data from the following public sources:
 | [NPM Registry](https://www.npmjs.com/) | Package metadata and version history for JavaScript packages |
 | [PyPI](https://pypi.org/) | Package metadata and version history for Python packages |
 | [GitHub](https://github.com/) | Repository activity, releases, and maintainer signals |
+
+
+### Development Mode
+
+To contribute or run from source:
+
+```bash
+# Clone the repository
+git clone https://github.com/ossiq/ossiq.git
+cd ossiq
+
+# Install dependencies
+uv sync
+
+# Run the CLI
+uv run hatch run ossiq-cli status
+
+# Generate HTML report
+uv run hatch run ossiq-cli status -p html -o ./test_report.html
+```
+
+### Package Deep-Dive
+
+Inspect a single package in detail — drift status, CVEs, transitive vulnerabilities, and its exact path in the dependency tree:
+
+```bash
+ossiq-cli info react
+ossiq-cli info lodash --registry-type npm
+```
+
+The output mirrors the structure of the dependency detail panel:
+
+```
+[01] DRIFT STATUS            — version lag bar, releases behind, latest version
+[02] DEPENDENCY TREE TRACE   — ancestry path from root to the package
+[03] POLICY COMPLIANCE       — declared constraint vs. resolved vs. latest
+[04] SECURITY ADVISORIES     — direct CVEs with severity and source
+[05] VIA TRANSITIVE DEPENDENCIES — CVEs in packages pulled in by this one
+[08] PEER REQUIREMENTS       — per-requirement status: ok / violation / compliance-via-override
+```
+
+If the package appears in multiple places in the tree (hoisted duplicates, diamond dependencies), each occurrence is shown separately with a **SHARED NODE** indicator.
+
 
 ## FAQ
 

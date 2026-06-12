@@ -1,7 +1,4 @@
-"""
-HTML renderer for scan command.
-Migrated from presentation/scan/view_html.py
-"""
+"""HTML renderer for status command."""
 
 import os
 from pathlib import Path
@@ -15,16 +12,16 @@ from ossiq.ui.renderers.export.json_schema_registry import json_schema_registry
 from ossiq.ui.renderers.export.models import build_export_data
 
 
-class HtmlScanRenderer(AbstractUserInterfaceRenderer):
-    """HTML renderer for scan command."""
+class HtmlStatusRenderer(AbstractUserInterfaceRenderer):
+    """HTML renderer for status command."""
 
-    command = Command.SCAN
+    command = Command.STATUS
     user_interface_type = UserInterfaceType.HTML
 
     @staticmethod
     def supports(command: Command, user_interface_type: UserInterfaceType) -> bool:
-        """Check if this renderer handles scan/html combination."""
-        return command == Command.SCAN and user_interface_type == UserInterfaceType.HTML
+        """Check if this renderer handles status/html combination."""
+        return command == Command.STATUS and user_interface_type == UserInterfaceType.HTML
 
     def render(self, data: ScanResult, **kwargs) -> None:
         """

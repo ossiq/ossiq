@@ -5,6 +5,7 @@
 CLAUDE.md
 
 # test dataset
+qa_logs/
 frontend/datasets/
 
 # Caches

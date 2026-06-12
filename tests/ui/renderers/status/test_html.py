@@ -1,5 +1,5 @@
 """
-Tests for HTML scan renderer.
+Tests for HTML status renderer.
 
 This test suite follows pytest best practices:
 - AAA pattern (Arrange-Act-Assert) for clear test structure
@@ -20,7 +20,7 @@ from ossiq.domain.project import ConstraintSource
 from ossiq.domain.version import VersionsDifference
 from ossiq.service.project import ScanRecord, ScanResult
 from ossiq.settings import Settings
-from ossiq.ui.renderers.scan.html import HtmlScanRenderer
+from ossiq.ui.renderers.status.html import HtmlStatusRenderer
 
 
 @pytest.fixture
@@ -85,16 +85,16 @@ def output_file(tmp_path):
     # Cleanup happens automatically via tmp_path
 
 
-class TestHtmlScanRenderer:
-    """Test suite for HTML scan renderer."""
+class TestHtmlStatusRenderer:
+    """Test suite for HTML status renderer."""
 
     @pytest.mark.parametrize(
         "command,user_interface_type,expected",
         [
-            (Command.SCAN, UserInterfaceType.HTML, True),
+            (Command.STATUS, UserInterfaceType.HTML, True),
             (Command.EXPORT, UserInterfaceType.HTML, False),
-            (Command.SCAN, UserInterfaceType.CONSOLE, False),
-            (Command.SCAN, UserInterfaceType.JSON, False),
+            (Command.STATUS, UserInterfaceType.CONSOLE, False),
+            (Command.STATUS, UserInterfaceType.JSON, False),
         ],
     )
     def test_supports_command_presentation_combinations(self, command, user_interface_type, expected):
@@ -106,7 +106,7 @@ class TestHtmlScanRenderer:
         - Assert: Verify expected support result
         """
         # Act
-        result = HtmlScanRenderer.supports(command, user_interface_type)
+        result = HtmlStatusRenderer.supports(command, user_interface_type)
 
         # Assert
         assert result == expected
@@ -120,7 +120,7 @@ class TestHtmlScanRenderer:
         - Assert: Verify file exists and contains expected HTML structure
         """
         # Arrange
-        renderer = HtmlScanRenderer(settings)
+        renderer = HtmlStatusRenderer(settings)
 
         # Act
         renderer.render(sample_project_metrics, destination=str(output_file))
@@ -139,7 +139,7 @@ class TestHtmlScanRenderer:
         - Assert: Verify JSON script tag exists and placeholder is replaced
         """
         # Arrange
-        renderer = HtmlScanRenderer(settings)
+        renderer = HtmlStatusRenderer(settings)
 
         # Act
         renderer.render(sample_project_metrics, destination=str(output_file))
@@ -158,7 +158,7 @@ class TestHtmlScanRenderer:
         - Assert: Verify JSON is valid and contains expected data
         """
         # Arrange
-        renderer = HtmlScanRenderer(settings)
+        renderer = HtmlStatusRenderer(settings)
         renderer.render(sample_project_metrics, destination=str(output_file))
 
         # Act
@@ -185,7 +185,7 @@ class TestHtmlScanRenderer:
         - Assert: Verify all expected keys are present
         """
         # Arrange
-        renderer = HtmlScanRenderer(settings)
+        renderer = HtmlStatusRenderer(settings)
         renderer.render(sample_project_metrics, destination=str(output_file))
 
         # Act
@@ -208,7 +208,7 @@ class TestHtmlScanRenderer:
         - Assert: Verify file created with actual project name
         """
         # Arrange
-        renderer = HtmlScanRenderer(settings)
+        renderer = HtmlStatusRenderer(settings)
         output_template = tmp_path / "report_{project_name}.html"
 
         # Act
@@ -226,7 +226,7 @@ class TestHtmlScanRenderer:
         - Act & Assert: Verify exception is raised
         """
         # Arrange
-        renderer = HtmlScanRenderer(settings)
+        renderer = HtmlStatusRenderer(settings)
 
         # Act & Assert
         with pytest.raises(DestinationDoesntExist):
@@ -248,7 +248,7 @@ class TestHtmlScanRenderer:
             production_packages=[],
             optional_packages=[],
         )
-        renderer = HtmlScanRenderer(settings)
+        renderer = HtmlStatusRenderer(settings)
 
         # Act
         renderer.render(metrics, destination=str(output_file))
@@ -271,10 +271,10 @@ class TestHtmlScanRenderer:
         - Assert: Verify file is present
         """
         # Arrange
-        import ossiq.ui.renderers.scan.html
+        import ossiq.ui.renderers.status.html
 
         spa_template_path = (
-            Path(ossiq.ui.renderers.scan.html.__file__).parent.parent.parent / "html_templates" / "spa_app.html"
+            Path(ossiq.ui.renderers.status.html.__file__).parent.parent.parent / "html_templates" / "spa_app.html"
         )
 
         # Act & Assert
@@ -289,7 +289,7 @@ class TestHtmlScanRenderer:
         - Assert: Verify package data is present
         """
         # Arrange
-        renderer = HtmlScanRenderer(settings)
+        renderer = HtmlStatusRenderer(settings)
         renderer.render(sample_project_metrics, destination=str(output_file))
 
         # Act
@@ -315,7 +315,7 @@ class TestHtmlScanRenderer:
         - Assert: Verify CVE data is present
         """
         # Arrange
-        renderer = HtmlScanRenderer(settings)
+        renderer = HtmlStatusRenderer(settings)
         renderer.render(sample_project_metrics, destination=str(output_file))
 
         # Act

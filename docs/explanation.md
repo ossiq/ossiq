@@ -35,6 +35,23 @@ By tracking longitudinal signals, architects can:
   - Identify Structural Fragility: Spot dependencies that are becoming "single points of failure" due to dwindling community support.
   - Standardize Evaluation: Move from subjective "vibes" to a structured rubric for dependency on-boarding.
 
+### Cooldown as Supply-Chain Quarantine
+
+A growing share of supply-chain attacks ride on *freshly published* releases: a maintainer account
+is compromised, a malicious version is pushed, and automated update tooling distributes it before
+anyone notices. The cooldown period (`--cooldown-period`, default 7 days) treats version age as a
+quarantine: very fresh releases are penalized in the solver and withheld from the update plan until
+they have survived in the wild for a while.
+
+Quarantine creates one deliberate tension: what if the quarantined version fixes a CVE? OSS IQ
+resolves it in favour of the *known* risk — a package whose installed version carries a CVE bypasses
+the cooldown hold, because a concrete vulnerability outweighs the statistical freshness risk. The
+bypass is always visible in the plan (a `CVE` tag and a "cooldown bypassed" note), and teams that
+want manual control can scope runs with `--security` or force a vetted version with
+`--override pkg==version`. Brand-new transitive dependencies sit outside the quarantine — they are
+resolved by the native package manager — so the plan surfaces their age and flags fresh ones with
+`⚠` instead of silently admitting them.
+
 ### Governance at Scale
 
 When it's not about micro-managing individual package choices, but about managing a portfolio of risk you want to ensure your teams aren't just "fixing bugs" but building on sustainable foundations.

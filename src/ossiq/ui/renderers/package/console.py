@@ -95,7 +95,7 @@ def _collect_licenses(records: list[ScanRecord]) -> list[str]:
 class ConsolePackageRenderer(AbstractUserInterfaceRenderer):
     """Console renderer for the package deep-dive command."""
 
-    command = Command.PACKAGE
+    command = Command.INFO
     user_interface_type = UserInterfaceType.CONSOLE
 
     def __init__(self, settings: Settings):
@@ -104,7 +104,7 @@ class ConsolePackageRenderer(AbstractUserInterfaceRenderer):
 
     @staticmethod
     def supports(command: Command, user_interface_type: UserInterfaceType) -> bool:
-        return command == Command.PACKAGE and user_interface_type == UserInterfaceType.CONSOLE
+        return command == Command.INFO and user_interface_type == UserInterfaceType.CONSOLE
 
     def render(self, data: PackageDetailResult, **kwargs) -> None:
         """Render single-package deep-dive to console."""
@@ -126,6 +126,9 @@ class ConsolePackageRenderer(AbstractUserInterfaceRenderer):
             if record.recommended_version is not None:
                 self._render_recommendation_rationale(record)
                 self.console.print()
+            if record.peer_requirements:
+                self.render_peer_requirements(record)
+                self.console.print()
 
         self._render_security_advisories(data.records)
         self.console.print()
@@ -138,7 +141,7 @@ class ConsolePackageRenderer(AbstractUserInterfaceRenderer):
 
         self.console.print()
 
-    # ── Header ─────────────────────────────────────────────────────────────────
+    # ── Header
 
     def _render_header(self, data: PackageDetailResult) -> None:
         records = data.records
@@ -182,7 +185,7 @@ class ConsolePackageRenderer(AbstractUserInterfaceRenderer):
 
         self.console.print(Panel(Text.assemble(title, "\n", meta), expand=False, border_style="cyan"))
 
-    # ── [01] Drift Status ──────────────────────────────────────────────────────
+    # ── [01] Drift Status
 
     def _render_drift_status(self, record: ScanRecord) -> None:
         self.console.print("[bold][01] DRIFT STATUS[/bold]")
@@ -233,7 +236,7 @@ class ConsolePackageRenderer(AbstractUserInterfaceRenderer):
             releases_text.append("—")
         self.console.print(releases_text)
 
-    # ── [02] Dependency Tree Trace ─────────────────────────────────────────────
+    # ── [02] Dependency Tree Trace
 
     def _render_dependency_tree_trace(self, record: ScanRecord) -> None:
         self.console.print("[bold][02] DEPENDENCY TREE TRACE[/bold]")
@@ -251,7 +254,7 @@ class ConsolePackageRenderer(AbstractUserInterfaceRenderer):
             f"{indent}{final_pad}└─ [bold cyan]{record.package_name}[/bold cyan] [bold blue]← you are here[/bold blue]"
         )
 
-    # ── [03] Policy Compliance ─────────────────────────────────────────────────
+    # ── [03] Policy Compliance
 
     def _render_policy_compliance(self, record: ScanRecord) -> None:
         self.console.print("[bold][03] POLICY COMPLIANCE[/bold]")
@@ -270,6 +273,10 @@ class ConsolePackageRenderer(AbstractUserInterfaceRenderer):
             rec_style = "bold green" if is_latest else "bold yellow"
             table.add_row("Recommended", Text(record.recommended_version, style=rec_style))
 
+        if record.constraint_conflict:
+            specs = ", ".join(record.constraint_conflict)
+            table.add_row("Resolution", Text(f"NO VALID VERSION — conflicting constraints: {specs}", style="bold red"))
+
         if record.constraint_info and record.constraint_info.type != ConstraintType.DECLARED:
             style = "bold red" if record.constraint_info.type == ConstraintType.OVERRIDE else "bold yellow"
             label = record.constraint_info.type.value
@@ -278,7 +285,7 @@ class ConsolePackageRenderer(AbstractUserInterfaceRenderer):
 
         self.console.print(table)
 
-    # ── [04] Security Advisories ───────────────────────────────────────────────
+    # ── [04] Security Advisories
 
     def _render_security_advisories(self, records: list[ScanRecord]) -> None:
         seen: set[str] = set()
@@ -307,7 +314,7 @@ class ConsolePackageRenderer(AbstractUserInterfaceRenderer):
                 self.console.print(f"  {cve.summary}")
             self.console.print()
 
-    # ── [05] Via Transitive Dependencies ──────────────────────────────────────
+    # ── [05] Via Transitive Dependencies
 
     def _render_transitive_cves(self, groups: list[TransitiveCVEGroup]) -> None:
         if not groups:
@@ -335,7 +342,7 @@ class ConsolePackageRenderer(AbstractUserInterfaceRenderer):
 
             self.console.print()
 
-    # ── [07] Recommendation Rationale ─────────────────────────────────────────
+    # ── [07] Recommendation Rationale
 
     def _render_recommendation_rationale(self, record: ScanRecord) -> None:
         self.console.print("[bold][07] RECOMMENDATION RATIONALE[/bold]")
@@ -381,7 +388,31 @@ class ConsolePackageRenderer(AbstractUserInterfaceRenderer):
             ok_line.append(f"{record.recommended_version} selected: best stable candidate{age_part}")
         self.console.print(ok_line)
 
-    # ── [06] Licenses ─────────────────────────────────────────────────────────
+    # ── [08] Peer Requirements
+
+    def render_peer_requirements(self, record: ScanRecord) -> None:
+        self.console.print("[bold][08] PEER REQUIREMENTS[/bold]")
+        violated_specs = {req.spec for req in record.peer_violations}
+        via_override = record.constraint_info.type == ConstraintType.OVERRIDE
+        for req in record.peer_requirements:
+            line = Text()
+            if req.spec in violated_specs:
+                line.append("  ✗ ", style="bold red")
+                line.append(f"{req.requirer_name}", style="bold")
+                line.append(f"  requires  {req.spec}")
+                line.append(f"  (installed: {record.installed_version})", style="red")
+            elif via_override:
+                line.append("  ✓ ", style="bold yellow")
+                line.append(f"{req.requirer_name}", style="bold")
+                line.append(f"  requires  {req.spec}")
+                line.append("  via override", style="yellow")
+            else:
+                line.append("  ✓ ", style="bold green")
+                line.append(f"{req.requirer_name}", style="bold")
+                line.append(f"  requires  {req.spec}")
+            self.console.print(line)
+
+    # ── [06] Licenses
 
     def _render_licenses(self, licenses: list[str]) -> None:
         self.console.print("[bold][06] LICENSES[/bold]")

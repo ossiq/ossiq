@@ -7,8 +7,10 @@ from collections.abc import Iterable, Iterator
 from typing import Any
 
 from ossiq.domain.common import ConstraintType
-from ossiq.domain.project import ConstraintSource, Dependency
+from ossiq.domain.project import ConstraintSource, Dependency, PeerRequirement
 from ossiq.domain.version import normalize_version
+
+CATEGORY_PEER = "peer"
 
 
 class BaseDependencyResolver(ABC):
@@ -112,6 +114,13 @@ class BaseDependencyResolver(ABC):
                         # Guard against None so that absent specifiers (e.g. UV entries without
                         # a 'specifier' key) don't overwrite values already set in Pass 1.
                         if d_ver is not None:
+                            # Accumulate every parent's specifier for multi-parent L1 enforcement
+                            # in the solver (diamond-dependency correctness). Done before the
+                            # version_defined overwrite so every occurrence is captured.
+                            child.parent_constraints.append(d_ver)
+                            if category == CATEGORY_PEER:
+                                child.peer_requirements.append(PeerRequirement(requirer_name=name, spec=d_ver))
+
                             # Only update version_defined when the specifier differs from the
                             # resolved version to avoid redundant data (e.g. "4.17.21" == "4.17.21").
                             if d_ver != child.version_installed:
@@ -208,7 +217,7 @@ class GraphExporter:
         self.visited.clear()
         return self._to_dict(self.root)
 
-    def walk_all_paths(self) -> Iterator[tuple[Dependency, list[str]]]:
+    def walk_all_paths(self, *, include_optional_roots: bool = False) -> Iterator[tuple[Dependency, list[str]]]:
         """
         Yields (node, path) for every transitive dependency reachable from root,
         following all distinct paths without cross-path deduplication.
@@ -223,9 +232,17 @@ class GraphExporter:
 
         Only production edges (Dependency.dependencies) are followed; optional
         edges (dev/test/peer groups of transitive packages) are skipped.
+
+        When include_optional_roots=True, also starts the walk from root's
+        optional_dependencies (dev/peer/optional direct deps), enabling callers
+        to build a complete "installed packages" set without changing the core
+        transitive scan output.
         """
         for direct_dep in self.root.dependencies.values():
             yield from self._walk_node(direct_dep, [direct_dep.name], {id(direct_dep)})
+        if include_optional_roots:
+            for direct_dep in self.root.optional_dependencies.values():
+                yield from self._walk_node(direct_dep, [direct_dep.name], {id(direct_dep)})
 
     def _walk_node(
         self,

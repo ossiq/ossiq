@@ -28,7 +28,9 @@ class AbstractProjectUnitOfWork(abc.ABC):
     production: bool
     allow_prerelease: bool
     allow_prerelease_packages: tuple[str, ...]
-    use_solver: bool
+    security_only: bool
+    ignore_packages: tuple[str, ...]
+    rewrite_versions: bool
 
     @abc.abstractmethod
     def get_source_code_provider(self, repository_provider_type: RepositoryProvider) -> AbstractSourceCodeProviderApi:

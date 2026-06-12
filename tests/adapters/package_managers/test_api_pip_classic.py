@@ -426,6 +426,12 @@ class TestProjectInfo:
         # Check no optional dependencies
         assert len(project.optional_dependencies) == 0
 
+    def test_project_info_has_lockfile_false(self, pip_classic_project_basic, settings):
+        """pip-classic projects have no lockfile — library-scan machinery must be enabled."""
+        adapter = PackageManagerPythonPipClassic(pip_classic_project_basic, settings)
+        project = adapter.project_info()
+        assert project.has_lockfile is False
+
 
 # ============================================================================
 # Test Integration with Existing Test Data

@@ -27,37 +27,61 @@ qa:
 
 qa-integration:
     mkdir reports || echo 'Reports is there already'
-    uv run hatch run ossiq-cli scan testdata/npm/project1
-    uv run hatch run ossiq-cli scan testdata/npm/project1
-    uv run hatch run ossiq-cli scan testdata/npm/project2
-    uv run hatch run ossiq-cli package testdata/npm/project3 ms
-    uv run hatch run ossiq-cli package testdata/npm/project3 chalk
-    uv run hatch run ossiq-cli package testdata/npm/project3 lodash
-    uv run hatch run ossiq-cli scan testdata/pypi/uv
-    uv run hatch run ossiq-cli scan testdata/pypi/pylock
-    uv run hatch run ossiq-cli scan testdata/pypi/pip-classic
-    uv run hatch run ossiq-cli scan testdata/mixed
-    uv run hatch run ossiq-cli scan testdata/mixed --registry-type=npm
-    uv run hatch run ossiq-cli scan testdata/mixed --registry-type=pypi
-    uv run hatch run ossiq-cli scan --presentation=html --output=./reports/scan_npm.html --registry-type=npm testdata/mixed
-    uv run hatch run ossiq-cli scan --presentation=html --output=./reports/scan_pypi.html --registry-type=pypi testdata/mixed
-    uv run hatch run ossiq-cli scan testdata/npm/project3
+    uv run hatch run ossiq-cli status testdata/npm/project1
+    uv run hatch run ossiq-cli status testdata/npm/project1
+    uv run hatch run ossiq-cli status testdata/npm/project2
+    uv run hatch run ossiq-cli info ms testdata/npm/project3
+    uv run hatch run ossiq-cli info chalk testdata/npm/project3
+    uv run hatch run ossiq-cli info lodash testdata/npm/project3
+    uv run hatch run ossiq-cli status testdata/pypi/uv
+    uv run hatch run ossiq-cli status testdata/pypi/pylock
+    uv run hatch run ossiq-cli status testdata/pypi/pip-classic
+    uv run hatch run ossiq-cli status testdata/mixed
+    uv run hatch run ossiq-cli status testdata/mixed --registry-type=npm
+    uv run hatch run ossiq-cli status testdata/mixed --registry-type=pypi
+    uv run hatch run ossiq-cli status --presentation=html --output=./reports/scan_npm.html --registry-type=npm testdata/mixed
+    uv run hatch run ossiq-cli status --presentation=html --output=./reports/scan_pypi.html --registry-type=pypi testdata/mixed
+    uv run hatch run ossiq-cli status testdata/npm/project3
     uv run hatch run ossiq-cli export --output-format=json --output=./reports/scan_export_pypi0.json --registry-type=pypi testdata/mixed
     uv run hatch run ossiq-cli export --output-format=csv --output=./reports/scan_export_pypi1.json --registry-type=pypi testdata/pypi/uv
     uv run hatch run ossiq-cli export --output-format=csv --schema-version=1.0 --output=./reports/scan_export_pypi_10_csv --registry-type=pypi testdata/pypi/uv
     uv run hatch run ossiq-cli export --output-format=csv --schema-version=1.1 --output=./reports/scan_export_pypi_11_csv --registry-type=pypi testdata/pypi/uv
     uv run hatch run ossiq-cli export --output-format=csv --schema-version=1.2 --output=./reports/scan_export_pypi_12_csv --registry-type=pypi testdata/pypi/uv
-    uv run hatch run ossiq-cli export --output-format=csv --schema-version=1.2 --output=./reports/scan_export_pypi_13_csv --registry-type=pypi testdata/pypi/uv
+    uv run hatch run ossiq-cli export --output-format=csv --schema-version=1.3 --output=./reports/scan_export_pypi_13_csv --registry-type=pypi testdata/pypi/uv
     uv run hatch run ossiq-cli export --output-format=json --schema-version=1.0 --output=./reports/scan_export_pypi_10.json --registry-type=pypi testdata/mixed
     uv run hatch run ossiq-cli export --output-format=json --schema-version=1.1 --output=./reports/scan_export_npm_11.json --registry-type=npm testdata/mixed
     uv run hatch run ossiq-cli export --output-format=json --schema-version=1.2 --output=./reports/scan_export_npm_12.json --registry-type=npm testdata/mixed
     uv run hatch run ossiq-cli export --output-format=json --schema-version=1.3 --output=./reports/scan_export_npm_13.json --registry-type=npm testdata/mixed
-    uv run hatch run ossiq-cli package testdata/pypi/version-constraint scipy
-    uv run hatch run ossiq-cli package testdata/pypi/version-constraint numpy
+    uv run hatch run ossiq-cli info scipy testdata/pypi/version-constraint
+    uv run hatch run ossiq-cli info numpy testdata/pypi/version-constraint
     uv run hatch run ossiq-cli export --output-format=json --output=./reports/scan_export_pypi_version_constraint.json testdata/pypi/version-constraint
     uv run hatch run ossiq-cli export --output-format=json --output=./reports/scan_export_pypi_version_uv.json testdata/pypi/uv
     uv run hatch run ossiq-cli export --output-format=json --output=./reports/scan_export_pypi_version_pylock.json testdata/pypi/pylock
     cat ./reports/scan_export_pypi_version_uv.json | jq | grep '"constraint_type": "ADDITIVE"'
+
+# Build the QA Docker image (run once, or after qa/Dockerfile changes)
+qa-build:
+    docker build -f qa/Dockerfile -t ossiq-qa .
+
+# Smoke-test against 20 real-world repos at pinned version tags (runs in Docker).
+# Prerequisites: ossiq-qa image built (just qa-build), OSSIQ_GITHUB_TOKEN env var set.
+qa-matrix:
+    mkdir -p qa_logs
+    docker run --rm \
+        -v "$(pwd)":/app:ro \
+        -v ossiq-qa-workspace:/workspace \
+        -v ossiq-qa-cache:/cache \
+        -v "$(pwd)/qa_logs":/qa_logs \
+        -e OSSIQ_GITHUB_TOKEN="$OSSIQ_GITHUB_TOKEN" \
+        -e GH_TOKEN="$OSSIQ_GITHUB_TOKEN" \
+        --user 1000:1000 \
+        ossiq-qa \
+        python /app/qa/smoke_matrix.py
+
+# Profile scan command with cProfile + snakeviz; e.g. just profile testdata/npm/project1
+profile PATH:
+    uv run python -m cProfile -o /tmp/ossiq_profile.prof -m ossiq.cli status {{PATH}}
+    uv run snakeviz /tmp/ossiq_profile.prof
 
 lint:
     uv run ruff check .

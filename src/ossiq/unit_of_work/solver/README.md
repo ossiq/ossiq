@@ -77,16 +77,32 @@ RC2 **minimises** total cost of violated soft clauses. Hard clauses must be sati
 | Level | Kind | Weight | Trigger |
 |---|---|---|---|
 | L1 | Hard | — | Version outside declared `version_constraint` (PEP 440 or npm semver) |
-| L2 | Soft-Hard | `W_ENGINE = 1_000_000` | Engine mismatch (`python`/`node` requirement vs `engine_context`) |
-| L3 | Soft | `max(1, 100_000 − age_days)` | Freshness bonus — every eligible candidate |
+| L2 | Soft-Hard | `W_ENGINE = 100_000` | Engine mismatch (`python`/`node` requirement vs `engine_context`) |
+| L3 | Soft | `max(80_000 − rank × 5_000, 1_000)` | Semver-rank preference — rank 0 = latest eligible semver |
 | L4 | Soft | `W_DEPRECATED = 10_000` | Deprecated flag — penalty on selection |
-| L5 | Hard | — | CVE-affected version — transitive pass only |
-| L6 | Soft-Hard | `W_VERY_FRESH = 1_000_000` | Published < 7 days ago — transitive pass only |
+| L5 | Hard | — | CVE-affected version |
+| L6 | Soft-Hard | `W_VERY_FRESH = 100_000` | Published < 7 days ago — both direct and transitive passes |
 | L7 | — | *(reserved)* | Health score — not implemented |
 
 Soft clause semantics (defined in `weights.py`, applied in `encoder.py`):
 - `soft([+var], W)` — penalty W if this version is **not** selected (encourages selection; L3)
 - `soft([-var], W)` — penalty W if this version **is** selected (discourages selection; L2, L4, L6)
+
+**L3 — Semver-rank preference (not age-based)**  
+Candidates are sorted newest-semver-first by `SolvablePool.build()`. The rank of each eligible
+candidate in this sorted list determines its L3 weight: `semver_rank_weight(rank) = max(80_000 − rank × 5_000, 1_000)`.
+Rank 0 (highest semver in the constraint) always has the highest preference. The step size (5 000)
+is intentionally smaller than `W_DEPRECATED` (10 000), so a deprecated rank-0 version loses to a
+clean rank-1 version. Engine mismatch (100 000) overrides any rank gap.
+
+This design handles parallel major-version streams correctly: a freshly-released 7.x patch can
+never beat an older 8.x release when both are eligible — semver order dominates calendar age.
+
+**L6 — Very fresh penalty (< 7 days)**  
+Applied in both `solve_direct` and `solve_transitive` (both use `penalize_fresh_days=VERY_FRESH_THRESHOLD_DAYS=7`).
+A candidate published fewer than 7 days ago receives a 100 000 soft penalty. If an alternative with
+the same or adjacent semver rank is ≥ 7 days old, it wins. If no older alternative exists, the fresh
+version is still selected (soft penalty, not a hard ban).
 
 Structural clauses per package (encoder):
 - **AMO** (At-Most-One): pairwise `[-vi, -vj]` over eligible candidates — exactly one version selected
@@ -94,7 +110,7 @@ Structural clauses per package (encoder):
 
 ### Version constraint dispatch (encoder.py)
 
-`version_satisfies_constraint()` (in `version_matchers.py`) tries PEP 440 `SpecifierSet` first; falls back to npm semver on `InvalidSpecifier`. Bare npm versions (e.g. `"14"`) are treated as caret ranges (`^14.0.0`). Unparseable constraints pass through (`True`) — unknown format is never a hard block.
+`version_satisfies_constraint(version, constraint, registry)` (in `version_matchers.py`) dispatches directly to PyPI (PEP 440) or npm (semver) based on the `ProjectPackagesRegistry` passed in — no exception-based fallback. Bare npm versions (e.g. `"14"`) are treated as caret ranges (`^14.0.0`). Unparseable constraints pass through (`True`) — unknown format is never a hard block.
 
 ---
 
@@ -127,7 +143,7 @@ L2 clauses only fire when both a candidate's `runtime_requirements` and `engine_
 The same package can appear as both a direct and transitive dependency with different constraint strengths. `OVERRIDE > ADDITIVE > PINNED > NARROWED > DECLARED` — the strongest constraint wins so the solver sees the binding restriction.
 
 **Why candidates sorted descending (newest first)?**  
-L3 gives newer versions higher weights. RC2 is weight-sensitive, not order-sensitive, but descending order ensures `var_map` iteration and debug output are intuitively readable.
+L3 assigns rank-based weights where rank 0 (index 0 in the sorted list) = highest semver = highest preference. Descending sort is therefore required for the L3 rank calculation to be meaningful, and also ensures `var_map` iteration and debug output are intuitively readable.
 
 **On `ConflictSet` — silent `{}`?**  
 Returning `{}` lets the scan pipeline always complete and show `Latest` even when the solver conflicts. Phase 6 will surface a user-facing warning identifying the conflicting package(s). Currently only DEBUG-logged.

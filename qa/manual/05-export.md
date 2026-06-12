@@ -71,3 +71,17 @@ uv run hatch run ossiq-cli export --production --output-format=json --output=rep
 
 - [ ] `prod_export.json` has fewer entries in `packages` than `full_export.json`
 - [ ] Dev/optional packages absent from production export
+
+---
+
+## TC-E06: JSON export v1.5 — recommended_version field
+
+```bash
+uv run hatch run ossiq-cli export --schema-version 1.4 --output-format=json --output=reports/export_v14.json testdata/pypi/uv
+cat reports/export_v14.json | jq '.production_packages[] | {name: .package_name, installed: .installed_version, recommended: .recommended_version}'
+```
+
+- [ ] Command exits 0
+- [ ] `metadata.schema_version` is `"1.4"`
+- [ ] At least one entry where `recommended` is non-null and differs from `installed`
+- [ ] No entry where `recommended` is a downgrade (lower semver than `installed`)

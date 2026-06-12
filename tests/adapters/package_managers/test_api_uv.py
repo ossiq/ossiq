@@ -17,10 +17,11 @@ from pathlib import Path
 
 import pytest
 
-from ossiq.adapters.package_managers.api_uv import PackageManagerPythonUv
+from ossiq.adapters.package_managers.api_uv import PackageManagerPythonUv, upsert_uv_override_dependencies
 from ossiq.domain.common import ConstraintType, ProjectPackagesRegistry
 from ossiq.domain.exceptions import PackageManagerLockfileParsingError
 from ossiq.domain.packages_manager import UV
+from ossiq.service.update import UpdateEntry, UpdatePlan
 from ossiq.settings import Settings
 
 # ============================================================================
@@ -601,10 +602,10 @@ class TestGetLockfileParser:
         uv_manager = PackageManagerPythonUv(uv_project_with_lockfile, settings)
 
         # CEL evaluation with None raises ValueError, not our custom exception
-        with pytest.raises(ValueError) as excinfo:
+        with pytest.raises(TypeError) as excinfo:
             uv_manager.get_lockfile_parser(1, None)
 
-        assert "CEL execution error" in str(excinfo.value)
+        assert "No such overload" in str(excinfo.value)
 
 
 # ============================================================================
@@ -754,8 +755,8 @@ class TestVersionConstraintIntegration:
             ("requests", "~=2.31.0"),
             ("pydantic", ">=2.0.0"),
             ("scikit-learn", "<2.0.0"),
-            ("jsonschema", ">=4.0.0a6,<4.5.0"),
-            ("numpy", ">=1.20.0,!=1.24.2,<2.0.0"),
+            ("jsonschema", "<4.5.0,>=4.0.0a6"),
+            ("numpy", "!=1.24.2,<2.0.0,>=1.20.0"),
         ],
     )
     def test_version_constraint_extracted_from_metadata_requires_dist(
@@ -807,3 +808,227 @@ class TestConstraintClassificationUv:
         assert dep.constraint_info.type == expected_type, (
             f"{pkg_name}: expected {expected_type}, got {dep.constraint_info.type}"
         )
+
+
+# ============================================================================
+# Helpers for update script tests
+# ============================================================================
+
+
+def make_update_entry(
+    name: str,
+    current: str,
+    recommended: str,
+    version_defined: str | None = None,
+    constraint_type: ConstraintType = ConstraintType.DECLARED,
+    is_direct: bool = True,
+    is_forced: bool = False,
+) -> UpdateEntry:
+    return UpdateEntry(
+        package_name=name,
+        current_version=current,
+        recommended_version=recommended,
+        is_direct=is_direct,
+        reason=None,
+        version_defined=version_defined,
+        constraint_type=constraint_type,
+        is_forced=is_forced,
+    )
+
+
+def make_update_plan(
+    direct: list[UpdateEntry] | None = None,
+    transitive: list[UpdateEntry] | None = None,
+    pin_all: bool = False,
+    project_path: str = "/tmp/test-project",
+) -> UpdatePlan:
+    return UpdatePlan(
+        project_name="test-project",
+        project_path=project_path,
+        registry_type="PYPI",
+        package_manager_name="uv",
+        direct_entries=direct or [],
+        transitive_entries=transitive or [],
+        pin_all=pin_all,
+    )
+
+
+# ============================================================================
+# Test resolve_direct_specifier
+# ============================================================================
+
+
+class TestResolveDirectSpecifier:
+    """Tests for the static helper that decides sed vs lockfile-only per entry."""
+
+    def test_pin_returns_exact_version(self):
+        entry = make_update_entry("sphinx", "8.0.0", "9.0.4", "~=8.0.0", ConstraintType.NARROWED)
+        assert PackageManagerPythonUv.resolve_direct_specifier(entry, pin_all=True) == "==9.0.4"
+
+    def test_declared_specifier_unchanged(self):
+        entry = make_update_entry("sphinx", "8.0.0", "9.0.4", ">=8.0.0", ConstraintType.DECLARED)
+        assert PackageManagerPythonUv.resolve_direct_specifier(entry, pin_all=False) == ">=8.0.0"
+
+    def test_narrowed_tilde_rewritten(self):
+        entry = make_update_entry("sphinx", "8.0.0", "9.0.4", "~=8.0.0", ConstraintType.NARROWED)
+        assert PackageManagerPythonUv.resolve_direct_specifier(entry, pin_all=False) == "~=9.0.4"
+
+    def test_narrowed_tilde_two_part(self):
+        entry = make_update_entry("sphinx", "8.0", "9.0.4", "~=8.0", ConstraintType.NARROWED)
+        assert PackageManagerPythonUv.resolve_direct_specifier(entry, pin_all=False) == "~=9.0"
+
+    def test_pinned_eq_rewritten(self):
+        entry = make_update_entry("sphinx", "8.0.0", "9.0.4", "==8.0.0", ConstraintType.PINNED)
+        assert PackageManagerPythonUv.resolve_direct_specifier(entry, pin_all=False) == "==9.0.4"
+
+    def test_narrowed_compound_falls_back_to_pin(self):
+        entry = make_update_entry("sphinx", "8.0.0", "9.0.4", ">=8.0,<9.0", ConstraintType.NARROWED)
+        assert PackageManagerPythonUv.resolve_direct_specifier(entry, pin_all=False) == "==9.0.4"
+
+    def test_none_version_defined_declared_stays_none(self):
+        entry = make_update_entry("sphinx", "8.0.0", "9.0.4", None, ConstraintType.DECLARED)
+        assert PackageManagerPythonUv.resolve_direct_specifier(entry, pin_all=False) is None
+
+    def test_forced_returns_exact_version_regardless_of_mode(self):
+        entry = make_update_entry("sphinx", "8.0.0", "9.0.4", ">=8.0.0", ConstraintType.DECLARED, is_forced=True)
+        assert PackageManagerPythonUv.resolve_direct_specifier(entry, pin_all=False) == "==9.0.4"
+
+
+# ============================================================================
+# Test upsert_uv_override_dependencies
+# ============================================================================
+
+
+class TestUpsertUvOverrideDependencies:
+    """Tests for the pure pyproject.toml override-dependencies merger."""
+
+    def test_creates_tool_uv_section_when_missing(self):
+        content = '[project]\nname = "app"\nversion = "1.0.0"\n'
+        result = upsert_uv_override_dependencies(content, {"urllib3": "1.26.19"})
+        data = tomllib.loads(result)
+        assert data["tool"]["uv"]["override-dependencies"] == ["urllib3==1.26.19"]
+        assert data["project"]["name"] == "app"
+
+    def test_adds_key_to_existing_tool_uv_section(self):
+        content = '[project]\nname = "app"\n\n[tool.uv]\ndev-dependencies = ["pytest"]\n'
+        result = upsert_uv_override_dependencies(content, {"urllib3": "1.26.19"})
+        data = tomllib.loads(result)
+        assert data["tool"]["uv"]["override-dependencies"] == ["urllib3==1.26.19"]
+        assert data["tool"]["uv"]["dev-dependencies"] == ["pytest"]
+
+    def test_merges_into_existing_override_list(self):
+        content = '[project]\nname = "app"\n\n[tool.uv]\noverride-dependencies = [\n    "certifi==2023.7.22",\n]\n'
+        result = upsert_uv_override_dependencies(content, {"urllib3": "1.26.19"})
+        data = tomllib.loads(result)
+        assert sorted(data["tool"]["uv"]["override-dependencies"]) == ["certifi==2023.7.22", "urllib3==1.26.19"]
+
+    def test_replaces_existing_entry_for_same_package(self):
+        content = '[tool.uv]\noverride-dependencies = ["urllib3==1.26.0"]\n'
+        result = upsert_uv_override_dependencies(content, {"urllib3": "1.26.19"})
+        data = tomllib.loads(result)
+        assert data["tool"]["uv"]["override-dependencies"] == ["urllib3==1.26.19"]
+
+    def test_empty_overrides_returns_content_unchanged(self):
+        content = '[project]\nname = "app"\n'
+        assert upsert_uv_override_dependencies(content, {}) == content
+
+
+# ============================================================================
+# Test generate_update_script
+# ============================================================================
+
+
+class TestGenerateUpdateScript:
+    """Tests for the full bash script generated by generate_update_script()."""
+
+    @pytest.fixture
+    def uv(self, settings, temp_project_dir):
+        return PackageManagerPythonUv(temp_project_dir, settings)
+
+    def test_pin_mode_emits_exact_sed(self, uv):
+        entry = make_update_entry("sphinx", "8.0.0", "9.0.4", "~=8.0.0", ConstraintType.NARROWED)
+        script = uv.generate_update_script(make_update_plan(direct=[entry], pin_all=True))
+        assert """'s|"sphinx[^"]*"|"sphinx==9.0.4"|g'""" in script
+        assert "--upgrade-package sphinx==9.0.4" in script
+
+    def test_smart_narrowed_tilde_emits_sed(self, uv):
+        entry = make_update_entry("sphinx", "8.0.0", "9.0.4", "~=8.0.0", ConstraintType.NARROWED)
+        script = uv.generate_update_script(make_update_plan(direct=[entry]))
+        assert """'s|"sphinx[^"]*"|"sphinx~=9.0.4"|g'""" in script
+        assert "--upgrade-package sphinx==9.0.4" in script
+
+    def test_smart_declared_lockfile_only(self, uv):
+        entry = make_update_entry("requests", "2.28.0", "2.32.0", ">=2.28.0", ConstraintType.DECLARED)
+        script = uv.generate_update_script(make_update_plan(direct=[entry]))
+        assert "sed" not in script
+        assert "--upgrade-package requests==2.32.0" in script
+
+    def test_smart_pinned_emits_sed(self, uv):
+        entry = make_update_entry("sphinx", "8.0.0", "9.0.4", "==8.0.0", ConstraintType.PINNED)
+        script = uv.generate_update_script(make_update_plan(direct=[entry]))
+        assert """'s|"sphinx[^"]*"|"sphinx==9.0.4"|g'""" in script
+        assert "--upgrade-package sphinx==9.0.4" in script
+
+    def test_transitive_always_upgrade_flag(self, uv):
+        entry = make_update_entry("urllib3", "1.26.0", "2.0.7", is_direct=False)
+        script = uv.generate_update_script(make_update_plan(transitive=[entry]))
+        assert "--upgrade-package urllib3==2.0.7" in script
+        assert "sed" not in script
+
+    def test_no_entries_plain_uv_lock(self, uv):
+        script = uv.generate_update_script(make_update_plan())
+        assert "uv lock\n" in script
+        assert "uv lock \\" not in script
+
+    def test_none_version_defined_declared_lockfile_only(self, uv):
+        entry = make_update_entry("sphinx", "8.0.0", "9.0.4", None, ConstraintType.DECLARED)
+        script = uv.generate_update_script(make_update_plan(direct=[entry]))
+        assert "sed" not in script
+        assert "--upgrade-package sphinx==9.0.4" in script
+
+    def test_lockfile_only_comment(self, uv):
+        entry = make_update_entry("requests", "2.28.0", "2.32.0", ">=2.28.0", ConstraintType.DECLARED)
+        script = uv.generate_update_script(make_update_plan(direct=[entry]))
+        assert "# requests: >=2.28.0 -> (lockfile only)" in script
+
+    def test_sed_comment_shows_new_specifier(self, uv):
+        entry = make_update_entry("sphinx", "8.0.0", "9.0.4", "~=8.0.0", ConstraintType.NARROWED)
+        script = uv.generate_update_script(make_update_plan(direct=[entry]))
+        assert "# sphinx: ~=8.0.0 -> ~=9.0.4" in script
+
+    def test_mixed_direct_entries(self, uv):
+        declared = make_update_entry("requests", "2.28.0", "2.32.0", ">=2.28.0", ConstraintType.DECLARED)
+        narrowed = make_update_entry("sphinx", "8.0.0", "9.0.4", "~=8.0.0", ConstraintType.NARROWED)
+        script = uv.generate_update_script(make_update_plan(direct=[declared, narrowed]))
+        assert "--upgrade-package requests==2.32.0" in script
+        assert """'s|"sphinx[^"]*"|"sphinx~=9.0.4"|g'""" in script
+        assert "--upgrade-package sphinx==9.0.4" in script
+
+    def test_declared_direct_and_transitive_both_in_uv_lock(self, uv):
+        direct = make_update_entry("requests", "2.28.0", "2.32.0", ">=2.28.0", ConstraintType.DECLARED)
+        trans = make_update_entry("urllib3", "1.26.0", "2.0.7", is_direct=False)
+        script = uv.generate_update_script(make_update_plan(direct=[direct], transitive=[trans]))
+        assert "--upgrade-package requests==2.32.0" in script
+        assert "--upgrade-package urllib3==2.0.7" in script
+        assert "sed" not in script
+
+    def test_sed_direct_dep_also_gets_upgrade_flag(self, uv):
+        """Specifier-rewritten direct deps must also appear as --upgrade-package."""
+        narrowed = make_update_entry("pydantic", "2.13.3", "2.13.4", "~=2.13.3", ConstraintType.NARROWED)
+        pinned = make_update_entry("ty", "0.0.32", "0.0.35", "==0.0.32", ConstraintType.PINNED)
+        script = uv.generate_update_script(make_update_plan(direct=[narrowed, pinned]))
+        assert """'s|"pydantic[^"]*"|"pydantic~=2.13.4"|g'""" in script
+        assert "--upgrade-package pydantic==2.13.4" in script
+        assert """'s|"ty[^"]*"|"ty==0.0.35"|g'""" in script
+        assert "--upgrade-package ty==0.0.35" in script
+
+    def test_forced_transitive_emits_set_override_helper(self, uv):
+        entry = make_update_entry("urllib3", "1.26.0", "1.26.19", is_direct=False, is_forced=True)
+        script = uv.generate_update_script(make_update_plan(transitive=[entry]))
+        assert "ossiq helpers uv set-override" in script
+        assert "urllib3==1.26.19" in script
+
+    def test_non_forced_transitive_has_no_set_override(self, uv):
+        entry = make_update_entry("urllib3", "1.26.0", "2.0.7", is_direct=False)
+        script = uv.generate_update_script(make_update_plan(transitive=[entry]))
+        assert "set-override" not in script

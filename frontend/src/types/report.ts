@@ -192,7 +192,33 @@ export interface PackageMetrics {
    * Whether the entire package has been removed from the registry (npm-only; false otherwise)
    */
   is_package_unpublished: boolean;
+  /**
+   * Solver-recommended version; null when the package is already at the optimal version
+   */
+  recommended_version?: string | null;
+  /**
+   * Transitive dependency impacts projected from the recommended update
+   */
+  update_transitive_impacts?: TransitiveImpactExport[];
   [k: string]: unknown;
+}
+/**
+ * Transitive impact of a direct dependency update on a single transitive package
+ */
+export interface TransitiveImpactExport {
+  package_name: string;
+  /** Currently installed version; null for brand-new transitive deps not in the current tree */
+  current_version?: string | null;
+  /** Best version satisfying all merged constraints; null when no version satisfies (hard conflict) */
+  projected_version?: string | null;
+  /** Constraint the updated direct dep imposes on this transitive dep */
+  new_constraint: string;
+  /** Canonical name of the direct dep recommendation driving this impact */
+  driven_by: string;
+  /** True when projected_version violates an existing parent constraint */
+  has_conflict: boolean;
+  /** Human-readable conflict description */
+  conflict_detail?: string | null;
 }
 /**
  * CVE information for a package

@@ -19,11 +19,11 @@ Pipeline:
         ├── npm  ->  npm_version_satisfies_range(version, range_constraint)
         │               └─ univers.NpmVersionRange / SemverVersion
         │
-        ├── pypi ->  _pypi_version_satisfies_specifier(version, specifier)
+        ├── pypi ->  pypi_version_satisfies_specifier(version, specifier)
         │               └─ univers.PypiVersionRange / PypiVersion
         │
-        └── unified -> version_satisfies_constraint(version, constraint | None)
-                          tries PEP 440 first, falls back to npm semver
+        └── unified -> version_satisfies_constraint(version, constraint | None, registry)
+                          dispatches to npm or pypi based on ProjectPackagesRegistry
                           |
                     used by ConstraintEncoder for L1 / implication clauses
 """
@@ -33,14 +33,16 @@ from __future__ import annotations
 import logging
 import re
 
-from univers.version_range import InvalidVersionRange, NpmVersionRange, PypiVersionRange
+from univers.version_range import NpmVersionRange, PypiVersionRange
 from univers.versions import PypiVersion, SemverVersion
 
+from ossiq.domain.common import ProjectPackagesRegistry
 from ossiq.unit_of_work.solver.problem import CandidateVersion
 
 logger = logging.getLogger(__name__)
 
-# ── npm / Node.js semver ───────────────────────────────────────────────────
+
+# ── npm / Node.js semver
 # Spec: https://github.com/npm/node-semver#versions
 
 # Matches a bare version with no operator: "14", "1.2", "1.2.3"
@@ -50,7 +52,22 @@ _BARE_VERSION_RE = re.compile(r"^\d[\d.]*$")
 _NOT_EQUAL_RE = re.compile(r"^!=\s*(\d[\d.]*)$")
 
 
-def _expand_compatible_release(part: str) -> str:
+def strip_npm_alias(constraint: str) -> str:
+    """Return the embedded range of an npm alias specifier, or the constraint unchanged.
+
+    ``npm:wrap-ansi@^7.0.0`` -> ``^7.0.0``;  ``npm:@scope/pkg@~1.2`` -> ``~1.2``.
+    The range is the part after the final ``@``; a non-alias string passes through.
+    """
+    s = constraint.strip()
+    if not s.startswith("npm:"):
+        return constraint
+    at_idx = s.rfind("@")
+    if at_idx > len("npm:"):
+        return s[at_idx + 1 :]
+    return constraint
+
+
+def expand_compatible_release(part: str) -> str:
     """Expand ~=X.Y.Z -> >=X.Y.Z,<X.(Y+1).0 for univers compatibility."""
     ver = part[2:].strip()
     parts = ver.split(".")
@@ -59,10 +76,10 @@ def _expand_compatible_release(part: str) -> str:
     return f">={ver},<{'.'.join(upper)}.0"
 
 
-def _preprocess_pypi_specifier(specifier: str) -> str:
+def preprocess_pypi_specifier(specifier: str) -> str:
     """Expand any ~= clauses in a comma-separated PEP 440 specifier string."""
     return ",".join(
-        _expand_compatible_release(p.strip()) if p.strip().startswith("~=") else p.strip() for p in specifier.split(",")
+        expand_compatible_release(p.strip()) if p.strip().startswith("~=") else p.strip() for p in specifier.split(",")
     )
 
 
@@ -75,11 +92,12 @@ def npm_version_satisfies_range(version: str, range_constraint: str) -> bool:
       - ``~``  tilde  — "~1.2.3"  compatible with the same minor
       - bare version  — "14"  treated as a caret range (^14.0.0)
       - comparison operators  — ">", ">=", "<", "<=", "=", "!="
+      - npm alias  — "npm:pkg@^1.2.3"  matched against the embedded range
 
     An unparseable version or constraint passes through as True so that an
     unknown format never becomes a hard block.
     """
-    constraint = range_constraint.strip()
+    constraint = strip_npm_alias(range_constraint).strip()
 
     m = _NOT_EQUAL_RE.match(constraint)
     if m:
@@ -105,55 +123,51 @@ def npm_version_satisfies_range(version: str, range_constraint: str) -> bool:
         return True
 
 
-# ── PyPI / PEP 440 ─────────────────────────────────────────────────────────
+# ── PyPI / PEP 440
 # Spec: https://packaging.python.org/en/latest/specifications/dependency-specifiers/
 
 
-def _pypi_version_satisfies_specifier(version: str, specifier: str) -> bool:
+def pypi_version_satisfies_specifier(version: str, specifier: str) -> bool:
     """Return True if *version* satisfies a PEP 440 dependency *specifier*.
 
     Raises ``InvalidVersionRange`` for non-PEP-440 strings — callers should
     catch it and fall back to npm semver matching.
     """
-    return PypiVersion(version) in PypiVersionRange.from_native(_preprocess_pypi_specifier(specifier))  # type: ignore
+    return PypiVersion(version) in PypiVersionRange.from_native(preprocess_pypi_specifier(specifier))  # type: ignore
 
 
-# ── Unified (ecosystem-agnostic) ───────────────────────────────────────────
+# ── Unified (ecosystem-agnostic)
 
 
-def version_satisfies_constraint(version: str, constraint: str | None) -> bool:
-    """Return True if *version* satisfies *constraint* from any supported ecosystem.
+def version_satisfies_constraint(version: str, constraint: str | None, registry: ProjectPackagesRegistry) -> bool:
+    """Return True if *version* satisfies *constraint* for the given *registry*.
 
-    Resolution order:
-      1. No constraint (None) -> always satisfied.
-      2. Try PEP 440 via univers ``PypiVersionRange`` (PyPI).
-      3. On ``InvalidVersionRange``, fall back to npm semver range matching.
-      4. Any unexpected exception -> passes through as True (unknown format is
-         never a hard block).
+    Dispatches directly to the correct parser - no fallback, no exception-based routing.
+    An unparseable constraint passes through as True so unknown formats never hard-block.
     """
     if constraint is None:
         return True
     try:
-        try:
-            return _pypi_version_satisfies_specifier(version, constraint)
-        except InvalidVersionRange:
-            logger.debug(
-                "version_satisfies_constraint: PyPI parse failed, falling back to npm version=%r constraint=%r",
-                version,
-                constraint,
-            )
-            return npm_version_satisfies_range(version, constraint)
+        if registry == ProjectPackagesRegistry.PYPI:
+            return pypi_version_satisfies_specifier(version, constraint)
+        return npm_version_satisfies_range(version, constraint)
     except Exception as exc:
         logger.debug(
-            "version_satisfies_constraint: both parsers failed version=%r constraint=%r error=%s",
+            "version_satisfies_constraint: parse failed version=%r constraint=%r registry=%s error=%s",
             version,
             constraint,
+            registry,
             exc,
         )
         return True
 
 
-# ── Engine requirement checks ──────────────────────────────────────────────
+def satisfies_all_constraints(version: str, constraints: list[str], registry: ProjectPackagesRegistry) -> bool:
+    """Return True when version satisfies every non-empty constraint in the list."""
+    return all(version_satisfies_constraint(version, c, registry) for c in constraints if c)
+
+
+# ── Engine requirement checks
 
 
 def engine_version_satisfies_requirement(
@@ -171,7 +185,7 @@ def engine_version_satisfies_requirement(
     """
     try:
         if engine_key == "python":
-            return _pypi_version_satisfies_specifier(context_version, requirement)
+            return pypi_version_satisfies_specifier(context_version, requirement)
         if engine_key in ("node", "nodejs"):
             return npm_version_satisfies_range(context_version, requirement)
     except Exception:

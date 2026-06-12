@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
 from unittest.mock import MagicMock
@@ -39,6 +39,7 @@ class _FakeRecord:
     constraint_info: ConstraintSource
     cve: list[Any]
     version_age_days: int | None
+    all_constraints: list[str] = field(default_factory=list)
 
 
 def _rec(
@@ -85,7 +86,10 @@ def _pv(
 
 
 def _make_registry(versions_by_name: dict[str, list[PackageVersion]]) -> MagicMock:
+    from ossiq.domain.common import ProjectPackagesRegistry
+
     registry = MagicMock(spec=AbstractPackageRegistryApi)
+    registry.package_registry = ProjectPackagesRegistry.PYPI
     registry.package_versions.side_effect = lambda name: versions_by_name.get(name, [])
 
     def _cmp(v1: str, v2: str) -> int:
@@ -110,13 +114,13 @@ class TestSolveTransitiveEmpty:
 
 
 class TestSolveTransitiveUnflagged:
-    def test_no_cve_and_age_over_threshold_not_solved(self) -> None:
-        """A package with no CVEs and age well above threshold should be skipped."""
+    def test_no_cve_package_is_solved_when_passed_directly(self) -> None:
+        """solve_transitive no longer filters — caller decides what to pass.
+        A non-CVE package passed directly should receive a recommendation."""
         records = [_rec("requests", "2.28.0", age_days=30)]
         registry = _make_registry({"requests": [_pv("2.32.0")]})
         result = solve_transitive(records, registry, {})
-        assert result.recommendations == {}
-        registry.package_versions.assert_not_called()
+        assert result.recommendations.get("requests") == "2.32.0"
 
 
 class TestSolveTransitiveCVE:
@@ -167,9 +171,13 @@ class TestSolveTransitiveVeryFresh:
         assert "new-pkg" in result.recommendations
 
     def test_very_fresh_solver_prefers_older_stable_version(self) -> None:
-        """Solver avoids a very-fresh candidate in favour of a stable older one."""
+        """Solver avoids a very-fresh candidate in favour of a stable one that is still an upgrade.
+
+        Installed 0.9.0; both 1.0.0 (stable) and 2.0.0 (very fresh) are upgrades, so the floor keeps
+        both and the L6 penalty steers the pick to the older-but-stable 1.0.0.
+        """
         _now = datetime(2026, 5, 7, tzinfo=UTC)
-        records = [_rec("new-pkg", "2.0.0", age_days=3)]
+        records = [_rec("new-pkg", "0.9.0", age_days=3)]
         registry = _make_registry(
             {
                 "new-pkg": [
@@ -184,6 +192,25 @@ class TestSolveTransitiveVeryFresh:
         )
         result = solve_transitive(records, registry, {}, now=_now)
         assert result.recommendations.get("new-pkg") == "1.0.0"
+
+    def test_never_downgrades_below_installed_when_installed_is_fresh(self) -> None:
+        """A fresh installed version is never downgraded to an older release (no-downgrade floor).
+
+        The cooldown only steers away from fresh *upgrades*; it must not pull an already-installed
+        version backwards. Installed 2.0.0 (fresh) → solver keeps 2.0.0, never 1.0.0.
+        """
+        _now = datetime(2026, 5, 7, tzinfo=UTC)
+        records = [_rec("new-pkg", "2.0.0", age_days=3)]
+        registry = _make_registry(
+            {
+                "new-pkg": [
+                    _pv("1.0.0", published="2025-10-13T00:00:00Z"),
+                    _pv("2.0.0", published="2026-05-04T00:00:00Z"),
+                ]
+            }
+        )
+        result = solve_transitive(records, registry, {}, now=_now)
+        assert result.recommendations.get("new-pkg") == "2.0.0"
 
 
 class TestSolveTransitiveDeduplication:

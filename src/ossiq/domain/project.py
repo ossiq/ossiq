@@ -18,6 +18,14 @@ class ConstraintSource:
     scope_path: list[str] | None = None  # npm nested override path, e.g. ["foo", "bar"]; None for flat
 
 
+@dataclass(frozen=True)
+class PeerRequirement:
+    """A peer dependency constraint placed on this package by another installed package."""
+
+    requirer_name: str
+    spec: str
+
+
 @dataclass(order=True)
 class Dependency:
     """
@@ -49,6 +57,15 @@ class Dependency:
         compare=False,
     )
 
+    # All version specifiers declared by every direct parent of this node.
+    # Populated during graph construction (dependency_tree.py Pass 2).
+    # Used by the solver to apply multi-parent L1 hard rejections for diamond deps.
+    parent_constraints: list[str] = field(default_factory=list, compare=False)
+
+    # Peer requirements placed on this package by other installed packages.
+    # Populated during graph construction alongside parent_constraints.
+    peer_requirements: list[PeerRequirement] = field(default_factory=list, compare=False)
+
 
 class Project:
     """Class for a package."""
@@ -56,8 +73,9 @@ class Project:
     package_manager_type: PackageManagerType
     name: str
     project_path: str | None
-
     dependency_tree: Dependency
+    engine_constraints: dict[str, str] | None  # e.g. {"python": "3.11"} or {"node": ">=18"}
+    has_lockfile: bool
 
     def __init__(
         self,
@@ -65,11 +83,17 @@ class Project:
         name: str,
         project_path: str,
         dependency_tree: Dependency,
+        engine_constraints: dict[str, str] | None = None,
+        manifest_lock_divergent: list[str] | None = None,
+        has_lockfile: bool = True,
     ):
         self.package_manager_type = package_manager_type
         self.name = name
         self.project_path = project_path
         self.dependency_tree = dependency_tree
+        self.engine_constraints = engine_constraints
+        self.manifest_lock_divergent: list[str] = manifest_lock_divergent or []
+        self.has_lockfile = has_lockfile
 
     def __repr__(self):
         return f"""{self.package_manager_type.name} Package(
