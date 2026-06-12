@@ -10,7 +10,6 @@ import re
 from collections.abc import Callable, Iterable
 
 import requests
-from rich.console import Console
 
 from ossiq.clients.client_github import BatchClient, GithubRepoBatchStrategy
 from ossiq.clients.common import get_user_agent
@@ -22,8 +21,6 @@ from ..domain.exceptions import GithubRateLimitError
 from ..domain.repository import Repository
 from ..domain.version import Commit, PackageVersion, RepositoryVersion, User, sort_versions
 from .api_interfaces import AbstractSourceCodeProviderApi
-
-console = Console()
 
 logger = logging.getLogger(__name__)
 GITHUB_API = "https://api.github.com"

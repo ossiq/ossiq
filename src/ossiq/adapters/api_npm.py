@@ -8,7 +8,6 @@ import re
 
 import requests
 import semver
-from rich.console import Console
 
 from ossiq.adapters.api_interfaces import AbstractPackageRegistryApi
 from ossiq.clients.batch import BatchClient
@@ -33,7 +32,6 @@ from ossiq.domain.version import (
 from ossiq.settings import Settings
 
 logger = logging.getLogger(__name__)
-console = Console()
 
 NPM_REGISTRY_FRONT = "https://www.npmjs.com"
 

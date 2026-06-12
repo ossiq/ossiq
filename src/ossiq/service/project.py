@@ -8,8 +8,6 @@ from collections.abc import Iterable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
-from rich.console import Console
-
 from ossiq.adapters.api_interfaces import AbstractPackageRegistryApi
 from ossiq.adapters.api_pypi import PackageRegistryApiPypi
 from ossiq.adapters.package_managers.dependency_tree import GraphExporter
@@ -29,7 +27,6 @@ from ossiq.unit_of_work.solver import uow_dependencies_solver
 from ossiq.unit_of_work.solver.reason import RecommendationReason
 from ossiq.unit_of_work.solver.version_matchers import version_satisfies_constraint
 
-console = Console()
 logger = logging.getLogger(__name__)
 
 

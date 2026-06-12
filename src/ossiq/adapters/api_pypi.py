@@ -7,7 +7,6 @@ from collections.abc import Iterable
 import requests
 from packaging.version import InvalidVersion
 from packaging.version import Version as PackagingVersion
-from rich.console import Console
 
 from ossiq.adapters.api_interfaces import AbstractPackageRegistryApi
 from ossiq.adapters.package_managers.api_pypi import batch_fetch_requires_dist, parse_requires_dist
@@ -31,8 +30,6 @@ from ossiq.domain.version import (
     create_version_difference_no_diff,
 )
 from ossiq.settings import Settings
-
-console = Console()
 
 PYPI_REGISTRY_FRONT = "https://pypi.org"
 

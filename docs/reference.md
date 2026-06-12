@@ -2,6 +2,143 @@
 # Reference
 
 
+## Public API
+
+ossiq exposes a stable library interface for programmatic use. Install without extras for the core scanner (`pip install ossiq`); install with `[cli]` to also get the terminal CLI (`pip install 'ossiq[cli]'`).
+
+```python
+from ossiq import scan, ScanResult, ScanRecord, Settings, CVE, Package, VersionsDifference, unit_of_work
+```
+
+### `scan(uow)`
+
+```python
+def scan(uow: unit_of_work.AbstractProjectUnitOfWork) -> ScanResult
+```
+
+Runs a full dependency health scan against the project described by `uow`. Fetches package metadata, CVEs, and version history from the appropriate registry; runs the SAT solver to produce update recommendations; and returns a `ScanResult`. Must be called inside the `uow` context manager.
+
+```python
+from ossiq import scan, Settings, unit_of_work
+from ossiq.unit_of_work.uow_project import ProjectUnitOfWork
+
+settings = Settings.load_from_env()
+uow = ProjectUnitOfWork(settings, project_path=".")
+result = scan(uow)
+```
+
+### `ScanResult`
+
+Aggregated output of a single scan run. Returned by `scan()`.
+
+| Field | Type | Description |
+|---|---|---|
+| `project_name` | `str` | Name from the project manifest |
+| `project_path` | `str` | Absolute path to the project root |
+| `packages_registry` | `str` | Registry used (`"npm"` or `"pypi"`) |
+| `production_packages` | `list[ScanRecord]` | Direct production dependencies |
+| `optional_packages` | `list[ScanRecord]` | Dev / optional dependencies |
+| `transitive_packages` | `list[ScanRecord]` | Indirect dependencies |
+| `manifest_lock_divergent` | `list[str]` | Package names where the manifest and lockfile disagree |
+| `upgrade_paths` | `list[UpgradePath]` | Cross-constraint widening opportunities (library projects only) |
+
+### `ScanRecord`
+
+Per-package analysis record. Each entry in the `ScanResult` lists above is one `ScanRecord`.
+
+| Field | Type | Description |
+|---|---|---|
+| `package_name` | `str` | Canonical package name |
+| `installed_version` | `str` | Version currently installed |
+| `latest_version` | `str \| None` | Most recent published version |
+| `recommended_version` | `str \| None` | Solver-recommended update target |
+| `recommended_version_reason` | `RecommendationReason \| None` | Why this version was chosen |
+| `time_lag_days` | `int \| None` | Days between installed and latest version |
+| `releases_lag` | `int \| None` | Number of releases between installed and latest |
+| `versions_diff_index` | `VersionsDifference` | Semantic drift classification |
+| `cve` | `list[CVE]` | Known vulnerabilities for the installed version |
+| `version_constraint` | `str \| None` | Version specifier from the manifest |
+| `constraint_info` | `ConstraintSource` | How the version was constrained (see Constraint Provenance) |
+| `dependency_path` | `list[str] \| None` | Ancestor chain for transitive packages |
+| `update_transitive_impacts` | `list[TransitiveImpact]` | How updating this package affects transitive deps |
+| `peer_violations` | `list[PeerRequirement]` | Peer requirements the installed version fails to satisfy |
+| `constraint_conflict` | `list[str]` | Conflicting constraints that blocked the solver |
+| `purl` | `str \| None` | Package URL (PURL) identifier |
+| `license` | `list[str] \| None` | SPDX license identifiers |
+
+### `Settings`
+
+Pydantic model holding runtime configuration. Load from environment variables with `Settings.load_from_env()` or construct directly.
+
+| Field | Default | Description |
+|---|---|---|
+| `github_token` | `None` | GitHub personal access token for repository enrichment |
+| `cache_destination` | `~/.ossiq_cache.sqlite3` | Path to the SQLite HTTP cache |
+| `cache_ttl` | `24` | Cache time-to-live in hours |
+| `verbose` | `False` | Emit detailed progress output |
+| `debug` | `False` | Enable debug logging |
+| `cutoff_date` | `None` | Treat versions published after this date as invisible |
+| `cooldown_period` | `7` | Days a new version must age before the solver recommends it |
+
+All fields can be set via environment variables prefixed with `OSSIQ_` (e.g. `OSSIQ_GITHUB_TOKEN`).
+
+### `CVE`
+
+A single vulnerability record attached to a `ScanRecord`.
+
+| Field | Type | Description |
+|---|---|---|
+| `id` | `str` | Primary identifier (CVE, GHSA, or OSV ID) |
+| `cve_ids` | `tuple[str, ...]` | All aliases for this vulnerability |
+| `severity` | `Severity` | `LOW`, `MEDIUM`, `HIGH`, or `CRITICAL` |
+| `summary` | `str` | Human-readable description |
+| `affected_versions` | `tuple[str, ...]` | Version strings confirmed vulnerable |
+| `published` | `str \| None` | ISO 8601 publication date |
+| `link` | `str` | URL to the upstream advisory |
+
+### `Package`
+
+Metadata about a package as returned by its registry.
+
+| Field | Type | Description |
+|---|---|---|
+| `name` | `str` | Registry name |
+| `canonical_name` | `str \| None` | Normalised name (lowercased, hyphens unified) |
+| `latest_version` | `str \| None` | Most recent stable release |
+| `repo_url` | `str \| None` | Source code repository URL |
+| `homepage_url` | `str \| None` | Project homepage |
+| `license` | `str \| None` | SPDX license string |
+| `is_deprecated` | `bool` | Package has been deprecated by its maintainer |
+| `is_unpublished` | `bool` | Package has been removed from the registry |
+
+### `VersionsDifference`
+
+Semantic drift classification between two versions.
+
+| Field | Type | Description |
+|---|---|---|
+| `diff_index` | `int` | Numeric severity: 0 = no diff, 1 = patch, 2 = minor, 3 = major, 4 = build, 5 = prerelease |
+| `diff_name` | `str` | Human-readable label: `"LATEST"`, `"PATCH"`, `"MINOR"`, `"MAJOR"`, etc. |
+
+### `unit_of_work`
+
+Module alias for `ossiq.unit_of_work.core`. Exposes `AbstractProjectUnitOfWork`, the base class for the scan context. Use `ossiq.unit_of_work.uow_project.ProjectUnitOfWork` (the concrete implementation) to construct a scan context for a real project on disk.
+
+```python
+from ossiq.unit_of_work.uow_project import ProjectUnitOfWork
+
+uow = ProjectUnitOfWork(
+    settings=settings,
+    project_path="/path/to/project",
+    production=True,          # production deps only
+    ignore_packages=("pytest",),
+)
+with uow:
+    result = scan(uow)
+```
+
+---
+
 ## Data Model
 
 The `ossiq` domain model is located in the `ossiq.domain` module. It defines the core entities used for analysis.

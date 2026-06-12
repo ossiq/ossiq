@@ -2,11 +2,19 @@
 
 import importlib.metadata
 import logging
+import sys
 from pathlib import Path
 from typing import Annotated, Literal
 
-import typer
-from rich.console import Console
+try:
+    import typer
+    from rich.console import Console
+except ImportError:
+    print(
+        "ossiq CLI requires the 'cli' extra. Install with: pip install 'ossiq[cli]'",
+        file=sys.stderr,
+    )
+    sys.exit(1)
 
 from ossiq.adapters.package_managers.helpers.helpers_npm import npm_helpers_app
 from ossiq.adapters.package_managers.helpers.helpers_uv import uv_helpers_app

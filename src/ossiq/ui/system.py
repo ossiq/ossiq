@@ -2,16 +2,23 @@
 Presentation-related system-level functions
 """
 
+import sys
 from contextlib import contextmanager
-
-from rich.console import Console
-from rich.panel import Panel
-from rich.text import Text
 
 from ossiq.settings import Settings
 
-console = Console()
-error_console = Console(stderr=True)
+try:
+    from rich.console import Console
+    from rich.panel import Panel
+    from rich.text import Text
+
+    console = Console()
+    error_console = Console(stderr=True)
+    RICH_AVAILABLE = True
+except ImportError:
+    RICH_AVAILABLE = False
+    console = None
+    error_console = None
 
 
 @contextmanager
@@ -25,9 +32,15 @@ def show_operation_progress(settings: Settings, message: str):
     def noop():
         yield lambda: None
 
+    if not RICH_AVAILABLE:
+        yield noop
+        return
+
+    assert console is not None
+    _console = console
     try:
         if settings.verbose is False:
-            yield lambda: console.status(f"[bold cyan]{message}")
+            yield lambda: _console.status(f"[bold cyan]{message}")
         else:
             yield noop
     finally:
@@ -38,6 +51,10 @@ def show_settings(ctx, label: str, settings: dict):
     """
     Show a panel with key/value pairs with settings
     """
+    if not RICH_AVAILABLE:
+        return
+
+    assert console is not None
     settings: Settings = ctx.obj
     if settings.verbose is False:
         return
@@ -57,6 +74,11 @@ def show_error(_, message: str):
     """
     Show error message
     """
+    if not RICH_AVAILABLE:
+        print(f"\nERROR {message}", file=sys.stderr)
+        return
+
+    assert error_console is not None
     error_console.print(f"\n[bold yellow on red blink] ERROR [/bold yellow on red blink] [red]{message}[/red]")
 
 
@@ -64,4 +86,9 @@ def show_warning(message: str):
     """
     Show warning
     """
+    if not RICH_AVAILABLE:
+        print(f"\n[WARNING] {message.strip()}", file=sys.stderr)
+        return
+
+    assert error_console is not None
     error_console.print(f"\n[bold red on yellow]\\[WARNING][/bold red on yellow] [white]{message.strip()}[/white]")
