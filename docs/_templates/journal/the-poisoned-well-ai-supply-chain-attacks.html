@@ -1,0 +1,966 @@
+<!DOCTYPE html>
+<html lang="en" class="scroll-smooth">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>The Poisoned Well: How AI Amplifies Open Source Supply Chain Attacks | OSS IQ Journal</title>
+
+    <!-- ═══════════════════════════════════════════════════════════════════
+         SEO — Google · Social sharing · LLM / AI-search
+         Adapted from the OSS IQ journal template. Fields marked [ADAPT].
+         ═══════════════════════════════════════════════════════════════════ -->
+    <meta name="description" content="Open source packages are now a primary malware channel, and AI-assisted coding is amplifying the threat. A technical synthesis of the attacks, the defenses, and what actually works."><!-- [ADAPT] -->
+    <meta name="keywords"    content="software supply chain security, open source malware, slopsquatting, dependency cooldowns, npm supply chain attack, Shai-Hulud, SBOM, provenance, SLSA, agentic AI security, MCP"><!-- [ADAPT] -->
+    <meta name="author"      content="Maksym Klymyshyn, Oleksandr Shulika"><!-- [ADAPT] -->
+    <meta name="robots"      content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1">
+    <link rel="canonical"    href="https://ossiq.dev/journal/the-poisoned-well-ai-supply-chain-attacks.html"><!-- [ADAPT] -->
+
+    <!-- ── Open Graph ──────────────────────────────────────────────────── -->
+    <meta property="og:type"              content="article">
+    <meta property="og:url"               content="https://ossiq.dev/journal/the-poisoned-well-ai-supply-chain-attacks.html"><!-- [ADAPT] -->
+    <meta property="og:site_name"         content="OSS IQ">
+    <meta property="og:title"             content="The Poisoned Well: How AI Amplifies Open Source Supply Chain Attacks | OSS IQ Journal"><!-- [ADAPT] -->
+    <meta property="og:description"       content="Open source packages have become a primary delivery channel for malware, and AI-assisted coding is making it bigger, faster, and stranger. What's happening, why AI matters, and what to do now."><!-- [ADAPT] -->
+    <meta property="og:image"             content="https://ossiq.dev/assets/og-poisoned-well.jpg"><!-- [ADAPT] create 1200×630 article image -->
+    <meta property="og:image:width"       content="1200">
+    <meta property="og:image:height"      content="630">
+    <meta property="og:image:alt"         content="The Poisoned Well - OSS IQ Research Report"><!-- [ADAPT] -->
+    <meta property="og:locale"            content="en_US">
+    <meta property="article:published_time" content="2026-06-14T00:00:00Z"><!-- [ADAPT] -->
+    <meta property="article:modified_time"  content="2026-06-14T00:00:00Z"><!-- [ADAPT] -->
+    <meta property="article:author"         content="Maksym Klymyshyn"><!-- [ADAPT] -->
+    <meta property="article:section"        content="Research Report"><!-- [ADAPT] -->
+    <meta property="article:tag"            content="software supply chain security">
+    <meta property="article:tag"            content="open source malware">
+    <meta property="article:tag"            content="AI coding security">
+
+    <!-- ── Twitter / X Card ──────────────────────────────────────────────-->
+    <meta name="twitter:card"        content="summary_large_image">
+    <meta name="twitter:site"        content="@ossiq_dev"><!-- [ADAPT] -->
+    <meta name="twitter:creator"     content="@mklymyshyn"><!-- [ADAPT] -->
+    <meta name="twitter:title"       content="The Poisoned Well: How AI Amplifies Open Source Supply Chain Attacks"><!-- [ADAPT] -->
+    <meta name="twitter:description" content="Open source packages are now a primary malware channel, and AI is amplifying the threat. The attacks, the defenses, and what actually works."><!-- [ADAPT] -->
+    <meta name="twitter:image"       content="https://ossiq.dev/assets/og-poisoned-well.jpg"><!-- [ADAPT] -->
+    <meta name="twitter:image:alt"   content="The Poisoned Well - OSS IQ Research Report"><!-- [ADAPT] -->
+
+    <link rel="llms-txt" href="https://ossiq.dev/llms.txt"><!-- [ADAPT] -->
+
+    <!-- ── Structured data: Article ──────────────────────────────────────-->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "Article",
+      "headline": "The Poisoned Well: How AI-Assisted Coding Amplifies Open Source Supply Chain Attacks",
+      "description": "Open source packages have become a primary delivery channel for malware, and AI-assisted and agentic development is amplifying the threat. A technical synthesis of the attack patterns, the quantitative trend, the defensive schools of thought, and a defense-in-depth architecture and maturity model.",
+      "image": "https://ossiq.dev/assets/og-poisoned-well.jpg",
+      "datePublished": "2026-06-14T00:00:00Z",
+      "dateModified": "2026-06-14T00:00:00Z",
+      "author": [
+        { "@type": "Person", "name": "Maksym Klymyshyn", "url": "https://www.linkedin.com/in/klymyshyn/" },
+        { "@type": "Person", "name": "Oleksandr Shulika", "url": "https://www.linkedin.com/in/alexshulika" }
+      ],
+      "publisher": {
+        "@type": "Organization",
+        "name": "OSS IQ",
+        "logo": { "@type": "ImageObject", "url": "https://ossiq.dev/_static/oss-iq-logo-light.svg" }
+      },
+      "articleSection": "Research Report",
+      "wordCount": 5100,
+      "about": [
+        "software supply chain security",
+        "open source malware",
+        "slopsquatting",
+        "dependency cooldowns",
+        "survival analysis",
+        "agentic AI development"
+      ],
+      "mainEntityOfPage": { "@type": "WebPage", "@id": "https://ossiq.dev/journal/the-poisoned-well-ai-supply-chain-attacks.html" }
+    }
+    </script>
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "BreadcrumbList",
+      "itemListElement": [
+        { "@type": "ListItem", "position": 1, "name": "OSS IQ", "item": "https://ossiq.dev/" },
+        { "@type": "ListItem", "position": 2, "name": "Journal", "item": "https://ossiq.dev/journal/" },
+        { "@type": "ListItem", "position": 3, "name": "The Poisoned Well", "item": "https://ossiq.dev/journal/the-poisoned-well-ai-supply-chain-attacks.html" }
+      ]
+    }
+    </script>
+
+    <!-- Runs before CSS to avoid flash of wrong theme -->
+    <script>
+    (function () {
+      const saved = localStorage.getItem('theme');
+      const preferred = window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+      document.documentElement.setAttribute('data-theme', saved ?? preferred);
+    })();
+    </script>
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style type="text/tailwindcss">
+        @import "tailwindcss";
+
+        @theme {
+            --color-bg:            #1E1E1E;
+            --color-secondary:     #181818;
+            --color-navigation:    #272727;
+            --color-card:          #1A1A1A;
+            --color-surface-a:     #2A2A2A;
+            --color-surface-b:     #333333;
+            --color-surface-c:     #cccccc;
+            --color-accent-green:  #00FF85;
+            --color-accent-pink:   #FF4D80;
+            --color-accent-yellow: #FFB800;
+            --color-card-blue:     #60A5FA;
+            --color-card-violet:   #A78BFA;
+            --font-sans: 'Inter', system-ui, sans-serif;
+            --font-mono: 'JetBrains Mono', monospace;
+        }
+
+        /* ══════════════════ SOLARIS LIGHT THEME ══════════════════ */
+        [data-theme="light"] {
+            --color-bg:            #F5F2EB;
+            --color-secondary:     #E8E4DC;
+            --color-navigation:    #E8E4DC;
+            --color-card:          #ffffff;
+            --color-surface-a:     #E8E4DC;
+            --color-surface-b:     #E8E4DC;
+            --color-surface-c:     #E0DCD4;
+            --color-accent-green:  #008F50;
+            --color-accent-pink:   #C4305A;
+            --color-accent-yellow: #A07200;
+            --color-card-blue:     #1E6BAA;
+            --color-card-violet:   #5B21B6;
+            --color-gray-200: #3A3935; --color-gray-300: #4A4843;
+            --color-gray-400: #706D66; --color-gray-500: #9C9890;
+            --color-gray-600: #B8B4AC;
+            --color-gray-800: #E0DCD4; --color-gray-900: #E8E4DC;
+        }
+
+        .prose-body { font-size: clamp(0.9375rem, 2.5vw, 1.125rem); line-height: 27px; letter-spacing: -0.17px; }
+        [data-theme="light"] body{color:#1C1B18}
+        [data-theme="light"] strong,[data-theme="light"] b{color:#1C1B18}
+        .source-ref{color:var(--color-accent-green);cursor:pointer;font-size:0.7em;font-family:var(--font-mono);vertical-align:super;line-height:0}
+        .source-ref:hover{text-decoration:underline}
+        @keyframes source-flash{0%,100%{background:transparent}20%{background:rgba(0,255,133,0.2)}}
+        .source-highlight{animation:source-flash 1.8s ease;border-radius:4px}
+        [data-theme="light"] ::selection{background:rgba(0,143,80,.15)}
+        [data-theme="light"] .text-white{color:#1C1B18!important}
+        [data-theme="light"] a.text-white{color:#1C1B18!important}
+        [data-theme="light"] .section-title{color:#1C1B18}
+        [data-theme="light"] .prose-body{color:#4A4843}
+        [data-theme="light"] .expandable-content div{color:#706D66!important}
+        [data-theme="light"] .expandable-content span.text-white{color:#1C1B18!important}
+        [data-theme="light"] .metric-card{border-color:rgba(0,0,0,.08)}
+        [data-theme="light"] .metric-card:hover{border-color:rgba(0,0,0,.18)}
+        [data-theme="light"] .source-link{border-bottom-color:rgba(0,0,0,.1)}
+        [data-theme="light"] .bg-surface-b .text-white\/90{color:rgba(28,27,24,.9)!important}
+        [data-theme="light"] .bg-surface-b .text-white\/40{color:rgba(28,27,24,.4)!important}
+        [data-theme="light"] .border-white\/10{border-color:rgba(0,0,0,.1)!important}
+        [data-theme="light"] .bg-white\/20{background:rgba(0,0,0,.12)!important}
+        [data-theme="light"] #stickyNav{border-color:#E0DCD4!important}
+        [data-theme="light"] .shadow-2xl{box-shadow:0 4px 24px rgba(0,0,0,.06)}
+        [data-theme="light"] .bg-card.border.rounded-xl.text-gray-300{background:#FFF9F0!important;border-color:rgba(196,48,90,.15)!important}
+        [data-theme="light"] .theme-switcher{background:rgba(0,0,0,.06);border-color:rgba(0,0,0,.1)}
+        [data-theme="light"] .theme-option{color:rgba(0,0,0,.35)}
+        [data-theme="light"] .theme-option.active{background:rgba(0,0,0,.1);color:#1C1B18}
+        [data-theme="light"] .theme-option:not(.active):hover{color:rgba(0,0,0,.7)}
+        [data-theme="light"] a.underline,[data-theme="light"] .prose-body a{color:var(--color-accent-green)!important;text-decoration-color:color-mix(in srgb,var(--color-accent-green) 25%,transparent)!important}
+        [data-theme="light"] .text-\[\#a78bfa\]{color:#6D28D9!important}
+        [data-theme="light"] .bg-blue-400\/70{background:rgba(59,130,246,.6)!important}
+        [data-theme="light"] .bg-gray-500\/70{background:rgba(156,152,144,.6)!important}
+        [data-theme="light"] .bg-accent-pink .text-black\/90{color:rgba(255,255,255,.9)!important}
+        [data-theme="light"] .bg-accent-pink .text-black{color:#fff!important}
+        [data-theme="light"] .bg-accent-pink .text-black\/70{color:rgba(255,255,255,.7)!important}
+        [data-theme="light"] .bg-card-blue .text-black\/90{color:rgba(255,255,255,.9)!important}
+        [data-theme="light"] .bg-card-blue .text-black{color:#fff!important}
+        [data-theme="light"] .bg-card-blue .text-black\/70{color:rgba(255,255,255,.7)!important}
+        [data-theme="light"] .bg-card-violet .text-black\/90{color:rgba(255,255,255,.9)!important}
+        [data-theme="light"] .bg-card-violet .text-black{color:#fff!important}
+        [data-theme="light"] .bg-card-violet .text-black\/70{color:rgba(255,255,255,.7)!important}
+
+        @layer base {
+            body{background:var(--color-bg);color:#fff;font-family:var(--font-sans);-webkit-font-smoothing:antialiased;font-size:16px;line-height:1.75}
+            ::selection{background:rgba(0,255,133,.2)}
+            section{scroll-margin-top:80px}
+            strong, b{color:#fff;font-weight:600}
+        }
+
+        @layer components {
+            .no-scrollbar::-webkit-scrollbar{display:none}
+            .no-scrollbar{-ms-overflow-style:none;scrollbar-width:none}
+
+            .expandable-content{max-height:0;overflow:hidden;transition:max-height .5s ease}
+            .expandable.open .expandable-content{max-height:3000px}
+            .expandable.open .expand-icon{transform:rotate(45deg)}
+            .expand-icon{transition:transform .3s ease;color:var(--color-accent-green)}
+
+            .chart-box{position:relative;width:100%}
+            .chart-box canvas{width:100%!important}
+
+            .metric-card{background:var(--color-card);border:1px solid rgba(255,255,255,.06);transition:border-color .2s,transform .2s}
+            .metric-card:hover{border-color:rgba(255,255,255,.12);transform:translateY(-2px)}
+
+            .nav-link.active{color:var(--color-accent-green)!important}
+            .nav-link.active::after{content:'';position:absolute;bottom:-4px;left:0;width:100%;height:2px;background:var(--color-accent-green)}
+
+            .fade-in{opacity:0;transform:translateY(16px);transition:opacity .6s ease,transform .6s ease}
+            .fade-in.visible{opacity:1;transform:translateY(0)}
+
+            .source-link{color:#9ca3af;text-decoration:none;border-bottom:1px solid rgba(255,255,255,.1);transition:color .2s,border-color .2s}
+            .source-link:hover{color:var(--color-accent-green);border-color:var(--color-accent-green)}
+
+            .prose-body{line-height:2rem;color:#d1d5db}
+            .prose-body p+p{margin-top:1.5rem}
+
+            .section-num{font-family:var(--font-mono);font-size:clamp(1.25rem,5vw,2.25rem);font-weight:600;color:var(--color-accent-green);display:inline-flex;align-items:center;gap:6px}
+            .section-num::before{content:'';display:inline-block;width:6px;height:6px;background:var(--color-accent-green);border-radius:50%}
+            .section-title{font-size:clamp(1.4rem,5.5vw,2.75rem);font-weight:700;line-height:1.2;letter-spacing:-.02em;color:#fff}
+
+            .theme-switcher{display:inline-flex;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);border-radius:999px;padding:2px}
+            .theme-option{display:inline-flex;align-items:center;gap:5px;padding:4px 10px;border-radius:999px;font-family:var(--font-mono);font-size:11px;font-weight:500;color:rgba(255,255,255,.35);cursor:pointer;transition:background .15s,color .15s;background:transparent;border:none;white-space:nowrap}
+            .theme-option.active{background:rgba(255,255,255,.12);color:#fff}
+            .theme-option:not(.active):hover{color:rgba(255,255,255,.7)}
+
+            .theme-dark  { display: none; }
+            .theme-light { display: none; }
+            :root[data-theme="dark"]  .theme-dark  { display: revert; }
+            :root[data-theme="light"] .theme-light { display: revert; }
+
+            .bg-card-blue   { background: var(--color-card-blue); }
+            .bg-card-violet { background: var(--color-card-violet); }
+
+            /* Maturity / architecture table */
+            .matrix th{font-family:var(--font-mono);font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--color-accent-green);text-align:left;padding:14px 16px;border-bottom:1px solid rgba(255,255,255,.1)}
+            .matrix td{padding:16px;border-bottom:1px solid rgba(255,255,255,.06);vertical-align:top;font-size:.875rem;line-height:1.5;color:#d1d5db}
+            .matrix tr:last-child td{border-bottom:none}
+            .matrix .lvl{font-weight:700;color:#fff;font-family:var(--font-mono)}
+            [data-theme="light"] .matrix td{color:#4A4843}
+            [data-theme="light"] .matrix .lvl{color:#1C1B18}
+
+            .mobile-menu-link {
+                @apply block px-5 py-4 text-base font-medium text-gray-400 hover:text-white transition-colors;
+            }
+            .prose-body a {
+                @apply underline decoration-gray-600 hover:decoration-accent-green transition-all;
+            }
+            .prose-body strong {
+                @apply font-semibold;
+            }
+            .prose-link {
+                @apply underline decoration-gray-600 hover:decoration-accent-green transition-all;
+            }
+        }
+    </style>
+</head>
+<body class="antialiased overflow-x-hidden">
+
+<header class="sticky md:static top-0 z-[60] w-full bg-[var(--color-bg)] border-b border-gray-800 md:border-transparent md:bg-transparent py-4 md:py-6 px-6 md:px-12 flex justify-between items-center max-w-7xl mx-auto">
+    <div class="flex items-center">
+        <a href="/journal/" aria-label="OSS IQ Journal">
+            <span class="theme-dark font-mono font-bold text-xl tracking-tight text-white">OSS<span class="text-accent-green">IQ</span></span>
+            <span class="theme-light font-mono font-bold text-xl tracking-tight" style="color:#1D1D1F">OSS<span style="color:#008F50">IQ</span></span>
+        </a>
+    </div>
+    <button id="mobileMenuBtn" class="md:hidden flex flex-col gap-[6px] p-3 rounded-md hover:bg-white/10 transition-colors" aria-label="Open menu" aria-expanded="false" aria-controls="mobileMenu">
+        <span class="block w-7 h-[3px] bg-current rounded"></span>
+        <span class="block w-7 h-[3px] bg-current rounded"></span>
+        <span class="block w-7 h-[3px] bg-current rounded"></span>
+    </button>
+    <nav class="hidden md:flex items-center gap-8 text-sm font-medium text-gray-400">
+        <a href="https://ossiq.dev/" class="hover:text-white transition-colors">How It Works</a>
+        <a href="https://ossiq.dev/#features" class="hover:text-white transition-colors">Features</a>
+        <a href="https://ossiq.dev/#try-it-out" class="hover:text-white transition-colors">Try It</a>
+        <a href="https://ossiq.dev/getting-started.html" class="hover:text-white transition-colors">Documentation</a>
+        <a href="https://github.com/ossiq/ossiq" class="text-accent-green hover:underline">GitHub</a>
+        <div class="theme-switcher" role="group" aria-label="Select theme">
+                <button class="theme-option" data-theme="dark" onclick="setTheme('dark')" aria-label="Dark mode">
+                    <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+                    Dark
+                </button>
+                <button class="theme-option" data-theme="light" onclick="setTheme('light')" aria-label="Light mode">
+                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="5" fill="currentColor" stroke="none"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+                    Light
+                </button>
+            </div>
+    </nav>
+</header>
+
+<!-- Mobile menu overlay -->
+<div id="mobileMenu" class="hidden fixed inset-0 z-[100] md:hidden" role="dialog" aria-modal="true" aria-label="Navigation menu">
+    <div id="mobileMenuBackdrop" class="absolute inset-0 bg-[var(--color-bg)]"></div>
+    <div class="relative bg-[var(--color-bg)] border-b border-gray-800 w-full max-h-[85vh] overflow-y-auto">
+        <div class="flex items-center justify-end px-6 py-3 border-b border-gray-800">
+            <button id="mobileMenuClose" class="p-2 rounded-md hover:bg-white/10 transition-colors" aria-label="Close menu">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            </button>
+        </div>
+        <div class="flex items-center justify-center px-6 py-4 border-b border-gray-800">
+            <div class="theme-switcher" role="group" aria-label="Select theme">
+                <button class="theme-option" data-theme="dark" onclick="setTheme('dark')" aria-label="Dark mode">
+                    <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+                    Dark
+                </button>
+                <button class="theme-option" data-theme="light" onclick="setTheme('light')" aria-label="Light mode">
+                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="5" fill="currentColor" stroke="none"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+                    Light
+                </button>
+            </div>
+        </div>
+        <div class="border-b border-gray-800 py-2">
+            <a href="#hero" class="mobile-menu-link" data-mobile-nav>↑ Back to Top</a>
+        </div>
+        <div class="border-b border-gray-800 py-2">
+            <a href="/journal/" class="mobile-menu-link text-accent-green font-semibold">← Back to Journal</a>
+        </div>
+        <div class="border-b border-gray-800 py-2">
+            <a href="/" class="mobile-menu-link">← Main Website</a>
+        </div>
+        <div class="border-b border-gray-800 py-2">
+            <p class="px-4 py-2 text-[10px] uppercase tracking-[.2em] font-bold text-gray-600">Article Sections</p>
+            <a href="#s01" class="mobile-menu-link" data-mobile-nav>01 Threat</a>
+            <a href="#s02" class="mobile-menu-link" data-mobile-nav>02 Scale</a>
+            <a href="#s03" class="mobile-menu-link" data-mobile-nav>03 AI</a>
+            <a href="#s04" class="mobile-menu-link" data-mobile-nav>04 Provenance</a>
+            <a href="#s05" class="mobile-menu-link" data-mobile-nav>05 Scanning</a>
+            <a href="#s06" class="mobile-menu-link" data-mobile-nav>06 Behavioral</a>
+            <a href="#s07" class="mobile-menu-link" data-mobile-nav>07 Cooldowns</a>
+            <a href="#s08" class="mobile-menu-link" data-mobile-nav>08 Governance</a>
+            <a href="#s09" class="mobile-menu-link" data-mobile-nav>09 Defense</a>
+            <a href="#s10" class="mobile-menu-link" data-mobile-nav>10 Conclusion</a>
+            <a href="#s11" class="mobile-menu-link" data-mobile-nav>11 Sources</a>
+        </div>
+    </div>
+</div>
+
+<main class="mx-auto pb-32">
+
+<!-- ═══════════════════ HERO ═══════════════════ -->
+<section id="hero" class="flex px-4 md:px-8 xl:px-0">
+    <div class="pt-16 pb-20 mx-auto max-w-7xl w-full">
+        <p class="text-accent-green font-mono text-sm mb-8 tracking-widest">&gt; Research Report &middot; June 2026</p>
+        <h1 class="text-3xl sm:text-5xl md:text-8xl font-extrabold leading-[1.1] mb-12 max-w-5xl tracking-tight">The Poisoned Well</h1>
+        <div class="border-t border-gray-800 pt-8 mb-16">
+            <h2 class="text-xl sm:text-2xl md:text-4xl font-mono font-medium text-gray-300">How AI-Assisted Coding Amplifies Open Source <span class="text-accent-pink italic">Supply Chain Attacks</span></h2>
+        </div>
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-20">
+            <div class="bg-card p-5 md:p-10 rounded-lg flex flex-col justify-between min-h-[160px] md:min-h-[280px] fade-in"><div><div class="text-accent-pink text-3xl md:text-5xl font-bold font-mono mb-4 tracking-tighter">2.6B</div><p class="text-gray-300 font-bold leading-tight text-lg">Weekly downloads behind one phished maintainer</p></div><p class="text-gray-600 text-[10px] mt-auto uppercase tracking-[.2em] font-bold">npm "qix", Sept 2025</p></div>
+            <div class="bg-card p-5 md:p-10 rounded-lg flex flex-col justify-between min-h-[160px] md:min-h-[280px] fade-in"><div><div class="text-accent-pink text-3xl md:text-5xl font-bold font-mono mb-4 tracking-tighter">19.7%</div><p class="text-gray-300 font-bold leading-tight text-lg">Of AI-recommended packages don't exist</p></div><p class="text-gray-600 text-[10px] mt-auto uppercase tracking-[.2em] font-bold">Slopsquatting study</p></div>
+            <div class="bg-card p-5 md:p-10 rounded-lg flex flex-col justify-between min-h-[160px] md:min-h-[280px] fade-in"><div><div class="text-accent-pink text-3xl md:text-5xl font-bold font-mono mb-4 tracking-tighter">~1.2M</div><p class="text-gray-300 font-bold leading-tight text-lg">Malicious packages tracked since 2019</p></div><p class="text-gray-600 text-[10px] mt-auto uppercase tracking-[.2em] font-bold">Sonatype, 2026</p></div>
+            <div class="bg-card p-5 md:p-10 rounded-lg flex flex-col justify-between min-h-[160px] md:min-h-[280px] fade-in"><div><div class="text-accent-pink text-3xl md:text-5xl font-bold font-mono mb-4 tracking-tighter">34 days</div><p class="text-gray-300 font-bold leading-tight text-lg">Median patch time vs. 28 days to exploit</p></div><p class="text-gray-600 text-[10px] mt-auto uppercase tracking-[.2em] font-bold">CVE survival analysis</p></div>
+        </div>
+        <div class="text-xl sm:text-3xl md:text-5xl font-bold leading-[1.3] max-w-6xl">You didn&rsquo;t <span class="text-accent-pink">write</span> it. You didn&rsquo;t <span class="text-accent-pink">review</span> it. You just <span class="text-accent-green italic">trusted</span> it - like almost everything else in your dependency tree.</div>
+    </div>
+</section>
+
+<!-- ═══════════════════ AUTHORS CARDS ═══════════════════ -->
+<section id="authors" class="mb-[30px] px-4 md:px-8 xl:px-0">
+    <div class="max-w-7xl justify-self-center flex flex-col sm:flex-row mx-auto gap-8 sm:gap-12">
+        <div class="w-full">
+            <div class="border-b-4 border-accent-pink uppercase font-bold w-full mb-4 flex items-baseline gap-2">
+                Article By
+                <span class="text-[10px] font-normal normal-case tracking-normal text-[#9CA3AF]">· written with AI assistance</span>
+            </div>
+            <div class="flex items-center sm:items-start gap-6 md:gap-8">
+                <div class="flex-shrink-0">
+                    <div class="w-[4.5rem] h-[4.5rem] md:w-20 md:h-20 rounded-full overflow-hidden ring-4 ring-slate-50 shadow-inner">
+                        <img src="/_static/images/maksym-klymyshyn.png" width="200" height="200" alt="Maksym Klymyshyn" loading="lazy" />
+                    </div>
+                </div>
+                <div class="flex-1 text-left flex flex-col justify-center pt-1">
+                    <h3 class="text-md md:text-md text-white tracking-tight font-bold">
+                        <a href="https://www.linkedin.com/in/klymyshyn/" target="_blank" rel="noopener noreferrer">Maksym Klymyshyn</a>
+                    </h3>
+                    <span class="text-[10px] md:text-xs font-bold tracking-wider text-[#9CA3AF] uppercase mt-1">
+                        Software Supply Chain Enthusiast | Engineering Leader
+                    </span>
+                </div>
+            </div>
+        </div>
+
+        <div class="w-full">
+            <div class="border-b-4 border-accent-pink uppercase font-bold w-full mb-4">
+                &nbsp;
+            </div>
+            <div class="flex items-center gap-6 md:gap-8">
+                <div class="flex-shrink-0">
+                    <div class="w-[4.5rem] h-[4.5rem] md:w-20 md:h-20 rounded-full overflow-hidden ring-4 ring-slate-50 shadow-inner">
+                        <img src="/_static/images/alex-shulika.png" width="200" height="200" alt="Alex Shulika" loading="lazy" />
+                    </div>
+                </div>
+                <div class="flex-1 text-left flex flex-col justify-center pt-1">
+                    <h3 class="text-md md:text-md text-white tracking-tight font-bold">
+                        <a href="https://www.linkedin.com/in/alexshulika" target="_blank" rel="noopener noreferrer">Alex Shulika</a>
+                    </h3>
+                    <span class="text-[10px] md:text-xs font-bold tracking-wider text-[#9CA3AF] uppercase mt-1">
+                        Director of Strategic Projects | CEO Office | ex-McKinsey
+                    </span>
+                </div>
+            </div>
+        </div>
+
+        <div class="w-full">
+            <div class="border-b-4 border-accent-green uppercase font-bold w-full mb-4">
+                Designed By
+            </div>
+            <div class="flex items-center gap-6 md:gap-8">
+                <div class="flex-shrink-0">
+                    <div class="w-[4.5rem] h-[4.5rem] md:w-20 md:h-20 rounded-full overflow-hidden ring-4 ring-slate-50 shadow-inner">
+                        <img src="/_static/images/maxence-ducher.png" width="200" height="200" alt="Maxence Ducher" loading="lazy" />
+                    </div>
+                </div>
+                <div class="flex-1 text-left flex flex-col justify-center pt-1">
+                    <h3 class="text-md md:text-md text-white tracking-tight font-bold">
+                        <a href="https://www.linkedin.com/in/maxence-ducher-74b8a11a6" target="_blank" rel="noopener noreferrer">Maxence Ducher</a>
+                    </h3>
+                    <span class="text-[10px] md:text-xs font-bold tracking-wider text-[#9CA3AF] uppercase mt-1">
+                        Graphic & Motion Designer | Expert Production Marketing
+                    </span>
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- ═══════════════════ STICKY NAV ═══════════════════ -->
+<nav id="stickyNav" class="hidden md:block sticky top-0 z-50 w-full">
+    <div class="bg-navigation/70 backdrop-blur-md border-b border-gray-800 -mx-6 md:-mx-12 px-6 md:px-12 py-3 mb-8 justify-self-center max-w-7xl w-full">
+        <div class="flex items-center justify-between gap-4 mb-2">
+            <p class="font-bold truncate min-w-0">The Poisoned Well:</p>
+            <div class="flex items-center gap-4 flex-shrink-0">
+                <a href="#hero" class="whitespace-nowrap hover:text-white transition-colors border-l border-gray-800 pl-4 text-[11px] uppercase tracking-wider font-mono font-bold text-gray-500">↑ Top</a>
+                <div class="theme-switcher" role="group" aria-label="Select theme">
+                    <button class="theme-option" data-theme="dark" onclick="setTheme('dark')" aria-label="Dark mode">
+                        <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+                        Dark
+                    </button>
+                    <button class="theme-option" data-theme="light" onclick="setTheme('light')" aria-label="Light mode">
+                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="5" fill="currentColor" stroke="none"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+                        Light
+                    </button>
+                </div>
+            </div>
+        </div>
+        <div class="grid gap-x-5 gap-y-2 text-[11px] uppercase tracking-wider font-mono font-bold text-gray-500"
+             style="grid-template-columns: repeat(auto-fill, minmax(120px, 1fr))">
+            <a href="#s01" data-nav="s01" class="nav-link relative hover:text-white transition-colors">01 Threat</a>
+            <a href="#s02" data-nav="s02" class="nav-link relative hover:text-white transition-colors">02 Scale</a>
+            <a href="#s03" data-nav="s03" class="nav-link relative hover:text-white transition-colors">03 AI</a>
+            <a href="#s04" data-nav="s04" class="nav-link relative hover:text-white transition-colors">04 Provenance</a>
+            <a href="#s05" data-nav="s05" class="nav-link relative hover:text-white transition-colors">05 Scanning</a>
+            <a href="#s06" data-nav="s06" class="nav-link relative hover:text-white transition-colors">06 Behavioral</a>
+            <a href="#s07" data-nav="s07" class="nav-link relative hover:text-white transition-colors">07 Cooldowns</a>
+            <a href="#s08" data-nav="s08" class="nav-link relative hover:text-white transition-colors">08 Governance</a>
+            <a href="#s09" data-nav="s09" class="nav-link relative hover:text-white transition-colors">09 Defense</a>
+            <a href="#s10" data-nav="s10" class="nav-link relative hover:text-white transition-colors">10 Conclusion</a>
+            <a href="#s11" data-nav="s11" class="nav-link relative hover:text-white transition-colors">11 Sources</a>
+        </div>
+    </div>
+</nav>
+
+<!-- ═══════════════════ 01 — THREAT ═══════════════════ -->
+<section id="s01" class="px-4 md:px-8 xl:px-0">
+    <div class="grid grid-cols-1 lg:grid-cols-12 gap-12 items-start pt-[30px] lg:pt-[120px] max-w-7xl justify-self-center">
+        <div class="lg:col-span-5 lg:sticky lg:top-32 flex flex-col items-start text-left lg:items-end lg:text-right">
+            <div class="flex items-center gap-4 mb-3"><span class="section-num">01</span></div>
+            <h2 class="section-title lg:mb-[50px]">Open Source as a Malware Channel</h2>
+        </div>
+
+        <div class="max-w-4xl prose-body lg:col-span-7 space-y-8 text-lg leading-relaxed">
+            <p>On a Friday in late April 2026, attackers pushed a new release of <code class="font-mono text-accent-green text-[0.9em]">elementary-data</code> - a Python data-observability CLI downloaded more than a million times a month - to PyPI and a Docker image to GitHub Container Registry. The malware was not a classic install script but a single <code class="font-mono text-accent-green text-[0.9em]">elementary.pth</code> file that Python executes automatically on interpreter startup; it ran a multi-stage credential stealer targeting cloud keys, SSH keys, and <code class="font-mono text-accent-green text-[0.9em]">.env</code> contents. It was live about twelve hours.<sup class="source-ref" onclick="jumpToSource('1.1')">[1.1]</sup><sup class="source-ref" onclick="jumpToSource('1.2')">[1.2]</sup> Twelve hours is a long time when CI/CD runners - machines that exist specifically to hold many secrets at once - install your package automatically.</p>
+            <p>Nobody at the affected companies wrote that code. Nobody reviewed it. It arrived as a dependency, pulled in by a package manager, trusted by default. This is the pattern behind a category of attack that has gone from isolated incidents to industrialized campaigns in two years. The mechanics recur:</p>
+            <p><strong>Maintainer account takeover.</strong> In September 2025, a phishing email from the lookalike domain <code class="font-mono text-accent-green text-[0.9em]">npmjs.help</code> compromised the npm account of a prolific maintainer known as &ldquo;qix.&rdquo; An adversary-in-the-middle page captured his password <em>and</em> his time-based 2FA code in real time, defeating the TOTP many assume is sufficient. Malicious versions of 18 foundational packages - including <code class="font-mono text-accent-green text-[0.9em]">chalk</code> and <code class="font-mono text-accent-green text-[0.9em]">debug</code> - went live with a combined ~2.6 billion weekly downloads.<sup class="source-ref" onclick="jumpToSource('1.3')">[1.3]</sup><sup class="source-ref" onclick="jumpToSource('2.2')">[2.2]</sup> The payload netted the attackers only about $50 in cryptocurrency.<sup class="source-ref" onclick="jumpToSource('2.5')">[2.5]</sup> The damage was trivial; the lesson was not.</p>
+            <p><strong>Self-propagating worms.</strong> A week later, the Shai-Hulud worm harvested credentials from infected developer machines, then used stolen npm tokens to inject itself into other packages the victim maintained and republish them. The first wave compromised 500+ packages; a November 2025 wave moved to <em>pre-install</em> execution and exfiltrated secrets into 25,000+ attacker-created repositories.<sup class="source-ref" onclick="jumpToSource('1.5')">[1.5]</sup></p>
+            <p><strong>Industrialized publishing.</strong> By May 2026, a &ldquo;Mini Shai-Hulud&rdquo; operation used one compromised account to publish hundreds of malicious versions across the AntV ecosystem in a ~22-minute automated burst - and injected orphan commits to generate <em>valid</em> Sigstore/SLSA provenance for them.<sup class="source-ref" onclick="jumpToSource('1.6')">[1.6]</sup></p>
+            <p><strong>Long-game sleepers.</strong> The 2024 <code class="font-mono text-accent-green text-[0.9em]">xz-utils</code> backdoor took two years of trust-building; the WordPress &ldquo;Essential Plugin&rdquo; backdoor sat dormant eight months before activating across ~400,000 installations.<sup class="source-ref" onclick="jumpToSource('4.4')">[4.4]</sup> Patience is a tactic - and it specifically defeats the time-based defenses in section 07.</p>
+            <p>Two structural facts do the heavy lifting throughout: <strong>install-time (or import-time) code execution</strong>, which lets a package run before any of its real code is called, and <strong>transitive opacity</strong> - most of what you install, you never chose. Roughly 95% of vulnerabilities live in transitive dependencies you never picked directly.<sup class="source-ref" onclick="jumpToSource('4.3')">[4.3]</sup></p>
+        </div>
+    </div>
+</section>
+
+<!-- ═══════════════════ 02 — SCALE ═══════════════════ -->
+<section id="s02" class="mt-[60px] bg-secondary px-4 md:px-8 xl:px-0">
+    <div class="py-[60px] max-w-7xl justify-self-center">
+        <div>
+            <div class="flex items-center gap-4 mb-3"><span class="section-num">02</span></div>
+            <h2 class="section-title mb-[50px]">How Big Is This, Really?</h2>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-12">
+            <div class="prose-body col-span-1 lg:col-span-6">
+                <p>Anecdotes mislead in both directions, so it is worth grounding the threat in numbers - and being clear about what they do and don't say.</p>
+                <p>The growth is steep and sustained, not a one-year spike. Sonatype, tracking malicious open source packages since 2019, reported the cumulative total passing ~845,000 by mid-2025 and approaching 1.2 million by early 2026, with ~454,600 newly discovered in 2025 alone - a ~75% year-over-year increase.<sup class="source-ref" onclick="jumpToSource('4.1')">[4.1]</sup> Earlier years were steeper still: counts roughly tripled in the 2024 reporting period, and ReversingLabs measured a ~1,300% rise in repository threats between 2020 and 2023.<sup class="source-ref" onclick="jumpToSource('4.2')">[4.2]</sup> The trajectory is clearly super-linear, though headline percentages moderate as the base grows.</p>
+                <p>But prevalence needs a denominator. Against an estimated 9.8 trillion package downloads in 2025, malicious packages are a small fraction of total volume.<sup class="source-ref" onclick="jumpToSource('4.1')">[4.1]</sup> The honest framing: the <strong>probability</strong> a given install is malicious remains low, but the <strong>blast radius</strong> when a popular package is hit is enormous, and the <strong>base rate</strong> is climbing fast.</p>
+                <p>In context with other vectors, the supply chain has moved from niche to mainstream: the Verizon 2025 DBIR found third-party involvement in breaches doubled from 15% to 30% in a single year.<sup class="source-ref" onclick="jumpToSource('2.4')">[2.4]</sup> And a structural weakness compounds it - around 80% of enterprise dependencies go un-updated for over a year,<sup class="source-ref" onclick="jumpToSource('4.1')">[4.1]</sup><sup class="source-ref" onclick="jumpToSource('4.3')">[4.3]</sup> so most organizations carry long exposure windows before any attack.</p>
+            </div>
+
+            <div class="col-span-1 lg:col-span-6">
+                <div class="bg-card rounded-2xl p-6 md:p-8 w-full border border-gray-800 shadow-2xl">
+                    <h3 class="text-sm font-bold uppercase tracking-widest text-gray-400 mb-1">Cumulative Malicious Packages Tracked</h3>
+                    <p class="text-gray-600 text-xs mb-6 font-mono">Sonatype, discovered across npm / PyPI / others, since 2019</p>
+                    <div class="chart-box" style="height:280px"><canvas id="malwareGrowthChart"></canvas></div>
+                </div>
+                <div class="grid grid-cols-2 gap-4 mt-4">
+                    <div class="metric-card p-5 rounded-xl text-center"><div class="text-accent-pink text-3xl font-bold font-mono mb-2">+75%</div><p class="text-gray-400 text-[10px] leading-tight uppercase tracking-widest font-bold">New malicious packages YoY (2025)</p></div>
+                    <div class="metric-card p-5 rounded-xl text-center"><div class="text-accent-yellow text-3xl font-bold font-mono mb-2">30%</div><p class="text-gray-400 text-[10px] leading-tight uppercase tracking-widest font-bold">Of breaches now involve a third party</p></div>
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- ═══════════════════ 03 — AI ═══════════════════ -->
+<section id="s03" class="px-4 md:px-8 xl:px-0">
+    <div class="grid grid-cols-1 lg:grid-cols-12 gap-12 items-start pt-[60px] lg:pt-[120px] max-w-7xl justify-self-center">
+        <div class="lg:col-span-5 lg:sticky lg:top-32 flex flex-col items-start text-left lg:items-end lg:text-right">
+            <div class="flex items-center gap-4 mb-3"><span class="section-num">03</span></div>
+            <h2 class="section-title lg:mb-[50px]">Why AI Makes It Bigger, Faster, Stranger</h2>
+        </div>
+
+        <div class="max-w-4xl prose-body lg:col-span-7 space-y-8 text-lg leading-relaxed">
+            <p>AI did not create supply chain risk, but it amplifies it through four distinct mechanisms. Precision matters - each calls for a different countermeasure, and some are present-day realities while others are emerging.</p>
+            <p><strong>1 &middot; More code, less scrutiny per decision (present).</strong> AI assistants raise the volume and velocity of code, and AI-generated code leans heavily on importing libraries. The human pause that once asked &ldquo;do I trust this package?&rdquo; is exactly the friction AI workflows remove. Sonatype notes attackers deliberately cluster malicious names around high-velocity tooling where dependency decisions are &ldquo;frequent, repetitive, and time-boxed.&rdquo;<sup class="source-ref" onclick="jumpToSource('4.1')">[4.1]</sup></p>
+            <p><strong>2 &middot; Slopsquatting (present).</strong> Models invent plausible package names that don't exist. A study of 576,000 samples across 16 models found 19.7% of recommended packages did not exist - over 205,000 unique hallucinated names, repeated reliably enough to be an attacker's gift.<sup class="source-ref" onclick="jumpToSource('3.1')">[3.1]</sup> A proof of concept - the hallucinated <code class="font-mono text-accent-green text-[0.9em]">huggingface-cli</code>, registered empty - drew 30,000+ downloads in three months.<sup class="source-ref" onclick="jumpToSource('1.4')">[1.4]</sup> Typosquatting bet on human error; slopsquatting bets on machine error, at machine scale.</p>
+            <p><strong>3 &middot; AI lowers attacker costs too (accelerating).</strong> The 22-minute AntV burst is offense fully automated.<sup class="source-ref" onclick="jumpToSource('1.6')">[1.6]</sup> The same tooling that helps developers ship helps attackers generate convincing READMEs, commit histories, phishing pages, and payload variants faster than signature defenses adapt.</p>
+            <p><strong>4 &middot; Agents are credential-rich, manipulable targets (emerging).</strong> Agents plan, install dependencies, and run code with minimal supervision - in environments holding exactly what malware hunts. And their <em>instructions</em> can be poisoned: a malicious README or tampered &ldquo;skill&rdquo; file can carry injected commands a model follows, including &ldquo;install this package.&rdquo; When the entity choosing what to install is itself manipulable, dependency selection becomes a systems-security problem. This is the threat most likely to define the next two to three years - and the least covered by today's controls.</p>
+        </div>
+    </div>
+</section>
+
+<!-- AI mechanism metric strip -->
+<section class="px-4 md:px-8 xl:px-0">
+    <div class="max-w-7xl justify-self-center grid grid-cols-2 lg:grid-cols-4 gap-4 mt-[40px]">
+        <div class="metric-card p-3 pt-6 rounded-xl text-center flex flex-col justify-between"><div><div class="text-accent-pink text-4xl font-bold font-mono mb-2 tracking-tighter">19.7%</div><p class="text-accent-pink font-bold text-[10px] leading-tight uppercase tracking-widest">AI-recommended packages that don't exist</p></div><p class="text-gray-600 text-[8px] mt-4 uppercase font-mono font-bold">SLOPSQUATTING</p></div>
+        <div class="metric-card p-3 pt-6 rounded-xl text-center flex flex-col justify-between"><div><div class="text-white text-4xl font-bold font-mono mb-2 tracking-tighter">205K</div><p class="text-gray-300 font-bold text-[10px] leading-tight uppercase tracking-widest">Unique hallucinated package names observed</p></div><p class="text-gray-600 text-[8px] mt-4 uppercase font-mono font-bold">SPRACKLEN ET AL.</p></div>
+        <div class="metric-card p-3 pt-6 rounded-xl text-center flex flex-col justify-between"><div><div class="text-accent-yellow text-4xl font-bold font-mono mb-2 tracking-tighter">22 min</div><p class="text-accent-yellow font-bold text-[10px] leading-tight uppercase tracking-widest">To publish 600+ malicious versions, AntV</p></div><p class="text-gray-600 text-[8px] mt-4 uppercase font-mono font-bold">AUTOMATION</p></div>
+        <div class="metric-card p-3 pt-6 rounded-xl text-center flex flex-col justify-between"><div><div class="text-accent-green text-4xl font-bold font-mono mb-2 tracking-tighter">30K+</div><p class="text-accent-green font-bold text-[10px] leading-tight uppercase tracking-widest">Downloads of one empty hallucinated package</p></div><p class="text-gray-600 text-[8px] mt-4 uppercase font-mono font-bold">PROOF OF CONCEPT</p></div>
+    </div>
+</section>
+
+<!-- ═══════════════════ DEFENSES INTRO ═══════════════════ -->
+<section class="mt-[60px] px-4 md:px-8 xl:px-0">
+    <div class="max-w-7xl justify-self-center">
+        <div class="bg-card border border-gray-800 rounded-2xl p-8 md:p-12 shadow-2xl">
+            <p class="text-accent-green font-mono text-xs uppercase tracking-widest mb-4">&gt; What to do now</p>
+            <p class="text-xl md:text-3xl font-bold leading-snug max-w-4xl">No single control is sufficient. The landscape is best read as five competing <span class="text-accent-green italic">schools of thought</span> - each with a theory of the core problem and a demonstrated failure mode the others expose.</p>
+        </div>
+    </div>
+</section>
+
+<!-- ═══════════════════ 04 — PROVENANCE ═══════════════════ -->
+<section id="s04" class="mt-[60px] bg-secondary px-4 md:px-8 xl:px-0">
+    <div class="py-[60px] max-w-7xl justify-self-center">
+        <div class="flex items-center gap-4 mb-3"><span class="section-num">04</span></div>
+        <h2 class="section-title mb-2">School 1 &middot; Provenance</h2>
+        <p class="font-mono text-gray-500 text-sm mb-[40px]">&ldquo;Prove where it came from&rdquo;</p>
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-8 lg:gap-12">
+            <div class="prose-body">
+                <p class="text-accent-green font-bold text-xs uppercase tracking-widest mb-3">Why it's right</p>
+                <p>This school targets unverifiable origin: mandatory 2FA, <strong>trusted publishing</strong> (short-lived, workflow-bound tokens), and cryptographic attestation via Sigstore and SLSA provenance, proving a package was built from a specific source by a specific workflow. Critically, provenance was <strong>never designed to prove safety</strong> - its job is integrity, traceability, and accountability. Judged against that goal, it works.</p>
+            </div>
+            <div class="prose-body">
+                <p class="text-accent-pink font-bold text-xs uppercase tracking-widest mb-3">Where it breaks</p>
+                <p>Two cracks, neither a fault of the goal. Attackers race hardening deadlines - the November 2025 Shai-Hulud wave was timed to use stolen long-lived tokens before npm's revocation deadline.<sup class="source-ref" onclick="jumpToSource('1.5')">[1.5]</sup> And provenance can be <em>satisfied</em> by a malicious actor: the AntV campaign produced malicious packages with valid provenance via orphan-commit injection.<sup class="source-ref" onclick="jumpToSource('1.6')">[1.6]</sup> The takeaway isn't &ldquo;provenance is useless&rdquo; (a straw man) but <strong>necessary and insufficient</strong>: a verifiably-sourced package can still be malicious.</p>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- ═══════════════════ 05 — SCANNING ═══════════════════ -->
+<section id="s05" class="px-4 md:px-8 xl:px-0">
+    <div class="grid grid-cols-1 lg:grid-cols-12 gap-12 items-start pt-[60px] lg:pt-[120px] max-w-7xl justify-self-center">
+        <div class="lg:col-span-5 lg:sticky lg:top-32 flex flex-col items-start text-left lg:items-end lg:text-right">
+            <div class="flex items-center gap-4 mb-3"><span class="section-num">05</span></div>
+            <h2 class="section-title mb-2">School 2 &middot; Vulnerability Scanning</h2>
+            <p class="font-mono text-gray-500 text-sm lg:mb-[50px]">&ldquo;Match it against the database&rdquo;</p>
+        </div>
+        <div class="max-w-4xl prose-body lg:col-span-7 space-y-6 text-lg leading-relaxed">
+            <p><span class="text-accent-green font-bold text-xs uppercase tracking-widest">Why it's right.</span> CVE-based scanners (<code class="font-mono text-accent-green text-[0.9em]">npm audit</code>, <code class="font-mono text-accent-green text-[0.9em]">pip-audit</code>, commercial SCA) cross-reference dependencies against OSV and NVD - concrete, auditable, compliance-friendly. The state of the art has matured beyond raw CVE counts: leading tools layer <strong>reachability analysis</strong> (does my code call the vulnerable function?) and <strong>EPSS</strong> (exploitation probability) on top of CVSS severity, claiming 80&ndash;90% reductions in irrelevant alerts.<sup class="source-ref" onclick="jumpToSource('4.5')">[4.5]</sup></p>
+            <p><span class="text-accent-pink font-bold text-xs uppercase tracking-widest">Where it breaks.</span> The limit is definitional: supply chain <strong>malware is a zero-day at publish time</strong>. There was no CVE for <code class="font-mono text-accent-green text-[0.9em]">elementary-data</code> 0.23.3 in the twelve hours it mattered.<sup class="source-ref" onclick="jumpToSource('1.1')">[1.1]</sup> CVE scanning is essential for the long tail of <em>unintentionally</em> insecure code and structurally blind to the <em>deliberately</em> malicious publish. Better prioritization doesn't change what the database can't yet contain.</p>
+        </div>
+    </div>
+</section>
+
+<!-- ═══════════════════ 06 — BEHAVIORAL ═══════════════════ -->
+<section id="s06" class="mt-[60px] bg-secondary px-4 md:px-8 xl:px-0">
+    <div class="py-[60px] max-w-7xl justify-self-center">
+        <div class="flex items-center gap-4 mb-3"><span class="section-num">06</span></div>
+        <h2 class="section-title mb-2">School 3 &middot; Behavioral Analysis</h2>
+        <p class="font-mono text-gray-500 text-sm mb-[40px]">&ldquo;Watch what it does, not what it's called&rdquo;</p>
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-8 lg:gap-12">
+            <div class="prose-body">
+                <p class="text-accent-green font-bold text-xs uppercase tracking-widest mb-3">Why it's right</p>
+                <p>The most direct answer to malware. Instead of &ldquo;is this a known-bad version?&rdquo; it asks &ldquo;does this release <em>behave</em> suspiciously?&rdquo; - a sudden new install script, network access it never needed, obfuscated code, a maintainer-change pattern consistent with takeover. This is the model behind Socket's capability analysis, Sonatype's behavioral Repository Firewall (110,000+ malicious-package attempts blocked in a single 2025 quarter), and scanners like Datadog's GuardDog.<sup class="source-ref" onclick="jumpToSource('4.5')">[4.5]</sup><sup class="source-ref" onclick="jumpToSource('4.6')">[4.6]</sup> Some intercept the install itself. This is the best current defense against <em>novel</em> attacks.</p>
+            </div>
+            <div class="prose-body">
+                <p class="text-accent-pink font-bold text-xs uppercase tracking-widest mb-3">Where it breaks</p>
+                <p>Two honest limits. Detection is only as good as the indicators - as Datadog's own researchers note, a payload that does <em>not</em> execute at install time and carries no recognizable signature is genuinely harder to catch.<sup class="source-ref" onclick="jumpToSource('4.4')">[4.4]</sup> And it is a <strong>race</strong>: detection windows measured in hours are impressive, and still long enough for a popular package to be installed hundreds of thousands of times before the block lands.</p>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- ═══════════════════ 07 — COOLDOWNS ═══════════════════ -->
+<section id="s07" class="px-4 md:px-8 xl:px-0">
+    <div class="grid grid-cols-1 lg:grid-cols-12 gap-12 items-start pt-[60px] lg:pt-[120px] max-w-7xl justify-self-center">
+        <div class="lg:col-span-5 lg:sticky lg:top-32 flex flex-col items-start text-left lg:items-end lg:text-right">
+            <div class="flex items-center gap-4 mb-3"><span class="section-num">07</span></div>
+            <h2 class="section-title mb-2">School 4 &middot; Cooldowns</h2>
+            <p class="font-mono text-gray-500 text-sm lg:mb-[50px]">&ldquo;Wait before you trust&rdquo;</p>
+        </div>
+        <div class="max-w-4xl prose-body lg:col-span-7 space-y-6 text-lg leading-relaxed">
+            <p><span class="text-accent-green font-bold text-xs uppercase tracking-widest">Why it's right - and genuinely valuable.</span> If most malicious packages are detected and yanked within hours to days, refuse to install any version younger than ~7 days and let someone else's scanner find the malware first. The empirical case is strong: a 7-day cooldown would have blocked 8 of 10 recent incidents, 14 days all but one.<sup class="source-ref" onclick="jumpToSource('4.4')">[4.4]</sup> Against the <em>dominant present-day pattern</em> of fast, opportunistic publishes, cooldowns plausibly neutralize the large majority of attacks at near-zero cost, and well-designed implementations exempt security patches. The approach has reached core tooling - pip 26.1 ships first-class support.<sup class="source-ref" onclick="jumpToSource('4.4')">[4.4]</sup> The posture is unambiguous: <strong>adopt cooldowns.</strong></p>
+            <p><span class="text-accent-pink font-bold text-xs uppercase tracking-widest">Where it breaks.</span> A cooldown is a bet that the malware executes during the window someone else is watching - exactly what a patient attacker breaks with a <strong>dormant payload</strong> that lies inert through the cooldown and activates later, after the package has aged into &ldquo;trusted.&rdquo; The sleepers in section 01 (<code class="font-mono text-accent-green text-[0.9em]">xz</code> at two years, Essential Plugin at eight months) are the existence proof.<sup class="source-ref" onclick="jumpToSource('4.4')">[4.4]</sup> Deploy cooldowns as a high-value mitigation, not a cure - and pair them with controls a sleeper cannot easily fake over time.</p>
+            <div class="bg-card border border-gray-800 rounded-xl p-6 mt-4">
+                <p class="text-gray-300 text-base leading-relaxed italic">&ldquo;Scan and pray&rdquo; asks how fast you can detect a bad package after it enters your environment. <strong>&ldquo;Curate and govern&rdquo;</strong> asks what would have to be true for that package to never be eligible to enter in the first place.</p>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- ═══════════════════ 08 — GOVERNANCE ═══════════════════ -->
+<section id="s08" class="mt-[60px] bg-secondary px-4 md:px-8 xl:px-0">
+    <div class="py-[60px] max-w-7xl justify-self-center">
+        <div class="flex items-center gap-4 mb-3"><span class="section-num">08</span></div>
+        <h2 class="section-title mb-2">School 5 &middot; Organizational Governance</h2>
+        <p class="font-mono text-gray-500 text-sm mb-[40px]">&ldquo;Decide eligibility before anything enters&rdquo;</p>
+
+        <div class="prose-body max-w-4xl mb-10">
+            <p>The most powerful set of controls available to large organizations, and the most underdeveloped in most write-ups. Where the first four schools mostly detect, governance decides eligibility up front.</p>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
+            <div class="bg-card border border-gray-800 rounded-xl p-6">
+                <h3 class="font-bold text-white mb-2">Approved dependency catalogs</h3>
+                <p class="text-gray-400 text-sm leading-relaxed">Curate a vetted set of packages rather than the open registry, shrinking the attack surface from millions to hundreds. Google's <strong class="text-gray-300">Assured Open Source Software</strong> productizes this: 2,500+ Java/Python packages built, vetted, fuzzed, and signed across three assurance tiers.<sup class="source-ref" onclick="jumpToSource('4.7')">[4.7]</sup></p>
+            </div>
+            <div class="bg-card border border-gray-800 rounded-xl p-6">
+                <h3 class="font-bold text-white mb-2">Internal mirrors / proxies</h3>
+                <p class="text-gray-400 text-sm leading-relaxed">Pull-through repositories (Artifactory, Nexus) sit between developers and the public registry, so nothing enters without passing policy - and you retain a known-good copy if upstream is later compromised. This is also where a cooldown is most cleanly enforced.</p>
+            </div>
+            <div class="bg-card border border-gray-800 rounded-xl p-6">
+                <h3 class="font-bold text-white mb-2">Dependency review boards</h3>
+                <p class="text-gray-400 text-sm leading-relaxed">A lightweight intake step for admitting a <em>new</em> dependency - evaluating maintenance health, license, maintainer concentration, and necessity. This addresses the &ldquo;should I depend on this at all?&rdquo; question no scanner answers.</p>
+            </div>
+            <div class="bg-card border border-gray-800 rounded-xl p-6">
+                <h3 class="font-bold text-white mb-2">Sustainability &amp; procurement</h3>
+                <p class="text-gray-400 text-sm leading-relaxed">The deepest controls address the <em>root</em>: under-resourced maintainers. Funding critical dependencies and treating critical OSS as a procured supplier reduces the burnout and account-takeover risk that <code class="font-mono text-accent-green text-[0.85em]">xz</code> and qix exemplify.<sup class="source-ref" onclick="jumpToSource('1.3')">[1.3]</sup> It is arguably the only control that touches the social root of the problem.</p>
+            </div>
+        </div>
+
+        <div class="prose-body max-w-4xl mt-10">
+            <p class="text-accent-pink font-bold text-xs uppercase tracking-widest mb-3">Where it breaks</p>
+            <p>Governance is expensive, slow to stand up, and creates friction that - if mismanaged - developers bypass, recreating the problem through shadow dependencies. Most justifiable for large or high-assurance organizations; least practical for small fast-moving teams.</p>
+        </div>
+    </div>
+</section>
+
+<!-- ═══════════════════ 09 — DEFENSE-IN-DEPTH ═══════════════════ -->
+<section id="s09" class="px-4 md:px-8 xl:px-0">
+    <div class="pt-[60px] lg:pt-[120px] max-w-7xl justify-self-center">
+        <div class="flex items-center gap-4 mb-3"><span class="section-num">09</span></div>
+        <h2 class="section-title mb-[50px]">Layering It: Architecture &amp; Maturity</h2>
+
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-12 items-start">
+            <div class="max-w-4xl prose-body lg:col-span-7 space-y-6 text-lg leading-relaxed">
+                <p><strong>The honest unifying point.</strong> All five schools are downstream of a problem that is <strong>social and economic</strong>, not purely technical. Trust - who maintains this, are they funded, has their account been taken over - is not something a signature, a CVE database, a heuristic, or a waiting period can fully manufacture. Each control raises attacker cost; none removes the underlying problem. That is why defense-in-depth is a structural necessity, not a slogan.</p>
+                <p><strong>Measure exposure windows, not snapshots.</strong> The traditional &ldquo;are we vulnerable now?&rdquo; is a snapshot, and snapshots mislead. A study mining 643,000 vulnerability-fix commits found a median 34 days from a CVE becoming visible to its fix landing - ~25 days for active projects, ~64 for inactive.<sup class="source-ref" onclick="jumpToSource('3.2')">[3.2]</sup> Meanwhile 75% of exploited vulnerabilities have a public exploit within 28 days.<sup class="source-ref" onclick="jumpToSource('3.3')">[3.3]</sup> <strong>The median patch often arrives after the typical exploit does.</strong> Mean-time-to-remediate hides this; <em>survival analysis</em> lets you state and verify &ldquo;90% of criticals remediated within 30 days&rdquo; against an explicit objective.<sup class="source-ref" onclick="jumpToSource('3.4')">[3.4]</sup> The corollary: treat version lag and maintenance health as first-class, leading risk signals. <strong>Freshness is a security metric</strong> - and with ~80% of dependencies un-updated for over a year, a neglected one.<sup class="source-ref" onclick="jumpToSource('4.1')">[4.1]</sup><sup class="source-ref" onclick="jumpToSource('4.3')">[4.3]</sup></p>
+                <p><strong>Close the loop for the agentic era.</strong> If models hallucinate packages and agents install them autonomously, the checks - does this exist, is it healthy, is this version mature enough to clear a cooldown, is the maintainer behaving normally? - must run <em>before</em> the install executes, programmatically, every time. Policy docs and training don't scale to agents; pre-flight verification does. A new class of tooling targets exactly this: <strong>MCP servers</strong> (the Model Context Protocol lets agents call external tools) embedding dependency intelligence into assistants like Claude Code, configured as a mandatory pre-flight check before the agent runs <code class="font-mono text-accent-green text-[0.9em]">npm install</code> or edits a manifest. An agent's training data cannot know a package was compromised last Tuesday, that a name doesn't exist, or that a release is nine hours old - a deterministic SCA call can. Several tools, OSS IQ among them, now ship dependency analysis as an MCP tool for this reason.<sup class="source-ref" onclick="jumpToSource('5.1')">[5.1]</sup> The durable point: <strong>verification belongs where the decision is made</strong> - in the agentic era, inside the model's loop, not a CI step the agent already ran past.</p>
+            </div>
+
+            <div class="lg:col-span-5 lg:sticky lg:top-32">
+                <div class="bg-card border border-gray-800 rounded-2xl p-6 md:p-8 shadow-2xl">
+                    <p class="text-accent-green font-mono text-xs uppercase tracking-widest mb-5">Defense-in-depth, developer outward</p>
+                    <ol class="space-y-4">
+                        <li class="flex gap-3"><span class="font-mono text-accent-green font-bold flex-shrink-0">1</span><div><span class="text-white font-semibold text-sm">Source / IDE / agent</span><p class="text-gray-400 text-xs leading-relaxed mt-1">Pre-flight verification at the moment of decision. Catches slopsquatting before a package is ever requested.</p></div></li>
+                        <li class="flex gap-3"><span class="font-mono text-accent-green font-bold flex-shrink-0">2</span><div><span class="text-white font-semibold text-sm">Intake / registry boundary</span><p class="text-gray-400 text-xs leading-relaxed mt-1">Mirror or proxy enforcing an approved catalog and a cooldown window. Nothing enters that isn't eligible and aged.</p></div></li>
+                        <li class="flex gap-3"><span class="font-mono text-accent-green font-bold flex-shrink-0">3</span><div><span class="text-white font-semibold text-sm">Build / CI</span><p class="text-gray-400 text-xs leading-relaxed mt-1">SCA + reachability/EPSS, behavioral scanning, SBOMs, provenance. Gates fail on maintenance-health and version-lag thresholds, not just CVEs.</p></div></li>
+                        <li class="flex gap-3"><span class="font-mono text-accent-green font-bold flex-shrink-0">4</span><div><span class="text-white font-semibold text-sm">Governance (cross-cutting)</span><p class="text-gray-400 text-xs leading-relaxed mt-1">Intake review, risk-tiering of critical dependencies, sustainability relationships with key maintainers.</p></div></li>
+                        <li class="flex gap-3"><span class="font-mono text-accent-green font-bold flex-shrink-0">5</span><div><span class="text-white font-semibold text-sm">Runtime / response</span><p class="text-gray-400 text-xs leading-relaxed mt-1">Malware-feed monitoring, an incident playbook (isolate, rotate, pin), and exposure-window tracking via survival curves.</p></div></li>
+                    </ol>
+                </div>
+            </div>
+        </div>
+
+        <!-- Maturity model -->
+        <div class="mt-16">
+            <h3 class="text-xl md:text-2xl font-bold mb-2">A Maturity Model</h3>
+            <p class="text-gray-500 text-sm mb-6 font-mono">Levels are cumulative - AI-Native sits on top of everything below it.</p>
+            <div class="bg-card border border-gray-800 rounded-2xl overflow-hidden shadow-2xl overflow-x-auto">
+                <table class="matrix w-full border-collapse min-w-[640px]">
+                    <thead>
+                        <tr><th>Level</th><th>Core controls</th><th>Defends against</th><th>Primary gap</th></tr>
+                    </thead>
+                    <tbody>
+                        <tr><td class="lvl">Basic</td><td>SCA (CVE scanning) + SBOM</td><td>Known, disclosed vulnerabilities; basic inventory</td><td>Blind to zero-day malware; no behavioral or trust signal</td></tr>
+                        <tr><td class="lvl">Intermediate</td><td>+ Provenance / attestation + cooldowns</td><td>Integrity &amp; traceability; the majority of fast opportunistic publishes</td><td>Sleepers &amp; dormant payloads; valid-provenance malware</td></tr>
+                        <tr><td class="lvl">Advanced</td><td>+ Behavioral analysis + governance (catalogs, mirrors, review, health gating)</td><td>Novel malware at publish time; eligibility decided before intake; long exposure windows</td><td>Resource-intensive; agent-driven installs still outside the loop</td></tr>
+                        <tr><td class="lvl" style="color:var(--color-accent-green)">AI-Native</td><td>+ Agent-integrated pre-flight verification (MCP) + exposure-window measurement</td><td>Slopsquatting; autonomous agent installs of stale / invented / compromised packages</td><td>The irreducible social trust problem (mitigated, never eliminated)</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- ═══════════════════ 10 — CONCLUSION ═══════════════════ -->
+<section id="s10" class="mt-[60px] bg-secondary px-4 md:px-8 xl:px-0">
+    <div class="py-[60px] lg:py-[100px] max-w-7xl justify-self-center">
+        <div class="flex items-center gap-4 mb-3"><span class="section-num">10</span></div>
+        <h2 class="section-title mb-[40px]">Instrumented Trust</h2>
+        <div class="prose-body max-w-4xl space-y-6 text-lg leading-relaxed">
+            <p>Open source is not the villain of this story - it is the victim, and it remains one of the most successful trust systems ever built. But that trust was calibrated for a world where humans chose dependencies slowly and attackers worked manually. Both assumptions are now false. The volume of trust decisions in software has exploded just as the cost of betraying that trust has collapsed.</p>
+            <p>The answer is not less AI and not less open source. It is <strong>instrumented trust</strong>: knowing, continuously and quantitatively, how healthy every link in your supply chain is; measuring exposure windows rather than averaging them away; layering provenance, scanning, behavioral analysis, cooldowns, and governance while staying honest that none defeats a patient adversary alone; and verifying - at machine speed, inside the loop - every decision a machine makes on your behalf.</p>
+        </div>
+    </div>
+</section>
+
+<!-- ═══════════════════ 11 — SOURCES ═══════════════════ -->
+<section id="s11" class="mt-[60px] px-4 md:px-8 xl:px-0">
+    <div class="lg:py-[60px] max-w-7xl justify-self-center">
+        <div class="flex items-center gap-4 mb-3"><span class="section-num">11</span></div>
+        <h2 class="section-title mb-4">Sources</h2>
+
+        <div class="expandable bg-card border-t border-b border-gray-800 py-2 px-0 w-full" id="sources-expandable">
+            <button onclick="toggleExpand(this)" class="w-full flex justify-between items-center py-4 px-8 group cursor-pointer text-left">
+                <span class="text-base font-bold text-gray-200 group-hover:text-gray-200/70 transition-colors">
+                    Evidence hierarchy - primary incident reports, independent corroboration, peer-reviewed research, then vendor data
+                </span>
+                <span class="expand-icon text-accent-green text-2xl font-light ml-4 flex-shrink-0">+</span>
+            </button>
+            <div class="expandable-content">
+                <div class="pb-6 px-8">
+
+                    <p class="font-mono text-[11px] uppercase tracking-widest text-accent-green mt-2 mb-4">Tier 1 &middot; Primary incident reports</p>
+                    <div class="space-y-4">
+                        <div id="source-1.1" class="flex items-start gap-3"><span class="font-mono text-xs text-gray-600 mt-0.5 w-10 flex-shrink-0">[1.1]</span><div><a href="https://www.elementary-data.com/post/security-incident-report-malicious-release-of-elementary-oss-python-cli-v0-23-3" class="source-link text-sm">Elementary Data - Security Incident Report: Malicious release of Elementary OSS Python CLI v0.23.3</a><div class="font-mono text-xs text-gray-600 mt-1">First-party maintainer report &middot; April 2026</div></div></div>
+                        <div id="source-1.2" class="flex items-start gap-3"><span class="font-mono text-xs text-gray-600 mt-0.5 w-10 flex-shrink-0">[1.2]</span><div><a href="https://www.stepsecurity.io/blog/elementary-data-compromised-on-pypi-and-ghcr-forged-release-pushed-via-github-actions-script-injection" class="source-link text-sm">StepSecurity - elementary-data Compromised on PyPI and GHCR: Forged Release via GitHub Actions Script Injection</a><div class="font-mono text-xs text-gray-600 mt-1">Technical analysis &middot; April 2026</div></div></div>
+                        <div id="source-1.3" class="flex items-start gap-3"><span class="font-mono text-xs text-gray-600 mt-0.5 w-10 flex-shrink-0">[1.3]</span><div><a href="https://www.aikido.dev/blog/we-got-lucky-the-supply-chain-disaster-that-almost-happened" class="source-link text-sm">Aikido Security - We Got Lucky: The Supply Chain Disaster That Almost Happened</a><div class="font-mono text-xs text-gray-600 mt-1">Lead-detector account, Sept 2025 qix / chalk-debug</div></div></div>
+                        <div id="source-1.4" class="flex items-start gap-3"><span class="font-mono text-xs text-gray-600 mt-0.5 w-10 flex-shrink-0">[1.4]</span><div><a href="https://www.aikido.dev/blog/slopsquatting-ai-package-hallucination-attacks" class="source-link text-sm">Aikido Security - What is Slopsquatting? The AI Package Hallucination Attack Already Happening</a><div class="font-mono text-xs text-gray-600 mt-1">February 2026</div></div></div>
+                        <div id="source-1.5" class="flex items-start gap-3"><span class="font-mono text-xs text-gray-600 mt-0.5 w-10 flex-shrink-0">[1.5]</span><div><a href="https://unit42.paloaltonetworks.com/npm-supply-chain-attack/" class="source-link text-sm">Palo Alto Networks Unit 42 - &ldquo;Shai-Hulud&rdquo; Worm Compromises npm Ecosystem &amp; The npm Threat Landscape</a><div class="font-mono text-xs text-gray-600 mt-1">Lead investigators &middot; updated June 2026</div></div></div>
+                        <div id="source-1.6" class="flex items-start gap-3"><span class="font-mono text-xs text-gray-600 mt-0.5 w-10 flex-shrink-0">[1.6]</span><div><a href="https://snyk.io/blog/mini-shai-hulud-antv-npm-supply-chain-attack/" class="source-link text-sm">Snyk - Mini Shai-Hulud Hits AntV: 300+ Malicious npm Packages via Compromised Maintainer Account</a><div class="font-mono text-xs text-gray-600 mt-1">May 2026</div></div></div>
+                        <div id="source-1.7" class="flex items-start gap-3"><span class="font-mono text-xs text-gray-600 mt-0.5 w-10 flex-shrink-0">[1.7]</span><div><a href="https://snyk.io/blog/malicious-release-of-elementary-data-pypi-package-steals-cloud-credentials-from-data-engineers/" class="source-link text-sm">Snyk - Malicious Release of elementary-data PyPI Package Steals Cloud Credentials</a><div class="font-mono text-xs text-gray-600 mt-1">April 2026</div></div></div>
+                    </div>
+
+                    <p class="font-mono text-[11px] uppercase tracking-widest text-accent-green mt-8 mb-4">Tier 2 &middot; Independent corroboration</p>
+                    <div class="space-y-4">
+                        <div id="source-2.1" class="flex items-start gap-3"><span class="font-mono text-xs text-gray-600 mt-0.5 w-10 flex-shrink-0">[2.1]</span><div><a href="https://www.cisa.gov/news-events/alerts/2025/09/23/widespread-supply-chain-compromise-impacting-npm-ecosystem" class="source-link text-sm">CISA - Widespread Supply Chain Compromise Impacting npm Ecosystem</a><div class="font-mono text-xs text-gray-600 mt-1">Alert &middot; Sept 2025</div></div></div>
+                        <div id="source-2.2" class="flex items-start gap-3"><span class="font-mono text-xs text-gray-600 mt-0.5 w-10 flex-shrink-0">[2.2]</span><div><a href="https://www.bleepingcomputer.com/news/security/hackers-hijack-npm-packages-with-2-billion-weekly-downloads-in-supply-chain-attack/" class="source-link text-sm">BleepingComputer - Hackers hijack npm packages with 2 billion weekly downloads</a><div class="font-mono text-xs text-gray-600 mt-1">qix / npm phishing compromise &middot; Sept 2025</div></div></div>
+                        <div id="source-2.3" class="flex items-start gap-3"><span class="font-mono text-xs text-gray-600 mt-0.5 w-10 flex-shrink-0">[2.3]</span><div><a href="https://www.chainguard.dev/unchained/chainguard-customers-safe-from-elementary-data-compromise" class="source-link text-sm">Chainguard - Independent confirmation of the elementary-data payload and IoCs</a><div class="font-mono text-xs text-gray-600 mt-1">April 2026</div></div></div>
+                        <div id="source-2.4" class="flex items-start gap-3"><span class="font-mono text-xs text-gray-600 mt-0.5 w-10 flex-shrink-0">[2.4]</span><div><a href="https://www.verizon.com/business/resources/reports/dbir/" class="source-link text-sm">Verizon - 2025 Data Breach Investigations Report</a><div class="font-mono text-xs text-gray-600 mt-1">Third-party-breach share (15% &rarr; 30%)</div></div></div>
+                        <div id="source-2.5" class="flex items-start gap-3"><span class="font-mono text-xs text-gray-600 mt-0.5 w-10 flex-shrink-0">[2.5]</span><div><a href="https://securityboulevard.com/2025/09/how-one-phishing-email-compromised-18-npm-packages-and-billions-of-installs/" class="source-link text-sm">Security Boulevard - How One Phishing Email Compromised 18 npm Packages</a><div class="font-mono text-xs text-gray-600 mt-1">Timeline &amp; ~$50 financial-loss detail &middot; Sept 2025</div></div></div>
+                    </div>
+
+                    <p class="font-mono text-[11px] uppercase tracking-widest text-accent-green mt-8 mb-4">Tier 3 &middot; Research &amp; analysis</p>
+                    <div class="space-y-4">
+                        <div id="source-3.1" class="flex items-start gap-3"><span class="font-mono text-xs text-gray-600 mt-0.5 w-10 flex-shrink-0">[3.1]</span><div><a href="https://arxiv.org/abs/2406.10279" class="source-link text-sm">Spracklen et al. - We Have a Package for You! Package Hallucinations by Code-Generating LLMs</a><div class="font-mono text-xs text-gray-600 mt-1">arXiv:2406.10279 &middot; 576K samples, 16 models, 19.7%</div></div></div>
+                        <div id="source-3.2" class="flex items-start gap-3"><span class="font-mono text-xs text-gray-600 mt-0.5 w-10 flex-shrink-0">[3.2]</span><div><a href="https://arxiv.org/pdf/2504.03863" class="source-link text-sm">Przymus, Fejzer, Narebski, Stencel - The Secret Life of CVEs</a><div class="font-mono text-xs text-gray-600 mt-1">arXiv:2504.03863 &middot; survival analysis, 643K fix commits</div></div></div>
+                        <div id="source-3.3" class="flex items-start gap-3"><span class="font-mono text-xs text-gray-600 mt-0.5 w-10 flex-shrink-0">[3.3]</span><div><a href="https://insights.sei.cmu.edu/library/historical-analysis-of-exploit-availability-timelines/" class="source-link text-sm">Householder et al. - Public exploit availability analysis</a><div class="font-mono text-xs text-gray-600 mt-1">75% of exploited CVEs have an exploit within 28 days</div></div></div>
+                        <div id="source-3.4" class="flex items-start gap-3"><span class="font-mono text-xs text-gray-600 mt-0.5 w-10 flex-shrink-0">[3.4]</span><div><a href="https://www.elastic.co/security-labs/time-to-patch-metrics" class="source-link text-sm">Elastic Security Labs - Time-to-Patch Metrics: A Survival Analysis Approach</a><div class="font-mono text-xs text-gray-600 mt-1">October 2025</div></div></div>
+                    </div>
+
+                    <p class="font-mono text-[11px] uppercase tracking-widest text-accent-yellow mt-8 mb-4">Tier 4 &middot; Vendor &amp; ecosystem data <span class="text-gray-600 normal-case">(commercial sources)</span></p>
+                    <div class="space-y-4">
+                        <div id="source-4.1" class="flex items-start gap-3"><span class="font-mono text-xs text-gray-600 mt-0.5 w-10 flex-shrink-0">[4.1]</span><div><a href="https://www.sonatype.com/state-of-the-software-supply-chain/introduction" class="source-link text-sm">Sonatype - State of the Software Supply Chain &amp; Open Source Malware Index (2024–2026)</a><div class="font-mono text-xs text-gray-600 mt-1">~1.2M cumulative; +75% YoY; 9.8T downloads; ~80% un-updated</div></div></div>
+                        <div id="source-4.2" class="flex items-start gap-3"><span class="font-mono text-xs text-gray-600 mt-0.5 w-10 flex-shrink-0">[4.2]</span><div><a href="https://www.reversinglabs.com/press-releases/software-supply-chain-attacks-regulation-and-litigation-increase-as-barriers-to-entry-drop" class="source-link text-sm">ReversingLabs - Second Annual Software Supply Chain Security Report (1,300% increase since 2020)</a><div class="font-mono text-xs text-gray-600 mt-1">~1,300% growth in OSS repository threats, 2020–2023</div></div></div>
+                        <div id="source-4.3" class="flex items-start gap-3"><span class="font-mono text-xs text-gray-600 mt-0.5 w-10 flex-shrink-0">[4.3]</span><div><a href="https://www.blackduck.com/blog/open-source-trends-ossra-report.html" class="source-link text-sm">Black Duck (OSSRA) / Endor Labs - codebase composition &amp; transitive-dependency statistics</a><div class="font-mono text-xs text-gray-600 mt-1">~900 components/codebase; ~95% of vulns transitive</div></div></div>
+                        <div id="source-4.4" class="flex items-start gap-3"><span class="font-mono text-xs text-gray-600 mt-0.5 w-10 flex-shrink-0">[4.4]</span><div><a href="https://securitylabs.datadoghq.com/articles/dependency-cooldowns/" class="source-link text-sm">Datadog Security Labs, ActiveState, LWN, InfoQ - dependency-cooldown analysis &amp; pip 26.1</a><div class="font-mono text-xs text-gray-600 mt-1">8-of-10 / 14-day findings; dormant-payload critique</div></div></div>
+                        <div id="source-4.5" class="flex items-start gap-3"><span class="font-mono text-xs text-gray-600 mt-0.5 w-10 flex-shrink-0">[4.5]</span><div><a href="https://socket.dev/blog/socket-acquires-coana-reachability-analysis" class="source-link text-sm">Socket, Endor Labs, Snyk - behavioral / capability analysis &amp; reachability + EPSS prioritization</a><div class="font-mono text-xs text-gray-600 mt-1">80–90% alert reduction (per vendor reporting)</div></div></div>
+                        <div id="source-4.6" class="flex items-start gap-3"><span class="font-mono text-xs text-gray-600 mt-0.5 w-10 flex-shrink-0">[4.6]</span><div><a href="https://www.sonatype.com/press-releases/open-source-malware-index-q3-2025" class="source-link text-sm">Sonatype - Repository Firewall blocked 110,000+ malicious-package attempts in a single 2025 quarter</a><div class="font-mono text-xs text-gray-600 mt-1">Per vendor reporting</div></div></div>
+                        <div id="source-4.7" class="flex items-start gap-3"><span class="font-mono text-xs text-gray-600 mt-0.5 w-10 flex-shrink-0">[4.7]</span><div><a href="https://cloud.google.com/security/products/assured-open-source-software" class="source-link text-sm">Google Cloud - Assured Open Source Software</a><div class="font-mono text-xs text-gray-600 mt-1">Curated catalog: 2,500+ vetted Java/Python packages, 3 tiers</div></div></div>
+                    </div>
+
+                    <p class="font-mono text-[11px] uppercase tracking-widest text-gray-500 mt-8 mb-4">Tier 5 &middot; Project references</p>
+                    <div class="space-y-4">
+                        <div id="source-5.1" class="flex items-start gap-3"><span class="font-mono text-xs text-gray-600 mt-0.5 w-10 flex-shrink-0">[5.1]</span><div><a href="https://ossiq.dev/" class="source-link text-sm">OSS IQ - project site, CLI (github.com/ossiq/ossiq), and MCP for agentic workflows (ossiq.pro)</a><div class="font-mono text-xs text-gray-600 mt-1">Dependency intelligence for the agentic era</div></div></div>
+                    </div>
+
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
+
+</main>
+
+<footer class="border-t border-gray-800 py-12 px-6 md:px-12 max-w-7xl mx-auto">
+    <div class="flex flex-col md:flex-row justify-between items-center gap-4">
+        <div class="flex items-center gap-2"></div>
+        <p class="text-gray-600 text-sm">Designed by <a href="https://maxenceducher.ch/" target="_blank" rel="noopener noreferrer" class="font-bold">Maxence Ducher</a></p>
+    </div>
+</footer>
+
+<!-- Subscribe CTA -->
+<a class="ml-onclick-form fixed bottom-6 right-6 z-50 flex items-center gap-2 px-5 py-3 rounded-full bg-accent-green text-black font-semibold text-sm font-mono shadow-xl hover:scale-105 transition-transform cursor-pointer select-none"
+   href="javascript:void(0)"
+   onclick="ml('show', 'sl0BDU', true)"
+   aria-label="Subscribe to OSS IQ Journal">
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="2" y="4" width="20" height="16" rx="2"/>
+        <path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/>
+    </svg>
+    Subscribe
+</a>
+
+<!-- ═══════════════════ SCRIPTS ═══════════════════ -->
+<script>
+/* ─── Theme colour maps ─── */
+const THEME_VARS = {
+  dark:  { grid: 'rgba(255,255,255,.06)', text: '#6b7280' },
+  light: { grid: 'rgba(0,0,0,.08)',       text: '#9C9890' },
+};
+
+function updateChartTheme(theme) {
+  const t = THEME_VARS[theme] ?? THEME_VARS.dark;
+  if (window.Chart) {
+    Chart.defaults.color = t.text;
+    Object.values(Chart.instances).forEach(chart => {
+      if (!chart) return;
+      const scales = chart.options.scales ?? {};
+      for (const axis of ['x', 'y']) {
+        if (!scales[axis]) continue;
+        if (scales[axis].grid)  scales[axis].grid.color  = t.grid;
+        if (scales[axis].ticks) scales[axis].ticks.color = t.text;
+      }
+      chart.update('none');
+    });
+  }
+}
+
+function syncThemeUI(theme) {
+  document.querySelectorAll('.theme-option').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.theme === theme);
+  });
+  updateChartTheme(theme);
+}
+
+/* Called from inline onclick="setTheme('dark'|'light')" */
+function setTheme(theme) {
+  document.documentElement.setAttribute('data-theme', theme);
+  localStorage.setItem('theme', theme);
+  syncThemeUI(theme);
+}
+
+/* ─── Expand / collapse ─── */
+function toggleExpand(btn) {
+  btn.closest('.expandable').classList.toggle('open');
+}
+
+/* ─── Source reference jump — handles tier.item IDs like "1.1" ─── */
+function jumpToSource(n) {
+  const expandable = document.getElementById('sources-expandable');
+  const alreadyOpen = expandable && expandable.classList.contains('open');
+  if (expandable && !alreadyOpen) expandable.classList.add('open');
+  const el = document.getElementById('source-' + n);
+  if (!el) return;
+  setTimeout(() => {
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    el.classList.add('source-highlight');
+    setTimeout(() => el.classList.remove('source-highlight'), 2000);
+  }, alreadyOpen ? 0 : 400);
+}
+
+/* ─── Active nav on scroll ─── */
+const navLinks = document.querySelectorAll('.nav-link');
+const sections = document.querySelectorAll('section[id]');
+function updateNav() {
+  let current = '';
+  sections.forEach(section => {
+    if (window.scrollY >= section.offsetTop - 120) current = section.id;
+  });
+  navLinks.forEach(link => {
+    link.classList.toggle('active', link.getAttribute('data-nav') === current);
+  });
+}
+window.addEventListener('scroll', updateNav, { passive: true });
+
+/* ─── Mobile menu ─── */
+const mobileMenu      = document.getElementById('mobileMenu');
+const mobileMenuBtn   = document.getElementById('mobileMenuBtn');
+const mobileMenuClose = document.getElementById('mobileMenuClose');
+const mobileBackdrop  = document.getElementById('mobileMenuBackdrop');
+function openMobileMenu()  { mobileMenu.classList.remove('hidden'); mobileMenuBtn.setAttribute('aria-expanded','true');  document.body.style.overflow = 'hidden'; }
+function closeMobileMenu() { mobileMenu.classList.add('hidden');    mobileMenuBtn.setAttribute('aria-expanded','false'); document.body.style.overflow = ''; }
+if (mobileMenuBtn)   mobileMenuBtn.addEventListener('click', openMobileMenu);
+if (mobileMenuClose) mobileMenuClose.addEventListener('click', closeMobileMenu);
+if (mobileBackdrop)  mobileBackdrop.addEventListener('click', closeMobileMenu);
+document.querySelectorAll('[data-mobile-nav]').forEach(link => link.addEventListener('click', closeMobileMenu));
+
+/* ─── Fade-in on scroll ─── */
+const fadeObserver = new IntersectionObserver(entries => {
+  entries.forEach(entry => {
+    if (!entry.isIntersecting) return;
+    entry.target.classList.add('visible');
+    fadeObserver.unobserve(entry.target);
+  });
+}, { threshold: 0.15 });
+document.querySelectorAll('.fade-in').forEach(el => fadeObserver.observe(el));
+
+/* ─── Apply initial theme ─── */
+const initialTheme = document.documentElement.getAttribute('data-theme') ?? 'dark';
+syncThemeUI(initialTheme);
+window.matchMedia('(prefers-color-scheme: light)').addEventListener('change', e => {
+  if (localStorage.getItem('theme')) return;
+  const next = e.matches ? 'light' : 'dark';
+  document.documentElement.setAttribute('data-theme', next);
+  syncThemeUI(next);
+});
+
+/* ─── Chart.js global defaults ─── */
+Chart.defaults.color       = THEME_VARS[initialTheme].text;
+Chart.defaults.font.family = 'Inter, sans-serif';
+Chart.defaults.font.size   = 11;
+
+/* ─── Section 02 — cumulative malicious-package growth ─── */
+new Chart(document.getElementById('malwareGrowthChart'), {
+  type: 'line',
+  data: {
+    labels: ['2019', '2020', '2021', '2022', '2023', '2024', 'Mid 2025', 'Early 2026'],
+    datasets: [{
+      label: 'Cumulative malicious packages',
+      data:  [12000, 30000, 100000, 200000, 350000, 700000, 845000, 1200000],
+      borderColor:     '#FF4D80',
+      backgroundColor: 'rgba(255,77,128,.10)',
+      borderWidth:     2.5,
+      fill:            true,
+      tension:         0.35,
+      pointRadius:     4,
+      pointBackgroundColor: '#FF4D80',
+      pointHoverRadius: 6,
+    }],
+  },
+  options: {
+    responsive: true,
+    maintainAspectRatio: false,
+    animation: { duration: 1400, easing: 'easeOutQuart' },
+    plugins: {
+      legend: { display: false },
+      tooltip: {
+        callbacks: {
+          label: ctx => {
+            const v = ctx.parsed.y;
+            return v >= 1000000 ? `~${(v/1000000).toFixed(1)}M packages tracked`
+                                : `~${Math.round(v/1000)}K packages tracked`;
+          },
+        },
+      },
+    },
+    scales: {
+      y: {
+        beginAtZero: true,
+        ticks: { callback: v => v >= 1000000 ? (v/1000000)+'M' : (v/1000)+'K' },
+        grid:  { color: THEME_VARS[initialTheme].grid },
+      },
+      x: { grid: { display: false }, ticks: { font: { size: 10 }, maxRotation: 0 } },
+    },
+  },
+});
+</script>
+
+</body>
+</html>
