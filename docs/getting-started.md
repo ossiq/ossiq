@@ -39,11 +39,27 @@ Mining Software Repository (MSR) techniques to analyze differences across
 many versions (e.g., high-velocity projects like TypeScript), 
 it may perform hundreds of requests per run.
 
-To ensure a complete analysis, please provide a GitHub Personal Access Token (PAT):
+To ensure a complete analysis, please provide a [GitHub Personal Access Token (PAT)](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens#about-personal-access-tokens):
 
+There are two ways to get the token
+
+### Personal token from the session
+
+The easiest is to expose it from your auth session:
 ```bash
 export OSSIQ_GITHUB_TOKEN=$(gh auth token);
 ```
+
+### Read-Only Public Repositories Token
+More **secure** way is to generate separate, **read-only** Personal Access Token in
+[Github Settings -> Developer Settings -> Fine-grained tokens](https://github.com/settings/personal-access-tokens/new) with
+**Repository access** setting set to **Public repositories** without additional permissions.
+
+```bash
+export OSSIQ_GITHUB_TOKEN=replace-with-generated-token;
+```
+
+
 :::
 
  1. **Run your first dependencies analysis**
