@@ -381,11 +381,11 @@ For reports produced by OSS IQ before v1.2 (which lack a `constraint_type` field
 
 #### Console — Scan Table
 
-The `scan` command prints two dependency tables — one for production packages, one for development — to the terminal. Each row shows `package_name`, CVE count, drift status, `installed_version`, `latest_version`, `releases_lag`, and `time_lag_days`.
+The `status` command prints two dependency tables — one for production packages, one for development — to the terminal. Each row shows `package_name`, CVE count, drift status, `installed_version`, `latest_version`, `releases_lag`, and `time_lag_days`.
 
 #### Console — Package Detail
 
-The `package` command prints a six-section report for a single dependency:
+The `info` command prints a six-section report for a single dependency:
 
 1. **Drift status** — version comparison with an ASCII time-lag progress bar
 2. **Dependency tree trace** — ancestor path from the project root to the package
@@ -396,7 +396,7 @@ The `package` command prints a six-section report for a single dependency:
 
 #### HTML Report
 
-The `scan --presentation html` command produces a self-contained HTML file embedding an interactive Vue.js single-page application. The report includes the full dependency tables and the **Transitive Dependency Explorer**: an interactive D3 tree that visualises the `transitive_packages` dependency graph.
+The `status --presentation html` command produces a self-contained HTML file embedding an interactive Vue.js single-page application. The report includes the full dependency tables and the **Transitive Dependency Explorer**: an interactive D3 tree that visualises the `transitive_packages` dependency graph.
 
 The Explorer supports:
 

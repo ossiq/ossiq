@@ -1,6 +1,15 @@
  <!DOCTYPE html>
 <html lang="en" class="scroll-smooth">
 <head>
+    <!-- Google tag (gtag.js) -->
+    <script async src="https://www.googletagmanager.com/gtag/js?id=G-6GG5NRKT0J"></script>
+    <script>
+    window.dataLayer = window.dataLayer || [];
+    function gtag(){dataLayer.push(arguments);}
+    gtag('js', new Date());
+
+    gtag('config', 'G-6GG5NRKT0J');
+    </script>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>The Hidden Cost of AI-Generated Code | OSS IQ Journal</title>
@@ -32,7 +41,7 @@
     ──────────────────────────────────────────────────────────────────── -->
     <meta name="description" content="AI code generation tools boost velocity but the data reveals hidden costs: rising vulnerability rates, dependency bloat, and eroding delivery stability. A research synthesis."><!-- [ADAPT] 150-160 chars -->
     <meta name="keywords"    content="AI code generation, software quality, dependency health, open source security, DORA metrics, technical debt"><!-- [ADAPT] -->
-    <meta name="author"      content="Maksym Klymyshyn, Oleksandr Shulika"><!-- [ADAPT] -->
+    <meta name="author"      content="Maksym Klymyshyn, Alex Shulika"><!-- [ADAPT] -->
     <meta name="robots"      content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1">
     <link rel="canonical"    href="https://ossiq.dev/journal/the-hidden-cost-of-ai-generated-code.html"><!-- [ADAPT] -->
 
@@ -84,12 +93,6 @@
     ──────────────────────────────────────────────────────────────────── -->
     <link rel="llms-txt" href="https://ossiq.dev/llms.txt"><!-- [ADAPT] create /llms.txt or remove -->
 
-    <!-- ── Google Analytics ──────────────────────────────────────────────
-         [ADAPT] Copy the gtag block from index.html here so this article
-         page is also tracked. Replace G-XXXXXXXXXX with your Measurement ID.
-    ──────────────────────────────────────────────────────────────────── -->
-    <!-- TODO: add gtag block (see journal/index.html lines 16-22) -->
-
     <!-- ── Structured data: Article ──────────────────────────────────────
          [ADAPT] Update all fields marked below for each new article.
          wordCount    : approximate word count; affects how Google estimates
@@ -116,7 +119,8 @@
         },
         {
           "@type": "Person",
-          "name": "Oleksandr Shulika"
+          "name": "Alex Shulika",
+          "url": "https://www.linkedin.com/in/alexshulika"
         }
       ],
       "publisher": {

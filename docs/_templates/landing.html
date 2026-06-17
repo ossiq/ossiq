@@ -13,7 +13,7 @@
 
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>OSS IQ — Dependency Drift &amp; Maintenance Health for Platform Teams</title>
+    <title>OSS IQ &mdash; Dependency Drift &amp; Maintenance Health for Platform Teams</title>
 
     <!-- SEO Meta Tags -->
     <meta name="description"
@@ -29,7 +29,7 @@
     <!-- Open Graph / Facebook -->
     <meta property="og:type" content="website">
     <meta property="og:url" content="https://ossiq.dev/">
-    <meta property="og:title" content="OSS IQ — Quantify Dependency Health. Control Your Drift.">
+    <meta property="og:title" content="OSS IQ &mdash; Quantify Dependency Health. Control Your Drift.">
     <meta property="og:description"
         content="Analyze version lag, maintenance signals, and transitive risk across your entire supply chain. CLI + HTML reports. Free and open source.">
     <meta property="og:image" content="https://ossiq.dev/img/ossiq-report-html-light.png">
@@ -37,7 +37,7 @@
     <!-- Twitter -->
     <meta property="twitter:card" content="summary_large_image">
     <meta property="twitter:url" content="https://ossiq.dev/">
-    <meta property="twitter:title" content="OSS IQ — Quantify Dependency Health. Control Your Drift.">
+    <meta property="twitter:title" content="OSS IQ &mdash; Quantify Dependency Health. Control Your Drift.">
     <meta property="twitter:description"
         content="Analyze version lag, maintenance signals, and transitive risk across your entire supply chain. CLI + HTML reports. Free and open source.">
     <meta property="twitter:image" content="https://ossiq.dev/img/ossiq-report-html-light.png">
@@ -144,7 +144,7 @@
               "name": "What is a dependency health score?",
               "acceptedAnswer": {
                 "@type": "Answer",
-                "text": "It's a single, easy-to-understand metric that aggregates dozens of signals—like security vulnerabilities (CVEs), package maintenance status, and version lag—into one number. It gives you an instant, holistic view of your project's dependency risk."
+                "text": "It's a single, easy-to-understand metric that aggregates dozens of signals&mdash;like security vulnerabilities (CVEs), package maintenance status, and version lag&mdash;into one number. It gives you an instant, holistic view of your project's dependency risk."
               }
             },
             {
@@ -225,11 +225,11 @@
                 </h1>
                 <div>
                     <p class="text-xl md:text-2xl font-light mb-8">
-                        OSS IQ analyzes <span class="font-medium text-[#ff4d00]">dependency drift</span> at scale. Open-source intelligence for platform teams. <strong>CLI</strong> and <strong>HTML</strong> reports.
+                        OSS IQ analyzes <span class="font-medium text-[#ff4d00]">dependency drift</span> in your project &mdash; then plans and applies the upgrades. <strong>CLI</strong>, <strong>HTML</strong> reports, and a solver that tells you exactly what to update and why.
                     </p>
                     <p class="text-base font-light text-zinc-500 mb-12">
-                        Track version lag and transitive risk directly from your dependency files. 
-                        Move from <span class="font-medium">reactive CVE-chasing</span> to a planned, predictable maintenance rhythm.
+                        Point it at any JavaScript or Python project. See what's behind, what's vulnerable, and what to update &mdash; then let it make the changes.
+                        Move from <span class="font-medium">reactive CVE-chasing</span> to a planned upgrade workflow.
                     </p>
                     <div class="flex flex-wrap gap-4 mb-8">
                         <a href="#try-it-out" class="bg-black text-white px-8 py-4 rounded-sm font-bold text-xs uppercase tracking-widest hover:bg-[#ff4d00] transition-colors">Try It</a>
@@ -242,7 +242,7 @@
                 </div>
             </div>
 
-            <!-- Hero Visual — Image Gallery -->
+            <!-- Hero Visual &mdash; Image Gallery -->
             <div class="col-span-12 lg:col-span-5 flex items-center">
                 <div class="relative w-full group">
                     <div id="gallery" class="overflow-hidden">
@@ -337,7 +337,7 @@
             <div class="col-span-12 mb-16">
                 <p class="text-[10px] font-bold uppercase tracking-widest text-zinc-500 mb-4">Positioning</p>
                 <h2 class="text-4xl md:text-5xl heading-font font-bold mb-6">Not Another Audit Tool.</h2>
-                <p class="text-zinc-400 font-light max-w-xl">The ecosystem already has point solutions. OSS IQ takes a different angle — analyzing the <span class="text-white font-medium">health and longevity</span> of your supply chain, not just its known bugs.</p>
+                <p class="text-zinc-400 font-light max-w-xl">The ecosystem already has point solutions. OSS IQ takes a different angle &mdash; analyzing the <span class="text-white font-medium">health and longevity</span> of your supply chain, not just its known bugs.</p>
             </div>
 
             <!-- Table header -->
@@ -383,7 +383,7 @@
                 </div>
             </div>
 
-            <!-- OSS IQ row — highlighted -->
+            <!-- OSS IQ row &mdash; highlighted -->
             <div class="col-span-12 grid grid-cols-1 md:grid-cols-12 gap-4 md:gap-8 py-7 bg-zinc-800 -mx-8 px-8 rounded-sm mt-2">
                 <div class="md:col-span-3 flex items-center gap-3">
                     <span class="w-1.5 h-1.5 rounded-full bg-[#ff4d00] shrink-0"></span>
@@ -391,7 +391,7 @@
                 </div>
                 <div class="md:col-span-4 flex flex-col justify-center">
                     <span class="block text-[10px] font-bold uppercase tracking-widest text-zinc-500 md:hidden mb-1">What it does</span>
-                    <p class="text-sm text-white font-medium">Analyzes the health and longevity of your entire supply chain — CVEs, version lag, maintenance status, transitive risk, and license compliance.</p>
+                    <p class="text-sm text-white font-medium">Analyzes the health and longevity of your dependencies &mdash; CVEs, version lag, maintenance status, and transitive risk. Then plans feasible upgrades and applies them directly to your manifests.</p>
                 </div>
                 <div class="md:col-span-5 flex flex-col justify-center">
                     <span class="block text-[10px] font-bold uppercase tracking-widest text-zinc-500 md:hidden mb-1">Why it's different</span>
@@ -419,11 +419,19 @@
                         </div>
                         <div class="px-6 py-6 font-mono text-sm space-y-4">
                             <div>
-                                <p class="text-zinc-500 text-xs mb-2"># JavaScript / npm or Python / uv / pip — run from your project</p>
+                                <p class="text-zinc-500 text-xs mb-2"># See what's behind, what has CVEs, what to update</p>
                                 <p class="text-white">uvx --from ossiq ossiq-cli status</p>
                             </div>
                             <div>
-                                <p class="text-zinc-500 text-xs mb-2"># HTML report</p>
+                                <p class="text-zinc-500 text-xs mb-2"># Review solver-recommended upgrades with transitive-impact analysis</p>
+                                <p class="text-white">uvx --from ossiq ossiq-cli plan</p>
+                            </div>
+                            <div>
+                                <p class="text-zinc-500 text-xs mb-2"># Apply &mdash; OSS IQ rewrites your manifest and runs your package manager</p>
+                                <p class="text-white">uvx --from ossiq ossiq-cli apply</p>
+                            </div>
+                            <div>
+                                <p class="text-zinc-500 text-xs mb-2"># Generate a shareable HTML report with interactive dependency graph</p>
                                 <p class="text-white">uvx --from ossiq ossiq-cli status --presentation=html --output report.html</p>
                             </div>
                         </div>
@@ -432,26 +440,33 @@
 
                 <div class="col-span-12 lg:col-span-5 lg:col-start-8 flex flex-col justify-center space-y-6">
                     <div class="flex gap-4">
-                        <span class="squared-bullet mt-1.5 flex-shrink-0"></span>
+                        <span class="squared-bullet mt-1.5 shrink-0"></span>
                         <div>
                             <p class="font-medium text-sm mb-1">No install required</p>
-                            <p class="text-zinc-500 text-sm font-light"><code class="bg-zinc-100 px-1.5 py-0.5 rounded text-xs">uvx</code> runs OSS IQ directly from PyPI — no global install needed.</p>
+                            <p class="text-zinc-500 text-sm font-light"><code class="bg-zinc-100 px-1.5 py-0.5 rounded text-xs">uvx</code> runs OSS IQ directly from PyPI &mdash; no global install needed.</p>
                         </div>
                     </div>
                     <div class="flex gap-4">
-                        <span class="squared-bullet mt-1.5 flex-shrink-0"></span>
+                        <span class="squared-bullet mt-1.5 shrink-0"></span>
                         <div>
                             <p class="font-medium text-sm mb-1">Set a GitHub token for full results</p>
                             <p class="text-zinc-500 text-sm font-light">GitHub limits unauthenticated requests to 60/hour. Export a token for complete scans: <code class="bg-zinc-100 px-1.5 py-0.5 rounded text-xs">export OSSIQ_GITHUB_TOKEN=$(gh auth token)</code></p>
                         </div>
                     </div>
                     <div class="flex gap-4">
-                        <span class="squared-bullet mt-1.5 flex-shrink-0"></span>
+                        <span class="squared-bullet mt-1.5 shrink-0"></span>
                         <div>
                             <p class="font-medium text-sm mb-1">Auto-detects your ecosystem</p>
                             <p class="text-zinc-500 text-sm font-light">OSS IQ finds <code class="bg-zinc-100 px-1.5 py-0.5 rounded text-xs">package.json</code>, <code class="bg-zinc-100 px-1.5 py-0.5 rounded text-xs">uv.lock</code>, <code class="bg-zinc-100 px-1.5 py-0.5 rounded text-xs">pyproject.toml</code>, and more automatically.</p>
                         </div>
-                    </div>                    
+                    </div>
+                    <div class="flex gap-4">
+                        <span class="squared-bullet mt-1.5 shrink-0"></span>
+                        <div>
+                            <p class="font-medium text-sm mb-1">Plan and apply upgrades</p>
+                            <p class="text-zinc-500 text-sm font-light"><code class="bg-zinc-100 px-1.5 py-0.5 rounded text-xs">plan</code> shows solver-recommended versions and transitive impact before touching anything. <code class="bg-zinc-100 px-1.5 py-0.5 rounded text-xs">apply</code> rewrites your manifest and runs your package manager.</p>
+                        </div>
+                    </div>
                 </div>
             </div>
             <div class="flex justify-center">
@@ -466,9 +481,9 @@
         <!-- CI/CD Quality Gate Callout -->
         <section id="infrastructure" class="grid-main py-24 bg-zinc-900 text-white rounded-sm mb-32 px-8">
             <div class="col-span-full">
-                <h2 class="text-4xl md:text-5xl heading-font font-bold mb-8">From CLI to Quality Gate.</h2>
+                <h2 class="text-4xl md:text-5xl heading-font font-bold mb-8">From CLI to Your CI Pipeline.</h2>
                 <p class="text-xl text-zinc-400 font-light mb-6">
-                    Plug OSS IQ into any CI pipeline. Export to JSON and fail builds when lag exceeds your threshold. Ship with confidence, not just hope.
+                    Plug OSS IQ into your CI workflow. Export to JSON and fail the build when lag exceeds your threshold. Ship with confidence, not just hope.
                 </p>
                 <div class="bg-zinc-800 rounded-sm px-6 py-5 mb-10 font-mono text-sm text-zinc-300 overflow-x-auto">
                     <span class="text-zinc-500"># Fail if any production package is more than 365 days behind</span><br>
@@ -483,6 +498,68 @@
                         GitHub Repository
                     </a>
                 </div>
+            </div>
+        </section>
+
+        <!-- Python API / MSR Library -->
+        <section id="python-api" class="grid-main pt-16 border-t border-zinc-200 mb-32">
+            <div class="col-span-12 mb-10">
+                <span class="text-[10px] font-bold uppercase tracking-widest text-[#ff4d00]">Programmatic Access</span>
+                <h2 class="text-4xl heading-font font-bold mt-4">Use the MSR Engine Directly.</h2>
+                <p class="text-zinc-500 font-light mt-4 max-w-lg">OSS IQ exposes its full Mining Software Repository analysis as a stable Python library. Import <code class="bg-zinc-100 px-1.5 py-0.5 rounded text-xs">scan()</code>, get structured results, and build your own tooling on top of the same engine the CLI uses.</p>
+            </div>
+
+            <div class="col-span-12 lg:col-span-6">
+                <div class="bg-zinc-900 rounded-sm overflow-hidden">
+                    <div class="flex items-center gap-2 px-5 py-3 border-b border-zinc-700">
+                        <span class="w-3 h-3 rounded-full bg-zinc-600"></span>
+                        <span class="w-3 h-3 rounded-full bg-zinc-600"></span>
+                        <span class="w-3 h-3 rounded-full bg-zinc-600"></span>
+                        <span class="text-[10px] font-mono text-zinc-500 ml-2 uppercase tracking-widest">python</span>
+                    </div>
+                    <div class="px-6 py-6 font-mono text-sm space-y-1 text-zinc-300">
+                        <p class="text-zinc-500 text-xs mb-3"># Install as a library &mdash; no CLI overhead</p>
+                        <p><span class="text-[#ff4d00]">pip</span> install ossiq</p>
+                        <p class="mt-4"><span class="text-zinc-500">from</span> ossiq <span class="text-zinc-500">import</span> scan, Settings</p>
+                        <p><span class="text-zinc-500">from</span> ossiq.unit_of_work.uow_project <span class="text-zinc-500">import</span> ProjectUnitOfWork</p>
+                        <p class="mt-3">settings = Settings.load_from_env()</p>
+                        <p>uow = ProjectUnitOfWork(settings, project_path=<span class="text-green-400">"."</span>)</p>
+                        <p><span class="text-zinc-500">with</span> uow:</p>
+                        <p>&nbsp;&nbsp;&nbsp;&nbsp;result = scan(uow)</p>
+                        <p class="mt-3 text-zinc-500 text-xs"># Rich structured output &mdash; same data the CLI renders</p>
+                        <p><span class="text-zinc-500">for</span> pkg <span class="text-zinc-500">in</span> result.production_packages:</p>
+                        <p>&nbsp;&nbsp;&nbsp;&nbsp;<span class="text-zinc-500">if</span> pkg.cve <span class="text-zinc-500">or</span> (pkg.time_lag_days <span class="text-zinc-500">or</span> 0) > 365:</p>
+                        <p>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;print(pkg.package_name, pkg.time_lag_days)</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-span-12 lg:col-span-5 lg:col-start-8 flex flex-col justify-center space-y-6">
+                <div class="flex gap-4">
+                    <span class="squared-bullet mt-1.5 shrink-0"></span>
+                    <div>
+                        <p class="font-medium text-sm mb-1">Structured ScanResult</p>
+                        <p class="text-zinc-500 text-sm font-light">Production, development, and transitive packages in one call. Each is a <code class="bg-zinc-100 px-1.5 py-0.5 rounded text-xs">ScanRecord</code> with version lag, CVE list, drift classification, constraint provenance, and PURL.</p>
+                    </div>
+                </div>
+                <div class="flex gap-4">
+                    <span class="squared-bullet mt-1.5 shrink-0"></span>
+                    <div>
+                        <p class="font-medium text-sm mb-1">Same engine, no capability gap</p>
+                        <p class="text-zinc-500 text-sm font-light">The library and the CLI share the same MSR analysis core &mdash; the solver, cooldown, CVE data, and transitive graph are all available programmatically.</p>
+                    </div>
+                </div>
+                <div class="flex gap-4">
+                    <span class="squared-bullet mt-1.5 shrink-0"></span>
+                    <div>
+                        <p class="font-medium text-sm mb-1">Stable, versioned interface</p>
+                        <p class="text-zinc-500 text-sm font-light">The public API follows the same stability guarantees as the export schema &mdash; fields are never removed within a version, and breaking changes are announced in the changelog before removal.</p>
+                    </div>
+                </div>
+                <a href="reference.html" class="inline-flex items-center gap-2 text-sm font-bold text-[#ff4d00] hover:underline mt-2">
+                    API Reference
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+                </a>
             </div>
         </section>
 
@@ -502,18 +579,18 @@
                 <div class="border-l border-zinc-100 pl-6">
                     <span class="text-4xl font-light text-zinc-200 block mb-4">02</span>
                     <h3 class="font-bold mb-2">OSS IQ Analysis</h3>
-                    <p class="text-sm text-zinc-500">Version lag, CVEs, transitive dependencies, and license compliance—all cross-referenced against public databases (OSV, npm, PyPI, Github) using 
+                    <p class="text-sm text-zinc-500">Version lag, CVEs, transitive dependencies, and license compliance&mdash;all cross-referenced against public databases (OSV, npm, PyPI, Github) using 
                         <a href="https://en.wikipedia.org/wiki/Mining_software_repositories" target="_blank" class="underline">MSR</a> Engine in seconds.</p>
                 </div>
                 <div class="border-l border-zinc-100 pl-6">
                     <span class="text-4xl font-light text-zinc-200 block mb-4">03</span>
                     <h3 class="font-bold mb-2">Get Your OSS IQ Report</h3>
-                    <p class="text-sm text-zinc-500">See your dependencies drift report, drill into each package details, and get a prioritized list of what to fix first.</p>
+                    <p class="text-sm text-zinc-500">See your dependencies drift report, drill into each package, and get a solver-recommended upgrade plan with transitive-impact analysis.</p>
                 </div>
                 <div class="border-l border-zinc-100 pl-6">
                     <span class="text-4xl font-light text-zinc-200 block mb-4">04</span>
-                    <h3 class="font-bold mb-2">Build Your Quality Gates</h3>
-                    <p class="text-sm text-zinc-500">Use your project metrics to set up policies and drive organization behavior.</p>
+                    <h3 class="font-bold mb-2">Plan and Apply Updates</h3>
+                    <p class="text-sm text-zinc-500">Run <code class="bg-zinc-100 px-1 py-0.5 rounded text-xs">plan</code> to review what OSS IQ recommends and why. Run <code class="bg-zinc-100 px-1 py-0.5 rounded text-xs">apply</code> to let it rewrite your manifest and update your lock file.</p>
                 </div>
             </div>
 
@@ -536,7 +613,7 @@
                 <div class="space-y-12">
                     <div>
                         <h4 class="font-bold mb-3">Why another Software Composition Analysis tool?</h4>
-                        <p class="text-sm text-zinc-500">OSS IQ is not another vulnerability scanner. It helps platform teams evaluate open-source dependencies as long-term engineering assets by analyzing lockfiles, dependency graphs, and maintenance signals, producing stable scores suitable for CI and platform governance.</p>
+                        <p class="text-sm text-zinc-500">OSS IQ is not another vulnerability scanner. It gives you a longitudinal view of your dependencies &mdash; version lag, maintenance signals, and transitive risk &mdash; and then tells you what to upgrade and in what order. It produces stable, deterministic output suitable for CI gates, so you can move from reactive patching to a planned upgrade workflow.</p>
                     </div>
                     <div>
                         <h4 class="font-bold mb-3">How is OSS IQ different from <code class="bg-zinc-100 px-1.5 py-0.5 rounded text-xs">npm audit</code> or <code class="bg-zinc-100 px-1.5 py-0.5 rounded text-xs">pip-audit</code>?</h4>
@@ -630,8 +707,8 @@
 
         const IMAGES = [
             { src: "_images/ossiq-html-report-2026-03-14.png",                      alt: "OSS IQ HTML report" },
-            { src: "_images/ossiq-html-transitive-dependencies-2026-03-14.png",      alt: "OSS IQ — transitive dependencies" },
-            { src: "_images/ossiq-html-transitive-dependencies-package-2026-03-14.png", alt: "OSS IQ — transitive dependency detail" },
+            { src: "_images/ossiq-html-transitive-dependencies-2026-03-14.png",      alt: "OSS IQ &mdash; transitive dependencies" },
+            { src: "_images/ossiq-html-transitive-dependencies-package-2026-03-14.png", alt: "OSS IQ &mdash; transitive dependency detail" },
             { src: "_images/ossiq-cli-report-2026-03-14.png",                        alt: "OSS IQ CLI report" },
             { src: "_images/ossiq-cli-package-2026-03-14.png",                       alt: "OSS IQ CLI package detail" },
         ];
