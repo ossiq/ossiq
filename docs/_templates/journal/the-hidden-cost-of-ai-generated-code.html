@@ -241,6 +241,7 @@
         [data-theme="light"] ::selection{background:rgba(0,143,80,.15)}
         [data-theme="light"] .text-white{color:#1C1B18!important}
         [data-theme="light"] a.text-white{color:#1C1B18!important}
+        [data-theme="light"] .hover\:text-white:hover{color:#1C1B18!important}
         [data-theme="light"] .section-title{color:#1C1B18}
         [data-theme="light"] .prose-body{color:#4A4843}
         [data-theme="light"] .expandable-content div{color:#706D66!important}
@@ -375,22 +376,21 @@
         <span class="block w-7 h-[3px] bg-current rounded"></span>
     </button>
     <nav class="hidden md:flex items-center gap-8 text-sm font-medium text-gray-400">
-        <a href="#" class="hover:text-white transition-colors">How It Works</a>
-        <a href="#" class="hover:text-white transition-colors">Features</a>
-        <a href="#" class="hover:text-white transition-colors">Try It</a>
-        <a href="#" class="hover:text-white transition-colors">Documentation</a>
-        <a href="#" class="hover:text-white transition-colors">FAQ</a>
-        <a href="#" class="text-accent-green hover:underline">GitHub</a>
+        <a href="/#how-it-works" class="hover:text-white transition-colors">How It Works</a>
+        <a href="/#features" class="hover:text-white transition-colors">Features</a>
+        <a href="/#try-it" class="hover:text-white transition-colors">Try It</a>
+        <a href="/getting-started.html" class="hover:text-white transition-colors">Documentation</a>
+        <a href="/journal/" class="text-accent-green font-semibold">Journal</a>
         <div class="theme-switcher" role="group" aria-label="Select theme">
-                <button class="theme-option" data-theme="dark" onclick="setTheme('dark')" aria-label="Dark mode">
-                    <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
-                    Dark
-                </button>
-                <button class="theme-option" data-theme="light" onclick="setTheme('light')" aria-label="Light mode">
-                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="5" fill="currentColor" stroke="none"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
-                    Light
-                </button>
-            </div>
+            <button class="theme-option" data-theme="dark" onclick="setTheme('dark')" aria-label="Dark mode">
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+                Dark
+            </button>
+            <button class="theme-option" data-theme="light" onclick="setTheme('light')" aria-label="Light mode">
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="5" fill="currentColor" stroke="none"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+                Light
+            </button>
+        </div>
     </nav>
 </header>
 
@@ -442,12 +442,10 @@
         </div>
         <div class="py-2">
             <p class="px-4 py-2 text-[10px] uppercase tracking-[.2em] font-bold text-gray-600">ossiq.dev</p>
-            <a href="#" class="mobile-menu-link">How It Works</a>
-            <a href="#" class="mobile-menu-link">Features</a>
-            <a href="#" class="mobile-menu-link">Try It</a>
-            <a href="#" class="mobile-menu-link">Documentation</a>
-            <a href="#" class="mobile-menu-link">FAQ</a>
-            <a href="#" class="mobile-menu-link text-accent-green">GitHub</a>
+            <a href="/#how-it-works" class="mobile-menu-link">How It Works</a>
+            <a href="/#features" class="mobile-menu-link">Features</a>
+            <a href="/#try-it" class="mobile-menu-link">Try It</a>
+            <a href="/getting-started.html" class="mobile-menu-link">Documentation</a>
         </div>
     </div>
 </div>

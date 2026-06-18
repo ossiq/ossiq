@@ -190,6 +190,7 @@
         [data-theme="light"] ::selection { background: rgba(0,143,80,.15); }
         [data-theme="light"] .text-white { color: #1C1B18 !important; }
         [data-theme="light"] .text-white:hover { color: #65635d !important; }
+        [data-theme="light"] .hover\:text-white:hover { color: #1C1B18 !important; }
         [data-theme="light"] .border-white\/10 { border-color: rgba(0,0,0,.1) !important; }
         [data-theme="light"] .border-white\/06 { border-color: rgba(0,0,0,.06) !important; }
         [data-theme="light"] .theme-switcher { background: rgba(0,0,0,.06); border-color: rgba(0,0,0,.1); }
@@ -282,6 +283,10 @@
             }
 
             .section-divider { border-color: rgba(255,255,255,.08); }
+
+            .mobile-menu-link {
+                @apply block px-5 py-4 text-base font-medium text-gray-400 hover:text-white transition-colors;
+            }
         }
         /*
         body {
@@ -295,7 +300,7 @@
 </head>
 <body class="antialiased overflow-x-hidden">
 <!-- ═══════════════════ HEADER ═══════════════════ -->
-<header class="w-full py-6 px-6 md:px-12 flex justify-between items-center max-w-7xl mx-auto">
+<header class="sticky md:static top-0 z-60 w-full bg-(--color-bg) border-b border-gray-800 md:border-transparent md:bg-transparent py-4 md:py-6 px-6 md:px-12 flex justify-between items-center max-w-7xl mx-auto">
     <div class="flex items-center">
         <a href="/">
             <svg class="theme-dark" width="109" height="20" viewBox="0 0 382 70" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -313,7 +318,11 @@
             </svg>
         </a>
     </div>
-
+    <button id="mobileMenuBtn" class="md:hidden flex flex-col gap-1.5 p-3 rounded-md hover:bg-white/10 transition-colors" aria-label="Open menu" aria-expanded="false" aria-controls="mobileMenu">
+        <span class="block w-7 h-0.75 bg-current rounded"></span>
+        <span class="block w-7 h-0.75 bg-current rounded"></span>
+        <span class="block w-7 h-0.75 bg-current rounded"></span>
+    </button>
     <nav class="hidden md:flex items-center gap-8 text-sm font-medium text-gray-400">
         <a href="/#how-it-works" class="hover:text-white transition-colors">How It Works</a>
         <a href="/#features" class="hover:text-white transition-colors">Features</a>
@@ -332,6 +341,41 @@
         </div>
     </nav>
 </header>
+
+<!-- Mobile menu overlay -->
+<div id="mobileMenu" class="hidden fixed inset-0 z-100 md:hidden" role="dialog" aria-modal="true" aria-label="Navigation menu">
+    <div id="mobileMenuBackdrop" class="absolute inset-0 bg-(--color-bg)"></div>
+    <div class="relative bg-(--color-bg) border-b border-gray-800 w-full max-h-[85vh] overflow-y-auto">
+        <div class="flex items-center justify-end px-6 py-3 border-b border-gray-800">
+            <button id="mobileMenuClose" class="p-2 rounded-md hover:bg-white/10 transition-colors" aria-label="Close menu">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            </button>
+        </div>
+        <div class="flex items-center justify-center px-6 py-4 border-b border-gray-800">
+            <div class="theme-switcher" role="group" aria-label="Select theme">
+                <button class="theme-option" data-theme="dark" onclick="setTheme('dark')" aria-label="Dark mode">
+                    <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+                    Dark
+                </button>
+                <button class="theme-option" data-theme="light" onclick="setTheme('light')" aria-label="Light mode">
+                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="5" fill="currentColor" stroke="none"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+                    Light
+                </button>
+            </div>
+        </div>
+        <div class="border-b border-gray-800 py-2">
+            <a href="/" class="mobile-menu-link">← Main Website</a>
+        </div>
+        <div class="py-2">
+            <p class="px-4 py-2 text-[10px] uppercase tracking-[.2em] font-bold text-gray-600">ossiq.dev</p>
+            <a href="/#how-it-works" class="mobile-menu-link">How It Works</a>
+            <a href="/#features" class="mobile-menu-link">Features</a>
+            <a href="/#try-it" class="mobile-menu-link">Try It</a>
+            <a href="/getting-started.html" class="mobile-menu-link">Documentation</a>
+            <a href="/journal/" class="mobile-menu-link text-accent-green font-semibold">Journal</a>
+        </div>
+    </div>
+</div>
 
 <main class="max-w-7xl mx-auto px-6 md:px-12 pb-32">
 
@@ -474,6 +518,27 @@ const fadeObserver = new IntersectionObserver(entries => {
 }, { threshold: 0.1 });
 
 document.querySelectorAll('.fade-in').forEach(el => fadeObserver.observe(el));
+
+const mobileMenu = document.getElementById('mobileMenu');
+const mobileMenuBtn = document.getElementById('mobileMenuBtn');
+const mobileMenuClose = document.getElementById('mobileMenuClose');
+const mobileMenuBackdrop = document.getElementById('mobileMenuBackdrop');
+
+function openMobileMenu() {
+    mobileMenu.classList.remove('hidden');
+    document.body.style.overflow = 'hidden';
+    mobileMenuBtn.setAttribute('aria-expanded', 'true');
+}
+
+function closeMobileMenu() {
+    mobileMenu.classList.add('hidden');
+    document.body.style.overflow = '';
+    mobileMenuBtn.setAttribute('aria-expanded', 'false');
+}
+
+mobileMenuBtn.addEventListener('click', openMobileMenu);
+mobileMenuClose.addEventListener('click', closeMobileMenu);
+mobileMenuBackdrop.addEventListener('click', closeMobileMenu);
 </script>
 
 </body>

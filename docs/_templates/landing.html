@@ -190,6 +190,7 @@
                 <a href="#features" class="nav-link">Features</a>
                 <a href="#try-it-out" class="nav-link">Try It</a>
                 <a href="getting-started.html" class="nav-link">Documentation</a>
+                <a href="/journal" class="nav-link"><span class="text-white bg-[#ff4d00] py-1 px-2 rounded-2xl">Journal</span></a>
                 <a href="#faq" class="nav-link">FAQ</a>
                 <a href="https://github.com/ossiq/ossiq" class="nav-link text-[#ff4d00]">GitHub</a>
             </nav>
@@ -207,88 +208,91 @@
             <a href="#features" class="nav-link py-3 border-b border-zinc-100">Features</a>
             <a href="#try-it-out" class="nav-link py-3 border-b border-zinc-100">Try It</a>
             <a href="getting-started.html" class="nav-link py-3 border-b border-zinc-100">Documentation</a>
+            <a href="/journal" class="nav-link py-3"><span class="text-white bg-[#ff4d00] py-1 px-2 rounded-2xl">Journal</span></a>
             <a href="#faq" class="nav-link py-3 border-b border-zinc-100">FAQ</a>
             <a href="https://github.com/ossiq/ossiq" class="nav-link py-3 text-[#ff4d00]">GitHub</a>
         </nav>
     </div>
 
     <main>
-        <div class="max-w-6xl mx-auto px-6 pt-32 md:pt-48 pb-16 flex-grow">
+        <div class="mx-auto px-12 pl-36 pt-32 md:pt-48 flex-grow">
 
-        <!-- Hero / Manifesto Section -->
-        <section id="manifesto" class="grid-main mb-32">
-            <div class="col-span-12 lg:col-span-7">
-                <h1 class="text-3xl md:text-4xl lg:text-6xl heading-font font-bold leading-[0.95] mb-12">
-                    Quantify<br>
-                    <span class="text-[#03b08a]">Maintenance Health.</span><br>
-                    Control Your Drift.
-                </h1>
-                <div>
-                    <p class="text-xl md:text-2xl font-light mb-8">
-                        OSS IQ analyzes <span class="font-medium text-[#ff4d00]">dependency drift</span> in your project &mdash; then plans and applies the upgrades. <strong>CLI</strong>, <strong>HTML</strong> reports, and a solver that tells you exactly what to update and why.
-                    </p>
-                    <p class="text-base font-light text-zinc-500 mb-12">
-                        Point it at any JavaScript or Python project. See what's behind, what's vulnerable, and what to update &mdash; then let it make the changes.
-                        Move from <span class="font-medium">reactive CVE-chasing</span> to a planned upgrade workflow.
-                    </p>
-                    <div class="flex flex-wrap gap-4 mb-8">
-                        <a href="#try-it-out" class="bg-black text-white px-8 py-4 rounded-sm font-bold text-xs uppercase tracking-widest hover:bg-[#ff4d00] transition-colors">Try It</a>
-                        <a href="_static/samples/scan_npm.html" class="border border-zinc-200 px-8 py-4 rounded-sm font-bold text-xs uppercase tracking-widest hover:border-black transition-colors">View Example Report</a>
-                    </div>
-                    <div class="flex items-center gap-2 text-sm text-zinc-500">
-                        <svg class="w-4 h-4 text-green-500 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/></svg>
-                        <span>Free and Open Source</span>
+            <!-- Hero / Manifesto Section -->
+            <section id="manifesto" class="grid-main mb-32">
+                <div class="col-span-12 lg:col-span-6">
+                    <h1 class="text-3xl md:text-4xl lg:text-6xl heading-font font-bold leading-[0.95] mb-12">
+                        Quantify<br>
+                        <span class="text-[#03b08a]">Maintenance Health.</span><br>
+                        Control Your Drift.
+                    </h1>
+                    <div>
+                        <p class="text-xl md:text-2xl font-light mb-8">
+                            OSS IQ analyzes <span class="font-medium text-[#ff4d00]">dependency drift</span> in your project &mdash; then <strong>plans&nbsp;and&nbsp;applies</strong> the upgrades. <strong>CLI</strong>, <strong>HTML</strong> reports, and a solver that tells you exactly what to update and why.
+                        </p>
+                        <p class="text-base font-light text-zinc-500 mb-12">
+                            Point it at any JavaScript or Python project. See what's behind, what's vulnerable, and what to update &mdash; then let it make the changes.
+                            Move from <span class="font-medium">reactive CVE-chasing</span> to a planned upgrade workflow.
+                        </p>
+                        <div class="flex flex-wrap gap-4 mb-8">
+                            <a href="#try-it-out" class="bg-black text-white px-8 py-4 rounded-sm font-bold text-xs uppercase tracking-widest hover:bg-[#ff4d00] transition-colors">Try It</a>
+                            <a href="_static/samples/scan_npm.html" class="border border-zinc-200 px-8 py-4 rounded-sm font-bold text-xs uppercase tracking-widest hover:border-black transition-colors">View Example Report</a>
+                        </div>
+                        <div class="flex items-center gap-2 text-sm text-zinc-500">
+                            <svg class="w-4 h-4 text-green-500 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/></svg>
+                            <span>Free and Open Source</span>
+                        </div>
                     </div>
                 </div>
-            </div>
 
-            <!-- Hero Visual &mdash; Image Gallery -->
-            <div class="col-span-12 lg:col-span-5 flex items-center">
-                <div class="relative w-full group">
-                    <div id="gallery" class="overflow-hidden">
-                        <img id="gallery-img"
-                            src="_images/ossiq-html-report-2026-03-14.png"
-                            alt="OSS IQ report screenshot"
-                            class="w-full block transition-opacity duration-300 cursor-zoom-in" />
+                <!-- Hero Visual &mdash; Image Gallery -->
+                <div class="col-span-12 lg:col-span-6 flex items-center">
+                    <div class="relative w-full group">
+                        <div id="gallery" class="overflow-hidden">
+                            <img id="gallery-img"
+                                src="_images/ossiq-html-report-2026-03-14.png"
+                                alt="OSS IQ report screenshot"
+                                class="w-full block transition-opacity duration-300 cursor-zoom-in" />
+                        </div>
+
+                        <button id="gallery-prev"
+                            class="absolute left-0 top-1/2 -translate-y-1/2 -translate-x-4 bg-white border border-zinc-200 rounded-full w-9 h-9 flex items-center justify-center shadow hover:border-zinc-400 hover:shadow-md transition-all opacity-0 group-hover:opacity-100"
+                            aria-label="Previous image">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
+                        </button>
+
+                        <button id="gallery-next"
+                            class="absolute right-0 top-1/2 -translate-y-1/2 translate-x-4 bg-white border border-zinc-200 rounded-full w-9 h-9 flex items-center justify-center shadow hover:border-zinc-400 hover:shadow-md transition-all opacity-0 group-hover:opacity-100"
+                            aria-label="Next image">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg>
+                        </button>
+
+                        <div id="gallery-dots" class="flex justify-center gap-1.5 mt-4"></div>
                     </div>
-
-                    <button id="gallery-prev"
-                        class="absolute left-0 top-1/2 -translate-y-1/2 -translate-x-4 bg-white border border-zinc-200 rounded-full w-9 h-9 flex items-center justify-center shadow hover:border-zinc-400 hover:shadow-md transition-all opacity-0 group-hover:opacity-100"
-                        aria-label="Previous image">
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
-                    </button>
-
-                    <button id="gallery-next"
-                        class="absolute right-0 top-1/2 -translate-y-1/2 translate-x-4 bg-white border border-zinc-200 rounded-full w-9 h-9 flex items-center justify-center shadow hover:border-zinc-400 hover:shadow-md transition-all opacity-0 group-hover:opacity-100"
-                        aria-label="Next image">
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg>
-                    </button>
-
-                    <div id="gallery-dots" class="flex justify-center gap-1.5 mt-4"></div>
                 </div>
-            </div>
-        </section>
+            </section>
 
-        <!-- Lightbox overlay -->
-        <div id="lightbox" class="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm opacity-0 pointer-events-none transition-opacity duration-200">
-            <img id="lightbox-img" src="" alt="" class="max-w-[90vw] max-h-[90vh] rounded-sm shadow-2xl cursor-zoom-out object-contain" />
-            <button id="lightbox-close"
-                class="absolute top-5 right-5 w-9 h-9 flex items-center justify-center rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors"
-                aria-label="Close lightbox">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
-            </button>
-            <button id="lightbox-prev"
-                class="absolute left-5 top-1/2 -translate-y-1/2 w-10 h-10 flex items-center justify-center rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors"
-                aria-label="Previous image">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
-            </button>
-            <button id="lightbox-next"
-                class="absolute right-5 top-1/2 -translate-y-1/2 w-10 h-10 flex items-center justify-center rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors"
-                aria-label="Next image">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg>
-            </button>
+            <!-- Lightbox overlay -->
+            <div id="lightbox" class="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm opacity-0 pointer-events-none transition-opacity duration-200">
+                <img id="lightbox-img" src="" alt="" class="max-w-[90vw] max-h-[90vh] rounded-sm shadow-2xl cursor-zoom-out object-contain" />
+                <button id="lightbox-close"
+                    class="absolute top-5 right-5 w-9 h-9 flex items-center justify-center rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors"
+                    aria-label="Close lightbox">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
+                </button>
+                <button id="lightbox-prev"
+                    class="absolute left-5 top-1/2 -translate-y-1/2 w-10 h-10 flex items-center justify-center rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors"
+                    aria-label="Previous image">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
+                </button>
+                <button id="lightbox-next"
+                    class="absolute right-5 top-1/2 -translate-y-1/2 w-10 h-10 flex items-center justify-center rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors"
+                    aria-label="Next image">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg>
+                </button>
+            </div>
         </div>
 
+        <div class="max-w-6xl mx-auto px-6 flex-grow">
         <!-- Problem / Why -->
         <section id="features" class="grid-main pt-16 border-t border-zinc-200 mb-32">
             <div class="col-span-12 lg:col-span-4">
