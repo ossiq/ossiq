@@ -556,6 +556,7 @@ def scan(uow: unit_of_work.AbstractProjectUnitOfWork) -> ScanResult:
         # Pass 1.5: optionally run HPDR solver over direct deps (cache is warm after prefetch).
         engine_context = project_info.engine_constraints or {}
         transitive_by_name = {r.package_name: r for r in transitive_packages}
+        installed_version_by_name = {dep.canonical_name: dep.version for dep in prod_deps + opt_deps}
 
         def validate_recommendation(pkg_name: str, candidate_version: str) -> bool:
             return simulate_single(
@@ -565,6 +566,7 @@ def scan(uow: unit_of_work.AbstractProjectUnitOfWork) -> ScanResult:
                 uow.packages_registry,
                 uow.allow_prerelease,
                 now=now,
+                installed_version=installed_version_by_name.get(pkg_name),
             ).is_actionable
 
         t1 = time.perf_counter()
@@ -610,6 +612,7 @@ def scan(uow: unit_of_work.AbstractProjectUnitOfWork) -> ScanResult:
                 uow.allow_prerelease,
                 installed_names=all_installed_names,
                 now=now,
+                installed_versions=installed_version_by_name,
             )
             logger.debug("Pass 1.5b simulate_impacts: %.2fs — %d packages", time.perf_counter() - t2, len(impacts))
             for record in production_packages + optional_packages:

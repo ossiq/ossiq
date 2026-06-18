@@ -380,6 +380,38 @@ class TestSimulateSingle:
         assert result.transitive_impacts == []
         assert result.is_actionable is True
 
+    def test_stale_exact_pin_from_installed_version_does_not_block(self):
+        # Regression: vite 8.0.7 pins rolldown to "==1.0.0rc1" exactly. After vite bumps to
+        # 8.0.15, rolldown is pinned to "==1.0.0rc3". The old exact constraint from vite 8.0.7
+        # is in rolldown's all_constraints. Without the fix, merged constraints
+        # ["==1.0.0rc1", "==1.0.0rc3"] are impossible, hence is_actionable=False. With the fix,
+        # the stale old constraint is removed and rolldown 1.0.0rc3 is resolvable, hence
+        # is_actionable=True and the impact is flagged as a co-update (not a hard conflict).
+        rolldown_record = make_scan_record(
+            "rolldown",
+            "1.0.0rc1",
+            all_constraints=["==1.0.0rc1"],
+        )
+        transitive_by_name = {"rolldown": rolldown_record}
+        registry = make_registry(
+            versions_by_name={"rolldown": [pv("1.0.0rc3"), pv("1.0.0rc1")]},
+            requires_by_pkg_ver={
+                ("vite", "8.0.7"): {"rolldown": "==1.0.0rc1"},
+                ("vite", "8.0.15"): {"rolldown": "==1.0.0rc3"},
+            },
+        )
+
+        result_with_installed = simulate_single(
+            "vite", "8.0.15", transitive_by_name, registry, installed_version="8.0.7"
+        )
+        assert result_with_installed.is_actionable is True
+        assert result_with_installed.transitive_impacts[0].projected_version == "1.0.0rc3"
+        assert result_with_installed.transitive_impacts[0].has_conflict is False
+
+        # Without installed_version the old stale pin creates a false conflict (documents old behaviour).
+        result_without_installed = simulate_single("vite", "8.0.15", transitive_by_name, registry)
+        assert result_without_installed.is_actionable is False
+
 
 # ============================================================================
 # Tests: simulate_update_impacts
@@ -442,6 +474,41 @@ class TestSimulateUpdateImpacts:
 
         assert result["requests"].is_actionable is False
         assert result["boto3"].is_actionable is True
+
+    def test_installed_versions_strips_stale_constraint(self):
+        rolldown_record = make_scan_record("rolldown", "1.0.0rc1", all_constraints=["==1.0.0rc1"])
+        registry = make_registry(
+            versions_by_name={"rolldown": [pv("1.0.3"), pv("1.0.0rc1")]},
+            requires_by_pkg_ver={
+                ("vite", "8.0.7"): {"rolldown": "==1.0.0rc1"},
+                ("vite", "8.0.16"): {"rolldown": "==1.0.3"},
+            },
+        )
+
+        result = simulate_update_impacts(
+            {"vite": "8.0.16"},
+            [rolldown_record],
+            registry,
+            installed_versions={"vite": "8.0.7"},
+        )
+
+        assert result["vite"].is_actionable is True
+        assert result["vite"].transitive_impacts[0].projected_version == "1.0.3"
+        assert result["vite"].transitive_impacts[0].has_conflict is False
+
+    def test_without_installed_versions_still_false_negative(self):
+        rolldown_record = make_scan_record("rolldown", "1.0.0rc1", all_constraints=["==1.0.0rc1"])
+        registry = make_registry(
+            versions_by_name={"rolldown": [pv("1.0.3"), pv("1.0.0rc1")]},
+            requires_by_pkg_ver={
+                ("vite", "8.0.7"): {"rolldown": "==1.0.0rc1"},
+                ("vite", "8.0.16"): {"rolldown": "==1.0.3"},
+            },
+        )
+
+        result = simulate_update_impacts({"vite": "8.0.16"}, [rolldown_record], registry)
+
+        assert result["vite"].is_actionable is False
 
 
 # ============================================================================
