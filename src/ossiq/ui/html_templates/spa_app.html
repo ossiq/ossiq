@@ -40,13 +40,13 @@
 	}
 })();
 //#endregion
-//#region node_modules/vue/node_modules/@vue/shared/dist/shared.esm-bundler.js
+//#region node_modules/@vue/shared/dist/shared.esm-bundler.js
 /**
-* @vue/shared v3.5.35
+* @vue/shared v3.5.38
 * (c) 2018-present Yuxi (Evan) You and Vue contributors
 * @license MIT
 **/
-/* @__NO_SIDE_EFFECTS__ */
+// @__NO_SIDE_EFFECTS__
 function makeMap(str) {
 	const map = /* @__PURE__ */ Object.create(null);
 	for (const key of str.split(",")) map[key] = 1;
@@ -219,9 +219,9 @@ var stringifySymbol = (v, i = "") => {
 	return isSymbol(v) ? `Symbol(${(_a = v.description) != null ? _a : i})` : v;
 };
 //#endregion
-//#region node_modules/vue/node_modules/@vue/reactivity/dist/reactivity.esm-bundler.js
+//#region node_modules/@vue/reactivity/dist/reactivity.esm-bundler.js
 /**
-* @vue/reactivity v3.5.35
+* @vue/reactivity v3.5.38
 * (c) 2018-present Yuxi (Evan) You and Vue contributors
 * @license MIT
 **/
@@ -1194,16 +1194,16 @@ function targetTypeMap(rawType) {
 		default: return 0;
 	}
 }
-/* @__NO_SIDE_EFFECTS__ */
+// @__NO_SIDE_EFFECTS__
 function reactive(target) {
 	if (/* @__PURE__ */ isReadonly(target)) return target;
 	return createReactiveObject(target, false, mutableHandlers, mutableCollectionHandlers, reactiveMap);
 }
-/* @__NO_SIDE_EFFECTS__ */
+// @__NO_SIDE_EFFECTS__
 function shallowReactive(target) {
 	return createReactiveObject(target, false, shallowReactiveHandlers, shallowCollectionHandlers, shallowReactiveMap);
 }
-/* @__NO_SIDE_EFFECTS__ */
+// @__NO_SIDE_EFFECTS__
 function readonly(target) {
 	return createReactiveObject(target, true, readonlyHandlers, readonlyCollectionHandlers, readonlyMap);
 }
@@ -1219,24 +1219,24 @@ function createReactiveObject(target, isReadonly2, baseHandlers, collectionHandl
 	proxyMap.set(target, proxy);
 	return proxy;
 }
-/* @__NO_SIDE_EFFECTS__ */
+// @__NO_SIDE_EFFECTS__
 function isReactive(value) {
 	if (/* @__PURE__ */ isReadonly(value)) return /* @__PURE__ */ isReactive(value["__v_raw"]);
 	return !!(value && value["__v_isReactive"]);
 }
-/* @__NO_SIDE_EFFECTS__ */
+// @__NO_SIDE_EFFECTS__
 function isReadonly(value) {
 	return !!(value && value["__v_isReadonly"]);
 }
-/* @__NO_SIDE_EFFECTS__ */
+// @__NO_SIDE_EFFECTS__
 function isShallow(value) {
 	return !!(value && value["__v_isShallow"]);
 }
-/* @__NO_SIDE_EFFECTS__ */
+// @__NO_SIDE_EFFECTS__
 function isProxy(value) {
 	return value ? !!value["__v_raw"] : false;
 }
-/* @__NO_SIDE_EFFECTS__ */
+// @__NO_SIDE_EFFECTS__
 function toRaw(observed) {
 	const raw = observed && observed["__v_raw"];
 	return raw ? /* @__PURE__ */ toRaw(raw) : observed;
@@ -1247,15 +1247,15 @@ function markRaw(value) {
 }
 var toReactive = (value) => isObject$1(value) ? /* @__PURE__ */ reactive(value) : value;
 var toReadonly = (value) => isObject$1(value) ? /* @__PURE__ */ readonly(value) : value;
-/* @__NO_SIDE_EFFECTS__ */
+// @__NO_SIDE_EFFECTS__
 function isRef(r) {
 	return r ? r["__v_isRef"] === true : false;
 }
-/* @__NO_SIDE_EFFECTS__ */
+// @__NO_SIDE_EFFECTS__
 function ref(value) {
 	return createRef(value, false);
 }
-/* @__NO_SIDE_EFFECTS__ */
+// @__NO_SIDE_EFFECTS__
 function shallowRef(value) {
 	return createRef(value, true);
 }
@@ -1322,7 +1322,7 @@ var CustomRefImpl = class {
 function customRef(factory) {
 	return new CustomRefImpl(factory);
 }
-/* @__NO_SIDE_EFFECTS__ */
+// @__NO_SIDE_EFFECTS__
 function toRefs(object) {
 	const ret = isArray$2(object) ? new Array(object.length) : {};
 	for (const key in object) ret[key] = propertyToRef(object, key);
@@ -1425,7 +1425,7 @@ var ComputedRefImpl = class {
 		if (this.setter) this.setter(newValue);
 	}
 };
-/* @__NO_SIDE_EFFECTS__ */
+// @__NO_SIDE_EFFECTS__
 function computed$1(getterOrOptions, debugOptions, isSSR = false) {
 	let getter;
 	let setter;
@@ -1505,8 +1505,9 @@ function watch$1(source, cb, options = EMPTY_OBJ) {
 	if (once && cb) {
 		const _cb = cb;
 		cb = (...args) => {
-			_cb(...args);
+			const res = _cb(...args);
 			watchHandle();
+			return res;
 		};
 	}
 	let oldValue = isMultiSource ? new Array(source.length).fill(INITIAL_WATCHER_VALUE) : INITIAL_WATCHER_VALUE;
@@ -1514,7 +1515,7 @@ function watch$1(source, cb, options = EMPTY_OBJ) {
 		if (!(effect.flags & 1) || !effect.dirty && !immediateFirstRun) return;
 		if (cb) {
 			const newValue = effect.run();
-			if (deep || forceTrigger || (isMultiSource ? newValue.some((v, i) => hasChanged(v, oldValue[i])) : hasChanged(newValue, oldValue))) {
+			if (immediateFirstRun || deep || forceTrigger || (isMultiSource ? newValue.some((v, i) => hasChanged(v, oldValue[i])) : hasChanged(newValue, oldValue))) {
 				if (cleanup) cleanup();
 				const currentWatcher = activeWatcher;
 				activeWatcher = effect;
@@ -1571,9 +1572,9 @@ function traverse(value, depth = Infinity, seen) {
 	return value;
 }
 //#endregion
-//#region node_modules/vue/node_modules/@vue/runtime-core/dist/runtime-core.esm-bundler.js
+//#region node_modules/@vue/runtime-core/dist/runtime-core.esm-bundler.js
 /**
-* @vue/runtime-core v3.5.35
+* @vue/runtime-core v3.5.38
 * (c) 2018-present Yuxi (Evan) You and Vue contributors
 * @license MIT
 **/
@@ -1915,9 +1916,9 @@ function setTransitionHooks(vnode, hooks) {
 		vnode.ssFallback.transition = hooks.clone(vnode.ssFallback);
 	} else vnode.transition = hooks;
 }
-/* @__NO_SIDE_EFFECTS__ */
+// @__NO_SIDE_EFFECTS__
 function defineComponent(options, extraOptions) {
-	return isFunction(options) ? extend$1({ name: options.name }, extraOptions, { setup: options }) : options;
+	return isFunction(options) ? /* @__PURE__ */ (() => extend$1({ name: options.name }, extraOptions, { setup: options }))() : options;
 }
 function markAsyncBoundary(instance) {
 	instance.ids = [
@@ -2532,12 +2533,13 @@ function useModel(props, name, options = EMPTY_OBJ) {
 				const emittedValue = options.set ? options.set(value) : value;
 				if (!hasChanged(emittedValue, localValue) && !(prevSetValue !== EMPTY_OBJ && hasChanged(value, prevSetValue))) return;
 				const rawProps = i.vnode.props;
-				if (!(rawProps && (name in rawProps || camelizedName in rawProps || hyphenatedName in rawProps) && (`onUpdate:${name}` in rawProps || `onUpdate:${camelizedName}` in rawProps || `onUpdate:${hyphenatedName}` in rawProps))) {
+				const hasVModel = !!(rawProps && (name in rawProps || camelizedName in rawProps || hyphenatedName in rawProps) && (`onUpdate:${name}` in rawProps || `onUpdate:${camelizedName}` in rawProps || `onUpdate:${hyphenatedName}` in rawProps));
+				if (!hasVModel) {
 					localValue = value;
 					trigger();
 				}
 				i.emit(`update:${name}`, emittedValue);
-				if (hasChanged(value, emittedValue) && hasChanged(value, prevSetValue) && !hasChanged(emittedValue, prevEmittedValue)) trigger();
+				if (hasChanged(value, prevSetValue) && (hasChanged(value, emittedValue) && !hasChanged(emittedValue, prevEmittedValue) || hasVModel && prevSetValue !== EMPTY_OBJ && !hasChanged(emittedValue, localValue))) trigger();
 				prevSetValue = value;
 				prevEmittedValue = emittedValue;
 			}
@@ -2951,13 +2953,11 @@ var updateSlots = (instance, children, optimized) => {
 		for (const key in slots) if (!isInternalKey(key) && deletionComparisonTarget[key] == null) delete slots[key];
 	}
 };
-function initFeatureFlags() {}
 var queuePostRenderEffect = queueEffectWithSuspense;
 function createRenderer(options) {
 	return baseCreateRenderer(options);
 }
 function baseCreateRenderer(options, createHydrationFns) {
-	initFeatureFlags();
 	const target = getGlobalThis();
 	target.__VUE__ = true;
 	const { insert: hostInsert, remove: hostRemove, patchProp: hostPatchProp, createElement: hostCreateElement, createText: hostCreateText, createComment: hostCreateComment, setText: hostSetText, setElementText: hostSetElementText, parentNode: hostParentNode, nextSibling: hostNextSibling, setScopeId: hostSetScopeId = NOOP, insertStaticContent: hostInsertStaticContent } = options;
@@ -4125,11 +4125,11 @@ function h$1(type, propsOrChildren, children) {
 		setBlockTracking(1);
 	}
 }
-var version = "3.5.35";
+var version = "3.5.38";
 //#endregion
-//#region node_modules/vue/node_modules/@vue/runtime-dom/dist/runtime-dom.esm-bundler.js
+//#region node_modules/@vue/runtime-dom/dist/runtime-dom.esm-bundler.js
 /**
-* @vue/runtime-dom v3.5.35
+* @vue/runtime-dom v3.5.38
 * (c) 2018-present Yuxi (Evan) You and Vue contributors
 * @license MIT
 **/
@@ -4617,7 +4617,7 @@ var MutationType;
 	*/
 	MutationType["patchFunction"] = "patch function";
 })(MutationType || (MutationType = {}));
-var _global = typeof window === "object" && window.window === window ? window : typeof self === "object" && self.self === self ? self : typeof global === "object" && global.global === global ? global : typeof globalThis === "object" ? globalThis : { HTMLElement: null };
+var _global = /*#__PURE__*/ (() => typeof window === "object" && window.window === window ? window : typeof self === "object" && self.self === self ? self : typeof global === "object" && global.global === global ? global : typeof globalThis === "object" ? globalThis : { HTMLElement: null })();
 function bom(blob, { autoBom = false } = {}) {
 	if (autoBom && /^\s*(?:text\/\S*|application\/xml|\S*\/\S*\+xml)\s*;.*charset\s*=\s*utf-8/i.test(blob.type)) return new Blob([String.fromCharCode(65279), blob], { type: blob.type });
 	return blob;
@@ -4666,7 +4666,7 @@ function click(node) {
 	}
 }
 var _navigator = typeof navigator === "object" ? navigator : { userAgent: "" };
-var isMacOSWebView = /Macintosh/.test(_navigator.userAgent) && /AppleWebKit/.test(_navigator.userAgent) && !/Safari/.test(_navigator.userAgent);
+var isMacOSWebView = /*#__PURE__*/ (() => /Macintosh/.test(_navigator.userAgent) && /AppleWebKit/.test(_navigator.userAgent) && !/Safari/.test(_navigator.userAgent))();
 var saveAs = !IS_CLIENT ? () => {} : typeof HTMLAnchorElement !== "undefined" && "download" in HTMLAnchorElement.prototype && !isMacOSWebView ? downloadSaveAs : "msSaveOrOpenBlob" in _navigator ? msSaveAs : fileSaverSaveAs;
 function downloadSaveAs(blob, name = "download", opts) {
 	const a = document.createElement("a");
@@ -5499,14 +5499,7 @@ function Xr(t = "top", r = "right", i = "bottom", e = "left") {
 		]
 	};
 }
-function le(t, r) {
-	return {
-		1: [[t, 0], [r, 0]],
-		2: [[t, 0], [r, 1]]
-	};
-}
-Xr(), Re("margin"), Re("padding"), Re("scroll-margin"), Re("scroll-padding"), Re("border", "top-width", "right-width", "bottom-width", "left-width"), Re("border", "top-style", "right-style", "bottom-style", "left-style"), Re("border", "top-color", "right-color", "bottom-color", "left-color"), le("row-gap", "column-gap"), le("overflow-x", "overflow-y"), le("overscroll-behavior-x", "overscroll-behavior-y");
-le("top", "bottom"), le("left", "right"), le("margin-top", "margin-bottom"), le("margin-left", "margin-right"), le("padding-top", "padding-bottom"), le("padding-left", "padding-right"), le("scroll-margin-top", "scroll-margin-bottom"), le("scroll-margin-left", "scroll-margin-right"), le("scroll-padding-top", "scroll-padding-bottom"), le("scroll-padding-left", "scroll-padding-right");
+Re("margin"), Re("padding"), Re("scroll-margin"), Re("scroll-padding"), Re("border", "top-width", "right-width", "bottom-width", "left-width"), Re("border", "top-style", "right-style", "bottom-style", "left-style"), Re("border", "top-color", "right-color", "bottom-color", "left-color");
 var Dt = ((n) => (n[n.None = 0] = "None", n[n.AtProperty = 1] = "AtProperty", n[n.ColorMix = 2] = "ColorMix", n[n.All = 3] = "All", n))(Dt || {});
 var ze = ((u) => (u[u.None = 0] = "None", u[u.AtApply = 1] = "AtApply", u[u.AtImport = 2] = "AtImport", u[u.JsPluginCompat = 4] = "JsPluginCompat", u[u.ThemeFunction = 8] = "ThemeFunction", u[u.Utilities = 16] = "Utilities", u[u.Variants = 32] = "Variants", u[u.AtTheme = 64] = "AtTheme", u))(ze || {});
 //#endregion
@@ -7764,7 +7757,7 @@ var ReportFilters_default = /* @__PURE__ */ defineComponent({
 		"timeLag": { required: true },
 		"timeLagModifiers": {}
 	},
-	emits: /* @__PURE__ */ mergeModels(["reset"], [
+	emits: /*@__PURE__*/ mergeModels(["reset"], [
 		"update:searchText",
 		"update:packageType",
 		"update:driftStatus",
@@ -8249,93 +8242,103 @@ function constraintCircleClasses(type) {
 }
 //#endregion
 //#region src/components/ReportTable.vue?vue&type=script&setup=true&lang.ts
-var _hoisted_1$5 = { class: "overflow-hidden bg-white border border-slate-200 border-b-[3px] border-b-slate-300" };
-var _hoisted_2$5 = { class: "min-w-full text-left border-collapse" };
-var _hoisted_3$5 = { class: "bg-slate-50 border-b border-slate-200" };
-var _hoisted_4$4 = ["width"];
-var _hoisted_5$4 = { class: "flex items-center gap-2" };
-var _hoisted_6$4 = ["onClick"];
-var _hoisted_7$4 = { class: "divide-y divide-slate-100" };
-var _hoisted_8$3 = { class: "hover:bg-slate-50 transition-colors" };
-var _hoisted_9$3 = { class: "px-6 py-3" };
-var _hoisted_10$3 = { class: "flex items-center gap-2" };
-var _hoisted_11$2 = ["title"];
-var _hoisted_12$2 = ["onClick"];
-var _hoisted_13$2 = {
+var _hoisted_1$5 = { class: "w-full" };
+var _hoisted_2$5 = { class: "w-full overflow-hidden bg-white border border-zinc-200 border-b-[3px] border-b-zinc-300" };
+var _hoisted_3$5 = { class: "w-full text-left border-collapse" };
+var _hoisted_4$4 = { class: "bg-zinc-50 border-b border-zinc-200" };
+var _hoisted_5$4 = ["width"];
+var _hoisted_6$4 = { class: "flex items-center gap-1" };
+var _hoisted_7$4 = ["onClick"];
+var _hoisted_8$3 = { class: "divide-y divide-zinc-100" };
+var _hoisted_9$3 = { class: "hover:bg-zinc-50 transition-colors" };
+var _hoisted_10$3 = { class: "px-3 py-2" };
+var _hoisted_11$2 = { class: "flex items-center gap-1.5" };
+var _hoisted_12$2 = ["title"];
+var _hoisted_13$2 = ["onClick"];
+var _hoisted_14$2 = {
 	key: 0,
-	class: "text-orange-500 font-black leading-none",
+	class: "text-orange-500 font-black leading-none text-xs",
 	title: "Has transitive dependency CVEs"
 };
-var _hoisted_14$2 = {
+var _hoisted_15$1 = {
 	key: 1,
-	class: "material-symbols-rounded text-xl text-slate-400",
+	class: "material-symbols-rounded text-base text-zinc-400",
 	title: "Development dependency"
 };
-var _hoisted_15$1 = { class: "px-6 py-3 text-center" };
-var _hoisted_16$1 = ["href"];
-var _hoisted_17$1 = { class: "px-6 py-3" };
-var _hoisted_18$1 = { class: "flex items-center gap-2" };
-var _hoisted_19$1 = { class: "material-symbols-rounded text-xl text-slate-400" };
-var _hoisted_20$1 = { class: "px-6 py-3 text-sm text-slate-800" };
-var _hoisted_21$1 = { class: "font-mono" };
-var _hoisted_22$1 = {
-	key: 0,
-	class: "ml-1.5 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide bg-red-100 text-red-700 border border-red-300 rounded"
-};
+var _hoisted_16$1 = { class: "px-3 py-2 text-center" };
+var _hoisted_17$1 = ["href"];
+var _hoisted_18$1 = { class: "px-3 py-2" };
+var _hoisted_19$1 = { class: "flex items-center gap-1" };
+var _hoisted_20$1 = { class: "material-symbols-rounded text-base text-zinc-400" };
+var _hoisted_21$1 = { class: "px-3 py-2 text-xs text-zinc-800" };
+var _hoisted_22$1 = { class: "font-mono" };
 var _hoisted_23$1 = {
-	key: 1,
-	class: "ml-1.5 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide bg-red-100 text-red-700 border border-red-300 rounded"
+	key: 0,
+	class: "ml-1 px-1 py-0.5 text-[8px] font-bold uppercase tracking-wide bg-red-100 text-red-700 border border-red-300 rounded"
 };
 var _hoisted_24$1 = {
-	key: 2,
-	class: "ml-1.5 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide bg-yellow-100 text-yellow-700 border border-yellow-300 rounded"
+	key: 1,
+	class: "ml-1 px-1 py-0.5 text-[8px] font-bold uppercase tracking-wide bg-red-100 text-red-700 border border-red-300 rounded"
 };
 var _hoisted_25$1 = {
+	key: 2,
+	class: "ml-1 px-1 py-0.5 text-[8px] font-bold uppercase tracking-wide bg-yellow-100 text-yellow-700 border border-yellow-300 rounded"
+};
+var _hoisted_26$1 = {
 	key: 3,
-	class: "ml-1.5 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide bg-amber-100 text-amber-700 border border-amber-300 rounded"
+	class: "ml-1 px-1 py-0.5 text-[8px] font-bold uppercase tracking-wide bg-amber-100 text-amber-700 border border-amber-300 rounded"
 };
-var _hoisted_26$1 = { class: "px-6 py-3 text-sm" };
-var _hoisted_27$1 = { class: "px-6 py-3 text-sm" };
-var _hoisted_28$1 = { class: "px-6 py-3" };
-var _hoisted_29$1 = { class: "px-6 py-3" };
-var _hoisted_30$1 = { class: "px-6 py-3" };
-var _hoisted_31$1 = { class: "flex flex-wrap gap-1" };
-var _hoisted_32$1 = ["href"];
-var _hoisted_33$1 = {
+var _hoisted_27$1 = { class: "px-3 py-2 text-xs font-mono text-zinc-700" };
+var _hoisted_28$1 = { class: "px-3 py-2 text-xs text-zinc-700" };
+var _hoisted_29$1 = { class: "px-3 py-2" };
+var _hoisted_30$1 = { class: "px-3 py-2" };
+var _hoisted_31$1 = { class: "px-3 py-2 text-xs" };
+var _hoisted_32$1 = {
 	key: 0,
-	class: "text-[10px] text-slate-400 self-center"
+	class: "font-mono font-semibold text-violet-700"
 };
-var _hoisted_34$1 = {
+var _hoisted_33$1 = {
 	key: 1,
-	class: "text-xs text-slate-300"
+	class: "text-zinc-300"
 };
-var _hoisted_35$1 = { class: "px-6 py-3 text-center" };
-var _hoisted_36$1 = ["title", "onClick"];
+var _hoisted_34$1 = { class: "px-3 py-2" };
+var _hoisted_35$1 = { class: "flex flex-wrap gap-0.5" };
+var _hoisted_36$1 = ["href"];
 var _hoisted_37$1 = {
+	key: 0,
+	class: "text-[9px] text-zinc-400 self-center"
+};
+var _hoisted_38$1 = {
+	key: 1,
+	class: "text-xs text-zinc-300"
+};
+var _hoisted_39$1 = { class: "px-3 py-2 text-center" };
+var _hoisted_40$1 = ["title", "onClick"];
+var _hoisted_41$1 = {
 	key: 0,
 	class: "bg-stone-50"
 };
-var _hoisted_38$1 = {
-	colspan: "10",
-	class: "px-8 py-3"
+var _hoisted_42$1 = {
+	colspan: "11",
+	class: "px-6 py-3"
 };
-var _hoisted_39$1 = {
+var _hoisted_43$1 = {
 	key: 0,
-	class: "text-xs text-slate-500 mb-2"
+	class: "text-xs text-zinc-500 mb-2"
 };
-var _hoisted_40$1 = { class: "font-mono font-semibold text-slate-700" };
-var _hoisted_41$1 = { class: "font-mono font-semibold text-violet-700" };
-var _hoisted_42$1 = { class: "w-full border-collapse text-xs" };
-var _hoisted_43$1 = { class: "font-mono px-2.5 py-1 text-gray-700" };
-var _hoisted_44$1 = { class: "font-mono px-2.5 py-1 text-gray-700" };
-var _hoisted_45$1 = { class: "font-mono px-2.5 py-1 text-gray-700" };
-var _hoisted_46$1 = { class: "font-mono px-2.5 py-1 text-slate-500" };
-var _hoisted_47$1 = { class: "px-2.5 py-1 text-gray-700" };
-var _hoisted_48$1 = {
+var _hoisted_44$1 = { class: "font-mono font-semibold text-zinc-700" };
+var _hoisted_45$1 = { class: "font-mono font-semibold text-violet-700" };
+var _hoisted_46$1 = { class: "w-full border-collapse text-xs" };
+var _hoisted_47$1 = { class: "font-mono px-2 py-1 text-zinc-700" };
+var _hoisted_48$1 = { class: "font-mono px-2 py-1 text-zinc-700" };
+var _hoisted_49$1 = { class: "font-mono px-2 py-1 text-zinc-700" };
+var _hoisted_50$1 = { class: "font-mono px-2 py-1 text-zinc-500" };
+var _hoisted_51$1 = { class: "px-2 py-1 text-zinc-700" };
+var _hoisted_52$1 = {
 	key: 1,
 	class: "mt-2 text-xs text-red-600 font-medium"
 };
-var _hoisted_49$1 = { key: 0 };
+var _hoisted_53$1 = { key: 0 };
 //#endregion
 //#region src/components/ReportTable.vue
 var ReportTable_default = /* @__PURE__ */ defineComponent({
@@ -8374,17 +8377,17 @@ var ReportTable_default = /* @__PURE__ */ defineComponent({
 			{
 				id: "name",
 				label: "Dependency",
-				width: "18%"
+				width: "16%"
 			},
 			{
 				id: "cve",
-				label: "Security",
-				width: "8%"
+				label: "CVEs",
+				width: "7%"
 			},
 			{
 				id: "drift",
-				label: "Drift Status",
-				width: "12%"
+				label: "Drift",
+				width: "10%"
 			},
 			{
 				id: "installed",
@@ -8394,22 +8397,22 @@ var ReportTable_default = /* @__PURE__ */ defineComponent({
 			{
 				id: "latest",
 				label: "Latest",
-				width: "8%"
+				width: "7%"
 			},
 			{
 				id: "releases",
 				label: "Releases",
-				width: "8%"
+				width: "6%"
 			},
 			{
 				id: "timeLag",
 				label: "Time Lag",
-				width: "8%"
+				width: "6%"
 			},
 			{
 				id: "versionAge",
 				label: "Version Age",
-				width: "8%"
+				width: "6%"
 			}
 		];
 		function sortIcon(col, currentCol, dir) {
@@ -8440,7 +8443,7 @@ var ReportTable_default = /* @__PURE__ */ defineComponent({
 				case "DIFF_MINOR": return "bg-yellow-300 text-amber-700";
 				case "DIFF_PATCH": return "bg-blue-500 text-white";
 				case "LATEST": return "bg-green-500 text-white";
-				default: return "bg-slate-200 text-slate-600";
+				default: return "bg-zinc-200 text-zinc-600";
 			}
 		}
 		function timeLagColor(days) {
@@ -8456,93 +8459,98 @@ var ReportTable_default = /* @__PURE__ */ defineComponent({
 			return `https://spdx.org/licenses/${spdxId}.html`;
 		}
 		return (_ctx, _cache) => {
-			return openBlock(), createElementBlock("section", null, [createBaseVNode("div", _hoisted_1$5, [createBaseVNode("table", _hoisted_2$5, [createBaseVNode("thead", _hoisted_3$5, [createBaseVNode("tr", null, [
+			return openBlock(), createElementBlock("section", _hoisted_1$5, [createBaseVNode("div", _hoisted_2$5, [createBaseVNode("table", _hoisted_3$5, [createBaseVNode("thead", _hoisted_4$4, [createBaseVNode("tr", null, [
 				(openBlock(), createElementBlock(Fragment, null, renderList(columns, (col) => {
 					return createBaseVNode("th", {
 						key: col.id,
 						width: col.width,
-						class: "px-6 py-4 text-[10px] font-bold uppercase tracking-widest text-slate-500"
-					}, [createBaseVNode("span", _hoisted_5$4, [createBaseVNode("span", null, toDisplayString(col.label), 1), createBaseVNode("button", {
-						class: "material-symbols-rounded text-xl text-slate-400 hover:text-slate-700 transition",
+						class: "px-3 py-2.5 text-[9px] font-bold uppercase tracking-widest text-zinc-500"
+					}, [createBaseVNode("span", _hoisted_6$4, [createBaseVNode("span", null, toDisplayString(col.label), 1), createBaseVNode("button", {
+						class: "material-symbols-rounded text-base text-zinc-400 hover:text-zinc-700 transition",
 						onClick: ($event) => emit("sort", col.id)
-					}, toDisplayString(sortIcon(col.id, __props.sortColumn, __props.sortDirection)), 9, _hoisted_6$4)])], 8, _hoisted_4$4);
+					}, toDisplayString(sortIcon(col.id, __props.sortColumn, __props.sortDirection)), 9, _hoisted_7$4)])], 8, _hoisted_5$4);
 				}), 64)),
 				_cache[0] || (_cache[0] = createBaseVNode("th", {
-					class: "px-6 py-4 text-[10px] font-bold uppercase tracking-widest text-slate-500",
-					width: "12%"
-				}, "License", -1)),
+					class: "px-3 py-2.5 text-[9px] font-bold uppercase tracking-widest text-zinc-500",
+					width: "8%"
+				}, "Rec. Version", -1)),
 				_cache[1] || (_cache[1] = createBaseVNode("th", {
-					class: "px-6 py-4 text-[10px] font-bold uppercase tracking-widest text-slate-500",
-					width: "6%"
+					class: "px-3 py-2.5 text-[9px] font-bold uppercase tracking-widest text-zinc-500",
+					width: "9%"
+				}, "License", -1)),
+				_cache[2] || (_cache[2] = createBaseVNode("th", {
+					class: "px-3 py-2.5 text-[9px] font-bold uppercase tracking-widest text-zinc-500",
+					width: "5%"
 				}, "Impact", -1))
-			])]), createBaseVNode("tbody", _hoisted_7$4, [(openBlock(true), createElementBlock(Fragment, null, renderList(__props.rows, (row) => {
-				return openBlock(), createElementBlock(Fragment, { key: row.pkg.package_name }, [createBaseVNode("tr", _hoisted_8$3, [
-					createBaseVNode("td", _hoisted_9$3, [createBaseVNode("div", _hoisted_10$3, [
+			])]), createBaseVNode("tbody", _hoisted_8$3, [(openBlock(true), createElementBlock(Fragment, null, renderList(__props.rows, (row) => {
+				return openBlock(), createElementBlock(Fragment, { key: row.pkg.package_name }, [createBaseVNode("tr", _hoisted_9$3, [
+					createBaseVNode("td", _hoisted_10$3, [createBaseVNode("div", _hoisted_11$2, [
 						createBaseVNode("span", {
-							class: normalizeClass(["inline-block w-5 h-5 rounded-full shrink-0", unref(constraintCircleClasses)(row.pkg.constraint_type)]),
+							class: normalizeClass(["inline-block w-4 h-4 rounded-full shrink-0", unref(constraintCircleClasses)(row.pkg.constraint_type)]),
 							title: row.pkg.constraint_type ?? "DECLARED"
-						}, null, 10, _hoisted_11$2),
+						}, null, 10, _hoisted_12$2),
 						createBaseVNode("button", {
-							class: "text-[#4800E2] hover:underline font-medium text-left cursor-pointer",
+							class: "text-[#4800E2] hover:underline font-medium text-xs text-left cursor-pointer truncate max-w-45",
 							onClick: ($event) => emit("selectPackage", row)
-						}, toDisplayString(row.pkg.package_name), 9, _hoisted_12$2),
-						row.hasTransitiveCve ? (openBlock(), createElementBlock("span", _hoisted_13$2, "*")) : createCommentVNode("", true),
-						row.isDev ? (openBlock(), createElementBlock("span", _hoisted_14$2, "logo_dev")) : createCommentVNode("", true)
+						}, toDisplayString(row.pkg.package_name), 9, _hoisted_13$2),
+						row.hasTransitiveCve ? (openBlock(), createElementBlock("span", _hoisted_14$2, "*")) : createCommentVNode("", true),
+						row.isDev ? (openBlock(), createElementBlock("span", _hoisted_15$1, "logo_dev")) : createCommentVNode("", true)
 					])]),
-					createBaseVNode("td", _hoisted_15$1, [row.cveCount > 0 ? (openBlock(), createElementBlock("a", {
+					createBaseVNode("td", _hoisted_16$1, [row.cveCount > 0 ? (openBlock(), createElementBlock("a", {
 						key: 0,
 						href: osvUrl(row.pkg.package_name, __props.registry),
 						target: "_blank",
-						class: "inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold text-white bg-[#DE4514]"
-					}, [_cache[2] || (_cache[2] = createBaseVNode("span", { class: "material-symbols-rounded text-base" }, "security", -1)), createTextVNode(" " + toDisplayString(row.cveCount) + " CVE" + toDisplayString(row.cveCount > 1 ? "s" : ""), 1)], 8, _hoisted_16$1)) : createCommentVNode("", true)]),
-					createBaseVNode("td", _hoisted_17$1, [createBaseVNode("div", _hoisted_18$1, [createBaseVNode("span", _hoisted_19$1, toDisplayString(driftIcon(row.driftStatus)), 1), createBaseVNode("span", { class: normalizeClass(["px-3 py-1 rounded-full text-sm font-bold", driftClasses(row.driftStatus)]) }, toDisplayString(driftLabel(row.driftStatus)), 3)])]),
-					createBaseVNode("td", _hoisted_20$1, [createBaseVNode("span", _hoisted_21$1, toDisplayString(row.pkg.installed_version), 1), row.isPackageUnpublished ? (openBlock(), createElementBlock("span", _hoisted_22$1, "unpublished")) : row.isYanked ? (openBlock(), createElementBlock("span", _hoisted_23$1, "yanked")) : row.isDeprecated ? (openBlock(), createElementBlock("span", _hoisted_24$1, "deprecated")) : row.isPrerelease ? (openBlock(), createElementBlock("span", _hoisted_25$1, "pre")) : createCommentVNode("", true)]),
-					createBaseVNode("td", _hoisted_26$1, toDisplayString(row.pkg.latest_version ?? "—"), 1),
-					createBaseVNode("td", _hoisted_27$1, toDisplayString(row.pkg.releases_lag ?? 0), 1),
-					createBaseVNode("td", _hoisted_28$1, [createBaseVNode("strong", { class: normalizeClass(["font-semibold", timeLagColor(row.pkg.time_lag_days)]) }, toDisplayString(row.timeLagDisplay), 3)]),
-					createBaseVNode("td", _hoisted_29$1, [createBaseVNode("strong", { class: normalizeClass(["font-semibold", timeLagColor(row.pkg.version_age_days)]) }, toDisplayString(row.versionAgeDisplay), 3)]),
-					createBaseVNode("td", _hoisted_30$1, [createBaseVNode("div", _hoisted_31$1, [row.license.length > 0 ? (openBlock(), createElementBlock(Fragment, { key: 0 }, [createBaseVNode("a", {
+						class: "inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[10px] font-semibold text-white bg-[#ff4d00]"
+					}, [_cache[3] || (_cache[3] = createBaseVNode("span", { class: "material-symbols-rounded text-sm" }, "security", -1)), createTextVNode(" " + toDisplayString(row.cveCount), 1)], 8, _hoisted_17$1)) : createCommentVNode("", true)]),
+					createBaseVNode("td", _hoisted_18$1, [createBaseVNode("div", _hoisted_19$1, [createBaseVNode("span", _hoisted_20$1, toDisplayString(driftIcon(row.driftStatus)), 1), createBaseVNode("span", { class: normalizeClass(["px-2 py-0.5 rounded-full text-[10px] font-bold", driftClasses(row.driftStatus)]) }, toDisplayString(driftLabel(row.driftStatus)), 3)])]),
+					createBaseVNode("td", _hoisted_21$1, [createBaseVNode("span", _hoisted_22$1, toDisplayString(row.pkg.installed_version), 1), row.isPackageUnpublished ? (openBlock(), createElementBlock("span", _hoisted_23$1, "unpublished")) : row.isYanked ? (openBlock(), createElementBlock("span", _hoisted_24$1, "yanked")) : row.isDeprecated ? (openBlock(), createElementBlock("span", _hoisted_25$1, "deprecated")) : row.isPrerelease ? (openBlock(), createElementBlock("span", _hoisted_26$1, "pre")) : createCommentVNode("", true)]),
+					createBaseVNode("td", _hoisted_27$1, toDisplayString(row.pkg.latest_version ?? "—"), 1),
+					createBaseVNode("td", _hoisted_28$1, toDisplayString(row.pkg.releases_lag ?? 0), 1),
+					createBaseVNode("td", _hoisted_29$1, [createBaseVNode("strong", { class: normalizeClass(["text-xs font-semibold", timeLagColor(row.pkg.time_lag_days)]) }, toDisplayString(row.timeLagDisplay), 3)]),
+					createBaseVNode("td", _hoisted_30$1, [createBaseVNode("strong", { class: normalizeClass(["text-xs font-semibold", timeLagColor(row.pkg.version_age_days)]) }, toDisplayString(row.versionAgeDisplay), 3)]),
+					createBaseVNode("td", _hoisted_31$1, [row.pkg.recommended_version ? (openBlock(), createElementBlock("span", _hoisted_32$1, toDisplayString(row.pkg.recommended_version), 1)) : (openBlock(), createElementBlock("span", _hoisted_33$1, "—"))]),
+					createBaseVNode("td", _hoisted_34$1, [createBaseVNode("div", _hoisted_35$1, [row.license.length > 0 ? (openBlock(), createElementBlock(Fragment, { key: 0 }, [createBaseVNode("a", {
 						href: spdxUrl(row.license[0]),
 						target: "_blank",
 						rel: "noopener noreferrer",
-						class: "inline-flex px-1.5 py-0.5 rounded text-[10px] font-bold font-mono bg-slate-100 text-slate-600 hover:text-sky-600 transition-colors border border-slate-200"
-					}, toDisplayString(row.license[0]), 9, _hoisted_32$1), row.license.length > 1 ? (openBlock(), createElementBlock("span", _hoisted_33$1, "+" + toDisplayString(row.license.length - 1), 1)) : createCommentVNode("", true)], 64)) : (openBlock(), createElementBlock("span", _hoisted_34$1, "—"))])]),
-					createBaseVNode("td", _hoisted_35$1, [hasImpacts(row) ? (openBlock(), createElementBlock("button", {
+						class: "inline-flex px-1 py-0.5 rounded text-[9px] font-bold font-mono bg-zinc-100 text-zinc-600 hover:text-[#ff4d00] transition-colors border border-zinc-200"
+					}, toDisplayString(row.license[0]), 9, _hoisted_36$1), row.license.length > 1 ? (openBlock(), createElementBlock("span", _hoisted_37$1, "+" + toDisplayString(row.license.length - 1), 1)) : createCommentVNode("", true)], 64)) : (openBlock(), createElementBlock("span", _hoisted_38$1, "—"))])]),
+					createBaseVNode("td", _hoisted_39$1, [hasImpacts(row) ? (openBlock(), createElementBlock("button", {
 						key: 0,
-						class: normalizeClass(["inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold border cursor-pointer transition-colors", hasConflict(row) ? "bg-yellow-100 text-amber-800 border-yellow-300 hover:bg-yellow-200" : "bg-violet-100 text-violet-800 border-violet-300 hover:bg-violet-200"]),
+						class: normalizeClass(["inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[10px] font-semibold border cursor-pointer transition-colors", hasConflict(row) ? "bg-yellow-100 text-amber-800 border-yellow-300 hover:bg-yellow-200" : "bg-violet-100 text-violet-800 border-violet-300 hover:bg-violet-200"]),
 						title: hasConflict(row) ? "Transitive conflict — click to expand" : "Transitive impacts — click to expand",
 						onClick: withModifiers(($event) => toggleImpact(row.pkg.package_name), ["stop"])
-					}, [createBaseVNode("span", null, toDisplayString(hasConflict(row) ? "⚠" : "↳"), 1), createBaseVNode("span", null, toDisplayString(row.pkg.update_transitive_impacts.length), 1)], 10, _hoisted_36$1)) : createCommentVNode("", true)])
-				]), hasImpacts(row) && expandedImpacts.value.has(row.pkg.package_name) ? (openBlock(), createElementBlock("tr", _hoisted_37$1, [createBaseVNode("td", _hoisted_38$1, [
-					row.pkg.recommended_version ? (openBlock(), createElementBlock("p", _hoisted_39$1, [
-						_cache[3] || (_cache[3] = createTextVNode(" Recommended update: ", -1)),
-						createBaseVNode("span", _hoisted_40$1, toDisplayString(row.pkg.installed_version), 1),
-						_cache[4] || (_cache[4] = createTextVNode(" → ", -1)),
-						createBaseVNode("span", _hoisted_41$1, toDisplayString(row.pkg.recommended_version), 1)
+					}, [createBaseVNode("span", null, toDisplayString(hasConflict(row) ? "⚠" : "↳"), 1), createBaseVNode("span", null, toDisplayString(row.pkg.update_transitive_impacts.length), 1)], 10, _hoisted_40$1)) : createCommentVNode("", true)])
+				]), hasImpacts(row) && expandedImpacts.value.has(row.pkg.package_name) ? (openBlock(), createElementBlock("tr", _hoisted_41$1, [createBaseVNode("td", _hoisted_42$1, [
+					row.pkg.recommended_version ? (openBlock(), createElementBlock("p", _hoisted_43$1, [
+						_cache[4] || (_cache[4] = createTextVNode(" Recommended update: ", -1)),
+						createBaseVNode("span", _hoisted_44$1, toDisplayString(row.pkg.installed_version), 1),
+						_cache[5] || (_cache[5] = createTextVNode(" → ", -1)),
+						createBaseVNode("span", _hoisted_45$1, toDisplayString(row.pkg.recommended_version), 1)
 					])) : createCommentVNode("", true),
-					createBaseVNode("table", _hoisted_42$1, [_cache[5] || (_cache[5] = createBaseVNode("thead", null, [createBaseVNode("tr", null, [
-						createBaseVNode("th", { class: "px-2.5 py-1 text-left text-[10px] font-bold uppercase tracking-widest text-slate-400 border-b border-slate-200" }, "Package"),
-						createBaseVNode("th", { class: "px-2.5 py-1 text-left text-[10px] font-bold uppercase tracking-widest text-slate-400 border-b border-slate-200" }, "Current"),
-						createBaseVNode("th", { class: "px-2.5 py-1 text-left text-[10px] font-bold uppercase tracking-widest text-slate-400 border-b border-slate-200" }, "Projected"),
-						createBaseVNode("th", { class: "px-2.5 py-1 text-left text-[10px] font-bold uppercase tracking-widest text-slate-400 border-b border-slate-200" }, "Constraint"),
-						createBaseVNode("th", { class: "px-2.5 py-1 text-left text-[10px] font-bold uppercase tracking-widest text-slate-400 border-b border-slate-200" }, "Status")
+					createBaseVNode("table", _hoisted_46$1, [_cache[6] || (_cache[6] = createBaseVNode("thead", null, [createBaseVNode("tr", null, [
+						createBaseVNode("th", { class: "px-2 py-1 text-left text-[9px] font-bold uppercase tracking-widest text-zinc-400 border-b border-zinc-200" }, "Package"),
+						createBaseVNode("th", { class: "px-2 py-1 text-left text-[9px] font-bold uppercase tracking-widest text-zinc-400 border-b border-zinc-200" }, "Current"),
+						createBaseVNode("th", { class: "px-2 py-1 text-left text-[9px] font-bold uppercase tracking-widest text-zinc-400 border-b border-zinc-200" }, "Projected"),
+						createBaseVNode("th", { class: "px-2 py-1 text-left text-[9px] font-bold uppercase tracking-widest text-zinc-400 border-b border-zinc-200" }, "Constraint"),
+						createBaseVNode("th", { class: "px-2 py-1 text-left text-[9px] font-bold uppercase tracking-widest text-zinc-400 border-b border-zinc-200" }, "Status")
 					])], -1)), createBaseVNode("tbody", null, [(openBlock(true), createElementBlock(Fragment, null, renderList(row.pkg.update_transitive_impacts, (impact) => {
 						return openBlock(), createElementBlock("tr", {
 							key: impact.package_name,
 							class: normalizeClass(impactRowClass(impact))
 						}, [
-							createBaseVNode("td", _hoisted_43$1, toDisplayString(impact.package_name), 1),
-							createBaseVNode("td", _hoisted_44$1, toDisplayString(impact.current_version ?? "(new)"), 1),
-							createBaseVNode("td", _hoisted_45$1, toDisplayString(impact.projected_version ?? "—"), 1),
-							createBaseVNode("td", _hoisted_46$1, toDisplayString(impact.new_constraint), 1),
-							createBaseVNode("td", _hoisted_47$1, toDisplayString(impactStatus(impact)), 1)
+							createBaseVNode("td", _hoisted_47$1, toDisplayString(impact.package_name), 1),
+							createBaseVNode("td", _hoisted_48$1, toDisplayString(impact.current_version ?? "(new)"), 1),
+							createBaseVNode("td", _hoisted_49$1, toDisplayString(impact.projected_version ?? "—"), 1),
+							createBaseVNode("td", _hoisted_50$1, toDisplayString(impact.new_constraint), 1),
+							createBaseVNode("td", _hoisted_51$1, toDisplayString(impactStatus(impact)), 1)
 						], 2);
 					}), 128))])]),
-					row.pkg.update_transitive_impacts.some((i) => i.has_conflict) ? (openBlock(), createElementBlock("p", _hoisted_48$1, " ✗ No conflict-free candidate found — this recommendation may not be fully actionable. ")) : createCommentVNode("", true)
+					row.pkg.update_transitive_impacts.some((i) => i.has_conflict) ? (openBlock(), createElementBlock("p", _hoisted_52$1, " ✗ No conflict-free candidate found — this recommendation may not be fully actionable. ")) : createCommentVNode("", true)
 				])])) : createCommentVNode("", true)], 64);
-			}), 128)), __props.rows.length === 0 ? (openBlock(), createElementBlock("tr", _hoisted_49$1, [..._cache[6] || (_cache[6] = [createBaseVNode("td", {
-				colspan: "10",
-				class: "px-6 py-8 text-center text-sm text-slate-400"
+			}), 128)), __props.rows.length === 0 ? (openBlock(), createElementBlock("tr", _hoisted_53$1, [..._cache[7] || (_cache[7] = [createBaseVNode("td", {
+				colspan: "11",
+				class: "px-6 py-8 text-center text-sm text-zinc-400"
 			}, " No dependencies match the current filters. ", -1)])])) : createCommentVNode("", true)])])])]);
 		};
 	}
@@ -8992,7 +9000,7 @@ var _hoisted_2$2 = {
 	class: "flex-1 flex w-full overflow-hidden"
 };
 var _hoisted_3$2 = { class: "flex-1 overflow-y-auto" };
-var _hoisted_4$1 = { class: "max-w-7xl mx-auto p-4 md:p-6 space-y-6" };
+var _hoisted_4$1 = { class: "w-full px-4 md:px-6 py-4 space-y-6" };
 var _hoisted_5$1 = { class: "flex justify-between items-start" };
 var _hoisted_6$1 = { class: "flex flex-col justify-center" };
 var _hoisted_7$1 = { class: "flex items-start gap-1" };
@@ -10316,28 +10324,6 @@ function hsl2rgb(h, m1, m2) {
 	return (h < 60 ? m1 + (m2 - m1) * h / 60 : h < 180 ? m2 : h < 240 ? m1 + (m2 - m1) * (240 - h) / 60 : m1) * 255;
 }
 //#endregion
-//#region node_modules/d3-interpolate/src/basis.js
-function basis(t1, v0, v1, v2, v3) {
-	var t2 = t1 * t1, t3 = t2 * t1;
-	return ((1 - 3 * t1 + 3 * t2 - t3) * v0 + (4 - 6 * t2 + 3 * t3) * v1 + (1 + 3 * t1 + 3 * t2 - 3 * t3) * v2 + t3 * v3) / 6;
-}
-function basis_default(values) {
-	var n = values.length - 1;
-	return function(t) {
-		var i = t <= 0 ? t = 0 : t >= 1 ? (t = 1, n - 1) : Math.floor(t * n), v1 = values[i], v2 = values[i + 1], v0 = i > 0 ? values[i - 1] : 2 * v1 - v2, v3 = i < n - 1 ? values[i + 2] : 2 * v2 - v1;
-		return basis((t - i / n) * n, v0, v1, v2, v3);
-	};
-}
-//#endregion
-//#region node_modules/d3-interpolate/src/basisClosed.js
-function basisClosed_default(values) {
-	var n = values.length;
-	return function(t) {
-		var i = Math.floor(((t %= 1) < 0 ? ++t : t) * n), v0 = values[(i + n - 1) % n], v1 = values[i % n], v2 = values[(i + 1) % n], v3 = values[(i + 2) % n];
-		return basis((t - i / n) * n, v0, v1, v2, v3);
-	};
-}
-//#endregion
 //#region node_modules/d3-interpolate/src/constant.js
 var constant_default$2 = (x) => () => x;
 //#endregion
@@ -10378,29 +10364,6 @@ var rgb_default = (function rgbGamma(y) {
 	rgb$1.gamma = rgbGamma;
 	return rgb$1;
 })(1);
-function rgbSpline(spline) {
-	return function(colors) {
-		var n = colors.length, r = new Array(n), g = new Array(n), b = new Array(n), i, color;
-		for (i = 0; i < n; ++i) {
-			color = rgb(colors[i]);
-			r[i] = color.r || 0;
-			g[i] = color.g || 0;
-			b[i] = color.b || 0;
-		}
-		r = spline(r);
-		g = spline(g);
-		b = spline(b);
-		color.opacity = 1;
-		return function(t) {
-			color.r = r(t);
-			color.g = g(t);
-			color.b = b(t);
-			return color + "";
-		};
-	};
-}
-rgbSpline(basis_default);
-rgbSpline(basisClosed_default);
 //#endregion
 //#region node_modules/d3-interpolate/src/number.js
 function number_default(a, b) {
@@ -14966,7 +14929,7 @@ var _hoisted_10 = {
 	key: 1,
 	class: "absolute inset-0 flex flex-col items-center justify-center pointer-events-none gap-2"
 };
-var TransitiveDependenciesView_vue_vue_type_script_setup_true_lang_default = /* @__PURE__ */ defineComponent({
+var TransitiveDependenciesView_vue_vue_type_script_setup_true_lang_default = /*@__PURE__*/ defineComponent({
 	__name: "TransitiveDependenciesView",
 	setup(__props) {
 		const store = useOssiqStore();
@@ -15206,7 +15169,7 @@ var _plugin_vue_export_helper_default = (sfc, props) => {
 };
 //#endregion
 //#region src/views/TransitiveDependenciesView.vue
-var TransitiveDependenciesView_default = /* @__PURE__ */ _plugin_vue_export_helper_default(TransitiveDependenciesView_vue_vue_type_script_setup_true_lang_default, [["__scopeId", "data-v-87d0bed8"]]);
+var TransitiveDependenciesView_default = /*#__PURE__*/ _plugin_vue_export_helper_default(TransitiveDependenciesView_vue_vue_type_script_setup_true_lang_default, [["__scopeId", "data-v-87d0bed8"]]);
 //#endregion
 //#region src/router/index.ts
 var router = createRouter({
@@ -15347,7 +15310,15 @@ app.mount("#app");
     --color-slate-700: oklch(37.2% .044 257.287);
     --color-slate-800: oklch(27.9% .041 260.031);
     --color-slate-900: oklch(20.8% .042 265.755);
-    --color-gray-700: oklch(37.3% .034 259.733);
+    --color-zinc-50: oklch(98.5% 0 0);
+    --color-zinc-100: oklch(96.7% .001 286.375);
+    --color-zinc-200: oklch(92% .004 286.32);
+    --color-zinc-300: oklch(87.1% .006 286.286);
+    --color-zinc-400: oklch(70.5% .015 286.067);
+    --color-zinc-500: oklch(55.2% .016 285.938);
+    --color-zinc-600: oklch(44.2% .017 285.786);
+    --color-zinc-700: oklch(37% .013 285.805);
+    --color-zinc-800: oklch(27.4% .006 286.033);
     --color-stone-50: oklch(98.5% .001 106.423);
     --color-black: #000;
     --color-white: #fff;
@@ -15825,10 +15796,6 @@ app.mount("#app");
     margin-left: calc(var(--spacing) * 1);
   }
 
-  .ml-1\.5 {
-    margin-left: calc(var(--spacing) * 1.5);
-  }
-
   .ml-auto {
     margin-left: auto;
   }
@@ -15961,12 +15928,12 @@ app.mount("#app");
     max-width: var(--container-7xl);
   }
 
-  .min-w-0 {
-    min-width: calc(var(--spacing) * 0);
+  .max-w-45 {
+    max-width: calc(var(--spacing) * 45);
   }
 
-  .min-w-full {
-    min-width: 100%;
+  .min-w-0 {
+    min-width: calc(var(--spacing) * 0);
   }
 
   .flex-1 {
@@ -16136,6 +16103,10 @@ app.mount("#app");
 
   :where(.divide-slate-100 > :not(:last-child)) {
     border-color: var(--color-slate-100);
+  }
+
+  :where(.divide-zinc-100 > :not(:last-child)) {
+    border-color: var(--color-zinc-100);
   }
 
   .self-center {
@@ -16323,8 +16294,16 @@ app.mount("#app");
     border-color: var(--color-yellow-700);
   }
 
+  .border-zinc-200 {
+    border-color: var(--color-zinc-200);
+  }
+
   .border-b-slate-300 {
     border-bottom-color: var(--color-slate-300);
+  }
+
+  .border-b-zinc-300 {
+    border-bottom-color: var(--color-zinc-300);
   }
 
   .border-l-sky-400 {
@@ -16341,6 +16320,10 @@ app.mount("#app");
 
   .bg-\[\#ea580c\] {
     background-color: #ea580c;
+  }
+
+  .bg-\[\#ff4d00\] {
+    background-color: #ff4d00;
   }
 
   .bg-amber-50 {
@@ -16469,6 +16452,18 @@ app.mount("#app");
     background-color: var(--color-yellow-300);
   }
 
+  .bg-zinc-50 {
+    background-color: var(--color-zinc-50);
+  }
+
+  .bg-zinc-100 {
+    background-color: var(--color-zinc-100);
+  }
+
+  .bg-zinc-200 {
+    background-color: var(--color-zinc-200);
+  }
+
   .p-1 {
     padding: calc(var(--spacing) * 1);
   }
@@ -16517,10 +16512,6 @@ app.mount("#app");
     padding-inline: calc(var(--spacing) * 6);
   }
 
-  .px-8 {
-    padding-inline: calc(var(--spacing) * 8);
-  }
-
   .py-0\.5 {
     padding-block: calc(var(--spacing) * .5);
   }
@@ -16531,6 +16522,10 @@ app.mount("#app");
 
   .py-2 {
     padding-block: calc(var(--spacing) * 2);
+  }
+
+  .py-2\.5 {
+    padding-block: calc(var(--spacing) * 2.5);
   }
 
   .py-3 {
@@ -16752,10 +16747,6 @@ app.mount("#app");
     color: var(--color-fuchsia-700);
   }
 
-  .text-gray-700 {
-    color: var(--color-gray-700);
-  }
-
   .text-green-600 {
     color: var(--color-green-600);
   }
@@ -16846,6 +16837,30 @@ app.mount("#app");
 
   .text-yellow-700 {
     color: var(--color-yellow-700);
+  }
+
+  .text-zinc-300 {
+    color: var(--color-zinc-300);
+  }
+
+  .text-zinc-400 {
+    color: var(--color-zinc-400);
+  }
+
+  .text-zinc-500 {
+    color: var(--color-zinc-500);
+  }
+
+  .text-zinc-600 {
+    color: var(--color-zinc-600);
+  }
+
+  .text-zinc-700 {
+    color: var(--color-zinc-700);
+  }
+
+  .text-zinc-800 {
+    color: var(--color-zinc-800);
   }
 
   .uppercase {
@@ -16944,6 +16959,14 @@ app.mount("#app");
       background-color: var(--color-yellow-200);
     }
 
+    .hover\:bg-zinc-50:hover {
+      background-color: var(--color-zinc-50);
+    }
+
+    .hover\:text-\[\#ff4d00\]:hover {
+      color: #ff4d00;
+    }
+
     .hover\:text-black:hover {
       color: var(--color-black);
     }
@@ -16966,6 +16989,10 @@ app.mount("#app");
 
     .hover\:text-slate-900:hover {
       color: var(--color-slate-900);
+    }
+
+    .hover\:text-zinc-700:hover {
+      color: var(--color-zinc-700);
     }
 
     .hover\:no-underline:hover {
@@ -17016,6 +17043,10 @@ app.mount("#app");
   @media (min-width: 48rem) {
     .md\:p-6 {
       padding: calc(var(--spacing) * 6);
+    }
+
+    .md\:px-6 {
+      padding-inline: calc(var(--spacing) * 6);
     }
 
     .md\:text-3xl {
