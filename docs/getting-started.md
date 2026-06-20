@@ -79,7 +79,7 @@ export OSSIQ_GITHUB_TOKEN=replace-with-generated-token;
 
     OSS IQ provides a high-level risk score and breaks down specific signals for both security (vulnerabilities) and maintenance (activity, overhead, and health).
 
-    ![OSS IQ Terminal/CLI Report](/img/ossiq-cli-report-2026-03-14.png)
+    ![OSS IQ Terminal/CLI Report](/img/ossiq-cli-report-2026-06-20.png)
 
 
 ## Package Details
@@ -89,9 +89,9 @@ Get a specific package details:
 uvx --from ossiq ossiq-cli info sphinx
 ```
 
-![OSS IQ Terminal/CLI Package Details](/img/ossiq-cli-package-2026-03-14.png)
+![OSS IQ Terminal/CLI Package Details](/img/ossiq-cli-package-2026-06-20.png)
 
-
+r
 ## HTML Report
 
  1. Generate HTML report:
@@ -100,16 +100,16 @@ uvx --from ossiq ossiq-cli info sphinx
     ```
 
  2. Open `report.html` and you'll get table view of your dependencies:
-    ![OSS IQ HTML Report](/img/ossiq-html-report-2026-03-14.png)
+    ![OSS IQ HTML Report](/img/ossiq-html-report-2026-06-20.png)
 
  3. Click on the **Transitive Dependencies** tab on the top:
-    ![OSS IQ Transitive Dependencies Report](/img/ossiq-html-transitive-dependencies-2026-03-14.png)
+    ![OSS IQ Transitive Dependencies Report](/img/ossiq-html-transitive-dependencies-2026-06-20.png)
 
  4. Click on a dependency node (blue circle):
     ![OSS IQ Transitive Dependencies Package Details](/img/ossiq-html-transitive-dependencies-package-2026-03-14.png)
 
-   From the report you could conclude that [eslint-plugin-vue](https://www.npmjs.com/package/eslint-plugin-vue) with
-   version `10.8.0` has pretty old [semver](https://www.npmjs.com/package/semver) dependency - the latest version is `7.7.4` while dependend version is `6.3.1`.
+   From the report you could conclude that [vue](https://www.npmjs.com/package/vue) with
+   version `3.5.38` and that `3.5.38` is the latest version of the package.
 
 
 
