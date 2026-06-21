@@ -25,7 +25,6 @@ from ossiq.adapters.package_managers.api_npm import (
     CATEGORIES_OPTIONAL,
     CATEGORIES_OVERRIDDEN,
     CATEGORIES_PEER,
-    NPM_STATE_FILE,
     NPMResolverV3,
     PackageManagerJsNpm,
 )
@@ -981,471 +980,6 @@ def read_package_json(project_dir: str) -> dict:
 
 
 # ============================================================================
-# Test freeze_state
-# ============================================================================
-
-
-class TestFreezeState:
-    """Tests for freeze_state() — verifies package.json and state file are written correctly."""
-
-    @pytest.fixture
-    def npm(self, settings, temp_project_dir):
-        return PackageManagerJsNpm(temp_project_dir, settings)
-
-    def test_updated_direct_dep_pinned_exact_for_install(self, npm, temp_project_dir):
-        """freeze pins an updated direct dep to the EXACT recommended version so npm install
-        produces a deterministic lockfile. The operator is reapplied later by finalize_state. The
-        dep must NOT be in overrides — npm v7+ throws EOVERRIDE for a direct dep in both places."""
-        write_package_json(
-            temp_project_dir,
-            {"name": "app", "version": "1.0.0", "dependencies": {"@vitejs/plugin-vue": "^6.0.5"}},
-        )
-        entry = make_npm_update_entry("@vitejs/plugin-vue", "6.0.5", "6.0.6", version_defined="^6.0.5")
-        plan = make_npm_update_plan(direct=[entry], project_path=temp_project_dir)
-
-        npm.freeze_state(plan)
-
-        pkg = read_package_json(temp_project_dir)
-        assert pkg["dependencies"]["@vitejs/plugin-vue"] == "6.0.6"
-        assert "@vitejs/plugin-vue" not in pkg.get("overrides", {})
-
-    def test_major_version_change_dep_pinned_exact_not_in_overrides(self, npm, temp_project_dir):
-        """Direct dep with a major version change (5 → 6) is pinned exact in package.json and
-        does NOT need an override entry."""
-        write_package_json(
-            temp_project_dir,
-            {"name": "app", "version": "1.0.0", "dependencies": {"some-pkg": "^5.0.0"}},
-        )
-        entry = make_npm_update_entry("some-pkg", "5.0.0", "6.0.0", version_defined="^5.0.0")
-        plan = make_npm_update_plan(direct=[entry], project_path=temp_project_dir)
-
-        npm.freeze_state(plan)
-
-        pkg = read_package_json(temp_project_dir)
-        assert "some-pkg" not in pkg.get("overrides", {})
-        assert pkg["dependencies"]["some-pkg"] == "6.0.0"
-
-    def test_non_plan_transitive_frozen_at_installed_version(self, npm, temp_project_dir):
-        """Packages in installed_versions but not in the plan must appear in overrides
-        at their current version (full freeze prevents greedy npm from upgrading them)."""
-        write_package_json(
-            temp_project_dir,
-            {"name": "app", "version": "1.0.0", "dependencies": {"express": "^4.18.0"}},
-        )
-        direct_entry = make_npm_update_entry("express", "4.18.0", "4.19.0", version_defined="^4.18.0")
-        plan = make_npm_update_plan(
-            direct=[direct_entry],
-            project_path=temp_project_dir,
-            installed_versions={"ms": "2.1.2", "express": "4.18.0"},
-        )
-
-        npm.freeze_state(plan)
-
-        pkg = read_package_json(temp_project_dir)
-        assert pkg["overrides"]["ms"] == "2.1.2"
-        assert "express" not in pkg["overrides"]
-
-    def test_plan_transitive_overridden_at_recommended_version(self, npm, temp_project_dir):
-        """Plan transitive entries must be in overrides at recommended_version,
-        overriding the installed version."""
-        write_package_json(
-            temp_project_dir,
-            {"name": "app", "version": "1.0.0", "dependencies": {"express": "^4.18.0"}},
-        )
-        direct_entry = make_npm_update_entry("express", "4.18.0", "4.19.0", version_defined="^4.18.0")
-        transitive_entry = make_npm_update_entry("ms", "2.1.2", "2.1.3", is_direct=False)
-        plan = make_npm_update_plan(
-            direct=[direct_entry],
-            transitive=[transitive_entry],
-            project_path=temp_project_dir,
-            installed_versions={"ms": "2.1.2", "express": "4.18.0"},
-        )
-
-        npm.freeze_state(plan)
-
-        pkg = read_package_json(temp_project_dir)
-        assert pkg["overrides"]["ms"] == "2.1.3"
-
-    def test_state_file_written_with_original_and_locked_overrides(self, npm, temp_project_dir):
-        """State file must record original_overrides, locked_overrides, and recommended_versions."""
-        write_package_json(
-            temp_project_dir,
-            {
-                "name": "app",
-                "version": "1.0.0",
-                "dependencies": {"express": "^4.18.0"},
-                "overrides": {"ms": "2.0.0"},
-            },
-        )
-        entry = make_npm_update_entry("express", "4.18.0", "4.19.0", version_defined="^4.18.0")
-        plan = make_npm_update_plan(
-            direct=[entry],
-            project_path=temp_project_dir,
-            installed_versions={"ms": "2.1.2"},
-        )
-
-        npm.freeze_state(plan)
-
-        state_path = os.path.join(temp_project_dir, NPM_STATE_FILE)
-        with open(state_path, encoding="utf-8") as f:
-            state = json.load(f)
-        assert state["original_overrides"] == {"ms": "2.0.0"}
-        assert state["locked_overrides"]["ms"] == "2.1.2"
-        assert state["recommended_versions"]["express"] == "4.19.0"
-
-    def test_pin_all_sets_exact_direct_dep_version(self, npm, temp_project_dir):
-        """With pin_all=True, direct deps must be set to the exact recommended version."""
-        write_package_json(
-            temp_project_dir,
-            {"name": "app", "version": "1.0.0", "dependencies": {"express": "^4.18.0"}},
-        )
-        entry = make_npm_update_entry("express", "4.18.0", "4.19.0", version_defined="^4.18.0")
-        plan = make_npm_update_plan(direct=[entry], project_path=temp_project_dir, pin_all=True)
-
-        npm.freeze_state(plan)
-
-        pkg = read_package_json(temp_project_dir)
-        assert pkg["dependencies"]["express"] == "4.19.0"
-
-    def test_updated_dev_dep_pinned_exact(self, npm, temp_project_dir):
-        """freeze must pin updated deps in EVERY section, including devDependencies."""
-        write_package_json(
-            temp_project_dir,
-            {"name": "app", "version": "1.0.0", "devDependencies": {"@vitejs/plugin-vue": "~6.0.0"}},
-        )
-        entry = make_npm_update_entry("@vitejs/plugin-vue", "6.0.0", "6.0.6", version_defined="~6.0.0")
-        plan = make_npm_update_plan(direct=[entry], project_path=temp_project_dir)
-
-        npm.freeze_state(plan)
-
-        pkg = read_package_json(temp_project_dir)
-        assert pkg["devDependencies"]["@vitejs/plugin-vue"] == "6.0.6"
-
-    def test_multi_section_dep_pinned_in_all_sections(self, npm, temp_project_dir):
-        """A package present in both devDependencies and peerDependencies must be pinned in BOTH
-        sections (regression for the early-return bug that stopped at first match)."""
-        write_package_json(
-            temp_project_dir,
-            {
-                "name": "app",
-                "version": "1.0.0",
-                "devDependencies": {"react": "^17.0.0"},
-                "peerDependencies": {"react": "^17.0.0"},
-            },
-        )
-        entry = make_npm_update_entry("react", "17.0.0", "18.2.0", version_defined="^17.0.0")
-        plan = make_npm_update_plan(direct=[entry], project_path=temp_project_dir)
-
-        npm.freeze_state(plan)
-
-        pkg = read_package_json(temp_project_dir)
-        assert pkg["devDependencies"]["react"] == "18.2.0"
-        assert pkg["peerDependencies"]["react"] == "18.2.0"
-
-    def test_untouched_direct_dep_pinned_at_installed_version(self, npm, temp_project_dir):
-        """A direct dep with no recommended update is pinned to its installed version during freeze
-        so npm install cannot greedily advance it within range. Its original spec is restored later
-        by finalize_state."""
-        write_package_json(
-            temp_project_dir,
-            {"name": "app", "version": "1.0.0", "dependencies": {"lodash": "^4.17.0"}},
-        )
-        plan = make_npm_update_plan(
-            project_path=temp_project_dir,
-            installed_versions={"lodash": "4.17.15"},
-        )
-
-        npm.freeze_state(plan)
-
-        pkg = read_package_json(temp_project_dir)
-        assert pkg["dependencies"]["lodash"] == "4.17.15"
-
-    def test_state_file_records_original_specs_and_pin_all(self, npm, temp_project_dir):
-        """State file must record original specifiers and the pin_all mode for finalize_state."""
-        write_package_json(
-            temp_project_dir,
-            {"name": "app", "version": "1.0.0", "dependencies": {"vue": "~3.5.0"}},
-        )
-        entry = make_npm_update_entry("vue", "3.5.0", "3.6.0", version_defined="~3.5.0")
-        plan = make_npm_update_plan(direct=[entry], project_path=temp_project_dir, pin_all=True)
-
-        npm.freeze_state(plan)
-
-        state_path = os.path.join(temp_project_dir, NPM_STATE_FILE)
-        with open(state_path, encoding="utf-8") as f:
-            state = json.load(f)
-        assert state["original_specs"]["dependencies"]["vue"] == "~3.5.0"
-        assert state["pin_all"] is True
-
-
-# ============================================================================
-# Test finalize_state
-# ============================================================================
-
-
-def write_package_lock(
-    project_dir: str,
-    root_deps: dict[str, str],
-    node_versions: dict[str, str],
-    section: str = "dependencies",
-) -> None:
-    """Write a minimal lockfile v3: root declared specs + installed node entries with integrity."""
-    packages: dict = {"": {"name": "app", "version": "1.0.0", section: dict(root_deps)}}
-    for name, version in node_versions.items():
-        packages[f"node_modules/{name}"] = {
-            "version": version,
-            "resolved": f"https://registry.npmjs.org/{name}/-/{name}-{version}.tgz",
-            "integrity": f"sha512-{name}{version}",
-        }
-    lock = {"name": "app", "lockfileVersion": 3, "requires": True, "packages": packages}
-    with open(os.path.join(project_dir, "package-lock.json"), "w", encoding="utf-8") as f:
-        json.dump(lock, f)
-
-
-def read_package_lock(project_dir: str) -> dict:
-    with open(os.path.join(project_dir, "package-lock.json"), encoding="utf-8") as f:
-        return json.load(f)
-
-
-class TestFinalizeState:
-    """Tests for finalize_state() — final specifiers per mode + lockfile sync, run after install."""
-
-    @pytest.fixture
-    def npm(self, settings, temp_project_dir):
-        return PackageManagerJsNpm(temp_project_dir, settings)
-
-    def test_default_mode_keeps_caret_and_bumps_floor(self, npm, temp_project_dir):
-        write_package_json(
-            temp_project_dir,
-            {"name": "app", "version": "1.0.0", "dependencies": {"@vitejs/plugin-vue": "^6.0.5"}},
-        )
-        entry = make_npm_update_entry("@vitejs/plugin-vue", "6.0.5", "6.0.6", version_defined="^6.0.5")
-        plan = make_npm_update_plan(direct=[entry], project_path=temp_project_dir)
-
-        npm.freeze_state(plan)
-        npm.finalize_state(temp_project_dir)
-
-        pkg = read_package_json(temp_project_dir)
-        assert pkg["dependencies"]["@vitejs/plugin-vue"] == "^6.0.6"
-
-    def test_default_mode_keeps_tilde_and_bumps_floor(self, npm, temp_project_dir):
-        write_package_json(
-            temp_project_dir,
-            {"name": "app", "version": "1.0.0", "dependencies": {"@types/node": "~25.5.2"}},
-        )
-        entry = make_npm_update_entry("@types/node", "25.5.2", "25.5.7", version_defined="~25.5.2")
-        plan = make_npm_update_plan(direct=[entry], project_path=temp_project_dir)
-
-        npm.freeze_state(plan)
-        npm.finalize_state(temp_project_dir)
-
-        pkg = read_package_json(temp_project_dir)
-        assert pkg["dependencies"]["@types/node"] == "~25.5.7"
-
-    def test_pin_all_writes_exact_recommended(self, npm, temp_project_dir):
-        write_package_json(
-            temp_project_dir,
-            {"name": "app", "version": "1.0.0", "dependencies": {"express": "^4.18.0"}},
-        )
-        entry = make_npm_update_entry("express", "4.18.0", "4.19.0", version_defined="^4.18.0")
-        plan = make_npm_update_plan(direct=[entry], project_path=temp_project_dir, pin_all=True)
-
-        npm.freeze_state(plan)
-        npm.finalize_state(temp_project_dir)
-
-        pkg = read_package_json(temp_project_dir)
-        assert pkg["dependencies"]["express"] == "4.19.0"
-
-    def test_multi_section_operator_preserved_in_all_sections(self, npm, temp_project_dir):
-        write_package_json(
-            temp_project_dir,
-            {
-                "name": "app",
-                "version": "1.0.0",
-                "devDependencies": {"react": "^17.0.0"},
-                "peerDependencies": {"react": "^17.0.0"},
-            },
-        )
-        entry = make_npm_update_entry("react", "17.0.0", "18.2.0", version_defined="^17.0.0")
-        plan = make_npm_update_plan(direct=[entry], project_path=temp_project_dir)
-
-        npm.freeze_state(plan)
-        npm.finalize_state(temp_project_dir)
-
-        pkg = read_package_json(temp_project_dir)
-        assert pkg["devDependencies"]["react"] == "^18.2.0"
-        assert pkg["peerDependencies"]["react"] == "^18.2.0"
-
-    def test_untouched_dep_restored_to_original_spec(self, npm, temp_project_dir):
-        """An ignored / non-updated direct dep is byte-for-byte restored after the exact-pin freeze."""
-        write_package_json(
-            temp_project_dir,
-            {"name": "app", "version": "1.0.0", "dependencies": {"lodash": "^4.17.0"}},
-        )
-        plan = make_npm_update_plan(
-            project_path=temp_project_dir,
-            installed_versions={"lodash": "4.17.15"},
-        )
-
-        npm.freeze_state(plan)
-        npm.finalize_state(temp_project_dir)
-
-        pkg = read_package_json(temp_project_dir)
-        assert pkg["dependencies"]["lodash"] == "^4.17.0"
-
-    def test_lockfile_root_spec_synced_below_max_version_preserved(self, npm, temp_project_dir):
-        """The lockfile root spec is relaxed to ~rec while the installed node stays at the exact
-        below-max recommended version (4.2.3, not max-in-range 4.2.4); integrity is untouched."""
-        write_package_json(
-            temp_project_dir,
-            {"name": "app", "version": "1.0.0", "dependencies": {"tailwindcss": "~4.2.2"}},
-        )
-        entry = make_npm_update_entry("tailwindcss", "4.2.2", "4.2.3", version_defined="~4.2.2")
-        plan = make_npm_update_plan(
-            direct=[entry], project_path=temp_project_dir, installed_versions={"tailwindcss": "4.2.2"}
-        )
-
-        npm.freeze_state(plan)
-        # Simulate npm install: freeze pinned exact 4.2.3, so the lockfile resolves to 4.2.3.
-        write_package_lock(temp_project_dir, root_deps={"tailwindcss": "4.2.3"}, node_versions={"tailwindcss": "4.2.3"})
-        npm.finalize_state(temp_project_dir)
-
-        pkg = read_package_json(temp_project_dir)
-        assert pkg["dependencies"]["tailwindcss"] == "~4.2.3"
-
-        lock = read_package_lock(temp_project_dir)
-        assert lock["packages"][""]["dependencies"]["tailwindcss"] == "~4.2.3"
-        assert lock["packages"]["node_modules/tailwindcss"]["version"] == "4.2.3"
-        assert lock["packages"]["node_modules/tailwindcss"]["integrity"] == "sha512-tailwindcss4.2.3"
-
-    def test_overrides_restored_to_original(self, npm, temp_project_dir):
-        """Temporary transitive override pins are removed on success, leaving original overrides."""
-        write_package_json(
-            temp_project_dir,
-            {
-                "name": "app",
-                "version": "1.0.0",
-                "dependencies": {"express": "^4.18.0"},
-                "overrides": {"ms": "2.0.0"},
-            },
-        )
-        direct_entry = make_npm_update_entry("express", "4.18.0", "4.19.0", version_defined="^4.18.0")
-        plan = make_npm_update_plan(
-            direct=[direct_entry],
-            project_path=temp_project_dir,
-            installed_versions={"ms": "2.1.2", "express": "4.18.0"},
-        )
-
-        npm.freeze_state(plan)
-        npm.finalize_state(temp_project_dir)
-
-        pkg = read_package_json(temp_project_dir)
-        assert pkg["overrides"] == {"ms": "2.0.0"}
-        assert pkg["dependencies"]["express"] == "^4.19.0"
-
-    def test_deletes_state_file(self, npm, temp_project_dir):
-        write_package_json(
-            temp_project_dir,
-            {"name": "app", "version": "1.0.0", "dependencies": {"express": "^4.18.0"}},
-        )
-        entry = make_npm_update_entry("express", "4.18.0", "4.19.0", version_defined="^4.18.0")
-        plan = make_npm_update_plan(direct=[entry], project_path=temp_project_dir)
-
-        npm.freeze_state(plan)
-        npm.finalize_state(temp_project_dir)
-
-        assert not os.path.exists(os.path.join(temp_project_dir, NPM_STATE_FILE))
-
-
-class TestForcedOverridesNpm:
-    """--override entries persist beyond the update: transitive ones stay in `overrides`,
-    direct ones become exact pins; rollback discards both."""
-
-    @pytest.fixture
-    def npm(self, settings, temp_project_dir):
-        return PackageManagerJsNpm(temp_project_dir, settings)
-
-    def base_package_json(self, temp_project_dir) -> None:
-        write_package_json(
-            temp_project_dir,
-            {"name": "app", "version": "1.0.0", "dependencies": {"express": "^4.18.0"}},
-        )
-
-    def test_freeze_state_records_forced_overrides_and_forced_direct(self, npm, temp_project_dir):
-        self.base_package_json(temp_project_dir)
-        direct = make_npm_update_entry("express", "4.18.0", "4.19.0", version_defined="^4.18.0", is_forced=True)
-        transitive = make_npm_update_entry("ms", "2.1.2", "2.1.3", is_direct=False, is_forced=True)
-        plan = make_npm_update_plan(
-            direct=[direct],
-            transitive=[transitive],
-            project_path=temp_project_dir,
-            installed_versions={"express": "4.18.0", "ms": "2.1.2"},
-        )
-
-        npm.freeze_state(plan)
-
-        with open(os.path.join(temp_project_dir, NPM_STATE_FILE), encoding="utf-8") as f:
-            state = json.load(f)
-        assert state["forced_overrides"] == {"ms": "2.1.3"}
-        assert state["forced_direct"] == ["express"]
-
-    def test_finalize_persists_forced_transitive_override(self, npm, temp_project_dir):
-        write_package_json(
-            temp_project_dir,
-            {
-                "name": "app",
-                "version": "1.0.0",
-                "dependencies": {"express": "^4.18.0"},
-                "overrides": {"foo": "1.0.0"},
-            },
-        )
-        transitive = make_npm_update_entry("ms", "2.1.2", "2.1.3", is_direct=False, is_forced=True)
-        plan = make_npm_update_plan(
-            transitive=[transitive],
-            project_path=temp_project_dir,
-            installed_versions={"express": "4.18.0", "ms": "2.1.2"},
-        )
-
-        npm.freeze_state(plan)
-        npm.finalize_state(temp_project_dir)
-
-        pkg = read_package_json(temp_project_dir)
-        assert pkg["overrides"] == {"foo": "1.0.0", "ms": "2.1.3"}
-
-    def test_finalize_forced_direct_pinned_exact_without_pin_all(self, npm, temp_project_dir):
-        self.base_package_json(temp_project_dir)
-        direct = make_npm_update_entry("express", "4.18.0", "4.19.2", version_defined="^4.18.0", is_forced=True)
-        plan = make_npm_update_plan(direct=[direct], project_path=temp_project_dir)
-
-        npm.freeze_state(plan)
-        npm.finalize_state(temp_project_dir)
-
-        pkg = read_package_json(temp_project_dir)
-        assert pkg["dependencies"]["express"] == "4.19.2"
-
-    def test_restore_discards_forced_overrides(self, npm, temp_project_dir):
-        self.base_package_json(temp_project_dir)
-        transitive = make_npm_update_entry("ms", "2.1.2", "2.1.3", is_direct=False, is_forced=True)
-        plan = make_npm_update_plan(
-            transitive=[transitive],
-            project_path=temp_project_dir,
-            installed_versions={"express": "4.18.0", "ms": "2.1.2"},
-        )
-
-        npm.freeze_state(plan)
-        npm.restore_state(temp_project_dir)
-
-        pkg = read_package_json(temp_project_dir)
-        assert "overrides" not in pkg
-        assert pkg["dependencies"]["express"] == "^4.18.0"
-
-    def test_raises_when_state_file_missing(self, npm, temp_project_dir):
-        write_package_json(temp_project_dir, {"name": "app", "version": "1.0.0"})
-        with pytest.raises(FileNotFoundError):
-            npm.finalize_state(temp_project_dir)
-
-
-# ============================================================================
 # Test generate_update_script
 # ============================================================================
 
@@ -1467,11 +1001,9 @@ class TestGenerateUpdateScript:
         assert script.startswith("#!/usr/bin/env bash")
         assert "set -euo pipefail" in script
 
-    def test_script_contains_freeze_finalize_and_restore(self, npm):
+    def test_script_contains_apply_state(self, npm):
         script = npm.generate_update_script(make_npm_update_plan())
-        assert "ossiq helpers npm freeze-state" in script
-        assert "ossiq helpers npm finalize-state" in script
-        assert "ossiq helpers npm restore-state" in script
+        assert "ossiq helpers npm apply-state" in script
 
     def test_script_cd_to_project_path(self, npm):
         plan = make_npm_update_plan(project_path="/tmp/my-project")
@@ -1485,14 +1017,10 @@ class TestGenerateUpdateScript:
         assert "1 direct" in script
         assert "1 transitive" in script
 
-    def test_cli_extra_args_forwarded_to_freeze(self, npm):
+    def test_cli_extra_args_forwarded_to_apply(self, npm):
         script = npm.generate_update_script(make_npm_update_plan(), cli_extra_args="--dry-run")
-        assert "freeze-state" in script
+        assert "apply-state" in script
         assert "--dry-run" in script
-
-    def test_rollback_comment_present(self, npm):
-        script = npm.generate_update_script(make_npm_update_plan())
-        assert "# ROLLBACK:" in script
 
 
 # ============================================================================
@@ -1501,178 +1029,143 @@ class TestGenerateUpdateScript:
 
 
 class TestExecuteUpdate:
-    """Tests for execute_update() — verifies subprocess invocation and state management."""
+    """Tests for execute_update() — writes final package.json then runs npm install."""
 
     @pytest.fixture
     def npm(self, settings, temp_project_dir):
         return PackageManagerJsNpm(temp_project_dir, settings)
 
     def test_calls_npm_install_with_ignore_scripts(self, npm, temp_project_dir):
-        plan = make_npm_update_plan(project_path=temp_project_dir)
-        with (
-            patch.object(npm, "freeze_state"),
-            patch.object(npm, "finalize_state"),
-            patch.object(npm, "restore_state"),
-            patch("ossiq.adapters.package_managers.api_npm.subprocess.run") as mock_run,
-        ):
+        write_package_json(
+            temp_project_dir, {"name": "app", "version": "1.0.0", "dependencies": {"express": "^4.18.0"}}
+        )
+        plan = make_npm_update_plan(
+            direct=[make_npm_update_entry("express", "4.18.0", "4.19.0", version_defined="^4.18.0")],
+            project_path=temp_project_dir,
+        )
+        with patch("ossiq.adapters.package_managers.api_npm.subprocess.run") as mock_run:
             npm.execute_update(plan)
         mock_run.assert_called_once()
-        args = mock_run.call_args[0][0]
-        assert args == ["npm", "install", "--ignore-scripts"]
+        assert mock_run.call_args[0][0] == ["npm", "install", "--ignore-scripts"]
 
-    def test_finalizes_state_on_success(self, npm, temp_project_dir):
-        plan = make_npm_update_plan(project_path=temp_project_dir)
-        with (
-            patch.object(npm, "freeze_state"),
-            patch.object(npm, "finalize_state") as mock_finalize,
-            patch.object(npm, "restore_state") as mock_restore,
-            patch("ossiq.adapters.package_managers.api_npm.subprocess.run"),
-        ):
+    def test_direct_dep_specifier_relaxed_before_install(self, npm, temp_project_dir):
+        write_package_json(
+            temp_project_dir, {"name": "app", "version": "1.0.0", "dependencies": {"express": "^4.18.0"}}
+        )
+        plan = make_npm_update_plan(
+            direct=[make_npm_update_entry("express", "4.18.0", "4.19.0", version_defined="^4.18.0")],
+            project_path=temp_project_dir,
+        )
+        with patch("ossiq.adapters.package_managers.api_npm.subprocess.run"):
             npm.execute_update(plan)
-        mock_finalize.assert_called_once_with(temp_project_dir)
-        mock_restore.assert_not_called()
+        pkg = read_package_json(temp_project_dir)
+        assert pkg["dependencies"]["express"] == "^4.19.0"
 
-    def test_restores_state_on_failure(self, npm, temp_project_dir):
-        plan = make_npm_update_plan(project_path=temp_project_dir)
-        with (
-            patch.object(npm, "freeze_state"),
-            patch.object(npm, "finalize_state"),
-            patch.object(npm, "restore_state") as mock_restore,
-            patch("ossiq.adapters.package_managers.api_npm.subprocess.run", side_effect=RuntimeError("fail")),
-        ):
-            with pytest.raises(RuntimeError):
-                npm.execute_update(plan)
-        mock_restore.assert_called_once_with(temp_project_dir)
-
-
-# ============================================================================
-# Test restore_state
-# ============================================================================
-
-
-def write_state_file(
-    project_dir: str,
-    original_overrides: dict,
-    locked_overrides: dict | None = None,
-    recommended_versions: dict | None = None,
-) -> None:
-    """Write a minimal .ossiq_npm_state.json to project_dir."""
-    state = {
-        "original_overrides": original_overrides,
-        "locked_overrides": locked_overrides or {},
-        "recommended_versions": recommended_versions or {},
-    }
-    state_path = os.path.join(project_dir, NPM_STATE_FILE)
-    with open(state_path, "w", encoding="utf-8") as f:
-        json.dump(state, f)
-
-
-def write_pkg_json(project_dir: str, overrides: dict | None = None) -> None:
-    """Write a minimal package.json with optional overrides to project_dir."""
-    pkg: dict = {"name": "test", "version": "1.0.0"}
-    if overrides is not None:
-        pkg["overrides"] = overrides
-    manifest_path = os.path.join(project_dir, "package.json")
-    with open(manifest_path, "w", encoding="utf-8") as f:
-        json.dump(pkg, f)
-
-
-class TestRestoreState:
-    """Tests for restore_state() — verifies overrides are fully restored and state file deleted."""
-
-    @pytest.fixture
-    def npm(self, settings, temp_project_dir):
-        return PackageManagerJsNpm(temp_project_dir, settings)
-
-    def test_fully_restores_original_overrides(self, npm, temp_project_dir):
-        write_state_file(temp_project_dir, original_overrides={"lodash": "4.0.0"})
-        write_pkg_json(temp_project_dir, overrides={"lodash": "4.17.21", "ms": "2.1.3"})
-
-        npm.restore_state(temp_project_dir)
-
-        with open(os.path.join(temp_project_dir, "package.json"), encoding="utf-8") as f:
-            pkg = json.load(f)
-        assert pkg["overrides"] == {"lodash": "4.0.0"}
-
-    def test_recommended_version_applied_to_original_override(self, npm, temp_project_dir):
-        write_state_file(
-            temp_project_dir,
-            original_overrides={"lodash": "4.0.0", "express": "4.18.0"},
-            recommended_versions={"express": "4.19.0"},
+    def test_pin_all_writes_exact_specifier(self, npm, temp_project_dir):
+        write_package_json(
+            temp_project_dir, {"name": "app", "version": "1.0.0", "dependencies": {"express": "^4.18.0"}}
         )
-        write_pkg_json(temp_project_dir, overrides={"lodash": "4.17.21", "express": "4.19.0", "ms": "2.1.3"})
-
-        npm.restore_state(temp_project_dir)
-
-        with open(os.path.join(temp_project_dir, "package.json"), encoding="utf-8") as f:
-            pkg = json.load(f)
-        assert pkg["overrides"] == {"lodash": "4.0.0", "express": "4.19.0"}
-
-    def test_original_override_kept_when_no_recommended_version(self, npm, temp_project_dir):
-        write_state_file(temp_project_dir, original_overrides={"lodash": "4.0.0"})
-        write_pkg_json(temp_project_dir, overrides={"lodash": "4.17.21", "ms": "2.1.3"})
-
-        npm.restore_state(temp_project_dir)
-
-        with open(os.path.join(temp_project_dir, "package.json"), encoding="utf-8") as f:
-            pkg = json.load(f)
-        assert pkg["overrides"] == {"lodash": "4.0.0"}
-
-    def test_dollar_sign_override_not_replaced_by_recommended(self, npm, temp_project_dir):
-        write_state_file(
-            temp_project_dir,
-            original_overrides={"foo": "$bar"},
-            recommended_versions={"foo": "2.0.0"},
+        plan = make_npm_update_plan(
+            direct=[make_npm_update_entry("express", "4.18.0", "4.19.0", version_defined="^4.18.0")],
+            project_path=temp_project_dir,
+            pin_all=True,
         )
-        write_pkg_json(temp_project_dir, overrides={"foo": "2.0.0"})
+        with patch("ossiq.adapters.package_managers.api_npm.subprocess.run"):
+            npm.execute_update(plan)
+        pkg = read_package_json(temp_project_dir)
+        assert pkg["dependencies"]["express"] == "4.19.0"
 
-        npm.restore_state(temp_project_dir)
-
-        with open(os.path.join(temp_project_dir, "package.json"), encoding="utf-8") as f:
-            pkg = json.load(f)
-        assert pkg["overrides"] == {"foo": "$bar"}
-
-    def test_recommended_but_not_in_original_not_added(self, npm, temp_project_dir):
-        write_state_file(
-            temp_project_dir,
-            original_overrides={"lodash": "4.0.0"},
-            recommended_versions={"ms": "2.1.3", "lodash": "4.17.21"},
+    def test_forced_direct_dep_pinned_exact(self, npm, temp_project_dir):
+        write_package_json(
+            temp_project_dir, {"name": "app", "version": "1.0.0", "dependencies": {"express": "^4.18.0"}}
         )
-        write_pkg_json(temp_project_dir, overrides={"lodash": "4.17.21", "ms": "2.1.3"})
+        plan = make_npm_update_plan(
+            direct=[make_npm_update_entry("express", "4.18.0", "4.19.2", version_defined="^4.18.0", is_forced=True)],
+            project_path=temp_project_dir,
+        )
+        with patch("ossiq.adapters.package_managers.api_npm.subprocess.run"):
+            npm.execute_update(plan)
+        pkg = read_package_json(temp_project_dir)
+        assert pkg["dependencies"]["express"] == "4.19.2"
 
-        npm.restore_state(temp_project_dir)
+    def test_transitive_update_persists_in_overrides(self, npm, temp_project_dir):
+        write_package_json(
+            temp_project_dir, {"name": "app", "version": "1.0.0", "dependencies": {"express": "^4.18.0"}}
+        )
+        plan = make_npm_update_plan(
+            transitive=[make_npm_update_entry("ms", "2.1.2", "2.1.3", is_direct=False)],
+            project_path=temp_project_dir,
+        )
+        with patch("ossiq.adapters.package_managers.api_npm.subprocess.run"):
+            npm.execute_update(plan)
+        pkg = read_package_json(temp_project_dir)
+        assert pkg["overrides"]["ms"] == "2.1.3"
 
-        with open(os.path.join(temp_project_dir, "package.json"), encoding="utf-8") as f:
-            pkg = json.load(f)
-        assert "ms" not in pkg["overrides"]
-        assert pkg["overrides"] == {"lodash": "4.17.21"}
+    def test_existing_overrides_merged_not_replaced(self, npm, temp_project_dir):
+        write_package_json(
+            temp_project_dir,
+            {
+                "name": "app",
+                "version": "1.0.0",
+                "dependencies": {"express": "^4.18.0"},
+                "overrides": {"lodash": "4.17.0"},
+            },
+        )
+        plan = make_npm_update_plan(
+            transitive=[make_npm_update_entry("ms", "2.1.2", "2.1.3", is_direct=False)],
+            project_path=temp_project_dir,
+        )
+        with patch("ossiq.adapters.package_managers.api_npm.subprocess.run"):
+            npm.execute_update(plan)
+        pkg = read_package_json(temp_project_dir)
+        assert pkg["overrides"] == {"lodash": "4.17.0", "ms": "2.1.3"}
 
-    def test_removes_overrides_key_when_originally_absent(self, npm, temp_project_dir):
-        write_state_file(temp_project_dir, original_overrides={})
-        write_pkg_json(temp_project_dir, overrides={"lodash": "4.17.21"})
-
-        npm.restore_state(temp_project_dir)
-
-        with open(os.path.join(temp_project_dir, "package.json"), encoding="utf-8") as f:
-            pkg = json.load(f)
+    def test_no_overrides_key_when_no_transitive_updates(self, npm, temp_project_dir):
+        write_package_json(
+            temp_project_dir, {"name": "app", "version": "1.0.0", "dependencies": {"express": "^4.18.0"}}
+        )
+        plan = make_npm_update_plan(
+            direct=[make_npm_update_entry("express", "4.18.0", "4.19.0", version_defined="^4.18.0")],
+            project_path=temp_project_dir,
+        )
+        with patch("ossiq.adapters.package_managers.api_npm.subprocess.run"):
+            npm.execute_update(plan)
+        pkg = read_package_json(temp_project_dir)
         assert "overrides" not in pkg
 
-    def test_deletes_state_file_after_restore(self, npm, temp_project_dir):
-        write_state_file(temp_project_dir, original_overrides={})
-        write_pkg_json(temp_project_dir)
+    def test_restores_original_on_install_failure(self, npm, temp_project_dir):
+        write_package_json(
+            temp_project_dir, {"name": "app", "version": "1.0.0", "dependencies": {"express": "^4.18.0"}}
+        )
+        plan = make_npm_update_plan(
+            direct=[make_npm_update_entry("express", "4.18.0", "4.19.0", version_defined="^4.18.0")],
+            project_path=temp_project_dir,
+        )
+        with patch("ossiq.adapters.package_managers.api_npm.subprocess.run", side_effect=RuntimeError("fail")):
+            with pytest.raises(RuntimeError):
+                npm.execute_update(plan)
+        pkg = read_package_json(temp_project_dir)
+        assert pkg["dependencies"]["express"] == "^4.18.0"
 
-        npm.restore_state(temp_project_dir)
-
-        assert not os.path.exists(os.path.join(temp_project_dir, NPM_STATE_FILE))
-
-    def test_returns_summary_string(self, npm, temp_project_dir):
-        write_state_file(temp_project_dir, original_overrides={"lodash": "4.0.0"})
-        write_pkg_json(temp_project_dir, overrides={"lodash": "4.17.21"})
-
-        result = npm.restore_state(temp_project_dir)
-
-        assert isinstance(result, str)
-        assert len(result) > 0
+    def test_multi_section_dep_updated_in_all_sections(self, npm, temp_project_dir):
+        write_package_json(
+            temp_project_dir,
+            {
+                "name": "app",
+                "version": "1.0.0",
+                "devDependencies": {"react": "^17.0.0"},
+                "peerDependencies": {"react": "^17.0.0"},
+            },
+        )
+        plan = make_npm_update_plan(
+            direct=[make_npm_update_entry("react", "17.0.0", "18.2.0", version_defined="^17.0.0")],
+            project_path=temp_project_dir,
+        )
+        with patch("ossiq.adapters.package_managers.api_npm.subprocess.run"):
+            npm.execute_update(plan)
+        pkg = read_package_json(temp_project_dir)
+        assert pkg["devDependencies"]["react"] == "^18.2.0"
+        assert pkg["peerDependencies"]["react"] == "^18.2.0"
 
 
 # ============================================================================

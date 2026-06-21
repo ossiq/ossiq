@@ -33,7 +33,6 @@ CATEGORIES_OPTIONAL = "optional"
 CATEGORIES_PEER = "peer"
 CATEGORIES_OVERRIDDEN = "overridden"
 
-NPM_STATE_FILE = ".ossiq_npm_state.json"
 DEP_SECTIONS = ("dependencies", "devDependencies", "optionalDependencies", "peerDependencies")
 
 
@@ -244,66 +243,6 @@ def build_optional_dependencies(
     return result
 
 
-def resolve_override_value(orig_val: str, name: str, recommended: dict[str, str]) -> str:
-    """Return the version to write back for a single override entry during restore.
-
-    npm cross-reference values (starting with '$') are kept verbatim; everything
-    else uses the recommended version if available, falling back to the original.
-    """
-    if orig_val.startswith("$"):
-        return orig_val
-    return recommended.get(name, orig_val)
-
-
-def format_override_diff_line(key: str, orig_v: str | None, curr_v: str | None) -> str:
-    """Format one line of the overrides diff."""
-    if orig_v == curr_v:
-        return f"  = {key}: {curr_v}"
-    if orig_v is None:
-        return f"  + {key}: {curr_v}  (added)"
-    if curr_v is None:
-        return f"  - {key}: {orig_v}  (removed)"
-    return f"  ~ {key}: {orig_v} → {curr_v}"
-
-
-def build_locked_overrides(plan: UpdatePlan, direct_dep_names: set[str]) -> dict[str, str]:
-    """Build npm overrides for freeze_state: all non-direct packages at current installed
-    versions, with plan entries overriding their packages at recommended versions."""
-    overrides = {name: version for name, version in plan.installed_versions.items() if name not in direct_dep_names}
-    for entry in plan.all_entries:
-        if entry.package_name not in direct_dep_names:
-            overrides[entry.package_name] = entry.recommended_version
-    return overrides
-
-
-def collect_original_specs(pkg: dict) -> dict[str, dict[str, str]]:
-    """Snapshot the declared specifier of every direct dependency, per section.
-
-    Saved before freeze rewrites them to exact versions so finalize_state/restore_state
-    can rebuild the intended final specifiers.
-    """
-    return {
-        section: dict(pkg[section]) for section in DEP_SECTIONS if isinstance(pkg.get(section), dict) and pkg[section]
-    }
-
-
-def freeze_direct_specs(plan: UpdatePlan, pkg: dict) -> None:
-    """Pin every direct dependency to an exact version for a deterministic `npm install`.
-
-    Updated deps take their recommended version; every other direct dep is held at its installed
-    version so npm cannot greedily advance it within range. The intended final specifiers are
-    restored afterwards by finalize_state (success) or restore_state (failure).
-    """
-    direct_entries = {e.package_name: e for e in plan.direct_entries}
-    for section in DEP_SECTIONS:
-        for name in list(pkg.get(section, {})):
-            entry = direct_entries.get(name)
-            if entry is not None:
-                pkg[section][name] = entry.recommended_version
-            elif name in plan.installed_versions:
-                pkg[section][name] = plan.installed_versions[name]
-
-
 def relax_spec(original_spec: str, recommended: str, pin_all: bool) -> str:
     """Return the final specifier for an updated direct dep.
 
@@ -323,62 +262,22 @@ def relax_spec(original_spec: str, recommended: str, pin_all: bool) -> str:
     return recommended
 
 
-def finalize_direct_specs(
-    pkg: dict,
-    original_specs: dict[str, dict[str, str]],
-    recommended_versions: dict[str, str],
-    pin_all: bool,
-    forced_direct: set[str] | None = None,
-) -> None:
-    """Rewrite direct specifiers to their final form.
+def apply_direct_specs(pkg: dict, plan: UpdatePlan) -> None:
+    """Write final direct-dep specifiers to pkg in-place.
 
-    Updated deps are relaxed via relax_spec; every other dep is restored to its original
-    specifier. Deps forced via --override are written as exact versions regardless of mode.
-    An empty recommended_versions restores all specifiers (rollback).
+    Updated deps are relaxed via relax_spec (or exact-pinned for forced/pin-all);
+    deps not in the plan are left untouched.
     """
-    forced = forced_direct or set()
-    for section, specs in original_specs.items():
-        target = pkg.get(section)
-        if not isinstance(target, dict):
-            continue
-        for name, original_spec in specs.items():
-            if name not in target:
-                continue
-            recommended = recommended_versions.get(name)
-            if recommended is None:
-                target[name] = original_spec
-            elif name in forced:
-                target[name] = recommended
-            else:
-                target[name] = relax_spec(original_spec, recommended, pin_all)
-
-
-def sync_lockfile_root_specs(lockfile_path: str, pkg: dict) -> None:
-    """Align the lockfile root package's declared specifiers with package.json.
-
-    Only the specifier strings in `packages[""]` are rewritten; resolved versions, integrity
-    hashes, and installed node entries are left intact, so a deliberately below-max pinned
-    version survives without npm re-resolving it.
-    """
-    with open(lockfile_path, encoding="utf-8") as f:
-        lock = json.load(f)
-
-    root = lock.get("packages", {}).get("", {})
-    changed = False
+    direct_entries = {e.package_name: e for e in plan.direct_entries}
     for section in DEP_SECTIONS:
-        manifest_section = pkg.get(section)
-        lock_section = root.get(section)
-        if not isinstance(manifest_section, dict) or not isinstance(lock_section, dict):
-            continue
-        for name, spec in manifest_section.items():
-            if name in lock_section and lock_section[name] != spec:
-                lock_section[name] = spec
-                changed = True
-
-    if changed:
-        with open(lockfile_path, "w", encoding="utf-8") as f:
-            json.dump(lock, f, indent=2)
-            f.write("\n")
+        for name, current_spec in list(pkg.get(section, {}).items()):
+            entry = direct_entries.get(name)
+            if entry is None:
+                continue
+            if entry.is_forced:
+                pkg[section][name] = entry.recommended_version
+            else:
+                pkg[section][name] = relax_spec(current_spec, entry.recommended_version, plan.pin_all)
 
 
 class PackageManagerJsNpm(AbstractPackageManagerApi):
@@ -552,175 +451,67 @@ class PackageManagerJsNpm(AbstractPackageManagerApi):
     def helper_specs(cls) -> list[HelperSpec]:
         """Advertise NPM helper sub-commands."""
         return [
-            HelperSpec("freeze-state", "Lock full dependency tree in package.json overrides for safe update"),
-            HelperSpec("finalize-state", "Relax specifiers to final form and sync lockfile after npm install"),
-            HelperSpec("restore-state", "Restore original package.json overrides after npm install"),
-            HelperSpec("overrides-diff", "Show diff between current and original overrides (read-only)"),
+            HelperSpec("apply-state", "Apply final package.json specifiers and overrides for manual npm install"),
         ]
 
-    def freeze_state(self, plan: UpdatePlan) -> None:
-        """Write the state file, lock the transitive tree via overrides, and pin direct deps exact.
+    def apply_state(self, plan: UpdatePlan) -> str:
+        """Write final package.json specifiers and transitive overrides without running npm install.
 
-        Direct deps are pinned to exact versions (recommended for updates, installed otherwise) so
-        `npm install` produces a deterministic lockfile. The original specifiers are saved so that
-        finalize_state (success) or restore_state (failure) can rebuild the intended form.
+        Intended for use by generate_update_script so the manifest is ready before the user
+        runs npm install manually.
         """
         manifest_path = os.path.join(plan.project_path, "package.json")
-        state_path = os.path.join(plan.project_path, NPM_STATE_FILE)
-
         with open(manifest_path, encoding="utf-8") as f:
             pkg = json.load(f)
 
-        original_overrides = pkg.get("overrides", {})
-        original_specs = collect_original_specs(pkg)
-        direct_dep_names = {name for section in DEP_SECTIONS for name in pkg.get(section, {})}
-        locked_overrides = build_locked_overrides(plan, direct_dep_names)
+        apply_direct_specs(pkg, plan)
 
-        state = {
-            "original_overrides": original_overrides,
-            "locked_overrides": locked_overrides,
-            "recommended_versions": {entry.package_name: entry.recommended_version for entry in plan.all_entries},
-            "original_specs": original_specs,
-            "pin_all": plan.pin_all,
-            # --override targets persist beyond the update: transitive ones stay in `overrides`,
-            # direct ones are written as exact pins by finalize_direct_specs.
-            "forced_overrides": {
-                entry.package_name: entry.recommended_version
-                for entry in plan.all_entries
-                if entry.is_forced and entry.package_name not in direct_dep_names
-            },
-            "forced_direct": [
-                entry.package_name
-                for entry in plan.all_entries
-                if entry.is_forced and entry.package_name in direct_dep_names
-            ],
-        }
-        with open(state_path, "w", encoding="utf-8") as f:
-            json.dump(state, f, indent=2)
-
-        pkg["overrides"] = locked_overrides
-        freeze_direct_specs(plan, pkg)
+        transitive = {e.package_name: e.recommended_version for e in plan.all_entries if not e.is_direct}
+        if transitive:
+            overrides = pkg.get("overrides", {})
+            overrides.update(transitive)
+            pkg["overrides"] = overrides
 
         with open(manifest_path, "w", encoding="utf-8") as f:
             json.dump(pkg, f, indent=2)
+            f.write("\n")
 
-    def finalize_state(self, project_path: str) -> str:
-        """Apply final specifiers after a successful install and delete the state file.
-
-        Restores original overrides (bumping any that point at an updated package), relaxes direct
-        dep specifiers to their final form per mode, then syncs the lockfile root specifiers so
-        package.json and package-lock.json stay consistent without re-resolving.
-        """
-        state_path = os.path.join(project_path, NPM_STATE_FILE)
-        manifest_path = os.path.join(project_path, "package.json")
-        lockfile_path = os.path.join(project_path, "package-lock.json")
-
-        if not os.path.exists(state_path):
-            raise FileNotFoundError(f"State file not found: {state_path}")
-
-        with open(state_path, encoding="utf-8") as f:
-            state = json.load(f)
-        with open(manifest_path, encoding="utf-8") as f:
-            pkg = json.load(f)
-
-        original = state["original_overrides"]
-        recommended = state.get("recommended_versions", {})
-        original_specs = state.get("original_specs", {})
-        pin_all = state.get("pin_all", False)
-
-        restored = {name: resolve_override_value(orig_val, name, recommended) for name, orig_val in original.items()}
-        restored.update(state.get("forced_overrides", {}))
-        if restored:
-            pkg["overrides"] = restored
-        elif "overrides" in pkg:
-            del pkg["overrides"]
-
-        finalize_direct_specs(pkg, original_specs, recommended, pin_all, set(state.get("forced_direct", [])))
-
-        with open(manifest_path, "w", encoding="utf-8") as f:
-            json.dump(pkg, f, indent=2)
-
-        if os.path.exists(lockfile_path):
-            sync_lockfile_root_specs(lockfile_path, pkg)
-
-        direct_count = sum(len(specs) for specs in original_specs.values())
-        os.unlink(state_path)
-        return f"Finalized {direct_count} direct specifier(s); lockfile synced."
-
-    def restore_state(self, project_path: str) -> str:
-        """Restore original package.json overrides from state file and delete it.
-
-        Returns a summary message.
-        """
-        state_path = os.path.join(project_path, NPM_STATE_FILE)
-        manifest_path = os.path.join(project_path, "package.json")
-
-        if not os.path.exists(state_path):
-            raise FileNotFoundError(f"State file not found: {state_path}")
-
-        with open(state_path, encoding="utf-8") as f:
-            state = json.load(f)
-        with open(manifest_path, encoding="utf-8") as f:
-            pkg = json.load(f)
-
-        original = state["original_overrides"]
-        recommended = state.get("recommended_versions", {})
-        restored = {name: resolve_override_value(orig_val, name, recommended) for name, orig_val in original.items()}
-
-        if restored:
-            pkg["overrides"] = restored
-        elif "overrides" in pkg:
-            del pkg["overrides"]
-
-        # Revert the exact pins written by freeze back to the original specifiers (no update applied).
-        finalize_direct_specs(pkg, state.get("original_specs", {}), {}, False)
-
-        with open(manifest_path, "w", encoding="utf-8") as f:
-            json.dump(pkg, f, indent=2)
-
-        os.unlink(state_path)
-        return f"Overrides restored: {len(original)} original entries."
-
-    def overrides_diff(self, project_path: str) -> str:
-        """Return a read-only diff of current overrides vs original (from state file)."""
-        state_path = os.path.join(project_path, NPM_STATE_FILE)
-        manifest_path = os.path.join(project_path, "package.json")
-
-        if not os.path.exists(state_path):
-            raise FileNotFoundError(f"State file not found: {state_path}")
-
-        with open(state_path, encoding="utf-8") as f:
-            state = json.load(f)
-        with open(manifest_path, encoding="utf-8") as f:
-            pkg = json.load(f)
-
-        original = state["original_overrides"]
-        current = pkg.get("overrides", {})
-        all_keys = sorted(set(original) | set(current))
-
-        lines = ["package.json overrides diff (original → current):"]
-        for key in all_keys:
-            lines.append(format_override_diff_line(key, original.get(key), current.get(key)))
-        return "\n".join(lines)
+        n_direct = len(plan.direct_entries)
+        n_transitive = len(plan.transitive_entries)
+        return f"Applied {n_direct} direct, {n_transitive} transitive update(s) to package.json."
 
     def execute_update(self, plan: UpdatePlan) -> None:
-        """Freeze state, run npm install, then finalize specifiers + lockfile. Rolled back on failure."""
-        self.freeze_state(plan)
+        """Apply manifest changes then run npm install. Restores package.json on failure."""
+        manifest_path = os.path.join(plan.project_path, "package.json")
+        with open(manifest_path, encoding="utf-8") as f:
+            original_content = f.read()
+
+        pkg = json.loads(original_content)
+        apply_direct_specs(pkg, plan)
+
+        transitive = {e.package_name: e.recommended_version for e in plan.all_entries if not e.is_direct}
+        if transitive:
+            overrides = pkg.get("overrides", {})
+            overrides.update(transitive)
+            pkg["overrides"] = overrides
+
+        with open(manifest_path, "w", encoding="utf-8") as f:
+            json.dump(pkg, f, indent=2)
+            f.write("\n")
+
         try:
             subprocess.run(["npm", "install", "--ignore-scripts"], cwd=plan.project_path, check=True)
-            self.finalize_state(plan.project_path)
         except Exception:
-            self.restore_state(plan.project_path)
+            with open(manifest_path, "w", encoding="utf-8") as f:
+                f.write(original_content)
             raise
 
     def generate_update_script(self, plan: UpdatePlan, cli_extra_args: str = "") -> str:
-        """Generate bash script that delegates all JSON manipulation to ossiq helpers."""
+        """Generate bash script that applies manifest changes then runs npm install."""
         path_q = shlex.quote(plan.project_path)
-        freeze = f"ossiq helpers npm freeze-state {path_q}"
+        apply = f"ossiq helpers npm apply-state {path_q}"
         if cli_extra_args:
-            freeze += f" {cli_extra_args}"
-        finalize = f"ossiq helpers npm finalize-state {path_q}"
-        restore = f"ossiq helpers npm restore-state {path_q}"
+            apply += f" {cli_extra_args}"
         lines = [
             "#!/usr/bin/env bash",
             f"# OSS IQ update — npm  |  project: {plan.project_name}",
@@ -729,18 +520,13 @@ class PackageManagerJsNpm(AbstractPackageManagerApi):
             "",
             f"cd {path_q}",
             "",
-            'echo "Freezing dependency tree and saving state..."',
-            freeze,
+            'echo "Applying updates to package.json..."',
+            apply,
             "",
             'echo "Installing..."',
             "npm install --ignore-scripts",
             "",
-            'echo "Finalizing specifiers and syncing lockfile..."',
-            finalize,
-            "",
             'echo "Done."',
-            "",
-            f"# ROLLBACK: {restore}",
         ]
         return "\n".join(lines)
 

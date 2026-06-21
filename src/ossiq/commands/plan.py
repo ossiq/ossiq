@@ -69,8 +69,8 @@ def check_override_ignore_conflict(overrides: tuple[tuple[str, str], ...], ignor
         raise typer.BadParameter(ERROR_OVERRIDE_IGNORE_CONFLICT.format(packages=", ".join(conflicted)))
 
 
-def build_npm_freeze_args(options: CommandPlanOptions) -> str:
-    """Build CLI flags for embedding in the generated script's freeze-state invocation."""
+def build_npm_apply_args(options: CommandPlanOptions) -> str:
+    """Build CLI flags for embedding in the generated script's apply-state invocation."""
     args = ["--registry-type npm"]
     for pkg in options.ignore_packages:
         args.append(f"--ignore {shlex.quote(pkg)}")
@@ -92,13 +92,13 @@ def build_npm_freeze_args(options: CommandPlanOptions) -> str:
 
 
 def npm_cli_extra_args(plan: UpdatePlan, options: CommandPlanOptions) -> str:
-    """Freeze-state CLI flags for npm plans; empty for other ecosystems.
+    """Apply-state CLI flags for npm plans; empty for other ecosystems.
 
     registry_type comes from ProjectPackagesRegistry ("NPM"/"PYPI"), so compare case-insensitively.
     """
     if plan.registry_type.lower() != "npm":
         return ""
-    return build_npm_freeze_args(options)
+    return build_npm_apply_args(options)
 
 
 def warn_unknown_override_versions(uow: ProjectUnitOfWork, overrides: tuple[tuple[str, str], ...]) -> None:
