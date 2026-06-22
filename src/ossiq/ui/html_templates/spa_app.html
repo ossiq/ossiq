@@ -15193,7 +15193,7 @@ app.use(createPinia());
 app.use(router);
 app.mount("#app");
 //#endregion</script>
-    <style rel="stylesheet" crossorigin>/*! tailwindcss v4.2.4 | MIT License | https://tailwindcss.com */
+    <style rel="stylesheet" crossorigin>/*! tailwindcss v4.3.1 | MIT License | https://tailwindcss.com */
 @layer properties {
   @supports (((-webkit-hyphens: none)) and (not (margin-trim: inline))) or ((-moz-orient: inline) and (not (color: rgb(from red r g b)))) {
     *, :before, :after, ::backdrop {
@@ -15639,19 +15639,11 @@ app.mount("#app");
   }
 
   .inset-0 {
-    inset: calc(var(--spacing) * 0);
-  }
-
-  .start {
-    inset-inline-start: var(--spacing);
-  }
-
-  .end {
-    inset-inline-end: var(--spacing);
+    inset: 0;
   }
 
   .top-0 {
-    top: calc(var(--spacing) * 0);
+    top: 0;
   }
 
   .top-1\/2 {
@@ -15667,7 +15659,7 @@ app.mount("#app");
   }
 
   .right-0 {
-    right: calc(var(--spacing) * 0);
+    right: 0;
   }
 
   .right-4 {
@@ -15683,7 +15675,7 @@ app.mount("#app");
   }
 
   .left-0 {
-    left: calc(var(--spacing) * 0);
+    left: 0;
   }
 
   .left-2 {
@@ -15741,7 +15733,7 @@ app.mount("#app");
   }
 
   .mt-1 {
-    margin-top: calc(var(--spacing) * 1);
+    margin-top: var(--spacing);
   }
 
   .mt-2 {
@@ -15757,15 +15749,15 @@ app.mount("#app");
   }
 
   .mr-1 {
-    margin-right: calc(var(--spacing) * 1);
+    margin-right: var(--spacing);
   }
 
   .mb-0 {
-    margin-bottom: calc(var(--spacing) * 0);
+    margin-bottom: 0;
   }
 
   .mb-1 {
-    margin-bottom: calc(var(--spacing) * 1);
+    margin-bottom: var(--spacing);
   }
 
   .mb-1\.5 {
@@ -15793,7 +15785,7 @@ app.mount("#app");
   }
 
   .ml-1 {
-    margin-left: calc(var(--spacing) * 1);
+    margin-left: var(--spacing);
   }
 
   .ml-auto {
@@ -15833,7 +15825,7 @@ app.mount("#app");
   }
 
   .h-1 {
-    height: calc(var(--spacing) * 1);
+    height: var(--spacing);
   }
 
   .h-2 {
@@ -15873,7 +15865,7 @@ app.mount("#app");
   }
 
   .w-0 {
-    width: calc(var(--spacing) * 0);
+    width: 0;
   }
 
   .w-2 {
@@ -15933,7 +15925,7 @@ app.mount("#app");
   }
 
   .min-w-0 {
-    min-width: calc(var(--spacing) * 0);
+    min-width: 0;
   }
 
   .flex-1 {
@@ -16018,7 +16010,7 @@ app.mount("#app");
   }
 
   .gap-1 {
-    gap: calc(var(--spacing) * 1);
+    gap: var(--spacing);
   }
 
   .gap-1\.5 {
@@ -16053,8 +16045,8 @@ app.mount("#app");
 
   :where(.space-y-1 > :not(:last-child)) {
     --tw-space-y-reverse: 0;
-    margin-block-start: calc(calc(var(--spacing) * 1) * var(--tw-space-y-reverse));
-    margin-block-end: calc(calc(var(--spacing) * 1) * calc(1 - var(--tw-space-y-reverse)));
+    margin-block-start: calc(var(--spacing) * var(--tw-space-y-reverse));
+    margin-block-end: calc(var(--spacing) * calc(1 - var(--tw-space-y-reverse)));
   }
 
   :where(.space-y-1\.5 > :not(:last-child)) {
@@ -16465,7 +16457,7 @@ app.mount("#app");
   }
 
   .p-1 {
-    padding: calc(var(--spacing) * 1);
+    padding: var(--spacing);
   }
 
   .p-3 {
@@ -16481,7 +16473,7 @@ app.mount("#app");
   }
 
   .px-1 {
-    padding-inline: calc(var(--spacing) * 1);
+    padding-inline: var(--spacing);
   }
 
   .px-1\.5 {
@@ -16517,7 +16509,7 @@ app.mount("#app");
   }
 
   .py-1 {
-    padding-block: calc(var(--spacing) * 1);
+    padding-block: var(--spacing);
   }
 
   .py-2 {
@@ -16553,7 +16545,7 @@ app.mount("#app");
   }
 
   .pt-1 {
-    padding-top: calc(var(--spacing) * 1);
+    padding-top: var(--spacing);
   }
 
   .pt-4 {
