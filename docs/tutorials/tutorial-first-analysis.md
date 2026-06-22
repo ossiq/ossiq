@@ -17,10 +17,10 @@ By the end, you'll have performed a full dependency analysis and know how to use
 
 ## Step 1: Install OSS IQ
 
-First, install the `ossiq-cli` package using `pip`.
+First, install the `ossiq` package using `pip`.
 
 ```bash
-pip install ossiq-cli
+pip install ossiq
 ```
 
 After installation, verify that it was successful by checking the version:
@@ -29,7 +29,7 @@ After installation, verify that it was successful by checking the version:
 ossiq-cli --version
 ```
 
-You should see output similar to `ossiq version: 0.1.0`.
+You should see output similar to `ossiq version: 0.1.x`.
 
 ---
 
@@ -37,7 +37,7 @@ You should see output similar to `ossiq version: 0.1.0`.
 
 OSS IQ queries the GitHub API to gather repository health data for each dependency. Without authentication, GitHub limits requests to 60 per hour, which is not enough for most projects.
 
-1.  Create a GitHub Personal Access Token (PAT). You can follow the [official GitHub documentation](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens#creating-a-personal-access-token-classic). The token needs **no special scopes**—public repository access is sufficient.
+1.  Create a GitHub Personal Access Token (PAT). You can follow the [official GitHub documentation](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens#creating-a-personal-access-token-classic). The token needs **no special scopes**—public repository access is sufficient. [More details on GitHub Token](http://127.0.0.1:8000/getting-started.html#github-personal-access-token)
 
 2.  Set the token as an environment variable named `OSSIQ_GITHUB_TOKEN`. This is the recommended way to provide the token to OSS IQ.
 
@@ -45,11 +45,12 @@ OSS IQ queries the GitHub API to gather repository health data for each dependen
     export OSSIQ_GITHUB_TOKEN="your_github_pat_here"
     ```
     :::{tip}
-    !!! tip "Using GitHub CLI"
-        If you use the official [GitHub CLI](https://cli.github.com/), you can easily get a token and set the variable in one command:
-        ```bash
-        export OSSIQ_GITHUB_TOKEN=$(gh auth token)
-        ```
+    If you use the official [GitHub CLI](https://cli.github.com/), you can easily get a token and set the variable in one command:
+    
+    ```bash
+    export OSSIQ_GITHUB_TOKEN=$(gh auth token)
+    ```
+
     :::
 
 ---
@@ -83,26 +84,34 @@ With your sample project ready, you can now run the `scan` command. `ossiq-cli` 
 Run the scan from within the `ossiq-sample-project` directory:
 
 ```bash
-ossiq-cli scan .
+ossiq-cli status .
 ```
 
 You should see console output that looks something like this:
 
 ```bash
-╭────────────────────────────╮
-│ 📦 Project: .              │
-│ 🔗 Packages Registry: PYPI │
-│ 📍 Project Path: .         │
-╰────────────────────────────╯
+╭────────────────────────────────────────────────────────────────────────────╮
+│ 📦 Project: ossiq-sample-project                                           │
+│ 🔗 Packages Registry: PYPI                                                 │
+│ 📍 Project Path: ../../ossiq-tutorials/first-analysis/ossiq-sample-project │
+╰────────────────────────────────────────────────────────────────────────────╯
 
 
-                           Production Dependency Drift Report                           
-┏━━━━━━━━━━━━┳━━━━━━┳━━━━━━━━━━━━━━┳━━━━━━━━━━━┳━━━━━━━━┳━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━┓
-┃ Dependency ┃ CVEs ┃ Drift Status ┃ Installed ┃ Latest ┃ Releases Distance ┃ Time Lag ┃
-┡━━━━━━━━━━━━╇━━━━━━╇━━━━━━━━━━━━━━╇━━━━━━━━━━━╇━━━━━━━━╇━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━┩
-│ requests   │  4   │    Minor     │ 2.28.1    │ 2.32.5 │                10 │       3y │
-│ click      │      │    Minor     │ 8.1.3     │ 8.3.1  │                10 │       4y │
-└────────────┴──────┴──────────────┴───────────┴────────┴───────────────────┴──────────┘
+                                 Production Dependency Drift Report                                  
+┏━━━━━━━━━━━━┳━━━━━━┳━━━━━━━━┳━━━━━━━━━━━┳━━━━━━━━━━━━━┳━━━━━━━━┳━━━━━━━━━━┳━━━━━━━━━━┳━━━━━━━━━━━━━┓
+┃ Dependency ┃ CVEs ┃ Status ┃ Installed ┃ Recommended ┃ Latest ┃ Distance ┃ Time Lag ┃ Version Age ┃
+┡━━━━━━━━━━━━╇━━━━━━╇━━━━━━━━╇━━━━━━━━━━━╇━━━━━━━━━━━━━╇━━━━━━━━╇━━━━━━━━━━╇━━━━━━━━━━╇━━━━━━━━━━━━━┩
+│ requests   │  5   │ Minor  │ 2.28.1    │ 2.28.1      │ 2.34.2 │       15 │       4y │          4y │
+└────────────┴──────┴────────┴───────────┴─────────────┴────────┴──────────┴──────────┴─────────────┘
+
+
+                         Constraint Widening Opportunities                         
+┏━━━━━━━━━━┳━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━┓
+┃ Package  ┃ Current Range ┃ Latest In-Range ┃ Latest Available ┃ Suggested Range ┃
+┡━━━━━━━━━━╇━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━┩
+│ click    │ ==8.1.3       │ 8.1.3           │ 8.4.1            │ ==8.4.1         │
+│ requests │ ==2.28.1      │ 2.28.1          │ 2.34.2           │ ==2.34.2        │
+└──────────┴───────────────┴─────────────────┴──────────────────┴─────────────────┘
 ```
 
 ---
@@ -112,11 +121,13 @@ You should see console output that looks something like this:
 The console output gives you a high-level summary of your dependencies' health. Here's what the columns mean:
 
 -   **CVEs**: The number of known Common Vulnerabilities and Exposures for the installed version of the package. `requests==2.28.1` has a known vulnerability.
--   **Lag Status**: Categorizes how far behind the installed version is from the latest version (e.g., `Major`, `Minor`, `Patch`, `Latest`).
+-   **Status**: Categorizes how far behind the installed version is from the latest version (e.g., `Major`, `Minor`, `Patch`, `Latest`).
 -   **Installed**: The version of the package currently in your project.
+-   **Recommended**: The solver-recommended update target (the safest version to upgrade to).
 -   **Latest**: The most recent stable version available in the package registry.
--   **Release Lag**: The number of versions released between your installed version and the latest version. A high number indicates significant divergence.
--   **Time Lag**: The amount of time that has passed since your installed version was released.
+-   **Distance**: The number of releases between your installed version and the latest version. A high number indicates significant divergence.
+-   **Time Lag**: How far behind (in time) your installed version is from the latest release.
+-   **Version Age**: How old the installed version itself is.
 
 This view quickly shows you that `requests` has a security issue and both packages are lagging behind their latest versions.
 
@@ -126,10 +137,10 @@ This view quickly shows you that `requests` has a security issue and both packag
 
 While the console output is useful for a quick overview, the interactive HTML report provides a much richer experience for exploring your dependencies.
 
-Generate the report by running the `scan` command again with the `--presentation html` flag.
+Generate the report by running the `status` command again with the `--presentation=html` flag.
 
 ```bash
-ossiq-cli scan . --presentation html --output report.html
+ossiq-cli status . --presentation=html --output report.html
 ```
 
 This will create a `report.html` file in your project directory. Open this file in your web browser.
@@ -140,7 +151,7 @@ You'll see a detailed, interactive report where you can:
 -   Sort by different metrics like **Time Lag** or **Release Lag**.
 -   Click on a package to see more details, including a direct link to its repository and a list of CVEs.
 
-![OSS IQ HTML Report](../img/ossiq-report-html-light.png)
+![OSS IQ HTML Report](/_static/images/ossiq-html-report-first-analysis-2026-06-20.png)
 
 ---
 

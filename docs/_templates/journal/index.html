@@ -12,7 +12,9 @@
     </script>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Journal | OSS IQ</title>
+    <title>OSS IQ Journal &mdash; Research on Open-Source Dependency Health</title>
+    <link rel="icon" type="image/svg+xml" href="/_static/images/oss-iq-logo-dark.svg">
+    <meta name="theme-color" content="#1E1E1E">
     <!-- Runs before CSS to avoid flash of wrong theme -->
     <script>
     (function () {
@@ -20,14 +22,6 @@
       const preferred = window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
       document.documentElement.setAttribute('data-theme', saved ?? preferred);
     })();
-    </script>
-    <!-- Google tag (gtag.js) -->
-    <script async src="https://www.googletagmanager.com/gtag/js?id=G-6GG5NRKT0J"></script>
-    <script>
-    window.dataLayer = window.dataLayer || [];
-    function gtag(){dataLayer.push(arguments);}
-    gtag('js', new Date());
-    gtag('config', 'G-6GG5NRKT0J');
     </script>
     <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -58,6 +52,8 @@
                         single authoritative URL for this content.
     ──────────────────────────────────────────────────────────────────── -->
     <meta name="description" content="In-depth research and analysis on open-source dependency health, software supply chain risk, and the hidden costs of modern development.">
+    <meta name="author" content="Maksym Klymyshyn, Oleksandr Shulika">
+    <meta name="keywords" content="open source dependency health, software supply chain risk, dependency drift, technical debt, SCA, DORA metrics, AI code quality, CVE, version lag">
     <meta name="robots" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1">
     <link rel="canonical" href="https://ossiq.dev/journal/"><!-- [ADAPT] confirm base domain -->
 
@@ -71,12 +67,12 @@
     <meta property="og:type"         content="website">
     <meta property="og:url"          content="https://ossiq.dev/journal/"><!-- [ADAPT] -->
     <meta property="og:site_name"    content="OSS IQ">
-    <meta property="og:title"        content="Journal | OSS IQ">
-    <meta property="og:description"  content="Research and analysis on open-source dependency health and software supply chain risk.">
+    <meta property="og:title"        content="OSS IQ Journal &mdash; Research on Open-Source Dependency Health">
+    <meta property="og:description"  content="In-depth research and analysis on open-source dependency health, software supply chain risk, and the hidden costs of modern development.">
     <meta property="og:image"        content="https://ossiq.dev/assets/og-journal.jpg"><!-- [ADAPT] create 1200×630 image -->
     <meta property="og:image:width"  content="1200">
     <meta property="og:image:height" content="630">
-    <meta property="og:image:alt"    content="OSS IQ Journal — Research on open-source dependency health">
+    <meta property="og:image:alt"    content="OSS IQ Journal — In-depth research on open-source dependency health and software supply chain risk">
     <meta property="og:locale"       content="en_US">
 
     <!-- ── Twitter / X Card ──────────────────────────────────────────────
@@ -86,10 +82,10 @@
     ──────────────────────────────────────────────────────────────────── -->
     <meta name="twitter:card"        content="summary_large_image">
     <meta name="twitter:site"        content="@ossiq_dev"><!-- [ADAPT] brand Twitter/X handle -->
-    <meta name="twitter:title"       content="Journal | OSS IQ">
-    <meta name="twitter:description" content="Research and analysis on open-source dependency health and software supply chain risk.">
+    <meta name="twitter:title"       content="OSS IQ Journal — Open-Source Dependency Health Research">
+    <meta name="twitter:description" content="In-depth research on open-source dependency health, software supply chain risk, and the hidden costs of modern development.">
     <meta name="twitter:image"       content="https://ossiq.dev/assets/og-journal.jpg"><!-- [ADAPT] same as og:image -->
-    <meta name="twitter:image:alt"   content="OSS IQ Journal">
+    <meta name="twitter:image:alt"   content="OSS IQ Journal — Research on open-source dependency health and software supply chain risk">
 
     <!-- ── LLMs & AI-search crawlers ─────────────────────────────────────
          llms-txt     : Points AI crawlers to /llms.txt — a plain-text manifest
@@ -115,19 +111,18 @@
     {
       "@context": "https://schema.org",
       "@type": "CollectionPage",
-      "name": "Journal | OSS IQ",
+      "name": "OSS IQ Journal — Research on Open-Source Dependency Health",
       "description": "In-depth research and analysis on open-source dependency health, software supply chain risk, and the hidden costs of modern development.",
       "url": "https://ossiq.dev/journal/",
       "inLanguage": "en-US",
+      "dateModified": "2026-06-22",
       "publisher": {
         "@type": "Organization",
         "name": "OSS IQ",
         "url": "https://ossiq.dev",
         "logo": {
           "@type": "ImageObject",
-          "url": "https://ossiq.dev/assets/logo.png",
-          "width": 112,
-          "height": 112
+          "url": "https://ossiq.dev/_static/images/oss-iq-logo-light.svg"
         }
       },
       "hasPart": [
@@ -138,6 +133,17 @@
           "datePublished": "2026-04-01",
           "description": "AI tools accelerate output but introduce hidden costs in code quality, security, and long-term maintenance — and the data is starting to confirm it."
         }
+      ]
+    }
+    </script>
+
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "BreadcrumbList",
+      "itemListElement": [
+        { "@type": "ListItem", "position": 1, "name": "Home",    "item": "https://ossiq.dev/" },
+        { "@type": "ListItem", "position": 2, "name": "Journal", "item": "https://ossiq.dev/journal/" }
       ]
     }
     </script>

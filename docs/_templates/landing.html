@@ -18,10 +18,12 @@
     <!-- SEO Meta Tags -->
     <meta name="description"
         content="Analyze version lag, maintenance signals, and transitive risk across your entire supply chain. Move from reactive CVE-chasing to a planned maintenance rhythm. Free &amp; open source CLI tool.">
-    <meta name="author" content="OSS IQ">
-    <meta name="keywords" content="dependency health, dependency drift, SCA, software composition analysis, CVE, version lag, npm audit, pip audit, open source risk, dependency scanning, SBOM, maintenance health">
-    <meta name="robots" content="index, follow, max-snippet:-1, max-image-preview:large">
+    <meta name="author" content="Maksym Klymyshyn, Oleksandr Shulika">
+    <meta name="keywords" content="dependency health, dependency drift, SCA, software composition analysis, CVE, version lag, npm audit, pip audit, open source risk, dependency scanning, SBOM, maintenance health, software supply chain, platform engineering">
+    <meta name="robots" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1">
     <link rel="canonical" href="https://ossiq.dev/" />
+    <link rel="icon" type="image/svg+xml" href="_static/images/oss-iq-logo-light.svg">
+    <meta name="theme-color" content="#fcfcfc">
 
     <!-- LLM Discovery -->
     <link rel="llms-txt" href="/llms.txt" type="text/plain">
@@ -29,18 +31,25 @@
     <!-- Open Graph / Facebook -->
     <meta property="og:type" content="website">
     <meta property="og:url" content="https://ossiq.dev/">
+    <meta property="og:site_name" content="OSS IQ">
     <meta property="og:title" content="OSS IQ &mdash; Quantify Dependency Health. Control Your Drift.">
     <meta property="og:description"
         content="Analyze version lag, maintenance signals, and transitive risk across your entire supply chain. CLI + HTML reports. Free and open source.">
     <meta property="og:image" content="https://ossiq.dev/img/ossiq-report-html-light.png">
+    <meta property="og:image:width" content="1200">
+    <meta property="og:image:height" content="630">
+    <meta property="og:image:alt" content="OSS IQ — Dependency health score dashboard showing version lag, CVEs, and maintenance signals">
+    <meta property="og:locale" content="en_US">
 
     <!-- Twitter -->
-    <meta property="twitter:card" content="summary_large_image">
-    <meta property="twitter:url" content="https://ossiq.dev/">
-    <meta property="twitter:title" content="OSS IQ &mdash; Quantify Dependency Health. Control Your Drift.">
-    <meta property="twitter:description"
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:site" content="@ossiq_dev">
+    <meta name="twitter:url" content="https://ossiq.dev/">
+    <meta name="twitter:title" content="OSS IQ &mdash; Quantify Dependency Health. Control Your Drift.">
+    <meta name="twitter:description"
         content="Analyze version lag, maintenance signals, and transitive risk across your entire supply chain. CLI + HTML reports. Free and open source.">
-    <meta property="twitter:image" content="https://ossiq.dev/img/ossiq-report-html-light.png">
+    <meta name="twitter:image" content="https://ossiq.dev/img/ossiq-report-html-light.png">
+    <meta name="twitter:image:alt" content="OSS IQ — Dependency health score dashboard showing version lag, CVEs, and maintenance signals">
 
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -130,6 +139,10 @@
           "@type": "Organization",
           "name": "OSS IQ",
           "url": "https://ossiq.dev/",
+          "logo": {
+            "@type": "ImageObject",
+            "url": "https://ossiq.dev/_static/images/oss-iq-logo-light.svg"
+          },
           "sameAs": ["https://github.com/ossiq/ossiq"],
           "contactPoint": {
             "@type": "ContactPoint",
@@ -141,14 +154,6 @@
           "mainEntity": [
             {
               "@type": "Question",
-              "name": "What is a dependency health score?",
-              "acceptedAnswer": {
-                "@type": "Answer",
-                "text": "It's a single, easy-to-understand metric that aggregates dozens of signals&mdash;like security vulnerabilities (CVEs), package maintenance status, and version lag&mdash;into one number. It gives you an instant, holistic view of your project's dependency risk."
-              }
-            },
-            {
-              "@type": "Question",
               "name": "How is this different from `npm audit` or `pip-audit`?",
               "acceptedAnswer": {
                 "@type": "Answer",
@@ -157,10 +162,19 @@
             },
             {
               "@type": "Question",
+              "name": "How is this different from `npm update` or `uv lock --upgrade`?",
+              "acceptedAnswer": {
+                "@type": "Answer",
+                "text": "Those commands are execution tools — they upgrade everything to the latest version that fits your semver constraints, but they don't tell you what to upgrade, why, or in what order. OSS IQ is an analysis tool. It scores your dependencies by version lag, maintenance signals, and transitive risk, then gives you a prioritized upgrade plan. It also surfaces packages that are abandoned or unmaintained, which no amount of upgrading will fix. Think of OSS IQ as the step you run before npm update or uv lock --upgrade — so you know exactly what you're doing and why."
+              }
+            },
+
+            {
+              "@type": "Question",
               "name": "What ecosystems does OSS IQ support?",
               "acceptedAnswer": {
                 "@type": "Answer",
-                "text": "OSS IQ currently supports popular ecosystems like npm for JavaScript and multiple dependency managers for Python (like uv, Poetry, and classic pip). We are always working to add support for more ecosystems."
+                "text": "OSS IQ currently supports popular ecosystems like npm for JavaScript and multiple dependency managers for Python (uv and classic pip). We are always working to add support for more ecosystems."
               }
             },
             {
@@ -176,6 +190,16 @@
       ]
     }
     </script>
+
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "BreadcrumbList",
+      "itemListElement": [
+        { "@type": "ListItem", "position": 1, "name": "Home", "item": "https://ossiq.dev/" }
+      ]
+    }
+    </script>
 </head>
 <body class="flex flex-col min-h-screen">
 
@@ -183,7 +207,7 @@
     <header class="fixed top-0 w-full z-50 bg-[#fcfcfc]/80 backdrop-blur-md border-b border-zinc-100">
         <div class="max-w-6xl mx-auto px-6 py-6 flex justify-between items-center">
             <a href="/" class="heading-font text-2xl font-bold tracking-tighter">
-                <img src="_static/oss-iq-logo-light.svg" width="120" height="22" alt="OSS IQ - Open Source Dependency Intelligence"/>
+                <img src="_static/images/oss-iq-logo-light.svg" width="120" height="22" alt="OSS IQ - Open Source Dependency Intelligence"/>
             </a>
             <nav class="hidden md:flex gap-10">
                 <a href="#how-it-works" class="nav-link">How It Works</a>
@@ -249,8 +273,10 @@
                     <div class="relative w-full group">
                         <div id="gallery" class="overflow-hidden">
                             <img id="gallery-img"
-                                src="_images/ossiq-html-report-2026-03-14.png"
+                                src="/_static/images/ossiq-html-report-2026-06-20.png"
                                 alt="OSS IQ report screenshot"
+                                width="800" height="600"
+                                fetchpriority="high"
                                 class="w-full block transition-opacity duration-300 cursor-zoom-in" />
                         </div>
 
@@ -624,6 +650,10 @@
                         <p class="text-sm text-zinc-500">Audit tools are great at finding known vulnerabilities. OSS IQ goes further by also analyzing non-security risks, such as how far behind you are from the latest version (technical debt) and whether a package is still actively maintained. We give you the full picture of dependency health, not just one part of it.</p>
                     </div>
                     <div>
+                        <h4 class="font-bold mb-3">How is OSS IQ different from <code class="bg-zinc-100 px-1.5 py-0.5 rounded text-xs">npm update</code> or <code class="bg-zinc-100 px-1.5 py-0.5 rounded text-xs">uv lock --upgrade</code>?</h4>
+                        <p class="text-sm text-zinc-500">Those commands are execution tools &mdash; they upgrade everything to the latest version that fits your semver constraints, but they don&rsquo;t tell you what to upgrade, why, or in what order. OSS IQ is an analysis tool. It scores your dependencies by version lag, maintenance signals, and transitive risk, then gives you a prioritized upgrade plan. It also surfaces packages that are abandoned or unmaintained, which no amount of upgrading will fix. Think of OSS IQ as the step you run before <code class="bg-zinc-100 px-1.5 py-0.5 rounded text-xs">npm update</code> or <code class="bg-zinc-100 px-1.5 py-0.5 rounded text-xs">uv lock --upgrade</code> &mdash; so you know exactly what you&rsquo;re doing and why.</p>
+                    </div>
+                    <div>
                         <h4 class="font-bold mb-3">What ecosystems are supported?</h4>
                         <p class="text-sm text-zinc-500">OSS IQ currently supports popular ecosystems like npm for JavaScript and multiple dependency managers for Python (uv and classic pip). We are always working to add support for more ecosystems.</p>
                     </div>
@@ -644,10 +674,11 @@
             <div class="grid-main mb-20">
                 <div class="col-span-12 md:col-span-4">
                     <a href="/" class="heading-font text-3xl font-bold tracking-tighter mb-6 block">
-                        <img src="_static/oss-iq-logo-light.svg" width="80" height="15" alt="OSS IQ - Open Source Dependency Intelligence"/>
+                        <img src="_static/images/oss-iq-logo-light.svg" width="80" height="15" alt="OSS IQ - Open Source Dependency Intelligence"/>
                     </a>
                     <p class="text-sm text-zinc-500 max-w-xs">
-                        Dependency intelligence for modern engineering teams. Built to manage the complexity of the agentic era.
+                        Dependency intelligence for the AI era.
+                        Built to manage the complexity of the agentic era.
                     </p>
                 </div>
 
@@ -710,11 +741,11 @@
         // ---------------------------------------------------------------------------
 
         const IMAGES = [
-            { src: "_images/ossiq-html-report-2026-03-14.png",                      alt: "OSS IQ HTML report" },
-            { src: "_images/ossiq-html-transitive-dependencies-2026-03-14.png",      alt: "OSS IQ &mdash; transitive dependencies" },
-            { src: "_images/ossiq-html-transitive-dependencies-package-2026-03-14.png", alt: "OSS IQ &mdash; transitive dependency detail" },
-            { src: "_images/ossiq-cli-report-2026-03-14.png",                        alt: "OSS IQ CLI report" },
-            { src: "_images/ossiq-cli-package-2026-03-14.png",                       alt: "OSS IQ CLI package detail" },
+            { src: "/_static/images/ossiq-html-report-2026-06-20.png",                      alt: "OSS IQ HTML report" },
+            { src: "/_static/images/ossiq-html-transitive-dependencies-2026-06-20.png",      alt: "OSS IQ &mdash; transitive dependencies" },
+            { src: "/_static/images/ossiq-html-transitive-dependencies-package-2026-06-20.png", alt: "OSS IQ &mdash; transitive dependency detail" },
+            { src: "/_static/images/ossiq-cli-report-2026-06-20.png",                        alt: "OSS IQ CLI report" },
+            { src: "/_static/images/ossiq-cli-package-2026-06-20.png",                       alt: "OSS IQ CLI package detail" },
         ];
 
         const DOT_BASE    = "w-1.5 h-1.5 rounded-full transition-colors ";

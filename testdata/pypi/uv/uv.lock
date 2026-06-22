@@ -6,6 +6,9 @@ resolution-markers = [
     "python_full_version < '3.12'",
 ]
 
+[manifest]
+constraints = [{ name = "requests", specifier = "<2.33.0" }]
+
 [[package]]
 name = "annotated-types"
 version = "0.7.0"

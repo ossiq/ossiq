@@ -411,7 +411,7 @@ For full Explorer interaction details, see [EXPLORER.md](https://github.com/ossi
 
 #### JSON Export
 
-The `export --output-format json` command writes a single `.json` file conforming to [export schema v1.1](../src/ossiq/ui/renderers/export/schemas/export_schema_v1.1.json). The root object contains:
+The `export --output-format json` command writes a single `.json` file conforming to [export schema v1.4](../src/ossiq/ui/renderers/export/schemas/export_schema_v1.4.json) by default. The root object contains:
 
 | Key | Contents |
 |---|---|
@@ -439,7 +439,7 @@ OSS IQ makes four commitments to users who depend on its output in CI pipelines,
 
 ### Export Schema Stability
 
-Each export schema version is identified by `schema_version` in the `metadata` block (e.g. `"1.1"`). The `export --schema-version` flag pins output to a specific version.
+Each export schema version is identified by `schema_version` in the `metadata` block (e.g. `"1.4"`). The `export --schema-version` flag pins output to a specific version.
 
 Within a schema version:
 

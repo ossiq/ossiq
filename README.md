@@ -7,7 +7,7 @@
 
 **OSS IQ** is a free & open-source CLI tool that analyzes dependency drift at scale. Track version lag and transitive risk directly from your dependency files. It helps to move from reactive CVE-chasing to a planned, predictable maintenance rhythm.
 
-![OSS IQ HTML Report](https://ossiq.dev/_images/ossiq-cli-report-2026-03-14.png)
+![OSS IQ HTML Report](https://ossiq.dev/_static/images/ossiq-cli-report-2026-06-20.png)
 
 ## What is OSS IQ?
 

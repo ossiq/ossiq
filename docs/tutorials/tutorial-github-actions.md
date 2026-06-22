@@ -63,10 +63,10 @@ OSS IQ queries the GitHub API to gather repository health data for each dependen
 4. Name it `OSSIQ_GITHUB_TOKEN`
 5. Paste your GitHub personal access token as the value
 
-!!! tip "Creating a token"
-
-    If you don't have a token, create one at [github.com/settings/tokens](https://github.com/settings/tokens).
-    The token needs **no special scopes**—public repository access is sufficient.
+:::{tip}
+If you don't have a token, create one at [github.com/settings/tokens](https://github.com/settings/tokens).
+The token needs **no special scopes**—public repository access is sufficient.
+:::
 
 ---
 
@@ -102,7 +102,7 @@ jobs:
 
       - name: Run OSS IQ scan
         env:
-          OSSIQ_GITHUB_TOKEN: ${{ github.token }}
+          OSSIQ_GITHUB_TOKEN: ${{ secrets.OSSIQ_GITHUB_TOKEN }}
         run: |
           ossiq-cli export \
             --output-format=json \
@@ -211,10 +211,10 @@ Update your `package.json` to include an old version of `lodash` with known vuln
 }
 ```
 
-!!! note "Why this version?"
-
-    `lodash@4.17.4` has several known CVEs including prototype pollution vulnerabilities.
-    This is a safe way to test your quality gate.
+:::{note}
+`lodash@4.17.4` has several known CVEs including prototype pollution vulnerabilities.
+This is a safe way to test your quality gate.
+:::
 
 Run `npm install` to update the lockfile, then commit and push:
 
