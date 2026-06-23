@@ -1,59 +1,72 @@
 # ossiq-frontend
 
-Vue 3 + Vite single-file SPA that renders the OSS IQ scan report. It is compiled into a single
-`dist/index.html` and embedded in the Python HTML renderer
+Vue 3 + Vite single-file SPA that renders the OSS IQ scan report. Compiled into a single
+`dist/index.html` and embedded by the Python HTML renderer
 (`src/ossiq/ui/html_templates/spa_app.html`).
 
 ## Visual system
 
-Each dependency carries a `constraint_type` from the backend (export schema v1.2, when the field
-was introduced), encoded with both color and a border/stroke pattern so the distinction is colorblind-friendly.
-Full details — colors, stroke patterns, focus mode, filters, edge coloring, interactions — are
-in [EXPLORER.md](./EXPLORER.md).
+Each dependency carries a `constraint_type` from the backend (export schema v1.2+), encoded with
+both color and a border/stroke pattern for colorblind-friendly display. Full details — colors,
+stroke patterns, focus mode, filters, edge coloring, interactions — are in [EXPLORER.md](./EXPLORER.md).
 
-## Recommended IDE Setup
+## Recommended IDE setup
 
-[VS Code](https://code.visualstudio.com/) + [Vue (Official)](https://marketplace.visualstudio.com/items?itemName=Vue.volar) (and disable Vetur).
+[VS Code](https://code.visualstudio.com/) + [Volar](https://marketplace.visualstudio.com/items?itemName=Vue.volar) (disable Vetur if installed).
 
-## Recommended Browser Setup
-
-- Chromium-based browsers (Chrome, Edge, Brave, etc.):
-  - [Vue.js devtools](https://chromewebstore.google.com/detail/vuejs-devtools/nhdogjmejiglipccpnnnanhbledajbpd)
-  - [Turn on Custom Object Formatter in Chrome DevTools](http://bit.ly/object-formatters)
-- Firefox:
-  - [Vue.js devtools](https://addons.mozilla.org/en-US/firefox/addon/vue-js-devtools/)
-  - [Turn on Custom Object Formatter in Firefox DevTools](https://fxdx.dev/firefox-devtools-custom-object-formatters/)
-
-## Type Support for `.vue` Imports in TS
-
-TypeScript cannot handle type information for `.vue` imports by default, so we replace the `tsc` CLI with `vue-tsc` for type checking. In editors, we need [Volar](https://marketplace.visualstudio.com/items?itemName=Vue.volar) to make the TypeScript language service aware of `.vue` types.
-
-## Customize configuration
-
-See [Vite Configuration Reference](https://vite.dev/config/).
-
-## Project Setup
+## Project setup
 
 ```sh
 npm install
 ```
 
-### Compile and Hot-Reload for Development
+### Dev server
 
 ```sh
 npm run dev
 ```
 
-### Type-Check, Compile and Minify for Production
+### Build for production
 
 ```sh
 npm run build
 ```
 
-### Inject a sample dataset for development
+Runs type-check and Vite build in parallel; output is a single `dist/index.html`.
+
+### Type-check only
+
+```sh
+npm run type-check
+```
+
+### Lint
+
+```sh
+npm run lint
+```
+
+### Unit tests
+
+```sh
+npm run test:unit
+```
+
+### Regenerate TypeScript types from export schema
+
+```sh
+npm run generate:types
+```
+
+Reads `../src/ossiq/ui/renderers/export/schemas/export_schema_v1.4.json` and writes
+`src/types/report.ts`.
+
+---
+
+## Dev dataset injection
 
 The SPA reads scan data from an embedded `<script type="json/oss-iq-report">` tag in
-`index.html`. Use the `inject` script to replace that payload before running `npm run dev`.
+`index.html`. The `inject` script replaces that payload so the dev server has real data to render.
 
 **Interactive picker** — lists all files in `frontend/datasets/` and prompts for a selection:
 
@@ -61,7 +74,7 @@ The SPA reads scan data from an embedded `<script type="json/oss-iq-report">` ta
 npm run inject
 ```
 
-**Reset to empty** — injects `{}` so the SPA starts with no data (useful for a clean dev session):
+**Reset to empty** — injects `{}` so the SPA starts with no data:
 
 ```sh
 npm run inject --default
@@ -73,31 +86,27 @@ After injecting, start the dev server as usual:
 npm run dev
 ```
 
-### Adding a new sample dataset
+### Dataset format
 
-1. Generate an export from the CLI and write it to a JSON file:
+Datasets are OSS IQ export JSON files (plain `.json` or gzip-compressed `.json.gz`).
+The inject script decompresses `.gz` files transparently.
+
+### Adding a new dataset
+
+1. Export from the CLI:
    ```sh
-   ossiq scan ... --export export.json
+   ossiq-cli export --output export.json /path/to/project
    ```
-2. Move the file into `frontend/datasets/`:
+2. Move it into `frontend/datasets/`:
    ```sh
    mv export.json frontend/datasets/my_project.json
    ```
-3. Compress it (keeps the directory tidy; the inject script handles `.json.gz` transparently):
+3. Compress to keep the directory tidy (optional but preferred):
    ```sh
    gzip frontend/datasets/my_project.json
    # produces frontend/datasets/my_project.json.gz
    ```
 4. Run `npm run inject` and select the new file.
 
-### Run Unit Tests with [Vitest](https://vitest.dev/)
-
-```sh
-npm run test:unit
-```
-
-### Lint with [ESLint](https://eslint.org/)
-
-```sh
-npm run lint
-```
+See the main [README](../README.md) for full CLI reference including `--cutoff-date`,
+`--cooldown-period`, and other options that affect export output.
