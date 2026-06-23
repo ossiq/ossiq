@@ -2,6 +2,360 @@
 
 
 
+## v0.1.9 (2026-06-23)
+
+
+### Feature
+
+* feat: separate MSR APIs from cli (GH-75) ([`314c828`](https://github.com/ossiq/ossiq/commit/314c8283ccb4b6d4f20e21a09f90a86e08bb2609))
+There are two very different use cases provided by
+the OSS IQ package: a CLI, the command line interface
+to manage dependencies for NPM/PyPI and MSR APIs
+(Mining Software Repositories) to enable other
+projects leverage infrastructure to aggregate
+information across different dependencies sources.
+Also, updated Reference documentation to document
+MSR APIs.
+
+* feat: cooldown period, override package and security (GH-75) ([`9ca042c`](https://github.com/ossiq/ossiq/commit/9ca042c0ac783eec4dc7885b9b3134d30e5ff8e7))
+Finished consistent UX for the plan/apply behavior to
+cover use cases with cooldown period (7 days) with exception
+of the new transitive dependencies (warning for now).
+Added --override pkg==version option to force package
+versions which in quarantine (outside of cooldown period).
+Wrapped up --security option to just focus on security-related
+updates.
+
+* feat: added experimental implementation for lockfile-less projects (GH-75) ([`3d4ae22`](https://github.com/ossiq/ossiq/commit/3d4ae224bb5aa38254538e21f81d83f63a61f7cc))
+Additional use case for packages without lockfile. The example
+would be open source packages like React which are not final
+product and must keep dependencies flexible instead of locked.
+
+* feat: added cutoff date and update plan commands (GH-75) ([`1de85bc`](https://github.com/ossiq/ossiq/commit/1de85bcb152ad1c874a5b1c93a018a046a2fd795))
+Adde cutoff date param to produce deterministic
+update plans as well as execution of update plans
+directly via ossiq-cli without intermediate shell script.
+
+* feat: added concept of helper functions to simplify update process (GH-75) ([`f8ddb05`](https://github.com/ossiq/ossiq/commit/f8ddb05422274ba782cb5e47b3a1035d92ff4182))
+For NPM there's complicated process to freeze/unfreeze
+dependency tree which requires additional manipulations
+with package.json - hence added helpers (semi) dynamic
+interface to simplify update scripts.
+
+* feat: added NPM override diff subcommand to recover update state (GH-75) ([`f15b712`](https://github.com/ossiq/ossiq/commit/f15b71267b19c962d586807b7b2431a5eadfdd7e))
+After locking in package.json dependencies tree state leveraging
+override configuration special command needed to get package.json
+to the previous state, since everything is locked in now in package-lock.json
+
+* feat: introduced --ignore/-i option for the oss-iq (GH-75) ([`7418d5a`](https://github.com/ossiq/ossiq/commit/7418d5ab186059e32858ce9e6c4ac7f88b425c62))
+Introduced parameter to specify packages to ignore
+during solver phase/recommendations generation. It would
+allow to properly support overrides/internal knowledge
+about compatibility beyond what is in pyproject.toml/package.json
+
+* feat: Updated update command to accomodate new parameters (GH-75) ([`1e1ae16`](https://github.com/ossiq/ossiq/commit/1e1ae16d2eccc836ec61c019894d50f1b82d8c9d))
+Added new parameters to update command, to accomodate
+new user experience.
+
+* feat: version specifier rewrite for pypi and npm (GH-75) ([`2442812`](https://github.com/ossiq/ossiq/commit/24428125e752c72d4e4eca4818d2295d5f8c9342))
+First step of several to allow to modify version
+specifier during update process.
+
+* feat: added consideration of engine/python version (GH-75) ([`aa74569`](https://github.com/ossiq/ossiq/commit/aa74569360155e4bffa1fda4e3290ccd3ace00be))
+Completed the infrastructure to consider node engine
+and python version during update versions recommendations.
+
+* feat: added update command to udpate transitive and direct dependencies (GH-75) ([`d7f8847`](https://github.com/ossiq/ossiq/commit/d7f884702b734a6f09b2e887aa8432a9fca7674a))
+Added prototype of udpate command to generate commands (bash)
+for the respective package manager (pip/uv/npm) to properly
+update transitive and direct dependencies recommended by
+the solver.
+
+* feat: updated adapters to streamline work with versions (GH-75) ([`1758ae6`](https://github.com/ossiq/ossiq/commit/1758ae6083a7c6c790c1614c34221e6f53f2c338))
+Updated registry adapters as well as package manager adapter
+for UV to work with update command.
+
+* feat: prototype of separate transitive dependencies recommendations (GH-75) ([`1fe5088`](https://github.com/ossiq/ossiq/commit/1fe5088d80ce4c392f06cb7e606634cf1c05342f))
+Added --transitive command line (default: false) to show
+transitive dependencies recommendations report.
+
+* feat: update to solver to support dimond transitive dependency (GH-75) ([`28b31c6`](https://github.com/ossiq/ossiq/commit/28b31c6517c8801ad695c497afaa30ab9ef9eea1))
+Added initial step to support dimont transitive dependencies
+constraints as well as prepare for the transitive-aware
+update recommendations/actionable update recommendations.
+
+* feat: prototype of update command interface (GH-75) ([`c8edefd`](https://github.com/ossiq/ossiq/commit/c8edefdef21665a99e8561f1652df3a340a036dc))
+Prototype of the update command to generate atomic
+updates. In current implementation no transitive
+dependencies supported.
+
+* feat: refactored versions constraint parser to universe package (GH-76) ([`9c38772`](https://github.com/ossiq/ossiq/commit/9c3877287b0000790dd2128f69888e0f305d66ab))
+Refactored from hand-made prototype level dependencies versions
+constraint parser to `universe` package which is the most
+popular package for this task. Also, refactored SAT encoder
+to more readable version, so it is clear what variable/
+constraints are encoded into what. Fixed some comments.
+
+* feat: refactored solver prototype to consider transitive dependencies (GH-76) ([`9a40c60`](https://github.com/ossiq/ossiq/commit/9a40c604d9700ba4afc7ea4e8e1b2a4f81738562))
+Initial version were too slow even for small projects
+and disn't consider transitive dependencies. For larger
+projects it is important, since there might be hard
+constraints for what versions have to be used in
+the transitive dependencies.
+
+* feat: updated with transitive dependencies solver (GH-76) ([`44941bc`](https://github.com/ossiq/ossiq/commit/44941bce66910f93edcea69c5a6493ac1d5afbde))
+
+* feat: added use_solver command temporarily for solver validation (GH-76) ([`dbfab89`](https://github.com/ossiq/ossiq/commit/dbfab8973011bc515a4f9dc0b443d856b592ed70))
+
+* feat: added constraints encoder prototype (GH-76) ([`5667dc6`](https://github.com/ossiq/ossiq/commit/5667dc6dc5547be480d45b409b26c1cf90d88e53))
+
+* feat: initial implementation of solvable pool (GH-76) ([`0d8de3d`](https://github.com/ossiq/ossiq/commit/0d8de3d68fec7c9ebbd0f37c67abdad98d6a8895))
+Initial implementation of wiring dependencies
+data into a solver problem.
+
+* feat: initial steps for the dependency resolution solver (GH-76) ([`244d39a`](https://github.com/ossiq/ossiq/commit/244d39a17187a64856b5f5cb2f8ada0f4641bb0f))
+
+* feat: added version age to the HTML report (GH-43) ([`c4e43c4`](https://github.com/ossiq/ossiq/commit/c4e43c42f6fd118030df136abeaaf3fd826264f8))
+Added version age to the HTML report, also
+removed datasets -> generated dataset items and
+replaced with a UV script to generate datasets
+from testdata.
+
+* feat: added Version Age field to show age in absolute units (GH-43) ([`63d04cf`](https://github.com/ossiq/ossiq/commit/63d04cf855a72e820c265fc9a39a0a14ba610c4d))
+Added absolute age (days, months, years) in relation to
+the date of report generation to show how old package is.
+Sometimes, package could be on the latest version and
+Drift Status is Latest, but version age is 6 years.
+For 6 years package either is extremely good, or
+abandoned by the maintainer.
+
+* feat: added deprecated flag to the html report (GH-43) ([`0b9f71c`](https://github.com/ossiq/ossiq/commit/0b9f71ca0fb319f03cf29df8fe9773837bd88ae4))
+
+* feat: added console badge for deprecatred package (GH-43) ([`e619237`](https://github.com/ossiq/ossiq/commit/e61923742c14c58a8eaf4f47cbe5a5e3e5ffc9a7))
+
+* feat: updated schema with deprecated and unpublished attributes (GH-43) ([`07db3f8`](https://github.com/ossiq/ossiq/commit/07db3f8d7f946a87fb01988bc969edc727842257))
+
+* feat: added support of is_deprecated package and version for NPM (GH-43) ([`04fcbc8`](https://github.com/ossiq/ossiq/commit/04fcbc8a5c809625340f4efe0184599e0dd00d7e))
+
+* feat: added yanked/prerelease labels to package details in console (GH-43) ([`70c5a8a`](https://github.com/ossiq/ossiq/commit/70c5a8a5df6f5c033382145c4170561ba8e8433f))
+
+* feat: yanked and prerelease tags in the HTML report (GH-43) ([`afb8e97`](https://github.com/ossiq/ossiq/commit/afb8e97dd88e4745952b4a2edaf8e6699db6a06f))
+Added visual indication that installed version is
+yanked or pre-release in the HTML report:
+ - for Table View there's label "yanked"
+ - for Package Details there's label "yanked" next to
+   the package version
+ - for Dependency Tree Explorer it is new color (purple)
+   coding for nodes which are yanked from the PyPI.
+
+* feat: added export schema v1.4 for JSON and CSV (GH-43) ([`b62de5f`](https://github.com/ossiq/ossiq/commit/b62de5f6bdf2f0fa6d337886b3b2e9719e01d1bc))
+Added new export schema version to expose
+is_yanked and is_prerelease attributes.
+
+* feat: added --allow-prerelease and --allow-prerelease-package commands (GH-43) ([`0a19211`](https://github.com/ossiq/ossiq/commit/0a19211de20268328e5c5e3764015bf4422c786d))
+Added two command line parameters:
+ - `--allow-prerelease` - allows to install the "latest and greatest"
+   pre-release packages versions to risk it all.
+ - `--allow-prerelease-package=package-name` - allow to install
+   pre-release version of a specific package. Should be useful for
+   OSS contributors or for urgent CVE fixes.
+
+* feat: added package version attributes for yanked/prerelease versions (GH-43) ([`6050cac`](https://github.com/ossiq/ossiq/commit/6050cac250518dbb93301aac524fd69a4e67b851))
+Added package version attributes to reflect yankdex pypy package,
+or prerelease packages (e.g. 1.2.3rc1 and similar). Updated
+respective tests.
+
+
+### Fix
+
+* fix: issue with NPM and transitive dependencies overrides (GH-45) ([`1dd5c13`](https://github.com/ossiq/ossiq/commit/1dd5c137403a4b9feaf3c4c20cc47b6352015b8f))
+The issue is leftovers from GH-45 issue related to
+the method used to apply and keep transitive dependencies
+version. The original idea was to generate recommendations,
+write to `overrides`, run `npm install` and then remove
+overrides from the package.json. This approach doesn't work
+with NPM, since it is mandatory to keep package.json and
+package-lock.json in sync. But since specific (pinned)
+versions of transitivity is security/deterministic
+measure (we actually want to make sure recommended
+version will be installed regardless of `npm ci` or
+`npm install` methods to prevent "greedy" NPM behavior).
+
+* fix: fixed markup and styling for Scan Report view in HTML report ([`b267f44`](https://github.com/ossiq/ossiq/commit/b267f44f69ce7ee62d3e9fbe037c08636bd6ba7b))
+The Recommended Version column was missing and license wasn't
+visible in the table. Fixed both.
+
+* fix: fixed stale exact pin issue for NPM (GH-45) ([`8e954c0`](https://github.com/ossiq/ossiq/commit/8e954c0b1c425c23e2135cc84714d3e2c28821ea))
+vite 8.0.7 pins rolldown to "==1.0.0rc1" exactly.
+After vite bumps to 8.0.15, rolldown is pinned to
+"==1.0.0rc3". The old exact constraint from vite 8.0.7
+is in rolldown's all_constraints. Without the fix,
+merged constraints ["==1.0.0rc1", "==1.0.0rc3"]
+are impossible, hence is_actionable=False. Tagged
+with the closed GH-45 issue, since it is related.
+
+* fix: fixed various npm-related issues with transitive dependencies (GH-75) ([`8bc5297`](https://github.com/ossiq/ossiq/commit/8bc529716f880cb3ec04ea07b7da0c113067877f))
+ - Simplified NPM_BARE_SEMVER regexp
+ - Fixed optional dependencies traversal for transitive dependencies
+ - Changed behavior of `apply` command for the NPM to keep
+   overwritten versions inside package.json due to
+   package.json/package-lock.json divergence.
+
+* fix: fixed import for cli and recommended version for uv (GH-75) ([`60accda`](https://github.com/ossiq/ossiq/commit/60accdabbb90655732e0fe9a8d8cb0ce9741b023))
+There was wrong version of package used during update
+bash script generation.
+
+* fix: fixed detection of installed packages for recommendations report (GH-75) ([`baffd7f`](https://github.com/ossiq/ossiq/commit/baffd7f19eab8547fc29ab6c3423aa571fa9f4ae))
+Transitive dependencies from optional section were not considered
+during scan, hence updates for the transitive dependencies
+recommendations were considered as the "new" dependencies.
+
+* fix: fixed issue with version age and updated console UI (GH-76) ([`5a774ac`](https://github.com/ossiq/ossiq/commit/5a774aceedef439f4f9ffc57b9c6698131cf40cb))
+Fixed an issue with too large version age options,
+added highlight to recommended version in the scan output
+in case recommended doesn't match the latest and removed
+duplicates in transitive dependencies recommendations.
+
+* fix: fixed schema issues in 1.4 and version_age_days (GH-43) ([`f6e08ec`](https://github.com/ossiq/ossiq/commit/f6e08ec95647cf1e101acbe15712be6b3bccf5e6))
+Fixed issue with the version_age_days field and
+refactored tests to follow the same pattern as
+JSON schema tests.
+
+* fix: fixed package view in console to show unpublished and deprecated (GH-43) ([`0e7a6a4`](https://github.com/ossiq/ossiq/commit/0e7a6a4166e393533865392dc240b16f43043035))
+
+* fix: fixed conflict with installed beta versions and allow prerelease flag (GH-43) ([`f7d68df`](https://github.com/ossiq/ossiq/commit/f7d68df180b3bcac03c6ec0f08abf38c0847a441))
+
+* fix: fixed bug with legacy licenses in NPM and path expantion (GH-43) ([`ac8425a`](https://github.com/ossiq/ossiq/commit/ac8425a9a893fbb6e50de139f11fd06944212460))
+Fixed use case with legacy licenses representation in NPM and
+path expantion which haven't supported tilde ~ home folder.
+
+
+### Refactor
+
+* refactor: overhauled UX for the command line interface (GH-75) ([`c745276`](https://github.com/ossiq/ossiq/commit/c745276a9bf939cca21b4f17f8ecf15870fc2d8b))
+Inspired by the article
+https://www.loopwerk.io/articles/2026/uv-ux-mess/
+and overhauled UX with the command line, since after
+introduction of all the parameters it was confusing
+and very non-intuitive how to use command line tool.
+
+* refactor: changed solver to PySAT/Glucose (GH-75) ([`8f8c617`](https://github.com/ossiq/ossiq/commit/8f8c617f67c73d1a73a69592a0b21f8924c88937))
+Changed RC2Stratified MaxSAT optimization solver
+to Glucose to basically pick the newest version,
+avoid deprecated preference without MaxSAT overhead.
+
+* refactor: report peer dependencies violations status only in --full mode (GH-75) ([`8558feb`](https://github.com/ossiq/ossiq/commit/8558feb3c573df43d3f207aee981a894b720997b))
+By default, only conflicting NPM Peers Dependencies
+violations are reported, status of all violations,
+even successfull ones reported onder --full scan mode.
+
+* refactor: simplified console UX for scan and export commands (GH-75) ([`8f96896`](https://github.com/ossiq/ossiq/commit/8f968966f346e40fc36cc396eba44f7c185f6caf))
+Removed --solver and --transitive modes and enable behavior
+by default (we always want to recommend both) as well as
+introduce --full flag and change default scan behavior: now
+it reports only actionable updates and with --full it will
+report state of the all dependencies on the project. The
+intent is to reduce noise for the end user, since most
+likely sequence of `scan`, then `update` would be used.
+
+* refactor: refactored ladder_amo to be a bit more readable (GH-76) ([`cf80040`](https://github.com/ossiq/ossiq/commit/cf80040c941d72358693094da344996a2a4cbab5))
+The original prototype has hard to read implementation of the
+ladder encoding.
+
+
+### Documentation
+
+* docs: udpated READMEs, QA checklist ([`ad1c16c`](https://github.com/ossiq/ossiq/commit/ad1c16ce16b7a927d73093009a8122ff1db7119d))
+
+* docs: fixed left padding for mobile view on landing ([`9b0c2b1`](https://github.com/ossiq/ossiq/commit/9b0c2b1dc99e311b4c22215cb23eeacd804c7c6e))
+
+* docs: updated documentation, landing and screenshots ([`9d54afe`](https://github.com/ossiq/ossiq/commit/9d54afe59c2589ac5db6a5062d93d4f128440b02))
+
+* docs: udpated reports, screenshots and getting started document ([`06a1c1a`](https://github.com/ossiq/ossiq/commit/06a1c1a7a6eaff1a32c543dbf71de12c10642b2d))
+
+* docs: updated landing and fixed journal navigation ([`3b4a8ee`](https://github.com/ossiq/ossiq/commit/3b4a8eee3f59a3dfe9e7f9d3e5507143f51b582e))
+
+* docs: udpated landing and fixed some mistakes in other docs ([`e95d0f5`](https://github.com/ossiq/ossiq/commit/e95d0f5a9ff62490382e9aeb16d52c426d7d2baa))
+
+* docs: added Github Read-Only PAT section ([`0a99c79`](https://github.com/ossiq/ossiq/commit/0a99c7993c6544d3a2b1aaaf5904a07a518385fb))
+Added section how ot expose Github Token
+securely via Read-Only PAT.
+
+* docs: updated reference and explanation (GH-75) ([`31f2289`](https://github.com/ossiq/ossiq/commit/31f2289792c53f0cba5652c0431b75c034bd50c0))
+Added motivation and process description around
+--security, --pin-all, plan/apply behavior and
+--override.
+
+* docs: fixed mistakes for the AI-generated code article ([`4e893d8`](https://github.com/ossiq/ossiq/commit/4e893d83d7332c02305aa4595521a0ed75c8fc9e))
+ - added mobile version with hamburger menu
+ - added "subscribe" option
+ - fixed mistakes in layout and text
+ - added "authors" and "designed by" sections
+ - fixed mistakes in references and sources
+docs: initial iteration for hamburger menu
+docs: refactored chart to use same charting library
+docs: finished chapters 4 and 5
+docs: updated chapters up to 11
+docs: finished main chapter content edits
+docs: wrapped up article references
+docs: added authors to the article
+docs: cleaned up artifacts and some little details
+
+* docs: added journal with initial iteration of the first article ([`dc2e501`](https://github.com/ossiq/ossiq/commit/dc2e5010e0d2ac918533b63908876a6319650321))
+
+* docs: updated documentation and qa test cases (GH-75) ([`78e21da`](https://github.com/ossiq/ossiq/commit/78e21da9af23ba1ffe13a03952d2033b1a48a2f6))
+
+* docs: added high level docs for the dependencies solver (GH-76) ([`a467e27`](https://github.com/ossiq/ossiq/commit/a467e27f9e4b8cecfa03c75e852426b75016e056))
+
+
+### Chore
+
+* chore: updated frontend build and transitive dependencies ([`63cb1b5`](https://github.com/ossiq/ossiq/commit/63cb1b5df36cfa4bf6056a30f9c129f013cda728))
+
+* chore: bumped few packages with plan/apply commands ([`4bb49e2`](https://github.com/ossiq/ossiq/commit/4bb49e2c0c0b5eaac8bf185d314ab6f5f40ab0e2))
+
+* chore: fixed some tests and minor api_github adapter refactoring (GH-75) ([`3f36360`](https://github.com/ossiq/ossiq/commit/3f36360ba53a42601cbc8330873fafc332576e8a))
+Refactored back underscore methods names inside
+api_github.py, since it makes it less readable.
+
+* chore: updated packages for the html renderer (GH-75) ([`f2e77b7`](https://github.com/ossiq/ossiq/commit/f2e77b7e9ce02f34fa8054f473e0f80c1da610cd))
+
+* chore: added automated tests script for QA at scale (GH-75) ([`50f2171`](https://github.com/ossiq/ossiq/commit/50f2171ba83bed6b47081c81353d856a1941f1b4))
+
+* chore: added recommended version to export schema and fixed npm (GH-75) ([`af9fee1`](https://github.com/ossiq/ossiq/commit/af9fee1aad993354b294fe294387a22c3d79ee41))
+The restore override state logic wasn't correct and fixed.
+
+* chore: dogfooded own ossiq update command to update versions (GH-75) ([`4efafee`](https://github.com/ossiq/ossiq/commit/4efafee9462db78d441061b22bc377b9b5d8e2ba))
+Used output of update command to introduce changes into lockfile
+with the latest recommended versions. Didin't work well with
+pyproject.toml, since it is a library and pinning could mess
+up dependent projects.
+
+* chore: updated readme, QA test cases and some minor fixes (GH-75) ([`388b12e`](https://github.com/ossiq/ossiq/commit/388b12ecde16f7d4fd1fd59bc8ae639bf7d9a5d6))
+
+* chore: increased default solver timeout to 120 (GH-76) ([`c0ff58d`](https://github.com/ossiq/ossiq/commit/c0ff58d5feba45586c8158c98c4f20f2a7d15e86))
+Increased solver timeout to 120 seconds by default
+for larger projects. Later on should be moved to
+a command line parameter.
+
+* chore: added preliminary QA process to validate that release is good (GH-76) ([`14ccf46`](https://github.com/ossiq/ossiq/commit/14ccf46126e0cf8c5622a0d1ff4042ea5ac1ba04))
+There are enough functionality now in the OSS IQ, so that QA
+need to be structured. Added lightweight process to
+QA new releases.
+
+* chore: simplified schema versions tests (GH-43) ([`447a271`](https://github.com/ossiq/ossiq/commit/447a271a561c2350c915c7a557323b957e078d98))
+
+* chore: bumped postcss version (GH-43) ([`81d7b4d`](https://github.com/ossiq/ossiq/commit/81d7b4d2a31c6939363f9745521996e9efdfc8d1))
+
+
+### Unknown
+
+* unknown: light edits on the text ([`a207967`](https://github.com/ossiq/ossiq/commit/a207967075993a5ffaf3b69a0eb067c4f2d9dc95))
+
+* unknown: fixup! feat: prototype of update command interface ([`7090e09`](https://github.com/ossiq/ossiq/commit/7090e091b3e827fa4206c68263ca1c20089bd03b))
+
+* unknown: fixup! feat: refactored versions constraint parser to universe package ([`0754494`](https://github.com/ossiq/ossiq/commit/07544948f04859c56c10cd95eea77a9d49d137ed))
+
 ## v0.1.8 (2026-04-29)
 
 
