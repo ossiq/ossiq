@@ -381,11 +381,11 @@ For reports produced by OSS IQ before v1.2 (which lack a `constraint_type` field
 
 #### Console — Scan Table
 
-The `scan` command prints two dependency tables — one for production packages, one for development — to the terminal. Each row shows `package_name`, CVE count, drift status, `installed_version`, `latest_version`, `releases_lag`, and `time_lag_days`.
+The `status` command prints two dependency tables — one for production packages, one for development — to the terminal. Each row shows `package_name`, CVE count, drift status, `installed_version`, `latest_version`, `releases_lag`, and `time_lag_days`.
 
 #### Console — Package Detail
 
-The `package` command prints a six-section report for a single dependency:
+The `info` command prints a six-section report for a single dependency:
 
 1. **Drift status** — version comparison with an ASCII time-lag progress bar
 2. **Dependency tree trace** — ancestor path from the project root to the package
@@ -396,7 +396,7 @@ The `package` command prints a six-section report for a single dependency:
 
 #### HTML Report
 
-The `scan --presentation html` command produces a self-contained HTML file embedding an interactive Vue.js single-page application. The report includes the full dependency tables and the **Transitive Dependency Explorer**: an interactive D3 tree that visualises the `transitive_packages` dependency graph.
+The `status --presentation html` command produces a self-contained HTML file embedding an interactive Vue.js single-page application. The report includes the full dependency tables and the **Transitive Dependency Explorer**: an interactive D3 tree that visualises the `transitive_packages` dependency graph.
 
 The Explorer supports:
 
@@ -411,7 +411,7 @@ For full Explorer interaction details, see [EXPLORER.md](https://github.com/ossi
 
 #### JSON Export
 
-The `export --output-format json` command writes a single `.json` file conforming to [export schema v1.1](../src/ossiq/ui/renderers/export/schemas/export_schema_v1.1.json). The root object contains:
+The `export --output-format json` command writes a single `.json` file conforming to [export schema v1.4](../src/ossiq/ui/renderers/export/schemas/export_schema_v1.4.json) by default. The root object contains:
 
 | Key | Contents |
 |---|---|
@@ -439,7 +439,7 @@ OSS IQ makes four commitments to users who depend on its output in CI pipelines,
 
 ### Export Schema Stability
 
-Each export schema version is identified by `schema_version` in the `metadata` block (e.g. `"1.1"`). The `export --schema-version` flag pins output to a specific version.
+Each export schema version is identified by `schema_version` in the `metadata` block (e.g. `"1.4"`). The `export --schema-version` flag pins output to a specific version.
 
 Within a schema version:
 

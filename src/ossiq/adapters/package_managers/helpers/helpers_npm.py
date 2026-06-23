@@ -1,4 +1,4 @@
-"""CLI handlers for NPM helper sub-commands (freeze-state, restore-state, overrides-diff)."""
+"""CLI handlers for NPM helper sub-commands."""
 
 from typing import Annotated
 
@@ -16,8 +16,8 @@ from ossiq.unit_of_work import uow_project
 npm_helpers_app = typer.Typer(name="npm", help="NPM helper utilities")
 
 
-@npm_helpers_app.command("freeze-state")
-def npm_freeze_state(
+@npm_helpers_app.command("apply-state")
+def npm_apply_state(
     ctx: typer.Context,
     project_path: Annotated[str, typer.Argument()] = ".",
     allow_prerelease: Annotated[
@@ -42,7 +42,7 @@ def npm_freeze_state(
     ] = False,
     override: Annotated[list[str] | None, typer.Option("--override", help=HELP_OVERRIDE_PACKAGE)] = None,
 ) -> None:
-    """Lock full dependency tree in package.json overrides and save state for safe update."""
+    """Apply final package.json specifiers and transitive overrides for manual npm install."""
     settings: Settings = ctx.obj
     overrides = parse_override_specs(override)
 
@@ -73,53 +73,5 @@ def npm_freeze_state(
     )
 
     assert isinstance(uow.packages_manager, PackageManagerJsNpm)
-    uow.packages_manager.freeze_state(plan)
-    typer.echo(f"State saved. Overrides written: {len(plan.installed_versions)} packages locked.")
-
-
-@npm_helpers_app.command("finalize-state")
-def npm_finalize_state(
-    ctx: typer.Context,
-    project_path: Annotated[str, typer.Argument()] = ".",
-) -> None:
-    """Relax direct specifiers to their final form and sync the lockfile after npm install."""
-    settings: Settings = ctx.obj
-    npm_pm = PackageManagerJsNpm(project_path, settings)
-    try:
-        message = npm_pm.finalize_state(project_path)
-        typer.echo(message)
-    except FileNotFoundError as e:
-        typer.echo(str(e), err=True)
-        raise typer.Exit(1) from None
-
-
-@npm_helpers_app.command("restore-state")
-def npm_restore_state(
-    ctx: typer.Context,
-    project_path: Annotated[str, typer.Argument()] = ".",
-) -> None:
-    """Restore original package.json overrides after npm install and delete state file."""
-    settings: Settings = ctx.obj
-    npm_pm = PackageManagerJsNpm(project_path, settings)
-    try:
-        message = npm_pm.restore_state(project_path)
-        typer.echo(message)
-    except FileNotFoundError as e:
-        typer.echo(str(e), err=True)
-        raise typer.Exit(1) from None
-
-
-@npm_helpers_app.command("overrides-diff")
-def npm_overrides_diff(
-    ctx: typer.Context,
-    project_path: Annotated[str, typer.Argument()] = ".",
-) -> None:
-    """Show diff between current package.json overrides and original (read-only)."""
-    settings: Settings = ctx.obj
-    npm_pm = PackageManagerJsNpm(project_path, settings)
-    try:
-        diff = npm_pm.overrides_diff(project_path)
-        typer.echo(diff)
-    except FileNotFoundError as e:
-        typer.echo(str(e), err=True)
-        raise typer.Exit(1) from None
+    message = uow.packages_manager.apply_state(plan)
+    typer.echo(message)

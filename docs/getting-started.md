@@ -33,17 +33,34 @@ Get **OSS IQ** up and running in your terminal to analyze your first project.
 
 :::{note}
 
+### Github Personal Access Token
 GitHub limits unauthenticated API requests to 60 per hour, 
 which is typically insufficient for a full scan. Because OSS IQ employs 
 Mining Software Repository (MSR) techniques to analyze differences across 
 many versions (e.g., high-velocity projects like TypeScript), 
 it may perform hundreds of requests per run.
 
-To ensure a complete analysis, please provide a GitHub Personal Access Token (PAT):
+To ensure a complete analysis, please provide a [GitHub Personal Access Token (PAT)](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens#about-personal-access-tokens):
 
+There are two ways to get the token
+
+### Personal token from the session
+
+The easiest is to expose it from your auth session:
 ```bash
 export OSSIQ_GITHUB_TOKEN=$(gh auth token);
 ```
+
+### Read-Only Public Repositories Token
+More **secure** way is to generate separate, **read-only** Personal Access Token in
+[Github Settings -> Developer Settings -> Fine-grained tokens](https://github.com/settings/personal-access-tokens/new) with
+**Repository access** setting set to **Public repositories** without additional permissions.
+
+```bash
+export OSSIQ_GITHUB_TOKEN=replace-with-generated-token;
+```
+
+
 :::
 
  1. **Run your first dependencies analysis**
@@ -63,7 +80,7 @@ export OSSIQ_GITHUB_TOKEN=$(gh auth token);
 
     OSS IQ provides a high-level risk score and breaks down specific signals for both security (vulnerabilities) and maintenance (activity, overhead, and health).
 
-    ![OSS IQ Terminal/CLI Report](/img/ossiq-cli-report-2026-03-14.png)
+    ![OSS IQ Terminal/CLI Report](/_static/images/ossiq-cli-report-2026-06-20.png)
 
 
 ## Package Details
@@ -73,9 +90,9 @@ Get a specific package details:
 uvx --from ossiq ossiq-cli info sphinx
 ```
 
-![OSS IQ Terminal/CLI Package Details](/img/ossiq-cli-package-2026-03-14.png)
+![OSS IQ Terminal/CLI Package Details](/_static/images/ossiq-cli-package-2026-06-20.png)
 
-
+r
 ## HTML Report
 
  1. Generate HTML report:
@@ -84,18 +101,16 @@ uvx --from ossiq ossiq-cli info sphinx
     ```
 
  2. Open `report.html` and you'll get table view of your dependencies:
-    ![OSS IQ HTML Report](/img/ossiq-html-report-2026-03-14.png)
+    ![OSS IQ HTML Report](/_static/images/ossiq-html-report-2026-06-20.png)
 
  3. Click on the **Transitive Dependencies** tab on the top:
-    ![OSS IQ Transitive Dependencies Report](/img/ossiq-html-transitive-dependencies-2026-03-14.png)
+    ![OSS IQ Transitive Dependencies Report](/_static/images/ossiq-html-transitive-dependencies-2026-06-20.png)
 
  4. Click on a dependency node (blue circle):
-    ![OSS IQ Transitive Dependencies Package Details](/img/ossiq-html-transitive-dependencies-package-2026-03-14.png)
+    ![OSS IQ Transitive Dependencies Package Details](/_static/images/ossiq-html-transitive-dependencies-package-2026-06-20.png)
 
-   From the report you could conclude that [eslint-plugin-vue](https://www.npmjs.com/package/eslint-plugin-vue) with
-   version `10.8.0` has pretty old [semver](https://www.npmjs.com/package/semver) dependency - the latest version is `7.7.4` while dependend version is `6.3.1`.
-
-
+   From the report you could conclude that [vue](https://www.npmjs.com/package/vue) with
+   version `3.5.38` and that `3.5.38` is the latest version of the package.
 
 ## Export to JSON or CSV
 

@@ -40,13 +40,13 @@
 	}
 })();
 //#endregion
-//#region node_modules/@vue/shared/dist/shared.esm-bundler.js
+//#region node_modules/vue/node_modules/@vue/shared/dist/shared.esm-bundler.js
 /**
-* @vue/shared v3.5.38
+* @vue/shared v3.5.35
 * (c) 2018-present Yuxi (Evan) You and Vue contributors
 * @license MIT
 **/
-// @__NO_SIDE_EFFECTS__
+/* @__NO_SIDE_EFFECTS__ */
 function makeMap(str) {
 	const map = /* @__PURE__ */ Object.create(null);
 	for (const key of str.split(",")) map[key] = 1;
@@ -219,9 +219,9 @@ var stringifySymbol = (v, i = "") => {
 	return isSymbol(v) ? `Symbol(${(_a = v.description) != null ? _a : i})` : v;
 };
 //#endregion
-//#region node_modules/@vue/reactivity/dist/reactivity.esm-bundler.js
+//#region node_modules/vue/node_modules/@vue/reactivity/dist/reactivity.esm-bundler.js
 /**
-* @vue/reactivity v3.5.38
+* @vue/reactivity v3.5.35
 * (c) 2018-present Yuxi (Evan) You and Vue contributors
 * @license MIT
 **/
@@ -1194,16 +1194,16 @@ function targetTypeMap(rawType) {
 		default: return 0;
 	}
 }
-// @__NO_SIDE_EFFECTS__
+/* @__NO_SIDE_EFFECTS__ */
 function reactive(target) {
 	if (/* @__PURE__ */ isReadonly(target)) return target;
 	return createReactiveObject(target, false, mutableHandlers, mutableCollectionHandlers, reactiveMap);
 }
-// @__NO_SIDE_EFFECTS__
+/* @__NO_SIDE_EFFECTS__ */
 function shallowReactive(target) {
 	return createReactiveObject(target, false, shallowReactiveHandlers, shallowCollectionHandlers, shallowReactiveMap);
 }
-// @__NO_SIDE_EFFECTS__
+/* @__NO_SIDE_EFFECTS__ */
 function readonly(target) {
 	return createReactiveObject(target, true, readonlyHandlers, readonlyCollectionHandlers, readonlyMap);
 }
@@ -1219,24 +1219,24 @@ function createReactiveObject(target, isReadonly2, baseHandlers, collectionHandl
 	proxyMap.set(target, proxy);
 	return proxy;
 }
-// @__NO_SIDE_EFFECTS__
+/* @__NO_SIDE_EFFECTS__ */
 function isReactive(value) {
 	if (/* @__PURE__ */ isReadonly(value)) return /* @__PURE__ */ isReactive(value["__v_raw"]);
 	return !!(value && value["__v_isReactive"]);
 }
-// @__NO_SIDE_EFFECTS__
+/* @__NO_SIDE_EFFECTS__ */
 function isReadonly(value) {
 	return !!(value && value["__v_isReadonly"]);
 }
-// @__NO_SIDE_EFFECTS__
+/* @__NO_SIDE_EFFECTS__ */
 function isShallow(value) {
 	return !!(value && value["__v_isShallow"]);
 }
-// @__NO_SIDE_EFFECTS__
+/* @__NO_SIDE_EFFECTS__ */
 function isProxy(value) {
 	return value ? !!value["__v_raw"] : false;
 }
-// @__NO_SIDE_EFFECTS__
+/* @__NO_SIDE_EFFECTS__ */
 function toRaw(observed) {
 	const raw = observed && observed["__v_raw"];
 	return raw ? /* @__PURE__ */ toRaw(raw) : observed;
@@ -1247,15 +1247,15 @@ function markRaw(value) {
 }
 var toReactive = (value) => isObject$1(value) ? /* @__PURE__ */ reactive(value) : value;
 var toReadonly = (value) => isObject$1(value) ? /* @__PURE__ */ readonly(value) : value;
-// @__NO_SIDE_EFFECTS__
+/* @__NO_SIDE_EFFECTS__ */
 function isRef(r) {
 	return r ? r["__v_isRef"] === true : false;
 }
-// @__NO_SIDE_EFFECTS__
+/* @__NO_SIDE_EFFECTS__ */
 function ref(value) {
 	return createRef(value, false);
 }
-// @__NO_SIDE_EFFECTS__
+/* @__NO_SIDE_EFFECTS__ */
 function shallowRef(value) {
 	return createRef(value, true);
 }
@@ -1322,7 +1322,7 @@ var CustomRefImpl = class {
 function customRef(factory) {
 	return new CustomRefImpl(factory);
 }
-// @__NO_SIDE_EFFECTS__
+/* @__NO_SIDE_EFFECTS__ */
 function toRefs(object) {
 	const ret = isArray$2(object) ? new Array(object.length) : {};
 	for (const key in object) ret[key] = propertyToRef(object, key);
@@ -1425,7 +1425,7 @@ var ComputedRefImpl = class {
 		if (this.setter) this.setter(newValue);
 	}
 };
-// @__NO_SIDE_EFFECTS__
+/* @__NO_SIDE_EFFECTS__ */
 function computed$1(getterOrOptions, debugOptions, isSSR = false) {
 	let getter;
 	let setter;
@@ -1505,9 +1505,8 @@ function watch$1(source, cb, options = EMPTY_OBJ) {
 	if (once && cb) {
 		const _cb = cb;
 		cb = (...args) => {
-			const res = _cb(...args);
+			_cb(...args);
 			watchHandle();
-			return res;
 		};
 	}
 	let oldValue = isMultiSource ? new Array(source.length).fill(INITIAL_WATCHER_VALUE) : INITIAL_WATCHER_VALUE;
@@ -1515,7 +1514,7 @@ function watch$1(source, cb, options = EMPTY_OBJ) {
 		if (!(effect.flags & 1) || !effect.dirty && !immediateFirstRun) return;
 		if (cb) {
 			const newValue = effect.run();
-			if (immediateFirstRun || deep || forceTrigger || (isMultiSource ? newValue.some((v, i) => hasChanged(v, oldValue[i])) : hasChanged(newValue, oldValue))) {
+			if (deep || forceTrigger || (isMultiSource ? newValue.some((v, i) => hasChanged(v, oldValue[i])) : hasChanged(newValue, oldValue))) {
 				if (cleanup) cleanup();
 				const currentWatcher = activeWatcher;
 				activeWatcher = effect;
@@ -1572,9 +1571,9 @@ function traverse(value, depth = Infinity, seen) {
 	return value;
 }
 //#endregion
-//#region node_modules/@vue/runtime-core/dist/runtime-core.esm-bundler.js
+//#region node_modules/vue/node_modules/@vue/runtime-core/dist/runtime-core.esm-bundler.js
 /**
-* @vue/runtime-core v3.5.38
+* @vue/runtime-core v3.5.35
 * (c) 2018-present Yuxi (Evan) You and Vue contributors
 * @license MIT
 **/
@@ -1916,9 +1915,9 @@ function setTransitionHooks(vnode, hooks) {
 		vnode.ssFallback.transition = hooks.clone(vnode.ssFallback);
 	} else vnode.transition = hooks;
 }
-// @__NO_SIDE_EFFECTS__
+/* @__NO_SIDE_EFFECTS__ */
 function defineComponent(options, extraOptions) {
-	return isFunction(options) ? /* @__PURE__ */ (() => extend$1({ name: options.name }, extraOptions, { setup: options }))() : options;
+	return isFunction(options) ? extend$1({ name: options.name }, extraOptions, { setup: options }) : options;
 }
 function markAsyncBoundary(instance) {
 	instance.ids = [
@@ -2533,13 +2532,12 @@ function useModel(props, name, options = EMPTY_OBJ) {
 				const emittedValue = options.set ? options.set(value) : value;
 				if (!hasChanged(emittedValue, localValue) && !(prevSetValue !== EMPTY_OBJ && hasChanged(value, prevSetValue))) return;
 				const rawProps = i.vnode.props;
-				const hasVModel = !!(rawProps && (name in rawProps || camelizedName in rawProps || hyphenatedName in rawProps) && (`onUpdate:${name}` in rawProps || `onUpdate:${camelizedName}` in rawProps || `onUpdate:${hyphenatedName}` in rawProps));
-				if (!hasVModel) {
+				if (!(rawProps && (name in rawProps || camelizedName in rawProps || hyphenatedName in rawProps) && (`onUpdate:${name}` in rawProps || `onUpdate:${camelizedName}` in rawProps || `onUpdate:${hyphenatedName}` in rawProps))) {
 					localValue = value;
 					trigger();
 				}
 				i.emit(`update:${name}`, emittedValue);
-				if (hasChanged(value, prevSetValue) && (hasChanged(value, emittedValue) && !hasChanged(emittedValue, prevEmittedValue) || hasVModel && prevSetValue !== EMPTY_OBJ && !hasChanged(emittedValue, localValue))) trigger();
+				if (hasChanged(value, emittedValue) && hasChanged(value, prevSetValue) && !hasChanged(emittedValue, prevEmittedValue)) trigger();
 				prevSetValue = value;
 				prevEmittedValue = emittedValue;
 			}
@@ -2953,11 +2951,13 @@ var updateSlots = (instance, children, optimized) => {
 		for (const key in slots) if (!isInternalKey(key) && deletionComparisonTarget[key] == null) delete slots[key];
 	}
 };
+function initFeatureFlags() {}
 var queuePostRenderEffect = queueEffectWithSuspense;
 function createRenderer(options) {
 	return baseCreateRenderer(options);
 }
 function baseCreateRenderer(options, createHydrationFns) {
+	initFeatureFlags();
 	const target = getGlobalThis();
 	target.__VUE__ = true;
 	const { insert: hostInsert, remove: hostRemove, patchProp: hostPatchProp, createElement: hostCreateElement, createText: hostCreateText, createComment: hostCreateComment, setText: hostSetText, setElementText: hostSetElementText, parentNode: hostParentNode, nextSibling: hostNextSibling, setScopeId: hostSetScopeId = NOOP, insertStaticContent: hostInsertStaticContent } = options;
@@ -4125,11 +4125,11 @@ function h$1(type, propsOrChildren, children) {
 		setBlockTracking(1);
 	}
 }
-var version = "3.5.38";
+var version = "3.5.35";
 //#endregion
-//#region node_modules/@vue/runtime-dom/dist/runtime-dom.esm-bundler.js
+//#region node_modules/vue/node_modules/@vue/runtime-dom/dist/runtime-dom.esm-bundler.js
 /**
-* @vue/runtime-dom v3.5.38
+* @vue/runtime-dom v3.5.35
 * (c) 2018-present Yuxi (Evan) You and Vue contributors
 * @license MIT
 **/
@@ -4617,7 +4617,7 @@ var MutationType;
 	*/
 	MutationType["patchFunction"] = "patch function";
 })(MutationType || (MutationType = {}));
-var _global = /*#__PURE__*/ (() => typeof window === "object" && window.window === window ? window : typeof self === "object" && self.self === self ? self : typeof global === "object" && global.global === global ? global : typeof globalThis === "object" ? globalThis : { HTMLElement: null })();
+var _global = typeof window === "object" && window.window === window ? window : typeof self === "object" && self.self === self ? self : typeof global === "object" && global.global === global ? global : typeof globalThis === "object" ? globalThis : { HTMLElement: null };
 function bom(blob, { autoBom = false } = {}) {
 	if (autoBom && /^\s*(?:text\/\S*|application\/xml|\S*\/\S*\+xml)\s*;.*charset\s*=\s*utf-8/i.test(blob.type)) return new Blob([String.fromCharCode(65279), blob], { type: blob.type });
 	return blob;
@@ -4666,7 +4666,7 @@ function click(node) {
 	}
 }
 var _navigator = typeof navigator === "object" ? navigator : { userAgent: "" };
-var isMacOSWebView = /*#__PURE__*/ (() => /Macintosh/.test(_navigator.userAgent) && /AppleWebKit/.test(_navigator.userAgent) && !/Safari/.test(_navigator.userAgent))();
+var isMacOSWebView = /Macintosh/.test(_navigator.userAgent) && /AppleWebKit/.test(_navigator.userAgent) && !/Safari/.test(_navigator.userAgent);
 var saveAs = !IS_CLIENT ? () => {} : typeof HTMLAnchorElement !== "undefined" && "download" in HTMLAnchorElement.prototype && !isMacOSWebView ? downloadSaveAs : "msSaveOrOpenBlob" in _navigator ? msSaveAs : fileSaverSaveAs;
 function downloadSaveAs(blob, name = "download", opts) {
 	const a = document.createElement("a");
@@ -5499,7 +5499,14 @@ function Xr(t = "top", r = "right", i = "bottom", e = "left") {
 		]
 	};
 }
-Re("margin"), Re("padding"), Re("scroll-margin"), Re("scroll-padding"), Re("border", "top-width", "right-width", "bottom-width", "left-width"), Re("border", "top-style", "right-style", "bottom-style", "left-style"), Re("border", "top-color", "right-color", "bottom-color", "left-color");
+function le(t, r) {
+	return {
+		1: [[t, 0], [r, 0]],
+		2: [[t, 0], [r, 1]]
+	};
+}
+Xr(), Re("margin"), Re("padding"), Re("scroll-margin"), Re("scroll-padding"), Re("border", "top-width", "right-width", "bottom-width", "left-width"), Re("border", "top-style", "right-style", "bottom-style", "left-style"), Re("border", "top-color", "right-color", "bottom-color", "left-color"), le("row-gap", "column-gap"), le("overflow-x", "overflow-y"), le("overscroll-behavior-x", "overscroll-behavior-y");
+le("top", "bottom"), le("left", "right"), le("margin-top", "margin-bottom"), le("margin-left", "margin-right"), le("padding-top", "padding-bottom"), le("padding-left", "padding-right"), le("scroll-margin-top", "scroll-margin-bottom"), le("scroll-margin-left", "scroll-margin-right"), le("scroll-padding-top", "scroll-padding-bottom"), le("scroll-padding-left", "scroll-padding-right");
 var Dt = ((n) => (n[n.None = 0] = "None", n[n.AtProperty = 1] = "AtProperty", n[n.ColorMix = 2] = "ColorMix", n[n.All = 3] = "All", n))(Dt || {});
 var ze = ((u) => (u[u.None = 0] = "None", u[u.AtApply = 1] = "AtApply", u[u.AtImport = 2] = "AtImport", u[u.JsPluginCompat = 4] = "JsPluginCompat", u[u.ThemeFunction = 8] = "ThemeFunction", u[u.Utilities = 16] = "Utilities", u[u.Variants = 32] = "Variants", u[u.AtTheme = 64] = "AtTheme", u))(ze || {});
 //#endregion
@@ -7757,7 +7764,7 @@ var ReportFilters_default = /* @__PURE__ */ defineComponent({
 		"timeLag": { required: true },
 		"timeLagModifiers": {}
 	},
-	emits: /*@__PURE__*/ mergeModels(["reset"], [
+	emits: /* @__PURE__ */ mergeModels(["reset"], [
 		"update:searchText",
 		"update:packageType",
 		"update:driftStatus",
@@ -8242,103 +8249,93 @@ function constraintCircleClasses(type) {
 }
 //#endregion
 //#region src/components/ReportTable.vue?vue&type=script&setup=true&lang.ts
-var _hoisted_1$5 = { class: "w-full" };
-var _hoisted_2$5 = { class: "w-full overflow-hidden bg-white border border-zinc-200 border-b-[3px] border-b-zinc-300" };
-var _hoisted_3$5 = { class: "w-full text-left border-collapse" };
-var _hoisted_4$4 = { class: "bg-zinc-50 border-b border-zinc-200" };
-var _hoisted_5$4 = ["width"];
-var _hoisted_6$4 = { class: "flex items-center gap-1" };
-var _hoisted_7$4 = ["onClick"];
-var _hoisted_8$3 = { class: "divide-y divide-zinc-100" };
-var _hoisted_9$3 = { class: "hover:bg-zinc-50 transition-colors" };
-var _hoisted_10$3 = { class: "px-3 py-2" };
-var _hoisted_11$2 = { class: "flex items-center gap-1.5" };
-var _hoisted_12$2 = ["title"];
-var _hoisted_13$2 = ["onClick"];
-var _hoisted_14$2 = {
+var _hoisted_1$5 = { class: "overflow-hidden bg-white border border-slate-200 border-b-[3px] border-b-slate-300" };
+var _hoisted_2$5 = { class: "min-w-full text-left border-collapse" };
+var _hoisted_3$5 = { class: "bg-slate-50 border-b border-slate-200" };
+var _hoisted_4$4 = ["width"];
+var _hoisted_5$4 = { class: "flex items-center gap-2" };
+var _hoisted_6$4 = ["onClick"];
+var _hoisted_7$4 = { class: "divide-y divide-slate-100" };
+var _hoisted_8$3 = { class: "hover:bg-slate-50 transition-colors" };
+var _hoisted_9$3 = { class: "px-6 py-3" };
+var _hoisted_10$3 = { class: "flex items-center gap-2" };
+var _hoisted_11$2 = ["title"];
+var _hoisted_12$2 = ["onClick"];
+var _hoisted_13$2 = {
 	key: 0,
-	class: "text-orange-500 font-black leading-none text-xs",
+	class: "text-orange-500 font-black leading-none",
 	title: "Has transitive dependency CVEs"
 };
-var _hoisted_15$1 = {
+var _hoisted_14$2 = {
 	key: 1,
-	class: "material-symbols-rounded text-base text-zinc-400",
+	class: "material-symbols-rounded text-xl text-slate-400",
 	title: "Development dependency"
 };
-var _hoisted_16$1 = { class: "px-3 py-2 text-center" };
-var _hoisted_17$1 = ["href"];
-var _hoisted_18$1 = { class: "px-3 py-2" };
-var _hoisted_19$1 = { class: "flex items-center gap-1" };
-var _hoisted_20$1 = { class: "material-symbols-rounded text-base text-zinc-400" };
-var _hoisted_21$1 = { class: "px-3 py-2 text-xs text-zinc-800" };
-var _hoisted_22$1 = { class: "font-mono" };
-var _hoisted_23$1 = {
+var _hoisted_15$1 = { class: "px-6 py-3 text-center" };
+var _hoisted_16$1 = ["href"];
+var _hoisted_17$1 = { class: "px-6 py-3" };
+var _hoisted_18$1 = { class: "flex items-center gap-2" };
+var _hoisted_19$1 = { class: "material-symbols-rounded text-xl text-slate-400" };
+var _hoisted_20$1 = { class: "px-6 py-3 text-sm text-slate-800" };
+var _hoisted_21$1 = { class: "font-mono" };
+var _hoisted_22$1 = {
 	key: 0,
-	class: "ml-1 px-1 py-0.5 text-[8px] font-bold uppercase tracking-wide bg-red-100 text-red-700 border border-red-300 rounded"
+	class: "ml-1.5 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide bg-red-100 text-red-700 border border-red-300 rounded"
+};
+var _hoisted_23$1 = {
+	key: 1,
+	class: "ml-1.5 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide bg-red-100 text-red-700 border border-red-300 rounded"
 };
 var _hoisted_24$1 = {
-	key: 1,
-	class: "ml-1 px-1 py-0.5 text-[8px] font-bold uppercase tracking-wide bg-red-100 text-red-700 border border-red-300 rounded"
+	key: 2,
+	class: "ml-1.5 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide bg-yellow-100 text-yellow-700 border border-yellow-300 rounded"
 };
 var _hoisted_25$1 = {
-	key: 2,
-	class: "ml-1 px-1 py-0.5 text-[8px] font-bold uppercase tracking-wide bg-yellow-100 text-yellow-700 border border-yellow-300 rounded"
-};
-var _hoisted_26$1 = {
 	key: 3,
-	class: "ml-1 px-1 py-0.5 text-[8px] font-bold uppercase tracking-wide bg-amber-100 text-amber-700 border border-amber-300 rounded"
+	class: "ml-1.5 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide bg-amber-100 text-amber-700 border border-amber-300 rounded"
 };
-var _hoisted_27$1 = { class: "px-3 py-2 text-xs font-mono text-zinc-700" };
-var _hoisted_28$1 = { class: "px-3 py-2 text-xs text-zinc-700" };
-var _hoisted_29$1 = { class: "px-3 py-2" };
-var _hoisted_30$1 = { class: "px-3 py-2" };
-var _hoisted_31$1 = { class: "px-3 py-2 text-xs" };
-var _hoisted_32$1 = {
-	key: 0,
-	class: "font-mono font-semibold text-violet-700"
-};
+var _hoisted_26$1 = { class: "px-6 py-3 text-sm" };
+var _hoisted_27$1 = { class: "px-6 py-3 text-sm" };
+var _hoisted_28$1 = { class: "px-6 py-3" };
+var _hoisted_29$1 = { class: "px-6 py-3" };
+var _hoisted_30$1 = { class: "px-6 py-3" };
+var _hoisted_31$1 = { class: "flex flex-wrap gap-1" };
+var _hoisted_32$1 = ["href"];
 var _hoisted_33$1 = {
-	key: 1,
-	class: "text-zinc-300"
-};
-var _hoisted_34$1 = { class: "px-3 py-2" };
-var _hoisted_35$1 = { class: "flex flex-wrap gap-0.5" };
-var _hoisted_36$1 = ["href"];
-var _hoisted_37$1 = {
 	key: 0,
-	class: "text-[9px] text-zinc-400 self-center"
+	class: "text-[10px] text-slate-400 self-center"
 };
-var _hoisted_38$1 = {
+var _hoisted_34$1 = {
 	key: 1,
-	class: "text-xs text-zinc-300"
+	class: "text-xs text-slate-300"
 };
-var _hoisted_39$1 = { class: "px-3 py-2 text-center" };
-var _hoisted_40$1 = ["title", "onClick"];
-var _hoisted_41$1 = {
+var _hoisted_35$1 = { class: "px-6 py-3 text-center" };
+var _hoisted_36$1 = ["title", "onClick"];
+var _hoisted_37$1 = {
 	key: 0,
 	class: "bg-stone-50"
 };
-var _hoisted_42$1 = {
-	colspan: "11",
-	class: "px-6 py-3"
+var _hoisted_38$1 = {
+	colspan: "10",
+	class: "px-8 py-3"
 };
-var _hoisted_43$1 = {
+var _hoisted_39$1 = {
 	key: 0,
-	class: "text-xs text-zinc-500 mb-2"
+	class: "text-xs text-slate-500 mb-2"
 };
-var _hoisted_44$1 = { class: "font-mono font-semibold text-zinc-700" };
-var _hoisted_45$1 = { class: "font-mono font-semibold text-violet-700" };
-var _hoisted_46$1 = { class: "w-full border-collapse text-xs" };
-var _hoisted_47$1 = { class: "font-mono px-2 py-1 text-zinc-700" };
-var _hoisted_48$1 = { class: "font-mono px-2 py-1 text-zinc-700" };
-var _hoisted_49$1 = { class: "font-mono px-2 py-1 text-zinc-700" };
-var _hoisted_50$1 = { class: "font-mono px-2 py-1 text-zinc-500" };
-var _hoisted_51$1 = { class: "px-2 py-1 text-zinc-700" };
-var _hoisted_52$1 = {
+var _hoisted_40$1 = { class: "font-mono font-semibold text-slate-700" };
+var _hoisted_41$1 = { class: "font-mono font-semibold text-violet-700" };
+var _hoisted_42$1 = { class: "w-full border-collapse text-xs" };
+var _hoisted_43$1 = { class: "font-mono px-2.5 py-1 text-gray-700" };
+var _hoisted_44$1 = { class: "font-mono px-2.5 py-1 text-gray-700" };
+var _hoisted_45$1 = { class: "font-mono px-2.5 py-1 text-gray-700" };
+var _hoisted_46$1 = { class: "font-mono px-2.5 py-1 text-slate-500" };
+var _hoisted_47$1 = { class: "px-2.5 py-1 text-gray-700" };
+var _hoisted_48$1 = {
 	key: 1,
 	class: "mt-2 text-xs text-red-600 font-medium"
 };
-var _hoisted_53$1 = { key: 0 };
+var _hoisted_49$1 = { key: 0 };
 //#endregion
 //#region src/components/ReportTable.vue
 var ReportTable_default = /* @__PURE__ */ defineComponent({
@@ -8377,17 +8374,17 @@ var ReportTable_default = /* @__PURE__ */ defineComponent({
 			{
 				id: "name",
 				label: "Dependency",
-				width: "16%"
+				width: "18%"
 			},
 			{
 				id: "cve",
-				label: "CVEs",
-				width: "7%"
+				label: "Security",
+				width: "8%"
 			},
 			{
 				id: "drift",
-				label: "Drift",
-				width: "10%"
+				label: "Drift Status",
+				width: "12%"
 			},
 			{
 				id: "installed",
@@ -8397,22 +8394,22 @@ var ReportTable_default = /* @__PURE__ */ defineComponent({
 			{
 				id: "latest",
 				label: "Latest",
-				width: "7%"
+				width: "8%"
 			},
 			{
 				id: "releases",
 				label: "Releases",
-				width: "6%"
+				width: "8%"
 			},
 			{
 				id: "timeLag",
 				label: "Time Lag",
-				width: "6%"
+				width: "8%"
 			},
 			{
 				id: "versionAge",
 				label: "Version Age",
-				width: "6%"
+				width: "8%"
 			}
 		];
 		function sortIcon(col, currentCol, dir) {
@@ -8443,7 +8440,7 @@ var ReportTable_default = /* @__PURE__ */ defineComponent({
 				case "DIFF_MINOR": return "bg-yellow-300 text-amber-700";
 				case "DIFF_PATCH": return "bg-blue-500 text-white";
 				case "LATEST": return "bg-green-500 text-white";
-				default: return "bg-zinc-200 text-zinc-600";
+				default: return "bg-slate-200 text-slate-600";
 			}
 		}
 		function timeLagColor(days) {
@@ -8459,98 +8456,93 @@ var ReportTable_default = /* @__PURE__ */ defineComponent({
 			return `https://spdx.org/licenses/${spdxId}.html`;
 		}
 		return (_ctx, _cache) => {
-			return openBlock(), createElementBlock("section", _hoisted_1$5, [createBaseVNode("div", _hoisted_2$5, [createBaseVNode("table", _hoisted_3$5, [createBaseVNode("thead", _hoisted_4$4, [createBaseVNode("tr", null, [
+			return openBlock(), createElementBlock("section", null, [createBaseVNode("div", _hoisted_1$5, [createBaseVNode("table", _hoisted_2$5, [createBaseVNode("thead", _hoisted_3$5, [createBaseVNode("tr", null, [
 				(openBlock(), createElementBlock(Fragment, null, renderList(columns, (col) => {
 					return createBaseVNode("th", {
 						key: col.id,
 						width: col.width,
-						class: "px-3 py-2.5 text-[9px] font-bold uppercase tracking-widest text-zinc-500"
-					}, [createBaseVNode("span", _hoisted_6$4, [createBaseVNode("span", null, toDisplayString(col.label), 1), createBaseVNode("button", {
-						class: "material-symbols-rounded text-base text-zinc-400 hover:text-zinc-700 transition",
+						class: "px-6 py-4 text-[10px] font-bold uppercase tracking-widest text-slate-500"
+					}, [createBaseVNode("span", _hoisted_5$4, [createBaseVNode("span", null, toDisplayString(col.label), 1), createBaseVNode("button", {
+						class: "material-symbols-rounded text-xl text-slate-400 hover:text-slate-700 transition",
 						onClick: ($event) => emit("sort", col.id)
-					}, toDisplayString(sortIcon(col.id, __props.sortColumn, __props.sortDirection)), 9, _hoisted_7$4)])], 8, _hoisted_5$4);
+					}, toDisplayString(sortIcon(col.id, __props.sortColumn, __props.sortDirection)), 9, _hoisted_6$4)])], 8, _hoisted_4$4);
 				}), 64)),
 				_cache[0] || (_cache[0] = createBaseVNode("th", {
-					class: "px-3 py-2.5 text-[9px] font-bold uppercase tracking-widest text-zinc-500",
-					width: "8%"
-				}, "Rec. Version", -1)),
-				_cache[1] || (_cache[1] = createBaseVNode("th", {
-					class: "px-3 py-2.5 text-[9px] font-bold uppercase tracking-widest text-zinc-500",
-					width: "9%"
+					class: "px-6 py-4 text-[10px] font-bold uppercase tracking-widest text-slate-500",
+					width: "12%"
 				}, "License", -1)),
-				_cache[2] || (_cache[2] = createBaseVNode("th", {
-					class: "px-3 py-2.5 text-[9px] font-bold uppercase tracking-widest text-zinc-500",
-					width: "5%"
+				_cache[1] || (_cache[1] = createBaseVNode("th", {
+					class: "px-6 py-4 text-[10px] font-bold uppercase tracking-widest text-slate-500",
+					width: "6%"
 				}, "Impact", -1))
-			])]), createBaseVNode("tbody", _hoisted_8$3, [(openBlock(true), createElementBlock(Fragment, null, renderList(__props.rows, (row) => {
-				return openBlock(), createElementBlock(Fragment, { key: row.pkg.package_name }, [createBaseVNode("tr", _hoisted_9$3, [
-					createBaseVNode("td", _hoisted_10$3, [createBaseVNode("div", _hoisted_11$2, [
+			])]), createBaseVNode("tbody", _hoisted_7$4, [(openBlock(true), createElementBlock(Fragment, null, renderList(__props.rows, (row) => {
+				return openBlock(), createElementBlock(Fragment, { key: row.pkg.package_name }, [createBaseVNode("tr", _hoisted_8$3, [
+					createBaseVNode("td", _hoisted_9$3, [createBaseVNode("div", _hoisted_10$3, [
 						createBaseVNode("span", {
-							class: normalizeClass(["inline-block w-4 h-4 rounded-full shrink-0", unref(constraintCircleClasses)(row.pkg.constraint_type)]),
+							class: normalizeClass(["inline-block w-5 h-5 rounded-full shrink-0", unref(constraintCircleClasses)(row.pkg.constraint_type)]),
 							title: row.pkg.constraint_type ?? "DECLARED"
-						}, null, 10, _hoisted_12$2),
+						}, null, 10, _hoisted_11$2),
 						createBaseVNode("button", {
-							class: "text-[#4800E2] hover:underline font-medium text-xs text-left cursor-pointer truncate max-w-45",
+							class: "text-[#4800E2] hover:underline font-medium text-left cursor-pointer",
 							onClick: ($event) => emit("selectPackage", row)
-						}, toDisplayString(row.pkg.package_name), 9, _hoisted_13$2),
-						row.hasTransitiveCve ? (openBlock(), createElementBlock("span", _hoisted_14$2, "*")) : createCommentVNode("", true),
-						row.isDev ? (openBlock(), createElementBlock("span", _hoisted_15$1, "logo_dev")) : createCommentVNode("", true)
+						}, toDisplayString(row.pkg.package_name), 9, _hoisted_12$2),
+						row.hasTransitiveCve ? (openBlock(), createElementBlock("span", _hoisted_13$2, "*")) : createCommentVNode("", true),
+						row.isDev ? (openBlock(), createElementBlock("span", _hoisted_14$2, "logo_dev")) : createCommentVNode("", true)
 					])]),
-					createBaseVNode("td", _hoisted_16$1, [row.cveCount > 0 ? (openBlock(), createElementBlock("a", {
+					createBaseVNode("td", _hoisted_15$1, [row.cveCount > 0 ? (openBlock(), createElementBlock("a", {
 						key: 0,
 						href: osvUrl(row.pkg.package_name, __props.registry),
 						target: "_blank",
-						class: "inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[10px] font-semibold text-white bg-[#ff4d00]"
-					}, [_cache[3] || (_cache[3] = createBaseVNode("span", { class: "material-symbols-rounded text-sm" }, "security", -1)), createTextVNode(" " + toDisplayString(row.cveCount), 1)], 8, _hoisted_17$1)) : createCommentVNode("", true)]),
-					createBaseVNode("td", _hoisted_18$1, [createBaseVNode("div", _hoisted_19$1, [createBaseVNode("span", _hoisted_20$1, toDisplayString(driftIcon(row.driftStatus)), 1), createBaseVNode("span", { class: normalizeClass(["px-2 py-0.5 rounded-full text-[10px] font-bold", driftClasses(row.driftStatus)]) }, toDisplayString(driftLabel(row.driftStatus)), 3)])]),
-					createBaseVNode("td", _hoisted_21$1, [createBaseVNode("span", _hoisted_22$1, toDisplayString(row.pkg.installed_version), 1), row.isPackageUnpublished ? (openBlock(), createElementBlock("span", _hoisted_23$1, "unpublished")) : row.isYanked ? (openBlock(), createElementBlock("span", _hoisted_24$1, "yanked")) : row.isDeprecated ? (openBlock(), createElementBlock("span", _hoisted_25$1, "deprecated")) : row.isPrerelease ? (openBlock(), createElementBlock("span", _hoisted_26$1, "pre")) : createCommentVNode("", true)]),
-					createBaseVNode("td", _hoisted_27$1, toDisplayString(row.pkg.latest_version ?? "—"), 1),
-					createBaseVNode("td", _hoisted_28$1, toDisplayString(row.pkg.releases_lag ?? 0), 1),
-					createBaseVNode("td", _hoisted_29$1, [createBaseVNode("strong", { class: normalizeClass(["text-xs font-semibold", timeLagColor(row.pkg.time_lag_days)]) }, toDisplayString(row.timeLagDisplay), 3)]),
-					createBaseVNode("td", _hoisted_30$1, [createBaseVNode("strong", { class: normalizeClass(["text-xs font-semibold", timeLagColor(row.pkg.version_age_days)]) }, toDisplayString(row.versionAgeDisplay), 3)]),
-					createBaseVNode("td", _hoisted_31$1, [row.pkg.recommended_version ? (openBlock(), createElementBlock("span", _hoisted_32$1, toDisplayString(row.pkg.recommended_version), 1)) : (openBlock(), createElementBlock("span", _hoisted_33$1, "—"))]),
-					createBaseVNode("td", _hoisted_34$1, [createBaseVNode("div", _hoisted_35$1, [row.license.length > 0 ? (openBlock(), createElementBlock(Fragment, { key: 0 }, [createBaseVNode("a", {
+						class: "inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold text-white bg-[#DE4514]"
+					}, [_cache[2] || (_cache[2] = createBaseVNode("span", { class: "material-symbols-rounded text-base" }, "security", -1)), createTextVNode(" " + toDisplayString(row.cveCount) + " CVE" + toDisplayString(row.cveCount > 1 ? "s" : ""), 1)], 8, _hoisted_16$1)) : createCommentVNode("", true)]),
+					createBaseVNode("td", _hoisted_17$1, [createBaseVNode("div", _hoisted_18$1, [createBaseVNode("span", _hoisted_19$1, toDisplayString(driftIcon(row.driftStatus)), 1), createBaseVNode("span", { class: normalizeClass(["px-3 py-1 rounded-full text-sm font-bold", driftClasses(row.driftStatus)]) }, toDisplayString(driftLabel(row.driftStatus)), 3)])]),
+					createBaseVNode("td", _hoisted_20$1, [createBaseVNode("span", _hoisted_21$1, toDisplayString(row.pkg.installed_version), 1), row.isPackageUnpublished ? (openBlock(), createElementBlock("span", _hoisted_22$1, "unpublished")) : row.isYanked ? (openBlock(), createElementBlock("span", _hoisted_23$1, "yanked")) : row.isDeprecated ? (openBlock(), createElementBlock("span", _hoisted_24$1, "deprecated")) : row.isPrerelease ? (openBlock(), createElementBlock("span", _hoisted_25$1, "pre")) : createCommentVNode("", true)]),
+					createBaseVNode("td", _hoisted_26$1, toDisplayString(row.pkg.latest_version ?? "—"), 1),
+					createBaseVNode("td", _hoisted_27$1, toDisplayString(row.pkg.releases_lag ?? 0), 1),
+					createBaseVNode("td", _hoisted_28$1, [createBaseVNode("strong", { class: normalizeClass(["font-semibold", timeLagColor(row.pkg.time_lag_days)]) }, toDisplayString(row.timeLagDisplay), 3)]),
+					createBaseVNode("td", _hoisted_29$1, [createBaseVNode("strong", { class: normalizeClass(["font-semibold", timeLagColor(row.pkg.version_age_days)]) }, toDisplayString(row.versionAgeDisplay), 3)]),
+					createBaseVNode("td", _hoisted_30$1, [createBaseVNode("div", _hoisted_31$1, [row.license.length > 0 ? (openBlock(), createElementBlock(Fragment, { key: 0 }, [createBaseVNode("a", {
 						href: spdxUrl(row.license[0]),
 						target: "_blank",
 						rel: "noopener noreferrer",
-						class: "inline-flex px-1 py-0.5 rounded text-[9px] font-bold font-mono bg-zinc-100 text-zinc-600 hover:text-[#ff4d00] transition-colors border border-zinc-200"
-					}, toDisplayString(row.license[0]), 9, _hoisted_36$1), row.license.length > 1 ? (openBlock(), createElementBlock("span", _hoisted_37$1, "+" + toDisplayString(row.license.length - 1), 1)) : createCommentVNode("", true)], 64)) : (openBlock(), createElementBlock("span", _hoisted_38$1, "—"))])]),
-					createBaseVNode("td", _hoisted_39$1, [hasImpacts(row) ? (openBlock(), createElementBlock("button", {
+						class: "inline-flex px-1.5 py-0.5 rounded text-[10px] font-bold font-mono bg-slate-100 text-slate-600 hover:text-sky-600 transition-colors border border-slate-200"
+					}, toDisplayString(row.license[0]), 9, _hoisted_32$1), row.license.length > 1 ? (openBlock(), createElementBlock("span", _hoisted_33$1, "+" + toDisplayString(row.license.length - 1), 1)) : createCommentVNode("", true)], 64)) : (openBlock(), createElementBlock("span", _hoisted_34$1, "—"))])]),
+					createBaseVNode("td", _hoisted_35$1, [hasImpacts(row) ? (openBlock(), createElementBlock("button", {
 						key: 0,
-						class: normalizeClass(["inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[10px] font-semibold border cursor-pointer transition-colors", hasConflict(row) ? "bg-yellow-100 text-amber-800 border-yellow-300 hover:bg-yellow-200" : "bg-violet-100 text-violet-800 border-violet-300 hover:bg-violet-200"]),
+						class: normalizeClass(["inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold border cursor-pointer transition-colors", hasConflict(row) ? "bg-yellow-100 text-amber-800 border-yellow-300 hover:bg-yellow-200" : "bg-violet-100 text-violet-800 border-violet-300 hover:bg-violet-200"]),
 						title: hasConflict(row) ? "Transitive conflict — click to expand" : "Transitive impacts — click to expand",
 						onClick: withModifiers(($event) => toggleImpact(row.pkg.package_name), ["stop"])
-					}, [createBaseVNode("span", null, toDisplayString(hasConflict(row) ? "⚠" : "↳"), 1), createBaseVNode("span", null, toDisplayString(row.pkg.update_transitive_impacts.length), 1)], 10, _hoisted_40$1)) : createCommentVNode("", true)])
-				]), hasImpacts(row) && expandedImpacts.value.has(row.pkg.package_name) ? (openBlock(), createElementBlock("tr", _hoisted_41$1, [createBaseVNode("td", _hoisted_42$1, [
-					row.pkg.recommended_version ? (openBlock(), createElementBlock("p", _hoisted_43$1, [
-						_cache[4] || (_cache[4] = createTextVNode(" Recommended update: ", -1)),
-						createBaseVNode("span", _hoisted_44$1, toDisplayString(row.pkg.installed_version), 1),
-						_cache[5] || (_cache[5] = createTextVNode(" → ", -1)),
-						createBaseVNode("span", _hoisted_45$1, toDisplayString(row.pkg.recommended_version), 1)
+					}, [createBaseVNode("span", null, toDisplayString(hasConflict(row) ? "⚠" : "↳"), 1), createBaseVNode("span", null, toDisplayString(row.pkg.update_transitive_impacts.length), 1)], 10, _hoisted_36$1)) : createCommentVNode("", true)])
+				]), hasImpacts(row) && expandedImpacts.value.has(row.pkg.package_name) ? (openBlock(), createElementBlock("tr", _hoisted_37$1, [createBaseVNode("td", _hoisted_38$1, [
+					row.pkg.recommended_version ? (openBlock(), createElementBlock("p", _hoisted_39$1, [
+						_cache[3] || (_cache[3] = createTextVNode(" Recommended update: ", -1)),
+						createBaseVNode("span", _hoisted_40$1, toDisplayString(row.pkg.installed_version), 1),
+						_cache[4] || (_cache[4] = createTextVNode(" → ", -1)),
+						createBaseVNode("span", _hoisted_41$1, toDisplayString(row.pkg.recommended_version), 1)
 					])) : createCommentVNode("", true),
-					createBaseVNode("table", _hoisted_46$1, [_cache[6] || (_cache[6] = createBaseVNode("thead", null, [createBaseVNode("tr", null, [
-						createBaseVNode("th", { class: "px-2 py-1 text-left text-[9px] font-bold uppercase tracking-widest text-zinc-400 border-b border-zinc-200" }, "Package"),
-						createBaseVNode("th", { class: "px-2 py-1 text-left text-[9px] font-bold uppercase tracking-widest text-zinc-400 border-b border-zinc-200" }, "Current"),
-						createBaseVNode("th", { class: "px-2 py-1 text-left text-[9px] font-bold uppercase tracking-widest text-zinc-400 border-b border-zinc-200" }, "Projected"),
-						createBaseVNode("th", { class: "px-2 py-1 text-left text-[9px] font-bold uppercase tracking-widest text-zinc-400 border-b border-zinc-200" }, "Constraint"),
-						createBaseVNode("th", { class: "px-2 py-1 text-left text-[9px] font-bold uppercase tracking-widest text-zinc-400 border-b border-zinc-200" }, "Status")
+					createBaseVNode("table", _hoisted_42$1, [_cache[5] || (_cache[5] = createBaseVNode("thead", null, [createBaseVNode("tr", null, [
+						createBaseVNode("th", { class: "px-2.5 py-1 text-left text-[10px] font-bold uppercase tracking-widest text-slate-400 border-b border-slate-200" }, "Package"),
+						createBaseVNode("th", { class: "px-2.5 py-1 text-left text-[10px] font-bold uppercase tracking-widest text-slate-400 border-b border-slate-200" }, "Current"),
+						createBaseVNode("th", { class: "px-2.5 py-1 text-left text-[10px] font-bold uppercase tracking-widest text-slate-400 border-b border-slate-200" }, "Projected"),
+						createBaseVNode("th", { class: "px-2.5 py-1 text-left text-[10px] font-bold uppercase tracking-widest text-slate-400 border-b border-slate-200" }, "Constraint"),
+						createBaseVNode("th", { class: "px-2.5 py-1 text-left text-[10px] font-bold uppercase tracking-widest text-slate-400 border-b border-slate-200" }, "Status")
 					])], -1)), createBaseVNode("tbody", null, [(openBlock(true), createElementBlock(Fragment, null, renderList(row.pkg.update_transitive_impacts, (impact) => {
 						return openBlock(), createElementBlock("tr", {
 							key: impact.package_name,
 							class: normalizeClass(impactRowClass(impact))
 						}, [
-							createBaseVNode("td", _hoisted_47$1, toDisplayString(impact.package_name), 1),
-							createBaseVNode("td", _hoisted_48$1, toDisplayString(impact.current_version ?? "(new)"), 1),
-							createBaseVNode("td", _hoisted_49$1, toDisplayString(impact.projected_version ?? "—"), 1),
-							createBaseVNode("td", _hoisted_50$1, toDisplayString(impact.new_constraint), 1),
-							createBaseVNode("td", _hoisted_51$1, toDisplayString(impactStatus(impact)), 1)
+							createBaseVNode("td", _hoisted_43$1, toDisplayString(impact.package_name), 1),
+							createBaseVNode("td", _hoisted_44$1, toDisplayString(impact.current_version ?? "(new)"), 1),
+							createBaseVNode("td", _hoisted_45$1, toDisplayString(impact.projected_version ?? "—"), 1),
+							createBaseVNode("td", _hoisted_46$1, toDisplayString(impact.new_constraint), 1),
+							createBaseVNode("td", _hoisted_47$1, toDisplayString(impactStatus(impact)), 1)
 						], 2);
 					}), 128))])]),
-					row.pkg.update_transitive_impacts.some((i) => i.has_conflict) ? (openBlock(), createElementBlock("p", _hoisted_52$1, " ✗ No conflict-free candidate found — this recommendation may not be fully actionable. ")) : createCommentVNode("", true)
+					row.pkg.update_transitive_impacts.some((i) => i.has_conflict) ? (openBlock(), createElementBlock("p", _hoisted_48$1, " ✗ No conflict-free candidate found — this recommendation may not be fully actionable. ")) : createCommentVNode("", true)
 				])])) : createCommentVNode("", true)], 64);
-			}), 128)), __props.rows.length === 0 ? (openBlock(), createElementBlock("tr", _hoisted_53$1, [..._cache[7] || (_cache[7] = [createBaseVNode("td", {
-				colspan: "11",
-				class: "px-6 py-8 text-center text-sm text-zinc-400"
+			}), 128)), __props.rows.length === 0 ? (openBlock(), createElementBlock("tr", _hoisted_49$1, [..._cache[6] || (_cache[6] = [createBaseVNode("td", {
+				colspan: "10",
+				class: "px-6 py-8 text-center text-sm text-slate-400"
 			}, " No dependencies match the current filters. ", -1)])])) : createCommentVNode("", true)])])])]);
 		};
 	}
@@ -9000,7 +8992,7 @@ var _hoisted_2$2 = {
 	class: "flex-1 flex w-full overflow-hidden"
 };
 var _hoisted_3$2 = { class: "flex-1 overflow-y-auto" };
-var _hoisted_4$1 = { class: "w-full px-4 md:px-6 py-4 space-y-6" };
+var _hoisted_4$1 = { class: "max-w-7xl mx-auto p-4 md:p-6 space-y-6" };
 var _hoisted_5$1 = { class: "flex justify-between items-start" };
 var _hoisted_6$1 = { class: "flex flex-col justify-center" };
 var _hoisted_7$1 = { class: "flex items-start gap-1" };
@@ -10324,6 +10316,28 @@ function hsl2rgb(h, m1, m2) {
 	return (h < 60 ? m1 + (m2 - m1) * h / 60 : h < 180 ? m2 : h < 240 ? m1 + (m2 - m1) * (240 - h) / 60 : m1) * 255;
 }
 //#endregion
+//#region node_modules/d3-interpolate/src/basis.js
+function basis(t1, v0, v1, v2, v3) {
+	var t2 = t1 * t1, t3 = t2 * t1;
+	return ((1 - 3 * t1 + 3 * t2 - t3) * v0 + (4 - 6 * t2 + 3 * t3) * v1 + (1 + 3 * t1 + 3 * t2 - 3 * t3) * v2 + t3 * v3) / 6;
+}
+function basis_default(values) {
+	var n = values.length - 1;
+	return function(t) {
+		var i = t <= 0 ? t = 0 : t >= 1 ? (t = 1, n - 1) : Math.floor(t * n), v1 = values[i], v2 = values[i + 1], v0 = i > 0 ? values[i - 1] : 2 * v1 - v2, v3 = i < n - 1 ? values[i + 2] : 2 * v2 - v1;
+		return basis((t - i / n) * n, v0, v1, v2, v3);
+	};
+}
+//#endregion
+//#region node_modules/d3-interpolate/src/basisClosed.js
+function basisClosed_default(values) {
+	var n = values.length;
+	return function(t) {
+		var i = Math.floor(((t %= 1) < 0 ? ++t : t) * n), v0 = values[(i + n - 1) % n], v1 = values[i % n], v2 = values[(i + 1) % n], v3 = values[(i + 2) % n];
+		return basis((t - i / n) * n, v0, v1, v2, v3);
+	};
+}
+//#endregion
 //#region node_modules/d3-interpolate/src/constant.js
 var constant_default$2 = (x) => () => x;
 //#endregion
@@ -10364,6 +10378,29 @@ var rgb_default = (function rgbGamma(y) {
 	rgb$1.gamma = rgbGamma;
 	return rgb$1;
 })(1);
+function rgbSpline(spline) {
+	return function(colors) {
+		var n = colors.length, r = new Array(n), g = new Array(n), b = new Array(n), i, color;
+		for (i = 0; i < n; ++i) {
+			color = rgb(colors[i]);
+			r[i] = color.r || 0;
+			g[i] = color.g || 0;
+			b[i] = color.b || 0;
+		}
+		r = spline(r);
+		g = spline(g);
+		b = spline(b);
+		color.opacity = 1;
+		return function(t) {
+			color.r = r(t);
+			color.g = g(t);
+			color.b = b(t);
+			return color + "";
+		};
+	};
+}
+rgbSpline(basis_default);
+rgbSpline(basisClosed_default);
 //#endregion
 //#region node_modules/d3-interpolate/src/number.js
 function number_default(a, b) {
@@ -14929,7 +14966,7 @@ var _hoisted_10 = {
 	key: 1,
 	class: "absolute inset-0 flex flex-col items-center justify-center pointer-events-none gap-2"
 };
-var TransitiveDependenciesView_vue_vue_type_script_setup_true_lang_default = /*@__PURE__*/ defineComponent({
+var TransitiveDependenciesView_vue_vue_type_script_setup_true_lang_default = /* @__PURE__ */ defineComponent({
 	__name: "TransitiveDependenciesView",
 	setup(__props) {
 		const store = useOssiqStore();
@@ -15169,7 +15206,7 @@ var _plugin_vue_export_helper_default = (sfc, props) => {
 };
 //#endregion
 //#region src/views/TransitiveDependenciesView.vue
-var TransitiveDependenciesView_default = /*#__PURE__*/ _plugin_vue_export_helper_default(TransitiveDependenciesView_vue_vue_type_script_setup_true_lang_default, [["__scopeId", "data-v-87d0bed8"]]);
+var TransitiveDependenciesView_default = /* @__PURE__ */ _plugin_vue_export_helper_default(TransitiveDependenciesView_vue_vue_type_script_setup_true_lang_default, [["__scopeId", "data-v-87d0bed8"]]);
 //#endregion
 //#region src/router/index.ts
 var router = createRouter({
@@ -15193,7 +15230,7 @@ app.use(createPinia());
 app.use(router);
 app.mount("#app");
 //#endregion</script>
-    <style rel="stylesheet" crossorigin>/*! tailwindcss v4.3.1 | MIT License | https://tailwindcss.com */
+    <style rel="stylesheet" crossorigin>/*! tailwindcss v4.2.4 | MIT License | https://tailwindcss.com */
 @layer properties {
   @supports (((-webkit-hyphens: none)) and (not (margin-trim: inline))) or ((-moz-orient: inline) and (not (color: rgb(from red r g b)))) {
     *, :before, :after, ::backdrop {
@@ -15310,15 +15347,7 @@ app.mount("#app");
     --color-slate-700: oklch(37.2% .044 257.287);
     --color-slate-800: oklch(27.9% .041 260.031);
     --color-slate-900: oklch(20.8% .042 265.755);
-    --color-zinc-50: oklch(98.5% 0 0);
-    --color-zinc-100: oklch(96.7% .001 286.375);
-    --color-zinc-200: oklch(92% .004 286.32);
-    --color-zinc-300: oklch(87.1% .006 286.286);
-    --color-zinc-400: oklch(70.5% .015 286.067);
-    --color-zinc-500: oklch(55.2% .016 285.938);
-    --color-zinc-600: oklch(44.2% .017 285.786);
-    --color-zinc-700: oklch(37% .013 285.805);
-    --color-zinc-800: oklch(27.4% .006 286.033);
+    --color-gray-700: oklch(37.3% .034 259.733);
     --color-stone-50: oklch(98.5% .001 106.423);
     --color-black: #000;
     --color-white: #fff;
@@ -15639,11 +15668,19 @@ app.mount("#app");
   }
 
   .inset-0 {
-    inset: 0;
+    inset: calc(var(--spacing) * 0);
+  }
+
+  .start {
+    inset-inline-start: var(--spacing);
+  }
+
+  .end {
+    inset-inline-end: var(--spacing);
   }
 
   .top-0 {
-    top: 0;
+    top: calc(var(--spacing) * 0);
   }
 
   .top-1\/2 {
@@ -15659,7 +15696,7 @@ app.mount("#app");
   }
 
   .right-0 {
-    right: 0;
+    right: calc(var(--spacing) * 0);
   }
 
   .right-4 {
@@ -15675,7 +15712,7 @@ app.mount("#app");
   }
 
   .left-0 {
-    left: 0;
+    left: calc(var(--spacing) * 0);
   }
 
   .left-2 {
@@ -15733,7 +15770,7 @@ app.mount("#app");
   }
 
   .mt-1 {
-    margin-top: var(--spacing);
+    margin-top: calc(var(--spacing) * 1);
   }
 
   .mt-2 {
@@ -15749,15 +15786,15 @@ app.mount("#app");
   }
 
   .mr-1 {
-    margin-right: var(--spacing);
+    margin-right: calc(var(--spacing) * 1);
   }
 
   .mb-0 {
-    margin-bottom: 0;
+    margin-bottom: calc(var(--spacing) * 0);
   }
 
   .mb-1 {
-    margin-bottom: var(--spacing);
+    margin-bottom: calc(var(--spacing) * 1);
   }
 
   .mb-1\.5 {
@@ -15785,7 +15822,11 @@ app.mount("#app");
   }
 
   .ml-1 {
-    margin-left: var(--spacing);
+    margin-left: calc(var(--spacing) * 1);
+  }
+
+  .ml-1\.5 {
+    margin-left: calc(var(--spacing) * 1.5);
   }
 
   .ml-auto {
@@ -15825,7 +15866,7 @@ app.mount("#app");
   }
 
   .h-1 {
-    height: var(--spacing);
+    height: calc(var(--spacing) * 1);
   }
 
   .h-2 {
@@ -15865,7 +15906,7 @@ app.mount("#app");
   }
 
   .w-0 {
-    width: 0;
+    width: calc(var(--spacing) * 0);
   }
 
   .w-2 {
@@ -15920,12 +15961,12 @@ app.mount("#app");
     max-width: var(--container-7xl);
   }
 
-  .max-w-45 {
-    max-width: calc(var(--spacing) * 45);
+  .min-w-0 {
+    min-width: calc(var(--spacing) * 0);
   }
 
-  .min-w-0 {
-    min-width: 0;
+  .min-w-full {
+    min-width: 100%;
   }
 
   .flex-1 {
@@ -16010,7 +16051,7 @@ app.mount("#app");
   }
 
   .gap-1 {
-    gap: var(--spacing);
+    gap: calc(var(--spacing) * 1);
   }
 
   .gap-1\.5 {
@@ -16045,8 +16086,8 @@ app.mount("#app");
 
   :where(.space-y-1 > :not(:last-child)) {
     --tw-space-y-reverse: 0;
-    margin-block-start: calc(var(--spacing) * var(--tw-space-y-reverse));
-    margin-block-end: calc(var(--spacing) * calc(1 - var(--tw-space-y-reverse)));
+    margin-block-start: calc(calc(var(--spacing) * 1) * var(--tw-space-y-reverse));
+    margin-block-end: calc(calc(var(--spacing) * 1) * calc(1 - var(--tw-space-y-reverse)));
   }
 
   :where(.space-y-1\.5 > :not(:last-child)) {
@@ -16095,10 +16136,6 @@ app.mount("#app");
 
   :where(.divide-slate-100 > :not(:last-child)) {
     border-color: var(--color-slate-100);
-  }
-
-  :where(.divide-zinc-100 > :not(:last-child)) {
-    border-color: var(--color-zinc-100);
   }
 
   .self-center {
@@ -16286,16 +16323,8 @@ app.mount("#app");
     border-color: var(--color-yellow-700);
   }
 
-  .border-zinc-200 {
-    border-color: var(--color-zinc-200);
-  }
-
   .border-b-slate-300 {
     border-bottom-color: var(--color-slate-300);
-  }
-
-  .border-b-zinc-300 {
-    border-bottom-color: var(--color-zinc-300);
   }
 
   .border-l-sky-400 {
@@ -16312,10 +16341,6 @@ app.mount("#app");
 
   .bg-\[\#ea580c\] {
     background-color: #ea580c;
-  }
-
-  .bg-\[\#ff4d00\] {
-    background-color: #ff4d00;
   }
 
   .bg-amber-50 {
@@ -16444,20 +16469,8 @@ app.mount("#app");
     background-color: var(--color-yellow-300);
   }
 
-  .bg-zinc-50 {
-    background-color: var(--color-zinc-50);
-  }
-
-  .bg-zinc-100 {
-    background-color: var(--color-zinc-100);
-  }
-
-  .bg-zinc-200 {
-    background-color: var(--color-zinc-200);
-  }
-
   .p-1 {
-    padding: var(--spacing);
+    padding: calc(var(--spacing) * 1);
   }
 
   .p-3 {
@@ -16473,7 +16486,7 @@ app.mount("#app");
   }
 
   .px-1 {
-    padding-inline: var(--spacing);
+    padding-inline: calc(var(--spacing) * 1);
   }
 
   .px-1\.5 {
@@ -16504,20 +16517,20 @@ app.mount("#app");
     padding-inline: calc(var(--spacing) * 6);
   }
 
+  .px-8 {
+    padding-inline: calc(var(--spacing) * 8);
+  }
+
   .py-0\.5 {
     padding-block: calc(var(--spacing) * .5);
   }
 
   .py-1 {
-    padding-block: var(--spacing);
+    padding-block: calc(var(--spacing) * 1);
   }
 
   .py-2 {
     padding-block: calc(var(--spacing) * 2);
-  }
-
-  .py-2\.5 {
-    padding-block: calc(var(--spacing) * 2.5);
   }
 
   .py-3 {
@@ -16545,7 +16558,7 @@ app.mount("#app");
   }
 
   .pt-1 {
-    padding-top: var(--spacing);
+    padding-top: calc(var(--spacing) * 1);
   }
 
   .pt-4 {
@@ -16739,6 +16752,10 @@ app.mount("#app");
     color: var(--color-fuchsia-700);
   }
 
+  .text-gray-700 {
+    color: var(--color-gray-700);
+  }
+
   .text-green-600 {
     color: var(--color-green-600);
   }
@@ -16829,30 +16846,6 @@ app.mount("#app");
 
   .text-yellow-700 {
     color: var(--color-yellow-700);
-  }
-
-  .text-zinc-300 {
-    color: var(--color-zinc-300);
-  }
-
-  .text-zinc-400 {
-    color: var(--color-zinc-400);
-  }
-
-  .text-zinc-500 {
-    color: var(--color-zinc-500);
-  }
-
-  .text-zinc-600 {
-    color: var(--color-zinc-600);
-  }
-
-  .text-zinc-700 {
-    color: var(--color-zinc-700);
-  }
-
-  .text-zinc-800 {
-    color: var(--color-zinc-800);
   }
 
   .uppercase {
@@ -16951,14 +16944,6 @@ app.mount("#app");
       background-color: var(--color-yellow-200);
     }
 
-    .hover\:bg-zinc-50:hover {
-      background-color: var(--color-zinc-50);
-    }
-
-    .hover\:text-\[\#ff4d00\]:hover {
-      color: #ff4d00;
-    }
-
     .hover\:text-black:hover {
       color: var(--color-black);
     }
@@ -16981,10 +16966,6 @@ app.mount("#app");
 
     .hover\:text-slate-900:hover {
       color: var(--color-slate-900);
-    }
-
-    .hover\:text-zinc-700:hover {
-      color: var(--color-zinc-700);
     }
 
     .hover\:no-underline:hover {
@@ -17035,10 +17016,6 @@ app.mount("#app");
   @media (min-width: 48rem) {
     .md\:p-6 {
       padding: calc(var(--spacing) * 6);
-    }
-
-    .md\:px-6 {
-      padding-inline: calc(var(--spacing) * 6);
     }
 
     .md\:text-3xl {
@@ -17369,6 +17346,6 @@ body {
   </head>
   <body>
     <div id="app"></div>
-    <script type="json/oss-iq-report">__OSSIQ_REPORT_DATA__</script>
+    <script type="json/oss-iq-report">{"metadata":{"schema_version":"1.4","export_timestamp":"2026-06-20T21:44:52.054099+00:00"},"project":{"name":"ossiq","path":"testdata/pypi/uv","registry":"pypi"},"summary":{"total_packages":22,"production_packages":11,"development_packages":11,"packages_with_cves":3,"total_cves":3,"packages_outdated":17},"production_packages":[{"package_name":"packaging","dependency_name":"packaging","is_optional_dependency":false,"installed_version":"25.0","latest_version":"26.2","time_lag_days":370,"version_age_days":427,"releases_lag":3,"cve":[],"dependency_path":null,"version_constraint":">=25.0","repo_url":"https://github.com/pypa/packaging","homepage_url":null,"package_url":"https://pypi.org/project/packaging/","license":null,"purl":"pkg:pypi/packaging@25.0","constraint_type":"DECLARED","constraint_source_file":null,"extras":null,"recommended_version":"26.2","update_transitive_impacts":[],"is_prerelease":false,"is_yanked":false,"is_deprecated":false,"is_package_unpublished":false},{"package_name":"pandas","dependency_name":"pandas","is_optional_dependency":false,"installed_version":"2.3.3","latest_version":"3.0.3","time_lag_days":223,"version_age_days":263,"releases_lag":4,"cve":[],"dependency_path":null,"version_constraint":">=2.3.3","repo_url":null,"homepage_url":null,"package_url":"https://pypi.org/project/pandas/","license":["BSD-2-Clause"],"purl":"pkg:pypi/pandas@2.3.3","constraint_type":"DECLARED","constraint_source_file":null,"extras":null,"recommended_version":"3.0.3","update_transitive_impacts":[{"package_name":"tzdata","current_version":"2025.3","projected_version":"2026.2","new_constraint":"","driven_by":"pandas","has_conflict":false}],"is_prerelease":false,"is_yanked":false,"is_deprecated":false,"is_package_unpublished":false},{"package_name":"rich","dependency_name":"rich","is_optional_dependency":false,"installed_version":"14.2.0","latest_version":"15.0.0","time_lag_days":184,"version_age_days":254,"releases_lag":6,"cve":[],"dependency_path":null,"version_constraint":"~=14.2.0","repo_url":null,"homepage_url":null,"package_url":"https://pypi.org/project/rich/","license":["MIT"],"purl":"pkg:pypi/rich@14.2.0","constraint_type":"NARROWED","constraint_source_file":"pyproject.toml","extras":null,"recommended_version":"14.2.0","update_transitive_impacts":[],"is_prerelease":false,"is_yanked":false,"is_deprecated":false,"is_package_unpublished":false},{"package_name":"requests","dependency_name":"requests","is_optional_dependency":false,"installed_version":"2.32.5","latest_version":"2.34.2","time_lag_days":268,"version_age_days":306,"releases_lag":5,"cve":[{"id":"GHSA-gc5v-m9x4-r6x2","cve_ids":[],"source":"OSV","package_name":"requests","package_registry":"PYPI","summary":"","severity":"MEDIUM","affected_versions":[],"published":null,"link":"https://osv.dev/GHSA-gc5v-m9x4-r6x2"}],"dependency_path":null,"version_constraint":"~=2.32.5","repo_url":"https://github.com/psf/requests","homepage_url":null,"package_url":"https://pypi.org/project/requests/","license":["Apache-2.0"],"purl":"pkg:pypi/requests@2.32.5","constraint_type":"ADDITIVE","constraint_source_file":"pyproject.toml","extras":null,"recommended_version":"2.32.5","update_transitive_impacts":[],"is_prerelease":false,"is_yanked":false,"is_deprecated":false,"is_package_unpublished":false},{"package_name":"hatch","dependency_name":"hatch","is_optional_dependency":false,"installed_version":"1.15.1","latest_version":"1.17.0","time_lag_days":228,"version_age_days":247,"releases_lag":7,"cve":[],"dependency_path":null,"version_constraint":">=1.15.1","repo_url":"https://github.com/pypa/hatch","homepage_url":null,"package_url":"https://pypi.org/project/hatch/","license":["MIT"],"purl":"pkg:pypi/hatch@1.15.1","constraint_type":"DECLARED","constraint_source_file":null,"extras":null,"recommended_version":"1.17.0","update_transitive_impacts":[{"package_name":"backports-zstd","projected_version":"1.6.0","new_constraint":">=1.0.0","driven_by":"hatch","has_conflict":false},{"package_name":"distro","projected_version":"1.9.0","new_constraint":">=1.0.0","driven_by":"hatch","has_conflict":false},{"package_name":"httpx2","projected_version":"2.4.0","new_constraint":">=0.22.0","driven_by":"hatch","has_conflict":false},{"package_name":"pyproject-hooks","projected_version":"1.2.0","new_constraint":"","driven_by":"hatch","has_conflict":false},{"package_name":"python-discovery","projected_version":"1.4.2","new_constraint":">=1.1","driven_by":"hatch","has_conflict":false},{"package_name":"virtualenv","current_version":"20.35.4","projected_version":"21.5.1","new_constraint":">=21","driven_by":"hatch","has_conflict":false}],"is_prerelease":false,"is_yanked":false,"is_deprecated":false,"is_package_unpublished":false},{"package_name":"typer","dependency_name":"typer","is_optional_dependency":false,"installed_version":"0.20.0","latest_version":"0.26.7","time_lag_days":225,"version_age_days":243,"releases_lag":21,"cve":[],"dependency_path":null,"version_constraint":"~=0.20.0","repo_url":"https://github.com/fastapi/typer","homepage_url":null,"package_url":"https://pypi.org/project/typer/","license":["MIT"],"purl":"pkg:pypi/typer@0.20.0","constraint_type":"NARROWED","constraint_source_file":"pyproject.toml","extras":null,"recommended_version":"0.20.1","update_transitive_impacts":[],"is_prerelease":false,"is_yanked":false,"is_deprecated":false,"is_package_unpublished":false},{"package_name":"common-expression-language","dependency_name":"common-expression-language","is_optional_dependency":false,"installed_version":"0.5.3","latest_version":"0.6.0","time_lag_days":210,"version_age_days":249,"releases_lag":3,"cve":[],"dependency_path":null,"version_constraint":">=0.5.3","repo_url":"https://github.com/hardbyte/python-common-expression-language","homepage_url":null,"package_url":"https://pypi.org/project/common-expression-language/","license":["Apache-2.0"],"purl":"pkg:pypi/common-expression-language@0.5.3","constraint_type":"DECLARED","constraint_source_file":null,"extras":null,"recommended_version":"0.6.0","update_transitive_impacts":[],"is_prerelease":false,"is_yanked":false,"is_deprecated":false,"is_package_unpublished":false},{"package_name":"pydantic","dependency_name":"pydantic","is_optional_dependency":false,"installed_version":"2.12.4","latest_version":"2.13.4","time_lag_days":182,"version_age_days":227,"releases_lag":6,"cve":[],"dependency_path":null,"version_constraint":"~=2.12.4","repo_url":"https://github.com/pydantic/pydantic","homepage_url":null,"package_url":"https://pypi.org/project/pydantic/","license":["MIT"],"purl":"pkg:pypi/pydantic@2.12.4","constraint_type":"NARROWED","constraint_source_file":"pyproject.toml","extras":null,"recommended_version":"2.12.5","update_transitive_impacts":[],"is_prerelease":false,"is_yanked":false,"is_deprecated":false,"is_package_unpublished":false},{"package_name":"termcolor","dependency_name":"termcolor","is_optional_dependency":false,"installed_version":"3.2.0","latest_version":"3.3.0","time_lag_days":64,"version_age_days":238,"releases_lag":1,"cve":[],"dependency_path":null,"version_constraint":"~=3.2.0","repo_url":"https://github.com/termcolor/termcolor","homepage_url":null,"package_url":"https://pypi.org/project/termcolor/","license":["MIT"],"purl":"pkg:pypi/termcolor@3.2.0","constraint_type":"NARROWED","constraint_source_file":"pyproject.toml","extras":null,"recommended_version":"3.2.0","update_transitive_impacts":[],"is_prerelease":false,"is_yanked":false,"is_deprecated":false,"is_package_unpublished":false},{"package_name":"semver","dependency_name":"semver","is_optional_dependency":false,"installed_version":"3.0.4","latest_version":"3.0.4","time_lag_days":0,"version_age_days":512,"releases_lag":0,"cve":[],"dependency_path":null,"version_constraint":"~=3.0.4","repo_url":null,"homepage_url":null,"package_url":"https://pypi.org/project/semver/","license":["BSD-2-Clause"],"purl":"pkg:pypi/semver@3.0.4","constraint_type":"NARROWED","constraint_source_file":"pyproject.toml","extras":null,"recommended_version":"3.0.4","update_transitive_impacts":[],"is_prerelease":false,"is_yanked":false,"is_deprecated":false,"is_package_unpublished":false},{"package_name":"jinja2","dependency_name":"jinja2","is_optional_dependency":false,"installed_version":"3.1.6","latest_version":"3.1.6","time_lag_days":0,"version_age_days":472,"releases_lag":0,"cve":[],"dependency_path":null,"version_constraint":"~=3.1.6","repo_url":"https://github.com/pallets/jinja/","homepage_url":null,"package_url":"https://pypi.org/project/Jinja2/","license":["BSD-2-Clause"],"purl":"pkg:pypi/jinja2@3.1.6","constraint_type":"NARROWED","constraint_source_file":"pyproject.toml","extras":null,"recommended_version":"3.1.6","update_transitive_impacts":[],"is_prerelease":false,"is_yanked":false,"is_deprecated":false,"is_package_unpublished":false}],"development_packages":[{"package_name":"black","dependency_name":"black","is_optional_dependency":true,"installed_version":"25.11.0","latest_version":"26.5.1","time_lag_days":189,"version_age_days":222,"releases_lag":6,"cve":[{"id":"GHSA-3936-cmfr-pm3m","cve_ids":[],"source":"OSV","package_name":"black","package_registry":"PYPI","summary":"","severity":"MEDIUM","affected_versions":[],"published":null,"link":"https://osv.dev/GHSA-3936-cmfr-pm3m"}],"dependency_path":null,"version_constraint":"~=25.11.0","repo_url":"https://github.com/psf/black","homepage_url":null,"package_url":"https://pypi.org/project/black/","license":["MIT"],"purl":"pkg:pypi/black@25.11.0","constraint_type":"NARROWED","constraint_source_file":"pyproject.toml","extras":null,"recommended_version":"25.11.0","update_transitive_impacts":[{"package_name":"tomli","projected_version":"2.4.1","new_constraint":">=1.1.0","driven_by":"black","has_conflict":false}],"is_prerelease":false,"is_yanked":false,"is_deprecated":false,"is_package_unpublished":false},{"package_name":"pytest","dependency_name":"pytest","is_optional_dependency":true,"installed_version":"9.0.1","latest_version":"9.1.1","time_lag_days":218,"version_age_days":220,"releases_lag":4,"cve":[{"id":"GHSA-6w46-j5rx-g56g","cve_ids":[],"source":"OSV","package_name":"pytest","package_registry":"PYPI","summary":"","severity":"MEDIUM","affected_versions":[],"published":null,"link":"https://osv.dev/GHSA-6w46-j5rx-g56g"}],"dependency_path":null,"version_constraint":"~=9.0.1","repo_url":"https://github.com/pytest-dev/pytest","homepage_url":null,"package_url":"https://pypi.org/project/pytest/","license":["MIT"],"purl":"pkg:pypi/pytest@9.0.1","constraint_type":"NARROWED","constraint_source_file":"pyproject.toml","extras":null,"recommended_version":"9.0.3","update_transitive_impacts":[{"package_name":"exceptiongroup","projected_version":"1.3.1","new_constraint":">=1","driven_by":"pytest","has_conflict":false},{"package_name":"tomli","projected_version":"2.4.1","new_constraint":">=1","driven_by":"pytest","has_conflict":false}],"is_prerelease":false,"is_yanked":false,"is_deprecated":false,"is_package_unpublished":false},{"package_name":"coverage","dependency_name":"coverage","is_optional_dependency":true,"installed_version":"7.12.0","latest_version":"7.14.2","time_lag_days":214,"version_age_days":214,"releases_lag":9,"cve":[],"dependency_path":null,"version_constraint":"~=7.12.0","repo_url":null,"homepage_url":"https://github.com/coveragepy/coveragepy","package_url":"https://pypi.org/project/coverage/","license":null,"purl":"pkg:pypi/coverage@7.12.0","constraint_type":"NARROWED","constraint_source_file":"pyproject.toml","extras":null,"recommended_version":"7.12.0","update_transitive_impacts":[],"is_prerelease":false,"is_yanked":false,"is_deprecated":false,"is_package_unpublished":false},{"package_name":"ruff","dependency_name":"ruff","is_optional_dependency":true,"installed_version":"0.14.6","latest_version":"0.15.18","time_lag_days":209,"version_age_days":211,"releases_lag":27,"cve":[],"dependency_path":null,"version_constraint":"~=0.14.6","repo_url":"https://github.com/astral-sh/ruff","homepage_url":"https://docs.astral.sh/ruff","package_url":"https://pypi.org/project/ruff/","license":["MIT"],"purl":"pkg:pypi/ruff@0.14.6","constraint_type":"NARROWED","constraint_source_file":"pyproject.toml","extras":null,"recommended_version":"0.14.14","update_transitive_impacts":[],"is_prerelease":false,"is_yanked":false,"is_deprecated":false,"is_package_unpublished":false},{"package_name":"ty","dependency_name":"ty","is_optional_dependency":true,"installed_version":"0.0.1a27","latest_version":"0.0.51","time_lag_days":212,"version_age_days":213,"releases_lag":51,"cve":[],"dependency_path":null,"version_constraint":"~=0.0.1a27","repo_url":"https://github.com/astral-sh/ty","homepage_url":"https://github.com/astral-sh/ty/","package_url":"https://pypi.org/project/ty/","license":["MIT"],"purl":"pkg:pypi/ty@0.0.1a27","constraint_type":"NARROWED","constraint_source_file":"pyproject.toml","extras":null,"recommended_version":"0.0.49","update_transitive_impacts":[],"is_prerelease":true,"is_yanked":false,"is_deprecated":false,"is_package_unpublished":false},{"package_name":"pylint","dependency_name":"pylint","is_optional_dependency":true,"installed_version":"4.0.3","latest_version":"4.0.6","time_lag_days":212,"version_age_days":219,"releases_lag":3,"cve":[],"dependency_path":null,"version_constraint":"~=4.0.3","repo_url":"https://github.com/pylint-dev/pylint","homepage_url":null,"package_url":"https://pypi.org/project/pylint/","license":["GPL-2.0"],"purl":"pkg:pypi/pylint@4.0.3","constraint_type":"NARROWED","constraint_source_file":"pyproject.toml","extras":null,"recommended_version":"4.0.5","update_transitive_impacts":[{"package_name":"tomli","projected_version":"2.4.1","new_constraint":">=1.1","driven_by":"pylint","has_conflict":false}],"is_prerelease":false,"is_yanked":false,"is_deprecated":false,"is_package_unpublished":false},{"package_name":"mkdocstrings","dependency_name":"mkdocstrings","is_optional_dependency":true,"installed_version":"1.0.0","latest_version":"1.0.4","time_lag_days":138,"version_age_days":205,"releases_lag":4,"cve":[],"dependency_path":null,"version_constraint":"~=1.0.0","repo_url":"https://github.com/mkdocstrings/mkdocstrings","homepage_url":null,"package_url":"https://pypi.org/project/mkdocstrings/","license":["ISC"],"purl":"pkg:pypi/mkdocstrings@1.0.0","constraint_type":"NARROWED","constraint_source_file":"pyproject.toml","extras":null,"recommended_version":"1.0.4","update_transitive_impacts":[],"is_prerelease":false,"is_yanked":false,"is_deprecated":false,"is_package_unpublished":false},{"package_name":"mkdocs-material","dependency_name":"mkdocs-material","is_optional_dependency":true,"installed_version":"9.7.1","latest_version":"9.7.6","time_lag_days":91,"version_age_days":184,"releases_lag":5,"cve":[],"dependency_path":null,"version_constraint":"~=9.7.1","repo_url":"https://github.com/squidfunk/mkdocs-material","homepage_url":null,"package_url":"https://pypi.org/project/mkdocs-material/","license":["MIT"],"purl":"pkg:pypi/mkdocs-material@9.7.1","constraint_type":"NARROWED","constraint_source_file":"pyproject.toml","extras":null,"recommended_version":"9.7.6","update_transitive_impacts":[],"is_prerelease":false,"is_yanked":false,"is_deprecated":false,"is_package_unpublished":false},{"package_name":"mkdocs-nav-weight","dependency_name":"mkdocs-nav-weight","is_optional_dependency":true,"installed_version":"0.3.0","latest_version":"0.3.0","time_lag_days":0,"version_age_days":284,"releases_lag":0,"cve":[],"dependency_path":null,"version_constraint":"~=0.3.0","repo_url":null,"homepage_url":null,"package_url":"https://pypi.org/project/mkdocs-nav-weight/","license":null,"purl":"pkg:pypi/mkdocs-nav-weight@0.3.0","constraint_type":"NARROWED","constraint_source_file":"pyproject.toml","extras":null,"recommended_version":"0.3.0","update_transitive_impacts":[],"is_prerelease":false,"is_yanked":false,"is_deprecated":false,"is_package_unpublished":false},{"package_name":"mkdocs","dependency_name":"mkdocs","is_optional_dependency":true,"installed_version":"1.6.1","latest_version":"1.6.1","time_lag_days":0,"version_age_days":659,"releases_lag":0,"cve":[],"dependency_path":null,"version_constraint":"~=1.6.1","repo_url":"https://github.com/mkdocs/mkdocs","homepage_url":null,"package_url":"https://pypi.org/project/mkdocs/","license":["BSD-2-Clause"],"purl":"pkg:pypi/mkdocs@1.6.1","constraint_type":"NARROWED","constraint_source_file":"pyproject.toml","extras":null,"recommended_version":"1.6.1","update_transitive_impacts":[],"is_prerelease":false,"is_yanked":false,"is_deprecated":false,"is_package_unpublished":false},{"package_name":"ipdb","dependency_name":"ipdb","is_optional_dependency":true,"installed_version":"0.13.13","latest_version":"0.13.13","time_lag_days":0,"version_age_days":1199,"releases_lag":0,"cve":[],"dependency_path":null,"version_constraint":"~=0.13.13","repo_url":null,"homepage_url":"https://github.com/gotcha/ipdb","package_url":"https://pypi.org/project/ipdb/","license":["BSD-2-Clause"],"purl":"pkg:pypi/ipdb@0.13.13","constraint_type":"NARROWED","constraint_source_file":"pyproject.toml","extras":null,"recommended_version":"0.13.13","update_transitive_impacts":[{"package_name":"toml","projected_version":"0.10.2","new_constraint":">=0.10.2","driven_by":"ipdb","has_conflict":false},{"package_name":"decorator","current_version":"5.2.1","projected_version":"5.3.1","new_constraint":"","driven_by":"ipdb","has_conflict":false},{"package_name":"pathlib","projected_version":"1.0.1","new_constraint":"","driven_by":"ipdb","has_conflict":false},{"package_name":"tomli","projected_version":"2.4.1","new_constraint":"","driven_by":"ipdb","has_conflict":false}],"is_prerelease":false,"is_yanked":false,"is_deprecated":false,"is_package_unpublished":false}],"constraint_type_map":["DECLARED","NARROWED","PINNED","ADDITIVE","OVERRIDE"],"transitive_packages":[{"id":0,"package_name":"prompt-toolkit","is_optional_dependency":false,"installed_version":"3.0.52","latest_version":"3.0.52","time_lag_days":0,"version_age_days":297,"releases_lag":0,"package_url":"https://pypi.org/project/prompt-toolkit/","license":["BSD-2-Clause"],"purl":"pkg:pypi/prompt-toolkit@3.0.52","is_prerelease":false,"is_yanked":false,"is_deprecated":false,"is_package_unpublished":false},{"id":1,"package_name":"wcwidth","is_optional_dependency":false,"installed_version":"0.2.14","latest_version":"0.8.1","time_lag_days":258,"version_age_days":271,"releases_lag":14,"package_url":"https://pypi.org/project/wcwidth/","purl":"pkg:pypi/wcwidth@0.2.14","is_prerelease":false,"is_yanked":false,"is_deprecated":false,"is_package_unpublished":false},{"id":2,"package_name":"pygments","is_optional_dependency":false,"installed_version":"2.19.2","latest_version":"2.20.0","time_lag_days":280,"version_age_days":364,"releases_lag":1,"cve":[{"id":"GHSA-5239-wwwm-4pmq","cve_ids":[],"source":"OSV","package_name":"pygments","package_registry":"PYPI","summary":"","severity":"MEDIUM","affected_versions":[],"published":null,"link":"https://osv.dev/GHSA-5239-wwwm-4pmq"}],"repo_url":"https://github.com/pygments/pygments","package_url":"https://pypi.org/project/Pygments/","license":["BSD-2-Clause"],"purl":"pkg:pypi/pygments@2.19.2","is_prerelease":false,"is_yanked":false,"is_deprecated":false,"is_package_unpublished":false},{"id":3,"package_name":"markdown-it-py","is_optional_dependency":false,"installed_version":"4.0.0","latest_version":"4.2.0","time_lag_days":268,"version_age_days":313,"releases_lag":2,"package_url":"https://pypi.org/project/markdown-it-py/","license":["MIT"],"purl":"pkg:pypi/markdown-it-py@4.0.0","is_prerelease":false,"is_yanked":false,"is_deprecated":false,"is_package_unpublished":false},{"id":4,"package_name":"mdurl","is_optional_dependency":false,"installed_version":"0.1.2","latest_version":"0.1.2","time_lag_days":0,"version_age_days":1406,"releases_lag":0,"constraint_source_file":"pyproject.toml","homepage_url":"","package_url":"https://pypi.org/project/mdurl/","license":["MIT"],"purl":"pkg:pypi/mdurl@0.1.2","is_prerelease":false,"is_yanked":false,"is_deprecated":false,"is_package_unpublished":false},{"id":5,"package_name":"click","is_optional_dependency":false,"installed_version":"8.3.1","latest_version":"8.4.1","time_lag_days":187,"version_age_days":217,"releases_lag":4,"repo_url":"https://github.com/pallets/click/","package_url":"https://pypi.org/project/click/","license":["BSD-3-Clause"],"purl":"pkg:pypi/click@8.3.1","is_prerelease":false,"is_yanked":false,"is_deprecated":false,"is_package_unpublished":false},{"id":6,"package_name":"colorama","is_optional_dependency":false,"installed_version":"0.4.6","latest_version":"0.4.6","time_lag_days":0,"version_age_days":1334,"releases_lag":0,"homepage_url":"","package_url":"https://pypi.org/project/colorama/","license":["BSD-2-Clause"],"purl":"pkg:pypi/colorama@0.4.6","is_prerelease":false,"is_yanked":false,"is_deprecated":false,"is_package_unpublished":false},{"id":7,"package_name":"shellingham","is_optional_dependency":false,"installed_version":"1.5.4","latest_version":"1.5.4","time_lag_days":0,"version_age_days":970,"releases_lag":0,"homepage_url":"https://github.com/sarugaku/shellingham","package_url":"https://pypi.org/project/shellingham/","license":["ISC"],"purl":"pkg:pypi/shellingham@1.5.4","is_prerelease":false,"is_yanked":false,"is_deprecated":false,"is_package_unpublished":false},{"id":8,"package_name":"typing-extensions","is_optional_dependency":false,"installed_version":"4.15.0","latest_version":"4.15.0","time_lag_days":0,"version_age_days":299,"releases_lag":0,"repo_url":"https://github.com/python/typing_extensions","package_url":"https://pypi.org/project/typing-extensions/","purl":"pkg:pypi/typing-extensions@4.15.0","is_prerelease":false,"is_yanked":false,"is_deprecated":false,"is_package_unpublished":false},{"id":9,"package_name":"hatchling","is_optional_dependency":false,"installed_version":"1.27.0","latest_version":"1.30.1","time_lag_days":533,"version_age_days":552,"releases_lag":4,"repo_url":"https://github.com/pypa/hatch/tree/master/backend","package_url":"https://pypi.org/project/hatchling/","license":["MIT"],"purl":"pkg:pypi/hatchling@1.27.0","is_prerelease":false,"is_yanked":false,"is_deprecated":false,"is_package_unpublished":false},{"id":10,"package_name":"pathspec","is_optional_dependency":false,"installed_version":"0.12.1","latest_version":"1.1.1","time_lag_days":868,"version_age_days":922,"releases_lag":7,"repo_url":"https://github.com/cpburnz/python-pathspec","package_url":"https://pypi.org/project/pathspec/","license":["MPL-2.0"],"purl":"pkg:pypi/pathspec@0.12.1","is_prerelease":false,"is_yanked":false,"is_deprecated":false,"is_package_unpublished":false},{"id":11,"package_name":"pluggy","is_optional_dependency":false,"installed_version":"1.6.0","latest_version":"1.6.0","time_lag_days":0,"version_age_days":401,"releases_lag":0,"package_url":"https://pypi.org/project/pluggy/","license":["MIT"],"purl":"pkg:pypi/pluggy@1.6.0","is_prerelease":false,"is_yanked":false,"is_deprecated":false,"is_package_unpublished":false},{"id":12,"package_name":"trove-classifiers","is_optional_dependency":false,"installed_version":"2025.11.14.15","latest_version":"2026.6.1.19","time_lag_days":199,"version_age_days":218,"releases_lag":9,"homepage_url":"https://github.com/pypa/trove-classifiers","package_url":"https://pypi.org/project/trove-classifiers/","license":["Apache-2.0"],"purl":"pkg:pypi/trove-classifiers@2025.11.14.15","is_prerelease":false,"is_yanked":false,"is_deprecated":false,"is_package_unpublished":false},{"id":13,"package_name":"httpx","is_optional_dependency":false,"installed_version":"0.28.1","latest_version":"0.28.1","time_lag_days":0,"version_age_days":561,"releases_lag":0,"repo_url":"https://github.com/encode/httpx","package_url":"https://pypi.org/project/httpx/","license":["BSD-2-Clause"],"purl":"pkg:pypi/httpx@0.28.1","is_prerelease":false,"is_yanked":false,"is_deprecated":false,"is_package_unpublished":false},{"id":14,"package_name":"anyio","is_optional_dependency":false,"installed_version":"4.11.0","latest_version":"4.14.0","time_lag_days":265,"version_age_days":270,"releases_lag":4,"package_url":"https://pypi.org/project/anyio/","purl":"pkg:pypi/anyio@4.11.0","is_prerelease":false,"is_yanked":false,"is_deprecated":false,"is_package_unpublished":false},{"id":15,"package_name":"idna","is_optional_dependency":false,"installed_version":"3.11","latest_version":"3.18","time_lag_days":232,"version_age_days":251,"releases_lag":7,"cve":[{"id":"GHSA-65pc-fj4g-8rjx","cve_ids":[],"source":"OSV","package_name":"idna","package_registry":"PYPI","summary":"","severity":"MEDIUM","affected_versions":[],"published":null,"link":"https://osv.dev/GHSA-65pc-fj4g-8rjx"},{"id":"PYSEC-2026-215","cve_ids":[],"source":"OSV","package_name":"idna","package_registry":"PYPI","summary":"","severity":"MEDIUM","affected_versions":[],"published":null,"link":"https://osv.dev/PYSEC-2026-215"}],"repo_url":"https://github.com/kjd/idna","package_url":"https://pypi.org/project/idna/","license":["BSD-3-Clause"],"purl":"pkg:pypi/idna@3.11","is_prerelease":false,"is_yanked":false,"is_deprecated":false,"is_package_unpublished":false},{"id":16,"package_name":"sniffio","is_optional_dependency":false,"installed_version":"1.3.1","latest_version":"1.3.1","time_lag_days":0,"version_age_days":845,"releases_lag":0,"homepage_url":"","package_url":"https://pypi.org/project/sniffio/","license":["Apache-2.0"],"purl":"pkg:pypi/sniffio@1.3.1","is_prerelease":false,"is_yanked":false,"is_deprecated":false,"is_package_unpublished":false},{"id":17,"package_name":"certifi","is_optional_dependency":false,"installed_version":"2025.11.12","latest_version":"2026.6.17","time_lag_days":217,"version_age_days":220,"releases_lag":5,"repo_url":"https://github.com/certifi/python-certifi","homepage_url":"https://github.com/certifi/python-certifi","package_url":"https://pypi.org/project/certifi/","license":["MPL-2.0"],"purl":"pkg:pypi/certifi@2025.11.12","is_prerelease":false,"is_yanked":false,"is_deprecated":false,"is_package_unpublished":false},{"id":18,"package_name":"httpcore","is_optional_dependency":false,"installed_version":"1.0.9","latest_version":"1.0.9","time_lag_days":0,"version_age_days":421,"releases_lag":0,"constraint_source_file":"pyproject.toml","repo_url":"https://github.com/encode/httpcore","package_url":"https://pypi.org/project/httpcore/","license":["BSD-2-Clause"],"purl":"pkg:pypi/httpcore@1.0.9","is_prerelease":false,"is_yanked":false,"is_deprecated":false,"is_package_unpublished":false},{"id":19,"package_name":"h11","is_optional_dependency":false,"installed_version":"0.16.0","latest_version":"0.16.0","time_lag_days":0,"version_age_days":422,"releases_lag":0,"homepage_url":"https://github.com/python-hyper/h11","package_url":"https://pypi.org/project/h11/","license":["MIT"],"purl":"pkg:pypi/h11@0.16.0","is_prerelease":false,"is_yanked":false,"is_deprecated":false,"is_package_unpublished":false},{"id":20,"package_name":"hyperlink","is_optional_dependency":false,"installed_version":"21.0.0","latest_version":"21.0.0","time_lag_days":0,"version_age_days":1989,"releases_lag":0,"homepage_url":"https://github.com/python-hyper/hyperlink","package_url":"https://pypi.org/project/hyperlink/","license":["MIT"],"purl":"pkg:pypi/hyperlink@21.0.0","is_prerelease":false,"is_yanked":false,"is_deprecated":false,"is_package_unpublished":false},{"id":21,"package_name":"keyring","is_optional_dependency":false,"installed_version":"25.7.0","latest_version":"25.7.0","time_lag_days":0,"version_age_days":216,"releases_lag":0,"repo_url":"https://github.com/jaraco/keyring","package_url":"https://pypi.org/project/keyring/","purl":"pkg:pypi/keyring@25.7.0","is_prerelease":false,"is_yanked":false,"is_deprecated":false,"is_package_unpublished":false},{"id":22,"package_name":"importlib-metadata","is_optional_dependency":false,"installed_version":"8.7.0","latest_version":"9.0.0","time_lag_days":326,"version_age_days":419,"releases_lag":4,"repo_url":"https://github.com/python/importlib_metadata","package_url":"https://pypi.org/project/importlib-metadata/","purl":"pkg:pypi/importlib-metadata@8.7.0","is_prerelease":false,"is_yanked":false,"is_deprecated":false,"is_package_unpublished":false},{"id":23,"package_name":"zipp","is_optional_dependency":false,"installed_version":"3.23.0","latest_version":"4.1.0","time_lag_days":344,"version_age_days":377,"releases_lag":2,"repo_url":"https://github.com/jaraco/zipp","package_url":"https://pypi.org/project/zipp/","purl":"pkg:pypi/zipp@3.23.0","is_prerelease":false,"is_yanked":false,"is_deprecated":false,"is_package_unpublished":false},{"id":24,"package_name":"jaraco-classes","is_optional_dependency":false,"installed_version":"3.4.0","latest_version":"3.4.0","time_lag_days":0,"version_age_days":811,"releases_lag":0,"homepage_url":"https://github.com/jaraco/jaraco.classes","package_url":"https://pypi.org/project/jaraco.classes/","license":["MIT"],"purl":"pkg:pypi/jaraco-classes@3.4.0","is_prerelease":false,"is_yanked":false,"is_deprecated":false,"is_package_unpublished":false},{"id":25,"package_name":"more-itertools","is_optional_dependency":false,"installed_version":"10.8.0","latest_version":"11.1.0","time_lag_days":261,"version_age_days":291,"releases_lag":4,"package_url":"https://pypi.org/project/more-itertools/","purl":"pkg:pypi/more-itertools@10.8.0","is_prerelease":false,"is_yanked":false,"is_deprecated":false,"is_package_unpublished":false},{"id":26,"package_name":"jaraco-context","is_optional_dependency":false,"installed_version":"6.0.1","latest_version":"6.1.2","time_lag_days":577,"version_age_days":669,"releases_lag":4,"cve":[{"id":"GHSA-58pv-8j8x-9vj2","cve_ids":[],"source":"OSV","package_name":"jaraco-context","package_registry":"PYPI","summary":"","severity":"MEDIUM","affected_versions":[],"published":null,"link":"https://osv.dev/GHSA-58pv-8j8x-9vj2"}],"repo_url":"https://github.com/jaraco/jaraco.context","package_url":"https://pypi.org/project/jaraco.context/","purl":"pkg:pypi/jaraco-context@6.0.1","is_prerelease":false,"is_yanked":false,"is_deprecated":false,"is_package_unpublished":false},{"id":27,"package_name":"backports-tarfile","is_optional_dependency":false,"installed_version":"1.2.0","latest_version":"1.2.0","time_lag_days":0,"version_age_days":753,"releases_lag":0,"package_url":"https://pypi.org/project/backports.tarfile/","license":["MIT"],"purl":"pkg:pypi/backports-tarfile@1.2.0","is_prerelease":false,"is_yanked":false,"is_deprecated":false,"is_package_unpublished":false},{"id":28,"package_name":"jaraco-functools","is_optional_dependency":false,"installed_version":"4.3.0","latest_version":"4.5.0","time_lag_days":270,"version_age_days":306,"releases_lag":2,"repo_url":"https://github.com/jaraco/jaraco.functools","package_url":"https://pypi.org/project/jaraco.functools/","purl":"pkg:pypi/jaraco-functools@4.3.0","is_prerelease":false,"is_yanked":false,"is_deprecated":false,"is_package_unpublished":false},{"id":29,"package_name":"jeepney","is_optional_dependency":false,"installed_version":"0.9.0","latest_version":"0.9.0","time_lag_days":0,"version_age_days":478,"releases_lag":0,"repo_url":"https://gitlab.com/takluyver/jeepney","package_url":"https://pypi.org/project/jeepney/","purl":"pkg:pypi/jeepney@0.9.0","is_prerelease":false,"is_yanked":false,"is_deprecated":false,"is_package_unpublished":false},{"id":30,"package_name":"pywin32-ctypes","is_optional_dependency":false,"installed_version":"0.2.3","latest_version":"0.2.3","time_lag_days":0,"version_age_days":675,"releases_lag":0,"homepage_url":"https://github.com/enthought/pywin32-ctypes","package_url":"https://pypi.org/project/pywin32-ctypes/","purl":"pkg:pypi/pywin32-ctypes@0.2.3","is_prerelease":false,"is_yanked":false,"is_deprecated":false,"is_package_unpublished":false},{"id":31,"package_name":"secretstorage","is_optional_dependency":false,"installed_version":"3.5.0","latest_version":"3.5.0","time_lag_days":0,"version_age_days":209,"releases_lag":0,"package_url":"https://pypi.org/project/SecretStorage/","purl":"pkg:pypi/secretstorage@3.5.0","is_prerelease":false,"is_yanked":false,"is_deprecated":false,"is_package_unpublished":false},{"id":32,"package_name":"cryptography","is_optional_dependency":false,"installed_version":"46.0.3","latest_version":"49.0.0","time_lag_days":239,"version_age_days":247,"releases_lag":8,"cve":[{"id":"PYSEC-2026-35","cve_ids":[],"source":"OSV","package_name":"cryptography","package_registry":"PYPI","summary":"","severity":"MEDIUM","affected_versions":[],"published":null,"link":"https://osv.dev/PYSEC-2026-35"},{"id":"GHSA-537c-gmf6-5ccf","cve_ids":[],"source":"OSV","package_name":"cryptography","package_registry":"PYPI","summary":"","severity":"MEDIUM","affected_versions":[],"published":null,"link":"https://osv.dev/GHSA-537c-gmf6-5ccf"},{"id":"GHSA-p423-j2cm-9vmq","cve_ids":[],"source":"OSV","package_name":"cryptography","package_registry":"PYPI","summary":"","severity":"MEDIUM","affected_versions":[],"published":null,"link":"https://osv.dev/GHSA-p423-j2cm-9vmq"},{"id":"GHSA-m959-cc7f-wv43","cve_ids":[],"source":"OSV","package_name":"cryptography","package_registry":"PYPI","summary":"","severity":"MEDIUM","affected_versions":[],"published":null,"link":"https://osv.dev/GHSA-m959-cc7f-wv43"},{"id":"GHSA-r6ph-v2qm-q3c2","cve_ids":[],"source":"OSV","package_name":"cryptography","package_registry":"PYPI","summary":"","severity":"MEDIUM","affected_versions":[],"published":null,"link":"https://osv.dev/GHSA-r6ph-v2qm-q3c2"},{"id":"PYSEC-2026-36","cve_ids":[],"source":"OSV","package_name":"cryptography","package_registry":"PYPI","summary":"","severity":"MEDIUM","affected_versions":[],"published":null,"link":"https://osv.dev/PYSEC-2026-36"}],"package_url":"https://pypi.org/project/cryptography/","purl":"pkg:pypi/cryptography@46.0.3","is_prerelease":false,"is_yanked":false,"is_deprecated":false,"is_package_unpublished":false},{"id":33,"package_name":"cffi","is_optional_dependency":false,"installed_version":"2.0.0","latest_version":"2.0.0","time_lag_days":0,"version_age_days":284,"releases_lag":0,"repo_url":"https://github.com/python-cffi/cffi","package_url":"https://pypi.org/project/cffi/","purl":"pkg:pypi/cffi@2.0.0","is_prerelease":false,"is_yanked":false,"is_deprecated":false,"is_package_unpublished":false},{"id":34,"package_name":"pycparser","is_optional_dependency":false,"installed_version":"2.23","latest_version":"3.0","time_lag_days":134,"version_age_days":284,"releases_lag":1,"package_url":"https://pypi.org/project/pycparser/","purl":"pkg:pypi/pycparser@2.23","is_prerelease":false,"is_yanked":false,"is_deprecated":false,"is_package_unpublished":false},{"id":35,"package_name":"pexpect","is_optional_dependency":false,"installed_version":"4.9.0","latest_version":"4.9.0","time_lag_days":0,"version_age_days":938,"releases_lag":0,"constraint_source_file":"pyproject.toml","repo_url":"https://github.com/pexpect/pexpect","homepage_url":"https://pexpect.readthedocs.io/","package_url":"https://pypi.org/project/pexpect/","license":["ISC"],"purl":"pkg:pypi/pexpect@4.9.0","is_prerelease":false,"is_yanked":false,"is_deprecated":false,"is_package_unpublished":false},{"id":36,"package_name":"ptyprocess","is_optional_dependency":false,"installed_version":"0.7.0","latest_version":"0.7.0","time_lag_days":0,"version_age_days":2000,"releases_lag":0,"homepage_url":"https://github.com/pexpect/ptyprocess","package_url":"https://pypi.org/project/ptyprocess/","license":["ISC"],"purl":"pkg:pypi/ptyprocess@0.7.0","is_prerelease":false,"is_yanked":false,"is_deprecated":false,"is_package_unpublished":false},{"id":37,"package_name":"platformdirs","is_optional_dependency":false,"installed_version":"4.5.0","latest_version":"4.10.0","time_lag_days":231,"version_age_days":255,"releases_lag":11,"repo_url":"https://github.com/tox-dev/platformdirs","package_url":"https://pypi.org/project/platformdirs/","license":["MIT"],"purl":"pkg:pypi/platformdirs@4.5.0","is_prerelease":false,"is_yanked":false,"is_deprecated":false,"is_package_unpublished":false},{"id":38,"package_name":"tomli-w","is_optional_dependency":false,"installed_version":"1.2.0","latest_version":"1.2.0","time_lag_days":0,"version_age_days":521,"releases_lag":0,"package_url":"https://pypi.org/project/tomli-w/","license":["MIT"],"purl":"pkg:pypi/tomli-w@1.2.0","is_prerelease":false,"is_yanked":false,"is_deprecated":false,"is_package_unpublished":false},{"id":39,"package_name":"tomlkit","is_optional_dependency":false,"installed_version":"0.13.3","latest_version":"0.15.0","time_lag_days":339,"version_age_days":380,"releases_lag":2,"repo_url":"https://github.com/python-poetry/tomlkit","package_url":"https://pypi.org/project/tomlkit/","license":["MIT"],"purl":"pkg:pypi/tomlkit@0.13.3","is_prerelease":false,"is_yanked":false,"is_deprecated":false,"is_package_unpublished":false},{"id":40,"package_name":"userpath","is_optional_dependency":false,"installed_version":"1.9.2","latest_version":"1.9.2","time_lag_days":0,"version_age_days":842,"releases_lag":0,"constraint_source_file":"pyproject.toml","repo_url":"https://github.com/ofek/userpath","homepage_url":"","package_url":"https://pypi.org/project/userpath/","license":["MIT"],"purl":"pkg:pypi/userpath@1.9.2","is_prerelease":false,"is_yanked":false,"is_deprecated":false,"is_package_unpublished":false},{"id":41,"package_name":"uv","is_optional_dependency":false,"installed_version":"0.9.12","latest_version":"0.11.23","time_lag_days":206,"version_age_days":207,"releases_lag":55,"cve":[{"id":"GHSA-pjjw-68hj-v9mw","cve_ids":[],"source":"OSV","package_name":"uv","package_registry":"PYPI","summary":"","severity":"MEDIUM","affected_versions":[],"published":null,"link":"https://osv.dev/GHSA-pjjw-68hj-v9mw"},{"id":"GHSA-4gg8-gxpx-9rph","cve_ids":[],"source":"OSV","package_name":"uv","package_registry":"PYPI","summary":"","severity":"MEDIUM","affected_versions":[],"published":null,"link":"https://osv.dev/GHSA-4gg8-gxpx-9rph"}],"repo_url":"https://github.com/astral-sh/uv","homepage_url":"https://pypi.org/project/uv/","package_url":"https://pypi.org/project/uv/","license":["Apache-2.0"],"purl":"pkg:pypi/uv@0.9.12","is_prerelease":false,"is_yanked":false,"is_deprecated":false,"is_package_unpublished":false},{"id":42,"package_name":"virtualenv","is_optional_dependency":false,"installed_version":"20.35.4","latest_version":"21.5.1","time_lag_days":230,"version_age_days":234,"releases_lag":22,"cve":[{"id":"GHSA-597g-3phw-6986","cve_ids":[],"source":"OSV","package_name":"virtualenv","package_registry":"PYPI","summary":"","severity":"MEDIUM","affected_versions":[],"published":null,"link":"https://osv.dev/GHSA-597g-3phw-6986"}],"repo_url":"https://github.com/pypa/virtualenv","package_url":"https://pypi.org/project/virtualenv/","license":["MIT"],"purl":"pkg:pypi/virtualenv@20.35.4","is_prerelease":false,"is_yanked":false,"is_deprecated":false,"is_package_unpublished":false},{"id":43,"package_name":"distlib","is_optional_dependency":false,"installed_version":"0.4.0","latest_version":"0.4.3","time_lag_days":329,"version_age_days":338,"releases_lag":3,"constraint_source_file":"pyproject.toml","repo_url":"https://github.com/pypa/distlib","homepage_url":"https://github.com/pypa/distlib","package_url":"https://pypi.org/project/distlib/","license":["PSF-2.0"],"purl":"pkg:pypi/distlib@0.4.0","is_prerelease":false,"is_yanked":false,"is_deprecated":false,"is_package_unpublished":false},{"id":44,"package_name":"filelock","is_optional_dependency":false,"installed_version":"3.20.0","latest_version":"3.29.4","time_lag_days":247,"version_age_days":255,"releases_lag":22,"cve":[{"id":"GHSA-qmgc-5h2g-mvrw","cve_ids":[],"source":"OSV","package_name":"filelock","package_registry":"PYPI","summary":"","severity":"MEDIUM","affected_versions":[],"published":null,"link":"https://osv.dev/GHSA-qmgc-5h2g-mvrw"},{"id":"GHSA-w853-jp5j-5j7f","cve_ids":[],"source":"OSV","package_name":"filelock","package_registry":"PYPI","summary":"","severity":"MEDIUM","affected_versions":[],"published":null,"link":"https://osv.dev/GHSA-w853-jp5j-5j7f"}],"constraint_source_file":"pyproject.toml","repo_url":"https://github.com/tox-dev/py-filelock","package_url":"https://pypi.org/project/filelock/","license":["MIT"],"purl":"pkg:pypi/filelock@3.20.0","is_prerelease":false,"is_yanked":false,"is_deprecated":false,"is_package_unpublished":false},{"id":45,"package_name":"zstandard","is_optional_dependency":false,"installed_version":"0.25.0","latest_version":"0.25.0","time_lag_days":0,"version_age_days":278,"releases_lag":0,"constraint_source_file":"pyproject.toml","package_url":"https://pypi.org/project/zstandard/","purl":"pkg:pypi/zstandard@0.25.0","is_prerelease":false,"is_yanked":false,"is_deprecated":false,"is_package_unpublished":false},{"id":46,"package_name":"markupsafe","is_optional_dependency":false,"installed_version":"3.0.3","latest_version":"3.0.3","time_lag_days":0,"version_age_days":266,"releases_lag":0,"repo_url":"https://github.com/pallets/markupsafe/","package_url":"https://pypi.org/project/MarkupSafe/","license":["BSD-3-Clause"],"purl":"pkg:pypi/markupsafe@3.0.3","is_prerelease":false,"is_yanked":false,"is_deprecated":false,"is_package_unpublished":false},{"id":47,"package_name":"numpy","is_optional_dependency":false,"installed_version":"2.4.0","latest_version":"2.4.6","time_lag_days":149,"version_age_days":182,"releases_lag":6,"package_url":"https://pypi.org/project/numpy/","purl":"pkg:pypi/numpy@2.4.0","is_prerelease":false,"is_yanked":true,"is_deprecated":false,"is_package_unpublished":false},{"id":48,"package_name":"python-dateutil","is_optional_dependency":false,"installed_version":"2.9.0.post0","latest_version":"2.9.0.post0","time_lag_days":0,"version_age_days":841,"releases_lag":0,"repo_url":"https://github.com/dateutil/dateutil","homepage_url":"https://github.com/dateutil/dateutil","package_url":"https://pypi.org/project/python-dateutil/","license":["Apache-2.0"],"purl":"pkg:pypi/python-dateutil@2.9.0.post0","is_prerelease":false,"is_yanked":false,"is_deprecated":false,"is_package_unpublished":false},{"id":49,"package_name":"six","is_optional_dependency":false,"installed_version":"1.17.0","latest_version":"1.17.0","time_lag_days":0,"version_age_days":563,"releases_lag":0,"homepage_url":"https://github.com/benjaminp/six","package_url":"https://pypi.org/project/six/","license":["MIT"],"purl":"pkg:pypi/six@1.17.0","is_prerelease":false,"is_yanked":false,"is_deprecated":false,"is_package_unpublished":false},{"id":50,"package_name":"pytz","is_optional_dependency":false,"installed_version":"2025.2","latest_version":"2026.2","time_lag_days":404,"version_age_days":452,"releases_lag":3,"homepage_url":"http://pythonhosted.org/pytz","package_url":"https://pypi.org/project/pytz/","license":["MIT"],"purl":"pkg:pypi/pytz@2025.2","is_prerelease":false,"is_yanked":false,"is_deprecated":false,"is_package_unpublished":false},{"id":51,"package_name":"tzdata","is_optional_dependency":false,"installed_version":"2025.3","latest_version":"2026.2","time_lag_days":131,"version_age_days":189,"releases_lag":2,"repo_url":"https://github.com/python/tzdata","homepage_url":"https://github.com/python/tzdata","package_url":"https://pypi.org/project/tzdata/","purl":"pkg:pypi/tzdata@2025.3","is_prerelease":false,"is_yanked":false,"is_deprecated":false,"is_package_unpublished":false},{"id":52,"package_name":"annotated-types","is_optional_dependency":false,"installed_version":"0.7.0","latest_version":"0.7.0","time_lag_days":0,"version_age_days":761,"releases_lag":0,"repo_url":"https://github.com/annotated-types/annotated-types","package_url":"https://pypi.org/project/annotated-types/","license":["MIT"],"purl":"pkg:pypi/annotated-types@0.7.0","is_prerelease":false,"is_yanked":false,"is_deprecated":false,"is_package_unpublished":false},{"id":53,"package_name":"pydantic-core","is_optional_dependency":false,"installed_version":"2.41.5","latest_version":"2.47.0","time_lag_days":198,"version_age_days":228,"releases_lag":10,"constraint_source_file":"pyproject.toml","repo_url":"https://github.com/pydantic/pydantic/tree/main/pydantic-core","homepage_url":"https://github.com/pydantic/pydantic","package_url":"https://pypi.org/project/pydantic_core/","license":["MIT"],"purl":"pkg:pypi/pydantic-core@2.41.5","is_prerelease":false,"is_yanked":false,"is_deprecated":false,"is_package_unpublished":false},{"id":54,"package_name":"typing-inspection","is_optional_dependency":false,"installed_version":"0.4.2","latest_version":"0.4.2","time_lag_days":0,"version_age_days":262,"releases_lag":0,"repo_url":"https://github.com/pydantic/typing-inspection","package_url":"https://pypi.org/project/typing-inspection/","license":["MIT"],"purl":"pkg:pypi/typing-inspection@0.4.2","is_prerelease":false,"is_yanked":false,"is_deprecated":false,"is_package_unpublished":false},{"id":55,"package_name":"charset-normalizer","is_optional_dependency":false,"installed_version":"3.4.4","latest_version":"3.4.7","time_lag_days":170,"version_age_days":249,"releases_lag":3,"constraint_source_file":"pyproject.toml","package_url":"https://pypi.org/project/charset-normalizer/","purl":"pkg:pypi/charset-normalizer@3.4.4","is_prerelease":false,"is_yanked":false,"is_deprecated":false,"is_package_unpublished":false},{"id":56,"package_name":"urllib3","is_optional_dependency":false,"installed_version":"2.5.0","latest_version":"2.7.0","time_lag_days":323,"version_age_days":367,"releases_lag":5,"cve":[{"id":"GHSA-38jv-5279-wg99","cve_ids":[],"source":"OSV","package_name":"urllib3","package_registry":"PYPI","summary":"","severity":"MEDIUM","affected_versions":[],"published":null,"link":"https://osv.dev/GHSA-38jv-5279-wg99"},{"id":"GHSA-2xpw-w6gg-jr37","cve_ids":[],"source":"OSV","package_name":"urllib3","package_registry":"PYPI","summary":"","severity":"MEDIUM","affected_versions":[],"published":null,"link":"https://osv.dev/GHSA-2xpw-w6gg-jr37"},{"id":"GHSA-gm62-xv2j-4w53","cve_ids":[],"source":"OSV","package_name":"urllib3","package_registry":"PYPI","summary":"","severity":"MEDIUM","affected_versions":[],"published":null,"link":"https://osv.dev/GHSA-gm62-xv2j-4w53"},{"id":"PYSEC-2026-141","cve_ids":[],"source":"OSV","package_name":"urllib3","package_registry":"PYPI","summary":"","severity":"MEDIUM","affected_versions":[],"published":null,"link":"https://osv.dev/PYSEC-2026-141"},{"id":"GHSA-qccp-gfcp-xxvc","cve_ids":[],"source":"OSV","package_name":"urllib3","package_registry":"PYPI","summary":"","severity":"MEDIUM","affected_versions":[],"published":null,"link":"https://osv.dev/GHSA-qccp-gfcp-xxvc"}],"constraint_source_file":"pyproject.toml","package_url":"https://pypi.org/project/urllib3/","purl":"pkg:pypi/urllib3@2.5.0","is_prerelease":false,"is_yanked":false,"is_deprecated":false,"is_package_unpublished":false},{"id":57,"package_name":"ghp-import","is_optional_dependency":false,"installed_version":"2.1.0","latest_version":"2.1.0","time_lag_days":0,"version_age_days":1510,"releases_lag":0,"homepage_url":"https://github.com/c-w/ghp-import","package_url":"https://pypi.org/project/ghp-import/","license":["Apache-2.0"],"purl":"pkg:pypi/ghp-import@2.1.0","is_prerelease":false,"is_yanked":false,"is_deprecated":false,"is_package_unpublished":false},{"id":58,"package_name":"markdown","is_optional_dependency":false,"installed_version":"3.10","latest_version":"3.10.2","time_lag_days":97,"version_age_days":229,"releases_lag":2,"repo_url":"https://github.com/Python-Markdown/markdown","package_url":"https://pypi.org/project/Markdown/","license":["BSD-3-Clause"],"purl":"pkg:pypi/markdown@3.10","is_prerelease":false,"is_yanked":false,"is_deprecated":false,"is_package_unpublished":false},{"id":59,"package_name":"mergedeep","is_optional_dependency":false,"installed_version":"1.3.4","latest_version":"1.3.4","time_lag_days":0,"version_age_days":1961,"releases_lag":0,"homepage_url":"https://github.com/clarketm/mergedeep","package_url":"https://pypi.org/project/mergedeep/","license":["MIT"],"purl":"pkg:pypi/mergedeep@1.3.4","is_prerelease":false,"is_yanked":false,"is_deprecated":false,"is_package_unpublished":false},{"id":60,"package_name":"mkdocs-get-deps","is_optional_dependency":false,"installed_version":"0.2.0","latest_version":"0.2.2","time_lag_days":840,"version_age_days":943,"releases_lag":2,"repo_url":"https://github.com/mkdocs/get-deps","package_url":"https://pypi.org/project/mkdocs-get-deps/","license":["MIT"],"purl":"pkg:pypi/mkdocs-get-deps@0.2.0","is_prerelease":false,"is_yanked":false,"is_deprecated":false,"is_package_unpublished":false},{"id":61,"package_name":"pyyaml","is_optional_dependency":false,"installed_version":"6.0.3","latest_version":"6.0.3","time_lag_days":0,"version_age_days":268,"releases_lag":0,"repo_url":"https://github.com/yaml/pyyaml","homepage_url":"https://pyyaml.org/","package_url":"https://pypi.org/project/PyYAML/","license":["MIT"],"purl":"pkg:pypi/pyyaml@6.0.3","is_prerelease":false,"is_yanked":false,"is_deprecated":false,"is_package_unpublished":false},{"id":62,"package_name":"pyyaml-env-tag","is_optional_dependency":false,"installed_version":"1.1","latest_version":"1.1","time_lag_days":0,"version_age_days":403,"releases_lag":0,"repo_url":"https://github.com/waylan/pyyaml-env-tag","package_url":"https://pypi.org/project/pyyaml-env-tag/","license":["MIT"],"purl":"pkg:pypi/pyyaml-env-tag@1.1","is_prerelease":false,"is_yanked":false,"is_deprecated":false,"is_package_unpublished":false},{"id":63,"package_name":"watchdog","is_optional_dependency":false,"installed_version":"6.0.0","latest_version":"6.0.0","time_lag_days":0,"version_age_days":596,"releases_lag":0,"repo_url":"https://github.com/gorakhargosh/watchdog/","homepage_url":"https://github.com/gorakhargosh/watchdog","package_url":"https://pypi.org/project/watchdog/","license":["Apache-2.0"],"purl":"pkg:pypi/watchdog@6.0.0","is_prerelease":false,"is_yanked":false,"is_deprecated":false,"is_package_unpublished":false},{"id":64,"package_name":"babel","is_optional_dependency":false,"installed_version":"2.17.0","latest_version":"2.18.0","time_lag_days":364,"version_age_days":504,"releases_lag":1,"repo_url":"https://github.com/python-babel/babel","homepage_url":"https://babel.pocoo.org/","package_url":"https://pypi.org/project/babel/","license":["BSD-2-Clause"],"purl":"pkg:pypi/babel@2.17.0","is_prerelease":false,"is_yanked":false,"is_deprecated":false,"is_package_unpublished":false},{"id":65,"package_name":"backrefs","is_optional_dependency":false,"installed_version":"6.1","latest_version":"7.0","time_lag_days":164,"version_age_days":217,"releases_lag":2,"package_url":"https://pypi.org/project/backrefs/","license":["MIT"],"purl":"pkg:pypi/backrefs@6.1","is_prerelease":false,"is_yanked":false,"is_deprecated":false,"is_package_unpublished":false},{"id":66,"package_name":"mkdocs-material-extensions","is_optional_dependency":false,"installed_version":"1.3.1","latest_version":"1.3.1","time_lag_days":0,"version_age_days":941,"releases_lag":0,"homepage_url":"","package_url":"https://pypi.org/project/mkdocs-material-extensions/","license":["MIT"],"purl":"pkg:pypi/mkdocs-material-extensions@1.3.1","is_prerelease":false,"is_yanked":false,"is_deprecated":false,"is_package_unpublished":false},{"id":67,"package_name":"paginate","is_optional_dependency":false,"installed_version":"0.5.7","latest_version":"0.5.7","time_lag_days":0,"version_age_days":664,"releases_lag":0,"homepage_url":"https://github.com/Signum/paginate","package_url":"https://pypi.org/project/paginate/","license":["MIT"],"purl":"pkg:pypi/paginate@0.5.7","is_prerelease":false,"is_yanked":false,"is_deprecated":false,"is_package_unpublished":false},{"id":68,"package_name":"pymdown-extensions","is_optional_dependency":false,"installed_version":"10.18","latest_version":"10.21.3","time_lag_days":156,"version_age_days":195,"releases_lag":7,"cve":[{"id":"GHSA-62q4-447f-wv8h","cve_ids":[],"source":"OSV","package_name":"pymdown-extensions","package_registry":"PYPI","summary":"","severity":"MEDIUM","affected_versions":[],"published":null,"link":"https://osv.dev/GHSA-62q4-447f-wv8h"}],"package_url":"https://pypi.org/project/pymdown-extensions/","license":["MIT"],"purl":"pkg:pypi/pymdown-extensions@10.18","is_prerelease":false,"is_yanked":false,"is_deprecated":false,"is_package_unpublished":false},{"id":69,"package_name":"mkdocs-autorefs","is_optional_dependency":false,"installed_version":"1.4.3","latest_version":"1.4.4","time_lag_days":168,"version_age_days":298,"releases_lag":1,"repo_url":"https://github.com/mkdocstrings/autorefs","package_url":"https://pypi.org/project/mkdocs-autorefs/","license":["ISC"],"purl":"pkg:pypi/mkdocs-autorefs@1.4.3","is_prerelease":false,"is_yanked":false,"is_deprecated":false,"is_package_unpublished":false},{"id":70,"package_name":"mypy-extensions","is_optional_dependency":false,"installed_version":"1.1.0","latest_version":"1.1.0","time_lag_days":0,"version_age_days":424,"releases_lag":0,"package_url":"https://pypi.org/project/mypy-extensions/","purl":"pkg:pypi/mypy-extensions@1.1.0","is_prerelease":false,"is_yanked":false,"is_deprecated":false,"is_package_unpublished":false},{"id":71,"package_name":"pytokens","is_optional_dependency":false,"installed_version":"0.3.0","latest_version":"0.4.1","time_lag_days":85,"version_age_days":227,"releases_lag":2,"package_url":"https://pypi.org/project/pytokens/","license":["MIT"],"purl":"pkg:pypi/pytokens@0.3.0","is_prerelease":false,"is_yanked":false,"is_deprecated":false,"is_package_unpublished":false},{"id":72,"package_name":"decorator","is_optional_dependency":false,"installed_version":"5.2.1","latest_version":"5.3.1","time_lag_days":448,"version_age_days":481,"releases_lag":2,"package_url":"https://pypi.org/project/decorator/","purl":"pkg:pypi/decorator@5.2.1","is_prerelease":false,"is_yanked":false,"is_deprecated":false,"is_package_unpublished":false},{"id":73,"package_name":"ipython","is_optional_dependency":false,"installed_version":"9.7.0","latest_version":"9.14.1","time_lag_days":211,"version_age_days":227,"releases_lag":9,"repo_url":"https://github.com/ipython/ipython","package_url":"https://pypi.org/project/ipython/","license":["BSD-3-Clause"],"purl":"pkg:pypi/ipython@9.7.0","is_prerelease":false,"is_yanked":false,"is_deprecated":false,"is_package_unpublished":false},{"id":74,"package_name":"ipython-pygments-lexers","is_optional_dependency":false,"installed_version":"1.1.1","latest_version":"1.1.1","time_lag_days":0,"version_age_days":519,"releases_lag":0,"repo_url":"https://github.com/ipython/ipython-pygments-lexers","package_url":"https://pypi.org/project/ipython-pygments-lexers/","license":["BSD-2-Clause"],"purl":"pkg:pypi/ipython-pygments-lexers@1.1.1","is_prerelease":false,"is_yanked":false,"is_deprecated":false,"is_package_unpublished":false},{"id":75,"package_name":"jedi","is_optional_dependency":false,"installed_version":"0.19.2","latest_version":"0.20.0","time_lag_days":536,"version_age_days":586,"releases_lag":1,"homepage_url":"https://github.com/davidhalter/jedi","package_url":"https://pypi.org/project/jedi/","license":["MIT"],"purl":"pkg:pypi/jedi@0.19.2","is_prerelease":false,"is_yanked":false,"is_deprecated":false,"is_package_unpublished":false},{"id":76,"package_name":"parso","is_optional_dependency":false,"installed_version":"0.8.5","latest_version":"0.8.7","time_lag_days":251,"version_age_days":301,"releases_lag":2,"constraint_source_file":"pyproject.toml","homepage_url":"https://github.com/davidhalter/parso","package_url":"https://pypi.org/project/parso/","license":["MIT"],"purl":"pkg:pypi/parso@0.8.5","is_prerelease":false,"is_yanked":false,"is_deprecated":false,"is_package_unpublished":false},{"id":77,"package_name":"matplotlib-inline","is_optional_dependency":false,"installed_version":"0.2.1","latest_version":"0.2.2","time_lag_days":197,"version_age_days":240,"releases_lag":1,"package_url":"https://pypi.org/project/matplotlib-inline/","purl":"pkg:pypi/matplotlib-inline@0.2.1","is_prerelease":false,"is_yanked":false,"is_deprecated":false,"is_package_unpublished":false},{"id":78,"package_name":"traitlets","is_optional_dependency":false,"installed_version":"5.14.3","latest_version":"5.15.1","time_lag_days":775,"version_age_days":792,"releases_lag":2,"repo_url":"https://github.com/ipython/traitlets","package_url":"https://pypi.org/project/traitlets/","license":["BSD-2-Clause"],"purl":"pkg:pypi/traitlets@5.14.3","is_prerelease":false,"is_yanked":false,"is_deprecated":false,"is_package_unpublished":false},{"id":79,"package_name":"stack-data","is_optional_dependency":false,"installed_version":"0.6.3","latest_version":"0.6.3","time_lag_days":0,"version_age_days":994,"releases_lag":0,"homepage_url":"http://github.com/alexmojaki/stack_data","package_url":"https://pypi.org/project/stack-data/","license":["MIT"],"purl":"pkg:pypi/stack-data@0.6.3","is_prerelease":false,"is_yanked":false,"is_deprecated":false,"is_package_unpublished":false},{"id":80,"package_name":"asttokens","is_optional_dependency":false,"installed_version":"3.0.1","latest_version":"3.0.1","time_lag_days":0,"version_age_days":217,"releases_lag":0,"homepage_url":"https://github.com/gristlabs/asttokens","package_url":"https://pypi.org/project/asttokens/","purl":"pkg:pypi/asttokens@3.0.1","is_prerelease":false,"is_yanked":false,"is_deprecated":false,"is_package_unpublished":false},{"id":81,"package_name":"executing","is_optional_dependency":false,"installed_version":"2.2.1","latest_version":"2.2.1","time_lag_days":0,"version_age_days":292,"releases_lag":0,"homepage_url":"https://github.com/alexmojaki/executing","package_url":"https://pypi.org/project/executing/","license":["MIT"],"purl":"pkg:pypi/executing@2.2.1","is_prerelease":false,"is_yanked":false,"is_deprecated":false,"is_package_unpublished":false},{"id":82,"package_name":"pure-eval","is_optional_dependency":false,"installed_version":"0.2.3","latest_version":"0.2.3","time_lag_days":0,"version_age_days":699,"releases_lag":0,"homepage_url":"http://github.com/alexmojaki/pure_eval","package_url":"https://pypi.org/project/pure-eval/","license":["MIT"],"purl":"pkg:pypi/pure-eval@0.2.3","is_prerelease":false,"is_yanked":false,"is_deprecated":false,"is_package_unpublished":false},{"id":83,"package_name":"astroid","is_optional_dependency":false,"installed_version":"4.0.2","latest_version":"4.1.2","time_lag_days":132,"version_age_days":223,"releases_lag":5,"constraint_source_file":"pyproject.toml","repo_url":"https://github.com/pylint-dev/astroid","package_url":"https://pypi.org/project/astroid/","license":["LGPL-2.1"],"purl":"pkg:pypi/astroid@4.0.2","is_prerelease":false,"is_yanked":false,"is_deprecated":false,"is_package_unpublished":false},{"id":84,"package_name":"dill","is_optional_dependency":false,"installed_version":"0.4.0","latest_version":"0.4.1","time_lag_days":278,"version_age_days":430,"releases_lag":1,"repo_url":"https://github.com/uqfoundation/dill","homepage_url":"https://github.com/uqfoundation/dill","package_url":"https://pypi.org/project/dill/","license":["BSD-2-Clause"],"purl":"pkg:pypi/dill@0.4.0","is_prerelease":false,"is_yanked":false,"is_deprecated":false,"is_package_unpublished":false},{"id":85,"package_name":"isort","is_optional_dependency":false,"installed_version":"7.0.0","latest_version":"8.0.1","time_lag_days":139,"version_age_days":252,"releases_lag":2,"constraint_source_file":"pyproject.toml","repo_url":"https://github.com/PyCQA/isort","package_url":"https://pypi.org/project/isort/","license":["MIT"],"purl":"pkg:pypi/isort@7.0.0","is_prerelease":false,"is_yanked":false,"is_deprecated":false,"is_package_unpublished":false},{"id":86,"package_name":"mccabe","is_optional_dependency":false,"installed_version":"0.7.0","latest_version":"0.7.0","time_lag_days":0,"version_age_days":1608,"releases_lag":0,"constraint_source_file":"pyproject.toml","homepage_url":"https://github.com/pycqa/mccabe","package_url":"https://pypi.org/project/mccabe/","license":["MIT"],"purl":"pkg:pypi/mccabe@0.7.0","is_prerelease":false,"is_yanked":false,"is_deprecated":false,"is_package_unpublished":false},{"id":87,"package_name":"iniconfig","is_optional_dependency":false,"installed_version":"2.3.0","latest_version":"2.3.0","time_lag_days":0,"version_age_days":244,"releases_lag":0,"package_url":"https://pypi.org/project/iniconfig/","purl":"pkg:pypi/iniconfig@2.3.0","is_prerelease":false,"is_yanked":false,"is_deprecated":false,"is_package_unpublished":false}],"dependency_tree":[{"package_name":"pytest","children":[{"ref":2,"ct":0,"version_constraint":">=2.0.0"},{"ref":6,"ct":0,"version_constraint":">=0.4.4"},{"ref":11,"ct":0,"version_constraint":">=1.0.0"},{"ref":87,"ct":0,"version_constraint":">=1.0.1"}]},{"package_name":"black","children":[{"ref":5,"ct":0,"version_constraint":">=8.0.0"},{"ref":10,"ct":0,"version_constraint":">=0.9.0"},{"ref":70,"ct":0,"version_constraint":">=0.4.3"},{"ref":71,"ct":0,"version_constraint":">=0.3.0"}]},{"package_name":"typer","children":[{"ref":7,"ct":0,"version_constraint":">=1.4.0"}]},{"package_name":"hatch","children":[{"ref":9,"ct":0,"version_constraint":">=1.26.3","children":[{"ref":12,"ct":0}]},{"ref":13,"ct":0,"version_constraint":">=0.22.0","children":[{"ref":14,"ct":0,"children":[{"ref":16,"ct":0,"version_constraint":">=1.1"}]},{"ref":18,"ct":1,"version_constraint":"==1.*","children":[{"ref":19,"ct":0,"version_constraint":">=0.16"}]}]},{"ref":20,"ct":0,"version_constraint":">=21.0.0"},{"ref":21,"ct":0,"version_constraint":">=23.5.0","children":[{"ref":22,"ct":0,"version_constraint":">=4.11.4","children":[{"ref":23,"ct":0,"version_constraint":">=3.20"}]},{"ref":24,"ct":0},{"ref":26,"ct":0,"children":[{"ref":27,"ct":0}]},{"ref":28,"ct":0,"children":[{"ref":25,"ct":0}]},{"ref":30,"ct":0,"version_constraint":">=0.2.0"},{"ref":31,"ct":0,"version_constraint":">=3.2","children":[{"ref":29,"ct":0,"version_constraint":">=0.4.2"},{"ref":32,"ct":0,"version_constraint":">=2.0","children":[{"ref":33,"ct":0,"version_constraint":">=2.0.0","children":[{"ref":34,"ct":0}]}]}]}]},{"ref":38,"ct":0,"version_constraint":">=1.0"},{"ref":40,"ct":1,"version_constraint":"~=1.7"},{"ref":41,"ct":0,"version_constraint":">=0.5.23"},{"ref":42,"ct":0,"version_constraint":">=20.26.6","children":[{"ref":43,"ct":1,"version_constraint":"<1,>=0.3.7"},{"ref":44,"ct":1,"version_constraint":"<4,>=3.12.2"}]},{"ref":45,"ct":1,"version_constraint":"<1"}]},{"package_name":"pylint","children":[{"ref":37,"ct":0,"version_constraint":">=2"},{"ref":39,"ct":0,"version_constraint":">=0.11.1"},{"ref":83,"ct":1,"version_constraint":"<=4.1.dev0,>=4.0.2"},{"ref":84,"ct":0,"version_constraint":">=0.3.7"},{"ref":85,"ct":1,"version_constraint":"!=5.13,<8,>=5"},{"ref":86,"ct":1,"version_constraint":"<0.8,>=0.6"}]},{"package_name":"pandas","children":[{"ref":47,"ct":0,"version_constraint":">=1.26.0"},{"ref":50,"ct":0,"version_constraint":">=2020.1"},{"ref":51,"ct":0,"version_constraint":">=2022.7"}]},{"package_name":"pydantic","children":[{"ref":52,"ct":0,"version_constraint":">=0.6.0"},{"ref":53,"ct":2,"version_constraint":"==2.41.5"},{"ref":54,"ct":0,"version_constraint":">=0.4.2"}]},{"package_name":"mkdocs-material","children":[{"ref":64,"ct":0,"version_constraint":">=2.10"},{"ref":65,"ct":0,"version_constraint":">=5.7.post1"},{"ref":66,"ct":0,"version_constraint":">=1.3"},{"ref":67,"ct":0,"version_constraint":">=0.5"}]},{"package_name":"mkdocstrings","children":[{"ref":68,"ct":0,"version_constraint":">=10.2","children":[{"ref":58,"ct":0,"version_constraint":">=3.3.6"},{"ref":61,"ct":0,"version_constraint":">=5.1"}]},{"ref":69,"ct":0,"version_constraint":">=1.4"}]},{"package_name":"ipdb","children":[{"ref":73,"ct":0,"version_constraint":">=7.31.1","children":[{"ref":0,"ct":0,"version_constraint":">=3.0.0","children":[{"ref":1,"ct":0}]},{"ref":8,"ct":0,"version_constraint":">=4.5"},{"ref":35,"ct":1,"version_constraint":"~=4.8","children":[{"ref":36,"ct":0,"version_constraint":">=0.5"}]},{"ref":72,"ct":0,"version_constraint":">=4.3.2"},{"ref":74,"ct":0,"version_constraint":">=1.0.0"},{"ref":75,"ct":0,"version_constraint":">=0.18.1","children":[{"ref":76,"ct":1,"version_constraint":"<0.9.0,>=0.8.4"}]},{"ref":77,"ct":0,"version_constraint":">=0.1.5"},{"ref":78,"ct":0,"version_constraint":">=5.13.0"},{"ref":79,"ct":0,"version_constraint":">=0.6.0","children":[{"ref":80,"ct":0,"version_constraint":">=2.1.0"},{"ref":81,"ct":0,"version_constraint":">=1.2.0"},{"ref":82,"ct":0}]}]}]}]}</script>
   </body>
 </html>

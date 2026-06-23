@@ -13,15 +13,17 @@
 
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>OSS IQ — Dependency Drift &amp; Maintenance Health for Platform Teams</title>
+    <title>OSS IQ &mdash; Dependency Drift &amp; Maintenance Health for Platform Teams</title>
 
     <!-- SEO Meta Tags -->
     <meta name="description"
         content="Analyze version lag, maintenance signals, and transitive risk across your entire supply chain. Move from reactive CVE-chasing to a planned maintenance rhythm. Free &amp; open source CLI tool.">
-    <meta name="author" content="OSS IQ">
-    <meta name="keywords" content="dependency health, dependency drift, SCA, software composition analysis, CVE, version lag, npm audit, pip audit, open source risk, dependency scanning, SBOM, maintenance health">
-    <meta name="robots" content="index, follow, max-snippet:-1, max-image-preview:large">
+    <meta name="author" content="Maksym Klymyshyn, Oleksandr Shulika">
+    <meta name="keywords" content="dependency health, dependency drift, SCA, software composition analysis, CVE, version lag, npm audit, pip audit, open source risk, dependency scanning, SBOM, maintenance health, software supply chain, platform engineering">
+    <meta name="robots" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1">
     <link rel="canonical" href="https://ossiq.dev/" />
+    <link rel="icon" type="image/svg+xml" href="_static/images/oss-iq-logo-light.svg">
+    <meta name="theme-color" content="#fcfcfc">
 
     <!-- LLM Discovery -->
     <link rel="llms-txt" href="/llms.txt" type="text/plain">
@@ -29,18 +31,25 @@
     <!-- Open Graph / Facebook -->
     <meta property="og:type" content="website">
     <meta property="og:url" content="https://ossiq.dev/">
-    <meta property="og:title" content="OSS IQ — Quantify Dependency Health. Control Your Drift.">
+    <meta property="og:site_name" content="OSS IQ">
+    <meta property="og:title" content="OSS IQ &mdash; Quantify Dependency Health. Control Your Drift.">
     <meta property="og:description"
         content="Analyze version lag, maintenance signals, and transitive risk across your entire supply chain. CLI + HTML reports. Free and open source.">
     <meta property="og:image" content="https://ossiq.dev/img/ossiq-report-html-light.png">
+    <meta property="og:image:width" content="1200">
+    <meta property="og:image:height" content="630">
+    <meta property="og:image:alt" content="OSS IQ — Dependency health score dashboard showing version lag, CVEs, and maintenance signals">
+    <meta property="og:locale" content="en_US">
 
     <!-- Twitter -->
-    <meta property="twitter:card" content="summary_large_image">
-    <meta property="twitter:url" content="https://ossiq.dev/">
-    <meta property="twitter:title" content="OSS IQ — Quantify Dependency Health. Control Your Drift.">
-    <meta property="twitter:description"
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:site" content="@ossiq_dev">
+    <meta name="twitter:url" content="https://ossiq.dev/">
+    <meta name="twitter:title" content="OSS IQ &mdash; Quantify Dependency Health. Control Your Drift.">
+    <meta name="twitter:description"
         content="Analyze version lag, maintenance signals, and transitive risk across your entire supply chain. CLI + HTML reports. Free and open source.">
-    <meta property="twitter:image" content="https://ossiq.dev/img/ossiq-report-html-light.png">
+    <meta name="twitter:image" content="https://ossiq.dev/img/ossiq-report-html-light.png">
+    <meta name="twitter:image:alt" content="OSS IQ — Dependency health score dashboard showing version lag, CVEs, and maintenance signals">
 
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -130,6 +139,10 @@
           "@type": "Organization",
           "name": "OSS IQ",
           "url": "https://ossiq.dev/",
+          "logo": {
+            "@type": "ImageObject",
+            "url": "https://ossiq.dev/_static/images/oss-iq-logo-light.svg"
+          },
           "sameAs": ["https://github.com/ossiq/ossiq"],
           "contactPoint": {
             "@type": "ContactPoint",
@@ -141,14 +154,6 @@
           "mainEntity": [
             {
               "@type": "Question",
-              "name": "What is a dependency health score?",
-              "acceptedAnswer": {
-                "@type": "Answer",
-                "text": "It's a single, easy-to-understand metric that aggregates dozens of signals—like security vulnerabilities (CVEs), package maintenance status, and version lag—into one number. It gives you an instant, holistic view of your project's dependency risk."
-              }
-            },
-            {
-              "@type": "Question",
               "name": "How is this different from `npm audit` or `pip-audit`?",
               "acceptedAnswer": {
                 "@type": "Answer",
@@ -157,10 +162,19 @@
             },
             {
               "@type": "Question",
+              "name": "How is this different from `npm update` or `uv lock --upgrade`?",
+              "acceptedAnswer": {
+                "@type": "Answer",
+                "text": "Those commands are execution tools — they upgrade everything to the latest version that fits your semver constraints, but they don't tell you what to upgrade, why, or in what order. OSS IQ is an analysis tool. It scores your dependencies by version lag, maintenance signals, and transitive risk, then gives you a prioritized upgrade plan. It also surfaces packages that are abandoned or unmaintained, which no amount of upgrading will fix. Think of OSS IQ as the step you run before npm update or uv lock --upgrade — so you know exactly what you're doing and why."
+              }
+            },
+
+            {
+              "@type": "Question",
               "name": "What ecosystems does OSS IQ support?",
               "acceptedAnswer": {
                 "@type": "Answer",
-                "text": "OSS IQ currently supports popular ecosystems like npm for JavaScript and multiple dependency managers for Python (like uv, Poetry, and classic pip). We are always working to add support for more ecosystems."
+                "text": "OSS IQ currently supports popular ecosystems like npm for JavaScript and multiple dependency managers for Python (uv and classic pip). We are always working to add support for more ecosystems."
               }
             },
             {
@@ -176,6 +190,16 @@
       ]
     }
     </script>
+
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "BreadcrumbList",
+      "itemListElement": [
+        { "@type": "ListItem", "position": 1, "name": "Home", "item": "https://ossiq.dev/" }
+      ]
+    }
+    </script>
 </head>
 <body class="flex flex-col min-h-screen">
 
@@ -183,13 +207,14 @@
     <header class="fixed top-0 w-full z-50 bg-[#fcfcfc]/80 backdrop-blur-md border-b border-zinc-100">
         <div class="max-w-6xl mx-auto px-6 py-6 flex justify-between items-center">
             <a href="/" class="heading-font text-2xl font-bold tracking-tighter">
-                <img src="_static/oss-iq-logo-light.svg" width="120" height="22" alt="OSS IQ - Open Source Dependency Intelligence"/>
+                <img src="_static/images/oss-iq-logo-light.svg" width="120" height="22" alt="OSS IQ - Open Source Dependency Intelligence"/>
             </a>
             <nav class="hidden md:flex gap-10">
                 <a href="#how-it-works" class="nav-link">How It Works</a>
                 <a href="#features" class="nav-link">Features</a>
                 <a href="#try-it-out" class="nav-link">Try It</a>
                 <a href="getting-started.html" class="nav-link">Documentation</a>
+                <a href="/journal" class="nav-link"><span class="text-white bg-[#ff4d00] py-1 px-2 rounded-2xl">Journal</span></a>
                 <a href="#faq" class="nav-link">FAQ</a>
                 <a href="https://github.com/ossiq/ossiq" class="nav-link text-[#ff4d00]">GitHub</a>
             </nav>
@@ -207,88 +232,93 @@
             <a href="#features" class="nav-link py-3 border-b border-zinc-100">Features</a>
             <a href="#try-it-out" class="nav-link py-3 border-b border-zinc-100">Try It</a>
             <a href="getting-started.html" class="nav-link py-3 border-b border-zinc-100">Documentation</a>
+            <a href="/journal" class="nav-link py-3"><span class="text-white bg-[#ff4d00] py-1 px-2 rounded-2xl">Journal</span></a>
             <a href="#faq" class="nav-link py-3 border-b border-zinc-100">FAQ</a>
             <a href="https://github.com/ossiq/ossiq" class="nav-link py-3 text-[#ff4d00]">GitHub</a>
         </nav>
     </div>
 
     <main>
-        <div class="max-w-6xl mx-auto px-6 pt-32 md:pt-48 pb-16 flex-grow">
+        <div class="mx-auto px-12 md:pl-36 pt-32 md:pt-48 flex-grow">
 
-        <!-- Hero / Manifesto Section -->
-        <section id="manifesto" class="grid-main mb-32">
-            <div class="col-span-12 lg:col-span-7">
-                <h1 class="text-3xl md:text-4xl lg:text-6xl heading-font font-bold leading-[0.95] mb-12">
-                    Quantify<br>
-                    <span class="text-[#03b08a]">Maintenance Health.</span><br>
-                    Control Your Drift.
-                </h1>
-                <div>
-                    <p class="text-xl md:text-2xl font-light mb-8">
-                        OSS IQ analyzes <span class="font-medium text-[#ff4d00]">dependency drift</span> at scale. Open-source intelligence for platform teams. <strong>CLI</strong> and <strong>HTML</strong> reports.
-                    </p>
-                    <p class="text-base font-light text-zinc-500 mb-12">
-                        Track version lag and transitive risk directly from your dependency files. 
-                        Move from <span class="font-medium">reactive CVE-chasing</span> to a planned, predictable maintenance rhythm.
-                    </p>
-                    <div class="flex flex-wrap gap-4 mb-8">
-                        <a href="#try-it-out" class="bg-black text-white px-8 py-4 rounded-sm font-bold text-xs uppercase tracking-widest hover:bg-[#ff4d00] transition-colors">Try It</a>
-                        <a href="_static/samples/scan_npm.html" class="border border-zinc-200 px-8 py-4 rounded-sm font-bold text-xs uppercase tracking-widest hover:border-black transition-colors">View Example Report</a>
-                    </div>
-                    <div class="flex items-center gap-2 text-sm text-zinc-500">
-                        <svg class="w-4 h-4 text-green-500 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/></svg>
-                        <span>Free and Open Source</span>
+            <!-- Hero / Manifesto Section -->
+            <section id="manifesto" class="grid-main mb-32">
+                <div class="col-span-12 lg:col-span-6">
+                    <h1 class="text-3xl md:text-4xl lg:text-6xl heading-font font-bold leading-[0.95] mb-12">
+                        Quantify<br>
+                        <span class="text-[#03b08a]">Maintenance Health.</span><br>
+                        Control Your Drift.
+                    </h1>
+                    <div>
+                        <p class="text-xl md:text-2xl font-light mb-8">
+                            OSS IQ analyzes <span class="font-medium text-[#ff4d00]">dependency drift</span> in your project &mdash; then <strong>plans&nbsp;and&nbsp;applies</strong> the upgrades. <strong>CLI</strong>, <strong>HTML</strong> reports, and a solver that tells you exactly what to update and why.
+                        </p>
+                        <p class="text-base font-light text-zinc-500 mb-12">
+                            Point it at any JavaScript or Python project. See what's behind, what's vulnerable, and what to update &mdash; then let it make the changes.
+                            Move from <span class="font-medium">reactive CVE-chasing</span> to a planned upgrade workflow.
+                        </p>
+                        <div class="flex flex-wrap gap-4 mb-8">
+                            <a href="#try-it-out" class="bg-black text-white px-8 py-4 rounded-sm font-bold text-xs uppercase tracking-widest hover:bg-[#ff4d00] transition-colors">Try It</a>
+                            <a href="_static/samples/scan_npm.html" class="border border-zinc-200 px-8 py-4 rounded-sm font-bold text-xs uppercase tracking-widest hover:border-black transition-colors">View Example Report</a>
+                        </div>
+                        <div class="flex items-center gap-2 text-sm text-zinc-500">
+                            <svg class="w-4 h-4 text-green-500 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/></svg>
+                            <span>Free and Open Source</span>
+                        </div>
                     </div>
                 </div>
-            </div>
 
-            <!-- Hero Visual — Image Gallery -->
-            <div class="col-span-12 lg:col-span-5 flex items-center">
-                <div class="relative w-full group">
-                    <div id="gallery" class="overflow-hidden">
-                        <img id="gallery-img"
-                            src="_images/ossiq-html-report-2026-03-14.png"
-                            alt="OSS IQ report screenshot"
-                            class="w-full block transition-opacity duration-300 cursor-zoom-in" />
+                <!-- Hero Visual &mdash; Image Gallery -->
+                <div class="col-span-12 lg:col-span-6 flex items-center">
+                    <div class="relative w-full group">
+                        <div id="gallery" class="overflow-hidden">
+                            <img id="gallery-img"
+                                src="/_static/images/ossiq-html-report-2026-06-20.png"
+                                alt="OSS IQ report screenshot"
+                                width="800" height="600"
+                                fetchpriority="high"
+                                class="w-full block transition-opacity duration-300 cursor-zoom-in" />
+                        </div>
+
+                        <button id="gallery-prev"
+                            class="absolute left-0 top-1/2 -translate-y-1/2 -translate-x-4 bg-white border border-zinc-200 rounded-full w-9 h-9 flex items-center justify-center shadow hover:border-zinc-400 hover:shadow-md transition-all opacity-0 group-hover:opacity-100"
+                            aria-label="Previous image">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
+                        </button>
+
+                        <button id="gallery-next"
+                            class="absolute right-0 top-1/2 -translate-y-1/2 translate-x-4 bg-white border border-zinc-200 rounded-full w-9 h-9 flex items-center justify-center shadow hover:border-zinc-400 hover:shadow-md transition-all opacity-0 group-hover:opacity-100"
+                            aria-label="Next image">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg>
+                        </button>
+
+                        <div id="gallery-dots" class="flex justify-center gap-1.5 mt-4"></div>
                     </div>
-
-                    <button id="gallery-prev"
-                        class="absolute left-0 top-1/2 -translate-y-1/2 -translate-x-4 bg-white border border-zinc-200 rounded-full w-9 h-9 flex items-center justify-center shadow hover:border-zinc-400 hover:shadow-md transition-all opacity-0 group-hover:opacity-100"
-                        aria-label="Previous image">
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
-                    </button>
-
-                    <button id="gallery-next"
-                        class="absolute right-0 top-1/2 -translate-y-1/2 translate-x-4 bg-white border border-zinc-200 rounded-full w-9 h-9 flex items-center justify-center shadow hover:border-zinc-400 hover:shadow-md transition-all opacity-0 group-hover:opacity-100"
-                        aria-label="Next image">
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg>
-                    </button>
-
-                    <div id="gallery-dots" class="flex justify-center gap-1.5 mt-4"></div>
                 </div>
-            </div>
-        </section>
+            </section>
 
-        <!-- Lightbox overlay -->
-        <div id="lightbox" class="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm opacity-0 pointer-events-none transition-opacity duration-200">
-            <img id="lightbox-img" src="" alt="" class="max-w-[90vw] max-h-[90vh] rounded-sm shadow-2xl cursor-zoom-out object-contain" />
-            <button id="lightbox-close"
-                class="absolute top-5 right-5 w-9 h-9 flex items-center justify-center rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors"
-                aria-label="Close lightbox">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
-            </button>
-            <button id="lightbox-prev"
-                class="absolute left-5 top-1/2 -translate-y-1/2 w-10 h-10 flex items-center justify-center rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors"
-                aria-label="Previous image">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
-            </button>
-            <button id="lightbox-next"
-                class="absolute right-5 top-1/2 -translate-y-1/2 w-10 h-10 flex items-center justify-center rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors"
-                aria-label="Next image">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg>
-            </button>
+            <!-- Lightbox overlay -->
+            <div id="lightbox" class="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm opacity-0 pointer-events-none transition-opacity duration-200">
+                <img id="lightbox-img" src="" alt="" class="max-w-[90vw] max-h-[90vh] rounded-sm shadow-2xl cursor-zoom-out object-contain" />
+                <button id="lightbox-close"
+                    class="absolute top-5 right-5 w-9 h-9 flex items-center justify-center rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors"
+                    aria-label="Close lightbox">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
+                </button>
+                <button id="lightbox-prev"
+                    class="absolute left-5 top-1/2 -translate-y-1/2 w-10 h-10 flex items-center justify-center rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors"
+                    aria-label="Previous image">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
+                </button>
+                <button id="lightbox-next"
+                    class="absolute right-5 top-1/2 -translate-y-1/2 w-10 h-10 flex items-center justify-center rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors"
+                    aria-label="Next image">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg>
+                </button>
+            </div>
         </div>
 
+        <div class="max-w-6xl mx-auto px-6 flex-grow">
         <!-- Problem / Why -->
         <section id="features" class="grid-main pt-16 border-t border-zinc-200 mb-32">
             <div class="col-span-12 lg:col-span-4">
@@ -337,7 +367,7 @@
             <div class="col-span-12 mb-16">
                 <p class="text-[10px] font-bold uppercase tracking-widest text-zinc-500 mb-4">Positioning</p>
                 <h2 class="text-4xl md:text-5xl heading-font font-bold mb-6">Not Another Audit Tool.</h2>
-                <p class="text-zinc-400 font-light max-w-xl">The ecosystem already has point solutions. OSS IQ takes a different angle — analyzing the <span class="text-white font-medium">health and longevity</span> of your supply chain, not just its known bugs.</p>
+                <p class="text-zinc-400 font-light max-w-xl">The ecosystem already has point solutions. OSS IQ takes a different angle &mdash; analyzing the <span class="text-white font-medium">health and longevity</span> of your supply chain, not just its known bugs.</p>
             </div>
 
             <!-- Table header -->
@@ -383,7 +413,7 @@
                 </div>
             </div>
 
-            <!-- OSS IQ row — highlighted -->
+            <!-- OSS IQ row &mdash; highlighted -->
             <div class="col-span-12 grid grid-cols-1 md:grid-cols-12 gap-4 md:gap-8 py-7 bg-zinc-800 -mx-8 px-8 rounded-sm mt-2">
                 <div class="md:col-span-3 flex items-center gap-3">
                     <span class="w-1.5 h-1.5 rounded-full bg-[#ff4d00] shrink-0"></span>
@@ -391,7 +421,7 @@
                 </div>
                 <div class="md:col-span-4 flex flex-col justify-center">
                     <span class="block text-[10px] font-bold uppercase tracking-widest text-zinc-500 md:hidden mb-1">What it does</span>
-                    <p class="text-sm text-white font-medium">Analyzes the health and longevity of your entire supply chain — CVEs, version lag, maintenance status, transitive risk, and license compliance.</p>
+                    <p class="text-sm text-white font-medium">Analyzes the health and longevity of your dependencies &mdash; CVEs, version lag, maintenance status, and transitive risk. Then plans feasible upgrades and applies them directly to your manifests.</p>
                 </div>
                 <div class="md:col-span-5 flex flex-col justify-center">
                     <span class="block text-[10px] font-bold uppercase tracking-widest text-zinc-500 md:hidden mb-1">Why it's different</span>
@@ -419,11 +449,19 @@
                         </div>
                         <div class="px-6 py-6 font-mono text-sm space-y-4">
                             <div>
-                                <p class="text-zinc-500 text-xs mb-2"># JavaScript / npm or Python / uv / pip — run from your project</p>
+                                <p class="text-zinc-500 text-xs mb-2"># See what's behind, what has CVEs, what to update</p>
                                 <p class="text-white">uvx --from ossiq ossiq-cli status</p>
                             </div>
                             <div>
-                                <p class="text-zinc-500 text-xs mb-2"># HTML report</p>
+                                <p class="text-zinc-500 text-xs mb-2"># Review solver-recommended upgrades with transitive-impact analysis</p>
+                                <p class="text-white">uvx --from ossiq ossiq-cli plan</p>
+                            </div>
+                            <div>
+                                <p class="text-zinc-500 text-xs mb-2"># Apply &mdash; OSS IQ rewrites your manifest and runs your package manager</p>
+                                <p class="text-white">uvx --from ossiq ossiq-cli apply</p>
+                            </div>
+                            <div>
+                                <p class="text-zinc-500 text-xs mb-2"># Generate a shareable HTML report with interactive dependency graph</p>
                                 <p class="text-white">uvx --from ossiq ossiq-cli status --presentation=html --output report.html</p>
                             </div>
                         </div>
@@ -432,26 +470,33 @@
 
                 <div class="col-span-12 lg:col-span-5 lg:col-start-8 flex flex-col justify-center space-y-6">
                     <div class="flex gap-4">
-                        <span class="squared-bullet mt-1.5 flex-shrink-0"></span>
+                        <span class="squared-bullet mt-1.5 shrink-0"></span>
                         <div>
                             <p class="font-medium text-sm mb-1">No install required</p>
-                            <p class="text-zinc-500 text-sm font-light"><code class="bg-zinc-100 px-1.5 py-0.5 rounded text-xs">uvx</code> runs OSS IQ directly from PyPI — no global install needed.</p>
+                            <p class="text-zinc-500 text-sm font-light"><code class="bg-zinc-100 px-1.5 py-0.5 rounded text-xs">uvx</code> runs OSS IQ directly from PyPI &mdash; no global install needed.</p>
                         </div>
                     </div>
                     <div class="flex gap-4">
-                        <span class="squared-bullet mt-1.5 flex-shrink-0"></span>
+                        <span class="squared-bullet mt-1.5 shrink-0"></span>
                         <div>
                             <p class="font-medium text-sm mb-1">Set a GitHub token for full results</p>
                             <p class="text-zinc-500 text-sm font-light">GitHub limits unauthenticated requests to 60/hour. Export a token for complete scans: <code class="bg-zinc-100 px-1.5 py-0.5 rounded text-xs">export OSSIQ_GITHUB_TOKEN=$(gh auth token)</code></p>
                         </div>
                     </div>
                     <div class="flex gap-4">
-                        <span class="squared-bullet mt-1.5 flex-shrink-0"></span>
+                        <span class="squared-bullet mt-1.5 shrink-0"></span>
                         <div>
                             <p class="font-medium text-sm mb-1">Auto-detects your ecosystem</p>
                             <p class="text-zinc-500 text-sm font-light">OSS IQ finds <code class="bg-zinc-100 px-1.5 py-0.5 rounded text-xs">package.json</code>, <code class="bg-zinc-100 px-1.5 py-0.5 rounded text-xs">uv.lock</code>, <code class="bg-zinc-100 px-1.5 py-0.5 rounded text-xs">pyproject.toml</code>, and more automatically.</p>
                         </div>
-                    </div>                    
+                    </div>
+                    <div class="flex gap-4">
+                        <span class="squared-bullet mt-1.5 shrink-0"></span>
+                        <div>
+                            <p class="font-medium text-sm mb-1">Plan and apply upgrades</p>
+                            <p class="text-zinc-500 text-sm font-light"><code class="bg-zinc-100 px-1.5 py-0.5 rounded text-xs">plan</code> shows solver-recommended versions and transitive impact before touching anything. <code class="bg-zinc-100 px-1.5 py-0.5 rounded text-xs">apply</code> rewrites your manifest and runs your package manager.</p>
+                        </div>
+                    </div>
                 </div>
             </div>
             <div class="flex justify-center">
@@ -466,9 +511,9 @@
         <!-- CI/CD Quality Gate Callout -->
         <section id="infrastructure" class="grid-main py-24 bg-zinc-900 text-white rounded-sm mb-32 px-8">
             <div class="col-span-full">
-                <h2 class="text-4xl md:text-5xl heading-font font-bold mb-8">From CLI to Quality Gate.</h2>
+                <h2 class="text-4xl md:text-5xl heading-font font-bold mb-8">From CLI to Your CI Pipeline.</h2>
                 <p class="text-xl text-zinc-400 font-light mb-6">
-                    Plug OSS IQ into any CI pipeline. Export to JSON and fail builds when lag exceeds your threshold. Ship with confidence, not just hope.
+                    Plug OSS IQ into your CI workflow. Export to JSON and fail the build when lag exceeds your threshold. Ship with confidence, not just hope.
                 </p>
                 <div class="bg-zinc-800 rounded-sm px-6 py-5 mb-10 font-mono text-sm text-zinc-300 overflow-x-auto">
                     <span class="text-zinc-500"># Fail if any production package is more than 365 days behind</span><br>
@@ -483,6 +528,68 @@
                         GitHub Repository
                     </a>
                 </div>
+            </div>
+        </section>
+
+        <!-- Python API / MSR Library -->
+        <section id="python-api" class="grid-main pt-16 border-t border-zinc-200 mb-32">
+            <div class="col-span-12 mb-10">
+                <span class="text-[10px] font-bold uppercase tracking-widest text-[#ff4d00]">Programmatic Access</span>
+                <h2 class="text-4xl heading-font font-bold mt-4">Use the MSR Engine Directly.</h2>
+                <p class="text-zinc-500 font-light mt-4 max-w-lg">OSS IQ exposes its full Mining Software Repository analysis as a stable Python library. Import <code class="bg-zinc-100 px-1.5 py-0.5 rounded text-xs">scan()</code>, get structured results, and build your own tooling on top of the same engine the CLI uses.</p>
+            </div>
+
+            <div class="col-span-12 lg:col-span-6">
+                <div class="bg-zinc-900 rounded-sm overflow-hidden">
+                    <div class="flex items-center gap-2 px-5 py-3 border-b border-zinc-700">
+                        <span class="w-3 h-3 rounded-full bg-zinc-600"></span>
+                        <span class="w-3 h-3 rounded-full bg-zinc-600"></span>
+                        <span class="w-3 h-3 rounded-full bg-zinc-600"></span>
+                        <span class="text-[10px] font-mono text-zinc-500 ml-2 uppercase tracking-widest">python</span>
+                    </div>
+                    <div class="px-6 py-6 font-mono text-sm space-y-1 text-zinc-300">
+                        <p class="text-zinc-500 text-xs mb-3"># Install as a library &mdash; no CLI overhead</p>
+                        <p><span class="text-[#ff4d00]">pip</span> install ossiq</p>
+                        <p class="mt-4"><span class="text-zinc-500">from</span> ossiq <span class="text-zinc-500">import</span> scan, Settings</p>
+                        <p><span class="text-zinc-500">from</span> ossiq.unit_of_work.uow_project <span class="text-zinc-500">import</span> ProjectUnitOfWork</p>
+                        <p class="mt-3">settings = Settings.load_from_env()</p>
+                        <p>uow = ProjectUnitOfWork(settings, project_path=<span class="text-green-400">"."</span>)</p>
+                        <p><span class="text-zinc-500">with</span> uow:</p>
+                        <p>&nbsp;&nbsp;&nbsp;&nbsp;result = scan(uow)</p>
+                        <p class="mt-3 text-zinc-500 text-xs"># Rich structured output &mdash; same data the CLI renders</p>
+                        <p><span class="text-zinc-500">for</span> pkg <span class="text-zinc-500">in</span> result.production_packages:</p>
+                        <p>&nbsp;&nbsp;&nbsp;&nbsp;<span class="text-zinc-500">if</span> pkg.cve <span class="text-zinc-500">or</span> (pkg.time_lag_days <span class="text-zinc-500">or</span> 0) > 365:</p>
+                        <p>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;print(pkg.package_name, pkg.time_lag_days)</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-span-12 lg:col-span-5 lg:col-start-8 flex flex-col justify-center space-y-6">
+                <div class="flex gap-4">
+                    <span class="squared-bullet mt-1.5 shrink-0"></span>
+                    <div>
+                        <p class="font-medium text-sm mb-1">Structured ScanResult</p>
+                        <p class="text-zinc-500 text-sm font-light">Production, development, and transitive packages in one call. Each is a <code class="bg-zinc-100 px-1.5 py-0.5 rounded text-xs">ScanRecord</code> with version lag, CVE list, drift classification, constraint provenance, and PURL.</p>
+                    </div>
+                </div>
+                <div class="flex gap-4">
+                    <span class="squared-bullet mt-1.5 shrink-0"></span>
+                    <div>
+                        <p class="font-medium text-sm mb-1">Same engine, no capability gap</p>
+                        <p class="text-zinc-500 text-sm font-light">The library and the CLI share the same MSR analysis core &mdash; the solver, cooldown, CVE data, and transitive graph are all available programmatically.</p>
+                    </div>
+                </div>
+                <div class="flex gap-4">
+                    <span class="squared-bullet mt-1.5 shrink-0"></span>
+                    <div>
+                        <p class="font-medium text-sm mb-1">Stable, versioned interface</p>
+                        <p class="text-zinc-500 text-sm font-light">The public API follows the same stability guarantees as the export schema &mdash; fields are never removed within a version, and breaking changes are announced in the changelog before removal.</p>
+                    </div>
+                </div>
+                <a href="reference.html" class="inline-flex items-center gap-2 text-sm font-bold text-[#ff4d00] hover:underline mt-2">
+                    API Reference
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+                </a>
             </div>
         </section>
 
@@ -502,18 +609,18 @@
                 <div class="border-l border-zinc-100 pl-6">
                     <span class="text-4xl font-light text-zinc-200 block mb-4">02</span>
                     <h3 class="font-bold mb-2">OSS IQ Analysis</h3>
-                    <p class="text-sm text-zinc-500">Version lag, CVEs, transitive dependencies, and license compliance—all cross-referenced against public databases (OSV, npm, PyPI, Github) using 
+                    <p class="text-sm text-zinc-500">Version lag, CVEs, transitive dependencies, and license compliance&mdash;all cross-referenced against public databases (OSV, npm, PyPI, Github) using 
                         <a href="https://en.wikipedia.org/wiki/Mining_software_repositories" target="_blank" class="underline">MSR</a> Engine in seconds.</p>
                 </div>
                 <div class="border-l border-zinc-100 pl-6">
                     <span class="text-4xl font-light text-zinc-200 block mb-4">03</span>
                     <h3 class="font-bold mb-2">Get Your OSS IQ Report</h3>
-                    <p class="text-sm text-zinc-500">See your dependencies drift report, drill into each package details, and get a prioritized list of what to fix first.</p>
+                    <p class="text-sm text-zinc-500">See your dependencies drift report, drill into each package, and get a solver-recommended upgrade plan with transitive-impact analysis.</p>
                 </div>
                 <div class="border-l border-zinc-100 pl-6">
                     <span class="text-4xl font-light text-zinc-200 block mb-4">04</span>
-                    <h3 class="font-bold mb-2">Build Your Quality Gates</h3>
-                    <p class="text-sm text-zinc-500">Use your project metrics to set up policies and drive organization behavior.</p>
+                    <h3 class="font-bold mb-2">Plan and Apply Updates</h3>
+                    <p class="text-sm text-zinc-500">Run <code class="bg-zinc-100 px-1 py-0.5 rounded text-xs">plan</code> to review what OSS IQ recommends and why. Run <code class="bg-zinc-100 px-1 py-0.5 rounded text-xs">apply</code> to let it rewrite your manifest and update your lock file.</p>
                 </div>
             </div>
 
@@ -536,11 +643,15 @@
                 <div class="space-y-12">
                     <div>
                         <h4 class="font-bold mb-3">Why another Software Composition Analysis tool?</h4>
-                        <p class="text-sm text-zinc-500">OSS IQ is not another vulnerability scanner. It helps platform teams evaluate open-source dependencies as long-term engineering assets by analyzing lockfiles, dependency graphs, and maintenance signals, producing stable scores suitable for CI and platform governance.</p>
+                        <p class="text-sm text-zinc-500">OSS IQ is not another vulnerability scanner. It gives you a longitudinal view of your dependencies &mdash; version lag, maintenance signals, and transitive risk &mdash; and then tells you what to upgrade and in what order. It produces stable, deterministic output suitable for CI gates, so you can move from reactive patching to a planned upgrade workflow.</p>
                     </div>
                     <div>
                         <h4 class="font-bold mb-3">How is OSS IQ different from <code class="bg-zinc-100 px-1.5 py-0.5 rounded text-xs">npm audit</code> or <code class="bg-zinc-100 px-1.5 py-0.5 rounded text-xs">pip-audit</code>?</h4>
                         <p class="text-sm text-zinc-500">Audit tools are great at finding known vulnerabilities. OSS IQ goes further by also analyzing non-security risks, such as how far behind you are from the latest version (technical debt) and whether a package is still actively maintained. We give you the full picture of dependency health, not just one part of it.</p>
+                    </div>
+                    <div>
+                        <h4 class="font-bold mb-3">How is OSS IQ different from <code class="bg-zinc-100 px-1.5 py-0.5 rounded text-xs">npm update</code> or <code class="bg-zinc-100 px-1.5 py-0.5 rounded text-xs">uv lock --upgrade</code>?</h4>
+                        <p class="text-sm text-zinc-500">Those commands are execution tools &mdash; they upgrade everything to the latest version that fits your semver constraints, but they don&rsquo;t tell you what to upgrade, why, or in what order. OSS IQ is an analysis tool. It scores your dependencies by version lag, maintenance signals, and transitive risk, then gives you a prioritized upgrade plan. It also surfaces packages that are abandoned or unmaintained, which no amount of upgrading will fix. Think of OSS IQ as the step you run before <code class="bg-zinc-100 px-1.5 py-0.5 rounded text-xs">npm update</code> or <code class="bg-zinc-100 px-1.5 py-0.5 rounded text-xs">uv lock --upgrade</code> &mdash; so you know exactly what you&rsquo;re doing and why.</p>
                     </div>
                     <div>
                         <h4 class="font-bold mb-3">What ecosystems are supported?</h4>
@@ -563,10 +674,11 @@
             <div class="grid-main mb-20">
                 <div class="col-span-12 md:col-span-4">
                     <a href="/" class="heading-font text-3xl font-bold tracking-tighter mb-6 block">
-                        <img src="_static/oss-iq-logo-light.svg" width="80" height="15" alt="OSS IQ - Open Source Dependency Intelligence"/>
+                        <img src="_static/images/oss-iq-logo-light.svg" width="80" height="15" alt="OSS IQ - Open Source Dependency Intelligence"/>
                     </a>
                     <p class="text-sm text-zinc-500 max-w-xs">
-                        Dependency intelligence for modern engineering teams. Built to manage the complexity of the agentic era.
+                        Dependency intelligence for the AI era.
+                        Built to manage the complexity of the agentic era.
                     </p>
                 </div>
 
@@ -629,11 +741,11 @@
         // ---------------------------------------------------------------------------
 
         const IMAGES = [
-            { src: "_images/ossiq-html-report-2026-03-14.png",                      alt: "OSS IQ HTML report" },
-            { src: "_images/ossiq-html-transitive-dependencies-2026-03-14.png",      alt: "OSS IQ — transitive dependencies" },
-            { src: "_images/ossiq-html-transitive-dependencies-package-2026-03-14.png", alt: "OSS IQ — transitive dependency detail" },
-            { src: "_images/ossiq-cli-report-2026-03-14.png",                        alt: "OSS IQ CLI report" },
-            { src: "_images/ossiq-cli-package-2026-03-14.png",                       alt: "OSS IQ CLI package detail" },
+            { src: "/_static/images/ossiq-html-report-2026-06-20.png",                      alt: "OSS IQ HTML report" },
+            { src: "/_static/images/ossiq-html-transitive-dependencies-2026-06-20.png",      alt: "OSS IQ &mdash; transitive dependencies" },
+            { src: "/_static/images/ossiq-html-transitive-dependencies-package-2026-06-20.png", alt: "OSS IQ &mdash; transitive dependency detail" },
+            { src: "/_static/images/ossiq-cli-report-2026-06-20.png",                        alt: "OSS IQ CLI report" },
+            { src: "/_static/images/ossiq-cli-package-2026-06-20.png",                       alt: "OSS IQ CLI package detail" },
         ];
 
         const DOT_BASE    = "w-1.5 h-1.5 rounded-full transition-colors ";

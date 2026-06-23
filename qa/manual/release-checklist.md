@@ -32,6 +32,8 @@
 - [ ] TC-H01: HTML file generated without crash
 - [ ] TC-H02: Page loads in browser, main table renders, no JS errors
 - [ ] TC-H03: Dependencies explorer opens detail panel on click
+- [ ] TC-H07: Transitive Dependency Explorer renders D3 tree (nodes visible, no JS error, no blank canvas)
+- [ ] TC-H10: Click Super Node navigates into subtree; breadcrumb appears; back edge returns to parent
 
 ## 04 — Solver ([details](04-solver.md))
 

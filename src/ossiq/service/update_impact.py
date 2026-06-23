@@ -110,6 +110,7 @@ def assess_transitive_impact(
     allow_prerelease: bool = False,
     installed_names: set[str] | None = None,
     now: datetime | None = None,
+    old_constraint_from_driven_by: str | None = None,
 ) -> TransitiveImpact | None:
     """Assess whether a new constraint on dep_name creates an impact.
 
@@ -141,7 +142,10 @@ def assess_transitive_impact(
     if version_satisfies_constraint(record.installed_version, new_constraint, registry.package_registry):
         return None
 
-    merged_constraints = list(record.all_constraints) + [new_constraint]
+    base_constraints = list(record.all_constraints)
+    if old_constraint_from_driven_by and old_constraint_from_driven_by in base_constraints:
+        base_constraints.remove(old_constraint_from_driven_by)
+    merged_constraints = base_constraints + [new_constraint]
     best = find_best_satisfying_package_version(dep_name, merged_constraints, registry, allow_prerelease, now=now)
 
     if best is None:
@@ -157,7 +161,7 @@ def assess_transitive_impact(
 
     projected = best.version
     violating = [
-        c for c in record.all_constraints if not version_satisfies_constraint(projected, c, registry.package_registry)
+        c for c in base_constraints if not version_satisfies_constraint(projected, c, registry.package_registry)
     ]
     return TransitiveImpact(
         package_name=dep_name,
@@ -179,18 +183,34 @@ def simulate_single(
     allow_prerelease: bool = False,
     installed_names: set[str] | None = None,
     now: datetime | None = None,
+    installed_version: str | None = None,
 ) -> DirectUpdateImpact:
     """Simulate the transitive impact of updating package_name to candidate_version.
 
     This is the hot path for Phase 4c's post_solve_validator — registry is cache-warm,
     no network calls expected, no SAT solver invocation.
+
+    installed_version: the currently installed version of package_name. When provided,
+    the old requirements from that version are fetched so stale constraints it imposed
+    on transitive deps are replaced rather than merged with the new requirements.
     """
     new_requires = registry.package_version_requires(package_name, candidate_version)
+    old_requires: dict[str, str] = {}
+    if installed_version and installed_version != candidate_version:
+        old_requires = registry.package_version_requires(package_name, installed_version)
 
     impacts: list[TransitiveImpact] = []
     for dep_name, constraint in new_requires.items():
         impact = assess_transitive_impact(
-            dep_name, constraint, package_name, transitive_by_name, registry, allow_prerelease, installed_names, now
+            dep_name,
+            constraint,
+            package_name,
+            transitive_by_name,
+            registry,
+            allow_prerelease,
+            installed_names,
+            now,
+            old_constraint_from_driven_by=old_requires.get(dep_name),
         )
         if impact is not None:
             impacts.append(impact)
@@ -215,6 +235,7 @@ def simulate_update_impacts(
     allow_prerelease: bool = False,
     installed_names: set[str] | None = None,
     now: datetime | None = None,
+    installed_versions: dict[str, str] | None = None,
 ) -> dict[str, DirectUpdateImpact]:
     """Simulate transitive impacts for all recommended direct dep updates.
 
@@ -223,12 +244,25 @@ def simulate_update_impacts(
     installed_names: complete set of canonical package names currently installed in the project
         (including transitive deps of dev packages). When provided, packages present here are
         not flagged as new transitive deps even if absent from the scan's transitive_records.
+    installed_versions: {canonical_package_name: installed_version} for direct deps. When
+        provided, stale constraints imposed by the installed version on transitive deps are
+        stripped before merging with the new candidate's constraints — same logic as the
+        post-solve validator uses via simulate_single(installed_version=…).
     now: reference time (the cutoff date when set) for deterministic projections and ages.
 
     Keys in the returned dict match the keys of recommendations.
     """
     transitive_by_name = {r.package_name: r for r in transitive_records}
     return {
-        pkg: simulate_single(pkg, ver, transitive_by_name, registry, allow_prerelease, installed_names, now)
+        pkg: simulate_single(
+            pkg,
+            ver,
+            transitive_by_name,
+            registry,
+            allow_prerelease,
+            installed_names,
+            now,
+            installed_version=installed_versions.get(pkg) if installed_versions else None,
+        )
         for pkg, ver in recommendations.items()
     }
