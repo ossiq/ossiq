@@ -5,7 +5,7 @@ from ossiq.domain.package import Package
 from ossiq.domain.version import VersionsDifference
 from ossiq.service.project import ScanRecord, ScanResult, scan
 from ossiq.settings import Settings
-from ossiq.unit_of_work import core as unit_of_work
+from ossiq.unit_of_work.core import AbstractProjectSources
 
 __all__ = [
     "scan",
@@ -15,7 +15,7 @@ __all__ = [
     "CVE",
     "Package",
     "VersionsDifference",
-    "unit_of_work",
+    "AbstractProjectSources",
 ]
 
 __author__ = "Maksym Klymyshyn"

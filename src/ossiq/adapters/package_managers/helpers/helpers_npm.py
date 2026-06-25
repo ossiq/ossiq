@@ -46,7 +46,7 @@ def npm_apply_state(
     settings: Settings = ctx.obj
     overrides = parse_override_specs(override)
 
-    uow = uow_project.build_project_uow(
+    sources = uow_project.build_project_sources(
         settings,
         project_path,
         production,
@@ -60,9 +60,9 @@ def npm_apply_state(
 
     with show_operation_progress(settings, "Resolving recommended versions...") as progress:
         with progress():
-            scan_result = project.scan(uow)
+            scan_result = project.scan(sources)
 
-    package_manager_name = uow.packages_manager.package_manager_type.name
+    package_manager_name = sources.packages_manager.package_manager_type.name
     plan = build_update_plan(
         scan_result,
         package_manager_name,
@@ -72,6 +72,6 @@ def npm_apply_state(
         forced_overrides=dict(overrides),
     )
 
-    assert isinstance(uow.packages_manager, PackageManagerJsNpm)
-    message = uow.packages_manager.apply_state(plan)
+    assert isinstance(sources.packages_manager, PackageManagerJsNpm)
+    message = sources.packages_manager.apply_state(plan)
     typer.echo(message)

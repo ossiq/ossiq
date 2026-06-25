@@ -1,6 +1,5 @@
 """
-Package Unit Of Work pattern to isolate
-I/O for external sources
+ProjectSources: assembles external data providers for a scan run.
 """
 
 from ossiq.adapters.api import (
@@ -16,13 +15,12 @@ from ossiq.domain.exceptions import UnknownProjectPackageManager
 from ossiq.messages import WARNING_MULTIPLE_REGISTRY_TYPES
 from ossiq.settings import Settings
 from ossiq.ui.system import show_warning
-from ossiq.unit_of_work.core import AbstractProjectUnitOfWork
+from ossiq.unit_of_work.core import AbstractProjectSources
 
 
-class ProjectUnitOfWork(AbstractProjectUnitOfWork):
+class ProjectSources(AbstractProjectSources):
     """
-    Practical implementation of an abstraction around a
-    single installed package
+    Assembles and holds all external data providers needed for a single scan run.
     """
 
     def __init__(
@@ -38,7 +36,7 @@ class ProjectUnitOfWork(AbstractProjectUnitOfWork):
         rewrite_versions: bool = False,
     ):
         """
-        Takes a single package details pulled from
+        Store scan options; clients are initialized lazily in __enter__.
         """
         super().__init__()
 
@@ -104,7 +102,7 @@ REGISTRY_TYPE_MAP: dict[str, ProjectPackagesRegistry] = {
 }
 
 
-def build_project_uow(
+def build_project_sources(
     settings: Settings,
     project_path: str,
     production: bool,
@@ -115,9 +113,9 @@ def build_project_uow(
     security_only: bool = False,
     ignore_packages: tuple[str, ...] = (),
     rewrite_versions: bool = False,
-) -> ProjectUnitOfWork:
-    """Factory for ProjectUnitOfWork with registry-type string mapping applied."""
-    return ProjectUnitOfWork(
+) -> ProjectSources:
+    """Factory for ProjectSources with registry-type string mapping applied."""
+    return ProjectSources(
         settings=settings,
         project_path=project_path,
         production=production,

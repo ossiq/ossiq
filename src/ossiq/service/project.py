@@ -8,7 +8,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
-from ossiq.adapters.api_interfaces import AbstractPackageRegistryApi
+from ossiq.adapters.api_interfaces import AbstractPackageRegistryApi, VersionRules
 from ossiq.adapters.api_pypi import PackageRegistryApiPypi
 from ossiq.adapters.package_managers.dependency_tree import GraphExporter
 from ossiq.domain.common import RepositoryProvider, build_purl, parse_spdx_expression
@@ -22,7 +22,7 @@ from ossiq.service.common import package_versions
 from ossiq.service.library_scan import UpgradePath, compute_upgrade_paths, resolve_library_constraints
 from ossiq.service.update_impact import TransitiveImpact, simulate_single, simulate_update_impacts
 from ossiq.timeutil import parse_iso_datetime
-from ossiq.unit_of_work import core as unit_of_work
+from ossiq.unit_of_work.core import AbstractProjectSources
 from ossiq.unit_of_work.solver import uow_dependencies_solver
 from ossiq.unit_of_work.solver.reason import RecommendationReason
 from ossiq.unit_of_work.solver.version_matchers import version_satisfies_constraint
@@ -199,7 +199,7 @@ def get_package_versions_since(
 
 
 def scan_record(
-    packages_registry: AbstractPackageRegistryApi,
+    version_rules: VersionRules,
     package_info: Package,
     package_name: str,
     canonical_name: str,
@@ -230,7 +230,7 @@ def scan_record(
         (release for release in releases_since_installed if release.version == package_version), None
     )
 
-    version_diff_index = packages_registry.difference_versions(package_version, package_info.latest_version)
+    version_diff_index = version_rules.difference_versions(package_version, package_info.latest_version)
 
     return ScanRecord(
         package_name=canonical_name,
@@ -254,13 +254,13 @@ def scan_record(
         license=parse_spdx_expression(
             package_info.license or (prefetched_repository.license if prefetched_repository else None)
         ),
-        purl=build_purl(packages_registry.package_registry, canonical_name, package_version),
+        purl=build_purl(version_rules.package_registry, canonical_name, package_version),
         all_constraints=all_constraints or [],
         peer_requirements=list(peer_requirements or []),
         peer_violations=[
             req
             for req in (peer_requirements or [])
-            if not version_satisfies_constraint(package_version, req.spec, packages_registry.package_registry)
+            if not version_satisfies_constraint(package_version, req.spec, version_rules.package_registry)
         ],
         is_installed_prerelease=installed_release.is_prerelease if installed_release else False,
         is_installed_yanked=(
@@ -322,7 +322,7 @@ def prefetch_packages_info(
 
 
 def prefetch_source_code_repositories_info(
-    uow: unit_of_work.AbstractProjectUnitOfWork,
+    sources: AbstractProjectSources,
     repo_urls: Iterable[str],
 ) -> dict[str, Repository]:
     """
@@ -332,12 +332,12 @@ def prefetch_source_code_repositories_info(
     github_urls = [url for url in repo_urls if "github.com" in url]
     if not github_urls:
         return {}
-    return uow.get_source_code_provider(RepositoryProvider.PROVIDER_GITHUB).repositories_info_batch(github_urls)
+    return sources.get_source_code_provider(RepositoryProvider.PROVIDER_GITHUB).repositories_info_batch(github_urls)
 
 
 def build_records(
     descriptors: list[DependencyDescriptor],
-    registry: AbstractPackageRegistryApi,
+    version_rules: VersionRules,
     prefetched: PrefetchedData,
     *,
     now: datetime | None = None,
@@ -345,7 +345,7 @@ def build_records(
     """Build ScanRecord instances from dependency descriptors and pre-fetched data."""
     return [
         scan_record(
-            registry,
+            version_rules,
             prefetched.packages_info[dep.canonical_name],
             dep.name,
             dep.canonical_name,
@@ -409,19 +409,19 @@ def scan_sort_key(pkg: ScanRecord) -> tuple[int, int, int, str]:
     )
 
 
-def scan(uow: unit_of_work.AbstractProjectUnitOfWork) -> ScanResult:
+def scan(sources: AbstractProjectSources) -> ScanResult:
     """
-    Project scan service to leverage Project UoW to gather metrics
+    Project scan service: fetch from external sources, compute and return ScanResult.
     """
 
-    with uow:
-        project_info = uow.packages_manager.project_info()
-        project_info = resolve_library_constraints(project_info, uow.packages_registry)
+    with sources:
+        project_info = sources.packages_manager.project_info()
+        project_info = resolve_library_constraints(project_info, sources.packages_registry)
         # FIXME: catch this issue way before as part of command validation
         if not project_info.project_path:
             raise ProjectPathNotFoundError("Project Path is not Specified")
 
-        ignore_set: frozenset[str] = frozenset(uow.ignore_packages)
+        ignore_set: frozenset[str] = frozenset(sources.ignore_packages)
 
         # Collect all dependency descriptors
         prod_deps = [
@@ -442,7 +442,7 @@ def scan(uow: unit_of_work.AbstractProjectUnitOfWork) -> ScanResult:
             prod_deps = [d for d in prod_deps if d.canonical_name not in ignore_set]
 
         opt_deps: list[DependencyDescriptor] = []
-        if not uow.production:
+        if not sources.production:
             opt_deps = [
                 DependencyDescriptor(
                     name=dep.name,
@@ -476,7 +476,7 @@ def scan(uow: unit_of_work.AbstractProjectUnitOfWork) -> ScanResult:
                     all_constraints=list(node.parent_constraints),
                     peer_requirements=list(node.peer_requirements),
                 )
-                for node, path in walker.walk_all_paths(include_optional_roots=not uow.production)
+                for node, path in walker.walk_all_paths(include_optional_roots=not sources.production)
                 if node.canonical_name not in direct_canonical_names and node.canonical_name not in ignore_set
             }.values()
         )
@@ -485,49 +485,49 @@ def scan(uow: unit_of_work.AbstractProjectUnitOfWork) -> ScanResult:
 
         # Pass 1: pre-fetch package infos, repos, CVEs, versions-since
         t0 = time.perf_counter()
-        packages_info = prefetch_packages_info(uow.packages_registry, (dep.canonical_name for dep in all_deps))
+        packages_info = prefetch_packages_info(sources.packages_registry, (dep.canonical_name for dep in all_deps))
 
-        if uow.allow_prerelease or uow.allow_prerelease_packages:
+        if sources.allow_prerelease or sources.allow_prerelease_packages:
             update_latest_versions_for_prerelease(
-                uow.packages_registry,
+                sources.packages_registry,
                 packages_info,
-                allow_prerelease=uow.allow_prerelease,
-                allow_prerelease_packages=uow.allow_prerelease_packages,
+                allow_prerelease=sources.allow_prerelease,
+                allow_prerelease_packages=sources.allow_prerelease_packages,
             )
 
-        now = uow.settings.cutoff_date
+        now = sources.settings.cutoff_date
         if now is not None:
             for pkg in packages_info.values():
                 eligible = [
                     v
-                    for v in uow.packages_registry.package_versions(pkg.name)
+                    for v in sources.packages_registry.package_versions(pkg.name)
                     if not v.is_yanked
                     and not v.is_unpublished
                     and v.published_date_iso is not None
                     and (pdt := parse_iso_datetime(v.published_date_iso)) is not None
                     and pdt <= now
                 ]
-                best = uow.packages_registry.newest_version(iter(eligible))
+                best = sources.packages_registry.newest_version(iter(eligible))
                 if best:
                     pkg.latest_version = best.version
 
         # Github repository info
         repositories_info = prefetch_source_code_repositories_info(
-            uow,
+            sources,
             {pkg.repo_url for pkg in packages_info.values() if pkg.repo_url is not None},
         )
         # Batch CVE fetch for all unique packages
         # force unique pair package/version regardless position in the graph
         unique_packages = list(set((packages_info[dep.canonical_name], dep.version) for dep in all_deps))
 
-        cve_map = uow.cve_database.get_cves_batch(unique_packages)
+        cve_map = sources.cve_database.get_cves_batch(unique_packages)
 
         # Pre-compute versions-since-installed for all unique (package, version) pairs
         versions_since_map = prefetch_versions_since(
-            uow.packages_registry,
+            sources.packages_registry,
             {(packages_info[dep.canonical_name].name, dep.version) for dep in all_deps},
-            allow_prerelease=uow.allow_prerelease,
-            allow_prerelease_packages=uow.allow_prerelease_packages,
+            allow_prerelease=sources.allow_prerelease,
+            allow_prerelease_packages=sources.allow_prerelease_packages,
         )
 
         logger.debug("Pass 1 prefetch: %.2fs — %d packages", time.perf_counter() - t0, len(packages_info))
@@ -535,13 +535,13 @@ def scan(uow: unit_of_work.AbstractProjectUnitOfWork) -> ScanResult:
         # Warm version-requires cache for top solver candidates before solve_direct runs.
         # Converts N sequential per-call HTTP fetches (in post_solve_validator) into one parallel batch.
         # Only needed for PyPI — NPM embeds all version deps in its main package JSON.
-        if isinstance(uow.packages_registry, PackageRegistryApiPypi):
+        if isinstance(sources.packages_registry, PackageRegistryApiPypi):
             warmup_pairs = [
                 (dep.canonical_name, pv.version)
                 for dep in prod_deps + opt_deps
-                for pv in list(uow.packages_registry.package_versions(dep.canonical_name))[:10]
+                for pv in list(sources.packages_registry.package_versions(dep.canonical_name))[:10]
             ]
-            uow.packages_registry.warmup_version_requires(warmup_pairs)
+            sources.packages_registry.warmup_version_requires(warmup_pairs)
 
         prefetched = PrefetchedData(
             packages_info=packages_info,
@@ -551,7 +551,7 @@ def scan(uow: unit_of_work.AbstractProjectUnitOfWork) -> ScanResult:
         )
 
         # Transitive records built first — the Phase 4c validator needs them to assess impacts.
-        transitive_packages = build_records(trans_deps, uow.packages_registry, prefetched, now=now)
+        transitive_packages = build_records(trans_deps, sources.packages_registry, prefetched, now=now)
 
         # Pass 1.5: optionally run HPDR solver over direct deps (cache is warm after prefetch).
         engine_context = project_info.engine_constraints or {}
@@ -563,8 +563,8 @@ def scan(uow: unit_of_work.AbstractProjectUnitOfWork) -> ScanResult:
                 pkg_name,
                 candidate_version,
                 transitive_by_name,
-                uow.packages_registry,
-                uow.allow_prerelease,
+                sources.packages_registry,
+                sources.allow_prerelease,
                 now=now,
                 installed_version=installed_version_by_name.get(pkg_name),
             ).is_actionable
@@ -572,13 +572,13 @@ def scan(uow: unit_of_work.AbstractProjectUnitOfWork) -> ScanResult:
         t1 = time.perf_counter()
         solver_output = uow_dependencies_solver.solve_direct(
             prod_deps + opt_deps,
-            uow.packages_registry,
+            sources.packages_registry,
             engine_context,
-            allow_prerelease=uow.allow_prerelease,
+            allow_prerelease=sources.allow_prerelease,
             post_solve_validator=validate_recommendation,
             _now=now,
-            cooldown_period=uow.settings.cooldown_period,
-            rewrite_pinned=uow.rewrite_versions,
+            cooldown_period=sources.settings.cooldown_period,
+            rewrite_pinned=sources.rewrite_versions,
         )
         logger.debug(
             "Pass 1.5 solve_direct: %.2fs — %d recommendations",
@@ -587,10 +587,10 @@ def scan(uow: unit_of_work.AbstractProjectUnitOfWork) -> ScanResult:
         )
 
         production_packages = sorted(
-            build_records(prod_deps, uow.packages_registry, prefetched, now=now), key=scan_sort_key, reverse=True
+            build_records(prod_deps, sources.packages_registry, prefetched, now=now), key=scan_sort_key, reverse=True
         )
         optional_packages = sorted(
-            build_records(opt_deps, uow.packages_registry, prefetched, now=now), key=scan_sort_key, reverse=True
+            build_records(opt_deps, sources.packages_registry, prefetched, now=now), key=scan_sort_key, reverse=True
         )
 
         apply_conflicts(solver_output, production_packages + optional_packages)
@@ -608,8 +608,8 @@ def scan(uow: unit_of_work.AbstractProjectUnitOfWork) -> ScanResult:
             impacts = simulate_update_impacts(
                 solver_output.recommendations,
                 production_packages + optional_packages + transitive_packages,
-                uow.packages_registry,
-                uow.allow_prerelease,
+                sources.packages_registry,
+                sources.allow_prerelease,
                 installed_names=all_installed_names,
                 now=now,
                 installed_versions=installed_version_by_name,
@@ -623,15 +623,17 @@ def scan(uow: unit_of_work.AbstractProjectUnitOfWork) -> ScanResult:
         # Pass 1.6: HPDR solver over transitive deps.
         # security_only: CVE packages only. Default: all transitive packages.
         if transitive_packages:
-            records_to_solve = [r for r in transitive_packages if r.cve] if uow.security_only else transitive_packages
+            records_to_solve = (
+                [r for r in transitive_packages if r.cve] if sources.security_only else transitive_packages
+            )
             t3 = time.perf_counter()
             transitive_output = uow_dependencies_solver.solve_transitive(
                 records_to_solve,
-                uow.packages_registry,
+                sources.packages_registry,
                 engine_context,
-                allow_prerelease=uow.allow_prerelease,
+                allow_prerelease=sources.allow_prerelease,
                 now=now,
-                cooldown_period=uow.settings.cooldown_period,
+                cooldown_period=sources.settings.cooldown_period,
             )
             logger.debug(
                 "Pass 1.6 solve_transitive: %.2fs — %d records, %d recommendations",
@@ -643,7 +645,7 @@ def scan(uow: unit_of_work.AbstractProjectUnitOfWork) -> ScanResult:
             if transitive_output.recommendations:
                 apply_recommendations(transitive_packages, transitive_output, skip_current=True)
 
-        upgrade_paths = compute_upgrade_paths(project_info, uow.packages_registry)
+        upgrade_paths = compute_upgrade_paths(project_info, sources.packages_registry)
         return ScanResult(
             project_name=project_info.name,
             project_path=project_info.project_path,

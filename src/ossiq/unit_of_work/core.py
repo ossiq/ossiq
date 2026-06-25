@@ -1,5 +1,5 @@
 """
-Different types of abstract Unit of Works
+Abstract project sources: bag of external data providers for a scan run.
 """
 
 import abc
@@ -14,9 +14,9 @@ from ossiq.domain.common import ProjectPackagesRegistry, RepositoryProvider
 from ossiq.settings import Settings
 
 
-class AbstractProjectUnitOfWork(abc.ABC):
+class AbstractProjectSources(abc.ABC):
     """
-    Abstract Unit of Work definition for Package services
+    Bundle of external data providers and scan configuration for a single scan run.
     """
 
     settings: Settings

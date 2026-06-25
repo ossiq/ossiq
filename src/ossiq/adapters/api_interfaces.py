@@ -49,12 +49,9 @@ class AbstractSourceCodeProviderApi(abc.ABC):
         raise NotImplementedError
 
 
-class AbstractPackageRegistryApi(abc.ABC):
-    """
-    Abstract client to communicate with package registries like PyPi or NPM
-    """
+class VersionRules(abc.ABC):
+    """Pure version semantics: registry-specific comparison and specifier rules, no I/O."""
 
-    settings: Settings
     package_registry: ProjectPackagesRegistry
 
     @staticmethod
@@ -87,25 +84,14 @@ class AbstractPackageRegistryApi(abc.ABC):
         """
         raise NotImplementedError
 
+    @staticmethod
     @abc.abstractmethod
-    def packages_info_batch(self, names: list[str]) -> dict[str, Package]:
-        """
-        Fetch info for a list of packages, returning a mapping of name -> Package.
-        """
-        raise NotImplementedError
-
-    def package_info(self, package_name: str) -> Package:
-        """
-        Get a particular package info. Delegates to package_infos_batch by default.
-        """
-        return self.packages_info_batch([package_name])[package_name]
-
-    @abc.abstractmethod
-    def package_versions(self, package_name: str) -> Iterable[PackageVersion]:
-        """
-        Get a particular package versions between what is installed
-        currently in the project and the latest version available
-        """
+    def rewrite_specifier(
+        specifier: str | None,
+        new_version: str,
+        constraint_type: ConstraintType | None = None,
+    ) -> str | None:
+        """Rewrite a version specifier for an updated package version."""
         raise NotImplementedError
 
     def newest_version(self, candidates: Iterable[PackageVersion]) -> PackageVersion | None:
@@ -118,22 +104,35 @@ class AbstractPackageRegistryApi(abc.ABC):
             return None
         return max(as_list, key=cmp_to_key(lambda a, b: self.compare_versions(a.version, b.version)))
 
+
+class AbstractPackageRegistryApi(VersionRules, abc.ABC):
+    """I/O client for fetching package data from a registry (PyPI, NPM, etc.)."""
+
+    settings: Settings
+
+    @abc.abstractmethod
+    def packages_info_batch(self, names: list[str]) -> dict[str, Package]:
+        """Fetch info for a list of packages, returning a mapping of name -> Package."""
+        raise NotImplementedError
+
+    def package_info(self, package_name: str) -> Package:
+        """Get a particular package info. Delegates to package_infos_batch by default."""
+        return self.packages_info_batch([package_name])[package_name]
+
+    @abc.abstractmethod
+    def package_versions(self, package_name: str) -> Iterable[PackageVersion]:
+        """
+        Get a particular package versions between what is installed
+        currently in the project and the latest version available
+        """
+        raise NotImplementedError
+
     @abc.abstractmethod
     def package_version_requires(self, package_name: str, version: str) -> dict[str, str]:
         """Return {normalized_dep_name: version_specifier} for a specific published version.
 
         Returns empty dict if the version is not found or has no runtime dependencies.
         """
-        raise NotImplementedError
-
-    @staticmethod
-    @abc.abstractmethod
-    def rewrite_specifier(
-        specifier: str | None,
-        new_version: str,
-        constraint_type: ConstraintType | None = None,
-    ) -> str | None:
-        """Rewrite a version specifier for an updated package version."""
         raise NotImplementedError
 
     @abc.abstractmethod

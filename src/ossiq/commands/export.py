@@ -49,7 +49,7 @@ def commnad_export(ctx: typer.Context, options: CommandExportOptions):
         },
     )
 
-    uow = uow_project.ProjectUnitOfWork(
+    sources = uow_project.ProjectSources(
         settings=settings,
         project_path=options.project_path,
         production=options.production,
@@ -61,7 +61,7 @@ def commnad_export(ctx: typer.Context, options: CommandExportOptions):
 
     with show_operation_progress(settings, "Collecting project packages data...") as progress:
         with progress():
-            project_scan = project.scan(uow)
+            project_scan = project.scan(sources)
 
     renderer = get_renderer(
         command=Command.EXPORT,

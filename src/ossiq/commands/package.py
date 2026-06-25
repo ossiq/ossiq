@@ -75,7 +75,7 @@ def command_info(ctx: typer.Context, options: CommandInfoOptions) -> None:
         "pypi": ProjectPackagesRegistry.PYPI,
     }
 
-    uow = uow_project.ProjectUnitOfWork(
+    sources = uow_project.ProjectSources(
         settings=settings,
         project_path=options.project_path,
         production=False,
@@ -87,7 +87,7 @@ def command_info(ctx: typer.Context, options: CommandInfoOptions) -> None:
 
     with show_operation_progress(settings, "Collecting project packages data...") as progress:
         with progress():
-            scan_result = project.scan(uow)
+            scan_result = project.scan(sources)
 
     if scan_result.manifest_lock_divergent:
         Console().print(

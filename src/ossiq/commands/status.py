@@ -50,7 +50,7 @@ def command_status(ctx: typer.Context, options: CommandStatusOptions):
         },
     )
 
-    uow = uow_project.build_project_uow(
+    sources = uow_project.build_project_sources(
         settings,
         options.project_path,
         options.production,
@@ -63,7 +63,7 @@ def command_status(ctx: typer.Context, options: CommandStatusOptions):
 
     with show_operation_progress(settings, "Collecting project packages data...") as progress:
         with progress():
-            project_scan = project.scan(uow)
+            project_scan = project.scan(sources)
 
     renderer = get_renderer(
         command=Command.STATUS, user_interface_type=UserInterfaceType(options.presentation), settings=settings
