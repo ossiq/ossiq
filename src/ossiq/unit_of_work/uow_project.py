@@ -7,7 +7,7 @@ from ossiq.adapters.api import (
     create_package_registry_api,
     create_source_code_provider,
 )
-from ossiq.adapters.api_interfaces import AbstractSourceCodeProviderApi
+from ossiq.adapters.api_github import SourceCodeProviderApiGithub
 from ossiq.adapters.package_managers.api import create_package_managers
 from ossiq.adapters.package_managers.utils import normalize_dist_name
 from ossiq.domain.common import ProjectPackagesRegistry, RepositoryProvider
@@ -89,7 +89,7 @@ class ProjectSources(AbstractProjectSources):
     def __exit__(self, *args):
         pass
 
-    def get_source_code_provider(self, repository_provider_type: RepositoryProvider) -> AbstractSourceCodeProviderApi:
+    def get_source_code_provider(self, repository_provider_type: RepositoryProvider) -> SourceCodeProviderApiGithub:
         """
         Return source code provider (like Github) using factory and respective type
         """

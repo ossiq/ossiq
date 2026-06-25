@@ -5,48 +5,21 @@ Interfaces related to external APIs
 from __future__ import annotations
 
 import abc
-from collections.abc import Callable, Iterable
+from collections.abc import Iterable
 from dataclasses import dataclass
 from functools import cmp_to_key
 from typing import TYPE_CHECKING
 
 from ossiq.domain.common import ConstraintType, ProjectPackagesRegistry
-from ossiq.domain.cve import CVE
 from ossiq.domain.package import Package
 from ossiq.domain.packages_manager import PackageManagerType
 from ossiq.domain.project import Project
 from ossiq.settings import Settings
 
-from ..domain.repository import Repository
-from ..domain.version import PackageVersion, RepositoryVersion, VersionsDifference
+from ..domain.version import PackageVersion, VersionsDifference
 
 if TYPE_CHECKING:
     from ossiq.service.update import UpdatePlan
-
-
-class AbstractSourceCodeProviderApi(abc.ABC):
-    """
-    Abstract client to communicate with source code repositories like GitHub
-    """
-
-    @abc.abstractmethod
-    def repository_info(self, repository_url: str | None) -> Repository:
-        raise NotImplementedError
-
-    @abc.abstractmethod
-    def repositories_info_batch(self, repo_urls: list[str]) -> dict[str, Repository]:
-        """Fetch metadata for multiple repos in parallel. Returns url -> Repository."""
-        raise NotImplementedError
-
-    @abc.abstractmethod
-    def repository_versions(
-        self, repository: Repository, package_versions: list[PackageVersion], comparator: Callable
-    ) -> Iterable[RepositoryVersion]:
-        raise NotImplementedError
-
-    @abc.abstractmethod
-    def __repr__(self):
-        raise NotImplementedError
 
 
 class VersionRules(abc.ABC):
@@ -132,23 +105,6 @@ class AbstractPackageRegistryApi(VersionRules, abc.ABC):
         """Return {normalized_dep_name: version_specifier} for a specific published version.
 
         Returns empty dict if the version is not found or has no runtime dependencies.
-        """
-        raise NotImplementedError
-
-    @abc.abstractmethod
-    def __repr__(self):
-        raise NotImplementedError
-
-
-class AbstractCveDatabaseApi(abc.ABC):
-    """
-    Abstract client to communicate with CVEs repositories like osv.dev or github CVE APIs
-    """
-
-    @abc.abstractmethod
-    def get_cves_batch(self, packages_with_versions: list[tuple[Package, str]]) -> dict[tuple[str, str], set[CVE]]:
-        """
-        Method to return a particular CVE info
         """
         raise NotImplementedError
 
