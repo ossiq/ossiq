@@ -16,7 +16,7 @@ solver/
 ├── version_matchers.py    npm semver + PEP 440 range matching — raw constraint → bool
 ├── encoder.py             ConstraintEncoder — produces EncodedProblem (WCNF)
 ├── weights.py             Constraint weight constants + age_weight()
-└── uow_dependencies_solver.py   Public API: solve_direct(), solve_transitive()
+└── dependencies_solver.py       Public API: solve_direct(), solve_transitive()
 ```
 
 ---

@@ -5,7 +5,7 @@ from ossiq.domain.package import Package
 from ossiq.domain.version import VersionsDifference
 from ossiq.service.project import ScanRecord, ScanResult, scan
 from ossiq.settings import Settings
-from ossiq.unit_of_work.core import AbstractProjectSources
+from ossiq.sources.core import AbstractProjectSources
 
 __all__ = [
     "scan",

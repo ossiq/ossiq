@@ -5,8 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal
 
-from ossiq.unit_of_work.solver.problem import SolverProblem
-from ossiq.unit_of_work.solver.version_matchers import has_engine_mismatch, version_satisfies_constraint
+from ossiq.solver.problem import SolverProblem
+from ossiq.solver.version_matchers import has_engine_mismatch, version_satisfies_constraint
 
 RejectionCause = Literal["constraint_mismatch", "cve", "engine_mismatch", "deprecated", "very_fresh", "lower_semver"]
 

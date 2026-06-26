@@ -21,10 +21,10 @@ from ossiq.messages import (
 from ossiq.service import project
 from ossiq.service.update import UpdatePlan, build_update_plan
 from ossiq.settings import Settings
+from ossiq.sources import project_sources
+from ossiq.sources.project_sources import ProjectSources
 from ossiq.ui.registry import get_renderer
 from ossiq.ui.system import show_operation_progress
-from ossiq.unit_of_work import uow_project
-from ossiq.unit_of_work.uow_project import ProjectSources
 
 
 @dataclass(frozen=True)
@@ -113,7 +113,7 @@ def prepare_plan(ctx: typer.Context, options: CommandPlanOptions) -> tuple[Proje
     """Scan the project and build the update plan. Returns None when nothing needs updating."""
     settings: Settings = ctx.obj
 
-    sources = uow_project.build_project_sources(
+    sources = project_sources.build_project_sources(
         settings,
         options.project_path,
         options.production,

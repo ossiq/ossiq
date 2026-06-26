@@ -14,9 +14,9 @@ from ossiq.service import project
 from ossiq.service.package import PackageDetailResult, TransitiveCVEGroup
 from ossiq.service.project import ScanRecord, ScanResult
 from ossiq.settings import Settings
+from ossiq.sources import project_sources
 from ossiq.ui.registry import get_renderer
 from ossiq.ui.system import show_operation_progress
-from ossiq.unit_of_work import uow_project
 
 _SEVERITY_ORDER: dict[str, int] = {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2, "LOW": 3}
 
@@ -75,7 +75,7 @@ def command_info(ctx: typer.Context, options: CommandInfoOptions) -> None:
         "pypi": ProjectPackagesRegistry.PYPI,
     }
 
-    sources = uow_project.ProjectSources(
+    sources = project_sources.ProjectSources(
         settings=settings,
         project_path=options.project_path,
         production=False,

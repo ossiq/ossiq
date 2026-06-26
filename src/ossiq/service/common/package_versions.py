@@ -12,7 +12,7 @@ from ossiq.domain.common import NoPackageVersionsFound
 from ossiq.domain.package import Package
 from ossiq.domain.repository import Repository
 from ossiq.domain.version import PackageVersion, RepositoryVersion, Version
-from ossiq.unit_of_work.core import AbstractProjectSources
+from ossiq.sources.core import AbstractProjectSources
 
 
 @dataclass

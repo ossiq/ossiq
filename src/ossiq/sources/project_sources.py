@@ -14,8 +14,8 @@ from ossiq.domain.common import ProjectPackagesRegistry, RepositoryProvider
 from ossiq.domain.exceptions import UnknownProjectPackageManager
 from ossiq.messages import WARNING_MULTIPLE_REGISTRY_TYPES
 from ossiq.settings import Settings
+from ossiq.sources.core import AbstractProjectSources
 from ossiq.ui.system import show_warning
-from ossiq.unit_of_work.core import AbstractProjectSources
 
 
 class ProjectSources(AbstractProjectSources):

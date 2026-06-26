@@ -10,9 +10,9 @@ import typer
 from ossiq.domain.common import Command, ProjectPackagesRegistry, UserInterfaceType
 from ossiq.service import project
 from ossiq.settings import Settings
+from ossiq.sources import project_sources
 from ossiq.ui.registry import get_renderer
 from ossiq.ui.system import show_operation_progress, show_settings
-from ossiq.unit_of_work import uow_project
 
 
 @dataclass(frozen=True)
@@ -49,7 +49,7 @@ def commnad_export(ctx: typer.Context, options: CommandExportOptions):
         },
     )
 
-    sources = uow_project.ProjectSources(
+    sources = project_sources.ProjectSources(
         settings=settings,
         project_path=options.project_path,
         production=options.production,

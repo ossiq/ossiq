@@ -10,8 +10,8 @@ from ossiq.messages import HELP_OVERRIDE_PACKAGE, HELP_PIN_ALL, HELP_REWRITE_VER
 from ossiq.service import project
 from ossiq.service.update import build_update_plan
 from ossiq.settings import Settings
+from ossiq.sources import project_sources
 from ossiq.ui.system import show_operation_progress
-from ossiq.unit_of_work import uow_project
 
 npm_helpers_app = typer.Typer(name="npm", help="NPM helper utilities")
 
@@ -46,7 +46,7 @@ def npm_apply_state(
     settings: Settings = ctx.obj
     overrides = parse_override_specs(override)
 
-    sources = uow_project.build_project_sources(
+    sources = project_sources.build_project_sources(
         settings,
         project_path,
         production,

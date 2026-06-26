@@ -12,8 +12,8 @@ from __future__ import annotations
 import pytest
 
 from ossiq.domain.common import ProjectPackagesRegistry
-from ossiq.unit_of_work.solver.problem import CandidateVersion
-from ossiq.unit_of_work.solver.version_matchers import (
+from ossiq.solver.problem import CandidateVersion
+from ossiq.solver.version_matchers import (
     engine_version_satisfies_requirement,
     has_engine_mismatch,
     npm_version_satisfies_range,

@@ -1,8 +1,8 @@
-"""Tests for unit_of_work/uow_project.py — ignore_packages normalization."""
+"""Tests for unit_of_work/project_sources.py — ignore_packages normalization."""
 
 from unittest.mock import MagicMock
 
-from ossiq.unit_of_work.uow_project import ProjectSources
+from ossiq.sources.project_sources import ProjectSources
 
 
 class TestProjectSourcesIgnorePackages:

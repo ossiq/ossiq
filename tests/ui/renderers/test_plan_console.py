@@ -7,9 +7,9 @@ from rich.console import Console
 from ossiq.domain.common import ConstraintType
 from ossiq.service.update import UpdateEntry, UpdatePlan
 from ossiq.settings import Settings
+from ossiq.solver.reason import RecommendationReason
 from ossiq.ui.renderers.plan import console as plan_console
 from ossiq.ui.renderers.plan.console import ConsolePlanRenderer
-from ossiq.unit_of_work.solver.reason import RecommendationReason
 
 
 def reason_with_age(version: str, age_days: int) -> RecommendationReason:

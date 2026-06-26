@@ -18,7 +18,7 @@ from ossiq.domain.common import ConstraintType
 from ossiq.domain.cve import CVE
 from ossiq.domain.project import ConstraintSource
 from ossiq.domain.version import PackageVersion
-from ossiq.unit_of_work.solver.uow_dependencies_solver import SolverOutput, solve_direct, solve_transitive
+from ossiq.solver.dependencies_solver import SolverOutput, solve_direct, solve_transitive
 
 PACKAGES = 20
 CANDIDATES = 30

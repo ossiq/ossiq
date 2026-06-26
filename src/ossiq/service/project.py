@@ -21,11 +21,11 @@ from ossiq.domain.version import VersionsDifference
 from ossiq.service.common import package_versions
 from ossiq.service.library_scan import UpgradePath, compute_upgrade_paths, resolve_library_constraints
 from ossiq.service.update_impact import TransitiveImpact, simulate_single, simulate_update_impacts
+from ossiq.solver import dependencies_solver
+from ossiq.solver.reason import RecommendationReason
+from ossiq.solver.version_matchers import version_satisfies_constraint
+from ossiq.sources.core import AbstractProjectSources
 from ossiq.timeutil import parse_iso_datetime
-from ossiq.unit_of_work.core import AbstractProjectSources
-from ossiq.unit_of_work.solver import uow_dependencies_solver
-from ossiq.unit_of_work.solver.reason import RecommendationReason
-from ossiq.unit_of_work.solver.version_matchers import version_satisfies_constraint
 
 logger = logging.getLogger(__name__)
 
@@ -367,7 +367,7 @@ def build_records(
 
 
 def apply_conflicts(
-    output: uow_dependencies_solver.SolverOutput,
+    output: dependencies_solver.SolverOutput,
     records: list[ScanRecord],
 ) -> None:
     """Write solver conflict info onto ScanRecord instances in-place."""
@@ -382,7 +382,7 @@ def apply_conflicts(
 
 def apply_recommendations(
     records: list[ScanRecord],
-    output: uow_dependencies_solver.SolverOutput,
+    output: dependencies_solver.SolverOutput,
     *,
     skip_current: bool = False,
 ) -> None:
@@ -570,7 +570,7 @@ def scan(sources: AbstractProjectSources) -> ScanResult:
             ).is_actionable
 
         t1 = time.perf_counter()
-        solver_output = uow_dependencies_solver.solve_direct(
+        solver_output = dependencies_solver.solve_direct(
             prod_deps + opt_deps,
             sources.packages_registry,
             engine_context,
@@ -627,7 +627,7 @@ def scan(sources: AbstractProjectSources) -> ScanResult:
                 [r for r in transitive_packages if r.cve] if sources.security_only else transitive_packages
             )
             t3 = time.perf_counter()
-            transitive_output = uow_dependencies_solver.solve_transitive(
+            transitive_output = dependencies_solver.solve_transitive(
                 records_to_solve,
                 sources.packages_registry,
                 engine_context,

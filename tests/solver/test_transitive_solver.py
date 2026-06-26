@@ -1,4 +1,4 @@
-"""Unit tests for uow_dependencies_solver.solve_transitive."""
+"""Unit tests for dependencies_solver.solve_transitive."""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ from ossiq.adapters.api_interfaces import AbstractPackageRegistryApi
 from ossiq.domain.common import ConstraintType
 from ossiq.domain.project import ConstraintSource
 from ossiq.domain.version import PackageVersion
-from ossiq.unit_of_work.solver.uow_dependencies_solver import solve_transitive
+from ossiq.solver.dependencies_solver import solve_transitive
 
 # ---------------------------------------------------------------------------
 # Helpers
