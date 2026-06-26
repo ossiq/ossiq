@@ -7,24 +7,25 @@
 ossiq exposes a stable library interface for programmatic use. Install without extras for the core scanner (`pip install ossiq`); install with `[cli]` to also get the terminal CLI (`pip install 'ossiq[cli]'`).
 
 ```python
-from ossiq import scan, ScanResult, ScanRecord, Settings, CVE, Package, VersionsDifference, unit_of_work
+from ossiq import scan, ScanResult, ScanRecord, Settings, CVE, Package, VersionsDifference, AbstractProjectSources
 ```
 
-### `scan(uow)`
+### `scan(sources)`
 
 ```python
-def scan(uow: unit_of_work.AbstractProjectUnitOfWork) -> ScanResult
+def scan(sources: AbstractProjectSources) -> ScanResult
 ```
 
-Runs a full dependency health scan against the project described by `uow`. Fetches package metadata, CVEs, and version history from the appropriate registry; runs the SAT solver to produce update recommendations; and returns a `ScanResult`. Must be called inside the `uow` context manager.
+Runs a full dependency health scan against the project described by `sources`. Fetches package metadata, CVEs, and version history from the appropriate registry; runs the SAT solver to produce update recommendations; and returns a `ScanResult`. Must be called inside the `sources` context manager.
 
 ```python
-from ossiq import scan, Settings, unit_of_work
-from ossiq.unit_of_work.uow_project import ProjectUnitOfWork
+from ossiq import scan, Settings
+from ossiq.sources.project_sources import ProjectSources
 
 settings = Settings.load_from_env()
-uow = ProjectUnitOfWork(settings, project_path=".")
-result = scan(uow)
+sources = ProjectSources(settings, project_path=".")
+with sources:
+    result = scan(sources)
 ```
 
 ### `ScanResult`
@@ -120,21 +121,21 @@ Semantic drift classification between two versions.
 | `diff_index` | `int` | Numeric severity: 0 = no diff, 1 = patch, 2 = minor, 3 = major, 4 = build, 5 = prerelease |
 | `diff_name` | `str` | Human-readable label: `"LATEST"`, `"PATCH"`, `"MINOR"`, `"MAJOR"`, etc. |
 
-### `unit_of_work`
+### `AbstractProjectSources`
 
-Module alias for `ossiq.unit_of_work.core`. Exposes `AbstractProjectUnitOfWork`, the base class for the scan context. Use `ossiq.unit_of_work.uow_project.ProjectUnitOfWork` (the concrete implementation) to construct a scan context for a real project on disk.
+Base class for the scan context, exported from `ossiq.sources.core`. Use `ossiq.sources.project_sources.ProjectSources` (the concrete implementation) to construct a scan context for a real project on disk.
 
 ```python
-from ossiq.unit_of_work.uow_project import ProjectUnitOfWork
+from ossiq.sources.project_sources import ProjectSources
 
-uow = ProjectUnitOfWork(
+sources = ProjectSources(
     settings=settings,
     project_path="/path/to/project",
     production=True,          # production deps only
     ignore_packages=("pytest",),
 )
-with uow:
-    result = scan(uow)
+with sources:
+    result = scan(sources)
 ```
 
 ---
