@@ -26,7 +26,6 @@ class CommandStatusOptions:
     registry_type: Literal["npm", "pypi"] | None = None
     presentation: Literal["console", "html"] = "console"
     output_destination: str = "./ossiq_scan_report_{project_name}.html"
-    full_output: bool = False
     security_only: bool = False
     ignore_packages: tuple[str, ...] = ()
 
@@ -73,5 +72,5 @@ def command_status(ctx: typer.Context, options: CommandStatusOptions):
         data=project_scan,
         lag_threshold_days=threshold_parsed.days,
         destination=options.output_destination,
-        full=options.full_output,
+        full=True,
     )

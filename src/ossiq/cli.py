@@ -222,10 +222,6 @@ def status(
             help="Narrow transitive recommendations to CVE-carrying packages only",
         ),
     ] = False,
-    full: Annotated[
-        bool,
-        typer.Option("--full", is_flag=True, help="Show all packages; default hides up-to-date packages with no CVEs"),
-    ] = False,
     ignore: Annotated[
         list[str] | None,
         typer.Option("--ignore", "-i", help=HELP_IGNORE_PACKAGE),
@@ -248,7 +244,6 @@ def status(
             registry_type=registry_type,
             presentation=presentation,
             output_destination=output,
-            full_output=full,
             security_only=security,
             ignore_packages=tuple(ignore or []),
         ),
