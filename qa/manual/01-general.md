@@ -17,7 +17,7 @@ uv run hatch run ossiq-cli update execute --help
 
 - [ ] `--version` prints a semver string
 - [ ] `--help` lists `scan`, `package`, `export`, `update`, `helpers` subcommands
-- [ ] `scan --help` lists `--security`, `--full`, `--production`, `--allow-prerelease`, `--registry-type`, `--presentation`, `--output`, `--ignore`
+- [ ] `status --help` lists `--security`, `--production`, `--allow-prerelease`, `--registry-type`, `--presentation`, `--output`, `--ignore`; `--full` is absent
 - [ ] `update --help` lists `plan` and `execute` as subcommands (no direct flags)
 - [ ] `update plan --help` lists `--pin-all`, `--rewrite-versions`, `--script`, `--ignore` / `-i`
 - [ ] `update execute --help` lists `--yes` / `-y`, `--pin-all`, `--rewrite-versions`, `--ignore` / `-i`

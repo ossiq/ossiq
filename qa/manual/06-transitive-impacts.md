@@ -1,40 +1,39 @@
 # 06 — Transitive Impacts
 
-New features: `--security` and `--full` flags, impact sub-rows in direct-dep recommendations,
+Features: `--security` flag, impact sub-rows in direct-dep recommendations,
 conflict/non-actionable markers, new-transitive-deps section, and update-command transitive
-impact display.
+impact display. `status` always shows all packages (no `--full` flag).
 
 Run from repo root. All cases require network (registry lookups).
 
 **Precondition:**
 
 ```bash
-uv run hatch run ossiq-cli scan --help
-uv run hatch run ossiq-cli update plan --help
-uv run hatch run ossiq-cli update execute --help
+uv run hatch run ossiq-cli status --help
+uv run hatch run ossiq-cli plan --help
 ```
 
-- [ ] `--security` flag listed in `scan --help`
-- [ ] `--full` flag listed in `scan --help`
-- [ ] `--security` flag listed in `update plan --help`
-- [ ] `--pin-all` flag listed in `update plan --help`
-- [ ] `--ignore` / `-i` flag listed in `update plan --help`
+- [ ] `--security` flag listed in `status --help`
+- [ ] `--full` flag is NOT listed in `status --help`
+- [ ] `--security` flag listed in `plan --help`
+- [ ] `--pin-all` flag listed in `plan --help`
+- [ ] `--ignore` / `-i` flag listed in `plan --help`
 
 ---
 
-## TC-T01: New flags in help
+## TC-T01: Flags in help
 
 ```bash
-uv run hatch run ossiq-cli scan --help | grep -E "security|full|ignore"
-uv run hatch run ossiq-cli update plan --help | grep -E "security|pin-all|ignore"
+uv run hatch run ossiq-cli status --help | grep -E "security|ignore"
+uv run hatch run ossiq-cli plan --help | grep -E "security|pin-all|ignore"
 ```
 
-- [ ] `--security` appears in scan help output
-- [ ] `--full` appears in scan help output
-- [ ] `--ignore` appears in scan help output
-- [ ] `--security` appears in `update plan` help output
-- [ ] `--pin-all` appears in `update plan` help output
-- [ ] `--ignore` appears in `update plan` help output
+- [ ] `--security` appears in `status` help output
+- [ ] `--ignore` appears in `status` help output
+- [ ] `--full` does NOT appear in `status` help output
+- [ ] `--security` appears in `plan` help output
+- [ ] `--pin-all` appears in `plan` help output
+- [ ] `--ignore` appears in `plan` help output
 
 ---
 
@@ -51,21 +50,17 @@ uv run hatch run ossiq-cli scan testdata/pypi/version-constraint
 
 ---
 
-## TC-T03: `--full` flag — show all packages
+## TC-T03: `status` always shows all packages
 
 ```bash
-# Run 1 — default (hides up-to-date packages with no CVEs)
-uv run hatch run ossiq-cli scan testdata/pypi/version-constraint
-
-# Run 2 — with --full (shows every package)
-uv run hatch run ossiq-cli scan --full testdata/pypi/version-constraint
+# Run against a fully up-to-date project (all installed == recommended)
+uv run hatch run ossiq-cli status testdata/pypi/version-constraint
 ```
 
-- [ ] Run 1: Packages with no pending update and no CVEs are absent from the table (or entire table section is absent if all packages are up-to-date)
-- [ ] Run 2: All packages shown, including those with 0 CVEs and no pending updates
-- [ ] Run 2: Row count ≥ Run 1 row count
-- [ ] Run 2: If any package has peer constraints, Peer Constraint Status section shows `ok` and `override` rows (not just violations)
-- [ ] No crash on either run
+- [ ] Table is non-empty even if every installed version matches the recommended version
+- [ ] Packages with 0 CVEs and no pending updates appear as rows in the table
+- [ ] If any package has peer constraints, Peer Constraint Status section shows `ok` and `override` rows (not just violations)
+- [ ] No crash
 
 ---
 
