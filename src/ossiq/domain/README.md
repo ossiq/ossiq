@@ -14,6 +14,7 @@ This document lists the external specifications that define or inform the domain
 |-------|----------|---------|
 | `is_deprecated: bool` | npm | The package's latest version carries a `deprecated` field — the whole package is considered deprecated. Set via `npm deprecate <pkg>`. |
 | `is_unpublished: bool` | npm | `time.unpublished` is present in the packument — the entire package was removed from the registry. |
+| `canonical_name: str \| None` | npm | When a package is installed under an npm alias (e.g. `"chalk-legacy": "npm:chalk@4"`), `name` is the alias and `canonical_name` is the real registry name used for lookups. `None` when `name` already is the canonical registry name. |
 
 ### `PackageVersion` flags
 
@@ -22,11 +23,15 @@ This document lists the external specifications that define or inform the domain
 | `is_deprecated: bool` | npm | This specific version's manifest has a truthy `deprecated` field. |
 | `is_yanked: bool` | PyPI | The version exists on PyPI but is marked yanked — excluded from normal resolution. |
 | `is_unpublished: bool` | npm | The version was individually deleted after release (present in `time` but absent from `versions`), or the entire package was unpublished (all versions inherit this flag). |
+| `is_prerelease: bool` | npm / PyPI | Version string contains a pre-release segment (e.g. `alpha`, `beta`, `rc`, `dev`). Set by registry adapters during version list construction. |
 
 ### `ScanRecord` derived flags
 
+`ScanRecord` lives in `service/project.py` (not a domain entity). Its status flags are derived from `Package` and `PackageVersion` at scan time:
+
 | Field | Derived from | Meaning |
 |-------|-------------|---------|
+| `is_installed_prerelease` | `version.is_prerelease` | Installed version is a pre-release. |
 | `is_installed_yanked` | `version.is_yanked or version.is_unpublished` | Installed version was pulled from the registry (covers both PyPI yanked and npm unpublished). |
 | `is_installed_deprecated` | `version.is_deprecated or package.is_deprecated` | Installed version or its parent package is deprecated. |
 | `is_installed_package_unpublished` | `package.is_unpublished` | The entire package has been removed from the registry. |
@@ -97,6 +102,41 @@ npm version constraints use the [node-semver](https://github.com/npm/node-semver
 | `1.0.0 \|\| 2.0.0` | Union of ranges |
 
 Non-registry forms (stored in `Dependency.source`): git URLs, GitHub shorthand (`user/repo`), local paths (`file:../pkg`), and tarball URLs.
+
+### `ConstraintType` — domain classification
+
+Both specifier classifiers (`classify_npm_specifier`, `classify_pypi_specifier` in `version.py`) map a raw specifier string to a `ConstraintType` (defined in `common.py`):
+
+| Value | Applies to | Meaning |
+|-------|-----------|---------|
+| `DECLARED` | both | Loose/default constraint — any, `^x`, `~x`, `>=x` (lower-bound only), `*`, `latest`. |
+| `NARROWED` | both | Explicit bounded range — `>=x <y`, `~=x`, `==x.*`, compound `,`, any `<`/`<=`. |
+| `PINNED` | both | Exactly one version — `==x.y.z` (PyPI) or bare `x.y.z` (npm). |
+| `ADDITIVE` | PyPI | Narrows range without adding a direct dependency (`pip -c`, `uv constraint-dependencies`). |
+| `OVERRIDE` | both | Completely replaces resolver output (`npm overrides`, `uv override-dependencies`). |
+
+Priority ordering for display: **OVERRIDE** > **ADDITIVE** > **PINNED** > **NARROWED** > **DECLARED**.
+
+### `ConstraintSource` — constraint provenance
+
+`ConstraintSource` (in `project.py`) records how a constraint was introduced:
+
+| Field | Type | Meaning |
+|-------|------|---------|
+| `type` | `ConstraintType` | Classification of the constraint (see above). |
+| `source_file` | `str \| None` | The file that declared it (e.g. `"package.json"`, `"pyproject.toml"`). |
+| `scope_path` | `list[str] \| None` | For npm nested overrides, the path through the dependency tree; `None` for flat constraints. |
+
+### `PeerRequirement` — peer constraint tracking
+
+`PeerRequirement` (in `project.py`) represents a peer dependency constraint that another installed package places on this one:
+
+| Field | Type | Meaning |
+|-------|------|---------|
+| `requirer_name` | `str` | The package that declared the peer requirement. |
+| `spec` | `str` | The version specifier it requires (e.g. `">=18.0.0"`). |
+
+Violations (installed version not satisfying `spec`) are surfaced in `ScanRecord.peer_violations`.
 
 ---
 
