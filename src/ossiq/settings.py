@@ -45,6 +45,7 @@ class Settings(BaseModel):
 
     verbose: bool = Field(default=False, description="Enable verbose output")
     debug: bool = Field(default=False, description=ARGS_HELP_DEBUG)
+    traceback: bool = Field(default=False, description="Show full traceback on error instead of logging to file")
 
     skip_pypi_enrichment: bool = Field(
         default=False,

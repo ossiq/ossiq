@@ -70,16 +70,24 @@ def show_settings(ctx, label: str, settings: dict):
     console.print(Panel(header_text, expand=False, border_style="cyan"))
 
 
-def show_error(_, message: str):
+def show_error(message: str, title: str = "Error", hint: str | None = None) -> None:
     """
-    Show error message
+    Show error message as a Rich panel with an optional hint line.
     """
     if not RICH_AVAILABLE:
-        print(f"\nERROR {message}", file=sys.stderr)
+        print(f"\n[{title.upper()}] {message}", file=sys.stderr)
+        if hint:
+            print(f"Hint: {hint}", file=sys.stderr)
         return
 
     assert error_console is not None
-    error_console.print(f"\n[bold yellow on red blink] ERROR [/bold yellow on red blink] [red]{message}[/red]")
+    text = Text()
+    text.append(message, style="red")
+    if hint:
+        text.append("\n\nHint: ", style="bold white")
+        text.append(hint, style="dim white")
+
+    error_console.print(Panel(text, title=f"[bold red]{title}[/bold red]", border_style="red", expand=False))
 
 
 def show_warning(message: str):

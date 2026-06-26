@@ -1,7 +1,6 @@
 """Plan and preview solver-recommended package version changes."""
 
 import shlex
-import subprocess
 from dataclasses import dataclass
 from typing import Literal
 
@@ -24,7 +23,7 @@ from ossiq.settings import Settings
 from ossiq.sources import project_sources
 from ossiq.sources.project_sources import ProjectSources
 from ossiq.ui.registry import get_renderer
-from ossiq.ui.system import show_operation_progress
+from ossiq.ui.system import show_error, show_operation_progress
 
 
 @dataclass(frozen=True)
@@ -141,7 +140,7 @@ def prepare_plan(ctx: typer.Context, options: CommandPlanOptions) -> tuple[Proje
 
     if plan.unknown_override_packages:
         packages = ", ".join(plan.unknown_override_packages)
-        typer.echo(ERROR_OVERRIDE_UNKNOWN_PACKAGES.format(packages=packages), err=True)
+        show_error(ERROR_OVERRIDE_UNKNOWN_PACKAGES.format(packages=packages))
         raise typer.Exit(2)
 
     if options.overrides:
@@ -195,11 +194,6 @@ def command_apply(ctx: typer.Context, options: CommandPlanOptions, yes: bool = F
         if not confirmed:
             raise typer.Exit(0)
 
-    try:
-        sources.packages_manager.execute_update(plan)
-    except subprocess.CalledProcessError as e:
-        typer.echo(f"Update failed: {e}", err=True)
-        raise typer.Exit(1) from None
-
+    sources.packages_manager.execute_update(plan)
     typer.echo("Update complete.")
     typer.echo(HELP_APPLY_RERUN_HINT)

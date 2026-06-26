@@ -76,9 +76,11 @@ class ProjectSources(AbstractProjectSources):
                 None,
             )
             if not packages_manager:
+                detected = ", ".join(m.package_manager_type.name for m in packages_managers)
                 raise UnknownProjectPackageManager(
                     f"Unable to narrow Package Manager to {self.narrow_package_registry} "
-                    f"for project at {self.project_path}"
+                    f"for project at {self.project_path}",
+                    hint=f"Detected: {detected}. Use --registry-type to match what was found, or omit it.",
                 )
 
         self.packages_manager = packages_manager

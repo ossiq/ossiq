@@ -3,6 +3,8 @@
 import importlib.metadata
 import logging
 import sys
+from collections.abc import Generator
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Annotated, Literal
 
@@ -30,6 +32,7 @@ from ossiq.commands.plan import (
 )
 from ossiq.commands.status import CommandStatusOptions, command_status
 from ossiq.domain.common import UserInterfaceType
+from ossiq.domain.exceptions import ApplicationError
 from ossiq.messages import (
     ARGS_HELP_CACHE_DESTINATION,
     ARGS_HELP_CACHE_TTL,
@@ -54,10 +57,30 @@ from ossiq.messages import (
 )
 from ossiq.settings import Settings
 from ossiq.timeutil import cutoff_datetime_from_iso_date
-from ossiq.ui.system import show_settings
+from ossiq.ui.system import show_error, show_settings
 
 app = typer.Typer()
 console = Console()
+
+
+@contextmanager
+def error_boundary(settings: Settings) -> Generator[None, None, None]:
+    """Catch domain and unexpected errors and show a Rich panel."""
+    try:
+        yield
+    except (typer.Exit, typer.Abort):
+        raise
+    except ApplicationError as exc:
+        if settings.traceback:
+            raise
+        show_error(str(exc), title=getattr(exc, "title", "Error"), hint=getattr(exc, "hint", None))
+        raise typer.Exit(1) from None
+    except Exception as exc:
+        if settings.traceback:
+            raise
+        show_error(str(exc), title="Unexpected Error", hint="Run with --traceback for a full traceback.")
+        raise typer.Exit(1) from None
+
 
 helpers_app = typer.Typer(name="helpers", help="Package manager helper utilities")
 helpers_app.add_typer(npm_helpers_app, name="npm")
@@ -101,6 +124,14 @@ def main(
             is_flag=True,
             envvar=f"{Settings.ENV_PREFIX}DEBUG",
             help=ARGS_HELP_DEBUG,
+        ),
+    ] = False,
+    traceback_flag: Annotated[
+        bool,
+        typer.Option(
+            "--traceback",
+            is_flag=True,
+            help="Print full traceback on error instead of the summary panel.",
         ),
     ] = False,
     cache_destination: Annotated[
@@ -155,6 +186,7 @@ def main(
         "github_token": github_token,
         "verbose": verbose,
         "debug": debug,
+        "traceback": traceback_flag,
         "cache_destination": cache_destination,
         "cache_ttl": cache_ttl,
         "cutoff_date": cutoff_datetime_from_iso_date(cutoff_date) if cutoff_date else None,
@@ -233,21 +265,22 @@ def status(
     if registry_type and registry_type.lower() not in ["npm", "pypi"]:
         raise typer.BadParameter("Only `npm` and `pypi` allowed")
 
-    command_status(
-        ctx=context,
-        options=CommandStatusOptions(
-            project_path=project_path,
-            lag_threshold_days=lag_threshold_days,
-            production=production,
-            allow_prerelease=allow_prerelease,
-            allow_prerelease_packages=tuple(allow_prerelease_package or []),
-            registry_type=registry_type,
-            presentation=presentation,
-            output_destination=output,
-            security_only=security,
-            ignore_packages=tuple(ignore or []),
-        ),
-    )
+    with error_boundary(context.obj):
+        command_status(
+            ctx=context,
+            options=CommandStatusOptions(
+                project_path=project_path,
+                lag_threshold_days=lag_threshold_days,
+                production=production,
+                allow_prerelease=allow_prerelease,
+                allow_prerelease_packages=tuple(allow_prerelease_package or []),
+                registry_type=registry_type,
+                presentation=presentation,
+                output_destination=output,
+                security_only=security,
+                ignore_packages=tuple(ignore or []),
+            ),
+        )
 
 
 @app.command()
@@ -287,20 +320,21 @@ def export(
     if registry_type and registry_type.lower() not in ["npm", "pypi"]:
         raise typer.BadParameter("Only `npm` and `pypi` allowed")
 
-    commnad_export(
-        ctx=context,
-        options=CommandExportOptions(
-            project_path=project_path,
-            registry_type=registry_type,
-            production=production,
-            output_format=output_format,
-            output_destination=output,
-            schema_version=schema_version,
-            allow_prerelease=allow_prerelease,
-            allow_prerelease_packages=tuple(allow_prerelease_package or []),
-            ignore_packages=tuple(ignore or []),
-        ),
-    )
+    with error_boundary(context.obj):
+        commnad_export(
+            ctx=context,
+            options=CommandExportOptions(
+                project_path=project_path,
+                registry_type=registry_type,
+                production=production,
+                output_format=output_format,
+                output_destination=output,
+                schema_version=schema_version,
+                allow_prerelease=allow_prerelease,
+                allow_prerelease_packages=tuple(allow_prerelease_package or []),
+                ignore_packages=tuple(ignore or []),
+            ),
+        )
 
 
 @app.command()
@@ -330,17 +364,18 @@ def info(
     if registry_type and registry_type.lower() not in ["npm", "pypi"]:
         raise typer.BadParameter("Only `npm` and `pypi` allowed")
 
-    command_info(
-        ctx=context,
-        options=CommandInfoOptions(
-            project_path=project_path,
-            package_name=package_name,
-            registry_type=registry_type,
-            allow_prerelease=allow_prerelease,
-            allow_prerelease_packages=tuple(allow_prerelease_package or []),
-            ignore_packages=tuple(ignore or []),
-        ),
-    )
+    with error_boundary(context.obj):
+        command_info(
+            ctx=context,
+            options=CommandInfoOptions(
+                project_path=project_path,
+                package_name=package_name,
+                registry_type=registry_type,
+                allow_prerelease=allow_prerelease,
+                allow_prerelease_packages=tuple(allow_prerelease_package or []),
+                ignore_packages=tuple(ignore or []),
+            ),
+        )
 
 
 @app.command()
@@ -388,22 +423,23 @@ def plan(
     overrides = parse_override_specs(override)
     check_override_ignore_conflict(overrides, tuple(ignore or []))
 
-    command_plan(
-        ctx=context,
-        options=CommandPlanOptions(
-            project_path=project_path,
-            registry_type=registry_type,
-            allow_prerelease=allow_prerelease,
-            allow_prerelease_packages=tuple(allow_prerelease_package or []),
-            production=production,
-            security_only=security,
-            ignore_packages=tuple(ignore or []),
-            pin_all=pin_all,
-            rewrite_versions=rewrite_versions,
-            overrides=overrides,
-        ),
-        script=script,
-    )
+    with error_boundary(context.obj):
+        command_plan(
+            ctx=context,
+            options=CommandPlanOptions(
+                project_path=project_path,
+                registry_type=registry_type,
+                allow_prerelease=allow_prerelease,
+                allow_prerelease_packages=tuple(allow_prerelease_package or []),
+                production=production,
+                security_only=security,
+                ignore_packages=tuple(ignore or []),
+                pin_all=pin_all,
+                rewrite_versions=rewrite_versions,
+                overrides=overrides,
+            ),
+            script=script,
+        )
 
 
 @app.command()
@@ -451,22 +487,23 @@ def apply(
     overrides = parse_override_specs(override)
     check_override_ignore_conflict(overrides, tuple(ignore or []))
 
-    command_apply(
-        ctx=context,
-        options=CommandPlanOptions(
-            project_path=project_path,
-            registry_type=registry_type,
-            allow_prerelease=allow_prerelease,
-            allow_prerelease_packages=tuple(allow_prerelease_package or []),
-            production=production,
-            security_only=security,
-            ignore_packages=tuple(ignore or []),
-            pin_all=pin_all,
-            rewrite_versions=rewrite_versions,
-            overrides=overrides,
-        ),
-        yes=yes,
-    )
+    with error_boundary(context.obj):
+        command_apply(
+            ctx=context,
+            options=CommandPlanOptions(
+                project_path=project_path,
+                registry_type=registry_type,
+                allow_prerelease=allow_prerelease,
+                allow_prerelease_packages=tuple(allow_prerelease_package or []),
+                production=production,
+                security_only=security,
+                ignore_packages=tuple(ignore or []),
+                pin_all=pin_all,
+                rewrite_versions=rewrite_versions,
+                overrides=overrides,
+            ),
+            yes=yes,
+        )
 
 
 if __name__ == "__main__":

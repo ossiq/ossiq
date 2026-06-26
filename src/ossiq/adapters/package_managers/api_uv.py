@@ -22,7 +22,7 @@ from ossiq.adapters.package_managers.api_pypi import enrich_registry_constraints
 from ossiq.adapters.package_managers.dependency_tree import BaseDependencyResolver
 from ossiq.adapters.package_managers.utils import extract_min_python_version, find_lockfile_parser, normalize_dist_name
 from ossiq.domain.common import ConstraintType
-from ossiq.domain.exceptions import PackageManagerLockfileParsingError
+from ossiq.domain.exceptions import PackageManagerExecutionError, PackageManagerLockfileParsingError
 from ossiq.domain.packages_manager import UV, PackageManagerType
 from ossiq.domain.project import ConstraintSource, Dependency, Project
 from ossiq.domain.version import classify_pypi_specifier
@@ -434,37 +434,37 @@ class PackageManagerPythonUv(AbstractPackageManagerApi):
         manifest_path = Path(plan.project_path) / "pyproject.toml"
         original_content = manifest_path.read_text(encoding="utf-8")
 
+        content = original_content
+        for entry in plan.direct_entries:
+            new_spec = self.resolve_direct_specifier(entry, plan.pin_all)
+            if new_spec != entry.version_defined:
+                spec_to_write = new_spec or f"=={entry.recommended_version}"
+                content = re.sub(
+                    rf'"{re.escape(entry.package_name)}[^"]*"',
+                    f'"{entry.package_name}{spec_to_write}"',
+                    content,
+                )
+
+        forced_transitive = {
+            entry.package_name: entry.recommended_version for entry in plan.transitive_entries if entry.is_forced
+        }
+        if forced_transitive:
+            content = upsert_uv_override_dependencies(content, forced_transitive)
+
+        if content != original_content:
+            manifest_path.write_text(content, encoding="utf-8")
+
+        upgrade_args = [
+            arg
+            for entry in plan.all_entries
+            for arg in ("--upgrade-package", f"{entry.package_name}=={entry.recommended_version}")
+        ]
         try:
-            content = original_content
-            for entry in plan.direct_entries:
-                new_spec = self.resolve_direct_specifier(entry, plan.pin_all)
-                if new_spec != entry.version_defined:
-                    spec_to_write = new_spec or f"=={entry.recommended_version}"
-                    content = re.sub(
-                        rf'"{re.escape(entry.package_name)}[^"]*"',
-                        f'"{entry.package_name}{spec_to_write}"',
-                        content,
-                    )
-
-            forced_transitive = {
-                entry.package_name: entry.recommended_version for entry in plan.transitive_entries if entry.is_forced
-            }
-            if forced_transitive:
-                content = upsert_uv_override_dependencies(content, forced_transitive)
-
-            if content != original_content:
-                manifest_path.write_text(content, encoding="utf-8")
-
-            upgrade_args = [
-                arg
-                for entry in plan.all_entries
-                for arg in ("--upgrade-package", f"{entry.package_name}=={entry.recommended_version}")
-            ]
             subprocess.run(["uv", "lock"] + upgrade_args, cwd=plan.project_path, check=True)
             subprocess.run(["uv", "sync"], cwd=plan.project_path, check=True)
-        except Exception:
+        except subprocess.CalledProcessError as exc:
             manifest_path.write_text(original_content, encoding="utf-8")
-            raise
+            raise PackageManagerExecutionError(f"uv command failed (exit {exc.returncode})") from exc
 
     def __repr__(self):
         return f"{self.package_manager_type.name} Package Manager"
