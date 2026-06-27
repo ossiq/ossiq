@@ -12,9 +12,9 @@ from ossiq.adapters.api_interfaces import AbstractPackageRegistryApi
 from ossiq.domain.common import ConstraintType
 from ossiq.domain.project import ConstraintSource
 from ossiq.domain.version import PackageVersion
+from ossiq.solver.problem import CandidateVersion, PackageConstraint, SolverProblem
+from ossiq.solver.version_matchers import version_satisfies_constraint
 from ossiq.timeutil import age_days_from_iso, parse_iso_datetime
-from ossiq.unit_of_work.solver.problem import CandidateVersion, PackageConstraint, SolverProblem
-from ossiq.unit_of_work.solver.version_matchers import version_satisfies_constraint
 
 CANDIDATE_CAP: int = 30
 _UNCONSTRAINED_VALUES: frozenset[str] = frozenset({"*", "latest", ""})

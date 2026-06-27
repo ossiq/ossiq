@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 from ossiq.domain.common import ConstraintType
-from ossiq.unit_of_work.solver.problem import CandidateVersion, PackageConstraint, SolverProblem
-from ossiq.unit_of_work.solver.reason import build_reason
+from ossiq.solver.problem import CandidateVersion, PackageConstraint, SolverProblem
+from ossiq.solver.reason import build_reason
 
 # ---------------------------------------------------------------------------
 # Test helpers (mirror test_encoder.py style)

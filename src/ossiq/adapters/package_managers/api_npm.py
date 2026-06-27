@@ -16,7 +16,7 @@ from ossiq.adapters.api_interfaces import AbstractPackageManagerApi, HelperSpec
 from ossiq.adapters.package_managers.dependency_tree import BaseDependencyResolver
 from ossiq.adapters.package_managers.utils import find_lockfile_parser
 from ossiq.domain.common import ConstraintType
-from ossiq.domain.exceptions import PackageManagerLockfileParsingError
+from ossiq.domain.exceptions import PackageManagerExecutionError, PackageManagerLockfileParsingError
 from ossiq.domain.packages_manager import NPM, PackageManagerType
 from ossiq.domain.project import ConstraintSource, Dependency, Project
 from ossiq.domain.version import classify_npm_specifier, normalize_version
@@ -501,10 +501,10 @@ class PackageManagerJsNpm(AbstractPackageManagerApi):
 
         try:
             subprocess.run(["npm", "install", "--ignore-scripts"], cwd=plan.project_path, check=True)
-        except Exception:
+        except subprocess.CalledProcessError as exc:
             with open(manifest_path, "w", encoding="utf-8") as f:
                 f.write(original_content)
-            raise
+            raise PackageManagerExecutionError(f"npm install failed (exit {exc.returncode})") from exc
 
     def generate_update_script(self, plan: UpdatePlan, cli_extra_args: str = "") -> str:
         """Generate bash script that applies manifest changes then runs npm install."""

@@ -6,7 +6,7 @@ import threading
 from pysat.examples.rc2 import RC2Stratified  # type: ignore[import]
 from pysat.formula import WCNF  # type: ignore[import]
 
-from ossiq.unit_of_work.solver.driver import AbstractSolverDriver, ConflictSet, EncodedProblem, SolverResult
+from ossiq.solver.driver import AbstractSolverDriver, ConflictSet, EncodedProblem, SolverResult
 
 logger = logging.getLogger(__name__)
 

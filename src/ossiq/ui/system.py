@@ -8,8 +8,10 @@ from contextlib import contextmanager
 from ossiq.settings import Settings
 
 try:
-    from rich.console import Console
+    from rich.console import Console, Group
+    from rich.live import Live
     from rich.panel import Panel
+    from rich.spinner import Spinner
     from rich.text import Text
 
     console = Console()
@@ -19,6 +21,53 @@ except ImportError:
     RICH_AVAILABLE = False
     console = None
     error_console = None
+
+SCAN_STEPS: list[tuple[str, str]] = [
+    ("project", "Reading project dependencies"),
+    ("packages", "Fetching package metadata"),
+    ("repositories", "Fetching repository info from GitHub"),
+    ("vulnerabilities", "Checking for vulnerabilities via OSV.dev"),
+    ("versions", "Analyzing version history"),
+    ("solver", "Solving dependency constraints"),
+]
+
+STEP_INDEX: dict[str, int] = {key: i for i, (key, _) in enumerate(SCAN_STEPS)}
+
+
+@contextmanager
+def show_scan_progress(settings: Settings):
+    """
+    Show an animated vertical stepper while a scan runs.
+    Each call to the yielded callback advances to the named step.
+    """
+    if settings.verbose or not RICH_AVAILABLE:
+        yield lambda _: None
+        return
+
+    assert console is not None
+    current = [-1]
+
+    def render(idx: int):
+        rows: list = [Text("")]
+        for i, (_, label) in enumerate(SCAN_STEPS):
+            if i < idx:
+                rows.append(Text(f"  ✓  {label}", style="green"))
+            elif i == idx:
+                rows.append(Spinner("dots", text=Text(f"  {label}", style="bold cyan")))
+            else:
+                rows.append(Text(f"  ○  {label}", style="dim"))
+            if i < len(SCAN_STEPS) - 1:
+                rows.append(Text("  │", style="dim"))
+        return Group(*rows)
+
+    with Live(render(-1), console=console, refresh_per_second=8) as live:
+
+        def on_step(key: str) -> None:
+            current[0] = STEP_INDEX.get(key, current[0])
+            live.update(render(current[0]))
+
+        yield on_step
+        live.update(render(len(SCAN_STEPS)))
 
 
 @contextmanager
@@ -70,16 +119,24 @@ def show_settings(ctx, label: str, settings: dict):
     console.print(Panel(header_text, expand=False, border_style="cyan"))
 
 
-def show_error(_, message: str):
+def show_error(message: str, title: str = "Error", hint: str | None = None) -> None:
     """
-    Show error message
+    Show error message as a Rich panel with an optional hint line.
     """
     if not RICH_AVAILABLE:
-        print(f"\nERROR {message}", file=sys.stderr)
+        print(f"\n[{title.upper()}] {message}", file=sys.stderr)
+        if hint:
+            print(f"Hint: {hint}", file=sys.stderr)
         return
 
     assert error_console is not None
-    error_console.print(f"\n[bold yellow on red blink] ERROR [/bold yellow on red blink] [red]{message}[/red]")
+    text = Text()
+    text.append(message, style="red")
+    if hint:
+        text.append("\n\nHint: ", style="bold white")
+        text.append(hint, style="dim white")
+
+    error_console.print(Panel(text, title=f"[bold red]{title}[/bold red]", border_style="red", expand=False))
 
 
 def show_warning(message: str):

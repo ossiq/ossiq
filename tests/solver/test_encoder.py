@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 from ossiq.domain.common import ConstraintType, ProjectPackagesRegistry
-from ossiq.unit_of_work.solver.driver import SolverResult
-from ossiq.unit_of_work.solver.driver_pysat import PySATDriver
-from ossiq.unit_of_work.solver.encoder import ConstraintEncoder
-from ossiq.unit_of_work.solver.problem import CandidateVersion, PackageConstraint, SolverProblem
-from ossiq.unit_of_work.solver.weights import (
+from ossiq.solver.driver import SolverResult
+from ossiq.solver.driver_pysat import PySATDriver
+from ossiq.solver.encoder import ConstraintEncoder
+from ossiq.solver.problem import CandidateVersion, PackageConstraint, SolverProblem
+from ossiq.solver.weights import (
     SEMVER_RANK_STEP,
     SEMVER_RANK_WEIGHT_BASE,
     SEMVER_RANK_WEIGHT_MIN,

@@ -153,7 +153,7 @@ class TestScanRecord:
 
     def _make_record(self, registry, package, versions, **kwargs):
         return scan_record(
-            packages_registry=registry,
+            version_rules=registry,
             package_info=package,
             package_name=kwargs.pop("package_name", "requests"),
             canonical_name=kwargs.pop("canonical_name", "requests"),
@@ -210,7 +210,7 @@ class TestScanRecordPrerelease:
 
     def _make_record(self, registry, package, versions_since, cves=None):
         return scan_record(
-            packages_registry=registry,
+            version_rules=registry,
             package_info=package,
             package_name="mylib",
             canonical_name="mylib",

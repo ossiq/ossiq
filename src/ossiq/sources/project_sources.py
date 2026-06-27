@@ -1,6 +1,5 @@
 """
-Package Unit Of Work pattern to isolate
-I/O for external sources
+ProjectSources: assembles external data providers for a scan run.
 """
 
 from ossiq.adapters.api import (
@@ -8,21 +7,20 @@ from ossiq.adapters.api import (
     create_package_registry_api,
     create_source_code_provider,
 )
-from ossiq.adapters.api_interfaces import AbstractSourceCodeProviderApi
+from ossiq.adapters.api_github import SourceCodeProviderApiGithub
 from ossiq.adapters.package_managers.api import create_package_managers
 from ossiq.adapters.package_managers.utils import normalize_dist_name
 from ossiq.domain.common import ProjectPackagesRegistry, RepositoryProvider
 from ossiq.domain.exceptions import UnknownProjectPackageManager
 from ossiq.messages import WARNING_MULTIPLE_REGISTRY_TYPES
 from ossiq.settings import Settings
+from ossiq.sources.core import AbstractProjectSources
 from ossiq.ui.system import show_warning
-from ossiq.unit_of_work.core import AbstractProjectUnitOfWork
 
 
-class ProjectUnitOfWork(AbstractProjectUnitOfWork):
+class ProjectSources(AbstractProjectSources):
     """
-    Practical implementation of an abstraction around a
-    single installed package
+    Assembles and holds all external data providers needed for a single scan run.
     """
 
     def __init__(
@@ -38,7 +36,7 @@ class ProjectUnitOfWork(AbstractProjectUnitOfWork):
         rewrite_versions: bool = False,
     ):
         """
-        Takes a single package details pulled from
+        Store scan options; clients are initialized lazily in __enter__.
         """
         super().__init__()
 
@@ -78,9 +76,11 @@ class ProjectUnitOfWork(AbstractProjectUnitOfWork):
                 None,
             )
             if not packages_manager:
+                detected = ", ".join(m.package_manager_type.name for m in packages_managers)
                 raise UnknownProjectPackageManager(
                     f"Unable to narrow Package Manager to {self.narrow_package_registry} "
-                    f"for project at {self.project_path}"
+                    f"for project at {self.project_path}",
+                    hint=f"Detected: {detected}. Use --registry-type to match what was found, or omit it.",
                 )
 
         self.packages_manager = packages_manager
@@ -91,7 +91,7 @@ class ProjectUnitOfWork(AbstractProjectUnitOfWork):
     def __exit__(self, *args):
         pass
 
-    def get_source_code_provider(self, repository_provider_type: RepositoryProvider) -> AbstractSourceCodeProviderApi:
+    def get_source_code_provider(self, repository_provider_type: RepositoryProvider) -> SourceCodeProviderApiGithub:
         """
         Return source code provider (like Github) using factory and respective type
         """
@@ -104,7 +104,7 @@ REGISTRY_TYPE_MAP: dict[str, ProjectPackagesRegistry] = {
 }
 
 
-def build_project_uow(
+def build_project_sources(
     settings: Settings,
     project_path: str,
     production: bool,
@@ -115,9 +115,9 @@ def build_project_uow(
     security_only: bool = False,
     ignore_packages: tuple[str, ...] = (),
     rewrite_versions: bool = False,
-) -> ProjectUnitOfWork:
-    """Factory for ProjectUnitOfWork with registry-type string mapping applied."""
-    return ProjectUnitOfWork(
+) -> ProjectSources:
+    """Factory for ProjectSources with registry-type string mapping applied."""
+    return ProjectSources(
         settings=settings,
         project_path=project_path,
         production=production,

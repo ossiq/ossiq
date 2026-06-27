@@ -11,7 +11,7 @@
 ## 01 — General ([details](01-general.md))
 
 - [ ] TC-G07: `uv run just qa` — all tests pass
-- [ ] TC-G01: `--version`, `--help`, `status --help`, `plan --help`, `apply --help` all work; `status --help` lists `--security`, `--full`, `--ignore`; `plan --help` lists `--pin-all`, `--rewrite-versions`, `--script`, `--ignore`; `apply --help` lists `--yes`, `--pin-all`, `--rewrite-versions`, `--ignore`
+- [ ] TC-G01: `--version`, `--help`, `status --help`, `plan --help`, `apply --help` all work; `status --help` lists `--security`, `--ignore` (no `--full`); `plan --help` lists `--pin-all`, `--rewrite-versions`, `--script`, `--ignore`; `apply --help` lists `--yes`, `--pin-all`, `--rewrite-versions`, `--ignore`
 - [ ] TC-G03/G04: Ecosystem auto-detected (PyPI and npm)
 - [ ] TC-G02: `--verbose` shows settings panel; without it, panel is absent
 - [ ] TC-G08: `helpers --help` lists `npm`; `helpers npm --help` lists `freeze-state`, `restore-state`, `overrides-diff`
@@ -51,9 +51,9 @@
 
 ## 06 — Transitive Impacts ([details](06-transitive-impacts.md))
 
-- [ ] TC-T01: `--security`, `--full`, `--ignore` in `status --help`; `--security`, `--pin-all`, `--ignore` in `plan --help`
+- [ ] TC-T01: `--security`, `--ignore` in `status --help` (no `--full`); `--security`, `--pin-all`, `--ignore` in `plan --help`
 - [ ] TC-T02: `status` shows `↳ also updates:` sub-rows under at least one recommendation
-- [ ] TC-T03: `status --full` shows all packages including up-to-date ones; row count ≥ default run
+- [ ] TC-T03: `status` (no flags) shows all packages including up-to-date ones with no CVEs; table is non-empty on a fully-current project
 - [ ] TC-T07: `plan` renders without crash, shows transitive impact sub-rows; `plan --script` produces an update script block
 
 ## 07 — Plan Command: --pin-all, --rewrite-versions, --ignore, Specifier Rewrite, NPM Helpers ([details](07-plan-apply-command.md))

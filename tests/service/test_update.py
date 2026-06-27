@@ -9,7 +9,7 @@ from ossiq.domain.version import VersionsDifference
 from ossiq.service.project import ScanRecord, ScanResult
 from ossiq.service.update import build_update_plan
 from ossiq.service.update_impact import TransitiveImpact
-from ossiq.unit_of_work.solver.reason import RecommendationReason
+from ossiq.solver.reason import RecommendationReason
 
 NO_DIFF = VersionsDifference("1.0.0", "1.0.0", 0, diff_name="LATEST")
 CONSTRAINT_SOURCE = ConstraintSource(type=ConstraintType.DECLARED, source_file="pyproject.toml")

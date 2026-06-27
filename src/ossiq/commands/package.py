@@ -14,9 +14,9 @@ from ossiq.service import project
 from ossiq.service.package import PackageDetailResult, TransitiveCVEGroup
 from ossiq.service.project import ScanRecord, ScanResult
 from ossiq.settings import Settings
+from ossiq.sources import project_sources
 from ossiq.ui.registry import get_renderer
-from ossiq.ui.system import show_operation_progress
-from ossiq.unit_of_work import uow_project
+from ossiq.ui.system import show_error, show_operation_progress
 
 _SEVERITY_ORDER: dict[str, int] = {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2, "LOW": 3}
 
@@ -75,7 +75,7 @@ def command_info(ctx: typer.Context, options: CommandInfoOptions) -> None:
         "pypi": ProjectPackagesRegistry.PYPI,
     }
 
-    uow = uow_project.ProjectUnitOfWork(
+    sources = project_sources.ProjectSources(
         settings=settings,
         project_path=options.project_path,
         production=False,
@@ -87,7 +87,7 @@ def command_info(ctx: typer.Context, options: CommandInfoOptions) -> None:
 
     with show_operation_progress(settings, "Collecting project packages data...") as progress:
         with progress():
-            scan_result = project.scan(uow)
+            scan_result = project.scan(sources)
 
     if scan_result.manifest_lock_divergent:
         Console().print(
@@ -100,7 +100,7 @@ def command_info(ctx: typer.Context, options: CommandInfoOptions) -> None:
     matched = [r for r in all_records if _matches(r, options.package_name)]
 
     if not matched:
-        typer.echo(ERROR_PACKAGE_NOT_FOUND.format(package_name=options.package_name), err=True)
+        show_error(ERROR_PACKAGE_NOT_FOUND.format(package_name=options.package_name).strip())
         raise typer.Exit(code=1)
 
     detail = PackageDetailResult(

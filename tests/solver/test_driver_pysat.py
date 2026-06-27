@@ -1,8 +1,8 @@
 from unittest.mock import MagicMock
 
-from ossiq.unit_of_work.solver.driver import AbstractSolverDriver, ConflictSet, EncodedProblem, SolverResult
-from ossiq.unit_of_work.solver.driver_pysat import PySATDriver, VarAllocator
-from ossiq.unit_of_work.solver.kernel import HPDRKernel
+from ossiq.solver.driver import AbstractSolverDriver, ConflictSet, EncodedProblem, SolverResult
+from ossiq.solver.driver_pysat import PySATDriver, VarAllocator
+from ossiq.solver.kernel import HPDRKernel
 
 
 def _problem(

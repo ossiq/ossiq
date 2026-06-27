@@ -1,7 +1,6 @@
 """Plan and preview solver-recommended package version changes."""
 
 import shlex
-import subprocess
 from dataclasses import dataclass
 from typing import Literal
 
@@ -21,10 +20,10 @@ from ossiq.messages import (
 from ossiq.service import project
 from ossiq.service.update import UpdatePlan, build_update_plan
 from ossiq.settings import Settings
+from ossiq.sources import project_sources
+from ossiq.sources.project_sources import ProjectSources
 from ossiq.ui.registry import get_renderer
-from ossiq.ui.system import show_operation_progress
-from ossiq.unit_of_work import uow_project
-from ossiq.unit_of_work.uow_project import ProjectUnitOfWork
+from ossiq.ui.system import show_error, show_scan_progress
 
 
 @dataclass(frozen=True)
@@ -101,19 +100,19 @@ def npm_cli_extra_args(plan: UpdatePlan, options: CommandPlanOptions) -> str:
     return build_npm_apply_args(options)
 
 
-def warn_unknown_override_versions(uow: ProjectUnitOfWork, overrides: tuple[tuple[str, str], ...]) -> None:
+def warn_unknown_override_versions(sources: ProjectSources, overrides: tuple[tuple[str, str], ...]) -> None:
     """Warn when a forced version is absent from the registry (cache is warm after the scan)."""
     for name, version in overrides:
-        known_versions = {pv.version for pv in uow.packages_registry.package_versions(name)}
+        known_versions = {pv.version for pv in sources.packages_registry.package_versions(name)}
         if known_versions and version not in known_versions:
             typer.echo(WARNING_OVERRIDE_VERSION_UNKNOWN.format(package=name, version=version), err=True)
 
 
-def prepare_plan(ctx: typer.Context, options: CommandPlanOptions) -> tuple[ProjectUnitOfWork, UpdatePlan] | None:
+def prepare_plan(ctx: typer.Context, options: CommandPlanOptions) -> tuple[ProjectSources, UpdatePlan] | None:
     """Scan the project and build the update plan. Returns None when nothing needs updating."""
     settings: Settings = ctx.obj
 
-    uow = uow_project.build_project_uow(
+    sources = project_sources.build_project_sources(
         settings,
         options.project_path,
         options.production,
@@ -125,27 +124,26 @@ def prepare_plan(ctx: typer.Context, options: CommandPlanOptions) -> tuple[Proje
         rewrite_versions=options.rewrite_versions,
     )
 
-    with show_operation_progress(settings, "Resolving recommended versions...") as progress:
-        with progress():
-            scan_result = project.scan(uow)
+    with show_scan_progress(settings) as on_step:
+        scan_result = project.scan(sources, on_step=on_step)
 
-    package_manager_name = uow.packages_manager.package_manager_type.name
+    package_manager_name = sources.packages_manager.package_manager_type.name
     plan = build_update_plan(
         scan_result,
         package_manager_name,
         pin_all=options.pin_all,
-        cooldown_period=uow.settings.cooldown_period,
+        cooldown_period=sources.settings.cooldown_period,
         security_only=options.security_only,
         forced_overrides=dict(options.overrides),
     )
 
     if plan.unknown_override_packages:
         packages = ", ".join(plan.unknown_override_packages)
-        typer.echo(ERROR_OVERRIDE_UNKNOWN_PACKAGES.format(packages=packages), err=True)
+        show_error(ERROR_OVERRIDE_UNKNOWN_PACKAGES.format(packages=packages))
         raise typer.Exit(2)
 
     if options.overrides:
-        warn_unknown_override_versions(uow, options.overrides)
+        warn_unknown_override_versions(sources, options.overrides)
 
     if not plan.direct_entries and not plan.transitive_entries and not plan.held_for_cooldown:
         if options.security_only:
@@ -154,7 +152,7 @@ def prepare_plan(ctx: typer.Context, options: CommandPlanOptions) -> tuple[Proje
             typer.echo(HELP_PLAN_NO_RECOMMENDATIONS)
         return None
 
-    return uow, plan
+    return sources, plan
 
 
 def command_plan(ctx: typer.Context, options: CommandPlanOptions, script: bool = False) -> None:
@@ -163,8 +161,10 @@ def command_plan(ctx: typer.Context, options: CommandPlanOptions, script: bool =
     if result is None:
         return
 
-    uow, plan = result
-    bash_script = uow.packages_manager.generate_update_script(plan, cli_extra_args=npm_cli_extra_args(plan, options))
+    sources, plan = result
+    bash_script = sources.packages_manager.generate_update_script(
+        plan, cli_extra_args=npm_cli_extra_args(plan, options)
+    )
 
     if script:
         typer.echo(bash_script)
@@ -180,7 +180,7 @@ def command_apply(ctx: typer.Context, options: CommandPlanOptions, yes: bool = F
     if result is None:
         return
 
-    uow, plan = result
+    sources, plan = result
     renderer = get_renderer(Command.PLAN, UserInterfaceType.CONSOLE, ctx.obj)
     renderer.render(data=plan, script="")
 
@@ -193,11 +193,6 @@ def command_apply(ctx: typer.Context, options: CommandPlanOptions, yes: bool = F
         if not confirmed:
             raise typer.Exit(0)
 
-    try:
-        uow.packages_manager.execute_update(plan)
-    except subprocess.CalledProcessError as e:
-        typer.echo(f"Update failed: {e}", err=True)
-        raise typer.Exit(1) from None
-
+    sources.packages_manager.execute_update(plan)
     typer.echo("Update complete.")
     typer.echo(HELP_APPLY_RERUN_HINT)

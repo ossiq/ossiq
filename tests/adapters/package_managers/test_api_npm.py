@@ -14,6 +14,7 @@ Tests focus on:
 
 import json
 import os
+import subprocess
 import tempfile
 from pathlib import Path
 from unittest.mock import patch
@@ -30,7 +31,7 @@ from ossiq.adapters.package_managers.api_npm import (
 )
 from ossiq.adapters.package_managers.dependency_tree import GraphExporter
 from ossiq.domain.common import ConstraintType, ProjectPackagesRegistry
-from ossiq.domain.exceptions import PackageManagerLockfileParsingError
+from ossiq.domain.exceptions import PackageManagerExecutionError, PackageManagerLockfileParsingError
 from ossiq.domain.packages_manager import NPM
 from ossiq.service.update import UpdateEntry, UpdatePlan
 from ossiq.settings import Settings
@@ -1141,8 +1142,9 @@ class TestExecuteUpdate:
             direct=[make_npm_update_entry("express", "4.18.0", "4.19.0", version_defined="^4.18.0")],
             project_path=temp_project_dir,
         )
-        with patch("ossiq.adapters.package_managers.api_npm.subprocess.run", side_effect=RuntimeError("fail")):
-            with pytest.raises(RuntimeError):
+        failure = subprocess.CalledProcessError(1, ["npm", "install"])
+        with patch("ossiq.adapters.package_managers.api_npm.subprocess.run", side_effect=failure):
+            with pytest.raises(PackageManagerExecutionError):
                 npm.execute_update(plan)
         pkg = read_package_json(temp_project_dir)
         assert pkg["dependencies"]["express"] == "^4.18.0"

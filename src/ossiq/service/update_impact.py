@@ -8,8 +8,8 @@ from typing import TYPE_CHECKING
 
 from ossiq.adapters.api_interfaces import AbstractPackageRegistryApi
 from ossiq.domain.version import PackageVersion
+from ossiq.solver.version_matchers import satisfies_all_constraints, version_satisfies_constraint
 from ossiq.timeutil import age_days_from_iso, parse_iso_datetime
-from ossiq.unit_of_work.solver.version_matchers import satisfies_all_constraints, version_satisfies_constraint
 
 if TYPE_CHECKING:
     from ossiq.service.project import ScanRecord

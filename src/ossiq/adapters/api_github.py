@@ -20,13 +20,12 @@ from ..domain.common import VERSION_DATA_SOURCE_GITHUB_RELEASES, VERSION_DATA_SO
 from ..domain.exceptions import GithubRateLimitError
 from ..domain.repository import Repository
 from ..domain.version import Commit, PackageVersion, RepositoryVersion, User, sort_versions
-from .api_interfaces import AbstractSourceCodeProviderApi
 
 logger = logging.getLogger(__name__)
 GITHUB_API = "https://api.github.com"
 
 
-class SourceCodeProviderApiGithub(AbstractSourceCodeProviderApi):
+class SourceCodeProviderApiGithub:
     """
     Implementation of SourceCodeApiClient for Github
     """

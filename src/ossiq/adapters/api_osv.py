@@ -8,12 +8,10 @@ from ossiq.domain.cve import CVE, Severity
 from ossiq.domain.package import Package
 from ossiq.settings import Settings
 
-from .api_interfaces import AbstractCveDatabaseApi
 
-
-class CveApiOsv(AbstractCveDatabaseApi):
+class CveApiOsv:
     """
-    An AbstractCveDatabaseApi implementation for osv.dev CVEs repository.
+    CVE client for osv.dev.
     Uses BatchClient + OsvBatchStrategy to chunk, retry, and rate-limit requests
     to the /v1/querybatch endpoint.
 

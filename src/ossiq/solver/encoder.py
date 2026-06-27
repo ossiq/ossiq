@@ -5,11 +5,11 @@ from dataclasses import dataclass, field
 
 from packaging.utils import canonicalize_name
 
-from ossiq.unit_of_work.solver.driver import EncodedProblem
-from ossiq.unit_of_work.solver.driver_pysat import VarAllocator
-from ossiq.unit_of_work.solver.problem import CandidateVersion, SolverProblem
-from ossiq.unit_of_work.solver.version_matchers import has_engine_mismatch, version_satisfies_constraint
-from ossiq.unit_of_work.solver.weights import W_DEPRECATED, W_ENGINE, W_VERY_FRESH, semver_rank_weight
+from ossiq.solver.driver import EncodedProblem
+from ossiq.solver.driver_pysat import VarAllocator
+from ossiq.solver.problem import CandidateVersion, SolverProblem
+from ossiq.solver.version_matchers import has_engine_mismatch, version_satisfies_constraint
+from ossiq.solver.weights import W_DEPRECATED, W_ENGINE, W_VERY_FRESH, semver_rank_weight
 
 logger = logging.getLogger(__name__)
 

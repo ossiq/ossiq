@@ -11,15 +11,15 @@ from typing import Protocol
 from ossiq.adapters.api_interfaces import AbstractPackageRegistryApi
 from ossiq.domain.cve import CVE
 from ossiq.domain.project import ConstraintSource
-from ossiq.unit_of_work.solver.driver import ConflictSet
-from ossiq.unit_of_work.solver.driver_glucose import GlucoseDriver
-from ossiq.unit_of_work.solver.encoder import ConstraintEncoder
-from ossiq.unit_of_work.solver.kernel import HPDRKernel
-from ossiq.unit_of_work.solver.problem import SolverProblem
-from ossiq.unit_of_work.solver.reason import RecommendationReason, build_reason
-from ossiq.unit_of_work.solver.universe import DepLike, SolvablePool
-from ossiq.unit_of_work.solver.version_matchers import satisfies_all_constraints, version_satisfies_constraint
-from ossiq.unit_of_work.solver.weights import VERY_FRESH_THRESHOLD_DAYS
+from ossiq.solver.driver import ConflictSet
+from ossiq.solver.driver_glucose import GlucoseDriver
+from ossiq.solver.encoder import ConstraintEncoder
+from ossiq.solver.kernel import HPDRKernel
+from ossiq.solver.problem import SolverProblem
+from ossiq.solver.reason import RecommendationReason, build_reason
+from ossiq.solver.universe import DepLike, SolvablePool
+from ossiq.solver.version_matchers import satisfies_all_constraints, version_satisfies_constraint
+from ossiq.solver.weights import VERY_FRESH_THRESHOLD_DAYS
 
 logger = logging.getLogger(__name__)
 

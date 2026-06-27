@@ -9,8 +9,8 @@ from ossiq.adapters.api_interfaces import AbstractPackageRegistryApi
 from ossiq.domain.common import ConstraintType, ProjectPackagesRegistry
 from ossiq.domain.project import ConstraintSource
 from ossiq.domain.version import PackageVersion
-from ossiq.unit_of_work.solver.problem import CandidateVersion, PackageConstraint, SolverProblem
-from ossiq.unit_of_work.solver.universe import SolvablePool, parse_requires, relevant_constraints
+from ossiq.solver.problem import CandidateVersion, PackageConstraint, SolverProblem
+from ossiq.solver.universe import SolvablePool, parse_requires, relevant_constraints
 
 # ---------------------------------------------------------------------------
 # Shared helpers

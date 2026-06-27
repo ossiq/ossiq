@@ -7,7 +7,7 @@ import threading
 
 from pysat.solvers import Glucose42
 
-from ossiq.unit_of_work.solver.driver import AbstractSolverDriver, ConflictSet, EncodedProblem, SolverResult
+from ossiq.solver.driver import AbstractSolverDriver, ConflictSet, EncodedProblem, SolverResult
 
 logger = logging.getLogger(__name__)
 

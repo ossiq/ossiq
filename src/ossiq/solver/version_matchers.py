@@ -37,7 +37,7 @@ from univers.version_range import NpmVersionRange, PypiVersionRange
 from univers.versions import PypiVersion, SemverVersion
 
 from ossiq.domain.common import ProjectPackagesRegistry
-from ossiq.unit_of_work.solver.problem import CandidateVersion
+from ossiq.solver.problem import CandidateVersion
 
 logger = logging.getLogger(__name__)
 

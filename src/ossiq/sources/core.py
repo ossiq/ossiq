@@ -1,22 +1,19 @@
 """
-Different types of abstract Unit of Works
+Abstract project sources: bag of external data providers for a scan run.
 """
 
 import abc
 
-from ossiq.adapters.api_interfaces import (
-    AbstractCveDatabaseApi,
-    AbstractPackageManagerApi,
-    AbstractPackageRegistryApi,
-    AbstractSourceCodeProviderApi,
-)
+from ossiq.adapters.api_github import SourceCodeProviderApiGithub
+from ossiq.adapters.api_interfaces import AbstractPackageManagerApi, AbstractPackageRegistryApi
+from ossiq.adapters.api_osv import CveApiOsv
 from ossiq.domain.common import ProjectPackagesRegistry, RepositoryProvider
 from ossiq.settings import Settings
 
 
-class AbstractProjectUnitOfWork(abc.ABC):
+class AbstractProjectSources(abc.ABC):
     """
-    Abstract Unit of Work definition for Package services
+    Bundle of external data providers and scan configuration for a single scan run.
     """
 
     settings: Settings
@@ -24,7 +21,7 @@ class AbstractProjectUnitOfWork(abc.ABC):
     narrow_package_manager: ProjectPackagesRegistry | None
     packages_manager: AbstractPackageManagerApi
     packages_registry: AbstractPackageRegistryApi
-    cve_database: AbstractCveDatabaseApi
+    cve_database: CveApiOsv
     production: bool
     allow_prerelease: bool
     allow_prerelease_packages: tuple[str, ...]
@@ -33,7 +30,7 @@ class AbstractProjectUnitOfWork(abc.ABC):
     rewrite_versions: bool
 
     @abc.abstractmethod
-    def get_source_code_provider(self, repository_provider_type: RepositoryProvider) -> AbstractSourceCodeProviderApi:
+    def get_source_code_provider(self, repository_provider_type: RepositoryProvider) -> SourceCodeProviderApiGithub:
         """
         Method to get source code provider by its type. The point here is that
         single project has multiple package installed and each package

@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 from ossiq.domain.common import ConstraintType
 from ossiq.service.project import ScanRecord, ScanResult
 from ossiq.service.update_impact import TransitiveImpact
-from ossiq.unit_of_work.solver.reason import RecommendationReason
+from ossiq.solver.reason import RecommendationReason
 
 
 @dataclass(frozen=True)
