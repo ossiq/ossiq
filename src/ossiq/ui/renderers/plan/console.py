@@ -46,7 +46,7 @@ class ConsolePlanRenderer(AbstractUserInterfaceRenderer):
 
     def render(self, data: UpdatePlan, script: str = "", **kwargs) -> None:
         console.print()
-        console.print(Rule(f"OSS IQ — Plan: {data.project_name}", style="bold cyan"))
+        console.print(Rule(f"OSS IQ — Plan: {data.project_name}", style="bold"))
         console.print(
             f"  Package Manager: [bold]{data.package_manager_name}[/bold]  |  "
             f"Direct: [bold green]{len(data.direct_entries)}[/bold green]  |  "
@@ -55,8 +55,8 @@ class ConsolePlanRenderer(AbstractUserInterfaceRenderer):
         console.print()
 
         if data.all_entries:
-            table = Table(show_header=True, header_style="bold", box=None, padding=(0, 2))
-            table.add_column("Package")
+            table = Table(show_header=True, header_style="bold dim", box=None, padding=(0, 2))
+            table.add_column("Package", style="bold")
             table.add_column("Current", style="red")
             table.add_column("Recommended", style="green")
             table.add_column("Age", style="dim")
@@ -104,7 +104,7 @@ class ConsolePlanRenderer(AbstractUserInterfaceRenderer):
         self.render_held_for_cooldown(data)
 
         if script:
-            console.print(Rule("Plan Script — review before running", style="bold yellow"))
+            console.print(Rule("Plan Script — review before running", style="dim"))
             console.print()
             console.print(script)
             console.print()
@@ -116,8 +116,8 @@ class ConsolePlanRenderer(AbstractUserInterfaceRenderer):
             return
 
         console.print(f"[yellow]{HELP_PLAN_HELD_FOR_COOLDOWN_HEADER.format(days=data.cooldown_period)}[/yellow]")
-        table = Table(show_header=True, header_style="bold", box=None, padding=(0, 2))
-        table.add_column("Package")
+        table = Table(show_header=True, header_style="bold dim", box=None, padding=(0, 2))
+        table.add_column("Package", style="bold")
         table.add_column("Current", style="red")
         table.add_column("Recommended", style="green")
         table.add_column("Age", style="dim")

@@ -23,7 +23,7 @@ from ossiq.settings import Settings
 from ossiq.sources import project_sources
 from ossiq.sources.project_sources import ProjectSources
 from ossiq.ui.registry import get_renderer
-from ossiq.ui.system import show_error, show_operation_progress
+from ossiq.ui.system import show_error, show_scan_progress
 
 
 @dataclass(frozen=True)
@@ -124,9 +124,8 @@ def prepare_plan(ctx: typer.Context, options: CommandPlanOptions) -> tuple[Proje
         rewrite_versions=options.rewrite_versions,
     )
 
-    with show_operation_progress(settings, "Resolving recommended versions...") as progress:
-        with progress():
-            scan_result = project.scan(sources)
+    with show_scan_progress(settings) as on_step:
+        scan_result = project.scan(sources, on_step=on_step)
 
     package_manager_name = sources.packages_manager.package_manager_type.name
     plan = build_update_plan(

@@ -30,15 +30,15 @@ def format_lag_status(vdiff: VersionsDifference) -> str:
     elif vdiff.diff_index == VERSION_DIFF_MINOR:
         return "[yellow][bold]Minor"
     elif vdiff.diff_index == VERSION_DIFF_PATCH:
-        return "[white]Patch"
+        return "[bold blue]Patch"
     elif vdiff.diff_index == VERSION_DIFF_PRERELEASE:
         return "[yellow][bold]Prerelease"
     elif vdiff.diff_index == VERSION_DIFF_BUILD:
-        return "[white]Build"
+        return "[bold blue]Build"
     elif vdiff.diff_index == VERSION_LATEST:
         return "[green][bold]Latest"
     else:
-        return "[white][bold]N/A"
+        return "[bold]N/A"
 
 
 def impact_sub_row_texts(impacts: list[TransitiveImpact]) -> list[str]:
@@ -65,7 +65,7 @@ def impact_sub_row_texts(impacts: list[TransitiveImpact]) -> list[str]:
 
     for impact in new_deps:
         version_info = impact.projected_version or impact.new_constraint
-        rows.append(f"[dim cyan]  + {impact.package_name} {version_info} (new dep)[/dim cyan]")
+        rows.append(f"[dim blue]  + {impact.package_name} {version_info} (new dep)[/dim blue]")
 
     return rows
 
@@ -90,9 +90,11 @@ def new_transitive_deps_table(impacts: list[TransitiveImpact], cooldown_period: 
 
     table = Table(
         title="New transitive dependencies introduced by recommended updates",
-        title_style="bold cyan",
+        title_style="bold",
+        box=None,
+        padding=(0, 2),
     )
-    table.add_column("Package", justify="left", style="bold cyan")
+    table.add_column("Package", justify="left", style="bold")
     table.add_column("Version", justify="left")
     table.add_column("Constraint", justify="left")
     table.add_column("Age", justify="left", style="dim")

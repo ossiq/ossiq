@@ -8,8 +8,10 @@ from contextlib import contextmanager
 from ossiq.settings import Settings
 
 try:
-    from rich.console import Console
+    from rich.console import Console, Group
+    from rich.live import Live
     from rich.panel import Panel
+    from rich.spinner import Spinner
     from rich.text import Text
 
     console = Console()
@@ -19,6 +21,53 @@ except ImportError:
     RICH_AVAILABLE = False
     console = None
     error_console = None
+
+SCAN_STEPS: list[tuple[str, str]] = [
+    ("project", "Reading project dependencies"),
+    ("packages", "Fetching package metadata"),
+    ("repositories", "Fetching repository info from GitHub"),
+    ("vulnerabilities", "Checking for vulnerabilities via OSV.dev"),
+    ("versions", "Analyzing version history"),
+    ("solver", "Solving dependency constraints"),
+]
+
+STEP_INDEX: dict[str, int] = {key: i for i, (key, _) in enumerate(SCAN_STEPS)}
+
+
+@contextmanager
+def show_scan_progress(settings: Settings):
+    """
+    Show an animated vertical stepper while a scan runs.
+    Each call to the yielded callback advances to the named step.
+    """
+    if settings.verbose or not RICH_AVAILABLE:
+        yield lambda _: None
+        return
+
+    assert console is not None
+    current = [-1]
+
+    def render(idx: int):
+        rows: list = [Text("")]
+        for i, (_, label) in enumerate(SCAN_STEPS):
+            if i < idx:
+                rows.append(Text(f"  ✓  {label}", style="green"))
+            elif i == idx:
+                rows.append(Spinner("dots", text=Text(f"  {label}", style="bold cyan")))
+            else:
+                rows.append(Text(f"  ○  {label}", style="dim"))
+            if i < len(SCAN_STEPS) - 1:
+                rows.append(Text("  │", style="dim"))
+        return Group(*rows)
+
+    with Live(render(-1), console=console, refresh_per_second=8) as live:
+
+        def on_step(key: str) -> None:
+            current[0] = STEP_INDEX.get(key, current[0])
+            live.update(render(current[0]))
+
+        yield on_step
+        live.update(render(len(SCAN_STEPS)))
 
 
 @contextmanager

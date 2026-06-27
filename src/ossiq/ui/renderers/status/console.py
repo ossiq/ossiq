@@ -1,9 +1,8 @@
 """Console renderer for status command."""
 
 from rich.console import Console
-from rich.panel import Panel
+from rich.rule import Rule
 from rich.table import Table
-from rich.text import Text
 
 from ossiq.domain.common import Command, ConstraintType, UserInterfaceType
 from ossiq.service.library_scan import UpgradePath
@@ -46,45 +45,38 @@ class ConsoleStatusRenderer(AbstractUserInterfaceRenderer):
         lag_threshold_days = kwargs.get("lag_threshold_days", 180)
         full = kwargs.get("full", True)
 
-        table_prod = self.table_factory(
-            "Production Dependency Drift Report", "bold green", data.production_packages, lag_threshold_days, full=full
-        )
-
-        table_dev = self.table_factory(
-            "Optional Dependency Drift Report", "bold cyan", data.optional_packages, lag_threshold_days, full=full
-        )
-
         transitive_with_recs = sorted(
             (r for r in data.transitive_packages if r.recommended_version is not None),
             key=lambda r: r.package_name,
         )
 
-        table_transitive = None
+        self.console.print()
+        self.console.print(Rule(f"OSS IQ — Status: {data.project_name}", style="bold"))
+        self.console.print(
+            f"  Registry: [bold]{data.packages_registry}[/bold]  |  Path: [dim]{data.project_path}[/dim]"
+        )
+        self.console.print(
+            f"  Production: [bold]{len(data.production_packages)}[/bold]  |  "
+            f"Dev: [bold]{len(data.optional_packages)}[/bold]  |  "
+            f"Transitive recs: [bold]{len(transitive_with_recs)}[/bold]"
+        )
+        self.console.print()
+
+        main_table = self.build_main_table(
+            data.production_packages,
+            data.optional_packages,
+            lag_threshold_days,
+            full=full,
+        )
+        if main_table:
+            self.console.print(main_table)
+            self.console.print()
+
         if transitive_with_recs:
-            table_transitive = self.transitive_table(
-                transitive_with_recs, "Transitive Recommendations", show_cve_column=True
-            )
-
-        # Header
-        header_text = Text()
-        header_text.append("📦 Project: ", style="bold white")
-        header_text.append(f"{data.project_name}\n", style="bold cyan")
-        header_text.append("🔗 Packages Registry: ", style="bold white")
-        header_text.append(f"{data.packages_registry}\n", style="green")
-        header_text.append("📍 Project Path: ", style="bold white")
-        header_text.append(f"{data.project_path}", style="green")
-
-        # Output
-        self.console.print("\n")
-        self.console.print(Panel(header_text, expand=False, border_style="cyan"))
-
-        if table_prod:
-            self.console.print("\n")
-            self.console.print(table_prod)
-
-        if table_dev:
-            self.console.print("\n")
-            self.console.print(table_dev)
+            self.console.print(Rule("Transitive Recommendations", style="dim"))
+            self.console.print()
+            self.console.print(self.transitive_table(transitive_with_recs))
+            self.console.print()
 
         new_dep_impacts = [
             i
@@ -95,38 +87,166 @@ class ConsoleStatusRenderer(AbstractUserInterfaceRenderer):
             if i.current_version is None
         ]
         table_new_deps = new_transitive_deps_table(new_dep_impacts, cooldown_period=self.settings.cooldown_period)
-
-        if table_transitive:
-            self.console.print("\n")
-            self.console.print(table_transitive)
-
         if table_new_deps:
-            self.console.print("\n")
             self.console.print(table_new_deps)
+            self.console.print()
 
         table_peer = self.peer_status_table(
             data.production_packages + data.optional_packages + data.transitive_packages,
             full=full,
         )
         if table_peer:
-            self.console.print("\n")
+            self.console.print(Rule("Peer Constraint Status", style="dim"))
+            self.console.print()
             self.console.print(table_peer)
+            self.console.print()
 
         table_upgrade = self.upgrade_paths_table(data.upgrade_paths)
         if table_upgrade:
-            self.console.print("\n")
+            self.console.print(Rule("Constraint Widening Opportunities", style="dim"))
+            self.console.print()
             self.console.print(table_upgrade)
+            self.console.print()
+
+    def build_main_table(
+        self,
+        prod: list[ScanRecord],
+        dev: list[ScanRecord],
+        lag_threshold_days: int,
+        *,
+        full: bool = True,
+    ) -> Table | None:
+        """Single borderless table merging prod and dev sections."""
+
+        def filter_deps(deps: list[ScanRecord]) -> list[ScanRecord]:
+            if full:
+                return deps
+            return [
+                pkg
+                for pkg in deps
+                if (pkg.recommended_version is not None and pkg.recommended_version != pkg.installed_version)
+                or bool(pkg.cve)
+            ]
+
+        filtered_prod = filter_deps(prod)
+        filtered_dev = filter_deps(dev)
+
+        if not filtered_prod and not filtered_dev:
+            return None
+
+        show_recommended = any(
+            pkg.recommended_version is not None or pkg.constraint_conflict for pkg in filtered_prod + filtered_dev
+        )
+
+        table = Table(show_header=True, header_style="bold dim", box=None, padding=(0, 2))
+        table.add_column("Package", style="bold")
+        table.add_column("CVEs", justify="center")
+        table.add_column("Status", justify="center")
+        table.add_column("Installed", justify="left")
+        if show_recommended:
+            table.add_column("Recommended", justify="left", style="bold green")
+        table.add_column("Latest", justify="left")
+        table.add_column("Lag", justify="right")
+
+        empty = [""] * (len(table.columns) - 1)
+        first_section = True
+
+        def add_section_label(label: str) -> None:
+            nonlocal first_section
+            if not first_section:
+                table.add_section()
+                table.add_row(*[""] * len(table.columns))
+                table.add_section()
+            first_section = False
+            table.add_row(f"[dim]{label}[/dim]", *empty)
+            table.add_section()
+
+        def add_pkg_rows(packages: list[ScanRecord]) -> None:
+            for pkg in packages:
+                installed_cell = pkg.installed_version
+                if pkg.is_installed_package_unpublished:
+                    installed_cell += " [bold red][UNPUBLISHED][/]"
+                elif pkg.is_installed_yanked:
+                    installed_cell += " [bold red][YANKED][/]"
+                elif pkg.is_installed_deprecated:
+                    installed_cell += " [bold yellow][DEPRECATED][/]"
+                elif pkg.is_installed_prerelease:
+                    installed_cell += " [yellow][pre][/]"
+
+                row: list[str] = [
+                    pkg.package_name,
+                    f"[bold red]{len(pkg.cve)}" if pkg.cve else "",
+                    format_lag_status(pkg.versions_diff_index),
+                    installed_cell,
+                ]
+
+                if show_recommended:
+                    if pkg.constraint_conflict:
+                        row.append("[bold red][NO RESOLUTION][/]")
+                    elif pkg.recommended_version is not None:
+                        if pkg.recommended_version != pkg.latest_version:
+                            row.append(f"[bold yellow]{pkg.recommended_version}[/]")
+                        else:
+                            row.append(pkg.recommended_version)
+                    else:
+                        row.append("")
+
+                row += [
+                    pkg.latest_version if pkg.latest_version else "[bold red]N/A",
+                    format_time_delta(pkg.time_lag_days, lag_threshold_days),
+                ]
+
+                table.add_row(*row)
+
+                if pkg.update_transitive_impacts and pkg.recommended_version != pkg.installed_version:
+                    blanks = [""] * (len(table.columns) - 1)
+                    for text in impact_sub_row_texts(pkg.update_transitive_impacts):
+                        table.add_row(text, *blanks)
+
+                if pkg.constraint_conflict:
+                    blanks = [""] * (len(table.columns) - 1)
+                    specs = " + ".join(pkg.constraint_conflict)
+                    table.add_row(f"  [bold red]↳ no version satisfies: {specs}[/]", *blanks)
+
+        if filtered_prod:
+            add_section_label("Production")
+            add_pkg_rows(filtered_prod)
+
+        if filtered_dev:
+            add_section_label("Development")
+            add_pkg_rows(filtered_dev)
+
+        return table
+
+    def transitive_table(self, packages: list[ScanRecord]) -> Table:
+        """Borderless table for transitive packages with solver-recommended versions."""
+        table = Table(show_header=True, header_style="bold dim", box=None, padding=(0, 2))
+        table.add_column("Package", justify="left", style="bold")
+        table.add_column("Installed", justify="left")
+        table.add_column("CVEs", justify="center")
+        table.add_column("Age", justify="right")
+        table.add_column("Recommended", justify="left", style="bold green")
+
+        for pkg in packages:
+            table.add_row(
+                pkg.package_name,
+                pkg.installed_version,
+                f"[bold red]{len(pkg.cve)}" if pkg.cve else "",
+                format_time_delta(pkg.version_age_days, 365),
+                pkg.recommended_version or "",
+            )
+        return table
 
     def upgrade_paths_table(self, paths: list[UpgradePath]) -> Table | None:
-        """Table showing constraint widening opportunities for library projects."""
+        """Borderless table for constraint widening opportunities."""
         if not paths:
             return None
 
-        table = Table(title="Constraint Widening Opportunities", title_style="bold yellow")
-        table.add_column("Package", style="cyan", no_wrap=True)
-        table.add_column("Current Range", style="white")
-        table.add_column("Latest In-Range", style="green")
-        table.add_column("Latest Available", style="yellow")
+        table = Table(show_header=True, header_style="bold dim", box=None, padding=(0, 2))
+        table.add_column("Package", style="bold")
+        table.add_column("Current Range")
+        table.add_column("Latest In-Range", style="bold green")
+        table.add_column("Latest Available")
         table.add_column("Suggested Range", style="bold yellow")
 
         for path in sorted(paths, key=lambda p: p.package_name):
@@ -141,7 +261,7 @@ class ConsoleStatusRenderer(AbstractUserInterfaceRenderer):
         return table
 
     def peer_status_table(self, packages: list[ScanRecord], *, full: bool) -> Table | None:
-        """Table showing peer constraint status for all packages that have peer requirements."""
+        """Borderless table for peer constraint status."""
         violated_specs_by_pkg: dict[str, set[str]] = {
             record.package_name: {req.spec for req in record.peer_violations}
             for record in packages
@@ -167,10 +287,8 @@ class ConsoleStatusRenderer(AbstractUserInterfaceRenderer):
         if not rows:
             return None
 
-        has_violations = any(status == "violation" for *_, status in rows)
-        title_style = "bold red" if has_violations else "bold yellow"
-        table = Table(title="Peer Constraint Status", title_style=title_style)
-        table.add_column("Package", justify="left", style="bold cyan")
+        table = Table(show_header=True, header_style="bold dim", box=None, padding=(0, 2))
+        table.add_column("Package", justify="left", style="bold")
         table.add_column("Installed", justify="left")
         table.add_column("Peer Constraint", justify="left")
         table.add_column("Required By", justify="left")
@@ -184,111 +302,5 @@ class ConsoleStatusRenderer(AbstractUserInterfaceRenderer):
             else:
                 status_cell = "[bold green]✓ satisfied[/]"
             table.add_row(pkg_name, installed, spec, requirer, status_cell)
-
-        return table
-
-    def transitive_table(self, packages: list[ScanRecord], title: str, *, show_cve_column: bool) -> Table:
-        """Table showing transitive packages with solver-recommended versions."""
-        title_style = "bold yellow" if show_cve_column else "bold cyan"
-        table = Table(title=title, title_style=title_style)
-        table.add_column("Package", justify="left", style="bold cyan")
-        table.add_column("Installed", justify="left")
-        if show_cve_column:
-            table.add_column("CVEs", justify="center")
-        table.add_column("Age", justify="right")
-        table.add_column("Recommended", justify="left", style="bold green")
-
-        for pkg in packages:
-            row: list[str] = [pkg.package_name, pkg.installed_version]
-            if show_cve_column:
-                row.append(f"[bold red]{len(pkg.cve)}" if pkg.cve else "")
-            row.append(format_time_delta(pkg.version_age_days, 365))
-            row.append(pkg.recommended_version or "")
-            table.add_row(*row)
-        return table
-
-    def table_factory(
-        self,
-        title: str,
-        title_style: str,
-        dependencies: list[ScanRecord],
-        lag_threshold_days: int,
-        *,
-        full: bool = True,
-    ) -> Table | None:
-        """Create Rich table with dependency data."""
-        if not full:
-            dependencies = [
-                pkg
-                for pkg in dependencies
-                if (pkg.recommended_version is not None and pkg.recommended_version != pkg.installed_version)
-                or bool(pkg.cve)
-            ]
-        if not dependencies:
-            return None
-
-        show_recommended = any(pkg.recommended_version is not None or pkg.constraint_conflict for pkg in dependencies)
-
-        table = Table(title=title, title_style=title_style)
-        table.add_column("Dependency", justify="left", style="bold cyan")
-        table.add_column("CVEs", justify="center")
-        table.add_column("Status", justify="center")
-        table.add_column("Installed", justify="left")
-
-        if show_recommended:
-            table.add_column("Recommended", justify="left")
-
-        table.add_column("Latest", justify="left")
-        table.add_column("Distance", justify="right")
-        table.add_column("Time Lag", justify="right")
-        table.add_column("Version Age", justify="right")
-
-        for pkg in dependencies:
-            installed_cell = pkg.installed_version
-            if pkg.is_installed_package_unpublished:
-                installed_cell += " [bold red][UNPUBLISHED][/]"
-            elif pkg.is_installed_yanked:
-                installed_cell += " [bold red][YANKED][/]"
-            elif pkg.is_installed_deprecated:
-                installed_cell += " [bold yellow][DEPRECATED][/]"
-            elif pkg.is_installed_prerelease:
-                installed_cell += " [yellow][pre][/]"
-
-            row_args = [
-                pkg.package_name,
-                f"[bold][red]{len(pkg.cve)}" if pkg.cve else "",
-                format_lag_status(pkg.versions_diff_index),
-                installed_cell,
-            ]
-
-            if show_recommended:
-                if pkg.constraint_conflict:
-                    row_args.append("[bold red][NO RESOLUTION][/]")
-                elif pkg.recommended_version is not None:
-                    if pkg.recommended_version != pkg.latest_version:
-                        row_args.append(f"[yellow][bold]{pkg.recommended_version}[/]")
-                    else:
-                        row_args.append(pkg.recommended_version)
-                else:
-                    row_args.append("")
-
-            row_args += [
-                pkg.latest_version if pkg.latest_version else "[bold][red]N/A",
-                str(pkg.releases_lag),
-                format_time_delta(pkg.time_lag_days, lag_threshold_days),
-                format_time_delta(pkg.version_age_days, 365),
-            ]
-
-            table.add_row(*row_args)
-
-            if pkg.update_transitive_impacts and pkg.recommended_version != pkg.installed_version:
-                blanks = [""] * (len(table.columns) - 1)
-                for text in impact_sub_row_texts(pkg.update_transitive_impacts):
-                    table.add_row(text, *blanks)
-
-            if pkg.constraint_conflict:
-                blanks = [""] * (len(table.columns) - 1)
-                specs = " + ".join(pkg.constraint_conflict)
-                table.add_row(f"  [bold red]↳ no version satisfies: {specs}[/]", *blanks)
 
         return table

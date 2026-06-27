@@ -4,7 +4,7 @@ Service to take care of a Package versions
 
 import logging
 import time
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
@@ -409,12 +409,17 @@ def scan_sort_key(pkg: ScanRecord) -> tuple[int, int, int, str]:
     )
 
 
-def scan(sources: AbstractProjectSources) -> ScanResult:
+def scan(sources: AbstractProjectSources, on_step: Callable[[str], None] | None = None) -> ScanResult:
     """
     Project scan service: fetch from external sources, compute and return ScanResult.
     """
 
+    def step(key: str) -> None:
+        if on_step:
+            on_step(key)
+
     with sources:
+        step("project")
         project_info = sources.packages_manager.project_info()
         project_info = resolve_library_constraints(project_info, sources.packages_registry)
         # FIXME: catch this issue way before as part of command validation
@@ -485,6 +490,7 @@ def scan(sources: AbstractProjectSources) -> ScanResult:
 
         # Pass 1: pre-fetch package infos, repos, CVEs, versions-since
         t0 = time.perf_counter()
+        step("packages")
         packages_info = prefetch_packages_info(sources.packages_registry, (dep.canonical_name for dep in all_deps))
 
         if sources.allow_prerelease or sources.allow_prerelease_packages:
@@ -512,6 +518,7 @@ def scan(sources: AbstractProjectSources) -> ScanResult:
                     pkg.latest_version = best.version
 
         # Github repository info
+        step("repositories")
         repositories_info = prefetch_source_code_repositories_info(
             sources,
             {pkg.repo_url for pkg in packages_info.values() if pkg.repo_url is not None},
@@ -520,9 +527,11 @@ def scan(sources: AbstractProjectSources) -> ScanResult:
         # force unique pair package/version regardless position in the graph
         unique_packages = list(set((packages_info[dep.canonical_name], dep.version) for dep in all_deps))
 
+        step("vulnerabilities")
         cve_map = sources.cve_database.get_cves_batch(unique_packages)
 
         # Pre-compute versions-since-installed for all unique (package, version) pairs
+        step("versions")
         versions_since_map = prefetch_versions_since(
             sources.packages_registry,
             {(packages_info[dep.canonical_name].name, dep.version) for dep in all_deps},
@@ -569,6 +578,7 @@ def scan(sources: AbstractProjectSources) -> ScanResult:
                 installed_version=installed_version_by_name.get(pkg_name),
             ).is_actionable
 
+        step("solver")
         t1 = time.perf_counter()
         solver_output = dependencies_solver.solve_direct(
             prod_deps + opt_deps,

@@ -12,7 +12,7 @@ from ossiq.service import project
 from ossiq.settings import Settings
 from ossiq.sources import project_sources
 from ossiq.ui.registry import get_renderer
-from ossiq.ui.system import show_operation_progress, show_settings
+from ossiq.ui.system import show_scan_progress, show_settings
 
 
 @dataclass(frozen=True)
@@ -59,9 +59,8 @@ def commnad_export(ctx: typer.Context, options: CommandExportOptions):
         ignore_packages=options.ignore_packages,
     )
 
-    with show_operation_progress(settings, "Collecting project packages data...") as progress:
-        with progress():
-            project_scan = project.scan(sources)
+    with show_scan_progress(settings) as on_step:
+        project_scan = project.scan(sources, on_step=on_step)
 
     renderer = get_renderer(
         command=Command.EXPORT,
