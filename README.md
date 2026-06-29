@@ -365,6 +365,31 @@ The output mirrors the structure of the dependency detail panel:
 
 If the package appears in multiple places in the tree (hoisted duplicates, diamond dependencies), each occurrence is shown separately with a **SHARED NODE** indicator.
 
+### Gated Package Add
+
+`ossiq-cli add` is a quality-gated alternative to running `uv add` or `npm install` directly. Before touching your project it runs the same analysis as `ossiq-cli info`, enforces your configured gates, and installs the **OSS IQ-recommended version** — not just the latest one.
+
+```bash
+ossiq-cli add requests
+ossiq-cli add lodash --registry-type npm
+
+# Pin an exact version yourself (bypasses the recommendation)
+ossiq-cli add requests --version 2.31.0
+
+# Override critical-warning blocks (use with care)
+ossiq-cli add requests --force
+```
+
+**Why not just run `uv add` / `npm install`?**
+
+Package managers install the newest version that satisfies your constraints. OSS IQ adds a layer on top:
+
+1. **Recommended version, not latest** — the installed version is the same one `ossiq-cli info` would recommend. It factors in cooldown period (versions younger than N days are soft-penalised) and future gates as they are added. You get a stable, vetted pick, not whatever was published this morning.
+2. **Health check first** — drift status, CVEs, transitive vulnerabilities, and maintainer signals are displayed before any file is touched.
+3. **Critical warnings block the install** — packages flagged as critically unhealthy are rejected unless you pass `--force`.
+4. **Explicit confirmation** — the exact spec to be installed is shown before proceeding.
+
+The version selection and gate logic live in the adapter layer, so each ecosystem (`uv`, `npm`, `pip`) gets the right install command automatically.
 
 ## FAQ
 

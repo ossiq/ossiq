@@ -182,3 +182,10 @@ class AbstractPackageManagerApi(abc.ABC):
             f"In-process execution is not yet supported for {self.package_manager_type.name}. "
             "Use 'ossiq update plan --script' to generate a bash script instead."
         )
+
+    def install_package(self, package_name: str, version: str | None = None) -> int:
+        """Install a package into the project. Returns subprocess exit code.
+
+        Supported package managers override this.
+        """
+        raise NotImplementedError(f"Package installation is not yet supported for {self.package_manager_type.name}.")
