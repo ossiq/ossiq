@@ -13,10 +13,10 @@ from ossiq.settings import Settings
 from ossiq.ui.interfaces import AbstractUserInterfaceRenderer
 from ossiq.ui.renderers.export.csv import CsvExportRenderer
 from ossiq.ui.renderers.export.json import JsonExportRenderer
-from ossiq.ui.renderers.package.console import ConsolePackageRenderer
+from ossiq.ui.renderers.html.html import HtmlStatusRenderer
+from ossiq.ui.renderers.info.console import ConsoleInfoRenderer
 from ossiq.ui.renderers.plan.console import ConsolePlanRenderer
 from ossiq.ui.renderers.status.console import ConsoleStatusRenderer
-from ossiq.ui.renderers.status.html import HtmlStatusRenderer
 
 # Registry of all available renderers (populated via register_renderers)
 # Similar to PACKAGE_MANAGERS tuple
@@ -25,7 +25,7 @@ RENDERERS: tuple[type[AbstractUserInterfaceRenderer], ...] = (
     HtmlStatusRenderer,
     JsonExportRenderer,
     CsvExportRenderer,
-    ConsolePackageRenderer,
+    ConsoleInfoRenderer,
     ConsolePlanRenderer,
 )
 
@@ -63,7 +63,6 @@ def get_renderer(
     if renderer_instances:
         return renderer_instances[0]
 
-    # ConsolePackageRenderer.supports() already covers Command.ADD — no extra entry needed.
     # Check if command is known (any renderer supports it)
     command_exists = any(
         renderer_class.supports(command, pt) for renderer_class in RENDERERS for pt in UserInterfaceType

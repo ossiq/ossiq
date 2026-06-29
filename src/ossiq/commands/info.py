@@ -1,6 +1,4 @@
-"""
-Single package deep-dive and add commands.
-"""
+"""Single package deep-dive command."""
 
 from dataclasses import dataclass
 from typing import Literal
@@ -22,7 +20,7 @@ from ossiq.settings import Settings
 from ossiq.solver import dependencies_solver
 from ossiq.sources import project_sources
 from ossiq.ui.registry import get_renderer
-from ossiq.ui.system import show_error, show_operation_progress, show_scan_progress
+from ossiq.ui.system import show_operation_progress, show_scan_progress
 
 _SEVERITY_ORDER: dict[str, int] = {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2, "LOW": 3}
 
@@ -37,16 +35,7 @@ class CommandInfoOptions:
     ignore_packages: tuple[str, ...] = ()
 
 
-@dataclass(frozen=True)
-class CommandAddOptions:
-    project_path: str
-    package_name: str
-    registry_type: Literal["npm", "pypi"] | None
-    version: str | None = None
-    force: bool = False
-
-
-def _matches(record: ScanRecord, package_name: str) -> bool:
+def matches(record: ScanRecord, package_name: str) -> bool:
     """Case-insensitive exact match on dependency_name or package_name (canonical)."""
     needle = package_name.lower()
     return (
@@ -54,7 +43,7 @@ def _matches(record: ScanRecord, package_name: str) -> bool:
     ) or record.package_name.lower() == needle
 
 
-def _collect_transitive_cve_groups(scan_result: ScanResult, package_name: str) -> list[TransitiveCVEGroup]:
+def collect_transitive_cve_groups(scan_result: ScanResult, package_name: str) -> list[TransitiveCVEGroup]:
     """
     Find all transitive packages downstream of `package_name`
     (i.e. `package_name` appears in their dependency_path) and have CVEs.
@@ -82,7 +71,7 @@ def _collect_transitive_cve_groups(scan_result: ScanResult, package_name: str) -
     return sorted(acc.values(), key=worst_severity)
 
 
-def _build_installed_detail(
+def build_installed_detail(
     matched: list[ScanRecord],
     scan_result: ScanResult,
     package_name: str,
@@ -126,7 +115,7 @@ def _build_installed_detail(
 
     return PackageDetailResult(
         records=matched,
-        transitive_cve_groups=_collect_transitive_cve_groups(scan_result, package_name),
+        transitive_cve_groups=collect_transitive_cve_groups(scan_result, package_name),
         project_name=scan_result.project_name,
         packages_registry=scan_result.packages_registry,
         insight=insight,
@@ -163,10 +152,10 @@ def command_info(ctx: typer.Context, options: CommandInfoOptions) -> None:
         )
 
     all_records = scan_result.production_packages + scan_result.optional_packages + scan_result.transitive_packages
-    matched = [r for r in all_records if _matches(r, options.package_name)]
+    matched = [r for r in all_records if matches(r, options.package_name)]
 
     if matched:
-        detail = _build_installed_detail(matched, scan_result, options.package_name, sources, settings)
+        detail = build_installed_detail(matched, scan_result, options.package_name, sources, settings)
     else:
         # Package not in this project — run the prospective flow.
         # sources.__enter__ was already called inside project.scan(), so packages_registry is live.
@@ -180,50 +169,3 @@ def command_info(ctx: typer.Context, options: CommandInfoOptions) -> None:
         settings=settings,
     )
     renderer.render(data=detail)
-
-
-def command_add(ctx: typer.Context, options: CommandAddOptions) -> None:
-    """Gated package add: shows health insights and warnings before installing."""
-    settings: Settings = ctx.obj
-    registry_type_map = {
-        "npm": ProjectPackagesRegistry.NPM,
-        "pypi": ProjectPackagesRegistry.PYPI,
-    }
-
-    sources = project_sources.ProjectSources(
-        settings=settings,
-        project_path=options.project_path,
-        production=False,
-        narrow_package_registry=registry_type_map.get(options.registry_type or ""),
-    )
-
-    with show_operation_progress(settings, f"Fetching package info for {options.package_name}...") as progress:
-        with progress():
-            with sources:
-                detail = fetch_prospective_detail(options.package_name, sources, settings)
-
-    packages_manager = sources.packages_manager
-
-    renderer = get_renderer(
-        command=Command.ADD,
-        user_interface_type=UserInterfaceType.CONSOLE,
-        settings=settings,
-    )
-    renderer.render(data=detail)
-
-    critical_warnings = [w for w in detail.warnings if w.severity == "critical"]
-    if critical_warnings and not options.force:
-        show_error(
-            f"Package '{options.package_name}' has critical warnings. Use --force to proceed anyway.",
-            title="Blocked",
-        )
-        raise typer.Exit(1)
-
-    version = options.version or (detail.insight.recommended_version if detail.insight else None)
-    display_spec = f"{options.package_name}=={version}" if version else options.package_name
-    if not typer.confirm(f"\nAdd {display_spec} to your project?"):
-        raise typer.Abort()
-
-    result = packages_manager.install_package(options.package_name, version)
-    if result != 0:
-        raise typer.Exit(result)

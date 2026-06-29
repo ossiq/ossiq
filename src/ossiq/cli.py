@@ -21,9 +21,10 @@ except ImportError:
 from ossiq.adapters.package_managers.helpers.helpers_npm import npm_helpers_app
 from ossiq.adapters.package_managers.helpers.helpers_uv import uv_helpers_app
 from ossiq.clients import install_requests_cache
-from ossiq.commands.export import CommandExportOptions, commnad_export
+from ossiq.commands.add import CommandAddOptions, command_add
+from ossiq.commands.export import CommandExportOptions, command_export
 from ossiq.commands.html import CommandHtmlOptions, command_html
-from ossiq.commands.package import CommandAddOptions, CommandInfoOptions, command_add, command_info
+from ossiq.commands.info import CommandInfoOptions, command_info
 from ossiq.commands.plan import (
     CommandPlanOptions,
     check_override_ignore_conflict,
@@ -370,7 +371,7 @@ def export(
         raise typer.BadParameter("Only `npm` and `pypi` allowed")
 
     with error_boundary(context.obj):
-        commnad_export(
+        command_export(
             ctx=context,
             options=CommandExportOptions(
                 project_path=project_path,

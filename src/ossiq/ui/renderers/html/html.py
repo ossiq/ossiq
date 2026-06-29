@@ -1,4 +1,4 @@
-"""HTML renderer for status command."""
+"""HTML renderer for the html command."""
 
 import os
 from pathlib import Path

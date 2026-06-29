@@ -28,7 +28,7 @@ class CommandExportOptions:
     ignore_packages: tuple[str, ...] = ()
 
 
-def commnad_export(ctx: typer.Context, options: CommandExportOptions):
+def command_export(ctx: typer.Context, options: CommandExportOptions):
     """
     Project data export command.
     """

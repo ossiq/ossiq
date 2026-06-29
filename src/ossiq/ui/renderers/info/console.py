@@ -1,4 +1,4 @@
-"""Console renderer for the package deep-dive command."""
+"""Console renderer for the info (package deep-dive) command."""
 
 from rich.console import Console
 from rich.panel import Panel
@@ -48,8 +48,8 @@ def _collect_licenses(records: list[ScanRecord]) -> list[str]:
     return result
 
 
-class ConsolePackageRenderer(AbstractUserInterfaceRenderer):
-    """Console renderer for the package deep-dive and add commands."""
+class ConsoleInfoRenderer(AbstractUserInterfaceRenderer):
+    """Console renderer for the info and add commands."""
 
     command = Command.INFO
     user_interface_type = UserInterfaceType.CONSOLE
