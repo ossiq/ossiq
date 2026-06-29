@@ -1,5 +1,5 @@
 """
-Project packages status command
+HTML report generation command
 """
 
 from dataclasses import dataclass
@@ -7,7 +7,6 @@ from typing import Literal
 
 import typer
 
-from ossiq import timeutil
 from ossiq.domain.common import Command, UserInterfaceType
 from ossiq.service import project
 from ossiq.settings import Settings
@@ -17,29 +16,29 @@ from ossiq.ui.system import show_scan_progress, show_settings
 
 
 @dataclass(frozen=True)
-class CommandStatusOptions:
+class CommandHtmlOptions:
     project_path: str
     lag_threshold_days: str = "1y"
     production: bool = False
     allow_prerelease: bool = False
     allow_prerelease_packages: tuple[str, ...] = ()
     registry_type: Literal["npm", "pypi"] | None = None
+    output_destination: str = "./ossiq_scan_report_{project_name}.html"
     security_only: bool = False
     ignore_packages: tuple[str, ...] = ()
 
 
-def command_status(ctx: typer.Context, options: CommandStatusOptions) -> None:
+def command_html(ctx: typer.Context, options: CommandHtmlOptions) -> None:
     """
-    Project status command.
+    Generate an HTML dependency health report.
     """
     settings: Settings = ctx.obj
-    threshold_parsed = timeutil.parse_relative_time_delta(options.lag_threshold_days)
     show_settings(
         ctx,
-        "Status Settings",
+        "HTML Report Settings",
         {
             "project_path": options.project_path,
-            "lag_threshold_days": f"{threshold_parsed.days} days",
+            "output_destination": options.output_destination,
             "production": options.production,
             "security": options.security_only,
             "narrow_registry_type": project_sources.REGISTRY_TYPE_MAP.get(options.registry_type or ""),
@@ -61,10 +60,9 @@ def command_status(ctx: typer.Context, options: CommandStatusOptions) -> None:
     with show_scan_progress(settings) as on_step:
         project_scan = project.scan(sources, on_step=on_step)
 
-    renderer = get_renderer(command=Command.STATUS, user_interface_type=UserInterfaceType.CONSOLE, settings=settings)
+    renderer = get_renderer(command=Command.HTML, user_interface_type=UserInterfaceType.HTML, settings=settings)
 
     renderer.render(
         data=project_scan,
-        lag_threshold_days=threshold_parsed.days,
-        full=True,
+        destination=options.output_destination,
     )

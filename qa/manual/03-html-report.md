@@ -11,7 +11,7 @@ mkdir -p reports
 ## TC-H01: Generate PyPI HTML report
 
 ```bash
-uv run hatch run ossiq-cli scan --presentation=html --output=reports/test_report.html testdata/pypi/version-constraint
+uv run hatch run ossiq-cli html --output=reports/test_report.html testdata/pypi/version-constraint
 ```
 
 - [ ] File `reports/test_report.html` created with size > 0
@@ -43,7 +43,7 @@ Open `reports/test_report.html` in browser.
 ## TC-H04: npm HTML report
 
 ```bash
-uv run hatch run ossiq-cli scan --presentation=html --output=reports/npm_report.html testdata/npm/project1
+uv run hatch run ossiq-cli html --output=reports/npm_report.html testdata/npm/project1
 ```
 
 - [ ] File generated
@@ -54,8 +54,8 @@ uv run hatch run ossiq-cli scan --presentation=html --output=reports/npm_report.
 ## TC-H05: Report with yanked/deprecated packages
 
 ```bash
-uv run hatch run ossiq-cli scan --presentation=html --output=reports/yanked_report.html testdata/pypi/yanked
-uv run hatch run ossiq-cli scan --presentation=html --output=reports/deprecated_report.html testdata/npm/deprecated
+uv run hatch run ossiq-cli html --output=reports/yanked_report.html testdata/pypi/yanked
+uv run hatch run ossiq-cli html --output=reports/deprecated_report.html testdata/npm/deprecated
 ```
 
 - [ ] Yanked packages are visually indicated in the HTML table
@@ -66,7 +66,7 @@ uv run hatch run ossiq-cli scan --presentation=html --output=reports/deprecated_
 ## TC-H06: HTML report — transitive impact sub-rows
 
 ```bash
-uv run hatch run ossiq-cli scan --presentation=html --output=reports/solver_report.html testdata/pypi/version-constraint
+uv run hatch run ossiq-cli html --output=reports/solver_report.html testdata/pypi/version-constraint
 ```
 
 Open `reports/solver_report.html` in browser.
@@ -115,7 +115,7 @@ Alt+Click a node that has visible children.
 Generate an npm report for a project with deep transitive deps if `solver_report.html` has no Super Nodes (circles with a `+N` badge):
 
 ```bash
-uv run hatch run ossiq-cli scan --presentation=html --output=reports/npm_report.html testdata/npm/project1
+uv run hatch run ossiq-cli html --output=reports/npm_report.html testdata/npm/project1
 ```
 
 Click a Super Node (`+N` badge circle).

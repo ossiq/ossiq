@@ -13,15 +13,15 @@ from ossiq.ui.renderers.export.models import build_export_data
 
 
 class HtmlStatusRenderer(AbstractUserInterfaceRenderer):
-    """HTML renderer for status command."""
+    """HTML renderer for html command."""
 
-    command = Command.STATUS
+    command = Command.HTML
     user_interface_type = UserInterfaceType.HTML
 
     @staticmethod
     def supports(command: Command, user_interface_type: UserInterfaceType) -> bool:
-        """Check if this renderer handles status/html combination."""
-        return command == Command.STATUS and user_interface_type == UserInterfaceType.HTML
+        """Check if this renderer handles html command."""
+        return command == Command.HTML and user_interface_type == UserInterfaceType.HTML
 
     def render(self, data: ScanResult, **kwargs) -> None:
         """

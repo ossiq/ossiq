@@ -68,6 +68,7 @@ def show_scan_progress(settings: Settings):
 
         yield on_step
         live.update(render(len(SCAN_STEPS)))
+    print("\n")
 
 
 @contextmanager

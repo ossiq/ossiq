@@ -91,7 +91,8 @@ class TestHtmlStatusRenderer:
     @pytest.mark.parametrize(
         "command,user_interface_type,expected",
         [
-            (Command.STATUS, UserInterfaceType.HTML, True),
+            (Command.HTML, UserInterfaceType.HTML, True),
+            (Command.STATUS, UserInterfaceType.HTML, False),
             (Command.EXPORT, UserInterfaceType.HTML, False),
             (Command.STATUS, UserInterfaceType.CONSOLE, False),
             (Command.STATUS, UserInterfaceType.JSON, False),

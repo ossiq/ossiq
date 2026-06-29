@@ -15,9 +15,7 @@ ARGS_HELP_DEBUG = "Enable debug logging output (logging module). Overrides OSSIQ
 ARGS_HELP_GITHUB_TOKEN = """Github Token to increase requests limits"""
 ARGS_HELP_CACHE_DESTINATION = """Directory where cache will be stored"""
 ARGS_HELP_CACHE_TTL = """For how long cache is stored"""
-ARGS_HELP_PRESENTATION = """Output could be generated as console output, html or json"""
-ARGS_HELP_OUTPUT = """Destination where to generate output,
-appropriate for respective presentations"""
+ARGS_HELP_OUTPUT = """Destination where to generate output"""
 
 HELP_PRODUCTION_ONLY = """
 Exclude non-production packages. Default: false

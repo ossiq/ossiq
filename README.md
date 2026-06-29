@@ -44,14 +44,17 @@ The fastest way is to run directly from [PyPI](https://pypi.org/) with [uvx](htt
 # JavaScript / npm or Python / uv / pip — run from your project directory
 uvx --from ossiq ossiq-cli status
 
-# Generate HTML report
-uvx --from ossiq ossiq-cli status --presentation=html --output report.html
-
-# Show all packages, including up-to-date ones
-uvx --from ossiq ossiq-cli status --full
+# Generate an HTML report
+uvx --from ossiq ossiq-cli html --output report.html
 
 # Narrow to CVE-affected packages only (security-first workflow)
 uvx --from ossiq ossiq-cli status --security
+
+# Check a package before adding it
+uvx --from ossiq ossiq-cli info requests
+
+# Then install
+uvx --from ossiq ossiq-cli add requests
 ```
 
 OSS IQ automatically detects the dependency manifest (`package.json`, `pyproject.toml`, etc.) in the target directory.
@@ -130,7 +133,7 @@ docker run --rm \
   -e OSSIQ_GITHUB_TOKEN \
   -v /path/to/your/project:/project:ro \
   -v $(pwd)/reports:/output \
-  ossiq/ossiq-cli status -p html -o /output/report.html /project
+  ossiq/ossiq-cli html -o /output/report.html /project
 
 # Export to JSON for CI/CD pipelines
 docker run --rm \
@@ -340,7 +343,7 @@ uv sync
 uv run hatch run ossiq-cli status
 
 # Generate HTML report
-uv run hatch run ossiq-cli status -p html -o ./test_report.html
+uv run hatch run ossiq-cli html -o ./test_report.html
 ```
 
 ### Package Deep-Dive

@@ -13,7 +13,6 @@ from ossiq.messages import (
     ARGS_HELP_CUTOFF_DATE,
     ARGS_HELP_DEBUG,
     ARGS_HELP_GITHUB_TOKEN,
-    ARGS_HELP_PRESENTATION,
 )
 from ossiq.timeutil import cutoff_datetime_from_iso_date
 
@@ -41,8 +40,6 @@ class Settings(BaseModel):
         default=str(Path.home() / ".ossiq_cache.sqlite3"), description=ARGS_HELP_CACHE_DESTINATION
     )
     cache_ttl: int = Field(default=24, description=ARGS_HELP_CACHE_TTL)
-    presentation: str = Field(default="console", description=ARGS_HELP_PRESENTATION)
-
     verbose: bool = Field(default=False, description="Enable verbose output")
     debug: bool = Field(default=False, description=ARGS_HELP_DEBUG)
     traceback: bool = Field(default=False, description="Show full traceback on error instead of logging to file")

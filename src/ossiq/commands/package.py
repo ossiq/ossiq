@@ -22,7 +22,7 @@ from ossiq.settings import Settings
 from ossiq.solver import dependencies_solver
 from ossiq.sources import project_sources
 from ossiq.ui.registry import get_renderer
-from ossiq.ui.system import show_error, show_operation_progress
+from ossiq.ui.system import show_error, show_operation_progress, show_scan_progress
 
 _SEVERITY_ORDER: dict[str, int] = {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2, "LOW": 3}
 
@@ -152,9 +152,8 @@ def command_info(ctx: typer.Context, options: CommandInfoOptions) -> None:
         ignore_packages=options.ignore_packages,
     )
 
-    with show_operation_progress(settings, "Collecting package data...") as progress:
-        with progress():
-            scan_result = project.scan(sources)
+    with show_scan_progress(settings) as on_step:
+        scan_result = project.scan(sources, on_step=on_step)
 
     if scan_result.manifest_lock_divergent:
         Console().print(
