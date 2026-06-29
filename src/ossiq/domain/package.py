@@ -26,6 +26,8 @@ class Package:
     license: str | None
     is_deprecated: bool
     is_unpublished: bool
+    maintainers_count: int | None
+    downloads_recent: int | None
 
     _repository: Repository | None
     _versions: list[Version] | None
@@ -46,6 +48,8 @@ class Package:
         license: str | None = None,
         is_deprecated: bool = False,
         is_unpublished: bool = False,
+        maintainers_count: int | None = None,
+        downloads_recent: int | None = None,
     ):
         self.registry = registry
         self.name = name
@@ -60,6 +64,8 @@ class Package:
         self.license = license
         self.is_deprecated = is_deprecated
         self.is_unpublished = is_unpublished
+        self.maintainers_count = maintainers_count
+        self.downloads_recent = downloads_recent
 
         self._repository = None
         self._versions = None

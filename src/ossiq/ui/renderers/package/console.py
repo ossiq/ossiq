@@ -16,7 +16,7 @@ from ossiq.domain.version import (
     VERSION_LATEST,
     VersionsDifference,
 )
-from ossiq.service.package import PackageDetailResult, TransitiveCVEGroup
+from ossiq.service.package import PackageDetailResult, PackageInsight, PackageWarning, TransitiveCVEGroup
 from ossiq.service.project import ScanRecord
 from ossiq.settings import Settings
 from ossiq.timeutil import format_time_days
@@ -93,7 +93,7 @@ def _collect_licenses(records: list[ScanRecord]) -> list[str]:
 
 
 class ConsolePackageRenderer(AbstractUserInterfaceRenderer):
-    """Console renderer for the package deep-dive command."""
+    """Console renderer for the package deep-dive and add commands."""
 
     command = Command.INFO
     user_interface_type = UserInterfaceType.CONSOLE
@@ -104,44 +104,215 @@ class ConsolePackageRenderer(AbstractUserInterfaceRenderer):
 
     @staticmethod
     def supports(command: Command, user_interface_type: UserInterfaceType) -> bool:
-        return command == Command.INFO and user_interface_type == UserInterfaceType.CONSOLE
+        return command in (Command.INFO, Command.ADD) and user_interface_type == UserInterfaceType.CONSOLE
 
     def render(self, data: PackageDetailResult, **kwargs) -> None:
         """Render single-package deep-dive to console."""
         self.console.print()
-        self._render_header(data)
+
+        if data.is_prospective:
+            self._render_prospective_header(data)
+        else:
+            self._render_header(data)
         self.console.print()
 
-        for i, record in enumerate(data.records):
-            if len(data.records) > 1:
-                self.console.print(Rule(f"Occurrence {i + 1} of {len(data.records)}", align="left"))
+        self._render_warnings(data.warnings)
+
+        if data.is_prospective:
+            if data.insight:
+                self._render_health_metrics(data.insight)
+                self.console.print()
+            if data.prospective_reason or (data.insight and data.insight.recommended_version):
+                self._render_prospective_recommendation(data)
+                self.console.print()
+            self._render_prospective_cves(data)
+        else:
+            if data.insight:
+                self._render_health_metrics(data.insight)
                 self.console.print()
 
-            self._render_drift_status(record)
-            self.console.print()
-            self._render_dependency_tree_trace(record)
-            self.console.print()
-            self._render_policy_compliance(record)
-            self.console.print()
-            if record.recommended_version is not None:
-                self._render_recommendation_rationale(record)
-                self.console.print()
-            if record.peer_requirements:
-                self.render_peer_requirements(record)
-                self.console.print()
+            for i, record in enumerate(data.records):
+                if len(data.records) > 1:
+                    self.console.print(Rule(f"Occurrence {i + 1} of {len(data.records)}", align="left"))
+                    self.console.print()
 
-        self._render_security_advisories(data.records)
+                self._render_drift_status(record)
+                self.console.print()
+                self._render_dependency_tree_trace(record)
+                self.console.print()
+                self._render_policy_compliance(record)
+                self.console.print()
+                if record.recommended_version is not None:
+                    self._render_recommendation_rationale(record)
+                    self.console.print()
+                if record.peer_requirements:
+                    self.render_peer_requirements(record)
+                    self.console.print()
+
+            self._render_security_advisories(data.records)
+            self.console.print()
+            self._render_transitive_cves(data.transitive_cve_groups)
+
+            licenses = _collect_licenses(data.records)
+            if len(licenses) > 1:
+                self.console.print()
+                self._render_licenses(licenses)
+
         self.console.print()
-        self._render_transitive_cves(data.transitive_cve_groups)
 
-        licenses = _collect_licenses(data.records)
-        if len(licenses) > 1:
-            self.console.print()
-            self._render_licenses(licenses)
+    # ── Warnings (shown prominently when present)
 
+    def _render_warnings(self, warnings: list[PackageWarning]) -> None:
+        if not warnings:
+            return
+
+        has_critical = any(w.severity == "critical" for w in warnings)
+        border_style = "bold red" if has_critical else "bold yellow"
+        title = "⚠  WARNINGS" if has_critical else "⚠  NOTICES"
+
+        lines = Text()
+        for w in warnings:
+            icon = "[bold red]  ✗[/bold red]" if w.severity == "critical" else "[bold yellow]  ![/bold yellow]"
+            lines.append_text(Text.from_markup(f"{icon}  [{w.rule_id}]  {w.message}\n"))
+
+        self.console.print(Panel(lines, title=title, border_style=border_style, expand=False))
         self.console.print()
 
-    # ── Header
+    # ── Health Metrics
+
+    def _render_health_metrics(self, insight: PackageInsight) -> None:
+        self.console.print("[bold][HM] HEALTH METRICS[/bold]")
+
+        table = Table(show_header=False, box=None, padding=(0, 2))
+        table.add_column("LABEL")
+        table.add_column("VALUE")
+
+        dl = f"{insight.downloads_recent:,}" if insight.downloads_recent is not None else "—"
+        table.add_row("Downloads (last month)", dl)
+
+        table.add_row("Versions published", str(insight.versions_count))
+
+        mc = str(insight.maintainers_count) if insight.maintainers_count is not None else "—"
+        table.add_row("Maintainers", mc)
+
+        lva = format_time_days(insight.latest_version_age_days) if insight.latest_version_age_days else "—"
+        table.add_row("Latest version age", lva)
+
+        if insight.recommended_version and insight.recommended_version != insight.latest_version:
+            rva = (
+                format_time_days(insight.recommended_version_age_days) if insight.recommended_version_age_days else "—"
+            )
+            table.add_row("Recommended version age", rva)
+
+        if insight.cooldown_days_remaining:
+            table.add_row(
+                "Cooldown remaining",
+                Text(f"{insight.cooldown_days_remaining} days", style="bold yellow"),
+            )
+        else:
+            table.add_row("Cooldown remaining", "—")
+
+        self.console.print(table)
+
+    # ── Prospective header (package not yet installed)
+
+    def _render_prospective_header(self, data: PackageDetailResult) -> None:
+        pkg = data.prospective_package
+        name = data.prospective_name or "unknown"
+        latest = data.insight.latest_version if data.insight else None
+
+        title = Text()
+        title.append(name, style="bold cyan")
+        if latest:
+            title.append(f"  {latest}", style="bold blue")
+
+        meta = Text()
+        meta.append(" PROSPECTIVE ", style="bold magenta")
+        meta.append("  ")
+
+        if pkg and pkg.license:
+            meta.append(pkg.license, style="bold")
+        else:
+            meta.append("License N/A")
+
+        if pkg and pkg.package_url:
+            meta.append(f"  {pkg.package_url}", style="blue")
+
+        if pkg and pkg.description:
+            self.console.print(
+                Panel(Text.assemble(title, "\n", meta, "\n\n", pkg.description), expand=False, border_style="magenta")
+            )
+        else:
+            self.console.print(Panel(Text.assemble(title, "\n", meta), expand=False, border_style="magenta"))
+
+    # ── Prospective recommendation rationale
+
+    def _render_prospective_recommendation(self, data: PackageDetailResult) -> None:
+        insight = data.insight
+        if not insight or not insight.recommended_version:
+            return
+
+        self.console.print("[bold][07] RECOMMENDATION RATIONALE[/bold]")
+
+        age_str = f"  ({insight.recommended_version_age_days} days old)" if insight.recommended_version_age_days else ""
+        rec_text = Text()
+        rec_text.append("  Recommended : ")
+        rec_text.append(insight.recommended_version, style="bold yellow")
+        rec_text.append(age_str)
+        self.console.print(rec_text)
+
+        reason = data.prospective_reason
+        if reason is None:
+            return
+
+        if reason.hard_rejections:
+            self.console.print()
+            self.console.print("  Eliminated (hard constraints):")
+            by_detail: dict[str, list[str]] = {}
+            for r in reason.hard_rejections:
+                by_detail.setdefault(r.detail, []).append(r.version)
+            for detail, versions in by_detail.items():
+                self.console.print(f"    [bold red]•[/bold red] {', '.join(versions)}  — {detail}")
+
+        if reason.soft_rejections:
+            self.console.print()
+            self.console.print("  Penalised (soft constraints):")
+            for r in reason.soft_rejections:
+                self.console.print(f"    [bold yellow]•[/bold yellow] {r.version}  — {r.detail}")
+
+        self.console.print()
+        ok_line = Text()
+        ok_line.append("  ✓ ", style="bold green")
+        if reason.is_latest:
+            ok_line.append(f"{insight.recommended_version} selected: latest eligible version")
+        else:
+            age_part = f" ({reason.age_days} days old)" if reason.age_days is not None else ""
+            ok_line.append(f"{insight.recommended_version} selected: best stable candidate{age_part}")
+        self.console.print(ok_line)
+
+    # ── Prospective CVE section
+
+    def _render_prospective_cves(self, data: PackageDetailResult) -> None:
+        cves = data.prospective_cves
+        count_str = f" ({len(cves)} found)" if cves else ""
+        self.console.print(f"[bold][SC] SECURITY ADVISORIES{count_str}[/bold]")
+
+        if not cves:
+            self.console.print("  [bold green]✓[/bold green] No known vulnerabilities")
+            return
+
+        for cve in cves:
+            sev_style = _severity_style(cve.severity)
+            line = Text()
+            line.append(f"  [{cve.severity:<8}]", style=sev_style)
+            line.append(f"  {cve.id}", style="bold")
+            line.append(f"  (via {cve.source})")
+            self.console.print(line)
+            if cve.summary:
+                self.console.print(f"  {cve.summary}")
+            self.console.print()
+
+    # ── Header (installed package)
 
     def _render_header(self, data: PackageDetailResult) -> None:
         records = data.records

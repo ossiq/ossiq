@@ -63,6 +63,7 @@ def get_renderer(
     if renderer_instances:
         return renderer_instances[0]
 
+    # ConsolePackageRenderer.supports() already covers Command.ADD — no extra entry needed.
     # Check if command is known (any renderer supports it)
     command_exists = any(
         renderer_class.supports(command, pt) for renderer_class in RENDERERS for pt in UserInterfaceType

@@ -112,6 +112,10 @@ class AbstractPackageRegistryApi(VersionRules, abc.ABC):
     def __repr__(self):
         raise NotImplementedError
 
+    def fetch_downloads_recent(self, package_name: str) -> int | None:
+        """Fetch last-month download count for a package. Returns None if unavailable."""
+        return None
+
 
 @dataclass(frozen=True)
 class HelperSpec:
