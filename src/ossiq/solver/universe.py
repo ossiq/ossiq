@@ -82,7 +82,7 @@ def parse_requires(declared: dict[str, str]) -> dict[str, str | None]:
                 canonical = canonicalize_name(dep_key)
                 stripped = dep_val.strip()
                 result[canonical] = stripped if stripped not in _UNCONSTRAINED_VALUES else None
-            except Exception:
+            except (TypeError, AttributeError):
                 pass
         else:  # PyPI: key=PEP 508 dependency string, val=""
             try:

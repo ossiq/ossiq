@@ -21,8 +21,10 @@ except ImportError:
 from ossiq.adapters.package_managers.helpers.helpers_npm import npm_helpers_app
 from ossiq.adapters.package_managers.helpers.helpers_uv import uv_helpers_app
 from ossiq.clients import install_requests_cache
-from ossiq.commands.export import CommandExportOptions, commnad_export
-from ossiq.commands.package import CommandInfoOptions, command_info
+from ossiq.commands.add import CommandAddOptions, command_add
+from ossiq.commands.export import CommandExportOptions, command_export
+from ossiq.commands.html import CommandHtmlOptions, command_html
+from ossiq.commands.info import CommandInfoOptions, command_info
 from ossiq.commands.plan import (
     CommandPlanOptions,
     check_override_ignore_conflict,
@@ -31,7 +33,6 @@ from ossiq.commands.plan import (
     parse_override_specs,
 )
 from ossiq.commands.status import CommandStatusOptions, command_status
-from ossiq.domain.common import UserInterfaceType
 from ossiq.domain.exceptions import ApplicationError
 from ossiq.messages import (
     ARGS_HELP_CACHE_DESTINATION,
@@ -41,7 +42,9 @@ from ossiq.messages import (
     ARGS_HELP_DEBUG,
     ARGS_HELP_GITHUB_TOKEN,
     ARGS_HELP_OUTPUT,
-    ARGS_HELP_PRESENTATION,
+    HELP_ADD_FORCE,
+    HELP_ADD_PACKAGE_NAME,
+    HELP_ADD_VERSION,
     HELP_IGNORE_PACKAGE,
     HELP_LAG_THRESHOULD,
     HELP_OUTPUT_FORMAT,
@@ -238,14 +241,6 @@ def status(
         Literal["npm", "pypi"] | None,
         typer.Option("--registry-type", "-r", help=HELP_REGISTRY_TYPE),
     ] = None,
-    presentation: Annotated[
-        Literal["console", "html"],
-        typer.Option("--presentation", "-p", envvar=f"{Settings.ENV_PREFIX}PRESENTATION", help=ARGS_HELP_PRESENTATION),
-    ] = UserInterfaceType.CONSOLE.value,
-    output: Annotated[
-        str,
-        typer.Option("--output", "-o", envvar=f"{Settings.ENV_PREFIX}OUTPUT", help=ARGS_HELP_OUTPUT),
-    ] = "./ossiq_scan_report_{project_name}.html",
     security: Annotated[
         bool,
         typer.Option(
@@ -275,7 +270,62 @@ def status(
                 allow_prerelease=allow_prerelease,
                 allow_prerelease_packages=tuple(allow_prerelease_package or []),
                 registry_type=registry_type,
-                presentation=presentation,
+                security_only=security,
+                ignore_packages=tuple(ignore or []),
+            ),
+        )
+
+
+@app.command()
+def html(
+    context: typer.Context,
+    project_path: Annotated[str, typer.Argument()] = ".",
+    lag_threshold_days: Annotated[str, typer.Option("--lag-threshold-delta", "-l", help=HELP_LAG_THRESHOULD)] = "1y",
+    production: Annotated[bool, typer.Option("--production", help=HELP_PRODUCTION_ONLY)] = False,
+    allow_prerelease: Annotated[
+        bool, typer.Option("--allow-prerelease", help="Include pre-release versions in drift calculations")
+    ] = False,
+    allow_prerelease_package: Annotated[
+        list[str] | None,
+        typer.Option("--allow-prerelease-package", help="Allow pre-release for a specific package (repeatable)"),
+    ] = None,
+    registry_type: Annotated[
+        Literal["npm", "pypi"] | None,
+        typer.Option("--registry-type", "-r", help=HELP_REGISTRY_TYPE),
+    ] = None,
+    output: Annotated[
+        str,
+        typer.Option("--output", "-o", envvar=f"{Settings.ENV_PREFIX}OUTPUT", help=ARGS_HELP_OUTPUT),
+    ] = "./ossiq_scan_report_{project_name}.html",
+    security: Annotated[
+        bool,
+        typer.Option(
+            "--security",
+            is_flag=True,
+            help="Narrow transitive recommendations to CVE-carrying packages only",
+        ),
+    ] = False,
+    ignore: Annotated[
+        list[str] | None,
+        typer.Option("--ignore", "-i", help=HELP_IGNORE_PACKAGE),
+    ] = None,
+):
+    """
+    Generate an HTML dependency health report.
+    """
+    if registry_type and registry_type.lower() not in ["npm", "pypi"]:
+        raise typer.BadParameter("Only `npm` and `pypi` allowed")
+
+    with error_boundary(context.obj):
+        command_html(
+            ctx=context,
+            options=CommandHtmlOptions(
+                project_path=project_path,
+                lag_threshold_days=lag_threshold_days,
+                production=production,
+                allow_prerelease=allow_prerelease,
+                allow_prerelease_packages=tuple(allow_prerelease_package or []),
+                registry_type=registry_type,
                 output_destination=output,
                 security_only=security,
                 ignore_packages=tuple(ignore or []),
@@ -321,7 +371,7 @@ def export(
         raise typer.BadParameter("Only `npm` and `pypi` allowed")
 
     with error_boundary(context.obj):
-        commnad_export(
+        command_export(
             ctx=context,
             options=CommandExportOptions(
                 project_path=project_path,
@@ -374,6 +424,46 @@ def info(
                 allow_prerelease=allow_prerelease,
                 allow_prerelease_packages=tuple(allow_prerelease_package or []),
                 ignore_packages=tuple(ignore or []),
+            ),
+        )
+
+
+@app.command()
+def add(
+    context: typer.Context,
+    package_name: Annotated[str, typer.Argument(help=HELP_ADD_PACKAGE_NAME)],
+    project_path: Annotated[str, typer.Argument()] = ".",
+    registry_type: Annotated[
+        Literal["npm", "pypi"] | None,
+        typer.Option("--registry-type", "-r", help=HELP_REGISTRY_TYPE),
+    ] = None,
+    version: Annotated[
+        str | None,
+        typer.Option("--version", "-v", help=HELP_ADD_VERSION),
+    ] = None,
+    force: Annotated[
+        bool,
+        typer.Option("--force", is_flag=True, help=HELP_ADD_FORCE),
+    ] = False,
+):
+    """
+    Preview package health metrics and add it to your project after confirmation.
+
+    Fetches CVEs, download counts, maintainer info, and health warnings before
+    prompting. Blocks on critical warnings unless --force is passed.
+    """
+    if registry_type and registry_type.lower() not in ["npm", "pypi"]:
+        raise typer.BadParameter("Only `npm` and `pypi` allowed")
+
+    with error_boundary(context.obj):
+        command_add(
+            ctx=context,
+            options=CommandAddOptions(
+                project_path=project_path,
+                package_name=package_name,
+                registry_type=registry_type,
+                version=version,
+                force=force,
             ),
         )
 

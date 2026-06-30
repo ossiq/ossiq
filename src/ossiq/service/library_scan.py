@@ -14,12 +14,14 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
+import requests
 import semver
 from packaging.specifiers import InvalidSpecifier, SpecifierSet
 from packaging.version import InvalidVersion as PackagingInvalidVersion
 from packaging.version import Version as PackagingVersion
 
 from ossiq.adapters.api_interfaces import AbstractPackageRegistryApi
+from ossiq.domain.exceptions import ApplicationError
 from ossiq.domain.project import Dependency, Project
 from ossiq.domain.version import normalize_version
 
@@ -140,7 +142,7 @@ def compute_upgrade_paths(
 
     try:
         packages = registry.packages_info_batch(list(deps_with_constraint.keys()))
-    except Exception:
+    except (ApplicationError, requests.RequestException):
         return []
 
     paths: list[UpgradePath] = []
@@ -165,7 +167,7 @@ def compute_upgrade_paths(
                     suggested_constraint=suggested,
                 )
             )
-        except Exception:
+        except (ApplicationError, ValueError):
             continue
 
     return paths
@@ -196,7 +198,7 @@ def resolve_library_constraints(project: Project, registry: AbstractPackageRegis
 
     try:
         registry.packages_info_batch(list(all_deps.keys()))
-    except Exception:
+    except (ApplicationError, requests.RequestException):
         return project
 
     for name, dep in all_deps.items():
@@ -204,7 +206,7 @@ def resolve_library_constraints(project: Project, registry: AbstractPackageRegis
             continue
         try:
             versions = [str(pv.version) for pv in registry.package_versions(name) if not pv.is_prerelease]
-        except Exception:
+        except (ApplicationError, requests.RequestException):
             continue
         if not versions:
             continue

@@ -33,7 +33,7 @@ from __future__ import annotations
 import logging
 import re
 
-from univers.version_range import NpmVersionRange, PypiVersionRange
+from univers.version_range import InvalidVersionRange, NpmVersionRange, PypiVersionRange
 from univers.versions import PypiVersion, SemverVersion
 
 from ossiq.domain.common import ProjectPackagesRegistry
@@ -103,7 +103,7 @@ def npm_version_satisfies_range(version: str, range_constraint: str) -> bool:
     if m:
         try:
             return SemverVersion(version) != SemverVersion(m.group(1))  # type: ignore
-        except Exception:
+        except ValueError:
             return True
 
     # Expand bare versions to caret ranges per || branch before delegating to univers.
@@ -113,7 +113,7 @@ def npm_version_satisfies_range(version: str, range_constraint: str) -> bool:
 
     try:
         return SemverVersion(version) in NpmVersionRange.from_native(processed)  # type: ignore
-    except Exception as exc:
+    except ValueError as exc:
         logger.debug(
             "npm_version_satisfies_range: unparseable version=%r constraint=%r error=%s",
             version,
@@ -151,7 +151,7 @@ def version_satisfies_constraint(version: str, constraint: str | None, registry:
         if registry == ProjectPackagesRegistry.PYPI:
             return pypi_version_satisfies_specifier(version, constraint)
         return npm_version_satisfies_range(version, constraint)
-    except Exception as exc:
+    except (ValueError, InvalidVersionRange) as exc:
         logger.debug(
             "version_satisfies_constraint: parse failed version=%r constraint=%r registry=%s error=%s",
             version,
@@ -188,7 +188,7 @@ def engine_version_satisfies_requirement(
             return pypi_version_satisfies_specifier(context_version, requirement)
         if engine_key in ("node", "nodejs"):
             return npm_version_satisfies_range(context_version, requirement)
-    except Exception:
+    except (ValueError, InvalidVersionRange):
         pass
     return True
 

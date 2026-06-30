@@ -362,5 +362,10 @@ class PackageManagerPythonPipClassic(AbstractPackageManagerApi):
         ]
         return "\n".join(lines)
 
+    def install_package(self, package_name: str, version: str | None = None) -> int:
+        """Run pip install to add a package to the project."""
+        spec = f"{package_name}=={version}" if version else package_name
+        return subprocess.run(["pip", "install", spec], cwd=self.project_path).returncode
+
     def __repr__(self):
         return f"{self.package_manager_type.name} Package Manager"

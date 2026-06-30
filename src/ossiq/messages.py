@@ -15,9 +15,7 @@ ARGS_HELP_DEBUG = "Enable debug logging output (logging module). Overrides OSSIQ
 ARGS_HELP_GITHUB_TOKEN = """Github Token to increase requests limits"""
 ARGS_HELP_CACHE_DESTINATION = """Directory where cache will be stored"""
 ARGS_HELP_CACHE_TTL = """For how long cache is stored"""
-ARGS_HELP_PRESENTATION = """Output could be generated as console output, html or json"""
-ARGS_HELP_OUTPUT = """Destination where to generate output,
-appropriate for respective presentations"""
+ARGS_HELP_OUTPUT = """Destination where to generate output"""
 
 HELP_PRODUCTION_ONLY = """
 Exclude non-production packages. Default: false
@@ -134,6 +132,20 @@ HELP_PLAN_HELD_FOR_COOLDOWN_HEADER = (
 )
 
 HELP_PLAN_CVE_BYPASS_NOTE = "↳ cooldown bypassed — installed version has a known CVE"
+
+HELP_ADD_COMMAND = """
+Inspect a package's health metrics and warnings before adding it to your project.
+
+Fetches metadata, CVE data, download counts, and maintainer info, then runs
+the package health rules. Blocks on critical warnings unless --force is passed.
+Use --version to pin an exact version.
+"""
+
+HELP_ADD_PACKAGE_NAME = "Name of the package to inspect and add."
+
+HELP_ADD_VERSION = "Pin to a specific version (e.g. 1.2.3). Default: latest recommended."
+
+HELP_ADD_FORCE = "Proceed even if critical health warnings are present."
 
 HELP_APPLY_RERUN_HINT = (
     "Updates are resolved in a single pass; applying them re-resolves the dependency tree and can surface "

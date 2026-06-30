@@ -92,12 +92,28 @@ uvx --from ossiq ossiq-cli info sphinx
 
 ![OSS IQ Terminal/CLI Package Details](/_static/images/ossiq-cli-package-2026-06-20.png)
 
-r
+## Gated Package Add
+
+`ossiq-cli add` is a quality-gated alternative to running `uv add` or `npm install` directly. It runs the same analysis as `info`, enforces health gates, and installs the OSS IQ-recommended version — not just the latest one.
+
+```bash
+# Check health signals and install the recommended version
+uvx --from ossiq ossiq-cli add requests
+
+# Pin an exact version yourself (bypasses the solver recommendation)
+uvx --from ossiq ossiq-cli add requests --version 2.31.0
+
+# Override critical-warning blocks (use with care)
+uvx --from ossiq ossiq-cli add requests --force
+```
+
+Before installing, OSS IQ shows drift status, CVEs, transitive vulnerabilities, and maintainer signals. Packages flagged as critically unhealthy are blocked unless `--force` is passed.
+
 ## HTML Report
 
  1. Generate HTML report:
     ```bash
-    uvx --from ossiq ossiq-cli status --presentation=html --output report.html
+    uvx --from ossiq ossiq-cli html --output report.html
     ```
 
  2. Open `report.html` and you'll get table view of your dependencies:

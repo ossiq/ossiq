@@ -194,6 +194,7 @@ class PackageRegistryApiNpm(AbstractPackageRegistryApi):
         latest_version = distribution_tags.get("latest", None)
         latest_details = data.get("versions", {}).get(latest_version or "", {})
         latest_version_license = normalize_npm_license(latest_details.get("license"))
+        maintainers = data.get("maintainers", [])
         return Package(
             registry=ProjectPackagesRegistry.NPM,
             name=data["name"],
@@ -207,7 +208,21 @@ class PackageRegistryApiNpm(AbstractPackageRegistryApi):
             license=latest_version_license,
             is_deprecated=bool(latest_details.get("deprecated")),
             is_unpublished="unpublished" in data.get("time", {}),
+            maintainers_count=len(maintainers) or None,
         )
+
+    def fetch_downloads_recent(self, package_name: str) -> int | None:
+        """Fetch last-month download count from api.npmjs.org."""
+        try:
+            resp = self.session.get(
+                f"https://api.npmjs.org/downloads/point/last-month/{package_name}",
+                timeout=5,
+            )
+            if resp.ok:
+                return resp.json().get("downloads")
+        except (requests.RequestException, ValueError):
+            pass
+        return None
 
     def packages_info_batch(self, names: list[str]) -> dict[str, Package]:
         """

@@ -11,7 +11,7 @@
 ## 01 — General ([details](01-general.md))
 
 - [ ] TC-G07: `uv run just qa` — all tests pass
-- [ ] TC-G01: `--version`, `--help`, `status --help`, `plan --help`, `apply --help` all work; `status --help` lists `--security`, `--ignore` (no `--full`); `plan --help` lists `--pin-all`, `--rewrite-versions`, `--script`, `--ignore`; `apply --help` lists `--yes`, `--pin-all`, `--rewrite-versions`, `--ignore`
+- [ ] TC-G01: `--version`, `--help`, `status --help`, `html --help`, `plan --help`, `apply --help` all work; `status --help` lists `--security`, `--ignore` but NOT `--presentation`; `html --help` lists `--output`, `--security`, `--ignore` but NOT `--presentation`; `plan --help` lists `--pin-all`, `--rewrite-versions`, `--script`, `--ignore`; `apply --help` lists `--yes`, `--pin-all`, `--rewrite-versions`, `--ignore`
 - [ ] TC-G03/G04: Ecosystem auto-detected (PyPI and npm)
 - [ ] TC-G02: `--verbose` shows settings panel; without it, panel is absent
 - [ ] TC-G08: `helpers --help` lists `npm`; `helpers npm --help` lists `freeze-state`, `restore-state`, `overrides-diff`
@@ -23,13 +23,14 @@
 - [ ] TC-C03: `--production` flag excludes dev dependencies
 - [ ] TC-C04: Yanked packages show `[YANKED]` in Installed column
 - [ ] TC-C05: Deprecated npm packages show `[DEPRECATED]`
-- [ ] TC-C09: `package` command renders detail view for a known package
-- [ ] TC-C10: `package` command on unknown package shows error (no traceback)
+- [ ] TC-C09: `info` command renders detail view for a known package
+- [ ] TC-C10: `info` command on unknown package shows error (no traceback)
 - [ ] TC-C11: pip-classic library scan shows "Constraint widening opportunities" section for range-constrained deps with newer majors available
 
 ## 03 — HTML Report ([details](03-html-report.md))
 
-- [ ] TC-H01: HTML file generated without crash
+- [ ] TC-H00: `html --help` lists `--output`, `--security`, `--ignore`; `--presentation` is absent
+- [ ] TC-H01: `ossiq-cli html --output=reports/test_report.html <path>` generates file without crash
 - [ ] TC-H02: Page loads in browser, main table renders, no JS errors
 - [ ] TC-H03: Dependencies explorer opens detail panel on click
 - [ ] TC-H07: Transitive Dependency Explorer renders D3 tree (nodes visible, no JS error, no blank canvas)
@@ -51,7 +52,7 @@
 
 ## 06 — Transitive Impacts ([details](06-transitive-impacts.md))
 
-- [ ] TC-T01: `--security`, `--ignore` in `status --help` (no `--full`); `--security`, `--pin-all`, `--ignore` in `plan --help`
+- [ ] TC-T01: `--security`, `--ignore` in `status --help` (no `--presentation`, no `--full`); `--security`, `--pin-all`, `--ignore` in `plan --help`
 - [ ] TC-T02: `status` shows `↳ also updates:` sub-rows under at least one recommendation
 - [ ] TC-T03: `status` (no flags) shows all packages including up-to-date ones with no CVEs; table is non-empty on a fully-current project
 - [ ] TC-T07: `plan` renders without crash, shows transitive impact sub-rows; `plan --script` produces an update script block
@@ -69,9 +70,18 @@
 - [ ] TC-U11: `ossiq helpers npm overrides-diff` prints diff table without modifying any file
 - [ ] TC-U14: `ossiq plan --npm-overrides-diff` rejected with "No such option" (flag removed)
 
-## 08 — Automated Matrix ([details](README.md#automated-matrix))
+## 08 — Gated Package Add
+
+- [ ] TC-A01: `add --help` lists `--version`, `--force`, `--registry-type`
+- [ ] TC-A02: `ossiq-cli add requests testdata/pypi/uv` shows health panel (drift, CVEs, health) then prompts for confirmation; entering `n` exits without installing
+- [ ] TC-A03: `ossiq-cli add <critically-unhealthy-package>` blocks install and shows warning; exit code non-zero
+- [ ] TC-A04: `ossiq-cli add <critically-unhealthy-package> --force` proceeds past warning to confirmation prompt
+- [ ] TC-A05: `ossiq-cli add requests --version 2.28.0 testdata/pypi/uv` shows the fixed version in the install spec, not the solver recommendation
+
+## 09 — Automated Matrix ([details](README.md#automated-matrix))
 
 - [ ] TC-M01: `just qa-matrix` exits 0 with `FAIL=0`; SKIPs acceptable; `qa_logs/summary.log` shows no FAILs
+
 
 ## Notes
 <!-- Anything unexpected observed during QA -->

@@ -466,5 +466,10 @@ class PackageManagerPythonUv(AbstractPackageManagerApi):
             manifest_path.write_text(original_content, encoding="utf-8")
             raise PackageManagerExecutionError(f"uv command failed (exit {exc.returncode})") from exc
 
+    def install_package(self, package_name: str, version: str | None = None) -> int:
+        """Run uv add to install a package into the project."""
+        spec = f"{package_name}=={version}" if version else package_name
+        return subprocess.run(["uv", "add", spec], cwd=self.project_path).returncode
+
     def __repr__(self):
         return f"{self.package_manager_type.name} Package Manager"

@@ -51,7 +51,9 @@ class Command(Enum):
 
     STATUS = "status"
     EXPORT = "export"
+    HTML = "html"
     INFO = "info"
+    ADD = "add"
     PLAN = "plan"
     APPLY = "apply"
 

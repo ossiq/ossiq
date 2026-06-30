@@ -9,6 +9,8 @@ Covers:
 
 from unittest.mock import MagicMock
 
+import requests
+
 from ossiq.adapters.api_npm import PackageRegistryApiNpm
 from ossiq.domain.common import ConstraintType
 from ossiq.domain.packages_manager import NPM
@@ -222,7 +224,7 @@ class TestResolveLibraryConstraints:
         project = make_project({"express": express}, has_lockfile=False)
 
         registry = MagicMock()
-        registry.packages_info_batch.side_effect = Exception("registry unavailable")
+        registry.packages_info_batch.side_effect = requests.RequestException("registry unavailable")
 
         result = resolve_library_constraints(project, registry)
 
@@ -290,7 +292,7 @@ class TestResolveLibraryConstraints:
 
         def versions_side_effect(name):
             if name == "express":
-                raise Exception("fetch error")
+                raise requests.RequestException("fetch error")
             return [make_package_version("4.17.21")]
 
         registry.package_versions.side_effect = versions_side_effect
@@ -398,7 +400,7 @@ class TestComputeUpgradePaths:
         project = make_project({"express": express}, has_lockfile=False)
 
         registry = MagicMock()
-        registry.packages_info_batch.side_effect = Exception("registry unavailable")
+        registry.packages_info_batch.side_effect = requests.RequestException("registry unavailable")
 
         result = compute_upgrade_paths(project, registry)
 

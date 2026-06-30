@@ -166,7 +166,9 @@ class BatchClient:
                     items_yielded += 1
                     yield self.strategy.process_response(original_chunk, response)
 
-                except Exception as exc:
+                except (
+                    Exception
+                ) as exc:  # broad catch at thread boundary; narrow when BatchStrategy declares typed errors
                     logger.info("Chunk of %d items failed: %s", len(original_chunk), exc)
                     chunks_failed += 1
 

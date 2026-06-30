@@ -20,7 +20,7 @@ from ossiq.domain.project import ConstraintSource
 from ossiq.domain.version import VersionsDifference
 from ossiq.service.project import ScanRecord, ScanResult
 from ossiq.settings import Settings
-from ossiq.ui.renderers.status.html import HtmlStatusRenderer
+from ossiq.ui.renderers.html.html import HtmlStatusRenderer
 
 
 @pytest.fixture
@@ -91,7 +91,8 @@ class TestHtmlStatusRenderer:
     @pytest.mark.parametrize(
         "command,user_interface_type,expected",
         [
-            (Command.STATUS, UserInterfaceType.HTML, True),
+            (Command.HTML, UserInterfaceType.HTML, True),
+            (Command.STATUS, UserInterfaceType.HTML, False),
             (Command.EXPORT, UserInterfaceType.HTML, False),
             (Command.STATUS, UserInterfaceType.CONSOLE, False),
             (Command.STATUS, UserInterfaceType.JSON, False),
@@ -271,10 +272,10 @@ class TestHtmlStatusRenderer:
         - Assert: Verify file is present
         """
         # Arrange
-        import ossiq.ui.renderers.status.html
+        import ossiq.ui.renderers.html.html
 
         spa_template_path = (
-            Path(ossiq.ui.renderers.status.html.__file__).parent.parent.parent / "html_templates" / "spa_app.html"
+            Path(ossiq.ui.renderers.html.html.__file__).parent.parent.parent / "html_templates" / "spa_app.html"
         )
 
         # Act & Assert
