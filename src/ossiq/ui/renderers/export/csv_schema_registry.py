@@ -10,7 +10,7 @@ import json
 from pathlib import Path
 from typing import Any, ClassVar, Literal
 
-from frictionless import Resource, Schema, extract
+from frictionless import FrictionlessException, Resource, Schema, extract
 
 from ossiq.domain.common import ExportCsvSchemaVersion
 
@@ -111,7 +111,7 @@ class CsvSchemaRegistry:
         # Try to create a Schema object - this validates the descriptor
         try:
             Schema.from_descriptor(schema_dict)
-        except Exception as e:
+        except FrictionlessException as e:
             errors.append(f"Invalid schema descriptor: {e}")
 
         return len(errors) == 0, errors

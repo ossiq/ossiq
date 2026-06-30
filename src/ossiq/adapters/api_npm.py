@@ -220,7 +220,7 @@ class PackageRegistryApiNpm(AbstractPackageRegistryApi):
             )
             if resp.ok:
                 return resp.json().get("downloads")
-        except Exception:
+        except (requests.RequestException, ValueError):
             pass
         return None
 

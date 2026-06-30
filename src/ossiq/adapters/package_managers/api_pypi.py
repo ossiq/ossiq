@@ -5,7 +5,7 @@ PyPI-based constraint enrichment for Python package manager parsers.
 import logging
 
 import requests
-from packaging.requirements import Requirement
+from packaging.requirements import InvalidRequirement, Requirement
 
 from ossiq.adapters.package_managers.utils import normalize_dist_name
 from ossiq.clients.batch import BatchClient
@@ -31,7 +31,7 @@ def parse_requires_dist(requires_dist: list[str]) -> dict[str, str]:
             if req.marker and "extra" in str(req.marker):
                 continue
             result[normalize_dist_name(req.name)] = str(req.specifier)
-        except Exception:
+        except InvalidRequirement:
             continue
     return result
 
@@ -56,7 +56,7 @@ def batch_fetch_requires_dist(
     try:
         for chunk_result in client.run_batch(packages):
             result.update(chunk_result)
-    except Exception as exc:
+    except Exception as exc:  # broad catch; batch generator propagates strategy-level errors of unknown types
         logger.debug("PyPI enrichment batch failed: %s", exc)
     return result
 

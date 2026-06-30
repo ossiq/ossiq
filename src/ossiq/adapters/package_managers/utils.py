@@ -45,7 +45,7 @@ def extract_min_python_version(requires_python: str) -> str | None:
         if bounds:
             m = min(bounds)
             return f"{m.major}.{m.minor}"
-    except Exception:
+    except ValueError:
         pass
     return None
 

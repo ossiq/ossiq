@@ -240,7 +240,7 @@ class PackageRegistryApiPypi(AbstractPackageRegistryApi):
             )
             if resp.ok:
                 return resp.json().get("data", {}).get("last_month")
-        except Exception:
+        except (requests.RequestException, ValueError):
             pass
         return None
 
