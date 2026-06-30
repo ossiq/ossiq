@@ -11,6 +11,7 @@ from ossiq.domain.common import (
 )
 from ossiq.settings import Settings
 from ossiq.ui.interfaces import AbstractUserInterfaceRenderer
+from ossiq.ui.renderers.agent.console import AgentInfoRenderer, AgentStatusRenderer
 from ossiq.ui.renderers.export.csv import CsvExportRenderer
 from ossiq.ui.renderers.export.json import JsonExportRenderer
 from ossiq.ui.renderers.html.html import HtmlStatusRenderer
@@ -27,6 +28,8 @@ RENDERERS: tuple[type[AbstractUserInterfaceRenderer], ...] = (
     CsvExportRenderer,
     ConsoleInfoRenderer,
     ConsolePlanRenderer,
+    AgentInfoRenderer,
+    AgentStatusRenderer,
 )
 
 

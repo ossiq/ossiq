@@ -33,6 +33,7 @@ class CommandInfoOptions:
     allow_prerelease: bool = False
     allow_prerelease_packages: tuple[str, ...] = ()
     ignore_packages: tuple[str, ...] = ()
+    output_format: Literal["console", "agent"] = "console"
 
 
 def matches(record: ScanRecord, package_name: str) -> bool:
@@ -131,6 +132,9 @@ def command_info(ctx: typer.Context, options: CommandInfoOptions) -> None:
         "pypi": ProjectPackagesRegistry.PYPI,
     }
 
+    output_ui = UserInterfaceType(options.output_format)
+    is_agent = output_ui == UserInterfaceType.AGENT
+
     sources = project_sources.ProjectSources(
         settings=settings,
         project_path=options.project_path,
@@ -141,10 +145,14 @@ def command_info(ctx: typer.Context, options: CommandInfoOptions) -> None:
         ignore_packages=options.ignore_packages,
     )
 
-    with show_scan_progress(settings) as on_step:
-        scan_result = project.scan(sources, on_step=on_step)
+    # Agent format prints JSON to stdout, so progress and warnings must stay silent.
+    if is_agent:
+        scan_result = project.scan(sources, on_step=lambda _: None)
+    else:
+        with show_scan_progress(settings) as on_step:
+            scan_result = project.scan(sources, on_step=on_step)
 
-    if scan_result.manifest_lock_divergent:
+    if scan_result.manifest_lock_divergent and not is_agent:
         Console().print(
             f"[yellow]Warning:[/yellow] pyproject.toml and uv.lock are out of sync for: "
             f"[bold]{', '.join(scan_result.manifest_lock_divergent)}[/bold]. "
@@ -156,6 +164,8 @@ def command_info(ctx: typer.Context, options: CommandInfoOptions) -> None:
 
     if matched:
         detail = build_installed_detail(matched, scan_result, options.package_name, sources, settings)
+    elif is_agent:
+        detail = fetch_prospective_detail(options.package_name, sources, settings)
     else:
         # Package not in this project — run the prospective flow.
         # sources.__enter__ was already called inside project.scan(), so packages_registry is live.
@@ -165,7 +175,7 @@ def command_info(ctx: typer.Context, options: CommandInfoOptions) -> None:
 
     renderer = get_renderer(
         command=Command.INFO,
-        user_interface_type=UserInterfaceType.CONSOLE,
+        user_interface_type=output_ui,
         settings=settings,
     )
     renderer.render(data=detail)

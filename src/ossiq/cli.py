@@ -34,6 +34,7 @@ from ossiq.commands.plan import (
 )
 from ossiq.commands.status import CommandStatusOptions, command_status
 from ossiq.domain.exceptions import ApplicationError
+from ossiq.mcp.server import serve as serve_mcp
 from ossiq.messages import (
     ARGS_HELP_CACHE_DESTINATION,
     ARGS_HELP_CACHE_TTL,
@@ -225,6 +226,12 @@ def help():  # pylint: disable=redefined-builtin
 
 
 @app.command()
+def mcp(context: typer.Context):
+    """Run a local stdio MCP server exposing OSS IQ verdicts to AI agents."""
+    serve_mcp(context.obj)
+
+
+@app.command()
 def status(
     context: typer.Context,
     project_path: Annotated[str, typer.Argument()] = ".",
@@ -253,6 +260,10 @@ def status(
         list[str] | None,
         typer.Option("--ignore", "-i", help=HELP_IGNORE_PACKAGE),
     ] = None,
+    output_format: Annotated[
+        Literal["console", "agent"],
+        typer.Option("--format", "-f", help="Output format: console (human) or agent (compact JSON verdict)"),
+    ] = "console",
 ):
     """
     Show dependency health: drift, CVEs, and solver recommendations.
@@ -272,6 +283,7 @@ def status(
                 registry_type=registry_type,
                 security_only=security,
                 ignore_packages=tuple(ignore or []),
+                output_format=output_format,
             ),
         )
 
@@ -407,6 +419,10 @@ def info(
         list[str] | None,
         typer.Option("--ignore", "-i", help=HELP_IGNORE_PACKAGE),
     ] = None,
+    output_format: Annotated[
+        Literal["console", "agent"],
+        typer.Option("--format", "-f", help="Output format: console (human) or agent (compact JSON verdict)"),
+    ] = "console",
 ):
     """
     Deep-dive into a single package: drift status, CVEs, and transitive vulnerabilities.
@@ -424,6 +440,7 @@ def info(
                 allow_prerelease=allow_prerelease,
                 allow_prerelease_packages=tuple(allow_prerelease_package or []),
                 ignore_packages=tuple(ignore or []),
+                output_format=output_format,
             ),
         )
 

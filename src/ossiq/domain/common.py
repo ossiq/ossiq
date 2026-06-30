@@ -41,6 +41,7 @@ class UserInterfaceType(Enum):
     HTML = "html"
     JSON = "json"
     CSV = "csv"
+    AGENT = "agent"
 
 
 class Command(Enum):
