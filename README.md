@@ -68,6 +68,38 @@ OSS IQ performs deep analysis by mining software repository history, which can i
 export OSSIQ_GITHUB_TOKEN=$(gh auth token)
 ```
 
+To make the token persistent, store it in the config file instead (see below):
+
+```bash
+echo "OSSIQ_GITHUB_TOKEN=$(gh auth token)" >> ~/.ossiq/config
+```
+
+#### Configuration File
+
+Every `OSSIQ_*` environment variable can also be set in a config file at `~/.ossiq/config` (dotenv format — `KEY=value` lines, `#` comments allowed):
+
+```bash
+# ~/.ossiq/config
+OSSIQ_GITHUB_TOKEN=ghp_your_token
+OSSIQ_COOLDOWN_PERIOD=14
+OSSIQ_CACHE_TTL=48
+```
+
+Use `--config <path>` to point at a different file:
+
+```bash
+ossiq-cli --config ./ossiq.conf status
+```
+
+Values are resolved with the following precedence (highest wins):
+
+1. CLI flags (`--cooldown-period 14`)
+2. Environment variables (`OSSIQ_COOLDOWN_PERIOD=14`)
+3. Config file (`~/.ossiq/config` or `--config <path>`)
+4. Built-in defaults
+
+`ossiq-cli install skills --github-token <token>` writes the token to `~/.ossiq/config` automatically.
+
 #### Temporal Analysis Options
 
 Two global options let you control how OSS IQ perceives time. They apply to all subcommands (`status`, `export`, `plan`, `apply`, `info`) and can be combined freely.
@@ -96,6 +128,8 @@ The options are also readable from environment variables, which is useful for CI
 ```bash
 OSSIQ_CUTOFF_DATE=2025-01-01 OSSIQ_COOLDOWN_PERIOD=14 ossiq-cli status
 ```
+
+Both variables can also be set persistently in the [config file](#configuration-file).
 
 
 If you prefer a persistent install:

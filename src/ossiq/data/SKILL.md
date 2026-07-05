@@ -15,7 +15,7 @@ send any project data to external services. All analysis is performed locally.
 
 Run via `uvx --from ossiq ossiq-cli` (no install needed, works from any directory) or bare `ossiq-cli` if already installed.
 
-**GitHub rate limits:** Without a token, GitHub's API allows 60 req/hr. If you hit rate limits, set `OSSIQ_GITHUB_TOKEN` to a GitHub classic PAT (no scopes needed for public repos) to raise this to 5 000 req/hr. Run `ossiq-cli install skills <tool> --github-token <token>` once to bake it into the installed skill and MCP server config.
+**GitHub rate limits:** Without a token, GitHub's API allows 60 req/hr. If you hit rate limits, the user should run `ossiq-cli install skills <tool> --github-token <token>` once to store the token in `~/.ossiq/config` (classic PAT, no scopes needed for public repos raises the limit to 5 000 req/hr). Do not ask the user to pass it manually on every command.
 
 OSS IQ scores dependency health: drift, CVEs, maintainer/bus-factor risk,
 typosquat signals, and a solver-recommended version. Run it **before** you
@@ -29,7 +29,7 @@ the equivalent tools `ossiq_evaluate_dependency` / `ossiq_evaluate_updates`.
 Before introducing a package, run:
 
 ```bash
-uvx --from ossiq ossiq-cli info <package> <project_path> --format agent --github-token "$OSSIQ_GITHUB_TOKEN"
+uvx --from ossiq ossiq-cli info <package> <project_path> --format agent
 ```
 
 Example output:
@@ -52,7 +52,7 @@ Example output:
 Before bumping versions, run:
 
 ```bash
-uvx --from ossiq ossiq-cli status <project_path> --format agent --github-token "$OSSIQ_GITHUB_TOKEN"
+uvx --from ossiq ossiq-cli status <project_path> --format agent
 ```
 
 Returns `{"operation": "update", "verdict": ..., "updates": [...]}` where each

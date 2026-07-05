@@ -99,3 +99,43 @@ uv run hatch run ossiq-cli helpers npm --help
 - [ ] `helpers --help` lists `npm` as a subcommand with a description
 - [ ] `helpers npm --help` lists `freeze-state`, `restore-state`, and `overrides-diff` with descriptions
 - [ ] No crash or traceback
+
+---
+
+## TC-G09: Config file at default location
+
+```bash
+echo "OSSIQ_COOLDOWN_PERIOD=14" >> ~/.ossiq/config
+uv run hatch run ossiq-cli --verbose status testdata/pypi/uv
+# cleanup: remove the line from ~/.ossiq/config afterwards
+```
+
+- [ ] Settings panel shows `cooldown_period: 14` (value from the config file)
+- [ ] Without the config entry: `cooldown_period: 7` (built-in default)
+
+---
+
+## TC-G10: `--config` option
+
+```bash
+printf 'OSSIQ_COOLDOWN_PERIOD=21\n' > /tmp/ossiq-qa-config
+uv run hatch run ossiq-cli --config /tmp/ossiq-qa-config --verbose status testdata/pypi/uv
+uv run hatch run ossiq-cli --config /tmp/does-not-exist status testdata/pypi/uv
+```
+
+- [ ] With the custom file: settings panel shows `cooldown_period: 21`
+- [ ] With nonexistent path: clean `Config file not found` error, non-zero exit, no traceback
+- [ ] `--help` lists `--config` with the default location
+
+---
+
+## TC-G11: Configuration precedence (CLI > env > config file)
+
+```bash
+printf 'OSSIQ_COOLDOWN_PERIOD=21\n' > /tmp/ossiq-qa-config
+OSSIQ_COOLDOWN_PERIOD=3 uv run hatch run ossiq-cli --config /tmp/ossiq-qa-config --verbose status testdata/pypi/uv
+OSSIQ_COOLDOWN_PERIOD=3 uv run hatch run ossiq-cli --config /tmp/ossiq-qa-config --cooldown-period 1 --verbose status testdata/pypi/uv
+```
+
+- [ ] First run: env var wins over config file — `cooldown_period: 3`
+- [ ] Second run: CLI flag wins over env var — `cooldown_period: 1`
