@@ -74,7 +74,7 @@ Pydantic model holding runtime configuration. Load from environment variables wi
 | Field | Default | Description |
 |---|---|---|
 | `github_token` | `None` | GitHub personal access token for repository enrichment |
-| `cache_destination` | `~/.ossiq_cache.sqlite3` | Path to the SQLite HTTP cache |
+| `cache_destination` | `~/.ossiq/cache.sqlite3` | Path to the SQLite HTTP cache |
 | `cache_ttl` | `24` | Cache time-to-live in hours |
 | `verbose` | `False` | Emit detailed progress output |
 | `debug` | `False` | Enable debug logging |

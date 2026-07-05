@@ -15,6 +15,9 @@
 - [ ] TC-G03/G04: Ecosystem auto-detected (PyPI and npm)
 - [ ] TC-G02: `--verbose` shows settings panel; without it, panel is absent
 - [ ] TC-G08: `helpers --help` lists `npm`; `helpers npm --help` lists `freeze-state`, `restore-state`, `overrides-diff`
+- [ ] TC-G09: values from `~/.ossiq/config` are picked up (visible in `--verbose` settings panel)
+- [ ] TC-G10: `--config <custom-file>` loads a custom config file; nonexistent path shows clean error (no traceback)
+- [ ] TC-G11: precedence — env var overrides config file; CLI flag overrides env var
 
 ## 02 — Console Scan ([details](02-console-status.md))
 

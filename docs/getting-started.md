@@ -109,6 +109,28 @@ uvx --from ossiq ossiq-cli add requests --force
 
 Before installing, OSS IQ shows drift status, CVEs, transitive vulnerabilities, and maintainer signals. Packages flagged as critically unhealthy are blocked unless `--force` is passed.
 
+## AI Agent Integration (MCP & Skills)
+
+Give your AI coding agent the same health check before it adds or upgrades a dependency. `ossiq-cli install skills` writes a `SKILL.md` and registers a local stdio MCP server for Claude Code, OpenAI Codex, and GitHub Copilot.
+
+```bash
+# Install for all three tools
+uvx --from ossiq ossiq-cli install skills
+
+# Or target a single tool
+uvx --from ossiq ossiq-cli install skills claude
+uvx --from ossiq ossiq-cli install skills codex
+uvx --from ossiq ossiq-cli install skills copilot
+```
+
+| Tool | Skill location | MCP server |
+|---|---|---|
+| Claude Code | `~/.claude/skills/ossiq/SKILL.md` | registered in `~/.claude/mcp.json` |
+| OpenAI Codex | `~/.codex/skills/ossiq/SKILL.md` | registered in `~/.codex/mcp.json` |
+| GitHub Copilot | appended to `~/.copilot/copilot-instructions.md` | — |
+
+Once installed, the agent can call `ossiq-cli info <package> --format agent` or the `ossiq_evaluate_dependency` / `ossiq_evaluate_updates` MCP tools before touching your dependencies, and get back a compact `ok` / `warn` / `block` verdict. Re-running `install skills` is safe — it merges into existing config rather than overwriting it.
+
 ## HTML Report
 
  1. Generate HTML report:

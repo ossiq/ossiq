@@ -111,6 +111,20 @@ pip install ossiq
 ossiq-cli status
 ```
 
+### Connect AI Coding Agents
+
+Give Claude Code, GitHub Copilot, or OpenAI Codex a skill that checks dependency health before they add or update a package, plus a local MCP server they can call directly.
+
+```bash
+# Install the skill and MCP server for all three tools
+uvx --from ossiq ossiq-cli install skills
+
+# Or target one tool: claude, codex, copilot
+uvx --from ossiq ossiq-cli install skills claude
+```
+
+This writes `SKILL.md` and registers `ossiq` as a stdio MCP server (`ossiq-cli mcp`) for Claude Code (`~/.claude/`) and Codex (`~/.codex/`), and adds the skill to GitHub Copilot's instructions (`~/.copilot/copilot-instructions.md`). It's safe to re-run — existing config is merged, not overwritten.
+
 ### Using Docker
 
 OSS IQ CLI is available as a Docker image for easy deployment without installing Python dependencies.

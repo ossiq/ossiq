@@ -18,7 +18,13 @@ from unittest.mock import MagicMock, call, patch
 import pytest
 import requests
 
-from ossiq.clients.batch import BatchClient, BatchStrategy, BatchStrategySettings, ChunkResult
+from ossiq.clients.batch import (
+    BatchClient,
+    BatchStrategy,
+    BatchStrategySettings,
+    ChunkResult,
+    is_rate_limit_response,
+)
 
 # Capture the real time.sleep before any test patches it on the shared module object.
 # patch("ossiq.clients.batch.time.sleep") replaces sleep on the same module object
@@ -557,6 +563,79 @@ class TestBatchClient429:
         assert results == []
         assert client._abort.is_set()
         # Only 1 HTTP call — the abort prevents any retry
+        assert session.post.call_count == 1
+
+
+# ---------------------------------------------------------------------------
+# C2. 403 classification — only header-confirmed rate limits pause the batch
+# ---------------------------------------------------------------------------
+
+
+class TestIsRateLimitResponse:
+    def test_429_is_rate_limit(self):
+        assert is_rate_limit_response(make_response(429, {})) is True
+
+    def test_403_with_retry_after_is_rate_limit(self):
+        assert is_rate_limit_response(make_response(403, {}, headers={"Retry-After": "60"})) is True
+
+    def test_403_with_zero_remaining_is_rate_limit(self):
+        assert is_rate_limit_response(make_response(403, {}, headers={"x-ratelimit-remaining": "0"})) is True
+
+    def test_bare_403_is_not_rate_limit(self):
+        """403 without rate-limit headers (org PAT restrictions, blocked repos) is a plain failure."""
+        assert is_rate_limit_response(make_response(403, {})) is False
+
+    def test_403_with_nonzero_remaining_is_not_rate_limit(self):
+        assert is_rate_limit_response(make_response(403, {}, headers={"x-ratelimit-remaining": "4999"})) is False
+
+    def test_200_is_not_rate_limit(self):
+        assert is_rate_limit_response(make_response(200, {})) is False
+
+
+class TestBatchClient403:
+    def test_bare_403_is_permanent_failure_no_retry_no_pause(self):
+        """A 403 without rate-limit headers must not pause all threads or retry.
+
+        Regression test: a single forbidden repo used to trigger a global
+        30-second pause ('429 Rate Limit!') and two retries, stalling the scan.
+        """
+        session = MagicMock()
+        session.post.return_value = make_response(403, {"message": "Forbidden"})
+        client = make_client(make_strategy(session, max_retries=3))
+
+        with patch("ossiq.clients.batch.time.sleep") as mock_sleep:
+            results = collect(client.run_batch([1]))
+
+        assert results == []
+        assert session.post.call_count == 1  # no retry — permanent failure
+        mock_sleep.assert_not_called()  # no global pause
+        assert not client._abort.is_set()
+
+    def test_403_with_retry_after_pauses_and_retries(self):
+        """A 403 carrying Retry-After is a genuine rate limit: pause, retry, succeed."""
+        session = MagicMock()
+        session.post.side_effect = [
+            make_response(403, {}, headers={"Retry-After": "1"}),
+            make_response(200, {"result": "ok"}),
+        ]
+        client = make_client(make_strategy(session))
+
+        with patch("ossiq.clients.batch.time.sleep"):
+            results = collect(client.run_batch([1]))
+
+        assert results == [{"result": "ok"}]
+        assert session.post.call_count == 2
+
+    def test_403_with_zero_remaining_aborts(self):
+        """A 403 with x-ratelimit-remaining: 0 is quota exhaustion → abort, no retry."""
+        session = MagicMock()
+        session.post.return_value = make_response(403, {}, headers={"x-ratelimit-remaining": "0"})
+        client = make_client(make_strategy(session, max_retries=3))
+
+        results = collect(client.run_batch([1]))
+
+        assert results == []
+        assert client._abort.is_set()
         assert session.post.call_count == 1
 
 

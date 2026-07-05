@@ -33,6 +33,7 @@ from __future__ import annotations
 import logging
 import re
 
+from univers.version_constraint import InvalidConstraintsError
 from univers.version_range import InvalidVersionRange, NpmVersionRange, PypiVersionRange
 from univers.versions import PypiVersion, SemverVersion
 
@@ -50,6 +51,11 @@ _BARE_VERSION_RE = re.compile(r"^\d[\d.]*$")
 
 # Matches npm != operator: "!=1.0.0" — univers does not handle != for npm ranges
 _NOT_EQUAL_RE = re.compile(r"^!=\s*(\d[\d.]*)$")
+
+# Matches a prerelease suffix on a full version: "3.0.0-0" / "3.0.0-rc.1" -> strip to "3.0.0".
+# univers rejects prerelease-floor constraints like ">=3.0.0-0"; we deliberately ignore
+# prerelease precision. Hyphen ranges ("1.2.3 - 2.0.0") are unaffected: they have spaces.
+PRERELEASE_SUFFIX_RE = re.compile(r"(\d+\.\d+\.\d+)-[0-9A-Za-z][0-9A-Za-z.-]*")
 
 
 def strip_npm_alias(constraint: str) -> str:
@@ -94,10 +100,13 @@ def npm_version_satisfies_range(version: str, range_constraint: str) -> bool:
       - comparison operators  — ">", ">=", "<", "<=", "=", "!="
       - npm alias  — "npm:pkg@^1.2.3"  matched against the embedded range
 
+    Prerelease suffixes in the constraint are stripped before matching
+    ("3.0.0-0" -> "3.0.0"); prerelease precision is deliberately ignored.
     An unparseable version or constraint passes through as True so that an
     unknown format never becomes a hard block.
     """
     constraint = strip_npm_alias(range_constraint).strip()
+    constraint = PRERELEASE_SUFFIX_RE.sub(r"\1", constraint)
 
     m = _NOT_EQUAL_RE.match(constraint)
     if m:
@@ -113,7 +122,7 @@ def npm_version_satisfies_range(version: str, range_constraint: str) -> bool:
 
     try:
         return SemverVersion(version) in NpmVersionRange.from_native(processed)  # type: ignore
-    except ValueError as exc:
+    except (ValueError, InvalidConstraintsError) as exc:
         logger.debug(
             "npm_version_satisfies_range: unparseable version=%r constraint=%r error=%s",
             version,
@@ -151,7 +160,7 @@ def version_satisfies_constraint(version: str, constraint: str | None, registry:
         if registry == ProjectPackagesRegistry.PYPI:
             return pypi_version_satisfies_specifier(version, constraint)
         return npm_version_satisfies_range(version, constraint)
-    except (ValueError, InvalidVersionRange) as exc:
+    except (ValueError, InvalidVersionRange, InvalidConstraintsError) as exc:
         logger.debug(
             "version_satisfies_constraint: parse failed version=%r constraint=%r registry=%s error=%s",
             version,
@@ -188,7 +197,7 @@ def engine_version_satisfies_requirement(
             return pypi_version_satisfies_specifier(context_version, requirement)
         if engine_key in ("node", "nodejs"):
             return npm_version_satisfies_range(context_version, requirement)
-    except (ValueError, InvalidVersionRange):
+    except (ValueError, InvalidVersionRange, InvalidConstraintsError):
         pass
     return True
 

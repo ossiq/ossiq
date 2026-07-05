@@ -25,6 +25,7 @@ from ossiq.commands.add import CommandAddOptions, command_add
 from ossiq.commands.export import CommandExportOptions, command_export
 from ossiq.commands.html import CommandHtmlOptions, command_html
 from ossiq.commands.info import CommandInfoOptions, command_info
+from ossiq.commands.install import install_app
 from ossiq.commands.plan import (
     CommandPlanOptions,
     check_override_ignore_conflict,
@@ -38,6 +39,7 @@ from ossiq.mcp.server import serve as serve_mcp
 from ossiq.messages import (
     ARGS_HELP_CACHE_DESTINATION,
     ARGS_HELP_CACHE_TTL,
+    ARGS_HELP_CONFIG,
     ARGS_HELP_COOLDOWN_PERIOD,
     ARGS_HELP_CUTOFF_DATE,
     ARGS_HELP_DEBUG,
@@ -82,7 +84,16 @@ def error_boundary(settings: Settings) -> Generator[None, None, None]:
     except Exception as exc:
         if settings.traceback:
             raise
-        show_error(str(exc), title="Unexpected Error", hint="Run with --traceback for a full traceback.")
+        show_error(
+            f"{type(exc).__name__}: {exc}\n\n"
+            "ossiq hit an error it did not expect — this is likely a bug in ossiq, "
+            "not a problem with your project.",
+            title="Unexpected Error",
+            hint=(
+                "Re-run with --traceback to see where it failed, and please report it at "
+                "https://github.com/ossiq/ossiq/issues so it can be fixed."
+            ),
+        )
         raise typer.Exit(1) from None
 
 
@@ -90,6 +101,7 @@ helpers_app = typer.Typer(name="helpers", help="Package manager helper utilities
 helpers_app.add_typer(npm_helpers_app, name="npm")
 helpers_app.add_typer(uv_helpers_app, name="uv")
 app.add_typer(helpers_app, name="helpers")
+app.add_typer(install_app, name="install")
 
 
 def version_callback(value: bool):
@@ -106,22 +118,26 @@ def version_callback(value: bool):
 @app.callback(invoke_without_command=True)
 def main(
     context: typer.Context,
+    config: Annotated[
+        Path | None,
+        typer.Option("--config", help=ARGS_HELP_CONFIG),
+    ] = None,
     github_token: Annotated[
         str | None,
         typer.Option("--github-token", "-T", envvar=f"{Settings.ENV_PREFIX}GITHUB_TOKEN", help=ARGS_HELP_GITHUB_TOKEN),
     ] = None,
     verbose: Annotated[
-        bool,
+        bool | None,
         typer.Option(
             "--verbose",
             "-v",
             is_flag=True,
-            envvar=f"{Settings.ENV_PREFIX}_VERBOSE",
+            envvar=f"{Settings.ENV_PREFIX}VERBOSE",
             help=f"Enable verbose output. Overrides {Settings.ENV_PREFIX}VERBOSE env var.",
         ),
-    ] = False,
+    ] = None,
     debug: Annotated[
-        bool,
+        bool | None,
         typer.Option(
             "--debug",
             "-d",
@@ -129,25 +145,25 @@ def main(
             envvar=f"{Settings.ENV_PREFIX}DEBUG",
             help=ARGS_HELP_DEBUG,
         ),
-    ] = False,
+    ] = None,
     traceback_flag: Annotated[
-        bool,
+        bool | None,
         typer.Option(
             "--traceback",
             is_flag=True,
             help="Print full traceback on error instead of the summary panel.",
         ),
-    ] = False,
+    ] = None,
     cache_destination: Annotated[
-        str,
+        str | None,
         typer.Option(
             "--cache-destination", envvar=f"{Settings.ENV_PREFIX}CACHE_DESTINATION", help=ARGS_HELP_CACHE_DESTINATION
         ),
-    ] = str(Path.home() / ".ossiq_cache.sqlite3"),
+    ] = None,
     cache_ttl: Annotated[
-        int,
+        int | None,
         typer.Option("--cache-ttl", envvar=f"{Settings.ENV_PREFIX}CACHE_TTL", help=ARGS_HELP_CACHE_TTL),
-    ] = 24,
+    ] = None,
     no_cache: Annotated[
         bool,
         typer.Option("--no-cache", is_flag=True, help="Disable persistent HTTP cache for this run."),
@@ -182,8 +198,11 @@ def main(
     """
     Main callback. Loads the configuration and stores it in the context.
     """
-    # 1. Load settings from environment variables (done by Pydantic on instantiation)
-    settings = Settings.load_from_env()
+    if config is not None and not config.exists():
+        raise typer.BadParameter(f"Config file not found: {config}", param_hint="--config")
+
+    # 1. Load settings from the config file; env vars override file values (pydantic-settings)
+    settings = Settings.load(config)
 
     # 2. Collect CLI arguments that will override env vars
     cli_overrides = {

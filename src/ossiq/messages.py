@@ -13,7 +13,8 @@ Supported units: y/m/w/d/h, default: d (days).
 ARGS_HELP_DEBUG = "Enable debug logging output (logging module). Overrides OSSIQ_DEBUG env var."
 
 ARGS_HELP_GITHUB_TOKEN = """Github Token to increase requests limits"""
-ARGS_HELP_CACHE_DESTINATION = """Directory where cache will be stored"""
+ARGS_HELP_CONFIG = """Path to a config file with OSSIQ_* values (default: ~/.ossiq/config)"""
+ARGS_HELP_CACHE_DESTINATION = """Directory where cache will be stored (default: ~/.ossiq/cache.sqlite3)"""
 ARGS_HELP_CACHE_TTL = """For how long cache is stored"""
 ARGS_HELP_OUTPUT = """Destination where to generate output"""
 

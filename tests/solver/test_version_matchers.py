@@ -66,6 +66,13 @@ from ossiq.solver.version_matchers import (
         # unparseable version/constraint → pass through (True)
         ("not-a-version", "^1.0.0", True),
         ("1.0.0", "???", True),
+        # prerelease suffixes stripped before matching — real match, not pass-through
+        ("3.5.0", ">=2.9.0 || >=3.0.0-0 <3.0.0", True),
+        ("3.5.0", ">=3.0.0-0", True),
+        ("2.0.0", ">=3.0.0-0", False),
+        ("6.5.0", ">=2.9.0 || >=3.0.0-0 <3.0.0 || >=6.0.1 <8.0.0", True),
+        # hyphen range untouched by prerelease stripping (spaces around the dash)
+        ("1.5.0", "1.2.3 - 2.0.0", True),
     ],
 )
 def test_npm_version_satisfies_range(version: str, range_constraint: str, expected: bool) -> None:
