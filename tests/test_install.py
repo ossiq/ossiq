@@ -112,6 +112,34 @@ def test_skills_command_writes_config_file(tmp_path, monkeypatch):
     assert "OSSIQ_GITHUB_TOKEN=ghp_stored" in config_text
 
 
+def test_skills_command_default_installs_all_tools(tmp_path, monkeypatch):
+    monkeypatch.setattr(install.Path, "home", classmethod(lambda cls: tmp_path))
+    runner = CliRunner()
+    result = runner.invoke(app, ["install", "skills"], input="\n")
+    assert result.exit_code == 0
+    assert (tmp_path / ".claude" / "skills" / "ossiq" / "SKILL.md").exists()
+    assert (tmp_path / ".codex" / "skills" / "ossiq" / "SKILL.md").exists()
+    assert (tmp_path / ".copilot" / "copilot-instructions.md").exists()
+
+
+def test_skills_command_blank_token_prompt_skips_storage(tmp_path, monkeypatch):
+    monkeypatch.setattr(install.Path, "home", classmethod(lambda cls: tmp_path))
+    runner = CliRunner()
+    result = runner.invoke(app, ["install", "skills", "claude"], input="\n")
+    assert result.exit_code == 0
+    assert not (tmp_path / ".ossiq" / "config").exists()
+    config = json.loads((tmp_path / ".claude" / "mcp.json").read_text())
+    assert "env" not in config["mcpServers"]["ossiq"]
+
+
+def test_load_skill_content_bundles_agent_contract():
+    content = install.load_skill_content()
+    assert "name: ossiq-dependency-check" in content
+    assert install.SKILL_UVX_PROD in content
+    assert "ossiq_evaluate_dependency" in content
+    assert "ossiq_evaluate_updates" in content
+
+
 def test_build_mcp_entry_dev_path():
     entry = install.build_mcp_entry(None, dev_path="/path/to/ossiq")
     assert entry["command"] == "uv"
@@ -121,8 +149,8 @@ def test_build_mcp_entry_dev_path():
 
 def test_apply_dev_path_substitutes_invocation():
     content = f"run {install.SKILL_UVX_PROD} info pkg ."
-    result = install.apply_dev_path(content, "/path/to/ossiq")
-    assert "uvx --from /path/to/ossiq ossiq-cli" in result
+    result = install.apply_dev_settings(content, "/path/to/ossiq")
+    assert "uvx --from /path/to/ossiq --no-cache ossiq-cli" in result
     assert install.SKILL_UVX_PROD not in result
 
 
@@ -132,7 +160,7 @@ def test_skills_command_dev_flag_patches_skill_and_mcp(tmp_path, monkeypatch):
     result = runner.invoke(app, ["install", "skills", "claude", "--dev", "/path/to/ossiq"], input="\n")
     assert result.exit_code == 0
     skill = (tmp_path / ".claude" / "skills" / "ossiq" / "SKILL.md").read_text()
-    assert "uvx --from /path/to/ossiq ossiq-cli" in skill
+    assert "uvx --from /path/to/ossiq --no-cache ossiq-cli" in skill
     assert install.SKILL_UVX_PROD not in skill
     config = json.loads((tmp_path / ".claude" / "mcp.json").read_text())
     assert config["mcpServers"]["ossiq"]["command"] == "uv"

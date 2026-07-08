@@ -33,9 +33,9 @@ def build_mcp_entry(github_token: str | None, dev_path: str | None = None) -> di
     return entry
 
 
-def apply_dev_path(content: str, dev_path: str) -> str:
+def apply_dev_settings(content: str, dev_path: str) -> str:
     """Substitute the PyPI uvx invocation with a local dev path in skill content."""
-    return content.replace(SKILL_UVX_PROD, f"uvx --from {dev_path} ossiq-cli")
+    return content.replace(SKILL_UVX_PROD, f"uvx --from {dev_path} --no-cache ossiq-cli")
 
 
 def load_skill_content() -> str:
@@ -122,7 +122,7 @@ def skills(
 
     content = load_skill_content()
     if dev:
-        content = apply_dev_path(content, dev)
+        content = apply_dev_settings(content, dev)
     home = Path.home()
     targets = list(INSTALLERS) if tool == "all" else [tool]
     token = resolve_github_token(github_token)
