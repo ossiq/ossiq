@@ -157,7 +157,9 @@ uvx --from ossiq ossiq-cli install skills
 uvx --from ossiq ossiq-cli install skills claude
 ```
 
-This writes `SKILL.md` and registers `ossiq` as a stdio MCP server (`ossiq-cli mcp`) for Claude Code (`~/.claude/`) and Codex (`~/.codex/`), and adds the skill to GitHub Copilot's instructions (`~/.copilot/copilot-instructions.md`). It's safe to re-run — existing config is merged, not overwritten.
+This writes `SKILL.md` and registers `ossiq` as a local stdio MCP server (`ossiq-cli mcp`) for Claude Code (`~/.claude/`) and Codex (`~/.codex/`), and adds the skill to GitHub Copilot's instructions (`~/.copilot/copilot-instructions.md`). It's safe to re-run — existing config is merged, not overwritten.
+
+The command prompts for a GitHub token (or takes `--github-token`; blank skips). The token is stored in `~/.ossiq/config` and in each tool's MCP server entry so the agent's scans get the higher API rate limit too. Full details — files written, token storage, and running from a local checkout with `--dev` — are in [Reference → install skills](https://ossiq.dev/reference.html#install-skills).
 
 ### Using Docker
 
@@ -392,6 +394,9 @@ uv run hatch run ossiq-cli status
 
 # Generate HTML report
 uv run hatch run ossiq-cli html -o ./test_report.html
+
+# Point the AI-agent skill and MCP server at your checkout instead of PyPI
+uv run hatch run ossiq-cli install skills --dev "$(pwd)"
 ```
 
 ### Package Deep-Dive

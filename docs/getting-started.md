@@ -82,6 +82,8 @@ export OSSIQ_GITHUB_TOKEN=replace-with-generated-token;
 
     ![OSS IQ Terminal/CLI Report](/_static/images/ossiq-cli-report-2026-06-20.png)
 
+    Every table, column, and status marker in this report — including the *Transitive Recommendations* and *Peer Constraint Status* sections — is documented in [Reference → Console Reports](reference.md#console-reports).
+
 
 ## Package Details
 
@@ -91,6 +93,8 @@ uvx --from ossiq ossiq-cli info sphinx
 ```
 
 ![OSS IQ Terminal/CLI Package Details](/_static/images/ossiq-cli-package-2026-06-20.png)
+
+The section-by-section breakdown of this report — drift status, policy compliance, recommendation rationale, peer requirements, and transitive CVEs — is in [Reference → Console Reports](reference.md#console-reports).
 
 ## Gated Package Add
 
@@ -129,7 +133,11 @@ uvx --from ossiq ossiq-cli install skills copilot
 | OpenAI Codex | `~/.codex/skills/ossiq/SKILL.md` | registered in `~/.codex/mcp.json` |
 | GitHub Copilot | appended to `~/.copilot/copilot-instructions.md` | — |
 
+The command asks for a [GitHub token](#github-personal-access-token) (or takes it via `--github-token`; leave the prompt blank to skip). The token is stored in `~/.ossiq/config` and in each tool's MCP server entry, so both your own runs and the agent's runs get the higher API rate limit.
+
 Once installed, the agent can call `ossiq-cli info <package> --format agent` or the `ossiq_evaluate_dependency` / `ossiq_evaluate_updates` MCP tools before touching your dependencies, and get back a compact `ok` / `warn` / `block` verdict. Re-running `install skills` is safe — it merges into existing config rather than overwriting it.
+
+For exactly which files are written, how the token is stored, and how to run the integration from a local checkout with `--dev`, see [Reference → install skills](reference.md#install-skills).
 
 ## HTML Report
 

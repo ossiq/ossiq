@@ -34,7 +34,7 @@ myst_enable_extensions = [
     "attrs_inline",
     "attrs_block",
 ]
-myst_heading_anchors = 2
+myst_heading_anchors = 3
 
 pygments_style = "sphinx"
 

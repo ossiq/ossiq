@@ -85,6 +85,18 @@
 
 - [ ] TC-M01: `just qa-matrix` exits 0 with `FAIL=0`; SKIPs acceptable; `qa_logs/summary.log` shows no FAILs
 
+## 10 — LLM Integration: `install skills` & MCP Server ([details](10-llm-integration.md))
+
+- [ ] TC-L01: `install skills --help` lists `--github-token`, `--dev`; unknown tool shows clean error, non-zero exit
+- [ ] TC-L02: `install skills claude --dev $(pwd)` writes `~/.claude/skills/ossiq/SKILL.md` (dev path substituted) and upserts `ossiq` into `~/.claude/mcp.json` preserving other server entries; re-run is idempotent
+- [ ] TC-L03: `--github-token` stored in `~/.ossiq/config` and as `env.OSSIQ_GITHUB_TOKEN` in mcp.json; blank interactive prompt skips both
+- [ ] TC-L04: copilot install idempotent — two runs leave one `ossiq-skill:start` block; user content preserved
+- [ ] TC-L05: MCP stdio handshake — `initialize` + `tools/list` return valid JSON-RPC listing `ossiq_evaluate_dependency` and `ossiq_evaluate_updates`; notifications get no reply; stdout is JSON-only
+- [ ] TC-L06: MCP `tools/call ossiq_evaluate_dependency` returns add-verdict JSON; unknown package → `isError`, server stays alive
+- [ ] TC-L07: MCP `tools/call ossiq_evaluate_updates` returns `updates` list; unknown tool name → `isError`, no crash
+- [ ] TC-L08: `info <pkg> <path> --format agent` and `status <path> --format agent` emit pure valid JSON matching the SKILL.md contract
+- [ ] TC-L09: (optional, live) after install, Claude Code `/mcp` shows ossiq connected; skill triggers on an "is it safe to add X" prompt
+
 
 ## Notes
 <!-- Anything unexpected observed during QA -->
