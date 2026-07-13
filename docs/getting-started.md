@@ -80,7 +80,7 @@ export OSSIQ_GITHUB_TOKEN=replace-with-generated-token;
 
     OSS IQ provides a high-level risk score and breaks down specific signals for both security (vulnerabilities) and maintenance (activity, overhead, and health).
 
-    ![OSS IQ Terminal/CLI Report](/_static/images/ossiq-cli-report-2026-06-20.png)
+    ![OSS IQ Terminal/CLI Report](/_static/images/ossiq-cli-report-2026-07-13.png)
 
     Every table, column, and status marker in this report — including the *Transitive Recommendations* and *Peer Constraint Status* sections — is documented in [Reference → Console Reports](reference.md#console-reports).
 
@@ -92,7 +92,7 @@ Get a specific package details:
 uvx --from ossiq ossiq-cli info sphinx
 ```
 
-![OSS IQ Terminal/CLI Package Details](/_static/images/ossiq-cli-package-2026-06-20.png)
+![OSS IQ Terminal/CLI Package Details](/_static/images/ossiq-cli-package-2026-07-13.png)
 
 The section-by-section breakdown of this report — drift status, policy compliance, recommendation rationale, peer requirements, and transitive CVEs — is in [Reference → Console Reports](reference.md#console-reports).
 
