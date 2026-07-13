@@ -73,7 +73,6 @@ Package `{package_name}` not found in the project dependency tree.
 HELP_PLAN_COMMAND = """
 Show solver-recommended package version changes without making any changes.
 
-Use `--script` to emit a bash update script instead of the plan table.
 Use `--pin-all` to write exact ==version specifiers for updated deps.
 Use `--rewrite-versions` to also include PINNED (==x.y.z) deps that are otherwise frozen.
 Use `--override pkg==version` to force an exact version, bypassing the solver and cooldown.

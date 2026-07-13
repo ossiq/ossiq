@@ -6,7 +6,6 @@ from __future__ import annotations
 
 import abc
 from collections.abc import Iterable
-from dataclasses import dataclass
 from functools import cmp_to_key
 from typing import TYPE_CHECKING
 
@@ -117,14 +116,6 @@ class AbstractPackageRegistryApi(VersionRules, abc.ABC):
         return None
 
 
-@dataclass(frozen=True)
-class HelperSpec:
-    """Metadata for a package manager helper sub-command."""
-
-    name: str
-    description: str
-
-
 class AbstractPackageManagerApi(abc.ABC):
     """
     Abstract Package Manager to extract installed versions
@@ -151,37 +142,12 @@ class AbstractPackageManagerApi(abc.ABC):
         """
         pass
 
-    @classmethod
-    def helper_specs(cls) -> list[HelperSpec]:
-        """Return metadata for available helper sub-commands. Override per package manager."""
-        return []
-
-    def generate_update_script(self, plan: UpdatePlan, cli_extra_args: str = "") -> str:
-        """Generate a bash update script for the recommended versions in plan.
-
-        Default returns an unsupported notice with the version list as comments.
-        Supported package managers override this with an atomic update script.
-        cli_extra_args is forwarded to sub-command invocations in the script (NPM only).
-        """
-        lines = [
-            f"# OSS IQ update — {self.package_manager_type.name}  |  project: {plan.project_name}",
-            f"# Automated update scripts are not yet supported for {self.package_manager_type.name}.",
-            "# Apply the following recommended versions manually:",
-            "#",
-        ]
-        for entry in plan.all_entries:
-            lines.append(f"#   {entry.package_name}: {entry.current_version} -> {entry.recommended_version}")
-        return "\n".join(lines)
-
     def execute_update(self, plan: UpdatePlan) -> None:
         """Execute the update plan in-process.
 
         Supported package managers override this. Default raises NotImplementedError.
         """
-        raise NotImplementedError(
-            f"In-process execution is not yet supported for {self.package_manager_type.name}. "
-            "Use 'ossiq update plan --script' to generate a bash script instead."
-        )
+        raise NotImplementedError(f"In-process execution is not yet supported for {self.package_manager_type.name}.")
 
     def install_package(self, package_name: str, version: str | None = None) -> int:
         """Install a package into the project. Returns subprocess exit code.

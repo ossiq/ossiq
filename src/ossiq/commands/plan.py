@@ -1,6 +1,5 @@
 """Plan and preview solver-recommended package version changes."""
 
-import shlex
 from dataclasses import dataclass
 from typing import Literal
 
@@ -68,38 +67,6 @@ def check_override_ignore_conflict(overrides: tuple[tuple[str, str], ...], ignor
         raise typer.BadParameter(ERROR_OVERRIDE_IGNORE_CONFLICT.format(packages=", ".join(conflicted)))
 
 
-def build_npm_apply_args(options: CommandPlanOptions) -> str:
-    """Build CLI flags for embedding in the generated script's apply-state invocation."""
-    args = ["--registry-type npm"]
-    for pkg in options.ignore_packages:
-        args.append(f"--ignore {shlex.quote(pkg)}")
-    if options.pin_all:
-        args.append("--pin-all")
-    if options.rewrite_versions:
-        args.append("--rewrite-versions")
-    for name, version in options.overrides:
-        args.append(f"--override {shlex.quote(f'{name}=={version}')}")
-    if options.allow_prerelease:
-        args.append("--allow-prerelease")
-    for pkg in options.allow_prerelease_packages:
-        args.append(f"--allow-prerelease-package {shlex.quote(pkg)}")
-    if options.production:
-        args.append("--production")
-    if options.security_only:
-        args.append("--security")
-    return " ".join(args)
-
-
-def npm_cli_extra_args(plan: UpdatePlan, options: CommandPlanOptions) -> str:
-    """Apply-state CLI flags for npm plans; empty for other ecosystems.
-
-    registry_type comes from ProjectPackagesRegistry ("NPM"/"PYPI"), so compare case-insensitively.
-    """
-    if plan.registry_type.lower() != "npm":
-        return ""
-    return build_npm_apply_args(options)
-
-
 def warn_unknown_override_versions(sources: ProjectSources, overrides: tuple[tuple[str, str], ...]) -> None:
     """Warn when a forced version is absent from the registry (cache is warm after the scan)."""
     for name, version in overrides:
@@ -155,21 +122,13 @@ def prepare_plan(ctx: typer.Context, options: CommandPlanOptions) -> tuple[Proje
     return sources, plan
 
 
-def command_plan(ctx: typer.Context, options: CommandPlanOptions, script: bool = False) -> None:
-    """Show the plan table, or emit the bash script when --script is set."""
+def command_plan(ctx: typer.Context, options: CommandPlanOptions) -> None:
+    """Show the plan table."""
     result = prepare_plan(ctx, options)
     if result is None:
         return
 
-    sources, plan = result
-    bash_script = sources.packages_manager.generate_update_script(
-        plan, cli_extra_args=npm_cli_extra_args(plan, options)
-    )
-
-    if script:
-        typer.echo(bash_script)
-        return
-
+    plan = result[1]
     renderer = get_renderer(Command.PLAN, UserInterfaceType.CONSOLE, ctx.obj)
     renderer.render(data=plan, script="")
 

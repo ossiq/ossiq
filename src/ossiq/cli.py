@@ -18,8 +18,6 @@ except ImportError:
     )
     sys.exit(1)
 
-from ossiq.adapters.package_managers.helpers.helpers_npm import npm_helpers_app
-from ossiq.adapters.package_managers.helpers.helpers_uv import uv_helpers_app
 from ossiq.clients import install_requests_cache
 from ossiq.commands.add import CommandAddOptions, command_add
 from ossiq.commands.export import CommandExportOptions, command_export
@@ -97,10 +95,6 @@ def error_boundary(settings: Settings) -> Generator[None, None, None]:
         raise typer.Exit(1) from None
 
 
-helpers_app = typer.Typer(name="helpers", help="Package manager helper utilities")
-helpers_app.add_typer(npm_helpers_app, name="npm")
-helpers_app.add_typer(uv_helpers_app, name="uv")
-app.add_typer(helpers_app, name="helpers")
 app.add_typer(install_app, name="install")
 
 
@@ -537,12 +531,8 @@ def plan(
         list[str] | None,
         typer.Option("--override", help=HELP_OVERRIDE_PACKAGE),
     ] = None,
-    script: Annotated[
-        bool,
-        typer.Option("--script", is_flag=True, help="Emit the bash update script instead of the plan table"),
-    ] = False,
 ):
-    """Show what would change, or emit the bash script with --script."""
+    """Show what would change."""
     if registry_type and registry_type.lower() not in ["npm", "pypi"]:
         raise typer.BadParameter("Only `npm` and `pypi` allowed")
 
@@ -564,7 +554,6 @@ def plan(
                 rewrite_versions=rewrite_versions,
                 overrides=overrides,
             ),
-            script=script,
         )
 
 

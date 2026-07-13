@@ -7,7 +7,7 @@
 
 **OSS IQ** is a free & open-source CLI tool that analyzes dependency drift at scale. Track version lag and transitive risk directly from your dependency files. It helps to move from reactive CVE-chasing to a planned, predictable maintenance rhythm.
 
-![OSS IQ HTML Report](https://ossiq.dev/_static/images/ossiq-cli-report-2026-06-20.png)
+![OSS IQ HTML Report](https://ossiq.dev/_static/images/ossiq-cli-report-2026-07-13.png)
 
 ## What is OSS IQ?
 
@@ -222,9 +222,6 @@ jobs:
 # Show the plan table (read-only, no changes made)
 ossiq-cli plan
 
-# Emit a copy-pasteable bash script instead of the table
-ossiq-cli plan --script
-
 # Apply updates interactively (shows the plan, then prompts for confirmation)
 ossiq-cli apply
 
@@ -251,7 +248,6 @@ The solver simulates the full transitive impact of each recommendation before co
 | `--override <pkg>==<ver>` | Force a package to an exact version, bypassing the solver and the cooldown (repeatable) |
 | `--pin-all` | Write `==new_version` for every updated direct dependency, converting loose specifiers (`^`, `~=`, `>=`) to exact pins |
 | `--rewrite-versions` | Include already-pinned (`==x.y.z`) dependencies in the update and rewrite their pinned version |
-| `--script` | (`plan` only) Print the bash script instead of the plan table — safe to pipe directly to `bash` |
 | `--yes`, `-y` | (`apply` only) Skip the confirmation prompt |
 
 All flags are accepted by both `plan` and `apply` (except where noted), so a `plan` invocation is always

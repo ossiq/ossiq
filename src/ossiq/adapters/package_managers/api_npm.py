@@ -6,13 +6,12 @@ from __future__ import annotations
 
 import json
 import os
-import shlex
 import subprocess
 from collections import defaultdict, namedtuple
 from collections.abc import Callable, Iterable
 from typing import TYPE_CHECKING
 
-from ossiq.adapters.api_interfaces import AbstractPackageManagerApi, HelperSpec
+from ossiq.adapters.api_interfaces import AbstractPackageManagerApi
 from ossiq.adapters.package_managers.dependency_tree import BaseDependencyResolver
 from ossiq.adapters.package_managers.utils import find_lockfile_parser
 from ossiq.domain.common import ConstraintType
@@ -447,39 +446,6 @@ class PackageManagerJsNpm(AbstractPackageManagerApi):
 
         return create_project(dependency_tree=lockfile_parser(lockfile_data))
 
-    @classmethod
-    def helper_specs(cls) -> list[HelperSpec]:
-        """Advertise NPM helper sub-commands."""
-        return [
-            HelperSpec("apply-state", "Apply final package.json specifiers and overrides for manual npm install"),
-        ]
-
-    def apply_state(self, plan: UpdatePlan) -> str:
-        """Write final package.json specifiers and transitive overrides without running npm install.
-
-        Intended for use by generate_update_script so the manifest is ready before the user
-        runs npm install manually.
-        """
-        manifest_path = os.path.join(plan.project_path, "package.json")
-        with open(manifest_path, encoding="utf-8") as f:
-            pkg = json.load(f)
-
-        apply_direct_specs(pkg, plan)
-
-        transitive = {e.package_name: e.recommended_version for e in plan.all_entries if not e.is_direct}
-        if transitive:
-            overrides = pkg.get("overrides", {})
-            overrides.update(transitive)
-            pkg["overrides"] = overrides
-
-        with open(manifest_path, "w", encoding="utf-8") as f:
-            json.dump(pkg, f, indent=2)
-            f.write("\n")
-
-        n_direct = len(plan.direct_entries)
-        n_transitive = len(plan.transitive_entries)
-        return f"Applied {n_direct} direct, {n_transitive} transitive update(s) to package.json."
-
     def execute_update(self, plan: UpdatePlan) -> None:
         """Apply manifest changes then run npm install. Restores package.json on failure."""
         manifest_path = os.path.join(plan.project_path, "package.json")
@@ -505,30 +471,6 @@ class PackageManagerJsNpm(AbstractPackageManagerApi):
             with open(manifest_path, "w", encoding="utf-8") as f:
                 f.write(original_content)
             raise PackageManagerExecutionError(f"npm install failed (exit {exc.returncode})") from exc
-
-    def generate_update_script(self, plan: UpdatePlan, cli_extra_args: str = "") -> str:
-        """Generate bash script that applies manifest changes then runs npm install."""
-        path_q = shlex.quote(plan.project_path)
-        apply = f"ossiq helpers npm apply-state {path_q}"
-        if cli_extra_args:
-            apply += f" {cli_extra_args}"
-        lines = [
-            "#!/usr/bin/env bash",
-            f"# OSS IQ update — npm  |  project: {plan.project_name}",
-            f"# {len(plan.direct_entries)} direct, {len(plan.transitive_entries)} transitive updates",
-            "set -euo pipefail",
-            "",
-            f"cd {path_q}",
-            "",
-            'echo "Applying updates to package.json..."',
-            apply,
-            "",
-            'echo "Installing..."',
-            "npm install --ignore-scripts",
-            "",
-            'echo "Done."',
-        ]
-        return "\n".join(lines)
 
     def install_package(self, package_name: str, version: str | None = None) -> int:
         """Run npm install to add a package to the project."""
