@@ -271,38 +271,59 @@ def _make_dep(canonical_name: str, is_optional: bool = False) -> DependencyDescr
     )
 
 
-class TestIgnorePackagesFiltering:
-    """Verify that ignore_set correctly filters DependencyDescriptor lists (mirrors scan() logic)."""
+def _make_scan_record(name: str, cve: bool = False) -> ScanRecord:
+    return ScanRecord(
+        package_name=name,
+        dependency_name=name,
+        is_optional_dependency=False,
+        installed_version="1.0.0",
+        latest_version=None,
+        versions_diff_index=VersionsDifference("1.0.0", "1.0.0", 0, diff_name="LATEST"),
+        time_lag_days=None,
+        releases_lag=None,
+        cve=[MagicMock()] if cve else [],
+        constraint_info=_CONSTRAINT_SOURCE,
+    )
 
-    def test_ignored_package_removed_from_prod_deps(self):
+
+class TestIgnorePackagesFiltering:
+    """Verify ignore_set excludes packages from solver input (mirrors scan() logic).
+
+    Ignored packages stay in prod_deps/opt_deps/trans_deps so status/export/html still
+    show their row; only the solver-input lists built from them exclude ignore_set members,
+    so an ignored package never receives a recommended_version.
+    """
+
+    def test_ignored_package_excluded_from_solvable_direct_deps(self):
         deps = [_make_dep("sphinx"), _make_dep("requests")]
         ignore_set = frozenset(["sphinx"])
-        result = [d for d in deps if d.canonical_name not in ignore_set]
-        assert [d.canonical_name for d in result] == ["requests"]
+        solvable = [d for d in deps if d.canonical_name not in ignore_set]
+        assert [d.canonical_name for d in solvable] == ["requests"]
 
-    def test_ignored_package_removed_from_opt_deps(self):
-        deps = [_make_dep("pytest", is_optional=True), _make_dep("mypy", is_optional=True)]
-        ignore_set = frozenset(["mypy"])
-        result = [d for d in deps if d.canonical_name not in ignore_set]
-        assert [d.canonical_name for d in result] == ["pytest"]
-
-    def test_empty_ignore_set_leaves_deps_unchanged(self):
+    def test_empty_ignore_set_leaves_solvable_direct_deps_unchanged(self):
         deps = [_make_dep("sphinx"), _make_dep("requests")]
         ignore_set: frozenset[str] = frozenset()
-        result = [d for d in deps if d.canonical_name not in ignore_set]
-        assert result == deps
+        solvable = [d for d in deps if d.canonical_name not in ignore_set]
+        assert solvable == deps
 
-    def test_all_packages_ignored_yields_empty_list(self):
+    def test_all_packages_ignored_yields_empty_solvable_direct_deps(self):
         deps = [_make_dep("sphinx"), _make_dep("requests")]
         ignore_set = frozenset(["sphinx", "requests"])
-        result = [d for d in deps if d.canonical_name not in ignore_set]
-        assert result == []
+        solvable = [d for d in deps if d.canonical_name not in ignore_set]
+        assert solvable == []
 
-    def test_unknown_ignore_name_has_no_effect(self):
+    def test_unknown_ignore_name_has_no_effect_on_solvable_direct_deps(self):
         deps = [_make_dep("sphinx")]
         ignore_set = frozenset(["nonexistent"])
-        result = [d for d in deps if d.canonical_name not in ignore_set]
-        assert result == deps
+        solvable = [d for d in deps if d.canonical_name not in ignore_set]
+        assert solvable == deps
+
+    def test_ignored_transitive_record_excluded_from_solve_regardless_of_security_only(self):
+        records = [_make_scan_record("sphinx", cve=True), _make_scan_record("requests", cve=False)]
+        ignore_set = frozenset(["sphinx"])
+        for security_only in (False, True):
+            records_to_solve = [r for r in records if r.package_name not in ignore_set and (not security_only or r.cve)]
+            assert "sphinx" not in [r.package_name for r in records_to_solve]
 
 
 # ============================================================================

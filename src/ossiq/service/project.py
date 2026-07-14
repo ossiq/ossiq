@@ -495,8 +495,6 @@ def scan(sources: AbstractProjectSources, on_step: Callable[[str], None] | None 
             )
             for dep in project_info.dependencies.values()
         ]
-        if ignore_set:
-            prod_deps = [d for d in prod_deps if d.canonical_name not in ignore_set]
 
         opt_deps: list[DependencyDescriptor] = []
         if not sources.production:
@@ -514,8 +512,6 @@ def scan(sources: AbstractProjectSources, on_step: Callable[[str], None] | None 
                 )
                 for dep in project_info.optional_dependencies.values()
             ]
-        if ignore_set:
-            opt_deps = [d for d in opt_deps if d.canonical_name not in ignore_set]
 
         direct_canonical_names = {dep.canonical_name for dep in prod_deps + opt_deps}
         walker = GraphExporter(project_info.dependency_tree)
@@ -534,7 +530,7 @@ def scan(sources: AbstractProjectSources, on_step: Callable[[str], None] | None 
                     peer_requirements=list(node.peer_requirements),
                 )
                 for node, path in walker.walk_all_paths(include_optional_roots=not sources.production)
-                if node.canonical_name not in direct_canonical_names and node.canonical_name not in ignore_set
+                if node.canonical_name not in direct_canonical_names
             }.values()
         )
 
@@ -593,6 +589,10 @@ def scan(sources: AbstractProjectSources, on_step: Callable[[str], None] | None 
 
         logger.debug("Pass 1 prefetch: %.2fs — %d packages", time.perf_counter() - t0, len(packages_info))
 
+        # Ignored packages still get full ScanRecords (status/export/html show the row), but
+        # they're excluded from solver input so they never receive a recommended_version.
+        solvable_direct_deps = [d for d in prod_deps + opt_deps if d.canonical_name not in ignore_set]
+
         # Warm version-requires cache for top solver candidates before solve_direct runs.
         # Converts N sequential per-call HTTP fetches (in post_solve_validator) into one parallel batch.
         # Only needed for PyPI - NPM embeds all version deps in its main package JSON.
@@ -601,7 +601,7 @@ def scan(sources: AbstractProjectSources, on_step: Callable[[str], None] | None 
         if isinstance(sources.packages_registry, PackageRegistryApiPypi):
             warmup_pairs = [
                 (dep.canonical_name, pv.version)
-                for dep in prod_deps + opt_deps
+                for dep in solvable_direct_deps
                 for pv in filter_eligible_versions(
                     list(sources.packages_registry.package_versions(dep.canonical_name)),
                     dep.version,
@@ -641,7 +641,7 @@ def scan(sources: AbstractProjectSources, on_step: Callable[[str], None] | None 
         step("solver")
         t1 = time.perf_counter()
         solver_output = dependencies_solver.solve_direct(
-            prod_deps + opt_deps,
+            solvable_direct_deps,
             sources.packages_registry,
             engine_context,
             allow_prerelease=sources.allow_prerelease,
@@ -704,9 +704,11 @@ def scan(sources: AbstractProjectSources, on_step: Callable[[str], None] | None 
         # Pass 1.6: HPDR solver over transitive deps.
         # security_only: CVE packages only. Default: all transitive packages.
         if transitive_packages:
-            records_to_solve = (
-                [r for r in transitive_packages if r.cve] if sources.security_only else transitive_packages
-            )
+            records_to_solve = [
+                r
+                for r in transitive_packages
+                if r.package_name not in ignore_set and (not sources.security_only or r.cve)
+            ]
             t3 = time.perf_counter()
             transitive_output = dependencies_solver.solve_transitive(
                 records_to_solve,
