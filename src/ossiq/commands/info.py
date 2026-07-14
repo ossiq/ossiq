@@ -15,7 +15,7 @@ from ossiq.service.package import (
     evaluate_package_rules,
     fetch_prospective_detail,
 )
-from ossiq.service.project import ScanRecord, ScanResult, apply_recommendations
+from ossiq.service.project import ScanRecord, ScanResult, apply_recommendations, clamp_recommendations
 from ossiq.settings import Settings
 from ossiq.solver import dependencies_solver
 from ossiq.sources import project_sources
@@ -96,6 +96,12 @@ def build_installed_detail(
             cooldown_period=settings.cooldown_period,
         )
         apply_recommendations(needs_solve, solo_output, skip_current=False)
+        clamp_recommendations(
+            needs_solve,
+            sources.packages_registry,
+            allow_prerelease=sources.allow_prerelease,
+            cooldown_period=settings.cooldown_period,
+        )
 
     # These fetches hit the already-warm in-process cache — no extra HTTP round-trips.
     package = sources.packages_registry.package_info(canonical_name)

@@ -248,6 +248,35 @@ For *scoped* overrides — where a version is forced only when a package appears
 
 The `scope_path` matters for remediation: a scoped override targeting `dot-prop` inside `lodash` does not affect `dot-prop` when pulled in by other packages. Removing it may leave `dot-prop` under `lodash` unprotected, or free it to resolve a patched version — depending on which direction the version was being forced.
 
+**Overrides are a marker, not a version source.** OSS IQ only reads the *keys* of the `overrides` block to decide which packages to tag `OVERRIDE`; the forced version string is never parsed or fed into the solver. The installed version already reflects the override's effect, because npm applied it before writing the lockfile — OSS IQ just labels the result.
+
+**Matching is by exact tree name.** An override entry is matched against packages by the literal name npm registered them under in the lockfile — not the package's canonical registry name. This matters for [package aliases](#npm-package-aliases): an override keyed `"chalk": "4.1.2"` tags a plain `chalk` dependency, but does nothing to `"chalk-legacy": "npm:chalk@4.1.2"`, because that alias is registered as `chalk-legacy`, not `chalk`. To override an aliased package, key the `overrides` entry with the alias name.
+
+(npm-package-aliases)=
+#### npm — package aliases
+
+npm lets a `package.json` entry install one real package under a different name, using `"npm:<real-name>@<range>"` as the version specifier:
+
+```json
+// package.json
+{
+  "dependencies": {
+    "chalk-legacy": "npm:chalk@4.1.2",
+    "chalk": ">4.1.2 <=5.3.0"
+  }
+}
+```
+
+This is how a project runs two versions of the same package side by side — commonly during a major-version migration, or when one dependency needs an old API another consumer has already moved past.
+
+**Each alias is tracked as its own entry, with its own recommendation.** `ScanRecord.package_name` holds the canonical (real) name — `chalk` for both rows above — and `ScanRecord.dependency_name` holds the name actually used in `package.json` — `chalk-legacy` and `chalk`. The two occurrences never share a recommendation: `chalk-legacy` is held at `4.1.2` because its own alias range pins it there, while plain `chalk` is free to move up to `5.3.0`, even though the solver evaluates candidate versions for the underlying `chalk` package once and both entries draw from the same candidate set.
+
+That per-alias fitting also applies to the solver's [cooldown](#update-solver): when the shared candidate the solver would otherwise recommend falls outside one alias's own range, OSS IQ re-fits that alias to the newest version that satisfies its range and (like the solver itself) still prefers one older than the cooldown period when one exists. If no published version satisfies an alias's own range, that alias is reported with no recommendation rather than inheriting a sibling's.
+
+**Console output does not display the alias name.** The `status` table's *Package* column and the `info` header both print `package_name` — the canonical name — so `chalk-legacy` and `chalk` both read as `chalk` in a scan report; only the *Installed* / *Recommended* columns (and `dependency_path` for transitive occurrences) tell the rows apart. `ossiq-cli info <alias-name>` matches on the alias name directly and opens that one occurrence; `ossiq-cli info <real-name>` matches every occurrence — aliased or not — and lists each as a separate `Occurrence n of m` block.
+
+**`plan` / `apply` cannot rewrite an alias's inner range.** The update solver still computes a per-alias recommendation as described above, but writing it back to `package.json` is unsupported for `npm:pkg@range` specifiers — the alias entry is left untouched by `apply`. Use the recommendation as a manual target and edit the alias range yourself.
+
 ---
 
 ## System Behavior

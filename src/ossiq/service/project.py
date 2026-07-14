@@ -11,7 +11,7 @@ from datetime import UTC, datetime
 from ossiq.adapters.api_interfaces import AbstractPackageRegistryApi, VersionRules
 from ossiq.adapters.api_pypi import PackageRegistryApiPypi
 from ossiq.adapters.package_managers.dependency_tree import GraphExporter
-from ossiq.domain.common import RepositoryProvider, build_purl, parse_spdx_expression
+from ossiq.domain.common import ConstraintType, RepositoryProvider, build_purl, parse_spdx_expression
 from ossiq.domain.cve import CVE
 from ossiq.domain.exceptions import ProjectPathNotFoundError, UnknownPackageVersion
 from ossiq.domain.package import Package
@@ -26,7 +26,7 @@ from ossiq.solver.reason import RecommendationReason
 from ossiq.solver.universe import filter_eligible_versions
 from ossiq.solver.version_matchers import version_satisfies_constraint
 from ossiq.sources.core import AbstractProjectSources
-from ossiq.timeutil import parse_iso_datetime
+from ossiq.timeutil import age_days_from_iso, parse_iso_datetime
 
 logger = logging.getLogger(__name__)
 
@@ -395,6 +395,57 @@ def apply_recommendations(
             record.recommended_version_reason = output.reasons.get(record.package_name)
 
 
+def clamp_recommendations(
+    records: list[ScanRecord],
+    registry: AbstractPackageRegistryApi,
+    *,
+    allow_prerelease: bool,
+    now: datetime | None = None,
+    rewrite_pinned: bool = False,
+    cooldown_period: int = 0,
+) -> None:
+    """Re-fit recommendations that violate a record's own version constraint.
+
+    The solver keys by canonical name, so npm aliases of one package share a single
+    recommendation; clamp each record to the newest eligible version inside its own range,
+    and never below the record's own installed version (a wide alias like ``npm:ms@*`` can
+    inherit a sibling's downgrade that still satisfies its range).
+    Mirrors the solver's soft cooldown: prefer versions older than cooldown_period,
+    fall back to a fresher one only when nothing aged satisfies the range.
+    """
+    for record in records:
+        rec = record.recommended_version
+        if rec is None or not record.version_constraint:
+            continue
+        is_alias = record.version_constraint.startswith("npm:")
+        if rewrite_pinned and record.constraint_info.type == ConstraintType.PINNED and not is_alias:
+            continue  # rewrite mode deliberately recommends beyond == pins; alias pins can't be rewritten
+        in_constraint = version_satisfies_constraint(rec, record.version_constraint, registry.package_registry)
+        is_downgrade = registry.compare_versions(rec, record.installed_version) < 0
+        if in_constraint and not is_downgrade:
+            continue
+        eligible = filter_eligible_versions(
+            list(registry.package_versions(record.package_name)),
+            record.installed_version,
+            allow_prerelease,
+            registry,
+            now,
+        )
+        in_range = [
+            pv
+            for pv in eligible
+            if version_satisfies_constraint(pv.version, record.version_constraint, registry.package_registry)
+        ]
+        aged = [
+            pv
+            for pv in in_range
+            if (age := age_days_from_iso(pv.published_date_iso, now=now)) is not None and age >= cooldown_period
+        ]
+        fitted = aged[0] if aged else (in_range[0] if in_range else None)
+        record.recommended_version = fitted.version if fitted else None
+        record.recommended_version_reason = None  # reason described the unclamped pick
+
+
 def scan_sort_key(pkg: ScanRecord) -> tuple[int, int, int, str]:
     """Sort key for scan tables: drift severity, CVE count, time lag, then name.
 
@@ -615,6 +666,14 @@ def scan(sources: AbstractProjectSources, on_step: Callable[[str], None] | None 
         apply_conflicts(solver_output, production_packages + optional_packages)
         if solver_output.recommendations:
             apply_recommendations(production_packages + optional_packages, solver_output)
+            clamp_recommendations(
+                production_packages + optional_packages,
+                sources.packages_registry,
+                allow_prerelease=sources.allow_prerelease,
+                now=now,
+                rewrite_pinned=sources.rewrite_versions,
+                cooldown_period=sources.settings.cooldown_period,
+            )
 
             # Build a complete set of installed canonical names — includes transitive deps
             # of dev/optional packages that walk_all_paths() skips by default. Used to
@@ -636,7 +695,10 @@ def scan(sources: AbstractProjectSources, on_step: Callable[[str], None] | None 
             logger.debug("Pass 1.5b simulate_impacts: %.2fs — %d packages", time.perf_counter() - t2, len(impacts))
             for record in production_packages + optional_packages:
                 impact = impacts.get(record.package_name)
-                if impact is not None:
+                # Skip clamped records: impacts were simulated for the unclamped solver pick.
+                if impact is not None and record.recommended_version == solver_output.recommendations.get(
+                    record.package_name
+                ):
                     record.update_transitive_impacts = impact.transitive_impacts
 
         # Pass 1.6: HPDR solver over transitive deps.
