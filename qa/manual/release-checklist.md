@@ -11,10 +11,9 @@
 ## 01 — General ([details](01-general.md))
 
 - [ ] TC-G07: `uv run just qa` — all tests pass
-- [ ] TC-G01: `--version`, `--help`, `status --help`, `html --help`, `plan --help`, `apply --help` all work; `status --help` lists `--security`, `--ignore` but NOT `--presentation`; `html --help` lists `--output`, `--security`, `--ignore` but NOT `--presentation`; `plan --help` lists `--pin-all`, `--rewrite-versions`, `--script`, `--ignore`; `apply --help` lists `--yes`, `--pin-all`, `--rewrite-versions`, `--ignore`
+- [ ] TC-G01: `--version`, `--help`, `status --help`, `html --help`, `plan --help`, `apply --help` all work; `status --help` lists `--security`, `--ignore` but NOT `--presentation`; `html --help` lists `--output`, `--security`, `--ignore` but NOT `--presentation`; `plan --help` lists `--pin-all`, `--rewrite-versions`, `--override`, `--ignore` (NOT `--script`); `apply --help` lists `--yes`, `--pin-all`, `--rewrite-versions`, `--override`, `--ignore`
 - [ ] TC-G03/G04: Ecosystem auto-detected (PyPI and npm)
 - [ ] TC-G02: `--verbose` shows settings panel; without it, panel is absent
-- [ ] TC-G08: `helpers --help` lists `npm`; `helpers npm --help` lists `freeze-state`, `restore-state`, `overrides-diff`
 - [ ] TC-G09: values from `~/.ossiq/config` are picked up (visible in `--verbose` settings panel)
 - [ ] TC-G10: `--config <custom-file>` loads a custom config file; nonexistent path shows clean error (no traceback)
 - [ ] TC-G11: precedence — env var overrides config file; CLI flag overrides env var
@@ -58,20 +57,18 @@
 - [ ] TC-T01: `--security`, `--ignore` in `status --help` (no `--presentation`, no `--full`); `--security`, `--pin-all`, `--ignore` in `plan --help`
 - [ ] TC-T02: `status` shows `↳ also updates:` sub-rows under at least one recommendation
 - [ ] TC-T03: `status` (no flags) shows all packages including up-to-date ones with no CVEs; table is non-empty on a fully-current project
-- [ ] TC-T07: `plan` renders without crash, shows transitive impact sub-rows; `plan --script` produces an update script block
+- [ ] TC-T07: `plan` renders without crash and shows transitive impact sub-rows (`↳ also updates:` / `✗ no actionable update found`)
 
-## 07 — Plan Command: --pin-all, --rewrite-versions, --ignore, Specifier Rewrite, NPM Helpers ([details](07-plan-apply-command.md))
+## 07 — Plan Command: --pin-all, --rewrite-versions, --override, --ignore ([details](07-plan-apply-command.md))
 
 - [ ] TC-U01: `--ignore` on status — ignored package has no recommendation; still visible in table
-- [ ] TC-U02: `--ignore` on plan — ignored package absent from plan and generated script
-- [ ] TC-U05: UV NARROWED (`~=`): script contains `sed` with `~=<new_version>`; no `--upgrade-package` for that entry
-- [ ] TC-U06: UV DECLARED (`>=`): no `sed`; `uv lock --upgrade-package <pkg>==<ver>` present
-- [ ] TC-U07: UV `--pin-all`: all direct dep `sed` lines use `==<ver>` regardless of original specifier
-- [ ] TC-U08: NPM generated script has zero `node -e` lines; uses `ossiq helpers npm freeze-state` / `restore-state`
-- [ ] TC-U09: `ossiq helpers npm freeze-state` creates `.ossiq_npm_state.json` and locks `package.json` overrides
-- [ ] TC-U10: `ossiq helpers npm restore-state` restores original overrides and deletes state file
-- [ ] TC-U11: `ossiq helpers npm overrides-diff` prints diff table without modifying any file
-- [ ] TC-U14: `ossiq plan --npm-overrides-diff` rejected with "No such option" (flag removed)
+- [ ] TC-U02: `--ignore` on plan — ignored package absent from plan output
+- [ ] TC-U05: UV NARROWED (`~=`) — `apply` rewrites the `pyproject.toml` specifier to `~=<new_version>`, preserving the operator
+- [ ] TC-U06: UV DECLARED (`>=`) — `apply` leaves the `pyproject.toml` specifier untouched; `uv.lock` still resolves to the recommended version via `uv lock --upgrade-package`
+- [ ] TC-U07: UV `--pin-all` — `apply --pin-all` rewrites every updated direct dependency's specifier to `==<ver>` regardless of original operator
+- [ ] TC-U08: NPM `apply` — rewrites direct dependency specifiers in `package.json`, adds transitive-only changes to `overrides`, and runs `npm install --ignore-scripts`
+- [ ] TC-U14: `ossiq plan --script` rejected with "No such option" (flag removed in GH-94; script generation and `ossiq helpers` were dropped — `apply` executes updates in-process)
+- [ ] TC-U15: `--override pkg==version` on `plan`/`apply` — direct dependency gets its specifier rewritten to the exact forced version; a transitive dependency gets a persistent `override-dependencies` (uv) / `overrides` (npm) entry that survives future scans
 
 ## 08 — Gated Package Add
 
@@ -81,9 +78,9 @@
 - [ ] TC-A04: `ossiq-cli add <critically-unhealthy-package> --force` proceeds past warning to confirmation prompt
 - [ ] TC-A05: `ossiq-cli add requests --version 2.28.0 testdata/pypi/uv` shows the fixed version in the install spec, not the solver recommendation
 
-## 09 — Automated Matrix ([details](README.md#automated-matrix))
+## 09 — Automated Matrix ([details](../README.md#automated-matrix))
 
-- [ ] TC-M01: `just qa-matrix` exits 0 with `FAIL=0`; SKIPs acceptable; `qa_logs/summary.log` shows no FAILs
+- [ ] TC-M01: `just qa-matrix` exits 0; `qa_logs/summary.log` final `Results:` line shows `0 failed` (SKIPs acceptable)
 
 ## 10 — LLM Integration: `install skills` & MCP Server ([details](10-llm-integration.md))
 

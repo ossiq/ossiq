@@ -1,27 +1,26 @@
-# 07 — Plan Command: --pin-all, --rewrite-versions, --ignore, NPM Helpers
+# 07 — Plan Command: --pin-all, --rewrite-versions, --override, --ignore
 
-`plan` shows solver recommendations read-only. `apply` executes them. Both share the same option surface.
+`plan` shows solver recommendations read-only and never touches files. `apply` executes them
+in-process (rewrites the manifest, runs `uv lock`/`uv sync` or `npm install`, rolls back on
+failure). Both share the same option surface.
 
-Run from repo root. UV specifier and helpers tests require network (registry lookups).
+Run from repo root. UV/NPM specifier-rewrite tests require network (registry lookups).
 
 **Precondition:**
 
 ```bash
 uv run hatch run ossiq-cli plan --help
-uv run hatch run ossiq-cli plan --help | grep -E "pin-all|rewrite-versions|ignore|script"
-uv run hatch run ossiq-cli apply --help | grep -E "yes|pin-all|rewrite-versions"
-uv run hatch run ossiq-cli helpers --help
-uv run hatch run ossiq-cli helpers npm --help
+uv run hatch run ossiq-cli plan --help | grep -E "pin-all|rewrite-versions|override|ignore"
+uv run hatch run ossiq-cli apply --help | grep -E "yes|pin-all|rewrite-versions|override"
 ```
 
-- [ ] `plan --help` lists `--script`, `--pin-all`, `--rewrite-versions`, `--ignore`
+- [ ] `plan --help` lists `--pin-all`, `--rewrite-versions`, `--override`, `--ignore` (NOT `--script`)
 - [ ] `--pin-all` listed in `plan --help`
 - [ ] `--rewrite-versions` listed in `plan --help`
-- [ ] `--script` listed in `plan --help`
+- [ ] `--override` listed in `plan --help`
 - [ ] `--yes` / `-y` listed in `apply --help`
+- [ ] `--override` listed in `apply --help`
 - [ ] `--ignore` / `-i` listed in both `plan` and `apply` help outputs
-- [ ] `helpers --help` shows `npm` subcommand
-- [ ] `helpers npm --help` shows `freeze-state`, `restore-state`, `overrides-diff`
 
 ---
 
@@ -68,7 +67,7 @@ uv run hatch run ossiq-cli export --ignore requests --output-format=json --outpu
 ## TC-U04: `--ignore/-i` on info — flag accepted, no crash
 
 ```bash
-uv run hatch run ossiq-cli info --ignore requests testdata/pypi/version-constraint pydantic
+uv run hatch run ossiq-cli info pydantic testdata/pypi/version-constraint --ignore requests
 ```
 
 - [ ] Command completes without crash
@@ -76,153 +75,134 @@ uv run hatch run ossiq-cli info --ignore requests testdata/pypi/version-constrai
 
 ---
 
-## TC-U05: UV smart specifier — NARROWED (`~=`): sed line with new compatible-release version
+## TC-U05: UV smart specifier — NARROWED (`~=`): `apply` rewrites in-place
+
+> This test modifies `pyproject.toml`. Restore with `git checkout` afterwards (see cleanup below).
 
 ```bash
-uv run hatch run ossiq-cli plan --script testdata/pypi/version-constraint
+uv run hatch run ossiq-cli apply --yes testdata/pypi/version-constraint
+grep 'requests' testdata/pypi/version-constraint/pyproject.toml
 ```
 
-Inspect the generated script block for `requests` (specifier `~= 2.31.0`):
+`requests` is declared as `~= 2.31.0` (NARROWED):
 
-- [ ] Script contains a `sed` line for `requests` that rewrites the specifier (e.g. `requests~=2.32.3`)
-- [ ] The `~=` operator is preserved; only the version number changes
-- [ ] No `--upgrade-package requests` line in the `uv lock` call
-- [ ] Script has no `node -e` or inline JavaScript
+- [ ] `pyproject.toml` specifier rewritten to `requests~=<recommended_version>`, preserving the `~=` operator
+- [ ] `uv.lock` resolves `requests` to the recommended version
+
+```bash
+# Cleanup
+git checkout testdata/pypi/version-constraint/pyproject.toml testdata/pypi/version-constraint/uv.lock
+```
 
 ---
 
-## TC-U06: UV smart specifier — DECLARED (`>=`): no sed; upgrade-package instead
+## TC-U06: UV smart specifier — DECLARED (`>=`): lockfile-only update
+
+> This test modifies `pyproject.toml`/`uv.lock`. Restore with `git checkout` afterwards.
 
 ```bash
-uv run hatch run ossiq-cli plan --script testdata/pypi/version-constraint
+uv run hatch run ossiq-cli apply --yes testdata/pypi/version-constraint
+grep 'pydantic' testdata/pypi/version-constraint/pyproject.toml
 ```
 
-Inspect the generated script block for `pydantic` (specifier `>= 2.0.0`):
+`pydantic` is declared as `>= 2.0.0` (DECLARED):
 
-- [ ] No `sed` line for `pydantic` in the script
-- [ ] `uv lock` call includes `--upgrade-package pydantic==<recommended_version>`
-- [ ] `pyproject.toml` is not modified for this package
+- [ ] `pyproject.toml` specifier for `pydantic` is unchanged (no edit — lockfile-only update)
+- [ ] `uv.lock` still resolves `pydantic` to the recommended version (applied via `uv lock --upgrade-package`)
+
+```bash
+# Cleanup
+git checkout testdata/pypi/version-constraint/pyproject.toml testdata/pypi/version-constraint/uv.lock
+```
 
 ---
 
 ## TC-U07: UV `--pin-all` flag — all direct deps pinned exactly with `==`
 
-```bash
-uv run hatch run ossiq-cli plan --pin-all --script testdata/pypi/version-constraint
-```
-
-- [ ] Script contains a `sed` line for every direct dep with a pending update
-- [ ] Each `sed` replacement uses `==<version>` (exact pin), regardless of original specifier
-- [ ] No crash
-
----
-
-## TC-U08: NPM generated script — no inline JavaScript, uses helpers subcommands
+> This test modifies `pyproject.toml`/`uv.lock`. Restore with `git checkout` afterwards.
 
 ```bash
-uv run hatch run ossiq-cli plan --script testdata/npm/version-constrained
+uv run hatch run ossiq-cli apply --pin-all --yes testdata/pypi/version-constraint
 ```
 
-Inspect the generated script block:
-
-- [ ] Zero `node -e` lines anywhere in the script
-- [ ] Script calls `ossiq helpers npm freeze-state "<path>" --registry-type npm` (or similar flags)
-- [ ] Script calls `npm install`
-- [ ] Script calls `ossiq helpers npm restore-state "<path>"`
-- [ ] ROLLBACK comment references `ossiq helpers npm restore-state`
-- [ ] No crash
-
----
-
-## TC-U09: `ossiq helpers npm freeze-state` — writes state file and locks overrides
-
-> Requires an npm project with `node_modules` installed. Use `testdata/npm/version-constrained`
-> after running `npm install` in that directory, or substitute a real local npm project.
-
-```bash
-# One-time setup
-(cd testdata/npm/version-constrained && npm install)
-
-# Run freeze-state
-uv run hatch run ossiq-cli helpers npm freeze-state testdata/npm/version-constrained --registry-type npm
-```
-
-- [ ] `.ossiq_npm_state.json` created in the project directory
-- [ ] State file contains `original_overrides`, `recommended_packages`, `locked_overrides` keys
-- [ ] `locked_overrides` in state file contains every installed transitive package at its installed version
-- [ ] Recommended packages appear in `locked_overrides` at their **new recommended** versions
-- [ ] `package.json` `"overrides"` section now contains all locked packages
-- [ ] No crash
-
----
-
-## TC-U10: `ossiq helpers npm restore-state` — restores overrides and deletes state file
-
-> Run after TC-U09 (state file must exist).
-
-```bash
-uv run hatch run ossiq-cli helpers npm restore-state testdata/npm/version-constrained
-```
-
-- [ ] `.ossiq_npm_state.json` deleted after command completes
-- [ ] `package.json` `"overrides"` section is restored to original overrides (minus recommended packages)
-- [ ] If original overrides were empty, the `"overrides"` key is removed from `package.json` entirely (not set to `{}`)
-- [ ] Confirmation message printed to stdout
-- [ ] No crash
-
----
-
-## TC-U11: `ossiq helpers npm overrides-diff` — read-only diff, no file mutation
-
-> Run while `.ossiq_npm_state.json` exists (e.g. after TC-U09 and before TC-U10).
-
-```bash
-uv run hatch run ossiq-cli helpers npm overrides-diff testdata/npm/version-constrained
-```
-
-- [ ] Diff table printed showing original vs current overrides
-- [ ] Rows prefixed with `=` (unchanged), `+` (added), `-` (removed), or `~` (changed)
-- [ ] `package.json` is not modified (verify with `git diff testdata/npm/version-constrained/package.json`)
-- [ ] `.ossiq_npm_state.json` is not modified
-- [ ] No crash
-
----
-
-## TC-U12: NPM `--pin-all` — exact versions written to dep sections during freeze-state
-
-```bash
-uv run hatch run ossiq-cli helpers npm freeze-state testdata/npm/version-constrained --registry-type npm --pin-all
-```
-
-- [ ] Direct dependency entries in `package.json` (`dependencies`, `devDependencies`, etc.) are rewritten to exact versions (no `^`, `~`, or range operators)
-- [ ] Exact versions match the recommended versions in the plan
+- [ ] Every direct dependency with a pending update is rewritten to `==<version>` (exact pin) in `pyproject.toml`, regardless of its original operator
 - [ ] No crash
 
 ```bash
 # Cleanup
-uv run hatch run ossiq-cli helpers npm restore-state testdata/npm/version-constrained
+git checkout testdata/pypi/version-constraint/pyproject.toml testdata/pypi/version-constraint/uv.lock
 ```
 
 ---
 
-## TC-U13: NPM caret spec — same major version, specifier unchanged in package.json
+## TC-U08: NPM `apply` — manifest rewrite + `npm install --ignore-scripts`
+
+> This test modifies `package.json`. Restore with `git checkout` afterwards.
 
 ```bash
-uv run hatch run ossiq-cli plan --script testdata/npm/version-constrained
+uv run hatch run ossiq-cli apply --yes testdata/npm/version-constrained
+git diff testdata/npm/version-constrained/package.json
+```
+
+- [ ] Direct dependency specifiers in `package.json` updated to their recommended versions
+- [ ] Transitive-only changes are added to the `overrides` block in `package.json`
+- [ ] `npm install --ignore-scripts` runs (visible in terminal output; `package-lock.json`/`node_modules` updated)
+- [ ] If `npm install` fails, `package.json` is restored to its pre-run state
+- [ ] No crash
+
+```bash
+# Cleanup
+git checkout testdata/npm/version-constrained/package.json testdata/npm/version-constrained/package-lock.json
+```
+
+---
+
+## TC-U12: NPM `--pin-all` — direct deps pinned to exact versions via `apply`
+
+> This test modifies `package.json`. Restore with `git checkout` afterwards.
+
+```bash
+uv run hatch run ossiq-cli apply --pin-all --yes testdata/npm/version-constrained
+```
+
+- [ ] Updated direct dependency entries in `package.json` are rewritten to exact versions (no `^`, `~`, or range operators)
+- [ ] Exact versions match the recommended versions from `plan`
+- [ ] No crash
+
+```bash
+# Cleanup
+git checkout testdata/npm/version-constrained/package.json testdata/npm/version-constrained/package-lock.json
+```
+
+---
+
+## TC-U13: NPM caret spec — same major version stays resolvable after `apply`
+
+> This test modifies `package.json`. Restore with `git checkout` afterwards.
+
+```bash
+uv run hatch run ossiq-cli apply --yes testdata/npm/version-constrained
 ```
 
 Find a package in `testdata/npm/version-constrained/package.json` that uses `^major.x.x` and whose recommended version is within the same major:
 
-- [ ] `package.json` is **not** modified for that package (specifier left as-is)
-- [ ] The generated script still installs the new version via the overrides mechanism
 - [ ] No crash
+- [ ] `package-lock.json` reflects the recommended version for that package after `npm install`
+
+```bash
+# Cleanup
+git checkout testdata/npm/version-constrained/package.json testdata/npm/version-constrained/package-lock.json
+```
 
 ---
 
-## TC-U14: Removed flag `--npm-overrides-diff` is rejected
+## TC-U14: Removed flag `--script` is rejected
+
+`plan --script` and the entire script-generation / `ossiq helpers` surface were removed (GH-94);
+`apply` is now the only way to execute updates, and it does so in-process.
 
 ```bash
-uv run hatch run ossiq-cli plan --npm-overrides-diff testdata/npm/version-constrained 2>&1 | head -5
+uv run hatch run ossiq-cli plan --script testdata/pypi/version-constraint 2>&1 | head -5
 ```
 
 - [ ] Command exits with a non-zero code
@@ -231,27 +211,15 @@ uv run hatch run ossiq-cli plan --npm-overrides-diff testdata/npm/version-constr
 
 ---
 
-## TC-U15: `plan` shows table only (no script)
+## TC-U15: `plan` shows a table only, never touches files
 
 ```bash
 uv run hatch run ossiq-cli plan testdata/pypi/version-constraint
 ```
 
 - [ ] Plan table is printed (Package / Current / Recommended columns visible)
-- [ ] No bash script block printed (no `#!/usr/bin/env bash` line)
-- [ ] No crash
-
----
-
-## TC-U16: `plan --script` emits script only (no table)
-
-```bash
-uv run hatch run ossiq-cli plan --script testdata/pypi/version-constraint
-```
-
-- [ ] Output starts with `#!/usr/bin/env bash` (no Rich table header)
-- [ ] No "OSS IQ — Plan" header line in output
-- [ ] Script can be piped cleanly: `ossiq-cli plan --script testdata/pypi/version-constraint | bash` (dry-run review)
+- [ ] No bash script block printed (script generation was removed — `plan` is read-only)
+- [ ] `pyproject.toml` unchanged (`git diff testdata/pypi/version-constraint/pyproject.toml` is empty)
 - [ ] No crash
 
 ---
@@ -262,7 +230,7 @@ uv run hatch run ossiq-cli plan --script testdata/pypi/version-constraint
 uv run hatch run ossiq-cli plan --help
 ```
 
-- [ ] Output shows plan help text listing `--script`, `--pin-all`, `--rewrite-versions`, `--ignore`
+- [ ] Output shows plan help text listing `--pin-all`, `--rewrite-versions`, `--override`, `--ignore` (NOT `--script`)
 - [ ] No Python traceback
 - [ ] Exit code is zero
 

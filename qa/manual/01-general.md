@@ -9,18 +9,16 @@ Run from repo root. No network-sensitive operations.
 ```bash
 uv run hatch run ossiq-cli --version
 uv run hatch run ossiq-cli --help
-uv run hatch run ossiq-cli scan --help
-uv run hatch run ossiq-cli update --help
-uv run hatch run ossiq-cli update plan --help
-uv run hatch run ossiq-cli update execute --help
+uv run hatch run ossiq-cli status --help
+uv run hatch run ossiq-cli plan --help
+uv run hatch run ossiq-cli apply --help
 ```
 
 - [ ] `--version` prints a semver string
-- [ ] `--help` lists `scan`, `package`, `export`, `update`, `helpers` subcommands
-- [ ] `status --help` lists `--security`, `--production`, `--allow-prerelease`, `--registry-type`, `--presentation`, `--output`, `--ignore`; `--full` is absent
-- [ ] `update --help` lists `plan` and `execute` as subcommands (no direct flags)
-- [ ] `update plan --help` lists `--pin-all`, `--rewrite-versions`, `--script`, `--ignore` / `-i`
-- [ ] `update execute --help` lists `--yes` / `-y`, `--pin-all`, `--rewrite-versions`, `--ignore` / `-i`
+- [ ] `--help` lists `status`, `html`, `export`, `info`, `add`, `plan`, `apply`, `install`, `mcp` subcommands (no `scan`, `package`, `update`, or `helpers`)
+- [ ] `status --help` lists `--security`, `--production`, `--allow-prerelease`, `--registry-type`, `--ignore`, `--format`; `--presentation` and `--output` are absent (those belong to `html`)
+- [ ] `plan --help` lists `--pin-all`, `--rewrite-versions`, `--override`, `--ignore` / `-i` (NOT `--script`)
+- [ ] `apply --help` lists `--yes` / `-y`, `--pin-all`, `--rewrite-versions`, `--override`, `--ignore` / `-i`
 
 ---
 
@@ -39,7 +37,7 @@ uv run hatch run ossiq-cli --verbose scan testdata/pypi/version-constraint
 ## TC-G03: Auto-detection — PyPI
 
 ```bash
-uv run hatch run ossiq-cli scan testdata/pypi/pip-classic
+uv run hatch run ossiq-cli status testdata/pypi/pip-classic
 ```
 
 - [ ] Header shows `Packages Registry: pypi`
@@ -50,7 +48,7 @@ uv run hatch run ossiq-cli scan testdata/pypi/pip-classic
 ## TC-G04: Auto-detection — npm
 
 ```bash
-uv run hatch run ossiq-cli scan testdata/npm/project1
+uv run hatch run ossiq-cli status testdata/npm/project1
 ```
 
 - [ ] Header shows `Packages Registry: npm`
@@ -60,7 +58,7 @@ uv run hatch run ossiq-cli scan testdata/npm/project1
 ## TC-G05: Auto-detection — mixed (PyPI + npm)
 
 ```bash
-uv run hatch run ossiq-cli scan testdata/mixed
+uv run hatch run ossiq-cli status testdata/mixed
 ```
 
 - [ ] Both PyPI and npm packages appear in separate tables or clearly marked sections
@@ -71,7 +69,7 @@ uv run hatch run ossiq-cli scan testdata/mixed
 ## TC-G06: Registry override
 
 ```bash
-uv run hatch run ossiq-cli scan --registry-type=pypi testdata/mixed
+uv run hatch run ossiq-cli status --registry-type=pypi testdata/mixed
 ```
 
 - [ ] Only PyPI packages processed (npm packages absent from output)
@@ -86,19 +84,6 @@ uv run just qa
 ```
 
 - [ ] All tests pass (0 failures; any skips/xfails are expected and documented)
-
----
-
-## TC-G08: `helpers` command group help
-
-```bash
-uv run hatch run ossiq-cli helpers --help
-uv run hatch run ossiq-cli helpers npm --help
-```
-
-- [ ] `helpers --help` lists `npm` as a subcommand with a description
-- [ ] `helpers npm --help` lists `freeze-state`, `restore-state`, and `overrides-diff` with descriptions
-- [ ] No crash or traceback
 
 ---
 
