@@ -52,6 +52,7 @@ def _make_registry(versions_by_name: dict[str, list[PackageVersion]]) -> MagicMo
         return -1 if p1 < p2 else (1 if p1 > p2 else 0)
 
     registry.compare_versions.side_effect = _cmp
+    registry.package_version_requires.return_value = {}
     return registry
 
 

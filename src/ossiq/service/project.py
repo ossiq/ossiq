@@ -23,6 +23,7 @@ from ossiq.service.library_scan import UpgradePath, compute_upgrade_paths, resol
 from ossiq.service.update_impact import TransitiveImpact, simulate_single, simulate_update_impacts
 from ossiq.solver import dependencies_solver
 from ossiq.solver.reason import RecommendationReason
+from ossiq.solver.universe import filter_eligible_versions
 from ossiq.solver.version_matchers import version_satisfies_constraint
 from ossiq.sources.core import AbstractProjectSources
 from ossiq.timeutil import parse_iso_datetime
@@ -329,8 +330,8 @@ def prefetch_source_code_repositories_info(
     Pre-fetch repository info for all unique GitHub repo URLs in parallel.
     Returns a mapping of url -> Repository; non-GitHub URLs are skipped.
     """
-    github_urls = [url for url in repo_urls if "github.com" in url]
-    if not github_urls:
+
+    if not (github_urls := [url for url in repo_urls if "github.com" in url]):
         return {}
     return sources.get_source_code_provider(RepositoryProvider.PROVIDER_GITHUB).repositories_info_batch(github_urls)
 
@@ -543,12 +544,20 @@ def scan(sources: AbstractProjectSources, on_step: Callable[[str], None] | None 
 
         # Warm version-requires cache for top solver candidates before solve_direct runs.
         # Converts N sequential per-call HTTP fetches (in post_solve_validator) into one parallel batch.
-        # Only needed for PyPI — NPM embeds all version deps in its main package JSON.
+        # Only needed for PyPI - NPM embeds all version deps in its main package JSON.
+        # Warm the same newest-first candidates the solver will consider - raw package_versions()
+        # yields releases oldest-first on PyPI, which would warm versions the solver never checks.
         if isinstance(sources.packages_registry, PackageRegistryApiPypi):
             warmup_pairs = [
                 (dep.canonical_name, pv.version)
                 for dep in prod_deps + opt_deps
-                for pv in list(sources.packages_registry.package_versions(dep.canonical_name))[:10]
+                for pv in filter_eligible_versions(
+                    list(sources.packages_registry.package_versions(dep.canonical_name)),
+                    dep.version,
+                    sources.allow_prerelease,
+                    sources.packages_registry,
+                    now,
+                )[:10]  # FIXME: questionable solution for high-frequency released packages
             ]
             sources.packages_registry.warmup_version_requires(warmup_pairs)
 
@@ -644,6 +653,7 @@ def scan(sources: AbstractProjectSources, on_step: Callable[[str], None] | None 
                 allow_prerelease=sources.allow_prerelease,
                 now=now,
                 cooldown_period=sources.settings.cooldown_period,
+                external_targets={**installed_version_by_name, **solver_output.recommendations},
             )
             logger.debug(
                 "Pass 1.6 solve_transitive: %.2fs — %d records, %d recommendations",

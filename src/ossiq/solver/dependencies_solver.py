@@ -55,6 +55,8 @@ class SolverOutput:
 
 EMPTY_OUTPUT = SolverOutput(recommendations={}, reasons={})
 
+MAX_CONSISTENCY_ROUNDS = 3
+
 
 def apply_fallback(
     output: SolverOutput,
@@ -98,10 +100,83 @@ def apply_fallback(
         )
 
         if fallback is not None:
+            logger.debug("apply_fallback: %s demoted %s -> %s", pkg, version, fallback)
             new_recs[pkg] = fallback
             new_reasons[pkg] = build_reason(pkg, fallback, problem, penalize_fresh_days=cooldown_period)
+        else:
+            logger.debug("apply_fallback: %s==%s dropped — no acceptable fallback candidate", pkg, version)
 
-    return SolverOutput(recommendations=new_recs, reasons=new_reasons)
+    return SolverOutput(recommendations=new_recs, reasons=new_reasons, conflicts=output.conflicts)
+
+
+def build_requires_validator(
+    problem: SolverProblem,
+    registry: AbstractPackageRegistryApi,
+    recommendations: dict[str, str],
+    external_targets: dict[str, str],
+) -> Callable[[str, str], bool]:
+    """Reject candidates whose requirements conflict with other pinned or held versions.
+
+    A recommended version is acceptable only when every dependency it declares is satisfied by
+    the version that dependency will end up at: its own recommendation within this solve, or an
+    external target (e.g. direct-dep versions when solving transitives). Dependencies outside
+    the solution are skipped — the package manager resolves them freely.
+    """
+
+    def validate(pkg: str, version: str) -> bool:
+        for dep, spec in registry.package_version_requires(pkg, version).items():
+            if not spec or dep == pkg:
+                continue
+            target = recommendations.get(dep) or external_targets.get(dep)
+            if target is None:
+                continue
+            # TODO: strict check is conservative — a dep whose recommendation equals its installed
+            #       version is not pinned in the plan, so the resolver may still move it in-range.
+            if not version_satisfies_constraint(target, spec, problem.registry):
+                logger.debug("requires check: %s==%s needs %s%s, held at %s", pkg, version, dep, spec, target)
+                return False
+        return True
+
+    return validate
+
+
+def apply_requires_consistency(
+    output: SolverOutput,
+    problem: SolverProblem,
+    registry: AbstractPackageRegistryApi,
+    *,
+    extra_validator: Callable[[str, str], bool] | None = None,
+    external_targets: dict[str, str] | None = None,
+    cooldown_period: int = VERY_FRESH_THRESHOLD_DAYS,
+) -> SolverOutput:
+    """Demote or drop recommendations until the joint set is requires-consistent.
+
+    Runs apply_fallback in a bounded fixpoint loop: each round rebuilds the requires validator
+    from the previous round's recommendations, because a demotion can invalidate picks that were
+    validated against the pre-demotion version. A final drop-only sweep guarantees the returned
+    set is consistent even if the loop stops at its round cap.
+    """
+    targets = external_targets or {}
+
+    def combine(requires_validator: Callable[[str, str], bool]) -> Callable[[str, str], bool]:
+        if extra_validator is None:
+            return requires_validator
+        return lambda pkg, version: extra_validator(pkg, version) and requires_validator(pkg, version)
+
+    for _ in range(MAX_CONSISTENCY_ROUNDS):
+        requires_validator = build_requires_validator(problem, registry, output.recommendations, targets)
+        new_output = apply_fallback(output, problem, combine(requires_validator), cooldown_period=cooldown_period)
+        if new_output.recommendations == output.recommendations:
+            return new_output
+        output = new_output
+
+    requires_validator = build_requires_validator(problem, registry, output.recommendations, targets)
+    consistent = {pkg: ver for pkg, ver in output.recommendations.items() if requires_validator(pkg, ver)}
+    return SolverOutput(
+        recommendations=consistent,
+        reasons={pkg: output.reasons[pkg] for pkg in consistent},
+        conflicts=output.conflicts,
+    )
 
 
 def detect_conflicts(problem: SolverProblem) -> list[ConstraintConflict]:
@@ -198,6 +273,8 @@ def solve_direct(
     Returns:
         SolverOutput with recommendations and per-package rationales.
         Returns empty SolverOutput when solver cannot select any version or deps is empty.
+        Recommendations are post-validated for joint requires-consistency: a pick whose
+        declared requirements conflict with another pick is demoted or dropped.
     """
     if not deps:
         return EMPTY_OUTPUT
@@ -212,9 +289,15 @@ def solve_direct(
         cooldown_period=cooldown_period,
         rewrite_pinned=rewrite_pinned,
     )
-    if post_solve_validator is not None and output.recommendations:
-        return apply_fallback(output, problem, post_solve_validator, cooldown_period=cooldown_period)
-    return output
+    if not output.recommendations:
+        return output
+    return apply_requires_consistency(
+        output,
+        problem,
+        registry,
+        extra_validator=post_solve_validator,
+        cooldown_period=cooldown_period,
+    )
 
 
 @dataclass(frozen=True)
@@ -236,6 +319,7 @@ def solve_transitive(
     allow_prerelease: bool = False,
     now: datetime | None = None,
     cooldown_period: int = VERY_FRESH_THRESHOLD_DAYS,
+    external_targets: dict[str, str] | None = None,
 ) -> SolverOutput:
     """Run HPDR solver over transitive dependencies.
 
@@ -248,6 +332,9 @@ def solve_transitive(
         registry: Registry instance with warm cache from the preceding scan pass.
         engine_context: Project engine versions. Pass {} — populating deferred to Phase 6+.
         allow_prerelease: When True, include pre-release candidates.
+        external_targets: {package: version} pins outside this solve (direct-dep installed
+                          versions and recommendations). A transitive pick whose requirements
+                          conflict with these is demoted or dropped.
 
     Returns:
         SolverOutput with recommendations and per-package rationales.
@@ -279,7 +366,7 @@ def solve_transitive(
     ]
 
     # 4. Build -> encode -> solve.
-    output, _ = _run_solve(
+    output, problem = _run_solve(
         "solve_transitive",
         deps,
         registry,
@@ -289,4 +376,12 @@ def solve_transitive(
         now=now,
         cooldown_period=cooldown_period,
     )
-    return output
+    if not output.recommendations:
+        return output
+    return apply_requires_consistency(
+        output,
+        problem,
+        registry,
+        external_targets=external_targets,
+        cooldown_period=cooldown_period,
+    )
