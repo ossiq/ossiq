@@ -25,7 +25,7 @@ from ossiq.domain.cve import CVE, CveDatabase, Severity
 from ossiq.domain.exceptions import DestinationDoesntExist
 from ossiq.domain.project import ConstraintSource
 from ossiq.domain.version import VersionsDifference
-from ossiq.service.project import ScanRecord, ScanResult
+from ossiq.service.project.models import ScanRecord, ScanResult
 from ossiq.settings import Settings
 from ossiq.ui.renderers.export.json import JsonExportRenderer
 from ossiq.ui.renderers.export.json_schema_registry import json_schema_registry

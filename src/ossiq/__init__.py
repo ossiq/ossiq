@@ -3,7 +3,8 @@
 from ossiq.domain.cve import CVE
 from ossiq.domain.package import Package
 from ossiq.domain.version import VersionsDifference
-from ossiq.service.project import ScanRecord, ScanResult, scan
+from ossiq.service.project.models import ScanRecord, ScanResult
+from ossiq.service.project.scan import scan
 from ossiq.settings import Settings
 from ossiq.sources.core import AbstractProjectSources
 

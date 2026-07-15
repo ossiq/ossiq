@@ -80,7 +80,9 @@ export OSSIQ_GITHUB_TOKEN=replace-with-generated-token;
 
     OSS IQ provides a high-level risk score and breaks down specific signals for both security (vulnerabilities) and maintenance (activity, overhead, and health).
 
-    ![OSS IQ Terminal/CLI Report](/_static/images/ossiq-cli-report-2026-06-20.png)
+    ![OSS IQ Terminal/CLI Report](/_static/images/ossiq-cli-report-2026-07-13.png)
+
+    Every table, column, and status marker in this report — including the *Transitive Recommendations* and *Peer Constraint Status* sections — is documented in [Reference → Console Reports](reference.md#console-reports).
 
 
 ## Package Details
@@ -90,7 +92,9 @@ Get a specific package details:
 uvx --from ossiq ossiq-cli info sphinx
 ```
 
-![OSS IQ Terminal/CLI Package Details](/_static/images/ossiq-cli-package-2026-06-20.png)
+![OSS IQ Terminal/CLI Package Details](/_static/images/ossiq-cli-package-2026-07-13.png)
+
+The section-by-section breakdown of this report — drift status, policy compliance, recommendation rationale, peer requirements, and transitive CVEs — is in [Reference → Console Reports](reference.md#console-reports).
 
 ## Gated Package Add
 
@@ -108,6 +112,32 @@ uvx --from ossiq ossiq-cli add requests --force
 ```
 
 Before installing, OSS IQ shows drift status, CVEs, transitive vulnerabilities, and maintainer signals. Packages flagged as critically unhealthy are blocked unless `--force` is passed.
+
+## AI Agent Integration (MCP & Skills)
+
+Give your AI coding agent the same health check before it adds or upgrades a dependency. `ossiq-cli install skills` writes a `SKILL.md` and registers a local stdio MCP server for Claude Code, OpenAI Codex, and GitHub Copilot.
+
+```bash
+# Install for all three tools
+uvx --from ossiq ossiq-cli install skills
+
+# Or target a single tool
+uvx --from ossiq ossiq-cli install skills claude
+uvx --from ossiq ossiq-cli install skills codex
+uvx --from ossiq ossiq-cli install skills copilot
+```
+
+| Tool | Skill location | MCP server |
+|---|---|---|
+| Claude Code | `~/.claude/skills/ossiq/SKILL.md` | registered in `~/.claude/mcp.json` |
+| OpenAI Codex | `~/.codex/skills/ossiq/SKILL.md` | registered in `~/.codex/mcp.json` |
+| GitHub Copilot | appended to `~/.copilot/copilot-instructions.md` | — |
+
+The command asks for a [GitHub token](#github-personal-access-token) (or takes it via `--github-token`; leave the prompt blank to skip). The token is stored in `~/.ossiq/config`, and in each tool's MCP server entry where one exists (Claude Code, Codex), so both your own runs and the agent's runs get the higher API rate limit.
+
+Once installed, the agent can call `ossiq-cli info <package> --format agent` or the `ossiq_evaluate_dependency` / `ossiq_evaluate_updates` MCP tools before touching your dependencies, and get back a compact `ok` / `warn` / `block` verdict. Re-running `install skills` is safe — it merges into existing config rather than overwriting it.
+
+For exactly which files are written, how the token is stored, and how to run the integration from a local checkout with `--dev`, see [Reference → install skills](reference.md#install-skills).
 
 ## HTML Report
 

@@ -10,10 +10,12 @@ Pipeline under test:
 from __future__ import annotations
 
 import pytest
+from univers.versions import SemverVersion
 
 from ossiq.domain.common import ProjectPackagesRegistry
 from ossiq.solver.problem import CandidateVersion
 from ossiq.solver.version_matchers import (
+    _fallback_evaluate_bounds,
     engine_version_satisfies_requirement,
     has_engine_mismatch,
     npm_version_satisfies_range,
@@ -64,12 +66,60 @@ from ossiq.solver.version_matchers import (
         ("1.2.5", "npm:@scope/pkg@~1.2.0", True),
         ("1.3.0", "npm:@scope/pkg@~1.2.0", False),
         # unparseable version/constraint → pass through (True)
-        ("not-a-version", "^1.0.0", True),
+        ("not.a.version", "^1.0.0", True),
         ("1.0.0", "???", True),
+        # prerelease version rejected by default (allow_beta=False)
+        ("1.3.0-rc.1", "^1.2.0", False),
+        # prerelease suffixes stripped before matching — real match, not pass-through
+        ("3.5.0", ">=2.9.0 || >=3.0.0-0 <3.0.0", True),
+        ("3.5.0", ">=3.0.0-0", True),
+        ("2.0.0", ">=3.0.0-0", False),
+        ("6.5.0", ">=2.9.0 || >=3.0.0-0 <3.0.0 || >=6.0.1 <8.0.0", True),
+        # hyphen range untouched by prerelease stripping (spaces around the dash)
+        ("1.5.0", "1.2.3 - 2.0.0", True),
     ],
 )
 def test_npm_version_satisfies_range(version: str, range_constraint: str, expected: bool) -> None:
     assert npm_version_satisfies_range(version, range_constraint) == expected
+
+
+def test_npm_version_satisfies_range_allow_beta() -> None:
+    assert npm_version_satisfies_range("1.3.0-rc.1", ">=1.2.0", allow_beta=True) is True
+
+
+# ── _fallback_evaluate_bounds ─────────────────────────────────────────────
+
+
+@pytest.mark.parametrize(
+    "version, constraint, expected",
+    [
+        # single comparator clauses
+        ("1.5.0", ">=1.0.0", True),
+        ("0.9.0", ">=1.0.0", False),
+        ("0.9.0", "<1.0.0", True),
+        ("1.0.0", "=1.0.0", True),
+        ("1.0.1", "!=1.0.0", True),
+        ("1.0.0", "!=1.0.0", False),
+        # bare version → implicit "="
+        ("1.0.0", "1.0.0", True),
+        ("1.0.1", "1.0.0", False),
+        # AND within a branch (space-separated clauses)
+        ("3.5.0", ">=3.0.0 <4.0.0", True),
+        ("4.5.0", ">=3.0.0 <4.0.0", False),
+        # OR branches
+        ("5.5.0", ">=3.0.0 <4.0.0 || >=5.0.0 <6.0.0", True),
+        ("4.5.0", ">=3.0.0 <4.0.0 || >=5.0.0 <6.0.0", False),
+        # overlapping prerelease boundaries that crash strict parsers
+        ("3.5.0", ">=2.9.0 || >=3.0.0-0 <3.0.0", True),
+        ("2.0.0", ">=3.0.0-0 <3.0.0", False),
+        # whitespace between operator and version is tolerated
+        ("1.5.0", ">= 1.0.0", True),
+        # unparseable clause value is skipped, not fatal
+        ("1.5.0", ">=not-a-version >=1.0.0", True),
+    ],
+)
+def test_fallback_evaluate_bounds(version: str, constraint: str, expected: bool) -> None:
+    assert _fallback_evaluate_bounds(SemverVersion(version), constraint) == expected  # type: ignore
 
 
 # ── _pypi_version_satisfies_specifier ─────────────────────────────────────

@@ -333,35 +333,6 @@ class PackageManagerPythonPipClassic(AbstractPackageManagerApi):
         finally:
             os.unlink(constraints_path)
 
-    def generate_update_script(self, plan: UpdatePlan, cli_extra_args: str = "") -> str:
-        """Constraint-based pip update: write constraints file, install, clean up."""
-        lines = [
-            "#!/usr/bin/env bash",
-            f"# OSS IQ update — pip  |  project: {plan.project_name}",
-            f"# {len(plan.direct_entries)} direct, {len(plan.transitive_entries)} transitive updates",
-            "set -euo pipefail",
-            "",
-            f'cd "{plan.project_path}"',
-            "",
-            "CONSTRAINTS=/tmp/ossiq-constraints.txt",
-            '> "$CONSTRAINTS"',
-            "",
-            'echo "Writing constraints..."',
-        ]
-        for entry in plan.all_entries:
-            lines.append(f'echo "{entry.package_name}=={entry.recommended_version}" >> "$CONSTRAINTS"')
-        lines += [
-            "",
-            'echo "Installing with constraints..."',
-            'pip install -r requirements.txt -c "$CONSTRAINTS"',
-            "",
-            'rm "$CONSTRAINTS"',
-            'echo "Done."',
-            "",
-            "# ROLLBACK: pip install -r requirements.txt",
-        ]
-        return "\n".join(lines)
-
     def install_package(self, package_name: str, version: str | None = None) -> int:
         """Run pip install to add a package to the project."""
         spec = f"{package_name}=={version}" if version else package_name

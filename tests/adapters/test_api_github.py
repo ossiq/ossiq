@@ -14,6 +14,7 @@ import datetime
 from unittest.mock import Mock
 
 import pytest
+import requests
 
 from ossiq.adapters.api_github import SourceCodeProviderApiGithub
 from ossiq.domain.common import (
@@ -59,9 +60,9 @@ def mock_github_response(monkeypatch):
             mock_response.headers = response_headers.get(url, {})
             mock_response.raise_for_status = Mock()
 
-            # Simulate 403 rate limit error
-            if mock_response.status_code == 403:
-                mock_response.raise_for_status.side_effect = None
+            # Behave like real requests: 4xx/5xx raise on raise_for_status()
+            if mock_response.status_code >= 400:
+                mock_response.raise_for_status.side_effect = requests.HTTPError(response=mock_response)
 
             return mock_response
 
@@ -236,17 +237,16 @@ class TestMakeGithubApiRequest:
         assert error.total == "60"  # Unauthenticated rate limit
         assert error.reset_time is not None
 
-    def test_request_rate_limit_with_missing_headers(self, github_api_with_token, mock_github_response):
+    def test_request_rate_limit_with_retry_after_header(self, github_api_with_token, mock_github_response):
         """
-        Test rate limit error when headers are missing or invalid.
-
-        Verifies graceful handling when rate limit headers are incomplete.
+        Test that a 403 with Retry-After (secondary rate limit) raises GithubRateLimitError
+        even when the x-ratelimit-* headers are missing.
         """
         mock_github_response.set_response(
             "https://api.github.com/test",
-            {"message": "API rate limit exceeded"},
+            {"message": "You have exceeded a secondary rate limit"},
             status_code=403,
-            headers={},
+            headers={"Retry-After": "60"},
         )
 
         with pytest.raises(GithubRateLimitError) as excinfo:
@@ -256,6 +256,22 @@ class TestMakeGithubApiRequest:
         assert error.remaining == "N/A"
         assert error.total == "N/A"
         assert error.reset_time == "N/A"
+
+    def test_plain_403_is_not_a_rate_limit(self, github_api_with_token, mock_github_response):
+        """
+        A 403 without rate-limit headers (org PAT restrictions, blocked repos)
+        must raise HTTPError, not GithubRateLimitError — its hint to set a
+        token would be misleading when a token is already configured.
+        """
+        mock_github_response.set_response(
+            "https://api.github.com/test",
+            {"message": "Resource not accessible by personal access token"},
+            status_code=403,
+            headers={},
+        )
+
+        with pytest.raises(requests.HTTPError):
+            github_api_with_token.make_github_api_request("https://api.github.com/test")
 
 
 class TestRepositoryInfo:

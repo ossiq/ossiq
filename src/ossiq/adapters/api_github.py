@@ -11,6 +11,7 @@ from collections.abc import Callable, Iterable
 
 import requests
 
+from ossiq.clients.batch import is_rate_limit_response
 from ossiq.clients.client_github import BatchClient, GithubRepoBatchStrategy
 from ossiq.clients.common import get_user_agent
 from ossiq.settings import Settings
@@ -77,7 +78,9 @@ class SourceCodeProviderApiGithub:
         response = self.session.get(url, timeout=timeout)
 
         # Basically let user know that we're done here with Github.
-        if response.status_code == 403:
+        # Plain 403s (org PAT restrictions, blocked repos) are not rate limits
+        # and fall through to raise_for_status below.
+        if response.status_code == 403 and is_rate_limit_response(response):
             remaining_rate_limit = response.headers.get("x-ratelimit-remaining", "N/A")
 
             try:

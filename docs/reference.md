@@ -13,16 +13,16 @@ from ossiq import scan, ScanResult, ScanRecord, Settings, CVE, Package, Versions
 ### `scan(sources)`
 
 ```python
-def scan(sources: AbstractProjectSources) -> ScanResult
+def scan(sources: AbstractProjectSources, on_step: Callable[[str], None] | None = None) -> ScanResult
 ```
 
-Runs a full dependency health scan against the project described by `sources`. Fetches package metadata, CVEs, and version history from the appropriate registry; runs the SAT solver to produce update recommendations; and returns a `ScanResult`. Must be called inside the `sources` context manager.
+Runs a full dependency health scan against the project described by `sources`. Fetches package metadata, CVEs, and version history from the appropriate registry; runs the SAT solver to produce update recommendations; and returns a `ScanResult`. Must be called inside the `sources` context manager. `on_step` is an optional callback invoked with a short label at each scan phase (useful for driving a progress indicator).
 
 ```python
 from ossiq import scan, Settings
 from ossiq.sources.project_sources import ProjectSources
 
-settings = Settings.load_from_env()
+settings = Settings.load()
 sources = ProjectSources(settings, project_path=".")
 with sources:
     result = scan(sources)
@@ -42,6 +42,7 @@ Aggregated output of a single scan run. Returned by `scan()`.
 | `transitive_packages` | `list[ScanRecord]` | Indirect dependencies |
 | `manifest_lock_divergent` | `list[str]` | Package names where the manifest and lockfile disagree |
 | `upgrade_paths` | `list[UpgradePath]` | Cross-constraint widening opportunities (library projects only) |
+| `ignored_packages` | `list[IgnoredDependency]` | Packages excluded from the scan (git/URL-hosted, or via `--ignore`) |
 
 ### `ScanRecord`
 
@@ -50,18 +51,32 @@ Per-package analysis record. Each entry in the `ScanResult` lists above is one `
 | Field | Type | Description |
 |---|---|---|
 | `package_name` | `str` | Canonical package name |
+| `dependency_name` | `str \| None` | Name actually used in the manifest — differs from `package_name` for npm aliases (see [npm — package aliases](#npm-package-aliases)) |
+| `is_optional_dependency` | `bool` | Whether this is a dev / optional dependency |
 | `installed_version` | `str` | Version currently installed |
 | `latest_version` | `str \| None` | Most recent published version |
 | `recommended_version` | `str \| None` | Solver-recommended update target |
 | `recommended_version_reason` | `RecommendationReason \| None` | Why this version was chosen |
 | `time_lag_days` | `int \| None` | Days between installed and latest version |
 | `releases_lag` | `int \| None` | Number of releases between installed and latest |
+| `version_age_days` | `int \| None` | Age of the installed version in days |
 | `versions_diff_index` | `VersionsDifference` | Semantic drift classification |
 | `cve` | `list[CVE]` | Known vulnerabilities for the installed version |
 | `version_constraint` | `str \| None` | Version specifier from the manifest |
+| `extras` | `list[str] \| None` | Extras/features requested for this dependency |
 | `constraint_info` | `ConstraintSource` | How the version was constrained (see Constraint Provenance) |
 | `dependency_path` | `list[str] \| None` | Ancestor chain for transitive packages |
+| `repo_url` | `str \| None` | Source code repository URL |
+| `repository` | `Repository \| None` | Repository activity data (commits, releases) when available |
+| `homepage_url` | `str \| None` | Project homepage |
+| `package_url` | `str \| None` | Registry page URL for the package |
+| `is_installed_prerelease` | `bool` | Installed version is a pre-release |
+| `is_installed_yanked` | `bool` | Installed version was yanked by its maintainer |
+| `is_installed_deprecated` | `bool` | Installed version, or the package, is deprecated |
+| `is_installed_package_unpublished` | `bool` | Installed version has been removed from the registry |
+| `all_constraints` | `list[str]` | Every version specifier from each direct parent (transitive packages only) |
 | `update_transitive_impacts` | `list[TransitiveImpact]` | How updating this package affects transitive deps |
+| `peer_requirements` | `list[PeerRequirement]` | All peer requirements other packages place on this one |
 | `peer_violations` | `list[PeerRequirement]` | Peer requirements the installed version fails to satisfy |
 | `constraint_conflict` | `list[str]` | Conflicting constraints that blocked the solver |
 | `purl` | `str \| None` | Package URL (PURL) identifier |
@@ -69,15 +84,17 @@ Per-package analysis record. Each entry in the `ScanResult` lists above is one `
 
 ### `Settings`
 
-Pydantic model holding runtime configuration. Load from environment variables with `Settings.load_from_env()` or construct directly.
+Pydantic model holding runtime configuration. Load from the config file and environment variables with `Settings.load()`, or construct directly.
 
 | Field | Default | Description |
 |---|---|---|
 | `github_token` | `None` | GitHub personal access token for repository enrichment |
-| `cache_destination` | `~/.ossiq_cache.sqlite3` | Path to the SQLite HTTP cache |
+| `cache_destination` | `~/.ossiq/cache.sqlite3` | Path to the SQLite HTTP cache |
 | `cache_ttl` | `24` | Cache time-to-live in hours |
 | `verbose` | `False` | Emit detailed progress output |
 | `debug` | `False` | Enable debug logging |
+| `traceback` | `False` | Show full traceback on error instead of logging to file |
+| `skip_pypi_enrichment` | `False` | Disable PyPI metadata fetching for transitive constraint enrichment |
 | `cutoff_date` | `None` | Treat versions published after this date as invisible |
 | `cooldown_period` | `7` | Days a new version must age before the solver recommends it |
 
@@ -91,6 +108,9 @@ A single vulnerability record attached to a `ScanRecord`.
 |---|---|---|
 | `id` | `str` | Primary identifier (CVE, GHSA, or OSV ID) |
 | `cve_ids` | `tuple[str, ...]` | All aliases for this vulnerability |
+| `source` | `CveDatabase` | Database this record came from |
+| `package_name` | `str` | Name of the affected package |
+| `package_registry` | `ProjectPackagesRegistry` | Registry the affected package belongs to (`"npm"` or `"pypi"`) |
 | `severity` | `Severity` | `LOW`, `MEDIUM`, `HIGH`, or `CRITICAL` |
 | `summary` | `str` | Human-readable description |
 | `affected_versions` | `tuple[str, ...]` | Version strings confirmed vulnerable |
@@ -103,14 +123,21 @@ Metadata about a package as returned by its registry.
 
 | Field | Type | Description |
 |---|---|---|
+| `registry` | `ProjectPackagesRegistry` | Registry this package belongs to (`"npm"` or `"pypi"`) |
 | `name` | `str` | Registry name |
 | `canonical_name` | `str \| None` | Normalised name (lowercased, hyphens unified) |
 | `latest_version` | `str \| None` | Most recent stable release |
+| `next_version` | `str \| None` | Next release after `latest_version`, when known |
 | `repo_url` | `str \| None` | Source code repository URL |
 | `homepage_url` | `str \| None` | Project homepage |
+| `description` | `str \| None` | Registry-provided package description |
+| `author` | `str \| None` | Package author |
+| `package_url` | `str \| None` | Registry page URL for the package |
 | `license` | `str \| None` | SPDX license string |
 | `is_deprecated` | `bool` | Package has been deprecated by its maintainer |
 | `is_unpublished` | `bool` | Package has been removed from the registry |
+| `maintainers_count` | `int \| None` | Number of registered maintainers |
+| `downloads_recent` | `int \| None` | Downloads in the most recent reporting period |
 
 ### `VersionsDifference`
 
@@ -118,7 +145,9 @@ Semantic drift classification between two versions.
 
 | Field | Type | Description |
 |---|---|---|
-| `diff_index` | `int` | Numeric severity: 0 = no diff, 1 = patch, 2 = minor, 3 = major, 4 = build, 5 = prerelease |
+| `version1` | `str` | The first version being compared (typically the installed version) |
+| `version2` | `str` | The second version being compared (typically the latest version) |
+| `diff_index` | `int` | Numeric severity: 0 = latest (no diff), 1 = build, 2 = prerelease, 3 = patch, 4 = minor, 5 = major, 10 = no diff available (unpublished/unknown) |
 | `diff_name` | `str` | Human-readable label: `"LATEST"`, `"PATCH"`, `"MINOR"`, `"MAJOR"`, etc. |
 
 ### `AbstractProjectSources`
@@ -137,6 +166,8 @@ sources = ProjectSources(
 with sources:
     result = scan(sources)
 ```
+
+Other optional keyword arguments mirror the CLI's own flags: `allow_prerelease`, `allow_prerelease_packages`, `security_only`, `rewrite_versions`, and `narrow_package_registry` (force a specific registry instead of auto-detecting).
 
 ---
 
@@ -248,6 +279,35 @@ For *scoped* overrides — where a version is forced only when a package appears
 
 The `scope_path` matters for remediation: a scoped override targeting `dot-prop` inside `lodash` does not affect `dot-prop` when pulled in by other packages. Removing it may leave `dot-prop` under `lodash` unprotected, or free it to resolve a patched version — depending on which direction the version was being forced.
 
+**Overrides are a marker, not a version source.** OSS IQ only reads the *keys* of the `overrides` block to decide which packages to tag `OVERRIDE`; the forced version string is never parsed or fed into the solver. The installed version already reflects the override's effect, because npm applied it before writing the lockfile — OSS IQ just labels the result.
+
+**Matching is by exact tree name.** An override entry is matched against packages by the literal name npm registered them under in the lockfile — not the package's canonical registry name. This matters for [package aliases](#npm-package-aliases): an override keyed `"chalk": "4.1.2"` tags a plain `chalk` dependency, but does nothing to `"chalk-legacy": "npm:chalk@4.1.2"`, because that alias is registered as `chalk-legacy`, not `chalk`. To override an aliased package, key the `overrides` entry with the alias name.
+
+(npm-package-aliases)=
+#### npm — package aliases
+
+npm lets a `package.json` entry install one real package under a different name, using `"npm:<real-name>@<range>"` as the version specifier:
+
+```json
+// package.json
+{
+  "dependencies": {
+    "chalk-legacy": "npm:chalk@4.1.2",
+    "chalk": ">4.1.2 <=5.3.0"
+  }
+}
+```
+
+This is how a project runs two versions of the same package side by side — commonly during a major-version migration, or when one dependency needs an old API another consumer has already moved past.
+
+**Each alias is tracked as its own entry, with its own recommendation.** `ScanRecord.package_name` holds the canonical (real) name — `chalk` for both rows above — and `ScanRecord.dependency_name` holds the name actually used in `package.json` — `chalk-legacy` and `chalk`. The two occurrences never share a recommendation: `chalk-legacy` is held at `4.1.2` because its own alias range pins it there, while plain `chalk` is free to move up to `5.3.0`, even though the solver evaluates candidate versions for the underlying `chalk` package once and both entries draw from the same candidate set.
+
+That per-alias fitting also applies to the solver's [cooldown](#update-solver): when the shared candidate the solver would otherwise recommend falls outside one alias's own range, OSS IQ re-fits that alias to the newest version that satisfies its range and (like the solver itself) still prefers one older than the cooldown period when one exists. If no published version satisfies an alias's own range, that alias is reported with no recommendation rather than inheriting a sibling's.
+
+**Console output does not display the alias name.** The `status` table's *Package* column and the `info` header both print `package_name` — the canonical name — so `chalk-legacy` and `chalk` both read as `chalk` in a scan report; only the *Installed* / *Recommended* columns (and `dependency_path` for transitive occurrences) tell the rows apart. `ossiq-cli info <alias-name>` matches on the alias name directly and opens that one occurrence; `ossiq-cli info <real-name>` matches every occurrence — aliased or not — and lists each as a separate `Occurrence n of m` block.
+
+**`plan` / `apply` cannot rewrite an alias's inner range.** The update solver still computes a per-alias recommendation as described above, but writing it back to `package.json` is unsupported for `npm:pkg@range` specifiers — the alias entry is left untouched by `apply`. Use the recommendation as a manual target and edit the alias range yourself.
+
 ---
 
 ## System Behavior
@@ -257,6 +317,7 @@ The `scope_path` matters for remediation: a scoped override targeting `dot-prop`
 -   **Dependency Graph**: The system operates on a flat list of dependencies resolved from a lockfile (e.g., `package-lock.json`).
 -   **Transitive Dependencies**: Transitive dependency resolution is not performed. The tool relies on the dependency resolution of the target project's native package manager (e.g., `npm`, `pip`, `uv`).
 
+(update-solver)=
 ### Update Solver (`plan` / `apply`)
 
 -   **Single pass.** The solver recommends versions against the *current* lockfile. Applying a plan
@@ -380,24 +441,13 @@ For reports produced by OSS IQ before v1.2 (which lack a `constraint_type` field
 
 ### Output Formats
 
-#### Console — Scan Table
+#### Console
 
-The `status` command prints two dependency tables — one for production packages, one for development — to the terminal. Each row shows `package_name`, CVE count, drift status, `installed_version`, `latest_version`, `releases_lag`, and `time_lag_days`.
-
-#### Console — Package Detail
-
-The `info` command prints a six-section report for a single dependency:
-
-1. **Drift status** — version comparison with an ASCII time-lag progress bar
-2. **Dependency tree trace** — ancestor path from the project root to the package
-3. **Policy compliance** — `version_constraint`, resolved version, and latest version
-4. **Security advisories** — per-CVE `severity`, `id`, source, and `summary`
-5. **Via transitive dependencies** — CVEs inherited from entries in `transitive_packages`
-6. **Licenses** — SPDX identifiers from the `license` field
+The `status` command prints a project-wide report; the `info` command prints a deep-dive for a single package. Every section, column, and status marker of both reports is documented in [Console Reports](#console-reports).
 
 #### HTML Report
 
-The `status --presentation html` command produces a self-contained HTML file embedding an interactive Vue.js single-page application. The report includes the full dependency tables and the **Transitive Dependency Explorer**: an interactive D3 tree that visualises the `transitive_packages` dependency graph.
+The `ossiq-cli html` command produces a self-contained HTML file embedding an interactive Vue.js single-page application. The report includes the full dependency tables and the **Transitive Dependency Explorer**: an interactive D3 tree that visualises the `transitive_packages` dependency graph.
 
 The Explorer supports:
 
@@ -433,6 +483,258 @@ The `export --output-format csv` command writes a folder named `export_{project_
 | `packages.csv` | One row per package with all `PackageMetrics` fields |
 | `cves.csv` | One row per CVE with all `CVEInfo` fields |
 | `datapackage.json` | Schema references and foreign key relationships |
+
+(console-reports)=
+## Console Reports
+
+This section describes the terminal output of `ossiq-cli status` (project-wide report) and `ossiq-cli info` (single-package report): what each part shows, what each column and status marker means, and what to do when a marker signals a problem.
+
+### `status` — project report
+
+```bash
+ossiq-cli status [PROJECT_PATH]
+```
+
+The report has up to six parts, printed in this order. Parts with nothing to show are omitted.
+
+1. **Header** — project name, registry (`npm` or `pypi`), path, and counts: production packages, development packages, and transitive packages with an update recommendation.
+2. **Dependency table** — one row per direct dependency, grouped into *Production* and *Development* sections.
+3. **Transitive Recommendations** — transitive packages the solver recommends updating.
+4. **New transitive dependencies** — packages that would enter the tree if the recommended updates were applied.
+5. **Peer Constraint Status** — peer dependency requirements and whether the installed versions satisfy them (npm projects only).
+6. **Constraint Widening Opportunities** — for library projects, dependency ranges that could safely be widened.
+
+#### Dependency table
+
+| Column | Meaning |
+|---|---|
+| Package | Package name. |
+| CVEs | Number of known vulnerabilities affecting the installed version. Empty when there are none. |
+| Status | Semantic drift between installed and latest version: `Latest`, `Patch`, `Minor`, `Major`, `Prerelease`, `Build`, or `N/A` when the latest version is unknown. |
+| Installed | Version resolved in the lockfile, with a lifecycle marker when one applies (see below). |
+| Recommended | Solver-recommended update target. The column appears only when at least one package has a recommendation or a constraint conflict. Yellow when the recommendation is older than the latest version — usually held back by the [cooldown](#update-solver) or by a constraint. `[NO RESOLUTION]` when no published version satisfies all constraints. |
+| Latest | Most recent published version, or `N/A` when the registry reports none. |
+| Lag | Time between the installed and the latest version. Red when it exceeds `--lag-threshold-delta` (default `1y`). |
+
+Lifecycle markers on the Installed column:
+
+| Marker | Meaning |
+|---|---|
+| `[UNPUBLISHED]` | The installed version has been removed from the registry. |
+| `[YANKED]` | The installed version was yanked by its maintainer. |
+| `[DEPRECATED]` | The installed version, or the whole package, is deprecated. |
+| `[pre]` | The installed version is a pre-release. |
+
+A row with a recommendation can carry indented sub-rows describing what applying that recommendation would do to the rest of the dependency tree:
+
+| Sub-row | Meaning |
+|---|---|
+| `↳ <package> <current> → <projected>` | Updating the parent also moves this transitive package. When more than three packages would move, a count is shown instead of the list. |
+| `+ <package> <version> (new dep)` | Updating the parent introduces this package into the tree. Listed with full detail in **New transitive dependencies**. |
+| `↳ ⚠ <package>: <detail>` | The update collides with a constraint on this transitive package. See [When an update is blocked](#update-blocked). |
+| `✗ no actionable update found` | Every candidate update collides with a transitive constraint; the solver has no version to recommend. See [When an update is blocked](#update-blocked). |
+| `↳ no version satisfies: <specifiers>` | The constraints on this package contradict each other — no published version satisfies all of them at once. Shown together with `[NO RESOLUTION]`. |
+
+#### Transitive Recommendations
+
+Transitive packages — packages your direct dependencies pull in — for which the solver recommends a different version, most often because the installed version carries a CVE or is far behind. With `--security`, the list narrows to packages with CVEs only. To turn these recommendations into an executable update plan, run `ossiq-cli plan` (see [Update Solver](#update-solver)).
+
+| Column | Meaning |
+|---|---|
+| Package | Transitive package name. |
+| Installed | Version currently resolved in the lockfile. |
+| CVEs | Number of known vulnerabilities for the installed version. |
+| Age | Age of the installed version. Red past one year. |
+| Recommended | Version the solver recommends within all parent constraints. |
+
+#### New transitive dependencies
+
+Packages that are not in the tree today but would be pulled in by the recommended updates. Their versions are resolved by the native package manager at apply time, outside the solver's cooldown hold, so fresh entries are flagged rather than withheld: a `⚠` before the package name means the projected version is younger than the cooldown period and deserves a look before you apply (see [Cooldown as Supply-Chain Quarantine](explanation.md#cooldown-as-supply-chain-quarantine) for why).
+
+| Column | Meaning |
+|---|---|
+| Package | New package name, prefixed with `⚠` when younger than the cooldown period. |
+| Version | Version the package manager is projected to resolve. |
+| Constraint | Version range declared by the package that requires it. |
+| Age | Age of the projected version, in days. |
+| Required By | The direct dependency whose update introduces this package. |
+
+(peer-constraint-status)=
+#### Peer Constraint Status
+
+npm packages can declare `peerDependencies`: versions of *other* packages they expect to find installed next to them but do not install themselves (the classic example is a plugin declaring which framework versions it works with). npm enforces these at install time, but overrides, `--legacy-peer-deps`, and `--force` installs can leave the tree in a state npm never checked. OSS IQ re-validates every peer requirement against the lockfile on every scan. PyPI has no peer dependency mechanism, so this table only appears for npm projects.
+
+| Column | Meaning |
+|---|---|
+| Package | The package the requirement applies to. |
+| Installed | Its installed version. |
+| Peer Constraint | The version range the requirer expects. |
+| Required By | The package that declares the peer requirement. |
+| Status | One of the three values below. |
+
+| Status | Meaning |
+|---|---|
+| `✓ satisfied` | The installed version is inside the required range. |
+| `✓ via override` | The installed version satisfies the range, but it is forced by an `overrides` entry rather than resolved normally. The override — not the resolver — is what keeps this pair compatible; re-check this row whenever the override changes. |
+| `✗ violation` | The installed version is outside the range the requirer declared. |
+
+**What `✗ violation` means.** Two packages you ship disagree about a third. The requirer was built and tested against the declared peer range; running it against a version outside that range can fail at runtime — missing exports, changed APIs — even though installation succeeded. Typical causes: an `overrides` entry forcing a version out of range, an install with `--legacy-peer-deps` or `--force`, or one package updated past what its peers allow.
+
+Recovery paths, from most to least preferred:
+
+1. **Update the requirer.** A newer release of the *Required By* package may accept the installed version. `ossiq-cli info <requirer>` shows whether one exists and what constrains it.
+2. **Move the violated package into the range.** Upgrade or downgrade it to a version inside the peer constraint — after checking that nothing else in the tree needs the version you are moving away from.
+3. **Remove or adjust the override** when one is the cause. See [Constraint Provenance](#constraint-provenance) for how overrides are tracked.
+4. **Accept it knowingly.** If you have verified the pair works together, you can leave it — the row keeps appearing on every scan as a standing reminder.
+
+#### Constraint Widening Opportunities
+
+Shown for library projects only: dependency ranges in your manifest whose upper bound excludes versions that already exist and resolve cleanly.
+
+| Column | Meaning |
+|---|---|
+| Package | Direct dependency with a narrowed range. |
+| Current Range | The range declared in the manifest today. |
+| Latest In-Range | Newest version the current range allows. |
+| Latest Available | Newest version published on the registry. |
+| Suggested Range | Widened range that admits the latest available version. |
+
+(update-blocked)=
+### When an update is blocked by a transitive constraint
+
+Sometimes you cannot move a direct dependency forward even though a newer version exists. A direct dependency is one node in a graph: each of its versions declares its own requirements on transitive packages, and other parents in your tree constrain those same packages. The solver recommends a version only when the whole subtree still resolves.
+
+A concrete case: your project depends on `A` and `B`. `A 2.0` requires `C >= 3`, but the latest `B` still requires `C < 3`. No version of `C` satisfies both, so `A` cannot reach 2.0. The report shows `A` with a newer *Latest*, a *Recommended* that stays behind (or none), and a `↳ ⚠ C: …` sub-row naming the collision. `✗ no actionable update found` means every candidate version of `A` hits such a collision. `[NO RESOLUTION]` with `↳ no version satisfies: …` is the harder variant: the constraints already contradict each other in the current tree, before any update.
+
+Your options, roughly in order:
+
+1. **Wait for upstream.** The owner of the blocking constraint (here `B`) has to publish a release that widens its range — you cannot fix their constraint unilaterally. This is the failure mode described in [Constraint Provenance](#constraint-provenance); `ossiq-cli info <blocking package>` shows who declares the constraint.
+2. **Update or replace the other parent.** A newer version of `B` may already accept `C >= 3`; if `B` is abandoned, replacing it removes the constraint entirely.
+3. **Force the version:** `ossiq-cli apply --override pkg==version` bypasses the solver for one package. You take on the compatibility risk the constraint was protecting against; the override persists in your manifest and is reported as `OVERRIDE` on every subsequent scan until removed (see [Update Solver](#update-solver)).
+4. **Stay put deliberately.** The current version keeps resolving. The report keeps showing the lag, so the debt stays visible instead of silent.
+
+### `info` — package report
+
+```bash
+ossiq-cli info PACKAGE_NAME [PROJECT_PATH]
+```
+
+A deep-dive into one package. When the package is installed in the project, the report has the sections below, in order; empty sections are omitted. When it is not installed, the report switches to [prospective mode](#info-prospective).
+
+**Header.** Package name and installed version; role tags `DIRECT` and/or `TRANSITIVE` (both, when the package appears in both roles); a lifecycle marker (`[UNPUBLISHED]`, `[YANKED]`, `[DEPRECATED]`, `[pre]` — same meanings as in the status table); license; registry URL.
+
+**Warnings.** A panel of package health findings: `✗` marks critical findings (these block `ossiq-cli add` unless `--force` is passed), `!` marks notices. Examples: a package with a single published version (typosquatting risk), a single maintainer (bus-factor risk).
+
+**Health Metrics.** Registry-level signals: downloads over the last month, number of published versions, maintainer count, age of the latest version, age of the recommended version (when it differs from the latest), and cooldown remaining — days until the latest release is old enough to clear the [cooldown period](explanation.md#cooldown-as-supply-chain-quarantine).
+
+**Occurrences.** A package can appear in the tree more than once — for example as a direct dependency and, at a different version, as a transitive one. Each occurrence gets its own block of the five sections below, labelled `Occurrence n of m`.
+
+**Drift Status.** Status (same values as the status table), installed version, latest version, time lag (red past 180 days), and how many releases behind the installed version is.
+
+**Dependency Tree.** The ancestor path from the project root down to this package (`← you are here`). For a direct dependency the path is just `root → package`; for a transitive one it names every intermediate package — useful for seeing *which* direct dependency is responsible for pulling this package in.
+
+**Policy Compliance.** How the installed version relates to the rules that produced it:
+
+| Row | Meaning |
+|---|---|
+| Constraint | Version specifier from the manifest, or `—` for transitive packages without one. |
+| Resolved | The installed version. |
+| Latest | Most recent published version. |
+| Recommended | Solver-recommended target, when one exists. Yellow when held below the latest. |
+| Resolution | `NO VALID VERSION — conflicting constraints: <specifiers>` when the solver found no version satisfying all constraints. See [When an update is blocked](#update-blocked). |
+| Constraint Type | Shown only when the version is controlled by something beyond a plain manifest entry (`PINNED`, `NARROWED`, `ADDITIVE`, `OVERRIDE`), with the file that introduced it. See [Constraint Provenance](#constraint-provenance). |
+
+**Recommendation Rationale.** Why the solver picked the recommended version — and, just as important, why it rejected the others:
+
+- *Eliminated (hard constraints)* — versions that can never be chosen: outside a parent's range, affected by a CVE, yanked, or pre-release without `--allow-prerelease`.
+- *Penalised (soft constraints)* — versions that remain eligible but are scored down, e.g. younger than the cooldown period.
+- The closing `✓` line states the selection: the latest eligible version, or the best stable candidate when the latest was eliminated or penalised.
+
+If the version you expected is not the recommendation, this section names the exact rule that removed it.
+
+**Peer Requirements.** Every peer constraint other packages place on this one, with the same markers as the status report's [Peer Constraint Status](#peer-constraint-status) table: `✓` satisfied, `✓ … via override`, `✗` violated (the installed version is shown in red next to the violated range). The recovery paths are the same too.
+
+**Security Advisories.** Known vulnerabilities in the installed version of *this* package: severity, advisory ID, source database, and summary — or `✓ No known vulnerabilities`.
+
+**Transitive CVEs.** Vulnerabilities in packages *downstream* of this one — exposure you carry because this package pulls the affected ones in. Grouped per affected `package@version`, worst severity first. Updating this package may or may not resolve them; run `ossiq-cli info <affected package>` to see what constrains each one.
+
+**Licenses.** Listed only when the package's occurrences carry more than one SPDX identifier; a single unambiguous license is already shown in the header.
+
+(info-prospective)=
+#### Prospective mode
+
+When the package is not installed in the project, `info` evaluates it as a candidate instead: the header carries a `PROSPECTIVE` tag and the registry description, followed by health metrics, the recommendation rationale, and security advisories. This is the same pre-installation check that `ossiq-cli add` runs before installing.
+
+### Agent format
+
+Both commands accept `--format agent`, which replaces the human report with a compact JSON verdict (`ok` / `warn` / `block`) for AI coding agents and scripts. See [AI Agent Integration](getting-started.md#ai-agent-integration-mcp--skills).
+
+(install-skills)=
+## Install Skills
+
+```bash
+ossiq-cli install skills [TOOL] [--github-token TOKEN] [--dev PATH]
+```
+
+Installs the OSS IQ skill and a local MCP server so AI coding agents check dependency health before they add or update a package. For the task-oriented walkthrough, see [AI Agent Integration](getting-started.md#ai-agent-integration-mcp--skills).
+
+| Argument / option | Default | Description |
+|---|---|---|
+| `TOOL` | `all` | Which tool to install for: `claude`, `codex`, `copilot`, or `all`. |
+| `--github-token`, `-T` | — | GitHub token to store during installation (see [GitHub token handling](#install-skills-token)). When omitted, the command prompts for one interactively; leave the prompt blank to skip. |
+| `--dev` | — | Path to a local ossiq-cli source checkout. Switches the installed skill and MCP server to run from that checkout instead of the PyPI release (see [Development mode](#install-skills-dev)). |
+
+### What the command writes
+
+All changes are made under your home directory; the command never touches the current project.
+
+| Tool | Skill | MCP server |
+|---|---|---|
+| `claude` | writes `~/.claude/skills/ossiq/SKILL.md` | adds an `ossiq` entry to `mcpServers` in `~/.claude/mcp.json` |
+| `codex` | writes `~/.codex/skills/ossiq/SKILL.md` | adds an `ossiq` entry to `mcpServers` in `~/.codex/mcp.json` |
+| `copilot` | inserts a fenced block into `~/.copilot/copilot-instructions.md` | — (Copilot has no MCP server registry) |
+
+The MCP entry registers a **local stdio server** — the tool launches `ossiq-cli mcp` as a subprocess on your machine. No remote service is involved, and nothing is sent anywhere beyond the registry and GitHub API calls a normal scan makes.
+
+The command is **idempotent** — safe to re-run at any time (for example after changing the token or switching development mode on or off):
+
+- `mcp.json` is merged: only the `ossiq` entry under `mcpServers` is replaced; every other server entry is preserved.
+- The Copilot instructions block is delimited by `<!-- ossiq-skill:start -->` / `<!-- ossiq-skill:end -->` markers. On re-run the block between the markers is replaced; the rest of the file — including your own instructions — is untouched.
+
+(install-skills-token)=
+### GitHub token handling
+
+OSS IQ uses the token only to raise the GitHub API rate limit from 60 to 5 000 requests per hour; **no scopes or permissions are needed**. See [GitHub Personal Access Token](getting-started.md#github-personal-access-token) for how to create a read-only one.
+
+The token is resolved in this order:
+
+1. The `--github-token` / `-T` option.
+2. An interactive prompt. Leaving it blank skips token setup entirely — everything else still installs, and you can re-run the command later to add a token.
+
+When a token is provided, it is written to **two places**, in plain text:
+
+| Location | Purpose |
+|---|---|
+| `~/.ossiq/config` — as an `OSSIQ_GITHUB_TOKEN=…` line (dotenv format) | Used by every `ossiq-cli` invocation, including ones you run yourself. |
+| The `env` block of the `ossiq` entry in each tool's `mcp.json` | Passed to the MCP server subprocess, which does not read your shell environment. |
+
+Because both files store the token unencrypted, prefer a fine-grained token restricted to public repositories with no additional permissions. To rotate or remove a token, re-run `install skills` with the new value, or edit the two files directly.
+
+(install-skills-dev)=
+### Development mode (`--dev`)
+
+When you are working on ossiq-cli itself, `--dev <path>` points every installed integration at your local checkout instead of the PyPI release:
+
+```bash
+ossiq-cli install skills claude --dev ~/Projects/ossiq/ossiq-cli
+```
+
+Two substitutions are made:
+
+- **MCP server** — registered as `uv run --directory <path> ossiq-cli mcp`, so the server always runs your current working tree.
+- **SKILL.md** — every `uvx --from ossiq ossiq-cli` invocation in the skill text is rewritten to `uvx --from <path> --no-cache ossiq-cli`. The `--no-cache` flag makes `uvx` rebuild from source on each call, so the agent picks up your edits without a reinstall.
+
+To switch back to the released package, re-run the command without `--dev`.
 
 ## Versioning & Stability Guarantees
 

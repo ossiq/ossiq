@@ -1,10 +1,13 @@
 """
-Tests for the pure pipeline helpers in service/project.py and service/common/package_versions.py.
+Tests for the pure pipeline helpers in service/project/ and service/common/package_versions.py.
 
 All functions here are data-in / data-out — zero network mocks needed.
 """
 
+from datetime import UTC, datetime
 from unittest.mock import MagicMock
+
+from packaging.version import Version
 
 from ossiq.domain.common import ConstraintType, CveDatabase, ProjectPackagesRegistry
 from ossiq.domain.cve import CVE, Severity
@@ -12,14 +15,9 @@ from ossiq.domain.package import Package
 from ossiq.domain.project import ConstraintSource
 from ossiq.domain.version import PackageVersion, VersionsDifference
 from ossiq.service.common.package_versions import filter_versions_between
-from ossiq.service.project import (
-    DependencyDescriptor,
-    PrefetchedData,
-    ScanRecord,
-    apply_conflicts,
-    apply_recommendations,
-    build_records,
-)
+from ossiq.service.project.models import DependencyDescriptor, PrefetchedData, ScanRecord
+from ossiq.service.project.recommendations import apply_conflicts, apply_recommendations, clamp_recommendations
+from ossiq.service.project.records import build_records
 from ossiq.solver.dependencies_solver import (
     EMPTY_OUTPUT,
     ConstraintConflict,
@@ -249,6 +247,166 @@ class TestApplyRecommendations:
         apply_recommendations([django], output)
 
         assert django.recommended_version is None
+
+
+# ============================================================================
+# clamp_recommendations
+# ============================================================================
+
+FIXED_NOW = datetime(2024, 6, 1, tzinfo=UTC)
+PUBLISHED_OLD = "2024-01-01T00:00:00Z"
+PUBLISHED_FRESH = "2024-05-30T00:00:00Z"
+
+
+def make_npm_registry(versions_by_name: dict[str, list[PackageVersion]]) -> MagicMock:
+    registry = MagicMock()
+    registry.package_registry = ProjectPackagesRegistry.NPM
+    registry.package_versions.side_effect = lambda name: versions_by_name.get(name, [])
+
+    def compare(v1: str, v2: str) -> int:
+        p1, p2 = Version(v1), Version(v2)
+        return -1 if p1 < p2 else (1 if p1 > p2 else 0)
+
+    registry.compare_versions.side_effect = compare
+    return registry
+
+
+def make_dated_pv(version: str, published: str = PUBLISHED_OLD) -> PackageVersion:
+    return PackageVersion(
+        version=version,
+        license="MIT",
+        package_url="https://registry.npmjs.org/...",
+        declared_dependencies={},
+        published_date_iso=published,
+    )
+
+
+def make_clamp_record(
+    name: str,
+    installed: str,
+    constraint: str | None,
+    recommended: str | None,
+    constraint_type: ConstraintType = ConstraintType.DECLARED,
+) -> ScanRecord:
+    record = make_record(name, installed=installed)
+    record.version_constraint = constraint
+    record.recommended_version = recommended
+    record.recommended_version_reason = MagicMock()
+    record.constraint_info = ConstraintSource(type=constraint_type, source_file="package.json")
+    return record
+
+
+class TestClampRecommendations:
+    def clamp(self, records: list[ScanRecord], registry: MagicMock, **kwargs) -> None:
+        clamp_recommendations(records, registry, allow_prerelease=False, now=FIXED_NOW, **kwargs)
+
+    def test_alias_range_violation_clamped_to_newest_in_range(self):
+        registry = make_npm_registry(
+            {"uuid": [make_dated_pv("7.0.0"), make_dated_pv("7.0.3"), make_dated_pv("11.0.0"), make_dated_pv("14.0.1")]}
+        )
+        record = make_clamp_record("uuid", "7.0.0", "npm:uuid@^7.0.0", "14.0.1")
+
+        self.clamp([record], registry)
+
+        assert record.recommended_version == "7.0.3"
+        assert record.recommended_version_reason is None
+
+    def test_alias_pin_violation_clamped_to_pin(self):
+        registry = make_npm_registry({"chalk": [make_dated_pv("4.1.2"), make_dated_pv("5.3.0")]})
+        record = make_clamp_record("chalk", "4.1.2", "npm:chalk@4.1.2", "5.3.0", constraint_type=ConstraintType.PINNED)
+
+        self.clamp([record], registry)
+
+        assert record.recommended_version == "4.1.2"
+
+    def test_in_range_recommendation_untouched_with_reason(self):
+        registry = make_npm_registry({"ms": [make_dated_pv("0.7.3"), make_dated_pv("2.1.3")]})
+        record = make_clamp_record("ms", "2.1.3", "npm:ms@*", "2.1.3")
+
+        self.clamp([record], registry)
+
+        assert record.recommended_version == "2.1.3"
+        assert record.recommended_version_reason is not None
+
+    def test_downgrade_within_wide_range_clamped_up(self):
+        registry = make_npm_registry({"ms": [make_dated_pv("0.7.3"), make_dated_pv("2.1.3")]})
+        record = make_clamp_record("ms", "2.1.3", "npm:ms@*", "0.7.3")
+
+        self.clamp([record], registry)
+
+        assert record.recommended_version == "2.1.3"
+
+    def test_non_alias_reverse_contamination_clamped_up(self):
+        registry = make_npm_registry(
+            {"chalk": [make_dated_pv("4.1.2"), make_dated_pv("5.0.0"), make_dated_pv("5.3.0")]}
+        )
+        record = make_clamp_record("chalk", "5.0.0", ">4.1.2 <=5.3.0", "4.1.2")
+
+        self.clamp([record], registry)
+
+        assert record.recommended_version == "5.3.0"
+
+    def test_rewrite_pinned_exempts_non_alias_pin(self):
+        registry = make_npm_registry({"chalk": [make_dated_pv("4.1.2"), make_dated_pv("5.3.0")]})
+        record = make_clamp_record("chalk", "4.1.2", "4.1.2", "5.3.0", constraint_type=ConstraintType.PINNED)
+
+        self.clamp([record], registry, rewrite_pinned=True)
+
+        assert record.recommended_version == "5.3.0"
+
+    def test_rewrite_pinned_still_clamps_alias_pin(self):
+        registry = make_npm_registry({"chalk": [make_dated_pv("4.1.2"), make_dated_pv("5.3.0")]})
+        record = make_clamp_record("chalk", "4.1.2", "npm:chalk@4.1.2", "5.3.0", constraint_type=ConstraintType.PINNED)
+
+        self.clamp([record], registry, rewrite_pinned=True)
+
+        assert record.recommended_version == "4.1.2"
+
+    def test_no_version_in_range_drops_recommendation(self):
+        registry = make_npm_registry({"chalk": [make_dated_pv("4.1.2"), make_dated_pv("5.3.0")]})
+        record = make_clamp_record("chalk", "4.1.2", "npm:chalk@99.0.0", "5.3.0")
+
+        self.clamp([record], registry)
+
+        assert record.recommended_version is None
+
+    def test_no_recommendation_is_noop(self):
+        registry = make_npm_registry({})
+        record = make_clamp_record("chalk", "4.1.2", "npm:chalk@4.1.2", None)
+
+        self.clamp([record], registry)
+
+        assert record.recommended_version is None
+        registry.package_versions.assert_not_called()
+
+    def test_no_constraint_is_noop(self):
+        registry = make_npm_registry({})
+        record = make_clamp_record("chalk", "4.1.2", None, "5.3.0")
+
+        self.clamp([record], registry)
+
+        assert record.recommended_version == "5.3.0"
+        registry.package_versions.assert_not_called()
+
+    def test_cooldown_prefers_aged_in_range_version(self):
+        registry = make_npm_registry(
+            {"chalk": [make_dated_pv("5.0.0", PUBLISHED_OLD), make_dated_pv("5.3.0", PUBLISHED_FRESH)]}
+        )
+        record = make_clamp_record("chalk", "5.0.0", "npm:chalk@^5.0.0", "6.0.0")
+
+        self.clamp([record], registry, cooldown_period=7)
+
+        assert record.recommended_version == "5.0.0"
+
+    def test_cooldown_falls_back_to_fresh_when_only_option(self):
+        registry = make_npm_registry(
+            {"chalk": [make_dated_pv("5.0.0", PUBLISHED_FRESH), make_dated_pv("5.3.0", PUBLISHED_FRESH)]}
+        )
+        record = make_clamp_record("chalk", "5.0.0", "npm:chalk@^5.0.0", "6.0.0")
+
+        self.clamp([record], registry, cooldown_period=7)
+
+        assert record.recommended_version == "5.3.0"
 
 
 # ============================================================================

@@ -85,12 +85,16 @@ def _pv(
     )
 
 
-def _make_registry(versions_by_name: dict[str, list[PackageVersion]]) -> MagicMock:
+def _make_registry(
+    versions_by_name: dict[str, list[PackageVersion]],
+    requires: dict[tuple[str, str], dict[str, str]] | None = None,
+) -> MagicMock:
     from ossiq.domain.common import ProjectPackagesRegistry
 
     registry = MagicMock(spec=AbstractPackageRegistryApi)
     registry.package_registry = ProjectPackagesRegistry.PYPI
     registry.package_versions.side_effect = lambda name: versions_by_name.get(name, [])
+    registry.package_version_requires.side_effect = lambda name, version: (requires or {}).get((name, version), {})
 
     def _cmp(v1: str, v2: str) -> int:
         p1, p2 = PV(v1), PV(v2)
@@ -230,3 +234,37 @@ class TestSolveTransitiveDeduplication:
         # Only one call per unique package name
         assert registry.package_versions.call_count == 1
         assert result.recommendations.get("shared") == "2.0.0"
+
+
+class TestSolveTransitiveExternalTargets:
+    def test_external_conflict_demotes_transitive_pick(self) -> None:
+        """Regression: scipy-style pick requiring numpy>=2.0.0 while direct numpy is held at 1.26.4."""
+        records = [_rec("scipy", "1.17.1", constraint=">=1.10.0")]
+        registry = _make_registry(
+            {
+                "scipy": [
+                    _pv("1.17.1", published="2023-01-01T00:00:00Z"),
+                    _pv("1.18.0", published="2024-06-01T00:00:00Z"),
+                ]
+            },
+            requires={
+                ("scipy", "1.18.0"): {"numpy": ">=2.0.0"},
+                ("scipy", "1.17.1"): {"numpy": ">=1.26.4,<2.7"},
+            },
+        )
+        result = solve_transitive(records, registry, {}, external_targets={"numpy": "1.26.4"})
+        assert result.recommendations.get("scipy") == "1.17.1"
+
+    def test_without_external_targets_newest_pick_kept(self) -> None:
+        records = [_rec("scipy", "1.17.1", constraint=">=1.10.0")]
+        registry = _make_registry(
+            {
+                "scipy": [
+                    _pv("1.17.1", published="2023-01-01T00:00:00Z"),
+                    _pv("1.18.0", published="2024-06-01T00:00:00Z"),
+                ]
+            },
+            requires={("scipy", "1.18.0"): {"numpy": ">=2.0.0"}},
+        )
+        result = solve_transitive(records, registry, {})
+        assert result.recommendations.get("scipy") == "1.18.0"

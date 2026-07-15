@@ -13,7 +13,8 @@ Supported units: y/m/w/d/h, default: d (days).
 ARGS_HELP_DEBUG = "Enable debug logging output (logging module). Overrides OSSIQ_DEBUG env var."
 
 ARGS_HELP_GITHUB_TOKEN = """Github Token to increase requests limits"""
-ARGS_HELP_CACHE_DESTINATION = """Directory where cache will be stored"""
+ARGS_HELP_CONFIG = """Path to a config file with OSSIQ_* values (default: ~/.ossiq/config)"""
+ARGS_HELP_CACHE_DESTINATION = """Directory where cache will be stored (default: ~/.ossiq/cache.sqlite3)"""
 ARGS_HELP_CACHE_TTL = """For how long cache is stored"""
 ARGS_HELP_OUTPUT = """Destination where to generate output"""
 
@@ -26,11 +27,11 @@ Specify which project registry type (ecosystem) to use. Default: None. Possible 
 """
 
 HELP_OUTPUT_FORMAT = """
-Output format. Default: json. Possible options: json, csv, cyclonedx
+Output format. Default: json. Possible options: json, csv
 """
 
 HELP_SCHEMA_VERSION = """
-Export schema version. Default: latest. Possible options: 1.0, 1.1
+Export schema version. Default: latest. Possible options: 1.0, 1.1, 1.2, 1.3, 1.4
 """
 
 WARNING_MULTIPLE_REGISTRY_TYPES = """
@@ -46,6 +47,9 @@ Name of the package to inspect. Exact match against the package name or its alia
 """
 
 HELP_IGNORE_PACKAGE = "Exclude package from solver recommendations (repeatable)."
+
+IGNORE_REASON_NON_REGISTRY = "not on npm registry (git/URL source)"
+IGNORE_REASON_IGNORE_FLAG = "excluded via --ignore"
 
 HELP_PIN_ALL = "Write exact ==version specifiers for every updated direct dependency."
 
@@ -72,7 +76,6 @@ Package `{package_name}` not found in the project dependency tree.
 HELP_PLAN_COMMAND = """
 Show solver-recommended package version changes without making any changes.
 
-Use `--script` to emit a bash update script instead of the plan table.
 Use `--pin-all` to write exact ==version specifiers for updated deps.
 Use `--rewrite-versions` to also include PINNED (==x.y.z) deps that are otherwise frozen.
 Use `--override pkg==version` to force an exact version, bypassing the solver and cooldown.

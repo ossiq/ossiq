@@ -7,7 +7,7 @@
 
 **OSS IQ** is a free & open-source CLI tool that analyzes dependency drift at scale. Track version lag and transitive risk directly from your dependency files. It helps to move from reactive CVE-chasing to a planned, predictable maintenance rhythm.
 
-![OSS IQ HTML Report](https://ossiq.dev/_static/images/ossiq-cli-report-2026-06-20.png)
+![OSS IQ HTML Report](https://ossiq.dev/_static/images/ossiq-cli-report-2026-07-13.png)
 
 ## What is OSS IQ?
 
@@ -68,6 +68,38 @@ OSS IQ performs deep analysis by mining software repository history, which can i
 export OSSIQ_GITHUB_TOKEN=$(gh auth token)
 ```
 
+To make the token persistent, store it in the config file instead (see below):
+
+```bash
+echo "OSSIQ_GITHUB_TOKEN=$(gh auth token)" >> ~/.ossiq/config
+```
+
+#### Configuration File
+
+Every `OSSIQ_*` environment variable can also be set in a config file at `~/.ossiq/config` (dotenv format — `KEY=value` lines, `#` comments allowed):
+
+```bash
+# ~/.ossiq/config
+OSSIQ_GITHUB_TOKEN=ghp_your_token
+OSSIQ_COOLDOWN_PERIOD=14
+OSSIQ_CACHE_TTL=48
+```
+
+Use `--config <path>` to point at a different file:
+
+```bash
+ossiq-cli --config ./ossiq.conf status
+```
+
+Values are resolved with the following precedence (highest wins):
+
+1. CLI flags (`--cooldown-period 14`)
+2. Environment variables (`OSSIQ_COOLDOWN_PERIOD=14`)
+3. Config file (`~/.ossiq/config` or `--config <path>`)
+4. Built-in defaults
+
+`ossiq-cli install skills --github-token <token>` writes the token to `~/.ossiq/config` automatically.
+
 #### Temporal Analysis Options
 
 Two global options let you control how OSS IQ perceives time. They apply to all subcommands (`status`, `export`, `plan`, `apply`, `info`) and can be combined freely.
@@ -97,6 +129,8 @@ The options are also readable from environment variables, which is useful for CI
 OSSIQ_CUTOFF_DATE=2025-01-01 OSSIQ_COOLDOWN_PERIOD=14 ossiq-cli status
 ```
 
+Both variables can also be set persistently in the [config file](#configuration-file).
+
 
 If you prefer a persistent install:
 
@@ -110,6 +144,22 @@ pip install ossiq
 # Then run directly
 ossiq-cli status
 ```
+
+### Connect AI Coding Agents
+
+Give Claude Code, GitHub Copilot, or OpenAI Codex a skill that checks dependency health before they add or update a package, plus a local MCP server they can call directly.
+
+```bash
+# Install the skill and MCP server for all three tools
+uvx --from ossiq ossiq-cli install skills
+
+# Or target one tool: claude, codex, copilot
+uvx --from ossiq ossiq-cli install skills claude
+```
+
+This writes `SKILL.md` and registers `ossiq` as a local stdio MCP server (`ossiq-cli mcp`) for Claude Code (`~/.claude/`) and Codex (`~/.codex/`), and adds the skill to GitHub Copilot's instructions (`~/.copilot/copilot-instructions.md`). It's safe to re-run — existing config is merged, not overwritten.
+
+The command prompts for a GitHub token (or takes `--github-token`; blank skips). The token is stored in `~/.ossiq/config` and in each tool's MCP server entry so the agent's scans get the higher API rate limit too. Full details — files written, token storage, and running from a local checkout with `--dev` — are in [Reference → install skills](https://ossiq.dev/reference.html#install-skills).
 
 ### Using Docker
 
@@ -145,7 +195,7 @@ docker run --rm \
 
 **Docker Image Tags:**
 - `ossiq/ossiq-cli:latest` - Latest stable release
-- `ossiq/ossiq-cli:0.1.3` - Specific version
+- `ossiq/ossiq-cli:0.1.9` - Specific version
 - `ossiq/ossiq-cli:0.1` - Latest patch in minor version
 
 **CI/CD Integration Example (GitHub Actions):**
@@ -171,9 +221,6 @@ jobs:
 ```bash
 # Show the plan table (read-only, no changes made)
 ossiq-cli plan
-
-# Emit a copy-pasteable bash script instead of the table
-ossiq-cli plan --script
 
 # Apply updates interactively (shows the plan, then prompts for confirmation)
 ossiq-cli apply
@@ -201,7 +248,6 @@ The solver simulates the full transitive impact of each recommendation before co
 | `--override <pkg>==<ver>` | Force a package to an exact version, bypassing the solver and the cooldown (repeatable) |
 | `--pin-all` | Write `==new_version` for every updated direct dependency, converting loose specifiers (`^`, `~=`, `>=`) to exact pins |
 | `--rewrite-versions` | Include already-pinned (`==x.y.z`) dependencies in the update and rewrite their pinned version |
-| `--script` | (`plan` only) Print the bash script instead of the plan table — safe to pipe directly to `bash` |
 | `--yes`, `-y` | (`apply` only) Skip the confirmation prompt |
 
 All flags are accepted by both `plan` and `apply` (except where noted), so a `plan` invocation is always
@@ -344,6 +390,9 @@ uv run hatch run ossiq-cli status
 
 # Generate HTML report
 uv run hatch run ossiq-cli html -o ./test_report.html
+
+# Point the AI-agent skill and MCP server at your checkout instead of PyPI
+uv run hatch run ossiq-cli install skills --dev "$(pwd)"
 ```
 
 ### Package Deep-Dive

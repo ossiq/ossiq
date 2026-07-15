@@ -31,8 +31,10 @@ Pipeline:
 from __future__ import annotations
 
 import logging
+import operator
 import re
 
+from univers.version_constraint import InvalidConstraintsError
 from univers.version_range import InvalidVersionRange, NpmVersionRange, PypiVersionRange
 from univers.versions import PypiVersion, SemverVersion
 
@@ -45,11 +47,27 @@ logger = logging.getLogger(__name__)
 # ── npm / Node.js semver
 # Spec: https://github.com/npm/node-semver#versions
 
-# Matches a bare version with no operator: "14", "1.2", "1.2.3"
-_BARE_VERSION_RE = re.compile(r"^\d[\d.]*$")
+# Standard semver prerelease/build metadata regex
+# Matches `-` or `+` followed by alphanumeric chars, dots, or hyphens.
+SEMVER_METADATA_RE = re.compile(r"[-+][0-9A-Za-z-\.]+")
 
-# Matches npm != operator: "!=1.0.0" — univers does not handle != for npm ranges
-_NOT_EQUAL_RE = re.compile(r"^!=\s*(\d[\d.]*)$")
+NOT_EQUAL_RE = re.compile(r"^!=\s*(.+)$")
+BARE_VERSION_RE = re.compile(r"^\d+(\.\d+)*([-+][0-9A-Za-z-\.]+)?$")
+
+# Mapping string operators to standard Python math operators
+OPS = {
+    ">": operator.gt,
+    ">=": operator.ge,
+    "<": operator.lt,
+    "<=": operator.le,
+    "=": operator.eq,
+    "==": operator.eq,
+    "!=": operator.ne,
+}
+# Matches a prerelease suffix on a full version: "3.0.0-0" / "3.0.0-rc.1" -> strip to "3.0.0".
+# univers rejects prerelease-floor constraints like ">=3.0.0-0"; we deliberately ignore
+# prerelease precision. Hyphen ranges ("1.2.3 - 2.0.0") are unaffected: they have spaces.
+PRERELEASE_SUFFIX_RE = re.compile(r"(\d+\.\d+\.\d+)-[0-9A-Za-z][0-9A-Za-z.-]*")
 
 
 def strip_npm_alias(constraint: str) -> str:
@@ -83,7 +101,38 @@ def preprocess_pypi_specifier(specifier: str) -> str:
     )
 
 
-def npm_version_satisfies_range(version: str, range_constraint: str) -> bool:
+def _fallback_evaluate_bounds(version_obj: SemverVersion, constraint_string: str) -> bool:
+    """
+    Manually evaluates constraint branches mathematically when strict semver
+    parsers (like univers) crash on overlapping or redundant prerelease boundaries.
+    """
+    # Split the constraint into OR branches (||)
+    for branch in (b.strip() for b in constraint_string.split("||")):
+        clauses = re.sub(r"([><=~^!]+)\s+", r"\1", branch).split()
+        branch_satisfied = True
+
+        for clause in clauses:
+            match = re.match(r"^([><=~^!]+)?(.*)$", clause)
+            if not match:
+                continue
+
+            op_str, constraint_val = match.groups()
+            op_str = op_str or "="
+
+            try:
+                if op_str in OPS and not OPS[op_str](version_obj, SemverVersion(constraint_val)):  # type: ignore
+                    branch_satisfied = False
+                    break
+            except ValueError:
+                continue
+
+        if branch_satisfied:
+            return True
+
+    return False
+
+
+def npm_version_satisfies_range(version: str, range_constraint: str, allow_beta: bool = False) -> bool:
     """Return True if *version* satisfies an npm semver *range_constraint*.
 
     Implements a subset of the node-semver range syntax:
@@ -93,32 +142,32 @@ def npm_version_satisfies_range(version: str, range_constraint: str) -> bool:
       - bare version  — "14"  treated as a caret range (^14.0.0)
       - comparison operators  — ">", ">=", "<", "<=", "=", "!="
       - npm alias  — "npm:pkg@^1.2.3"  matched against the embedded range
-
-    An unparseable version or constraint passes through as True so that an
-    unknown format never becomes a hard block.
     """
+    if not allow_beta and "-" in version:
+        return False
+
     constraint = strip_npm_alias(range_constraint).strip()
 
-    m = _NOT_EQUAL_RE.match(constraint)
+    m = NOT_EQUAL_RE.match(constraint)
     if m:
         try:
             return SemverVersion(version) != SemverVersion(m.group(1))  # type: ignore
         except ValueError:
             return True
 
-    # Expand bare versions to caret ranges per || branch before delegating to univers.
-    # univers handles || natively but treats bare "14" as exact =14.0.0, not ^14.
     parts = [p.strip() for p in constraint.split("||")]
-    processed = " || ".join(f"^{p}" if _BARE_VERSION_RE.match(p) else p for p in parts)
+    processed = " || ".join(f"^{p}" if BARE_VERSION_RE.match(p) else p for p in parts)
 
     try:
         return SemverVersion(version) in NpmVersionRange.from_native(processed)  # type: ignore
+    except InvalidConstraintsError:
+        try:
+            return _fallback_evaluate_bounds(SemverVersion(version), processed)  # type: ignore
+        except ValueError:
+            return True
     except ValueError as exc:
         logger.debug(
-            "npm_version_satisfies_range: unparseable version=%r constraint=%r error=%s",
-            version,
-            range_constraint,
-            exc,
+            "npm_version_satisfies_range: unparseable version=%r constraint=%r error=%s", version, range_constraint, exc
         )
         return True
 
@@ -151,7 +200,7 @@ def version_satisfies_constraint(version: str, constraint: str | None, registry:
         if registry == ProjectPackagesRegistry.PYPI:
             return pypi_version_satisfies_specifier(version, constraint)
         return npm_version_satisfies_range(version, constraint)
-    except (ValueError, InvalidVersionRange) as exc:
+    except (ValueError, InvalidVersionRange, InvalidConstraintsError) as exc:
         logger.debug(
             "version_satisfies_constraint: parse failed version=%r constraint=%r registry=%s error=%s",
             version,
@@ -188,7 +237,7 @@ def engine_version_satisfies_requirement(
             return pypi_version_satisfies_specifier(context_version, requirement)
         if engine_key in ("node", "nodejs"):
             return npm_version_satisfies_range(context_version, requirement)
-    except (ValueError, InvalidVersionRange):
+    except (ValueError, InvalidVersionRange, InvalidConstraintsError):
         pass
     return True
 

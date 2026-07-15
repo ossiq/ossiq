@@ -9,13 +9,14 @@ Weighted MaxSAT solver that recommends the best version for each dependency: the
 ```
 solver/
 ├── driver.py              Types + AbstractSolverDriver ABC
-├── driver_pysat.py        VarAllocator + PySATDriver (RC2 concrete impl)
+├── driver_glucose.py      GlucoseDriver — DEFAULT: greedy sequential-assumption SAT (Glucose42)
+├── driver_pysat.py        VarAllocator + PySATDriver (exact RC2 MaxSAT — pluggable alternative)
 ├── kernel.py              HPDRKernel — thin delegating wrapper
 ├── problem.py             SolverProblem, CandidateVersion, PackageConstraint
 ├── universe.py            SolvablePool — builds SolverProblem from registry
 ├── version_matchers.py    npm semver + PEP 440 range matching — raw constraint → bool
 ├── encoder.py             ConstraintEncoder — produces EncodedProblem (WCNF)
-├── weights.py             Constraint weight constants + age_weight()
+├── weights.py             Constraint weight constants + semver_rank_weight()
 └── dependencies_solver.py       Public API: solve_direct(), solve_transitive()
 ```
 
@@ -60,8 +61,10 @@ deps / transitive_records
     – emits hard + soft WCNF clauses (see Constraint Levels below)
         │
         ▼ EncodedProblem
-  HPDRKernel.solve()            kernel.py → driver_pysat.py
-    – builds pysat WCNF; runs RC2 (Weighted MaxSAT, minimises total penalty)
+  HPDRKernel.solve()            kernel.py → driver_glucose.py (default)
+    – Glucose42 on hard clauses; per-package preferred version (highest net
+      soft weight) greedily committed as assumptions; 10 s timeout → ConflictSet
+    – exact RC2 Weighted MaxSAT (driver_pysat.py) remains a pluggable driver
     – positive vars in model → selected (package, version) pairs
         │
         ▼ SolverResult | ConflictSet
@@ -72,7 +75,9 @@ deps / transitive_records
 
 ## Constraint Levels
 
-RC2 **minimises** total cost of violated soft clauses. Hard clauses must be satisfied.
+Hard clauses must be satisfied. Soft weights express preferences: the default GlucoseDriver
+**approximates** the optimum by committing each package's highest-net-soft-weight version
+greedily; the pluggable RC2 driver **minimises** total violated soft cost exactly.
 
 | Level | Kind | Weight | Trigger |
 |---|---|---|---|
@@ -122,7 +127,7 @@ Structural clauses per package (encoder):
 | Hard constraint unsatisfiable (`ConflictSet`) | `{}` — DEBUG-logged; scan always completes |
 | No input / no flagged records | `{}` |
 
-`SolverResult.selected` is a list of `(package_name, version)` tuples emitted only for variables that were **true** in the RC2 model and present in `var_map`.
+`SolverResult.selected` is a list of `(package_name, version)` tuples emitted only for variables that were **true** in the solver model and present in `var_map`.
 
 `SolverProblem.fingerprint()` returns a SHA-256 over canonical JSON — reserved as a cache key for future memoisation (Phase 6).
 
@@ -130,8 +135,8 @@ Structural clauses per package (encoder):
 
 ## Key Implementation Decisions
 
-**Why Weighted MaxSAT / RC2?**  
-The problem is naturally a Partial MaxSAT instance: some constraints are inviolable (declared ranges, CVEs) while others express preferences with quantified importance (age, engine, deprecation). RC2 from `python-sat==1.9.dev2` solves this directly without manual priority heuristics. Reference: [RC2 in the pysat handbook](https://pysathq.github.io/docs/html/api/examples/rc2.html).
+**Why a Weighted MaxSAT formulation — and why the default driver isn't exact MaxSAT?**  
+The problem is naturally a Partial MaxSAT instance: some constraints are inviolable (declared ranges, CVEs) while others express preferences with quantified importance (age, engine, deprecation). The encoding is shared; the driver is pluggable. The **default `GlucoseDriver`** commits each package's highest-net-soft-weight version as a SAT assumption greedily (Glucose42, 10 s timeout) — it captures the dominant per-package preference without MaxSAT's NP-hard optimisation cost. **`PySATDriver`** (RC2 from `python-sat==1.9.dev2`) remains available for exact optimisation. Reference: [RC2 in the pysat handbook](https://pysathq.github.io/docs/html/api/examples/rc2.html).
 
 **Why a Protocol (`_DepLike`) instead of importing `DependencyDescriptor`?**  
 `service/` already imports `unit_of_work/`; importing back would create a cycle. The Protocol is duck-typed and zero-cost at runtime. A future refactor moving `DependencyDescriptor` to `domain/` would let us drop the Protocol (noted as TODO in `universe.py:28`).

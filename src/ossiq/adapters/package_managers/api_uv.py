@@ -6,7 +6,6 @@ from __future__ import annotations
 
 import os
 import re
-import shlex
 import subprocess
 import tomllib
 from collections import namedtuple
@@ -370,64 +369,6 @@ class PackageManagerPythonUv(AbstractPackageManagerApi):
         return PackageRegistryApiPypi.rewrite_specifier(
             entry.version_defined, entry.recommended_version, entry.constraint_type
         )
-
-    def generate_update_script(self, plan: UpdatePlan, cli_extra_args: str = "") -> str:
-        """Generate bash script: smart specifier rewrite (or --pin-all), then uv lock + uv sync."""
-        lines = [
-            "#!/usr/bin/env bash",
-            f"# OSS IQ update — uv  |  project: {plan.project_name}",
-            f"# {len(plan.direct_entries)} direct, {len(plan.transitive_entries)} transitive updates",
-            "set -euo pipefail",
-            "",
-            f'cd "{plan.project_path}"',
-        ]
-
-        upgrade_flags: list[str] = []
-
-        if plan.direct_entries:
-            lines += ["", "# --- direct dependencies: update specifiers in pyproject.toml ---"]
-            for entry in plan.direct_entries:
-                new_spec = self.resolve_direct_specifier(entry, plan.pin_all)
-                orig = entry.version_defined or entry.current_version
-
-                if new_spec == entry.version_defined:
-                    lines.append(f"# {entry.package_name}: {orig} -> (lockfile only)")
-                else:
-                    spec_to_write = new_spec or f"=={entry.recommended_version}"
-                    lines.append(f"# {entry.package_name}: {orig} -> {spec_to_write}")
-                    lines.append(
-                        f"sed -i '' "
-                        f"""'s|"{entry.package_name}[^"]*"|"{entry.package_name}{spec_to_write}"|g'"""
-                        " pyproject.toml"
-                    )
-
-                # Always pin direct deps explicitly — prevents uv from resolving a different version.
-                upgrade_flags.append(f"    --upgrade-package {entry.package_name}=={entry.recommended_version}")
-
-        upgrade_flags += [
-            f"    --upgrade-package {entry.package_name}=={entry.recommended_version}"
-            for entry in plan.transitive_entries
-        ]
-
-        forced_transitive = [entry for entry in plan.transitive_entries if entry.is_forced]
-        if forced_transitive:
-            lines += ["", "# --- forced overrides (--override): persist in [tool.uv] override-dependencies ---"]
-            for entry in forced_transitive:
-                spec = shlex.quote(f"{entry.package_name}=={entry.recommended_version}")
-                lines.append(f"ossiq helpers uv set-override {spec} .")
-
-        lock_cmd = "uv lock" if not upgrade_flags else "uv lock \\\n" + " \\\n".join(upgrade_flags)
-
-        lines += [
-            "",
-            "# --- update lockfile ---",
-            lock_cmd,
-            "",
-            "uv sync",
-            "",
-            "# ROLLBACK: git checkout pyproject.toml && uv sync",
-        ]
-        return "\n".join(lines)
 
     def execute_update(self, plan: UpdatePlan) -> None:
         """Apply specifier rewrites, run uv lock + uv sync in-process. Restores pyproject.toml on failure."""

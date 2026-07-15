@@ -15,7 +15,7 @@ from ossiq.domain.common import (
     ExportUnknownSchemaVersion,
 )
 from ossiq.domain.cve import CVE, Severity
-from ossiq.service.project import ScanResult
+from ossiq.service.project.models import ScanResult
 
 
 class ExportMetadata(BaseModel):

@@ -541,6 +541,13 @@
                             <p class="text-zinc-500 text-sm font-light"><code class="bg-zinc-100 px-1.5 py-0.5 rounded text-xs">plan</code> shows solver-recommended versions and transitive impact before touching anything. <code class="bg-zinc-100 px-1.5 py-0.5 rounded text-xs">apply</code> rewrites your manifest and runs your package manager.</p>
                         </div>
                     </div>
+                    <div class="flex gap-4">
+                        <span class="squared-bullet mt-1.5 shrink-0"></span>
+                        <div>
+                            <p class="font-medium text-sm mb-1">Wire it straight into your AI agent</p>
+                            <p class="text-zinc-500 text-sm font-light"><code class="bg-zinc-100 px-1.5 py-0.5 rounded text-xs">ossiq-cli install skills</code> installs a skill and local MCP server for Claude Code, Codex, and GitHub Copilot &mdash; so the agent checks health before it adds or upgrades anything.</p>
+                        </div>
+                    </div>
                 </div>
             </div>
             <div class="flex justify-center">
@@ -548,7 +555,7 @@
                     <a href="getting-started.html" class="bg-black text-white px-8 py-4 rounded-sm font-bold text-xs uppercase tracking-widest hover:bg-[#ff4d00] transition-colors">Getting Started</a>
                 </div>
             </div>
-            
+
         </section>
         
 
@@ -595,11 +602,11 @@
                         <p class="text-zinc-500 text-xs mb-3"># Install as a library &mdash; no CLI overhead</p>
                         <p><span class="text-[#ff4d00]">pip</span> install ossiq</p>
                         <p class="mt-4"><span class="text-zinc-500">from</span> ossiq <span class="text-zinc-500">import</span> scan, Settings</p>
-                        <p><span class="text-zinc-500">from</span> ossiq.unit_of_work.uow_project <span class="text-zinc-500">import</span> ProjectUnitOfWork</p>
-                        <p class="mt-3">settings = Settings.load_from_env()</p>
-                        <p>uow = ProjectUnitOfWork(settings, project_path=<span class="text-green-400">"."</span>)</p>
-                        <p><span class="text-zinc-500">with</span> uow:</p>
-                        <p>&nbsp;&nbsp;&nbsp;&nbsp;result = scan(uow)</p>
+                        <p><span class="text-zinc-500">from</span> ossiq.sources.project_sources <span class="text-zinc-500">import</span> ProjectSources</p>
+                        <p class="mt-3">settings = Settings.load()</p>
+                        <p>sources = ProjectSources(settings, project_path=<span class="text-green-400">"."</span>)</p>
+                        <p><span class="text-zinc-500">with</span> sources:</p>
+                        <p>&nbsp;&nbsp;&nbsp;&nbsp;result = scan(sources)</p>
                         <p class="mt-3 text-zinc-500 text-xs"># Rich structured output &mdash; same data the CLI renders</p>
                         <p><span class="text-zinc-500">for</span> pkg <span class="text-zinc-500">in</span> result.production_packages:</p>
                         <p>&nbsp;&nbsp;&nbsp;&nbsp;<span class="text-zinc-500">if</span> pkg.cve <span class="text-zinc-500">or</span> (pkg.time_lag_days <span class="text-zinc-500">or</span> 0) > 365:</p>
@@ -787,8 +794,8 @@
             { src: "/_static/images/ossiq-html-report-2026-06-20.png",                      alt: "OSS IQ HTML report" },
             { src: "/_static/images/ossiq-html-transitive-dependencies-2026-06-20.png",      alt: "OSS IQ &mdash; transitive dependencies" },
             { src: "/_static/images/ossiq-html-transitive-dependencies-package-2026-06-20.png", alt: "OSS IQ &mdash; transitive dependency detail" },
-            { src: "/_static/images/ossiq-cli-report-2026-06-20.png",                        alt: "OSS IQ CLI report" },
-            { src: "/_static/images/ossiq-cli-package-2026-06-20.png",                       alt: "OSS IQ CLI package detail" },
+            { src: "/_static/images/ossiq-cli-report-2026-07-13.png",                        alt: "OSS IQ CLI report" },
+            { src: "/_static/images/ossiq-cli-package-2026-07-13.png",                       alt: "OSS IQ CLI package detail" },
         ];
 
         const DOT_BASE    = "w-1.5 h-1.5 rounded-full transition-colors ";

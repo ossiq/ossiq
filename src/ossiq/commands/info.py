@@ -7,7 +7,6 @@ import typer
 from rich.console import Console
 
 from ossiq.domain.common import Command, ProjectPackagesRegistry, UserInterfaceType
-from ossiq.service import project
 from ossiq.service.package import (
     PackageDetailResult,
     TransitiveCVEGroup,
@@ -15,7 +14,9 @@ from ossiq.service.package import (
     evaluate_package_rules,
     fetch_prospective_detail,
 )
-from ossiq.service.project import ScanRecord, ScanResult, apply_recommendations
+from ossiq.service.project.models import ScanRecord, ScanResult
+from ossiq.service.project.recommendations import apply_recommendations, clamp_recommendations
+from ossiq.service.project.scan import scan
 from ossiq.settings import Settings
 from ossiq.solver import dependencies_solver
 from ossiq.sources import project_sources
@@ -33,6 +34,7 @@ class CommandInfoOptions:
     allow_prerelease: bool = False
     allow_prerelease_packages: tuple[str, ...] = ()
     ignore_packages: tuple[str, ...] = ()
+    output_format: Literal["console", "agent"] = "console"
 
 
 def matches(record: ScanRecord, package_name: str) -> bool:
@@ -95,6 +97,12 @@ def build_installed_detail(
             cooldown_period=settings.cooldown_period,
         )
         apply_recommendations(needs_solve, solo_output, skip_current=False)
+        clamp_recommendations(
+            needs_solve,
+            sources.packages_registry,
+            allow_prerelease=sources.allow_prerelease,
+            cooldown_period=settings.cooldown_period,
+        )
 
     # These fetches hit the already-warm in-process cache — no extra HTTP round-trips.
     package = sources.packages_registry.package_info(canonical_name)
@@ -131,6 +139,9 @@ def command_info(ctx: typer.Context, options: CommandInfoOptions) -> None:
         "pypi": ProjectPackagesRegistry.PYPI,
     }
 
+    output_ui = UserInterfaceType(options.output_format)
+    is_agent = output_ui == UserInterfaceType.AGENT
+
     sources = project_sources.ProjectSources(
         settings=settings,
         project_path=options.project_path,
@@ -141,10 +152,14 @@ def command_info(ctx: typer.Context, options: CommandInfoOptions) -> None:
         ignore_packages=options.ignore_packages,
     )
 
-    with show_scan_progress(settings) as on_step:
-        scan_result = project.scan(sources, on_step=on_step)
+    # Agent format prints JSON to stdout, so progress and warnings must stay silent.
+    if is_agent:
+        scan_result = scan(sources, on_step=lambda _: None)
+    else:
+        with show_scan_progress(settings) as on_step:
+            scan_result = scan(sources, on_step=on_step)
 
-    if scan_result.manifest_lock_divergent:
+    if scan_result.manifest_lock_divergent and not is_agent:
         Console().print(
             f"[yellow]Warning:[/yellow] pyproject.toml and uv.lock are out of sync for: "
             f"[bold]{', '.join(scan_result.manifest_lock_divergent)}[/bold]. "
@@ -156,16 +171,18 @@ def command_info(ctx: typer.Context, options: CommandInfoOptions) -> None:
 
     if matched:
         detail = build_installed_detail(matched, scan_result, options.package_name, sources, settings)
+    elif is_agent:
+        detail = fetch_prospective_detail(options.package_name, sources, settings)
     else:
         # Package not in this project — run the prospective flow.
-        # sources.__enter__ was already called inside project.scan(), so packages_registry is live.
+        # sources.__enter__ was already called inside scan(), so packages_registry is live.
         with show_operation_progress(settings, f"Fetching prospective info for {options.package_name}...") as progress:
             with progress():
                 detail = fetch_prospective_detail(options.package_name, sources, settings)
 
     renderer = get_renderer(
         command=Command.INFO,
-        user_interface_type=UserInterfaceType.CONSOLE,
+        user_interface_type=output_ui,
         settings=settings,
     )
     renderer.render(data=detail)

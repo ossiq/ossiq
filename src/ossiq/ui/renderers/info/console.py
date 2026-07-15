@@ -8,7 +8,7 @@ from rich.text import Text
 
 from ossiq.domain.common import Command, ConstraintType, UserInterfaceType
 from ossiq.service.package import PackageDetailResult, PackageInsight, PackageWarning, TransitiveCVEGroup
-from ossiq.service.project import ScanRecord
+from ossiq.service.project.models import ScanRecord
 from ossiq.settings import Settings
 from ossiq.timeutil import format_time_days
 from ossiq.ui.interfaces import AbstractUserInterfaceRenderer

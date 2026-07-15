@@ -35,6 +35,19 @@ def _chunked(items: Iterable, n: int) -> Generator:
 logger = logging.getLogger(__name__)
 
 
+def is_rate_limit_response(response: requests.Response) -> bool:
+    """429 is always a rate limit; 403 only when rate-limit headers say so.
+
+    GitHub returns 403 for non-rate-limit reasons too (org PAT restrictions,
+    blocked repos) — those must not pause the whole batch.
+    """
+    if response.status_code == 429:
+        return True
+    if response.status_code != 403:
+        return False
+    return "Retry-After" in response.headers or response.headers.get("x-ratelimit-remaining") == "0"
+
+
 @dataclass
 class BatchStrategySettings:
     chunk_size: int
@@ -211,7 +224,7 @@ class BatchClient:
                     elapsed,
                 )
 
-                if resp.status_code == 429 or resp.status_code == 403:
+                if is_rate_limit_response(resp):
                     self._handle_rate_limit(resp)
                     continue  # Retry this chunk after the pause.
 
@@ -295,7 +308,11 @@ class BatchClient:
                 ratelimit_remaining_requests = response.headers.get("x-ratelimit-remaining")
 
                 if ratelimit_remaining_requests and int(ratelimit_remaining_requests) == 0:
-                    logger.info("Limit Exceeded for the strategy %s, shutting down", str(self.strategy))
+                    logger.warning(
+                        "Rate limit quota exhausted for %s, shutting down. "
+                        "Set OSSIQ_GITHUB_TOKEN (or --github-token) to raise the GitHub limit.",
+                        str(self.strategy),
+                    )
                     self._gate.set()
                     self._abort.set()
                     return
@@ -306,7 +323,7 @@ class BatchClient:
 
         if wait_time is not None:
             # We won the election — sleep outside the lock, then reopen.
-            logger.warning("429 Rate Limit! Pausing all threads for %ds", wait_time)
+            logger.warning("HTTP %d rate limit! Pausing all threads for %ds", response.status_code, wait_time)
 
             # Sleep in 1-second increments to allow graceful abort (Ctrl+C / shutdown()).
             for _ in range(wait_time):

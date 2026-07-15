@@ -6,7 +6,7 @@ from rich.table import Table
 
 from ossiq.domain.common import Command, ConstraintType, UserInterfaceType
 from ossiq.service.library_scan import UpgradePath
-from ossiq.service.project import ScanRecord, ScanResult
+from ossiq.service.project.models import ScanRecord, ScanResult
 from ossiq.settings import Settings
 from ossiq.ui.interfaces import AbstractUserInterfaceRenderer
 from ossiq.ui.renderers.impact_utils import (
@@ -106,6 +106,14 @@ class ConsoleStatusRenderer(AbstractUserInterfaceRenderer):
             self.console.print(Rule("Constraint Widening Opportunities", style="dim"))
             self.console.print()
             self.console.print(table_upgrade)
+            self.console.print()
+
+        if data.ignored_packages:
+            self.console.print(Rule("Ignored Dependencies", style="dim"))
+            self.console.print()
+            for dep in data.ignored_packages:
+                spec = f"  [dim]{dep.spec}[/dim]" if dep.spec else ""
+                self.console.print(f"  [yellow]•[/yellow] {dep.name}{spec}  [dim]({dep.reason})[/dim]")
             self.console.print()
 
     def build_main_table(

@@ -8,6 +8,17 @@ mkdir -p reports
 
 ---
 
+## TC-H00: `html --help` flag surface
+
+```bash
+uv run hatch run ossiq-cli html --help
+```
+
+- [ ] Lists `--output`, `--security`, `--ignore`
+- [ ] `--presentation` is absent (that flag doesn't exist — `html` is a dedicated command, not a `status --presentation` mode)
+
+---
+
 ## TC-H01: Generate PyPI HTML report
 
 ```bash

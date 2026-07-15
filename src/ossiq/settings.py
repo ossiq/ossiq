@@ -4,7 +4,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import ClassVar
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import Field, field_validator
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from ossiq.messages import (
     ARGS_HELP_CACHE_DESTINATION,
@@ -17,27 +18,30 @@ from ossiq.messages import (
 from ossiq.timeutil import cutoff_datetime_from_iso_date
 
 ENV_PREFIX = "OSSIQ_"
+CONFIG_PATH = Path.home() / ".ossiq" / "config"
 
 
-class Settings(BaseModel):
+class Settings(BaseSettings):
     """
     The immutable configuration object for the CLI tool.
-    Pydantic handles environment variable loading (using the field names).
+
+    pydantic-settings loads values from OSSIQ_-prefixed environment variables;
+    Settings.load() additionally reads the config file (dotenv format).
+    No env_file is set in model_config so that bare Settings() never touches
+    the user's real config file (important for tests).
     """
 
-    # Configuration to make the instance immutable (read-only after creation)
-    # Use 'frozen=True' in Pydantic v2
-    model_config = {
-        "frozen": True,
-        "env_prefix": ENV_PREFIX,
-        "extra": "ignore",
-    }
+    model_config = SettingsConfigDict(
+        frozen=True,
+        env_prefix=ENV_PREFIX,
+        extra="ignore",
+    )
 
     # Configuration Fields
     github_token: str | None = Field(default=None, description=ARGS_HELP_GITHUB_TOKEN)
 
     cache_destination: str = Field(
-        default=str(Path.home() / ".ossiq_cache.sqlite3"), description=ARGS_HELP_CACHE_DESTINATION
+        default=str(CONFIG_PATH.parent / "cache.sqlite3"), description=ARGS_HELP_CACHE_DESTINATION
     )
     cache_ttl: int = Field(default=24, description=ARGS_HELP_CACHE_TTL)
     verbose: bool = Field(default=False, description="Enable verbose output")
@@ -66,6 +70,8 @@ class Settings(BaseModel):
         raise ValueError(f"cutoff_date must be an ISO date string or datetime, got {type(v)}")
 
     @classmethod
-    def load_from_env(cls) -> "Settings":
-        """Load settings from defaults and environment variables."""
-        return cls()
+    def load(cls, config_file: Path | None = None) -> "Settings":
+        """Load settings from the config file (default ~/.ossiq/config); env vars override file values."""
+        CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        # _env_file is a real BaseSettings init param; ty only sees the synthesized model __init__
+        return cls(_env_file=config_file if config_file is not None else CONFIG_PATH)  # ty: ignore[unknown-argument]

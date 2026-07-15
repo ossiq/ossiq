@@ -113,6 +113,8 @@ def show_settings(ctx, label: str, settings: dict):
     header_text.append("\n", style="bold cyan")
 
     for setting, value in settings.model_dump().items():
+        if setting == "github_token":
+            value = "set from environment" if value else None
         header_text.append(f"{setting}: ", style="bold white")
         header_text.append(f"{value}\n", style="green")
 

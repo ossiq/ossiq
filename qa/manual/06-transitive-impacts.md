@@ -40,7 +40,7 @@ uv run hatch run ossiq-cli plan --help | grep -E "security|pin-all|ignore"
 ## TC-T02: Impact sub-rows in default solver output
 
 ```bash
-uv run hatch run ossiq-cli scan testdata/pypi/version-constraint
+uv run hatch run ossiq-cli status testdata/pypi/version-constraint
 ```
 
 - [ ] "Recommended" column present when any package has a pending update or constraint conflict
@@ -68,10 +68,10 @@ uv run hatch run ossiq-cli status testdata/pypi/version-constraint
 
 ```bash
 # Run 1 — default (all transitive packages with recommendations)
-uv run hatch run ossiq-cli scan .
+uv run hatch run ossiq-cli status .
 
 # Run 2 — security filter (CVE-only transitive)
-uv run hatch run ossiq-cli scan --security .
+uv run hatch run ossiq-cli status --security .
 ```
 
 - [ ] Run 1: Transitive table may include packages with 0 CVEs
@@ -84,7 +84,7 @@ uv run hatch run ossiq-cli scan --security .
 ## TC-T05: Conflict and non-actionable markers
 
 ```bash
-uv run hatch run ossiq-cli scan .
+uv run hatch run ossiq-cli status .
 ```
 
 Inspect direct-dep recommendation rows:
@@ -99,7 +99,7 @@ Inspect direct-dep recommendation rows:
 ## TC-T06: "New transitive dependencies introduced" section
 
 ```bash
-uv run hatch run ossiq-cli scan .
+uv run hatch run ossiq-cli status .
 ```
 
 - [ ] If section "New transitive dependencies introduced by recommended updates" appears:
@@ -111,25 +111,23 @@ uv run hatch run ossiq-cli scan .
 
 ---
 
-## TC-T07: Update command — transitive impact rows, --pin-all, --ignore
+## TC-T07: `plan` — transitive impact rows, --pin-all, --ignore
 
 ```bash
-uv run hatch run ossiq-cli update plan testdata/pypi/version-constraint
+uv run hatch run ossiq-cli plan testdata/pypi/version-constraint
 ```
 
 ```bash
-uv run hatch run ossiq-cli update plan --security testdata/pypi/version-constraint
+uv run hatch run ossiq-cli plan --security testdata/pypi/version-constraint
 ```
 
 ```bash
-uv run hatch run ossiq-cli update plan --pin-all testdata/pypi/version-constraint
+uv run hatch run ossiq-cli plan --pin-all testdata/pypi/version-constraint
 ```
 
-- [ ] `update plan` (no flags): renders an update plan without crash; at least one entry shows a `↳ also updates:` sub-row, or the new-transitive-deps section appears after the plan table
-- [ ] `update plan --script` (no flags): "Update Script — review before running" section appears with a bash/pip/npm install block
-- [ ] `update plan --script` (no flags): generated script uses smart specifier rewrite — `~=` packages get a `sed` line; `>=`-only packages get `--upgrade-package` in `uv lock` instead
-- [ ] `update plan --security`: completes without crash; if transitive CVE packages exist they are included; if none, plan is empty or shows only direct deps
-- [ ] `update plan --pin-all`: plan table uses `==<version>` for every entry regardless of original specifier
+- [ ] `plan` (no flags): renders a plan table without crash; at least one entry shows a `↳ also updates:` sub-row, or the new-transitive-deps section appears after the plan table
+- [ ] `plan --security`: completes without crash; if transitive CVE packages exist they are included; if none, plan is empty or shows only direct deps
+- [ ] `plan --pin-all`: plan table uses `==<version>` for every entry regardless of original specifier
 - [ ] Any non-actionable package row shows `✗ package_name` in the Package column with no recommended version
 
-For `--ignore` interaction with the update command, see TC-U02 in `07-update-command.md`.
+For `--ignore` interaction with `plan`, see TC-U02 in `07-plan-apply-command.md`.

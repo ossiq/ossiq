@@ -1,7 +1,7 @@
 # Serve documentation locally with live reload
 docs-serve:
     uv run just docs-clean
-    uv run --extra docs sphinx-autobuild docs docs/_build/html --open-browser --watch docs
+    uv run --extra docs sphinx-autobuild --port 8001 docs docs/_build/html --open-browser --watch docs
 
 # Build documentation
 docs-build:

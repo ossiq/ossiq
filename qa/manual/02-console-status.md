@@ -1,4 +1,4 @@
-# 02 — Console: scan + package Commands
+# 02 — Console: status + info Commands
 
 Run from repo root.
 
@@ -13,7 +13,7 @@ ls testdata/pypi/version-constraint testdata/pypi/yanked testdata/npm/deprecated
 ## TC-C01: Basic PyPI scan
 
 ```bash
-uv run hatch run ossiq-cli scan testdata/pypi/version-constraint
+uv run hatch run ossiq-cli status testdata/pypi/version-constraint
 ```
 
 - [ ] "Production Dependency Drift Report" table renders
@@ -26,7 +26,7 @@ uv run hatch run ossiq-cli scan testdata/pypi/version-constraint
 ## TC-C02: Basic npm scan
 
 ```bash
-uv run hatch run ossiq-cli scan testdata/npm/project1
+uv run hatch run ossiq-cli status testdata/npm/project1
 ```
 
 - [ ] npm packages appear in table
@@ -37,7 +37,7 @@ uv run hatch run ossiq-cli scan testdata/npm/project1
 ## TC-C03: Production flag
 
 ```bash
-uv run hatch run ossiq-cli scan --production testdata/pypi/version-constraint
+uv run hatch run ossiq-cli status --production testdata/pypi/version-constraint
 ```
 
 - [ ] Settings shows `production: True`
@@ -48,7 +48,7 @@ uv run hatch run ossiq-cli scan --production testdata/pypi/version-constraint
 ## TC-C04: Yanked packages
 
 ```bash
-uv run hatch run ossiq-cli scan testdata/pypi/yanked
+uv run hatch run ossiq-cli status testdata/pypi/yanked
 ```
 
 - [ ] Package with yanked installed version shows `[YANKED]` annotation in Installed column
@@ -59,7 +59,7 @@ uv run hatch run ossiq-cli scan testdata/pypi/yanked
 ## TC-C05: Deprecated packages (npm)
 
 ```bash
-uv run hatch run ossiq-cli scan testdata/npm/deprecated
+uv run hatch run ossiq-cli status testdata/npm/deprecated
 ```
 
 - [ ] Deprecated packages show `[DEPRECATED]` annotation in Installed column
@@ -71,7 +71,7 @@ uv run hatch run ossiq-cli scan testdata/npm/deprecated
 > Use any project known to have packages with CVEs, or a real-world project (e.g. a project pinned to an old version of `requests` or `lodash`).
 
 ```bash
-uv run hatch run ossiq-cli scan <project-with-cves>
+uv run hatch run ossiq-cli status <project-with-cves>
 ```
 
 - [ ] CVEs column shows a red count for affected packages
@@ -84,7 +84,7 @@ uv run hatch run ossiq-cli scan <project-with-cves>
 > Requires a testdata project where at least one installed version is a prerelease. Skip if none available.
 
 ```bash
-uv run hatch run ossiq-cli scan <project-with-prerelease-dep>
+uv run hatch run ossiq-cli status <project-with-prerelease-dep>
 ```
 
 - [ ] Prerelease version shows `[pre]` annotation in Installed column
@@ -95,10 +95,10 @@ uv run hatch run ossiq-cli scan <project-with-prerelease-dep>
 
 ```bash
 # Without
-uv run hatch run ossiq-cli scan testdata/pypi/version-constraint
+uv run hatch run ossiq-cli status testdata/pypi/version-constraint
 
 # With
-uv run hatch run ossiq-cli scan --allow-prerelease testdata/pypi/version-constraint
+uv run hatch run ossiq-cli status --allow-prerelease testdata/pypi/version-constraint
 ```
 
 - [ ] Without: Latest column shows only stable versions (no `a`, `b`, `rc`, `.dev` suffixes)
@@ -106,10 +106,10 @@ uv run hatch run ossiq-cli scan --allow-prerelease testdata/pypi/version-constra
 
 ---
 
-## TC-C09: `package` command — known package
+## TC-C09: `info` command — known package
 
 ```bash
-uv run hatch run ossiq-cli package testdata/pypi/version-constraint requests
+uv run hatch run ossiq-cli info requests testdata/pypi/version-constraint
 ```
 
 - [ ] Package detail view renders (name, installed version, CVEs, drift info)
@@ -118,10 +118,10 @@ uv run hatch run ossiq-cli package testdata/pypi/version-constraint requests
 
 ---
 
-## TC-C10: `package` command — unknown package
+## TC-C10: `info` command — unknown package
 
 ```bash
-uv run hatch run ossiq-cli package testdata/pypi/version-constraint this-package-does-not-exist
+uv run hatch run ossiq-cli info this-package-does-not-exist testdata/pypi/version-constraint
 ```
 
 - [ ] Error message shown (not a raw Python traceback)
@@ -132,7 +132,7 @@ uv run hatch run ossiq-cli package testdata/pypi/version-constraint this-package
 ## TC-C11: pip-classic library scan — constraint widening opportunities
 
 ```bash
-uv run hatch run ossiq-cli scan testdata/pypi/pip-classic-library
+uv run hatch run ossiq-cli status testdata/pypi/pip-classic-library
 ```
 
 - [ ] "Constraint widening opportunities" table is rendered below the main scan table
@@ -141,7 +141,7 @@ uv run hatch run ossiq-cli scan testdata/pypi/pip-classic-library
 - [ ] No crash or traceback
 
 ```bash
-uv run hatch run ossiq-cli scan testdata/pypi/pip-classic
+uv run hatch run ossiq-cli status testdata/pypi/pip-classic
 ```
 
 - [ ] Scan runs without crash
