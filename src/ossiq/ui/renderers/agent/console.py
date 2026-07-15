@@ -10,7 +10,7 @@ from typing import Any
 from ossiq.domain.common import Command, UserInterfaceType
 from ossiq.service.agent import build_add_verdict, build_update_verdict
 from ossiq.service.package import PackageDetailResult
-from ossiq.service.project import ScanResult
+from ossiq.service.project.models import ScanResult
 from ossiq.ui.interfaces import AbstractUserInterfaceRenderer
 
 

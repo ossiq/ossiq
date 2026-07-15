@@ -8,7 +8,7 @@ based on URL patterns.
 
 import pytest
 
-from ossiq.adapters.detectors import detect_source_code_provider
+from ossiq.adapters.detectors import detect_source_code_provider, is_git_hosted_source
 from ossiq.domain.common import RepositoryProvider, UnsupportedRepositoryProvider
 
 
@@ -108,3 +108,40 @@ class TestDetectSourceCodeProvider:
 
         provider = detect_source_code_provider(None)
         assert provider == RepositoryProvider.PROVIDER_UNKNOWN
+
+
+class TestIsGitHostedSource:
+    """Test suite for is_git_hosted_source() — detecting non-registry npm deps."""
+
+    @pytest.mark.parametrize(
+        "spec",
+        [
+            "github:owner/repo#v1.0.0",
+            "owner/repo#semver:^20",
+            "owner/repo",
+            "git+https://github.com/owner/repo.git",
+            "git+ssh://git@github.com/owner/repo.git",
+            "git://github.com/owner/repo.git",
+            "https://example.com/foo.tgz",
+            "file:../local-pkg",
+            "gitlab:owner/repo",
+        ],
+    )
+    def test_git_hosted_spec_detected(self, spec: str) -> None:
+        assert is_git_hosted_source(spec, None) is True
+
+    @pytest.mark.parametrize(
+        "spec",
+        ["^1.2.3", "~4.0.0", "1.2.3", "*", "latest", ">=1.0.0 <2.0.0", "npm:chalk@^4.1.0"],
+    )
+    def test_registry_spec_not_detected(self, spec: str) -> None:
+        assert is_git_hosted_source(spec, None) is False
+
+    def test_lockfile_git_source_detected(self) -> None:
+        assert is_git_hosted_source("*", "git+ssh://git@github.com/owner/repo.git#abc123") is True
+
+    def test_registry_source_not_detected(self) -> None:
+        assert is_git_hosted_source("^4.17.21", "https://registry.npmjs.org/lodash/-/lodash-4.17.21.tgz") is False
+
+    def test_none_spec_and_source_not_detected(self) -> None:
+        assert is_git_hosted_source(None, None) is False

@@ -9,7 +9,8 @@ from ossiq.domain.cve import CVE
 from ossiq.domain.package import Package
 from ossiq.domain.project import ConstraintSource
 from ossiq.domain.version import PackageVersion
-from ossiq.service.project import DependencyDescriptor, ScanRecord, calculate_version_age_days
+from ossiq.service.project.models import DependencyDescriptor, ScanRecord
+from ossiq.service.project.records import calculate_version_age_days
 from ossiq.settings import Settings
 from ossiq.solver import dependencies_solver
 from ossiq.solver.reason import RecommendationReason

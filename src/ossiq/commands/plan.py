@@ -16,7 +16,7 @@ from ossiq.messages import (
     HELP_PLAN_NO_SECURITY_RECOMMENDATIONS,
     WARNING_OVERRIDE_VERSION_UNKNOWN,
 )
-from ossiq.service import project
+from ossiq.service.project.scan import scan
 from ossiq.service.update import UpdatePlan, build_update_plan
 from ossiq.settings import Settings
 from ossiq.sources import project_sources
@@ -92,7 +92,7 @@ def prepare_plan(ctx: typer.Context, options: CommandPlanOptions) -> tuple[Proje
     )
 
     with show_scan_progress(settings) as on_step:
-        scan_result = project.scan(sources, on_step=on_step)
+        scan_result = scan(sources, on_step=on_step)
 
     package_manager_name = sources.packages_manager.package_manager_type.name
     plan = build_update_plan(

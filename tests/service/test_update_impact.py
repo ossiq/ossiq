@@ -8,7 +8,7 @@ from unittest.mock import MagicMock
 from ossiq.domain.common import ConstraintType
 from ossiq.domain.project import ConstraintSource
 from ossiq.domain.version import PackageVersion, VersionsDifference
-from ossiq.service.project import ScanRecord
+from ossiq.service.project.models import ScanRecord
 from ossiq.service.update import entry_from_record
 from ossiq.service.update_impact import (
     DirectUpdateImpact,

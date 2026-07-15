@@ -7,7 +7,6 @@ import typer
 from rich.console import Console
 
 from ossiq.domain.common import Command, ProjectPackagesRegistry, UserInterfaceType
-from ossiq.service import project
 from ossiq.service.package import (
     PackageDetailResult,
     TransitiveCVEGroup,
@@ -15,7 +14,9 @@ from ossiq.service.package import (
     evaluate_package_rules,
     fetch_prospective_detail,
 )
-from ossiq.service.project import ScanRecord, ScanResult, apply_recommendations, clamp_recommendations
+from ossiq.service.project.models import ScanRecord, ScanResult
+from ossiq.service.project.recommendations import apply_recommendations, clamp_recommendations
+from ossiq.service.project.scan import scan
 from ossiq.settings import Settings
 from ossiq.solver import dependencies_solver
 from ossiq.sources import project_sources
@@ -153,10 +154,10 @@ def command_info(ctx: typer.Context, options: CommandInfoOptions) -> None:
 
     # Agent format prints JSON to stdout, so progress and warnings must stay silent.
     if is_agent:
-        scan_result = project.scan(sources, on_step=lambda _: None)
+        scan_result = scan(sources, on_step=lambda _: None)
     else:
         with show_scan_progress(settings) as on_step:
-            scan_result = project.scan(sources, on_step=on_step)
+            scan_result = scan(sources, on_step=on_step)
 
     if scan_result.manifest_lock_divergent and not is_agent:
         Console().print(
@@ -174,7 +175,7 @@ def command_info(ctx: typer.Context, options: CommandInfoOptions) -> None:
         detail = fetch_prospective_detail(options.package_name, sources, settings)
     else:
         # Package not in this project — run the prospective flow.
-        # sources.__enter__ was already called inside project.scan(), so packages_registry is live.
+        # sources.__enter__ was already called inside scan(), so packages_registry is live.
         with show_operation_progress(settings, f"Fetching prospective info for {options.package_name}...") as progress:
             with progress():
                 detail = fetch_prospective_detail(options.package_name, sources, settings)

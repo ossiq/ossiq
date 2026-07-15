@@ -19,7 +19,7 @@ from typing import Any, NamedTuple
 from ossiq.domain.common import Command, ExportCsvSchemaVersion, UserInterfaceType
 from ossiq.domain.exceptions import DestinationDoesntExist
 from ossiq.domain.project import normalize_filename
-from ossiq.service.project import ScanResult
+from ossiq.service.project.models import ScanResult
 from ossiq.ui.interfaces import AbstractUserInterfaceRenderer
 from ossiq.ui.renderers.export.csv_datapackage import generate_datapackage_descriptor
 from ossiq.ui.renderers.export.csv_schema_registry import csv_schema_registry

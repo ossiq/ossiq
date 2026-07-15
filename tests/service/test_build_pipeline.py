@@ -1,5 +1,5 @@
 """
-Tests for the pure pipeline helpers in service/project.py and service/common/package_versions.py.
+Tests for the pure pipeline helpers in service/project/ and service/common/package_versions.py.
 
 All functions here are data-in / data-out — zero network mocks needed.
 """
@@ -15,15 +15,9 @@ from ossiq.domain.package import Package
 from ossiq.domain.project import ConstraintSource
 from ossiq.domain.version import PackageVersion, VersionsDifference
 from ossiq.service.common.package_versions import filter_versions_between
-from ossiq.service.project import (
-    DependencyDescriptor,
-    PrefetchedData,
-    ScanRecord,
-    apply_conflicts,
-    apply_recommendations,
-    build_records,
-    clamp_recommendations,
-)
+from ossiq.service.project.models import DependencyDescriptor, PrefetchedData, ScanRecord
+from ossiq.service.project.recommendations import apply_conflicts, apply_recommendations, clamp_recommendations
+from ossiq.service.project.records import build_records
 from ossiq.solver.dependencies_solver import (
     EMPTY_OUTPUT,
     ConstraintConflict,

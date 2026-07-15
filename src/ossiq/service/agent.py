@@ -11,7 +11,7 @@ from typing import Any
 from ossiq.domain.cve import CVE
 from ossiq.domain.version import VERSION_DIFF_MAJOR
 from ossiq.service.package import PackageDetailResult
-from ossiq.service.project import ScanRecord, ScanResult
+from ossiq.service.project.models import ScanRecord, ScanResult
 from ossiq.service.update_impact import TransitiveImpact
 
 # JSON-ready verdict shape. The output is JSON, so a plain dict is the natural

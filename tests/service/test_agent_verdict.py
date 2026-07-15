@@ -17,7 +17,7 @@ from ossiq.service.package import (
     PackageInsight,
     PackageWarning,
 )
-from ossiq.service.project import ScanRecord, ScanResult
+from ossiq.service.project.models import ScanRecord, ScanResult
 
 
 def make_cve(version: str = "1.0.0", severity: Severity = Severity.HIGH) -> CVE:

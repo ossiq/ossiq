@@ -1,5 +1,5 @@
 """
-Tests for service/project.py — ScanRecord factory and version_constraint propagation.
+Tests for the service/project package — ScanRecord factory and version_constraint propagation.
 """
 
 from datetime import UTC, datetime
@@ -10,16 +10,12 @@ import pytest
 from ossiq.domain.common import ConstraintType, CveDatabase, ProjectPackagesRegistry
 from ossiq.domain.cve import CVE, Severity
 from ossiq.domain.package import Package
-from ossiq.domain.project import ConstraintSource
+from ossiq.domain.project import ConstraintSource, Dependency
 from ossiq.domain.version import PackageVersion, VersionsDifference
-from ossiq.service.project import (
-    DependencyDescriptor,
-    ScanRecord,
-    calculate_version_age_days,
-    get_package_versions_since,
-    scan_record,
-    scan_sort_key,
-)
+from ossiq.messages import IGNORE_REASON_IGNORE_FLAG, IGNORE_REASON_NON_REGISTRY
+from ossiq.service.project.models import DependencyDescriptor, ScanRecord
+from ossiq.service.project.prefetch import build_ignored_packages, get_package_versions_since, partition_git_hosted
+from ossiq.service.project.records import calculate_version_age_days, scan_record, scan_sort_key
 
 # ============================================================================
 # Module-level constants
@@ -324,6 +320,56 @@ class TestIgnorePackagesFiltering:
         for security_only in (False, True):
             records_to_solve = [r for r in records if r.package_name not in ignore_set and (not security_only or r.cve)]
             assert "sphinx" not in [r.package_name for r in records_to_solve]
+
+
+def _make_npm_dep(name: str, version_defined: str, source: str | None = None) -> Dependency:
+    return Dependency(
+        name=name,
+        version_installed="0.0.0",
+        canonical_name=name,
+        version_defined=version_defined,
+        source=source,
+    )
+
+
+class TestGitHostedDependencyFiltering:
+    """Git/URL-hosted npm deps are split out (they can't be fetched) and reported as ignored."""
+
+    def test_partition_splits_git_hosted_from_registry(self):
+        deps = [
+            _make_npm_dep("lodash", "^4.17.21"),
+            _make_npm_dep("uWebSockets.js", "github:uNetworking/uWebSockets.js#v20.10.0"),
+        ]
+        registry, git_hosted = partition_git_hosted(deps, enabled=True)
+        assert [d.name for d in registry] == ["lodash"]
+        assert [d.name for d in git_hosted] == ["uWebSockets.js"]
+
+    def test_partition_disabled_keeps_everything_as_registry(self):
+        deps = [_make_npm_dep("uWebSockets.js", "github:uNetworking/uWebSockets.js#v20.10.0")]
+        registry, git_hosted = partition_git_hosted(deps, enabled=False)
+        assert [d.name for d in registry] == ["uWebSockets.js"]
+        assert git_hosted == []
+
+    def test_build_ignored_packages_reports_git_hosted_with_spec(self):
+        git_hosted = [_make_npm_dep("uWebSockets.js", "github:uNetworking/uWebSockets.js#v20.10.0")]
+        ignored = build_ignored_packages(git_hosted, direct_descriptors=[], ignore_set=frozenset())
+        assert len(ignored) == 1
+        assert ignored[0].name == "uWebSockets.js"
+        assert ignored[0].spec == "github:uNetworking/uWebSockets.js#v20.10.0"
+        assert ignored[0].reason == IGNORE_REASON_NON_REGISTRY
+
+    def test_build_ignored_packages_reports_ignore_flag_deps(self):
+        descriptors = [_make_dep("sphinx"), _make_dep("requests")]
+        ignored = build_ignored_packages([], direct_descriptors=descriptors, ignore_set=frozenset(["sphinx"]))
+        assert [i.name for i in ignored] == ["sphinx"]
+        assert ignored[0].reason == IGNORE_REASON_IGNORE_FLAG
+
+    def test_build_ignored_packages_git_hosted_wins_on_overlap(self):
+        git_hosted = [_make_npm_dep("sphinx", "github:owner/sphinx#main")]
+        descriptors = [_make_dep("sphinx")]
+        ignored = build_ignored_packages(git_hosted, descriptors, ignore_set=frozenset(["sphinx"]))
+        assert len(ignored) == 1
+        assert ignored[0].reason == IGNORE_REASON_NON_REGISTRY
 
 
 # ============================================================================

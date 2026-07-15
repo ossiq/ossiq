@@ -12,7 +12,7 @@ from ossiq.solver.version_matchers import satisfies_all_constraints, version_sat
 from ossiq.timeutil import age_days_from_iso, parse_iso_datetime
 
 if TYPE_CHECKING:
-    from ossiq.service.project import ScanRecord
+    from ossiq.service.project.models import ScanRecord
 
 
 @dataclass(frozen=True)

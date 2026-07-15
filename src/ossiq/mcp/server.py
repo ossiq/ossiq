@@ -15,9 +15,9 @@ from collections.abc import Callable
 from typing import Any
 
 from ossiq.commands.info import build_installed_detail, matches
-from ossiq.service import project
 from ossiq.service.agent import AgentVerdict, build_add_verdict, build_update_verdict
 from ossiq.service.package import fetch_prospective_detail
+from ossiq.service.project.scan import scan
 from ossiq.settings import Settings
 from ossiq.sources import project_sources
 
@@ -78,7 +78,7 @@ def evaluate_dependency(settings: Settings, args: dict[str, Any]) -> AgentVerdic
         allow_prerelease_packages=(),
         registry_type=args.get("registry_type"),
     )
-    scan_result = project.scan(sources, on_step=noop_step)
+    scan_result = scan(sources, on_step=noop_step)
 
     all_records = scan_result.production_packages + scan_result.optional_packages + scan_result.transitive_packages
     matched = [record for record in all_records if matches(record, package_name)]
@@ -101,7 +101,7 @@ def evaluate_updates(settings: Settings, args: dict[str, Any]) -> AgentVerdict:
         registry_type=None,
         security_only=bool(args.get("security", False)),
     )
-    scan_result = project.scan(sources, on_step=noop_step)
+    scan_result = scan(sources, on_step=noop_step)
     return build_update_verdict(scan_result)
 
 

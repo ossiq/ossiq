@@ -8,7 +8,7 @@ from typing import Literal
 import typer
 
 from ossiq.domain.common import Command, ProjectPackagesRegistry, UserInterfaceType
-from ossiq.service import project
+from ossiq.service.project.scan import scan
 from ossiq.settings import Settings
 from ossiq.sources import project_sources
 from ossiq.ui.registry import get_renderer
@@ -60,7 +60,7 @@ def command_export(ctx: typer.Context, options: CommandExportOptions):
     )
 
     with show_scan_progress(settings) as on_step:
-        project_scan = project.scan(sources, on_step=on_step)
+        project_scan = scan(sources, on_step=on_step)
 
     renderer = get_renderer(
         command=Command.EXPORT,

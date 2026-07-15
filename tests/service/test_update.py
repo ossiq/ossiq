@@ -6,7 +6,7 @@ from ossiq.domain.common import ConstraintType, CveDatabase, ProjectPackagesRegi
 from ossiq.domain.cve import CVE, Severity
 from ossiq.domain.project import ConstraintSource
 from ossiq.domain.version import VersionsDifference
-from ossiq.service.project import ScanRecord, ScanResult
+from ossiq.service.project.models import ScanRecord, ScanResult
 from ossiq.service.update import build_update_plan
 from ossiq.service.update_impact import TransitiveImpact
 from ossiq.solver.reason import RecommendationReason

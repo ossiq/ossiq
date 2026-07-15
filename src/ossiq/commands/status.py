@@ -9,7 +9,7 @@ import typer
 
 from ossiq import timeutil
 from ossiq.domain.common import Command, UserInterfaceType
-from ossiq.service import project
+from ossiq.service.project.scan import scan
 from ossiq.settings import Settings
 from ossiq.sources import project_sources
 from ossiq.ui.registry import get_renderer
@@ -65,10 +65,10 @@ def command_status(ctx: typer.Context, options: CommandStatusOptions) -> None:
 
     # Agent format prints JSON to stdout, so the progress stepper must stay silent.
     if is_agent:
-        project_scan = project.scan(sources, on_step=lambda _: None)
+        project_scan = scan(sources, on_step=lambda _: None)
     else:
         with show_scan_progress(settings) as on_step:
-            project_scan = project.scan(sources, on_step=on_step)
+            project_scan = scan(sources, on_step=on_step)
 
     renderer = get_renderer(command=Command.STATUS, user_interface_type=output_ui, settings=settings)
 

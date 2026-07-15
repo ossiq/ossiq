@@ -7,7 +7,7 @@ import pytest
 from ossiq.domain.common import ConstraintType, ExportCsvSchemaVersion
 from ossiq.domain.project import ConstraintSource
 from ossiq.domain.version import VersionsDifference
-from ossiq.service.project import ScanRecord, ScanResult
+from ossiq.service.project.models import ScanRecord, ScanResult
 from ossiq.ui.renderers.export.csv import CsvExportRenderer
 from ossiq.ui.renderers.export.csv_schema_registry import csv_schema_registry
 from tests.ui.renderers.export.test_csv_base import _PACKAGES_HEADERS_V14, CsvExportRendererBaseTest

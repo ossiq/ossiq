@@ -48,6 +48,9 @@ Name of the package to inspect. Exact match against the package name or its alia
 
 HELP_IGNORE_PACKAGE = "Exclude package from solver recommendations (repeatable)."
 
+IGNORE_REASON_NON_REGISTRY = "not on npm registry (git/URL source)"
+IGNORE_REASON_IGNORE_FLAG = "excluded via --ignore"
+
 HELP_PIN_ALL = "Write exact ==version specifiers for every updated direct dependency."
 
 HELP_REWRITE_VERSIONS = "Include already-pinned (==x.y.z) dependencies in the plan and rewrite their pinned version."

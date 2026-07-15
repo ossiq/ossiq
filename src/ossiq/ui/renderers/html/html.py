@@ -6,7 +6,7 @@ from pathlib import Path
 from ossiq.domain.common import Command, UserInterfaceType
 from ossiq.domain.exceptions import DestinationDoesntExist
 from ossiq.domain.project import normalize_filename
-from ossiq.service.project import ScanResult
+from ossiq.service.project.models import ScanResult
 from ossiq.ui.interfaces import AbstractUserInterfaceRenderer
 from ossiq.ui.renderers.export.json_schema_registry import json_schema_registry
 from ossiq.ui.renderers.export.models import build_export_data
