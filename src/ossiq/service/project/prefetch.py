@@ -4,6 +4,7 @@ and classification of dependencies that must be excluded from the scan.
 """
 
 from collections.abc import Iterable
+from urllib.parse import urlparse
 
 from ossiq.adapters.api_interfaces import AbstractPackageRegistryApi
 from ossiq.adapters.detectors import is_git_hosted_source
@@ -61,7 +62,9 @@ def update_latest_versions_for_prerelease(
             if best:
                 pkg.latest_version = best.version
         except UnknownPackageVersion:
-            pass
+            # Best-effort prefetch: skip packages with unknown/invalid version data
+            # so one bad package does not block processing of the rest.
+            continue
 
 
 def prefetch_versions_since(
@@ -102,7 +105,8 @@ def prefetch_source_code_repositories_info(
     Returns a mapping of url -> Repository; non-GitHub URLs are skipped.
     """
 
-    if not (github_urls := [url for url in repo_urls if "github.com" in url]):
+    github_urls = [url for url in repo_urls if (urlparse(url).hostname or "").lower() == "github.com"]
+    if not github_urls:
         return {}
     return sources.get_source_code_provider(RepositoryProvider.PROVIDER_GITHUB).repositories_info_batch(github_urls)
 
