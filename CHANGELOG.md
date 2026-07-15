@@ -2,6 +2,135 @@
 
 
 
+## v0.1.10 (2026-07-15)
+
+
+### Feature
+
+* feat: added mcp/skill MVP implementation (GH-94) ([`f676bb3`](https://github.com/ossiq/ossiq/commit/f676bb3e74497e095a470c4536d6fdbc9713a926))
+Introduced MCP and SKILL.md initial implementations
+via special formatting to minimize token usage and
+maximize utility.
+
+* feat: split status command HTML report into separate command and update UI (GH-96) ([`98f08ff`](https://github.com/ossiq/ossiq/commit/98f08ffd5891c7914b7fcb1610d713e1013819b5))
+Split `status` command HTML report generation into separate `html` command
+to streamline flows and simplify UX. Simplified `info` command for
+a package representation. Updated user-facing documentation.
+
+* feat: add command and respective implementations for different package managers (GH-96) ([`6dd542c`](https://github.com/ossiq/ossiq/commit/6dd542ca4cfeba7ca7c995314c8cd4f1e28baea6))
+Added interface to install new dependencies as well as implementations
+of it in all supported package managers.
+
+* feat: introduced add command and package info (GH-96) ([`9b6c671`](https://github.com/ossiq/ossiq/commit/9b6c671f875c09aeb7e94819c6eb5cad4ac1fe88))
+Introduced non-installed package details
+option (for `info` command) and separate `add`
+command boilerplate (WIP) to add new dependencies.
+
+* feat: added comprehensive error handling mechanism (GH-95) ([`d8968ff`](https://github.com/ossiq/ossiq/commit/d8968ffc08ed2e024d0e82ce97a95c0018287494))
+
+
+### Fix
+
+* fix: secured github.com url detection in package path (GH-94) ([`3122f64`](https://github.com/ossiq/ossiq/commit/3122f64d235f29ac6950e280ad59b1566c53d2ac))
+
+* fix: fixed --ignore behavior which makes it dissapear from the report (GH-94) ([`4165d01`](https://github.com/ossiq/ossiq/commit/4165d01fb4d07d7b2b875c9f643406298ef10b86))
+With --ignore flag there'll be no recommendations generated, but
+dependency still will be shown in the report.
+
+* fix: fixed behavior for aliased package names in NPM (GH-94) ([`e5fbfb4`](https://github.com/ossiq/ossiq/commit/e5fbfb410532b4507eb4bacf803001379b422a98))
+package.json aliases one real package under multiple names
+(e.g. "ms-zero-caret": "npm:ms@^0.7.0", "ms-zero-tilde": "npm:ms@*")
+wasn't correctly recommended by the solver.
+
+* fix: Fix solver recommending unsatisfiable dependency constraints (GH-94) ([`2c41fc5`](https://github.com/ossiq/ossiq/commit/2c41fc5d94578137a83289fa8dc41e65ad034cdb))
+Fixed unsatisfiable update for test case when
+project direct dependency constraints contradiction when
+version constraint is package>$version, but transitive
+dependency contains version constraints with
+the contradiction package<$version
+
+* fix: fixed accidental exposure of github-token via --verbose flag (GH-94) ([`052a8bc`](https://github.com/ossiq/ossiq/commit/052a8bcb435f08baf78e3fc13183dcf9c2044aaa))
+
+* fix: fixed install command naming for dev mode (GH-94) ([`788dc7b`](https://github.com/ossiq/ossiq/commit/788dc7bd660e04c22b1f09b71360c27c616f7df6))
+
+* fix: fixed beta-ended versions handling for NPM (GH-94) ([`0f39085`](https://github.com/ossiq/ossiq/commit/0f39085cc08f1acf5ac5ed8e042c20d67f99a065))
+If there are "beta" versions with endings like
+9.0.0-rc2 comparison didn't work prpoerly and
+were not able to check for version validity.
+
+* fix: reverted status behavior to always show depenencies status (GH-95) ([`6e2752a`](https://github.com/ossiq/ossiq/commit/6e2752ab73f418769be654dc8106e5fd2838465b))
+
+
+### Refactor
+
+* refactor: broke down project service into smaller pieces (GH-94) ([`f925be5`](https://github.com/ossiq/ossiq/commit/f925be59031332a05a2fbcbf31b1d412de65cc49))
+service/project.py became too large to comprehend with
+the direct packages references from git gets ignored,
+hence broke down it into smaller pieces.
+
+* refactor: removed --script parameter of the plan command (GH-94) ([`763447a`](https://github.com/ossiq/ossiq/commit/763447aa4115b2d847d66b7a892b4cb3ca4b2dcb))
+--script parameter was introduced in the previous release
+to demonstrate what would be run on `apply`, but
+there's no real need as for now.
+
+* refactor: introduced pydantic-settings for the OSS IQ config file (GH-94) ([`9aedeb1`](https://github.com/ossiq/ossiq/commit/9aedeb199d030971c834e5fb8b416f542a168023))
+Introduced pytdantic-settings to leverage as much as possible
+standartized solution for configuration management as well
+as modified install command to leverage dotenv package
+(transitive to pydantic-setting) to write github token
+for the SKILLS/MCP server.
+
+* refactor: fixed generic Exception handlers across the codebase (GH-96) ([`d2fe26d`](https://github.com/ossiq/ossiq/commit/d2fe26d7767c098182c1747558a54d12571c27f5))
+
+* refactor: streamlined package structure for commands and renderers (GH-96) ([`4cbb5b8`](https://github.com/ossiq/ossiq/commit/4cbb5b8e963575e4ef8129a2a4da081668896649))
+
+* refactor: added vertical stepper to show what is going on (GH-95) ([`46f2e46`](https://github.com/ossiq/ossiq/commit/46f2e461f9d8b80fdd4ef08bc9b132b7c940e42e))
+
+* refactor: refactored out Unit of work naming since it is not UoW (GH-95) ([`101fdc4`](https://github.com/ossiq/ossiq/commit/101fdc46bdb66e857de750ec5109b28eace18aa4))
+Refactored remaining files/names mention Unit of work and split
+unit_of_work module into solver and sources modules to reflect
+what is inside in more precise manner.
+
+* refactor: slashed unused abstract classes (GH-95) ([`f96fb2b`](https://github.com/ossiq/ossiq/commit/f96fb2b1b47abcd5f5f5c4b00d1ccfca39016347))
+Removed API OSV abstract class and Github repository
+abstract class.
+
+* refactor: refactored Unit of Work to Sources and extracted VersionRules (GH-95) ([`60a7385`](https://github.com/ossiq/ossiq/commit/60a738590ef78308f56f03b50d3931cca12fecfb))
+Renamed Unit Of Work to ProjectSources and abstracted out
+VersionRules from package registries abstract class. Also,
+fixed method names.
+
+
+### Documentation
+
+* docs: updated screenshots with the new UI of status and info commands (GH-94) ([`63dfcab`](https://github.com/ossiq/ossiq/commit/63dfcab27067a0a13b245e1e90e2642aa010df4b))
+
+* docs: updated reference, getting started and readme (GH-94) ([`caa1f41`](https://github.com/ossiq/ossiq/commit/caa1f417e5f54e6b427452ea219ee26fa15687f0))
+Updated References with more detailed description
+of states as well as with the recovery paths.
+
+* docs: update docs for the solver and other minor changes (GH-94) ([`8de00d8`](https://github.com/ossiq/ossiq/commit/8de00d8fc580509498b62938d759dd40dfc97031))
+Updated landing.html, README.md and solver/README.md
+to reflect respective changes in configuration and
+support of SKILLS.md/MCP Server.
+
+* docs: aligned domain README with the implementation (GH-95) ([`1b1a3c6`](https://github.com/ossiq/ossiq/commit/1b1a3c6ce6ae8fc91ce5438e09973ecda8854650))
+
+* docs: updated public API MSR docs (GH-95) ([`2b9f7a9`](https://github.com/ossiq/ossiq/commit/2b9f7a9de48125608db588cea8d6ba03b6928773))
+
+
+### Chore
+
+* chore: fixed docs and small gaps in docker workflow (GH-94) ([`c5305b6`](https://github.com/ossiq/ossiq/commit/c5305b6f0ad9971cc70ac700a966e17c97add5d2))
+
+* chore: aligned test cases with --script removal (GH-94) ([`0710561`](https://github.com/ossiq/ossiq/commit/0710561c03d7fe04617d17f3fea0e56e5c7bee7e))
+
+* chore: removed not needed pyproject.toml file (GH-95) ([`8fb20f4`](https://github.com/ossiq/ossiq/commit/8fb20f4b5c9cb04d95cdab3fe821454077da65f7))
+
+* chore: updated dependencies (GH-95) ([`8ce6564`](https://github.com/ossiq/ossiq/commit/8ce65641189f57550b87ce9443e09573093297de))
+
+* chore: updated test cases to do the qa (GH-95) ([`94afc05`](https://github.com/ossiq/ossiq/commit/94afc053aaa5165ffc6fd1af7331589dfaceeef1))
+
 ## v0.1.9 (2026-06-23)
 
 
