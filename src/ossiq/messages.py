@@ -27,11 +27,11 @@ Specify which project registry type (ecosystem) to use. Default: None. Possible 
 """
 
 HELP_OUTPUT_FORMAT = """
-Output format. Default: json. Possible options: json, csv, cyclonedx
+Output format. Default: json. Possible options: json, csv
 """
 
 HELP_SCHEMA_VERSION = """
-Export schema version. Default: latest. Possible options: 1.0, 1.1
+Export schema version. Default: latest. Possible options: 1.0, 1.1, 1.2, 1.3, 1.4
 """
 
 WARNING_MULTIPLE_REGISTRY_TYPES = """

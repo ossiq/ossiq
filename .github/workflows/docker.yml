@@ -52,7 +52,7 @@ jobs:
         run: |
           # Takes 'v0.1.3' and turns it into '0.1.3'
           # If it was already '0.1.3', it stays '0.1.3'
-          RAW_TAG="${{ inputs.tag || '0.1.3' }}"
+          RAW_TAG="${{ inputs.tag || '0.1.9' }}"
           CLEAN_TAG="${RAW_TAG#v}"
           echo "tag=$CLEAN_TAG" >> $GITHUB_OUTPUT
 
@@ -65,7 +65,7 @@ jobs:
             type=raw,value=${{ steps.sanitize.outputs.tag }},enable=${{ steps.sanitize.outputs.tag != '' }}
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
-            type=raw,value=latest,enable=${{ github.event_name == 'release' }}
+            type=raw,value=latest
             
       - name: Build and push Docker image
         uses: docker/build-push-action@v6

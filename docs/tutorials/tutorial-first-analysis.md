@@ -137,10 +137,10 @@ This view quickly shows you that `requests` has a security issue and both packag
 
 While the console output is useful for a quick overview, the interactive HTML report provides a much richer experience for exploring your dependencies.
 
-Generate the report by running the `status` command again with the `--presentation=html` flag.
+Generate the report by running the `html` command.
 
 ```bash
-ossiq-cli status . --presentation=html --output report.html
+ossiq-cli html . --output report.html
 ```
 
 This will create a `report.html` file in your project directory. Open this file in your web browser.

@@ -133,7 +133,7 @@ uvx --from ossiq ossiq-cli install skills copilot
 | OpenAI Codex | `~/.codex/skills/ossiq/SKILL.md` | registered in `~/.codex/mcp.json` |
 | GitHub Copilot | appended to `~/.copilot/copilot-instructions.md` | — |
 
-The command asks for a [GitHub token](#github-personal-access-token) (or takes it via `--github-token`; leave the prompt blank to skip). The token is stored in `~/.ossiq/config` and in each tool's MCP server entry, so both your own runs and the agent's runs get the higher API rate limit.
+The command asks for a [GitHub token](#github-personal-access-token) (or takes it via `--github-token`; leave the prompt blank to skip). The token is stored in `~/.ossiq/config`, and in each tool's MCP server entry where one exists (Claude Code, Codex), so both your own runs and the agent's runs get the higher API rate limit.
 
 Once installed, the agent can call `ossiq-cli info <package> --format agent` or the `ossiq_evaluate_dependency` / `ossiq_evaluate_updates` MCP tools before touching your dependencies, and get back a compact `ok` / `warn` / `block` verdict. Re-running `install skills` is safe — it merges into existing config rather than overwriting it.
 

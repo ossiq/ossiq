@@ -13,16 +13,16 @@ from ossiq import scan, ScanResult, ScanRecord, Settings, CVE, Package, Versions
 ### `scan(sources)`
 
 ```python
-def scan(sources: AbstractProjectSources) -> ScanResult
+def scan(sources: AbstractProjectSources, on_step: Callable[[str], None] | None = None) -> ScanResult
 ```
 
-Runs a full dependency health scan against the project described by `sources`. Fetches package metadata, CVEs, and version history from the appropriate registry; runs the SAT solver to produce update recommendations; and returns a `ScanResult`. Must be called inside the `sources` context manager.
+Runs a full dependency health scan against the project described by `sources`. Fetches package metadata, CVEs, and version history from the appropriate registry; runs the SAT solver to produce update recommendations; and returns a `ScanResult`. Must be called inside the `sources` context manager. `on_step` is an optional callback invoked with a short label at each scan phase (useful for driving a progress indicator).
 
 ```python
 from ossiq import scan, Settings
 from ossiq.sources.project_sources import ProjectSources
 
-settings = Settings.load_from_env()
+settings = Settings.load()
 sources = ProjectSources(settings, project_path=".")
 with sources:
     result = scan(sources)
@@ -42,6 +42,7 @@ Aggregated output of a single scan run. Returned by `scan()`.
 | `transitive_packages` | `list[ScanRecord]` | Indirect dependencies |
 | `manifest_lock_divergent` | `list[str]` | Package names where the manifest and lockfile disagree |
 | `upgrade_paths` | `list[UpgradePath]` | Cross-constraint widening opportunities (library projects only) |
+| `ignored_packages` | `list[IgnoredDependency]` | Packages excluded from the scan (git/URL-hosted, or via `--ignore`) |
 
 ### `ScanRecord`
 
@@ -50,18 +51,32 @@ Per-package analysis record. Each entry in the `ScanResult` lists above is one `
 | Field | Type | Description |
 |---|---|---|
 | `package_name` | `str` | Canonical package name |
+| `dependency_name` | `str \| None` | Name actually used in the manifest — differs from `package_name` for npm aliases (see [npm — package aliases](#npm-package-aliases)) |
+| `is_optional_dependency` | `bool` | Whether this is a dev / optional dependency |
 | `installed_version` | `str` | Version currently installed |
 | `latest_version` | `str \| None` | Most recent published version |
 | `recommended_version` | `str \| None` | Solver-recommended update target |
 | `recommended_version_reason` | `RecommendationReason \| None` | Why this version was chosen |
 | `time_lag_days` | `int \| None` | Days between installed and latest version |
 | `releases_lag` | `int \| None` | Number of releases between installed and latest |
+| `version_age_days` | `int \| None` | Age of the installed version in days |
 | `versions_diff_index` | `VersionsDifference` | Semantic drift classification |
 | `cve` | `list[CVE]` | Known vulnerabilities for the installed version |
 | `version_constraint` | `str \| None` | Version specifier from the manifest |
+| `extras` | `list[str] \| None` | Extras/features requested for this dependency |
 | `constraint_info` | `ConstraintSource` | How the version was constrained (see Constraint Provenance) |
 | `dependency_path` | `list[str] \| None` | Ancestor chain for transitive packages |
+| `repo_url` | `str \| None` | Source code repository URL |
+| `repository` | `Repository \| None` | Repository activity data (commits, releases) when available |
+| `homepage_url` | `str \| None` | Project homepage |
+| `package_url` | `str \| None` | Registry page URL for the package |
+| `is_installed_prerelease` | `bool` | Installed version is a pre-release |
+| `is_installed_yanked` | `bool` | Installed version was yanked by its maintainer |
+| `is_installed_deprecated` | `bool` | Installed version, or the package, is deprecated |
+| `is_installed_package_unpublished` | `bool` | Installed version has been removed from the registry |
+| `all_constraints` | `list[str]` | Every version specifier from each direct parent (transitive packages only) |
 | `update_transitive_impacts` | `list[TransitiveImpact]` | How updating this package affects transitive deps |
+| `peer_requirements` | `list[PeerRequirement]` | All peer requirements other packages place on this one |
 | `peer_violations` | `list[PeerRequirement]` | Peer requirements the installed version fails to satisfy |
 | `constraint_conflict` | `list[str]` | Conflicting constraints that blocked the solver |
 | `purl` | `str \| None` | Package URL (PURL) identifier |
@@ -69,7 +84,7 @@ Per-package analysis record. Each entry in the `ScanResult` lists above is one `
 
 ### `Settings`
 
-Pydantic model holding runtime configuration. Load from environment variables with `Settings.load_from_env()` or construct directly.
+Pydantic model holding runtime configuration. Load from the config file and environment variables with `Settings.load()`, or construct directly.
 
 | Field | Default | Description |
 |---|---|---|
@@ -78,6 +93,8 @@ Pydantic model holding runtime configuration. Load from environment variables wi
 | `cache_ttl` | `24` | Cache time-to-live in hours |
 | `verbose` | `False` | Emit detailed progress output |
 | `debug` | `False` | Enable debug logging |
+| `traceback` | `False` | Show full traceback on error instead of logging to file |
+| `skip_pypi_enrichment` | `False` | Disable PyPI metadata fetching for transitive constraint enrichment |
 | `cutoff_date` | `None` | Treat versions published after this date as invisible |
 | `cooldown_period` | `7` | Days a new version must age before the solver recommends it |
 
@@ -91,6 +108,9 @@ A single vulnerability record attached to a `ScanRecord`.
 |---|---|---|
 | `id` | `str` | Primary identifier (CVE, GHSA, or OSV ID) |
 | `cve_ids` | `tuple[str, ...]` | All aliases for this vulnerability |
+| `source` | `CveDatabase` | Database this record came from |
+| `package_name` | `str` | Name of the affected package |
+| `package_registry` | `ProjectPackagesRegistry` | Registry the affected package belongs to (`"npm"` or `"pypi"`) |
 | `severity` | `Severity` | `LOW`, `MEDIUM`, `HIGH`, or `CRITICAL` |
 | `summary` | `str` | Human-readable description |
 | `affected_versions` | `tuple[str, ...]` | Version strings confirmed vulnerable |
@@ -103,14 +123,21 @@ Metadata about a package as returned by its registry.
 
 | Field | Type | Description |
 |---|---|---|
+| `registry` | `ProjectPackagesRegistry` | Registry this package belongs to (`"npm"` or `"pypi"`) |
 | `name` | `str` | Registry name |
 | `canonical_name` | `str \| None` | Normalised name (lowercased, hyphens unified) |
 | `latest_version` | `str \| None` | Most recent stable release |
+| `next_version` | `str \| None` | Next release after `latest_version`, when known |
 | `repo_url` | `str \| None` | Source code repository URL |
 | `homepage_url` | `str \| None` | Project homepage |
+| `description` | `str \| None` | Registry-provided package description |
+| `author` | `str \| None` | Package author |
+| `package_url` | `str \| None` | Registry page URL for the package |
 | `license` | `str \| None` | SPDX license string |
 | `is_deprecated` | `bool` | Package has been deprecated by its maintainer |
 | `is_unpublished` | `bool` | Package has been removed from the registry |
+| `maintainers_count` | `int \| None` | Number of registered maintainers |
+| `downloads_recent` | `int \| None` | Downloads in the most recent reporting period |
 
 ### `VersionsDifference`
 
@@ -118,7 +145,9 @@ Semantic drift classification between two versions.
 
 | Field | Type | Description |
 |---|---|---|
-| `diff_index` | `int` | Numeric severity: 0 = no diff, 1 = patch, 2 = minor, 3 = major, 4 = build, 5 = prerelease |
+| `version1` | `str` | The first version being compared (typically the installed version) |
+| `version2` | `str` | The second version being compared (typically the latest version) |
+| `diff_index` | `int` | Numeric severity: 0 = latest (no diff), 1 = build, 2 = prerelease, 3 = patch, 4 = minor, 5 = major, 10 = no diff available (unpublished/unknown) |
 | `diff_name` | `str` | Human-readable label: `"LATEST"`, `"PATCH"`, `"MINOR"`, `"MAJOR"`, etc. |
 
 ### `AbstractProjectSources`
@@ -137,6 +166,8 @@ sources = ProjectSources(
 with sources:
     result = scan(sources)
 ```
+
+Other optional keyword arguments mirror the CLI's own flags: `allow_prerelease`, `allow_prerelease_packages`, `security_only`, `rewrite_versions`, and `narrow_package_registry` (force a specific registry instead of auto-detecting).
 
 ---
 
@@ -416,7 +447,7 @@ The `status` command prints a project-wide report; the `info` command prints a d
 
 #### HTML Report
 
-The `status --presentation html` command produces a self-contained HTML file embedding an interactive Vue.js single-page application. The report includes the full dependency tables and the **Transitive Dependency Explorer**: an interactive D3 tree that visualises the `transitive_packages` dependency graph.
+The `ossiq-cli html` command produces a self-contained HTML file embedding an interactive Vue.js single-page application. The report includes the full dependency tables and the **Transitive Dependency Explorer**: an interactive D3 tree that visualises the `transitive_packages` dependency graph.
 
 The Explorer supports:
 

@@ -195,7 +195,7 @@ docker run --rm \
 
 **Docker Image Tags:**
 - `ossiq/ossiq-cli:latest` - Latest stable release
-- `ossiq/ossiq-cli:0.1.3` - Specific version
+- `ossiq/ossiq-cli:0.1.9` - Specific version
 - `ossiq/ossiq-cli:0.1` - Latest patch in minor version
 
 **CI/CD Integration Example (GitHub Actions):**
