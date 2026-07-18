@@ -20,6 +20,12 @@ OSS IQ is a Software Composition Analysis (SCA) tool for platform engineers and 
 - [Reference](https://ossiq.dev/reference.html): Full CLI reference and configuration options
 - [Tutorials](https://ossiq.dev/tutorials/): Step-by-step guides for common use cases
 
+## Research & Analysis
+
+- [OSS IQ Journal](https://ossiq.dev/journal/): In-depth reports on software supply chain risk and AI-assisted development
+- [The Poisoned Well: How AI Amplifies Open Source Supply Chain Attacks](https://ossiq.dev/journal/the-poisoned-well-ai-supply-chain-attacks.html): Technical synthesis of supply-chain attack patterns, the AI amplification mechanisms (slopsquatting, agentic installs), and a defense-in-depth maturity model
+- [The Hidden Cost of AI-Generated Code](https://ossiq.dev/journal/the-hidden-cost-of-ai-generated-code.html): Why faster AI-assisted code writing is degrading code quality, security, and delivery stability
+
 ## Sample Reports
 
 - [NPM Scan Example](https://ossiq.dev/samples/scan_npm.html): Example output for a JavaScript project

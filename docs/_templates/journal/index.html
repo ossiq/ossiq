@@ -69,7 +69,7 @@
     <meta property="og:site_name"    content="OSS IQ">
     <meta property="og:title"        content="OSS IQ Journal &mdash; Research on Open-Source Dependency Health">
     <meta property="og:description"  content="In-depth research and analysis on open-source dependency health, software supply chain risk, and the hidden costs of modern development.">
-    <meta property="og:image"        content="https://ossiq.dev/assets/og-journal.jpg"><!-- [ADAPT] create 1200×630 image -->
+    <meta property="og:image"        content="https://ossiq.dev/img/ossiq-report-html-light.png"><!-- [ADAPT] create 1200×630 image -->
     <meta property="og:image:width"  content="1200">
     <meta property="og:image:height" content="630">
     <meta property="og:image:alt"    content="OSS IQ Journal — In-depth research on open-source dependency health and software supply chain risk">
@@ -84,7 +84,7 @@
     <meta name="twitter:site"        content="@ossiq_dev"><!-- [ADAPT] brand Twitter/X handle -->
     <meta name="twitter:title"       content="OSS IQ Journal — Open-Source Dependency Health Research">
     <meta name="twitter:description" content="In-depth research on open-source dependency health, software supply chain risk, and the hidden costs of modern development.">
-    <meta name="twitter:image"       content="https://ossiq.dev/assets/og-journal.jpg"><!-- [ADAPT] same as og:image -->
+    <meta name="twitter:image"       content="https://ossiq.dev/img/ossiq-report-html-light.png"><!-- [ADAPT] same as og:image -->
     <meta name="twitter:image:alt"   content="OSS IQ Journal — Research on open-source dependency health and software supply chain risk">
 
     <!-- ── LLMs & AI-search crawlers ─────────────────────────────────────
@@ -115,7 +115,7 @@
       "description": "In-depth research and analysis on open-source dependency health, software supply chain risk, and the hidden costs of modern development.",
       "url": "https://ossiq.dev/journal/",
       "inLanguage": "en-US",
-      "dateModified": "2026-06-22",
+      "dateModified": "2026-07-18",
       "publisher": {
         "@type": "Organization",
         "name": "OSS IQ",
@@ -126,6 +126,13 @@
         }
       },
       "hasPart": [
+        {
+          "@type": "Article",
+          "headline": "The Poisoned Well: How AI-Assisted Coding Amplifies Open Source Supply Chain Attacks",
+          "url": "https://ossiq.dev/journal/the-poisoned-well-ai-supply-chain-attacks.html",
+          "datePublished": "2026-06-14",
+          "description": "Open source packages have become a primary delivery channel for malware, and AI-assisted coding is making it bigger, faster, and stranger. A technical synthesis of the attacks, the defenses, and what actually works."
+        },
         {
           "@type": "Article",
           "headline": "The Hidden Cost of AI-Generated Code",
@@ -390,48 +397,73 @@
         </p>
     </section>
 
-    <!-- ═══════════════════ FEATURED ARTICLE ═══════════════════ -->
+    <!-- ═══════════════════ FEATURED ARTICLES ═══════════════════ -->
     <section class="pt-16 pb-16 border-b section-divider">
-        <!-- <p class="category-tag mb-8 fade-in">Latest</p> -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 lg:gap-8">
 
-        <a href="/journal/the-hidden-cost-of-ai-generated-code.html" class="block rounded-xl fade-in hover:opacity-95 transition-opacity">
-            <div class="grid grid-cols-1 lg:grid-cols-5 gap-4 lg:gap-8">
-
-                <!-- Left: article info -->
-                <div class="lg:col-span-3 flex flex-col justify-between">
-                    <div>
-                        <p class="category-tag mb-5">&gt; Analytics &middot; April 2026</p>
-                        <h2 class="text-2xl md:text-4xl lg:text-6xl leading-[1.1] tracking-tight mb-4 text-white hover:text-gray-300 transition-colors">
-                            The Hidden Cost of AI&#8209;Generated Code
-                        </h2>
-                        <p class="text-gray-300 text-lg md:text-l leading-relaxed mb-8">
-                            Why Faster Code Writing Is Making Software Worse?
-                        </p>
+            <!-- Featured: The Poisoned Well -->
+            <a href="/journal/the-poisoned-well-ai-supply-chain-attacks.html" class="rounded-xl p-8 fade-in group flex flex-col hover:opacity-95 transition-opacity">
+                <p class="category-tag mb-5">&gt; Research Report &middot; June 2026</p>
+                <h2 class="text-2xl md:text-3xl lg:text-4xl leading-[1.15] tracking-tight mb-4 min-h-[2.3em] text-white group-hover:text-gray-300 transition-colors">
+                    The Poisoned Well
+                </h2>
+                <p class="text-gray-300 text-base leading-relaxed mb-6 min-h-14 line-clamp-2">
+                    How open source packages became a primary malware delivery channel &mdash; and AI-assisted coding is making it bigger, faster, and stranger.
+                </p>
+                <div class="flex flex-col gap-3 mb-6">
+                    <div class="metric-chip rounded-lg p-4 flex items-center gap-4">
+                        <span class="text-accent-pink font-mono font-bold text-2xl tracking-tight shrink-0">2.6B</span>
+                        <span class="flex flex-col">
+                            <span class="text-gray-400 text-sm leading-snug">Weekly downloads behind one phished maintainer</span>
+                            <span class="text-gray-600 text-xs mt-0.5">npm "qix", Sept 2025</span>
+                        </span>
                     </div>
-                    <div class="flex flex-wrap items-center gap-6">
-                        <span class="text-gray-500 font-mono text-xs uppercase tracking-widest">15 min read &nbsp;&middot;&nbsp; April 2026</span>
-                        <span class="text-accent-green font-mono text-sm font-semibold">Read the report &rarr;</span>
+                    <div class="metric-chip rounded-lg p-4 flex items-center gap-4">
+                        <span class="text-accent-pink font-mono font-bold text-2xl tracking-tight shrink-0">19.7%</span>
+                        <span class="flex flex-col">
+                            <span class="text-gray-400 text-sm leading-snug">Of AI-recommended packages don't exist</span>
+                            <span class="text-gray-600 text-xs mt-0.5">Slopsquatting study</span>
+                        </span>
                     </div>
                 </div>
+                <div class="flex flex-wrap items-center gap-6 pt-5 mt-auto border-t border-white/[.06]">
+                    <span class="text-gray-500 font-mono text-xs uppercase tracking-widest">18 min read &nbsp;&middot;&nbsp; June 2026</span>
+                    <span class="text-accent-green font-mono text-sm font-semibold">Read the report &rarr;</span>
+                </div>
+            </a>
 
-                <!-- Right: key metrics -->
-                <div class="lg:col-span-2 flex flex-col gap-3 justify-center">
-                    <div class="metric-chip rounded-lg p-4 flex items-baseline gap-4">
+            <!-- Featured: The Hidden Cost of AI-Generated Code -->
+            <a href="/journal/the-hidden-cost-of-ai-generated-code.html" class="rounded-xl p-8 fade-in group flex flex-col hover:opacity-95 transition-opacity">
+                <p class="category-tag mb-5">&gt; Analytics &middot; April 2026</p>
+                <h2 class="text-2xl md:text-3xl lg:text-4xl leading-[1.15] tracking-tight mb-4 min-h-[2.3em] text-white group-hover:text-gray-300 transition-colors">
+                    The Hidden Cost of AI&#8209;Generated Code
+                </h2>
+                <p class="text-gray-300 text-base leading-relaxed mb-6 min-h-14 line-clamp-2">
+                    Why Faster Code Writing Is Making Software Worse?
+                </p>
+                <div class="flex flex-col gap-3 mb-6">
+                    <div class="metric-chip rounded-lg p-4 flex items-center gap-4">
                         <span class="text-accent-pink font-mono font-bold text-2xl tracking-tight shrink-0">$2.41T</span>
-                        <span class="text-gray-400 text-sm leading-snug">Cost of poor software quality <span class="text-gray-600 text-xs">(CISQ, U.S.)</span></span>
+                        <span class="flex flex-col">
+                            <span class="text-gray-400 text-sm leading-snug">Cost of poor software quality</span>
+                            <span class="text-gray-600 text-xs mt-0.5">CISQ, U.S.</span>
+                        </span>
                     </div>
-                    <div class="metric-chip rounded-lg p-4 flex items-baseline gap-4">
+                    <div class="metric-chip rounded-lg p-4 flex items-center gap-4">
                         <span class="text-accent-pink font-mono font-bold text-2xl tracking-tight shrink-0">-7.2%</span>
-                        <span class="text-gray-400 text-sm leading-snug">Delivery stability per 25% AI adoption <span class="text-gray-600 text-xs">(DORA 2024)</span></span>
-                    </div>
-                    <div class="metric-chip rounded-lg p-4 flex items-baseline gap-4">
-                        <span class="text-accent-pink font-mono font-bold text-2xl tracking-tight shrink-0">15–25%</span>
-                        <span class="text-gray-400 text-sm leading-snug">Of AI-generated code contains security vulnerabilities</span>
+                        <span class="flex flex-col">
+                            <span class="text-gray-400 text-sm leading-snug">Delivery stability per 25% AI adoption</span>
+                            <span class="text-gray-600 text-xs mt-0.5">DORA 2024</span>
+                        </span>
                     </div>
                 </div>
+                <div class="flex flex-wrap items-center gap-6 pt-5 mt-auto border-t border-white/[.06]">
+                    <span class="text-gray-500 font-mono text-xs uppercase tracking-widest">15 min read &nbsp;&middot;&nbsp; April 2026</span>
+                    <span class="text-accent-green font-mono text-sm font-semibold">Read the report &rarr;</span>
+                </div>
+            </a>
 
-            </div>
-        </a>
+        </div>
     </section>
 
     <!-- ═══════════════════ ALL RESEARCH ═══════════════════ -->
@@ -439,6 +471,26 @@
         <p class="category-tag mb-10 fade-in">All Research</p>
 
         <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+
+            <!-- Article card: The Poisoned Well -->
+            <a href="/journal/the-poisoned-well-ai-supply-chain-attacks.html"
+               class="card-article rounded-xl p-7 fade-in group">
+                <div class="flex flex-col h-full">
+                    <div class="mb-auto">
+                        <p class="category-tag mb-4">Research Report</p>
+                        <h3 class="text-white font-bold text-xl leading-snug tracking-tight mb-3 group-hover:text-accent-green transition-colors">
+                            The Poisoned Well
+                        </h3>
+                        <p class="text-gray-500 text-sm leading-relaxed">
+                            Open source packages have become a primary delivery channel for malware &mdash; and AI-assisted coding is making it bigger, faster, and stranger. The attacks, the defenses, and what actually works.
+                        </p>
+                    </div>
+                    <div class="flex items-center justify-between mt-6 pt-5 border-t border-white/[.06]">
+                        <span class="text-gray-600 font-mono text-xs uppercase tracking-widest">June 2026 &nbsp;&middot;&nbsp; 18 min</span>
+                        <span class="text-accent-green font-mono text-xs font-semibold opacity-0 group-hover:opacity-100 transition-opacity">Read &rarr;</span>
+                    </div>
+                </div>
+            </a>
 
             <!-- Article card: The Hidden Cost of AI-Generated Code -->
             <a href="/journal/the-hidden-cost-of-ai-generated-code.html"
