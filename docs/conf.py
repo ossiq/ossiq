@@ -18,6 +18,7 @@ html_additional_pages = {
     "index": "landing.html",
     "journal/index": "journal/index.html",
     "journal/the-hidden-cost-of-ai-generated-code": "journal/the-hidden-cost-of-ai-generated-code.html",
+    "journal/the-poisoned-well-ai-supply-chain-attacks": "journal/the-poisoned-well-ai-supply-chain-attacks.html",
 }
 html_css_files = ["ossiq.css"]
 html_js_files = [("search_compat.js", {"defer": "defer"})]
