@@ -1,11 +1,11 @@
 """
 Tests for EpssBatchStrategy (ossiq.clients.client_epss) and
-EpssApiClient (ossiq.adapters.api_epss).
+EpssApiFirstOrg (ossiq.adapters.api_epss).
 """
 
 from unittest.mock import MagicMock, patch
 
-from ossiq.adapters.api_epss import EpssApiClient
+from ossiq.adapters.api_epss import EpssApiFirstOrg
 from ossiq.clients.batch import BatchClient, ChunkResult
 from ossiq.clients.client_epss import EpssBatchStrategy
 
@@ -65,9 +65,9 @@ class TestProcessResponse:
         assert result == {"CVE-2022-26332": 0.5}
 
 
-class TestEpssApiClient:
+class TestEpssApiFirstOrg:
     def test_empty_input_returns_empty_dict(self):
-        client = EpssApiClient(MagicMock())
+        client = EpssApiFirstOrg(MagicMock())
 
         with patch.object(BatchClient, "run_batch") as mock_run:
             result = client.get_epss_batch([])
@@ -77,7 +77,7 @@ class TestEpssApiClient:
 
     def test_dedupes_and_sorts_before_batching(self):
         """Stable chunk composition maximizes requests_cache hits across scans."""
-        client = EpssApiClient(MagicMock())
+        client = EpssApiFirstOrg(MagicMock())
 
         with patch.object(BatchClient, "run_batch", return_value=iter([])) as mock_run:
             client.get_epss_batch(["CVE-2023-0002", "CVE-2023-0001", "CVE-2023-0002"])
@@ -85,7 +85,7 @@ class TestEpssApiClient:
         mock_run.assert_called_once_with(["CVE-2023-0001", "CVE-2023-0002"])
 
     def test_merges_results_across_chunks(self):
-        client = EpssApiClient(MagicMock())
+        client = EpssApiFirstOrg(MagicMock())
         chunk_a = {"CVE-2023-0001": 0.1}
         chunk_b = {"CVE-2023-0002": 0.2}
 

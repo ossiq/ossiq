@@ -8,7 +8,7 @@ from ossiq.clients.common import get_user_agent
 from ossiq.settings import Settings
 
 
-class EpssApiClient:
+class EpssApiFirstOrg:
     """
     first.org EPSS API client
     """
@@ -24,7 +24,7 @@ class EpssApiClient:
         self._batch_client = BatchClient(self._strategy)
 
     def __repr__(self):
-        return f"EpssApiClient(base_url='{self._strategy.BASE_URL}')"
+        return f"EpssApiFirstOrg(base_url='{self._strategy.BASE_URL}')"
 
     def get_epss_batch(self, cve_ids: Iterable[str]) -> dict[str, float]:
         if not cve_ids:

@@ -2,6 +2,7 @@
 Factory to instantiate API clients
 """
 
+from ossiq.adapters.api_epss import EpssApiFirstOrg
 from ossiq.adapters.api_npm import PackageRegistryApiNpm
 from ossiq.adapters.api_osv import CveApiOsv
 from ossiq.adapters.api_pypi import PackageRegistryApiPypi
@@ -40,3 +41,8 @@ def create_package_registry_api(
 def create_cve_database(settings: Settings) -> CveApiOsv:
     """Return CVE database client (osv.dev)."""
     return CveApiOsv(settings)
+
+
+def create_epss_score_database(settings: Settings) -> EpssApiFirstOrg:
+    """Return EPSS first.org API client (api.first.org)"""
+    return EpssApiFirstOrg(settings)

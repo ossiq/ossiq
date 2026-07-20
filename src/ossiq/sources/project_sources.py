@@ -4,6 +4,7 @@ ProjectSources: assembles external data providers for a scan run.
 
 from ossiq.adapters.api import (
     create_cve_database,
+    create_epss_score_database,
     create_package_registry_api,
     create_source_code_provider,
 )
@@ -50,6 +51,7 @@ class ProjectSources(AbstractProjectSources):
         self.ignore_packages = tuple(normalize_dist_name(p) for p in ignore_packages)
         self.narrow_package_registry = narrow_package_registry
         self.cve_database = create_cve_database(settings)
+        self.epss_score_database = create_epss_score_database(settings)
 
     def __enter__(self):
         """
