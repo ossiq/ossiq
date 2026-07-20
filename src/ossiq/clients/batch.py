@@ -141,6 +141,8 @@ class BatchClient:
         """
         Yield results for all items, processing them in parallel chunks.
 
+        Before putting into batch, checking for `None`. Skip if `prepare_item` returns None.
+
         Items that fail permanently after all retries are silently dropped
         (logged at INFO level) so a bad chunk never blocks good ones.
         """
@@ -148,7 +150,7 @@ class BatchClient:
             return
 
         chunk_size = self.strategy.config.chunk_size
-        prepared_items = (self.strategy.prepare_item(item) for item in items)
+        prepared_items = (prepared for item in items if (prepared := self.strategy.prepare_item(item)) is not None)
         chunks = _chunked(prepared_items, chunk_size)
 
         t0 = time.perf_counter()

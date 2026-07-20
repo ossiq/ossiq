@@ -38,3 +38,8 @@ class CVE:
     published: str | None
     # URL to upstream advisory
     link: str
+
+    epss: float | None = None  # 0-1 probability or None
+    fix_available: bool = False
+    fix_versions: tuple[str, ...] = ()
+    fix_age_days: int | None = None
