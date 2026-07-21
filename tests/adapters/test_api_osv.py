@@ -132,3 +132,68 @@ class TestGetCvesBatch:
 
         cve = next(iter(result[("pkg", "1.0.0")]))
         assert cve.severity == expected_severity
+
+
+class TestExtractFixVersions:
+    def test_excludes_other_ecosystems_and_packages(self):
+        api = CveApiOsv(MagicMock())
+        package = make_package("foo")
+        osv_entry = {
+            "affected": [
+                {
+                    "package": {"ecosystem": "npm", "name": "foo"},
+                    "ranges": [{"events": [{"fixed": "1.2.4"}]}],
+                },
+                {
+                    "package": {"ecosystem": "PyPI", "name": "foo"},
+                    "ranges": [{"events": [{"fixed": "3.7.0"}]}],
+                },
+                {
+                    "package": {"ecosystem": "npm", "name": "@foo/helper"},
+                    "ranges": [{"events": [{"fixed": "5.0.0"}]}],
+                },
+            ]
+        }
+
+        assert api.extract_fix_versions(osv_entry, package) == ("1.2.4",)
+
+    def test_collects_fixed_events_across_ranges(self):
+        api = CveApiOsv(MagicMock())
+        package = make_package("foo")
+        osv_entry = {
+            "affected": [
+                {
+                    "package": {"ecosystem": "npm", "name": "foo"},
+                    "ranges": [
+                        {
+                            "events": [
+                                {"introduced": "0"},
+                                {"fixed": "1.2.4"},
+                            ]
+                        },
+                        {
+                            "events": [
+                                {"introduced": "2.0.0"},
+                                {"fixed": "2.0.3"},
+                            ]
+                        },
+                    ],
+                }
+            ]
+        }
+
+        assert api.extract_fix_versions(osv_entry, package) == ("1.2.4", "2.0.3")
+
+    def test_returns_empty_tuple_without_matching_fixed_event(self):
+        api = CveApiOsv(MagicMock())
+        package = make_package("foo")
+        osv_entry = {
+            "affected": [
+                {
+                    "package": {"ecosystem": "npm", "name": "foo"},
+                    "ranges": [{"events": [{"introduced": "0"}, {"last_affected": "1.2.3"}]}],
+                }
+            ]
+        }
+
+        assert api.extract_fix_versions(osv_entry, package) == ()

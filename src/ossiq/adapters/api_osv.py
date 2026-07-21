@@ -1,7 +1,7 @@
 import requests
 
 from ossiq.clients.batch import BatchClient
-from ossiq.clients.client_osv import OsvBatchStrategy
+from ossiq.clients.client_osv import ECOSYSTEM_MAPPING, OsvBatchStrategy
 from ossiq.clients.common import get_user_agent
 from ossiq.domain.common import CveDatabase
 from ossiq.domain.cve import CVE, Severity
@@ -42,16 +42,19 @@ class CveApiOsv:
             merged.update(chunk_data)
 
         return {
-            (pkg.name, version): self._parse_cves(
+            (pkg.name, version): self.parse_cve_response(
                 merged.get((pkg.name, version), []),
                 pkg_map[(pkg.name, version)],
+                version,
             )
             for pkg, version in packages_with_versions
         }
 
-    def _parse_cves(self, raw_vulns: list[dict], package: Package) -> set[CVE]:
+    def parse_cve_response(self, raw_vulns: list[dict], package: Package, installed_version) -> set[CVE]:
         cves = set()
         for cve_raw in raw_vulns:
+            fix_versions = self.extract_fix_versions(cve_raw, package)
+
             cves.add(
                 CVE(
                     id=cve_raw["id"],
@@ -60,15 +63,17 @@ class CveApiOsv:
                     package_name=package.name,
                     package_registry=package.registry,
                     summary=cve_raw.get("summary", ""),
-                    severity=self._map_severity(cve_raw.get("severity", [])),
-                    affected_versions=tuple(self._extract_affected_versions(cve_raw)),
+                    severity=self.map_cve_severity(cve_raw.get("severity", [])),
+                    affected_versions=tuple(self.extract_affected_versions(cve_raw)),
                     published=cve_raw.get("published"),
-                    link=self._build_osv_link(cve_raw["id"]),
+                    link=self.build_osv_link(cve_raw["id"]),
+                    fix_versions=fix_versions,
+                    fix_available=bool(fix_versions),
                 )
             )
         return cves
 
-    def _map_severity(self, osv_severity: list[dict]) -> Severity:
+    def map_cve_severity(self, osv_severity: list[dict]) -> Severity:
         if not osv_severity:
             return Severity.MEDIUM  # fallback
 
@@ -92,7 +97,37 @@ class CveApiOsv:
             return Severity.MEDIUM
         return Severity.LOW
 
-    def _extract_affected_versions(self, osv_entry: dict) -> list[str]:
+    def extract_fix_versions(self, osv_entry: dict, package: Package) -> tuple[str, ...]:
+        """
+        OSV advisory can contain several affected records from the same ecosystem,
+        potentially for sibling packages. Including
+        canonical_name also accommodates npm aliases
+        """
+
+        ecosystem = ECOSYSTEM_MAPPING[package.registry]
+        package_names = {package.name, package.canonical_name}
+        package_names.discard(None)
+
+        fix_versions = []
+
+        for affected in osv_entry.get("affected", []):
+            affected_package = affected.get("package", {})
+
+            if affected_package.get("ecosystem") != ecosystem:
+                continue
+
+            # FIXME: alias could be actually potential vector
+            if affected_package.get("name") not in package_names:
+                continue
+
+            for affected_range in affected.get("ranges", []):
+                for event in affected_range.get("events", []):
+                    if "fixed" in event:
+                        fix_versions.append(event["fixed"])
+
+        return tuple(fix_versions)
+
+    def extract_affected_versions(self, osv_entry: dict) -> list[str]:
         """
         OSV provides ranges, but also `versions` which is easier: explicit versions.
         """
@@ -101,5 +136,5 @@ class CveApiOsv:
             versions.extend(aff.get("versions", []))
         return versions
 
-    def _build_osv_link(self, osv_id: str) -> str:
+    def build_osv_link(self, osv_id: str) -> str:
         return f"https://osv.dev/{osv_id}"
