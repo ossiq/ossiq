@@ -55,7 +55,7 @@ class CveApiOsv:
             for pkg, version in packages_with_versions
         }
 
-    def parse_cve_response(self, raw_vulns: list[dict], package: Package, installed_version) -> set[CVE]:
+    def parse_cve_response(self, raw_vulns: list[dict], package: Package, installed_version: str) -> set[CVE]:
         cves = set()
         for cve_raw in raw_vulns:
             fix_versions = self.extract_fix_versions(cve_raw, package)

@@ -27,12 +27,12 @@ class EpssApiFirstOrg:
         return f"EpssApiFirstOrg(base_url='{self._strategy.BASE_URL}')"
 
     def get_epss_batch(self, cve_ids: Iterable[str]) -> dict[str, float]:
-        if not cve_ids:
-            return {}
-
         # sorted to achieve chunk composition stability across scans,
         # so the cache hit next time.
         unique_ids = sorted(set(cve_ids))
+
+        if not unique_ids:
+            return {}
 
         merged: dict[str, float] = {}
         for chunk_data in self._batch_client.run_batch(unique_ids):

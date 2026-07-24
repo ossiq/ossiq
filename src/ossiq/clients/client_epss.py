@@ -1,5 +1,5 @@
 """
-Pre-configured HTTP session and batch strategy for the api.first.com API.
+Pre-configured HTTP session and batch strategy for the api.first.org API.
 """
 
 import requests
@@ -34,7 +34,7 @@ class EpssBatchStrategy(BatchStrategy):
 
     def prepare_item(self, item: str) -> str | None:
         """
-        Checking if CVE ID is prefixed with `CVE-` (actually, simplificatin -
+        Checking if CVE ID is prefixed with `CVE-` (actually, simplification -
         it should be in `CVE-YYYY-NNNNN`, but let's start with this for now).
         """
         # NOTE: first.org doesn't support non CVE-prefixed IDs
