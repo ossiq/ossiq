@@ -33,7 +33,6 @@ class PypiBatchStrategy(BatchStrategy):
             max_retries=3,
             max_workers=5,
             request_timeout=15.0,
-            has_pagination=False,
         )
 
     def prepare_item(self, item: str) -> str:
@@ -62,7 +61,6 @@ class PypiVersionBatchStrategy(BatchStrategy):
             max_retries=3,
             max_workers=5,
             request_timeout=15.0,
-            has_pagination=False,
         )
 
     def prepare_item(self, item: tuple[str, str]) -> tuple[str, str]:

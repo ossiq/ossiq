@@ -15,7 +15,6 @@ import threading
 import time
 from unittest.mock import MagicMock, call, patch
 
-import pytest
 import requests
 
 from ossiq.clients.batch import (
@@ -53,7 +52,6 @@ class FakeBatchStrategy(BatchStrategy):
             max_retries=max_retries,
             max_workers=3,
             request_timeout=10,
-            has_pagination=False,
         )
 
     @property
@@ -727,6 +725,17 @@ class TestBatchClientShutdown:
         assert client._abort.is_set()
         assert client._gate.is_set()
 
+    def test_shutdown_prevents_run_batch_from_consuming_source(self):
+        strategy = make_strategy()
+        client = make_client(strategy)
+        consumed = []
+        items = (consumed.append(item) or item for item in range(100))
+        client.shutdown()
+
+        assert collect(client.run_batch(items)) == []
+        assert consumed == []
+        strategy.session.post.assert_not_called()
+
     def test_abort_interrupts_rate_limit_sleep(self):
         """
         shutdown() called while the winner thread is sleeping during a rate-limit
@@ -761,40 +770,44 @@ class TestBatchClientShutdown:
 
 
 # ---------------------------------------------------------------------------
-# F. Pagination (placeholder — interface not yet implemented)
+# F. Strategy-controlled follow-up work
 # ---------------------------------------------------------------------------
 
 
+class FollowUpStrategy(FakeBatchStrategy):
+    def next_items(self, source_items, response):  # noqa: ARG002
+        return response.data[0].get("next_items", [])
+
+
 class TestBatchClientPagination:
-    @pytest.mark.xfail(reason="Pagination not yet implemented in BatchClient/BatchStrategy")
     def test_follows_next_page_token_until_exhausted(self):
-        """
-        When a response contains next_page_token, the client must issue a
-        follow-up request with the token until no token is returned.
-        """
         session = MagicMock()
-        page1 = make_response(200, {"results": ["a"], "next_page_token": "tok-1"})
-        page2 = make_response(200, {"results": ["b"]})
-        session.post.side_effect = [page1, page2]
-        client = make_client(make_strategy(session))
+        session.post.side_effect = [
+            make_response(200, {"results": ["a"], "next_items": ["tok-1"]}),
+            make_response(200, {"results": ["b"], "next_items": ["tok-2"]}),
+            make_response(200, {"results": ["c"]}),
+        ]
+        client = make_client(FollowUpStrategy(session=session, chunk_size=1))
 
         results = collect(client.run_batch([1]))
 
-        assert session.post.call_count == 2
-        assert results == [["a", "b"]]
+        assert session.post.call_count == 3
+        assert [result["results"] for result in results] == [["a"], ["b"], ["c"]]
+        assert session.post.call_args_list[1].kwargs["json"] == {"items": ["tok-1"]}
+        assert session.post.call_args_list[2].kwargs["json"] == {"items": ["tok-2"]}
 
-    @pytest.mark.xfail(reason="Pagination not yet implemented in BatchClient/BatchStrategy")
-    def test_merges_results_across_pages(self):
-        """Results from all pages must be combined before process_response is called."""
+    def test_chunks_multiple_follow_up_items(self):
         session = MagicMock()
-        page1 = make_response(200, {"items": [1], "next_page_token": "tok"})
-        page2 = make_response(200, {"items": [2]})
-        session.post.side_effect = [page1, page2]
-        client = make_client(make_strategy(session))
+        session.post.side_effect = [
+            make_response(200, {"results": ["a"], "next_items": ["tok-1", "tok-2"]}),
+            make_response(200, {"results": ["b"]}),
+        ]
+        client = make_client(FollowUpStrategy(session=session, chunk_size=2))
 
         results = collect(client.run_batch([1]))
 
-        assert results == [[1, 2]]
+        assert [result["results"] for result in results] == [["a"], ["b"]]
+        assert session.post.call_args_list[1].kwargs["json"] == {"items": ["tok-1", "tok-2"]}
 
 
 # ---------------------------------------------------------------------------

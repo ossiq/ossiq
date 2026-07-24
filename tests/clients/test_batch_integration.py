@@ -44,7 +44,6 @@ class RealHTTPBatchStrategy(BatchStrategy):
             max_retries=max_retries,
             max_workers=3,
             request_timeout=timeout,
-            has_pagination=False,
         )
 
     @property

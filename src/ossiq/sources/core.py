@@ -4,6 +4,7 @@ Abstract project sources: bag of external data providers for a scan run.
 
 import abc
 
+from ossiq.adapters.api_epss import EpssApiFirstOrg
 from ossiq.adapters.api_github import SourceCodeProviderApiGithub
 from ossiq.adapters.api_interfaces import AbstractPackageManagerApi, AbstractPackageRegistryApi
 from ossiq.adapters.api_osv import CveApiOsv
@@ -22,6 +23,7 @@ class AbstractProjectSources(abc.ABC):
     packages_manager: AbstractPackageManagerApi
     packages_registry: AbstractPackageRegistryApi
     cve_database: CveApiOsv
+    epss_score_database: EpssApiFirstOrg
     production: bool
     allow_prerelease: bool
     allow_prerelease_packages: tuple[str, ...]
