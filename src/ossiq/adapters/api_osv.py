@@ -1,7 +1,7 @@
 import requests
 
 from ossiq.clients.batch import BatchClient
-from ossiq.clients.client_osv import ECOSYSTEM_MAPPING, OsvBatchStrategy
+from ossiq.clients.client_osv import ECOSYSTEM_MAPPING, OsvBatchStrategy, OsvDetailsBatchStrategy
 from ossiq.clients.common import get_user_agent
 from ossiq.domain.common import CveDatabase
 from ossiq.domain.cve import CVE, Severity
@@ -12,11 +12,8 @@ from ossiq.settings import Settings
 class CveApiOsv:
     """
     CVE client for osv.dev.
-    Uses BatchClient + OsvBatchStrategy to chunk, retry, and rate-limit requests
-    to the /v1/querybatch endpoint.
-
-    Note, that pagination is intentionally not implemented, since batch
-    sizes are relatively small (50) and limits are pretty high (more than 1K CVEs per request)
+    Discovers vulnerability IDs via /v1/querybatch, then fetches full records
+    from /v1/vulns/{id}.
     """
 
     session: requests.Session
@@ -28,6 +25,7 @@ class CveApiOsv:
 
         self._strategy = OsvBatchStrategy(self.session)
         self._batch_client = BatchClient(self._strategy)
+        self._details_batch_client = BatchClient(OsvDetailsBatchStrategy(self.session))
 
     def __repr__(self):
         return f"CveApiOsv(base_url='{self._strategy.BASE_URL}')"
@@ -39,11 +37,18 @@ class CveApiOsv:
         pkg_map: dict[tuple[str, str], Package] = {(pkg.name, version): pkg for pkg, version in packages_with_versions}
         merged: dict[tuple[str, str], list[dict]] = {}
         for chunk_data in self._batch_client.run_batch(packages_with_versions):
-            merged.update(chunk_data)
+            for key, vulns in chunk_data.items():
+                merged.setdefault(key, []).extend(vulns)
+
+        vulnerability_ids = sorted({vuln["id"] for vulns in merged.values() for vuln in vulns})
+        details: dict[str, dict] = {}
+        if vulnerability_ids:
+            for chunk_data in self._details_batch_client.run_batch(vulnerability_ids):
+                details.update(chunk_data)
 
         return {
             (pkg.name, version): self.parse_cve_response(
-                merged.get((pkg.name, version), []),
+                [details.get(vuln["id"], vuln) for vuln in merged.get((pkg.name, version), [])],
                 pkg_map[(pkg.name, version)],
                 version,
             )
@@ -54,7 +59,6 @@ class CveApiOsv:
         cves = set()
         for cve_raw in raw_vulns:
             fix_versions = self.extract_fix_versions(cve_raw, package)
-
             cves.add(
                 CVE(
                     id=cve_raw["id"],

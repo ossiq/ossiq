@@ -27,6 +27,7 @@ SCAN_STEPS: list[tuple[str, str]] = [
     ("packages", "Fetching package metadata"),
     ("repositories", "Fetching repository info from GitHub"),
     ("vulnerabilities", "Checking for vulnerabilities via OSV.dev"),
+    ("epss", "Fetching EPSS scores via api.first.org"),
     ("versions", "Analyzing version history"),
     ("solver", "Solving dependency constraints"),
 ]

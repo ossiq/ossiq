@@ -1,7 +1,7 @@
 """Tests for CVE enrichment in service/project/prefetch.py."""
 
 from datetime import UTC, datetime
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, call, patch
 
 from packaging.version import Version
 
@@ -10,6 +10,7 @@ from ossiq.domain.cve import CVE, Severity
 from ossiq.domain.exceptions import UnknownPackageVersion
 from ossiq.domain.version import PackageVersion
 from ossiq.service.project.prefetch import enrich_cves_with_epss_and_fix_age
+from ossiq.service.project.scan import prefetch_scan_data
 
 
 def make_cve(
@@ -189,3 +190,36 @@ def test_empty_map_does_not_call_external_services():
     assert enrich_cves_with_epss_and_fix_age({}, epss_client, registry, now=None) == {}
     epss_client.get_epss_batch.assert_not_called()
     registry.package_versions.assert_not_called()
+
+
+def test_prefetch_scan_data_enriches_cves_after_osv_fetch():
+    raw_cve_map = {("foo", "1.0.0"): set()}
+    enriched_cve_map = {("foo", "1.0.0"): {make_cve("CVE-2024-0001")}}
+    sources = MagicMock()
+    sources.allow_prerelease = False
+    sources.allow_prerelease_packages = ()
+    sources.packages_registry.packages_info_batch.return_value = {}
+    sources.cve_database.get_cves_batch.return_value = raw_cve_map
+    step = MagicMock()
+    now = datetime(2025, 1, 11, tzinfo=UTC)
+
+    with patch(
+        "ossiq.service.project.scan.enrich_cves_with_epss_and_fix_age",
+        return_value=enriched_cve_map,
+    ) as enrich:
+        result = prefetch_scan_data(sources, [], now, step)
+
+    enrich.assert_called_once_with(
+        raw_cve_map,
+        sources.epss_score_database,
+        sources.packages_registry,
+        now,
+    )
+    assert result.cve_map == enriched_cve_map
+    assert step.call_args_list == [
+        call("packages"),
+        call("repositories"),
+        call("vulnerabilities"),
+        call("epss"),
+        call("versions"),
+    ]

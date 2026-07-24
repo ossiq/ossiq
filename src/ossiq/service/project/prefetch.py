@@ -104,7 +104,7 @@ def prefetch_packages_info(
     return packages_registry.packages_info_batch(unique)
 
 
-def _nearest_fix_version(
+def nearest_cve_fix_version(
     fix_versions: Iterable[str],
     installed_version: str,
     registry: AbstractPackageRegistryApi,
@@ -123,7 +123,7 @@ def _nearest_fix_version(
     return nearest
 
 
-def _fix_age_days(
+def cve_fix_age_days(
     cve: CVE,
     installed_version: str,
     releases: Iterable[package_versions.PackageVersion],
@@ -131,34 +131,29 @@ def _fix_age_days(
     now: datetime | None,
 ) -> int | None:
     """Return the age of the nearest available fix release, if the registry knows it."""
-    selected_fix = _nearest_fix_version(cve.fix_versions, installed_version, registry)
-    if selected_fix is None:
+    selected_fix = nearest_cve_fix_version(cve.fix_versions, installed_version, registry)
+    if not selected_fix:
         return None
 
     for release in releases:
+        # Fast path: bypass expensive version parsing if strings match exactly
+        if release.version == selected_fix:
+            return age_days_from_iso(release.published_date_iso, now=now)
+
+        # Slow path: semantic version equivalence (e.g. "1.0" == "1.0.0")
         try:
             if registry.compare_versions(release.version, selected_fix) == 0:
                 return age_days_from_iso(release.published_date_iso, now=now)
         except (InvalidVersion, UnknownPackageVersion):
             continue
+
     return None
 
 
 def aggregate_cve_ids(cve_map: dict[tuple[str, str], set[CVE]]) -> dict[str, set[str]]:
-    """
-    Handle one-to-many CVE ids
-    """
-    cve_backlink: dict[str, set[str]] = {}
-
-    for cves in cve_map.values():
-        for cve in cves:
-            # cve -> many IDs.
-            cve_ids = set()
-            cve_ids.add(cve.id)
-            cve_ids.update(cve.cve_ids if cve.cve_ids else [])
-            cve_backlink[cve.id] = cve_ids
-
-    return cve_backlink
+    """Map each primary CVE ID to a set of itself and all its alias IDs."""
+    return {cve.id: {cve.id} | set(cve.cve_ids)
+            for cves in cve_map.values() for cve in cves}  # fmt: off
 
 
 def enrich_cves_with_epss_and_fix_age(
@@ -173,14 +168,14 @@ def enrich_cves_with_epss_and_fix_age(
 
     cve_backlink = aggregate_cve_ids(cve_map)
     cve_ids = set(chain.from_iterable(cve_backlink.values()))
-
     epss_scores = epss_client.get_epss_batch(cve_ids)
+
     release_cache: dict[str, tuple[package_versions.PackageVersion, ...]] = {}
     enriched_map: dict[tuple[str, str], set[CVE]] = {}
 
-    for package_key, cves in cve_map.items():
-        package_name, installed_version = package_key
+    for (package_name, installed_version), cves in cve_map.items():
         releases: tuple[package_versions.PackageVersion, ...] = ()
+
         if any(cve.fix_versions for cve in cves):
             if package_name not in release_cache:
                 try:
@@ -191,21 +186,20 @@ def enrich_cves_with_epss_and_fix_age(
 
         enriched_cves = set()
         for cve in cves:
-            cve_lookup_ids = cve_backlink.get(cve.id)
-
-            epss_score = max(
-                (epss_scores[cve_id] for cve_id in cve_lookup_ids or () if cve_id in epss_scores),
-                default=None,
-            )
+            # Cleanly gather EPSS scores for the CVE and its aliases
+            aliases = cve_backlink.get(cve.id, set())
+            cve_epss_scores = [epss_scores[aid] for aid in aliases if aid in epss_scores]
+            max_epss = max(cve_epss_scores) if cve_epss_scores else None
 
             enriched_cves.add(
                 replace(
                     cve,
-                    epss=epss_score,
-                    fix_age_days=_fix_age_days(cve, installed_version, releases, registry, now),
+                    epss=max_epss,
+                    fix_age_days=cve_fix_age_days(cve, installed_version, releases, registry, now),
                 )
             )
-        enriched_map[package_key] = enriched_cves
+
+        enriched_map[(package_name, installed_version)] = enriched_cves
 
     return enriched_map
 

@@ -9,8 +9,9 @@ import random
 import threading
 import time
 from abc import ABC, abstractmethod
+from collections import deque
 from collections.abc import Generator, Iterable
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from dataclasses import dataclass
 from typing import Any
 
@@ -54,7 +55,6 @@ class BatchStrategySettings:
     max_retries: int
     max_workers: int
     request_timeout: float
-    has_pagination: bool
 
 
 @dataclass
@@ -103,6 +103,14 @@ class BatchStrategy(ABC):
         Only called for successful chunks (response.success is True).
         """
 
+    def next_items(self, source_items: list, response: ChunkResult) -> Iterable[Any]:  # noqa: ARG002
+        """
+        Return request-ready follow-up items to enqueue after a successful response.
+
+        Follow-up items bypass prepare_item and are chunked using config.chunk_size.
+        """
+        return ()
+
 
 class BatchClient:
     """
@@ -140,18 +148,23 @@ class BatchClient:
     def run_batch(self, items: Iterable[Any]) -> Generator:
         """
         Yield results for all items, processing them in parallel chunks.
-
         Before putting into batch, checking for `None`. Skip if `prepare_item` returns None.
-
         Items that fail permanently after all retries are silently dropped
         (logged at INFO level) so a bad chunk never blocks good ones.
         """
+
         if not items:
             return
 
         chunk_size = self.strategy.config.chunk_size
+
         prepared_items = (prepared for item in items if (prepared := self.strategy.prepare_item(item)) is not None)
-        chunks = _chunked(prepared_items, chunk_size)
+
+        # 2. Turn the chunking into an iterator, not a fully realized deque
+        chunk_iterator = iter(_chunked(prepared_items, chunk_size))
+
+        # 3. Use a deque ONLY for dynamic follow-up items
+        pending_follow_ups = deque()
 
         t0 = time.perf_counter()
         chunks_ok = chunks_failed = items_yielded = 0
@@ -159,33 +172,58 @@ class BatchClient:
         with ThreadPoolExecutor(max_workers=self.strategy.config.max_workers) as pool:
             future_to_chunk: dict = {}
 
-            for chunk in chunks:
-                chunk_list = list(chunk)
-                future = pool.submit(self._fetch_chunk, chunk_list, self.strategy)
-                future_to_chunk[future] = chunk_list  # store list, same as submitted
+            while not self._abort.is_set():
+                # Fill worker pool lazily
+                while not self._abort.is_set() and len(future_to_chunk) < self.strategy.config.max_workers:
+                    chunk = None
+                    # Prioritize follow-up items first
+                    if pending_follow_ups:
+                        chunk = pending_follow_ups.popleft()
+                    else:
+                        # Lazily pull the next chunk from the source generator
+                        try:
+                            chunk = list(next(chunk_iterator))
+                        except StopIteration:
+                            break
 
-            for future in as_completed(future_to_chunk):
-                original_chunk = future_to_chunk[future]
+                    if chunk:
+                        future = pool.submit(self._fetch_chunk, chunk, self.strategy)
+                        future_to_chunk[future] = chunk
 
-                try:
-                    response = future.result()
-                    if not response:  # [] from abort or max_retries=0
+                # If no tasks are running and no chunks left, we're done
+                if not future_to_chunk:
+                    break
+
+                done, _ = wait(future_to_chunk, return_when=FIRST_COMPLETED)
+
+                for future in done:
+                    original_chunk = future_to_chunk.pop(future)
+
+                    try:
+                        response = future.result()
+
+                        if not response:  # [] from abort or max_retries=0
+                            chunks_failed += 1
+                            continue
+
+                        if not response.success:
+                            logger.info("Permanent failure for chunk: %s", response.message)
+                            chunks_failed += 1
+                            continue
+
+                        # Add follow-up items to the dedicated deque
+                        follow_ups = self.strategy.next_items(original_chunk, response)
+                        if follow_ups:
+                            pending_follow_ups.extend(list(c) for c in _chunked(follow_ups, chunk_size))
+
+                        chunks_ok += 1
+                        items_yielded += 1
+
+                        # Yielding blocks the loop until the consumer is ready!
+                        yield self.strategy.process_response(original_chunk, response)
+                    except Exception as exc:  # noqa
+                        logger.info("Chunk of %d items failed: %s", len(original_chunk), exc)
                         chunks_failed += 1
-                        continue
-                    if not response.success:
-                        logger.info("Permanent failure for chunk: %s", response.message)
-                        chunks_failed += 1
-                        continue
-
-                    chunks_ok += 1
-                    items_yielded += 1
-                    yield self.strategy.process_response(original_chunk, response)
-
-                except (
-                    Exception
-                ) as exc:  # broad catch at thread boundary; narrow when BatchStrategy declares typed errors
-                    logger.info("Chunk of %d items failed: %s", len(original_chunk), exc)
-                    chunks_failed += 1
 
         logger.debug(
             "[%s] batch done: chunks_ok=%d chunks_failed=%d items=%d total_time=%.3fs",

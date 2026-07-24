@@ -30,7 +30,6 @@ class EpssBatchStrategy(BatchStrategy):
             max_retries=3,
             max_workers=2,
             request_timeout=30.0,
-            has_pagination=True,
         )
 
     def prepare_item(self, item: str) -> str | None:

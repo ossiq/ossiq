@@ -25,6 +25,7 @@ from ossiq.service.project.models import (
 )
 from ossiq.service.project.prefetch import (
     build_ignored_packages,
+    enrich_cves_with_epss_and_fix_age,
     partition_git_hosted,
     prefetch_packages_info,
     prefetch_source_code_repositories_info,
@@ -192,6 +193,13 @@ def prefetch_scan_data(
 
     step("vulnerabilities")
     cve_map = sources.cve_database.get_cves_batch(unique_packages)
+    step("epss")
+    cve_map = enrich_cves_with_epss_and_fix_age(
+        cve_map,
+        sources.epss_score_database,
+        sources.packages_registry,
+        now,
+    )
 
     # Pre-compute versions-since-installed for all unique (package, version) pairs
     step("versions")

@@ -33,7 +33,6 @@ class NpmBatchStrategy(BatchStrategy):
             max_retries=3,
             max_workers=5,
             request_timeout=15.0,
-            has_pagination=False,
         )
 
     def prepare_item(self, item: str) -> str:

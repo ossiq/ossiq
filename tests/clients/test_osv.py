@@ -8,7 +8,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from ossiq.clients.batch import ChunkResult
-from ossiq.clients.client_osv import OsvBatchStrategy
+from ossiq.clients.client_osv import OsvBatchStrategy, OsvDetailsBatchStrategy
 from ossiq.domain.common import ProjectPackagesRegistry
 from ossiq.domain.package import Package
 
@@ -96,48 +96,47 @@ class TestProcessResponse:
 
         assert result == {("safe-pkg", "1.0.0"): []}
 
-    def test_pagination_merges_vulns_from_all_pages(self):
-        """Test that vulns from follow-up paginated requests are merged into the result."""
+    def test_process_response_does_not_fetch_next_page_directly(self):
         session = MagicMock()
-        page2_response = MagicMock()
-        page2_response.json.return_value = {"results": [{"vulns": [{"id": "GHSA-page2-002"}]}]}
-        session.post.return_value = page2_response
-
         strategy = OsvBatchStrategy(session)
         source_items = [{"package": {"name": "pkg", "ecosystem": "npm"}, "version": "1.0.0"}]
         response = make_chunk_result([{"vulns": [{"id": "GHSA-page1-001"}], "next_page_token": "token-abc"}])
 
         result = strategy.process_response(source_items, response)
 
-        vuln_ids = {v["id"] for v in result[("pkg", "1.0.0")]}
-        assert vuln_ids == {"GHSA-page1-001", "GHSA-page2-002"}
+        assert result[("pkg", "1.0.0")] == [{"id": "GHSA-page1-001"}]
+        session.post.assert_not_called()
 
-    def test_pagination_request_includes_page_token(self):
-        """Test that the follow-up pagination request includes the correct page_token."""
-        session = MagicMock()
-        page2_response = MagicMock()
-        page2_response.json.return_value = {"results": [{"vulns": []}]}
-        session.post.return_value = page2_response
+    def test_next_items_returns_only_queries_with_page_tokens(self):
+        strategy = OsvBatchStrategy(MagicMock())
+        source_items = [
+            {"package": {"name": "pkg-a", "ecosystem": "npm"}, "version": "1.0.0"},
+            {"package": {"name": "pkg-b", "ecosystem": "npm"}, "version": "2.0.0"},
+        ]
+        response = make_chunk_result(
+            [
+                {"vulns": [], "next_page_token": "my-token-xyz"},
+                {"vulns": []},
+            ]
+        )
 
-        strategy = OsvBatchStrategy(session)
-        source_items = [{"package": {"name": "pkg", "ecosystem": "npm"}, "version": "1.0.0"}]
-        response = make_chunk_result([{"vulns": [], "next_page_token": "my-token-xyz"}])
+        result = strategy.next_items(source_items, response)
 
-        strategy.process_response(source_items, response)
+        assert result == [
+            {
+                "package": {"name": "pkg-a", "ecosystem": "npm"},
+                "version": "1.0.0",
+                "page_token": "my-token-xyz",
+            }
+        ]
+        assert "page_token" not in source_items[0]
 
-        payload = session.post.call_args[1]["json"]
-        assert payload["queries"][0]["page_token"] == "my-token-xyz"
-
-    def test_pagination_stops_when_no_token(self):
-        """Test that no additional requests are made once next_page_token is absent."""
-        session = MagicMock()
-        strategy = OsvBatchStrategy(session)
+    def test_next_items_is_empty_without_page_token(self):
+        strategy = OsvBatchStrategy(MagicMock())
         source_items = [{"package": {"name": "pkg", "ecosystem": "npm"}, "version": "1.0.0"}]
         response = make_chunk_result([{"vulns": [{"id": "GHSA-only-001"}]}])
 
-        strategy.process_response(source_items, response)
-
-        session.post.assert_not_called()
+        assert strategy.next_items(source_items, response) == []
 
     @pytest.mark.parametrize(
         "package_name,version,ecosystem",
@@ -155,3 +154,26 @@ class TestProcessResponse:
         result = strategy.process_response(source_items, response)
 
         assert (package_name, version) in result
+
+
+class TestOsvDetailsBatchStrategy:
+    def test_gets_full_record_by_id_with_configured_timeout(self):
+        session = MagicMock()
+        strategy = OsvDetailsBatchStrategy(session)
+
+        strategy.perform_request(["GHSA-aaaa-0001"])
+
+        session.get.assert_called_once_with(
+            f"{strategy.BASE_URL}/vulns/GHSA-aaaa-0001",
+            timeout=strategy.config.request_timeout,
+        )
+
+    def test_maps_full_record_to_requested_id(self):
+        strategy = OsvDetailsBatchStrategy(MagicMock())
+        full_record = {"id": "GHSA-aaaa-0001", "aliases": ["CVE-2024-0001"]}
+        response = ChunkResult(data=[full_record], success=True)
+
+        assert strategy.prepare_item("GHSA-aaaa-0001") == "GHSA-aaaa-0001"
+        assert strategy.process_response(["GHSA-aaaa-0001"], response) == {
+            "GHSA-aaaa-0001": full_record,
+        }
