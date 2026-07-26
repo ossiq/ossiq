@@ -74,3 +74,8 @@ class UnknownPackageVersion(ApplicationError):
 class PackageManagerExecutionError(ApplicationError):
     title = "Update Failed"
     hint = "The manifest has been restored to its original state. Review the output above for details."
+
+
+class UnknownEcosystem(ApplicationError):
+    title = "Unknown Ecosystem"
+    hint = "Provided ecosystem is not recognized among supported ecosystems (NPM, etc...)"
