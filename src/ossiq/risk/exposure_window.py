@@ -46,13 +46,13 @@ def compute_exposure_window(
     releases_lag: int | None,
     versions_diff_index: VersionsDifference,
 ) -> float | None:
-    """Return the estimated number of days needed to remediate a dependency.
+    """Return estimated remediation days, or None if unsupported/invalid.
 
     The estimate combines an ecosystem-specific patch-latency prior with the
     additional upgrade effort implied by semantic-version distance and the
     number of intervening releases.
 
-    It is not a measure of dependency age or vulnerability severity;
+    It is not a measure of dependency age or vulnerability severity.
     """
     if releases_lag is None or releases_lag < 0:
         return None
