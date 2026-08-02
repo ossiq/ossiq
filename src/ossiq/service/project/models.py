@@ -74,6 +74,8 @@ class ScanRecord:
     peer_violations: list[PeerRequirement] = field(default_factory=list)
     # Populated when the solver found no valid version satisfying all constraints.
     constraint_conflict: list[str] = field(default_factory=list)
+    # Computed in ossiq.risk.exposure_window.compute_exposure_window
+    exposure_window_days: float | None = None
 
 
 @dataclass

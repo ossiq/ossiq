@@ -21,8 +21,8 @@ from ossiq.domain.version import (
     VERSION_DIFF_PATCH,
     VERSION_DIFF_PRERELEASE,
     VERSION_LATEST,
+    VersionsDifference,
 )
-from ossiq.service.project.models import ScanRecord
 
 UPGRADE_BASE_DAYS = 30.0
 
@@ -42,8 +42,9 @@ ECOSYSTEM_FIX_PRIOR = {
 
 
 def compute_exposure_window(
-    record: ScanRecord,
-    ecosystem: ProjectPackagesRegistry,
+    registry: ProjectPackagesRegistry,
+    releases_lag: int | None,
+    versions_diff_index: VersionsDifference,
 ) -> float | None:
     """Return the estimated number of days needed to remediate a dependency.
 
@@ -53,19 +54,18 @@ def compute_exposure_window(
 
     It is not a measure of dependency age or vulnerability severity;
     """
-    release_lag = record.releases_lag
-    if release_lag is None or release_lag < 0:
+    if releases_lag is None or releases_lag < 0:
         return None
 
-    coefficient = SEMVER_DISTANCE.get(record.versions_diff_index.diff_index)
+    coefficient = SEMVER_DISTANCE.get(versions_diff_index.diff_index)
     if coefficient is None:
         return None
 
-    ecosystem_prior = ECOSYSTEM_FIX_PRIOR.get(ecosystem)
+    ecosystem_prior = ECOSYSTEM_FIX_PRIOR.get(registry)
     if ecosystem_prior is None:
         return None
 
-    distance = coefficient * (1.0 + math.log1p(release_lag))
+    distance = coefficient * (1.0 + math.log1p(releases_lag))
     upgrade_distance_days = UPGRADE_BASE_DAYS * distance
     median_fix_days, tail_fix_days = ecosystem_prior
     expected_patch_latency = 0.5 * median_fix_days + 0.5 * tail_fix_days

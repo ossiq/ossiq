@@ -19,24 +19,8 @@ from ossiq.risk.exposure_window import compute_exposure_window
 from ossiq.service.project.models import ScanRecord
 
 
-def make_record(
-    diff_index: int,
-    releases_lag: int | None,
-    *,
-    time_lag_days: int | None = None,
-) -> ScanRecord:
-    return ScanRecord(
-        package_name="example",
-        dependency_name="example",
-        is_optional_dependency=False,
-        installed_version="1.0.0",
-        latest_version="2.0.0",
-        versions_diff_index=VersionsDifference("1.0.0", "2.0.0", diff_index, "ignored"),
-        time_lag_days=time_lag_days,
-        releases_lag=releases_lag,
-        cve=[],
-        constraint_info=ConstraintSource(type=ConstraintType.DECLARED, source_file="pyproject.toml"),
-    )
+def make_diff(diff_index: int) -> VersionsDifference:
+    return VersionsDifference("1.0.0", "2.0.0", diff_index, "ignored")
 
 
 @pytest.mark.parametrize(
@@ -57,74 +41,57 @@ def test_zero_release_lag_matrix(
     diff_index: int,
     expected: float,
 ) -> None:
-    assert compute_exposure_window(make_record(diff_index, 0), ecosystem) == expected
+    assert compute_exposure_window(ecosystem, 0, make_diff(diff_index)) == expected
 
 
 @pytest.mark.parametrize("diff_index", [VERSION_DIFF_PRERELEASE, VERSION_DIFF_BUILD])
 def test_prerelease_and_build_are_patch_sized(diff_index: int) -> None:
-    assert (
-        compute_exposure_window(
-            make_record(diff_index, 0),
-            ProjectPackagesRegistry.PYPI,
-        )
-        == 64.5
-    )
+    assert compute_exposure_window(ProjectPackagesRegistry.PYPI, 0, make_diff(diff_index)) == 64.5
 
 
 def test_release_count_growth() -> None:
-    result = compute_exposure_window(
-        make_record(VERSION_DIFF_MAJOR, 3),
-        ProjectPackagesRegistry.PYPI,
-    )
+    result = compute_exposure_window(ProjectPackagesRegistry.PYPI, 3, make_diff(VERSION_DIFF_MAJOR))
 
     assert result == pytest.approx(131.58883083359672)
 
 
 @pytest.mark.parametrize("releases_lag", [None, -1])
 def test_invalid_release_lag_returns_none(releases_lag: int | None) -> None:
-    assert (
-        compute_exposure_window(
-            make_record(VERSION_DIFF_MAJOR, releases_lag),
-            ProjectPackagesRegistry.PYPI,
-        )
-        is None
-    )
+    assert compute_exposure_window(ProjectPackagesRegistry.PYPI, releases_lag, make_diff(VERSION_DIFF_MAJOR)) is None
 
 
 @pytest.mark.parametrize("diff_index", [VERSION_NO_DIFF, 999])
 def test_unknown_version_difference_returns_none(diff_index: int) -> None:
-    assert (
-        compute_exposure_window(
-            make_record(diff_index, 0),
-            ProjectPackagesRegistry.PYPI,
-        )
-        is None
-    )
+    assert compute_exposure_window(ProjectPackagesRegistry.PYPI, 0, make_diff(diff_index)) is None
 
 
 def test_unsupported_ecosystem_returns_none() -> None:
     unsupported = cast(ProjectPackagesRegistry, "RUBYGEMS")
 
-    assert compute_exposure_window(make_record(VERSION_DIFF_MAJOR, 0), unsupported) is None
+    assert compute_exposure_window(unsupported, 0, make_diff(VERSION_DIFF_MAJOR)) is None
 
 
-def test_time_lag_days_does_not_affect_result() -> None:
-    without_time_lag = make_record(VERSION_DIFF_MAJOR, 3, time_lag_days=None)
-    with_time_lag = make_record(VERSION_DIFF_MAJOR, 3, time_lag_days=10_000)
+def test_input_diff_remains_unchanged() -> None:
+    diff = make_diff(VERSION_DIFF_MAJOR)
+    original = deepcopy(diff)
 
-    assert compute_exposure_window(
-        without_time_lag,
-        ProjectPackagesRegistry.PYPI,
-    ) == compute_exposure_window(
-        with_time_lag,
-        ProjectPackagesRegistry.PYPI,
+    compute_exposure_window(ProjectPackagesRegistry.PYPI, 3, diff)
+
+    assert diff == original
+
+
+def test_scan_record_defaults_exposure_window_to_none() -> None:
+    record = ScanRecord(
+        package_name="example",
+        dependency_name="example",
+        is_optional_dependency=False,
+        installed_version="1.0.0",
+        latest_version="2.0.0",
+        versions_diff_index=make_diff(VERSION_LATEST),
+        time_lag_days=None,
+        releases_lag=0,
+        cve=[],
+        constraint_info=ConstraintSource(type=ConstraintType.DECLARED, source_file="pyproject.toml"),
     )
 
-
-def test_input_record_remains_unchanged() -> None:
-    record = make_record(VERSION_DIFF_MAJOR, 3)
-    original = deepcopy(record)
-
-    compute_exposure_window(record, ProjectPackagesRegistry.PYPI)
-
-    assert record == original
+    assert record.exposure_window_days is None
