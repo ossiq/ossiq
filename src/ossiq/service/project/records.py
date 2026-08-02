@@ -10,6 +10,7 @@ from ossiq.domain.cve import CVE
 from ossiq.domain.package import Package
 from ossiq.domain.project import ConstraintSource, PeerRequirement
 from ossiq.domain.repository import Repository
+from ossiq.risk.exposure_window import compute_exposure_window
 from ossiq.service.common import package_versions
 from ossiq.service.project.models import DependencyDescriptor, PrefetchedData, ScanRecord
 from ossiq.solver.version_matchers import version_satisfies_constraint
@@ -106,6 +107,7 @@ def scan_record(
     )
 
     version_diff_index = version_rules.difference_versions(package_version, package_info.latest_version)
+    releases_lag = len(releases_since_installed) - 1
 
     return ScanRecord(
         package_name=canonical_name,
@@ -114,7 +116,7 @@ def scan_record(
         latest_version=package_info.latest_version,
         time_lag_days=time_lag_days,
         version_age_days=version_age_days,
-        releases_lag=len(releases_since_installed) - 1,
+        releases_lag=releases_lag,
         versions_diff_index=version_diff_index,
         cve=list(prefetched_cves) if installed_release else [],
         is_optional_dependency=is_optional_dependency,
@@ -145,6 +147,7 @@ def scan_record(
             (installed_release.is_deprecated if installed_release else False) or package_info.is_deprecated
         ),
         is_installed_package_unpublished=package_info.is_unpublished,
+        exposure_window_days=compute_exposure_window(package_info.registry, releases_lag, version_diff_index),
     )
 
 
