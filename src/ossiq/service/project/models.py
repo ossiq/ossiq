@@ -9,6 +9,7 @@ from ossiq.domain.package import Package
 from ossiq.domain.project import ConstraintSource, PeerRequirement
 from ossiq.domain.repository import Repository
 from ossiq.domain.version import VersionsDifference
+from ossiq.risk.gate import GateDecision
 from ossiq.service.common import package_versions
 from ossiq.service.library_scan import UpgradePath
 from ossiq.service.update_impact import TransitiveImpact
@@ -76,6 +77,8 @@ class ScanRecord:
     constraint_conflict: list[str] = field(default_factory=list)
     # Computed in ossiq.risk.exposure_window.compute_exposure_window
     exposure_window_days: float | None = None
+    # Computed in ossiq.risk.gate.get_gate_decision
+    gate_decision: GateDecision | None = None
 
 
 @dataclass
