@@ -75,10 +75,12 @@ class ScanRecord:
     peer_violations: list[PeerRequirement] = field(default_factory=list)
     # Populated when the solver found no valid version satisfying all constraints.
     constraint_conflict: list[str] = field(default_factory=list)
-    # Computed in ossiq.risk.exposure_window.compute_exposure_window
+    # Remediation window, in days. Computed in ossiq.risk.exposure_window.compute_exposure_window
     exposure_window_days: float | None = None
-    # Computed in ossiq.risk.gate.get_gate_decision
+    # Pass/quarantine/block decision. Computed in ossiq.risk.gate.get_gate_decision
     gate_decision: GateDecision | None = None
+    # Supply-chain hazard probability. Computed in ossiq.risk.p_supplychain.compute_p_supplychain
+    p_supplychain: float | None = None
 
 
 @dataclass
