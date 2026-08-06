@@ -7,6 +7,7 @@ extensions = [
     "myst_parser",
     "sphinx_immaterial",
     "sphinxext.opengraph",
+    "sphinxcontrib.mermaid",
 ]
 
 templates_path = ["_templates"]
@@ -36,6 +37,9 @@ myst_enable_extensions = [
     "attrs_block",
 ]
 myst_heading_anchors = 3
+# Lets plain ```mermaid fences (the syntax GitHub/VS Code previewers recognize)
+# also trigger the sphinxcontrib-mermaid directive, instead of requiring ```{mermaid}.
+myst_fence_as_directive = ["mermaid"]
 
 pygments_style = "sphinx"
 

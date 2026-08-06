@@ -1,5 +1,14 @@
 # Explanation
 
+```{toctree}
+:maxdepth: 1
+
+health-score
+```
+
+
+
+
 ## OSS IQ: The Case for Engineering Fitness
 
 OSS IQ introduces a paradigm shift in software supply chain management: **moving from reactive vulnerability patching to proactive sustainability modeling.**

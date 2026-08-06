@@ -7,7 +7,7 @@ title: OSS IQ
 :maxdepth: 2
 
 getting-started
-explanation
+explanation/index
 reference
 tutorials/index
 ```
