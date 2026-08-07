@@ -10,12 +10,13 @@ import pytest
 from ossiq.domain.common import ConstraintType, CveDatabase, ProjectPackagesRegistry
 from ossiq.domain.cve import CVE, Severity
 from ossiq.domain.package import Package
-from ossiq.domain.project import ConstraintSource, Dependency
+from ossiq.domain.project import ConstraintSource, Dependency, PeerRequirement
 from ossiq.domain.version import PackageVersion, VersionsDifference
 from ossiq.messages import IGNORE_REASON_IGNORE_FLAG, IGNORE_REASON_NON_REGISTRY
 from ossiq.service.project.models import DependencyDescriptor, ScanRecord
 from ossiq.service.project.prefetch import build_ignored_packages, get_package_versions_since, partition_git_hosted
 from ossiq.service.project.records import calculate_version_age_days, scan_record, scan_sort_key
+from ossiq.service.project.scan import direct_descriptor
 
 # ============================================================================
 # Module-level constants
@@ -435,3 +436,46 @@ class TestScanSortKey:
         unknown = self.make_record("pkg", None)
         known = self.make_record("pkg", 0)
         assert scan_sort_key(unknown) < scan_sort_key(known)
+
+
+# ============================================================================
+# TestDirectDescriptorPeerConstraints
+# ============================================================================
+
+
+class TestDirectDescriptorPeerConstraints:
+    """Direct deps must carry their peer requirements as hard constraints — and only those.
+
+    Regression for the frontend/ ERESOLVE: peer specs were collected on the Dependency node but
+    dropped when building the descriptor, so nothing forbade typescript 7.x.
+    """
+
+    @staticmethod
+    def typescript_dep() -> Dependency:
+        return Dependency(
+            name="typescript",
+            canonical_name="typescript",
+            version_installed="6.0.3",
+            version_defined=">=5.0.0",
+            parent_constraints=["~6.0.3", ">=4.8.4 <6.1.0", ">=5.0.0"],
+            peer_requirements=[
+                PeerRequirement(requirer_name="typescript-eslint", spec=">=4.8.4 <6.1.0"),
+                PeerRequirement(requirer_name="pinia", spec=">=4.5.0"),
+            ],
+        )
+
+    def test_peer_specs_become_constraints(self):
+        descriptor = direct_descriptor(self.typescript_dep(), is_optional=True)
+        assert descriptor.all_constraints == [">=4.8.4 <6.1.0", ">=4.5.0"]
+        assert descriptor.is_optional is True
+
+    def test_root_manifest_specifier_is_not_a_constraint(self):
+        """~6.0.3 sits in parent_constraints; promoting it would freeze every declared range."""
+        descriptor = direct_descriptor(self.typescript_dep(), is_optional=False)
+        assert "~6.0.3" not in descriptor.all_constraints
+
+    def test_dep_without_peers_stays_unconstrained(self):
+        """PyPI deps never carry peer requirements — behaviour must be unchanged for them."""
+        dep = Dependency(name="requests", canonical_name="requests", version_installed="2.31.0")
+        descriptor = direct_descriptor(dep, is_optional=False)
+        assert descriptor.all_constraints == []

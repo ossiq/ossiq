@@ -26,8 +26,9 @@ class DependencyDescriptor:
     version_constraint: str | None
     constraint_info: ConstraintSource
     extras: list[str] | None = None
-    # All version specifiers from every direct parent in the dependency graph.
-    # Empty for direct (root-level) dependencies; populated for transitive deps.
+    # Hard version specifiers a candidate must satisfy, beyond version_constraint.
+    # Transitive deps: every direct parent's specifier (diamond-dep correctness).
+    # Direct deps: the peer requirements other installed packages place on them.
     all_constraints: list[str] = field(default_factory=list)
     peer_requirements: list[PeerRequirement] = field(default_factory=list)
 

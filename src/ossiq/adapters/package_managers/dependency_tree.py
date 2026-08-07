@@ -123,6 +123,12 @@ class BaseDependencyResolver(ABC):
 
                             # Only update version_defined when the specifier differs from the
                             # resolved version to avoid redundant data (e.g. "4.17.21" == "4.17.21").
+                            # TODO: last-writer-wins across parents, so a direct dep's manifest
+                            #       specifier gets overwritten by an arbitrary consumer's range
+                            #       (e.g. typescript "~6.0.3" -> ">=5.0.0" from vue-tsc). Fixing
+                            #       this makes version_constraint a real L1 bound for direct deps
+                            #       and would freeze them inside their declared ranges — needs a
+                            #       decision on whether the root specifier should bind at all.
                             if d_ver != child.version_installed:
                                 child.version_defined = d_ver
                             # Always reclassify specificity from the parent-declared specifier,
@@ -175,6 +181,10 @@ class BaseDependencyResolver(ABC):
                     return normalized_match
 
         # 3. Fallback: Search registry for this package name
+        # TODO: name-only lookup returns the first registry entry, which may be a nested copy
+        #       rather than the one the parent actually resolved to (e.g. micromatch's nested
+        #       picomatch 2.3.2 instead of the hoisted 4.0.4). The parent's specifier is then
+        #       recorded against the wrong node, producing bogus peer violations and constraints.
         return self.find_root(name)
 
     def find_root(self, name: str) -> Dependency | None:
