@@ -369,3 +369,51 @@ class TestSolveDirectRequiresConsistency:
         assert result.recommendations.get("b") == "1.0.0"
         assert result.recommendations.get("a") == "1.0.0"
         assert result.recommendations.get("c") == "1.0.0"
+
+
+class TestPeerConstraintBlocksUpgrade:
+    """Regression: peer requirements reach the solver as hard L1 constraints for direct deps.
+
+    Mirrors the frontend/ ERESOLVE — typescript was bumped to 7.x while the whole
+    @typescript-eslint stack peer-requires ">=4.8.4 <6.1.0", so npm install failed.
+    """
+
+    @staticmethod
+    def npm_registry(versions_by_name: dict[str, list[PackageVersion]]) -> MagicMock:
+        from ossiq.domain.common import ProjectPackagesRegistry
+
+        registry = _make_registry(versions_by_name)
+        registry.package_registry = ProjectPackagesRegistry.NPM
+        return registry
+
+    def test_peer_bound_blocks_major_upgrade(self) -> None:
+        deps = [_FakeDep("typescript", "6.0.3", constraint=">=5.0.0", all_constraints=[">=4.8.4 <6.1.0"])]
+        registry = self.npm_registry({"typescript": [_pv("6.0.3"), _pv("6.0.9"), _pv("7.0.2")]})
+        result = solve_direct(deps, registry, {})
+        assert result.recommendations.get("typescript") == "6.0.9"
+
+    def test_without_peer_bound_the_major_upgrade_is_recommended(self) -> None:
+        """Negative control: proves the block above comes from the constraint, not the fixture."""
+        deps = [_FakeDep("typescript", "6.0.3", constraint=">=5.0.0")]
+        registry = self.npm_registry({"typescript": [_pv("6.0.3"), _pv("6.0.9"), _pv("7.0.2")]})
+        result = solve_direct(deps, registry, {})
+        assert result.recommendations.get("typescript") == "7.0.2"
+
+    def test_wide_peer_specs_do_not_block(self) -> None:
+        deps = [_FakeDep("typescript", "6.0.3", constraint=">=5.0.0", all_constraints=[">=4.5.0", "*"])]
+        registry = self.npm_registry({"typescript": [_pv("6.0.3"), _pv("7.0.2")]})
+        result = solve_direct(deps, registry, {})
+        assert result.recommendations.get("typescript") == "7.0.2"
+
+    def test_every_candidate_blocked_yields_no_recommendation(self) -> None:
+        """An unsatisfiable peer set must drop the package, not crash the whole solve."""
+        deps = [
+            _FakeDep("typescript", "6.0.3", constraint=">=5.0.0", all_constraints=["<1.0.0"]),
+            _FakeDep("other", "1.0.0"),
+        ]
+        registry = self.npm_registry(
+            {"typescript": [_pv("6.0.3"), _pv("7.0.2")], "other": [_pv("1.0.0"), _pv("2.0.0")]}
+        )
+        result = solve_direct(deps, registry, {})
+        assert "typescript" not in result.recommendations
+        assert result.recommendations.get("other") == "2.0.0"

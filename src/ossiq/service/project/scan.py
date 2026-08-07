@@ -70,39 +70,13 @@ def build_scan_descriptors(project_info, sources: AbstractProjectSources) -> Sca
 
     prod_source, prod_git = partition_git_hosted(project_info.dependencies.values(), detect_git_hosted)
     git_hosted_deps += prod_git
-    prod_deps = [
-        DependencyDescriptor(
-            name=dep.name,
-            canonical_name=dep.canonical_name,
-            version=dep.version_installed,
-            is_optional=False,
-            dependency_path=None,
-            version_constraint=dep.version_defined,
-            constraint_info=dep.constraint_info,
-            extras=dep.extras,
-            peer_requirements=list(dep.peer_requirements),
-        )
-        for dep in prod_source
-    ]
+    prod_deps = [direct_descriptor(dep, is_optional=False) for dep in prod_source]
 
     opt_deps: list[DependencyDescriptor] = []
     if not sources.production:
         opt_source, opt_git = partition_git_hosted(project_info.optional_dependencies.values(), detect_git_hosted)
         git_hosted_deps += opt_git
-        opt_deps = [
-            DependencyDescriptor(
-                name=dep.name,
-                canonical_name=dep.canonical_name,
-                version=dep.version_installed,
-                is_optional=True,
-                dependency_path=None,
-                version_constraint=dep.version_defined,
-                constraint_info=dep.constraint_info,
-                extras=dep.extras,
-                peer_requirements=list(dep.peer_requirements),
-            )
-            for dep in opt_source
-        ]
+        opt_deps = [direct_descriptor(dep, is_optional=True) for dep in opt_source]
 
     direct_canonical_names = {dep.canonical_name for dep in prod_deps + opt_deps}
     walker = GraphExporter(project_info.dependency_tree)
@@ -136,6 +110,33 @@ def build_scan_descriptors(project_info, sources: AbstractProjectSources) -> Sca
         ignored_packages=ignored_packages,
         ignore_set=ignore_set,
         walker=walker,
+    )
+
+
+def direct_descriptor(dep: Dependency, *, is_optional: bool) -> DependencyDescriptor:
+    """Build a descriptor for a root-level dependency.
+
+    all_constraints carries the peer requirements other installed packages place on this package.
+    Deliberately not dep.parent_constraints: for a direct dep that list also holds the root
+    manifest's own specifier, which as a hard L1 clause would forbid every upgrade past the
+    declared range. Peers are what actually bind - npm can nest a duplicate copy to satisfy a
+    runtime range, but a peer must be satisfied by the single hoisted instance
+
+    Note, that peers are read from the installed lockfile, so a lockstep family (vue and
+    @vue/server-renderer, which peer-pins vue exactly) stays frozen until peerDependencies are
+    modelled per candidate version in the registry adapter.
+    """
+    return DependencyDescriptor(
+        name=dep.name,
+        canonical_name=dep.canonical_name,
+        version=dep.version_installed,
+        is_optional=is_optional,
+        dependency_path=None,
+        version_constraint=dep.version_defined,
+        constraint_info=dep.constraint_info,
+        extras=dep.extras,
+        all_constraints=[req.spec for req in dep.peer_requirements],
+        peer_requirements=list(dep.peer_requirements),
     )
 
 
