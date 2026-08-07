@@ -43,3 +43,6 @@ class CVE:
     fix_available: bool = False
     fix_versions: tuple[str, ...] = ()
     fix_age_days: int | None = None
+
+    # vulnerable code path is reachable; None = not yet analyzed
+    reachable: bool | None = None
