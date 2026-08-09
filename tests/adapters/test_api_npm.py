@@ -184,6 +184,98 @@ class TestPackageVersions:
 
 
 # ============================================================================
+# install execution detection (runs_code_at_install / install_execution_reason)
+# ============================================================================
+
+
+class TestInstallExecutionDetection:
+    @pytest.mark.parametrize("script_name", ["preinstall", "install", "postinstall"])
+    def test_lifecycle_script_flags_execution(self, npm_api, mock_npm_response, script_name):
+        mock_npm_response.set_response(
+            "pkg",
+            {
+                "name": "pkg",
+                "versions": {"1.0.0": {"scripts": {script_name: "node build.js"}}},
+                "time": {"1.0.0": "2020-01-01T00:00:00.000Z"},
+            },
+        )
+        version = next(v for v in npm_api.package_versions("pkg") if v.version == "1.0.0")
+
+        assert version.runs_code_at_install is True
+        assert version.install_execution_reason == f"npm lifecycle: {script_name}"
+
+    def test_gypfile_without_scripts_flags_node_gyp(self, npm_api, mock_npm_response):
+        mock_npm_response.set_response(
+            "pkg",
+            {
+                "name": "pkg",
+                "versions": {"1.0.0": {"gypfile": True}},
+                "time": {"1.0.0": "2020-01-01T00:00:00.000Z"},
+            },
+        )
+        version = next(v for v in npm_api.package_versions("pkg") if v.version == "1.0.0")
+
+        assert version.runs_code_at_install is True
+        assert version.install_execution_reason == "npm implicit node-gyp"
+
+    def test_non_install_scripts_do_not_flag_execution(self, npm_api, mock_npm_response):
+        mock_npm_response.set_response(
+            "pkg",
+            {
+                "name": "pkg",
+                "versions": {"1.0.0": {"scripts": {"build": "tsc", "test": "jest", "prepare": "husky install"}}},
+                "time": {"1.0.0": "2020-01-01T00:00:00.000Z"},
+            },
+        )
+        version = next(v for v in npm_api.package_versions("pkg") if v.version == "1.0.0")
+
+        assert version.runs_code_at_install is False
+        assert version.install_execution_reason is None
+
+    def test_no_scripts_and_no_gypfile_does_not_flag_execution(self, npm_api, mock_npm_response):
+        mock_npm_response.set_response(
+            "pkg",
+            {
+                "name": "pkg",
+                "versions": {"1.0.0": {}},
+                "time": {"1.0.0": "2020-01-01T00:00:00.000Z"},
+            },
+        )
+        version = next(v for v in npm_api.package_versions("pkg") if v.version == "1.0.0")
+
+        assert version.runs_code_at_install is False
+        assert version.install_execution_reason is None
+
+    def test_unpublished_versions_default_install_execution_to_none(self, npm_api, mock_npm_response):
+        mock_npm_response.set_response(
+            "pkg",
+            {
+                "name": "pkg",
+                "versions": {},
+                "time": {"unpublished": {"time": "2021-03-15T10:30:00.000Z", "versions": ["1.0.0"]}},
+            },
+        )
+        version = next(iter(npm_api.package_versions("pkg")))
+
+        assert version.runs_code_at_install is None
+        assert version.install_execution_reason is None
+
+    def test_deleted_versions_default_install_execution_to_none(self, npm_api, mock_npm_response):
+        mock_npm_response.set_response(
+            "pkg",
+            {
+                "name": "pkg",
+                "versions": {"1.0.0": {}},
+                "time": {"1.0.0": "2020-01-01T00:00:00.000Z", "1.0.1": "2020-02-01T00:00:00.000Z"},
+            },
+        )
+        deleted = next(v for v in npm_api.package_versions("pkg") if v.version == "1.0.1")
+
+        assert deleted.runs_code_at_install is None
+        assert deleted.install_execution_reason is None
+
+
+# ============================================================================
 # license, deprecation, and unpublished flags
 # ============================================================================
 

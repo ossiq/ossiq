@@ -196,6 +196,32 @@ class TestScanRecord:
         assert record.purl == "pkg:pypi/requests@2.31.0"
         assert "requests-alias" not in record.purl
 
+    def test_install_execution_fields_come_from_installed_release(self, mock_package_registry, mock_package):
+        installed_pv = PackageVersion(
+            version="2.31.0",
+            license="Apache-2.0",
+            package_url="https://pypi.org/project/requests/2.31.0/",
+            declared_dependencies={},
+            published_date_iso="2023-05-22T00:00:00",
+            runs_code_at_install=True,
+            install_execution_reason="PyPI source distribution build",
+        )
+        versions = [installed_pv, mock_package_registry.package_versions.return_value[1]]
+
+        record = self._make_record(mock_package_registry, mock_package, versions)
+
+        assert record.runs_code_at_install is True
+        assert record.install_execution_reason == "PyPI source distribution build"
+
+    def test_install_execution_fields_default_to_none_without_installed_release(
+        self, mock_package_registry, mock_package
+    ):
+        """No PackageVersion matches the installed version, so both fields stay None."""
+        record = self._make_record(mock_package_registry, mock_package, versions=[])
+
+        assert record.runs_code_at_install is None
+        assert record.install_execution_reason is None
+
 
 # ============================================================================
 # Tests: scan_record — prerelease installed version

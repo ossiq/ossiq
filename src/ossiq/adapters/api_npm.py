@@ -34,8 +34,16 @@ from ossiq.settings import Settings
 logger = logging.getLogger(__name__)
 
 NPM_REGISTRY_FRONT = "https://www.npmjs.com"
+NPM_INSTALL_LIFECYCLE_SCRIPTS = ("preinstall", "install", "postinstall")
 
 NPM_BARE_SEMVER = re.compile(r"^v?\d+(\.\d+){0,2}([.-][a-zA-Z0-9_]+)*$")
+
+NPM_DEPENDENCIES_SECTIONS = (
+    "dependencies",
+    "devDependencies",
+    "peerDependencies",
+    "optionalDependencies",
+)
 
 
 @functools.lru_cache(maxsize=4096)
@@ -60,13 +68,17 @@ def normalize_npm_license(value: str | dict[str, object] | None) -> str | None:
     return value or None
 
 
-NPM_DEPENDENCIES_SECTIONS = (
-    "dependencies",
-    "devDependencies",
-    "peerDependencies",
-    "optionalDependencies",
-    # FIXME: consider pinned versions as well!
-)
+def detect_npm_install_execution(details: dict) -> tuple[bool | None, str | None]:
+    """Return (runs_code_at_install, reason) from a single npm registry version object."""
+    scripts = details.get("scripts") or {}
+    for script_name in NPM_INSTALL_LIFECYCLE_SCRIPTS:
+        if scripts.get(script_name):
+            return True, f"npm lifecycle: {script_name}"
+
+    if details.get("gypfile"):
+        return True, "npm implicit node-gyp"
+
+    return False, None
 
 
 class PackageRegistryApiNpm(AbstractPackageRegistryApi):
@@ -292,21 +304,26 @@ class PackageRegistryApiNpm(AbstractPackageRegistryApi):
         if unpublished_response:
             return self.versions_for_unpublished(package_name, unpublished_response)
 
-        result = [
-            PackageVersion(
-                version=version,
-                published_date_iso=timestamp_map.get(version, None),
-                declared_dependencies=details.get("dependencies", {}),
-                license=normalize_npm_license(details.get("license")),
-                runtime_requirements=details.get("engines", None),
-                declared_dev_dependencies=details.get("devDependencies", {}),
-                description=details.get("description", None),
-                package_url=f"{NPM_REGISTRY_FRONT}/package/{package_name}/v/{version}",
-                is_prerelease=is_npm_prerelease(version),
-                is_deprecated=bool(details.get("deprecated")),
+        result = []
+        for version, details in versions.items():
+            runs_code_at_install, install_exec_reason = detect_npm_install_execution(details)
+            result.append(
+                PackageVersion(
+                    version=version,
+                    published_date_iso=timestamp_map.get(version, None),
+                    declared_dependencies=details.get("dependencies", {}),
+                    license=normalize_npm_license(details.get("license")),
+                    runtime_requirements=details.get("engines", None),
+                    declared_dev_dependencies=details.get("devDependencies", {}),
+                    description=details.get("description", None),
+                    package_url=f"{NPM_REGISTRY_FRONT}/package/{package_name}/v/{version}",
+                    is_prerelease=is_npm_prerelease(version),
+                    is_deprecated=bool(details.get("deprecated")),
+                    runs_code_at_install=runs_code_at_install,
+                    install_execution_reason=install_exec_reason,
+                )
             )
-            for version, details in versions.items()
-        ]
+
         result.extend(self.versions_for_deleted(package_name, set(versions), timestamp_map))
         return result
 

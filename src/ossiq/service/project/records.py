@@ -147,6 +147,8 @@ def scan_record(
             (installed_release.is_deprecated if installed_release else False) or package_info.is_deprecated
         ),
         is_installed_package_unpublished=package_info.is_unpublished,
+        runs_code_at_install=installed_release.runs_code_at_install if installed_release else None,
+        install_execution_reason=installed_release.install_execution_reason if installed_release else None,
         exposure_window_days=compute_exposure_window(package_info.registry, releases_lag, version_diff_index),
     )
 
