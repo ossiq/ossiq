@@ -110,6 +110,8 @@ class PackageVersion:
     # Version constraint as declared in the project manifest (e.g. "^1.2.3", ">=1.0,<2.0").
     # Not populated by registry adapters — set at scan time from Dependency.version_defined.
     version_constraint: str | None = None
+    runs_code_at_install: bool | None = None
+    install_execution_reason: str | None = None
 
 
 @dataclass

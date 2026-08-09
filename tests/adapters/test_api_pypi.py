@@ -496,6 +496,64 @@ class TestPackageVersions:
 
 
 # ============================================================================
+# Test install execution detection (runs_code_at_install / install_execution_reason)
+# ============================================================================
+
+
+class TestInstallExecutionDetection:
+    def _set_release_files(self, mock_pypi_response, release_files: list[dict]):
+        mock_pypi_response.set_response(
+            "test-package",
+            {
+                "info": {
+                    "name": "test-package",
+                    "version": "1.0.0",
+                    "requires_dist": [],
+                    "license": None,
+                    "summary": None,
+                },
+                "releases": {
+                    "1.0.0": [
+                        {"upload_time_iso_8601": "2023-01-01T00:00:00Z", "yanked": False, **f} for f in release_files
+                    ],
+                },
+            },
+        )
+
+    def test_sdist_only_flags_source_build(self, pypi_api, mock_pypi_response):
+        self._set_release_files(mock_pypi_response, [{"packagetype": "sdist"}])
+
+        version = next(iter(pypi_api.package_versions("test-package")))
+
+        assert version.runs_code_at_install is True
+        assert version.install_execution_reason == "PyPI source distribution build"
+
+    def test_wheel_only_does_not_flag_execution(self, pypi_api, mock_pypi_response):
+        self._set_release_files(mock_pypi_response, [{"packagetype": "bdist_wheel"}])
+
+        version = next(iter(pypi_api.package_versions("test-package")))
+
+        assert version.runs_code_at_install is False
+        assert version.install_execution_reason is None
+
+    def test_sdist_and_wheel_together_is_unknown(self, pypi_api, mock_pypi_response):
+        self._set_release_files(mock_pypi_response, [{"packagetype": "sdist"}, {"packagetype": "bdist_wheel"}])
+
+        version = next(iter(pypi_api.package_versions("test-package")))
+
+        assert version.runs_code_at_install is None
+        assert version.install_execution_reason is None
+
+    def test_neither_sdist_nor_wheel_is_unknown(self, pypi_api, mock_pypi_response):
+        self._set_release_files(mock_pypi_response, [{"packagetype": "bdist_egg"}])
+
+        version = next(iter(pypi_api.package_versions("test-package")))
+
+        assert version.runs_code_at_install is None
+        assert version.install_execution_reason is None
+
+
+# ============================================================================
 # Test edge cases for _calculate_pep440_diff_index (internal method)
 # ============================================================================
 

@@ -145,6 +145,24 @@ class ScanRecord:
     p_vuln: float | None = None
     """Known-vulnerability exploitation probability. Computed in ossiq.risk.p_vuln.compute_p_vuln."""
 
+    runs_code_at_install: bool | None = None
+    """True if the installed version executes arbitrary code during install
+    (pip build backend / npm lifecycle script / node-gyp). Populated in service.project.records.scan_record
+    from the installed PackageVersion."""
+
+    install_execution_reason: str | None = None
+    """Human-readable reason for runs_code_at_install, e.g. "npm lifecycle: postinstall" or
+    "PyPI source distribution build". None when the signal is unknown or execution was not detected."""
+
+    impact: float | None = None
+    """Blast-radius multiplier. Computed in ossiq.risk.exposure.compute_impact"""
+
+    expected_exposure: float | None = None
+    """impact * combined incident probability. Computed in ossiq.risk.exposure.compute_expected_exposure"""
+
+    fitness: int | None = None
+    """0-100 presentation projection of expected_exposure. Computed in ossiq.risk.exposure.fitness_projection"""
+
 
 @dataclass
 class PrefetchedData:

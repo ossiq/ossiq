@@ -64,6 +64,24 @@ def get_repo_url(project_urls: dict) -> str | None:
     return None
 
 
+def detect_pypi_install_execution(release_files: list[dict]) -> tuple[bool | None, str | None]:
+    """Return (runs_code_at_install, reason) from a PyPI release's file list.
+
+    A source distribution invokes the build backend during install; a wheel is unpack-only. Both
+    present means the resolved artifact depends on interpreter/platform, so the signal is unknown."""
+
+    packagetypes = {f.get("packagetype") for f in release_files}
+    has_wheel = "bdist_wheel" in packagetypes
+    has_sdist = "sdist" in packagetypes
+
+    if has_sdist and not has_wheel:
+        return True, "PyPI source distribution build"
+    if has_wheel and not has_sdist:
+        return False, None
+
+    return None, None
+
+
 class PackageRegistryApiPypi(AbstractPackageRegistryApi):
     """
     Implementation of Package Registry API client for PyPI
@@ -293,6 +311,7 @@ class PackageRegistryApiPypi(AbstractPackageRegistryApi):
 
             # A version is considered yanked if all its files are yanked.
             is_yanked = all(f.get("yanked") for f in release_files)
+            runs_code_at_install, install_exec_reason = detect_pypi_install_execution(release_files)
 
             # requires_python is per-file but consistent across files for a given version.
             requires_python = next(
@@ -322,6 +341,8 @@ class PackageRegistryApiPypi(AbstractPackageRegistryApi):
                 unpublished_date_iso=None,
                 is_prerelease=PackagingVersion(version).is_prerelease,
                 runtime_requirements={"python": requires_python} if requires_python else None,
+                runs_code_at_install=runs_code_at_install,
+                install_execution_reason=install_exec_reason,
             )
 
     def package_version_requires(self, package_name: str, version: str) -> dict[str, str]:
