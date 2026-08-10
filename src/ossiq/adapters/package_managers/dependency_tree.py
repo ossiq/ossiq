@@ -3,6 +3,7 @@ Abstract Dependency Tree parser for transitive dependencies analysis
 """
 
 from abc import ABC, abstractmethod
+from collections import Counter
 from collections.abc import Iterable, Iterator
 from typing import Any
 
@@ -265,3 +266,66 @@ class GraphExporter:
                 continue  # skip back-edge (circular dep)
             yield child, path
             yield from self._walk_node(child, path + [child.name], in_path | {id(child)})
+
+    def descendant_counts(self, *, include_optional_roots: bool = False) -> Counter[str]:
+        """
+        Unique-descendant count per node, keyed by canonical_name, for every
+        node reachable from root. Only production edges count.
+
+        Returns a Counter, so an unreachable package reads as 0 without a
+        .get(name, 0) guard.
+
+        Iterative because dependency chains can outrun the recursion limit:
+        DFS post-order is reverse-topological, so each node is processed after
+        everything it depends on. Descendant sets are integer bitmasks (one bit
+        per canonical_name) so union is one native bigint OR.
+        """
+
+        roots = list(self.root.dependencies.values())
+
+        if include_optional_roots:
+            roots += list(self.root.optional_dependencies.values())
+
+        finish_order: list[Dependency] = []  # post-order: children before parents
+        discovered: set[int] = set()
+
+        for root_dependency in roots:
+            if id(root_dependency) in discovered:
+                continue
+
+            discovered.add(id(root_dependency))
+            stack: list[tuple[Dependency, Iterator[Dependency]]] = [
+                (root_dependency, iter(root_dependency.dependencies.values()))
+            ]
+
+            while stack:
+                node, child_iterator = stack[-1]
+                child = next(child_iterator, None)
+
+                if child is None:
+                    finish_order.append(node)
+                    stack.pop()
+                    continue
+
+                if id(child) in discovered:
+                    continue  # already finished, or an ancestor (cycle back-edge)
+
+                discovered.add(id(child))
+                stack.append((child, iter(child.dependencies.values())))
+
+        name_bits: dict[str, int] = {}
+        masks: dict[int, int] = {}
+        counts: Counter[str] = Counter()
+
+        for node in finish_order:
+            mask = 0
+
+            for child in node.dependencies.values():
+                bit = name_bits.setdefault(child.canonical_name, len(name_bits))
+                # A cycle ancestor isn't in masks yet, so it contributes only its own bit
+                mask |= (1 << bit) | masks.get(id(child), 0)
+
+            masks[id(node)] = mask
+            counts[node.canonical_name] = mask.bit_count()
+
+        return counts
