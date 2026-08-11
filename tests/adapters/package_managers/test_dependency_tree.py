@@ -2,6 +2,8 @@
 Tests for BaseDependencyResolver and GraphExporter
 """
 
+import sys
+
 import pytest
 
 from ossiq.adapters.package_managers.dependency_tree import BaseDependencyResolver, GraphExporter
@@ -571,3 +573,234 @@ class TestGraphExporter:
         assert result["version_defined"] == ">=1.0"
         assert result["source"] == "https://pypi.org"
         assert result["marker"] == 'python_version >= "3.11"'
+
+
+# ============================================================================
+# Test GraphExporter.descendant_counts
+# ============================================================================
+
+
+class TestDescendantCounts:
+    """Tests for GraphExporter.descendant_counts unique-descendant counting."""
+
+    def test_linear_chain_counts(self):
+        """Test a straight A -> B -> C chain counts descendants at each level (TODO.md Step 1: A=2, B=1, C=0)."""
+        # Arrange
+        lockfile = _make_lockfile(
+            _pkg("my-app", "1.0.0", deps=[_dep("a", "1.0.0")]),
+            _pkg("a", "1.0.0", deps=[_dep("b", "1.0.0")]),
+            _pkg("b", "1.0.0", deps=[_dep("c", "1.0.0")]),
+            _pkg("c", "1.0.0"),
+        )
+        resolver = DummyResolver(lockfile)
+        root = resolver.build_graph("my-app")
+        assert root is not None
+        exporter = GraphExporter(root)
+
+        # Act
+        counts = exporter.descendant_counts()
+
+        # Assert
+        assert counts == {"a": 2, "b": 1, "c": 0}
+
+    def test_diamond_counts_shared_descendant_once(self):
+        """Test a diamond (A->B, A->C, B->D, C->D) counts the shared descendant once (TODO.md Step 1: A=3)."""
+        # Arrange
+        lockfile = _make_lockfile(
+            _pkg("my-app", "1.0.0", deps=[_dep("a", "1.0.0")]),
+            _pkg("a", "1.0.0", deps=[_dep("b", "1.0.0"), _dep("c", "1.0.0")]),
+            _pkg("b", "1.0.0", deps=[_dep("d", "1.0.0")]),
+            _pkg("c", "1.0.0", deps=[_dep("d", "1.0.0")]),
+            _pkg("d", "1.0.0"),
+        )
+        resolver = DummyResolver(lockfile)
+        root = resolver.build_graph("my-app")
+        assert root is not None
+        exporter = GraphExporter(root)
+
+        # Act
+        counts = exporter.descendant_counts()
+
+        # Assert — D is reachable via both B and C but counted once in A's set
+        assert counts == {"a": 3, "b": 1, "c": 1, "d": 0}
+
+    def test_cycle_resolves_without_recursion_error(self, circular_lockfile):
+        """Test a circular dependency (pkg-a -> pkg-b -> pkg-a) resolves without raising."""
+        # Arrange
+        resolver = DummyResolver(circular_lockfile)
+        root = resolver.build_graph("my-app")
+        assert root is not None
+        exporter = GraphExporter(root)
+
+        # Act
+        counts = exporter.descendant_counts()
+
+        # Assert — the back-edge contributes only its own name, not a further expansion
+        assert counts == {"pkg-a": 2, "pkg-b": 1}
+
+    def test_excludes_optional_roots_by_default(self, optional_deps_lockfile):
+        """Test optional (dev/docs) roots are excluded unless requested."""
+        # Arrange
+        resolver = DummyResolver(optional_deps_lockfile)
+        root = resolver.build_graph("my-app")
+        assert root is not None
+        exporter = GraphExporter(root)
+
+        # Act
+        counts = exporter.descendant_counts()
+
+        # Assert
+        assert "pytest" not in counts
+        assert "sphinx" not in counts
+        # Counter yields 0 for an unreachable package without inserting it, so callers
+        # can index directly instead of guarding every lookup with .get(name, 0)
+        assert counts["pytest"] == 0
+        assert "pytest" not in counts
+
+    def test_includes_optional_roots_when_requested(self, optional_deps_lockfile):
+        """Test optional (dev/docs) roots are included when requested."""
+        # Arrange
+        resolver = DummyResolver(optional_deps_lockfile)
+        root = resolver.build_graph("my-app")
+        assert root is not None
+        exporter = GraphExporter(root)
+
+        # Act
+        counts = exporter.descendant_counts(include_optional_roots=True)
+
+        # Assert
+        assert counts["pytest"] == 0
+        assert counts["sphinx"] == 0
+
+    def test_optional_edges_below_root_are_not_followed(self):
+        """Test a transitive package's own optional deps never count, even with optional roots on."""
+        # Arrange — "b" is a dev dep of "a", not of the root
+        lockfile = _make_lockfile(
+            _pkg("my-app", "1.0.0", deps=[_dep("a", "1.0.0")]),
+            _pkg("a", "1.0.0", optional_deps={"dev": [_dep("b", "1.0.0")]}),
+            _pkg("b", "1.0.0"),
+        )
+        resolver = DummyResolver(lockfile)
+        root = resolver.build_graph("my-app")
+        assert root is not None
+        exporter = GraphExporter(root)
+
+        # Act
+        counts = exporter.descendant_counts(include_optional_roots=True)
+
+        # Assert — include_optional_roots widens the roots only, never the edges walked below them
+        assert counts == {"a": 0}
+        assert "b" not in counts
+
+    def test_root_without_dependencies_returns_empty(self):
+        """Test a project with no dependencies yields no counts."""
+        # Arrange
+        lockfile = _make_lockfile(_pkg("my-app", "1.0.0"))
+        resolver = DummyResolver(lockfile)
+        root = resolver.build_graph("my-app")
+        assert root is not None
+        exporter = GraphExporter(root)
+
+        # Act
+        counts = exporter.descendant_counts()
+
+        # Assert
+        assert counts == {}
+
+    def test_shared_subtree_across_two_roots(self):
+        """Test a subtree reachable from two direct roots is counted for both, walked once."""
+        # Arrange
+        lockfile = _make_lockfile(
+            _pkg("my-app", "1.0.0", deps=[_dep("a", "1.0.0"), _dep("c", "1.0.0")]),
+            _pkg("a", "1.0.0", deps=[_dep("shared", "1.0.0")]),
+            _pkg("c", "1.0.0", deps=[_dep("shared", "1.0.0")]),
+            _pkg("shared", "1.0.0", deps=[_dep("leaf", "1.0.0")]),
+            _pkg("leaf", "1.0.0"),
+        )
+        resolver = DummyResolver(lockfile)
+        root = resolver.build_graph("my-app")
+        assert root is not None
+        exporter = GraphExporter(root)
+
+        # Act
+        counts = exporter.descendant_counts()
+
+        # Assert — "c" still sees the full subtree even though "a"'s walk discovered it first
+        assert counts == {"a": 2, "c": 2, "shared": 1, "leaf": 0}
+
+    def test_direct_root_that_is_also_a_transitive_dependency(self):
+        """Test a direct dependency also reachable beneath another direct dependency."""
+        # Arrange — "b" is both a root and a child of "a"
+        lockfile = _make_lockfile(
+            _pkg("my-app", "1.0.0", deps=[_dep("a", "1.0.0"), _dep("b", "1.0.0")]),
+            _pkg("a", "1.0.0", deps=[_dep("b", "1.0.0")]),
+            _pkg("b", "1.0.0", deps=[_dep("leaf", "1.0.0")]),
+            _pkg("leaf", "1.0.0"),
+        )
+        resolver = DummyResolver(lockfile)
+        root = resolver.build_graph("my-app")
+        assert root is not None
+        exporter = GraphExporter(root)
+
+        # Act
+        counts = exporter.descendant_counts()
+
+        # Assert — "b" is skipped as a root (already discovered) but keeps its own count
+        assert counts == {"a": 2, "b": 1, "leaf": 0}
+
+    def test_three_node_cycle_resolves(self):
+        """Test a longer cycle (A -> B -> C -> A) terminates and counts each node once."""
+        # Arrange
+        lockfile = _make_lockfile(
+            _pkg("my-app", "1.0.0", deps=[_dep("pkg-a", "1.0.0")]),
+            _pkg("pkg-a", "1.0.0", deps=[_dep("pkg-b", "1.0.0")]),
+            _pkg("pkg-b", "1.0.0", deps=[_dep("pkg-c", "1.0.0")]),
+            _pkg("pkg-c", "1.0.0", deps=[_dep("pkg-a", "1.0.0")]),
+        )
+        resolver = DummyResolver(lockfile)
+        root = resolver.build_graph("my-app")
+        assert root is not None
+        exporter = GraphExporter(root)
+
+        # Act
+        counts = exporter.descendant_counts()
+
+        # Assert — each node reaches the other two plus itself through the back-edge
+        assert counts == {"pkg-a": 3, "pkg-b": 2, "pkg-c": 1}
+
+    def test_self_dependency_does_not_hang(self):
+        """Test a package depending on itself terminates."""
+        # Arrange
+        lockfile = _make_lockfile(
+            _pkg("my-app", "1.0.0", deps=[_dep("a", "1.0.0")]),
+            _pkg("a", "1.0.0", deps=[_dep("a", "1.0.0")]),
+        )
+        resolver = DummyResolver(lockfile)
+        root = resolver.build_graph("my-app")
+        assert root is not None
+        exporter = GraphExporter(root)
+
+        # Act
+        counts = exporter.descendant_counts()
+
+        # Assert — the self-edge contributes only its own name, matching the cycle contract
+        assert counts == {"a": 1}
+
+    def test_deep_chain_exceeds_recursion_limit(self):
+        """Test a chain deeper than the recursion limit resolves (regression: the walk is iterative)."""
+        # Arrange — a recursive implementation raises RecursionError well before this depth
+        depth = sys.getrecursionlimit() * 2
+        packages = [_pkg("my-app", "1.0.0", deps=[_dep("p0", "1.0.0")])]
+        packages += [_pkg(f"p{i}", "1.0.0", deps=[_dep(f"p{i + 1}", "1.0.0")]) for i in range(depth - 1)]
+        packages.append(_pkg(f"p{depth - 1}", "1.0.0"))
+        resolver = DummyResolver(_make_lockfile(*packages))
+        root = resolver.build_graph("my-app")
+        assert root is not None
+        exporter = GraphExporter(root)
+
+        # Act
+        counts = exporter.descendant_counts()
+
+        # Assert
+        assert counts["p0"] == depth - 1
+        assert counts[f"p{depth - 1}"] == 0
