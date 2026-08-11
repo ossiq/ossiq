@@ -30,6 +30,7 @@ SCAN_STEPS: list[tuple[str, str]] = [
     ("epss", "Fetching EPSS scores via api.first.org"),
     ("versions", "Analyzing version history"),
     ("solver", "Solving dependency constraints"),
+    ("health", "Computing health scores"),
 ]
 
 STEP_INDEX: dict[str, int] = {key: i for i, (key, _) in enumerate(SCAN_STEPS)}
