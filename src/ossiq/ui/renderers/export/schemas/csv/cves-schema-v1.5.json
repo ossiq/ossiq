@@ -1,0 +1,113 @@
+{
+  "$schema": "https://specs.frictionlessdata.io/schemas/table-schema.json",
+  "fields": [
+    {
+      "name": "cve_id",
+      "type": "string",
+      "title": "CVE ID",
+      "description": "Primary CVE identifier",
+      "constraints": {
+        "required": true,
+        "minLength": 1
+      }
+    },
+    {
+      "name": "package_name",
+      "type": "string",
+      "title": "Package Name",
+      "description": "Name of affected package (foreign key to packages table)",
+      "constraints": {
+        "required": true,
+        "minLength": 1
+      }
+    },
+    {
+      "name": "package_registry",
+      "type": "string",
+      "title": "Package Registry",
+      "description": "Package registry type",
+      "constraints": {
+        "required": true,
+        "enum": ["npm", "pypi"]
+      }
+    },
+    {
+      "name": "source",
+      "type": "string",
+      "title": "CVE Source",
+      "description": "Database source of the CVE",
+      "constraints": {
+        "required": true,
+        "enum": ["GHSA", "OSV", "NVD", "SNYK", "OTHER"]
+      }
+    },
+    {
+      "name": "severity",
+      "type": "string",
+      "title": "Severity Level",
+      "description": "Vulnerability severity rating",
+      "constraints": {
+        "required": true,
+        "enum": ["LOW", "MEDIUM", "HIGH", "CRITICAL"]
+      }
+    },
+    {
+      "name": "summary",
+      "type": "string",
+      "title": "Vulnerability Summary",
+      "description": "Description of the vulnerability",
+      "constraints": {
+        "required": true,
+        "minLength": 1
+      }
+    },
+    {
+      "name": "affected_versions",
+      "type": "string",
+      "title": "Affected Versions",
+      "description": "Pipe-delimited list of affected version ranges",
+      "constraints": {
+        "required": true,
+        "minLength": 1
+      }
+    },
+    {
+      "name": "all_cve_ids",
+      "type": "string",
+      "title": "All CVE IDs",
+      "description": "Pipe-delimited list of all CVE/GHSA/OSV identifiers",
+      "constraints": {
+        "required": true,
+        "minLength": 1
+      }
+    },
+    {
+      "name": "published",
+      "type": "datetime",
+      "title": "Published Date",
+      "description": "When the CVE was published",
+      "format": "%Y-%m-%dT%H:%M:%S"
+    },
+    {
+      "name": "link",
+      "type": "string",
+      "title": "Advisory Link",
+      "description": "URL to upstream advisory",
+      "format": "uri",
+      "constraints": {
+        "required": true,
+        "minLength": 1
+      }
+    }
+  ],
+  "foreignKeys": [
+    {
+      "fields": ["package_name"],
+      "reference": {
+        "resource": "packages",
+        "fields": ["package_name"]
+      }
+    }
+  ],
+  "missingValues": [""]
+}

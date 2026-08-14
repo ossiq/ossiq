@@ -47,6 +47,11 @@ class CsvSchemaRegistry:
             "packages": "packages-schema-v1.4.json",
             "cves": "cves-schema-v1.4.json",
         },
+        ExportCsvSchemaVersion.V1_5: {
+            "summary": "summary-schema-v1.5.json",
+            "packages": "packages-schema-v1.5.json",
+            "cves": "cves-schema-v1.5.json",
+        },
     }
 
     _schemas_dir: Path
@@ -223,7 +228,7 @@ class CsvSchemaRegistry:
         """
         Get the latest supported schema version.
         """
-        return ExportCsvSchemaVersion.V1_4
+        return ExportCsvSchemaVersion.V1_5
 
     def list_versions(self) -> list[ExportCsvSchemaVersion]:
         """

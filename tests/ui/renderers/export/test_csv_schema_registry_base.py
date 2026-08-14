@@ -85,8 +85,8 @@ class CsvSchemaRegistryBaseTest:
             assert "name" in field, f"Field missing name: {field}"
             assert "type" in field, f"Field {field.get('name', 'unknown')} missing type"
 
-    def test_get_latest_version_returns_v1_4(self, registry):
-        assert registry.get_latest_version() == ExportCsvSchemaVersion.V1_4
+    def test_get_latest_version_returns_v1_5(self, registry):
+        assert registry.get_latest_version() == ExportCsvSchemaVersion.V1_5
 
     def test_list_versions_includes_version(self, registry):
         assert self.version in registry.list_versions()
