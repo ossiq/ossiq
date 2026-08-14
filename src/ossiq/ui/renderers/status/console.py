@@ -10,6 +10,8 @@ from ossiq.service.project.models import ScanRecord, ScanResult
 from ossiq.settings import Settings
 from ossiq.ui.interfaces import AbstractUserInterfaceRenderer
 from ossiq.ui.renderers.impact_utils import (
+    format_fitness,
+    format_gate_badge,
     format_lag_status,
     format_time_delta,
     impact_sub_row_texts,
@@ -145,6 +147,7 @@ class ConsoleStatusRenderer(AbstractUserInterfaceRenderer):
         show_recommended = any(
             pkg.recommended_version is not None or pkg.constraint_conflict for pkg in filtered_prod + filtered_dev
         )
+        show_fitness = any(pkg.fitness is not None for pkg in filtered_prod + filtered_dev)
 
         table = Table(show_header=True, header_style="bold dim", box=None, padding=(0, 2))
         table.add_column("Package", style="bold")
@@ -155,6 +158,8 @@ class ConsoleStatusRenderer(AbstractUserInterfaceRenderer):
             table.add_column("Recommended", justify="left", style="bold green")
         table.add_column("Latest", justify="left")
         table.add_column("Lag", justify="right")
+        if show_fitness:
+            table.add_column("Fitness", justify="right")
 
         empty = [""] * (len(table.columns) - 1)
         first_section = True
@@ -182,7 +187,7 @@ class ConsoleStatusRenderer(AbstractUserInterfaceRenderer):
                     installed_cell += " [yellow][pre][/]"
 
                 row: list[str] = [
-                    pkg.package_name,
+                    f"{pkg.package_name}{format_gate_badge(pkg.gate_decision)}",
                     f"[bold red]{len(pkg.cve)}" if pkg.cve else "",
                     format_lag_status(pkg.versions_diff_index),
                     installed_cell,
@@ -204,7 +209,13 @@ class ConsoleStatusRenderer(AbstractUserInterfaceRenderer):
                     format_time_delta(pkg.time_lag_days, lag_threshold_days),
                 ]
 
+                if show_fitness:
+                    row.append(format_fitness(pkg.fitness))
+
                 table.add_row(*row)
+
+                if pkg.gate_decision is not None and pkg.gate_decision[0] != "pass":
+                    table.add_row(f"  [dim]↳ gate: {pkg.gate_decision[1]}[/dim]", *[""] * (len(table.columns) - 1))
 
                 if pkg.update_transitive_impacts and pkg.recommended_version != pkg.installed_version:
                     blanks = [""] * (len(table.columns) - 1)
