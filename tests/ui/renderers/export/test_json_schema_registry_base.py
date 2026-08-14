@@ -58,8 +58,8 @@ class SchemaRegistryBaseTest:
         for definition in self.required_definitions:
             assert definition in definitions, f"Missing definition: {definition}"
 
-    def test_get_latest_version_returns_v1_4(self, registry):
-        assert registry.get_latest_version() == ExportJsonSchemaVersion.V1_4
+    def test_get_latest_version_returns_v1_5(self, registry):
+        assert registry.get_latest_version() == ExportJsonSchemaVersion.V1_5
 
     def test_list_versions_includes_required_versions(self, registry):
         versions = registry.list_versions()

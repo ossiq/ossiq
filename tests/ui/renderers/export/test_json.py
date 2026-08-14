@@ -156,7 +156,7 @@ class TestJsonExportRenderer:
         metadata = data["metadata"]
 
         # Assert
-        assert metadata["schema_version"] == "1.4"
+        assert metadata["schema_version"] == "1.5"
         assert "export_timestamp" in metadata
         assert "ossiq_version" not in metadata
 
