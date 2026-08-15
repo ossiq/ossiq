@@ -394,6 +394,25 @@ Monotonic, presentation only, explicitly labelled as a projection. The mapping i
 so that score deciles match observed incident rates — calibrated, not asserted. It is never
 the source of truth and never the thing a gate reads.
 
+(reading-the-output)=
+## Reading the output
+
+The console, JSON, and CSV renderers surface three of the values above on every package:
+
+- **Gate** is the deterministic `pass` / `quarantine` / `block` checkpoint described under
+  *The Gate* above — built for CI and agent pre-flight, not for ranking packages against
+  each other.
+- **Expected Exposure** (`impact × P(incident)`) is the real prioritization value. When
+  triaging a dependency tree, sort and act on this number, not on Fitness.
+- **Fitness** is only the monotonic 0–100 presentation projection of Expected Exposure
+  described under *Fitness — the 0–100 projection* above. It exists so a stakeholder has one
+  familiar number to glance at; it is never the source of truth and should never gate a
+  decision on its own.
+
+A dash (`—`) on any of these fields means the value could not be computed — an unsupported
+registry, an unknown version diff, a missing EPSS score — **never** that the package carries
+no risk. Treat a dash as "unknown," not "safe."
+
 ## Data sources
 
 | Signal | Source |

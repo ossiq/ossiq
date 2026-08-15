@@ -15,6 +15,7 @@ from ossiq.domain.common import (
     ExportUnknownSchemaVersion,
 )
 from ossiq.domain.cve import CVE, Severity
+from ossiq.risk.gate import GateDecision
 from ossiq.service.project.models import ScanResult
 
 
@@ -108,6 +109,21 @@ class TransitiveImpactExport(BaseModel):
         return {k: v for k, v in d.items() if v is not None}
 
 
+class GateInfo(BaseModel):
+    """Deterministic gate decision for a package."""
+
+    status: str = Field(description="Gate verdict: pass, quarantine, or block")
+    reason: str = Field(description="Human-readable justification for the verdict")
+
+    @classmethod
+    def from_domain(cls, decision: GateDecision | None) -> "GateInfo | None":
+        """Convert domain gate decision tuple to export model."""
+        if decision is None:
+            return None
+        status, reason = decision
+        return cls(status=status, reason=reason)
+
+
 class PackageMetrics(BaseModel):
     """Metrics for a single package (schema v1.0–1.2)."""
 
@@ -177,6 +193,33 @@ class PackageMetrics(BaseModel):
     is_package_unpublished: bool = Field(
         default=False, description="Whether the entire package has been removed from the registry (npm-only)"
     )  # noqa: E501
+    exposure_window_days: float | None = Field(
+        default=None,
+        description="Remediation window in days; None when it could not be computed",
+    )
+    p_vuln: float | None = Field(
+        default=None,
+        description="Probability of known-vulnerability exploitation over the exposure window",
+    )
+    p_supplychain: float | None = Field(
+        default=None,
+        description="Probability of a supply-chain incident over the exposure window",
+    )
+    impact: float | None = Field(default=None, description="Blast-radius multiplier applied to incident probability")
+    expected_exposure: float | None = Field(
+        default=None,
+        description="impact multiplied by the combined incident probability",
+    )
+    fitness: int | None = Field(
+        default=None,
+        description="0-100 presentation projection of expected_exposure (higher is healthier)",
+    )
+    gate: GateInfo | None = Field(default=None, description="Deterministic pass/quarantine/block gate decision")
+
+    @field_serializer("exposure_window_days", "p_vuln", "p_supplychain", "impact", "expected_exposure")
+    def serialize_risk_floats(self, value: float | None) -> float | None:
+        """Round risk floats so exported output stays diffable."""
+        return None if value is None else round(value, 4)
 
     @classmethod
     def from_domain(cls, record) -> "PackageMetrics":
@@ -222,6 +265,13 @@ class PackageMetrics(BaseModel):
             is_yanked=record.is_installed_yanked,
             is_deprecated=record.is_installed_deprecated,
             is_package_unpublished=record.is_installed_package_unpublished,
+            exposure_window_days=record.exposure_window_days,
+            p_vuln=record.p_vuln,
+            p_supplychain=record.p_supplychain,
+            impact=record.impact,
+            expected_exposure=record.expected_exposure,
+            fitness=record.fitness,
+            gate=GateInfo.from_domain(record.gate_decision),
         )
 
 
@@ -318,6 +368,33 @@ class TransitivePackageMetrics(BaseModel):
     is_package_unpublished: bool = Field(
         default=False, description="Whether the entire package has been removed from the registry (npm-only)"
     )  # noqa: E501
+    exposure_window_days: float | None = Field(
+        default=None,
+        description="Remediation window in days; None when it could not be computed",
+    )
+    p_vuln: float | None = Field(
+        default=None,
+        description="Probability of known-vulnerability exploitation over the exposure window",
+    )
+    p_supplychain: float | None = Field(
+        default=None,
+        description="Probability of a supply-chain incident over the exposure window",
+    )
+    impact: float | None = Field(default=None, description="Blast-radius multiplier applied to incident probability")
+    expected_exposure: float | None = Field(
+        default=None,
+        description="impact multiplied by the combined incident probability",
+    )
+    fitness: int | None = Field(
+        default=None,
+        description="0-100 presentation projection of expected_exposure (higher is healthier)",
+    )
+    gate: GateInfo | None = Field(default=None, description="Deterministic pass/quarantine/block gate decision")
+
+    @field_serializer("exposure_window_days", "p_vuln", "p_supplychain", "impact", "expected_exposure")
+    def serialize_risk_floats(self, value: float | None) -> float | None:
+        """Round risk floats so exported output stays diffable."""
+        return None if value is None else round(value, 4)
 
     @classmethod
     def from_domain_group(
@@ -345,6 +422,13 @@ class TransitivePackageMetrics(BaseModel):
             is_yanked=first.is_installed_yanked,
             is_deprecated=first.is_installed_deprecated,
             is_package_unpublished=first.is_installed_package_unpublished,
+            exposure_window_days=first.exposure_window_days,
+            p_vuln=first.p_vuln,
+            p_supplychain=first.p_supplychain,
+            impact=first.impact,
+            expected_exposure=first.expected_exposure,
+            fitness=first.fitness,
+            gate=GateInfo.from_domain(first.gate_decision),
         )
 
     @model_serializer(mode="wrap")
@@ -502,7 +586,11 @@ def build_export_data(
     production = [PackageMetrics.from_domain(pkg) for pkg in data.production_packages]
     development = [PackageMetrics.from_domain(pkg) for pkg in data.optional_packages]
 
-    if schema_version in (ExportJsonSchemaVersion.V1_3, ExportJsonSchemaVersion.V1_4):
+    if schema_version in (
+        ExportJsonSchemaVersion.V1_3,
+        ExportJsonSchemaVersion.V1_4,
+        ExportJsonSchemaVersion.V1_5,
+    ):
         transitive, tree = _build_v1_3_data(data.transitive_packages)
         return ExportDataV13(
             metadata=metadata,

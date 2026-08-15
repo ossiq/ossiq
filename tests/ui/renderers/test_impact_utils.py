@@ -4,7 +4,14 @@ from rich.console import Console
 from rich.table import Table
 
 from ossiq.service.update_impact import TransitiveImpact
-from ossiq.ui.renderers.impact_utils import impact_sub_row_texts, is_fresh_new_dep, new_transitive_deps_table
+from ossiq.ui.renderers.impact_utils import (
+    format_fitness,
+    format_gate_badge,
+    format_probability,
+    impact_sub_row_texts,
+    is_fresh_new_dep,
+    new_transitive_deps_table,
+)
 
 
 def make_impact(
@@ -147,3 +154,25 @@ def test_impact_sub_row_texts_count_mode_for_many_deps():
     impacts = [make_impact(f"pkg{i}") for i in range(5)]
     rows = impact_sub_row_texts(impacts)
     assert any("transitive dep(s) also updated" in r for r in rows)
+
+
+def test_format_gate_badge_by_status():
+    assert format_gate_badge(("block", "known CVE")) == " [bold red][BLOCK][/]"
+    assert format_gate_badge(("quarantine", "released 2 days ago")) == " [bold yellow][QUARANTINE][/]"
+    assert format_gate_badge(("pass", "ok")) == ""
+    assert format_gate_badge(None) == ""
+
+
+def test_format_fitness_bands():
+    assert format_fitness(100) == "[green]100[/green]"
+    assert format_fitness(70) == "[green]70[/green]"
+    assert format_fitness(69) == "[yellow]69[/yellow]"
+    assert format_fitness(40) == "[yellow]40[/yellow]"
+    assert format_fitness(39) == "[bold red]39[/]"
+    assert format_fitness(None) == "[dim]—[/dim]"
+
+
+def test_format_probability():
+    assert format_probability(0.1234) == "12.3%"
+    assert format_probability(0.0) == "0.0%"
+    assert format_probability(None) == "[dim]—[/dim]"

@@ -48,10 +48,14 @@ qa-integration:
     uv run hatch run ossiq-cli export --output-format=csv --schema-version=1.1 --output=./reports/scan_export_pypi_11_csv --registry-type=pypi testdata/pypi/uv
     uv run hatch run ossiq-cli export --output-format=csv --schema-version=1.2 --output=./reports/scan_export_pypi_12_csv --registry-type=pypi testdata/pypi/uv
     uv run hatch run ossiq-cli export --output-format=csv --schema-version=1.3 --output=./reports/scan_export_pypi_13_csv --registry-type=pypi testdata/pypi/uv
+    uv run hatch run ossiq-cli export --output-format=csv --schema-version=1.4 --output=./reports/scan_export_pypi_14_csv --registry-type=pypi testdata/pypi/uv
+    uv run hatch run ossiq-cli export --output-format=csv --schema-version=1.5 --output=./reports/scan_export_pypi_15_csv --registry-type=pypi testdata/pypi/uv
     uv run hatch run ossiq-cli export --output-format=json --schema-version=1.0 --output=./reports/scan_export_pypi_10.json --registry-type=pypi testdata/mixed
     uv run hatch run ossiq-cli export --output-format=json --schema-version=1.1 --output=./reports/scan_export_npm_11.json --registry-type=npm testdata/mixed
     uv run hatch run ossiq-cli export --output-format=json --schema-version=1.2 --output=./reports/scan_export_npm_12.json --registry-type=npm testdata/mixed
     uv run hatch run ossiq-cli export --output-format=json --schema-version=1.3 --output=./reports/scan_export_npm_13.json --registry-type=npm testdata/mixed
+    uv run hatch run ossiq-cli export --output-format=json --schema-version=1.4 --output=./reports/scan_export_npm_14.json --registry-type=npm testdata/mixed
+    uv run hatch run ossiq-cli export --output-format=json --schema-version=1.5 --output=./reports/scan_export_npm_15.json --registry-type=npm testdata/mixed
     uv run hatch run ossiq-cli info scipy testdata/pypi/version-constraint
     uv run hatch run ossiq-cli info numpy testdata/pypi/version-constraint
     uv run hatch run ossiq-cli export --output-format=json --output=./reports/scan_export_pypi_version_constraint.json testdata/pypi/version-constraint

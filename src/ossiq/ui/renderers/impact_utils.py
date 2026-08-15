@@ -11,8 +11,56 @@ from ossiq.domain.version import (
     VERSION_LATEST,
     VersionsDifference,
 )
+from ossiq.risk.gate import GateDecision
+from ossiq.service.project.models import ScanRecord
 from ossiq.service.update_impact import TransitiveImpact
 from ossiq.timeutil import format_time_days
+
+FITNESS_GOOD = 70
+FITNESS_FAIR = 40
+
+
+def format_gate_badge(decision: GateDecision | None) -> str:
+    """Inline badge for a non-passing gate decision; empty string when the package passes."""
+    if decision is None:
+        return ""
+    status, _ = decision
+    if status == "block":
+        return " [bold red][BLOCK][/]"
+    if status == "quarantine":
+        return " [bold yellow][QUARANTINE][/]"
+    return ""
+
+
+def format_status_badge(record: ScanRecord) -> str:
+    """Inline lifecycle badge for the installed version; empty string when nothing is flagged."""
+    if record.is_installed_package_unpublished:
+        return " [bold red][UNPUBLISHED][/]"
+    if record.is_installed_yanked:
+        return " [bold red][YANKED][/]"
+    if record.is_installed_deprecated:
+        return " [bold yellow][DEPRECATED][/]"
+    if record.is_installed_prerelease:
+        return " [yellow][pre][/]"
+    return ""
+
+
+def format_fitness(fitness: int | None) -> str:
+    """Colour-coded 0-100 fitness projection; em dash when it could not be computed."""
+    if fitness is None:
+        return "[dim]—[/dim]"
+    if fitness >= FITNESS_GOOD:
+        return f"[green]{fitness}[/green]"
+    if fitness >= FITNESS_FAIR:
+        return f"[yellow]{fitness}[/yellow]"
+    return f"[bold red]{fitness}[/]"
+
+
+def format_probability(value: float | None) -> str:
+    """Percentage rendering for a probability channel; em dash when unknown."""
+    if value is None:
+        return "[dim]—[/dim]"
+    return f"{value * 100:.1f}%"
 
 
 def format_time_delta(days: int | None, lag_threshold_days: int) -> str:

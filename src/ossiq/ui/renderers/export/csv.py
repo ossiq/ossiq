@@ -212,7 +212,8 @@ class CsvExportRenderer(AbstractUserInterfaceRenderer):
             export_data: Export data model with production and development packages
             schema_version: Schema version controlling which columns are included
         """
-        is_schema_v1_4 = schema_version == ExportCsvSchemaVersion.V1_4
+        is_v1_4_plus = schema_version in (ExportCsvSchemaVersion.V1_4, ExportCsvSchemaVersion.V1_5)
+        is_v1_5_plus = schema_version == ExportCsvSchemaVersion.V1_5
 
         fieldnames = [
             "package_name",
@@ -224,7 +225,7 @@ class CsvExportRenderer(AbstractUserInterfaceRenderer):
             "time_lag_days",
         ]
 
-        if is_schema_v1_4:
+        if is_v1_4_plus:
             fieldnames.append("version_age_days")
 
         fieldnames += [
@@ -236,9 +237,24 @@ class CsvExportRenderer(AbstractUserInterfaceRenderer):
             "extras",
         ]
 
-        if is_schema_v1_4:
+        if is_v1_4_plus:
             fieldnames += ["is_prerelease", "is_yanked", "is_deprecated", "is_package_unpublished"]
+        if is_v1_5_plus:
+            fieldnames += [
+                "gate_status",
+                "gate_reason",
+                "fitness",
+                "expected_exposure",
+                "p_vuln",
+                "p_supplychain",
+                "impact",
+                "exposure_window_days",
+            ]
         fieldnames += ["license", "purl"]
+
+        def risk_cell(value: float | None) -> str:
+            """Serialize a risk float rounded to 4 decimals, matching the JSON export."""
+            return "" if value is None else str(round(value, 4))
 
         def _pkg_row(pkg) -> dict:
             row = {
@@ -258,12 +274,21 @@ class CsvExportRenderer(AbstractUserInterfaceRenderer):
                 "license": self._serialize_optional(",".join(pkg.license) if pkg.license else None),
                 "purl": self._serialize_optional(pkg.purl),
             }
-            if is_schema_v1_4:
+            if is_v1_4_plus:
                 row["version_age_days"] = self._serialize_optional(pkg.version_age_days)
                 row["is_yanked"] = self._serialize_bool(pkg.is_yanked)
                 row["is_prerelease"] = self._serialize_bool(pkg.is_prerelease)
                 row["is_deprecated"] = self._serialize_bool(pkg.is_deprecated)
                 row["is_package_unpublished"] = self._serialize_bool(pkg.is_package_unpublished)
+            if is_v1_5_plus:
+                row["gate_status"] = pkg.gate.status if pkg.gate else ""
+                row["gate_reason"] = pkg.gate.reason if pkg.gate else ""
+                row["fitness"] = self._serialize_optional(pkg.fitness)
+                row["expected_exposure"] = risk_cell(pkg.expected_exposure)
+                row["p_vuln"] = risk_cell(pkg.p_vuln)
+                row["p_supplychain"] = risk_cell(pkg.p_supplychain)
+                row["impact"] = risk_cell(pkg.impact)
+                row["exposure_window_days"] = risk_cell(pkg.exposure_window_days)
             return row
 
         # Generate rows for all packages

@@ -73,6 +73,7 @@ class ExportJsonSchemaVersion(StrEnum):
     V1_2 = "1.2"
     V1_3 = "1.3"
     V1_4 = "1.4"
+    V1_5 = "1.5"
 
 
 class ExportCsvSchemaVersion(StrEnum):
@@ -83,6 +84,7 @@ class ExportCsvSchemaVersion(StrEnum):
     V1_2 = "1.2"
     V1_3 = "1.3"
     V1_4 = "1.4"
+    V1_5 = "1.5"
 
 
 class ConstraintType(StrEnum):

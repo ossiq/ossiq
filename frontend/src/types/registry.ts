@@ -1,4 +1,4 @@
-import type { CVEInfo } from './report'
+import type { CVEInfo, GateInfo } from './report'
 
 export type ConstraintType = 'DECLARED' | 'NARROWED' | 'PINNED' | 'ADDITIVE' | 'OVERRIDE'
 export type Severity = 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL'
@@ -30,6 +30,13 @@ export interface RegistryEntry {
   is_prerelease: boolean
   is_deprecated: boolean
   is_package_unpublished: boolean
+  fitness: number | null
+  expected_exposure: number | null
+  p_vuln: number | null
+  p_supplychain: number | null
+  exposure_window_days: number | null
+  impact: number | null
+  gate: GateInfo | null
   childEdges: Map<number, EdgeData>
 }
 
@@ -55,6 +62,13 @@ export interface DirectEntry {
   is_prerelease: boolean
   is_deprecated: boolean
   is_package_unpublished: boolean
+  fitness: number | null
+  expected_exposure: number | null
+  p_vuln: number | null
+  p_supplychain: number | null
+  exposure_window_days: number | null
+  impact: number | null
+  gate: GateInfo | null
   childRefs: Array<{ ref: number; edgeData: EdgeData }>
 }
 

@@ -58,6 +58,7 @@ const columns: ColumnDef[] = [
   { id: 'releases',   label: 'Releases',     width: '6%'  },
   { id: 'timeLag',    label: 'Time Lag',     width: '6%'  },
   { id: 'versionAge', label: 'Version Age',  width: '6%'  },
+  { id: 'fitness',    label: 'Fitness',      width: '7%'  },
 ]
 
 function sortIcon(col: SortColumn, currentCol: SortColumn | null, dir: SortDirection): string {
@@ -93,6 +94,19 @@ function driftClasses(status: string): string {
     case 'LATEST': return 'bg-green-500 text-white'
     default: return 'bg-zinc-200 text-zinc-600'
   }
+}
+
+function gateClasses(status?: string): string {
+  if (status === 'block') return 'bg-red-700 text-white'
+  if (status === 'quarantine') return 'bg-amber-400 text-amber-900'
+  return ''
+}
+
+function fitnessColor(fitness?: number | null): string {
+  if (fitness === null || fitness === undefined) return 'text-zinc-400'
+  if (fitness >= 70) return 'text-green-600'
+  if (fitness >= 40) return 'text-amber-600'
+  return 'text-red-700'
 }
 
 function timeLagColor(days: number | null): string {
@@ -154,6 +168,12 @@ function spdxUrl(spdxId: string): string {
                   class="text-[#4800E2] hover:underline font-medium text-xs text-left cursor-pointer truncate max-w-45"
                   @click="emit('selectPackage', row)"
                 >{{ row.pkg.package_name }}</button>
+                <span
+                  v-if="row.pkg.gate && row.pkg.gate.status !== 'pass'"
+                  class="px-1.5 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wide shrink-0"
+                  :class="gateClasses(row.pkg.gate.status)"
+                  :title="row.pkg.gate.reason"
+                >{{ row.pkg.gate.status }}</span>
                 <span
                   v-if="row.hasTransitiveCve"
                   class="text-orange-500 font-black leading-none text-xs"
@@ -234,6 +254,14 @@ function spdxUrl(spdxId: string): string {
               >{{ row.versionAgeDisplay }}</strong>
             </td>
 
+            <!-- Fitness -->
+            <td class="px-3 py-2 text-xs text-center">
+              <strong
+                class="font-semibold"
+                :class="fitnessColor(row.pkg.fitness)"
+              >{{ row.pkg.fitness ?? '—' }}</strong>
+            </td>
+
             <!-- Recommended Version -->
             <td class="px-3 py-2 text-xs">
               <span
@@ -281,7 +309,7 @@ function spdxUrl(spdxId: string): string {
             v-if="hasImpacts(row) && expandedImpacts.has(row.pkg.package_name)"
             class="bg-stone-50"
           >
-            <td colspan="11" class="px-6 py-3">
+            <td colspan="12" class="px-6 py-3">
               <p v-if="row.pkg.recommended_version" class="text-xs text-zinc-500 mb-2">
                 Recommended update:
                 <span class="font-mono font-semibold text-zinc-700">{{ row.pkg.installed_version }}</span>
@@ -323,7 +351,7 @@ function spdxUrl(spdxId: string): string {
           </template>
 
           <tr v-if="rows.length === 0">
-            <td colspan="11" class="px-6 py-8 text-center text-sm text-zinc-400">
+            <td colspan="12" class="px-6 py-8 text-center text-sm text-zinc-400">
               No dependencies match the current filters.
             </td>
           </tr>

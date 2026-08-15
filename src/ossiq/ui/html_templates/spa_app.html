@@ -7716,6 +7716,9 @@ function useReportFilters() {
 				case "versionAge":
 					cmp = (a.pkg.version_age_days ?? 0) - (b.pkg.version_age_days ?? 0);
 					break;
+				case "fitness":
+					cmp = (a.pkg.fitness ?? -1) - (b.pkg.fitness ?? -1);
+					break;
 			}
 			return dir === "asc" ? cmp : -cmp;
 		});
@@ -8064,6 +8067,13 @@ function buildD3DataFromVisibleState(registry, state, ancestorNames = /* @__PURE
 				is_prerelease: de?.is_prerelease,
 				is_deprecated: de?.is_deprecated,
 				is_package_unpublished: de?.is_package_unpublished,
+				fitness: de?.fitness ?? null,
+				expected_exposure: de?.expected_exposure ?? null,
+				p_vuln: de?.p_vuln ?? null,
+				p_supplychain: de?.p_supplychain ?? null,
+				exposure_window_days: de?.exposure_window_days ?? null,
+				impact: de?.impact ?? null,
+				gate: de?.gate ?? null,
 				categories: ["production"],
 				children: children.length ? children : null,
 				_key: key,
@@ -8090,6 +8100,13 @@ function buildD3DataFromVisibleState(registry, state, ancestorNames = /* @__PURE
 			is_prerelease: re?.is_prerelease,
 			is_deprecated: re?.is_deprecated,
 			is_package_unpublished: re?.is_package_unpublished,
+			fitness: re?.fitness ?? null,
+			expected_exposure: re?.expected_exposure ?? null,
+			p_vuln: re?.p_vuln ?? null,
+			p_supplychain: re?.p_supplychain ?? null,
+			exposure_window_days: re?.exposure_window_days ?? null,
+			impact: re?.impact ?? null,
+			gate: re?.gate ?? null,
 			repo_url: re?.repo_url ?? null,
 			homepage_url: re?.homepage_url ?? null,
 			package_url: re?.package_url ?? null,
@@ -8284,90 +8301,92 @@ var _hoisted_10$3 = { class: "px-3 py-2" };
 var _hoisted_11$2 = { class: "flex items-center gap-1.5" };
 var _hoisted_12$2 = ["title"];
 var _hoisted_13$2 = ["onClick"];
-var _hoisted_14$2 = {
-	key: 0,
+var _hoisted_14$2 = ["title"];
+var _hoisted_15$1 = {
+	key: 1,
 	class: "text-orange-500 font-black leading-none text-xs",
 	title: "Has transitive dependency CVEs"
 };
-var _hoisted_15$1 = {
-	key: 1,
+var _hoisted_16$1 = {
+	key: 2,
 	class: "material-symbols-rounded text-base text-zinc-400",
 	title: "Development dependency"
 };
-var _hoisted_16$1 = { class: "px-3 py-2 text-center" };
-var _hoisted_17$1 = ["href"];
-var _hoisted_18$1 = { class: "px-3 py-2" };
-var _hoisted_19$1 = { class: "flex items-center gap-1" };
-var _hoisted_20$1 = { class: "material-symbols-rounded text-base text-zinc-400" };
-var _hoisted_21$1 = { class: "px-3 py-2 text-xs text-zinc-800" };
-var _hoisted_22$1 = { class: "font-mono" };
-var _hoisted_23$1 = {
-	key: 0,
-	class: "ml-1 px-1 py-0.5 text-[8px] font-bold uppercase tracking-wide bg-red-100 text-red-700 border border-red-300 rounded"
-};
+var _hoisted_17$1 = { class: "px-3 py-2 text-center" };
+var _hoisted_18$1 = ["href"];
+var _hoisted_19$1 = { class: "px-3 py-2" };
+var _hoisted_20$1 = { class: "flex items-center gap-1" };
+var _hoisted_21$1 = { class: "material-symbols-rounded text-base text-zinc-400" };
+var _hoisted_22$1 = { class: "px-3 py-2 text-xs text-zinc-800" };
+var _hoisted_23$1 = { class: "font-mono" };
 var _hoisted_24$1 = {
-	key: 1,
+	key: 0,
 	class: "ml-1 px-1 py-0.5 text-[8px] font-bold uppercase tracking-wide bg-red-100 text-red-700 border border-red-300 rounded"
 };
 var _hoisted_25$1 = {
+	key: 1,
+	class: "ml-1 px-1 py-0.5 text-[8px] font-bold uppercase tracking-wide bg-red-100 text-red-700 border border-red-300 rounded"
+};
+var _hoisted_26$1 = {
 	key: 2,
 	class: "ml-1 px-1 py-0.5 text-[8px] font-bold uppercase tracking-wide bg-yellow-100 text-yellow-700 border border-yellow-300 rounded"
 };
-var _hoisted_26$1 = {
+var _hoisted_27$1 = {
 	key: 3,
 	class: "ml-1 px-1 py-0.5 text-[8px] font-bold uppercase tracking-wide bg-amber-100 text-amber-700 border border-amber-300 rounded"
 };
-var _hoisted_27$1 = { class: "px-3 py-2 text-xs font-mono text-zinc-700" };
-var _hoisted_28$1 = { class: "px-3 py-2 text-xs text-zinc-700" };
-var _hoisted_29$1 = { class: "px-3 py-2" };
+var _hoisted_28$1 = { class: "px-3 py-2 text-xs font-mono text-zinc-700" };
+var _hoisted_29$1 = { class: "px-3 py-2 text-xs text-zinc-700" };
 var _hoisted_30$1 = { class: "px-3 py-2" };
-var _hoisted_31$1 = { class: "px-3 py-2 text-xs" };
-var _hoisted_32$1 = {
+var _hoisted_31$1 = { class: "px-3 py-2" };
+var _hoisted_32$1 = { class: "px-3 py-2 text-xs text-center" };
+var _hoisted_33$1 = { class: "px-3 py-2 text-xs" };
+var _hoisted_34$1 = {
 	key: 0,
 	class: "font-mono font-semibold text-violet-700"
 };
-var _hoisted_33$1 = {
+var _hoisted_35$1 = {
 	key: 1,
 	class: "text-zinc-300"
 };
-var _hoisted_34$1 = { class: "px-3 py-2" };
-var _hoisted_35$1 = { class: "flex flex-wrap gap-0.5" };
-var _hoisted_36$1 = ["href"];
-var _hoisted_37$1 = {
+var _hoisted_36$1 = { class: "px-3 py-2" };
+var _hoisted_37$1 = { class: "flex flex-wrap gap-0.5" };
+var _hoisted_38$1 = ["href"];
+var _hoisted_39$1 = {
 	key: 0,
 	class: "text-[9px] text-zinc-400 self-center"
 };
-var _hoisted_38$1 = {
+var _hoisted_40$1 = {
 	key: 1,
 	class: "text-xs text-zinc-300"
 };
-var _hoisted_39$1 = { class: "px-3 py-2 text-center" };
-var _hoisted_40$1 = ["title", "onClick"];
-var _hoisted_41$1 = {
+var _hoisted_41$1 = { class: "px-3 py-2 text-center" };
+var _hoisted_42$1 = ["title", "onClick"];
+var _hoisted_43$1 = {
 	key: 0,
 	class: "bg-stone-50"
 };
-var _hoisted_42$1 = {
-	colspan: "11",
+var _hoisted_44$1 = {
+	colspan: "12",
 	class: "px-6 py-3"
 };
-var _hoisted_43$1 = {
+var _hoisted_45$1 = {
 	key: 0,
 	class: "text-xs text-zinc-500 mb-2"
 };
-var _hoisted_44$1 = { class: "font-mono font-semibold text-zinc-700" };
-var _hoisted_45$1 = { class: "font-mono font-semibold text-violet-700" };
-var _hoisted_46$1 = { class: "w-full border-collapse text-xs" };
-var _hoisted_47$1 = { class: "font-mono px-2 py-1 text-zinc-700" };
-var _hoisted_48$1 = { class: "font-mono px-2 py-1 text-zinc-700" };
+var _hoisted_46$1 = { class: "font-mono font-semibold text-zinc-700" };
+var _hoisted_47$1 = { class: "font-mono font-semibold text-violet-700" };
+var _hoisted_48$1 = { class: "w-full border-collapse text-xs" };
 var _hoisted_49$1 = { class: "font-mono px-2 py-1 text-zinc-700" };
-var _hoisted_50$1 = { class: "font-mono px-2 py-1 text-zinc-500" };
-var _hoisted_51$1 = { class: "px-2 py-1 text-zinc-700" };
-var _hoisted_52$1 = {
+var _hoisted_50$1 = { class: "font-mono px-2 py-1 text-zinc-700" };
+var _hoisted_51$1 = { class: "font-mono px-2 py-1 text-zinc-700" };
+var _hoisted_52$1 = { class: "font-mono px-2 py-1 text-zinc-500" };
+var _hoisted_53$1 = { class: "px-2 py-1 text-zinc-700" };
+var _hoisted_54$1 = {
 	key: 1,
 	class: "mt-2 text-xs text-red-600 font-medium"
 };
-var _hoisted_53$1 = { key: 0 };
+var _hoisted_55$1 = { key: 0 };
 //#endregion
 //#region src/components/ReportTable.vue
 var ReportTable_default = /* @__PURE__ */ defineComponent({
@@ -8442,6 +8461,11 @@ var ReportTable_default = /* @__PURE__ */ defineComponent({
 				id: "versionAge",
 				label: "Version Age",
 				width: "6%"
+			},
+			{
+				id: "fitness",
+				label: "Fitness",
+				width: "7%"
 			}
 		];
 		function sortIcon(col, currentCol, dir) {
@@ -8474,6 +8498,17 @@ var ReportTable_default = /* @__PURE__ */ defineComponent({
 				case "LATEST": return "bg-green-500 text-white";
 				default: return "bg-zinc-200 text-zinc-600";
 			}
+		}
+		function gateClasses(status) {
+			if (status === "block") return "bg-red-700 text-white";
+			if (status === "quarantine") return "bg-amber-400 text-amber-900";
+			return "";
+		}
+		function fitnessColor(fitness) {
+			if (fitness === null || fitness === void 0) return "text-zinc-400";
+			if (fitness >= 70) return "text-green-600";
+			if (fitness >= 40) return "text-amber-600";
+			return "text-red-700";
 		}
 		function timeLagColor(days) {
 			if (days === null || days === 0) return "text-green-600";
@@ -8522,42 +8557,48 @@ var ReportTable_default = /* @__PURE__ */ defineComponent({
 							class: "text-[#4800E2] hover:underline font-medium text-xs text-left cursor-pointer truncate max-w-45",
 							onClick: ($event) => emit("selectPackage", row)
 						}, toDisplayString(row.pkg.package_name), 9, _hoisted_13$2),
-						row.hasTransitiveCve ? (openBlock(), createElementBlock("span", _hoisted_14$2, "*")) : createCommentVNode("", true),
-						row.isDev ? (openBlock(), createElementBlock("span", _hoisted_15$1, "logo_dev")) : createCommentVNode("", true)
+						row.pkg.gate && row.pkg.gate.status !== "pass" ? (openBlock(), createElementBlock("span", {
+							key: 0,
+							class: normalizeClass(["px-1.5 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wide shrink-0", gateClasses(row.pkg.gate.status)]),
+							title: row.pkg.gate.reason
+						}, toDisplayString(row.pkg.gate.status), 11, _hoisted_14$2)) : createCommentVNode("", true),
+						row.hasTransitiveCve ? (openBlock(), createElementBlock("span", _hoisted_15$1, "*")) : createCommentVNode("", true),
+						row.isDev ? (openBlock(), createElementBlock("span", _hoisted_16$1, "logo_dev")) : createCommentVNode("", true)
 					])]),
-					createBaseVNode("td", _hoisted_16$1, [row.cveCount > 0 ? (openBlock(), createElementBlock("a", {
+					createBaseVNode("td", _hoisted_17$1, [row.cveCount > 0 ? (openBlock(), createElementBlock("a", {
 						key: 0,
 						href: osvUrl(row.pkg.package_name, __props.registry),
 						target: "_blank",
 						class: "inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[10px] font-semibold text-white bg-[#ff4d00]"
-					}, [_cache[3] || (_cache[3] = createBaseVNode("span", { class: "material-symbols-rounded text-sm" }, "security", -1)), createTextVNode(" " + toDisplayString(row.cveCount), 1)], 8, _hoisted_17$1)) : createCommentVNode("", true)]),
-					createBaseVNode("td", _hoisted_18$1, [createBaseVNode("div", _hoisted_19$1, [createBaseVNode("span", _hoisted_20$1, toDisplayString(driftIcon(row.driftStatus)), 1), createBaseVNode("span", { class: normalizeClass(["px-2 py-0.5 rounded-full text-[10px] font-bold", driftClasses(row.driftStatus)]) }, toDisplayString(driftLabel(row.driftStatus)), 3)])]),
-					createBaseVNode("td", _hoisted_21$1, [createBaseVNode("span", _hoisted_22$1, toDisplayString(row.pkg.installed_version), 1), row.isPackageUnpublished ? (openBlock(), createElementBlock("span", _hoisted_23$1, "unpublished")) : row.isYanked ? (openBlock(), createElementBlock("span", _hoisted_24$1, "yanked")) : row.isDeprecated ? (openBlock(), createElementBlock("span", _hoisted_25$1, "deprecated")) : row.isPrerelease ? (openBlock(), createElementBlock("span", _hoisted_26$1, "pre")) : createCommentVNode("", true)]),
-					createBaseVNode("td", _hoisted_27$1, toDisplayString(row.pkg.latest_version ?? "—"), 1),
-					createBaseVNode("td", _hoisted_28$1, toDisplayString(row.pkg.releases_lag ?? 0), 1),
-					createBaseVNode("td", _hoisted_29$1, [createBaseVNode("strong", { class: normalizeClass(["text-xs font-semibold", timeLagColor(row.pkg.time_lag_days)]) }, toDisplayString(row.timeLagDisplay), 3)]),
-					createBaseVNode("td", _hoisted_30$1, [createBaseVNode("strong", { class: normalizeClass(["text-xs font-semibold", timeLagColor(row.pkg.version_age_days)]) }, toDisplayString(row.versionAgeDisplay), 3)]),
-					createBaseVNode("td", _hoisted_31$1, [row.pkg.recommended_version ? (openBlock(), createElementBlock("span", _hoisted_32$1, toDisplayString(row.pkg.recommended_version), 1)) : (openBlock(), createElementBlock("span", _hoisted_33$1, "—"))]),
-					createBaseVNode("td", _hoisted_34$1, [createBaseVNode("div", _hoisted_35$1, [row.license.length > 0 ? (openBlock(), createElementBlock(Fragment, { key: 0 }, [createBaseVNode("a", {
+					}, [_cache[3] || (_cache[3] = createBaseVNode("span", { class: "material-symbols-rounded text-sm" }, "security", -1)), createTextVNode(" " + toDisplayString(row.cveCount), 1)], 8, _hoisted_18$1)) : createCommentVNode("", true)]),
+					createBaseVNode("td", _hoisted_19$1, [createBaseVNode("div", _hoisted_20$1, [createBaseVNode("span", _hoisted_21$1, toDisplayString(driftIcon(row.driftStatus)), 1), createBaseVNode("span", { class: normalizeClass(["px-2 py-0.5 rounded-full text-[10px] font-bold", driftClasses(row.driftStatus)]) }, toDisplayString(driftLabel(row.driftStatus)), 3)])]),
+					createBaseVNode("td", _hoisted_22$1, [createBaseVNode("span", _hoisted_23$1, toDisplayString(row.pkg.installed_version), 1), row.isPackageUnpublished ? (openBlock(), createElementBlock("span", _hoisted_24$1, "unpublished")) : row.isYanked ? (openBlock(), createElementBlock("span", _hoisted_25$1, "yanked")) : row.isDeprecated ? (openBlock(), createElementBlock("span", _hoisted_26$1, "deprecated")) : row.isPrerelease ? (openBlock(), createElementBlock("span", _hoisted_27$1, "pre")) : createCommentVNode("", true)]),
+					createBaseVNode("td", _hoisted_28$1, toDisplayString(row.pkg.latest_version ?? "—"), 1),
+					createBaseVNode("td", _hoisted_29$1, toDisplayString(row.pkg.releases_lag ?? 0), 1),
+					createBaseVNode("td", _hoisted_30$1, [createBaseVNode("strong", { class: normalizeClass(["text-xs font-semibold", timeLagColor(row.pkg.time_lag_days)]) }, toDisplayString(row.timeLagDisplay), 3)]),
+					createBaseVNode("td", _hoisted_31$1, [createBaseVNode("strong", { class: normalizeClass(["text-xs font-semibold", timeLagColor(row.pkg.version_age_days)]) }, toDisplayString(row.versionAgeDisplay), 3)]),
+					createBaseVNode("td", _hoisted_32$1, [createBaseVNode("strong", { class: normalizeClass(["font-semibold", fitnessColor(row.pkg.fitness)]) }, toDisplayString(row.pkg.fitness ?? "—"), 3)]),
+					createBaseVNode("td", _hoisted_33$1, [row.pkg.recommended_version ? (openBlock(), createElementBlock("span", _hoisted_34$1, toDisplayString(row.pkg.recommended_version), 1)) : (openBlock(), createElementBlock("span", _hoisted_35$1, "—"))]),
+					createBaseVNode("td", _hoisted_36$1, [createBaseVNode("div", _hoisted_37$1, [row.license.length > 0 ? (openBlock(), createElementBlock(Fragment, { key: 0 }, [createBaseVNode("a", {
 						href: spdxUrl(row.license[0]),
 						target: "_blank",
 						rel: "noopener noreferrer",
 						class: "inline-flex px-1 py-0.5 rounded text-[9px] font-bold font-mono bg-zinc-100 text-zinc-600 hover:text-[#ff4d00] transition-colors border border-zinc-200"
-					}, toDisplayString(row.license[0]), 9, _hoisted_36$1), row.license.length > 1 ? (openBlock(), createElementBlock("span", _hoisted_37$1, "+" + toDisplayString(row.license.length - 1), 1)) : createCommentVNode("", true)], 64)) : (openBlock(), createElementBlock("span", _hoisted_38$1, "—"))])]),
-					createBaseVNode("td", _hoisted_39$1, [hasImpacts(row) ? (openBlock(), createElementBlock("button", {
+					}, toDisplayString(row.license[0]), 9, _hoisted_38$1), row.license.length > 1 ? (openBlock(), createElementBlock("span", _hoisted_39$1, "+" + toDisplayString(row.license.length - 1), 1)) : createCommentVNode("", true)], 64)) : (openBlock(), createElementBlock("span", _hoisted_40$1, "—"))])]),
+					createBaseVNode("td", _hoisted_41$1, [hasImpacts(row) ? (openBlock(), createElementBlock("button", {
 						key: 0,
 						class: normalizeClass(["inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[10px] font-semibold border cursor-pointer transition-colors", hasConflict(row) ? "bg-yellow-100 text-amber-800 border-yellow-300 hover:bg-yellow-200" : "bg-violet-100 text-violet-800 border-violet-300 hover:bg-violet-200"]),
 						title: hasConflict(row) ? "Transitive conflict — click to expand" : "Transitive impacts — click to expand",
 						onClick: withModifiers(($event) => toggleImpact(row.pkg.package_name), ["stop"])
-					}, [createBaseVNode("span", null, toDisplayString(hasConflict(row) ? "⚠" : "↳"), 1), createBaseVNode("span", null, toDisplayString(row.pkg.update_transitive_impacts.length), 1)], 10, _hoisted_40$1)) : createCommentVNode("", true)])
-				]), hasImpacts(row) && expandedImpacts.value.has(row.pkg.package_name) ? (openBlock(), createElementBlock("tr", _hoisted_41$1, [createBaseVNode("td", _hoisted_42$1, [
-					row.pkg.recommended_version ? (openBlock(), createElementBlock("p", _hoisted_43$1, [
+					}, [createBaseVNode("span", null, toDisplayString(hasConflict(row) ? "⚠" : "↳"), 1), createBaseVNode("span", null, toDisplayString(row.pkg.update_transitive_impacts.length), 1)], 10, _hoisted_42$1)) : createCommentVNode("", true)])
+				]), hasImpacts(row) && expandedImpacts.value.has(row.pkg.package_name) ? (openBlock(), createElementBlock("tr", _hoisted_43$1, [createBaseVNode("td", _hoisted_44$1, [
+					row.pkg.recommended_version ? (openBlock(), createElementBlock("p", _hoisted_45$1, [
 						_cache[4] || (_cache[4] = createTextVNode(" Recommended update: ", -1)),
-						createBaseVNode("span", _hoisted_44$1, toDisplayString(row.pkg.installed_version), 1),
+						createBaseVNode("span", _hoisted_46$1, toDisplayString(row.pkg.installed_version), 1),
 						_cache[5] || (_cache[5] = createTextVNode(" → ", -1)),
-						createBaseVNode("span", _hoisted_45$1, toDisplayString(row.pkg.recommended_version), 1)
+						createBaseVNode("span", _hoisted_47$1, toDisplayString(row.pkg.recommended_version), 1)
 					])) : createCommentVNode("", true),
-					createBaseVNode("table", _hoisted_46$1, [_cache[6] || (_cache[6] = createBaseVNode("thead", null, [createBaseVNode("tr", null, [
+					createBaseVNode("table", _hoisted_48$1, [_cache[6] || (_cache[6] = createBaseVNode("thead", null, [createBaseVNode("tr", null, [
 						createBaseVNode("th", { class: "px-2 py-1 text-left text-[9px] font-bold uppercase tracking-widest text-zinc-400 border-b border-zinc-200" }, "Package"),
 						createBaseVNode("th", { class: "px-2 py-1 text-left text-[9px] font-bold uppercase tracking-widest text-zinc-400 border-b border-zinc-200" }, "Current"),
 						createBaseVNode("th", { class: "px-2 py-1 text-left text-[9px] font-bold uppercase tracking-widest text-zinc-400 border-b border-zinc-200" }, "Projected"),
@@ -8568,17 +8609,17 @@ var ReportTable_default = /* @__PURE__ */ defineComponent({
 							key: impact.package_name,
 							class: normalizeClass(impactRowClass(impact))
 						}, [
-							createBaseVNode("td", _hoisted_47$1, toDisplayString(impact.package_name), 1),
-							createBaseVNode("td", _hoisted_48$1, toDisplayString(impact.current_version ?? "(new)"), 1),
-							createBaseVNode("td", _hoisted_49$1, toDisplayString(impact.projected_version ?? "—"), 1),
-							createBaseVNode("td", _hoisted_50$1, toDisplayString(impact.new_constraint), 1),
-							createBaseVNode("td", _hoisted_51$1, toDisplayString(impactStatus(impact)), 1)
+							createBaseVNode("td", _hoisted_49$1, toDisplayString(impact.package_name), 1),
+							createBaseVNode("td", _hoisted_50$1, toDisplayString(impact.current_version ?? "(new)"), 1),
+							createBaseVNode("td", _hoisted_51$1, toDisplayString(impact.projected_version ?? "—"), 1),
+							createBaseVNode("td", _hoisted_52$1, toDisplayString(impact.new_constraint), 1),
+							createBaseVNode("td", _hoisted_53$1, toDisplayString(impactStatus(impact)), 1)
 						], 2);
 					}), 128))])]),
-					row.pkg.update_transitive_impacts.some((i) => i.has_conflict) ? (openBlock(), createElementBlock("p", _hoisted_52$1, " ✗ No conflict-free candidate found — this recommendation may not be fully actionable. ")) : createCommentVNode("", true)
+					row.pkg.update_transitive_impacts.some((i) => i.has_conflict) ? (openBlock(), createElementBlock("p", _hoisted_54$1, " ✗ No conflict-free candidate found — this recommendation may not be fully actionable. ")) : createCommentVNode("", true)
 				])])) : createCommentVNode("", true)], 64);
-			}), 128)), __props.rows.length === 0 ? (openBlock(), createElementBlock("tr", _hoisted_53$1, [..._cache[7] || (_cache[7] = [createBaseVNode("td", {
-				colspan: "11",
+			}), 128)), __props.rows.length === 0 ? (openBlock(), createElementBlock("tr", _hoisted_55$1, [..._cache[7] || (_cache[7] = [createBaseVNode("td", {
+				colspan: "12",
 				class: "px-6 py-8 text-center text-sm text-zinc-400"
 			}, " No dependencies match the current filters. ", -1)])])) : createCommentVNode("", true)])])])]);
 		};
@@ -8600,7 +8641,7 @@ var ReportLegend_default = /* @__PURE__ */ defineComponent({
 	setup(__props) {
 		return (_ctx, _cache) => {
 			return openBlock(), createElementBlock("section", _hoisted_1$4, [createBaseVNode("div", _hoisted_2$4, [_cache[5] || (_cache[5] = createBaseVNode("h2", { class: "text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-4" }, "Legend", -1)), createBaseVNode("div", _hoisted_3$4, [
-				_cache[4] || (_cache[4] = createStaticVNode("<div class=\"flex items-start gap-3\"><span class=\"block w-3 h-3 mt-1 rounded-full bg-red-500 shrink-0\"></span><div><div class=\"text-sm font-bold text-slate-900\">Drift Status: MAJOR</div><p class=\"text-xs text-slate-500 leading-relaxed\"> One or more major versions behind, implying accumulated breaking changes and higher remediation effort. </p></div></div><div class=\"flex items-start gap-3\"><span class=\"block w-3 h-3 mt-1 rounded-full bg-amber-500 shrink-0\"></span><div><div class=\"text-sm font-bold text-slate-900\">Drift Status: MINOR</div><p class=\"text-xs text-slate-500 leading-relaxed\"> Behind on non-breaking feature releases; remediation is typically low-risk. </p></div></div><div class=\"flex items-start gap-3\"><span class=\"block w-3 h-3 mt-1 rounded-full bg-blue-500 shrink-0\"></span><div><div class=\"text-sm font-bold text-slate-900\">Drift Status: PATCH</div><p class=\"text-xs text-slate-500 leading-relaxed\"> Missing bugfixes or security patches; remediation effort is usually minimal. </p></div></div><div class=\"flex items-start gap-3\"><span class=\"block w-3 h-3 mt-1 rounded-full bg-emerald-500 shrink-0\"></span><div><div class=\"text-sm font-bold text-slate-900\">Drift Status: LATEST</div><p class=\"text-xs text-slate-500 leading-relaxed\"> Aligned with the latest release; no remediation required. </p></div></div><div class=\"flex items-start gap-3\"><span class=\"material-symbols-rounded text-lg text-slate-400 shrink-0\">stacks</span><div><div class=\"text-sm font-bold text-slate-900\">Release Distance</div><p class=\"text-xs text-slate-500 leading-relaxed\"> The number of releases between the installed version and the latest available version. </p></div></div><div class=\"flex items-start gap-3\"><span class=\"material-symbols-rounded text-lg text-slate-400 shrink-0\">change_history</span><div><div class=\"text-sm font-bold text-slate-900\">Time Lag</div><p class=\"text-xs text-slate-500 leading-relaxed\"> Time elapsed between installed and latest release. <span class=\"text-emerald-500\">Green</span>: &lt;365 days, <span class=\"text-amber-500\">Orange</span>: &gt;365 days, <span class=\"text-red-500\">Red</span>: &gt;730 days. </p></div></div><div class=\"flex items-start gap-3\"><span class=\"text-orange-500 font-black text-lg shrink-0 leading-none mt-0.5\">*</span><div><div class=\"text-sm font-bold text-slate-900\">Transitive CVE</div><p class=\"text-xs text-slate-500 leading-relaxed\"> One or more transitive (indirect) dependencies of this package have known CVEs. </p></div></div>", 7)),
+				_cache[4] || (_cache[4] = createStaticVNode("<div class=\"flex items-start gap-3\"><span class=\"block w-3 h-3 mt-1 rounded-full bg-red-500 shrink-0\"></span><div><div class=\"text-sm font-bold text-slate-900\">Drift Status: MAJOR</div><p class=\"text-xs text-slate-500 leading-relaxed\"> One or more major versions behind, implying accumulated breaking changes and higher remediation effort. </p></div></div><div class=\"flex items-start gap-3\"><span class=\"block w-3 h-3 mt-1 rounded-full bg-amber-500 shrink-0\"></span><div><div class=\"text-sm font-bold text-slate-900\">Drift Status: MINOR</div><p class=\"text-xs text-slate-500 leading-relaxed\"> Behind on non-breaking feature releases; remediation is typically low-risk. </p></div></div><div class=\"flex items-start gap-3\"><span class=\"block w-3 h-3 mt-1 rounded-full bg-blue-500 shrink-0\"></span><div><div class=\"text-sm font-bold text-slate-900\">Drift Status: PATCH</div><p class=\"text-xs text-slate-500 leading-relaxed\"> Missing bugfixes or security patches; remediation effort is usually minimal. </p></div></div><div class=\"flex items-start gap-3\"><span class=\"block w-3 h-3 mt-1 rounded-full bg-emerald-500 shrink-0\"></span><div><div class=\"text-sm font-bold text-slate-900\">Drift Status: LATEST</div><p class=\"text-xs text-slate-500 leading-relaxed\"> Aligned with the latest release; no remediation required. </p></div></div><div class=\"flex items-start gap-3\"><span class=\"material-symbols-rounded text-lg text-slate-400 shrink-0\">stacks</span><div><div class=\"text-sm font-bold text-slate-900\">Release Distance</div><p class=\"text-xs text-slate-500 leading-relaxed\"> The number of releases between the installed version and the latest available version. </p></div></div><div class=\"flex items-start gap-3\"><span class=\"material-symbols-rounded text-lg text-slate-400 shrink-0\">change_history</span><div><div class=\"text-sm font-bold text-slate-900\">Time Lag</div><p class=\"text-xs text-slate-500 leading-relaxed\"> Time elapsed between installed and latest release. <span class=\"text-emerald-500\">Green</span>: &lt;365 days, <span class=\"text-amber-500\">Orange</span>: &gt;365 days, <span class=\"text-red-500\">Red</span>: &gt;730 days. </p></div></div><div class=\"flex items-start gap-3\"><span class=\"block w-3 h-3 mt-1 rounded-full bg-red-700 shrink-0\"></span><div><div class=\"text-sm font-bold text-slate-900\">Gate: BLOCK / QUARANTINE</div><p class=\"text-xs text-slate-500 leading-relaxed\"> A deterministic pass/quarantine/block checkpoint. <span class=\"text-red-700 font-bold\">Red</span> blocks the package outright, <span class=\"text-amber-500 font-bold\">amber</span> quarantines it pending review; no badge means the package passed the gate. </p></div></div><div class=\"flex items-start gap-3\"><span class=\"material-symbols-rounded text-lg text-slate-400 shrink-0\">speed</span><div><div class=\"text-sm font-bold text-slate-900\">Fitness</div><p class=\"text-xs text-slate-500 leading-relaxed\"> A 0-100 presentation projection of Expected Exposure (higher is healthier); never the source of truth. <span class=\"text-green-600\">Green</span>: ≥70, <span class=\"text-amber-600\">Amber</span>: ≥40, <span class=\"text-red-700\">Red</span>: &lt;40. Shown as <span class=\"text-slate-400\">—</span> when not computable. </p></div></div><div class=\"flex items-start gap-3\"><span class=\"text-orange-500 font-black text-lg shrink-0 leading-none mt-0.5\">*</span><div><div class=\"text-sm font-bold text-slate-900\">Transitive CVE</div><p class=\"text-xs text-slate-500 leading-relaxed\"> One or more transitive (indirect) dependencies of this package have known CVEs. </p></div></div>", 9)),
 				createBaseVNode("div", _hoisted_4$3, [createBaseVNode("span", { class: normalizeClass(["block w-5 h-5 mt-0.5 rounded-full shrink-0", unref(constraintCircleClasses)("NARROWED")]) }, null, 2), _cache[0] || (_cache[0] = createStaticVNode("<div><div class=\"text-sm font-bold text-slate-900\">Constrained: NARROWED</div><p class=\"text-xs text-slate-500 leading-relaxed\"> Version range explicitly bounded (e.g. <code class=\"font-mono\">&gt;=x &lt;y</code>, <code class=\"font-mono\">~=x</code>, <code class=\"font-mono\">==x.*</code>); resolver has less flexibility. </p></div>", 1))]),
 				createBaseVNode("div", _hoisted_5$3, [createBaseVNode("span", { class: normalizeClass(["block w-5 h-5 mt-0.5 rounded-full shrink-0", unref(constraintCircleClasses)("PINNED")]) }, null, 2), _cache[1] || (_cache[1] = createBaseVNode("div", null, [createBaseVNode("div", { class: "text-sm font-bold text-slate-900" }, "Constrained: PINNED"), createBaseVNode("p", { class: "text-xs text-slate-500 leading-relaxed" }, [
 					createTextVNode(" Exact version required ("),
@@ -8672,92 +8713,107 @@ var _hoisted_16 = {
 var _hoisted_17 = ["href"];
 var _hoisted_18 = ["href"];
 var _hoisted_19 = { class: "flex-1 overflow-y-auto px-5 py-6 space-y-8" };
-var _hoisted_20 = { class: "flex items-center justify-between mb-3" };
-var _hoisted_21 = {
+var _hoisted_20 = { class: "border-t border-slate-100 pt-4 space-y-4" };
+var _hoisted_21 = { class: "grid grid-cols-4 gap-4" };
+var _hoisted_22 = { class: "space-y-0.5" };
+var _hoisted_23 = { class: "space-y-0.5" };
+var _hoisted_24 = { class: "text-xl font-bold font-mono text-slate-700" };
+var _hoisted_25 = { class: "space-y-0.5" };
+var _hoisted_26 = { class: "text-xl font-bold font-mono text-slate-700" };
+var _hoisted_27 = { class: "space-y-0.5" };
+var _hoisted_28 = { class: "text-xl font-bold font-mono text-slate-700" };
+var _hoisted_29 = {
+	key: 0,
+	class: "pt-3 border-t border-slate-100"
+};
+var _hoisted_30 = { class: "text-[11px] mt-0.5" };
+var _hoisted_31 = { class: "text-slate-500 ml-1" };
+var _hoisted_32 = { class: "flex items-center justify-between mb-3" };
+var _hoisted_33 = {
 	key: 0,
 	class: "flex items-center gap-1.5 text-[11px] font-semibold text-emerald-600"
 };
-var _hoisted_22 = {
+var _hoisted_34 = {
 	key: 1,
 	class: "border-t border-slate-100 pt-4 space-y-4"
 };
-var _hoisted_23 = { class: "grid grid-cols-4 gap-4" };
-var _hoisted_24 = { class: "space-y-0.5" };
-var _hoisted_25 = { class: "space-y-0.5" };
-var _hoisted_26 = { class: "space-y-0.5" };
-var _hoisted_27 = { class: "text-xl font-bold font-mono" };
-var _hoisted_28 = {
+var _hoisted_35 = { class: "grid grid-cols-4 gap-4" };
+var _hoisted_36 = { class: "space-y-0.5" };
+var _hoisted_37 = { class: "space-y-0.5" };
+var _hoisted_38 = { class: "space-y-0.5" };
+var _hoisted_39 = { class: "text-xl font-bold font-mono" };
+var _hoisted_40 = {
 	key: 0,
 	class: "text-xs ml-0.5 text-slate-400 font-normal"
 };
-var _hoisted_29 = { class: "space-y-0.5" };
-var _hoisted_30 = { class: "text-sm font-bold font-mono text-slate-700 truncate" };
-var _hoisted_31 = { class: "w-full h-1 bg-slate-100" };
-var _hoisted_32 = { key: 0 };
-var _hoisted_33 = { class: "bg-slate-50 border border-slate-100 border-l-2 border-l-sky-400 p-3 font-mono text-[11px] space-y-1.5" };
-var _hoisted_34 = ["title", "onClick"];
-var _hoisted_35 = { class: "truncate cursor-pointer" };
-var _hoisted_36 = { class: "border-t border-slate-100 divide-y divide-slate-100" };
-var _hoisted_37 = { class: "flex items-center justify-between py-2" };
-var _hoisted_38 = { class: "text-[10px] font-mono font-bold text-slate-700" };
-var _hoisted_39 = { class: "flex items-center justify-between py-2" };
-var _hoisted_40 = { class: "text-[10px] font-mono font-bold text-sky-600" };
-var _hoisted_41 = { class: "flex items-center justify-between py-2" };
-var _hoisted_42 = { class: "text-[10px] font-mono font-bold text-emerald-600" };
-var _hoisted_43 = {
+var _hoisted_41 = { class: "space-y-0.5" };
+var _hoisted_42 = { class: "text-sm font-bold font-mono text-slate-700 truncate" };
+var _hoisted_43 = { class: "w-full h-1 bg-slate-100" };
+var _hoisted_44 = { key: 0 };
+var _hoisted_45 = { class: "bg-slate-50 border border-slate-100 border-l-2 border-l-sky-400 p-3 font-mono text-[11px] space-y-1.5" };
+var _hoisted_46 = ["title", "onClick"];
+var _hoisted_47 = { class: "truncate cursor-pointer" };
+var _hoisted_48 = { class: "border-t border-slate-100 divide-y divide-slate-100" };
+var _hoisted_49 = { class: "flex items-center justify-between py-2" };
+var _hoisted_50 = { class: "text-[10px] font-mono font-bold text-slate-700" };
+var _hoisted_51 = { class: "flex items-center justify-between py-2" };
+var _hoisted_52 = { class: "text-[10px] font-mono font-bold text-sky-600" };
+var _hoisted_53 = { class: "flex items-center justify-between py-2" };
+var _hoisted_54 = { class: "text-[10px] font-mono font-bold text-emerald-600" };
+var _hoisted_55 = {
 	key: 0,
 	class: "flex items-center justify-between py-2"
 };
-var _hoisted_44 = {
+var _hoisted_56 = {
 	key: 0,
 	class: "font-normal text-slate-400"
 };
-var _hoisted_45 = {
+var _hoisted_57 = {
 	key: 1,
 	class: "flex items-center justify-between py-2"
 };
-var _hoisted_46 = { class: "flex flex-wrap gap-1 justify-end" };
-var _hoisted_47 = { class: "flex items-center gap-2 mb-3" };
-var _hoisted_48 = {
+var _hoisted_58 = { class: "flex flex-wrap gap-1 justify-end" };
+var _hoisted_59 = { class: "flex items-center gap-2 mb-3" };
+var _hoisted_60 = {
 	key: 0,
 	class: "px-2 py-0.5 bg-rose-100 text-rose-600 text-[9px] font-bold rounded-full"
 };
-var _hoisted_49 = {
+var _hoisted_61 = {
 	key: 0,
 	class: "flex items-center gap-1.5 text-[11px] font-semibold text-emerald-600"
 };
-var _hoisted_50 = {
+var _hoisted_62 = {
 	key: 1,
 	class: "divide-y divide-slate-100"
 };
-var _hoisted_51 = { class: "flex items-center gap-2 mb-1" };
-var _hoisted_52 = ["href"];
-var _hoisted_53 = { class: "hover:underline" };
-var _hoisted_54 = { class: "bg-slate-100 px-1 rounded text-[8px] font-medium text-slate-600 border border-slate-200 uppercase ml-auto shrink-0" };
-var _hoisted_55 = { class: "text-[11px] text-slate-500 leading-snug" };
-var _hoisted_56 = {
+var _hoisted_63 = { class: "flex items-center gap-2 mb-1" };
+var _hoisted_64 = ["href"];
+var _hoisted_65 = { class: "hover:underline" };
+var _hoisted_66 = { class: "bg-slate-100 px-1 rounded text-[8px] font-medium text-slate-600 border border-slate-200 uppercase ml-auto shrink-0" };
+var _hoisted_67 = { class: "text-[11px] text-slate-500 leading-snug" };
+var _hoisted_68 = {
 	key: 2,
 	class: "mt-6"
 };
-var _hoisted_57 = { class: "flex items-center gap-2 mb-3" };
-var _hoisted_58 = { class: "px-2 py-0.5 bg-slate-100 text-slate-500 text-[9px] font-bold rounded-full border border-slate-200" };
-var _hoisted_59 = { class: "space-y-5 divide-y divide-slate-100" };
-var _hoisted_60 = { class: "flex items-center gap-2 mb-0" };
-var _hoisted_61 = ["title", "onClick"];
-var _hoisted_62 = { class: "text-[10px] font-mono text-slate-400 shrink-0" };
-var _hoisted_63 = { class: "px-1.5 py-0.5 bg-rose-100 text-rose-600 text-[9px] font-bold rounded-full ml-auto shrink-0" };
-var _hoisted_64 = { class: "divide-y divide-slate-100" };
-var _hoisted_65 = { class: "flex items-center gap-2 mb-1" };
-var _hoisted_66 = ["href"];
-var _hoisted_67 = { class: "hover:underline" };
-var _hoisted_68 = { class: "bg-slate-100 px-1 rounded text-[8px] font-medium text-slate-600 border border-slate-200 uppercase ml-auto shrink-0" };
-var _hoisted_69 = { class: "text-[11px] text-slate-500 leading-snug" };
-var _hoisted_70 = {
+var _hoisted_69 = { class: "flex items-center gap-2 mb-3" };
+var _hoisted_70 = { class: "px-2 py-0.5 bg-slate-100 text-slate-500 text-[9px] font-bold rounded-full border border-slate-200" };
+var _hoisted_71 = { class: "space-y-5 divide-y divide-slate-100" };
+var _hoisted_72 = { class: "flex items-center gap-2 mb-0" };
+var _hoisted_73 = ["title", "onClick"];
+var _hoisted_74 = { class: "text-[10px] font-mono text-slate-400 shrink-0" };
+var _hoisted_75 = { class: "px-1.5 py-0.5 bg-rose-100 text-rose-600 text-[9px] font-bold rounded-full ml-auto shrink-0" };
+var _hoisted_76 = { class: "divide-y divide-slate-100" };
+var _hoisted_77 = { class: "flex items-center gap-2 mb-1" };
+var _hoisted_78 = ["href"];
+var _hoisted_79 = { class: "hover:underline" };
+var _hoisted_80 = { class: "bg-slate-100 px-1 rounded text-[8px] font-medium text-slate-600 border border-slate-200 uppercase ml-auto shrink-0" };
+var _hoisted_81 = { class: "text-[11px] text-slate-500 leading-snug" };
+var _hoisted_82 = {
 	key: 0,
 	class: "flex flex-wrap gap-2"
 };
-var _hoisted_71 = ["href"];
-var _hoisted_72 = {
+var _hoisted_83 = ["href"];
+var _hoisted_84 = {
 	key: 1,
 	class: "text-[10px] text-slate-400 italic"
 };
@@ -8836,6 +8892,32 @@ var DependencyDetailPanel_default = /* @__PURE__ */ defineComponent({
 		function cveStyle(severity) {
 			return severityStyles[severity] ?? severityStyles.LOW;
 		}
+		function fitnessColor(fitness) {
+			if (fitness === null || fitness === void 0) return "text-slate-300";
+			if (fitness >= 70) return "text-green-600";
+			if (fitness >= 40) return "text-amber-600";
+			return "text-red-700";
+		}
+		const gateConfig = {
+			block: {
+				text: "text-red-700",
+				label: "BLOCK"
+			},
+			quarantine: {
+				text: "text-amber-600",
+				label: "QUARANTINE"
+			},
+			pass: {
+				text: "text-emerald-600",
+				label: "PASS"
+			}
+		};
+		function gateStyle(status) {
+			return gateConfig[status] ?? {
+				text: "text-slate-600",
+				label: status.toUpperCase()
+			};
+		}
 		const SEVERITY_ORDER = {
 			CRITICAL: 0,
 			HIGH: 1,
@@ -8912,44 +8994,50 @@ var DependencyDetailPanel_default = /* @__PURE__ */ defineComponent({
 				class: "shrink-0 text-center align-middle transition-colors text-slate-300 hover:text-slate-700",
 				onClick: _cache[0] || (_cache[0] = ($event) => emit("close"))
 			}, [..._cache[3] || (_cache[3] = [createBaseVNode("span", { class: "material-symbols-rounded text-xl leading-none cursor-pointer" }, "close", -1)])])])]), createBaseVNode("div", _hoisted_19, [
-				createBaseVNode("section", null, [createBaseVNode("div", _hoisted_20, [_cache[4] || (_cache[4] = createBaseVNode("p", { class: "text-[10px] font-bold uppercase tracking-widest text-slate-400 font-mono" }, "Drift Status", -1)), createBaseVNode("span", { class: normalizeClass(["px-2 py-0.5 text-[10px] font-bold", driftConfig[driftStatus.value]?.pill ?? "bg-slate-200 text-slate-600"]) }, toDisplayString(driftConfig[driftStatus.value]?.label ?? driftStatus.value), 3)]), !__props.node.time_lag_days && !__props.node.releases_lag && __props.node.version_age_days && __props.node.version_age_days < 30 ? (openBlock(), createElementBlock("div", _hoisted_21, [..._cache[5] || (_cache[5] = [createBaseVNode("span", { class: "w-2 h-2 bg-emerald-500 rounded-full shrink-0" }, null, -1), createTextVNode(" Up to date ", -1)])])) : (openBlock(), createElementBlock("div", _hoisted_22, [createBaseVNode("div", _hoisted_23, [
-					createBaseVNode("div", _hoisted_24, [_cache[6] || (_cache[6] = createBaseVNode("p", { class: "text-[10px] font-bold text-slate-400 uppercase" }, "Time Lag", -1)), createBaseVNode("p", { class: normalizeClass(["text-xl font-bold font-mono", !__props.node.time_lag_days ? "text-green-600" : (__props.node.time_lag_days ?? 0) > 730 ? "text-red-700" : (__props.node.time_lag_days ?? 0) > 365 ? "text-amber-600" : lagIsHigh.value ? "text-rose-500" : lagIsModerate.value ? "text-amber-500" : ""]) }, toDisplayString(__props.node.time_lag_days != null ? unref(formatTimeLag)(__props.node.time_lag_days) : "—"), 3)]),
-					createBaseVNode("div", _hoisted_25, [_cache[7] || (_cache[7] = createBaseVNode("p", { class: "text-[10px] font-bold text-slate-400 uppercase" }, "Version Age", -1)), createBaseVNode("p", { class: normalizeClass(["text-xl font-bold font-mono", !__props.node.version_age_days ? "text-green-600" : (__props.node.version_age_days ?? 0) > 730 ? "text-red-700" : (__props.node.version_age_days ?? 0) > 365 ? "text-amber-600" : ""]) }, toDisplayString(__props.node.version_age_days != null ? unref(formatTimeLag)(__props.node.version_age_days) : "—"), 3)]),
-					createBaseVNode("div", _hoisted_26, [_cache[8] || (_cache[8] = createBaseVNode("p", { class: "text-[10px] font-bold text-slate-400 uppercase" }, "Releases", -1)), createBaseVNode("p", _hoisted_27, [createTextVNode(toDisplayString(__props.node.releases_lag ?? "—") + " ", 1), __props.node.releases_lag ? (openBlock(), createElementBlock("span", _hoisted_28, "revs")) : createCommentVNode("", true)])]),
-					createBaseVNode("div", _hoisted_29, [_cache[9] || (_cache[9] = createBaseVNode("p", { class: "text-[10px] font-bold text-slate-400 uppercase" }, "Latest Version", -1)), createBaseVNode("p", _hoisted_30, toDisplayString(__props.node.latest_version || "—"), 1)])
-				]), createBaseVNode("div", _hoisted_31, [createBaseVNode("div", {
+				createBaseVNode("section", null, [_cache[9] || (_cache[9] = createBaseVNode("p", { class: "text-[10px] font-bold uppercase tracking-widest text-slate-400 font-mono mb-3" }, "Risk", -1)), createBaseVNode("div", _hoisted_20, [createBaseVNode("div", _hoisted_21, [
+					createBaseVNode("div", _hoisted_22, [_cache[4] || (_cache[4] = createBaseVNode("p", { class: "text-[10px] font-bold text-slate-400 uppercase" }, "Fitness", -1)), createBaseVNode("p", { class: normalizeClass(["text-xl font-bold font-mono", fitnessColor(__props.node.fitness)]) }, toDisplayString(__props.node.fitness ?? "—"), 3)]),
+					createBaseVNode("div", _hoisted_23, [_cache[5] || (_cache[5] = createBaseVNode("p", { class: "text-[10px] font-bold text-slate-400 uppercase" }, "Expected Exposure", -1)), createBaseVNode("p", _hoisted_24, toDisplayString(__props.node.expected_exposure != null ? __props.node.expected_exposure.toFixed(4) : "—"), 1)]),
+					createBaseVNode("div", _hoisted_25, [_cache[6] || (_cache[6] = createBaseVNode("p", { class: "text-[10px] font-bold text-slate-400 uppercase" }, "Exposure Window", -1)), createBaseVNode("p", _hoisted_26, toDisplayString(__props.node.exposure_window_days != null ? unref(formatTimeLag)(__props.node.exposure_window_days) : "—"), 1)]),
+					createBaseVNode("div", _hoisted_27, [_cache[7] || (_cache[7] = createBaseVNode("p", { class: "text-[10px] font-bold text-slate-400 uppercase" }, "Impact", -1)), createBaseVNode("p", _hoisted_28, toDisplayString(__props.node.impact != null ? __props.node.impact.toFixed(2) : "—"), 1)])
+				]), __props.node.gate ? (openBlock(), createElementBlock("div", _hoisted_29, [_cache[8] || (_cache[8] = createBaseVNode("span", { class: "text-[10px] text-slate-400 uppercase font-bold" }, "Gate", -1)), createBaseVNode("p", _hoisted_30, [createBaseVNode("span", { class: normalizeClass(["font-mono font-bold", gateStyle(__props.node.gate.status).text]) }, toDisplayString(gateStyle(__props.node.gate.status).label), 3), createBaseVNode("span", _hoisted_31, toDisplayString(__props.node.gate.reason), 1)])])) : createCommentVNode("", true)])]),
+				createBaseVNode("section", null, [createBaseVNode("div", _hoisted_32, [_cache[10] || (_cache[10] = createBaseVNode("p", { class: "text-[10px] font-bold uppercase tracking-widest text-slate-400 font-mono" }, "Drift Status", -1)), createBaseVNode("span", { class: normalizeClass(["px-2 py-0.5 text-[10px] font-bold", driftConfig[driftStatus.value]?.pill ?? "bg-slate-200 text-slate-600"]) }, toDisplayString(driftConfig[driftStatus.value]?.label ?? driftStatus.value), 3)]), !__props.node.time_lag_days && !__props.node.releases_lag && __props.node.version_age_days && __props.node.version_age_days < 30 ? (openBlock(), createElementBlock("div", _hoisted_33, [..._cache[11] || (_cache[11] = [createBaseVNode("span", { class: "w-2 h-2 bg-emerald-500 rounded-full shrink-0" }, null, -1), createTextVNode(" Up to date ", -1)])])) : (openBlock(), createElementBlock("div", _hoisted_34, [createBaseVNode("div", _hoisted_35, [
+					createBaseVNode("div", _hoisted_36, [_cache[12] || (_cache[12] = createBaseVNode("p", { class: "text-[10px] font-bold text-slate-400 uppercase" }, "Time Lag", -1)), createBaseVNode("p", { class: normalizeClass(["text-xl font-bold font-mono", !__props.node.time_lag_days ? "text-green-600" : (__props.node.time_lag_days ?? 0) > 730 ? "text-red-700" : (__props.node.time_lag_days ?? 0) > 365 ? "text-amber-600" : lagIsHigh.value ? "text-rose-500" : lagIsModerate.value ? "text-amber-500" : ""]) }, toDisplayString(__props.node.time_lag_days != null ? unref(formatTimeLag)(__props.node.time_lag_days) : "—"), 3)]),
+					createBaseVNode("div", _hoisted_37, [_cache[13] || (_cache[13] = createBaseVNode("p", { class: "text-[10px] font-bold text-slate-400 uppercase" }, "Version Age", -1)), createBaseVNode("p", { class: normalizeClass(["text-xl font-bold font-mono", !__props.node.version_age_days ? "text-green-600" : (__props.node.version_age_days ?? 0) > 730 ? "text-red-700" : (__props.node.version_age_days ?? 0) > 365 ? "text-amber-600" : ""]) }, toDisplayString(__props.node.version_age_days != null ? unref(formatTimeLag)(__props.node.version_age_days) : "—"), 3)]),
+					createBaseVNode("div", _hoisted_38, [_cache[14] || (_cache[14] = createBaseVNode("p", { class: "text-[10px] font-bold text-slate-400 uppercase" }, "Releases", -1)), createBaseVNode("p", _hoisted_39, [createTextVNode(toDisplayString(__props.node.releases_lag ?? "—") + " ", 1), __props.node.releases_lag ? (openBlock(), createElementBlock("span", _hoisted_40, "revs")) : createCommentVNode("", true)])]),
+					createBaseVNode("div", _hoisted_41, [_cache[15] || (_cache[15] = createBaseVNode("p", { class: "text-[10px] font-bold text-slate-400 uppercase" }, "Latest Version", -1)), createBaseVNode("p", _hoisted_42, toDisplayString(__props.node.latest_version || "—"), 1)])
+				]), createBaseVNode("div", _hoisted_43, [createBaseVNode("div", {
 					class: normalizeClass(["h-full transition-all", lagIsHigh.value ? "bg-rose-500" : lagIsModerate.value ? "bg-amber-400" : "bg-emerald-500"]),
 					style: normalizeStyle({ width: lagBarWidth.value })
 				}, null, 6)])]))]),
-				__props.node.dependency_path && __props.node.dependency_path.length > 0 ? (openBlock(), createElementBlock("section", _hoisted_32, [_cache[13] || (_cache[13] = createBaseVNode("p", { class: "text-[10px] font-bold uppercase tracking-widest text-slate-400 font-mono mb-3" }, "Dependency Goggles", -1)), createBaseVNode("div", _hoisted_33, [
-					_cache[12] || (_cache[12] = createBaseVNode("div", { class: "flex items-center gap-2 text-slate-400" }, [createBaseVNode("span", { class: "text-sky-400" }, "→"), createBaseVNode("span", null, "root")], -1)),
+				__props.node.dependency_path && __props.node.dependency_path.length > 0 ? (openBlock(), createElementBlock("section", _hoisted_44, [_cache[19] || (_cache[19] = createBaseVNode("p", { class: "text-[10px] font-bold uppercase tracking-widest text-slate-400 font-mono mb-3" }, "Dependency Goggles", -1)), createBaseVNode("div", _hoisted_45, [
+					_cache[18] || (_cache[18] = createBaseVNode("div", { class: "flex items-center gap-2 text-slate-400" }, [createBaseVNode("span", { class: "text-sky-400" }, "→"), createBaseVNode("span", null, "root")], -1)),
 					(openBlock(true), createElementBlock(Fragment, null, renderList(__props.node.dependency_path, (ancestor, i) => {
 						return openBlock(), createElementBlock("div", {
 							key: i,
 							class: "flex items-center gap-2 text-slate-400",
 							style: normalizeStyle({ paddingLeft: `${(i + 1) * 12}px` })
-						}, [_cache[10] || (_cache[10] = createBaseVNode("span", { class: "text-slate-300 shrink-0" }, "└─", -1)), createBaseVNode("button", {
+						}, [_cache[16] || (_cache[16] = createBaseVNode("span", { class: "text-slate-300 shrink-0" }, "└─", -1)), createBaseVNode("button", {
 							class: "hover:text-sky-600 transition-colors text-left truncate cursor-pointer",
 							title: `Navigate to ${ancestor}`,
 							onClick: ($event) => emit("selectNode", ancestor)
-						}, toDisplayString(ancestor), 9, _hoisted_34)], 4);
+						}, toDisplayString(ancestor), 9, _hoisted_46)], 4);
 					}), 128)),
 					createBaseVNode("div", {
 						class: "flex items-center gap-2 font-bold text-sky-600",
 						style: normalizeStyle({ paddingLeft: `${(__props.node.dependency_path.length + 1) * 12}px` })
-					}, [_cache[11] || (_cache[11] = createBaseVNode("span", { class: "text-sky-400 shrink-0" }, "└─", -1)), createBaseVNode("span", _hoisted_35, toDisplayString(__props.node.name), 1)], 4)
+					}, [_cache[17] || (_cache[17] = createBaseVNode("span", { class: "text-sky-400 shrink-0" }, "└─", -1)), createBaseVNode("span", _hoisted_47, toDisplayString(__props.node.name), 1)], 4)
 				])])) : createCommentVNode("", true),
-				createBaseVNode("section", null, [_cache[19] || (_cache[19] = createBaseVNode("p", { class: "text-[10px] font-bold uppercase tracking-widest text-slate-400 font-mono mb-2" }, "Policy Compliance", -1)), createBaseVNode("div", _hoisted_36, [
-					createBaseVNode("div", _hoisted_37, [_cache[14] || (_cache[14] = createBaseVNode("span", { class: "text-[10px] text-slate-400 uppercase" }, "Constraint", -1)), createBaseVNode("span", _hoisted_38, toDisplayString(__props.node.version_defined || "—"), 1)]),
-					createBaseVNode("div", _hoisted_39, [_cache[15] || (_cache[15] = createBaseVNode("span", { class: "text-[10px] text-slate-400 uppercase" }, "Resolved", -1)), createBaseVNode("span", _hoisted_40, toDisplayString(__props.node.version_installed), 1)]),
-					createBaseVNode("div", _hoisted_41, [_cache[16] || (_cache[16] = createBaseVNode("span", { class: "text-[10px] text-slate-400 uppercase" }, "Latest", -1)), createBaseVNode("span", _hoisted_42, toDisplayString(__props.node.latest_version || "—"), 1)]),
-					__props.node.constraint_type && __props.node.constraint_type !== "DECLARED" ? (openBlock(), createElementBlock("div", _hoisted_43, [_cache[17] || (_cache[17] = createBaseVNode("span", { class: "text-[10px] text-slate-400 uppercase" }, "Constraint Type", -1)), createBaseVNode("span", { class: normalizeClass(["text-[10px] font-mono font-bold", {
+				createBaseVNode("section", null, [_cache[25] || (_cache[25] = createBaseVNode("p", { class: "text-[10px] font-bold uppercase tracking-widest text-slate-400 font-mono mb-2" }, "Policy Compliance", -1)), createBaseVNode("div", _hoisted_48, [
+					createBaseVNode("div", _hoisted_49, [_cache[20] || (_cache[20] = createBaseVNode("span", { class: "text-[10px] text-slate-400 uppercase" }, "Constraint", -1)), createBaseVNode("span", _hoisted_50, toDisplayString(__props.node.version_defined || "—"), 1)]),
+					createBaseVNode("div", _hoisted_51, [_cache[21] || (_cache[21] = createBaseVNode("span", { class: "text-[10px] text-slate-400 uppercase" }, "Resolved", -1)), createBaseVNode("span", _hoisted_52, toDisplayString(__props.node.version_installed), 1)]),
+					createBaseVNode("div", _hoisted_53, [_cache[22] || (_cache[22] = createBaseVNode("span", { class: "text-[10px] text-slate-400 uppercase" }, "Latest", -1)), createBaseVNode("span", _hoisted_54, toDisplayString(__props.node.latest_version || "—"), 1)]),
+					__props.node.constraint_type && __props.node.constraint_type !== "DECLARED" ? (openBlock(), createElementBlock("div", _hoisted_55, [_cache[23] || (_cache[23] = createBaseVNode("span", { class: "text-[10px] text-slate-400 uppercase" }, "Constraint Type", -1)), createBaseVNode("span", { class: normalizeClass(["text-[10px] font-mono font-bold", {
 						"text-fuchsia-700": __props.node.constraint_type === "OVERRIDE",
 						"text-purple-700": __props.node.constraint_type === "ADDITIVE",
 						"text-red-600": __props.node.constraint_type === "NARROWED",
 						"text-yellow-700": __props.node.constraint_type === "PINNED"
-					}]) }, [createTextVNode(toDisplayString(__props.node.constraint_type) + " ", 1), __props.node.constraint_source_file ? (openBlock(), createElementBlock("span", _hoisted_44, " via " + toDisplayString(__props.node.constraint_source_file), 1)) : createCommentVNode("", true)], 2)])) : createCommentVNode("", true),
-					__props.node.extras && __props.node.extras.length > 0 ? (openBlock(), createElementBlock("div", _hoisted_45, [_cache[18] || (_cache[18] = createBaseVNode("span", { class: "text-[10px] text-slate-400 uppercase" }, "Extras", -1)), createBaseVNode("div", _hoisted_46, [(openBlock(true), createElementBlock(Fragment, null, renderList(__props.node.extras, (extra) => {
+					}]) }, [createTextVNode(toDisplayString(__props.node.constraint_type) + " ", 1), __props.node.constraint_source_file ? (openBlock(), createElementBlock("span", _hoisted_56, " via " + toDisplayString(__props.node.constraint_source_file), 1)) : createCommentVNode("", true)], 2)])) : createCommentVNode("", true),
+					__props.node.extras && __props.node.extras.length > 0 ? (openBlock(), createElementBlock("div", _hoisted_57, [_cache[24] || (_cache[24] = createBaseVNode("span", { class: "text-[10px] text-slate-400 uppercase" }, "Extras", -1)), createBaseVNode("div", _hoisted_58, [(openBlock(true), createElementBlock(Fragment, null, renderList(__props.node.extras, (extra) => {
 						return openBlock(), createElementBlock("span", {
 							key: extra,
 							class: "text-[9px] font-mono font-bold px-1.5 py-0.5 bg-sky-50 text-sky-700 border border-sky-200"
@@ -8957,63 +9045,63 @@ var DependencyDetailPanel_default = /* @__PURE__ */ defineComponent({
 					}), 128))])])) : createCommentVNode("", true)
 				])]),
 				createBaseVNode("section", null, [
-					createBaseVNode("div", _hoisted_47, [_cache[20] || (_cache[20] = createBaseVNode("p", { class: "text-[10px] font-bold uppercase tracking-widest text-slate-400 font-mono" }, "Security Advisories", -1)), __props.node.cve && __props.node.cve.length > 0 ? (openBlock(), createElementBlock("span", _hoisted_48, toDisplayString(__props.node.cve.length), 1)) : createCommentVNode("", true)]),
-					!__props.node.cve || __props.node.cve.length === 0 ? (openBlock(), createElementBlock("div", _hoisted_49, [..._cache[21] || (_cache[21] = [createBaseVNode("span", { class: "w-2 h-2 bg-emerald-500 rounded-full shrink-0" }, null, -1), createTextVNode(" No known vulnerabilities ", -1)])])) : (openBlock(), createElementBlock("div", _hoisted_50, [(openBlock(true), createElementBlock(Fragment, null, renderList(__props.node.cve, (cve) => {
+					createBaseVNode("div", _hoisted_59, [_cache[26] || (_cache[26] = createBaseVNode("p", { class: "text-[10px] font-bold uppercase tracking-widest text-slate-400 font-mono" }, "Security Advisories", -1)), __props.node.cve && __props.node.cve.length > 0 ? (openBlock(), createElementBlock("span", _hoisted_60, toDisplayString(__props.node.cve.length), 1)) : createCommentVNode("", true)]),
+					!__props.node.cve || __props.node.cve.length === 0 ? (openBlock(), createElementBlock("div", _hoisted_61, [..._cache[27] || (_cache[27] = [createBaseVNode("span", { class: "w-2 h-2 bg-emerald-500 rounded-full shrink-0" }, null, -1), createTextVNode(" No known vulnerabilities ", -1)])])) : (openBlock(), createElementBlock("div", _hoisted_62, [(openBlock(true), createElementBlock(Fragment, null, renderList(__props.node.cve, (cve) => {
 						return openBlock(), createElementBlock("div", {
 							key: cve.id,
 							class: "py-2"
-						}, [createBaseVNode("div", _hoisted_51, [
+						}, [createBaseVNode("div", _hoisted_63, [
 							createBaseVNode("span", { class: normalizeClass(["text-[9px] font-bold px-1.5 py-0.5 rounded border uppercase shrink-0", cveStyle(cve.severity).badge]) }, toDisplayString(cve.severity), 3),
 							createBaseVNode("a", {
 								href: cve.link,
 								target: "_blank",
 								rel: "noopener noreferrer",
 								class: "font-mono text-[10px] text-sky-600 font-bold inline-flex items-center gap-0.5"
-							}, [createBaseVNode("span", _hoisted_53, toDisplayString(cve.id), 1), _cache[22] || (_cache[22] = createBaseVNode("span", {
+							}, [createBaseVNode("span", _hoisted_65, toDisplayString(cve.id), 1), _cache[28] || (_cache[28] = createBaseVNode("span", {
 								class: "material-symbols-rounded leading-none hover:no-underline text-slate-400",
 								style: { "font-size": "14px" }
-							}, "open_in_new", -1))], 8, _hoisted_52),
-							createBaseVNode("span", _hoisted_54, toDisplayString(cve.source), 1)
-						]), createBaseVNode("p", _hoisted_55, toDisplayString(cve.summary), 1)]);
+							}, "open_in_new", -1))], 8, _hoisted_64),
+							createBaseVNode("span", _hoisted_66, toDisplayString(cve.source), 1)
+						]), createBaseVNode("p", _hoisted_67, toDisplayString(cve.summary), 1)]);
 					}), 128))])),
-					transitiveCVEGroups.value.length > 0 ? (openBlock(), createElementBlock("div", _hoisted_56, [createBaseVNode("div", _hoisted_57, [_cache[23] || (_cache[23] = createBaseVNode("p", { class: "text-[10px] font-bold uppercase tracking-widest text-slate-400 font-mono" }, "Via Transitive Dependencies", -1)), createBaseVNode("span", _hoisted_58, toDisplayString(transitiveCVEGroups.value.length), 1)]), createBaseVNode("div", _hoisted_59, [(openBlock(true), createElementBlock(Fragment, null, renderList(transitiveCVEGroups.value, (group) => {
-						return openBlock(), createElementBlock("div", { key: `${group.name}@${group.version}` }, [createBaseVNode("div", _hoisted_60, [
+					transitiveCVEGroups.value.length > 0 ? (openBlock(), createElementBlock("div", _hoisted_68, [createBaseVNode("div", _hoisted_69, [_cache[29] || (_cache[29] = createBaseVNode("p", { class: "text-[10px] font-bold uppercase tracking-widest text-slate-400 font-mono" }, "Via Transitive Dependencies", -1)), createBaseVNode("span", _hoisted_70, toDisplayString(transitiveCVEGroups.value.length), 1)]), createBaseVNode("div", _hoisted_71, [(openBlock(true), createElementBlock(Fragment, null, renderList(transitiveCVEGroups.value, (group) => {
+						return openBlock(), createElementBlock("div", { key: `${group.name}@${group.version}` }, [createBaseVNode("div", _hoisted_72, [
 							createBaseVNode("button", {
 								class: "font-mono text-[11px] font-bold text-slate-700 hover:text-sky-600 transition-colors text-left truncate cursor-pointer",
 								title: `Navigate to ${group.name}`,
 								onClick: ($event) => emit("selectNode", group.name)
-							}, toDisplayString(group.name), 9, _hoisted_61),
-							createBaseVNode("span", _hoisted_62, "v" + toDisplayString(group.version), 1),
-							createBaseVNode("span", _hoisted_63, toDisplayString(group.cves.length), 1)
-						]), createBaseVNode("div", _hoisted_64, [(openBlock(true), createElementBlock(Fragment, null, renderList(group.cves, (cve) => {
+							}, toDisplayString(group.name), 9, _hoisted_73),
+							createBaseVNode("span", _hoisted_74, "v" + toDisplayString(group.version), 1),
+							createBaseVNode("span", _hoisted_75, toDisplayString(group.cves.length), 1)
+						]), createBaseVNode("div", _hoisted_76, [(openBlock(true), createElementBlock(Fragment, null, renderList(group.cves, (cve) => {
 							return openBlock(), createElementBlock("div", {
 								key: cve.id,
 								class: "py-1"
-							}, [createBaseVNode("div", _hoisted_65, [
+							}, [createBaseVNode("div", _hoisted_77, [
 								createBaseVNode("span", { class: normalizeClass(["text-[9px] font-bold px-1.5 py-0.5 rounded border uppercase shrink-0", cveStyle(cve.severity).badge]) }, toDisplayString(cve.severity), 3),
 								createBaseVNode("a", {
 									href: cve.link,
 									target: "_blank",
 									rel: "noopener noreferrer",
 									class: "font-mono text-[10px] text-sky-600 font-bold inline-flex items-center gap-0.5"
-								}, [createBaseVNode("span", _hoisted_67, toDisplayString(cve.id), 1), _cache[24] || (_cache[24] = createBaseVNode("span", {
+								}, [createBaseVNode("span", _hoisted_79, toDisplayString(cve.id), 1), _cache[30] || (_cache[30] = createBaseVNode("span", {
 									class: "material-symbols-rounded leading-none hover:no-underline text-slate-400",
 									style: { "font-size": "14px" }
-								}, "open_in_new", -1))], 8, _hoisted_66),
-								createBaseVNode("span", _hoisted_68, toDisplayString(cve.source), 1)
-							]), createBaseVNode("p", _hoisted_69, toDisplayString(cve.summary), 1)]);
+								}, "open_in_new", -1))], 8, _hoisted_78),
+								createBaseVNode("span", _hoisted_80, toDisplayString(cve.source), 1)
+							]), createBaseVNode("p", _hoisted_81, toDisplayString(cve.summary), 1)]);
 						}), 128))])]);
 					}), 128))])])) : createCommentVNode("", true)
 				]),
-				createBaseVNode("section", null, [_cache[25] || (_cache[25] = createBaseVNode("p", { class: "text-[10px] font-bold uppercase tracking-widest text-slate-400 font-mono mb-2" }, "License", -1)), __props.node.license && __props.node.license.length > 0 ? (openBlock(), createElementBlock("div", _hoisted_70, [(openBlock(true), createElementBlock(Fragment, null, renderList(__props.node.license, (lic) => {
+				createBaseVNode("section", null, [_cache[31] || (_cache[31] = createBaseVNode("p", { class: "text-[10px] font-bold uppercase tracking-widest text-slate-400 font-mono mb-2" }, "License", -1)), __props.node.license && __props.node.license.length > 0 ? (openBlock(), createElementBlock("div", _hoisted_82, [(openBlock(true), createElementBlock(Fragment, null, renderList(__props.node.license, (lic) => {
 					return openBlock(), createElementBlock("a", {
 						key: lic,
 						href: `https://spdx.org/licenses/${lic}.html`,
 						target: "_blank",
 						rel: "noopener noreferrer",
 						class: "inline-flex items-center px-2 py-0.5 text-[9px] font-bold font-mono bg-slate-100 text-slate-600 border border-slate-200 hover:bg-sky-50 hover:text-sky-600 hover:border-sky-200 transition-colors"
-					}, toDisplayString(lic), 9, _hoisted_71);
-				}), 128))])) : (openBlock(), createElementBlock("p", _hoisted_72, "License data not available."))])
+					}, toDisplayString(lic), 9, _hoisted_83);
+				}), 128))])) : (openBlock(), createElementBlock("p", _hoisted_84, "License data not available."))])
 			])])) : createCommentVNode("", true)], 2);
 		};
 	}
@@ -9101,7 +9189,14 @@ var ScanReportView_default = /* @__PURE__ */ defineComponent({
 				is_yanked: row.pkg.is_yanked ?? false,
 				is_deprecated: row.pkg.is_deprecated ?? false,
 				is_package_unpublished: row.pkg.is_package_unpublished ?? false,
-				version_age_days: row.pkg.version_age_days
+				version_age_days: row.pkg.version_age_days,
+				fitness: row.pkg.fitness ?? null,
+				expected_exposure: row.pkg.expected_exposure ?? null,
+				p_vuln: row.pkg.p_vuln ?? null,
+				p_supplychain: row.pkg.p_supplychain ?? null,
+				exposure_window_days: row.pkg.exposure_window_days ?? null,
+				impact: row.pkg.impact ?? null,
+				gate: row.pkg.gate ?? null
 			};
 			const transitives = store.report?.transitive_packages ?? [];
 			const subtreePackages = [];
@@ -9131,7 +9226,16 @@ var ScanReportView_default = /* @__PURE__ */ defineComponent({
 					class: "p-1 hover:opacity-75 transition",
 					onClick: _cache[0] || (_cache[0] = ($event) => showHelp.value = !showHelp.value)
 				}, [..._cache[7] || (_cache[7] = [createBaseVNode("span", { class: "material-symbols-rounded text-2xl" }, "info", -1)])])])]), createBaseVNode("div", _hoisted_8$1, [createBaseVNode("div", _hoisted_9$1, [_cache[9] || (_cache[9] = createBaseVNode("span", { class: "inline-flex items-center px-3 py-1 bg-black text-white text-[10px] font-bold uppercase tracking-widest" }, " Project ", -1)), createBaseVNode("span", _hoisted_10$1, toDisplayString(projectName.value), 1)]), createBaseVNode("div", _hoisted_11, [createBaseVNode("span", _hoisted_12, toDisplayString(exportTimestamp.value.date), 1), createBaseVNode("span", _hoisted_13, toDisplayString(exportTimestamp.value.time), 1)])])]),
-				showHelp.value ? (openBlock(), createElementBlock("div", _hoisted_14, [..._cache[10] || (_cache[10] = [createBaseVNode("p", { class: "text-sm text-slate-500" }, [createBaseVNode("strong", null, "Dependency Drift"), createTextVNode(" quantifies the version distance between installed and latest releases, segmented by major, minor, and patch changes. This provides a deterministic signal of accumulated change and remediation effort across both direct and transitive dependencies. ")], -1)])])) : createCommentVNode("", true),
+				showHelp.value ? (openBlock(), createElementBlock("div", _hoisted_14, [..._cache[10] || (_cache[10] = [createBaseVNode("p", { class: "text-sm text-slate-500" }, [
+					createBaseVNode("strong", null, "Dependency Drift"),
+					createTextVNode(" quantifies the version distance between installed and latest releases, segmented by major, minor, and patch changes. This provides a deterministic signal of accumulated change and remediation effort across both direct and transitive dependencies. "),
+					createBaseVNode("strong", null, "Gate"),
+					createTextVNode(" is a deterministic pass/quarantine/block checkpoint for CI and agent pre-flight. "),
+					createBaseVNode("strong", null, "Expected Exposure"),
+					createTextVNode(" (impact × probability of incident) is the real prioritization value. "),
+					createBaseVNode("strong", null, "Fitness"),
+					createTextVNode(" is only a monotonic 0-100 presentation projection of Expected Exposure and is never the source of truth — a dash means the value could not be computed, not that there is no risk. ")
+				], -1)])])) : createCommentVNode("", true),
 				createVNode(ReportFilters_default, {
 					"search-text": unref(searchText),
 					"onUpdate:searchText": _cache[1] || (_cache[1] = ($event) => /* @__PURE__ */ isRef(searchText) ? searchText.value = $event : null),
@@ -13033,6 +13137,13 @@ function useD3Tree(options) {
 			is_prerelease: d.data.is_prerelease,
 			is_deprecated: d.data.is_deprecated,
 			is_package_unpublished: d.data.is_package_unpublished,
+			fitness: d.data.fitness,
+			expected_exposure: d.data.expected_exposure,
+			p_vuln: d.data.p_vuln,
+			p_supplychain: d.data.p_supplychain,
+			exposure_window_days: d.data.exposure_window_days,
+			impact: d.data.impact,
+			gate: d.data.gate,
 			dependencies: d.data.dependencies,
 			optional_dependencies: d.data.optional_dependencies
 		});
@@ -14793,6 +14904,13 @@ function buildPackageRegistry(report) {
 		is_prerelease: pkg.is_prerelease,
 		is_deprecated: pkg.is_deprecated ?? false,
 		is_package_unpublished: pkg.is_package_unpublished ?? false,
+		fitness: pkg.fitness ?? null,
+		expected_exposure: pkg.expected_exposure ?? null,
+		p_vuln: pkg.p_vuln ?? null,
+		p_supplychain: pkg.p_supplychain ?? null,
+		exposure_window_days: pkg.exposure_window_days ?? null,
+		impact: pkg.impact ?? null,
+		gate: pkg.gate ?? null,
 		childEdges: /* @__PURE__ */ new Map()
 	});
 	const cveMap = /* @__PURE__ */ new Map();
@@ -14831,6 +14949,13 @@ function buildPackageRegistry(report) {
 		is_prerelease: pkg.is_prerelease,
 		is_deprecated: pkg.is_deprecated ?? false,
 		is_package_unpublished: pkg.is_package_unpublished ?? false,
+		fitness: pkg.fitness ?? null,
+		expected_exposure: pkg.expected_exposure ?? null,
+		p_vuln: pkg.p_vuln ?? null,
+		p_supplychain: pkg.p_supplychain ?? null,
+		exposure_window_days: pkg.exposure_window_days ?? null,
+		impact: pkg.impact ?? null,
+		gate: pkg.gate ?? null,
 		childRefs: []
 	});
 	function walkNode(treeNode, parentRegistryId, parentDirectName) {
@@ -15143,7 +15268,7 @@ var TransitiveDependenciesView_vue_vue_type_script_setup_true_lang_default = /*@
 					showLegend.value ? (openBlock(), createElementBlock("div", _hoisted_7, [createBaseVNode("div", _hoisted_8, [_cache[20] || (_cache[20] = createBaseVNode("span", { class: "font-semibold text-slate-900 uppercase tracking-wide text-[10px]" }, "Legend", -1)), createBaseVNode("button", {
 						class: "text-slate-400 hover:text-slate-700 leading-none",
 						onClick: _cache[6] || (_cache[6] = ($event) => showLegend.value = false)
-					}, [..._cache[19] || (_cache[19] = [createBaseVNode("span", { class: "material-symbols-rounded text-base leading-none" }, "close", -1)])])]), _cache[21] || (_cache[21] = createStaticVNode("<div data-v-87d0bed8><p class=\"font-semibold text-[10px] uppercase tracking-wide text-slate-500 mb-1.5\" data-v-87d0bed8>Node colors</p><div class=\"space-y-1.5\" data-v-87d0bed8><div class=\"flex items-center gap-2\" data-v-87d0bed8><span class=\"inline-flex items-center justify-center w-4 h-4 rounded-full shrink-0 text-[8px] font-bold\" style=\"background:#fecaca;outline:2px solid #dc2626;outline-offset:-1px;\" data-v-87d0bed8>!</span><span data-v-87d0bed8><strong class=\"text-slate-800\" data-v-87d0bed8>CVE detected</strong> — known vulnerability</span></div><div class=\"flex items-center gap-2\" data-v-87d0bed8><span class=\"inline-flex items-center justify-center w-4 h-4 rounded-full shrink-0 text-[8px] font-bold text-white\" style=\"background:#f3e8ff;outline:2px dashed #7e22ce;outline-offset:-1px;\" data-v-87d0bed8>✕</span><span data-v-87d0bed8><strong class=\"text-slate-800\" data-v-87d0bed8>Yanked</strong> — version retracted by publisher</span></div><div class=\"flex items-center gap-2\" data-v-87d0bed8><span class=\"inline-block w-4 h-4 rounded-full shrink-0\" style=\"background:#fef08a;outline:2px dashed #a16207;outline-offset:-1px;\" data-v-87d0bed8></span><span data-v-87d0bed8><strong class=\"text-slate-800\" data-v-87d0bed8>Narrowed</strong> — bounded range (e.g. <code data-v-87d0bed8>&lt;y</code>)</span></div><div class=\"flex items-center gap-2\" data-v-87d0bed8><span class=\"inline-block w-4 h-4 rounded-full shrink-0\" style=\"background:#ffedd5;outline:3px solid #c2410c;outline-offset:-1px;\" data-v-87d0bed8></span><span data-v-87d0bed8><strong class=\"text-slate-800\" data-v-87d0bed8>Pinned</strong> — exact version (e.g. <code data-v-87d0bed8>1.2.3</code>)</span></div><div class=\"flex items-center gap-2\" data-v-87d0bed8><span class=\"inline-block w-4 h-4 rounded-full shrink-0\" style=\"background:#fed7aa;outline:3px dashed #ea580c;outline-offset:-1px;\" data-v-87d0bed8></span><span data-v-87d0bed8><strong class=\"text-slate-800\" data-v-87d0bed8>Override</strong> — forced version replacement</span></div><div class=\"flex items-center gap-2\" data-v-87d0bed8><span class=\"inline-block w-4 h-4 rounded-full shrink-0\" style=\"background:#bbf7d0;outline:2px dotted #16a34a;outline-offset:-1px;\" data-v-87d0bed8></span><span data-v-87d0bed8><strong class=\"text-slate-800\" data-v-87d0bed8>Additive</strong> — external constraint file</span></div><div class=\"flex items-center gap-2\" data-v-87d0bed8><span class=\"inline-block w-4 h-4 rounded-full shrink-0\" style=\"background:#fef3c7;outline:2px dotted #b45309;outline-offset:-1px;\" data-v-87d0bed8></span><span data-v-87d0bed8><strong class=\"text-slate-800\" data-v-87d0bed8>Pre-release</strong> — alpha/beta/rc version installed</span></div><div class=\"flex items-center gap-2\" data-v-87d0bed8><span class=\"inline-block w-4 h-4 rounded-full shrink-0\" style=\"background:#bfdbfe;outline:2px solid #1d4ed8;outline-offset:-1px;\" data-v-87d0bed8></span><span data-v-87d0bed8><strong class=\"text-slate-800\" data-v-87d0bed8>Default</strong> — no specific concern</span></div></div></div><div data-v-87d0bed8><p class=\"font-semibold text-[10px] uppercase tracking-wide text-slate-500 mb-1.5\" data-v-87d0bed8>Interactions</p><ul class=\"space-y-1 text-slate-600 leading-snug\" data-v-87d0bed8><li data-v-87d0bed8>Click a <strong data-v-87d0bed8>tree edge</strong> → selects the child node</li><li data-v-87d0bed8>Click a <strong data-v-87d0bed8>dashed line</strong> → selects the connected duplicate</li><li data-v-87d0bed8>Click a <strong data-v-87d0bed8>folded node</strong> → navigate into its subtree</li><li data-v-87d0bed8>Click <strong data-v-87d0bed8>phantom root</strong> or back line → go back one step</li><li data-v-87d0bed8>Click <strong data-v-87d0bed8>background</strong> → exit focus mode</li></ul></div><div data-v-87d0bed8><p class=\"font-semibold text-[10px] uppercase tracking-wide text-slate-500 mb-1.5\" data-v-87d0bed8>Duplicate packages</p><p class=\"text-slate-600 leading-snug\" data-v-87d0bed8> Dashed curved lines connect nodes sharing the same <em data-v-87d0bed8>name@version</em> across different subtrees. Clicking any one highlights all occurrences. </p></div>", 3))])) : createCommentVNode("", true)
+					}, [..._cache[19] || (_cache[19] = [createBaseVNode("span", { class: "material-symbols-rounded text-base leading-none" }, "close", -1)])])]), _cache[21] || (_cache[21] = createStaticVNode("<div data-v-83e6d3d2><p class=\"font-semibold text-[10px] uppercase tracking-wide text-slate-500 mb-1.5\" data-v-83e6d3d2>Node colors</p><div class=\"space-y-1.5\" data-v-83e6d3d2><div class=\"flex items-center gap-2\" data-v-83e6d3d2><span class=\"inline-flex items-center justify-center w-4 h-4 rounded-full shrink-0 text-[8px] font-bold\" style=\"background:#fecaca;outline:2px solid #dc2626;outline-offset:-1px;\" data-v-83e6d3d2>!</span><span data-v-83e6d3d2><strong class=\"text-slate-800\" data-v-83e6d3d2>CVE detected</strong> — known vulnerability</span></div><div class=\"flex items-center gap-2\" data-v-83e6d3d2><span class=\"inline-flex items-center justify-center w-4 h-4 rounded-full shrink-0 text-[8px] font-bold text-white\" style=\"background:#f3e8ff;outline:2px dashed #7e22ce;outline-offset:-1px;\" data-v-83e6d3d2>✕</span><span data-v-83e6d3d2><strong class=\"text-slate-800\" data-v-83e6d3d2>Yanked</strong> — version retracted by publisher</span></div><div class=\"flex items-center gap-2\" data-v-83e6d3d2><span class=\"inline-block w-4 h-4 rounded-full shrink-0\" style=\"background:#fef08a;outline:2px dashed #a16207;outline-offset:-1px;\" data-v-83e6d3d2></span><span data-v-83e6d3d2><strong class=\"text-slate-800\" data-v-83e6d3d2>Narrowed</strong> — bounded range (e.g. <code data-v-83e6d3d2>&lt;y</code>)</span></div><div class=\"flex items-center gap-2\" data-v-83e6d3d2><span class=\"inline-block w-4 h-4 rounded-full shrink-0\" style=\"background:#ffedd5;outline:3px solid #c2410c;outline-offset:-1px;\" data-v-83e6d3d2></span><span data-v-83e6d3d2><strong class=\"text-slate-800\" data-v-83e6d3d2>Pinned</strong> — exact version (e.g. <code data-v-83e6d3d2>1.2.3</code>)</span></div><div class=\"flex items-center gap-2\" data-v-83e6d3d2><span class=\"inline-block w-4 h-4 rounded-full shrink-0\" style=\"background:#fed7aa;outline:3px dashed #ea580c;outline-offset:-1px;\" data-v-83e6d3d2></span><span data-v-83e6d3d2><strong class=\"text-slate-800\" data-v-83e6d3d2>Override</strong> — forced version replacement</span></div><div class=\"flex items-center gap-2\" data-v-83e6d3d2><span class=\"inline-block w-4 h-4 rounded-full shrink-0\" style=\"background:#bbf7d0;outline:2px dotted #16a34a;outline-offset:-1px;\" data-v-83e6d3d2></span><span data-v-83e6d3d2><strong class=\"text-slate-800\" data-v-83e6d3d2>Additive</strong> — external constraint file</span></div><div class=\"flex items-center gap-2\" data-v-83e6d3d2><span class=\"inline-block w-4 h-4 rounded-full shrink-0\" style=\"background:#fef3c7;outline:2px dotted #b45309;outline-offset:-1px;\" data-v-83e6d3d2></span><span data-v-83e6d3d2><strong class=\"text-slate-800\" data-v-83e6d3d2>Pre-release</strong> — alpha/beta/rc version installed</span></div><div class=\"flex items-center gap-2\" data-v-83e6d3d2><span class=\"inline-block w-4 h-4 rounded-full shrink-0\" style=\"background:#bfdbfe;outline:2px solid #1d4ed8;outline-offset:-1px;\" data-v-83e6d3d2></span><span data-v-83e6d3d2><strong class=\"text-slate-800\" data-v-83e6d3d2>Default</strong> — no specific concern</span></div></div></div><div data-v-83e6d3d2><p class=\"font-semibold text-[10px] uppercase tracking-wide text-slate-500 mb-1.5\" data-v-83e6d3d2>Interactions</p><ul class=\"space-y-1 text-slate-600 leading-snug\" data-v-83e6d3d2><li data-v-83e6d3d2>Click a <strong data-v-83e6d3d2>tree edge</strong> → selects the child node</li><li data-v-83e6d3d2>Click a <strong data-v-83e6d3d2>dashed line</strong> → selects the connected duplicate</li><li data-v-83e6d3d2>Click a <strong data-v-83e6d3d2>folded node</strong> → navigate into its subtree</li><li data-v-83e6d3d2>Click <strong data-v-83e6d3d2>phantom root</strong> or back line → go back one step</li><li data-v-83e6d3d2>Click <strong data-v-83e6d3d2>background</strong> → exit focus mode</li></ul></div><div data-v-83e6d3d2><p class=\"font-semibold text-[10px] uppercase tracking-wide text-slate-500 mb-1.5\" data-v-83e6d3d2>Duplicate packages</p><p class=\"text-slate-600 leading-snug\" data-v-83e6d3d2> Dashed curved lines connect nodes sharing the same <em data-v-83e6d3d2>name@version</em> across different subtrees. Clicking any one highlights all occurrences. </p></div>", 3))])) : createCommentVNode("", true)
 				]),
 				unref(canGoBack) ? (openBlock(), createBlock(NavigationBreadcrumb_default, {
 					key: 0,
@@ -15198,7 +15323,7 @@ var _plugin_vue_export_helper_default = (sfc, props) => {
 };
 //#endregion
 //#region src/views/TransitiveDependenciesView.vue
-var TransitiveDependenciesView_default = /*#__PURE__*/ _plugin_vue_export_helper_default(TransitiveDependenciesView_vue_vue_type_script_setup_true_lang_default, [["__scopeId", "data-v-87d0bed8"]]);
+var TransitiveDependenciesView_default = /*#__PURE__*/ _plugin_vue_export_helper_default(TransitiveDependenciesView_vue_vue_type_script_setup_true_lang_default, [["__scopeId", "data-v-83e6d3d2"]]);
 //#endregion
 //#region src/router/index.ts
 var router = createRouter({
@@ -15298,6 +15423,7 @@ app.mount("#app");
     --color-amber-600: oklch(66.6% .179 58.318);
     --color-amber-700: oklch(55.5% .163 48.998);
     --color-amber-800: oklch(47.3% .137 46.201);
+    --color-amber-900: oklch(41.4% .112 45.904);
     --color-yellow-50: oklch(98.7% .026 102.212);
     --color-yellow-100: oklch(97.3% .071 103.193);
     --color-yellow-200: oklch(94.5% .129 101.54);
@@ -16573,6 +16699,10 @@ app.mount("#app");
     padding-top: var(--spacing);
   }
 
+  .pt-3 {
+    padding-top: calc(var(--spacing) * 3);
+  }
+
   .pt-4 {
     padding-top: calc(var(--spacing) * 4);
   }
@@ -16746,6 +16876,10 @@ app.mount("#app");
 
   .text-amber-800 {
     color: var(--color-amber-800);
+  }
+
+  .text-amber-900 {
+    color: var(--color-amber-900);
   }
 
   .text-black {
@@ -17350,39 +17484,39 @@ body {
   border-bottom-color: #4800E2;
 }
 
-[data-v-87d0bed8] .node {
+[data-v-83e6d3d2] .node {
   cursor: pointer;
 }
-[data-v-87d0bed8] .node circle {
+[data-v-83e6d3d2] .node circle {
   stroke-width: 2.5px;
   transition: all 0.2s;
 }
-[data-v-87d0bed8] .node:hover circle {
+[data-v-83e6d3d2] .node:hover circle {
   r: 8px;
   filter: brightness(1.1);
 }
-[data-v-87d0bed8] .node text {
+[data-v-83e6d3d2] .node text {
   font: 12px sans-serif;
   transition: opacity 0.2s;
 }
-[data-v-87d0bed8] .node-label {
+[data-v-83e6d3d2] .node-label {
   font-size: 12px;
   font-weight: bold;
   fill: #1e293b;
 }
-[data-v-87d0bed8] .version-label {
+[data-v-83e6d3d2] .version-label {
   font-size: 10px;
   fill: #64748b;
   font-weight: normal;
 }
-[data-v-87d0bed8] .link {
+[data-v-83e6d3d2] .link {
   fill: none;
   stroke: #cbd5e1;
   stroke-width: 2.5px;
   opacity: 0.7;
   transition: all 0.3s;
 }
-[data-v-87d0bed8] .link-same-version {
+[data-v-83e6d3d2] .link-same-version {
   fill: none;
   stroke: #94a3b8;
   stroke-width: 1px;
