@@ -13,6 +13,7 @@ export type SortColumn =
   | 'releases'
   | 'timeLag'
   | 'versionAge'
+  | 'fitness'
 
 export interface ReportRow {
   pkg: PackageMetrics
@@ -206,6 +207,9 @@ export function useReportFilters() {
           break
         case 'versionAge':
           cmp = (a.pkg.version_age_days ?? 0) - (b.pkg.version_age_days ?? 0)
+          break
+        case 'fitness':
+          cmp = (a.pkg.fitness ?? -1) - (b.pkg.fitness ?? -1)
           break
       }
       return dir === 'asc' ? cmp : -cmp

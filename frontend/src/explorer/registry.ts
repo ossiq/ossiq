@@ -1,5 +1,5 @@
 import { markRaw } from 'vue'
-import type { OSSIQExportSchemaV14, CVEInfo, DependencyTreeNode } from '@/types/report'
+import type { OSSIQExportSchemaV15, CVEInfo, DependencyTreeNode } from '@/types/report'
 import type { ConstraintType, DirectEntry, EdgeData, PackageRegistry, RegistryEntry, Severity } from '@/types/registry'
 
 const SEVERITY_RANK: Record<string, number> = { LOW: 1, MEDIUM: 2, HIGH: 3, CRITICAL: 4 }
@@ -11,7 +11,7 @@ function maxSeverity(cves: CVEInfo[]): Severity | null {
   ).severity as Severity
 }
 
-export function buildPackageRegistry(report: OSSIQExportSchemaV14): PackageRegistry {
+export function buildPackageRegistry(report: OSSIQExportSchemaV15): PackageRegistry {
   const constraintTypeMap = report.constraint_type_map
 
   // Step 1: Build transitive package lookup by id
