@@ -37,6 +37,13 @@ export function buildPackageRegistry(report: OSSIQExportSchemaV15): PackageRegis
       is_prerelease: pkg.is_prerelease,
       is_deprecated: pkg.is_deprecated ?? false,
       is_package_unpublished: pkg.is_package_unpublished ?? false,
+      fitness: pkg.fitness ?? null,
+      expected_exposure: pkg.expected_exposure ?? null,
+      p_vuln: pkg.p_vuln ?? null,
+      p_supplychain: pkg.p_supplychain ?? null,
+      exposure_window_days: pkg.exposure_window_days ?? null,
+      impact: pkg.impact ?? null,
+      gate: pkg.gate ?? null,
       childEdges: new Map(),
     })
   }
@@ -79,6 +86,13 @@ export function buildPackageRegistry(report: OSSIQExportSchemaV15): PackageRegis
       is_prerelease: pkg.is_prerelease,
       is_deprecated: pkg.is_deprecated ?? false,
       is_package_unpublished: pkg.is_package_unpublished ?? false,
+      fitness: pkg.fitness ?? null,
+      expected_exposure: pkg.expected_exposure ?? null,
+      p_vuln: pkg.p_vuln ?? null,
+      p_supplychain: pkg.p_supplychain ?? null,
+      exposure_window_days: pkg.exposure_window_days ?? null,
+      impact: pkg.impact ?? null,
+      gate: pkg.gate ?? null,
       childRefs: [],
     })
   }

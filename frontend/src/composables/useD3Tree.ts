@@ -152,6 +152,13 @@ export function useD3Tree(options: UseD3TreeOptions) {
       is_prerelease: d.data.is_prerelease,
       is_deprecated: d.data.is_deprecated,
       is_package_unpublished: d.data.is_package_unpublished,
+      fitness: d.data.fitness,
+      expected_exposure: d.data.expected_exposure,
+      p_vuln: d.data.p_vuln,
+      p_supplychain: d.data.p_supplychain,
+      exposure_window_days: d.data.exposure_window_days,
+      impact: d.data.impact,
+      gate: d.data.gate,
       dependencies: d.data.dependencies,
       optional_dependencies: d.data.optional_dependencies,
     })

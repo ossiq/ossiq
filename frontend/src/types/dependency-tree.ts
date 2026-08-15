@@ -1,5 +1,5 @@
 import type { HierarchyPointNode } from 'd3'
-import type { CVEInfo } from '@/types/report'
+import type { CVEInfo, GateInfo } from '@/types/report'
 
 export interface DependencyNode {
   name: string
@@ -27,6 +27,13 @@ export interface DependencyNode {
   is_yanked?: boolean
   is_deprecated?: boolean
   is_package_unpublished?: boolean
+  fitness?: number | null
+  expected_exposure?: number | null
+  p_vuln?: number | null
+  p_supplychain?: number | null
+  exposure_window_days?: number | null
+  impact?: number | null
+  gate?: GateInfo | null
   dependencies?: Record<string, DependencyNode>
   optional_dependencies?: Record<string, DependencyNode>
 }
@@ -64,6 +71,13 @@ export interface SelectedNodeDetail {
   is_yanked?: boolean
   is_deprecated?: boolean
   is_package_unpublished?: boolean
+  fitness?: number | null
+  expected_exposure?: number | null
+  p_vuln?: number | null
+  p_supplychain?: number | null
+  exposure_window_days?: number | null
+  impact?: number | null
+  gate?: GateInfo | null
   dependencies?: Record<string, DependencyNode>
   optional_dependencies?: Record<string, DependencyNode>
 }

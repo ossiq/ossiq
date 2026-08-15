@@ -64,6 +64,13 @@ function handleSelectPackage(row: ReportRow) {
     is_deprecated: row.pkg.is_deprecated ?? false,
     is_package_unpublished: row.pkg.is_package_unpublished ?? false,
     version_age_days: row.pkg.version_age_days,
+    fitness: row.pkg.fitness ?? null,
+    expected_exposure: row.pkg.expected_exposure ?? null,
+    p_vuln: row.pkg.p_vuln ?? null,
+    p_supplychain: row.pkg.p_supplychain ?? null,
+    exposure_window_days: row.pkg.exposure_window_days ?? null,
+    impact: row.pkg.impact ?? null,
+    gate: row.pkg.gate ?? null,
   }
 
   const transitives = store.report?.transitive_packages ?? []
@@ -139,6 +146,10 @@ function handlePanelClose() {
             <strong>Dependency Drift</strong> quantifies the version distance between installed and latest releases,
             segmented by major, minor, and patch changes. This provides a deterministic signal of accumulated change
             and remediation effort across both direct and transitive dependencies.
+            <strong>Gate</strong> is a deterministic pass/quarantine/block checkpoint for CI and agent pre-flight.
+            <strong>Expected Exposure</strong> (impact × probability of incident) is the real prioritization value.
+            <strong>Fitness</strong> is only a monotonic 0-100 presentation projection of Expected Exposure and is
+            never the source of truth — a dash means the value could not be computed, not that there is no risk.
           </p>
         </div>
 

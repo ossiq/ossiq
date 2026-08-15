@@ -47,6 +47,23 @@ function cveStyle(severity: string) {
   return severityStyles[severity as SeverityKey] ?? severityStyles.LOW
 }
 
+function fitnessColor(fitness?: number | null): string {
+  if (fitness === null || fitness === undefined) return 'text-slate-300'
+  if (fitness >= 70) return 'text-green-600'
+  if (fitness >= 40) return 'text-amber-600'
+  return 'text-red-700'
+}
+
+const gateConfig: Record<string, { text: string; label: string }> = {
+  block: { text: 'text-red-700', label: 'BLOCK' },
+  quarantine: { text: 'text-amber-600', label: 'QUARANTINE' },
+  pass: { text: 'text-emerald-600', label: 'PASS' },
+}
+
+function gateStyle(status: string) {
+  return gateConfig[status] ?? { text: 'text-slate-600', label: status.toUpperCase() }
+}
+
 type TransitiveCVEGroup = { name: string; version: string; cves: CVEInfo[] }
 
 const SEVERITY_ORDER: Record<string, number> = { CRITICAL: 0, HIGH: 1, MEDIUM: 2, LOW: 3 }
@@ -174,6 +191,38 @@ const transitiveCVEGroups = computed<TransitiveCVEGroup[]>(() => {
 
       <!-- ── Scrollable body ── -->
       <div class="flex-1 overflow-y-auto px-5 py-6 space-y-8">
+
+        <!-- Risk -->
+        <section>
+          <p class="text-[10px] font-bold uppercase tracking-widest text-slate-400 font-mono mb-3">Risk</p>
+          <div class="border-t border-slate-100 pt-4 space-y-4">
+            <div class="grid grid-cols-4 gap-4">
+              <div class="space-y-0.5">
+                <p class="text-[10px] font-bold text-slate-400 uppercase">Fitness</p>
+                <p class="text-xl font-bold font-mono" :class="fitnessColor(node.fitness)">{{ node.fitness ?? '—' }}</p>
+              </div>
+              <div class="space-y-0.5">
+                <p class="text-[10px] font-bold text-slate-400 uppercase">Expected Exposure</p>
+                <p class="text-xl font-bold font-mono text-slate-700">{{ node.expected_exposure != null ? node.expected_exposure.toFixed(4) : '—' }}</p>
+              </div>
+              <div class="space-y-0.5">
+                <p class="text-[10px] font-bold text-slate-400 uppercase">Exposure Window</p>
+                <p class="text-xl font-bold font-mono text-slate-700">{{ node.exposure_window_days != null ? formatTimeLag(node.exposure_window_days) : '—' }}</p>
+              </div>
+              <div class="space-y-0.5">
+                <p class="text-[10px] font-bold text-slate-400 uppercase">Impact</p>
+                <p class="text-xl font-bold font-mono text-slate-700">{{ node.impact != null ? node.impact.toFixed(2) : '—' }}</p>
+              </div>
+            </div>
+            <div v-if="node.gate" class="pt-3 border-t border-slate-100">
+              <span class="text-[10px] text-slate-400 uppercase font-bold">Gate</span>
+              <p class="text-[11px] mt-0.5">
+                <span class="font-mono font-bold" :class="gateStyle(node.gate.status).text">{{ gateStyle(node.gate.status).label }}</span>
+                <span class="text-slate-500 ml-1">{{ node.gate.reason }}</span>
+              </p>
+            </div>
+          </div>
+        </section>
 
         <!-- State Analysis -->
         <section>
