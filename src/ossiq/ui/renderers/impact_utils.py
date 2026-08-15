@@ -12,6 +12,7 @@ from ossiq.domain.version import (
     VersionsDifference,
 )
 from ossiq.risk.gate import GateDecision
+from ossiq.service.project.models import ScanRecord
 from ossiq.service.update_impact import TransitiveImpact
 from ossiq.timeutil import format_time_days
 
@@ -28,6 +29,19 @@ def format_gate_badge(decision: GateDecision | None) -> str:
         return " [bold red][BLOCK][/]"
     if status == "quarantine":
         return " [bold yellow][QUARANTINE][/]"
+    return ""
+
+
+def format_status_badge(record: ScanRecord) -> str:
+    """Inline lifecycle badge for the installed version; empty string when nothing is flagged."""
+    if record.is_installed_package_unpublished:
+        return " [bold red][UNPUBLISHED][/]"
+    if record.is_installed_yanked:
+        return " [bold red][YANKED][/]"
+    if record.is_installed_deprecated:
+        return " [bold yellow][DEPRECATED][/]"
+    if record.is_installed_prerelease:
+        return " [yellow][pre][/]"
     return ""
 
 

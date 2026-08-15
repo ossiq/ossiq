@@ -13,6 +13,7 @@ from ossiq.ui.renderers.impact_utils import (
     format_fitness,
     format_gate_badge,
     format_lag_status,
+    format_status_badge,
     format_time_delta,
     impact_sub_row_texts,
     new_transitive_deps_table,
@@ -176,15 +177,7 @@ class ConsoleStatusRenderer(AbstractUserInterfaceRenderer):
 
         def add_pkg_rows(packages: list[ScanRecord]) -> None:
             for pkg in packages:
-                installed_cell = pkg.installed_version
-                if pkg.is_installed_package_unpublished:
-                    installed_cell += " [bold red][UNPUBLISHED][/]"
-                elif pkg.is_installed_yanked:
-                    installed_cell += " [bold red][YANKED][/]"
-                elif pkg.is_installed_deprecated:
-                    installed_cell += " [bold yellow][DEPRECATED][/]"
-                elif pkg.is_installed_prerelease:
-                    installed_cell += " [yellow][pre][/]"
+                installed_cell = pkg.installed_version + format_status_badge(pkg)
 
                 row: list[str] = [
                     f"{pkg.package_name}{format_gate_badge(pkg.gate_decision)}",
