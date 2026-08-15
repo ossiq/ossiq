@@ -462,7 +462,7 @@ For full Explorer interaction details, see [EXPLORER.md](https://github.com/ossi
 
 #### JSON Export
 
-The `export --output-format json` command writes a single `.json` file conforming to [export schema v1.4](../src/ossiq/ui/renderers/export/schemas/export_schema_v1.4.json) by default. The root object contains:
+The `export --output-format json` command writes a single `.json` file conforming to [export schema v1.5](../src/ossiq/ui/renderers/export/schemas/export_schema_v1.5.json) by default. The root object contains:
 
 | Key | Contents |
 |---|---|
@@ -472,6 +472,8 @@ The `export --output-format json` command writes a single `.json` file conformin
 | `production_packages` | Array of `PackageMetrics` |
 | `development_packages` | Array of `PackageMetrics` |
 | `transitive_packages` | Array of `PackageMetrics` with `dependency_path` set |
+
+Since v1.5, every `PackageMetrics` entry (production, development, and transitive) also carries the health-score fields: `gate` (a `{status, reason}` object — `pass`, `quarantine`, or `block`), `fitness` (0–100), `expected_exposure`, `impact`, `p_vuln`, `p_supplychain`, and `exposure_window_days`. Any of the numeric fields may be `null` when the underlying signal could not be computed — this means "not computable," never "no risk." See [Reading the output](explanation/health-score.md#reading-the-output) for what each field means.
 
 #### CSV Export
 
@@ -483,6 +485,8 @@ The `export --output-format csv` command writes a folder named `export_{project_
 | `packages.csv` | One row per package with all `PackageMetrics` fields |
 | `cves.csv` | One row per CVE with all `CVEInfo` fields |
 | `datapackage.json` | Schema references and foreign key relationships |
+
+Since v1.5, `packages.csv` carries eight additional columns for the health-score fields: `gate_status`, `gate_reason`, `fitness`, `expected_exposure`, `p_vuln`, `p_supplychain`, `impact`, and `exposure_window_days`. None are required — a package where a value could not be computed leaves the cell empty.
 
 (console-reports)=
 ## Console Reports
@@ -515,6 +519,7 @@ The report has up to six parts, printed in this order. Parts with nothing to sho
 | Recommended | Solver-recommended update target. The column appears only when at least one package has a recommendation or a constraint conflict. Yellow when the recommendation is older than the latest version — usually held back by the [cooldown](#update-solver) or by a constraint. `[NO RESOLUTION]` when no published version satisfies all constraints. |
 | Latest | Most recent published version, or `N/A` when the registry reports none. |
 | Lag | Time between the installed and the latest version. Red when it exceeds `--lag-threshold-delta` (default `1y`). |
+| Fitness | 0–100 presentation projection of Expected Exposure (green ≥ 70, yellow ≥ 40, red below). The column appears only when at least one package has a computed value; `—` on a package where it could not be computed. See [Reading the output](explanation/health-score.md#reading-the-output) — this is a projection, never the source of truth. |
 
 Lifecycle markers on the Installed column:
 
@@ -525,10 +530,18 @@ Lifecycle markers on the Installed column:
 | `[DEPRECATED]` | The installed version, or the whole package, is deprecated. |
 | `[pre]` | The installed version is a pre-release. |
 
+A non-passing [Gate](explanation/health-score.md#the-gate) verdict adds a badge next to the package name in the Package column, plus an indented sub-row underneath naming the reason:
+
+| Marker | Meaning |
+|---|---|
+| `[BLOCK]` | The package failed the Gate outright — see the `↳ gate:` sub-row for which rule matched. |
+| `[QUARANTINE]` | The package is held back by the Gate (e.g. still inside its cooldown window). |
+
 A row with a recommendation can carry indented sub-rows describing what applying that recommendation would do to the rest of the dependency tree:
 
 | Sub-row | Meaning |
 |---|---|
+| `↳ gate: <reason>` | Why the Gate returned `[BLOCK]` or `[QUARANTINE]` for this package. Omitted when the package passes. |
 | `↳ <package> <current> → <projected>` | Updating the parent also moves this transitive package. When more than three packages would move, a count is shown instead of the list. |
 | `+ <package> <version> (new dep)` | Updating the parent introduces this package into the tree. Listed with full detail in **New transitive dependencies**. |
 | `↳ ⚠ <package>: <detail>` | The update collides with a constraint on this transitive package. See [When an update is blocked](#update-blocked). |
@@ -626,6 +639,20 @@ A deep-dive into one package. When the package is installed in the project, the 
 **Warnings.** A panel of package health findings: `✗` marks critical findings (these block `ossiq-cli add` unless `--force` is passed), `!` marks notices. Examples: a package with a single published version (typosquatting risk), a single maintainer (bus-factor risk).
 
 **Health Metrics.** Registry-level signals: downloads over the last month, number of published versions, maintainer count, age of the latest version, age of the recommended version (when it differs from the latest), and cooldown remaining — days until the latest release is old enough to clear the [cooldown period](explanation.md#cooldown-as-supply-chain-quarantine).
+
+For an installed package, this block also shows the channel decomposition behind its Gate and Fitness values:
+
+| Row | Meaning |
+|---|---|
+| Gate | The `pass` / `quarantine` / `block` verdict, styled by status, followed by the reason. |
+| Fitness | 0–100 presentation projection of Expected Exposure, colour-banded the same way as the `status` table's Fitness column. |
+| Expected exposure | `impact × P(incident)` — the value to prioritize on. |
+| Impact (blast radius) | What an incident would cost, independent of likelihood. |
+| P(vulnerability) | Probability channel for known CVEs being exploited over the exposure window. |
+| P(supply chain) | Probability channel for a malicious or compromised publish, independent of any known CVE. |
+| Exposure window | How long you'd be exposed if you had to react today. |
+
+Any of these can render `—`: it means the underlying signal could not be computed, never that the package carries no risk. See [Reading the output](explanation/health-score.md#reading-the-output) for the full explanation of Gate vs. Expected Exposure vs. Fitness.
 
 **Occurrences.** A package can appear in the tree more than once — for example as a direct dependency and, at a different version, as a transitive one. Each occurrence gets its own block of the five sections below, labelled `Occurrence n of m`.
 

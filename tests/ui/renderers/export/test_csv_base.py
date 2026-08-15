@@ -64,6 +64,37 @@ _PACKAGES_HEADERS_V14 = [
     "purl",
 ]
 
+_PACKAGES_HEADERS_V15 = [
+    "package_name",
+    "dependency_name",
+    "dependency_type",
+    "is_optional_dependency",
+    "installed_version",
+    "latest_version",
+    "time_lag_days",
+    "version_age_days",
+    "releases_lag",
+    "cve_count",
+    "version_constraint",
+    "constraint_type",
+    "constraint_source_file",
+    "extras",
+    "is_prerelease",
+    "is_yanked",
+    "is_deprecated",
+    "is_package_unpublished",
+    "gate_status",
+    "gate_reason",
+    "fitness",
+    "expected_exposure",
+    "p_vuln",
+    "p_supplychain",
+    "impact",
+    "exposure_window_days",
+    "license",
+    "purl",
+]
+
 _SUMMARY_HEADERS = [
     "schema_version",
     "export_timestamp",

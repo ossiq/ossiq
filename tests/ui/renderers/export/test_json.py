@@ -918,3 +918,110 @@ class TestJsonExportRendererV14:
         data = json.loads(output_file.read_text())
         pkg = data["production_packages"][0]
         assert pkg["recommended_version"] is None
+
+
+@pytest.fixture
+def health_scored_record():
+    """ScanRecord with every risk/gate field populated, for v1.5 export tests."""
+    return ScanRecord(
+        package_name="risky-lib",
+        dependency_name="risky-lib",
+        is_optional_dependency=False,
+        installed_version="0.1.0",
+        latest_version="0.2.0",
+        versions_diff_index=VersionsDifference(
+            version1="0.1.0", version2="0.2.0", diff_index=1, diff_name="DIFF_MINOR"
+        ),
+        time_lag_days=5,
+        releases_lag=1,
+        cve=[],
+        constraint_info=ConstraintSource(type=ConstraintType.DECLARED, source_file=None),
+        gate_decision=("block", "known critical CVE with public exploit"),
+        fitness=12,
+        impact=2.0,
+        p_vuln=0.123456789,
+        p_supplychain=0.05,
+        expected_exposure=1.700001,
+        exposure_window_days=30.0,
+    )
+
+
+class TestJsonExportRendererV15:
+    """Test suite for v1.5 JSON export: gate, fitness, and expected-exposure health fields."""
+
+    def test_v1_5_output_validates_against_v1_5_schema(self, output_file, settings, health_scored_record):
+        """v1.5 output with full health data must pass jsonschema validation against the v1.5 schema."""
+        metrics = ScanResult(
+            project_name="test-project",
+            project_path="/path/to/test-project",
+            packages_registry=ProjectPackagesRegistry.NPM.value,
+            production_packages=[health_scored_record],
+            optional_packages=[],
+        )
+        renderer = JsonExportRenderer(settings)
+        renderer.render(metrics, destination=str(output_file), schema_version="1.5")
+
+        data = json.loads(output_file.read_text())
+        schema = json_schema_registry.load_schema(ExportJsonSchemaVersion.V1_5)
+        validate(instance=data, schema=schema)
+
+    def test_v1_5_full_health_data_emits_gate_and_rounded_floats(self, output_file, settings, health_scored_record):
+        """A record with full health data emits gate: {status, reason} and floats rounded to 4 decimals."""
+        metrics = ScanResult(
+            project_name="test-project",
+            project_path="/path/to/test-project",
+            packages_registry=ProjectPackagesRegistry.NPM.value,
+            production_packages=[health_scored_record],
+            optional_packages=[],
+        )
+        renderer = JsonExportRenderer(settings)
+        renderer.render(metrics, destination=str(output_file), schema_version="1.5")
+
+        data = json.loads(output_file.read_text())
+        pkg = data["production_packages"][0]
+        assert pkg["gate"] == {"status": "block", "reason": "known critical CVE with public exploit"}
+        assert pkg["fitness"] == 12
+        assert pkg["impact"] == 2.0
+        assert pkg["p_vuln"] == 0.1235
+        assert pkg["p_supplychain"] == 0.05
+        assert pkg["expected_exposure"] == 1.7
+        assert pkg["exposure_window_days"] == 30.0
+
+    def test_v1_5_null_p_vuln_omits_key_on_transitive_but_null_on_package(
+        self, output_file, settings, sample_project_metrics_record
+    ):
+        """p_vuln=None serializes to null on PackageMetrics but is dropped entirely on TransitivePackageMetrics."""
+        transitive = ScanRecord(
+            package_name="dep",
+            dependency_name=None,
+            is_optional_dependency=False,
+            installed_version="1.0.0",
+            latest_version="1.0.0",
+            versions_diff_index=VersionsDifference(
+                version1="1.0.0", version2="1.0.0", diff_index=0, diff_name="LATEST"
+            ),
+            time_lag_days=0,
+            releases_lag=0,
+            cve=[],
+            dependency_path=["react"],
+            constraint_info=ConstraintSource(type=ConstraintType.DECLARED, source_file=None),
+            p_vuln=None,
+        )
+        metrics = ScanResult(
+            project_name="test-project",
+            project_path="/path/to/test-project",
+            packages_registry=ProjectPackagesRegistry.NPM.value,
+            production_packages=[sample_project_metrics_record],
+            optional_packages=[],
+            transitive_packages=[transitive],
+        )
+        renderer = JsonExportRenderer(settings)
+        renderer.render(metrics, destination=str(output_file), schema_version="1.5")
+
+        data = json.loads(output_file.read_text())
+        pkg = data["production_packages"][0]
+        assert "p_vuln" in pkg
+        assert pkg["p_vuln"] is None
+
+        entry = data["transitive_packages"][0]
+        assert "p_vuln" not in entry
