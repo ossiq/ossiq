@@ -102,6 +102,18 @@ def compute_dependency_tree_metrics(
     return metrics
 
 
+def is_published_after_cutoff(record: ScanRecord) -> bool:
+    """True when the installed version did not exist yet at the scan's cutoff date.
+
+    version_age_days is measured against the cutoff rather than today, so a version published after it
+    comes out negative. Nothing else in the pipeline is prepared for that: the Gate would read the
+    negative age as "brand new" and quarantine it, and P_supplychain clamps the age to 0 and charges
+    full freshness hazard - both of them describing a release that had not happened yet.
+    """
+
+    return record.version_age_days is not None and record.version_age_days < 0
+
+
 def populate_health_fields(
     records: Iterable[ScanRecord],
     graph_metrics: dict[str, GraphMetrics],
@@ -109,6 +121,12 @@ def populate_health_fields(
 ) -> None:
     """Aggregate and assign health score metrics"""
     for record in records:
+        # Short-circuit rather than score the future: every health field keeps its None default, which
+        # every renderer already treats as "not available". Scoring it would mean answering a question
+        # about a release that did not exist at the point in time being scanned.
+        if is_published_after_cutoff(record):
+            continue
+
         metrics = graph_metrics[record.package_name]
         record.p_vuln = compute_p_vuln(record.cve, record.exposure_window_days)
         record.p_supplychain = compute_p_supplychain(record, cooldown_days)

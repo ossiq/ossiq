@@ -199,6 +199,40 @@ def test_freshly_published_record_carries_supplychain_hazard():
     assert record.gate_decision == ("quarantine", f"0d old (cooldown < {COOLDOWN_DAYS}d)")
 
 
+def test_version_published_after_the_cutoff_scores_nothing():
+    """A negative version_age_days means the release did not exist at the cutoff: N/A, not a score.
+
+    Without the short-circuit the Gate reads the negative age as "brand new" and quarantines it, and
+    P_supplychain clamps it to 0 and charges full freshness hazard - both describing a release that
+    had not happened yet.
+    """
+    record = make_record(version_age_days=-30, cve=[])
+
+    populate_health_fields([record], runtime_metrics(), COOLDOWN_DAYS)
+
+    assert record.fitness is None
+    assert record.p_vuln is None
+    assert record.p_supplychain is None
+    assert record.impact is None
+    assert record.expected_exposure is None
+    assert record.gate_decision is None
+
+
+def test_unknown_version_age_still_runs_the_chain():
+    """None is "we don't know when it shipped" and must not be confused with "it shipped later".
+
+    Fitness is None either way here - an unknown age makes P_supplychain unknown, which propagates -
+    but the chain still runs and the Gate still decides, which is what the short-circuit skips.
+    """
+    record = make_record(version_age_days=None, cve=[])
+
+    populate_health_fields([record], runtime_metrics(), COOLDOWN_DAYS)
+
+    assert record.gate_decision == ("pass", "ok")
+    assert record.p_vuln == 0.0
+    assert record.impact is not None
+
+
 def test_record_with_cve_populates_the_full_chain():
     record = make_record(cve=[make_cve(epss=0.5, reachable=True, fix_age_days=60)], exposure_window_days=30.0)
 
