@@ -9,13 +9,20 @@ from ossiq.domain.project import ConstraintSource
 from ossiq.domain.version import VersionsDifference
 from ossiq.service.project.models import ScanRecord, ScanResult
 from ossiq.ui.renderers.export.csv import CsvExportRenderer
-from tests.ui.renderers.export.test_csv_base import _PACKAGES_HEADERS_V15, CsvExportRendererBaseTest
+from tests.ui.renderers.export.test_csv_base import (
+    _CVES_HEADERS_V15,
+    _PACKAGES_HEADERS_V15,
+    _SUMMARY_HEADERS_V15,
+    CsvExportRendererBaseTest,
+)
 from tests.ui.renderers.export.test_csv_schema_registry_base import CsvSchemaRegistryBaseTest
 
 
 class TestCsvSchemaRegistryV15(CsvSchemaRegistryBaseTest):
     version = ExportCsvSchemaVersion.V1_5
-    packages_field_count = 28
+    packages_field_count = 22
+    summary_field_count = 14
+    cves_field_count = 12
     included_versions = [
         ExportCsvSchemaVersion.V1_0,
         ExportCsvSchemaVersion.V1_1,
@@ -25,37 +32,29 @@ class TestCsvSchemaRegistryV15(CsvSchemaRegistryBaseTest):
         ExportCsvSchemaVersion.V1_5,
     ]
 
-    def test_packages_schema_has_gate_status_column(self, packages_schema):
-        field = next(f for f in packages_schema["fields"] if f["name"] == "gate_status")
-        assert field["type"] == "string"
-        assert set(field["constraints"]["enum"]) == {"pass", "quarantine", "block"}
+    def test_packages_schema_has_epss_column(self, packages_schema):
+        field = next(f for f in packages_schema["fields"] if f["name"] == "epss")
+        assert field["type"] == "number"
 
-    def test_packages_schema_has_gate_reason_column(self, packages_schema):
-        field_names = [f["name"] for f in packages_schema["fields"]]
-        assert "gate_reason" in field_names
+    def test_packages_schema_has_runs_code_at_install_column(self, packages_schema):
+        field = next(f for f in packages_schema["fields"] if f["name"] == "runs_code_at_install")
+        assert field["type"] == "boolean"
 
-    def test_packages_schema_has_fitness_column(self, packages_schema):
-        field = next(f for f in packages_schema["fields"] if f["name"] == "fitness")
-        assert field["type"] == "integer"
+    def test_summary_schema_has_project_epss_columns(self, summary_schema):
+        field_names = [f["name"] for f in summary_schema["fields"]]
+        assert "project_epss" in field_names
+        assert "packages_with_epss" in field_names
+        assert "packages_with_unscored_cves" in field_names
 
-    def test_packages_schema_has_risk_float_columns(self, packages_schema):
-        for name in ("expected_exposure", "p_vuln", "p_supplychain", "impact", "exposure_window_days"):
-            field = next(f for f in packages_schema["fields"] if f["name"] == name)
-            assert field["type"] == "number"
+    def test_cves_schema_has_epss_and_fix_age_days_columns(self, cves_schema):
+        field_names = [f["name"] for f in cves_schema["fields"]]
+        assert "epss" in field_names
+        assert "fix_age_days" in field_names
 
-    def test_no_health_field_is_required(self, packages_schema):
-        health_fields = {
-            "gate_status",
-            "gate_reason",
-            "fitness",
-            "expected_exposure",
-            "p_vuln",
-            "p_supplychain",
-            "impact",
-            "exposure_window_days",
-        }
+    def test_no_epss_field_is_required(self, packages_schema):
+        epss_fields = {"epss", "runs_code_at_install"}
         for field in packages_schema["fields"]:
-            if field["name"] in health_fields:
+            if field["name"] in epss_fields:
                 assert not field.get("constraints", {}).get("required"), f"{field['name']} must not be required"
 
     def test_v1_4_schema_still_registered(self, registry):
@@ -66,9 +65,11 @@ class TestCsvSchemaRegistryV15(CsvSchemaRegistryBaseTest):
 class TestCsvRendererV15(CsvExportRendererBaseTest):
     schema_version = "1.5"
     expected_packages_headers = _PACKAGES_HEADERS_V15
+    expected_summary_headers = _SUMMARY_HEADERS_V15
+    expected_cves_headers = _CVES_HEADERS_V15
 
     @pytest.fixture
-    def blocked_record(self):
+    def scored_record(self):
         return ScanRecord(
             package_name="risky-lib",
             dependency_name="risky-lib",
@@ -80,17 +81,12 @@ class TestCsvRendererV15(CsvExportRendererBaseTest):
             releases_lag=1,
             cve=[],
             constraint_info=ConstraintSource(type=ConstraintType.DECLARED, source_file=None),
-            gate_decision=("block", "known critical CVE with public exploit"),
-            fitness=12,
-            impact=2.0,
-            p_vuln=0.8,
-            p_supplychain=0.1,
-            expected_exposure=1.7,
-            exposure_window_days=30.0,
+            epss=0.8,
+            runs_code_at_install=True,
         )
 
     @pytest.fixture
-    def passing_record(self):
+    def unscored_record(self):
         return ScanRecord(
             package_name="safe-lib",
             dependency_name="safe-lib",
@@ -113,26 +109,18 @@ class TestCsvRendererV15(CsvExportRendererBaseTest):
             optional_packages=[],
         )
 
-    def test_gate_and_health_columns_populated_for_blocked_package(self, settings, blocked_record, tmp_path):
+    def test_epss_columns_populated_for_scored_package(self, settings, scored_record, tmp_path):
         renderer = CsvExportRenderer(settings)
-        self._render(renderer, self._metrics_with(blocked_record), tmp_path / "export.csv")
+        self._render(renderer, self._metrics_with(scored_record), tmp_path / "export.csv")
         with open(tmp_path / "export" / "packages.csv", encoding="utf-8-sig", newline="") as f:
             row = next(csv_module.DictReader(f))
-        assert row["gate_status"] == "block"
-        assert row["gate_reason"] == "known critical CVE with public exploit"
-        assert row["fitness"] == "12"
-        assert row["expected_exposure"] == "1.7"
-        assert row["p_vuln"] == "0.8"
-        assert row["p_supplychain"] == "0.1"
-        assert row["impact"] == "2.0"
-        assert row["exposure_window_days"] == "30.0"
+        assert row["epss"] == "0.8"
+        assert row["runs_code_at_install"] == "true"
 
-    def test_gate_and_health_columns_empty_when_not_computed(self, settings, passing_record, tmp_path):
+    def test_epss_columns_empty_when_not_computed(self, settings, unscored_record, tmp_path):
         renderer = CsvExportRenderer(settings)
-        self._render(renderer, self._metrics_with(passing_record), tmp_path / "export.csv")
+        self._render(renderer, self._metrics_with(unscored_record), tmp_path / "export.csv")
         with open(tmp_path / "export" / "packages.csv", encoding="utf-8-sig", newline="") as f:
             row = next(csv_module.DictReader(f))
-        assert row["gate_status"] == ""
-        assert row["gate_reason"] == ""
-        assert row["fitness"] == ""
-        assert row["expected_exposure"] == ""
+        assert row["epss"] == ""
+        assert row["runs_code_at_install"] == ""

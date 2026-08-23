@@ -83,14 +83,8 @@ _PACKAGES_HEADERS_V15 = [
     "is_yanked",
     "is_deprecated",
     "is_package_unpublished",
-    "gate_status",
-    "gate_reason",
-    "fitness",
-    "expected_exposure",
-    "p_vuln",
-    "p_supplychain",
-    "impact",
-    "exposure_window_days",
+    "epss",
+    "runs_code_at_install",
     "license",
     "purl",
 ]
@@ -109,6 +103,13 @@ _SUMMARY_HEADERS = [
     "packages_outdated",
 ]
 
+_SUMMARY_HEADERS_V15 = [
+    *_SUMMARY_HEADERS,
+    "project_epss",
+    "packages_with_epss",
+    "packages_with_unscored_cves",
+]
+
 _CVES_HEADERS = [
     "cve_id",
     "package_name",
@@ -122,12 +123,16 @@ _CVES_HEADERS = [
     "link",
 ]
 
+_CVES_HEADERS_V15 = [*_CVES_HEADERS, "epss", "fix_age_days"]
+
 
 class CsvExportRendererBaseTest:
     """Shared renderer tests for all CSV schema versions. Not collected directly."""
 
     schema_version: str  # set by each subclass, e.g. "1.0", "1.4"
     expected_packages_headers: list = _PACKAGES_HEADERS_BASE  # v1.4 overrides
+    expected_summary_headers: list = _SUMMARY_HEADERS  # v1.5 overrides
+    expected_cves_headers: list = _CVES_HEADERS  # v1.5 overrides
     # Renderer always emits v1.3 column format for older schemas, so Frictionless
     # datapackage validation only passes for v1.2+. Set False in v1.0/v1.1 subclasses.
     datapackage_validates: bool = True
@@ -232,7 +237,7 @@ class CsvExportRendererBaseTest:
         renderer = CsvExportRenderer(settings)
         self._render(renderer, sample_metrics, output_path)
         with open(self._folder(output_path) / "summary.csv", encoding="utf-8-sig", newline="") as f:
-            assert csv.DictReader(f).fieldnames == _SUMMARY_HEADERS
+            assert csv.DictReader(f).fieldnames == self.expected_summary_headers
 
     def test_packages_csv_has_correct_headers(self, settings, sample_metrics, output_path):
         renderer = CsvExportRenderer(settings)
@@ -244,7 +249,7 @@ class CsvExportRendererBaseTest:
         renderer = CsvExportRenderer(settings)
         self._render(renderer, sample_metrics, output_path)
         with open(self._folder(output_path) / "cves.csv", encoding="utf-8-sig", newline="") as f:
-            assert csv.DictReader(f).fieldnames == _CVES_HEADERS
+            assert csv.DictReader(f).fieldnames == self.expected_cves_headers
 
     def test_summary_schema_version_matches(self, settings, sample_metrics, output_path):
         renderer = CsvExportRenderer(settings)

@@ -166,76 +166,22 @@
       }
     },
     {
-      "name": "gate_status",
-      "type": "string",
-      "title": "Gate Status",
-      "description": "Deterministic gate verdict for this package",
-      "constraints": {
-        "enum": ["pass", "quarantine", "block"]
-      }
-    },
-    {
-      "name": "gate_reason",
-      "type": "string",
-      "title": "Gate Reason",
-      "description": "Human-readable justification for the gate verdict"
-    },
-    {
-      "name": "fitness",
-      "type": "integer",
-      "title": "Fitness",
-      "description": "0-100 presentation projection of expected_exposure (higher is healthier); empty when not computable",
-      "constraints": {
-        "minimum": 0,
-        "maximum": 100
-      }
-    },
-    {
-      "name": "expected_exposure",
+      "name": "epss",
       "type": "number",
-      "title": "Expected Exposure",
-      "description": "impact multiplied by the combined incident probability; empty when not computable",
-      "constraints": {
-        "minimum": 0
-      }
-    },
-    {
-      "name": "p_vuln",
-      "type": "number",
-      "title": "P(vulnerability)",
-      "description": "Probability of known-vulnerability exploitation over the exposure window; empty when not computable",
+      "title": "EPSS",
+      "description": "Highest EPSS score among this package's CVEs; empty when no CVE is scored",
       "constraints": {
         "minimum": 0,
         "maximum": 1
       }
     },
     {
-      "name": "p_supplychain",
-      "type": "number",
-      "title": "P(supply chain)",
-      "description": "Probability of a supply-chain incident over the exposure window; empty when not computable",
-      "constraints": {
-        "minimum": 0,
-        "maximum": 1
-      }
-    },
-    {
-      "name": "impact",
-      "type": "number",
-      "title": "Impact",
-      "description": "Blast-radius multiplier applied to the incident probability; empty when not computable",
-      "constraints": {
-        "minimum": 0
-      }
-    },
-    {
-      "name": "exposure_window_days",
-      "type": "number",
-      "title": "Exposure Window (Days)",
-      "description": "Remediation window in days; empty when not computable",
-      "constraints": {
-        "minimum": 0
-      }
+      "name": "runs_code_at_install",
+      "type": "boolean",
+      "title": "Runs Code At Install",
+      "description": "Whether the installed version executes arbitrary code during install; empty when unknown",
+      "trueValues": ["true"],
+      "falseValues": ["false"]
     },
     {
       "name": "license",

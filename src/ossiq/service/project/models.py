@@ -9,9 +9,9 @@ from ossiq.domain.package import Package
 from ossiq.domain.project import ConstraintSource, PeerRequirement
 from ossiq.domain.repository import Repository
 from ossiq.domain.version import VersionsDifference
-from ossiq.risk.gate import GateDecision
 from ossiq.service.common import package_versions
 from ossiq.service.library_scan import UpgradePath
+from ossiq.service.project.epss import ProjectEpss
 from ossiq.service.update_impact import TransitiveImpact
 from ossiq.solver.reason import RecommendationReason
 
@@ -133,17 +133,8 @@ class ScanRecord:
     constraint_conflict: list[str] = field(default_factory=list)
     """Populated when the solver found no valid version satisfying all constraints."""
 
-    exposure_window_days: float | None = None
-    """Remediation window, in days. Computed in ossiq.risk.exposure_window.compute_exposure_window."""
-
-    gate_decision: GateDecision | None = None
-    """Pass/quarantine/block decision. Computed in ossiq.risk.gate.get_gate_decision."""
-
-    p_supplychain: float | None = None
-    """Supply-chain hazard probability. Computed in ossiq.risk.p_supplychain.compute_p_supplychain."""
-
-    p_vuln: float | None = None
-    """Known-vulnerability exploitation probability. Computed in ossiq.risk.p_vuln.compute_p_vuln."""
+    epss: float | None = None
+    """Highest EPSS score among this package's CVEs. Computed in ossiq.risk.epss.package_epss."""
 
     runs_code_at_install: bool | None = None
     """True if the installed version executes arbitrary code during install
@@ -153,15 +144,6 @@ class ScanRecord:
     install_execution_reason: str | None = None
     """Human-readable reason for runs_code_at_install, e.g. "npm lifecycle: postinstall" or
     "PyPI source distribution build". None when the signal is unknown or execution was not detected."""
-
-    impact: float | None = None
-    """Blast-radius multiplier. Computed in ossiq.risk.exposure.compute_impact"""
-
-    expected_exposure: float | None = None
-    """impact * combined incident probability. Computed in ossiq.risk.exposure.compute_expected_exposure"""
-
-    fitness: int | None = None
-    """0-100 presentation projection of expected_exposure. Computed in ossiq.risk.exposure.fitness_projection"""
 
 
 @dataclass
@@ -194,3 +176,4 @@ class ScanResult:
     manifest_lock_divergent: list[str] = field(default_factory=list)
     upgrade_paths: list[UpgradePath] = field(default_factory=list)
     ignored_packages: list[IgnoredDependency] = field(default_factory=list)
+    project_epss: ProjectEpss | None = None

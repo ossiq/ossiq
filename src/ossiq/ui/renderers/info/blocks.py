@@ -19,7 +19,6 @@ from ossiq.service.package import PackageDetailResult, PackageInsight, PackageWa
 from ossiq.service.project.models import ScanRecord
 from ossiq.timeutil import format_time_days
 from ossiq.ui.renderers.impact_utils import (
-    format_fitness,
     format_lag_status,
     format_probability,
     format_status_badge,
@@ -31,12 +30,6 @@ SEVERITY_STYLE: dict[str, str] = {
     "HIGH": "bold red",
     "MEDIUM": "bold yellow",
     "LOW": "default",
-}
-
-GATE_STYLE: dict[str, str] = {
-    "block": "bold red",
-    "quarantine": "bold yellow",
-    "pass": "green",
 }
 
 LAG_THRESHOLD_DAYS = 180
@@ -177,7 +170,7 @@ def health_metrics(insight: PackageInsight, records: list[ScanRecord] | None = N
         return section("Health Metrics", table)
 
     marker = " *" if len(records) > 1 else ""
-    add_risk_rows(table, records[0], marker)
+    add_epss_rows(table, records[0], marker)
     if not marker:
         return section("Health Metrics", table)
 
@@ -185,18 +178,21 @@ def health_metrics(insight: PackageInsight, records: list[ScanRecord] | None = N
     return section("Health Metrics", table, footnote)
 
 
-def add_risk_rows(table: Table, record: ScanRecord, marker: str) -> None:
-    """Append the health-score channel decomposition for a single occurrence."""
-    if record.gate_decision is not None:
-        status, reason = record.gate_decision
-        table.add_row(f"Gate{marker}", Text(f"{status} — {reason}", style=GATE_STYLE.get(status, "default")))
+def add_epss_rows(table: Table, record: ScanRecord, marker: str) -> None:
+    """Append the EPSS, fix-age, and install-execution signals for a single occurrence."""
+    table.add_row(f"EPSS{marker}", format_probability(record.epss))
 
-    table.add_row(f"Fitness{marker}", format_fitness(record.fitness))
-    table.add_row(f"Expected exposure{marker}", or_dash(record.expected_exposure, "{:.4f}"))
-    table.add_row(f"Impact (blast radius){marker}", or_dash(record.impact, "{:.2f}"))
-    table.add_row(f"P(vulnerability){marker}", format_probability(record.p_vuln))
-    table.add_row(f"P(supply chain){marker}", format_probability(record.p_supplychain))
-    table.add_row(f"Exposure window{marker}", or_dash_days(record.exposure_window_days))
+    fix_ages = [cve.fix_age_days for cve in record.cve if cve.fix_age_days is not None]
+    table.add_row(f"Fix available{marker}", or_dash_days(max(fix_ages) if fix_ages else None))
+
+    if record.runs_code_at_install is None:
+        install_cell = DASH
+    elif record.runs_code_at_install:
+        reason = f"  ({record.install_execution_reason})" if record.install_execution_reason else ""
+        install_cell = f"[bold yellow]yes[/bold yellow]{reason}"
+    else:
+        install_cell = "no"
+    table.add_row(f"Runs code at install{marker}", install_cell)
 
 
 def drift_status(record: ScanRecord) -> Group:

@@ -7,7 +7,6 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
-from itertools import chain
 
 from ossiq.adapters.api_interfaces import AbstractPackageRegistryApi
 from ossiq.adapters.api_pypi import PackageRegistryApiPypi
@@ -17,7 +16,7 @@ from ossiq.domain.exceptions import ProjectPathNotFoundError
 from ossiq.domain.package import Package
 from ossiq.domain.project import Dependency
 from ossiq.service.library_scan import compute_upgrade_paths, resolve_library_constraints
-from ossiq.service.project.health import compute_dependency_tree_metrics, populate_health_fields
+from ossiq.service.project.epss import populate_epss
 from ossiq.service.project.models import (
     DependencyDescriptor,
     IgnoredDependency,
@@ -441,12 +440,9 @@ def scan(sources: AbstractProjectSources, on_step: Callable[[str], None] | None 
             now,
         )
 
-        step("health")
-        dependency_tree_metrics = compute_dependency_tree_metrics(descriptors.walker)
-        populate_health_fields(
-            chain(*[production_packages, optional_packages, transitive_packages]),
-            dependency_tree_metrics,
-            sources.settings.cooldown_period,
+        project_epss = populate_epss(
+            production_packages + optional_packages + transitive_packages,
+            descriptors.walker,
         )
 
         upgrade_paths = compute_upgrade_paths(project_info, sources.packages_registry)
@@ -460,4 +456,5 @@ def scan(sources: AbstractProjectSources, on_step: Callable[[str], None] | None 
             manifest_lock_divergent=list(project_info.manifest_lock_divergent),
             upgrade_paths=upgrade_paths,
             ignored_packages=descriptors.ignored_packages,
+            project_epss=project_epss,
         )

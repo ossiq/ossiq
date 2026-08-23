@@ -15,7 +15,6 @@ from ossiq.domain.common import (
     ExportUnknownSchemaVersion,
 )
 from ossiq.domain.cve import CVE, Severity
-from ossiq.risk.gate import GateDecision
 from ossiq.service.project.models import ScanResult
 
 
@@ -59,6 +58,19 @@ class ProjectSummary(BaseModel):
     packages_with_cves: int = Field(description="Number of packages with known CVEs")
     total_cves: int = Field(description="Total number of CVEs across all packages")
     packages_outdated: int = Field(description="Number of packages behind the latest version")
+    project_epss: float | None = Field(
+        default=None,
+        description="EPSSg over every distinct scored package in the project, direct and transitive",
+    )
+    packages_with_epss: int = Field(default=0, description="Number of distinct packages contributing to project_epss")
+    packages_with_unscored_cves: int = Field(
+        default=0, description="Number of packages with a CVE where no CVE carries an EPSS score"
+    )
+
+    @field_serializer("project_epss")
+    def serialize_project_epss(self, value: float | None) -> float | None:
+        """Round so exported output stays diffable."""
+        return None if value is None else round(value, 4)
 
 
 class CVEInfo(BaseModel):
@@ -74,6 +86,15 @@ class CVEInfo(BaseModel):
     affected_versions: list[str] = Field(description="List of affected versions")
     published: str | None = Field(description="Publication date")
     link: str = Field(description="URL to upstream advisory")
+    epss: float | None = Field(default=None, description="EPSS exploitation probability score, 0-1")
+    fix_age_days: int | None = Field(
+        default=None, description="Days a fix has been available; None when no fix is known"
+    )
+
+    @field_serializer("epss")
+    def serialize_epss(self, value: float | None) -> float | None:
+        """Round so exported output stays diffable."""
+        return None if value is None else round(value, 4)
 
     @classmethod
     def from_domain(cls, cve: CVE) -> "CVEInfo":
@@ -89,6 +110,8 @@ class CVEInfo(BaseModel):
             affected_versions=list(cve.affected_versions),
             published=cve.published,
             link=cve.link,
+            epss=cve.epss,
+            fix_age_days=cve.fix_age_days,
         )
 
 
@@ -107,21 +130,6 @@ class TransitiveImpactExport(BaseModel):
     def _compact(self, handler):
         d = handler(self)
         return {k: v for k, v in d.items() if v is not None}
-
-
-class GateInfo(BaseModel):
-    """Deterministic gate decision for a package."""
-
-    status: str = Field(description="Gate verdict: pass, quarantine, or block")
-    reason: str = Field(description="Human-readable justification for the verdict")
-
-    @classmethod
-    def from_domain(cls, decision: GateDecision | None) -> "GateInfo | None":
-        """Convert domain gate decision tuple to export model."""
-        if decision is None:
-            return None
-        status, reason = decision
-        return cls(status=status, reason=reason)
 
 
 class PackageMetrics(BaseModel):
@@ -193,32 +201,19 @@ class PackageMetrics(BaseModel):
     is_package_unpublished: bool = Field(
         default=False, description="Whether the entire package has been removed from the registry (npm-only)"
     )  # noqa: E501
-    exposure_window_days: float | None = Field(
+    epss: float | None = Field(default=None, description="Highest EPSS score among this package's CVEs")
+    runs_code_at_install: bool | None = Field(
         default=None,
-        description="Remediation window in days; None when it could not be computed",
+        description="Whether the installed version executes arbitrary code during install",
     )
-    p_vuln: float | None = Field(
+    install_execution_reason: str | None = Field(
         default=None,
-        description="Probability of known-vulnerability exploitation over the exposure window",
+        description="Human-readable reason for runs_code_at_install; None when unknown or not detected",
     )
-    p_supplychain: float | None = Field(
-        default=None,
-        description="Probability of a supply-chain incident over the exposure window",
-    )
-    impact: float | None = Field(default=None, description="Blast-radius multiplier applied to incident probability")
-    expected_exposure: float | None = Field(
-        default=None,
-        description="impact multiplied by the combined incident probability",
-    )
-    fitness: int | None = Field(
-        default=None,
-        description="0-100 presentation projection of expected_exposure (higher is healthier)",
-    )
-    gate: GateInfo | None = Field(default=None, description="Deterministic pass/quarantine/block gate decision")
 
-    @field_serializer("exposure_window_days", "p_vuln", "p_supplychain", "impact", "expected_exposure")
-    def serialize_risk_floats(self, value: float | None) -> float | None:
-        """Round risk floats so exported output stays diffable."""
+    @field_serializer("epss")
+    def serialize_epss(self, value: float | None) -> float | None:
+        """Round so exported output stays diffable."""
         return None if value is None else round(value, 4)
 
     @classmethod
@@ -265,13 +260,9 @@ class PackageMetrics(BaseModel):
             is_yanked=record.is_installed_yanked,
             is_deprecated=record.is_installed_deprecated,
             is_package_unpublished=record.is_installed_package_unpublished,
-            exposure_window_days=record.exposure_window_days,
-            p_vuln=record.p_vuln,
-            p_supplychain=record.p_supplychain,
-            impact=record.impact,
-            expected_exposure=record.expected_exposure,
-            fitness=record.fitness,
-            gate=GateInfo.from_domain(record.gate_decision),
+            epss=record.epss,
+            runs_code_at_install=record.runs_code_at_install,
+            install_execution_reason=record.install_execution_reason,
         )
 
 
@@ -368,32 +359,19 @@ class TransitivePackageMetrics(BaseModel):
     is_package_unpublished: bool = Field(
         default=False, description="Whether the entire package has been removed from the registry (npm-only)"
     )  # noqa: E501
-    exposure_window_days: float | None = Field(
+    epss: float | None = Field(default=None, description="Highest EPSS score among this package's CVEs")
+    runs_code_at_install: bool | None = Field(
         default=None,
-        description="Remediation window in days; None when it could not be computed",
+        description="Whether the installed version executes arbitrary code during install",
     )
-    p_vuln: float | None = Field(
+    install_execution_reason: str | None = Field(
         default=None,
-        description="Probability of known-vulnerability exploitation over the exposure window",
+        description="Human-readable reason for runs_code_at_install; None when unknown or not detected",
     )
-    p_supplychain: float | None = Field(
-        default=None,
-        description="Probability of a supply-chain incident over the exposure window",
-    )
-    impact: float | None = Field(default=None, description="Blast-radius multiplier applied to incident probability")
-    expected_exposure: float | None = Field(
-        default=None,
-        description="impact multiplied by the combined incident probability",
-    )
-    fitness: int | None = Field(
-        default=None,
-        description="0-100 presentation projection of expected_exposure (higher is healthier)",
-    )
-    gate: GateInfo | None = Field(default=None, description="Deterministic pass/quarantine/block gate decision")
 
-    @field_serializer("exposure_window_days", "p_vuln", "p_supplychain", "impact", "expected_exposure")
-    def serialize_risk_floats(self, value: float | None) -> float | None:
-        """Round risk floats so exported output stays diffable."""
+    @field_serializer("epss")
+    def serialize_epss(self, value: float | None) -> float | None:
+        """Round so exported output stays diffable."""
         return None if value is None else round(value, 4)
 
     @classmethod
@@ -422,13 +400,9 @@ class TransitivePackageMetrics(BaseModel):
             is_yanked=first.is_installed_yanked,
             is_deprecated=first.is_installed_deprecated,
             is_package_unpublished=first.is_installed_package_unpublished,
-            exposure_window_days=first.exposure_window_days,
-            p_vuln=first.p_vuln,
-            p_supplychain=first.p_supplychain,
-            impact=first.impact,
-            expected_exposure=first.expected_exposure,
-            fitness=first.fitness,
-            gate=GateInfo.from_domain(first.gate_decision),
+            epss=first.epss,
+            runs_code_at_install=first.runs_code_at_install,
+            install_execution_reason=first.install_execution_reason,
         )
 
     @model_serializer(mode="wrap")
@@ -582,6 +556,9 @@ def build_export_data(
         packages_with_cves=packages_with_cves,
         total_cves=total_cves,
         packages_outdated=packages_outdated,
+        project_epss=data.project_epss.score if data.project_epss else None,
+        packages_with_epss=data.project_epss.scored_packages if data.project_epss else 0,
+        packages_with_unscored_cves=data.project_epss.unscored_cve_packages if data.project_epss else 0,
     )
     production = [PackageMetrics.from_domain(pkg) for pkg in data.production_packages]
     development = [PackageMetrics.from_domain(pkg) for pkg in data.optional_packages]

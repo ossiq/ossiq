@@ -10,9 +10,8 @@ from ossiq.service.project.models import ScanRecord, ScanResult
 from ossiq.settings import Settings
 from ossiq.ui.interfaces import AbstractUserInterfaceRenderer
 from ossiq.ui.renderers.impact_utils import (
-    format_fitness,
-    format_gate_badge,
     format_lag_status,
+    format_probability,
     format_status_badge,
     format_time_delta,
     impact_sub_row_texts,
@@ -63,6 +62,13 @@ class ConsoleStatusRenderer(AbstractUserInterfaceRenderer):
             f"Dev: [bold]{len(data.optional_packages)}[/bold]  |  "
             f"Transitive recs: [bold]{len(transitive_with_recs)}[/bold]"
         )
+        if data.project_epss is not None:
+            unscored = data.project_epss.unscored_cve_packages
+            unscored_part = f"  |  Unscored: [bold]{unscored}[/bold]" if unscored else ""
+            self.console.print(
+                f"  Project EPSS: [bold]{format_probability(data.project_epss.score)}[/bold]  |  "
+                f"Scored: [bold]{data.project_epss.scored_packages}[/bold]{unscored_part}"
+            )
         self.console.print()
 
         main_table = self.build_main_table(
@@ -148,7 +154,7 @@ class ConsoleStatusRenderer(AbstractUserInterfaceRenderer):
         show_recommended = any(
             pkg.recommended_version is not None or pkg.constraint_conflict for pkg in filtered_prod + filtered_dev
         )
-        show_fitness = any(pkg.fitness is not None for pkg in filtered_prod + filtered_dev)
+        show_epss = any(pkg.epss is not None for pkg in filtered_prod + filtered_dev)
 
         table = Table(show_header=True, header_style="bold dim", box=None, padding=(0, 2))
         table.add_column("Package", style="bold")
@@ -159,8 +165,8 @@ class ConsoleStatusRenderer(AbstractUserInterfaceRenderer):
             table.add_column("Recommended", justify="left", style="bold green")
         table.add_column("Latest", justify="left")
         table.add_column("Lag", justify="right")
-        if show_fitness:
-            table.add_column("Fitness", justify="right")
+        if show_epss:
+            table.add_column("EPSS", justify="right")
 
         empty = [""] * (len(table.columns) - 1)
         first_section = True
@@ -180,7 +186,7 @@ class ConsoleStatusRenderer(AbstractUserInterfaceRenderer):
                 installed_cell = pkg.installed_version + format_status_badge(pkg)
 
                 row: list[str] = [
-                    f"{pkg.package_name}{format_gate_badge(pkg.gate_decision)}",
+                    pkg.package_name,
                     f"[bold red]{len(pkg.cve)}" if pkg.cve else "",
                     format_lag_status(pkg.versions_diff_index),
                     installed_cell,
@@ -202,13 +208,10 @@ class ConsoleStatusRenderer(AbstractUserInterfaceRenderer):
                     format_time_delta(pkg.time_lag_days, lag_threshold_days),
                 ]
 
-                if show_fitness:
-                    row.append(format_fitness(pkg.fitness))
+                if show_epss:
+                    row.append(format_probability(pkg.epss))
 
                 table.add_row(*row)
-
-                if pkg.gate_decision is not None and pkg.gate_decision[0] != "pass":
-                    table.add_row(f"  [dim]↳ gate: {pkg.gate_decision[1]}[/dim]", *[""] * (len(table.columns) - 1))
 
                 if pkg.update_transitive_impacts and pkg.recommended_version != pkg.installed_version:
                     blanks = [""] * (len(table.columns) - 1)

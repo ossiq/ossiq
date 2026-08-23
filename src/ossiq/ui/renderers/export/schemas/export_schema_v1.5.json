@@ -2,7 +2,7 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://ossiq.org/schemas/export/v1.5.json",
   "title": "OSS-IQ Export Schema v1.5",
-  "description": "Schema for OSS-IQ project metrics export data (v1.5 adds the health-score fields exposure_window_days, p_vuln, p_supplychain, impact, expected_exposure, fitness and gate to PackageMetrics and TransitivePackageMetrics, and declares update_transitive_impacts)",
+  "description": "Schema for OSS-IQ project metrics export data (v1.5 adds epss to PackageMetrics, TransitivePackageMetrics and CVEInfo, runs_code_at_install/install_execution_reason to PackageMetrics and TransitivePackageMetrics, fix_age_days to CVEInfo, project_epss/packages_with_epss/packages_with_unscored_cves to summary, and declares update_transitive_impacts)",
   "type": "object",
   "required": ["metadata", "project", "summary", "production_packages", "development_packages", "transitive_packages", "dependency_tree", "constraint_type_map"],
   "properties": {
@@ -84,6 +84,20 @@
           "type": "integer",
           "minimum": 0,
           "description": "Number of packages behind the latest version"
+        },
+        "project_epss": {
+          "type": ["number", "null"],
+          "description": "EPSSg over every distinct scored package in the project, direct and transitive"
+        },
+        "packages_with_epss": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of distinct packages contributing to project_epss"
+        },
+        "packages_with_unscored_cves": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of packages with a CVE where no CVE carries an EPSS score"
         }
       }
     },
@@ -277,35 +291,17 @@
           "type": "boolean",
           "description": "Whether the entire package has been removed from the registry (npm-only; false otherwise)"
         },
-        "exposure_window_days": {
+        "epss": {
           "type": ["number", "null"],
-          "description": "Remediation window in days; absent or null when it could not be computed"
+          "description": "Highest EPSS score among this package's CVEs"
         },
-        "p_vuln": {
-          "type": ["number", "null"],
-          "description": "Probability of known-vulnerability exploitation over the exposure window"
+        "runs_code_at_install": {
+          "type": ["boolean", "null"],
+          "description": "Whether the installed version executes arbitrary code during install"
         },
-        "p_supplychain": {
-          "type": ["number", "null"],
-          "description": "Probability of a supply-chain incident over the exposure window"
-        },
-        "impact": {
-          "type": ["number", "null"],
-          "description": "Blast-radius multiplier applied to the incident probability"
-        },
-        "expected_exposure": {
-          "type": ["number", "null"],
-          "description": "impact multiplied by the combined incident probability"
-        },
-        "fitness": {
-          "type": ["integer", "null"],
-          "minimum": 0,
-          "maximum": 100,
-          "description": "0-100 presentation projection of expected_exposure (higher is healthier)"
-        },
-        "gate": {
-          "anyOf": [{ "$ref": "#/$defs/GateInfo" }, { "type": "null" }],
-          "description": "Deterministic pass/quarantine/block gate decision"
+        "install_execution_reason": {
+          "type": ["string", "null"],
+          "description": "Human-readable reason for runs_code_at_install; null when unknown or not detected"
         }
       }
     },
@@ -442,51 +438,17 @@
             "$ref": "#/$defs/TransitiveImpactExport"
           }
         },
-        "exposure_window_days": {
+        "epss": {
           "type": ["number", "null"],
-          "description": "Remediation window in days; null when it could not be computed"
+          "description": "Highest EPSS score among this package's CVEs"
         },
-        "p_vuln": {
-          "type": ["number", "null"],
-          "description": "Probability of known-vulnerability exploitation over the exposure window"
+        "runs_code_at_install": {
+          "type": ["boolean", "null"],
+          "description": "Whether the installed version executes arbitrary code during install"
         },
-        "p_supplychain": {
-          "type": ["number", "null"],
-          "description": "Probability of a supply-chain incident over the exposure window"
-        },
-        "impact": {
-          "type": ["number", "null"],
-          "description": "Blast-radius multiplier applied to the incident probability"
-        },
-        "expected_exposure": {
-          "type": ["number", "null"],
-          "description": "impact multiplied by the combined incident probability"
-        },
-        "fitness": {
-          "type": ["integer", "null"],
-          "minimum": 0,
-          "maximum": 100,
-          "description": "0-100 presentation projection of expected_exposure (higher is healthier)"
-        },
-        "gate": {
-          "anyOf": [{ "$ref": "#/$defs/GateInfo" }, { "type": "null" }],
-          "description": "Deterministic pass/quarantine/block gate decision"
-        }
-      }
-    },
-    "GateInfo": {
-      "type": "object",
-      "description": "Deterministic gate decision for a package",
-      "required": ["status", "reason"],
-      "properties": {
-        "status": {
-          "type": "string",
-          "enum": ["pass", "quarantine", "block"],
-          "description": "Gate verdict: pass, quarantine, or block"
-        },
-        "reason": {
-          "type": "string",
-          "description": "Human-readable justification for the verdict"
+        "install_execution_reason": {
+          "type": ["string", "null"],
+          "description": "Human-readable reason for runs_code_at_install; null when unknown or not detected"
         }
       }
     },
@@ -589,6 +551,14 @@
           "type": "string",
           "format": "uri",
           "description": "URL to upstream advisory"
+        },
+        "epss": {
+          "type": ["number", "null"],
+          "description": "EPSS exploitation probability score, 0-1"
+        },
+        "fix_age_days": {
+          "type": ["integer", "null"],
+          "description": "Days a fix has been available; null when no fix is known"
         }
       }
     }

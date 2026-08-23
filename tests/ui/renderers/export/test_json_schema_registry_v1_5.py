@@ -24,7 +24,6 @@ class TestSchemaRegistryV15(SchemaRegistryBaseTest):
         "DependencyTreeRoot",
         "DependencyTreeNode",
         "TransitivePackageMetrics",
-        "GateInfo",
     ]
     included_versions = [
         ExportJsonSchemaVersion.V1_0,
@@ -39,12 +38,6 @@ class TestSchemaRegistryV15(SchemaRegistryBaseTest):
         const = schema["properties"]["metadata"]["properties"]["schema_version"]["const"]
         assert const == "1.5"
 
-    def test_gate_info_has_status_and_reason(self, schema):
-        gate_info = schema["$defs"]["GateInfo"]
-        assert gate_info["required"] == ["status", "reason"]
-        assert gate_info["properties"]["status"]["enum"] == ["pass", "quarantine", "block"]
-        assert gate_info["properties"]["reason"]["type"] == "string"
-
     def test_update_transitive_impacts_export_defined(self, schema):
         assert "TransitiveImpactExport" in schema["$defs"]
 
@@ -52,20 +45,25 @@ class TestSchemaRegistryV15(SchemaRegistryBaseTest):
         path = registry.get_schema_path(ExportJsonSchemaVersion.V1_4)
         assert path.exists()
 
-    def _assert_health_fields_on(self, defs, definition_name):
+    def _assert_epss_fields_on(self, defs, definition_name):
         props = defs[definition_name]["properties"]
-        assert props["exposure_window_days"]["type"] == ["number", "null"]
-        assert props["p_vuln"]["type"] == ["number", "null"]
-        assert props["p_supplychain"]["type"] == ["number", "null"]
-        assert props["impact"]["type"] == ["number", "null"]
-        assert props["expected_exposure"]["type"] == ["number", "null"]
-        assert props["fitness"]["type"] == ["integer", "null"]
-        assert props["fitness"]["minimum"] == 0
-        assert props["fitness"]["maximum"] == 100
-        assert props["gate"]["anyOf"] == [{"$ref": "#/$defs/GateInfo"}, {"type": "null"}]
+        assert props["epss"]["type"] == ["number", "null"]
+        assert props["runs_code_at_install"]["type"] == ["boolean", "null"]
+        assert props["install_execution_reason"]["type"] == ["string", "null"]
 
-    def test_package_metrics_has_health_score_fields(self, schema):
-        self._assert_health_fields_on(schema["$defs"], "PackageMetrics")
+    def test_package_metrics_has_epss_fields(self, schema):
+        self._assert_epss_fields_on(schema["$defs"], "PackageMetrics")
 
-    def test_transitive_package_metrics_has_health_score_fields(self, schema):
-        self._assert_health_fields_on(schema["$defs"], "TransitivePackageMetrics")
+    def test_transitive_package_metrics_has_epss_fields(self, schema):
+        self._assert_epss_fields_on(schema["$defs"], "TransitivePackageMetrics")
+
+    def test_cve_info_has_epss_and_fix_age_days(self, schema):
+        props = schema["$defs"]["CVEInfo"]["properties"]
+        assert props["epss"]["type"] == ["number", "null"]
+        assert props["fix_age_days"]["type"] == ["integer", "null"]
+
+    def test_summary_has_project_epss_fields(self, schema):
+        props = schema["properties"]["summary"]["properties"]
+        assert props["project_epss"]["type"] == ["number", "null"]
+        assert props["packages_with_epss"]["type"] == "integer"
+        assert props["packages_with_unscored_cves"]["type"] == "integer"

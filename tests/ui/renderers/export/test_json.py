@@ -921,8 +921,8 @@ class TestJsonExportRendererV14:
 
 
 @pytest.fixture
-def health_scored_record():
-    """ScanRecord with every risk/gate field populated, for v1.5 export tests."""
+def epss_scored_record():
+    """ScanRecord with epss and install-execution fields populated, for v1.5 export tests."""
     return ScanRecord(
         package_name="risky-lib",
         dependency_name="risky-lib",
@@ -936,26 +936,22 @@ def health_scored_record():
         releases_lag=1,
         cve=[],
         constraint_info=ConstraintSource(type=ConstraintType.DECLARED, source_file=None),
-        gate_decision=("block", "known critical CVE with public exploit"),
-        fitness=12,
-        impact=2.0,
-        p_vuln=0.123456789,
-        p_supplychain=0.05,
-        expected_exposure=1.700001,
-        exposure_window_days=30.0,
+        epss=0.123456789,
+        runs_code_at_install=True,
+        install_execution_reason="npm lifecycle: postinstall",
     )
 
 
 class TestJsonExportRendererV15:
-    """Test suite for v1.5 JSON export: gate, fitness, and expected-exposure health fields."""
+    """Test suite for v1.5 JSON export: epss and install-execution fields."""
 
-    def test_v1_5_output_validates_against_v1_5_schema(self, output_file, settings, health_scored_record):
-        """v1.5 output with full health data must pass jsonschema validation against the v1.5 schema."""
+    def test_v1_5_output_validates_against_v1_5_schema(self, output_file, settings, epss_scored_record):
+        """v1.5 output with EPSS data must pass jsonschema validation against the v1.5 schema."""
         metrics = ScanResult(
             project_name="test-project",
             project_path="/path/to/test-project",
             packages_registry=ProjectPackagesRegistry.NPM.value,
-            production_packages=[health_scored_record],
+            production_packages=[epss_scored_record],
             optional_packages=[],
         )
         renderer = JsonExportRenderer(settings)
@@ -965,13 +961,13 @@ class TestJsonExportRendererV15:
         schema = json_schema_registry.load_schema(ExportJsonSchemaVersion.V1_5)
         validate(instance=data, schema=schema)
 
-    def test_v1_5_full_health_data_emits_gate_and_rounded_floats(self, output_file, settings, health_scored_record):
-        """A record with full health data emits gate: {status, reason} and floats rounded to 4 decimals."""
+    def test_v1_5_emits_epss_and_install_execution_fields(self, output_file, settings, epss_scored_record):
+        """A scored record emits epss rounded to 4 decimals plus the install-execution fields."""
         metrics = ScanResult(
             project_name="test-project",
             project_path="/path/to/test-project",
             packages_registry=ProjectPackagesRegistry.NPM.value,
-            production_packages=[health_scored_record],
+            production_packages=[epss_scored_record],
             optional_packages=[],
         )
         renderer = JsonExportRenderer(settings)
@@ -979,18 +975,14 @@ class TestJsonExportRendererV15:
 
         data = json.loads(output_file.read_text())
         pkg = data["production_packages"][0]
-        assert pkg["gate"] == {"status": "block", "reason": "known critical CVE with public exploit"}
-        assert pkg["fitness"] == 12
-        assert pkg["impact"] == 2.0
-        assert pkg["p_vuln"] == 0.1235
-        assert pkg["p_supplychain"] == 0.05
-        assert pkg["expected_exposure"] == 1.7
-        assert pkg["exposure_window_days"] == 30.0
+        assert pkg["epss"] == 0.1235
+        assert pkg["runs_code_at_install"] is True
+        assert pkg["install_execution_reason"] == "npm lifecycle: postinstall"
 
-    def test_v1_5_null_p_vuln_omits_key_on_transitive_but_null_on_package(
+    def test_v1_5_null_epss_omits_key_on_transitive_but_null_on_package(
         self, output_file, settings, sample_project_metrics_record
     ):
-        """p_vuln=None serializes to null on PackageMetrics but is dropped entirely on TransitivePackageMetrics."""
+        """epss=None serializes to null on PackageMetrics but is dropped entirely on TransitivePackageMetrics."""
         transitive = ScanRecord(
             package_name="dep",
             dependency_name=None,
@@ -1005,7 +997,7 @@ class TestJsonExportRendererV15:
             cve=[],
             dependency_path=["react"],
             constraint_info=ConstraintSource(type=ConstraintType.DECLARED, source_file=None),
-            p_vuln=None,
+            epss=None,
         )
         metrics = ScanResult(
             project_name="test-project",
@@ -1020,8 +1012,8 @@ class TestJsonExportRendererV15:
 
         data = json.loads(output_file.read_text())
         pkg = data["production_packages"][0]
-        assert "p_vuln" in pkg
-        assert pkg["p_vuln"] is None
+        assert "epss" in pkg
+        assert pkg["epss"] is None
 
         entry = data["transitive_packages"][0]
-        assert "p_vuln" not in entry
+        assert "epss" not in entry

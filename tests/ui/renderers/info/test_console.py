@@ -77,12 +77,8 @@ def make_record(
         recommended_version_reason=make_reason(recommended) if recommended else None,
         peer_requirements=peer_requirements or [],
         is_installed_yanked=is_installed_yanked,
-        fitness=55,
-        impact=1.0,
-        p_vuln=0.15,
-        p_supplychain=0.0,
-        expected_exposure=0.1514,
-        exposure_window_days=120.0,
+        epss=0.15,
+        runs_code_at_install=False,
     )
 
 
