@@ -35,6 +35,11 @@ def _chunked(items: Iterable, n: int) -> Generator:
 
 logger = logging.getLogger(__name__)
 
+MAX_RATE_LIMIT_PAUSES = 8
+"""How many times one chunk may wait out a rate-limit pause before it gives up. Bounds a
+pathological chunk (a huge repo that keeps tripping GitHub's secondary limit) without letting it
+block a worker forever - the caller then sees that item as absent."""
+
 
 def is_rate_limit_response(response: requests.Response) -> bool:
     """429 is always a rate limit; 403 only when rate-limit headers say so.
@@ -240,11 +245,17 @@ class BatchClient:
 
         Returns a list containing one ChunkResult on success or permanent failure.
         Returns an empty list if aborted before any attempt.
+
+        A rate-limit pause is backpressure, not a failure: it does not consume the
+        transient-error retry budget, only its own (MAX_RATE_LIMIT_PAUSES) so a repeatedly
+        throttled chunk still eventually gives up instead of blocking a worker forever.
         """
 
         error = None
+        error_attempts = 0
+        rate_limit_pauses = 0
 
-        for attempt in range(strategy.config.max_retries):
+        while error_attempts < strategy.config.max_retries:
             if self._abort.is_set():
                 return []  # Graceful exit — no result for this chunk.
 
@@ -259,14 +270,22 @@ class BatchClient:
                     "[%s] chunk=%d attempt=%d status=%d latency=%.3fs",
                     type(strategy).__name__,
                     len(chunk),
-                    attempt + 1,
+                    error_attempts + 1,
                     resp.status_code,
                     elapsed,
                 )
 
                 if is_rate_limit_response(resp):
+                    rate_limit_pauses += 1
+                    if rate_limit_pauses > MAX_RATE_LIMIT_PAUSES:
+                        return ChunkResult(
+                            data=[],
+                            success=False,
+                            message=f"rate limited {rate_limit_pauses}x, giving up on chunk",
+                            error=requests.HTTPError(response=resp),
+                        )
                     self._handle_rate_limit(resp)
-                    continue  # Retry this chunk after the pause.
+                    continue  # Retry after the pause — does not count as an error attempt.
 
                 # short-circuit for 404 Not Found
                 if resp.status_code == 404:
@@ -282,7 +301,19 @@ class BatchClient:
                     resp.raise_for_status()
 
                 if resp.status_code is not None and resp.status_code >= 200 and resp.status_code < 300:
-                    return ChunkResult(data=[resp.json()], success=True)
+                    try:
+                        return ChunkResult(data=[resp.json()], success=True)
+                    except ValueError as exc:
+                        # A bodyless 2xx: 204 No Content, or GitHub's 202 while it computes
+                        # statistics in the background. Not an error and not retryable, but there
+                        # is nothing to map — report it as unsuccessful so process_response is
+                        # skipped and the caller sees the item as absent rather than empty.
+                        return ChunkResult(
+                            data=[],
+                            success=False,
+                            message=f"HTTP {resp.status_code} with no JSON body",
+                            error=exc,
+                        )
 
                 # Other 4xx (400, 401, 422, …) — permanent failure, no retry
                 return ChunkResult(
@@ -293,18 +324,17 @@ class BatchClient:
                 )
 
             except (requests.Timeout, requests.ConnectionError, requests.HTTPError) as exc:
-                if attempt < strategy.config.max_retries - 1:
+                error_attempts += 1
+                error = exc
+                if error_attempts < strategy.config.max_retries:
                     # Base 3 math: 3^0=1, 3^1=3, 3^2=9, 3^3=27
-                    base_wait = 3**attempt
+                    base_wait = 3 ** (error_attempts - 1)
                     # Adding 10-20% jitter to prevent "thundering herd"
                     wait = base_wait + random.uniform(0, 0.2 * base_wait)
-
                     logger.warning("Error: %s. Retrying in %.1fs...", exc, wait)
                     time.sleep(wait)
                 else:
                     logger.info("Max retries reached. Final error: %s", exc)
-
-                error = exc
 
         return ChunkResult(
             data=[],
