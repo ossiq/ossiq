@@ -28,6 +28,9 @@ class Package:
     is_unpublished: bool
     maintainers_count: int | None
     downloads_recent: int | None
+    classifiers: list[str]
+    all_releases_yanked: bool
+    deprecation_message: str | None
 
     _repository: Repository | None
     _versions: list[Version] | None
@@ -50,6 +53,9 @@ class Package:
         is_unpublished: bool = False,
         maintainers_count: int | None = None,
         downloads_recent: int | None = None,
+        classifiers: list[str] | None = None,
+        all_releases_yanked: bool = False,
+        deprecation_message: str | None = None,
     ):
         self.registry = registry
         self.name = name
@@ -66,6 +72,10 @@ class Package:
         self.is_unpublished = is_unpublished
         self.maintainers_count = maintainers_count
         self.downloads_recent = downloads_recent
+        # Deprecation evidence, all from metadata already fetched. See risk/maintenance.py.
+        self.classifiers = classifiers or []
+        self.all_releases_yanked = all_releases_yanked
+        self.deprecation_message = deprecation_message
 
         self._repository = None
         self._versions = None

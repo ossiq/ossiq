@@ -9,9 +9,11 @@ from ossiq.domain.package import Package
 from ossiq.domain.project import ConstraintSource, PeerRequirement
 from ossiq.domain.repository import Repository
 from ossiq.domain.version import VersionsDifference
+from ossiq.risk.maintenance import DeprecationEvidence, MaintenanceAssessment
 from ossiq.service.common import package_versions
 from ossiq.service.library_scan import UpgradePath
 from ossiq.service.project.epss import ProjectEpss
+from ossiq.service.project.stability import ProjectStability, RepositoryStability, TriageResult
 from ossiq.service.update_impact import TransitiveImpact
 from ossiq.solver.reason import RecommendationReason
 
@@ -136,6 +138,26 @@ class ScanRecord:
     epss: float | None = None
     """Highest EPSS score among this package's CVEs. Computed in ossiq.risk.epss.package_epss."""
 
+    stability: RepositoryStability | None = None
+    """Commit-gap dormancy and engagement-flow signals for the upstream repository. None when no
+    commit was sampled - no repo URL, a non-GitHub host, or a rate-limited fetch."""
+
+    deprecation: DeprecationEvidence | None = None
+    """Explicit end-of-life markers found in registry / repo metadata and the README. Populated
+    in service.project.records.scan_record; None only when package metadata was unavailable."""
+
+    maintenance: MaintenanceAssessment | None = None
+    """Naive-Bayes maintenance-state posterior (risk/maintenance.py). None when not one
+    observation was available. Populated in service.project.stability.populate_stability."""
+
+    triage: TriageResult | None = None
+    """Recommended action from the EPSS x maintenance matrix. Populated in service.project.stability."""
+
+    days_since_push: int | None = None
+    """Days since the last push to the upstream repository, measured against the scan's cutoff.
+    The graded abandonment signal - `Repository.archived` is its saturating case, and covers far
+    fewer packages because most dead projects are never formally archived."""
+
     runs_code_at_install: bool | None = None
     """True if the installed version executes arbitrary code during install
     (pip build backend / npm lifecycle script / node-gyp). Populated in service.project.records.scan_record
@@ -154,6 +176,16 @@ class PrefetchedData:
     cve_map: dict[tuple[str, str], set[CVE]]
     versions_since_map: dict[tuple[str, str], list[package_versions.PackageVersion]]
     repositories_info: dict[str, Repository]
+    commits: dict[str, list[dict]] = field(default_factory=dict)
+    """Repo URL -> last 100 commits (event-censored sample), feeding the gap-based stability
+    estimator. Absent keys are unmeasured."""
+    activity: dict[str, dict] = field(default_factory=dict)
+    """Repo URL -> {issues, pulls, mentionable_users, pinned_titles} from the GraphQL activity
+    sample, feeding the engagement-flow trends. Absent keys are unmeasured (no token, non-GitHub
+    host, or --no-stability-responsiveness)."""
+    readmes: dict[str, str] = field(default_factory=dict)
+    """Repo URL -> the first few KB of the README, scanned for a deprecation banner. Absent keys
+    are unmeasured (no repo, non-GitHub host, or --no-stability)."""
 
 
 @dataclass
@@ -177,3 +209,4 @@ class ScanResult:
     upgrade_paths: list[UpgradePath] = field(default_factory=list)
     ignored_packages: list[IgnoredDependency] = field(default_factory=list)
     project_epss: ProjectEpss | None = None
+    project_stability: ProjectStability | None = None

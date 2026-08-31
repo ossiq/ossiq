@@ -10,6 +10,7 @@ from typing import Any
 
 from ossiq.domain.cve import CVE
 from ossiq.domain.version import VERSION_DIFF_MAJOR
+from ossiq.risk.triage import ACTION_REFACTOR
 from ossiq.service.package import PackageDetailResult
 from ossiq.service.project.models import ScanRecord, ScanResult
 from ossiq.service.update_impact import TransitiveImpact
@@ -38,7 +39,11 @@ def worst_verdict(verdicts: list[str]) -> str:
 
 
 def build_add_verdict(detail: PackageDetailResult, requested_version: str | None = None) -> AgentVerdict:
-    """Verdict for adding a single package (prospective or already installed)."""
+    """Verdict for adding a single package (prospective or already installed).
+
+    No triage/stability signal here by design: the `add` path has no installed repository history
+    to sample, so there is nothing for the dormancy or CSI channels to measure.
+    """
     insight = detail.insight
     recommended = insight.recommended_version if insight else None
     latest = insight.latest_version if insight else None
@@ -81,6 +86,32 @@ def build_add_verdict(detail: PackageDetailResult, requested_version: str | None
     if requested_version:
         result["requested_version"] = requested_version
     return result
+
+
+def triage_summary(record: ScanRecord) -> dict[str, Any] | None:
+    """Reduce a record's triage decision to the fields an agent needs, or None when it has none.
+
+    Advisory only: the triage action never changes the ok/warn/block verdict. The maintenance
+    model's threshold behind "refactor" is not yet fully calibrated, so an agent is told what the
+    signal says without having its build blocked on it.
+    """
+    result = record.triage
+    if result is None:
+        return None
+
+    summary: dict[str, Any] = {"action": result.action, "reason": result.reason}
+    if result.max_epss is not None:
+        summary["max_epss"] = round(result.max_epss, 4)
+    if result.suppressed_cves:
+        summary["suppressed_cves"] = result.suppressed_cves
+    if record.maintenance is not None:
+        summary["maintenance_state"] = record.maintenance.state
+        summary["maintenance_risk"] = round(record.maintenance.p_not_maintained, 4)
+    if record.deprecation is not None and record.deprecation.signals:
+        summary["deprecation_signals"] = sorted(record.deprecation.signals)
+        if record.deprecation.successor:
+            summary["deprecation_successor"] = record.deprecation.successor
+    return summary
 
 
 def impact_summary(impact: TransitiveImpact) -> dict[str, Any]:
@@ -132,7 +163,7 @@ def build_update_entry(record: ScanRecord) -> dict[str, Any] | None:
     else:
         verdict = VERDICT_WARN
 
-    return {
+    entry: dict[str, Any] = {
         "package": record.package_name,
         "from": installed,
         "to": recommended,
@@ -141,15 +172,31 @@ def build_update_entry(record: ScanRecord) -> dict[str, Any] | None:
         "cves": [cve_summary(cve) for cve in cves],
         "transitive_impact": [impact_summary(impact) for impact in record.update_transitive_impacts],
     }
+    triage = triage_summary(record)
+    if triage is not None:
+        entry["triage"] = triage
+    return entry
 
 
 def build_update_verdict(scan: ScanResult) -> AgentVerdict:
     """Verdict for updating a project's direct dependencies."""
     direct_records = scan.production_packages + scan.optional_packages
     entries = [entry for entry in (build_update_entry(record) for record in direct_records) if entry is not None]
-    return {
+    result: AgentVerdict = {
         "operation": "update",
         "registry": scan.packages_registry.lower(),
         "verdict": worst_verdict([entry["verdict"] for entry in entries]),
         "updates": entries,
     }
+
+    # Packages with no exploit pressure and nothing to upgrade, but a decaying upstream. They are
+    # not "updates" — there is no version that fixes them — so they sit beside the update list
+    # rather than inside it, and they never move the verdict.
+    refactor_candidates = [
+        record.package_name
+        for record in direct_records
+        if record.triage is not None and record.triage.action == ACTION_REFACTOR
+    ]
+    if refactor_candidates:
+        result["refactor_candidates"] = refactor_candidates
+    return result
