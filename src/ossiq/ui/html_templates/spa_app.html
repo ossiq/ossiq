@@ -221,7 +221,7 @@ var stringifySymbol = (v, i = "") => {
 //#endregion
 //#region node_modules/@vue/reactivity/dist/reactivity.esm-bundler.js
 /**
-* @vue/reactivity v3.5.40
+* @vue/reactivity v3.5.41
 * (c) 2018-present Yuxi (Evan) You and Vue contributors
 * @license MIT
 **/
@@ -1582,7 +1582,7 @@ function traverse(value, depth = Infinity, seen) {
 //#endregion
 //#region node_modules/@vue/runtime-core/dist/runtime-core.esm-bundler.js
 /**
-* @vue/runtime-core v3.5.40
+* @vue/runtime-core v3.5.41
 * (c) 2018-present Yuxi (Evan) You and Vue contributors
 * @license MIT
 **/
@@ -1681,7 +1681,7 @@ function queuePostFlushCb(cb) {
 			pendingPostFlushCbs.push(cb);
 			cb.flags |= 1;
 		}
-	} else pendingPostFlushCbs.push(...cb);
+	} else for (let i = 0; i < cb.length; i++) pendingPostFlushCbs.push(cb[i]);
 	queueFlush();
 }
 function flushPreFlushCbs(instance, seen, i = flushIndex + 1) {
@@ -1702,7 +1702,7 @@ function flushPostFlushCbs(seen) {
 		const deduped = [...new Set(pendingPostFlushCbs)].sort((a, b) => getId(a) - getId(b));
 		pendingPostFlushCbs.length = 0;
 		if (activePostFlushCbs) {
-			activePostFlushCbs.push(...deduped);
+			for (let i = 0; i < deduped.length; i++) activePostFlushCbs.push(deduped[i]);
 			return;
 		}
 		activePostFlushCbs = deduped;
@@ -1917,10 +1917,33 @@ function createPathGetter(ctx, path) {
 var TeleportEndKey = /* @__PURE__ */ Symbol("_vte");
 var isTeleport = (type) => type.__isTeleport;
 var leaveCbKey = /* @__PURE__ */ Symbol("_leaveCb");
+function findNonCommentChild(children) {
+	let child = children[0];
+	if (children.length > 1) {
+		for (const c of children) if (c.type !== Comment) {
+			child = c;
+			break;
+		}
+	}
+	return child;
+}
+function getInnerChild$1(vnode) {
+	if (!isKeepAlive(vnode)) {
+		if (isTeleport(vnode.type) && vnode.children) return findNonCommentChild(vnode.children);
+		return vnode;
+	}
+	if (vnode.component) return vnode.component.subTree;
+	const { shapeFlag, children } = vnode;
+	if (children) {
+		if (shapeFlag & 16) return children[0];
+		if (shapeFlag & 32 && isFunction(children.default)) return children.default();
+	}
+}
 function setTransitionHooks(vnode, hooks) {
 	if (vnode.shapeFlag & 6 && vnode.component) {
 		vnode.transition = hooks;
-		setTransitionHooks(vnode.component.subTree, hooks);
+		const subTree = vnode.component.subTree;
+		setTransitionHooks(isTeleport(subTree.type) ? getInnerChild$1(subTree) || subTree : subTree, hooks);
 	} else if (vnode.shapeFlag & 128) {
 		vnode.ssContent.transition = hooks.clone(vnode.ssContent);
 		vnode.ssFallback.transition = hooks.clone(vnode.ssFallback);
@@ -2667,7 +2690,7 @@ function renderComponentRoot(instance) {
 		root = cloneVNode(root, null, false, true);
 		root.dirs = root.dirs ? root.dirs.concat(vnode.dirs) : vnode.dirs;
 	}
-	if (vnode.transition) setTransitionHooks(root, vnode.transition);
+	if (vnode.transition) setTransitionHooks(isTeleport(root.type) ? getInnerChild$1(root) || root : root, vnode.transition);
 	result = root;
 	setCurrentRenderingInstance(prev);
 	return result;
@@ -4051,7 +4074,12 @@ function setupStatefulComponent(instance, isSSR) {
 		if (isAsyncSetup) {
 			setupResult.then(unsetCurrentInstance, unsetCurrentInstance);
 			if (isSSR) return setupResult.then((resolvedResult) => {
-				handleSetupResult(instance, resolvedResult, isSSR);
+				setInSSRSetupState(true);
+				try {
+					handleSetupResult(instance, resolvedResult, isSSR);
+				} finally {
+					setInSSRSetupState(false);
+				}
 			}).catch((e) => {
 				handleError(e, instance, 0);
 			});
@@ -4145,7 +4173,7 @@ function h$1(type, propsOrChildren, children) {
 		setBlockTracking(1);
 	}
 }
-var version = "3.5.40";
+var version = "3.5.41";
 //#endregion
 //#region node_modules/@vue/runtime-dom/dist/runtime-dom.esm-bundler.js
 /**
