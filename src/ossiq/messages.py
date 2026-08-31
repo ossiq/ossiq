@@ -63,6 +63,21 @@ ARGS_HELP_COOLDOWN_PERIOD = (
     "Versions younger than this many days receive a freshness soft-penalty in the solver "
     "(default: 7). Overrides OSSIQ_COOLDOWN_PERIOD env var."
 )
+ARGS_HELP_STABILITY = (
+    "Measure upstream repository stability and maintenance state (default: on). Costs two GitHub "
+    "requests per direct-dependency repo (commit sample + README deprecation scan); disable it "
+    "with --no-stability where the API quota is tight. Overrides OSSIQ_STABILITY env var."
+)
+ARGS_HELP_STABILITY_CACHE_TTL = (
+    "For how long GitHub stability data (commits, activity, README) is cached, in hours "
+    "(default: 168, i.e. 7 days). Overrides OSSIQ_STABILITY_CACHE_TTL env var."
+)
+ARGS_HELP_STABILITY_RESPONSIVENESS = (
+    "Compute the engagement-flow trend of the maintenance model from a batched GitHub GraphQL "
+    "query over a 180-day window (~2-6 requests per direct-dependency repo). Requires a GitHub "
+    "token; defaults on when one is set, off otherwise. Overrides OSSIQ_STABILITY_RESPONSIVENESS "
+    "env var."
+)
 
 HELP_INFO_COMMAND = """
 Deep-dive into a single package: drift status, dependency tree trace, policy compliance,
