@@ -82,6 +82,11 @@ qa-matrix:
         ossiq-qa \
         python /app/qa/smoke_matrix.py
 
+# Validate the gap-based repository-stability estimator against a hand-labelled corpus of live
+# GitHub repos. Prerequisite: OSSIQ_GITHUB_TOKEN env var set. See docs/explanation/repository-stability-calibration.md
+calibrate-stability:
+    uv run python qa/calibrate_stability.py
+
 # Profile scan command with cProfile + snakeviz; e.g. just profile testdata/npm/project1
 profile PATH:
     uv run python -m cProfile -o /tmp/ossiq_profile.prof -m ossiq.cli status {{PATH}}

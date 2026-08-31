@@ -2,6 +2,7 @@
 .claudeignore
 .mcp.json
 .claude/
+.serena/
 CLAUDE.md
 
 # test dataset

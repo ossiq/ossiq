@@ -1,0 +1,35 @@
+# PyPI corpus for Health Score debugging. Not a real project.
+# See qa/health-score-instruction.md; scan with --cutoff-date=2026-08-15 for reproducibility.
+#
+# Every pin is deliberate. The goal is spread across the model's inputs, not a realistic project:
+# a corpus where every package sits on `latest` collapses the exposure window onto the flat
+# ECOSYSTEM_FIX_PRIOR (60.0d on PyPI) and makes that entire term invisible.
+#
+# requirements.txt rather than pyproject.toml because a bare pyproject with no lockfile is not
+# detected (api_uv/api_pip both require one). The cost is that pip-classic reports
+# optional_dependencies={}, so every package here is tier="runtime" - the dev tier and the
+# install-execution multiplier are exercised by the npm fixture instead.
+
+# abandoned, archived upstream, unresolved CVEs, installed == latest.
+# The W-floor reference case: zero upgrade distance, so W is exactly 60.0d and no maintenance
+# signal can move it (HEALTH_SCORE_PLAN.md H0/H1).
+pycrypto==2.6.1
+
+# CVE with a low EPSS and an overdue fix: the negligence-bump reference case (H7).
+click==8.1.3
+
+# CVE plus minor lag - EPSS hazard accruing over a window that is not on the floor.
+requests==2.28.1
+
+# Several CVEs and a major lag: hazard summation across CVEs, largest upgrade distance.
+urllib3==1.26.5
+
+# Critical CVE with a fix available -> Gate blocks regardless of the probability chain.
+pyyaml==5.4.1
+
+# CVE plus moderate lag; a second multi-release-lag data point.
+jinja2==3.0.0
+
+# Mature, no CVE at this pin: the P_vuln == 0.0 control. Without it the corpus cannot show
+# whether a clean package is distinguishable from a vulnerable one.
+numpy==1.26.4

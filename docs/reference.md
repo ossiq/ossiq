@@ -473,7 +473,7 @@ The `export --output-format json` command writes a single `.json` file conformin
 | `development_packages` | Array of `PackageMetrics` |
 | `transitive_packages` | Array of `PackageMetrics` with `dependency_path` set |
 
-Since v1.5, every `PackageMetrics` entry (production, development, and transitive) also carries the health-score fields: `gate` (a `{status, reason}` object — `pass`, `quarantine`, or `block`), `fitness` (0–100), `expected_exposure`, `impact`, `p_vuln`, `p_supplychain`, and `exposure_window_days`. Any of the numeric fields may be `null` when the underlying signal could not be computed — this means "not computable," never "no risk." See [Reading the output](explanation/health-score.md#reading-the-output) for what each field means.
+Since v1.5, every `PackageMetrics` entry (production, development, and transitive) also carries `epss` (the highest EPSS among the package's CVEs), `runs_code_at_install` with `install_execution_reason`, and the repository-stability fields: `stability_csi`, `stability_coverage` (engagement-only partial index, coverage `0.20`; `null` when the repo has no issue/PR activity in the window — see [Repository stability](explanation/repository-stability.md)), `gap_cv`, `median_gap_days`, `silence_days`, `silence_p`, `commits_sampled`, `span_days`, `days_since_push`, `archived`, `triage_action`, the normalized responsiveness channels `phi_i` / `phi_p` / `phi_a`, and their raw 120-day-window inputs `issues_opened`, `issues_closed`, `median_resolution_days`, `prs_opened`, `prs_merged`, `median_review_days`, `activity_comments`, `active_participants`, `mentionable_users`. Any of them may be `null` when the underlying signal could not be measured — that means "unknown," never "no risk." See [Repository stability](explanation/repository-stability.md) for what each field means.
 
 #### CSV Export
 
@@ -486,7 +486,7 @@ The `export --output-format csv` command writes a folder named `export_{project_
 | `cves.csv` | One row per CVE with all `CVEInfo` fields |
 | `datapackage.json` | Schema references and foreign key relationships |
 
-Since v1.5, `packages.csv` carries eight additional columns for the health-score fields: `gate_status`, `gate_reason`, `fitness`, `expected_exposure`, `p_vuln`, `p_supplychain`, `impact`, and `exposure_window_days`. None are required — a package where a value could not be computed leaves the cell empty.
+Since v1.5, `packages.csv` carries twelve additional columns: `epss`, `runs_code_at_install`, `stability_csi` (engagement-only partial index — see [Repository stability](explanation/repository-stability.md)), `phi_i`, `phi_p`, `phi_a`, `days_since_push`, `triage_action`, `gap_cv`, `silence_days`, `silence_p`, and `commits_sampled`. None are required — a package where a value could not be measured leaves the cell empty. `summary.csv` gains `project_epss`, `packages_with_epss`, `packages_with_unscored_cves`, `packages_with_stability`, `packages_dormant`, and `packages_stability_unknown`.
 
 (console-reports)=
 ## Console Reports
@@ -519,7 +519,8 @@ The report has up to six parts, printed in this order. Parts with nothing to sho
 | Recommended | Solver-recommended update target. The column appears only when at least one package has a recommendation or a constraint conflict. Yellow when the recommendation is older than the latest version — usually held back by the [cooldown](#update-solver) or by a constraint. `[NO RESOLUTION]` when no published version satisfies all constraints. |
 | Latest | Most recent published version, or `N/A` when the registry reports none. |
 | Lag | Time between the installed and the latest version. Red when it exceeds `--lag-threshold-delta` (default `1y`). |
-| Fitness | 0–100 presentation projection of Expected Exposure (green ≥ 70, yellow ≥ 40, red below). The column appears only when at least one package has a computed value; `—` on a package where it could not be computed. See [Reading the output](explanation/health-score.md#reading-the-output) — this is a projection, never the source of truth. |
+| EPSS | Probability that the package's worst known CVE sees exploitation in the next 30 days. The column appears only when at least one package has a score; `—` means no CVE carries one, which is unknown rather than safe. |
+| Action | Recommended move from the [triage matrix](explanation/repository-stability.md#the-triage-matrix): `evict`, `patch`, or `refactor`. The column appears only when at least one package needs something other than `retain`. |
 
 Lifecycle markers on the Installed column:
 
@@ -530,18 +531,10 @@ Lifecycle markers on the Installed column:
 | `[DEPRECATED]` | The installed version, or the whole package, is deprecated. |
 | `[pre]` | The installed version is a pre-release. |
 
-A non-passing [Gate](explanation/health-score.md#the-gate) verdict adds a badge next to the package name in the Package column, plus an indented sub-row underneath naming the reason:
-
-| Marker | Meaning |
-|---|---|
-| `[BLOCK]` | The package failed the Gate outright — see the `↳ gate:` sub-row for which rule matched. |
-| `[QUARANTINE]` | The package is held back by the Gate (e.g. still inside its cooldown window). |
-
 A row with a recommendation can carry indented sub-rows describing what applying that recommendation would do to the rest of the dependency tree:
 
 | Sub-row | Meaning |
 |---|---|
-| `↳ gate: <reason>` | Why the Gate returned `[BLOCK]` or `[QUARANTINE]` for this package. Omitted when the package passes. |
 | `↳ <package> <current> → <projected>` | Updating the parent also moves this transitive package. When more than three packages would move, a count is shown instead of the list. |
 | `+ <package> <version> (new dep)` | Updating the parent introduces this package into the tree. Listed with full detail in **New transitive dependencies**. |
 | `↳ ⚠ <package>: <detail>` | The update collides with a constraint on this transitive package. See [When an update is blocked](#update-blocked). |
@@ -640,19 +633,20 @@ A deep-dive into one package. When the package is installed in the project, the 
 
 **Health Metrics.** Registry-level signals: downloads over the last month, number of published versions, maintainer count, age of the latest version, age of the recommended version (when it differs from the latest), and cooldown remaining — days until the latest release is old enough to clear the [cooldown period](explanation.md#cooldown-as-supply-chain-quarantine).
 
-For an installed package, this block also shows the channel decomposition behind its Gate and Fitness values:
+For an installed package, this block also shows the two risk pipelines:
 
 | Row | Meaning |
 |---|---|
-| Gate | The `pass` / `quarantine` / `block` verdict, styled by status, followed by the reason. |
-| Fitness | 0–100 presentation projection of Expected Exposure, colour-banded the same way as the `status` table's Fitness column. |
-| Expected exposure | `impact × P(incident)` — the value to prioritize on. |
-| Impact (blast radius) | What an incident would cost, independent of likelihood. |
-| P(vulnerability) | Probability channel for known CVEs being exploited over the exposure window. |
-| P(supply chain) | Probability channel for a malicious or compromised publish, independent of any known CVE. |
-| Exposure window | How long you'd be exposed if you had to react today. |
+| EPSS | Probability that the package's worst known CVE sees exploitation in the next 30 days. |
+| Gap CV | Coefficient of variation of inter-commit gaps from the [repository's last 100 commits](explanation/repository-stability.md), and how many commits it spans. `too few gaps` below 20 sampled gaps. |
+| ↳ silence | Days since the most recent sampled commit, and the empirical probability (`p`) of a silence this long, from the repository's own history. |
+| Last pushed | Time since the last push to the upstream repository. |
+| Repository archived | Shown only when the upstream repository is archived. |
+| Triage | The recommended action and why. |
+| Fix available | How long a fix for a known CVE has been published without being applied. |
+| Runs code at install | Whether installing the package executes code, and what indicated it. |
 
-Any of these can render `—`: it means the underlying signal could not be computed, never that the package carries no risk. See [Reading the output](explanation/health-score.md#reading-the-output) for the full explanation of Gate vs. Expected Exposure vs. Fitness.
+Any of these can render `—`: it means the signal could not be measured, never that the package carries no risk.
 
 **Occurrences.** A package can appear in the tree more than once — for example as a direct dependency and, at a different version, as a transitive one. Each occurrence gets its own block of the five sections below, labelled `Occurrence n of m`.
 

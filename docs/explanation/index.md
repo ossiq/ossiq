@@ -3,7 +3,7 @@
 ```{toctree}
 :maxdepth: 1
 
-health-score
+repository-stability
 ```
 
 
