@@ -47,21 +47,61 @@ function cveStyle(severity: string) {
   return severityStyles[severity as SeverityKey] ?? severityStyles.LOW
 }
 
-function fitnessColor(fitness?: number | null): string {
-  if (fitness === null || fitness === undefined) return 'text-slate-300'
-  if (fitness >= 70) return 'text-green-600'
-  if (fitness >= 40) return 'text-amber-600'
-  return 'text-red-700'
+function epssColor(epss?: number | null): string {
+  if (epss === null || epss === undefined) return 'text-slate-300'
+  if (epss >= 0.1) return 'text-red-700'
+  if (epss >= 0.005) return 'text-amber-600'
+  return 'text-green-600'
 }
 
-const gateConfig: Record<string, { text: string; label: string }> = {
-  block: { text: 'text-red-700', label: 'BLOCK' },
-  quarantine: { text: 'text-amber-600', label: 'QUARANTINE' },
-  pass: { text: 'text-emerald-600', label: 'PASS' },
+// Mirrors the CLI `info` view (add_stability_rows): the gap coefficient of variation, or a
+// "too few gaps" note when the repo was measured but has < 20 sampled gaps, or a dash when
+// nothing was measured at all.
+const gapCvDisplay = computed(() => {
+  const n = props.node
+  if (!n) return '—'
+  if (n.gap_cv != null) return n.gap_cv.toFixed(2)
+  if ((n.commits_sampled ?? 0) > 0) return 'too few gaps'
+  return '—'
+})
+
+const silenceDisplay = computed(() => {
+  const n = props.node
+  if (!n || n.silence_days == null) return null
+  const days = `${Math.round(n.silence_days)}d`
+  return n.silence_p != null ? `${days} · p=${n.silence_p.toFixed(2)}` : days
+})
+
+// Engagement-flow trend: shown whenever the GraphQL activity sample produced one.
+const engagementTrends = computed(() => {
+  const flow = props.node?.flow_trend
+  return flow != null ? [{ label: 'Issue / PR flow', value: flow }] : null
+})
+
+// Maintenance-state verdict (risk/maintenance.py) plus the observations behind it.
+const maintenance = computed(() => {
+  const n = props.node
+  if (!n || n.maintenance_state == null) return null
+  const notMaintained = n.maintenance_state === 'abandoned' || n.maintenance_state === 'deprecated'
+  const pill = notMaintained
+    ? 'bg-red-100 text-red-700'
+    : n.maintenance_state === 'winding_down'
+      ? 'bg-amber-100 text-amber-700'
+      : 'bg-emerald-100 text-emerald-700'
+  return { state: n.maintenance_state, risk: n.stability_risk ?? null, pill }
+})
+
+const deprecationSignals = computed(() => props.node?.deprecation_signals ?? [])
+
+const triageConfig: Record<string, { text: string; label: string }> = {
+  evict: { text: 'text-red-700', label: 'EVICT' },
+  patch: { text: 'text-amber-600', label: 'PATCH' },
+  refactor: { text: 'text-amber-500', label: 'REFACTOR' },
+  retain: { text: 'text-emerald-600', label: 'RETAIN' },
 }
 
-function gateStyle(status: string) {
-  return gateConfig[status] ?? { text: 'text-slate-600', label: status.toUpperCase() }
+function triageStyle(action: string) {
+  return triageConfig[action] ?? { text: 'text-slate-600', label: action.toUpperCase() }
 }
 
 type TransitiveCVEGroup = { name: string; version: string; cves: CVEInfo[] }
@@ -196,29 +236,49 @@ const transitiveCVEGroups = computed<TransitiveCVEGroup[]>(() => {
         <section>
           <p class="text-[10px] font-bold uppercase tracking-widest text-slate-400 font-mono mb-3">Risk</p>
           <div class="border-t border-slate-100 pt-4 space-y-4">
-            <div class="grid grid-cols-4 gap-4">
+            <div class="grid grid-cols-3 gap-4">
               <div class="space-y-0.5">
-                <p class="text-[10px] font-bold text-slate-400 uppercase">Fitness</p>
-                <p class="text-xl font-bold font-mono" :class="fitnessColor(node.fitness)">{{ node.fitness ?? '—' }}</p>
+                <p class="text-[10px] font-bold text-slate-400 uppercase">EPSS</p>
+                <p class="text-xl font-bold font-mono" :class="epssColor(node.epss)">{{ node.epss != null ? `${(node.epss * 100).toFixed(1)}%` : '—' }}</p>
               </div>
               <div class="space-y-0.5">
-                <p class="text-[10px] font-bold text-slate-400 uppercase">Expected Exposure</p>
-                <p class="text-xl font-bold font-mono text-slate-700">{{ node.expected_exposure != null ? node.expected_exposure.toFixed(4) : '—' }}</p>
+                <p class="text-[10px] font-bold text-slate-400 uppercase" title="Coefficient of variation of inter-commit gaps from the last 100 commits — ≈1 memoryless, >1 bursty, <1 more regular than chance">Gap CV</p>
+                <p class="text-xl font-bold font-mono text-slate-700">{{ gapCvDisplay }}</p>
+                <p v-if="node.commits_sampled" class="text-[9px] text-slate-400">over {{ node.commits_sampled }} commits</p>
               </div>
               <div class="space-y-0.5">
-                <p class="text-[10px] font-bold text-slate-400 uppercase">Exposure Window</p>
-                <p class="text-xl font-bold font-mono text-slate-700">{{ node.exposure_window_days != null ? formatTimeLag(node.exposure_window_days) : '—' }}</p>
-              </div>
-              <div class="space-y-0.5">
-                <p class="text-[10px] font-bold text-slate-400 uppercase">Impact</p>
-                <p class="text-xl font-bold font-mono text-slate-700">{{ node.impact != null ? node.impact.toFixed(2) : '—' }}</p>
+                <p class="text-[10px] font-bold text-slate-400 uppercase">Last Pushed</p>
+                <p class="text-xl font-bold font-mono text-slate-700">{{ node.days_since_push != null ? formatTimeLag(node.days_since_push) : '—' }}</p>
               </div>
             </div>
-            <div v-if="node.gate" class="pt-3 border-t border-slate-100">
-              <span class="text-[10px] text-slate-400 uppercase font-bold">Gate</span>
+            <div v-if="silenceDisplay" class="flex items-center gap-2 text-[11px] pt-1">
+              <span class="text-slate-500">Silence: <span class="font-mono text-slate-700">{{ silenceDisplay }}</span></span>
+            </div>
+            <div v-if="deprecationSignals.length" class="flex flex-wrap items-center gap-1.5 text-[11px] pt-1">
+              <span
+                v-for="sig in deprecationSignals"
+                :key="sig"
+                class="px-1.5 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wide bg-red-100 text-red-700"
+              >{{ sig.replace(/_/g, ' ') }}</span>
+              <span v-if="node.deprecation_successor" class="text-slate-500">→ <span class="font-mono text-slate-700">{{ node.deprecation_successor }}</span></span>
+            </div>
+            <div v-if="maintenance" class="pt-3 border-t border-slate-100 space-y-1.5">
+              <div class="flex items-baseline justify-between">
+                <span class="text-[10px] text-slate-400 uppercase font-bold" title="Most probable maintenance state from the naive-Bayes model in risk/maintenance.py">Maintenance</span>
+                <span class="flex items-baseline gap-2">
+                  <span class="px-1.5 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wide" :class="maintenance.pill">{{ maintenance.state.replace(/_/g, ' ') }}</span>
+                  <span v-if="maintenance.risk != null" class="font-mono text-[11px] font-bold text-slate-700">risk {{ maintenance.risk.toFixed(2) }}</span>
+                </span>
+              </div>
+              <div v-for="t in engagementTrends" :key="t.label" class="flex items-center gap-2">
+                <span class="text-[10px] text-slate-500 w-28 shrink-0">{{ t.label }}</span>
+                <span class="font-mono text-[10px] text-slate-600">{{ t.value }}</span>
+              </div>
+            </div>
+            <div v-if="node.triage_action" class="pt-3 border-t border-slate-100">
+              <span class="text-[10px] text-slate-400 uppercase font-bold">Recommended action</span>
               <p class="text-[11px] mt-0.5">
-                <span class="font-mono font-bold" :class="gateStyle(node.gate.status).text">{{ gateStyle(node.gate.status).label }}</span>
-                <span class="text-slate-500 ml-1">{{ node.gate.reason }}</span>
+                <span class="font-mono font-bold" :class="triageStyle(node.triage_action).text">{{ triageStyle(node.triage_action).label }}</span>
               </p>
             </div>
           </div>

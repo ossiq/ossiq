@@ -13,7 +13,7 @@ export type SortColumn =
   | 'releases'
   | 'timeLag'
   | 'versionAge'
-  | 'fitness'
+  | 'epss'
 
 export interface ReportRow {
   pkg: PackageMetrics
@@ -208,8 +208,10 @@ export function useReportFilters() {
         case 'versionAge':
           cmp = (a.pkg.version_age_days ?? 0) - (b.pkg.version_age_days ?? 0)
           break
-        case 'fitness':
-          cmp = (a.pkg.fitness ?? -1) - (b.pkg.fitness ?? -1)
+        case 'epss':
+          // -1 keeps unscored packages at the bottom of a descending sort, same as Fitness did.
+          // The direction flips though: a high EPSS is bad where a high Fitness was good.
+          cmp = (a.pkg.epss ?? -1) - (b.pkg.epss ?? -1)
           break
       }
       return dir === 'asc' ? cmp : -cmp

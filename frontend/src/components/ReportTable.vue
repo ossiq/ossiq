@@ -58,7 +58,7 @@ const columns: ColumnDef[] = [
   { id: 'releases',   label: 'Releases',     width: '6%'  },
   { id: 'timeLag',    label: 'Time Lag',     width: '6%'  },
   { id: 'versionAge', label: 'Version Age',  width: '6%'  },
-  { id: 'fitness',    label: 'Fitness',      width: '7%'  },
+  { id: 'epss',       label: 'EPSS',         width: '7%'  },
 ]
 
 function sortIcon(col: SortColumn, currentCol: SortColumn | null, dir: SortDirection): string {
@@ -96,17 +96,23 @@ function driftClasses(status: string): string {
   }
 }
 
-function gateClasses(status?: string): string {
-  if (status === 'block') return 'bg-red-700 text-white'
-  if (status === 'quarantine') return 'bg-amber-400 text-amber-900'
+function triageClasses(action?: string | null): string {
+  if (action === 'evict') return 'bg-red-700 text-white'
+  if (action === 'patch') return 'bg-amber-400 text-amber-900'
+  if (action === 'refactor') return 'bg-amber-200 text-amber-900'
   return ''
 }
 
-function fitnessColor(fitness?: number | null): string {
-  if (fitness === null || fitness === undefined) return 'text-zinc-400'
-  if (fitness >= 70) return 'text-green-600'
-  if (fitness >= 40) return 'text-amber-600'
-  return 'text-red-700'
+function epssColor(epss?: number | null): string {
+  if (epss === null || epss === undefined) return 'text-zinc-400'
+  if (epss >= 0.1) return 'text-red-700'
+  if (epss >= 0.005) return 'text-amber-600'
+  return 'text-green-600'
+}
+
+function formatEpss(epss?: number | null): string {
+  if (epss === null || epss === undefined) return '—'
+  return `${(epss * 100).toFixed(1)}%`
 }
 
 function timeLagColor(days: number | null): string {
@@ -169,11 +175,11 @@ function spdxUrl(spdxId: string): string {
                   @click="emit('selectPackage', row)"
                 >{{ row.pkg.package_name }}</button>
                 <span
-                  v-if="row.pkg.gate && row.pkg.gate.status !== 'pass'"
+                  v-if="row.pkg.triage_action && row.pkg.triage_action !== 'retain'"
                   class="px-1.5 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wide shrink-0"
-                  :class="gateClasses(row.pkg.gate.status)"
-                  :title="row.pkg.gate.reason"
-                >{{ row.pkg.gate.status }}</span>
+                  :class="triageClasses(row.pkg.triage_action)"
+                  :title="`Recommended action from the EPSS x maintenance-state matrix`"
+                >{{ row.pkg.triage_action }}</span>
                 <span
                   v-if="row.hasTransitiveCve"
                   class="text-orange-500 font-black leading-none text-xs"
@@ -254,12 +260,12 @@ function spdxUrl(spdxId: string): string {
               >{{ row.versionAgeDisplay }}</strong>
             </td>
 
-            <!-- Fitness -->
+            <!-- EPSS -->
             <td class="px-3 py-2 text-xs text-center">
               <strong
                 class="font-semibold"
-                :class="fitnessColor(row.pkg.fitness)"
-              >{{ row.pkg.fitness ?? '—' }}</strong>
+                :class="epssColor(row.pkg.epss)"
+              >{{ formatEpss(row.pkg.epss) }}</strong>
             </td>
 
             <!-- Recommended Version -->
