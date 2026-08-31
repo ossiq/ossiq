@@ -5,6 +5,7 @@ from rich.rule import Rule
 from rich.table import Table
 
 from ossiq.domain.common import Command, ConstraintType, UserInterfaceType
+from ossiq.risk.triage import ACTION_RETAIN
 from ossiq.service.library_scan import UpgradePath
 from ossiq.service.project.models import ScanRecord, ScanResult
 from ossiq.settings import Settings
@@ -14,6 +15,7 @@ from ossiq.ui.renderers.impact_utils import (
     format_probability,
     format_status_badge,
     format_time_delta,
+    format_triage,
     impact_sub_row_texts,
     new_transitive_deps_table,
 )
@@ -68,6 +70,14 @@ class ConsoleStatusRenderer(AbstractUserInterfaceRenderer):
             self.console.print(
                 f"  Project EPSS: [bold]{format_probability(data.project_epss.score)}[/bold]  |  "
                 f"Scored: [bold]{data.project_epss.scored_packages}[/bold]{unscored_part}"
+            )
+        if data.project_stability is not None and data.project_stability.scored_packages:
+            stability = data.project_stability
+            deprecated_part = f" ({stability.deprecated_packages} deprecated)" if stability.deprecated_packages else ""
+            self.console.print(
+                f"  Unmaintained deps: [bold]{stability.unmaintained_packages}[/bold]{deprecated_part} of "
+                f"[bold]{stability.scored_packages}[/bold] assessed  |  "
+                f"Unassessed: [bold]{stability.unknown_packages}[/bold]"
             )
         self.console.print()
 
@@ -155,6 +165,11 @@ class ConsoleStatusRenderer(AbstractUserInterfaceRenderer):
             pkg.recommended_version is not None or pkg.constraint_conflict for pkg in filtered_prod + filtered_dev
         )
         show_epss = any(pkg.epss is not None for pkg in filtered_prod + filtered_dev)
+        # The triage action only: the maintenance state and its per-observation breakdown stay in
+        # `info` and the export, where there is room for the evidence behind the verdict.
+        show_action = any(
+            pkg.triage is not None and pkg.triage.action != ACTION_RETAIN for pkg in filtered_prod + filtered_dev
+        )
 
         table = Table(show_header=True, header_style="bold dim", box=None, padding=(0, 2))
         table.add_column("Package", style="bold")
@@ -167,6 +182,8 @@ class ConsoleStatusRenderer(AbstractUserInterfaceRenderer):
         table.add_column("Lag", justify="right")
         if show_epss:
             table.add_column("EPSS", justify="right")
+        if show_action:
+            table.add_column("Action", justify="center")
 
         empty = [""] * (len(table.columns) - 1)
         first_section = True
@@ -210,6 +227,8 @@ class ConsoleStatusRenderer(AbstractUserInterfaceRenderer):
 
                 if show_epss:
                     row.append(format_probability(pkg.epss))
+                if show_action:
+                    row.append(format_triage(pkg.triage))
 
                 table.add_row(*row)
 

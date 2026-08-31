@@ -15,6 +15,7 @@ from rich.text import Text
 
 from ossiq.domain.common import ConstraintType
 from ossiq.domain.cve import CVE
+from ossiq.risk.maintenance import NOT_MAINTAINED, MaintenanceState
 from ossiq.service.package import PackageDetailResult, PackageInsight, PackageWarning, TransitiveCVEGroup
 from ossiq.service.project.models import ScanRecord
 from ossiq.timeutil import format_time_days
@@ -23,6 +24,7 @@ from ossiq.ui.renderers.impact_utils import (
     format_probability,
     format_status_badge,
     format_time_delta,
+    format_triage,
 )
 
 SEVERITY_STYLE: dict[str, str] = {
@@ -179,8 +181,9 @@ def health_metrics(insight: PackageInsight, records: list[ScanRecord] | None = N
 
 
 def add_epss_rows(table: Table, record: ScanRecord, marker: str) -> None:
-    """Append the EPSS, fix-age, and install-execution signals for a single occurrence."""
+    """Append the EPSS, stability, fix-age, and install-execution signals for a single occurrence."""
     table.add_row(f"EPSS{marker}", format_probability(record.epss))
+    add_stability_rows(table, record, marker)
 
     fix_ages = [cve.fix_age_days for cve in record.cve if cve.fix_age_days is not None]
     table.add_row(f"Fix available{marker}", or_dash_days(max(fix_ages) if fix_ages else None))
@@ -193,6 +196,55 @@ def add_epss_rows(table: Table, record: ScanRecord, marker: str) -> None:
     else:
         install_cell = "no"
     table.add_row(f"Runs code at install{marker}", install_cell)
+
+
+def add_stability_rows(table: Table, record: ScanRecord, marker: str) -> None:
+    """Append the repository-stability signals, the deprecation evidence, the maintenance-state
+    verdict, and the resulting triage action.
+
+    The gap statistics and the engagement-flow trends show whenever they were measured; the
+    Maintenance row shows whenever at least one observation fed the model.
+    """
+    stability = record.stability
+
+    if stability is not None:
+        gap_cell = f"{stability.gap_cv:.3f}" if stability.gap_cv is not None else "too few gaps"
+        table.add_row(f"Gap CV{marker}", f"{gap_cell}  [dim]over {stability.commits_sampled} commits[/dim]")
+
+        if stability.silence_days is not None:
+            silence_cell = f"{stability.silence_days:.0f}d"
+            if stability.silence_p is not None:
+                silence_cell += f"  [dim](p={stability.silence_p:.3f})[/dim]"
+            table.add_row("  silence", silence_cell)
+
+        if stability.flow_trend is not None:
+            table.add_row("  engagement", f"[dim]issue/PR flow {stability.flow_trend}[/dim]")
+
+    table.add_row(f"Last pushed{marker}", or_dash_days(record.days_since_push))
+
+    deprecation = record.deprecation
+    if deprecation is not None and deprecation.signals:
+        signals = ", ".join(sorted(deprecation.signals))
+        successor = f"  [dim]→ {deprecation.successor}[/dim]" if deprecation.successor else ""
+        table.add_row("Deprecation", f"[bold red]{signals}[/bold red]{successor}")
+
+    maintenance = record.maintenance
+    if maintenance is not None:
+        if maintenance.state in NOT_MAINTAINED:
+            style = "bold red"
+        elif maintenance.state == MaintenanceState.WINDING_DOWN:
+            style = "yellow"
+        else:
+            style = "green"
+        observations = "  ".join(f"{name}={value}" for name, value in maintenance.observations.items())
+        table.add_row(
+            f"Maintenance{marker}",
+            f"[{style}]{maintenance.state}[/{style}]  "
+            f"[dim](risk {maintenance.p_not_maintained:.2f} · {observations})[/dim]",
+        )
+
+    if record.triage is not None:
+        table.add_row(f"Triage{marker}", f"{format_triage(record.triage)}  [dim]{record.triage.reason}[/dim]")
 
 
 def drift_status(record: ScanRecord) -> Group:

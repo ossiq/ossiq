@@ -25,7 +25,7 @@ except ImportError:
 SCAN_STEPS: list[tuple[str, str]] = [
     ("project", "Reading project dependencies"),
     ("packages", "Fetching package metadata"),
-    ("repositories", "Fetching repository info from GitHub"),
+    ("repositories", "Fetching repository info and activity from GitHub"),
     ("vulnerabilities", "Checking for vulnerabilities via OSV.dev"),
     ("epss", "Fetching EPSS scores via api.first.org"),
     ("versions", "Analyzing version history"),

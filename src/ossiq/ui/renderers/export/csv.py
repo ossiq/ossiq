@@ -174,7 +174,15 @@ class CsvExportRenderer(AbstractUserInterfaceRenderer):
 
         is_v1_5_plus = schema_version == ExportCsvSchemaVersion.V1_5
         if is_v1_5_plus:
-            fieldnames += ["project_epss", "packages_with_epss", "packages_with_unscored_cves"]
+            fieldnames += [
+                "project_epss",
+                "packages_with_epss",
+                "packages_with_unscored_cves",
+                "packages_with_stability",
+                "packages_unmaintained",
+                "packages_deprecated",
+                "packages_stability_unknown",
+            ]
 
         # Create single row with all summary data
         # Get schema version value (enums have .value, literal "N/A" is already a string)
@@ -198,6 +206,10 @@ class CsvExportRenderer(AbstractUserInterfaceRenderer):
             row["project_epss"] = "" if project_epss is None else str(round(project_epss, 4))
             row["packages_with_epss"] = export_data.summary.packages_with_epss
             row["packages_with_unscored_cves"] = export_data.summary.packages_with_unscored_cves
+            row["packages_with_stability"] = export_data.summary.packages_with_stability
+            row["packages_unmaintained"] = export_data.summary.packages_unmaintained
+            row["packages_deprecated"] = export_data.summary.packages_deprecated
+            row["packages_stability_unknown"] = export_data.summary.packages_stability_unknown
 
         # Write CSV with UTF-8 BOM for Excel compatibility
         with open(file_path, "w", encoding="utf-8-sig", newline="") as f:
@@ -251,7 +263,22 @@ class CsvExportRenderer(AbstractUserInterfaceRenderer):
         if is_v1_4_plus:
             fieldnames += ["is_prerelease", "is_yanked", "is_deprecated", "is_package_unpublished"]
         if is_v1_5_plus:
-            fieldnames += ["epss", "runs_code_at_install"]
+            fieldnames += [
+                "epss",
+                "runs_code_at_install",
+                "stability_csi",
+                "stability_risk",
+                "maintenance_state",
+                "flow_trend",
+                "deprecation_signals",
+                "deprecation_successor",
+                "days_since_push",
+                "triage_action",
+                "gap_cv",
+                "silence_days",
+                "silence_p",
+                "commits_sampled",
+            ]
         fieldnames += ["license", "purl"]
 
         def risk_cell(value: float | None) -> str:
@@ -287,6 +314,20 @@ class CsvExportRenderer(AbstractUserInterfaceRenderer):
                 row["runs_code_at_install"] = (
                     "" if pkg.runs_code_at_install is None else self._serialize_bool(pkg.runs_code_at_install)
                 )
+                row["stability_csi"] = risk_cell(pkg.stability_csi)
+                row["stability_risk"] = risk_cell(pkg.stability_risk)
+                row["maintenance_state"] = self._serialize_optional(pkg.maintenance_state)
+                row["flow_trend"] = self._serialize_optional(pkg.flow_trend)
+                row["deprecation_signals"] = self._serialize_optional(
+                    ",".join(pkg.deprecation_signals) if pkg.deprecation_signals else None
+                )
+                row["deprecation_successor"] = self._serialize_optional(pkg.deprecation_successor)
+                row["days_since_push"] = self._serialize_optional(pkg.days_since_push)
+                row["triage_action"] = self._serialize_optional(pkg.triage_action)
+                row["gap_cv"] = risk_cell(pkg.gap_cv)
+                row["silence_days"] = risk_cell(pkg.silence_days)
+                row["silence_p"] = risk_cell(pkg.silence_p)
+                row["commits_sampled"] = self._serialize_optional(pkg.commits_sampled)
             return row
 
         # Generate rows for all packages

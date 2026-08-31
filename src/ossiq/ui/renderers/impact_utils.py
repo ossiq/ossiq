@@ -11,6 +11,7 @@ from ossiq.domain.version import (
     VERSION_LATEST,
     VersionsDifference,
 )
+from ossiq.risk.triage import ACTION_EVICT, ACTION_PATCH, ACTION_REFACTOR, ACTION_RETAIN, TriageResult
 from ossiq.service.project.models import ScanRecord
 from ossiq.service.update_impact import TransitiveImpact
 from ossiq.timeutil import format_time_days
@@ -34,6 +35,22 @@ def format_probability(value: float | None) -> str:
     if value is None:
         return "[dim]—[/dim]"
     return f"{value * 100:.1f}%"
+
+
+TRIAGE_STYLE: dict[str, str] = {
+    ACTION_EVICT: "bold red",
+    ACTION_PATCH: "bold yellow",
+    ACTION_REFACTOR: "yellow",
+    ACTION_RETAIN: "green",
+}
+
+
+def format_triage(result: TriageResult | None) -> str:
+    """Triage action cell, styled by urgency; em dash when triage has not run."""
+    if result is None:
+        return "[dim]—[/dim]"
+    style = TRIAGE_STYLE.get(result.action, "default")
+    return f"[{style}]{result.action}[/]"
 
 
 def format_time_delta(days: int | None, lag_threshold_days: int) -> str:
