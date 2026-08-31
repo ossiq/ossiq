@@ -20,8 +20,8 @@ from tests.ui.renderers.export.test_csv_schema_registry_base import CsvSchemaReg
 
 class TestCsvSchemaRegistryV15(CsvSchemaRegistryBaseTest):
     version = ExportCsvSchemaVersion.V1_5
-    packages_field_count = 22
-    summary_field_count = 14
+    packages_field_count = 34
+    summary_field_count = 18
     cves_field_count = 12
     included_versions = [
         ExportCsvSchemaVersion.V1_0,

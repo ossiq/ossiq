@@ -85,6 +85,18 @@ _PACKAGES_HEADERS_V15 = [
     "is_package_unpublished",
     "epss",
     "runs_code_at_install",
+    "stability_csi",
+    "stability_risk",
+    "maintenance_state",
+    "flow_trend",
+    "deprecation_signals",
+    "deprecation_successor",
+    "days_since_push",
+    "triage_action",
+    "gap_cv",
+    "silence_days",
+    "silence_p",
+    "commits_sampled",
     "license",
     "purl",
 ]
@@ -108,6 +120,10 @@ _SUMMARY_HEADERS_V15 = [
     "project_epss",
     "packages_with_epss",
     "packages_with_unscored_cves",
+    "packages_with_stability",
+    "packages_unmaintained",
+    "packages_deprecated",
+    "packages_stability_unknown",
 ]
 
 _CVES_HEADERS = [
