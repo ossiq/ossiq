@@ -25,6 +25,7 @@ from ossiq.ui.renderers.impact_utils import (
     format_status_badge,
     format_time_delta,
     format_triage,
+    whats_next,
 )
 
 SEVERITY_STYLE: dict[str, str] = {
@@ -248,20 +249,24 @@ def add_stability_rows(table: Table, record: ScanRecord, marker: str) -> None:
 
 
 def drift_status(record: ScanRecord) -> Group:
-    """Installed-versus-latest position: lag class, both versions and elapsed time."""
+    """Installed-versus-latest position: lag class, both versions, elapsed time, and next action."""
     latest_style = "bold green" if record.latest_version else "bold red"
     releases = DASH
     if record.releases_lag:
         releases = f"[bold]{record.releases_lag} versions behind[/bold]"
 
-    return section(
-        "Drift Status",
+    lines = [
         f"  Status    : {format_lag_status(record.versions_diff_index)}",
         f"  Installed : [bold]{record.installed_version}[/bold]{format_status_badge(record)}",
         f"  Latest    : [{latest_style}]{record.latest_version or 'N/A'}[/]",
         f"  Time Lag  : {format_time_delta(record.time_lag_days, LAG_THRESHOLD_DAYS)}",
         f"  Releases  : {releases}",
-    )
+    ]
+
+    if next_action := whats_next(record):
+        lines.append(f"  Next      : {next_action}")
+
+    return section("Drift Status", *lines)
 
 
 def dependency_tree(record: ScanRecord) -> Group:

@@ -1,9 +1,9 @@
-"""Minimal stdio MCP server exposing OSS IQ verdicts to AI agents.
+"""Minimal stdio MCP server exposing OSS IQ decisions to AI agents.
 
 Hand-rolled JSON-RPC 2.0 over stdin/stdout (newline-delimited messages, per the
 MCP stdio transport) so no extra dependency is needed for two read-only tools.
 Each tool reuses the existing scan/prospective services and returns the compact
-verdict from ``service.agent``.
+decision from ``service.agent``.
 
 ponytail: stdlib JSON-RPC instead of the official `mcp` SDK — respects the repo's
 no-new-deps rule; swap in `mcp.server` if the SDK is ever vendored.
@@ -15,7 +15,7 @@ from collections.abc import Callable
 from typing import Any
 
 from ossiq.commands.info import build_installed_detail, matches
-from ossiq.service.agent import AgentVerdict, build_add_verdict, build_update_verdict
+from ossiq.service.agent import AgentDecision, build_add_decide, build_update_decide
 from ossiq.service.package import fetch_prospective_detail
 from ossiq.service.project.scan import scan
 from ossiq.settings import Settings
@@ -28,9 +28,9 @@ TOOLS: list[dict[str, Any]] = [
     {
         "name": "ossiq_evaluate_dependency",
         "description": (
-            "Evaluate a package an agent is about to ADD to a project. Returns a compact verdict "
-            "(ok/warn/block), the recommended version, CVEs, and supply-chain warnings. Use before "
-            "introducing a new dependency."
+            "Evaluate a package an agent is about to ADD to a project. Returns a `next_action` "
+            "(install / install with caution / do not install), the recommended version, CVEs, and "
+            "supply-chain warnings. Use before introducing a new dependency."
         ),
         "inputSchema": {
             "type": "object",
@@ -46,9 +46,10 @@ TOOLS: list[dict[str, Any]] = [
     {
         "name": "ossiq_evaluate_updates",
         "description": (
-            "Evaluate UPDATING a project's existing direct dependencies. Returns a per-package verdict "
-            "list (ok/warn/block) with recommended versions, CVEs, and transitive impact. Use before "
-            "bumping dependency versions."
+            "Evaluate UPDATING a project's existing direct dependencies. Returns a per-package "
+            "`next_action` (Update Immediately / Check Release Notes / Check for the Fix / Consider "
+            "alternative / Find alternative) with recommended versions, CVEs, and transitive impact. "
+            "Use before bumping dependency versions."
         ),
         "inputSchema": {
             "type": "object",
@@ -67,8 +68,8 @@ def noop_step(_: str) -> None:
     """Silent scan progress callback — stdout is reserved for JSON-RPC."""
 
 
-def evaluate_dependency(settings: Settings, args: dict[str, Any]) -> AgentVerdict:
-    """Build an add-verdict for a single package (installed or prospective)."""
+def evaluate_dependency(settings: Settings, args: dict[str, Any]) -> AgentDecision:
+    """Build an add-decision for a single package (installed or prospective)."""
     package_name = args["package"]
     sources = project_sources.build_project_sources(
         settings,
@@ -87,11 +88,11 @@ def evaluate_dependency(settings: Settings, args: dict[str, Any]) -> AgentVerdic
     else:
         detail = fetch_prospective_detail(package_name, sources, settings)
 
-    return build_add_verdict(detail, requested_version=args.get("version"))
+    return build_add_decide(detail, requested_version=args.get("version"))
 
 
-def evaluate_updates(settings: Settings, args: dict[str, Any]) -> AgentVerdict:
-    """Build an update-verdict for a project's direct dependencies."""
+def evaluate_updates(settings: Settings, args: dict[str, Any]) -> AgentDecision:
+    """Build an update-decision for a project's direct dependencies."""
     sources = project_sources.build_project_sources(
         settings,
         args.get("project_path", "."),
@@ -102,10 +103,10 @@ def evaluate_updates(settings: Settings, args: dict[str, Any]) -> AgentVerdict:
         security_only=bool(args.get("security", False)),
     )
     scan_result = scan(sources, on_step=noop_step)
-    return build_update_verdict(scan_result)
+    return build_update_decide(scan_result)
 
 
-TOOL_HANDLERS: dict[str, Callable[[Settings, dict[str, Any]], AgentVerdict]] = {
+TOOL_HANDLERS: dict[str, Callable[[Settings, dict[str, Any]], AgentDecision]] = {
     "ossiq_evaluate_dependency": evaluate_dependency,
     "ossiq_evaluate_updates": evaluate_updates,
 }
@@ -119,11 +120,11 @@ def handle_tools_call(settings: Settings, params: dict[str, Any]) -> dict[str, A
         return {"content": [{"type": "text", "text": f"Unknown tool: {name}"}], "isError": True}
 
     try:
-        verdict = handler(settings, params.get("arguments") or {})
+        decision = handler(settings, params.get("arguments") or {})
     except Exception as error:  # noqa: BLE001 — surface any failure to the agent, keep the loop alive
         return {"content": [{"type": "text", "text": f"{type(error).__name__}: {error}"}], "isError": True}
 
-    return {"content": [{"type": "text", "text": json.dumps(verdict)}]}
+    return {"content": [{"type": "text", "text": json.dumps(decision)}]}
 
 
 def handle_request(settings: Settings, message: dict[str, Any]) -> dict[str, Any] | None:

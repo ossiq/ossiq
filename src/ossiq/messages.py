@@ -22,6 +22,11 @@ HELP_PRODUCTION_ONLY = """
 Exclude non-production packages. Default: false
 """
 
+HELP_STATUS_FULL = """
+Show every dependency and the detail columns (EPSS, update mode, installed, lag, maintenance
+state). Default: only packages that need action, with a minimal column set.
+"""
+
 HELP_REGISTRY_TYPE = """
 Specify which project registry type (ecosystem) to use. Default: None. Possible options: npm, pypi
 """

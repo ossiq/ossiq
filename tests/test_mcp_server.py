@@ -38,12 +38,14 @@ def test_unknown_method_returns_error():
     assert response["error"]["code"] == -32601
 
 
-def test_tools_call_serializes_verdict(monkeypatch):
-    monkeypatch.setitem(server.TOOL_HANDLERS, "ossiq_evaluate_updates", lambda _s, _a: {"verdict": "ok"})
+def test_tools_call_serializes_decision(monkeypatch):
+    monkeypatch.setitem(
+        server.TOOL_HANDLERS, "ossiq_evaluate_updates", lambda _s, _a: {"next_action": "no action needed"}
+    )
     params = {"name": "ossiq_evaluate_updates", "arguments": {"project_path": "."}}
     response = server.handle_request(MagicMock(), {"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": params})
     assert response is not None
-    assert response["result"]["content"][0]["text"] == '{"verdict": "ok"}'
+    assert response["result"]["content"][0]["text"] == '{"next_action": "no action needed"}'
     assert "isError" not in response["result"]
 
 

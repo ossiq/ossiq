@@ -1,7 +1,7 @@
 """
-Tests for the agent verdict builder (service.agent).
+Tests for the agent decision builder (service.agent).
 
-Covers the ok/warn/block branches for both the add and update flows, driven
+Covers the next-action branches for both the add and update flows, driven
 entirely from existing scan/package result fields.
 """
 
@@ -9,7 +9,8 @@ from ossiq.domain.common import ConstraintType, CveDatabase, ProjectPackagesRegi
 from ossiq.domain.cve import CVE, Severity
 from ossiq.domain.project import ConstraintSource
 from ossiq.domain.version import VERSION_DIFF_MAJOR, VERSION_LATEST, VersionsDifference
-from ossiq.service.agent import build_add_verdict, build_update_verdict
+from ossiq.risk.maintenance import MaintenanceAssessment, MaintenanceState
+from ossiq.service.agent import build_add_decide, build_update_decide
 from ossiq.service.package import (
     RULE_SINGLE_MAINTAINER,
     RULE_SINGLE_VERSION,
@@ -62,6 +63,15 @@ def make_detail(insight: PackageInsight, warnings: list[PackageWarning], cves: l
     )
 
 
+def abandoned_assessment() -> MaintenanceAssessment:
+    return MaintenanceAssessment(
+        posterior={s.value: 0.0 for s in MaintenanceState},
+        state=MaintenanceState.ABANDONED.value,
+        p_not_maintained=1.0,
+        observations={},
+    )
+
+
 def make_record(
     name: str = "pkg",
     installed: str = "1.0.0",
@@ -87,42 +97,41 @@ def make_record(
     )
 
 
-# --- add verdict -----------------------------------------------------------
+# --- add decision --------------------------------------------------------------
 
 
-def test_add_ok_when_clean_and_at_latest():
+def test_add_install_when_clean_and_at_latest():
     detail = make_detail(make_insight(latest="2.0.0", recommended="2.0.0"), warnings=[], cves=[])
-    verdict = build_add_verdict(detail)
-    assert verdict["verdict"] == "ok"
-    assert verdict["recommended_version"] == "2.0.0"
-    assert verdict["operation"] == "add"
-    assert verdict["registry"] == "pypi"
+    decision = build_add_decide(detail)
+    assert decision["next_action"] == "install"
+    assert decision["recommended_version"] == "2.0.0"
+    assert decision["operation"] == "add"
+    assert decision["registry"] == "pypi"
 
 
-def test_add_warn_on_single_maintainer():
+def test_add_caution_on_single_maintainer():
     warning = PackageWarning(RULE_SINGLE_MAINTAINER, "Single maintainer — bus factor risk", "warning")
     detail = make_detail(make_insight(maintainers=1), warnings=[warning], cves=[])
-    verdict = build_add_verdict(detail, requested_version="2.0.0")
-    assert verdict["verdict"] == "warn"
-    assert RULE_SINGLE_MAINTAINER in verdict["warnings"]
-    assert verdict["requested_version"] == "2.0.0"
+    decision = build_add_decide(detail, requested_version="2.0.0")
+    assert decision["next_action"] == "install with caution"
+    assert RULE_SINGLE_MAINTAINER in decision["warnings"]
+    assert decision["requested_version"] == "2.0.0"
 
 
-def test_add_block_on_critical_warning():
+def test_add_do_not_install_on_critical_warning():
     warning = PackageWarning(RULE_SINGLE_VERSION, "Only one version — typosquat risk", "critical")
     detail = make_detail(make_insight(), warnings=[warning], cves=[])
-    verdict = build_add_verdict(detail)
-    assert verdict["verdict"] == "block"
+    assert build_add_decide(detail)["next_action"] == "do not install"
 
 
-def test_add_warn_when_cve_present():
+def test_add_caution_when_cve_present():
     detail = make_detail(make_insight(), warnings=[], cves=[make_cve()])
-    verdict = build_add_verdict(detail)
-    assert verdict["verdict"] == "warn"
-    assert verdict["cves"][0]["id"] == "CVE-2023-0001"
+    decision = build_add_decide(detail)
+    assert decision["next_action"] == "install with caution"
+    assert decision["cves"][0]["id"] == "CVE-2023-0001"
 
 
-# --- update verdict --------------------------------------------------------
+# --- update decision ----------------------------------------------------------
 
 
 def make_scan(records: list[ScanRecord]) -> ScanResult:
@@ -135,29 +144,37 @@ def make_scan(records: list[ScanRecord]) -> ScanResult:
     )
 
 
-def test_update_ok_when_nothing_actionable():
-    scan = make_scan([make_record()])
-    verdict = build_update_verdict(scan)
-    assert verdict["verdict"] == "ok"
-    assert verdict["updates"] == []
+def test_update_no_action_when_nothing_actionable():
+    decision = build_update_decide(make_scan([make_record()]))
+    assert decision["next_action"] == "no action needed"
+    assert decision["updates"] == []
+    assert "verdict" not in decision
 
 
-def test_update_warn_on_recommended_bump():
+def test_update_release_notes_for_major_bump():
     record = make_record(installed="1.0.0", latest="2.0.0", diff_index=VERSION_DIFF_MAJOR, recommended="2.0.0")
-    verdict = build_update_verdict(make_scan([record]))
-    assert verdict["verdict"] == "warn"
-    assert verdict["updates"][0]["to"] == "2.0.0"
+    decision = build_update_decide(make_scan([record]))
+    assert decision["next_action"] == "Check Release Notes"
+    assert decision["updates"][0]["next_action"] == "Check Release Notes"
+    assert decision["updates"][0]["to"] == "2.0.0"
+    assert "verdict" not in decision["updates"][0]
 
 
-def test_update_block_when_cve_has_no_fix():
-    # CVE present, recommended == installed (no safe escape) -> block.
+def test_update_check_for_the_fix_when_cve_has_no_fix():
     record = make_record(installed="1.0.0", cves=[make_cve()], recommended="1.0.0")
-    verdict = build_update_verdict(make_scan([record]))
-    assert verdict["verdict"] == "block"
-    assert verdict["updates"][0]["verdict"] == "block"
+    decision = build_update_decide(make_scan([record]))
+    assert decision["next_action"] == "Check for the Fix"
+    assert decision["updates"][0]["next_action"] == "Check for the Fix"
 
 
-def test_update_block_on_yanked():
+def test_update_find_alternative_on_yanked():
     record = make_record(is_installed_yanked=True)
-    verdict = build_update_verdict(make_scan([record]))
-    assert verdict["verdict"] == "block"
+    decision = build_update_decide(make_scan([record]))
+    assert decision["next_action"] == "Find alternative"
+
+
+def test_update_abandoned_at_latest_becomes_an_entry():
+    record = make_record(maintenance=abandoned_assessment())
+    decision = build_update_decide(make_scan([record]))
+    assert decision["updates"][0]["next_action"] == "Find alternative"
+    assert "refactor_candidates" not in decision

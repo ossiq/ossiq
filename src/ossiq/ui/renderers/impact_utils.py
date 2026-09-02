@@ -11,8 +11,17 @@ from ossiq.domain.version import (
     VERSION_LATEST,
     VersionsDifference,
 )
+from ossiq.risk.maintenance import NOT_MAINTAINED, MaintenanceState
 from ossiq.risk.triage import ACTION_EVICT, ACTION_PATCH, ACTION_REFACTOR, ACTION_RETAIN, TriageResult
 from ossiq.service.project.models import ScanRecord
+from ossiq.service.project.next_action import (
+    CHECK_FOR_THE_FIX,
+    CHECK_RELEASE_NOTES,
+    CONSIDER_ALTERNATIVE,
+    FIND_ALTERNATIVE,
+    UPDATE_IMMEDIATELY,
+    next_action_label,
+)
 from ossiq.service.update_impact import TransitiveImpact
 from ossiq.timeutil import format_time_days
 
@@ -77,6 +86,35 @@ def format_lag_status(vdiff: VersionsDifference) -> str:
         return "[green][bold]Latest"
     else:
         return "[bold]N/A"
+
+
+def format_state(record: ScanRecord) -> str:
+    """Colored maintenance-state cell; em dash when the package was not assessed."""
+    maintenance = record.maintenance
+    if maintenance is None:
+        return "[dim]—[/dim]"
+    if maintenance.state in NOT_MAINTAINED:
+        style = "bold red"
+    elif maintenance.state == MaintenanceState.WINDING_DOWN:
+        style = "yellow"
+    else:
+        style = "green"
+    return f"[{style}]{maintenance.state}[/]"
+
+
+WHATS_NEXT_STYLE: dict[str, str] = {
+    CHECK_FOR_THE_FIX: "bold red",
+    FIND_ALTERNATIVE: "bold red",
+    CONSIDER_ALTERNATIVE: "bold yellow",
+    CHECK_RELEASE_NOTES: "default",
+    UPDATE_IMMEDIATELY: "default",
+}
+
+
+def whats_next(record: ScanRecord) -> str:
+    """The package's next action (service.project.next_action) styled by urgency; empty when none."""
+    label = next_action_label(record)
+    return "" if label is None else f"[{WHATS_NEXT_STYLE[label]}]{label}[/]"
 
 
 def impact_sub_row_texts(impacts: list[TransitiveImpact]) -> list[str]:

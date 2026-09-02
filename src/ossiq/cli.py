@@ -60,6 +60,7 @@ from ossiq.messages import (
     HELP_REWRITE_VERSIONS,
     HELP_SCHEMA_VERSION,
     HELP_SECURITY_ONLY,
+    HELP_STATUS_FULL,
     HELP_TEXT,
 )
 from ossiq.settings import Settings
@@ -270,7 +271,7 @@ def help():  # pylint: disable=redefined-builtin
 
 @app.command()
 def mcp(context: typer.Context):
-    """Run a local stdio MCP server exposing OSS IQ verdicts to AI agents."""
+    """Run a local stdio MCP server exposing OSS IQ decisions to AI agents."""
     serve_mcp(context.obj)
 
 
@@ -299,13 +300,14 @@ def status(
             help="Narrow transitive recommendations to CVE-carrying packages only",
         ),
     ] = False,
+    full: Annotated[bool, typer.Option("--full", is_flag=True, help=HELP_STATUS_FULL)] = False,
     ignore: Annotated[
         list[str] | None,
         typer.Option("--ignore", "-i", help=HELP_IGNORE_PACKAGE),
     ] = None,
     output_format: Annotated[
         Literal["console", "agent"],
-        typer.Option("--format", "-f", help="Output format: console (human) or agent (compact JSON verdict)"),
+        typer.Option("--format", "-f", help="Output format: console (human) or agent (compact JSON decision)"),
     ] = "console",
 ):
     """
@@ -327,6 +329,7 @@ def status(
                 security_only=security,
                 ignore_packages=tuple(ignore or []),
                 output_format=output_format,
+                full=full,
             ),
         )
 
@@ -464,7 +467,7 @@ def info(
     ] = None,
     output_format: Annotated[
         Literal["console", "agent"],
-        typer.Option("--format", "-f", help="Output format: console (human) or agent (compact JSON verdict)"),
+        typer.Option("--format", "-f", help="Output format: console (human) or agent (compact JSON decision)"),
     ] = "console",
 ):
     """

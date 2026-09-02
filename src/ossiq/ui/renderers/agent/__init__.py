@@ -1,1 +1,1 @@
-"""Agent-oriented verdict renderers."""
+"""Agent-oriented decision renderers."""

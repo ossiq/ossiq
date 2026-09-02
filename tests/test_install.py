@@ -138,6 +138,7 @@ def test_load_skill_content_bundles_agent_contract():
     assert install.SKILL_UVX_PROD in content
     assert "ossiq_evaluate_dependency" in content
     assert "ossiq_evaluate_updates" in content
+    assert "next_action" in content
 
 
 def test_build_mcp_entry_dev_path():

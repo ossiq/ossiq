@@ -8,7 +8,7 @@ from ossiq.domain.common import ConstraintType, CveDatabase, ProjectPackagesRegi
 from ossiq.domain.cve import CVE, Severity
 from ossiq.domain.package import Package
 from ossiq.domain.project import ConstraintSource, PeerRequirement
-from ossiq.domain.version import VERSION_DIFF_MAJOR, VersionsDifference
+from ossiq.domain.version import VERSION_DIFF_MAJOR, VERSION_LATEST, VersionsDifference
 from ossiq.service.package import PackageDetailResult, PackageInsight, PackageWarning, TransitiveCVEGroup
 from ossiq.service.project.models import ScanRecord
 from ossiq.settings import Settings
@@ -282,3 +282,32 @@ def test_yanked_badge_reaches_header_and_drift_status() -> None:
     output = render(data)
 
     assert output.count("[YANKED]") == 2
+
+
+def test_drift_status_shows_next_action() -> None:
+    data = PackageDetailResult(
+        records=[make_record()],
+        transitive_cve_groups=[],
+        project_name="demo",
+        packages_registry="npm",
+    )
+
+    output = render(data)
+
+    assert "Next      : Check Release Notes" in output
+
+
+def test_drift_status_omits_next_when_nothing_due() -> None:
+    record = make_record()
+    record.versions_diff_index = VersionsDifference("1.0.0", "1.0.0", VERSION_LATEST, "latest")
+    record.latest_version = "1.0.0"
+    data = PackageDetailResult(
+        records=[record],
+        transitive_cve_groups=[],
+        project_name="demo",
+        packages_registry="npm",
+    )
+
+    output = render(data)
+
+    assert "Next      :" not in output
