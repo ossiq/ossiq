@@ -27,6 +27,7 @@ export interface DependencyNode {
   is_yanked?: boolean
   is_deprecated?: boolean
   is_package_unpublished?: boolean
+  recommended_version?: string | null
   epss?: number | null
   stability_csi?: number | null
   stability_coverage?: number | null
@@ -79,6 +80,7 @@ export interface SelectedNodeDetail {
   is_yanked?: boolean
   is_deprecated?: boolean
   is_package_unpublished?: boolean
+  recommended_version?: string | null
   epss?: number | null
   stability_csi?: number | null
   stability_coverage?: number | null

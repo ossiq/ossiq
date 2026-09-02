@@ -15,10 +15,19 @@ export type SortColumn =
   | 'versionAge'
   | 'epss'
 
+export type WhatsNext =
+  | 'Check for the Fix'
+  | 'Find alternative'
+  | 'Consider alternative'
+  | 'Check Release Notes'
+  | 'Update Immediately'
+  | null
+
 export interface ReportRow {
   pkg: PackageMetrics
   isDev: boolean
   driftStatus: DriftStatus
+  whatsNext: WhatsNext
   timeLagDisplay: string
   versionAgeDisplay: string
   cveCount: number
@@ -41,6 +50,49 @@ export function computeDriftStatus(
   if (iMaj !== lMaj) return 'DIFF_MAJOR'
   if (iMin !== lMin) return 'DIFF_MINOR'
   return 'DIFF_PATCH'
+}
+
+// At or above a 10% chance of exploitation a CVE is an active threat (mirrors
+// EPSS_EXPLOIT_THRESHOLD in the CLI's risk/triage.py).
+const EPSS_EXPLOIT_THRESHOLD = 0.1
+
+export const WHATS_NEXT_CLASS: Record<string, string> = {
+  'Check for the Fix': 'text-red-700',
+  'Find alternative': 'text-red-700',
+  'Consider alternative': 'text-amber-600',
+  'Check Release Notes': 'text-slate-600',
+  'Update Immediately': 'text-slate-600',
+}
+
+// The single next action for a package, first match wins. Mirrors whats_next() in the CLI's
+// ui/renderers/impact_utils.py: an exploitable CVE outranks a dying upstream, which outranks drift.
+export function computeWhatsNext(opts: {
+  driftStatus: DriftStatus
+  cveCount: number
+  epss: number | null | undefined
+  maintenanceState: string | null | undefined
+}): WhatsNext {
+  const { driftStatus, cveCount, epss, maintenanceState } = opts
+  if (cveCount > 0 && epss != null && epss >= EPSS_EXPLOIT_THRESHOLD) return 'Check for the Fix'
+  if (driftStatus === 'LATEST' && (maintenanceState === 'abandoned' || maintenanceState === 'deprecated'))
+    return 'Find alternative'
+  if (maintenanceState === 'winding_down') return 'Consider alternative'
+  if (driftStatus === 'DIFF_MAJOR') return 'Check Release Notes'
+  if (driftStatus === 'DIFF_MINOR' || driftStatus === 'DIFF_PATCH') return 'Update Immediately'
+  return null
+}
+
+// Whether a package needs the reader's attention. Mirrors needs_action() in the CLI's
+// ui/renderers/status/console.py (constraint_conflict is not in the export, so it is omitted).
+export function isActionable(row: ReportRow): boolean {
+  const p = row.pkg
+  return (
+    row.driftStatus !== 'LATEST' ||
+    row.cveCount > 0 ||
+    p.maintenance_state === 'abandoned' ||
+    p.maintenance_state === 'deprecated' ||
+    (p.recommended_version != null && p.recommended_version !== p.installed_version)
+  )
 }
 
 export function formatTimeLag(days: number | null): string {
@@ -68,6 +120,7 @@ export function useReportFilters() {
 
   // Filter state
   const searchText = ref('')
+  const showAll = ref(false) // false = only packages that need action
   const packageTypeFilter = ref<'all' | 'production' | 'development'>('all')
   const driftStatusFilter = ref<DriftStatus | 'all'>('all')
   const releaseDistanceFilter = ref<number | null>(null) // min threshold
@@ -98,42 +151,44 @@ export function useReportFilters() {
   // Build unified row list
   const allRows = computed<ReportRow[]>(() => {
     const registry = store.report?.project.registry ?? 'npm'
-    const prodRows: ReportRow[] = (store.productionPackages as PackageMetrics[]).map((pkg) => ({
-      pkg,
-      isDev: false,
-      driftStatus: computeDriftStatus(pkg.installed_version, pkg.latest_version),
-      timeLagDisplay: formatTimeLag(pkg.time_lag_days),
-      versionAgeDisplay: formatTimeLag(pkg.version_age_days),
-      cveCount: pkg.cve.length,
-      registryUrl: registryUrl(registry, pkg.package_name),
-      license: pkg.license ?? [],
-      hasTransitiveCve: transitiveCveSet.value.has(pkg.package_name),
-      isPrerelease: pkg.is_prerelease ?? false,
-      isYanked: pkg.is_yanked ?? false,
-      isDeprecated: pkg.is_deprecated ?? false,
-      isPackageUnpublished: pkg.is_package_unpublished ?? false,
-    }))
-    const devRows: ReportRow[] = (store.developmentPackages as PackageMetrics[]).map((pkg) => ({
-      pkg,
-      isDev: true,
-      driftStatus: computeDriftStatus(pkg.installed_version, pkg.latest_version),
-      timeLagDisplay: formatTimeLag(pkg.time_lag_days),
-      versionAgeDisplay: formatTimeLag(pkg.version_age_days),
-      cveCount: pkg.cve.length,
-      registryUrl: registryUrl(registry, pkg.package_name),
-      license: pkg.license ?? [],
-      hasTransitiveCve: transitiveCveSet.value.has(pkg.package_name),
-      isPrerelease: pkg.is_prerelease ?? false,
-      isYanked: pkg.is_yanked ?? false,
-      isDeprecated: pkg.is_deprecated ?? false,
-      isPackageUnpublished: pkg.is_package_unpublished ?? false,
-    }))
-    return [...prodRows, ...devRows]
+    const toRow = (pkg: PackageMetrics, isDev: boolean): ReportRow => {
+      const driftStatus = computeDriftStatus(pkg.installed_version, pkg.latest_version)
+      return {
+        pkg,
+        isDev,
+        driftStatus,
+        whatsNext: computeWhatsNext({
+          driftStatus,
+          cveCount: pkg.cve.length,
+          epss: pkg.epss,
+          maintenanceState: pkg.maintenance_state,
+        }),
+        timeLagDisplay: formatTimeLag(pkg.time_lag_days),
+        versionAgeDisplay: formatTimeLag(pkg.version_age_days),
+        cveCount: pkg.cve.length,
+        registryUrl: registryUrl(registry, pkg.package_name),
+        license: pkg.license ?? [],
+        hasTransitiveCve: transitiveCveSet.value.has(pkg.package_name),
+        isPrerelease: pkg.is_prerelease ?? false,
+        isYanked: pkg.is_yanked ?? false,
+        isDeprecated: pkg.is_deprecated ?? false,
+        isPackageUnpublished: pkg.is_package_unpublished ?? false,
+      }
+    }
+    return [
+      ...(store.productionPackages as PackageMetrics[]).map((pkg) => toRow(pkg, false)),
+      ...(store.developmentPackages as PackageMetrics[]).map((pkg) => toRow(pkg, true)),
+    ]
   })
 
   // Apply filters
   const filteredRows = computed<ReportRow[]>(() => {
     let rows = allRows.value
+
+    // Actionable-only (default): hide up-to-date, maintained packages with nothing to do
+    if (!showAll.value) {
+      rows = rows.filter(isActionable)
+    }
 
     // Text search
     if (searchText.value) {
@@ -236,6 +291,7 @@ export function useReportFilters() {
 
   function resetFilters() {
     searchText.value = ''
+    showAll.value = false
     packageTypeFilter.value = 'all'
     driftStatusFilter.value = 'all'
     releaseDistanceFilter.value = null
@@ -246,6 +302,7 @@ export function useReportFilters() {
 
   return {
     searchText,
+    showAll,
     packageTypeFilter,
     driftStatusFilter,
     releaseDistanceFilter,

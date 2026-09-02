@@ -13,6 +13,7 @@ import type { DependencyTreeRoot, TransitivePackageMetrics } from '@/types/repor
 const store = useOssiqStore()
 const {
   searchText,
+  showAll,
   packageTypeFilter,
   driftStatusFilter,
   releaseDistanceFilter,
@@ -64,6 +65,7 @@ function handleSelectPackage(row: ReportRow) {
     is_deprecated: row.pkg.is_deprecated ?? false,
     is_package_unpublished: row.pkg.is_package_unpublished ?? false,
     version_age_days: row.pkg.version_age_days,
+    recommended_version: row.pkg.recommended_version ?? null,
     epss: row.pkg.epss ?? null,
     stability_csi: row.pkg.stability_csi ?? null,
     stability_coverage: row.pkg.stability_coverage ?? null,
@@ -151,6 +153,10 @@ function handlePanelClose() {
         <!-- Help text -->
         <div v-if="showHelp" class="w-3/4">
           <p class="text-sm text-slate-500">
+            By default the table shows only packages that need action — a version behind, a CVE, or an
+            unmaintained upstream. Tick <strong>Show all packages</strong> to see everything.
+            <strong>What&rsquo;s Next</strong> is the single next step per package: check for a fix, find or
+            consider an alternative, check release notes, or update immediately.
             <strong>Dependency Drift</strong> quantifies the version distance between installed and latest releases,
             segmented by major, minor, and patch changes. This provides a deterministic signal of accumulated change
             and remediation effort across both direct and transitive dependencies.
@@ -169,6 +175,7 @@ function handlePanelClose() {
         <!-- Filters -->
         <ReportFilters
           v-model:search-text="searchText"
+          v-model:show-all="showAll"
           v-model:package-type="packageTypeFilter"
           v-model:drift-status="driftStatusFilter"
           v-model:release-distance="releaseDistanceFilter"

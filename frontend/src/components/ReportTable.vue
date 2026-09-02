@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import type { ReportRow, SortColumn, SortDirection } from '@/composables/useReportFilters'
+import { WHATS_NEXT_CLASS } from '@/composables/useReportFilters'
 import type { TransitiveImpactExport } from '@/types/report'
 import { constraintCircleClasses } from '@/explorer/nodeStyle'
 
@@ -155,6 +156,7 @@ function spdxUrl(spdxId: string): string {
               </span>
             </th>
             <th class="px-3 py-2.5 text-[9px] font-bold uppercase tracking-widest text-zinc-500" width="8%">Rec. Version</th>
+            <th class="px-3 py-2.5 text-[9px] font-bold uppercase tracking-widest text-zinc-500" width="10%">What's Next</th>
             <th class="px-3 py-2.5 text-[9px] font-bold uppercase tracking-widest text-zinc-500" width="9%">License</th>
             <th class="px-3 py-2.5 text-[9px] font-bold uppercase tracking-widest text-zinc-500" width="5%">Impact</th>
           </tr>
@@ -277,6 +279,16 @@ function spdxUrl(spdxId: string): string {
               <span v-else class="text-zinc-300">—</span>
             </td>
 
+            <!-- What's Next -->
+            <td class="px-3 py-2 text-xs">
+              <span
+                v-if="row.whatsNext"
+                class="font-semibold"
+                :class="WHATS_NEXT_CLASS[row.whatsNext] ?? ''"
+              >{{ row.whatsNext }}</span>
+              <span v-else class="text-zinc-300">—</span>
+            </td>
+
             <!-- License -->
             <td class="px-3 py-2">
               <div class="flex flex-wrap gap-0.5">
@@ -315,7 +327,7 @@ function spdxUrl(spdxId: string): string {
             v-if="hasImpacts(row) && expandedImpacts.has(row.pkg.package_name)"
             class="bg-stone-50"
           >
-            <td colspan="12" class="px-6 py-3">
+            <td colspan="13" class="px-6 py-3">
               <p v-if="row.pkg.recommended_version" class="text-xs text-zinc-500 mb-2">
                 Recommended update:
                 <span class="font-mono font-semibold text-zinc-700">{{ row.pkg.installed_version }}</span>
@@ -357,7 +369,7 @@ function spdxUrl(spdxId: string): string {
           </template>
 
           <tr v-if="rows.length === 0">
-            <td colspan="12" class="px-6 py-8 text-center text-sm text-zinc-400">
+            <td colspan="13" class="px-6 py-8 text-center text-sm text-zinc-400">
               No dependencies match the current filters.
             </td>
           </tr>

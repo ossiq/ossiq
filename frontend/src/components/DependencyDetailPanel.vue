@@ -2,7 +2,7 @@
 import { computed } from 'vue'
 import type { SelectedNodeDetail, DependencyNode } from '@/types/dependency-tree'
 import type { CVEInfo } from '@/types/report'
-import { computeDriftStatus, formatTimeLag } from '@/composables/useReportFilters'
+import { computeDriftStatus, computeWhatsNext, formatTimeLag, WHATS_NEXT_CLASS } from '@/composables/useReportFilters'
 
 const props = defineProps<{
   node: SelectedNodeDetail | null
@@ -16,6 +16,18 @@ const emit = defineEmits<{
 
 const driftStatus = computed(() =>
   props.node ? computeDriftStatus(props.node.version_installed, props.node.latest_version ?? null) : 'LATEST',
+)
+
+// The single next step for this package — same ladder as the report table and the CLI.
+const whatsNext = computed(() =>
+  props.node
+    ? computeWhatsNext({
+        driftStatus: driftStatus.value,
+        cveCount: props.node.cve?.length ?? 0,
+        epss: props.node.epss,
+        maintenanceState: props.node.maintenance_state,
+      })
+    : null,
 )
 
 const lagBarWidth = computed(() => {
@@ -231,6 +243,39 @@ const transitiveCVEGroups = computed<TransitiveCVEGroup[]>(() => {
 
       <!-- ── Scrollable body ── -->
       <div class="flex-1 overflow-y-auto px-5 py-6 space-y-8">
+
+        <!-- Next Step -->
+        <section>
+          <p class="text-[10px] font-bold uppercase tracking-widest text-slate-400 font-mono mb-3">Next Step</p>
+          <div class="border-t border-slate-100 pt-4 space-y-4">
+            <p
+              class="text-lg font-bold"
+              :class="whatsNext ? (WHATS_NEXT_CLASS[whatsNext] ?? 'text-slate-700') : 'text-emerald-600'"
+            >{{ whatsNext ?? 'Nothing to do' }}</p>
+            <div class="grid grid-cols-3 gap-4">
+              <div class="space-y-0.5">
+                <p class="text-[10px] font-bold text-slate-400 uppercase">Recommended</p>
+                <p v-if="node.recommended_version" class="text-sm font-bold font-mono">
+                  <span class="text-slate-400">{{ node.version_installed }}</span>
+                  <span class="text-slate-300 mx-1">→</span>
+                  <span class="text-violet-700">{{ node.recommended_version }}</span>
+                </p>
+                <p v-else class="text-sm font-bold font-mono text-slate-300">—</p>
+              </div>
+              <div class="space-y-0.5">
+                <p class="text-[10px] font-bold text-slate-400 uppercase">EPSS</p>
+                <p class="text-sm font-bold font-mono" :class="epssColor(node.epss)">{{ node.epss != null ? `${(node.epss * 100).toFixed(1)}%` : '—' }}</p>
+              </div>
+              <div class="space-y-0.5">
+                <p class="text-[10px] font-bold text-slate-400 uppercase">Maintenance</p>
+                <p v-if="maintenance">
+                  <span class="px-1.5 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wide" :class="maintenance.pill">{{ maintenance.state.replace(/_/g, ' ') }}</span>
+                </p>
+                <p v-else class="text-sm font-bold font-mono text-slate-300">—</p>
+              </div>
+            </div>
+          </div>
+        </section>
 
         <!-- Risk -->
         <section>
