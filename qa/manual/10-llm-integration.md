@@ -105,7 +105,7 @@ printf '%s\n' \
   | uv run hatch run ossiq-cli mcp
 ```
 
-- [ ] Response 2 has `result.content[0].text` containing a JSON verdict with `"operation": "add"`, `verdict` in ok/warn/block, `recommended_version`, `cves`, `warnings`
+- [ ] Response 2 has `result.content[0].text` containing a JSON decision with `"operation": "add"`, `next_action` in install / install with caution / do not install, `recommended_version`, `cves`, `warnings`
 - [ ] No `isError` on the result
 - [ ] Unknown package (e.g. `definitely-not-a-real-pkg-xyz`) returns `isError: true` with a message — the server stays alive, no crash
 
@@ -121,7 +121,7 @@ printf '%s\n' \
   | uv run hatch run ossiq-cli mcp
 ```
 
-- [ ] Response 2 verdict JSON has `"operation": "update"` and an `updates` array with `package`, `from`, `to`, `verdict` per entry
+- [ ] Response 2 decision JSON has `"operation": "update"`, a top-level `next_action`, and an `updates` array with `package`, `next_action`, `from`, `to` per entry
 - [ ] Response 3 (unknown tool) has `isError: true`; server answered it rather than crashing
 
 ---
@@ -135,8 +135,8 @@ uv run hatch run ossiq-cli info requests testdata/pypi/uv --format agent | pytho
 uv run hatch run ossiq-cli status testdata/pypi/version-constraint --format agent | python3 -m json.tool
 ```
 
-- [ ] `info --format agent` output is valid JSON with `operation: "add"`, `verdict`, `recommended_version`, `reasons`, `cves`, `warnings` (matches the SKILL.md example)
-- [ ] `status --format agent` output is valid JSON with `operation: "update"` and `updates` list
+- [ ] `info --format agent` output is valid JSON with `operation: "add"`, `next_action`, `recommended_version`, `reasons`, `cves`, `warnings` (matches the SKILL.md example)
+- [ ] `status --format agent` output is valid JSON with `operation: "update"`, a top-level `next_action`, and an `updates` list where each entry has a `next_action`
 - [ ] Output is pure JSON — no tables, spinners, or progress text mixed in
 
 ---
@@ -147,4 +147,4 @@ After TC-L02, in a fresh Claude Code session in any project:
 
 - [ ] `/mcp` shows the `ossiq` server connected; its two tools are listed
 - [ ] The `ossiq` skill appears in the skills list
-- [ ] Prompt "check if it's safe to add left-pad to this project" — the agent invokes the skill or MCP tool and reports a verdict
+- [ ] Prompt "check if it's safe to add left-pad to this project" — the agent invokes the skill or MCP tool and reports a decision

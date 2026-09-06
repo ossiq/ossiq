@@ -9,7 +9,7 @@ registry metadata -> `repository_stability` -> `assess_maintenance`) against a h
   2. Every `abandoned` repo is flagged `has_stopped`, and `benjaminp/six` specifically is NOT
      flagged (the headline "finished, not dead" case). Deprecated repos are validated by the
      confusion matrix instead - a deprecated package can still carry a live repo.
-  3. No repo that committed within the last 90 days is flagged.
+  3. No repo that committed within the last RECENT_ACTIVITY_DAYS (30) is flagged.
 
   + a confusion matrix, multiclass Brier score and reliability curve for the naive-Bayes
     maintenance model over the 4 states.

@@ -67,9 +67,8 @@ function handleSelectPackage(row: ReportRow) {
     version_age_days: row.pkg.version_age_days,
     recommended_version: row.pkg.recommended_version ?? null,
     epss: row.pkg.epss ?? null,
-    stability_csi: row.pkg.stability_csi ?? null,
-    stability_coverage: row.pkg.stability_coverage ?? null,
-    stability_risk: row.pkg.stability_risk ?? null,
+    maintenance_coverage: row.pkg.maintenance_coverage ?? null,
+    maintenance_risk: row.pkg.maintenance_risk ?? null,
     maintenance_state: row.pkg.maintenance_state ?? null,
     flow_trend: row.pkg.flow_trend ?? null,
     deprecation_signals: row.pkg.deprecation_signals ?? [],
@@ -164,9 +163,10 @@ function handlePanelClose() {
             next 30 days; a dash means no CVE carries a score, which is unknown rather than safe.
             <strong>Repository stability</strong> samples the upstream repo's last 100 commits: the gap coefficient
             of variation describes its commit rhythm, and the current silence is compared against that repo's own
-            history to tell an unusual quiet from a normal one — evidence, not a verdict. The φi/φp/φa channels add
-            issue-resolution, pull-request and engagement responsiveness from a 120-day window; they are advisory
-            until calibrated into the Composite Stability Index.
+            history to tell an unusual quiet from a normal one — evidence, not a verdict. The
+            <strong>Maintenance</strong> state combines that dormancy signal with deprecation evidence, time since
+            the last push, and the issue/PR flow trend into a naive-Bayes probability over four states —
+            maintained, winding down, abandoned, or deprecated.
             <strong>Action</strong> crosses the two: exploit pressure decides whether to move now, repository
             activity decides whether to patch or to replace.
           </p>

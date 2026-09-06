@@ -208,13 +208,13 @@ uv run hatch run ossiq-cli export --output-format=json --schema-version=1.5 \
     --output=reports/e.json testdata/pypi/uv
 python -c "import json;d=json.load(open('reports/e.json'));\
 p=[x for x in d['production_packages'] if x.get('maintenance_state')][0];\
-print({k:p.get(k) for k in ('package_name','maintenance_state','stability_csi','stability_risk','flow_trend','deprecation_signals','triage_action')})"
+print({k:p.get(k) for k in ('package_name','maintenance_state','maintenance_risk','flow_trend','deprecation_signals','triage_action')})"
 ```
 
 - [ ] `info` "Maintenance" row shows a sane state + the observations behind it
 - [ ] `info` "Deprecation" row lists the right signals for a known-deprecated package
 - [ ] a package the model calls `deprecated`/`abandoned` gets `triage refactor` (or `evict` with a live CVE), a healthy one gets `retain`
-- [ ] export `maintenance_state` / `stability_risk` match what `info` shows; `phi_*` keys are gone
+- [ ] export `maintenance_state` / `maintenance_risk` match what `info` shows; `phi_*` keys are gone
 
 ---
 
@@ -233,9 +233,9 @@ Once the metrics in Step 4 hold across **3 runs (2 warm cache + 1 fresh)**:
    [`TODO_NEXT.md`](../../TODO_NEXT.md) "Calibration outcome" section.
 3. Unblock **N6** (docs): regenerate
    `docs/explanation/repository-stability-calibration.md` from the harness output (confusion
-   matrix + Brier + the φ-drop finding), add it to the `docs/explanation/index.md` toctree,
-   and rewrite the `## The Composite Stability Index` section of
-   `docs/explanation/repository-stability.md` — the weighted-sum framing is retired.
+   matrix + Brier + the φ-drop finding) and add it to the `docs/explanation/index.md` toctree.
+   (`docs/explanation/repository-stability.md`'s "## The maintenance-state model" section is
+   already rewritten — the weighted-sum CSI framing is retired.)
 4. `uv run just qa` + `uv run frontend-build`, commit.
 
 - [ ] harness fails loudly on a regression in the model metrics
