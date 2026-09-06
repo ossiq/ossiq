@@ -5,6 +5,7 @@ html_baseurl = "https://ossiq.dev/"
 
 extensions = [
     "myst_parser",
+    "sphinx.ext.mathjax",
     "sphinx_immaterial",
     "sphinxext.opengraph",
     "sphinxcontrib.mermaid",
@@ -35,7 +36,12 @@ myst_enable_extensions = [
     "tasklist",
     "attrs_inline",
     "attrs_block",
+    "dollarmath",
 ]
+# MathJax v3 with SVG output (tex-svg.js). Chosen over sphinx.ext.imgmath because imgmath
+# shells out to a local latex + dvisvgm install, which CI and contributor machines lack.
+mathjax_path = "https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js"
+
 myst_heading_anchors = 3
 # Lets plain ```mermaid fences (the syntax GitHub/VS Code previewers recognize)
 # also trigger the sphinxcontrib-mermaid directive, instead of requiring ```{mermaid}.

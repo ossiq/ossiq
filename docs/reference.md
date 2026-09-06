@@ -473,7 +473,7 @@ The `export --output-format json` command writes a single `.json` file conformin
 | `development_packages` | Array of `PackageMetrics` |
 | `transitive_packages` | Array of `PackageMetrics` with `dependency_path` set |
 
-Since v1.5, every `PackageMetrics` entry (production, development, and transitive) also carries `epss` (the highest EPSS among the package's CVEs), `runs_code_at_install` with `install_execution_reason`, and the repository-stability fields: `stability_csi`, `stability_coverage` (engagement-only partial index, coverage `0.20`; `null` when the repo has no issue/PR activity in the window — see [Repository stability](explanation/repository-stability.md)), `gap_cv`, `median_gap_days`, `silence_days`, `silence_p`, `commits_sampled`, `span_days`, `days_since_push`, `archived`, `triage_action`, the normalized responsiveness channels `phi_i` / `phi_p` / `phi_a`, and their raw 120-day-window inputs `issues_opened`, `issues_closed`, `median_resolution_days`, `prs_opened`, `prs_merged`, `median_review_days`, `activity_comments`, `active_participants`, `mentionable_users`. Any of them may be `null` when the underlying signal could not be measured — that means "unknown," never "no risk." See [Repository stability](explanation/repository-stability.md) for what each field means.
+Since v1.5, every `PackageMetrics` entry (production, development, and transitive) also carries `epss` (the highest EPSS among the package's CVEs), `runs_code_at_install` with `install_execution_reason`, and the maintenance-state fields: `maintenance_state`, `maintenance_risk` (P(abandoned) + P(deprecated), the value that feeds triage), `maintenance_coverage` (fraction of the four maintenance observations that were available), `gap_cv`, `median_gap_days`, `silence_days`, `silence_p`, `commits_sampled`, `span_days`, `flow_trend`, `deprecation_signals`, `deprecation_successor`, `days_since_push`, `archived`, and `triage_action`. Any of them may be `null` when the underlying signal could not be measured — that means "unknown," never "no risk." See [Repository stability](explanation/repository-stability.md) for what each field means.
 
 #### CSV Export
 
@@ -486,7 +486,7 @@ The `export --output-format csv` command writes a folder named `export_{project_
 | `cves.csv` | One row per CVE with all `CVEInfo` fields |
 | `datapackage.json` | Schema references and foreign key relationships |
 
-Since v1.5, `packages.csv` carries twelve additional columns: `epss`, `runs_code_at_install`, `stability_csi` (engagement-only partial index — see [Repository stability](explanation/repository-stability.md)), `phi_i`, `phi_p`, `phi_a`, `days_since_push`, `triage_action`, `gap_cv`, `silence_days`, `silence_p`, and `commits_sampled`. None are required — a package where a value could not be measured leaves the cell empty. `summary.csv` gains `project_epss`, `packages_with_epss`, `packages_with_unscored_cves`, `packages_with_stability`, `packages_dormant`, and `packages_stability_unknown`.
+Since v1.5, `packages.csv` carries thirteen additional columns: `epss`, `runs_code_at_install`, `maintenance_risk` (P(abandoned) + P(deprecated) from the maintenance-state model — see [Repository stability](explanation/repository-stability.md)), `maintenance_state`, `flow_trend`, `deprecation_signals`, `deprecation_successor`, `days_since_push`, `triage_action`, `gap_cv`, `silence_days`, `silence_p`, and `commits_sampled`. None are required — a package where a value could not be measured leaves the cell empty. `summary.csv` gains `project_epss`, `packages_with_epss`, `packages_with_unscored_cves`, `packages_with_stability`, `packages_unmaintained`, `packages_deprecated`, and `packages_stability_unknown`.
 
 (console-reports)=
 ## Console Reports
@@ -496,8 +496,14 @@ This section describes the terminal output of `ossiq-cli status` (project-wide r
 ### `status` — project report
 
 ```bash
-ossiq-cli status [PROJECT_PATH]
+ossiq-cli status [PROJECT_PATH]        # default: only what needs action
+ossiq-cli status --full [PROJECT_PATH] # every package, every column
 ```
+
+By default the report is deliberately narrow: it shows only the packages that need
+attention (a version behind, a CVE, an unmaintained upstream, or an unsolvable
+constraint) and a four-column table. `--full` shows every package and the detail
+columns.
 
 The report has up to six parts, printed in this order. Parts with nothing to show are omitted.
 
@@ -505,22 +511,25 @@ The report has up to six parts, printed in this order. Parts with nothing to sho
 2. **Dependency table** — one row per direct dependency, grouped into *Production* and *Development* sections.
 3. **Transitive Recommendations** — transitive packages the solver recommends updating.
 4. **New transitive dependencies** — packages that would enter the tree if the recommended updates were applied.
-5. **Peer Constraint Status** — peer dependency requirements and whether the installed versions satisfy them (npm projects only).
+5. **Peer Constraint Status** — peer dependency requirements and whether the installed versions satisfy them (npm projects only; violations only unless `--full`).
 6. **Constraint Widening Opportunities** — for library projects, dependency ranges that could safely be widened.
 
 #### Dependency table
+
+Default columns: **Package**, **CVEs**, **Recommended**, **What's Next**. `--full` adds
+**EPSS**, **Update Mode**, **Installed**, **Lag**, and **State**.
 
 | Column | Meaning |
 |---|---|
 | Package | Package name. |
 | CVEs | Number of known vulnerabilities affecting the installed version. Empty when there are none. |
-| Status | Semantic drift between installed and latest version: `Latest`, `Patch`, `Minor`, `Major`, `Prerelease`, `Build`, or `N/A` when the latest version is unknown. |
-| Installed | Version resolved in the lockfile, with a lifecycle marker when one applies (see below). |
-| Recommended | Solver-recommended update target. The column appears only when at least one package has a recommendation or a constraint conflict. Yellow when the recommendation is older than the latest version — usually held back by the [cooldown](#update-solver) or by a constraint. `[NO RESOLUTION]` when no published version satisfies all constraints. |
-| Latest | Most recent published version, or `N/A` when the registry reports none. |
-| Lag | Time between the installed and the latest version. Red when it exceeds `--lag-threshold-delta` (default `1y`). |
-| EPSS | Probability that the package's worst known CVE sees exploitation in the next 30 days. The column appears only when at least one package has a score; `—` means no CVE carries one, which is unknown rather than safe. |
-| Action | Recommended move from the [triage matrix](explanation/repository-stability.md#the-triage-matrix): `evict`, `patch`, or `refactor`. The column appears only when at least one package needs something other than `retain`. |
+| EPSS | *(`--full`)* Probability that the package's worst known CVE sees exploitation in the next 30 days. `—` means no CVE carries a score, which is unknown rather than safe. |
+| Update Mode | *(`--full`)* Semantic drift between installed and latest version: `Latest`, `Patch`, `Minor`, `Major`, `Prerelease`, `Build`, or `N/A` when the latest version is unknown. |
+| Installed | *(`--full`)* Version resolved in the lockfile, with a lifecycle marker when one applies (see below). |
+| Recommended | Solver-recommended update target. Yellow when the recommendation is older than the latest version — usually held back by the [cooldown](#update-solver) or by a constraint. `[NO RESOLUTION]` when no published version satisfies all constraints. |
+| Lag | *(`--full`)* Time between the installed and the latest version. Red when it exceeds `--lag-threshold-delta` (default `1y`). |
+| State | *(`--full`)* Maintenance-state verdict for the upstream repository: `maintained`, `winding_down`, `abandoned`, or `deprecated`. `—` when the package could not be assessed. See [Repository Stability](explanation/repository-stability.md). |
+| What's Next | The single next action for this package (first match wins): **Check for the Fix** (a CVE with EPSS ≥ 10%), **Find alternative** (at the latest version but abandoned/deprecated), **Consider alternative** (upstream winding down), **Check Release Notes** (a major version behind), **Update Immediately** (a minor or patch behind). Blank when nothing is due. |
 
 Lifecycle markers on the Installed column:
 
@@ -545,13 +554,7 @@ A row with a recommendation can carry indented sub-rows describing what applying
 
 Transitive packages — packages your direct dependencies pull in — for which the solver recommends a different version, most often because the installed version carries a CVE or is far behind. With `--security`, the list narrows to packages with CVEs only. To turn these recommendations into an executable update plan, run `ossiq-cli plan` (see [Update Solver](#update-solver)).
 
-| Column | Meaning |
-|---|---|
-| Package | Transitive package name. |
-| Installed | Version currently resolved in the lockfile. |
-| CVEs | Number of known vulnerabilities for the installed version. |
-| Age | Age of the installed version. Red past one year. |
-| Recommended | Version the solver recommends within all parent constraints. |
+Columns: **Package**, **CVEs**, **Installed**, **Recommended**, **What's Next**; `--full` adds **EPSS**. The **Recommended** version is the one the solver picks within all parent constraints; **What's Next** follows the same rules as the dependency table.
 
 #### New transitive dependencies
 
@@ -650,7 +653,7 @@ Any of these can render `—`: it means the signal could not be measured, never 
 
 **Occurrences.** A package can appear in the tree more than once — for example as a direct dependency and, at a different version, as a transitive one. Each occurrence gets its own block of the five sections below, labelled `Occurrence n of m`.
 
-**Drift Status.** Status (same values as the status table), installed version, latest version, time lag (red past 180 days), and how many releases behind the installed version is.
+**Drift Status.** Status (same values as the status table), installed version, latest version, time lag (red past 180 days), how many releases behind the installed version is, and the next recommended action (same rule as the status table's **What's Next** column; blank when nothing is due).
 
 **Dependency Tree.** The ancestor path from the project root down to this package (`← you are here`). For a direct dependency the path is just `root → package`; for a transitive one it names every intermediate package — useful for seeing *which* direct dependency is responsible for pulling this package in.
 
@@ -688,7 +691,14 @@ When the package is not installed in the project, `info` evaluates it as a candi
 
 ### Agent format
 
-Both commands accept `--format agent`, which replaces the human report with a compact JSON verdict (`ok` / `warn` / `block`) for AI coding agents and scripts. See [AI Agent Integration](getting-started.md#ai-agent-integration-mcp--skills).
+Both commands accept `--format agent`, which replaces the human report with a compact JSON decision for AI coding agents and scripts. The same shape is returned by the MCP tools. See [Coding agents](getting-started.md#coding-agents).
+
+Every decision leads with a `next_action` string:
+
+- **add** (`info` / `add`): `install`, `install with caution`, or `do not install`.
+- **update** (`status`): per entry — `Check for the Fix`, `Find alternative`, `Consider alternative`, `Check Release Notes`, or `Update Immediately`. The top-level `next_action` is the most urgent of those, or `no action needed` when the `updates` list is empty.
+
+The `updates` list contains only packages that need attention (a CVE, a recommended upgrade, version drift, or an unmaintained upstream).
 
 (install-skills)=
 ## Install Skills
@@ -697,7 +707,7 @@ Both commands accept `--format agent`, which replaces the human report with a co
 ossiq-cli install skills [TOOL] [--github-token TOKEN] [--dev PATH]
 ```
 
-Installs the OSS IQ skill and a local MCP server so AI coding agents check dependency health before they add or update a package. For the task-oriented walkthrough, see [AI Agent Integration](getting-started.md#ai-agent-integration-mcp--skills).
+Installs the OSS IQ skill and a local MCP server so AI coding agents check dependency health before they add or update a package. For the task-oriented walkthrough, see [Coding agents](getting-started.md#coding-agents).
 
 | Argument / option | Default | Description |
 |---|---|---|

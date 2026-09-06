@@ -1,121 +1,84 @@
 ---
 title: Getting Started
-description: OSS IQ solves the problem of unmanaged dependency drift and invisible transitive supply-chain risk by replacing alert-driven, CVE-centric tooling with calm, longitudinal, and deterministic analysis that enables planned, context-aware remediation at scale.
+description: OSS IQ scores every package your project depends on - drift, CVEs, transitive impact, and maintainer activity - so you and your coding agents can decide what to add, what to update, and what to refactor out.
 ---
 
 # Getting Started
 
-## What is OSS IQ?
+**OSS IQ** helps developers and coding agents answer three questions about every package:
 
-**OSS IQ** is a tool that maps out open-source packages that your project relies on so you can keep them secure and up to date. It helps move from "CVE panic-fixing", reactive mode to "planned maintenance" of your entire software supply chain.
+**Should I add it? Update it? Refactor it out?**
 
-Most security tools only alert you when a specific vulnerability (CVE) is found, forcing you to scramble for a "reactive" fix. OSS IQ is different: it looks at your project structure to give you a clear, long-term view of your project dependencies state.
+Before a new dependency lands, OSS IQ checks whether the package and version is healthy,
+maintained, and appropriate for your project, keeping deprecated, outdated, or too-fresh
+releases out. For the dependencies you already have, it shows when and how to upgrade,
+verifies the upgrade is compatible with the rest of your tree, and supplies agents such as
+**Claude** and **Codex** with the **validated context** they need to make the change safely.
 
-This allows you to build a predictable update rhythm, so you can focus your efforts where they matter most instead of just chasing the latest fire.
+This page takes you from nothing to a first scan, then through each way of working:
+[coding agents](#coding-agents), [the CLI](#the-cli-workflow), and
+[reports and exports](#reports-and-exports).
 
-## How it works
+## GitHub Personal Access Token
 
-The tool scans your project files to identify Direct Dependencies, Dependencies of your direct dpeendencies (Transitive Dependencies), how far behind you are from the latest, safest versions, signs that a library has been abandoned by its creators.
+OSS IQ mines repository history to judge maintenance health, which can take hundreds of GitHub
+API requests per run. Unauthenticated requests are capped at 60 per hour, so a full scan needs a
+[Personal Access Token (PAT)](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens#about-personal-access-tokens).
+The token only raises the rate limit - **no scopes or permissions are needed**.
 
-## Built for Your Workflow
+The quickest option is to reuse your existing session:
 
-**OSS IQ** is designed for Platform and Infrastructure teams who need to set standards across many different projects.
-
-You get the data in the format that fits your task:
- 
- - **Terminal (CLI)** "on-the-spot" analysis while you work.
- - **interactive HTML report** For a "bird's-eye view" of your project's overall health.
- - **JSON** or **CSV** Exports to plug data into your automated pipelines or custom spreadsheets.
-
-## Quick Start
-
-Get **OSS IQ** up and running in your terminal to analyze your first project.
-
-:::{note}
-
-### Github Personal Access Token
-GitHub limits unauthenticated API requests to 60 per hour, 
-which is typically insufficient for a full scan. Because OSS IQ employs 
-Mining Software Repository (MSR) techniques to analyze differences across 
-many versions (e.g., high-velocity projects like TypeScript), 
-it may perform hundreds of requests per run.
-
-To ensure a complete analysis, please provide a [GitHub Personal Access Token (PAT)](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens#about-personal-access-tokens):
-
-There are two ways to get the token
-
-### Personal token from the session
-
-The easiest is to expose it from your auth session:
 ```bash
 export OSSIQ_GITHUB_TOKEN=$(gh auth token);
 ```
 
-### Read-Only Public Repositories Token
-More **secure** way is to generate separate, **read-only** Personal Access Token in
-[Github Settings -> Developer Settings -> Fine-grained tokens](https://github.com/settings/personal-access-tokens/new) with
-**Repository access** setting set to **Public repositories** without additional permissions.
+The safer option is a separate **read-only** token: create a fine-grained token in
+[GitHub Settings → Developer Settings → Fine-grained tokens](https://github.com/settings/personal-access-tokens/new)
+with **Repository access** set to **Public repositories** and no additional permissions.
 
 ```bash
 export OSSIQ_GITHUB_TOKEN=replace-with-generated-token;
 ```
 
-
-:::
-
- 1. **Run your first dependencies analysis**
-
-    OSS IQ works best with the popular ecosystem dependency formats e.g. for **NPM** its [package.json](https://docs.npmjs.com/cli/v7/configuring-npm/package-json) or [package-lock.json](https://docs.npmjs.com/cli/v8/configuring-npm/package-lock-json),
-    and for **PyPI** its [pylock.toml](https://packaging.python.org/en/latest/specifications/pylock-toml/#pylock-toml-spec),  [uv.lock](https://docs.astral.sh/uv/concepts/projects/layout/#the-lockfile), or classic [requirements.txt](https://pip.pypa.io/en/stable/reference/requirements-file-format/).
-
-    Point `ossiq-cli` at an existing python or javascript project and OSS IQ will **detect proejct dependencies**.
-
-    ```bash
-    uvx --from ossiq ossiq-cli status testdata/npm/project1/
-    ```
-
-    You always can install [ossiq](https://pypi.org/project/ossiq/) package with respective python tools `uv add ossiq` or `pip install ossiq`.
-
- 3. **Understand the Output**
-
-    OSS IQ provides a high-level risk score and breaks down specific signals for both security (vulnerabilities) and maintenance (activity, overhead, and health).
-
-    ![OSS IQ Terminal/CLI Report](/_static/images/ossiq-cli-report-2026-07-13.png)
-
-    Every table, column, and status marker in this report — including the *Transitive Recommendations* and *Peer Constraint Status* sections — is documented in [Reference → Console Reports](reference.md#console-reports).
-
-
-## Package Details
-
-Get a specific package details:
-```bash
-uvx --from ossiq ossiq-cli info sphinx
-```
-
-![OSS IQ Terminal/CLI Package Details](/_static/images/ossiq-cli-package-2026-07-13.png)
-
-The section-by-section breakdown of this report — drift status, policy compliance, recommendation rationale, peer requirements, and transitive CVEs — is in [Reference → Console Reports](reference.md#console-reports).
-
-## Gated Package Add
-
-`ossiq-cli add` is a quality-gated alternative to running `uv add` or `npm install` directly. It runs the same analysis as `info`, enforces health gates, and installs the OSS IQ-recommended version — not just the latest one.
+To keep it, store it in `~/.ossiq/config` instead, where every `OSSIQ_*` variable can live:
 
 ```bash
-# Check health signals and install the recommended version
-uvx --from ossiq ossiq-cli add requests
-
-# Pin an exact version yourself (bypasses the solver recommendation)
-uvx --from ossiq ossiq-cli add requests --version 2.31.0
-
-# Override critical-warning blocks (use with care)
-uvx --from ossiq ossiq-cli add requests --force
+echo "OSSIQ_GITHUB_TOKEN=$(gh auth token)" >> ~/.ossiq/config
 ```
 
-Before installing, OSS IQ shows drift status, CVEs, transitive vulnerabilities, and maintainer signals. Packages flagged as critically unhealthy are blocked unless `--force` is passed.
+## Your first scan
 
-## AI Agent Integration (MCP & Skills)
+Point `ossiq-cli` at an existing Python or JavaScript project and OSS IQ detects the manifest
+for you. No install required:
 
-Give your AI coding agent the same health check before it adds or upgrades a dependency. `ossiq-cli install skills` writes a `SKILL.md` and registers a local stdio MCP server for Claude Code, OpenAI Codex, and GitHub Copilot.
+```bash
+uvx --from ossiq ossiq-cli status testdata/npm/project1/
+```
+
+Supported manifests are the ones your package manager already writes: for **npm**,
+[package.json](https://docs.npmjs.com/cli/v7/configuring-npm/package-json) with
+[package-lock.json](https://docs.npmjs.com/cli/v8/configuring-npm/package-lock-json); for
+**Python**, [pylock.toml](https://packaging.python.org/en/latest/specifications/pylock-toml/#pylock-toml-spec),
+[uv.lock](https://docs.astral.sh/uv/concepts/projects/layout/#the-lockfile), or classic
+[requirements.txt](https://pip.pypa.io/en/stable/reference/requirements-file-format/).
+
+You can also install [ossiq](https://pypi.org/project/ossiq/) permanently with `uv add ossiq`
+or `pip install ossiq`, then call `ossiq-cli` directly.
+
+The report gives you a project-level risk score, then breaks it down per package into security
+signals (vulnerabilities) and maintenance signals (activity, overhead, health):
+
+![OSS IQ Terminal/CLI Report](/_static/images/ossiq-cli-report-2026-07-13.png)
+
+Every table, column, and status marker in this report, including the *Transitive Recommendations*
+and *Peer Constraint Status* sections, is documented in
+[Reference → Console Reports](reference.md#console-reports).
+
+## Coding agents
+
+Give Claude Code, OpenAI Codex, or GitHub Copilot the same health check before they add or
+upgrade a dependency. `ossiq-cli install skills` writes a `SKILL.md` and registers a local stdio
+MCP server (`ossiq-cli mcp`):
 
 ```bash
 # Install for all three tools
@@ -131,46 +94,134 @@ uvx --from ossiq ossiq-cli install skills copilot
 |---|---|---|
 | Claude Code | `~/.claude/skills/ossiq/SKILL.md` | registered in `~/.claude/mcp.json` |
 | OpenAI Codex | `~/.codex/skills/ossiq/SKILL.md` | registered in `~/.codex/mcp.json` |
-| GitHub Copilot | appended to `~/.copilot/copilot-instructions.md` | — |
+| GitHub Copilot | appended to `~/.copilot/copilot-instructions.md` | - |
 
-The command asks for a [GitHub token](#github-personal-access-token) (or takes it via `--github-token`; leave the prompt blank to skip). The token is stored in `~/.ossiq/config`, and in each tool's MCP server entry where one exists (Claude Code, Codex), so both your own runs and the agent's runs get the higher API rate limit.
+The command asks for a [GitHub token](#github-personal-access-token) (or takes it via
+`--github-token`; leave the prompt blank to skip). The token is stored in `~/.ossiq/config` and
+in each tool's MCP server entry where one exists, so your own runs and the agent's runs both get
+the higher rate limit. Re-running `install skills` is safe: it merges into existing config rather
+than overwriting it.
 
-Once installed, the agent can call `ossiq-cli info <package> --format agent` or the `ossiq_evaluate_dependency` / `ossiq_evaluate_updates` MCP tools before touching your dependencies, and get back a compact `ok` / `warn` / `block` verdict. Re-running `install skills` is safe — it merges into existing config rather than overwriting it.
+Once installed, the agent has two read-only tools:
 
-For exactly which files are written, how the token is stored, and how to run the integration from a local checkout with `--dev`, see [Reference → install skills](reference.md#install-skills).
+| Tool | Answers |
+|---|---|
+| `ossiq_evaluate_dependency` | Should I add this package, and at which version? |
+| `ossiq_evaluate_updates` | Which existing dependencies should I bump, and in what order? |
 
-## HTML Report
+Both return the same compact decision the CLI produces with `--format agent`: a `next_action` per
+package (`install`, `install with caution`, `do not install` when adding; `Update Immediately`,
+`Check Release Notes`, `Check for the Fix`, `Consider alternative`, `Find alternative` when
+updating), the recommended version, CVEs, and supply-chain warnings.
 
- 1. Generate HTML report:
+```bash
+uvx --from ossiq ossiq-cli info requests --format agent
+```
+
+For exactly which files are written, how the token is stored, and how to run the integration from
+a local checkout with `--dev`, see [Reference → install skills](reference.md#install-skills).
+
+## The CLI workflow
+
+```bash
+ossiq-cli status              # dependency health for the whole project
+ossiq-cli status --full       # every package, every column
+ossiq-cli status --security   # CVE-affected packages only
+ossiq-cli info sphinx         # one package: drift, CVEs, tree path, peer requirements
+ossiq-cli add requests        # quality-gated install of the recommended version
+ossiq-cli plan                # what the solver would change - read-only
+ossiq-cli apply               # execute the plan, with rollback on failure
+```
+
+Each takes an optional project path (default: `.`) and `--registry-type npm|pypi` to
+disambiguate a polyglot repo.
+
+### Package details
+
+```bash
+uvx --from ossiq ossiq-cli info sphinx
+```
+
+![OSS IQ Terminal/CLI Package Details](/_static/images/ossiq-cli-package-2026-07-13.png)
+
+The section-by-section breakdown of this report - drift status, policy compliance,
+recommendation rationale, peer requirements, and transitive CVEs - is in
+[Reference → Console Reports](reference.md#console-reports).
+
+### Gated package add
+
+`ossiq-cli add` is a quality-gated alternative to running `uv add` or `npm install` directly.
+Package managers install the newest version that satisfies your constraints; `ossiq-cli add`
+installs the **recommended** one. It runs the same analysis as `info`, shows drift status, CVEs,
+transitive vulnerabilities, and maintainer signals before touching a file, and blocks packages
+flagged as critically unhealthy unless you pass `--force`.
+
+```bash
+# Check health signals and install the recommended version
+uvx --from ossiq ossiq-cli add requests
+
+# Pin an exact version yourself (bypasses the solver recommendation)
+uvx --from ossiq ossiq-cli add requests --version 2.31.0
+
+# Override critical-warning blocks (use with care)
+uvx --from ossiq ossiq-cli add requests --force
+```
+
+### Plan and apply updates
+
+`ossiq-cli plan` shows what the solver recommends without touching any files; `ossiq-cli apply`
+executes those changes and rolls them back if the install fails. Every flag is accepted by both,
+so a `plan` is a faithful preview of the matching `apply`.
+
+```bash
+ossiq-cli plan                    # read-only preview
+ossiq-cli apply                   # prompts for confirmation
+ossiq-cli apply --security --yes  # patch CVE-affected packages only, unattended
+```
+
+Before recommending a version, the solver simulates its full transitive cascade, falls back to the
+next-best candidate when the top one would conflict, and holds back releases younger than
+`--cooldown-period` (default: 7 days) unless they fix a CVE in an installed version. The solver
+resolves in a single pass against your current lockfile, so re-running `plan` after `apply` can
+surface further updates; repeat until it reports none. Full rules are in
+[Reference → Update Solver](#update-solver).
+
+## Reports and exports
+
+### HTML report
+
+ 1. Generate a single self-contained HTML file:
     ```bash
     uvx --from ossiq ossiq-cli html --output report.html
     ```
 
- 2. Open `report.html` and you'll get table view of your dependencies:
+ 2. Open `report.html` for the table view of your dependencies:
     ![OSS IQ HTML Report](/_static/images/ossiq-html-report-2026-06-20.png)
 
- 3. Click on the **Transitive Dependencies** tab on the top:
+ 3. Click the **Transitive Dependencies** tab at the top:
     ![OSS IQ Transitive Dependencies Report](/_static/images/ossiq-html-transitive-dependencies-2026-06-20.png)
 
- 4. Click on a dependency node (blue circle):
+ 4. Click a dependency node (blue circle) to read its details:
     ![OSS IQ Transitive Dependencies Package Details](/_static/images/ossiq-html-transitive-dependencies-package-2026-06-20.png)
 
-   From the report you could conclude that [vue](https://www.npmjs.com/package/vue) with
-   version `3.5.38` and that `3.5.38` is the latest version of the package.
+    Here the report tells you that [vue](https://www.npmjs.com/package/vue) is resolved at
+    `3.5.38`, which is also the latest published version.
 
-## Export to JSON or CSV
+This is the view for planning work rather than fixing one package: sort by drift or severity,
+drill into any dependency, and decide what to read release notes for before it enters the backlog.
 
- 1. Export to JSON:
-    ```bash
-    uvx --from ossiq ossiq-cli export --output-format=json --output=./scan_export.json .
-    ```
+### JSON and CSV export
 
-   you also could specify schema version via `--schema-version` argument.
-   **We commited** to make sure that versions are **backward compatible**.
+```bash
+# One JSON document
+uvx --from ossiq ossiq-cli export --output-format=json --output=./scan_export.json .
 
- 2. Export to CSV:
-    ```bash
-    uvx --from ossiq ossiq-cli export --output-format=csv --output=./scan_export_csv .
-    ```    
-   **Note** that folder `scan_report_csv` will be created automatically
-   if it doesn't exist.
+# A directory of CSVs: summary.csv, packages.csv, cves.csv, and datapackage.json
+uvx --from ossiq ossiq-cli export --output-format=csv --output=./scan_export_csv .
+```
+
+The CSV target directory is created automatically if it does not exist. Both formats carry a
+`schema_version`, which you can pin with `--schema-version`: within a version, fields are never
+renamed or removed, so a metric you gate on in CI today keeps its meaning tomorrow. See
+[Reference → Outputs](reference.md#outputs) and
+[Reference → Export Schema Stability](reference.md#export-schema-stability).
