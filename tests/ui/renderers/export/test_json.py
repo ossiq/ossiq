@@ -25,7 +25,9 @@ from ossiq.domain.cve import CVE, CveDatabase, Severity
 from ossiq.domain.exceptions import DestinationDoesntExist
 from ossiq.domain.project import ConstraintSource
 from ossiq.domain.version import VersionsDifference
+from ossiq.risk.stability import EngagementBucket, EngagementSeries
 from ossiq.service.project.models import ScanRecord, ScanResult
+from ossiq.service.project.stability import RepositoryStability
 from ossiq.settings import Settings
 from ossiq.ui.renderers.export.json import JsonExportRenderer
 from ossiq.ui.renderers.export.json_schema_registry import json_schema_registry
@@ -1017,3 +1019,96 @@ class TestJsonExportRendererV15:
 
         entry = data["transitive_packages"][0]
         assert "epss" not in entry
+
+    def test_v1_5_transitive_with_unknown_lag_validates(self, output_file, settings, sample_project_metrics_record):
+        """The compact serializer drops null lag fields, so the schema must not require them.
+
+        Regression: a transitive whose latest version is invisible (unpublished, or hidden by
+        --cutoff-date) produced an entry that failed validation against its own schema.
+        """
+        transitive = ScanRecord(
+            package_name="stale-dep",
+            dependency_name=None,
+            is_optional_dependency=False,
+            installed_version="15001.1.0-dev-harmony",
+            latest_version=None,
+            versions_diff_index=VersionsDifference(
+                version1="15001.1.0-dev-harmony", version2="15001.1.0-dev-harmony", diff_index=0, diff_name="LATEST"
+            ),
+            time_lag_days=None,
+            releases_lag=None,
+            cve=[],
+            dependency_path=["react"],
+            constraint_info=ConstraintSource(type=ConstraintType.DECLARED, source_file=None),
+        )
+        metrics = ScanResult(
+            project_name="test-project",
+            project_path="/path/to/test-project",
+            packages_registry=ProjectPackagesRegistry.NPM.value,
+            production_packages=[sample_project_metrics_record],
+            optional_packages=[],
+            transitive_packages=[transitive],
+        )
+        JsonExportRenderer(settings).render(metrics, destination=str(output_file), schema_version="1.5")
+
+        data = json.loads(output_file.read_text())
+        entry = data["transitive_packages"][0]
+        assert "time_lag_days" not in entry
+        validate(instance=data, schema=json_schema_registry.load_schema(ExportJsonSchemaVersion.V1_5))
+
+
+@pytest.fixture
+def engagement_record():
+    """ScanRecord carrying a two-bucket engagement sample, for the raw-bucket export."""
+    buckets = [
+        EngagementBucket(index=0, issues_opened=4, issues_closed=3, prs_opened=2, prs_merged=2),
+        EngagementBucket(index=1, issues_opened=1, issues_closed=0, prs_opened=1, prs_merged=0),
+    ]
+    return ScanRecord(
+        package_name="flowing-lib",
+        dependency_name="flowing-lib",
+        is_optional_dependency=False,
+        installed_version="1.0.0",
+        latest_version="1.0.0",
+        versions_diff_index=VersionsDifference(version1="1.0.0", version2="1.0.0", diff_index=0, diff_name="LATEST"),
+        time_lag_days=0,
+        releases_lag=0,
+        cve=[],
+        constraint_info=ConstraintSource(type=ConstraintType.DECLARED, source_file=None),
+        stability=RepositoryStability(
+            flow_trend="declining",
+            engagement=EngagementSeries(buckets, "declining"),
+        ),
+    )
+
+
+class TestJsonExportRendererEngagementBuckets:
+    """The raw engagement buckets the calibration path re-fits offline."""
+
+    def export(self, output_file, settings, record):
+        metrics = ScanResult(
+            project_name="test-project",
+            project_path="/path/to/test-project",
+            packages_registry=ProjectPackagesRegistry.NPM.value,
+            production_packages=[record],
+            optional_packages=[],
+        )
+        JsonExportRenderer(settings).render(metrics, destination=str(output_file), schema_version="1.5")
+        return json.loads(output_file.read_text())
+
+    def test_buckets_exported_as_fixed_order_rows(self, output_file, settings, engagement_record):
+        """Oldest bucket first, one [issues_opened, issues_closed, prs_opened, prs_merged] row each."""
+        data = self.export(output_file, settings, engagement_record)
+
+        assert data["production_packages"][0]["engagement_buckets"] == [[4, 3, 2, 2], [1, 0, 1, 0]]
+
+    def test_buckets_validate_against_v1_5_schema(self, output_file, settings, engagement_record):
+        data = self.export(output_file, settings, engagement_record)
+
+        validate(instance=data, schema=json_schema_registry.load_schema(ExportJsonSchemaVersion.V1_5))
+
+    def test_buckets_null_without_activity_sample(self, output_file, settings, sample_project_metrics_record):
+        """Unmeasured is null, never an empty bucket list that would read as zero flow."""
+        data = self.export(output_file, settings, sample_project_metrics_record)
+
+        assert data["production_packages"][0]["engagement_buckets"] is None

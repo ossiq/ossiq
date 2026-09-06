@@ -1,4 +1,4 @@
-"""Tests for the EPSS x CSI triage matrix."""
+"""Tests for the EPSS x maintenance-state triage matrix."""
 
 from ossiq.domain.common import CveDatabase, ProjectPackagesRegistry
 from ossiq.domain.cve import CVE, Severity

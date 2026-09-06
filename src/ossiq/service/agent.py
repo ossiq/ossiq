@@ -44,7 +44,7 @@ def build_add_decide(detail: PackageDetailResult, requested_version: str | None 
     """Decision for adding a single package (prospective or already installed).
 
     No triage/stability signal here by design: the `add` path has no installed repository history
-    to sample, so there is nothing for the dormancy or CSI channels to measure.
+    to sample, so there is nothing for the dormancy or maintenance-state channels to measure.
     """
     insight = detail.insight
     recommended = insight.recommended_version if insight else None

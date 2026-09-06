@@ -192,9 +192,10 @@ def prefetch_scan_data(
     repo_urls = {pkg.repo_url for pkg in packages_info.values() if pkg.repo_url is not None}
     repositories_info = prefetch_source_code_repositories_info(sources, repo_urls)
 
-    # Stability signals for the direct-dependency repos only — one commit request each, plus a
-    # batched GraphQL activity query (~1 per 5 repos) for the issue/PR/engagement channels. Both
-    # share the repositories step and switch off where the GitHub quota is tight.
+    # Stability signals for the direct-dependency repos only - one commit request and one README
+    # request each, plus one GraphQL POST per repo per stream (ACTIVITY_CHUNK_SIZE = 1, PR streams
+    # paginate) for the issue/PR/engagement channels. Both share the repositories step and switch
+    # off where the GitHub quota is tight.
     commits: dict[str, list[dict]] = {}
     activity: dict[str, dict] = {}
     readmes: dict[str, str] = {}

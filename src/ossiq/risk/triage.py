@@ -1,5 +1,6 @@
 """
-Dependency triage: the join between the tactical (EPSS) and strategic (CSI) pipelines.
+Dependency triage: the join between the tactical (EPSS) and strategic (maintenance-state)
+pipelines.
 
 The two metrics are never multiplied into one number. EPSS answers "is a known CVE being
 exploited", which is a patch decision; repository stability answers "will this project still be
@@ -12,8 +13,8 @@ signal:
     otherwise                 -> retain
 
 What counts as "unstable" is the caller's decision, deliberately not this module's. See
-`service.project.stability` for the one place that defines it, and why it is currently dormancy
-rather than the CSI threshold.
+`service.project.stability` for the one place that defines it: the maintenance-state model's
+P(not maintained) crossing MAINTENANCE_THRESHOLD, not a bare dormancy check.
 """
 
 from collections.abc import Iterable

@@ -217,17 +217,7 @@
       ]
     },
     {
-      "name": "stability_csi",
-      "type": "number",
-      "title": "Maintained Probability",
-      "description": "P(maintained) from the maintenance-state model (1 - stability_risk); empty when no observation was available",
-      "constraints": {
-        "minimum": 0,
-        "maximum": 1
-      }
-    },
-    {
-      "name": "stability_risk",
+      "name": "maintenance_risk",
       "type": "number",
       "title": "Not-Maintained Risk",
       "description": "P(abandoned) + P(deprecated) from the maintenance-state model; the value that feeds triage",

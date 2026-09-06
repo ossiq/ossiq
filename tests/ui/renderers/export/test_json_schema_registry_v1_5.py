@@ -62,6 +62,18 @@ class TestSchemaRegistryV15(SchemaRegistryBaseTest):
         assert props["epss"]["type"] == ["number", "null"]
         assert props["fix_age_days"]["type"] == ["integer", "null"]
 
+    def _assert_engagement_buckets_on(self, defs, definition_name):
+        prop = defs[definition_name]["properties"]["engagement_buckets"]
+        assert prop["type"] == ["array", "null"]
+        assert prop["items"]["items"]["type"] == "integer"
+        assert prop["items"]["minItems"] == prop["items"]["maxItems"] == 4
+
+    def test_package_metrics_has_engagement_buckets(self, schema):
+        self._assert_engagement_buckets_on(schema["$defs"], "PackageMetrics")
+
+    def test_transitive_package_metrics_has_engagement_buckets(self, schema):
+        self._assert_engagement_buckets_on(schema["$defs"], "TransitivePackageMetrics")
+
     def test_summary_has_project_epss_fields(self, schema):
         props = schema["properties"]["summary"]["properties"]
         assert props["project_epss"]["type"] == ["number", "null"]

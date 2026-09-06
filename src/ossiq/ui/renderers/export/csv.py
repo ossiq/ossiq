@@ -266,8 +266,7 @@ class CsvExportRenderer(AbstractUserInterfaceRenderer):
             fieldnames += [
                 "epss",
                 "runs_code_at_install",
-                "stability_csi",
-                "stability_risk",
+                "maintenance_risk",
                 "maintenance_state",
                 "flow_trend",
                 "deprecation_signals",
@@ -314,8 +313,7 @@ class CsvExportRenderer(AbstractUserInterfaceRenderer):
                 row["runs_code_at_install"] = (
                     "" if pkg.runs_code_at_install is None else self._serialize_bool(pkg.runs_code_at_install)
                 )
-                row["stability_csi"] = risk_cell(pkg.stability_csi)
-                row["stability_risk"] = risk_cell(pkg.stability_risk)
+                row["maintenance_risk"] = risk_cell(pkg.maintenance_risk)
                 row["maintenance_state"] = self._serialize_optional(pkg.maintenance_state)
                 row["flow_trend"] = self._serialize_optional(pkg.flow_trend)
                 row["deprecation_signals"] = self._serialize_optional(

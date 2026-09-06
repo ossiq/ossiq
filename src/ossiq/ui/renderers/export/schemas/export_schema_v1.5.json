@@ -2,7 +2,7 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://ossiq.org/schemas/export/v1.5.json",
   "title": "OSS-IQ Export Schema v1.5",
-  "description": "Schema for OSS-IQ project metrics export data (v1.5 adds epss to PackageMetrics, TransitivePackageMetrics and CVEInfo, runs_code_at_install/install_execution_reason to PackageMetrics and TransitivePackageMetrics, fix_age_days to CVEInfo, project_epss/packages_with_epss/packages_with_unscored_cves to summary, declares update_transitive_impacts, and replaces the phi_i/phi_p/phi_a CSI channels with the maintenance-state model: maintenance_state, stability_risk, flow_trend, deprecation_signals and deprecation_successor on PackageMetrics and TransitivePackageMetrics, and packages_unmaintained/packages_deprecated on summary)",
+  "description": "Schema for OSS-IQ project metrics export data (v1.5 adds epss to PackageMetrics, TransitivePackageMetrics and CVEInfo, runs_code_at_install/install_execution_reason to PackageMetrics and TransitivePackageMetrics, fix_age_days to CVEInfo, project_epss/packages_with_epss/packages_with_unscored_cves to summary, declares update_transitive_impacts, and replaces the phi_i/phi_p/phi_a CSI channels with the maintenance-state model: maintenance_state, maintenance_risk, maintenance_coverage, flow_trend, engagement_buckets, deprecation_signals and deprecation_successor on PackageMetrics and TransitivePackageMetrics, and packages_unmaintained/packages_deprecated on summary)",
   "type": "object",
   "required": [
     "metadata",
@@ -253,9 +253,6 @@
         "package_name",
         "is_optional_dependency",
         "installed_version",
-        "latest_version",
-        "time_lag_days",
-        "releases_lag",
         "is_prerelease",
         "is_yanked",
         "is_deprecated",
@@ -396,16 +393,7 @@
           ],
           "description": "Human-readable reason for runs_code_at_install; null when unknown or not detected"
         },
-        "stability_csi": {
-          "type": [
-            "number",
-            "null"
-          ],
-          "minimum": 0,
-          "maximum": 1,
-          "description": "P(maintained) from the maintenance-state model (1 - stability_risk); null when no observation was available"
-        },
-        "stability_coverage": {
+        "maintenance_coverage": {
           "type": [
             "number",
             "null"
@@ -414,7 +402,7 @@
           "maximum": 1,
           "description": "Fraction of the maintenance observations that were available"
         },
-        "stability_risk": {
+        "maintenance_risk": {
           "type": [
             "number",
             "null"
@@ -449,6 +437,21 @@
             null
           ],
           "description": "Direction of the issue/PR flow ratio over the engagement window"
+        },
+        "engagement_buckets": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "integer"
+            },
+            "minItems": 4,
+            "maxItems": 4
+          },
+          "description": "Raw flow buckets behind flow_trend, oldest ~30-day bucket first: one [issues_opened, issues_closed, prs_opened, prs_merged] row per bucket"
         },
         "deprecation_signals": {
           "type": "array",
@@ -540,7 +543,7 @@
             "retain",
             null
           ],
-          "description": "Recommended action from the EPSS x CSI matrix"
+          "description": "Recommended action from the EPSS x maintenance matrix"
         }
       }
     },
@@ -757,16 +760,7 @@
           ],
           "description": "Human-readable reason for runs_code_at_install; null when unknown or not detected"
         },
-        "stability_csi": {
-          "type": [
-            "number",
-            "null"
-          ],
-          "minimum": 0,
-          "maximum": 1,
-          "description": "P(maintained) from the maintenance-state model (1 - stability_risk); null when no observation was available"
-        },
-        "stability_coverage": {
+        "maintenance_coverage": {
           "type": [
             "number",
             "null"
@@ -775,7 +769,7 @@
           "maximum": 1,
           "description": "Fraction of the maintenance observations that were available"
         },
-        "stability_risk": {
+        "maintenance_risk": {
           "type": [
             "number",
             "null"
@@ -810,6 +804,21 @@
             null
           ],
           "description": "Direction of the issue/PR flow ratio over the engagement window"
+        },
+        "engagement_buckets": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "integer"
+            },
+            "minItems": 4,
+            "maxItems": 4
+          },
+          "description": "Raw flow buckets behind flow_trend, oldest ~30-day bucket first: one [issues_opened, issues_closed, prs_opened, prs_merged] row per bucket"
         },
         "deprecation_signals": {
           "type": "array",
@@ -901,7 +910,7 @@
             "retain",
             null
           ],
-          "description": "Recommended action from the EPSS x CSI matrix"
+          "description": "Recommended action from the EPSS x maintenance matrix"
         }
       }
     },

@@ -199,7 +199,7 @@ PRIORS: dict[str, float] = {
     MaintenanceState.ABANDONED: 0.16,
     MaintenanceState.DEPRECATED: 0.10,
 }
-"""Base rates. Fit from the 62-repo CORPUS in qa/calibrate_stability.py (26/15/11/10) with a
+"""Base rates. Fit from the 63-repo CORPUS in qa/calibrate_stability.py (26/15/12/10) with a
 mild lean back toward `maintained` - the corpus over-samples dead repos by design. `winding_down`
 is bumped over its raw share so a quiet-but-not-dead mature library isn't pinned to abandoned."""
 

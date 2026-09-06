@@ -17,6 +17,7 @@ from ossiq.domain.common import (
 from ossiq.domain.cve import CVE, Severity
 from ossiq.risk.maintenance import OBSERVATION_COUNT
 from ossiq.service.project.models import ScanResult
+from ossiq.service.project.stability import RepositoryStability
 
 
 class ExportMetadata(BaseModel):
@@ -155,9 +156,8 @@ def stability_export_fields(record) -> dict:
     maintenance = record.maintenance
     deprecation = record.deprecation
     return {
-        "stability_csi": maintenance.p_maintained if maintenance else None,
-        "stability_coverage": len(maintenance.observations) / OBSERVATION_COUNT if maintenance else None,
-        "stability_risk": maintenance.p_not_maintained if maintenance else None,
+        "maintenance_coverage": len(maintenance.observations) / OBSERVATION_COUNT if maintenance else None,
+        "maintenance_risk": maintenance.p_not_maintained if maintenance else None,
         "maintenance_state": maintenance.state if maintenance else None,
         "gap_cv": stability.gap_cv if stability else None,
         "median_gap_days": stability.median_gap_days if stability else None,
@@ -166,12 +166,27 @@ def stability_export_fields(record) -> dict:
         "commits_sampled": stability.commits_sampled if stability else None,
         "span_days": stability.span_days if stability else None,
         "flow_trend": stability.flow_trend if stability else None,
+        "engagement_buckets": engagement_buckets(stability),
         "deprecation_signals": sorted(deprecation.signals) if deprecation else [],
         "deprecation_successor": deprecation.successor if deprecation else None,
         "days_since_push": record.days_since_push,
         "archived": record.repository.archived if record.repository else None,
         "triage_action": record.triage.action if record.triage else None,
     }
+
+
+def engagement_buckets(stability: RepositoryStability | None) -> list[list[int]] | None:
+    """The raw ~30-day flow buckets as fixed-order int rows, oldest first, for offline recalibration.
+
+    Rows rather than named keys: the same payload is embedded in the single-file HTML report, where
+    six named objects per package cost several times the bytes. None without a GraphQL sample.
+    """
+    if stability is None or stability.engagement is None:
+        return None
+    return [
+        [bucket.issues_opened, bucket.issues_closed, bucket.prs_opened, bucket.prs_merged]
+        for bucket in stability.engagement.buckets
+    ]
 
 
 class PackageMetrics(BaseModel):
@@ -252,16 +267,11 @@ class PackageMetrics(BaseModel):
         default=None,
         description="Human-readable reason for runs_code_at_install; None when unknown or not detected",
     )
-    stability_csi: float | None = Field(
-        default=None,
-        description="P(maintained) from the maintenance-state model (1 - stability_risk); null when "
-        "no observation was available for the upstream repository",
-    )
-    stability_coverage: float | None = Field(
+    maintenance_coverage: float | None = Field(
         default=None,
         description="Fraction of the maintenance observations that were available (0.0-1.0)",
     )
-    stability_risk: float | None = Field(
+    maintenance_risk: float | None = Field(
         default=None,
         description="P(abandoned) + P(deprecated) from the maintenance-state model; the value that "
         "feeds triage. Null when no observation was available",
@@ -290,6 +300,12 @@ class PackageMetrics(BaseModel):
         description="Direction of the issue/PR flow ratio over the engagement window: improving, stable "
         "or declining. Null without the GraphQL activity sample",
     )
+    engagement_buckets: list[list[int]] | None = Field(
+        default=None,
+        description="Raw flow buckets behind flow_trend, oldest ~30-day bucket first: one "
+        "[issues_opened, issues_closed, prs_opened, prs_merged] row per bucket, kept for offline "
+        "recalibration. Null without the GraphQL activity sample",
+    )
     deprecation_signals: list[str] = Field(
         default_factory=list,
         description="Explicit end-of-life markers found: archived, registry_deprecated, "
@@ -307,9 +323,8 @@ class PackageMetrics(BaseModel):
 
     @field_serializer(
         "epss",
-        "stability_csi",
-        "stability_coverage",
-        "stability_risk",
+        "maintenance_coverage",
+        "maintenance_risk",
         "gap_cv",
         "median_gap_days",
         "silence_days",
@@ -473,16 +488,11 @@ class TransitivePackageMetrics(BaseModel):
         default=None,
         description="Human-readable reason for runs_code_at_install; None when unknown or not detected",
     )
-    stability_csi: float | None = Field(
-        default=None,
-        description="P(maintained) from the maintenance-state model (1 - stability_risk); null when "
-        "no observation was available for the upstream repository",
-    )
-    stability_coverage: float | None = Field(
+    maintenance_coverage: float | None = Field(
         default=None,
         description="Fraction of the maintenance observations that were available (0.0-1.0)",
     )
-    stability_risk: float | None = Field(
+    maintenance_risk: float | None = Field(
         default=None,
         description="P(abandoned) + P(deprecated) from the maintenance-state model; the value that "
         "feeds triage. Null when no observation was available",
@@ -511,6 +521,12 @@ class TransitivePackageMetrics(BaseModel):
         description="Direction of the issue/PR flow ratio over the engagement window: improving, stable "
         "or declining. Null without the GraphQL activity sample",
     )
+    engagement_buckets: list[list[int]] | None = Field(
+        default=None,
+        description="Raw flow buckets behind flow_trend, oldest ~30-day bucket first: one "
+        "[issues_opened, issues_closed, prs_opened, prs_merged] row per bucket, kept for offline "
+        "recalibration. Null without the GraphQL activity sample",
+    )
     deprecation_signals: list[str] = Field(
         default_factory=list,
         description="Explicit end-of-life markers found: archived, registry_deprecated, "
@@ -528,9 +544,8 @@ class TransitivePackageMetrics(BaseModel):
 
     @field_serializer(
         "epss",
-        "stability_csi",
-        "stability_coverage",
-        "stability_risk",
+        "maintenance_coverage",
+        "maintenance_risk",
         "gap_cv",
         "median_gap_days",
         "silence_days",
