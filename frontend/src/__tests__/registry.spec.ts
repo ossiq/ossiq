@@ -37,9 +37,8 @@ const report = {
       commits_sampled: 98,
       archived: false,
       triage_action: 'retain',
-      stability_csi: 0.82,
-      stability_coverage: 0.6,
-      stability_risk: 0.18,
+      maintenance_coverage: 0.6,
+      maintenance_risk: 0.18,
       maintenance_state: 'maintained',
       flow_trend: 'stable',
       deprecation_signals: [],
@@ -70,9 +69,9 @@ describe('buildPackageRegistry', () => {
     expect(ruff.commits_sampled).toBe(98)
     expect(ruff.archived).toBe(false)
     expect(ruff.maintenance_state).toBe('maintained')
-    expect(ruff.stability_risk).toBe(0.18)
+    expect(ruff.maintenance_risk).toBe(0.18)
     expect(ruff.flow_trend).toBe('stable')
-    expect(ruff.stability_coverage).toBe(0.6)
+    expect(ruff.maintenance_coverage).toBe(0.6)
   })
 
   it('carries them onto transitive entries, keeping null gap_cv distinct from unmeasured', () => {

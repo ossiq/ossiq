@@ -31,9 +31,8 @@ export interface RegistryEntry {
   is_deprecated: boolean
   is_package_unpublished: boolean
   epss: number | null
-  stability_csi: number | null
-  stability_coverage: number | null
-  stability_risk: number | null
+  maintenance_coverage: number | null
+  maintenance_risk: number | null
   maintenance_state: string | null
   flow_trend: string | null
   deprecation_signals: string[]
@@ -71,9 +70,8 @@ export interface DirectEntry {
   is_deprecated: boolean
   is_package_unpublished: boolean
   epss: number | null
-  stability_csi: number | null
-  stability_coverage: number | null
-  stability_risk: number | null
+  maintenance_coverage: number | null
+  maintenance_risk: number | null
   maintenance_state: string | null
   flow_trend: string | null
   deprecation_signals: string[]

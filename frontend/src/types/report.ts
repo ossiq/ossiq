@@ -6,7 +6,7 @@
  */
 
 /**
- * Schema for OSS-IQ project metrics export data (v1.5 adds epss to PackageMetrics, TransitivePackageMetrics and CVEInfo, runs_code_at_install/install_execution_reason to PackageMetrics and TransitivePackageMetrics, fix_age_days to CVEInfo, project_epss/packages_with_epss/packages_with_unscored_cves to summary, declares update_transitive_impacts, and replaces the phi_i/phi_p/phi_a CSI channels with the maintenance-state model: maintenance_state, stability_risk, flow_trend, deprecation_signals and deprecation_successor on PackageMetrics and TransitivePackageMetrics, and packages_unmaintained/packages_deprecated on summary)
+ * Schema for OSS-IQ project metrics export data (v1.5 adds epss to PackageMetrics, TransitivePackageMetrics and CVEInfo, runs_code_at_install/install_execution_reason to PackageMetrics and TransitivePackageMetrics, fix_age_days to CVEInfo, project_epss/packages_with_epss/packages_with_unscored_cves to summary, declares update_transitive_impacts, and replaces the phi_i/phi_p/phi_a CSI channels with the maintenance-state model: maintenance_state, maintenance_risk, maintenance_coverage, flow_trend, deprecation_signals and deprecation_successor on PackageMetrics and TransitivePackageMetrics, and packages_unmaintained/packages_deprecated on summary)
  */
 export interface OSSIQExportSchemaV15 {
   /**
@@ -241,17 +241,13 @@ export interface PackageMetrics {
    */
   install_execution_reason?: string | null;
   /**
-   * P(maintained) from the maintenance-state model (1 - stability_risk); null when no observation was available
-   */
-  stability_csi?: number | null;
-  /**
    * Fraction of the maintenance observations that were available
    */
-  stability_coverage?: number | null;
+  maintenance_coverage?: number | null;
   /**
    * P(abandoned) + P(deprecated) from the maintenance-state model; the value that feeds triage
    */
-  stability_risk?: number | null;
+  maintenance_risk?: number | null;
   /**
    * Most probable maintenance state
    */
@@ -301,7 +297,7 @@ export interface PackageMetrics {
    */
   archived?: boolean | null;
   /**
-   * Recommended action from the EPSS x CSI matrix
+   * Recommended action from the EPSS x maintenance matrix
    */
   triage_action?: "evict" | "patch" | "refactor" | "retain" | null;
   [k: string]: unknown;
@@ -487,17 +483,13 @@ export interface TransitivePackageMetrics {
    */
   install_execution_reason?: string | null;
   /**
-   * P(maintained) from the maintenance-state model (1 - stability_risk); null when no observation was available
-   */
-  stability_csi?: number | null;
-  /**
    * Fraction of the maintenance observations that were available
    */
-  stability_coverage?: number | null;
+  maintenance_coverage?: number | null;
   /**
    * P(abandoned) + P(deprecated) from the maintenance-state model; the value that feeds triage
    */
-  stability_risk?: number | null;
+  maintenance_risk?: number | null;
   /**
    * Most probable maintenance state
    */
@@ -547,7 +539,7 @@ export interface TransitivePackageMetrics {
    */
   archived?: boolean | null;
   /**
-   * Recommended action from the EPSS x CSI matrix
+   * Recommended action from the EPSS x maintenance matrix
    */
   triage_action?: "evict" | "patch" | "refactor" | "retain" | null;
   [k: string]: unknown;

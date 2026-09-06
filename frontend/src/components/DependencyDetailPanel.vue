@@ -100,7 +100,7 @@ const maintenance = computed(() => {
     : n.maintenance_state === 'winding_down'
       ? 'bg-amber-100 text-amber-700'
       : 'bg-emerald-100 text-emerald-700'
-  return { state: n.maintenance_state, risk: n.stability_risk ?? null, pill }
+  return { state: n.maintenance_state, risk: n.maintenance_risk ?? null, pill }
 })
 
 const deprecationSignals = computed(() => props.node?.deprecation_signals ?? [])

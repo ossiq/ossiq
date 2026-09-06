@@ -29,9 +29,8 @@ export interface DependencyNode {
   is_package_unpublished?: boolean
   recommended_version?: string | null
   epss?: number | null
-  stability_csi?: number | null
-  stability_coverage?: number | null
-  stability_risk?: number | null
+  maintenance_coverage?: number | null
+  maintenance_risk?: number | null
   maintenance_state?: string | null
   flow_trend?: string | null
   deprecation_signals?: string[]
@@ -82,9 +81,8 @@ export interface SelectedNodeDetail {
   is_package_unpublished?: boolean
   recommended_version?: string | null
   epss?: number | null
-  stability_csi?: number | null
-  stability_coverage?: number | null
-  stability_risk?: number | null
+  maintenance_coverage?: number | null
+  maintenance_risk?: number | null
   maintenance_state?: string | null
   flow_trend?: string | null
   deprecation_signals?: string[]
