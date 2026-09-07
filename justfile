@@ -130,7 +130,7 @@ frontend-dataset:
 
 # Build Vue.js SPA frontend and produce the SPA template for HTML reports
 frontend-build:
-    npm run --prefix frontend inject --default
+    npm run --prefix frontend inject -- --default
     uv run python frontend_build.py
 
 # Build the project, useful for checking that packaging is correct
