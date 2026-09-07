@@ -516,8 +516,8 @@ The report has up to six parts, printed in this order. Parts with nothing to sho
 
 #### Dependency table
 
-Default columns: **Package**, **CVEs**, **Recommended**, **What's Next**. `--full` adds
-**EPSS**, **Update Mode**, **Installed**, **Lag**, and **State**.
+Default columns: **Package**, **CVEs**, **Installed**, **Latest**, **Recommended**, **What's
+Next**. `--full` adds **EPSS**, **Update Mode**, **Lag**, and **State**.
 
 | Column | Meaning |
 |---|---|
@@ -525,11 +525,12 @@ Default columns: **Package**, **CVEs**, **Recommended**, **What's Next**. `--ful
 | CVEs | Number of known vulnerabilities affecting the installed version. Empty when there are none. |
 | EPSS | *(`--full`)* Probability that the package's worst known CVE sees exploitation in the next 30 days. `—` means no CVE carries a score, which is unknown rather than safe. |
 | Update Mode | *(`--full`)* Semantic drift between installed and latest version: `Latest`, `Patch`, `Minor`, `Major`, `Prerelease`, `Build`, or `N/A` when the latest version is unknown. |
-| Installed | *(`--full`)* Version resolved in the lockfile, with a lifecycle marker when one applies (see below). |
-| Recommended | Solver-recommended update target. Yellow when the recommendation is older than the latest version — usually held back by the [cooldown](#update-solver) or by a constraint. `[NO RESOLUTION]` when no published version satisfies all constraints. |
+| Installed | Version resolved in the lockfile, with a lifecycle marker when one applies (see below). |
+| Latest | Newest version the registry publishes, ignoring your declared range. This is what **Update Mode** and **Lag** are measured against. `—` when it could not be determined. |
+| Recommended | Solver-recommended update target — clamped into your declared range, so it is often *not* the Latest version. Yellow when the recommendation is older than the latest version — usually held back by the [cooldown](#update-solver) or by a constraint. `[NO RESOLUTION]` when no published version satisfies all constraints. Blank when the solver found no acceptable target at all. |
 | Lag | *(`--full`)* Time between the installed and the latest version. Red when it exceeds `--lag-threshold-delta` (default `1y`). |
 | State | *(`--full`)* Maintenance-state verdict for the upstream repository: `maintained`, `winding_down`, `abandoned`, or `deprecated`. `—` when the package could not be assessed. See [Repository Stability](explanation/repository-stability.md). |
-| What's Next | The single next action for this package (first match wins): **Check for the Fix** (a CVE with EPSS ≥ 10%), **Find alternative** (at the latest version but abandoned/deprecated), **Consider alternative** (upstream winding down), **Check Release Notes** (a major version behind), **Update Immediately** (a minor or patch behind). Blank when nothing is due. |
+| What's Next | The single next action for this package (first match wins): **Check for the Fix** (a CVE with EPSS ≥ 10%), **Find alternative** (at the latest version but abandoned/deprecated), **Consider alternative** (upstream winding down), **Check Release Notes** (a major version behind), **Update Immediately** (a minor or patch behind, with a newer version inside the declared range), **Constrained. Check newer version** (a minor or patch behind, but the declared range admits no bump — widening it is the real next step). Blank when nothing is due. |
 
 Lifecycle markers on the Installed column:
 
@@ -549,6 +550,7 @@ A row with a recommendation can carry indented sub-rows describing what applying
 | `↳ ⚠ <package>: <detail>` | The update collides with a constraint on this transitive package. See [When an update is blocked](#update-blocked). |
 | `✗ no actionable update found` | Every candidate update collides with a transitive constraint; the solver has no version to recommend. See [When an update is blocked](#update-blocked). |
 | `↳ no version satisfies: <specifiers>` | The constraints on this package contradict each other — no published version satisfies all of them at once. Shown together with `[NO RESOLUTION]`. |
+| `↳ <specifier> caps this below <latest>` | *(`--full`)* The declared range is what holds the package behind the registry's latest. Shown with **Constrained. Check newer version**. Other blockers may apply on top of the range. |
 
 #### Transitive Recommendations
 
