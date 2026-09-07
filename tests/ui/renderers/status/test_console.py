@@ -50,11 +50,12 @@ def make_record(
     name: str = "left-pad",
     *,
     versions_diff_index: VersionsDifference = LATEST,
-    latest_version: str = "1.0.0",
+    latest_version: str | None = "1.0.0",
     cve: list[CVE] | None = None,
     epss: float | None = None,
     maintenance: MaintenanceAssessment | None = None,
     recommended_version: str | None = None,
+    version_constraint: str | None = None,
 ) -> ScanRecord:
     return ScanRecord(
         package_name=name,
@@ -70,6 +71,7 @@ def make_record(
         epss=epss,
         maintenance=maintenance,
         recommended_version=recommended_version,
+        version_constraint=version_constraint,
     )
 
 
@@ -85,23 +87,80 @@ def render_table(prod: list[ScanRecord], dev: list[ScanRecord] | None = None, *,
 # --- column sets ------------------------------------------------------------------------------
 
 
+def header_of(output: str) -> str:
+    """The table's header row alone — "Latest" is also an Update Mode *value*, so a
+    whole-output substring check cannot tell a column name from a cell."""
+    return output.splitlines()[0]
+
+
 def test_default_mode_shows_minimal_columns():
-    output = render_table([make_record(versions_diff_index=MINOR, recommended_version="1.1.0")])
-    assert "What's Next" in output
-    assert "Recommended" in output
-    for hidden in ("Update Mode", "Installed", "EPSS", "Latest", "State", "Lag"):
-        assert hidden not in output
+    header = header_of(render_table([make_record(versions_diff_index=MINOR, recommended_version="1.1.0")]))
+    for shown in ("Package", "CVEs", "Installed", "Latest", "Recommended", "What's Next"):
+        assert shown in header
+    for hidden in ("Update Mode", "EPSS", "State", "Lag"):
+        assert hidden not in header
 
 
 def test_full_mode_shows_detail_columns():
+    header = header_of(render_table([make_record(versions_diff_index=MINOR, recommended_version="1.1.0")], full=True))
+    for shown in ("EPSS", "Update Mode", "Installed", "Latest", "Recommended", "Lag", "State", "What's Next"):
+        assert shown in header
+    assert "Action" not in header
+
+
+# --- Latest column and the constrained sub-row ------------------------------------------------
+
+
+def test_latest_column_shows_the_registry_latest_not_the_recommendation():
+    """The whole point: Recommended is clamped to the declared range, Latest is not."""
     output = render_table(
-        [make_record(versions_diff_index=MINOR, recommended_version="1.1.0")],
+        [
+            make_record(
+                versions_diff_index=MINOR,
+                latest_version="1.5.0",
+                recommended_version="1.0.0",
+                version_constraint="~1.0.0",
+            )
+        ],
         full=True,
     )
-    for shown in ("EPSS", "Update Mode", "Installed", "Recommended", "Lag", "State", "What's Next"):
-        assert shown in output
-    assert "Latest" not in output
-    assert "Action" not in output
+    assert "1.5.0" in output
+
+
+def test_latest_column_is_a_dash_when_unknown():
+    output = render_table([make_record(versions_diff_index=MINOR, latest_version=None)], full=True)
+    assert "—" in output
+
+
+def test_constrained_package_names_the_range_holding_it_back():
+    output = render_table(
+        [
+            make_record(
+                versions_diff_index=MINOR,
+                latest_version="1.5.0",
+                recommended_version="1.0.0",
+                version_constraint="~1.0.0",
+            )
+        ],
+        full=True,
+    )
+    assert "Constrained. Check newer version" in output
+    assert "~1.0.0 caps this below 1.5.0" in output
+
+
+def test_constrained_sub_row_is_full_mode_only():
+    output = render_table(
+        [
+            make_record(
+                versions_diff_index=MINOR,
+                latest_version="1.5.0",
+                recommended_version="1.0.0",
+                version_constraint="~1.0.0",
+            )
+        ]
+    )
+    assert "Constrained. Check newer version" in output
+    assert "caps this below" not in output
 
 
 # --- default-mode filtering ------------------------------------------------------------------

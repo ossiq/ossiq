@@ -18,6 +18,7 @@ from ossiq.service.project.next_action import (
     CHECK_FOR_THE_FIX,
     CHECK_RELEASE_NOTES,
     CONSIDER_ALTERNATIVE,
+    CONSTRAINED_CHECK_NEWER,
     FIND_ALTERNATIVE,
     UPDATE_IMMEDIATELY,
     next_action_label,
@@ -108,6 +109,7 @@ WHATS_NEXT_STYLE: dict[str, str] = {
     CONSIDER_ALTERNATIVE: "bold yellow",
     CHECK_RELEASE_NOTES: "default",
     UPDATE_IMMEDIATELY: "default",
+    CONSTRAINED_CHECK_NEWER: "yellow",
 }
 
 

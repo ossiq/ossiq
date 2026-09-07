@@ -22,17 +22,25 @@ FIND_ALTERNATIVE = "Find alternative"
 CONSIDER_ALTERNATIVE = "Consider alternative"
 CHECK_RELEASE_NOTES = "Check Release Notes"
 UPDATE_IMMEDIATELY = "Update Immediately"
+CONSTRAINED_CHECK_NEWER = "Constrained. Check newer version"
 
 # The ladder order, most urgent first — used to pick one headline action out of several.
+# CONSTRAINED_CHECK_NEWER sits last: a package you can simply bump outranks one you cannot.
 NEXT_ACTION_PRIORITY: tuple[str, ...] = (
     CHECK_FOR_THE_FIX,
     FIND_ALTERNATIVE,
     CONSIDER_ALTERNATIVE,
     CHECK_RELEASE_NOTES,
     UPDATE_IMMEDIATELY,
+    CONSTRAINED_CHECK_NEWER,
 )
 
 AT_LATEST_DIFFS: frozenset[int] = frozenset({VERSION_LATEST, VERSION_DIFF_BUILD, VERSION_DIFF_PRERELEASE})
+
+
+def has_in_range_upgrade(record: ScanRecord) -> bool:
+    """True when the solver found somewhere to move to that isn't the installed version."""
+    return record.recommended_version is not None and record.recommended_version != record.installed_version
 
 
 def next_action_label(record: ScanRecord) -> str | None:
@@ -54,5 +62,11 @@ def next_action_label(record: ScanRecord) -> str | None:
     if diff_index == VERSION_DIFF_MAJOR:
         return CHECK_RELEASE_NOTES
     if diff_index in (VERSION_DIFF_MINOR, VERSION_DIFF_PATCH):
-        return UPDATE_IMMEDIATELY
+        if has_in_range_upgrade(record):
+            return UPDATE_IMMEDIATELY
+        # No recommendation and nothing constraining it: the solver simply had no opinion.
+        if record.recommended_version is None and not record.version_constraint:
+            return UPDATE_IMMEDIATELY
+        # Behind the registry's latest, but the declared range admits no bump to make.
+        return CONSTRAINED_CHECK_NEWER
     return None

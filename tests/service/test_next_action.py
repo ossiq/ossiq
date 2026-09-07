@@ -10,6 +10,7 @@ from ossiq.service.project.next_action import (
     CHECK_FOR_THE_FIX,
     CHECK_RELEASE_NOTES,
     CONSIDER_ALTERNATIVE,
+    CONSTRAINED_CHECK_NEWER,
     FIND_ALTERNATIVE,
     UPDATE_IMMEDIATELY,
     next_action_label,
@@ -52,6 +53,8 @@ def make_record(
     cve: list[CVE] | None = None,
     epss: float | None = None,
     maintenance: MaintenanceAssessment | None = None,
+    recommended_version: str | None = None,
+    version_constraint: str | None = None,
 ) -> ScanRecord:
     return ScanRecord(
         package_name="demo",
@@ -66,6 +69,8 @@ def make_record(
         constraint_info=ConstraintSource(type=ConstraintType.DECLARED, source_file=None),
         epss=epss,
         maintenance=maintenance,
+        recommended_version=recommended_version,
+        version_constraint=version_constraint,
     )
 
 
@@ -94,3 +99,44 @@ def test_major_drift_is_check_release_notes():
 
 def test_clean_current_package_has_no_action():
     assert next_action_label(make_record(maintenance=assessment(MaintenanceState.MAINTAINED))) is None
+
+
+# --- drift the declared range will not let you act on -----------------------------------------
+
+
+def test_in_range_bump_available_is_update_immediately():
+    record = make_record(versions_diff_index=MINOR, recommended_version="1.0.7", version_constraint="~1.0.0")
+    assert next_action_label(record) == UPDATE_IMMEDIATELY
+
+
+def test_recommendation_pinned_to_installed_is_constrained():
+    """`~1.0.0` with nothing newer inside it: "Update Immediately" would name no target."""
+    record = make_record(versions_diff_index=MINOR, recommended_version="1.0.0", version_constraint="~1.0.0")
+    assert next_action_label(record) == CONSTRAINED_CHECK_NEWER
+
+
+def test_no_recommendation_under_a_constraint_is_constrained():
+    record = make_record(versions_diff_index=MINOR, recommended_version=None, version_constraint="~1.0.0")
+    assert next_action_label(record) == CONSTRAINED_CHECK_NEWER
+
+
+def test_no_recommendation_and_no_constraint_stays_update_immediately():
+    """Nothing is holding it back — the solver simply had no opinion."""
+    record = make_record(versions_diff_index=MINOR, recommended_version=None, version_constraint=None)
+    assert next_action_label(record) == UPDATE_IMMEDIATELY
+
+
+def test_major_drift_under_a_constraint_still_reads_release_notes():
+    record = make_record(versions_diff_index=MAJOR, recommended_version="1.0.0", version_constraint="~1.0.0")
+    assert next_action_label(record) == CHECK_RELEASE_NOTES
+
+
+def test_active_cve_outranks_a_constrained_package():
+    record = make_record(
+        versions_diff_index=MINOR,
+        cve=[fake_cve(0.2)],
+        epss=0.2,
+        recommended_version="1.0.0",
+        version_constraint="~1.0.0",
+    )
+    assert next_action_label(record) == CHECK_FOR_THE_FIX

@@ -9,6 +9,7 @@ from ossiq.domain.version import VERSION_DIFF_MAJOR, VERSION_DIFF_MINOR, VERSION
 from ossiq.risk.maintenance import NOT_MAINTAINED
 from ossiq.service.library_scan import UpgradePath
 from ossiq.service.project.models import ScanRecord, ScanResult
+from ossiq.service.project.next_action import CONSTRAINED_CHECK_NEWER, next_action_label
 from ossiq.settings import Settings
 from ossiq.ui.interfaces import AbstractUserInterfaceRenderer
 from ossiq.ui.renderers.impact_utils import (
@@ -24,13 +25,21 @@ from ossiq.ui.renderers.impact_utils import (
 
 BEHIND_DIFFS: frozenset[int] = frozenset({VERSION_DIFF_MAJOR, VERSION_DIFF_MINOR, VERSION_DIFF_PATCH})
 
-MAIN_COLUMNS_DEFAULT: tuple[str, ...] = ("Package", "CVEs", "Recommended", "What's Next")
+MAIN_COLUMNS_DEFAULT: tuple[str, ...] = (
+    "Package",
+    "CVEs",
+    "Installed",
+    "Latest",
+    "Recommended",
+    "What's Next",
+)
 MAIN_COLUMNS_FULL: tuple[str, ...] = (
     "Package",
     "CVEs",
     "EPSS",
     "Update Mode",
     "Installed",
+    "Latest",
     "Recommended",
     "Lag",
     "State",
@@ -48,7 +57,7 @@ def add_status_column(table: Table, name: str) -> None:
         table.add_column(name, justify="center")
     elif name in ("EPSS", "Lag"):
         table.add_column(name, justify="right")
-    else:  # Installed, What's Next
+    else:  # Installed, Latest, What's Next
         table.add_column(name, justify="left")
 
 
@@ -236,6 +245,7 @@ class ConsoleStatusRenderer(AbstractUserInterfaceRenderer):
                     "EPSS": format_probability(pkg.epss),
                     "Update Mode": format_lag_status(pkg.versions_diff_index),
                     "Installed": pkg.installed_version + format_status_badge(pkg),
+                    "Latest": pkg.latest_version or "[dim]—[/dim]",
                     "Recommended": recommended_cell(pkg),
                     "Lag": format_time_delta(pkg.time_lag_days, lag_threshold_days),
                     "State": format_state(pkg),
@@ -246,6 +256,14 @@ class ConsoleStatusRenderer(AbstractUserInterfaceRenderer):
                 if full and pkg.update_transitive_impacts and pkg.recommended_version != pkg.installed_version:
                     for text in impact_sub_row_texts(pkg.update_transitive_impacts):
                         table.add_row(text, *blanks)
+
+                # Name the range that is holding the package back — the "what to do" half of the
+                # Constrained label. Other blockers (e.g. an override pin) may apply on top.
+                if full and pkg.version_constraint and next_action_label(pkg) == CONSTRAINED_CHECK_NEWER:
+                    table.add_row(
+                        f"  [yellow]↳ {pkg.version_constraint} caps this below {pkg.latest_version}[/]",
+                        *blanks,
+                    )
 
                 if pkg.constraint_conflict:
                     specs = " + ".join(pkg.constraint_conflict)

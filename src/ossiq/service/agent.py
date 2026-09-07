@@ -16,9 +16,11 @@ from ossiq.service.project.models import ScanRecord, ScanResult
 from ossiq.service.project.next_action import (
     CHECK_FOR_THE_FIX,
     CHECK_RELEASE_NOTES,
+    CONSTRAINED_CHECK_NEWER,
     FIND_ALTERNATIVE,
     NEXT_ACTION_PRIORITY,
     UPDATE_IMMEDIATELY,
+    has_in_range_upgrade,
     next_action_label,
 )
 from ossiq.service.update_impact import TransitiveImpact
@@ -133,9 +135,19 @@ def agent_next_action(record: ScanRecord) -> str:
     version gone from the registry (when nothing else is due) means leave the package.
     """
     label = next_action_label(record)
-    can_fix = record.recommended_version is not None and record.recommended_version != record.installed_version
+    can_fix = has_in_range_upgrade(record)
 
-    if record.cve and not can_fix and label in (None, UPDATE_IMMEDIATELY, CHECK_RELEASE_NOTES):
+    if (
+        record.cve
+        and not can_fix
+        and label
+        in (
+            None,
+            UPDATE_IMMEDIATELY,
+            CHECK_RELEASE_NOTES,
+            CONSTRAINED_CHECK_NEWER,
+        )
+    ):
         return CHECK_FOR_THE_FIX
     gone = record.is_installed_package_unpublished or (
         (record.is_installed_deprecated or record.is_installed_yanked) and not can_fix
@@ -152,7 +164,7 @@ def build_update_entry(record: ScanRecord) -> dict[str, Any] | None:
     cves = record.cve
     diff_index = record.versions_diff_index.diff_index
     is_major_drift = diff_index == VERSION_DIFF_MAJOR
-    can_fix = recommended is not None and recommended != installed
+    can_fix = has_in_range_upgrade(record)
     unmaintained_state = record.maintenance.state if record.maintenance is not None else None
     unmaintained = unmaintained_state in NOT_MAINTAINED
 
@@ -181,6 +193,8 @@ def build_update_entry(record: ScanRecord) -> dict[str, Any] | None:
         reasons.append(f"major version drift behind {record.latest_version}")
     elif diff_index in BEHIND_DIFFS and not can_fix:
         reasons.append(f"behind the latest {record.latest_version}")
+    if diff_index in BEHIND_DIFFS and not can_fix and record.version_constraint:
+        reasons.append(f"declared range {record.version_constraint} caps this below {record.latest_version}")
     if can_fix:
         reasons.append(f"recommend updating {installed} -> {recommended}")
 

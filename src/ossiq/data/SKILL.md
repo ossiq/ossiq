@@ -86,6 +86,8 @@ The top-level `next_action` is the most urgent one across the `updates` list, or
 - **Consider alternative** — the upstream is winding down; plan a migration.
 - **Check Release Notes** — a major version behind; review breaking changes before the bump.
 - **Update Immediately** — a minor/patch behind, or a recommended version exists; bump it.
+- **Constrained. Check newer version** — a minor/patch behind, but the declared range
+  (e.g. `~7.3.0`) admits no newer version; widening the range is the real next step.
 
 Always pin to `recommended_version` (`to`) when it is set rather than the absolute
 latest — it is the solver's safe choice (avoids known-CVE and too-fresh versions).
