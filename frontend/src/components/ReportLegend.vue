@@ -77,30 +77,52 @@ import { constraintCircleClasses } from '@/explorer/nodeStyle'
           </div>
         </div>
 
-        <!-- Gate -->
+        <!-- Triage -->
         <div class="flex items-start gap-3">
           <span class="block w-3 h-3 mt-1 rounded-full bg-red-700 shrink-0"></span>
           <div>
-            <div class="text-sm font-bold text-slate-900">Gate: BLOCK / QUARANTINE</div>
+            <div class="text-sm font-bold text-slate-900">Action: EVICT / PATCH / REFACTOR</div>
             <p class="text-xs text-slate-500 leading-relaxed">
-              A deterministic pass/quarantine/block checkpoint. <span class="text-red-700 font-bold">Red</span> blocks
-              the package outright, <span class="text-amber-500 font-bold">amber</span> quarantines it pending review;
-              no badge means the package passed the gate.
+              The recommended move, from exploit probability crossed with the maintenance-state model.
+              <span class="text-red-700 font-bold">Evict</span>: exploited and upstream is not maintained, so no
+              fix is coming. <span class="text-amber-500 font-bold">Patch</span>: exploited, but maintainers are
+              active. <span class="text-amber-400 font-bold">Refactor</span>: no exploit pressure, but the upstream
+              is abandoned or deprecated. No badge means retain.
             </p>
           </div>
         </div>
 
-        <!-- Fitness -->
+        <!-- What's Next -->
+        <div class="flex items-start gap-3">
+          <span class="material-symbols-rounded text-lg text-slate-400 shrink-0">arrow_forward</span>
+          <div>
+            <div class="text-sm font-bold text-slate-900">What's Next</div>
+            <p class="text-xs text-slate-500 leading-relaxed">
+              The single next step for a package.
+              <span class="text-red-700 font-bold">Check for the Fix</span>: a CVE with ≥10% exploit probability.
+              <span class="text-red-700 font-bold">Find alternative</span>: already current but the upstream is
+              abandoned or deprecated. <span class="text-amber-600 font-bold">Consider alternative</span>: the
+              upstream is winding down. <span class="font-bold">Check Release Notes</span>: a major version behind.
+              <span class="font-bold">Update Immediately</span>: a minor or patch behind, with a newer version
+              inside the declared range. <span class="text-amber-600 font-bold">Constrained. Check newer
+              version</span>: a minor or patch behind, but the declared range admits no bump — widening it is the
+              real next step. By default the table hides packages with nothing to do — tick
+              <span class="font-bold">Show all packages</span> to see them.
+            </p>
+          </div>
+        </div>
+
+        <!-- EPSS -->
         <div class="flex items-start gap-3">
           <span class="material-symbols-rounded text-lg text-slate-400 shrink-0">speed</span>
           <div>
-            <div class="text-sm font-bold text-slate-900">Fitness</div>
+            <div class="text-sm font-bold text-slate-900">EPSS</div>
             <p class="text-xs text-slate-500 leading-relaxed">
-              A 0-100 presentation projection of Expected Exposure (higher is healthier); never the source of truth.
-              <span class="text-green-600">Green</span>: ≥70,
-              <span class="text-amber-600">Amber</span>: ≥40,
-              <span class="text-red-700">Red</span>: &lt;40. Shown as
-              <span class="text-slate-400">—</span> when not computable.
+              FIRST's probability that a package's worst known CVE is exploited in the next 30 days — lower is better.
+              <span class="text-red-700">Red</span>: ≥10%,
+              <span class="text-amber-600">Amber</span>: ≥0.5%,
+              <span class="text-green-600">Green</span>: below that. Shown as
+              <span class="text-slate-400">—</span> when no CVE carries a score — which means unknown, not safe.
             </p>
           </div>
         </div>

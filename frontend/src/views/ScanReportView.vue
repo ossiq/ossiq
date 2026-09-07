@@ -13,6 +13,7 @@ import type { DependencyTreeRoot, TransitivePackageMetrics } from '@/types/repor
 const store = useOssiqStore()
 const {
   searchText,
+  showAll,
   packageTypeFilter,
   driftStatusFilter,
   releaseDistanceFilter,
@@ -64,13 +65,21 @@ function handleSelectPackage(row: ReportRow) {
     is_deprecated: row.pkg.is_deprecated ?? false,
     is_package_unpublished: row.pkg.is_package_unpublished ?? false,
     version_age_days: row.pkg.version_age_days,
-    fitness: row.pkg.fitness ?? null,
-    expected_exposure: row.pkg.expected_exposure ?? null,
-    p_vuln: row.pkg.p_vuln ?? null,
-    p_supplychain: row.pkg.p_supplychain ?? null,
-    exposure_window_days: row.pkg.exposure_window_days ?? null,
-    impact: row.pkg.impact ?? null,
-    gate: row.pkg.gate ?? null,
+    recommended_version: row.pkg.recommended_version ?? null,
+    epss: row.pkg.epss ?? null,
+    maintenance_coverage: row.pkg.maintenance_coverage ?? null,
+    maintenance_risk: row.pkg.maintenance_risk ?? null,
+    maintenance_state: row.pkg.maintenance_state ?? null,
+    flow_trend: row.pkg.flow_trend ?? null,
+    deprecation_signals: row.pkg.deprecation_signals ?? [],
+    deprecation_successor: row.pkg.deprecation_successor ?? null,
+    gap_cv: row.pkg.gap_cv ?? null,
+    silence_days: row.pkg.silence_days ?? null,
+    silence_p: row.pkg.silence_p ?? null,
+    commits_sampled: row.pkg.commits_sampled ?? null,
+    archived: row.pkg.archived ?? null,
+    days_since_push: row.pkg.days_since_push ?? null,
+    triage_action: row.pkg.triage_action ?? null,
   }
 
   const transitives = store.report?.transitive_packages ?? []
@@ -143,19 +152,30 @@ function handlePanelClose() {
         <!-- Help text -->
         <div v-if="showHelp" class="w-3/4">
           <p class="text-sm text-slate-500">
+            By default the table shows only packages that need action — a version behind, a CVE, or an
+            unmaintained upstream. Tick <strong>Show all packages</strong> to see everything.
+            <strong>What&rsquo;s Next</strong> is the single next step per package: check for a fix, find or
+            consider an alternative, check release notes, or update immediately.
             <strong>Dependency Drift</strong> quantifies the version distance between installed and latest releases,
             segmented by major, minor, and patch changes. This provides a deterministic signal of accumulated change
             and remediation effort across both direct and transitive dependencies.
-            <strong>Gate</strong> is a deterministic pass/quarantine/block checkpoint for CI and agent pre-flight.
-            <strong>Expected Exposure</strong> (impact × probability of incident) is the real prioritization value.
-            <strong>Fitness</strong> is only a monotonic 0-100 presentation projection of Expected Exposure and is
-            never the source of truth — a dash means the value could not be computed, not that there is no risk.
+            <strong>EPSS</strong> is FIRST's probability that a package's worst known CVE sees exploitation in the
+            next 30 days; a dash means no CVE carries a score, which is unknown rather than safe.
+            <strong>Repository stability</strong> samples the upstream repo's last 100 commits: the gap coefficient
+            of variation describes its commit rhythm, and the current silence is compared against that repo's own
+            history to tell an unusual quiet from a normal one — evidence, not a verdict. The
+            <strong>Maintenance</strong> state combines that dormancy signal with deprecation evidence, time since
+            the last push, and the issue/PR flow trend into a naive-Bayes probability over four states —
+            maintained, winding down, abandoned, or deprecated.
+            <strong>Action</strong> crosses the two: exploit pressure decides whether to move now, repository
+            activity decides whether to patch or to replace.
           </p>
         </div>
 
         <!-- Filters -->
         <ReportFilters
           v-model:search-text="searchText"
+          v-model:show-all="showAll"
           v-model:package-type="packageTypeFilter"
           v-model:drift-status="driftStatusFilter"
           v-model:release-distance="releaseDistanceFilter"

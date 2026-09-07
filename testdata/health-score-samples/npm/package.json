@@ -1,0 +1,25 @@
+{
+  "name": "ossiq-health-score-samples-npm",
+  "version": "0.1.0",
+  "private": true,
+  "description": "npm corpus for Health Score debugging. Not a real project - see qa/health-score-instruction.md.",
+  "comment": [
+    "Every pin is deliberate; the goal is spread across the model's inputs, not a realistic project.",
+    "request        deprecated by maintainers          Gate -> block, independent of the probability chain",
+    "lodash         CVE, patch-level lag               single-CVE hazard on a short window",
+    "express        CVEs, minor lag, large subtree     the transitive-reach factor of Impact",
+    "minimist       CVE, prototype pollution           high-EPSS point",
+    "axios          several CVEs, major lag            multi-CVE plus the largest upgrade distance",
+    "node-sass      devDependency, node-gyp install    tier=dev (0.3) x install-exec (1.3) together"
+  ],
+  "dependencies": {
+    "request": "2.88.2",
+    "lodash": "4.17.15",
+    "express": "4.16.0",
+    "minimist": "1.2.0",
+    "axios": "0.21.0"
+  },
+  "devDependencies": {
+    "node-sass": "4.14.1"
+  }
+}

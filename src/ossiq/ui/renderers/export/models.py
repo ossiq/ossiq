@@ -15,8 +15,9 @@ from ossiq.domain.common import (
     ExportUnknownSchemaVersion,
 )
 from ossiq.domain.cve import CVE, Severity
-from ossiq.risk.gate import GateDecision
+from ossiq.risk.maintenance import OBSERVATION_COUNT
 from ossiq.service.project.models import ScanResult
+from ossiq.service.project.stability import RepositoryStability
 
 
 class ExportMetadata(BaseModel):
@@ -59,6 +60,30 @@ class ProjectSummary(BaseModel):
     packages_with_cves: int = Field(description="Number of packages with known CVEs")
     total_cves: int = Field(description="Total number of CVEs across all packages")
     packages_outdated: int = Field(description="Number of packages behind the latest version")
+    project_epss: float | None = Field(
+        default=None,
+        description="EPSSg over every distinct scored package in the project, direct and transitive",
+    )
+    packages_with_epss: int = Field(default=0, description="Number of distinct packages contributing to project_epss")
+    packages_with_unscored_cves: int = Field(
+        default=0, description="Number of packages with a CVE where no CVE carries an EPSS score"
+    )
+    packages_with_stability: int = Field(
+        default=0, description="Number of distinct packages with a maintenance-state assessment"
+    )
+    packages_unmaintained: int = Field(
+        default=0, description="Assessed packages whose most probable state is abandoned or deprecated"
+    )
+    packages_deprecated: int = Field(default=0, description="Assessed packages whose most probable state is deprecated")
+    packages_stability_unknown: int = Field(
+        default=0,
+        description="Packages with no assessment: no repository, no deprecation evidence, nothing to go on",
+    )
+
+    @field_serializer("project_epss")
+    def serialize_project_epss(self, value: float | None) -> float | None:
+        """Round so exported output stays diffable."""
+        return None if value is None else round(value, 4)
 
 
 class CVEInfo(BaseModel):
@@ -74,6 +99,15 @@ class CVEInfo(BaseModel):
     affected_versions: list[str] = Field(description="List of affected versions")
     published: str | None = Field(description="Publication date")
     link: str = Field(description="URL to upstream advisory")
+    epss: float | None = Field(default=None, description="EPSS exploitation probability score, 0-1")
+    fix_age_days: int | None = Field(
+        default=None, description="Days a fix has been available; None when no fix is known"
+    )
+
+    @field_serializer("epss")
+    def serialize_epss(self, value: float | None) -> float | None:
+        """Round so exported output stays diffable."""
+        return None if value is None else round(value, 4)
 
     @classmethod
     def from_domain(cls, cve: CVE) -> "CVEInfo":
@@ -89,6 +123,8 @@ class CVEInfo(BaseModel):
             affected_versions=list(cve.affected_versions),
             published=cve.published,
             link=cve.link,
+            epss=cve.epss,
+            fix_age_days=cve.fix_age_days,
         )
 
 
@@ -109,19 +145,48 @@ class TransitiveImpactExport(BaseModel):
         return {k: v for k, v in d.items() if v is not None}
 
 
-class GateInfo(BaseModel):
-    """Deterministic gate decision for a package."""
+def stability_export_fields(record) -> dict:
+    """Flatten a record's repository-stability, deprecation and maintenance signals for export.
 
-    status: str = Field(description="Gate verdict: pass, quarantine, or block")
-    reason: str = Field(description="Human-readable justification for the verdict")
+    Every value stays None when the repository could not be measured - unknown is never rendered
+    as a zero score or a negative flag. `flow_trend` is None unless the GraphQL activity sample
+    ran (`--stability-responsiveness`, needs a token).
+    """
+    stability = record.stability
+    maintenance = record.maintenance
+    deprecation = record.deprecation
+    return {
+        "maintenance_coverage": len(maintenance.observations) / OBSERVATION_COUNT if maintenance else None,
+        "maintenance_risk": maintenance.p_not_maintained if maintenance else None,
+        "maintenance_state": maintenance.state if maintenance else None,
+        "gap_cv": stability.gap_cv if stability else None,
+        "median_gap_days": stability.median_gap_days if stability else None,
+        "silence_days": stability.silence_days if stability else None,
+        "silence_p": stability.silence_p if stability else None,
+        "commits_sampled": stability.commits_sampled if stability else None,
+        "span_days": stability.span_days if stability else None,
+        "flow_trend": stability.flow_trend if stability else None,
+        "engagement_buckets": engagement_buckets(stability),
+        "deprecation_signals": sorted(deprecation.signals) if deprecation else [],
+        "deprecation_successor": deprecation.successor if deprecation else None,
+        "days_since_push": record.days_since_push,
+        "archived": record.repository.archived if record.repository else None,
+        "triage_action": record.triage.action if record.triage else None,
+    }
 
-    @classmethod
-    def from_domain(cls, decision: GateDecision | None) -> "GateInfo | None":
-        """Convert domain gate decision tuple to export model."""
-        if decision is None:
-            return None
-        status, reason = decision
-        return cls(status=status, reason=reason)
+
+def engagement_buckets(stability: RepositoryStability | None) -> list[list[int]] | None:
+    """The raw ~30-day flow buckets as fixed-order int rows, oldest first, for offline recalibration.
+
+    Rows rather than named keys: the same payload is embedded in the single-file HTML report, where
+    six named objects per package cost several times the bytes. None without a GraphQL sample.
+    """
+    if stability is None or stability.engagement is None:
+        return None
+    return [
+        [bucket.issues_opened, bucket.issues_closed, bucket.prs_opened, bucket.prs_merged]
+        for bucket in stability.engagement.buckets
+    ]
 
 
 class PackageMetrics(BaseModel):
@@ -193,32 +258,81 @@ class PackageMetrics(BaseModel):
     is_package_unpublished: bool = Field(
         default=False, description="Whether the entire package has been removed from the registry (npm-only)"
     )  # noqa: E501
-    exposure_window_days: float | None = Field(
+    epss: float | None = Field(default=None, description="Highest EPSS score among this package's CVEs")
+    runs_code_at_install: bool | None = Field(
         default=None,
-        description="Remediation window in days; None when it could not be computed",
+        description="Whether the installed version executes arbitrary code during install",
     )
-    p_vuln: float | None = Field(
+    install_execution_reason: str | None = Field(
         default=None,
-        description="Probability of known-vulnerability exploitation over the exposure window",
+        description="Human-readable reason for runs_code_at_install; None when unknown or not detected",
     )
-    p_supplychain: float | None = Field(
+    maintenance_coverage: float | None = Field(
         default=None,
-        description="Probability of a supply-chain incident over the exposure window",
+        description="Fraction of the maintenance observations that were available (0.0-1.0)",
     )
-    impact: float | None = Field(default=None, description="Blast-radius multiplier applied to incident probability")
-    expected_exposure: float | None = Field(
+    maintenance_risk: float | None = Field(
         default=None,
-        description="impact multiplied by the combined incident probability",
+        description="P(abandoned) + P(deprecated) from the maintenance-state model; the value that "
+        "feeds triage. Null when no observation was available",
     )
-    fitness: int | None = Field(
+    maintenance_state: str | None = Field(
         default=None,
-        description="0-100 presentation projection of expected_exposure (higher is healthier)",
+        description="Most probable maintenance state: maintained, winding_down, abandoned or deprecated",
     )
-    gate: GateInfo | None = Field(default=None, description="Deterministic pass/quarantine/block gate decision")
+    gap_cv: float | None = Field(
+        default=None,
+        description="Coefficient of variation of inter-commit gaps from the last 100 commits; volume-free, "
+        "unlike a weekly-bucket CV. Null below 20 sampled gaps",
+    )
+    median_gap_days: float | None = Field(
+        default=None, description="Median inter-commit gap, in days, from the sampled commits"
+    )
+    silence_days: float | None = Field(default=None, description="Days since the most recent sampled commit")
+    silence_p: float | None = Field(
+        default=None,
+        description="Empirical probability, from this repository's own gap history, of a silence this long",
+    )
+    commits_sampled: int | None = Field(default=None, description="Non-bot commits that entered the gap measurement")
+    span_days: float | None = Field(default=None, description="Time span, in days, covered by the sampled commits")
+    flow_trend: str | None = Field(
+        default=None,
+        description="Direction of the issue/PR flow ratio over the engagement window: improving, stable "
+        "or declining. Null without the GraphQL activity sample",
+    )
+    engagement_buckets: list[list[int]] | None = Field(
+        default=None,
+        description="Raw flow buckets behind flow_trend, oldest ~30-day bucket first: one "
+        "[issues_opened, issues_closed, prs_opened, prs_merged] row per bucket, kept for offline "
+        "recalibration. Null without the GraphQL activity sample",
+    )
+    deprecation_signals: list[str] = Field(
+        default_factory=list,
+        description="Explicit end-of-life markers found: archived, registry_deprecated, "
+        "inactive_classifier, topic_tagged, description_marked, readme_marked, pinned_notice, successor_named",
+    )
+    deprecation_successor: str | None = Field(
+        default=None, description="Replacement package named in the metadata / deprecation message / README"
+    )
+    days_since_push: int | None = Field(default=None, description="Days since the last push to the repository")
+    archived: bool | None = Field(default=None, description="Whether the upstream repository is archived")
+    triage_action: str | None = Field(
+        default=None,
+        description="Recommended action from the EPSS x maintenance matrix: evict, patch, refactor or retain",
+    )
 
-    @field_serializer("exposure_window_days", "p_vuln", "p_supplychain", "impact", "expected_exposure")
-    def serialize_risk_floats(self, value: float | None) -> float | None:
-        """Round risk floats so exported output stays diffable."""
+    @field_serializer(
+        "epss",
+        "maintenance_coverage",
+        "maintenance_risk",
+        "gap_cv",
+        "median_gap_days",
+        "silence_days",
+        "silence_p",
+        "span_days",
+    )
+    def serialize_risk_float(self, value: float | None) -> float | None:
+        """Round so exported output stays diffable."""
         return None if value is None else round(value, 4)
 
     @classmethod
@@ -265,13 +379,10 @@ class PackageMetrics(BaseModel):
             is_yanked=record.is_installed_yanked,
             is_deprecated=record.is_installed_deprecated,
             is_package_unpublished=record.is_installed_package_unpublished,
-            exposure_window_days=record.exposure_window_days,
-            p_vuln=record.p_vuln,
-            p_supplychain=record.p_supplychain,
-            impact=record.impact,
-            expected_exposure=record.expected_exposure,
-            fitness=record.fitness,
-            gate=GateInfo.from_domain(record.gate_decision),
+            epss=record.epss,
+            runs_code_at_install=record.runs_code_at_install,
+            install_execution_reason=record.install_execution_reason,
+            **stability_export_fields(record),
         )
 
 
@@ -368,32 +479,81 @@ class TransitivePackageMetrics(BaseModel):
     is_package_unpublished: bool = Field(
         default=False, description="Whether the entire package has been removed from the registry (npm-only)"
     )  # noqa: E501
-    exposure_window_days: float | None = Field(
+    epss: float | None = Field(default=None, description="Highest EPSS score among this package's CVEs")
+    runs_code_at_install: bool | None = Field(
         default=None,
-        description="Remediation window in days; None when it could not be computed",
+        description="Whether the installed version executes arbitrary code during install",
     )
-    p_vuln: float | None = Field(
+    install_execution_reason: str | None = Field(
         default=None,
-        description="Probability of known-vulnerability exploitation over the exposure window",
+        description="Human-readable reason for runs_code_at_install; None when unknown or not detected",
     )
-    p_supplychain: float | None = Field(
+    maintenance_coverage: float | None = Field(
         default=None,
-        description="Probability of a supply-chain incident over the exposure window",
+        description="Fraction of the maintenance observations that were available (0.0-1.0)",
     )
-    impact: float | None = Field(default=None, description="Blast-radius multiplier applied to incident probability")
-    expected_exposure: float | None = Field(
+    maintenance_risk: float | None = Field(
         default=None,
-        description="impact multiplied by the combined incident probability",
+        description="P(abandoned) + P(deprecated) from the maintenance-state model; the value that "
+        "feeds triage. Null when no observation was available",
     )
-    fitness: int | None = Field(
+    maintenance_state: str | None = Field(
         default=None,
-        description="0-100 presentation projection of expected_exposure (higher is healthier)",
+        description="Most probable maintenance state: maintained, winding_down, abandoned or deprecated",
     )
-    gate: GateInfo | None = Field(default=None, description="Deterministic pass/quarantine/block gate decision")
+    gap_cv: float | None = Field(
+        default=None,
+        description="Coefficient of variation of inter-commit gaps from the last 100 commits; volume-free, "
+        "unlike a weekly-bucket CV. Null below 20 sampled gaps",
+    )
+    median_gap_days: float | None = Field(
+        default=None, description="Median inter-commit gap, in days, from the sampled commits"
+    )
+    silence_days: float | None = Field(default=None, description="Days since the most recent sampled commit")
+    silence_p: float | None = Field(
+        default=None,
+        description="Empirical probability, from this repository's own gap history, of a silence this long",
+    )
+    commits_sampled: int | None = Field(default=None, description="Non-bot commits that entered the gap measurement")
+    span_days: float | None = Field(default=None, description="Time span, in days, covered by the sampled commits")
+    flow_trend: str | None = Field(
+        default=None,
+        description="Direction of the issue/PR flow ratio over the engagement window: improving, stable "
+        "or declining. Null without the GraphQL activity sample",
+    )
+    engagement_buckets: list[list[int]] | None = Field(
+        default=None,
+        description="Raw flow buckets behind flow_trend, oldest ~30-day bucket first: one "
+        "[issues_opened, issues_closed, prs_opened, prs_merged] row per bucket, kept for offline "
+        "recalibration. Null without the GraphQL activity sample",
+    )
+    deprecation_signals: list[str] = Field(
+        default_factory=list,
+        description="Explicit end-of-life markers found: archived, registry_deprecated, "
+        "inactive_classifier, topic_tagged, description_marked, readme_marked, pinned_notice, successor_named",
+    )
+    deprecation_successor: str | None = Field(
+        default=None, description="Replacement package named in the metadata / deprecation message / README"
+    )
+    days_since_push: int | None = Field(default=None, description="Days since the last push to the repository")
+    archived: bool | None = Field(default=None, description="Whether the upstream repository is archived")
+    triage_action: str | None = Field(
+        default=None,
+        description="Recommended action from the EPSS x maintenance matrix: evict, patch, refactor or retain",
+    )
 
-    @field_serializer("exposure_window_days", "p_vuln", "p_supplychain", "impact", "expected_exposure")
-    def serialize_risk_floats(self, value: float | None) -> float | None:
-        """Round risk floats so exported output stays diffable."""
+    @field_serializer(
+        "epss",
+        "maintenance_coverage",
+        "maintenance_risk",
+        "gap_cv",
+        "median_gap_days",
+        "silence_days",
+        "silence_p",
+        "span_days",
+    )
+    def serialize_risk_float(self, value: float | None) -> float | None:
+        """Round so exported output stays diffable."""
         return None if value is None else round(value, 4)
 
     @classmethod
@@ -422,13 +582,10 @@ class TransitivePackageMetrics(BaseModel):
             is_yanked=first.is_installed_yanked,
             is_deprecated=first.is_installed_deprecated,
             is_package_unpublished=first.is_installed_package_unpublished,
-            exposure_window_days=first.exposure_window_days,
-            p_vuln=first.p_vuln,
-            p_supplychain=first.p_supplychain,
-            impact=first.impact,
-            expected_exposure=first.expected_exposure,
-            fitness=first.fitness,
-            gate=GateInfo.from_domain(first.gate_decision),
+            epss=first.epss,
+            runs_code_at_install=first.runs_code_at_install,
+            install_execution_reason=first.install_execution_reason,
+            **stability_export_fields(first),
         )
 
     @model_serializer(mode="wrap")
@@ -582,6 +739,15 @@ def build_export_data(
         packages_with_cves=packages_with_cves,
         total_cves=total_cves,
         packages_outdated=packages_outdated,
+        project_epss=data.project_epss.score if data.project_epss else None,
+        packages_with_epss=data.project_epss.scored_packages if data.project_epss else 0,
+        packages_with_unscored_cves=data.project_epss.unscored_cve_packages if data.project_epss else 0,
+        # Stability spans transitives too, so these come from the project aggregate rather than
+        # being recounted over all_direct like every other summary figure above.
+        packages_with_stability=data.project_stability.scored_packages if data.project_stability else 0,
+        packages_unmaintained=data.project_stability.unmaintained_packages if data.project_stability else 0,
+        packages_deprecated=data.project_stability.deprecated_packages if data.project_stability else 0,
+        packages_stability_unknown=data.project_stability.unknown_packages if data.project_stability else 0,
     )
     production = [PackageMetrics.from_domain(pkg) for pkg in data.production_packages]
     development = [PackageMetrics.from_domain(pkg) for pkg in data.optional_packages]

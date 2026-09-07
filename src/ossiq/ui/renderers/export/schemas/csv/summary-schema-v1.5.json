@@ -8,7 +8,9 @@
       "description": "Version of the export schema format",
       "constraints": {
         "required": true,
-        "enum": ["1.5"]
+        "enum": [
+          "1.5"
+        ]
       }
     },
     {
@@ -48,7 +50,10 @@
       "description": "Package manager ecosystem (npm, pypi)",
       "constraints": {
         "required": true,
-        "enum": ["npm", "pypi"]
+        "enum": [
+          "npm",
+          "pypi"
+        ]
       }
     },
     {
@@ -110,7 +115,79 @@
         "required": true,
         "minimum": 0
       }
+    },
+    {
+      "name": "project_epss",
+      "type": "number",
+      "title": "Project EPSS",
+      "description": "EPSSg over every distinct scored package in the project, direct and transitive; empty when nothing is scored",
+      "constraints": {
+        "minimum": 0,
+        "maximum": 1
+      }
+    },
+    {
+      "name": "packages_with_epss",
+      "type": "integer",
+      "title": "Packages With EPSS",
+      "description": "Number of distinct packages contributing to project_epss",
+      "constraints": {
+        "required": true,
+        "minimum": 0
+      }
+    },
+    {
+      "name": "packages_with_unscored_cves",
+      "type": "integer",
+      "title": "Packages With Unscored CVEs",
+      "description": "Number of packages with a CVE where no CVE carries an EPSS score",
+      "constraints": {
+        "required": true,
+        "minimum": 0
+      }
+    },
+    {
+      "name": "packages_with_stability",
+      "type": "integer",
+      "title": "Packages With Stability",
+      "description": "Number of distinct packages with a maintenance-state assessment",
+      "constraints": {
+        "required": true,
+        "minimum": 0
+      }
+    },
+    {
+      "name": "packages_unmaintained",
+      "type": "integer",
+      "title": "Unmaintained Packages",
+      "description": "Assessed packages whose most probable state is abandoned or deprecated",
+      "constraints": {
+        "required": true,
+        "minimum": 0
+      }
+    },
+    {
+      "name": "packages_deprecated",
+      "type": "integer",
+      "title": "Deprecated Packages",
+      "description": "Assessed packages whose most probable state is deprecated",
+      "constraints": {
+        "required": true,
+        "minimum": 0
+      }
+    },
+    {
+      "name": "packages_stability_unknown",
+      "type": "integer",
+      "title": "Packages With Unknown Stability",
+      "description": "Packages with no assessment: no repository, no deprecation evidence",
+      "constraints": {
+        "required": true,
+        "minimum": 0
+      }
     }
   ],
-  "missingValues": [""]
+  "missingValues": [
+    ""
+  ]
 }

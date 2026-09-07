@@ -89,7 +89,7 @@
 - [ ] TC-L03: `--github-token` stored in `~/.ossiq/config` and as `env.OSSIQ_GITHUB_TOKEN` in mcp.json; blank interactive prompt skips both
 - [ ] TC-L04: copilot install idempotent — two runs leave one `ossiq-skill:start` block; user content preserved
 - [ ] TC-L05: MCP stdio handshake — `initialize` + `tools/list` return valid JSON-RPC listing `ossiq_evaluate_dependency` and `ossiq_evaluate_updates`; notifications get no reply; stdout is JSON-only
-- [ ] TC-L06: MCP `tools/call ossiq_evaluate_dependency` returns add-verdict JSON; unknown package → `isError`, server stays alive
+- [ ] TC-L06: MCP `tools/call ossiq_evaluate_dependency` returns add-decision JSON; unknown package → `isError`, server stays alive
 - [ ] TC-L07: MCP `tools/call ossiq_evaluate_updates` returns `updates` list; unknown tool name → `isError`, no crash
 - [ ] TC-L08: `info <pkg> <path> --format agent` and `status <path> --format agent` emit pure valid JSON matching the SKILL.md contract
 - [ ] TC-L09: (optional, live) after install, Claude Code `/mcp` shows ossiq connected; skill triggers on an "is it safe to add X" prompt

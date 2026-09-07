@@ -55,6 +55,26 @@ def test_cache_destination_defaults_under_config_dir():
     assert Settings().cache_destination == str(ossiq.settings.CONFIG_PATH.parent / "cache.sqlite3")
 
 
+def test_stability_cache_ttl_defaults_to_168():
+    assert Settings().stability_cache_ttl == 168
+
+
+def test_responsiveness_auto_follows_token_presence(monkeypatch):
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+    assert Settings(github_token=None).responsiveness_enabled() is False
+    assert Settings(github_token="ghp_x").responsiveness_enabled() is True
+
+
+def test_responsiveness_explicit_flag_wins(monkeypatch):
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+    assert Settings(github_token=None, stability_responsiveness=True).responsiveness_enabled() is True
+    assert Settings(github_token="ghp_x", stability_responsiveness=False).responsiveness_enabled() is False
+
+
+def test_responsiveness_off_when_stability_disabled():
+    assert Settings(github_token="ghp_x", stability=False).responsiveness_enabled() is False
+
+
 def test_cli_config_option_reaches_settings(config_file):
     result = runner.invoke(app, ["--no-cache", "--config", str(config_file), "--verbose", "help"])
     assert result.exit_code == 0

@@ -5,10 +5,13 @@ from unittest.mock import MagicMock, call, patch
 
 from packaging.version import Version
 
-from ossiq.domain.common import CveDatabase, ProjectPackagesRegistry
+from ossiq.domain.common import ConstraintType, CveDatabase, ProjectPackagesRegistry
 from ossiq.domain.cve import CVE, Severity
 from ossiq.domain.exceptions import UnknownPackageVersion
+from ossiq.domain.package import Package
+from ossiq.domain.project import ConstraintSource
 from ossiq.domain.version import PackageVersion
+from ossiq.service.project.models import DependencyDescriptor
 from ossiq.service.project.prefetch import enrich_cves_with_epss_and_fix_age
 from ossiq.service.project.scan import prefetch_scan_data
 
@@ -223,3 +226,78 @@ def test_prefetch_scan_data_enriches_cves_after_osv_fetch():
         call("epss"),
         call("versions"),
     ]
+
+
+def _make_dep(canonical_name: str, dependency_path: list[str] | None) -> DependencyDescriptor:
+    return DependencyDescriptor(
+        name=canonical_name,
+        canonical_name=canonical_name,
+        version="1.0.0",
+        is_optional=False,
+        dependency_path=dependency_path,
+        version_constraint=None,
+        constraint_info=ConstraintSource(type=ConstraintType.DECLARED, source_file="pyproject.toml"),
+    )
+
+
+def _make_package(name: str, repo_url: str) -> Package:
+    return Package(
+        registry=ProjectPackagesRegistry.PYPI,
+        name=name,
+        latest_version=None,
+        next_version=None,
+        repo_url=repo_url,
+    )
+
+
+def test_prefetch_scan_data_fetches_stability_signals_for_direct_deps_only():
+    direct_dep = _make_dep("foo", dependency_path=None)
+    transitive_dep = _make_dep("bar", dependency_path=["foo"])
+    sources = MagicMock()
+    sources.allow_prerelease = False
+    sources.allow_prerelease_packages = ()
+    sources.settings.stability = True
+    sources.settings.responsiveness_enabled.return_value = True
+    sources.packages_registry.packages_info_batch.return_value = {
+        "foo": _make_package("foo", "https://github.com/org/foo"),
+        "bar": _make_package("bar", "https://github.com/org/bar"),
+    }
+    sources.packages_registry.package_versions.return_value = []
+    sources.cve_database.get_cves_batch.return_value = {}
+    step = MagicMock()
+    now = datetime(2025, 1, 11, tzinfo=UTC)
+
+    with (
+        patch("ossiq.service.project.scan.prefetch_source_code_repositories_info") as repos_info,
+        patch("ossiq.service.project.scan.prefetch_repository_commits") as commits,
+        patch("ossiq.service.project.scan.prefetch_repository_activity") as activity,
+    ):
+        prefetch_scan_data(sources, [direct_dep, transitive_dep], now, step)
+
+    assert repos_info.call_args.args[1] == {"https://github.com/org/foo", "https://github.com/org/bar"}
+    assert commits.call_args.args[1] == {"https://github.com/org/foo"}
+    assert activity.call_args.args[1] == {"https://github.com/org/foo"}
+
+
+def test_prefetch_scan_data_skips_activity_when_responsiveness_disabled():
+    direct_dep = _make_dep("foo", dependency_path=None)
+    sources = MagicMock()
+    sources.allow_prerelease = False
+    sources.allow_prerelease_packages = ()
+    sources.settings.stability = True
+    sources.settings.responsiveness_enabled.return_value = False
+    sources.packages_registry.packages_info_batch.return_value = {
+        "foo": _make_package("foo", "https://github.com/org/foo"),
+    }
+    sources.packages_registry.package_versions.return_value = []
+    sources.cve_database.get_cves_batch.return_value = {}
+
+    with (
+        patch("ossiq.service.project.scan.prefetch_source_code_repositories_info"),
+        patch("ossiq.service.project.scan.prefetch_repository_commits"),
+        patch("ossiq.service.project.scan.prefetch_repository_activity") as activity,
+    ):
+        result = prefetch_scan_data(sources, [direct_dep], datetime(2025, 1, 11, tzinfo=UTC), MagicMock())
+
+    activity.assert_not_called()
+    assert result.activity == {}

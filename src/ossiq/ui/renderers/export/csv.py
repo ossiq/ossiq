@@ -106,9 +106,9 @@ class CsvExportRenderer(AbstractUserInterfaceRenderer):
         export_paths.target_directory.mkdir(parents=True, exist_ok=True)
 
         # Write all three CSV files
-        self._write_summary_csv(export_paths.summary_csv, export_data)
+        self._write_summary_csv(export_paths.summary_csv, export_data, resolved_version)
         self._write_packages_csv(export_paths.packages_csv, export_data, resolved_version)
-        self._write_cves_csv(export_paths.cves_csv, export_data)
+        self._write_cves_csv(export_paths.cves_csv, export_data, resolved_version)
 
         # Generate and write datapackage.json
         self._write_datapackage(export_paths, export_data)
@@ -145,7 +145,9 @@ class CsvExportRenderer(AbstractUserInterfaceRenderer):
             datapackage_json=target_directory / "datapackage.json",
         )
 
-    def _write_summary_csv(self, file_path: Path, export_data: ExportDataBase) -> None:
+    def _write_summary_csv(
+        self, file_path: Path, export_data: ExportDataBase, schema_version: ExportCsvSchemaVersion
+    ) -> None:
         """
         Write summary CSV with metadata and aggregate statistics.
 
@@ -154,6 +156,7 @@ class CsvExportRenderer(AbstractUserInterfaceRenderer):
         Args:
             file_path: Output file path for summary CSV
             export_data: Export data model with metadata, project, and summary
+            schema_version: Schema version controlling which columns are included
         """
         fieldnames = [
             "schema_version",
@@ -169,10 +172,21 @@ class CsvExportRenderer(AbstractUserInterfaceRenderer):
             "packages_outdated",
         ]
 
+        is_v1_5_plus = schema_version == ExportCsvSchemaVersion.V1_5
+        if is_v1_5_plus:
+            fieldnames += [
+                "project_epss",
+                "packages_with_epss",
+                "packages_with_unscored_cves",
+                "packages_with_stability",
+                "packages_unmaintained",
+                "packages_deprecated",
+                "packages_stability_unknown",
+            ]
+
         # Create single row with all summary data
         # Get schema version value (enums have .value, literal "N/A" is already a string)
-        schema_version = export_data.metadata.schema_version
-        schema_version_str = schema_version.value
+        schema_version_str = export_data.metadata.schema_version.value
         row = {
             "schema_version": schema_version_str,
             # Format timestamp to match schema: %Y-%m-%dT%H:%M:%S (no microseconds/timezone)
@@ -187,6 +201,15 @@ class CsvExportRenderer(AbstractUserInterfaceRenderer):
             "total_cves": export_data.summary.total_cves,
             "packages_outdated": export_data.summary.packages_outdated,
         }
+        if is_v1_5_plus:
+            project_epss = export_data.summary.project_epss
+            row["project_epss"] = "" if project_epss is None else str(round(project_epss, 4))
+            row["packages_with_epss"] = export_data.summary.packages_with_epss
+            row["packages_with_unscored_cves"] = export_data.summary.packages_with_unscored_cves
+            row["packages_with_stability"] = export_data.summary.packages_with_stability
+            row["packages_unmaintained"] = export_data.summary.packages_unmaintained
+            row["packages_deprecated"] = export_data.summary.packages_deprecated
+            row["packages_stability_unknown"] = export_data.summary.packages_stability_unknown
 
         # Write CSV with UTF-8 BOM for Excel compatibility
         with open(file_path, "w", encoding="utf-8-sig", newline="") as f:
@@ -241,14 +264,19 @@ class CsvExportRenderer(AbstractUserInterfaceRenderer):
             fieldnames += ["is_prerelease", "is_yanked", "is_deprecated", "is_package_unpublished"]
         if is_v1_5_plus:
             fieldnames += [
-                "gate_status",
-                "gate_reason",
-                "fitness",
-                "expected_exposure",
-                "p_vuln",
-                "p_supplychain",
-                "impact",
-                "exposure_window_days",
+                "epss",
+                "runs_code_at_install",
+                "maintenance_risk",
+                "maintenance_state",
+                "flow_trend",
+                "deprecation_signals",
+                "deprecation_successor",
+                "days_since_push",
+                "triage_action",
+                "gap_cv",
+                "silence_days",
+                "silence_p",
+                "commits_sampled",
             ]
         fieldnames += ["license", "purl"]
 
@@ -281,14 +309,23 @@ class CsvExportRenderer(AbstractUserInterfaceRenderer):
                 row["is_deprecated"] = self._serialize_bool(pkg.is_deprecated)
                 row["is_package_unpublished"] = self._serialize_bool(pkg.is_package_unpublished)
             if is_v1_5_plus:
-                row["gate_status"] = pkg.gate.status if pkg.gate else ""
-                row["gate_reason"] = pkg.gate.reason if pkg.gate else ""
-                row["fitness"] = self._serialize_optional(pkg.fitness)
-                row["expected_exposure"] = risk_cell(pkg.expected_exposure)
-                row["p_vuln"] = risk_cell(pkg.p_vuln)
-                row["p_supplychain"] = risk_cell(pkg.p_supplychain)
-                row["impact"] = risk_cell(pkg.impact)
-                row["exposure_window_days"] = risk_cell(pkg.exposure_window_days)
+                row["epss"] = risk_cell(pkg.epss)
+                row["runs_code_at_install"] = (
+                    "" if pkg.runs_code_at_install is None else self._serialize_bool(pkg.runs_code_at_install)
+                )
+                row["maintenance_risk"] = risk_cell(pkg.maintenance_risk)
+                row["maintenance_state"] = self._serialize_optional(pkg.maintenance_state)
+                row["flow_trend"] = self._serialize_optional(pkg.flow_trend)
+                row["deprecation_signals"] = self._serialize_optional(
+                    ",".join(pkg.deprecation_signals) if pkg.deprecation_signals else None
+                )
+                row["deprecation_successor"] = self._serialize_optional(pkg.deprecation_successor)
+                row["days_since_push"] = self._serialize_optional(pkg.days_since_push)
+                row["triage_action"] = self._serialize_optional(pkg.triage_action)
+                row["gap_cv"] = risk_cell(pkg.gap_cv)
+                row["silence_days"] = risk_cell(pkg.silence_days)
+                row["silence_p"] = risk_cell(pkg.silence_p)
+                row["commits_sampled"] = self._serialize_optional(pkg.commits_sampled)
             return row
 
         # Generate rows for all packages
@@ -301,7 +338,9 @@ class CsvExportRenderer(AbstractUserInterfaceRenderer):
             writer.writeheader()
             writer.writerows(rows)
 
-    def _write_cves_csv(self, file_path: Path, export_data: ExportDataBase) -> None:
+    def _write_cves_csv(
+        self, file_path: Path, export_data: ExportDataBase, schema_version: ExportCsvSchemaVersion
+    ) -> None:
         """
         Write CVEs CSV with detailed vulnerability information.
 
@@ -310,6 +349,7 @@ class CsvExportRenderer(AbstractUserInterfaceRenderer):
         Args:
             file_path: Output file path for CVEs CSV
             export_data: Export data model with production and development packages
+            schema_version: Schema version controlling which columns are included
         """
         fieldnames = [
             "cve_id",
@@ -324,44 +364,31 @@ class CsvExportRenderer(AbstractUserInterfaceRenderer):
             "link",
         ]
 
+        is_v1_5_plus = schema_version == ExportCsvSchemaVersion.V1_5
+        if is_v1_5_plus:
+            fieldnames += ["epss", "fix_age_days"]
+
+        def _cve_row(cve) -> dict:
+            row = {
+                "cve_id": cve.id,
+                "package_name": cve.package_name,
+                "package_registry": cve.package_registry.lower(),
+                "source": cve.source,
+                "severity": cve.severity.value,
+                "summary": cve.summary,
+                "affected_versions": self._serialize_list(cve.affected_versions),
+                "all_cve_ids": self._serialize_list(cve.cve_ids),
+                "published": self._serialize_datetime(cve.published),
+                "link": cve.link,
+            }
+            if is_v1_5_plus:
+                row["epss"] = "" if cve.epss is None else str(round(cve.epss, 4))
+                row["fix_age_days"] = self._serialize_optional(cve.fix_age_days)
+            return row
+
         # Generate rows for all CVEs from all packages
-        rows = []
-
-        # Process production packages
-        for pkg in export_data.production_packages:
-            for cve in pkg.cve:
-                rows.append(
-                    {
-                        "cve_id": cve.id,
-                        "package_name": cve.package_name,
-                        "package_registry": cve.package_registry.lower(),
-                        "source": cve.source,
-                        "severity": cve.severity.value,
-                        "summary": cve.summary,
-                        "affected_versions": self._serialize_list(cve.affected_versions),
-                        "all_cve_ids": self._serialize_list(cve.cve_ids),
-                        "published": self._serialize_datetime(cve.published),
-                        "link": cve.link,
-                    }
-                )
-
-        # Process development packages
-        for pkg in export_data.development_packages:
-            for cve in pkg.cve:
-                rows.append(
-                    {
-                        "cve_id": cve.id,
-                        "package_name": cve.package_name,
-                        "package_registry": cve.package_registry.lower(),
-                        "source": cve.source,
-                        "severity": cve.severity.value,
-                        "summary": cve.summary,
-                        "affected_versions": self._serialize_list(cve.affected_versions),
-                        "all_cve_ids": self._serialize_list(cve.cve_ids),
-                        "published": self._serialize_datetime(cve.published),
-                        "link": cve.link,
-                    }
-                )
+        rows = [_cve_row(cve) for pkg in export_data.production_packages for cve in pkg.cve]
+        rows += [_cve_row(cve) for pkg in export_data.development_packages for cve in pkg.cve]
 
         # Write CSV with UTF-8 BOM for Excel compatibility
         with open(file_path, "w", encoding="utf-8-sig", newline="") as f:

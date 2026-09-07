@@ -43,6 +43,9 @@ from ossiq.messages import (
     ARGS_HELP_DEBUG,
     ARGS_HELP_GITHUB_TOKEN,
     ARGS_HELP_OUTPUT,
+    ARGS_HELP_STABILITY,
+    ARGS_HELP_STABILITY_CACHE_TTL,
+    ARGS_HELP_STABILITY_RESPONSIVENESS,
     HELP_ADD_FORCE,
     HELP_ADD_PACKAGE_NAME,
     HELP_ADD_VERSION,
@@ -57,6 +60,7 @@ from ossiq.messages import (
     HELP_REWRITE_VERSIONS,
     HELP_SCHEMA_VERSION,
     HELP_SECURITY_ONLY,
+    HELP_STATUS_FULL,
     HELP_TEXT,
 )
 from ossiq.settings import Settings
@@ -158,6 +162,14 @@ def main(
         int | None,
         typer.Option("--cache-ttl", envvar=f"{Settings.ENV_PREFIX}CACHE_TTL", help=ARGS_HELP_CACHE_TTL),
     ] = None,
+    stability_cache_ttl: Annotated[
+        int | None,
+        typer.Option(
+            "--stability-cache-ttl",
+            envvar=f"{Settings.ENV_PREFIX}STABILITY_CACHE_TTL",
+            help=ARGS_HELP_STABILITY_CACHE_TTL,
+        ),
+    ] = None,
     no_cache: Annotated[
         bool,
         typer.Option("--no-cache", is_flag=True, help="Disable persistent HTTP cache for this run."),
@@ -177,6 +189,22 @@ def main(
             "--cooldown-period",
             envvar=f"{Settings.ENV_PREFIX}COOLDOWN_PERIOD",
             help=ARGS_HELP_COOLDOWN_PERIOD,
+        ),
+    ] = None,
+    stability: Annotated[
+        bool | None,
+        typer.Option(
+            "--stability/--no-stability",
+            envvar=f"{Settings.ENV_PREFIX}STABILITY",
+            help=ARGS_HELP_STABILITY,
+        ),
+    ] = None,
+    stability_responsiveness: Annotated[
+        bool | None,
+        typer.Option(
+            "--stability-responsiveness/--no-stability-responsiveness",
+            envvar=f"{Settings.ENV_PREFIX}STABILITY_RESPONSIVENESS",
+            help=ARGS_HELP_STABILITY_RESPONSIVENESS,
         ),
     ] = None,
     version: Annotated[  # pylint: disable=unused-argument
@@ -206,8 +234,11 @@ def main(
         "traceback": traceback_flag,
         "cache_destination": cache_destination,
         "cache_ttl": cache_ttl,
+        "stability_cache_ttl": stability_cache_ttl,
         "cutoff_date": cutoff_datetime_from_iso_date(cutoff_date) if cutoff_date else None,
         "cooldown_period": cooldown_period,
+        "stability": stability,
+        "stability_responsiveness": stability_responsiveness,
     }
     # Filter out None values so we only override with explicitly provided options
     update_data = {k: v for k, v in cli_overrides.items() if v is not None}
@@ -226,7 +257,7 @@ def main(
         show_settings(context, "Settings", settings.model_dump())
 
     if not no_cache:
-        install_requests_cache(settings.cache_destination, settings.cache_ttl)
+        install_requests_cache(settings.cache_destination, settings.cache_ttl, settings.stability_cache_ttl)
 
     if context.invoked_subcommand is None:
         command_status(ctx=context, options=CommandStatusOptions(project_path="."))
@@ -240,7 +271,7 @@ def help():  # pylint: disable=redefined-builtin
 
 @app.command()
 def mcp(context: typer.Context):
-    """Run a local stdio MCP server exposing OSS IQ verdicts to AI agents."""
+    """Run a local stdio MCP server exposing OSS IQ decisions to AI agents."""
     serve_mcp(context.obj)
 
 
@@ -269,13 +300,14 @@ def status(
             help="Narrow transitive recommendations to CVE-carrying packages only",
         ),
     ] = False,
+    full: Annotated[bool, typer.Option("--full", is_flag=True, help=HELP_STATUS_FULL)] = False,
     ignore: Annotated[
         list[str] | None,
         typer.Option("--ignore", "-i", help=HELP_IGNORE_PACKAGE),
     ] = None,
     output_format: Annotated[
         Literal["console", "agent"],
-        typer.Option("--format", "-f", help="Output format: console (human) or agent (compact JSON verdict)"),
+        typer.Option("--format", "-f", help="Output format: console (human) or agent (compact JSON decision)"),
     ] = "console",
 ):
     """
@@ -297,6 +329,7 @@ def status(
                 security_only=security,
                 ignore_packages=tuple(ignore or []),
                 output_format=output_format,
+                full=full,
             ),
         )
 
@@ -434,7 +467,7 @@ def info(
     ] = None,
     output_format: Annotated[
         Literal["console", "agent"],
-        typer.Option("--format", "-f", help="Output format: console (human) or agent (compact JSON verdict)"),
+        typer.Option("--format", "-f", help="Output format: console (human) or agent (compact JSON decision)"),
     ] = "console",
 ):
     """

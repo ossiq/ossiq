@@ -12,7 +12,13 @@ from collections.abc import Callable, Iterable
 import requests
 
 from ossiq.clients.batch import is_rate_limit_response
-from ossiq.clients.client_github import BatchClient, GithubRepoBatchStrategy
+from ossiq.clients.client_github import (
+    BatchClient,
+    GithubCommitsBatchStrategy,
+    GithubGraphQLBatchStrategy,
+    GithubReadmeBatchStrategy,
+    GithubRepoBatchStrategy,
+)
 from ossiq.clients.common import get_user_agent
 from ossiq.settings import Settings
 
@@ -259,7 +265,61 @@ class SourceCodeProviderApiGithub:
                     description=repo_data.get("description"),
                     html_url=f"https://github.com/{m.group('owner')}/{m.group('name')}",
                     license=(repo_data.get("license") or {}).get("spdx_id") or None,
+                    archived=repo_data.get("archived"),
+                    pushed_at=repo_data.get("pushed_at"),
+                    topics=repo_data.get("topics") or [],
                 )
+        return result
+
+    def commits_batch(self, repo_urls: list[str], until: str | None = None) -> dict[str, list[dict]]:
+        """
+        Fetch the last 100 commits for a list of repo URLs in parallel.
+
+        Feeds the gap-based stability estimator. `until` mirrors the scan's cutoff date, when set.
+        """
+        client = BatchClient(GithubCommitsBatchStrategy(self.session, until))
+        result: dict[str, list[dict]] = {}
+        for chunk_result in client.run_batch(repo_urls):
+            for url, commits in chunk_result.items():
+                if commits:
+                    result[url] = commits
+        return result
+
+    def repository_activity_batch(self, repo_urls: list[str], since: str | None = None) -> dict[str, dict]:
+        """Fetch issue / PR activity for a list of repo URLs via batched GraphQL.
+
+        `since` is the ISO-8601 start of the engagement window. Issues and PRs are fetched in
+        separate requests per repo, and paginated follow-ups arrive as separate chunk results, so
+        per-URL issue and PR node lists are concatenated across chunks; `pinned_titles` is kept
+        from whichever chunk carried it. A repo whose alias errored (renamed/deleted) is dropped.
+        """
+        client = BatchClient(GithubGraphQLBatchStrategy(self.session, since or ""))
+        stream_items = [(url, stream) for url in repo_urls for stream in ("issues", "pulls")]
+        issues: dict[str, list] = {}
+        pulls: dict[str, list] = {}
+        pinned: dict[str, list[str]] = {}
+        for chunk_result in client.run_batch(stream_items):
+            for url, payload in chunk_result.items():
+                if payload is None:
+                    continue
+                issues.setdefault(url, []).extend(payload.get("issues") or [])
+                pulls.setdefault(url, []).extend(payload.get("pulls") or [])
+                if payload.get("pinned_titles"):
+                    pinned[url] = payload["pinned_titles"]
+        return {
+            url: {"issues": issues.get(url, []), "pulls": pulls.get(url, []), "pinned_titles": pinned.get(url, [])}
+            for url in issues.keys() | pulls.keys()
+            if issues.get(url) or pulls.get(url)
+        }
+
+    def readmes_batch(self, repo_urls: list[str]) -> dict[str, str]:
+        """Fetch the top of each repo's README in parallel, for the deprecation-banner scan."""
+        client = BatchClient(GithubReadmeBatchStrategy(self.session))
+        result: dict[str, str] = {}
+        for chunk_result in client.run_batch(repo_urls):
+            for url, text in chunk_result.items():
+                if text:
+                    result[url] = text
         return result
 
     def repository_info(self, repository_url: str | None) -> Repository:

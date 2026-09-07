@@ -10,7 +10,7 @@ from ossiq.domain.cve import CVE
 from ossiq.domain.package import Package
 from ossiq.domain.project import ConstraintSource, PeerRequirement
 from ossiq.domain.repository import Repository
-from ossiq.risk.exposure_window import compute_exposure_window
+from ossiq.risk.maintenance import deprecation_evidence
 from ossiq.service.common import package_versions
 from ossiq.service.project.models import DependencyDescriptor, PrefetchedData, ScanRecord
 from ossiq.solver.version_matchers import version_satisfies_constraint
@@ -90,6 +90,8 @@ def scan_record(
     extras: list[str] | None = None,
     all_constraints: list[str] | None = None,
     peer_requirements: list[PeerRequirement] | None = None,
+    readme_head: str | None = None,
+    pinned_titles: list[str] | None = None,
     *,
     now: datetime | None = None,
 ) -> ScanRecord:
@@ -109,6 +111,19 @@ def scan_record(
     version_diff_index = version_rules.difference_versions(package_version, package_info.latest_version)
     releases_lag = len(releases_since_installed) - 1
 
+    deprecation = deprecation_evidence(
+        archived=prefetched_repository.archived if prefetched_repository else None,
+        classifiers=package_info.classifiers,
+        all_releases_yanked=package_info.all_releases_yanked,
+        npm_deprecated=package_info.is_deprecated,
+        deprecation_message=package_info.deprecation_message,
+        repo_description=prefetched_repository.description if prefetched_repository else None,
+        summary=package_info.description,
+        topics=prefetched_repository.topics if prefetched_repository else [],
+        readme_head=readme_head,
+        pinned_titles=pinned_titles or [],
+    )
+
     return ScanRecord(
         package_name=canonical_name,
         dependency_name=package_name,
@@ -126,6 +141,7 @@ def scan_record(
         constraint_info=constraint_info,
         repo_url=package_info.repo_url,
         repository=prefetched_repository,
+        deprecation=deprecation,
         homepage_url=package_info.homepage_url,
         package_url=package_info.package_url,
         license=parse_spdx_expression(
@@ -149,7 +165,6 @@ def scan_record(
         is_installed_package_unpublished=package_info.is_unpublished,
         runs_code_at_install=installed_release.runs_code_at_install if installed_release else None,
         install_execution_reason=installed_release.install_execution_reason if installed_release else None,
-        exposure_window_days=compute_exposure_window(package_info.registry, releases_lag, version_diff_index),
     )
 
 
@@ -161,6 +176,10 @@ def build_records(
     now: datetime | None = None,
 ) -> list[ScanRecord]:
     """Build ScanRecord instances from dependency descriptors and pre-fetched data."""
+
+    def repo_url_of(dep: DependencyDescriptor) -> str:
+        return prefetched.packages_info[dep.canonical_name].repo_url or ""
+
     return [
         scan_record(
             version_rules,
@@ -174,10 +193,12 @@ def build_records(
             dep.constraint_info,
             dep.dependency_path,
             dep.version_constraint,
-            prefetched.repositories_info.get(prefetched.packages_info[dep.canonical_name].repo_url or ""),
+            prefetched.repositories_info.get(repo_url_of(dep)),
             dep.extras,
             dep.all_constraints,
             dep.peer_requirements,
+            prefetched.readmes.get(repo_url_of(dep)),
+            (prefetched.activity.get(repo_url_of(dep)) or {}).get("pinned_titles"),
             now=now,
         )
         for dep in descriptors

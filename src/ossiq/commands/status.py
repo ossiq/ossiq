@@ -27,6 +27,7 @@ class CommandStatusOptions:
     security_only: bool = False
     ignore_packages: tuple[str, ...] = ()
     output_format: Literal["console", "agent"] = "console"
+    full: bool = False
 
 
 def command_status(ctx: typer.Context, options: CommandStatusOptions) -> None:
@@ -75,5 +76,5 @@ def command_status(ctx: typer.Context, options: CommandStatusOptions) -> None:
     renderer.render(
         data=project_scan,
         lag_threshold_days=threshold_parsed.days,
-        full=True,
+        full=options.full,
     )

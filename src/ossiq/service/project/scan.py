@@ -7,7 +7,6 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
-from itertools import chain
 
 from ossiq.adapters.api_interfaces import AbstractPackageRegistryApi
 from ossiq.adapters.api_pypi import PackageRegistryApiPypi
@@ -17,7 +16,7 @@ from ossiq.domain.exceptions import ProjectPathNotFoundError
 from ossiq.domain.package import Package
 from ossiq.domain.project import Dependency
 from ossiq.service.library_scan import compute_upgrade_paths, resolve_library_constraints
-from ossiq.service.project.health import compute_dependency_tree_metrics, populate_health_fields
+from ossiq.service.project.epss import populate_epss
 from ossiq.service.project.models import (
     DependencyDescriptor,
     IgnoredDependency,
@@ -30,12 +29,16 @@ from ossiq.service.project.prefetch import (
     enrich_cves_with_epss_and_fix_age,
     partition_git_hosted,
     prefetch_packages_info,
+    prefetch_repository_activity,
+    prefetch_repository_commits,
+    prefetch_repository_readmes,
     prefetch_source_code_repositories_info,
     prefetch_versions_since,
     update_latest_versions_for_prerelease,
 )
 from ossiq.service.project.recommendations import apply_conflicts, apply_recommendations, clamp_recommendations
 from ossiq.service.project.records import build_records, scan_sort_key
+from ossiq.service.project.stability import populate_stability
 from ossiq.service.update_impact import simulate_single, simulate_update_impacts
 from ossiq.solver import dependencies_solver
 from ossiq.solver.universe import filter_eligible_versions
@@ -186,10 +189,23 @@ def prefetch_scan_data(
 
     # Github repository info
     step("repositories")
-    repositories_info = prefetch_source_code_repositories_info(
-        sources,
-        {pkg.repo_url for pkg in packages_info.values() if pkg.repo_url is not None},
-    )
+    repo_urls = {pkg.repo_url for pkg in packages_info.values() if pkg.repo_url is not None}
+    repositories_info = prefetch_source_code_repositories_info(sources, repo_urls)
+
+    # Stability signals for the direct-dependency repos only - one commit request and one README
+    # request each, plus one GraphQL POST per repo per stream (ACTIVITY_CHUNK_SIZE = 1, PR streams
+    # paginate) for the issue/PR/engagement channels. Both share the repositories step and switch
+    # off where the GitHub quota is tight.
+    commits: dict[str, list[dict]] = {}
+    activity: dict[str, dict] = {}
+    readmes: dict[str, str] = {}
+    if sources.settings.stability:
+        direct_packages = (packages_info[dep.canonical_name] for dep in all_deps if dep.dependency_path is None)
+        direct_repo_urls = {pkg.repo_url for pkg in direct_packages if pkg.repo_url is not None}
+        commits = prefetch_repository_commits(sources, direct_repo_urls)
+        readmes = prefetch_repository_readmes(sources, direct_repo_urls)
+        if sources.settings.responsiveness_enabled():
+            activity = prefetch_repository_activity(sources, direct_repo_urls)
     # Batch CVE fetch for all unique packages
     # force unique pair package/version regardless position in the graph
     unique_packages = list(set((packages_info[dep.canonical_name], dep.version) for dep in all_deps))
@@ -220,6 +236,9 @@ def prefetch_scan_data(
         cve_map=cve_map,
         versions_since_map=versions_since_map,
         repositories_info=repositories_info,
+        commits=commits,
+        activity=activity,
+        readmes=readmes,
     )
 
 
@@ -441,13 +460,9 @@ def scan(sources: AbstractProjectSources, on_step: Callable[[str], None] | None 
             now,
         )
 
-        step("health")
-        dependency_tree_metrics = compute_dependency_tree_metrics(descriptors.walker)
-        populate_health_fields(
-            chain(*[production_packages, optional_packages, transitive_packages]),
-            dependency_tree_metrics,
-            sources.settings.cooldown_period,
-        )
+        all_records = production_packages + optional_packages + transitive_packages
+        project_epss = populate_epss(all_records, descriptors.walker)
+        project_stability = populate_stability(all_records, prefetched.commits, now, prefetched.activity)
 
         upgrade_paths = compute_upgrade_paths(project_info, sources.packages_registry)
         return ScanResult(
@@ -460,4 +475,6 @@ def scan(sources: AbstractProjectSources, on_step: Callable[[str], None] | None 
             manifest_lock_divergent=list(project_info.manifest_lock_divergent),
             upgrade_paths=upgrade_paths,
             ignored_packages=descriptors.ignored_packages,
+            project_epss=project_epss,
+            project_stability=project_stability,
         )

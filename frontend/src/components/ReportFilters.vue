@@ -2,6 +2,7 @@
 import type { DriftStatus } from '@/composables/useReportFilters'
 
 const searchText = defineModel<string>('searchText', { required: true })
+const showAll = defineModel<boolean>('showAll', { required: true })
 const packageType = defineModel<'all' | 'production' | 'development'>('packageType', { required: true })
 const driftStatus = defineModel<DriftStatus | 'all'>('driftStatus', { required: true })
 const releaseDistance = defineModel<number | null>('releaseDistance', { required: true })
@@ -123,7 +124,15 @@ function timeLagSelectValue(): string {
         </div>
 
         <!-- Actions -->
-        <div class="flex items-center gap-2 lg:ml-auto pt-1">
+        <div class="flex items-center gap-3 lg:ml-auto pt-1">
+          <label class="flex items-center gap-1.5 h-9 text-sm text-slate-600 cursor-pointer select-none">
+            <input
+              v-model="showAll"
+              type="checkbox"
+              class="w-4 h-4 accent-[#4800E2] border-slate-300"
+            />
+            Show all packages
+          </label>
           <button
             class="flex items-center h-9 px-3 border border-slate-200 text-sm text-slate-600 hover:bg-slate-50 transition"
             @click="emit('reset')"

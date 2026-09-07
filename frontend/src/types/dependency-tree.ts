@@ -1,5 +1,5 @@
 import type { HierarchyPointNode } from 'd3'
-import type { CVEInfo, GateInfo } from '@/types/report'
+import type { CVEInfo } from '@/types/report'
 
 export interface DependencyNode {
   name: string
@@ -27,13 +27,21 @@ export interface DependencyNode {
   is_yanked?: boolean
   is_deprecated?: boolean
   is_package_unpublished?: boolean
-  fitness?: number | null
-  expected_exposure?: number | null
-  p_vuln?: number | null
-  p_supplychain?: number | null
-  exposure_window_days?: number | null
-  impact?: number | null
-  gate?: GateInfo | null
+  recommended_version?: string | null
+  epss?: number | null
+  maintenance_coverage?: number | null
+  maintenance_risk?: number | null
+  maintenance_state?: string | null
+  flow_trend?: string | null
+  deprecation_signals?: string[]
+  deprecation_successor?: string | null
+  gap_cv?: number | null
+  silence_days?: number | null
+  silence_p?: number | null
+  commits_sampled?: number | null
+  archived?: boolean | null
+  days_since_push?: number | null
+  triage_action?: string | null
   dependencies?: Record<string, DependencyNode>
   optional_dependencies?: Record<string, DependencyNode>
 }
@@ -71,13 +79,21 @@ export interface SelectedNodeDetail {
   is_yanked?: boolean
   is_deprecated?: boolean
   is_package_unpublished?: boolean
-  fitness?: number | null
-  expected_exposure?: number | null
-  p_vuln?: number | null
-  p_supplychain?: number | null
-  exposure_window_days?: number | null
-  impact?: number | null
-  gate?: GateInfo | null
+  recommended_version?: string | null
+  epss?: number | null
+  maintenance_coverage?: number | null
+  maintenance_risk?: number | null
+  maintenance_state?: string | null
+  flow_trend?: string | null
+  deprecation_signals?: string[]
+  deprecation_successor?: string | null
+  gap_cv?: number | null
+  silence_days?: number | null
+  silence_p?: number | null
+  commits_sampled?: number | null
+  archived?: boolean | null
+  days_since_push?: number | null
+  triage_action?: string | null
   dependencies?: Record<string, DependencyNode>
   optional_dependencies?: Record<string, DependencyNode>
 }

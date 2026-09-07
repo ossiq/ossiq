@@ -98,6 +98,25 @@
         "required": true,
         "minLength": 1
       }
+    },
+    {
+      "name": "epss",
+      "type": "number",
+      "title": "EPSS",
+      "description": "EPSS exploitation probability score, 0-1; empty when not scored",
+      "constraints": {
+        "minimum": 0,
+        "maximum": 1
+      }
+    },
+    {
+      "name": "fix_age_days",
+      "type": "integer",
+      "title": "Fix Age (Days)",
+      "description": "Days a fix has been available; empty when no fix is known",
+      "constraints": {
+        "minimum": 0
+      }
     }
   ],
   "foreignKeys": [

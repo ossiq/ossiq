@@ -21,6 +21,7 @@ from ossiq.domain.package import Package
 from ossiq.domain.project import Dependency
 from ossiq.domain.repository import Repository
 from ossiq.messages import IGNORE_REASON_IGNORE_FLAG, IGNORE_REASON_NON_REGISTRY
+from ossiq.risk.stability import engagement_window_since
 from ossiq.service.common import package_versions
 from ossiq.service.project.models import DependencyDescriptor, IgnoredDependency
 from ossiq.sources.core import AbstractProjectSources
@@ -213,10 +214,60 @@ def prefetch_source_code_repositories_info(
     Returns a mapping of url -> Repository; non-GitHub URLs are skipped.
     """
 
-    github_urls = [url for url in repo_urls if (urlparse(url).hostname or "").lower() == "github.com"]
+    github_urls = github_only(repo_urls)
     if not github_urls:
         return {}
     return sources.get_source_code_provider(RepositoryProvider.PROVIDER_GITHUB).repositories_info_batch(github_urls)
+
+
+def github_only(repo_urls: Iterable[str]) -> list[str]:
+    """Keep only github.com URLs. Everything else (GitLab, Codeberg, no URL at all) stays
+    unmeasured rather than being reported as a negative signal."""
+
+    return [url for url in repo_urls if (urlparse(url).hostname or "").lower() == "github.com"]
+
+
+def prefetch_repository_commits(sources: AbstractProjectSources, repo_urls: Iterable[str]) -> dict[str, list[dict]]:
+    """
+    Pre-fetch the last 100 commits for all unique GitHub repo URLs in parallel.
+
+    One request per repository, cached like every other call. Feeds the gap-based stability
+    estimator; see risk/stability.py.
+    """
+
+    github_urls = github_only(repo_urls)
+    if not github_urls:
+        return {}
+    until = sources.settings.cutoff_date.strftime("%Y-%m-%dT%H:%M:%SZ") if sources.settings.cutoff_date else None
+    return sources.get_source_code_provider(RepositoryProvider.PROVIDER_GITHUB).commits_batch(github_urls, until)
+
+
+def prefetch_repository_activity(sources: AbstractProjectSources, repo_urls: Iterable[str]) -> dict[str, dict]:
+    """Pre-fetch issue / PR activity for all unique GitHub repo URLs via GraphQL.
+
+    Covers the engagement look-back window ending at the cutoff date (or now). Feeds the
+    engagement-flow trends and the pinned-notice deprecation signal; see risk/stability.py.
+    """
+
+    github_urls = github_only(repo_urls)
+    if not github_urls:
+        return {}
+    since = engagement_window_since(sources.settings.cutoff_date)
+    return sources.get_source_code_provider(RepositoryProvider.PROVIDER_GITHUB).repository_activity_batch(
+        github_urls, since
+    )
+
+
+def prefetch_repository_readmes(sources: AbstractProjectSources, repo_urls: Iterable[str]) -> dict[str, str]:
+    """Pre-fetch the top of each GitHub repo's README, for the deprecation-banner scan.
+
+    One request per repository, cached at the stability TTL; see risk/maintenance.py.
+    """
+
+    github_urls = github_only(repo_urls)
+    if not github_urls:
+        return {}
+    return sources.get_source_code_provider(RepositoryProvider.PROVIDER_GITHUB).readmes_batch(github_urls)
 
 
 def partition_git_hosted(deps: Iterable[Dependency], enabled: bool) -> tuple[list[Dependency], list[Dependency]]:

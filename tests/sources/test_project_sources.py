@@ -1,7 +1,6 @@
 """Tests for unit_of_work/project_sources.py — ignore_packages normalization."""
 
-from unittest.mock import MagicMock
-
+from ossiq.settings import Settings
 from ossiq.sources.project_sources import ProjectSources
 
 
@@ -9,8 +8,9 @@ class TestProjectSourcesIgnorePackages:
     """ignore_packages is normalized to canonical form at construction time."""
 
     def make_sources(self, ignore_packages: tuple[str, ...]) -> ProjectSources:
+        # A real Settings, not a mock: the API clients read cutoff_date when they are constructed.
         return ProjectSources(
-            settings=MagicMock(),
+            settings=Settings(),
             project_path="/tmp/fake",
             ignore_packages=ignore_packages,
         )

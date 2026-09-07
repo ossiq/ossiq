@@ -673,3 +673,30 @@ class TestRepositoryVersions:
         versions = list(github_api_with_token.repository_versions(repository, package_versions, comparator))
 
         assert len(versions) == 0
+
+
+class TestRepositoryActivityBatch:
+    """repository_activity_batch merges paginated GraphQL follow-ups per URL and drops errored repos."""
+
+    def test_accumulates_pages_and_drops_errored_repos(self, github_api_with_token, monkeypatch):
+        url_ok = "https://github.com/org/ok"
+        url_bad = "https://github.com/org/bad"
+
+        class FakeBatchClient:
+            def __init__(self, strategy):
+                self.strategy = strategy
+
+            def run_batch(self, repo_urls):
+                yield {
+                    url_ok: {"issues": [{"n": 1}], "pulls": [], "pinned_titles": ["Notice: Deprecation"]},
+                    url_bad: None,
+                }
+                yield {url_ok: {"issues": [{"n": 2}], "pulls": [{"p": 1}], "pinned_titles": []}}
+
+        monkeypatch.setattr("ossiq.adapters.api_github.BatchClient", FakeBatchClient)
+        result = github_api_with_token.repository_activity_batch([url_ok, url_bad], "2026-01-01T00:00:00Z")
+
+        assert url_bad not in result
+        assert result[url_ok]["issues"] == [{"n": 1}, {"n": 2}]
+        assert result[url_ok]["pulls"] == [{"p": 1}]
+        assert result[url_ok]["pinned_titles"] == ["Notice: Deprecation"]

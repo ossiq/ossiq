@@ -183,10 +183,7 @@
         "id",
         "package_name",
         "is_optional_dependency",
-        "installed_version",
-        "latest_version",
-        "time_lag_days",
-        "releases_lag"
+        "installed_version"
       ],
       "properties": {
         "id": {

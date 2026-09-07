@@ -1,5 +1,6 @@
 # config.py
 
+import os
 from datetime import datetime
 from pathlib import Path
 from typing import ClassVar
@@ -14,6 +15,9 @@ from ossiq.messages import (
     ARGS_HELP_CUTOFF_DATE,
     ARGS_HELP_DEBUG,
     ARGS_HELP_GITHUB_TOKEN,
+    ARGS_HELP_STABILITY,
+    ARGS_HELP_STABILITY_CACHE_TTL,
+    ARGS_HELP_STABILITY_RESPONSIVENESS,
 )
 from ossiq.timeutil import cutoff_datetime_from_iso_date
 
@@ -44,6 +48,7 @@ class Settings(BaseSettings):
         default=str(CONFIG_PATH.parent / "cache.sqlite3"), description=ARGS_HELP_CACHE_DESTINATION
     )
     cache_ttl: int = Field(default=24, description=ARGS_HELP_CACHE_TTL)
+    stability_cache_ttl: int = Field(default=168, description=ARGS_HELP_STABILITY_CACHE_TTL)
     verbose: bool = Field(default=False, description="Enable verbose output")
     debug: bool = Field(default=False, description=ARGS_HELP_DEBUG)
     traceback: bool = Field(default=False, description="Show full traceback on error instead of logging to file")
@@ -55,6 +60,8 @@ class Settings(BaseSettings):
 
     cutoff_date: datetime | None = Field(default=None, description=ARGS_HELP_CUTOFF_DATE)
     cooldown_period: int = Field(default=7, description=ARGS_HELP_COOLDOWN_PERIOD)
+    stability: bool = Field(default=True, description=ARGS_HELP_STABILITY)
+    stability_responsiveness: bool | None = Field(default=None, description=ARGS_HELP_STABILITY_RESPONSIVENESS)
 
     # Store the environment prefix for reference (not a setting itself)
     ENV_PREFIX: ClassVar[str] = ENV_PREFIX
@@ -75,3 +82,16 @@ class Settings(BaseSettings):
         CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
         # _env_file is a real BaseSettings init param; ty only sees the synthesized model __init__
         return cls(_env_file=config_file if config_file is not None else CONFIG_PATH)  # ty: ignore[unknown-argument]
+
+    def responsiveness_enabled(self) -> bool:
+        """Whether to run the GraphQL issue/PR/engagement stability channels.
+
+        Explicit --stability-responsiveness / --no-stability-responsiveness wins; otherwise auto:
+        on when a GitHub token is available (GraphQL 401s unauthenticated), off without one. Always
+        off when --no-stability disables the whole index.
+        """
+        if not self.stability:
+            return False
+        if self.stability_responsiveness is not None:
+            return self.stability_responsiveness
+        return bool(self.github_token or os.getenv("GITHUB_TOKEN"))

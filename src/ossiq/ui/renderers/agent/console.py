@@ -1,21 +1,21 @@
 """Agent-oriented JSON renderers for the info and status commands.
 
-Emit a compact verdict (see ``service.agent``) to stdout for consumption by an
-AI agent. Mirrors the export JSON renderer but with the small verdict shape.
+Emit a compact decision (see ``service.agent``) to stdout for consumption by an
+AI agent. Mirrors the export JSON renderer but with the small decision shape.
 """
 
 import json
 from typing import Any
 
 from ossiq.domain.common import Command, UserInterfaceType
-from ossiq.service.agent import build_add_verdict, build_update_verdict
+from ossiq.service.agent import build_add_decide, build_update_decide
 from ossiq.service.package import PackageDetailResult
 from ossiq.service.project.models import ScanResult
 from ossiq.ui.interfaces import AbstractUserInterfaceRenderer
 
 
 class AgentInfoRenderer(AbstractUserInterfaceRenderer):
-    """Render a single-package add verdict as JSON."""
+    """Render a single-package add decision as JSON."""
 
     command = Command.INFO
     user_interface_type = UserInterfaceType.AGENT
@@ -26,12 +26,12 @@ class AgentInfoRenderer(AbstractUserInterfaceRenderer):
 
     def render(self, data: Any, **kwargs) -> None:
         detail: PackageDetailResult = data
-        verdict = build_add_verdict(detail, requested_version=kwargs.get("requested_version"))
-        print(json.dumps(verdict, indent=2))
+        decision = build_add_decide(detail, requested_version=kwargs.get("requested_version"))
+        print(json.dumps(decision, indent=2))
 
 
 class AgentStatusRenderer(AbstractUserInterfaceRenderer):
-    """Render a project update verdict as JSON."""
+    """Render a project update decision as JSON."""
 
     command = Command.STATUS
     user_interface_type = UserInterfaceType.AGENT
@@ -42,4 +42,4 @@ class AgentStatusRenderer(AbstractUserInterfaceRenderer):
 
     def render(self, data: Any, **kwargs) -> None:
         scan: ScanResult = data
-        print(json.dumps(build_update_verdict(scan), indent=2))
+        print(json.dumps(build_update_decide(scan), indent=2))

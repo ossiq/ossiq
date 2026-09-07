@@ -227,6 +227,12 @@ class PackageRegistryApiPypi(AbstractPackageRegistryApi):
         return "<PackageRegistryApiPypi instance>"
 
     @staticmethod
+    def all_releases_yanked(releases: dict) -> bool:
+        """True when every published PyPI release is yanked - a package-wide "do not use"."""
+        published = [files for files in releases.values() if files]
+        return bool(published) and all(all(file.get("yanked") for file in files) for files in published)
+
+    @staticmethod
     def _map_raw_to_package(name: str, data: dict) -> Package:
         info = data["info"]
         return Package(
@@ -242,6 +248,8 @@ class PackageRegistryApiPypi(AbstractPackageRegistryApi):
             homepage_url=info.get("home_page"),
             description=info.get("summary"),
             package_url=info.get("package_url"),
+            classifiers=info.get("classifiers") or [],
+            all_releases_yanked=PackageRegistryApiPypi.all_releases_yanked(data.get("releases") or {}),
             # license intentionally omitted — PyPI classifiers map is unreliable
             # (e.g. "BSD License" → BSD-2-Clause, wrong for BSD-3-Clause packages like Django).
             # ScanRecord falls back to prefetched_repository.license (GitHub) which is accurate.

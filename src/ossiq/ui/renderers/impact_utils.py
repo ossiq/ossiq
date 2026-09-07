@@ -11,25 +11,20 @@ from ossiq.domain.version import (
     VERSION_LATEST,
     VersionsDifference,
 )
-from ossiq.risk.gate import GateDecision
+from ossiq.risk.maintenance import NOT_MAINTAINED, MaintenanceState
+from ossiq.risk.triage import ACTION_EVICT, ACTION_PATCH, ACTION_REFACTOR, ACTION_RETAIN, TriageResult
 from ossiq.service.project.models import ScanRecord
+from ossiq.service.project.next_action import (
+    CHECK_FOR_THE_FIX,
+    CHECK_RELEASE_NOTES,
+    CONSIDER_ALTERNATIVE,
+    CONSTRAINED_CHECK_NEWER,
+    FIND_ALTERNATIVE,
+    UPDATE_IMMEDIATELY,
+    next_action_label,
+)
 from ossiq.service.update_impact import TransitiveImpact
 from ossiq.timeutil import format_time_days
-
-FITNESS_GOOD = 70
-FITNESS_FAIR = 40
-
-
-def format_gate_badge(decision: GateDecision | None) -> str:
-    """Inline badge for a non-passing gate decision; empty string when the package passes."""
-    if decision is None:
-        return ""
-    status, _ = decision
-    if status == "block":
-        return " [bold red][BLOCK][/]"
-    if status == "quarantine":
-        return " [bold yellow][QUARANTINE][/]"
-    return ""
 
 
 def format_status_badge(record: ScanRecord) -> str:
@@ -45,22 +40,27 @@ def format_status_badge(record: ScanRecord) -> str:
     return ""
 
 
-def format_fitness(fitness: int | None) -> str:
-    """Colour-coded 0-100 fitness projection; em dash when it could not be computed."""
-    if fitness is None:
-        return "[dim]—[/dim]"
-    if fitness >= FITNESS_GOOD:
-        return f"[green]{fitness}[/green]"
-    if fitness >= FITNESS_FAIR:
-        return f"[yellow]{fitness}[/yellow]"
-    return f"[bold red]{fitness}[/]"
-
-
 def format_probability(value: float | None) -> str:
     """Percentage rendering for a probability channel; em dash when unknown."""
     if value is None:
         return "[dim]—[/dim]"
     return f"{value * 100:.1f}%"
+
+
+TRIAGE_STYLE: dict[str, str] = {
+    ACTION_EVICT: "bold red",
+    ACTION_PATCH: "bold yellow",
+    ACTION_REFACTOR: "yellow",
+    ACTION_RETAIN: "green",
+}
+
+
+def format_triage(result: TriageResult | None) -> str:
+    """Triage action cell, styled by urgency; em dash when triage has not run."""
+    if result is None:
+        return "[dim]—[/dim]"
+    style = TRIAGE_STYLE.get(result.action, "default")
+    return f"[{style}]{result.action}[/]"
 
 
 def format_time_delta(days: int | None, lag_threshold_days: int) -> str:
@@ -87,6 +87,36 @@ def format_lag_status(vdiff: VersionsDifference) -> str:
         return "[green][bold]Latest"
     else:
         return "[bold]N/A"
+
+
+def format_state(record: ScanRecord) -> str:
+    """Colored maintenance-state cell; em dash when the package was not assessed."""
+    maintenance = record.maintenance
+    if maintenance is None:
+        return "[dim]—[/dim]"
+    if maintenance.state in NOT_MAINTAINED:
+        style = "bold red"
+    elif maintenance.state == MaintenanceState.WINDING_DOWN:
+        style = "yellow"
+    else:
+        style = "green"
+    return f"[{style}]{maintenance.state}[/]"
+
+
+WHATS_NEXT_STYLE: dict[str, str] = {
+    CHECK_FOR_THE_FIX: "bold red",
+    FIND_ALTERNATIVE: "bold red",
+    CONSIDER_ALTERNATIVE: "bold yellow",
+    CHECK_RELEASE_NOTES: "default",
+    UPDATE_IMMEDIATELY: "default",
+    CONSTRAINED_CHECK_NEWER: "yellow",
+}
+
+
+def whats_next(record: ScanRecord) -> str:
+    """The package's next action (service.project.next_action) styled by urgency; empty when none."""
+    label = next_action_label(record)
+    return "" if label is None else f"[{WHATS_NEXT_STYLE[label]}]{label}[/]"
 
 
 def impact_sub_row_texts(impacts: list[TransitiveImpact]) -> list[str]:

@@ -207,6 +207,7 @@ class PackageRegistryApiNpm(AbstractPackageRegistryApi):
         latest_details = data.get("versions", {}).get(latest_version or "", {})
         latest_version_license = normalize_npm_license(latest_details.get("license"))
         maintainers = data.get("maintainers", [])
+        deprecated = latest_details.get("deprecated")
         return Package(
             registry=ProjectPackagesRegistry.NPM,
             name=data["name"],
@@ -218,7 +219,8 @@ class PackageRegistryApiNpm(AbstractPackageRegistryApi):
             description=data.get("description"),
             package_url=f"{NPM_REGISTRY_FRONT}/package/{name}/",
             license=latest_version_license,
-            is_deprecated=bool(latest_details.get("deprecated")),
+            is_deprecated=bool(deprecated),
+            deprecation_message=deprecated if isinstance(deprecated, str) else None,
             is_unpublished="unpublished" in data.get("time", {}),
             maintainers_count=len(maintainers) or None,
         )
