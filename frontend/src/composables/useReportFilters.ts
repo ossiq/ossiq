@@ -21,6 +21,7 @@ export type WhatsNext =
   | 'Consider alternative'
   | 'Check Release Notes'
   | 'Update Immediately'
+  | 'Constrained. Check newer version'
   | null
 
 export interface ReportRow {
@@ -62,6 +63,7 @@ export const WHATS_NEXT_CLASS: Record<string, string> = {
   'Consider alternative': 'text-amber-600',
   'Check Release Notes': 'text-slate-600',
   'Update Immediately': 'text-slate-600',
+  'Constrained. Check newer version': 'text-amber-600',
 }
 
 // The single next action for a package, first match wins. Mirrors whats_next() in the CLI's
@@ -71,14 +73,31 @@ export function computeWhatsNext(opts: {
   cveCount: number
   epss: number | null | undefined
   maintenanceState: string | null | undefined
+  installedVersion: string
+  recommendedVersion: string | null | undefined
+  versionConstraint: string | null | undefined
 }): WhatsNext {
-  const { driftStatus, cveCount, epss, maintenanceState } = opts
+  const {
+    driftStatus,
+    cveCount,
+    epss,
+    maintenanceState,
+    installedVersion,
+    recommendedVersion,
+    versionConstraint,
+  } = opts
   if (cveCount > 0 && epss != null && epss >= EPSS_EXPLOIT_THRESHOLD) return 'Check for the Fix'
   if (driftStatus === 'LATEST' && (maintenanceState === 'abandoned' || maintenanceState === 'deprecated'))
     return 'Find alternative'
   if (maintenanceState === 'winding_down') return 'Consider alternative'
   if (driftStatus === 'DIFF_MAJOR') return 'Check Release Notes'
-  if (driftStatus === 'DIFF_MINOR' || driftStatus === 'DIFF_PATCH') return 'Update Immediately'
+  if (driftStatus === 'DIFF_MINOR' || driftStatus === 'DIFF_PATCH') {
+    // Recommended is the solver's pick clamped into the declared range; when it is not a move
+    // away from what's installed, "Update Immediately" would name no target.
+    if (recommendedVersion != null && recommendedVersion !== installedVersion) return 'Update Immediately'
+    if (recommendedVersion == null && !versionConstraint) return 'Update Immediately'
+    return 'Constrained. Check newer version'
+  }
   return null
 }
 
@@ -162,6 +181,9 @@ export function useReportFilters() {
           cveCount: pkg.cve.length,
           epss: pkg.epss,
           maintenanceState: pkg.maintenance_state,
+          installedVersion: pkg.installed_version,
+          recommendedVersion: pkg.recommended_version,
+          versionConstraint: pkg.version_constraint,
         }),
         timeLagDisplay: formatTimeLag(pkg.time_lag_days),
         versionAgeDisplay: formatTimeLag(pkg.version_age_days),

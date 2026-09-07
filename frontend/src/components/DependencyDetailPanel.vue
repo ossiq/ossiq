@@ -26,6 +26,9 @@ const whatsNext = computed(() =>
         cveCount: props.node.cve?.length ?? 0,
         epss: props.node.epss,
         maintenanceState: props.node.maintenance_state,
+        installedVersion: props.node.version_installed,
+        recommendedVersion: props.node.recommended_version,
+        versionConstraint: props.node.version_defined,
       })
     : null,
 )

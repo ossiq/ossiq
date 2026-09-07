@@ -34,41 +34,74 @@ function row(over: Partial<PackageMetrics>, rowOver: Partial<ReportRow> = {}): R
   }
 }
 
+type WhatsNextOpts = Parameters<typeof computeWhatsNext>[0]
+
+// Unconstrained package with an in-range bump available, so drift advice defaults to the
+// straightforward "Update Immediately" and each test overrides only what it is about.
+function nextFor(over: Partial<WhatsNextOpts>): ReturnType<typeof computeWhatsNext> {
+  return computeWhatsNext({
+    driftStatus: 'LATEST',
+    cveCount: 0,
+    epss: null,
+    maintenanceState: null,
+    installedVersion: '1.0.0',
+    recommendedVersion: '1.1.0',
+    versionConstraint: null,
+    ...over,
+  })
+}
+
 describe('computeWhatsNext', () => {
   it('flags an exploitable CVE ahead of everything else', () => {
     expect(
-      computeWhatsNext({ driftStatus: 'DIFF_MINOR', cveCount: 1, epss: 0.2, maintenanceState: 'winding_down' }),
+      nextFor({ driftStatus: 'DIFF_MINOR', cveCount: 1, epss: 0.2, maintenanceState: 'winding_down' }),
     ).toBe('Check for the Fix')
   })
 
   it('falls through a low-EPSS CVE to the version-drift advice', () => {
-    expect(
-      computeWhatsNext({ driftStatus: 'DIFF_MINOR', cveCount: 1, epss: 0.05, maintenanceState: null }),
-    ).toBe('Update Immediately')
+    expect(nextFor({ driftStatus: 'DIFF_MINOR', cveCount: 1, epss: 0.05 })).toBe('Update Immediately')
   })
 
   it('says find an alternative for a current but dead package', () => {
-    expect(
-      computeWhatsNext({ driftStatus: 'LATEST', cveCount: 0, epss: null, maintenanceState: 'deprecated' }),
-    ).toBe('Find alternative')
+    expect(nextFor({ driftStatus: 'LATEST', maintenanceState: 'deprecated' })).toBe('Find alternative')
   })
 
   it('says consider an alternative for a winding-down upstream', () => {
-    expect(
-      computeWhatsNext({ driftStatus: 'DIFF_MINOR', cveCount: 0, epss: null, maintenanceState: 'winding_down' }),
-    ).toBe('Consider alternative')
+    expect(nextFor({ driftStatus: 'DIFF_MINOR', maintenanceState: 'winding_down' })).toBe(
+      'Consider alternative',
+    )
   })
 
   it('points to the release notes for a major bump', () => {
-    expect(
-      computeWhatsNext({ driftStatus: 'DIFF_MAJOR', cveCount: 0, epss: null, maintenanceState: null }),
-    ).toBe('Check Release Notes')
+    expect(nextFor({ driftStatus: 'DIFF_MAJOR' })).toBe('Check Release Notes')
   })
 
   it('returns null for a clean, current package', () => {
+    expect(nextFor({ driftStatus: 'LATEST', maintenanceState: 'maintained' })).toBeNull()
+  })
+
+  it('says constrained when the recommendation is pinned to the installed version', () => {
     expect(
-      computeWhatsNext({ driftStatus: 'LATEST', cveCount: 0, epss: null, maintenanceState: 'maintained' }),
-    ).toBeNull()
+      nextFor({ driftStatus: 'DIFF_MINOR', recommendedVersion: '1.0.0', versionConstraint: '~1.0.0' }),
+    ).toBe('Constrained. Check newer version')
+  })
+
+  it('says constrained when a declared range left the solver with no recommendation', () => {
+    expect(
+      nextFor({ driftStatus: 'DIFF_MINOR', recommendedVersion: null, versionConstraint: '~1.0.0' }),
+    ).toBe('Constrained. Check newer version')
+  })
+
+  it('keeps update-immediately when nothing is constraining the package', () => {
+    expect(nextFor({ driftStatus: 'DIFF_MINOR', recommendedVersion: null, versionConstraint: null })).toBe(
+      'Update Immediately',
+    )
+  })
+
+  it('still reads the release notes for a major bump the range blocks', () => {
+    expect(
+      nextFor({ driftStatus: 'DIFF_MAJOR', recommendedVersion: '1.0.0', versionConstraint: '~1.0.0' }),
+    ).toBe('Check Release Notes')
   })
 })
 

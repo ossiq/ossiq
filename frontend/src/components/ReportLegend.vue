@@ -103,8 +103,11 @@ import { constraintCircleClasses } from '@/explorer/nodeStyle'
               <span class="text-red-700 font-bold">Find alternative</span>: already current but the upstream is
               abandoned or deprecated. <span class="text-amber-600 font-bold">Consider alternative</span>: the
               upstream is winding down. <span class="font-bold">Check Release Notes</span>: a major version behind.
-              <span class="font-bold">Update Immediately</span>: a minor or patch behind. By default the table
-              hides packages with nothing to do — tick <span class="font-bold">Show all packages</span> to see them.
+              <span class="font-bold">Update Immediately</span>: a minor or patch behind, with a newer version
+              inside the declared range. <span class="text-amber-600 font-bold">Constrained. Check newer
+              version</span>: a minor or patch behind, but the declared range admits no bump — widening it is the
+              real next step. By default the table hides packages with nothing to do — tick
+              <span class="font-bold">Show all packages</span> to see them.
             </p>
           </div>
         </div>
