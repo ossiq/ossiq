@@ -568,7 +568,7 @@
                 </p>
                 <div class="bg-zinc-800 rounded-sm px-6 py-5 mb-10 font-mono text-sm text-zinc-300 overflow-x-auto">
                     <span class="text-zinc-500"># Fail if any production package is more than 365 days behind</span><br>
-                    <span class="text-[#ff4d00]">uvx</span> --from ossiq ossiq-cli export --output-format=json --output=report.json .<br>
+                    <span class="text-[#ff4d00]">uvx</span> --from ossiq ossiq-cli export --output=report.json .<br>
                     <span class="text-[#ff4d00]">jq</span> <span class="text-green-400">'[.production_packages[] | select(.time_lag_days > 365)] | length'</span> report.json
                 </div>
                 <div class="flex flex-wrap gap-6 justify-center">

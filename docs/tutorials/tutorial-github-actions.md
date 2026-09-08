@@ -105,7 +105,6 @@ jobs:
           OSSIQ_GITHUB_TOKEN: ${{ secrets.OSSIQ_GITHUB_TOKEN }}
         run: |
           ossiq-cli export \
-            --output-format=json \
             --output=ossiq-report.json \
             .
 

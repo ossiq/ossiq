@@ -237,7 +237,7 @@ toward the exploit signal; they are reported as `suppressed_cves` rather than dr
 noise reduction stays visible.
 
 ```{note}
-The action is **advisory.** It appears in `status`, `info`, the JSON and CSV exports, the HTML
+The action is **advisory.** It appears in `status`, `info`, the JSON export, the HTML
 report and the agent/MCP verdict, but it does not change the `ok` / `warn` / `block` verdict that
 gates a build.
 ```
@@ -263,9 +263,7 @@ action.
 The `--schema-version=1.5` JSON export carries `maintenance_state`, `maintenance_risk`,
 `maintenance_coverage`, `gap_cv`, `median_gap_days`, `silence_days`, `silence_p`,
 `commits_sampled`, `span_days`, `flow_trend`, `engagement_buckets`, `deprecation_signals`,
-`deprecation_successor`, `days_since_push`, `archived` and `triage_action`. The CSV carries the
-same set minus the four that don't fit a flat column — `maintenance_coverage`, `median_gap_days`,
-`span_days`, `archived` — and minus `engagement_buckets`.
+`deprecation_successor`, `days_since_push`, `archived` and `triage_action`.
 
 **Any field is `null` when it couldn't be measured. That means "unknown", never "no risk."**
 

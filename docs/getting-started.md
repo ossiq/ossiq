@@ -210,18 +210,15 @@ surface further updates; repeat until it reports none. Full rules are in
 This is the view for planning work rather than fixing one package: sort by drift or severity,
 drill into any dependency, and decide what to read release notes for before it enters the backlog.
 
-### JSON and CSV export
+### JSON export
 
 ```bash
 # One JSON document
-uvx --from ossiq ossiq-cli export --output-format=json --output=./scan_export.json .
-
-# A directory of CSVs: summary.csv, packages.csv, cves.csv, and datapackage.json
-uvx --from ossiq ossiq-cli export --output-format=csv --output=./scan_export_csv .
+uvx --from ossiq ossiq-cli export --output=./scan_export.json .
 ```
 
-The CSV target directory is created automatically if it does not exist. Both formats carry a
-`schema_version`, which you can pin with `--schema-version`: within a version, fields are never
-renamed or removed, so a metric you gate on in CI today keeps its meaning tomorrow. See
+The export carries a `schema_version`, which you can pin with `--schema-version`: within a
+version, fields are never renamed or removed, so a metric you gate on in CI today keeps its
+meaning tomorrow. See
 [Reference → Outputs](reference.md#outputs) and
 [Reference → Export Schema Stability](reference.md#export-schema-stability).
