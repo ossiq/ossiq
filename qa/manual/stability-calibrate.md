@@ -204,7 +204,7 @@ uv run hatch run ossiq-cli status testdata/npm/deprecated
 #   expect: "Unmaintained deps: N (K deprecated) of M assessed  |  Unassessed: U"
 
 # export carries the fields
-uv run hatch run ossiq-cli export --output-format=json --schema-version=1.5 \
+uv run hatch run ossiq-cli export --schema-version=1.5 \
     --output=reports/e.json testdata/pypi/uv
 python -c "import json;d=json.load(open('reports/e.json'));\
 p=[x for x in d['production_packages'] if x.get('maintenance_state')][0];\

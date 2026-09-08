@@ -10,7 +10,7 @@ Pre-release validation process for ossiq-cli. One person, under 45 minutes.
 | [02-console-scan.md](manual/02-console-scan.md) | `scan` + `package` commands, all package-state variations | TC-C01–C10 |
 | [03-html-report.md](manual/03-html-report.md) | HTML scan output, dependency table, explorer | TC-H01–H05 |
 | [04-solver.md](manual/04-solver.md) | HPDR solver correctness (solver always active) | TC-S01, TC-S03–S10 |
-| [05-export.md](manual/05-export.md) | JSON and CSV export | TC-E01–E05 |
+| [05-export.md](manual/05-export.md) | JSON export | TC-E01–E06 |
 | [06-transitive-impacts.md](manual/06-transitive-impacts.md) | `--security`/`--full` flags, impact sub-rows, update command | TC-T01–T07 |
 | [07-update-command.md](manual/07-update-command.md) | `update plan`/`execute`, `--pin-all`, `--rewrite-versions`, `--ignore`, UV specifier rewrite, NPM helpers | TC-U01–U21 |
 | [release-checklist.md](manual/release-checklist.md) | Abbreviated checklist for GitHub Issues | — |

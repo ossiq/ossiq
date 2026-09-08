@@ -49,7 +49,6 @@
 ## 05 — Export ([details](05-export.md))
 
 - [ ] TC-E02: JSON export produces valid file with `schema_version`, `packages`, and per-package fields
-- [ ] TC-E03: CSV export produces file with header row and correct row count
 - [ ] TC-E04: npm JSON export has `registry: "npm"`
 
 ## 06 — Transitive Impacts ([details](06-transitive-impacts.md))
