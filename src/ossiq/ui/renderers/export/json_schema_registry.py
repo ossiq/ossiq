@@ -17,11 +17,6 @@ class SchemaRegistry:
 
     # Map schema version to schema file name
     _SCHEMA_FILES: ClassVar[dict[ExportJsonSchemaVersion, str]] = {
-        ExportJsonSchemaVersion.V1_0: "export_schema_v1.0.json",
-        ExportJsonSchemaVersion.V1_1: "export_schema_v1.1.json",
-        ExportJsonSchemaVersion.V1_2: "export_schema_v1.2.json",
-        ExportJsonSchemaVersion.V1_3: "export_schema_v1.3.json",
-        ExportJsonSchemaVersion.V1_4: "export_schema_v1.4.json",
         ExportJsonSchemaVersion.V1_5: "export_schema_v1.5.json",
     }
 

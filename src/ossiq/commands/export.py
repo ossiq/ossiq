@@ -20,7 +20,6 @@ class CommandExportOptions:
     project_path: str
     registry_type: Literal["npm", "pypi"] | None
     production: bool
-    output_format: Literal["json", "csv"]
     output_destination: str
     schema_version: str | None
     allow_prerelease: bool
@@ -43,7 +42,6 @@ def command_export(ctx: typer.Context, options: CommandExportOptions):
         "Export Settings",
         {
             "project_path": options.project_path,
-            "output_format": options.output_format,
             "output_destination": options.output_destination,
             "narrow_registry_type": registry_type_map[options.registry_type] if options.registry_type else None,
         },
@@ -64,7 +62,7 @@ def command_export(ctx: typer.Context, options: CommandExportOptions):
 
     renderer = get_renderer(
         command=Command.EXPORT,
-        user_interface_type=UserInterfaceType(options.output_format),
+        user_interface_type=UserInterfaceType.JSON,
         settings=settings,
     )
 

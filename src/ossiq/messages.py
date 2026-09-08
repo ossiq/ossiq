@@ -31,12 +31,8 @@ HELP_REGISTRY_TYPE = """
 Specify which project registry type (ecosystem) to use. Default: None. Possible options: npm, pypi
 """
 
-HELP_OUTPUT_FORMAT = """
-Output format. Default: json. Possible options: json, csv
-"""
-
 HELP_SCHEMA_VERSION = """
-Export schema version. Default: latest. Possible options: 1.0, 1.1, 1.2, 1.3, 1.4, 1.5
+Export schema version. Default: latest. Possible options: 1.5
 """
 
 WARNING_MULTIPLE_REGISTRY_TYPES = """

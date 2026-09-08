@@ -53,7 +53,6 @@ dependencies = [
   "semver >= 3.0.0",
   "packaging >= 24.0",
   "jsonschema >= 4.18.0",
-  "frictionless >= 5.19.0",
   "hatch>=1.16.5",
   "common-expression-language>=0.5.6",
   "python-sat==1.9.dev7",
@@ -97,7 +96,6 @@ include = [
   "src/ossiq/**/*.py",
   "src/ossiq/**/*.html",
   "src/ossiq/**/*.json",
-  "src/ossiq/**/*.csv",
   "src/ossiq/**/*.md",
   "frontend/**",
   "hatch_build.py",  
@@ -147,8 +145,8 @@ select = [
 [dependency-groups]
 # Tools for development: PEP 735
 dev = [
-    "datapackage>=1.15.4",
     "coverage>=7.13.5",  # testing
+    "jinja2>=3.1.0",  # release.py templating + tests/test_release.py
     "pytest>=9.0.3",  # testing
     "ruff>=0.15.9",  # linting
     "ty>=0.0.29",  # checking types
