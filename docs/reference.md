@@ -462,7 +462,7 @@ For full Explorer interaction details, see [EXPLORER.md](https://github.com/ossi
 
 #### JSON Export
 
-The `export --output-format json` command writes a single `.json` file conforming to [export schema v1.5](../src/ossiq/ui/renderers/export/schemas/export_schema_v1.5.json) by default. The root object contains:
+The `export` command writes a single `.json` file conforming to [export schema v1.5](../src/ossiq/ui/renderers/export/schemas/export_schema_v1.5.json). The root object contains:
 
 | Key | Contents |
 |---|---|
@@ -474,19 +474,6 @@ The `export --output-format json` command writes a single `.json` file conformin
 | `transitive_packages` | Array of `PackageMetrics` with `dependency_path` set |
 
 Since v1.5, every `PackageMetrics` entry (production, development, and transitive) also carries `epss` (the highest EPSS among the package's CVEs), `runs_code_at_install` with `install_execution_reason`, and the maintenance-state fields: `maintenance_state`, `maintenance_risk` (P(abandoned) + P(deprecated), the value that feeds triage), `maintenance_coverage` (fraction of the four maintenance observations that were available), `gap_cv`, `median_gap_days`, `silence_days`, `silence_p`, `commits_sampled`, `span_days`, `flow_trend`, `deprecation_signals`, `deprecation_successor`, `days_since_push`, `archived`, and `triage_action`. Any of them may be `null` when the underlying signal could not be measured — that means "unknown," never "no risk." See [Repository stability](explanation/repository-stability.md) for what each field means.
-
-#### CSV Export
-
-The `export --output-format csv` command writes a folder named `export_{project_name}/` containing three files and a [Frictionless Data](https://frictionlessdata.io/) descriptor:
-
-| File | Contents |
-|---|---|
-| `summary.csv` | One row of project metadata and aggregate counts |
-| `packages.csv` | One row per package with all `PackageMetrics` fields |
-| `cves.csv` | One row per CVE with all `CVEInfo` fields |
-| `datapackage.json` | Schema references and foreign key relationships |
-
-Since v1.5, `packages.csv` carries thirteen additional columns: `epss`, `runs_code_at_install`, `maintenance_risk` (P(abandoned) + P(deprecated) from the maintenance-state model — see [Repository stability](explanation/repository-stability.md)), `maintenance_state`, `flow_trend`, `deprecation_signals`, `deprecation_successor`, `days_since_push`, `triage_action`, `gap_cv`, `silence_days`, `silence_p`, and `commits_sampled`. None are required — a package where a value could not be measured leaves the cell empty. `summary.csv` gains `project_epss`, `packages_with_epss`, `packages_with_unscored_cves`, `packages_with_stability`, `packages_unmaintained`, `packages_deprecated`, and `packages_stability_unknown`.
 
 (console-reports)=
 ## Console Reports
@@ -775,7 +762,7 @@ OSS IQ makes four commitments to users who depend on its output in CI pipelines,
 
 ### Export Schema Stability
 
-Each export schema version is identified by `schema_version` in the `metadata` block (e.g. `"1.4"`). The `export --schema-version` flag pins output to a specific version.
+Each export schema version is identified by `schema_version` in the `metadata` block (e.g. `"1.5"`). The `export --schema-version` flag pins output to a specific version.
 
 Within a schema version:
 

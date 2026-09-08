@@ -472,7 +472,7 @@ def run_target(ecosystem: str, repo: str, tag: str, cutoff: str, target_id: str)
     logger.info("%s | step 04 export", target_id)
     pre_export = logs_dir / "04_pre_export.json"
     result = run_cmd(
-        OSSIQ_CMD + base_args + ["export", "--schema-version", "1.4", "--output", str(pre_export), str(main_dir)],
+        OSSIQ_CMD + base_args + ["export", "--schema-version", "1.5", "--output", str(pre_export), str(main_dir)],
         cwd=REPO_ROOT,
         timeout=120,
         log_path=logs_dir / "04_export.log",
@@ -565,7 +565,7 @@ def run_target(ecosystem: str, repo: str, tag: str, cutoff: str, target_id: str)
     logger.info("%s | step 09 export (post-apply)", target_id)
     post_export = logs_dir / "09_post_export.json"
     result = run_cmd(
-        OSSIQ_CMD + base_args + ["export", "--schema-version", "1.4", "--output", str(post_export), str(main_dir)],
+        OSSIQ_CMD + base_args + ["export", "--schema-version", "1.5", "--output", str(post_export), str(main_dir)],
         cwd=REPO_ROOT,
         timeout=120,
         log_path=logs_dir / "09_export.log",

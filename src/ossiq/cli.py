@@ -51,7 +51,6 @@ from ossiq.messages import (
     HELP_ADD_VERSION,
     HELP_IGNORE_PACKAGE,
     HELP_LAG_THRESHOULD,
-    HELP_OUTPUT_FORMAT,
     HELP_OVERRIDE_PACKAGE,
     HELP_PACKAGE_NAME,
     HELP_PIN_ALL,
@@ -405,16 +404,12 @@ def export(
         list[str] | None,
         typer.Option("--allow-prerelease-package", help="Allow pre-release for a specific package (repeatable)"),
     ] = None,
-    output_format: Annotated[
-        Literal["json", "csv"],
-        typer.Option("--output-format", "-f", envvar=f"{Settings.ENV_PREFIX}OUTPUT_FORMAT", help=HELP_OUTPUT_FORMAT),
-    ] = "json",
     output: Annotated[
         str, typer.Option("--output", "-o", envvar=f"{Settings.ENV_PREFIX}OUTPUT", help=ARGS_HELP_OUTPUT)
-    ] = "./ossiq_export_report_{project_name}.{output_format}",
+    ] = "./ossiq_export_report_{project_name}.json",
     production: Annotated[bool, typer.Option("--production", help=HELP_PRODUCTION_ONLY)] = False,
     schema_version: Annotated[
-        Literal["1.0", "1.1", "1.2", "1.3", "1.4", "1.5"] | None,
+        Literal["1.5"] | None,
         typer.Option("--schema-version", "-s", envvar=f"{Settings.ENV_PREFIX}SCHEMA_VERSION", help=HELP_SCHEMA_VERSION),
     ] = None,
     ignore: Annotated[
@@ -435,7 +430,6 @@ def export(
                 project_path=project_path,
                 registry_type=registry_type,
                 production=production,
-                output_format=output_format,
                 output_destination=output,
                 schema_version=schema_version,
                 allow_prerelease=allow_prerelease,

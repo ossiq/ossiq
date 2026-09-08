@@ -10,7 +10,6 @@ from pydantic import BaseModel, Field, field_serializer, model_serializer
 
 from ossiq.domain.common import (
     ConstraintType,
-    ExportCsvSchemaVersion,
     ExportJsonSchemaVersion,
     ExportUnknownSchemaVersion,
 )
@@ -23,7 +22,7 @@ from ossiq.service.project.stability import RepositoryStability
 class ExportMetadata(BaseModel):
     """Metadata about the export itself."""
 
-    schema_version: ExportUnknownSchemaVersion | ExportJsonSchemaVersion | ExportCsvSchemaVersion = Field(
+    schema_version: ExportUnknownSchemaVersion | ExportJsonSchemaVersion = Field(
         default=ExportUnknownSchemaVersion.UNKNOWN,
         description="Version of the export schema format",
     )
@@ -614,16 +613,7 @@ class ExportDataBase(BaseModel):
 
 
 class ExportData(ExportDataBase):
-    """Root export data structure (schema v1.0–1.2)."""
-
-    transitive_packages: list[PackageMetrics] = Field(
-        default_factory=list,
-        description="Transitive dependency metrics (all paths, production edges only)",
-    )
-
-
-class ExportDataV13(ExportDataBase):
-    """Root export data structure (schema v1.3+)."""
+    """Root export data structure (schema v1.5)."""
 
     constraint_type_map: list[str] = Field(
         default_factory=lambda: list(CONSTRAINT_TYPE_MAP),
@@ -714,12 +704,10 @@ def _build_dependency_tree(
 
 def build_export_data(
     data: ScanResult,
-    schema_version: ExportJsonSchemaVersion | ExportCsvSchemaVersion,
-) -> ExportData | ExportDataV13:
+    schema_version: ExportJsonSchemaVersion,
+) -> ExportData:
     """
     Create export data from ScanResult domain model.
-
-    Returns ExportDataV13 for schema v1.3+; ExportData (v1.0–1.2) otherwise.
     """
     all_direct = data.production_packages + data.optional_packages
     total_cves = sum(len(pkg.cve) for pkg in all_direct)
@@ -752,27 +740,13 @@ def build_export_data(
     production = [PackageMetrics.from_domain(pkg) for pkg in data.production_packages]
     development = [PackageMetrics.from_domain(pkg) for pkg in data.optional_packages]
 
-    if schema_version in (
-        ExportJsonSchemaVersion.V1_3,
-        ExportJsonSchemaVersion.V1_4,
-        ExportJsonSchemaVersion.V1_5,
-    ):
-        transitive, tree = _build_v1_3_data(data.transitive_packages)
-        return ExportDataV13(
-            metadata=metadata,
-            project=project,
-            summary=summary,
-            production_packages=production,
-            development_packages=development,
-            transitive_packages=transitive,
-            dependency_tree=tree,
-        )
-
+    transitive, tree = _build_v1_3_data(data.transitive_packages)
     return ExportData(
         metadata=metadata,
         project=project,
         summary=summary,
         production_packages=production,
         development_packages=development,
-        transitive_packages=[PackageMetrics.from_domain(pkg) for pkg in data.transitive_packages],
+        transitive_packages=transitive,
+        dependency_tree=tree,
     )

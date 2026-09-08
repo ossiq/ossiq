@@ -56,7 +56,7 @@ uv run hatch run ossiq-cli plan --ignore requests testdata/pypi/version-constrai
 ## TC-U03: `--ignore/-i` on export — flag accepted, no crash
 
 ```bash
-uv run hatch run ossiq-cli export --ignore requests --output-format=json --output=reports/ignore_export.json testdata/pypi/version-constraint
+uv run hatch run ossiq-cli export --ignore requests --output=reports/ignore_export.json testdata/pypi/version-constraint
 ```
 
 - [ ] Export completes without crash

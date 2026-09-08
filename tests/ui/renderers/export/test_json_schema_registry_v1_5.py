@@ -26,11 +26,6 @@ class TestSchemaRegistryV15(SchemaRegistryBaseTest):
         "TransitivePackageMetrics",
     ]
     included_versions = [
-        ExportJsonSchemaVersion.V1_0,
-        ExportJsonSchemaVersion.V1_1,
-        ExportJsonSchemaVersion.V1_2,
-        ExportJsonSchemaVersion.V1_3,
-        ExportJsonSchemaVersion.V1_4,
         ExportJsonSchemaVersion.V1_5,
     ]
 
@@ -40,10 +35,6 @@ class TestSchemaRegistryV15(SchemaRegistryBaseTest):
 
     def test_update_transitive_impacts_export_defined(self, schema):
         assert "TransitiveImpactExport" in schema["$defs"]
-
-    def test_v1_4_schema_still_registered(self, registry):
-        path = registry.get_schema_path(ExportJsonSchemaVersion.V1_4)
-        assert path.exists()
 
     def _assert_epss_fields_on(self, defs, definition_name):
         props = defs[definition_name]["properties"]

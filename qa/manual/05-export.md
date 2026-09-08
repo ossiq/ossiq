@@ -1,4 +1,4 @@
-# 05 — Export: JSON and CSV
+# 05 — Export: JSON
 
 Run from repo root.
 
@@ -25,7 +25,7 @@ uv run hatch run ossiq-cli export testdata/pypi/version-constraint
 ## TC-E02: JSON export — explicit output, field validation
 
 ```bash
-uv run hatch run ossiq-cli export --output-format=json --output=reports/test_export.json testdata/pypi/version-constraint
+uv run hatch run ossiq-cli export --output=reports/test_export.json testdata/pypi/version-constraint
 ```
 
 - [ ] File `reports/test_export.json` created
@@ -35,23 +35,10 @@ uv run hatch run ossiq-cli export --output-format=json --output=reports/test_exp
 
 ---
 
-## TC-E03: CSV export
-
-```bash
-uv run hatch run ossiq-cli export --output-format=csv --output=reports/test_export.csv testdata/pypi/version-constraint
-```
-
-- [ ] File `reports/test_export.csv` created
-- [ ] First row is a header row (column names, not data)
-- [ ] Row count (excluding header) matches package count visible in console scan output
-- [ ] Key columns present: package name, installed version, latest version, CVE count
-
----
-
 ## TC-E04: JSON export — npm project
 
 ```bash
-uv run hatch run ossiq-cli export --output-format=json --output=reports/npm_export.json testdata/npm/project1
+uv run hatch run ossiq-cli export --output=reports/npm_export.json testdata/npm/project1
 ```
 
 - [ ] `registry` field value is `"npm"`
@@ -63,10 +50,10 @@ uv run hatch run ossiq-cli export --output-format=json --output=reports/npm_expo
 
 ```bash
 # Full export
-uv run hatch run ossiq-cli export --output-format=json --output=reports/full_export.json testdata/pypi/version-constraint
+uv run hatch run ossiq-cli export --output=reports/full_export.json testdata/pypi/version-constraint
 
 # Production-only export
-uv run hatch run ossiq-cli export --production --output-format=json --output=reports/prod_export.json testdata/pypi/version-constraint
+uv run hatch run ossiq-cli export --production --output=reports/prod_export.json testdata/pypi/version-constraint
 ```
 
 - [ ] `prod_export.json` has fewer entries in `packages` than `full_export.json`
@@ -77,11 +64,11 @@ uv run hatch run ossiq-cli export --production --output-format=json --output=rep
 ## TC-E06: JSON export v1.5 — recommended_version field
 
 ```bash
-uv run hatch run ossiq-cli export --schema-version 1.4 --output-format=json --output=reports/export_v14.json testdata/pypi/uv
-cat reports/export_v14.json | jq '.production_packages[] | {name: .package_name, installed: .installed_version, recommended: .recommended_version}'
+uv run hatch run ossiq-cli export --schema-version 1.5 --output=reports/export_v15.json testdata/pypi/uv
+cat reports/export_v15.json | jq '.production_packages[] | {name: .package_name, installed: .installed_version, recommended: .recommended_version}'
 ```
 
 - [ ] Command exits 0
-- [ ] `metadata.schema_version` is `"1.4"`
+- [ ] `metadata.schema_version` is `"1.5"`
 - [ ] At least one entry where `recommended` is non-null and differs from `installed`
 - [ ] No entry where `recommended` is a downgrade (lower semver than `installed`)

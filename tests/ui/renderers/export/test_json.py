@@ -335,44 +335,26 @@ class TestJsonExportRenderer:
         # Assert - validate() raises exception if invalid
         validate(instance=exported_data, schema=latest_schema)
 
-    def test_explicit_schema_version_1_0_produces_v1_0_output(self, output_file, sample_project_metrics, settings):
-        """Test that requesting schema v1.0 produces output with schema_version 1.0.
+    def test_explicit_schema_version_1_5_produces_v1_5_output(self, output_file, sample_project_metrics, settings):
+        """Test that requesting schema v1.5 produces output with schema_version 1.5.
 
         AAA Pattern:
         - Arrange: Set up renderer
-        - Act: Render with schema_version="1.0"
-        - Assert: Metadata reflects v1.0 and output conforms to v1.0 schema
+        - Act: Render with schema_version="1.5"
+        - Assert: Metadata reflects v1.5 and output conforms to v1.5 schema
         """
         # Arrange
         renderer = JsonExportRenderer(settings)
 
         # Act
-        renderer.render(sample_project_metrics, destination=str(output_file), schema_version="1.0")
+        renderer.render(sample_project_metrics, destination=str(output_file), schema_version="1.5")
 
         # Assert
         data = json.loads(output_file.read_text())
-        assert data["metadata"]["schema_version"] == "1.0"
-        v1_0_schema = json_schema_registry.load_schema(ExportJsonSchemaVersion.V1_0)
-        validate(instance=data, schema=v1_0_schema)
-
-    def test_explicit_schema_version_1_1_produces_v1_1_output(self, output_file, sample_project_metrics, settings):
-        """Test that requesting schema v1.1 produces output with schema_version 1.1.
-
-        AAA Pattern:
-        - Arrange: Set up renderer
-        - Act: Render with schema_version="1.1"
-        - Assert: Metadata reflects v1.1 and transitive_packages key is present
-        """
-        # Arrange
-        renderer = JsonExportRenderer(settings)
-
-        # Act
-        renderer.render(sample_project_metrics, destination=str(output_file), schema_version="1.1")
-
-        # Assert
-        data = json.loads(output_file.read_text())
-        assert data["metadata"]["schema_version"] == "1.1"
+        assert data["metadata"]["schema_version"] == "1.5"
         assert "transitive_packages" in data
+        v1_5_schema = json_schema_registry.load_schema(ExportJsonSchemaVersion.V1_5)
+        validate(instance=data, schema=v1_5_schema)
 
     def test_no_schema_version_defaults_to_latest(self, output_file, sample_project_metrics, settings):
         """Test that omitting schema_version uses the latest version.
@@ -450,7 +432,7 @@ class TestJsonExportRendererV13:
     def test_v1_3_transitive_packages_are_deduplicated(self, output_file, sample_project_with_transitives, settings):
         """Two ScanRecords with same (package_name, installed_version) produce one transitive entry."""
         renderer = JsonExportRenderer(settings)
-        renderer.render(sample_project_with_transitives, destination=str(output_file), schema_version="1.3")
+        renderer.render(sample_project_with_transitives, destination=str(output_file), schema_version="1.5")
 
         data = json.loads(output_file.read_text())
         assert len(data["transitive_packages"]) == 1
@@ -458,7 +440,7 @@ class TestJsonExportRendererV13:
     def test_v1_3_output_has_dependency_tree(self, output_file, sample_project_with_transitives, settings):
         """v1.3 output must contain a top-level dependency_tree array."""
         renderer = JsonExportRenderer(settings)
-        renderer.render(sample_project_with_transitives, destination=str(output_file), schema_version="1.3")
+        renderer.render(sample_project_with_transitives, destination=str(output_file), schema_version="1.5")
 
         data = json.loads(output_file.read_text())
         assert "dependency_tree" in data
@@ -469,7 +451,7 @@ class TestJsonExportRendererV13:
     ):
         """Tree must have roots for react-dom and react (the two direct parents from the test fixtures)."""
         renderer = JsonExportRenderer(settings)
-        renderer.render(sample_project_with_transitives, destination=str(output_file), schema_version="1.3")
+        renderer.render(sample_project_with_transitives, destination=str(output_file), schema_version="1.5")
 
         data = json.loads(output_file.read_text())
         root_names = {r["package_name"] for r in data["dependency_tree"]}
@@ -479,7 +461,7 @@ class TestJsonExportRendererV13:
     def test_v1_3_tree_nodes_carry_constraint_fields(self, output_file, sample_project_with_transitives, settings):
         """Each tree node must carry ref, ct, and version_constraint."""
         renderer = JsonExportRenderer(settings)
-        renderer.render(sample_project_with_transitives, destination=str(output_file), schema_version="1.3")
+        renderer.render(sample_project_with_transitives, destination=str(output_file), schema_version="1.5")
 
         data = json.loads(output_file.read_text())
         for root in data["dependency_tree"]:
@@ -493,7 +475,7 @@ class TestJsonExportRendererV13:
     ):
         """The same package (scheduler ref=0) appears under two roots with different ct values."""
         renderer = JsonExportRenderer(settings)
-        renderer.render(sample_project_with_transitives, destination=str(output_file), schema_version="1.3")
+        renderer.render(sample_project_with_transitives, destination=str(output_file), schema_version="1.5")
 
         data = json.loads(output_file.read_text())
         # Both roots point to scheduler (ref=0) but with different constraints
@@ -509,7 +491,7 @@ class TestJsonExportRendererV13:
     ):
         """Every ref value in the tree must be a valid index into transitive_packages."""
         renderer = JsonExportRenderer(settings)
-        renderer.render(sample_project_with_transitives, destination=str(output_file), schema_version="1.3")
+        renderer.render(sample_project_with_transitives, destination=str(output_file), schema_version="1.5")
 
         data = json.loads(output_file.read_text())
         n = len(data["transitive_packages"])
@@ -525,7 +507,7 @@ class TestJsonExportRendererV13:
     def test_v1_3_transitive_entry_has_no_path_fields(self, output_file, sample_project_with_transitives, settings):
         """transitive_packages entries must not contain dependency_paths or dependency_path."""
         renderer = JsonExportRenderer(settings)
-        renderer.render(sample_project_with_transitives, destination=str(output_file), schema_version="1.3")
+        renderer.render(sample_project_with_transitives, destination=str(output_file), schema_version="1.5")
 
         data = json.loads(output_file.read_text())
         entry = data["transitive_packages"][0]
@@ -535,7 +517,7 @@ class TestJsonExportRendererV13:
     def test_v1_3_invariant_fields_on_transitive_entry(self, output_file, sample_project_with_transitives, settings):
         """Invariant fields (id, package_name, installed_version, cve) must be on transitive entries."""
         renderer = JsonExportRenderer(settings)
-        renderer.render(sample_project_with_transitives, destination=str(output_file), schema_version="1.3")
+        renderer.render(sample_project_with_transitives, destination=str(output_file), schema_version="1.5")
 
         data = json.loads(output_file.read_text())
         entry = data["transitive_packages"][0]
@@ -548,7 +530,7 @@ class TestJsonExportRendererV13:
     def test_v1_3_output_has_constraint_type_map(self, output_file, sample_project_with_transitives, settings):
         """v1.3 output must contain a top-level constraint_type_map with 5 entries."""
         renderer = JsonExportRenderer(settings)
-        renderer.render(sample_project_with_transitives, destination=str(output_file), schema_version="1.3")
+        renderer.render(sample_project_with_transitives, destination=str(output_file), schema_version="1.5")
 
         data = json.loads(output_file.read_text())
         assert "constraint_type_map" in data
@@ -557,7 +539,7 @@ class TestJsonExportRendererV13:
     def test_v1_3_tree_node_has_no_null_fields(self, output_file, sample_project_with_transitives, settings):
         """Tree nodes must not contain null or empty-list fields."""
         renderer = JsonExportRenderer(settings)
-        renderer.render(sample_project_with_transitives, destination=str(output_file), schema_version="1.3")
+        renderer.render(sample_project_with_transitives, destination=str(output_file), schema_version="1.5")
 
         data = json.loads(output_file.read_text())
         for root in data["dependency_tree"]:
@@ -573,7 +555,7 @@ class TestJsonExportRendererV13:
     ):
         """constraint_source_file from NARROWED record must appear on the transitive package entry."""
         renderer = JsonExportRenderer(settings)
-        renderer.render(sample_project_with_transitives, destination=str(output_file), schema_version="1.3")
+        renderer.render(sample_project_with_transitives, destination=str(output_file), schema_version="1.5")
 
         data = json.loads(output_file.read_text())
         # transitive_record_b has NARROWED constraint with source_file="package.json"
@@ -583,7 +565,7 @@ class TestJsonExportRendererV13:
     def test_v1_3_cve_taken_from_first_record(self, output_file, sample_project_with_transitives, settings):
         """CVE data is read from the first record in the group (invariant field)."""
         renderer = JsonExportRenderer(settings)
-        renderer.render(sample_project_with_transitives, destination=str(output_file), schema_version="1.3")
+        renderer.render(sample_project_with_transitives, destination=str(output_file), schema_version="1.5")
 
         data = json.loads(output_file.read_text())
         # transitive_record_a (first) has 1 CVE; transitive_record_b has 0
@@ -594,23 +576,11 @@ class TestJsonExportRendererV13:
         from jsonschema import validate
 
         renderer = JsonExportRenderer(settings)
-        renderer.render(sample_project_with_transitives, destination=str(output_file), schema_version="1.3")
+        renderer.render(sample_project_with_transitives, destination=str(output_file), schema_version="1.5")
 
         data = json.loads(output_file.read_text())
-        schema = json_schema_registry.load_schema(ExportJsonSchemaVersion.V1_3)
+        schema = json_schema_registry.load_schema(ExportJsonSchemaVersion.V1_5)
         validate(instance=data, schema=schema)
-
-    def test_v1_2_still_produces_flat_transitive_list(self, output_file, sample_project_with_transitives, settings):
-        """v1.2 export must retain the old flat structure with dependency_path at top level."""
-        renderer = JsonExportRenderer(settings)
-        renderer.render(sample_project_with_transitives, destination=str(output_file), schema_version="1.2")
-
-        data = json.loads(output_file.read_text())
-        assert data["metadata"]["schema_version"] == "1.2"
-        assert len(data["transitive_packages"]) == 2
-        for entry in data["transitive_packages"]:
-            assert "dependency_path" in entry
-            assert "dependency_paths" not in entry
 
     def test_v1_3_grouping_key_is_package_name_and_version(self, output_file, settings, sample_project_metrics_record):
         """Two records with different package names produce two separate transitive entries."""
@@ -653,7 +623,7 @@ class TestJsonExportRendererV13:
             transitive_packages=[other_record, scheduler_record],
         )
         renderer = JsonExportRenderer(settings)
-        renderer.render(metrics, destination=str(output_file), schema_version="1.3")
+        renderer.render(metrics, destination=str(output_file), schema_version="1.5")
 
         data = json.loads(output_file.read_text())
         assert len(data["transitive_packages"]) == 2
@@ -700,7 +670,7 @@ class TestJsonExportRendererV13:
             transitive_packages=[scheduler_record, loose_envify_record],
         )
         renderer = JsonExportRenderer(settings)
-        renderer.render(metrics, destination=str(output_file), schema_version="1.3")
+        renderer.render(metrics, destination=str(output_file), schema_version="1.5")
 
         data = json.loads(output_file.read_text())
         # transitive_packages: scheduler=0, loose-envify=1
@@ -773,7 +743,7 @@ class TestJsonExportRendererV14:
             optional_packages=[],
         )
         renderer = JsonExportRenderer(settings)
-        renderer.render(metrics, destination=str(output_file), schema_version="1.4")
+        renderer.render(metrics, destination=str(output_file), schema_version="1.5")
 
         data = json.loads(output_file.read_text())
         pkg = data["production_packages"][0]
@@ -790,7 +760,7 @@ class TestJsonExportRendererV14:
             optional_packages=[],
         )
         renderer = JsonExportRenderer(settings)
-        renderer.render(metrics, destination=str(output_file), schema_version="1.4")
+        renderer.render(metrics, destination=str(output_file), schema_version="1.5")
 
         data = json.loads(output_file.read_text())
         pkg = data["production_packages"][0]
@@ -807,7 +777,7 @@ class TestJsonExportRendererV14:
             optional_packages=[],
         )
         renderer = JsonExportRenderer(settings)
-        renderer.render(metrics, destination=str(output_file), schema_version="1.4")
+        renderer.render(metrics, destination=str(output_file), schema_version="1.5")
 
         data = json.loads(output_file.read_text())
         pkg = data["production_packages"][0]
@@ -824,7 +794,7 @@ class TestJsonExportRendererV14:
             optional_packages=[],
         )
         renderer = JsonExportRenderer(settings)
-        renderer.render(metrics, destination=str(output_file), schema_version="1.4")
+        renderer.render(metrics, destination=str(output_file), schema_version="1.5")
 
         data = json.loads(output_file.read_text())
         pkg = data["production_packages"][0]
@@ -861,7 +831,7 @@ class TestJsonExportRendererV14:
             transitive_packages=[transitive],
         )
         renderer = JsonExportRenderer(settings)
-        renderer.render(metrics, destination=str(output_file), schema_version="1.4")
+        renderer.render(metrics, destination=str(output_file), schema_version="1.5")
 
         data = json.loads(output_file.read_text())
         entry = data["transitive_packages"][0]
@@ -873,10 +843,10 @@ class TestJsonExportRendererV14:
         from jsonschema import validate
 
         renderer = JsonExportRenderer(settings)
-        renderer.render(sample_project_with_transitives, destination=str(output_file), schema_version="1.4")
+        renderer.render(sample_project_with_transitives, destination=str(output_file), schema_version="1.5")
 
         data = json.loads(output_file.read_text())
-        schema = json_schema_registry.load_schema(ExportJsonSchemaVersion.V1_4)
+        schema = json_schema_registry.load_schema(ExportJsonSchemaVersion.V1_5)
         validate(instance=data, schema=schema)
 
     def test_recommended_version_populated_when_solver_recommendation_exists(
@@ -894,7 +864,7 @@ class TestJsonExportRendererV14:
             optional_packages=[],
         )
         renderer = JsonExportRenderer(settings)
-        renderer.render(metrics, destination=str(output_file), schema_version="1.4")
+        renderer.render(metrics, destination=str(output_file), schema_version="1.5")
 
         data = json.loads(output_file.read_text())
         pkg = data["production_packages"][0]
@@ -915,7 +885,7 @@ class TestJsonExportRendererV14:
             optional_packages=[],
         )
         renderer = JsonExportRenderer(settings)
-        renderer.render(metrics, destination=str(output_file), schema_version="1.4")
+        renderer.render(metrics, destination=str(output_file), schema_version="1.5")
 
         data = json.loads(output_file.read_text())
         pkg = data["production_packages"][0]
