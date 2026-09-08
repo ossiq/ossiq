@@ -186,9 +186,8 @@ Full solver rules: [Reference → update solver](https://ossiq.dev/reference.htm
 # Single self-contained HTML file — share it, attach it to a ticket
 ossiq-cli html --output report.html
 
-# Machine-readable output for pipelines and spreadsheets
+# Machine-readable JSON output for pipelines
 ossiq-cli export --output metrics.json
-ossiq-cli export --output metrics.csv --output-format=csv
 ```
 
 The HTML report is the view for planning work rather than fixing one package: sort by drift or severity, drill into any dependency's tree path, CVEs, peer requirements and recommended version, and decide what to read release notes for before it enters the backlog. Exports use versioned schemas (`--schema-version`) so a metric you gate on today keeps its meaning tomorrow — see [Reference → outputs](https://ossiq.dev/reference.html#outputs) and the [GitHub Actions quality-gate tutorial](https://ossiq.dev/tutorials/tutorial-github-actions.html).
