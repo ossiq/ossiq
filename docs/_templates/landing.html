@@ -466,19 +466,19 @@
                         <div class="px-6 py-6 font-mono text-sm space-y-4">
                             <div>
                                 <p class="text-zinc-500 text-xs mb-2"># See what's behind, what has CVEs, what to update</p>
-                                <p class="text-white">uvx --from ossiq ossiq-cli status</p>
+                                <p class="text-white">uvx ossiq status</p>
                             </div>
                             <div>
                                 <p class="text-zinc-500 text-xs mb-2"># Solver-backed upgrade plan with full transitive-impact analysis</p>
-                                <p class="text-white">uvx --from ossiq ossiq-cli plan --cooldown-period=7</p>
+                                <p class="text-white">uvx ossiq plan --cooldown-period=7</p>
                             </div>
                             <div>
                                 <p class="text-zinc-500 text-xs mb-2"># Apply — rewrites your manifest and runs your package manager</p>
-                                <p class="text-white">uvx --from ossiq ossiq-cli apply</p>
+                                <p class="text-white">uvx ossiq apply</p>
                             </div>
                             <div>
                                 <p class="text-zinc-500 text-xs mb-2"># Shareable HTML report with interactive dependency graph</p>
-                                <p class="text-white">uvx --from ossiq ossiq-cli html --output report.html</p>
+                                <p class="text-white">uvx ossiq html --output report.html</p>
                             </div>
                         </div>
                     </div>
@@ -497,11 +497,11 @@
                         <div class="px-6 py-6 font-mono text-sm space-y-4">
                             <div>
                                 <p class="text-zinc-500 text-xs mb-2"># Inspect a package — drift, CVEs, health — before touching anything</p>
-                                <p class="text-white">uvx --from ossiq ossiq-cli info &lt;package-name&gt;</p>
+                                <p class="text-white">uvx ossiq info &lt;package-name&gt;</p>
                             </div>
                             <div>
                                 <p class="text-zinc-500 text-xs mb-2"># Health-checked install — shows signals, then adds the recommended version</p>
-                                <p class="text-white">uvx --from ossiq ossiq-cli add &lt;package-name&gt;</p>
+                                <p class="text-white">uvx ossiq add &lt;package-name&gt;</p>
                             </div>
                             <div class="border-t border-zinc-700 pt-4">
                                 <p class="text-zinc-500 text-xs mb-2"># Age, CVE list, maintenance health, cooldown status — in seconds</p>
@@ -545,7 +545,7 @@
                         <span class="squared-bullet mt-1.5 shrink-0"></span>
                         <div>
                             <p class="font-medium text-sm mb-1">Wire it straight into your AI agent</p>
-                            <p class="text-zinc-500 text-sm font-light"><code class="bg-zinc-100 px-1.5 py-0.5 rounded text-xs">ossiq-cli install skills</code> installs a skill and local MCP server for Claude Code, Codex, and GitHub Copilot &mdash; so the agent checks health before it adds or upgrades anything.</p>
+                            <p class="text-zinc-500 text-sm font-light"><code class="bg-zinc-100 px-1.5 py-0.5 rounded text-xs">ossiq install skills</code> installs a skill and local MCP server for Claude Code, Codex, and GitHub Copilot &mdash; so the agent checks health before it adds or upgrades anything.</p>
                         </div>
                     </div>
                 </div>
@@ -568,7 +568,7 @@
                 </p>
                 <div class="bg-zinc-800 rounded-sm px-6 py-5 mb-10 font-mono text-sm text-zinc-300 overflow-x-auto">
                     <span class="text-zinc-500"># Fail if any production package is more than 365 days behind</span><br>
-                    <span class="text-[#ff4d00]">uvx</span> --from ossiq ossiq-cli export --output=report.json .<br>
+                    <span class="text-[#ff4d00]">uvx</span> ossiq export --output=report.json .<br>
                     <span class="text-[#ff4d00]">jq</span> <span class="text-green-400">'[.production_packages[] | select(.time_lag_days > 365)] | length'</span> report.json
                 </div>
                 <div class="flex flex-wrap gap-6 justify-center">

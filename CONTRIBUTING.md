@@ -26,7 +26,7 @@ Look through the GitHub issues for features. Anything tagged with "enhancement" 
 
 ### Write Documentation
 
-ossiq-cli could always use more documentation, whether as part of the official docs, in docstrings, or even on the web in blog posts, articles, and such.
+ossiq could always use more documentation, whether as part of the official docs, in docstrings, or even on the web in blog posts, articles, and such.
 
 ### Submit Feedback
 
@@ -40,20 +40,20 @@ If you are proposing a feature:
 
 ## Get Started!
 
-Ready to contribute? Here's how to set up `ossiq-cli` for local development.
+Ready to contribute? Here's how to set up `ossiq` for local development.
 
-1. Fork the `ossiq-cli` repo on GitHub.
+1. Fork the `ossiq` repo on GitHub.
 
 2. Clone your fork locally:
 
    ```sh
-   git clone git@github.com:your_name_here/ossiq-cli.git
+   git clone git@github.com:your_name_here/ossiq.git
    ```
 
 3. Install dependencies using `uv`:
 
    ```sh
-   cd ossiq-cli/
+   cd ossiq/
    uv sync
    ```
 
@@ -144,7 +144,7 @@ Before you submit a pull request, check that it meets these guidelines:
 
 1. The pull request should include tests.
 2. If the pull request adds functionality, the docs should be updated. Put your new functionality into a function with a docstring.
-3. The pull request should work for Python 3.10, 3.11, 3.12, and 3.13. You can test multiple versions locally:
+3. The pull request should work for Python 3.11, 3.12, 3.13, and 3.14 (the range declared by `requires-python` in `pyproject.toml`). You can test multiple versions locally:
 
    ```sh
    just testall

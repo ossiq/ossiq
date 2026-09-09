@@ -4,7 +4,7 @@ In this tutorial, you will run your first dependency analysis with OSS IQ. You'l
 
 **What you'll build:**
 
-By the end, you'll have performed a full dependency analysis and know how to use the `ossiq-cli` to assess any project's dependencies.
+By the end, you'll have performed a full dependency analysis and know how to use the `ossiq` to assess any project's dependencies.
 
 **Prerequisites:**
 
@@ -26,7 +26,7 @@ pip install ossiq
 After installation, verify that it was successful by checking the version:
 
 ```bash
-ossiq-cli --version
+ossiq --version
 ```
 
 You should see output similar to `ossiq version: 0.1.x`.
@@ -79,12 +79,12 @@ We are using older versions of these popular packages to demonstrate how OSS IQ 
 
 ## Step 4: Run Your First Analysis
 
-With your sample project ready, you can now run the `scan` command. `ossiq-cli` will automatically detect the `requirements.txt` file in the current directory.
+With your sample project ready, you can now run the `scan` command. `ossiq` will automatically detect the `requirements.txt` file in the current directory.
 
 Run the scan from within the `ossiq-sample-project` directory:
 
 ```bash
-ossiq-cli status .
+ossiq status .
 ```
 
 You should see console output that looks something like this:
@@ -140,7 +140,7 @@ While the console output is useful for a quick overview, the interactive HTML re
 Generate the report by running the `html` command.
 
 ```bash
-ossiq-cli html . --output report.html
+ossiq html . --output report.html
 ```
 
 This will create a `report.html` file in your project directory. Open this file in your web browser.
@@ -159,7 +159,7 @@ You'll see a detailed, interactive report where you can:
 
 Congratulations! You've successfully performed your first dependency analysis with OSS IQ. You now know how to:
 
-<span class="material-symbols-outlined marker-check">check</span> Install and configure `ossiq-cli`.
+<span class="material-symbols-outlined marker-check">check</span> Install and configure `ossiq`.
 
 <span class="material-symbols-outlined marker-check">check</span> Run a dependency scan on a local project.
 

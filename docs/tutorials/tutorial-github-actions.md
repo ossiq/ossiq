@@ -104,7 +104,7 @@ jobs:
         env:
           OSSIQ_GITHUB_TOKEN: ${{ secrets.OSSIQ_GITHUB_TOKEN }}
         run: |
-          ossiq-cli export \
+          ossiq export \
             --output=ossiq-report.json \
             .
 
@@ -292,7 +292,7 @@ Now that you have a basic quality gate working, you might want to:
 
 - **Adjust thresholds**: Modify `MAX_LAG_DAYS` or add checks for `releases_lag` to match your team's standards
 - **Add notifications**: Send Slack or email alerts when scans fail
-- **Generate reports**: Use `ossiq-cli html` for detailed HTML reports
+- **Generate reports**: Use `ossiq html` for detailed HTML reports
 - **Scan on schedule**: Add a `schedule` trigger to catch new CVEs in existing dependencies
 
 For more details on OSS IQ's metrics and what they mean, see the [Explanation](/explanation/) documentation.
