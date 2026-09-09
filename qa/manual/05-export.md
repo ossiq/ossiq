@@ -11,7 +11,7 @@ mkdir -p reports
 ## TC-E01: JSON export — default filename
 
 ```bash
-uv run hatch run ossiq-cli export testdata/pypi/version-constraint
+uv run hatch run ossiq export testdata/pypi/version-constraint
 ```
 
 - [ ] File `ossiq_export_report_*.json` created in current directory
@@ -25,7 +25,7 @@ uv run hatch run ossiq-cli export testdata/pypi/version-constraint
 ## TC-E02: JSON export — explicit output, field validation
 
 ```bash
-uv run hatch run ossiq-cli export --output=reports/test_export.json testdata/pypi/version-constraint
+uv run hatch run ossiq export --output=reports/test_export.json testdata/pypi/version-constraint
 ```
 
 - [ ] File `reports/test_export.json` created
@@ -38,7 +38,7 @@ uv run hatch run ossiq-cli export --output=reports/test_export.json testdata/pyp
 ## TC-E04: JSON export — npm project
 
 ```bash
-uv run hatch run ossiq-cli export --output=reports/npm_export.json testdata/npm/project1
+uv run hatch run ossiq export --output=reports/npm_export.json testdata/npm/project1
 ```
 
 - [ ] `registry` field value is `"npm"`
@@ -50,10 +50,10 @@ uv run hatch run ossiq-cli export --output=reports/npm_export.json testdata/npm/
 
 ```bash
 # Full export
-uv run hatch run ossiq-cli export --output=reports/full_export.json testdata/pypi/version-constraint
+uv run hatch run ossiq export --output=reports/full_export.json testdata/pypi/version-constraint
 
 # Production-only export
-uv run hatch run ossiq-cli export --production --output=reports/prod_export.json testdata/pypi/version-constraint
+uv run hatch run ossiq export --production --output=reports/prod_export.json testdata/pypi/version-constraint
 ```
 
 - [ ] `prod_export.json` has fewer entries in `packages` than `full_export.json`
@@ -64,7 +64,7 @@ uv run hatch run ossiq-cli export --production --output=reports/prod_export.json
 ## TC-E06: JSON export v1.5 — recommended_version field
 
 ```bash
-uv run hatch run ossiq-cli export --schema-version 1.5 --output=reports/export_v15.json testdata/pypi/uv
+uv run hatch run ossiq export --schema-version 1.5 --output=reports/export_v15.json testdata/pypi/uv
 cat reports/export_v15.json | jq '.production_packages[] | {name: .package_name, installed: .installed_version, recommended: .recommended_version}'
 ```
 

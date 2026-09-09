@@ -13,8 +13,8 @@ or point `HOME` at a scratch dir for TC-L02–TC-L04.
 **Precondition:**
 
 ```bash
-uv run hatch run ossiq-cli install --help
-uv run hatch run ossiq-cli install skills --help
+uv run hatch run ossiq install --help
+uv run hatch run ossiq install skills --help
 ```
 
 - [ ] `install --help` lists the `skills` subcommand
@@ -25,7 +25,7 @@ uv run hatch run ossiq-cli install skills --help
 ## TC-L01: `install skills` argument validation
 
 ```bash
-uv run hatch run ossiq-cli install skills bogus-tool
+uv run hatch run ossiq install skills bogus-tool
 echo "exit: $?"
 ```
 
@@ -37,14 +37,14 @@ echo "exit: $?"
 ## TC-L02: `install skills claude --dev` writes skill and merges MCP config
 
 ```bash
-uv run hatch run ossiq-cli install skills claude --dev "$(pwd)"
+uv run hatch run ossiq install skills claude --dev "$(pwd)"
 # press Enter at the token prompt to skip
 cat ~/.claude/skills/ossiq/SKILL.md | head -10
 cat ~/.claude/mcp.json
 ```
 
 - [ ] `~/.claude/skills/ossiq/SKILL.md` exists with the `ossiq-dependency-check` frontmatter
-- [ ] Skill body references `uvx --from <repo-path> --no-cache ossiq-cli` (dev path substituted, no `uvx --from ossiq`)
+- [ ] Skill body references `uvx --from <repo-path> --no-cache ossiq` (dev path substituted, no `uvx --from ossiq`)
 - [ ] `~/.claude/mcp.json` has `mcpServers.ossiq` with `command: "uv"` and the repo path in `args`
 - [ ] Pre-existing entries in `mcpServers` are preserved (add a dummy entry first to verify)
 - [ ] Re-running the command is idempotent — still exactly one `ossiq` entry
@@ -54,7 +54,7 @@ cat ~/.claude/mcp.json
 ## TC-L03: GitHub token storage
 
 ```bash
-uv run hatch run ossiq-cli install skills claude --github-token ghp_qa_test --dev "$(pwd)"
+uv run hatch run ossiq install skills claude --github-token ghp_qa_test --dev "$(pwd)"
 grep OSSIQ_GITHUB_TOKEN ~/.ossiq/config
 cat ~/.claude/mcp.json
 ```
@@ -69,8 +69,8 @@ cat ~/.claude/mcp.json
 ## TC-L04: Copilot instructions block is idempotent
 
 ```bash
-uv run hatch run ossiq-cli install skills copilot
-uv run hatch run ossiq-cli install skills copilot
+uv run hatch run ossiq install skills copilot
+uv run hatch run ossiq install skills copilot
 grep -c "ossiq-skill:start" ~/.copilot/copilot-instructions.md
 ```
 
@@ -86,7 +86,7 @@ printf '%s\n' \
   '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18"}}' \
   '{"jsonrpc":"2.0","method":"notifications/initialized"}' \
   '{"jsonrpc":"2.0","id":2,"method":"tools/list"}' \
-  | uv run hatch run ossiq-cli mcp
+  | uv run hatch run ossiq mcp
 ```
 
 - [ ] Exactly two response lines (the notification gets no reply), each valid JSON
@@ -102,7 +102,7 @@ printf '%s\n' \
 printf '%s\n' \
   '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}' \
   '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"ossiq_evaluate_dependency","arguments":{"package":"requests","project_path":"testdata/pypi/uv"}}}' \
-  | uv run hatch run ossiq-cli mcp
+  | uv run hatch run ossiq mcp
 ```
 
 - [ ] Response 2 has `result.content[0].text` containing a JSON decision with `"operation": "add"`, `next_action` in install / install with caution / do not install, `recommended_version`, `cves`, `warnings`
@@ -118,7 +118,7 @@ printf '%s\n' \
   '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}' \
   '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"ossiq_evaluate_updates","arguments":{"project_path":"testdata/pypi/version-constraint"}}}' \
   '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"no_such_tool","arguments":{}}}' \
-  | uv run hatch run ossiq-cli mcp
+  | uv run hatch run ossiq mcp
 ```
 
 - [ ] Response 2 decision JSON has `"operation": "update"`, a top-level `next_action`, and an `updates` array with `package`, `next_action`, `from`, `to` per entry
@@ -131,8 +131,8 @@ printf '%s\n' \
 The skill instructs agents to call these when no MCP server is connected:
 
 ```bash
-uv run hatch run ossiq-cli info requests testdata/pypi/uv --format agent | python3 -m json.tool
-uv run hatch run ossiq-cli status testdata/pypi/version-constraint --format agent | python3 -m json.tool
+uv run hatch run ossiq info requests testdata/pypi/uv --format agent | python3 -m json.tool
+uv run hatch run ossiq status testdata/pypi/version-constraint --format agent | python3 -m json.tool
 ```
 
 - [ ] `info --format agent` output is valid JSON with `operation: "add"`, `next_action`, `recommended_version`, `reasons`, `cves`, `warnings` (matches the SKILL.md example)

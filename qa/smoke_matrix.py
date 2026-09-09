@@ -28,7 +28,7 @@ GITHUB_TOKEN = os.environ.get("OSSIQ_GITHUB_TOKEN", "")
 
 # Use the pre-built venv binary directly — bypasses uv sync and hatch build hooks entirely.
 VENV_BIN = Path(os.environ.get("UV_PROJECT_ENVIRONMENT", "/home/qarunner/.venv")) / "bin"
-OSSIQ_CMD = [str(VENV_BIN / "ossiq-cli")]
+OSSIQ_CMD = [str(VENV_BIN / "ossiq")]
 
 # ecosystem, owner/repo, tag, cutoff_date  (cutoff ≈ tag release date + 12 months)
 TARGETS: list[tuple[str, str, str, str]] = [
@@ -228,7 +228,7 @@ def fetch_pypi(repo: str, tag: str, target_dir: Path) -> bool:
 
 
 def build_base_args(cutoff: str) -> list[str]:
-    """Return global ossiq-cli flags that precede every subcommand."""
+    """Return global ossiq flags that precede every subcommand."""
     args = ["--cache-destination", CACHE_FILE, "--cutoff-date", cutoff]
     return args
 

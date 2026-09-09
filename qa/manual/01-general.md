@@ -7,11 +7,11 @@ Run from repo root. No network-sensitive operations.
 ## TC-G01: Version and help output
 
 ```bash
-uv run hatch run ossiq-cli --version
-uv run hatch run ossiq-cli --help
-uv run hatch run ossiq-cli status --help
-uv run hatch run ossiq-cli plan --help
-uv run hatch run ossiq-cli apply --help
+uv run hatch run ossiq --version
+uv run hatch run ossiq --help
+uv run hatch run ossiq status --help
+uv run hatch run ossiq plan --help
+uv run hatch run ossiq apply --help
 ```
 
 - [ ] `--version` prints a semver string
@@ -25,7 +25,7 @@ uv run hatch run ossiq-cli apply --help
 ## TC-G02: Verbose output
 
 ```bash
-uv run hatch run ossiq-cli --verbose scan testdata/pypi/version-constraint
+uv run hatch run ossiq --verbose scan testdata/pypi/version-constraint
 ```
 
 - [ ] Settings panel is printed before the results table
@@ -37,7 +37,7 @@ uv run hatch run ossiq-cli --verbose scan testdata/pypi/version-constraint
 ## TC-G03: Auto-detection — PyPI
 
 ```bash
-uv run hatch run ossiq-cli status testdata/pypi/pip-classic
+uv run hatch run ossiq status testdata/pypi/pip-classic
 ```
 
 - [ ] Header shows `Packages Registry: pypi`
@@ -48,7 +48,7 @@ uv run hatch run ossiq-cli status testdata/pypi/pip-classic
 ## TC-G04: Auto-detection — npm
 
 ```bash
-uv run hatch run ossiq-cli status testdata/npm/project1
+uv run hatch run ossiq status testdata/npm/project1
 ```
 
 - [ ] Header shows `Packages Registry: npm`
@@ -58,7 +58,7 @@ uv run hatch run ossiq-cli status testdata/npm/project1
 ## TC-G05: Auto-detection — mixed (PyPI + npm)
 
 ```bash
-uv run hatch run ossiq-cli status testdata/mixed
+uv run hatch run ossiq status testdata/mixed
 ```
 
 - [ ] Both PyPI and npm packages appear in separate tables or clearly marked sections
@@ -69,7 +69,7 @@ uv run hatch run ossiq-cli status testdata/mixed
 ## TC-G06: Registry override
 
 ```bash
-uv run hatch run ossiq-cli status --registry-type=pypi testdata/mixed
+uv run hatch run ossiq status --registry-type=pypi testdata/mixed
 ```
 
 - [ ] Only PyPI packages processed (npm packages absent from output)
@@ -91,7 +91,7 @@ uv run just qa
 
 ```bash
 echo "OSSIQ_COOLDOWN_PERIOD=14" >> ~/.ossiq/config
-uv run hatch run ossiq-cli --verbose status testdata/pypi/uv
+uv run hatch run ossiq --verbose status testdata/pypi/uv
 # cleanup: remove the line from ~/.ossiq/config afterwards
 ```
 
@@ -104,8 +104,8 @@ uv run hatch run ossiq-cli --verbose status testdata/pypi/uv
 
 ```bash
 printf 'OSSIQ_COOLDOWN_PERIOD=21\n' > /tmp/ossiq-qa-config
-uv run hatch run ossiq-cli --config /tmp/ossiq-qa-config --verbose status testdata/pypi/uv
-uv run hatch run ossiq-cli --config /tmp/does-not-exist status testdata/pypi/uv
+uv run hatch run ossiq --config /tmp/ossiq-qa-config --verbose status testdata/pypi/uv
+uv run hatch run ossiq --config /tmp/does-not-exist status testdata/pypi/uv
 ```
 
 - [ ] With the custom file: settings panel shows `cooldown_period: 21`
@@ -118,8 +118,8 @@ uv run hatch run ossiq-cli --config /tmp/does-not-exist status testdata/pypi/uv
 
 ```bash
 printf 'OSSIQ_COOLDOWN_PERIOD=21\n' > /tmp/ossiq-qa-config
-OSSIQ_COOLDOWN_PERIOD=3 uv run hatch run ossiq-cli --config /tmp/ossiq-qa-config --verbose status testdata/pypi/uv
-OSSIQ_COOLDOWN_PERIOD=3 uv run hatch run ossiq-cli --config /tmp/ossiq-qa-config --cooldown-period 1 --verbose status testdata/pypi/uv
+OSSIQ_COOLDOWN_PERIOD=3 uv run hatch run ossiq --config /tmp/ossiq-qa-config --verbose status testdata/pypi/uv
+OSSIQ_COOLDOWN_PERIOD=3 uv run hatch run ossiq --config /tmp/ossiq-qa-config --cooldown-period 1 --verbose status testdata/pypi/uv
 ```
 
 - [ ] First run: env var wins over config file — `cooldown_period: 3`
