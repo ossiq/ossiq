@@ -3,7 +3,11 @@
 import ast
 import pathlib
 
-RENDERERS_ROOT = pathlib.Path("src/ossiq/ui/renderers")
+# Anchored to this file, not the working directory: a relative path made the
+# rglob below silently match nothing whenever pytest ran from outside the repo
+# root, so the boundary check passed without inspecting anything.
+PROJECT_ROOT = pathlib.Path(__file__).resolve().parent.parent
+RENDERERS_ROOT = PROJECT_ROOT / "src" / "ossiq" / "ui" / "renderers"
 FORBIDDEN_PREFIXES = ("ossiq.clients", "ossiq.adapters", "ossiq.sources", "ossiq.solver")
 FORBIDDEN_NAMES = {"ProjectSources", "AbstractProjectSources", "build_project_sources"}
 
@@ -36,6 +40,8 @@ def _collect_violations(path: pathlib.Path) -> list[str]:
 def test_renderers_import_boundary() -> None:
     # ponytail: encodes the spine-vs-features rule — renderers never reach back into I/O clients
     all_violations: list[str] = []
-    for py_file in RENDERERS_ROOT.rglob("*.py"):
+    py_files = list(RENDERERS_ROOT.rglob("*.py"))
+    assert py_files, f"no renderer modules found under {RENDERERS_ROOT}"
+    for py_file in py_files:
         all_violations.extend(_collect_violations(py_file))
     assert not all_violations, "\n".join(all_violations)

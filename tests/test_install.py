@@ -1,6 +1,7 @@
 """Tests for the `install skills` command."""
 
 import json
+from pathlib import Path
 
 import pytest
 from typer.testing import CliRunner
@@ -148,10 +149,44 @@ def test_build_mcp_entry_dev_path():
     assert "/path/to/ossiq" in entry["args"]
 
 
+def test_resolve_ossiq_binary_prefers_absolute_path_from_which(tmp_path, monkeypatch):
+    binary = tmp_path / "bin" / "ossiq"
+    binary.parent.mkdir(parents=True)
+    binary.touch()
+    monkeypatch.setattr(install.shutil, "which", lambda name: str(binary))
+    assert install.resolve_ossiq_binary() == str(binary.resolve())
+
+
+def test_resolve_ossiq_binary_falls_back_to_argv0(tmp_path, monkeypatch):
+    binary = tmp_path / "ossiq"
+    binary.touch()
+    monkeypatch.setattr(install.shutil, "which", lambda name: None)
+    monkeypatch.setattr(install.sys, "argv", [str(binary)])
+    assert install.resolve_ossiq_binary() == str(binary.resolve())
+
+
+def test_resolve_ossiq_binary_falls_back_to_bare_name(monkeypatch):
+    monkeypatch.setattr(install.shutil, "which", lambda name: None)
+    monkeypatch.setattr(install.sys, "argv", ["/usr/bin/pytest"])
+    assert install.resolve_ossiq_binary() == "ossiq"
+
+
+def test_build_mcp_entry_uses_absolute_path(tmp_path, monkeypatch):
+    """Agent harnesses sanitise PATH in subshells, so the entry must not rely on it."""
+    binary = tmp_path / "bin" / "ossiq"
+    binary.parent.mkdir(parents=True)
+    binary.touch()
+    monkeypatch.setattr(install.shutil, "which", lambda name: str(binary))
+    entry = install.build_mcp_entry(None)
+    assert entry["command"] == str(binary.resolve())
+    assert Path(entry["command"]).is_absolute()
+    assert entry["args"] == ["mcp"]
+
+
 def test_apply_dev_path_substitutes_invocation():
     content = f"run {install.SKILL_UVX_PROD} info pkg ."
     result = install.apply_dev_settings(content, "/path/to/ossiq")
-    assert "uvx --from /path/to/ossiq --no-cache ossiq-cli" in result
+    assert "uvx --from /path/to/ossiq --no-cache ossiq" in result
     assert install.SKILL_UVX_PROD not in result
 
 
@@ -161,7 +196,7 @@ def test_skills_command_dev_flag_patches_skill_and_mcp(tmp_path, monkeypatch):
     result = runner.invoke(app, ["install", "skills", "claude", "--dev", "/path/to/ossiq"], input="\n")
     assert result.exit_code == 0
     skill = (tmp_path / ".claude" / "skills" / "ossiq" / "SKILL.md").read_text()
-    assert "uvx --from /path/to/ossiq --no-cache ossiq-cli" in skill
+    assert "uvx --from /path/to/ossiq --no-cache ossiq" in skill
     assert install.SKILL_UVX_PROD not in skill
     config = json.loads((tmp_path / ".claude" / "mcp.json").read_text())
     assert config["mcpServers"]["ossiq"]["command"] == "uv"

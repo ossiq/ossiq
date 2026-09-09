@@ -9,6 +9,7 @@ ponytail: stdlib JSON-RPC instead of the official `mcp` SDK — respects the rep
 no-new-deps rule; swap in `mcp.server` if the SDK is ever vendored.
 """
 
+import importlib.metadata
 import json
 import sys
 from collections.abc import Callable
@@ -22,7 +23,7 @@ from ossiq.settings import Settings
 from ossiq.sources import project_sources
 
 PROTOCOL_VERSION = "2025-06-18"
-SERVER_INFO = {"name": "ossiq", "version": "1"}
+SERVER_INFO = {"name": "ossiq", "version": importlib.metadata.version("ossiq")}
 
 TOOLS: list[dict[str, Any]] = [
     {
