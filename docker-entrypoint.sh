@@ -131,12 +131,12 @@ main() {
     if [ "${OSSIQ_VERBOSE:-false}" = "true" ]; then
         print_info "Starting OSS IQ CLI"
         print_info "Working directory: $(pwd)"
-        print_info "Command: ossiq-cli $*"
+        print_info "Command: ossiq $*"
     fi
 
     # Execute the CLI command
-    # Pass all arguments directly to ossiq-cli
-    exec ossiq-cli "$@"
+    # Pass all arguments directly to ossiq
+    exec ossiq "$@"
 }
 
 # Run main with all script arguments

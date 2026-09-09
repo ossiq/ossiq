@@ -37,17 +37,25 @@ Free and open source (AGPL v3), for npm, uv, and pip.
 No install required - run it from your project directory:
 
 ```bash
-uvx --from ossiq ossiq-cli status
+uvx ossiq status          # Python toolchain
+npx @ossiq/cli status     # Node toolchain - ships a binary, no Python needed
 ```
 
 OSS IQ detects the manifest (`package.json`, `pyproject.toml`, `requirements.txt`) in the target directory. A full scan makes hundreds of GitHub API calls, so [add a token](#github-token) before you rely on the results.
 
 If you prefer a persistent install:
 
+| Channel | Install | Notes |
+| --- | --- | --- |
+| PyPI | `uv tool install ossiq` (or `pipx install ossiq`) | Needs Python 3.11+ |
+| npm | `npm install -g @ossiq/cli` | Self-contained binary, no Python |
+| Docker | `docker pull ossiq/ossiq-cli` | See [Docker](#docker) |
+
 ```bash
-uv add ossiq      # or: pip install ossiq
-ossiq-cli status
+ossiq status
 ```
+
+The npm packages ship prebuilt binaries for macOS, Linux (glibc) and Windows on x64 and arm64. On musl-based Linux (Alpine) or Windows on ARM, install from PyPI instead.
 
 ## Coding agents
 
@@ -55,13 +63,13 @@ Give Claude Code, Codex, or GitHub Copilot a skill and a local MCP server, so th
 
 ```bash
 # Install for all three tools
-uvx --from ossiq ossiq-cli install skills
+uvx ossiq install skills
 
 # Or target one: claude, codex, copilot
-uvx --from ossiq ossiq-cli install skills claude
+uvx ossiq install skills claude
 ```
 
-This writes `SKILL.md` and registers `ossiq` as a local stdio MCP server (`ossiq-cli mcp`) for Claude Code (`~/.claude/`) and Codex (`~/.codex/`), and adds the skill to Copilot's `~/.copilot/copilot-instructions.md`. Re-running is safe — existing config is merged, not overwritten.
+This writes `SKILL.md` and registers `ossiq` as a local stdio MCP server (`ossiq mcp`) for Claude Code (`~/.claude/`) and Codex (`~/.codex/`), and adds the skill to Copilot's `~/.copilot/copilot-instructions.md`. Re-running is safe — existing config is merged, not overwritten.
 
 The agent gets two read-only tools:
 
@@ -73,7 +81,7 @@ The agent gets two read-only tools:
 Both return the same compact decision the CLI produces with `--format agent`:
 
 ```bash
-ossiq-cli info requests --format agent
+ossiq info requests --format agent
 ```
 
 ```json
@@ -93,24 +101,24 @@ The install command prompts for a GitHub token (or takes `--github-token`; blank
 ## The CLI workflow
 
 ```bash
-ossiq-cli status              # dependency health for the whole project
-ossiq-cli status --full       # every package, every column (EPSS, update mode, lag, maintenance state)
-ossiq-cli status --security   # CVE-affected packages only
-ossiq-cli info requests       # one package: drift, CVEs, tree path, peer requirements
-ossiq-cli add requests        # quality-gated install of the recommended version
-ossiq-cli plan                # what the solver would change — read-only
-ossiq-cli apply               # execute the plan, with rollback on failure
+ossiq status              # dependency health for the whole project
+ossiq status --full       # every package, every column (EPSS, update mode, lag, maintenance state)
+ossiq status --security   # CVE-affected packages only
+ossiq info requests       # one package: drift, CVEs, tree path, peer requirements
+ossiq add requests        # quality-gated install of the recommended version
+ossiq plan                # what the solver would change — read-only
+ossiq apply               # execute the plan, with rollback on failure
 ```
 
 Each takes an optional project path (default: `.`) and `--registry-type npm|pypi` to disambiguate a polyglot repo. `info` prints drift status, the dependency tree trace, policy compliance, direct and transitive CVEs, and peer requirements — one section per concern, [documented here](https://ossiq.dev/reference.html#info-package-report).
 
 ### `add` — a gate in front of `uv add` and `npm install`
 
-Package managers install the newest version that satisfies your constraints. `ossiq-cli add` installs the *recommended* one: it runs the same analysis as `info`, shows drift, CVEs, transitive vulnerabilities and maintainer signals before touching a file, blocks critically unhealthy packages unless you pass `--force`, and confirms the exact spec before installing.
+Package managers install the newest version that satisfies your constraints. `ossiq add` installs the *recommended* one: it runs the same analysis as `info`, shows drift, CVEs, transitive vulnerabilities and maintainer signals before touching a file, blocks critically unhealthy packages unless you pass `--force`, and confirms the exact spec before installing.
 
 ```bash
-ossiq-cli add lodash --registry-type npm
-ossiq-cli add requests --version 2.31.0   # pin yourself, bypassing the recommendation
+ossiq add lodash --registry-type npm
+ossiq add requests --version 2.31.0   # pin yourself, bypassing the recommendation
 ```
 
 ### `plan` and `apply` — updates with their transitive cascade
@@ -147,14 +155,14 @@ Packages pinned with an exact specifier (`==x.y.z`) are **frozen** by default, s
 
 ```bash
 # 1. Migrate all direct deps to exact pins
-ossiq-cli apply --pin-all
+ossiq apply --pin-all
 
 # 2. Later, preview what is available (pinned deps stay hidden)
-ossiq-cli plan
+ossiq plan
 
 # 3. Upgrade and re-pin in one pass — optionally holding some back
-ossiq-cli apply --pin-all --rewrite-versions
-ossiq-cli apply --pin-all --rewrite-versions --ignore requests --ignore django
+ossiq apply --pin-all --rewrite-versions
+ossiq apply --pin-all --rewrite-versions --ignore requests --ignore django
 ```
 
 | Flags | `>=x` (declared) | `~=x` (narrowed) | `==x` (pinned) |
@@ -175,8 +183,8 @@ Two deliberate exceptions: a **CVE fix bypasses the hold** when the installed ve
 When the only version that fixes a CVE is itself still quarantined, you are trading a *known* risk against a *statistical* one. Three levers, from automatic to manual:
 
 1. **Default** — the fix is applied regardless of age. For most teams a concrete CVE beats a hypothetical supply-chain risk.
-2. **`--security`** — `ossiq-cli apply --security --yes` patches vulnerabilities and touches nothing else, while your regular cadence stays on cooldown.
-3. **`--override pkg==version`** — force a version you have vetted yourself: `ossiq-cli apply --override urllib3==2.0.7`. For a transitive package this writes a *persistent* entry (`overrides` in `package.json`, `override-dependencies` under `[tool.uv]`), and `status` keeps reporting it with the `OVERRIDE` constraint type until you remove it.
+2. **`--security`** — `ossiq apply --security --yes` patches vulnerabilities and touches nothing else, while your regular cadence stays on cooldown.
+3. **`--override pkg==version`** — force a version you have vetted yourself: `ossiq apply --override urllib3==2.0.7`. For a transitive package this writes a *persistent* entry (`overrides` in `package.json`, `override-dependencies` under `[tool.uv]`), and `status` keeps reporting it with the `OVERRIDE` constraint type until you remove it.
 
 Full solver rules: [Reference → update solver](https://ossiq.dev/reference.html#update-solver).
 
@@ -184,10 +192,10 @@ Full solver rules: [Reference → update solver](https://ossiq.dev/reference.htm
 
 ```bash
 # Single self-contained HTML file — share it, attach it to a ticket
-ossiq-cli html --output report.html
+ossiq html --output report.html
 
 # Machine-readable JSON output for pipelines
-ossiq-cli export --output metrics.json
+ossiq export --output metrics.json
 ```
 
 The HTML report is the view for planning work rather than fixing one package: sort by drift or severity, drill into any dependency's tree path, CVEs, peer requirements and recommended version, and decide what to read release notes for before it enters the backlog. Exports use versioned schemas (`--schema-version`) so a metric you gate on today keeps its meaning tomorrow — see [Reference → outputs](https://ossiq.dev/reference.html#outputs) and the [GitHub Actions quality-gate tutorial](https://ossiq.dev/tutorials/tutorial-github-actions.html).
@@ -218,7 +226,7 @@ OSSIQ_COOLDOWN_PERIOD=14
 OSSIQ_CACHE_TTL=48
 ```
 
-Point at a different file with `ossiq-cli --config ./ossiq.conf status`. Values resolve highest-wins: CLI flags → environment variables → config file → built-in defaults.
+Point at a different file with `ossiq --config ./ossiq.conf status`. Values resolve highest-wins: CLI flags → environment variables → config file → built-in defaults.
 
 ### Time controls
 
@@ -231,10 +239,10 @@ Two global options change how OSS IQ perceives time. They apply to `status`, `ex
 
 ```bash
 # Time-travel view with a wider freshness buffer
-ossiq-cli --cutoff-date 2025-01-01 --cooldown-period 14 status
+ossiq --cutoff-date 2025-01-01 --cooldown-period 14 status
 
 # Same thing from the environment, for CI
-OSSIQ_CUTOFF_DATE=2025-01-01 OSSIQ_COOLDOWN_PERIOD=14 ossiq-cli status
+OSSIQ_CUTOFF_DATE=2025-01-01 OSSIQ_COOLDOWN_PERIOD=14 ossiq status
 ```
 
 ## Supported ecosystems
@@ -263,7 +271,7 @@ docker run --rm -e OSSIQ_GITHUB_TOKEN \
   ossiq/ossiq-cli html -o /output/report.html /project
 ```
 
-Tags: `latest`, `0.1` (latest patch in the minor), `0.1.9` (exact version).
+Tags: `latest`, `0.1` (latest patch in the minor), `0.1.10` (exact version).
 
 <details>
 <summary><b>GitHub Actions example</b></summary>
@@ -291,11 +299,11 @@ git clone https://github.com/ossiq/ossiq.git
 cd ossiq
 uv sync
 
-uv run hatch run ossiq-cli status
-uv run hatch run ossiq-cli html -o ./test_report.html
+uv run hatch run ossiq status
+uv run hatch run ossiq html -o ./test_report.html
 
 # Point the agent skill and MCP server at your checkout instead of PyPI
-uv run hatch run ossiq-cli install skills --dev "$(pwd)"
+uv run hatch run ossiq install skills --dev "$(pwd)"
 ```
 
 Issues and pull requests are welcome — start with the [issue tracker](https://github.com/ossiq/ossiq/issues). If OSS IQ saves you a maintenance afternoon, a ⭐ helps other people find it.

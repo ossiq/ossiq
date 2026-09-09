@@ -27,7 +27,7 @@ jobs:
         env:
           OSSIQ_GITHUB_TOKEN: ${{ github.token }}
         run: |
-          ossiq-cli export \
+          ossiq export \
             --output=ossiq-report.json \
             .
 

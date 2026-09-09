@@ -95,7 +95,7 @@ The inject script decompresses `.gz` files transparently.
 
 1. Export from the CLI:
    ```sh
-   ossiq-cli export --output export.json /path/to/project
+   ossiq export --output export.json /path/to/project
    ```
 2. Move it into `frontend/datasets/`:
    ```sh
