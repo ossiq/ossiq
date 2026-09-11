@@ -1,6 +1,6 @@
 # Manual QA
 
-Pre-release validation process for ossiq-cli. One person, under 45 minutes.
+Pre-release validation process for ossiq. One person, under 45 minutes.
 
 ## Structure
 
@@ -79,7 +79,7 @@ Docker container (ossiq-qa, non-root qarunner UID 1000)
 └── /qa_logs      bind mount           → qa_logs/ on host
 ```
 
-**ossiq is never installed in the image.** It is invoked via `uv run hatch run ossiq-cli`
+**ossiq is never installed in the image.** It is invoked via `uv run hatch run ossiq`
 from `/app`, using the source mount. The uv venv is written to
 `/home/qarunner/.venv` (set via `UV_PROJECT_ENVIRONMENT`) so the read-only `/app` mount
 is never written to.

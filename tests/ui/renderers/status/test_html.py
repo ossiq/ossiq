@@ -128,7 +128,7 @@ class TestHtmlStatusRenderer:
 
         # Assert
         assert output_file.exists()
-        html_content = output_file.read_text()
+        html_content = output_file.read_text(encoding="utf-8")
         assert "<!DOCTYPE html>" in html_content or "<html" in html_content
 
     def test_rendered_html_contains_json_data(self, output_file, sample_project_metrics, settings):
@@ -146,7 +146,7 @@ class TestHtmlStatusRenderer:
         renderer.render(sample_project_metrics, destination=str(output_file))
 
         # Assert
-        html_content = output_file.read_text()
+        html_content = output_file.read_text(encoding="utf-8")
         assert '<script type="json/oss-iq-report">' in html_content
         assert "__OSSIQ_REPORT_DATA__" not in html_content  # Placeholder should be replaced
 
@@ -163,7 +163,7 @@ class TestHtmlStatusRenderer:
         renderer.render(sample_project_metrics, destination=str(output_file))
 
         # Act
-        html_content = output_file.read_text()
+        html_content = output_file.read_text(encoding="utf-8")
         # Extract JSON from script tag
         json_start = html_content.find('<script type="json/oss-iq-report">') + len('<script type="json/oss-iq-report">')
         json_end = html_content.find("</script>", json_start)
@@ -190,7 +190,7 @@ class TestHtmlStatusRenderer:
         renderer.render(sample_project_metrics, destination=str(output_file))
 
         # Act
-        html_content = output_file.read_text()
+        html_content = output_file.read_text(encoding="utf-8")
         json_start = html_content.find('<script type="json/oss-iq-report">') + len('<script type="json/oss-iq-report">')
         json_end = html_content.find("</script>", json_start)
         json_content = html_content[json_start:json_end]
@@ -253,7 +253,7 @@ class TestHtmlStatusRenderer:
 
         # Act
         renderer.render(metrics, destination=str(output_file))
-        html_content = output_file.read_text()
+        html_content = output_file.read_text(encoding="utf-8")
 
         # Assert
         # Extract JSON and verify Unicode is preserved
@@ -294,7 +294,7 @@ class TestHtmlStatusRenderer:
         renderer.render(sample_project_metrics, destination=str(output_file))
 
         # Act
-        html_content = output_file.read_text()
+        html_content = output_file.read_text(encoding="utf-8")
         json_start = html_content.find('<script type="json/oss-iq-report">') + len('<script type="json/oss-iq-report">')
         json_end = html_content.find("</script>", json_start)
         json_content = html_content[json_start:json_end]
@@ -320,7 +320,7 @@ class TestHtmlStatusRenderer:
         renderer.render(sample_project_metrics, destination=str(output_file))
 
         # Act
-        html_content = output_file.read_text()
+        html_content = output_file.read_text(encoding="utf-8")
         json_start = html_content.find('<script type="json/oss-iq-report">') + len('<script type="json/oss-iq-report">')
         json_end = html_content.find("</script>", json_start)
         json_content = html_content[json_start:json_end]

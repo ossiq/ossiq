@@ -2,6 +2,8 @@
 
 import json
 import re
+import shutil
+import sys
 from importlib.resources import files
 from pathlib import Path
 from typing import Annotated
@@ -18,16 +20,34 @@ COPILOT_END = "<!-- ossiq-skill:end -->"
 GITHUB_TOKEN_URL = "https://ossiq.dev/getting-started.html#github-personal-access-token"
 
 
-SKILL_UVX_PROD = "uvx --from ossiq ossiq-cli"
+SKILL_UVX_PROD = "uvx ossiq"
+
+
+def resolve_ossiq_binary() -> str:
+    """Return an absolute path to the running ossiq executable.
+
+    Agent harnesses routinely spawn MCP servers from non-interactive subshells with a
+    sanitised PATH, so a bare ``ossiq`` command is not reliably resolvable. Prefer an
+    absolute path, falling back to the bare name only when one cannot be determined.
+    """
+    found = shutil.which("ossiq")
+    if found:
+        return str(Path(found).resolve())
+
+    argv0 = Path(sys.argv[0])
+    if argv0.name.startswith("ossiq") and argv0.exists():
+        return str(argv0.resolve())
+
+    return "ossiq"
 
 
 def build_mcp_entry(github_token: str | None, dev_path: str | None = None) -> dict:
     """Build the MCP server entry, optionally injecting a GitHub token or dev path."""
     entry: dict[str, object]
     if dev_path:
-        entry = {"command": "uv", "args": ["run", "--directory", dev_path, "ossiq-cli", "mcp"]}
+        entry = {"command": "uv", "args": ["run", "--directory", dev_path, "ossiq", "mcp"]}
     else:
-        entry = {"command": "ossiq-cli", "args": ["mcp"]}
+        entry = {"command": resolve_ossiq_binary(), "args": ["mcp"]}
     if github_token:
         entry["env"] = {"OSSIQ_GITHUB_TOKEN": github_token}
     return entry
@@ -35,7 +55,7 @@ def build_mcp_entry(github_token: str | None, dev_path: str | None = None) -> di
 
 def apply_dev_settings(content: str, dev_path: str) -> str:
     """Substitute the PyPI uvx invocation with a local dev path in skill content."""
-    return content.replace(SKILL_UVX_PROD, f"uvx --from {dev_path} --no-cache ossiq-cli")
+    return content.replace(SKILL_UVX_PROD, f"uvx --from {dev_path} --no-cache ossiq")
 
 
 def load_skill_content() -> str:
@@ -112,7 +132,7 @@ def skills(
     ] = None,
     dev: Annotated[
         str | None,
-        typer.Option("--dev", help="Path to local ossiq-cli source for development (skips PyPI)"),
+        typer.Option("--dev", help="Path to local ossiq source for development (skips PyPI)"),
     ] = None,
 ) -> None:
     """Install the ossiq SKILL.md and local MCP server for AI coding tools."""

@@ -1,1 +1,1 @@
-"""Unit test package for ossiq-cli."""
+"""Unit test package for ossiq."""

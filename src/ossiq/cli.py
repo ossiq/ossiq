@@ -1,22 +1,14 @@
-"""Console script for ossiq-cli."""
+"""Console script for ossiq."""
 
 import importlib.metadata
 import logging
-import sys
 from collections.abc import Generator
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Annotated, Literal
 
-try:
-    import typer
-    from rich.console import Console
-except ImportError:
-    print(
-        "ossiq CLI requires the 'cli' extra. Install with: pip install 'ossiq[cli]'",
-        file=sys.stderr,
-    )
-    sys.exit(1)
+import typer
+from rich.console import Console
 
 from ossiq.clients import install_requests_cache
 from ossiq.commands.add import CommandAddOptions, command_add
@@ -264,7 +256,7 @@ def main(
 
 @app.command()
 def help():  # pylint: disable=redefined-builtin
-    """Console script for ossiq-cli."""
+    """Console script for ossiq."""
     console.print(HELP_TEXT)
 
 

@@ -4,7 +4,7 @@
 
 ## Public API
 
-ossiq exposes a stable library interface for programmatic use. Install without extras for the core scanner (`pip install ossiq`); install with `[cli]` to also get the terminal CLI (`pip install 'ossiq[cli]'`).
+ossiq exposes a stable library interface for programmatic use. `pip install ossiq` gives you both the library and the `ossiq` command — there are no extras to choose between. (The `[cli]` extra still resolves, but it is empty and kept only for backwards compatibility.)
 
 ```python
 from ossiq import scan, ScanResult, ScanRecord, Settings, CVE, Package, VersionsDifference, AbstractProjectSources
@@ -304,7 +304,7 @@ This is how a project runs two versions of the same package side by side — com
 
 That per-alias fitting also applies to the solver's [cooldown](#update-solver): when the shared candidate the solver would otherwise recommend falls outside one alias's own range, OSS IQ re-fits that alias to the newest version that satisfies its range and (like the solver itself) still prefers one older than the cooldown period when one exists. If no published version satisfies an alias's own range, that alias is reported with no recommendation rather than inheriting a sibling's.
 
-**Console output does not display the alias name.** The `status` table's *Package* column and the `info` header both print `package_name` — the canonical name — so `chalk-legacy` and `chalk` both read as `chalk` in a scan report; only the *Installed* / *Recommended* columns (and `dependency_path` for transitive occurrences) tell the rows apart. `ossiq-cli info <alias-name>` matches on the alias name directly and opens that one occurrence; `ossiq-cli info <real-name>` matches every occurrence — aliased or not — and lists each as a separate `Occurrence n of m` block.
+**Console output does not display the alias name.** The `status` table's *Package* column and the `info` header both print `package_name` — the canonical name — so `chalk-legacy` and `chalk` both read as `chalk` in a scan report; only the *Installed* / *Recommended* columns (and `dependency_path` for transitive occurrences) tell the rows apart. `ossiq info <alias-name>` matches on the alias name directly and opens that one occurrence; `ossiq info <real-name>` matches every occurrence — aliased or not — and lists each as a separate `Occurrence n of m` block.
 
 **`plan` / `apply` cannot rewrite an alias's inner range.** The update solver still computes a per-alias recommendation as described above, but writing it back to `package.json` is unsupported for `npm:pkg@range` specifiers — the alias entry is left untouched by `apply`. Use the recommendation as a manual target and edit the alias range yourself.
 
@@ -447,7 +447,7 @@ The `status` command prints a project-wide report; the `info` command prints a d
 
 #### HTML Report
 
-The `ossiq-cli html` command produces a self-contained HTML file embedding an interactive Vue.js single-page application. The report includes the full dependency tables and the **Transitive Dependency Explorer**: an interactive D3 tree that visualises the `transitive_packages` dependency graph.
+The `ossiq html` command produces a self-contained HTML file embedding an interactive Vue.js single-page application. The report includes the full dependency tables and the **Transitive Dependency Explorer**: an interactive D3 tree that visualises the `transitive_packages` dependency graph.
 
 The Explorer supports:
 
@@ -478,13 +478,13 @@ Since v1.5, every `PackageMetrics` entry (production, development, and transitiv
 (console-reports)=
 ## Console Reports
 
-This section describes the terminal output of `ossiq-cli status` (project-wide report) and `ossiq-cli info` (single-package report): what each part shows, what each column and status marker means, and what to do when a marker signals a problem.
+This section describes the terminal output of `ossiq status` (project-wide report) and `ossiq info` (single-package report): what each part shows, what each column and status marker means, and what to do when a marker signals a problem.
 
 ### `status` — project report
 
 ```bash
-ossiq-cli status [PROJECT_PATH]        # default: only what needs action
-ossiq-cli status --full [PROJECT_PATH] # every package, every column
+ossiq status [PROJECT_PATH]        # default: only what needs action
+ossiq status --full [PROJECT_PATH] # every package, every column
 ```
 
 By default the report is deliberately narrow: it shows only the packages that need
@@ -541,7 +541,7 @@ A row with a recommendation can carry indented sub-rows describing what applying
 
 #### Transitive Recommendations
 
-Transitive packages — packages your direct dependencies pull in — for which the solver recommends a different version, most often because the installed version carries a CVE or is far behind. With `--security`, the list narrows to packages with CVEs only. To turn these recommendations into an executable update plan, run `ossiq-cli plan` (see [Update Solver](#update-solver)).
+Transitive packages — packages your direct dependencies pull in — for which the solver recommends a different version, most often because the installed version carries a CVE or is far behind. With `--security`, the list narrows to packages with CVEs only. To turn these recommendations into an executable update plan, run `ossiq plan` (see [Update Solver](#update-solver)).
 
 Columns: **Package**, **CVEs**, **Installed**, **Recommended**, **What's Next**; `--full` adds **EPSS**. The **Recommended** version is the one the solver picks within all parent constraints; **What's Next** follows the same rules as the dependency table.
 
@@ -580,7 +580,7 @@ npm packages can declare `peerDependencies`: versions of *other* packages they e
 
 Recovery paths, from most to least preferred:
 
-1. **Update the requirer.** A newer release of the *Required By* package may accept the installed version. `ossiq-cli info <requirer>` shows whether one exists and what constrains it.
+1. **Update the requirer.** A newer release of the *Required By* package may accept the installed version. `ossiq info <requirer>` shows whether one exists and what constrains it.
 2. **Move the violated package into the range.** Upgrade or downgrade it to a version inside the peer constraint — after checking that nothing else in the tree needs the version you are moving away from.
 3. **Remove or adjust the override** when one is the cause. See [Constraint Provenance](#constraint-provenance) for how overrides are tracked.
 4. **Accept it knowingly.** If you have verified the pair works together, you can leave it — the row keeps appearing on every scan as a standing reminder.
@@ -606,22 +606,22 @@ A concrete case: your project depends on `A` and `B`. `A 2.0` requires `C >= 3`,
 
 Your options, roughly in order:
 
-1. **Wait for upstream.** The owner of the blocking constraint (here `B`) has to publish a release that widens its range — you cannot fix their constraint unilaterally. This is the failure mode described in [Constraint Provenance](#constraint-provenance); `ossiq-cli info <blocking package>` shows who declares the constraint.
+1. **Wait for upstream.** The owner of the blocking constraint (here `B`) has to publish a release that widens its range — you cannot fix their constraint unilaterally. This is the failure mode described in [Constraint Provenance](#constraint-provenance); `ossiq info <blocking package>` shows who declares the constraint.
 2. **Update or replace the other parent.** A newer version of `B` may already accept `C >= 3`; if `B` is abandoned, replacing it removes the constraint entirely.
-3. **Force the version:** `ossiq-cli apply --override pkg==version` bypasses the solver for one package. You take on the compatibility risk the constraint was protecting against; the override persists in your manifest and is reported as `OVERRIDE` on every subsequent scan until removed (see [Update Solver](#update-solver)).
+3. **Force the version:** `ossiq apply --override pkg==version` bypasses the solver for one package. You take on the compatibility risk the constraint was protecting against; the override persists in your manifest and is reported as `OVERRIDE` on every subsequent scan until removed (see [Update Solver](#update-solver)).
 4. **Stay put deliberately.** The current version keeps resolving. The report keeps showing the lag, so the debt stays visible instead of silent.
 
 ### `info` — package report
 
 ```bash
-ossiq-cli info PACKAGE_NAME [PROJECT_PATH]
+ossiq info PACKAGE_NAME [PROJECT_PATH]
 ```
 
 A deep-dive into one package. When the package is installed in the project, the report has the sections below, in order; empty sections are omitted. When it is not installed, the report switches to [prospective mode](#info-prospective).
 
 **Header.** Package name and installed version; role tags `DIRECT` and/or `TRANSITIVE` (both, when the package appears in both roles); a lifecycle marker (`[UNPUBLISHED]`, `[YANKED]`, `[DEPRECATED]`, `[pre]` — same meanings as in the status table); license; registry URL.
 
-**Warnings.** A panel of package health findings: `✗` marks critical findings (these block `ossiq-cli add` unless `--force` is passed), `!` marks notices. Examples: a package with a single published version (typosquatting risk), a single maintainer (bus-factor risk).
+**Warnings.** A panel of package health findings: `✗` marks critical findings (these block `ossiq add` unless `--force` is passed), `!` marks notices. Examples: a package with a single published version (typosquatting risk), a single maintainer (bus-factor risk).
 
 **Health Metrics.** Registry-level signals: downloads over the last month, number of published versions, maintainer count, age of the latest version, age of the recommended version (when it differs from the latest), and cooldown remaining — days until the latest release is old enough to clear the [cooldown period](explanation.md#cooldown-as-supply-chain-quarantine).
 
@@ -669,14 +669,14 @@ If the version you expected is not the recommendation, this section names the ex
 
 **Security Advisories.** Known vulnerabilities in the installed version of *this* package: severity, advisory ID, source database, and summary — or `✓ No known vulnerabilities`.
 
-**Transitive CVEs.** Vulnerabilities in packages *downstream* of this one — exposure you carry because this package pulls the affected ones in. Grouped per affected `package@version`, worst severity first. Updating this package may or may not resolve them; run `ossiq-cli info <affected package>` to see what constrains each one.
+**Transitive CVEs.** Vulnerabilities in packages *downstream* of this one — exposure you carry because this package pulls the affected ones in. Grouped per affected `package@version`, worst severity first. Updating this package may or may not resolve them; run `ossiq info <affected package>` to see what constrains each one.
 
 **Licenses.** Listed only when the package's occurrences carry more than one SPDX identifier; a single unambiguous license is already shown in the header.
 
 (info-prospective)=
 #### Prospective mode
 
-When the package is not installed in the project, `info` evaluates it as a candidate instead: the header carries a `PROSPECTIVE` tag and the registry description, followed by health metrics, the recommendation rationale, and security advisories. This is the same pre-installation check that `ossiq-cli add` runs before installing.
+When the package is not installed in the project, `info` evaluates it as a candidate instead: the header carries a `PROSPECTIVE` tag and the registry description, followed by health metrics, the recommendation rationale, and security advisories. This is the same pre-installation check that `ossiq add` runs before installing.
 
 ### Agent format
 
@@ -693,7 +693,7 @@ The `updates` list contains only packages that need attention (a CVE, a recommen
 ## Install Skills
 
 ```bash
-ossiq-cli install skills [TOOL] [--github-token TOKEN] [--dev PATH]
+ossiq install skills [TOOL] [--github-token TOKEN] [--dev PATH]
 ```
 
 Installs the OSS IQ skill and a local MCP server so AI coding agents check dependency health before they add or update a package. For the task-oriented walkthrough, see [Coding agents](getting-started.md#coding-agents).
@@ -702,7 +702,7 @@ Installs the OSS IQ skill and a local MCP server so AI coding agents check depen
 |---|---|---|
 | `TOOL` | `all` | Which tool to install for: `claude`, `codex`, `copilot`, or `all`. |
 | `--github-token`, `-T` | — | GitHub token to store during installation (see [GitHub token handling](#install-skills-token)). When omitted, the command prompts for one interactively; leave the prompt blank to skip. |
-| `--dev` | — | Path to a local ossiq-cli source checkout. Switches the installed skill and MCP server to run from that checkout instead of the PyPI release (see [Development mode](#install-skills-dev)). |
+| `--dev` | — | Path to a local ossiq source checkout. Switches the installed skill and MCP server to run from that checkout instead of the PyPI release (see [Development mode](#install-skills-dev)). |
 
 ### What the command writes
 
@@ -714,7 +714,7 @@ All changes are made under your home directory; the command never touches the cu
 | `codex` | writes `~/.codex/skills/ossiq/SKILL.md` | adds an `ossiq` entry to `mcpServers` in `~/.codex/mcp.json` |
 | `copilot` | inserts a fenced block into `~/.copilot/copilot-instructions.md` | — (Copilot has no MCP server registry) |
 
-The MCP entry registers a **local stdio server** — the tool launches `ossiq-cli mcp` as a subprocess on your machine. No remote service is involved, and nothing is sent anywhere beyond the registry and GitHub API calls a normal scan makes.
+The MCP entry registers a **local stdio server** — the tool launches `ossiq mcp` as a subprocess on your machine. No remote service is involved, and nothing is sent anywhere beyond the registry and GitHub API calls a normal scan makes.
 
 The command is **idempotent** — safe to re-run at any time (for example after changing the token or switching development mode on or off):
 
@@ -735,7 +735,7 @@ When a token is provided, it is written to **two places**, in plain text:
 
 | Location | Purpose |
 |---|---|
-| `~/.ossiq/config` — as an `OSSIQ_GITHUB_TOKEN=…` line (dotenv format) | Used by every `ossiq-cli` invocation, including ones you run yourself. |
+| `~/.ossiq/config` — as an `OSSIQ_GITHUB_TOKEN=…` line (dotenv format) | Used by every `ossiq` invocation, including ones you run yourself. |
 | The `env` block of the `ossiq` entry in each tool's `mcp.json` | Passed to the MCP server subprocess, which does not read your shell environment. |
 
 Because both files store the token unencrypted, prefer a fine-grained token restricted to public repositories with no additional permissions. To rotate or remove a token, re-run `install skills` with the new value, or edit the two files directly.
@@ -743,16 +743,16 @@ Because both files store the token unencrypted, prefer a fine-grained token rest
 (install-skills-dev)=
 ### Development mode (`--dev`)
 
-When you are working on ossiq-cli itself, `--dev <path>` points every installed integration at your local checkout instead of the PyPI release:
+When you are working on ossiq itself, `--dev <path>` points every installed integration at your local checkout instead of the PyPI release:
 
 ```bash
-ossiq-cli install skills claude --dev ~/Projects/ossiq/ossiq-cli
+ossiq install skills claude --dev ~/Projects/ossiq
 ```
 
 Two substitutions are made:
 
-- **MCP server** — registered as `uv run --directory <path> ossiq-cli mcp`, so the server always runs your current working tree.
-- **SKILL.md** — every `uvx --from ossiq ossiq-cli` invocation in the skill text is rewritten to `uvx --from <path> --no-cache ossiq-cli`. The `--no-cache` flag makes `uvx` rebuild from source on each call, so the agent picks up your edits without a reinstall.
+- **MCP server** — registered as `uv run --directory <path> ossiq mcp`, so the server always runs your current working tree.
+- **SKILL.md** — every `uvx ossiq` invocation in the skill text is rewritten to `uvx --from <path> --no-cache ossiq`. The `--no-cache` flag makes `uvx` rebuild from source on each call, so the agent picks up your edits without a reinstall.
 
 To switch back to the released package, re-run the command without `--dev`.
 

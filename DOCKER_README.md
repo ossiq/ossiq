@@ -73,7 +73,7 @@ docker run --rm ossiq/ossiq-cli --help
 | Tag | Description |
 |-----|-------------|
 | `ossiq/ossiq-cli:latest` | Latest stable release |
-| `ossiq/ossiq-cli:0.1.19` | Specific version |
+| `ossiq/ossiq-cli:0.1.10` | Specific version |
 | `ossiq/ossiq-cli:0.1` | Latest patch in minor version |
 
 ## CI/CD Integration (GitHub Actions)

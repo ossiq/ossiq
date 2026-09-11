@@ -9,8 +9,8 @@ Run from repo root. All cases require network (registry lookups).
 **Precondition:**
 
 ```bash
-uv run hatch run ossiq-cli status --help
-uv run hatch run ossiq-cli plan --help
+uv run hatch run ossiq status --help
+uv run hatch run ossiq plan --help
 ```
 
 - [ ] `--security` flag listed in `status --help`
@@ -24,8 +24,8 @@ uv run hatch run ossiq-cli plan --help
 ## TC-T01: Flags in help
 
 ```bash
-uv run hatch run ossiq-cli status --help | grep -E "security|ignore"
-uv run hatch run ossiq-cli plan --help | grep -E "security|pin-all|ignore"
+uv run hatch run ossiq status --help | grep -E "security|ignore"
+uv run hatch run ossiq plan --help | grep -E "security|pin-all|ignore"
 ```
 
 - [ ] `--security` appears in `status` help output
@@ -40,7 +40,7 @@ uv run hatch run ossiq-cli plan --help | grep -E "security|pin-all|ignore"
 ## TC-T02: Impact sub-rows in default solver output
 
 ```bash
-uv run hatch run ossiq-cli status testdata/pypi/version-constraint
+uv run hatch run ossiq status testdata/pypi/version-constraint
 ```
 
 - [ ] "Recommended" column present when any package has a pending update or constraint conflict
@@ -54,7 +54,7 @@ uv run hatch run ossiq-cli status testdata/pypi/version-constraint
 
 ```bash
 # Run against a fully up-to-date project (all installed == recommended)
-uv run hatch run ossiq-cli status testdata/pypi/version-constraint
+uv run hatch run ossiq status testdata/pypi/version-constraint
 ```
 
 - [ ] Table is non-empty even if every installed version matches the recommended version
@@ -68,10 +68,10 @@ uv run hatch run ossiq-cli status testdata/pypi/version-constraint
 
 ```bash
 # Run 1 — default (all transitive packages with recommendations)
-uv run hatch run ossiq-cli status .
+uv run hatch run ossiq status .
 
 # Run 2 — security filter (CVE-only transitive)
-uv run hatch run ossiq-cli status --security .
+uv run hatch run ossiq status --security .
 ```
 
 - [ ] Run 1: Transitive table may include packages with 0 CVEs
@@ -84,7 +84,7 @@ uv run hatch run ossiq-cli status --security .
 ## TC-T05: Conflict and non-actionable markers
 
 ```bash
-uv run hatch run ossiq-cli status .
+uv run hatch run ossiq status .
 ```
 
 Inspect direct-dep recommendation rows:
@@ -99,7 +99,7 @@ Inspect direct-dep recommendation rows:
 ## TC-T06: "New transitive dependencies introduced" section
 
 ```bash
-uv run hatch run ossiq-cli status .
+uv run hatch run ossiq status .
 ```
 
 - [ ] If section "New transitive dependencies introduced by recommended updates" appears:
@@ -114,15 +114,15 @@ uv run hatch run ossiq-cli status .
 ## TC-T07: `plan` — transitive impact rows, --pin-all, --ignore
 
 ```bash
-uv run hatch run ossiq-cli plan testdata/pypi/version-constraint
+uv run hatch run ossiq plan testdata/pypi/version-constraint
 ```
 
 ```bash
-uv run hatch run ossiq-cli plan --security testdata/pypi/version-constraint
+uv run hatch run ossiq plan --security testdata/pypi/version-constraint
 ```
 
 ```bash
-uv run hatch run ossiq-cli plan --pin-all testdata/pypi/version-constraint
+uv run hatch run ossiq plan --pin-all testdata/pypi/version-constraint
 ```
 
 - [ ] `plan` (no flags): renders a plan table without crash; at least one entry shows a `↳ also updates:` sub-row, or the new-transitive-deps section appears after the plan table

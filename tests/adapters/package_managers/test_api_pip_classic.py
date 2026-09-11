@@ -58,7 +58,7 @@ def pip_classic_project_basic(temp_project_dir):
 requests==2.31.0
 click==8.1.7
 """
-    requirements_path.write_text(requirements_content)
+    requirements_path.write_text(requirements_content, encoding="utf-8")
 
     return temp_project_dir
 
@@ -118,7 +118,7 @@ django-rest-framework==3.14.0
 # Environment marker (version should be extracted)
 certifi==2023.11.17; python_version >= "3.8"
 """
-    requirements_path.write_text(requirements_content)
+    requirements_path.write_text(requirements_content, encoding="utf-8")
 
     return temp_project_dir
 

@@ -194,17 +194,17 @@ Spot-check the model end-to-end through the real CLI, not just the harness:
 
 ```bash
 # a healthy dep -> maintained, low risk, triage retain
-uv run hatch run ossiq-cli info typer testdata/pypi/uv
+uv run hatch run ossiq info typer testdata/pypi/uv
 
 # a deprecated npm dep -> deprecated, risk ~1.0, triage refactor, deprecation pills
-uv run hatch run ossiq-cli --no-stability-responsiveness info request testdata/npm/deprecated
+uv run hatch run ossiq --no-stability-responsiveness info request testdata/npm/deprecated
 
 # project roll-up
-uv run hatch run ossiq-cli status testdata/npm/deprecated
+uv run hatch run ossiq status testdata/npm/deprecated
 #   expect: "Unmaintained deps: N (K deprecated) of M assessed  |  Unassessed: U"
 
 # export carries the fields
-uv run hatch run ossiq-cli export --schema-version=1.5 \
+uv run hatch run ossiq export --schema-version=1.5 \
     --output=reports/e.json testdata/pypi/uv
 python -c "import json;d=json.load(open('reports/e.json'));\
 p=[x for x in d['production_packages'] if x.get('maintenance_state')][0];\

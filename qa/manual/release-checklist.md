@@ -32,7 +32,7 @@
 ## 03 — HTML Report ([details](03-html-report.md))
 
 - [ ] TC-H00: `html --help` lists `--output`, `--security`, `--ignore`; `--presentation` is absent
-- [ ] TC-H01: `ossiq-cli html --output=reports/test_report.html <path>` generates file without crash
+- [ ] TC-H01: `ossiq html --output=reports/test_report.html <path>` generates file without crash
 - [ ] TC-H02: Page loads in browser, main table renders, no JS errors
 - [ ] TC-H03: Dependencies explorer opens detail panel on click
 - [ ] TC-H07: Transitive Dependency Explorer renders D3 tree (nodes visible, no JS error, no blank canvas)
@@ -72,10 +72,10 @@
 ## 08 — Gated Package Add
 
 - [ ] TC-A01: `add --help` lists `--version`, `--force`, `--registry-type`
-- [ ] TC-A02: `ossiq-cli add requests testdata/pypi/uv` shows health panel (drift, CVEs, health) then prompts for confirmation; entering `n` exits without installing
-- [ ] TC-A03: `ossiq-cli add <critically-unhealthy-package>` blocks install and shows warning; exit code non-zero
-- [ ] TC-A04: `ossiq-cli add <critically-unhealthy-package> --force` proceeds past warning to confirmation prompt
-- [ ] TC-A05: `ossiq-cli add requests --version 2.28.0 testdata/pypi/uv` shows the fixed version in the install spec, not the solver recommendation
+- [ ] TC-A02: `ossiq add requests testdata/pypi/uv` shows health panel (drift, CVEs, health) then prompts for confirmation; entering `n` exits without installing
+- [ ] TC-A03: `ossiq add <critically-unhealthy-package>` blocks install and shows warning; exit code non-zero
+- [ ] TC-A04: `ossiq add <critically-unhealthy-package> --force` proceeds past warning to confirmation prompt
+- [ ] TC-A05: `ossiq add requests --version 2.28.0 testdata/pypi/uv` shows the fixed version in the install spec, not the solver recommendation
 
 ## 09 — Automated Matrix ([details](../README.md#automated-matrix))
 

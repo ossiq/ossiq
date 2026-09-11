@@ -14,6 +14,7 @@ permissions:
 
 jobs:
   build:
+    name: ubuntu / py${{ matrix.python-version }}
     strategy:
       matrix:
         # Test all supported Python versions under Ubuntu
@@ -38,7 +39,7 @@ jobs:
 
     - name: Lint with ruff
       run: |
-        uv run just lint        
+        uv run just lint
     - name: Run Tests
       run: |
         uv run just test
@@ -48,3 +49,112 @@ jobs:
     - name: Cleanup
       run: |
         uv run just clean
+
+  cross-platform:
+    # The package claims "Operating System :: OS Independent" and ships Windows and
+    # macOS binaries, so the suite has to actually run there. pytest is invoked
+    # directly rather than through `just`, whose recipes assume a POSIX shell.
+    name: ${{ matrix.os }} / py3.13
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          python-version: '3.13'
+
+      - name: Install the project
+        run: uv sync --locked --all-extras --dev
+        env:
+          OSSIQ_SKIP_FRONTEND_BUILD: '1'
+
+      - name: Run tests
+        run: uv run --group dev pytest -q
+
+      - name: Console script is callable
+        run: uv run ossiq --version
+
+  packaging:
+    # Runs in a bare python image with no Node: this is the path a user installing
+    # the sdist from PyPI takes, and it must not require npm.
+    name: sdist + wheel without Node
+    runs-on: ubuntu-latest
+    container: python:3.13-slim
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Confirm npm really is absent
+        run: |
+          set -eu
+          if command -v npm >/dev/null 2>&1; then
+            echo "npm unexpectedly present; this job must test the no-Node path" >&2
+            exit 1
+          fi
+
+      - name: Install uv
+        run: pip install --no-cache-dir uv
+
+      - name: Build sdist and wheel
+        run: uv build
+
+      - name: sdist must not carry the frontend sources
+        run: |
+          set -eu
+          if tar tzf dist/ossiq-*.tar.gz | grep -q '^ossiq-[^/]*/frontend/'; then
+            echo "frontend/ leaked into the sdist" >&2
+            tar tzf dist/ossiq-*.tar.gz | grep '^ossiq-[^/]*/frontend/' | head >&2
+            exit 1
+          fi
+
+      - name: Wheel must carry the runtime data files
+        run: |
+          cat > /tmp/check_wheel.py <<'PY'
+          import glob
+          import sys
+          import zipfile
+
+          REQUIRED = [
+              "ossiq/data/SKILL.md",
+              "ossiq/ui/html_templates/spa_app.html",
+              "ossiq/ui/renderers/export/schemas/export_schema_v1.5.json",
+          ]
+
+          wheel = glob.glob("dist/ossiq-*.whl")[0]
+          names = set(zipfile.ZipFile(wheel).namelist())
+          missing = [path for path in REQUIRED if path not in names]
+
+          if missing:
+              sys.exit(f"missing from {wheel}: {', '.join(missing)}")
+          print(f"{wheel} carries all {len(REQUIRED)} data files")
+          PY
+          python /tmp/check_wheel.py
+
+      - name: Install the sdist and exercise it
+        run: |
+          set -eu
+          python -m venv /tmp/venv
+          /tmp/venv/bin/pip install --no-cache-dir dist/ossiq-*.tar.gz
+          /tmp/venv/bin/ossiq --version
+
+          cat > /tmp/check_resources.py <<'PY'
+          from importlib.resources import files
+
+          RESOURCES = [
+              ("ossiq.data", "SKILL.md"),
+              ("ossiq.ui.html_templates", "spa_app.html"),
+              ("ossiq.ui.renderers.export.schemas", "export_schema_v1.5.json"),
+          ]
+
+          for package, name in RESOURCES:
+              assert files(package).joinpath(name).read_bytes(), (package, name)
+          print("packaged data OK")
+          PY
+          /tmp/venv/bin/python /tmp/check_resources.py

@@ -49,15 +49,20 @@ requires-python = ">= 3.11"
 dependencies = [
   "pydantic==2.13.5",
   "pydantic-settings==2.15.0",
+  "python-dotenv >= 1.0.0",
   "requests >= 2.28.0",
   "semver >= 3.0.0",
   "packaging >= 24.0",
   "jsonschema >= 4.18.0",
-  "hatch>=1.16.5",
   "common-expression-language>=0.5.6",
   "python-sat==1.9.dev7",
   "univers>=32.0.1",
   "requests-cache>=1.3.1",
+  # CLI dependencies: the `ossiq` console script is registered unconditionally,
+  # so these must be core rather than optional.
+  "typer >= 0.9.0",
+  "rich >= 13.0.0",
+  "termcolor >= 2.0.0",
 ]
 
 [tool.uv]
@@ -65,11 +70,9 @@ package = true
 exclude-newer = "5 days"
 
 [project.optional-dependencies]
-cli = [
-    "typer >= 0.9.0",
-    "rich >= 13.0.0",
-    "termcolor >= 2.0.0",
-]
+# Retained as an empty no-op so `pip install 'ossiq[cli]'` keeps resolving for
+# anyone following older docs; typer/rich/termcolor are core dependencies now.
+cli = []
 docs = [
     "sphinx>=8.0.0",
     "sphinx-immaterial>=0.13.9",
@@ -86,7 +89,7 @@ homepage = "https://github.com/ossiq/ossiq"
 repository = "https://github.com/ossiq/ossiq.git"
 
 [project.scripts]
-ossiq-cli = "ossiq.cli:app"
+ossiq = "ossiq.cli:app"
 
 [tool.hatch.build]
 # ignore-vcs ensures Hatch doesn't skip files listed in .gitignore
@@ -97,15 +100,25 @@ include = [
   "src/ossiq/**/*.html",
   "src/ossiq/**/*.json",
   "src/ossiq/**/*.md",
-  "frontend/**",
-  "hatch_build.py",  
-]
-exclude = [
-  "frontend/node_modules/**",
-  "frontend/dist/**",
 ]
 artifacts = [
   "src/ossiq/ui/html_templates/spa_app.html",
+]
+
+[tool.hatch.build.targets.sdist]
+# hatch_build.py is required to build a wheel *from* the sdist, so it must ship.
+# The frontend/ sources deliberately do not: spa_app.html is committed and the
+# build hook falls back to it, so consumers never need Node.
+include = [
+  "src/ossiq/**/*.py",
+  "src/ossiq/**/*.html",
+  "src/ossiq/**/*.json",
+  "src/ossiq/**/*.md",
+  # Leading slashes anchor these to the project root; without them hatchling's
+  # gitignore-style matching picks up every README/LICENSE under node_modules.
+  "/hatch_build.py",
+  "/README.md",
+  "/LICENSE",
 ]
 
 [tool.hatch.build.targets.wheel]
@@ -146,11 +159,13 @@ select = [
 # Tools for development: PEP 735
 dev = [
     "coverage>=7.13.5",  # testing
+    "hatchling>=1.32.0",  # build backend, imported by hatch_build.py + its tests
     "jinja2>=3.1.0",  # release.py templating + tests/test_release.py
     "pytest>=9.0.3",  # testing
     "ruff>=0.15.9",  # linting
     "ty>=0.0.29",  # checking types
     "ipdb>=0.13.13",  # debugging
+    "pyinstaller>=6.11.0",  # standalone binaries for the npm channel
     "pylint>=4.0.4,<5",
     "pytest-httpserver>=1.1.5",  # real HTTP server for integration tests
     "snakeviz>=2.2.2",

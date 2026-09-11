@@ -44,7 +44,7 @@ def build_frontend(project_root: Path) -> Path:
     """Build the frontend and produce the SPA template with placeholder.
 
     Args:
-        project_root: The root directory of the ossiq-cli project.
+        project_root: The root directory of the ossiq project.
 
     Returns:
         Path to the generated spa_app.html template.
@@ -79,10 +79,28 @@ def build_frontend(project_root: Path) -> Path:
 
 class CustomBuildHook(BuildHookInterface):
     def initialize(self, version, build_data):
-        """Build frontend assets before packaging."""
+        """Build frontend assets before packaging.
+
+        The generated SPA template is committed to the repository, so a build
+        without Node (installing from an sdist, a PyInstaller run, a CI job with
+        no npm) falls back to the committed copy instead of failing.
+        """
         if os.environ.get("OSSIQ_SKIP_FRONTEND_BUILD"):
             return
 
         root = Path(self.root)
+        prebuilt = root / "src" / "ossiq" / "ui" / "html_templates" / "spa_app.html"
+        frontend_dir = root / "frontend"
+
+        if not shutil.which("npm") or not frontend_dir.exists():
+            if prebuilt.exists():
+                reason = "npm not found" if not shutil.which("npm") else f"no frontend/ sources at {frontend_dir}"
+                print(f"{reason}; using prebuilt SPA template at {prebuilt}")
+                return
+            raise RuntimeError(
+                f"npm/frontend sources are required to build frontend assets and no prebuilt "
+                f"SPA template was found at {prebuilt}."
+            )
+
         sys.path.insert(0, str(root))
         build_frontend(root)

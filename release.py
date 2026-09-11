@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Release automation script for ossiq-cli.
+Release automation script for ossiq.
 
 Usage:
     uv run python release.py --patch [--dry-run]
@@ -691,7 +691,7 @@ class ReleaseOrchestrator:
 # CLI Entry Point
 # ============================================================================
 
-app = typer.Typer(help="Release automation for ossiq-cli")
+app = typer.Typer(help="Release automation for ossiq")
 console = Console()
 
 
@@ -719,7 +719,7 @@ def release(
     ] = None,
 ) -> None:
     """
-    Create a new release for ossiq-cli.
+    Create a new release for ossiq.
 
     Requires exactly one of: --major, --minor, --patch, or --override-version
     """

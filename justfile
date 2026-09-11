@@ -27,28 +27,28 @@ qa:
 
 qa-integration:
     mkdir reports || echo 'Reports is there already'
-    uv run hatch run ossiq-cli status testdata/npm/project1
-    uv run hatch run ossiq-cli status testdata/npm/project1
-    uv run hatch run ossiq-cli status testdata/npm/project2
-    uv run hatch run ossiq-cli info ms testdata/npm/project3
-    uv run hatch run ossiq-cli info chalk testdata/npm/project3
-    uv run hatch run ossiq-cli info lodash testdata/npm/project3
-    uv run hatch run ossiq-cli status testdata/pypi/uv
-    uv run hatch run ossiq-cli status testdata/pypi/pylock
-    uv run hatch run ossiq-cli status testdata/pypi/pip-classic
-    uv run hatch run ossiq-cli status testdata/mixed
-    uv run hatch run ossiq-cli status testdata/mixed --registry-type=npm
-    uv run hatch run ossiq-cli status testdata/mixed --registry-type=pypi
-    uv run hatch run ossiq-cli html --output=./reports/scan_npm.html --registry-type=npm testdata/mixed
-    uv run hatch run ossiq-cli html --output=./reports/scan_pypi.html --registry-type=pypi testdata/mixed
-    uv run hatch run ossiq-cli status testdata/npm/project3
-    uv run hatch run ossiq-cli export --output=./reports/scan_export_pypi0.json --registry-type=pypi testdata/mixed
-    uv run hatch run ossiq-cli export --schema-version=1.5 --output=./reports/scan_export_npm_15.json --registry-type=npm testdata/mixed
-    uv run hatch run ossiq-cli info scipy testdata/pypi/version-constraint
-    uv run hatch run ossiq-cli info numpy testdata/pypi/version-constraint
-    uv run hatch run ossiq-cli export --output=./reports/scan_export_pypi_version_constraint.json testdata/pypi/version-constraint
-    uv run hatch run ossiq-cli export --output=./reports/scan_export_pypi_version_uv.json testdata/pypi/uv
-    uv run hatch run ossiq-cli export --output=./reports/scan_export_pypi_version_pylock.json testdata/pypi/pylock
+    uv run ossiq status testdata/npm/project1
+    uv run ossiq status testdata/npm/project1
+    uv run ossiq status testdata/npm/project2
+    uv run ossiq info ms testdata/npm/project3
+    uv run ossiq info chalk testdata/npm/project3
+    uv run ossiq info lodash testdata/npm/project3
+    uv run ossiq status testdata/pypi/uv
+    uv run ossiq status testdata/pypi/pylock
+    uv run ossiq status testdata/pypi/pip-classic
+    uv run ossiq status testdata/mixed
+    uv run ossiq status testdata/mixed --registry-type=npm
+    uv run ossiq status testdata/mixed --registry-type=pypi
+    uv run ossiq html --output=./reports/scan_npm.html --registry-type=npm testdata/mixed
+    uv run ossiq html --output=./reports/scan_pypi.html --registry-type=pypi testdata/mixed
+    uv run ossiq status testdata/npm/project3
+    uv run ossiq export --output=./reports/scan_export_pypi0.json --registry-type=pypi testdata/mixed
+    uv run ossiq export --schema-version=1.5 --output=./reports/scan_export_npm_15.json --registry-type=npm testdata/mixed
+    uv run ossiq info scipy testdata/pypi/version-constraint
+    uv run ossiq info numpy testdata/pypi/version-constraint
+    uv run ossiq export --output=./reports/scan_export_pypi_version_constraint.json testdata/pypi/version-constraint
+    uv run ossiq export --output=./reports/scan_export_pypi_version_uv.json testdata/pypi/uv
+    uv run ossiq export --output=./reports/scan_export_pypi_version_pylock.json testdata/pypi/pylock
     cat ./reports/scan_export_pypi_version_uv.json | jq | grep '"constraint_type": "ADDITIVE"'
 
 # Build the QA Docker image (run once, or after qa/Dockerfile changes)
@@ -86,10 +86,10 @@ lint:
 
 # Run all the tests for all the supported Python versions
 testall:
-    uv run --python=3.10 --group dev pytest
     uv run --python=3.11 --group dev pytest
     uv run --python=3.12 --group dev pytest
     uv run --python=3.13 --group dev pytest
+    uv run --python=3.14 --group dev pytest
 
 # Run all the tests, but allow for arguments to be passed
 test *ARGS:
@@ -109,11 +109,11 @@ coverage:
 
 frontend-dataset:
     mkdir frontend/datasets || echo "Frontend -> Datasets is there already"
-    uv run hatch run ossiq-cli export testdata/npm/deprecated --output frontend/datasets/npm_deprecated.json
-    uv run hatch run ossiq-cli export testdata/pypi/yanked --output frontend/datasets/pypi_yanked.json
-    uv run hatch run ossiq-cli export testdata/pypi/version-constraint --output frontend/datasets/pypi_version_constraint.json
-    uv run hatch run ossiq-cli export . --output frontend/datasets/pypi_ossiq_cli.json
-    uv run hatch run ossiq-cli export ./frontend --output frontend/datasets/pypi_ossiq_frontend.json
+    uv run ossiq export testdata/npm/deprecated --output frontend/datasets/npm_deprecated.json
+    uv run ossiq export testdata/pypi/yanked --output frontend/datasets/pypi_yanked.json
+    uv run ossiq export testdata/pypi/version-constraint --output frontend/datasets/pypi_version_constraint.json
+    uv run ossiq export . --output frontend/datasets/pypi_ossiq_cli.json
+    uv run ossiq export ./frontend --output frontend/datasets/pypi_ossiq_frontend.json
     cd frontend/datasets && gzip *.json
 
 # Build Vue.js SPA frontend and produce the SPA template for HTML reports

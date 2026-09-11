@@ -48,11 +48,11 @@ echo "OSSIQ_GITHUB_TOKEN=$(gh auth token)" >> ~/.ossiq/config
 
 ## Your first scan
 
-Point `ossiq-cli` at an existing Python or JavaScript project and OSS IQ detects the manifest
+Point `ossiq` at an existing Python or JavaScript project and OSS IQ detects the manifest
 for you. No install required:
 
 ```bash
-uvx --from ossiq ossiq-cli status testdata/npm/project1/
+uvx ossiq status testdata/npm/project1/
 ```
 
 Supported manifests are the ones your package manager already writes: for **npm**,
@@ -62,8 +62,13 @@ Supported manifests are the ones your package manager already writes: for **npm*
 [uv.lock](https://docs.astral.sh/uv/concepts/projects/layout/#the-lockfile), or classic
 [requirements.txt](https://pip.pypa.io/en/stable/reference/requirements-file-format/).
 
-You can also install [ossiq](https://pypi.org/project/ossiq/) permanently with `uv add ossiq`
-or `pip install ossiq`, then call `ossiq-cli` directly.
+You can also install [ossiq](https://pypi.org/project/ossiq/) permanently with
+`uv tool install ossiq` or `pipx install ossiq`, then call `ossiq` directly.
+
+If your toolchain is Node rather than Python, `npx @ossiq/cli status` works the same way
+and needs no Python at all — the npm package ships a self-contained binary for macOS,
+Linux (glibc) and Windows on x64 and arm64. On musl-based Linux (Alpine) or Windows on
+ARM, use the PyPI install above.
 
 The report gives you a project-level risk score, then breaks it down per package into security
 signals (vulnerabilities) and maintenance signals (activity, overhead, health):
@@ -77,17 +82,17 @@ and *Peer Constraint Status* sections, is documented in
 ## Coding agents
 
 Give Claude Code, OpenAI Codex, or GitHub Copilot the same health check before they add or
-upgrade a dependency. `ossiq-cli install skills` writes a `SKILL.md` and registers a local stdio
-MCP server (`ossiq-cli mcp`):
+upgrade a dependency. `ossiq install skills` writes a `SKILL.md` and registers a local stdio
+MCP server (`ossiq mcp`):
 
 ```bash
 # Install for all three tools
-uvx --from ossiq ossiq-cli install skills
+uvx ossiq install skills
 
 # Or target a single tool
-uvx --from ossiq ossiq-cli install skills claude
-uvx --from ossiq ossiq-cli install skills codex
-uvx --from ossiq ossiq-cli install skills copilot
+uvx ossiq install skills claude
+uvx ossiq install skills codex
+uvx ossiq install skills copilot
 ```
 
 | Tool | Skill location | MCP server |
@@ -115,7 +120,7 @@ package (`install`, `install with caution`, `do not install` when adding; `Updat
 updating), the recommended version, CVEs, and supply-chain warnings.
 
 ```bash
-uvx --from ossiq ossiq-cli info requests --format agent
+uvx ossiq info requests --format agent
 ```
 
 For exactly which files are written, how the token is stored, and how to run the integration from
@@ -124,13 +129,13 @@ a local checkout with `--dev`, see [Reference → install skills](reference.md#i
 ## The CLI workflow
 
 ```bash
-ossiq-cli status              # dependency health for the whole project
-ossiq-cli status --full       # every package, every column
-ossiq-cli status --security   # CVE-affected packages only
-ossiq-cli info sphinx         # one package: drift, CVEs, tree path, peer requirements
-ossiq-cli add requests        # quality-gated install of the recommended version
-ossiq-cli plan                # what the solver would change - read-only
-ossiq-cli apply               # execute the plan, with rollback on failure
+ossiq status              # dependency health for the whole project
+ossiq status --full       # every package, every column
+ossiq status --security   # CVE-affected packages only
+ossiq info sphinx         # one package: drift, CVEs, tree path, peer requirements
+ossiq add requests        # quality-gated install of the recommended version
+ossiq plan                # what the solver would change - read-only
+ossiq apply               # execute the plan, with rollback on failure
 ```
 
 Each takes an optional project path (default: `.`) and `--registry-type npm|pypi` to
@@ -139,7 +144,7 @@ disambiguate a polyglot repo.
 ### Package details
 
 ```bash
-uvx --from ossiq ossiq-cli info sphinx
+uvx ossiq info sphinx
 ```
 
 ![OSS IQ Terminal/CLI Package Details](/_static/images/ossiq-cli-package-2026-07-13.png)
@@ -150,33 +155,33 @@ recommendation rationale, peer requirements, and transitive CVEs - is in
 
 ### Gated package add
 
-`ossiq-cli add` is a quality-gated alternative to running `uv add` or `npm install` directly.
-Package managers install the newest version that satisfies your constraints; `ossiq-cli add`
+`ossiq add` is a quality-gated alternative to running `uv add` or `npm install` directly.
+Package managers install the newest version that satisfies your constraints; `ossiq add`
 installs the **recommended** one. It runs the same analysis as `info`, shows drift status, CVEs,
 transitive vulnerabilities, and maintainer signals before touching a file, and blocks packages
 flagged as critically unhealthy unless you pass `--force`.
 
 ```bash
 # Check health signals and install the recommended version
-uvx --from ossiq ossiq-cli add requests
+uvx ossiq add requests
 
 # Pin an exact version yourself (bypasses the solver recommendation)
-uvx --from ossiq ossiq-cli add requests --version 2.31.0
+uvx ossiq add requests --version 2.31.0
 
 # Override critical-warning blocks (use with care)
-uvx --from ossiq ossiq-cli add requests --force
+uvx ossiq add requests --force
 ```
 
 ### Plan and apply updates
 
-`ossiq-cli plan` shows what the solver recommends without touching any files; `ossiq-cli apply`
+`ossiq plan` shows what the solver recommends without touching any files; `ossiq apply`
 executes those changes and rolls them back if the install fails. Every flag is accepted by both,
 so a `plan` is a faithful preview of the matching `apply`.
 
 ```bash
-ossiq-cli plan                    # read-only preview
-ossiq-cli apply                   # prompts for confirmation
-ossiq-cli apply --security --yes  # patch CVE-affected packages only, unattended
+ossiq plan                    # read-only preview
+ossiq apply                   # prompts for confirmation
+ossiq apply --security --yes  # patch CVE-affected packages only, unattended
 ```
 
 Before recommending a version, the solver simulates its full transitive cascade, falls back to the
@@ -192,7 +197,7 @@ surface further updates; repeat until it reports none. Full rules are in
 
  1. Generate a single self-contained HTML file:
     ```bash
-    uvx --from ossiq ossiq-cli html --output report.html
+    uvx ossiq html --output report.html
     ```
 
  2. Open `report.html` for the table view of your dependencies:
@@ -214,7 +219,7 @@ drill into any dependency, and decide what to read release notes for before it e
 
 ```bash
 # One JSON document
-uvx --from ossiq ossiq-cli export --output=./scan_export.json .
+uvx ossiq export --output=./scan_export.json .
 ```
 
 The export carries a `schema_version`, which you can pin with `--schema-version`: within a

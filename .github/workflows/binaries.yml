@@ -1,0 +1,173 @@
+name: Build standalone binaries
+
+on:
+  workflow_dispatch:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+env:
+  # spa_app.html is committed, so no Node is needed to build the package.
+  OSSIQ_SKIP_FRONTEND_BUILD: '1'
+  PYTHON_VERSION: '3.13'
+
+jobs:
+  build:
+    name: ${{ matrix.target }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-14
+            target: darwin-arm64
+          - runner: macos-13
+            target: darwin-x64
+          # Built on the oldest supported Ubuntu so the glibc floor stays low.
+          - runner: ubuntu-22.04
+            target: linux-x64
+          - runner: ubuntu-22.04-arm
+            target: linux-arm64
+          - runner: windows-latest
+            target: win32-x64
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install dependencies
+        run: uv sync --locked --group dev
+
+      - name: Build binary
+        run: uv run pyinstaller packaging/pyinstaller/ossiq.spec --noconfirm --distpath dist --workpath build
+
+      - name: Smoke test
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            BIN="dist/ossiq/ossiq.exe"
+          else
+            BIN="dist/ossiq/ossiq"
+          fi
+
+          "$BIN" --version
+          "$BIN" --help > /dev/null
+
+          # Exercises the native extensions (python-sat, CEL), the HTTP stack and
+          # the packaged data read through importlib.resources. The HTTP cache is
+          # left on so the second scan reuses the first one's responses.
+          "$BIN" status testdata/npm/project1
+          "$BIN" html testdata/npm/project1 --output "$RUNNER_TEMP/report.html"
+          test -s "$RUNNER_TEMP/report.html"
+
+          # The MCP server must answer initialize on stdout as clean JSON-RPC.
+          # Written to a file rather than piped, so the binary is never SIGPIPEd.
+          echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"ci","version":"1"}}}' \
+            | "$BIN" mcp > "$RUNNER_TEMP/mcp.jsonl"
+          grep -q '"serverInfo"' "$RUNNER_TEMP/mcp.jsonl"
+        env:
+          OSSIQ_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Package
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts
+          tar -czf "artifacts/ossiq-${{ matrix.target }}.tar.gz" -C dist ossiq
+          ls -la artifacts
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ossiq-${{ matrix.target }}
+          path: artifacts/ossiq-${{ matrix.target }}.tar.gz
+          if-no-files-found: error
+          retention-days: 7
+
+  attach-to-release:
+    name: Attach binaries to release
+    needs: build
+    if: github.event_name == 'release'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Upload to release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "${{ github.event.release.tag_name }}" artifacts/*.tar.gz --repo "${{ github.repository }}" --clobber
+
+  publish-npm:
+    name: Publish to npm
+    needs: build
+    if: github.event_name == 'release'
+    runs-on: ubuntu-latest
+    environment:
+      name: release
+      url: https://www.npmjs.com/package/@ossiq/cli
+    permissions:
+      # Required for npm Trusted Publishing (OIDC) — no NPM_TOKEN secret.
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Use an npm that supports trusted publishing
+        run: npm install -g npm@latest
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Version must match the release tag
+        shell: bash
+        run: |
+          set -eu
+          TAG_VERSION="${{ github.event.release.tag_name }}"
+          TAG_VERSION="${TAG_VERSION#v}"
+          # pyproject.toml is stored with CRLF line endings, so strip the \r.
+          PYPROJECT_VERSION="$(grep -m1 '^version' pyproject.toml | tr -d '\r' | sed -E 's/version = "(.*)"/\1/')"
+
+          # The npm packages take their version from pyproject.toml, which is the same
+          # source PyPI publishes from. If the tag and the file ever disagree, npm and
+          # PyPI would ship different versions of the same release.
+          if [ "$TAG_VERSION" != "$PYPROJECT_VERSION" ]; then
+            echo "::error::Release tag is $TAG_VERSION but pyproject.toml says $PYPROJECT_VERSION."
+            exit 1
+          fi
+          echo "npm will publish $PYPROJECT_VERSION, matching the release tag and PyPI"
+
+      - name: Generate npm packages
+        run: python3 packaging/npm/build_npm_packages.py --artifacts artifacts --output build/npm
+
+      - name: Publish platform packages
+        # Must land before the launcher: its optionalDependencies pin these exact
+        # versions, so publishing the launcher first would leave a window where
+        # `npm install @ossiq/cli` cannot resolve a binary.
+        run: |
+          set -euo pipefail
+          for dir in build/npm/cli-*; do
+            echo "::group::publish $dir"
+            npm publish "$dir" --provenance --access public
+            echo "::endgroup::"
+          done
+
+      - name: Publish launcher
+        run: npm publish build/npm/cli --provenance --access public
