@@ -13,7 +13,7 @@ FORBIDDEN_NAMES = {"ProjectSources", "AbstractProjectSources", "build_project_so
 
 
 def _imports_for(path: pathlib.Path) -> list[tuple[str, set[str]]]:
-    tree = ast.parse(path.read_text())
+    tree = ast.parse(path.read_text(encoding="utf-8"))
     results = []
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):

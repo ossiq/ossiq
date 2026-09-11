@@ -137,7 +137,7 @@ class TestJsonExportRenderer:
 
         # Assert
         assert output_file.exists()
-        data = json.loads(output_file.read_text())
+        data = json.loads(output_file.read_text(encoding="utf-8"))
         expected_keys = ["metadata", "project", "summary", "production_packages", "development_packages"]
         assert all(key in data for key in expected_keys)
 
@@ -154,7 +154,7 @@ class TestJsonExportRenderer:
         renderer.render(sample_project_metrics, destination=str(output_file))
 
         # Act
-        data = json.loads(output_file.read_text())
+        data = json.loads(output_file.read_text(encoding="utf-8"))
         metadata = data["metadata"]
 
         # Assert
@@ -175,7 +175,7 @@ class TestJsonExportRenderer:
         renderer.render(sample_project_metrics, destination=str(output_file))
 
         # Act
-        data = json.loads(output_file.read_text())
+        data = json.loads(output_file.read_text(encoding="utf-8"))
         project = data["project"]
 
         # Assert
@@ -196,7 +196,7 @@ class TestJsonExportRenderer:
         renderer.render(sample_project_metrics, destination=str(output_file))
 
         # Act
-        data = json.loads(output_file.read_text())
+        data = json.loads(output_file.read_text(encoding="utf-8"))
         summary = data["summary"]
 
         # Assert
@@ -229,7 +229,7 @@ class TestJsonExportRenderer:
         renderer.render(sample_project_metrics, destination=str(output_file))
 
         # Act
-        data = json.loads(output_file.read_text())
+        data = json.loads(output_file.read_text(encoding="utf-8"))
         cve = data["production_packages"][0]["cve"][0]
 
         # Assert
@@ -289,7 +289,7 @@ class TestJsonExportRenderer:
 
         # Act
         renderer.render(metrics, destination=str(output_file))
-        data = json.loads(output_file.read_text())
+        data = json.loads(output_file.read_text(encoding="utf-8"))
 
         # Assert
         assert data["project"]["name"] == "tëst-ünïcødé"
@@ -307,7 +307,7 @@ class TestJsonExportRenderer:
 
         # Act
         renderer.render(sample_project_metrics, destination=str(output_file))
-        data = json.loads(output_file.read_text())
+        data = json.loads(output_file.read_text(encoding="utf-8"))
 
         # Assert
         pkg = data["production_packages"][0]
@@ -329,7 +329,7 @@ class TestJsonExportRenderer:
         renderer.render(sample_project_metrics, destination=str(output_file))
 
         # Act
-        exported_data = json.loads(output_file.read_text())
+        exported_data = json.loads(output_file.read_text(encoding="utf-8"))
         latest_schema = json_schema_registry.load_schema(json_schema_registry.get_latest_version())
 
         # Assert - validate() raises exception if invalid
@@ -350,7 +350,7 @@ class TestJsonExportRenderer:
         renderer.render(sample_project_metrics, destination=str(output_file), schema_version="1.5")
 
         # Assert
-        data = json.loads(output_file.read_text())
+        data = json.loads(output_file.read_text(encoding="utf-8"))
         assert data["metadata"]["schema_version"] == "1.5"
         assert "transitive_packages" in data
         v1_5_schema = json_schema_registry.load_schema(ExportJsonSchemaVersion.V1_5)
@@ -371,7 +371,7 @@ class TestJsonExportRenderer:
         renderer.render(sample_project_metrics, destination=str(output_file))
 
         # Assert
-        data = json.loads(output_file.read_text())
+        data = json.loads(output_file.read_text(encoding="utf-8"))
         assert data["metadata"]["schema_version"] == json_schema_registry.get_latest_version().value
 
 
@@ -434,7 +434,7 @@ class TestJsonExportRendererV13:
         renderer = JsonExportRenderer(settings)
         renderer.render(sample_project_with_transitives, destination=str(output_file), schema_version="1.5")
 
-        data = json.loads(output_file.read_text())
+        data = json.loads(output_file.read_text(encoding="utf-8"))
         assert len(data["transitive_packages"]) == 1
 
     def test_v1_3_output_has_dependency_tree(self, output_file, sample_project_with_transitives, settings):
@@ -442,7 +442,7 @@ class TestJsonExportRendererV13:
         renderer = JsonExportRenderer(settings)
         renderer.render(sample_project_with_transitives, destination=str(output_file), schema_version="1.5")
 
-        data = json.loads(output_file.read_text())
+        data = json.loads(output_file.read_text(encoding="utf-8"))
         assert "dependency_tree" in data
         assert isinstance(data["dependency_tree"], list)
 
@@ -453,7 +453,7 @@ class TestJsonExportRendererV13:
         renderer = JsonExportRenderer(settings)
         renderer.render(sample_project_with_transitives, destination=str(output_file), schema_version="1.5")
 
-        data = json.loads(output_file.read_text())
+        data = json.loads(output_file.read_text(encoding="utf-8"))
         root_names = {r["package_name"] for r in data["dependency_tree"]}
         assert "react-dom" in root_names
         assert "react" in root_names
@@ -463,7 +463,7 @@ class TestJsonExportRendererV13:
         renderer = JsonExportRenderer(settings)
         renderer.render(sample_project_with_transitives, destination=str(output_file), schema_version="1.5")
 
-        data = json.loads(output_file.read_text())
+        data = json.loads(output_file.read_text(encoding="utf-8"))
         for root in data["dependency_tree"]:
             for node in root["children"]:
                 assert "ref" in node
@@ -477,7 +477,7 @@ class TestJsonExportRendererV13:
         renderer = JsonExportRenderer(settings)
         renderer.render(sample_project_with_transitives, destination=str(output_file), schema_version="1.5")
 
-        data = json.loads(output_file.read_text())
+        data = json.loads(output_file.read_text(encoding="utf-8"))
         # Both roots point to scheduler (ref=0) but with different constraints
         node_by_root = {r["package_name"]: r["children"][0] for r in data["dependency_tree"]}
         assert node_by_root["react-dom"]["ref"] == node_by_root["react"]["ref"] == 0
@@ -493,7 +493,7 @@ class TestJsonExportRendererV13:
         renderer = JsonExportRenderer(settings)
         renderer.render(sample_project_with_transitives, destination=str(output_file), schema_version="1.5")
 
-        data = json.loads(output_file.read_text())
+        data = json.loads(output_file.read_text(encoding="utf-8"))
         n = len(data["transitive_packages"])
 
         def check_refs(nodes):
@@ -509,7 +509,7 @@ class TestJsonExportRendererV13:
         renderer = JsonExportRenderer(settings)
         renderer.render(sample_project_with_transitives, destination=str(output_file), schema_version="1.5")
 
-        data = json.loads(output_file.read_text())
+        data = json.loads(output_file.read_text(encoding="utf-8"))
         entry = data["transitive_packages"][0]
         assert "dependency_path" not in entry
         assert "dependency_paths" not in entry
@@ -519,7 +519,7 @@ class TestJsonExportRendererV13:
         renderer = JsonExportRenderer(settings)
         renderer.render(sample_project_with_transitives, destination=str(output_file), schema_version="1.5")
 
-        data = json.loads(output_file.read_text())
+        data = json.loads(output_file.read_text(encoding="utf-8"))
         entry = data["transitive_packages"][0]
         assert "id" in entry
         assert entry["id"] == 0
@@ -532,7 +532,7 @@ class TestJsonExportRendererV13:
         renderer = JsonExportRenderer(settings)
         renderer.render(sample_project_with_transitives, destination=str(output_file), schema_version="1.5")
 
-        data = json.loads(output_file.read_text())
+        data = json.loads(output_file.read_text(encoding="utf-8"))
         assert "constraint_type_map" in data
         assert data["constraint_type_map"] == ["DECLARED", "NARROWED", "PINNED", "ADDITIVE", "OVERRIDE"]
 
@@ -541,7 +541,7 @@ class TestJsonExportRendererV13:
         renderer = JsonExportRenderer(settings)
         renderer.render(sample_project_with_transitives, destination=str(output_file), schema_version="1.5")
 
-        data = json.loads(output_file.read_text())
+        data = json.loads(output_file.read_text(encoding="utf-8"))
         for root in data["dependency_tree"]:
             for node in root.get("children", []):
                 assert "constraint_source_file" not in node
@@ -557,7 +557,7 @@ class TestJsonExportRendererV13:
         renderer = JsonExportRenderer(settings)
         renderer.render(sample_project_with_transitives, destination=str(output_file), schema_version="1.5")
 
-        data = json.loads(output_file.read_text())
+        data = json.loads(output_file.read_text(encoding="utf-8"))
         # transitive_record_b has NARROWED constraint with source_file="package.json"
         entry = data["transitive_packages"][0]
         assert entry.get("constraint_source_file") == "package.json"
@@ -567,7 +567,7 @@ class TestJsonExportRendererV13:
         renderer = JsonExportRenderer(settings)
         renderer.render(sample_project_with_transitives, destination=str(output_file), schema_version="1.5")
 
-        data = json.loads(output_file.read_text())
+        data = json.loads(output_file.read_text(encoding="utf-8"))
         # transitive_record_a (first) has 1 CVE; transitive_record_b has 0
         assert len(data["transitive_packages"][0]["cve"]) == 1
 
@@ -578,7 +578,7 @@ class TestJsonExportRendererV13:
         renderer = JsonExportRenderer(settings)
         renderer.render(sample_project_with_transitives, destination=str(output_file), schema_version="1.5")
 
-        data = json.loads(output_file.read_text())
+        data = json.loads(output_file.read_text(encoding="utf-8"))
         schema = json_schema_registry.load_schema(ExportJsonSchemaVersion.V1_5)
         validate(instance=data, schema=schema)
 
@@ -625,7 +625,7 @@ class TestJsonExportRendererV13:
         renderer = JsonExportRenderer(settings)
         renderer.render(metrics, destination=str(output_file), schema_version="1.5")
 
-        data = json.loads(output_file.read_text())
+        data = json.loads(output_file.read_text(encoding="utf-8"))
         assert len(data["transitive_packages"]) == 2
 
     def test_v1_3_deep_path_produces_nested_tree(self, output_file, settings, sample_project_metrics_record):
@@ -672,7 +672,7 @@ class TestJsonExportRendererV13:
         renderer = JsonExportRenderer(settings)
         renderer.render(metrics, destination=str(output_file), schema_version="1.5")
 
-        data = json.loads(output_file.read_text())
+        data = json.loads(output_file.read_text(encoding="utf-8"))
         # transitive_packages: scheduler=0, loose-envify=1
         assert len(data["transitive_packages"]) == 2
         # tree: react-dom → scheduler → loose-envify
@@ -745,7 +745,7 @@ class TestJsonExportRendererV14:
         renderer = JsonExportRenderer(settings)
         renderer.render(metrics, destination=str(output_file), schema_version="1.5")
 
-        data = json.loads(output_file.read_text())
+        data = json.loads(output_file.read_text(encoding="utf-8"))
         pkg = data["production_packages"][0]
         assert "is_prerelease" in pkg
         assert "is_yanked" in pkg
@@ -762,7 +762,7 @@ class TestJsonExportRendererV14:
         renderer = JsonExportRenderer(settings)
         renderer.render(metrics, destination=str(output_file), schema_version="1.5")
 
-        data = json.loads(output_file.read_text())
+        data = json.loads(output_file.read_text(encoding="utf-8"))
         pkg = data["production_packages"][0]
         assert pkg["is_prerelease"] is True
         assert pkg["is_yanked"] is False
@@ -779,7 +779,7 @@ class TestJsonExportRendererV14:
         renderer = JsonExportRenderer(settings)
         renderer.render(metrics, destination=str(output_file), schema_version="1.5")
 
-        data = json.loads(output_file.read_text())
+        data = json.loads(output_file.read_text(encoding="utf-8"))
         pkg = data["production_packages"][0]
         assert pkg["is_prerelease"] is False
         assert pkg["is_yanked"] is True
@@ -796,7 +796,7 @@ class TestJsonExportRendererV14:
         renderer = JsonExportRenderer(settings)
         renderer.render(metrics, destination=str(output_file), schema_version="1.5")
 
-        data = json.loads(output_file.read_text())
+        data = json.loads(output_file.read_text(encoding="utf-8"))
         pkg = data["production_packages"][0]
         assert pkg["is_prerelease"] is False
         assert pkg["is_yanked"] is False
@@ -833,7 +833,7 @@ class TestJsonExportRendererV14:
         renderer = JsonExportRenderer(settings)
         renderer.render(metrics, destination=str(output_file), schema_version="1.5")
 
-        data = json.loads(output_file.read_text())
+        data = json.loads(output_file.read_text(encoding="utf-8"))
         entry = data["transitive_packages"][0]
         assert entry["is_prerelease"] is True
         assert entry["is_yanked"] is False
@@ -845,7 +845,7 @@ class TestJsonExportRendererV14:
         renderer = JsonExportRenderer(settings)
         renderer.render(sample_project_with_transitives, destination=str(output_file), schema_version="1.5")
 
-        data = json.loads(output_file.read_text())
+        data = json.loads(output_file.read_text(encoding="utf-8"))
         schema = json_schema_registry.load_schema(ExportJsonSchemaVersion.V1_5)
         validate(instance=data, schema=schema)
 
@@ -866,7 +866,7 @@ class TestJsonExportRendererV14:
         renderer = JsonExportRenderer(settings)
         renderer.render(metrics, destination=str(output_file), schema_version="1.5")
 
-        data = json.loads(output_file.read_text())
+        data = json.loads(output_file.read_text(encoding="utf-8"))
         pkg = data["production_packages"][0]
         assert pkg["recommended_version"] == "18.2.0"
 
@@ -887,7 +887,7 @@ class TestJsonExportRendererV14:
         renderer = JsonExportRenderer(settings)
         renderer.render(metrics, destination=str(output_file), schema_version="1.5")
 
-        data = json.loads(output_file.read_text())
+        data = json.loads(output_file.read_text(encoding="utf-8"))
         pkg = data["production_packages"][0]
         assert pkg["recommended_version"] is None
 
@@ -929,7 +929,7 @@ class TestJsonExportRendererV15:
         renderer = JsonExportRenderer(settings)
         renderer.render(metrics, destination=str(output_file), schema_version="1.5")
 
-        data = json.loads(output_file.read_text())
+        data = json.loads(output_file.read_text(encoding="utf-8"))
         schema = json_schema_registry.load_schema(ExportJsonSchemaVersion.V1_5)
         validate(instance=data, schema=schema)
 
@@ -945,7 +945,7 @@ class TestJsonExportRendererV15:
         renderer = JsonExportRenderer(settings)
         renderer.render(metrics, destination=str(output_file), schema_version="1.5")
 
-        data = json.loads(output_file.read_text())
+        data = json.loads(output_file.read_text(encoding="utf-8"))
         pkg = data["production_packages"][0]
         assert pkg["epss"] == 0.1235
         assert pkg["runs_code_at_install"] is True
@@ -982,7 +982,7 @@ class TestJsonExportRendererV15:
         renderer = JsonExportRenderer(settings)
         renderer.render(metrics, destination=str(output_file), schema_version="1.5")
 
-        data = json.loads(output_file.read_text())
+        data = json.loads(output_file.read_text(encoding="utf-8"))
         pkg = data["production_packages"][0]
         assert "epss" in pkg
         assert pkg["epss"] is None
@@ -1021,7 +1021,7 @@ class TestJsonExportRendererV15:
         )
         JsonExportRenderer(settings).render(metrics, destination=str(output_file), schema_version="1.5")
 
-        data = json.loads(output_file.read_text())
+        data = json.loads(output_file.read_text(encoding="utf-8"))
         entry = data["transitive_packages"][0]
         assert "time_lag_days" not in entry
         validate(instance=data, schema=json_schema_registry.load_schema(ExportJsonSchemaVersion.V1_5))
@@ -1064,7 +1064,7 @@ class TestJsonExportRendererEngagementBuckets:
             optional_packages=[],
         )
         JsonExportRenderer(settings).render(metrics, destination=str(output_file), schema_version="1.5")
-        return json.loads(output_file.read_text())
+        return json.loads(output_file.read_text(encoding="utf-8"))
 
     def test_buckets_exported_as_fixed_order_rows(self, output_file, settings, engagement_record):
         """Oldest bucket first, one [issues_opened, issues_closed, prs_opened, prs_merged] row each."""

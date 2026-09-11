@@ -90,13 +90,16 @@ class CustomBuildHook(BuildHookInterface):
 
         root = Path(self.root)
         prebuilt = root / "src" / "ossiq" / "ui" / "html_templates" / "spa_app.html"
+        frontend_dir = root / "frontend"
 
-        if not shutil.which("npm"):
+        if not shutil.which("npm") or not frontend_dir.exists():
             if prebuilt.exists():
-                print(f"npm not found; using prebuilt SPA template at {prebuilt}")
+                reason = "npm not found" if not shutil.which("npm") else f"no frontend/ sources at {frontend_dir}"
+                print(f"{reason}; using prebuilt SPA template at {prebuilt}")
                 return
             raise RuntimeError(
-                f"npm is required to build frontend assets and no prebuilt SPA template was found at {prebuilt}."
+                f"npm/frontend sources are required to build frontend assets and no prebuilt "
+                f"SPA template was found at {prebuilt}."
             )
 
         sys.path.insert(0, str(root))
