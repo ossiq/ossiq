@@ -8,6 +8,7 @@ decision an AI agent can act on directly.
 
 from typing import Any
 
+from ossiq.domain.common import RecommendationRung
 from ossiq.domain.cve import CVE
 from ossiq.domain.version import VERSION_DIFF_MAJOR, VERSION_DIFF_MINOR, VERSION_DIFF_PATCH
 from ossiq.risk.maintenance import NOT_MAINTAINED
@@ -51,12 +52,12 @@ def build_add_decide(detail: PackageDetailResult, requested_version: str | None 
     insight = detail.insight
     recommended = insight.recommended_version if insight else None
     latest = insight.latest_version if insight else None
+    first = detail.records[0] if detail.records else None
 
     if detail.is_prospective:
         cves = detail.prospective_cves
         package_name = detail.prospective_name or ""
     else:
-        first = detail.records[0] if detail.records else None
         cves = first.cve if first else []
         package_name = first.package_name if first else ""
 
@@ -82,6 +83,10 @@ def build_add_decide(detail: PackageDetailResult, requested_version: str | None 
         "package": package_name,
         "next_action": next_action,
         "recommended_version": recommended,
+        # A prospective add has no declared constraint yet, so the ladder is meaningless — only
+        # populated for a package already installed in the project.
+        "latest_in_range": first.latest_in_range if not detail.is_prospective and first else None,
+        "latest_in_major": first.latest_in_major if not detail.is_prospective and first else None,
         "reasons": reasons,
         "cves": [cve_summary(cve) for cve in cves],
         "warnings": [warning.rule_id for warning in detail.warnings],
@@ -203,10 +208,18 @@ def build_update_entry(record: ScanRecord) -> dict[str, Any] | None:
         "next_action": agent_next_action(record),
         "from": installed,
         "to": recommended,
+        "latest_in_range": record.latest_in_range,
+        "latest_in_major": record.latest_in_major,
         "reasons": reasons,
         "cves": [cve_summary(cve) for cve in cves],
         "transitive_impact": [impact_summary(impact) for impact in record.update_transitive_impacts],
     }
+    # A ladder pick that only exists by widening the declared constraint (IN_MAJOR/LATEST) is not
+    # something the writers will apply on their own — see build_update_plan's held_for_widening.
+    # Flag it explicitly so a consumer doesn't read "to" as a safe target to write as-is.
+    if record.recommended_from_rung in (RecommendationRung.IN_MAJOR, RecommendationRung.LATEST):
+        entry["requires_constraint_widening"] = True
+        reasons.append(f"declared range {record.version_constraint} must be widened to reach {recommended}")
     triage = triage_summary(record)
     if triage is not None:
         entry["triage"] = triage

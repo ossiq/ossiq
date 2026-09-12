@@ -2,9 +2,6 @@
 
 This directory owns the versioned JSON export format. Follow this guide when introducing a new schema version (e.g. v1.6).
 
-The CSV export was removed in GH-121 — the export command now produces JSON only. Historical
-JSON schema versions v1.0–v1.4 were dropped at the same time; only the latest version is kept
-registered.
 
 ---
 

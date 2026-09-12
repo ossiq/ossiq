@@ -5,7 +5,7 @@ from __future__ import annotations
 import dataclasses
 from dataclasses import dataclass, field
 
-from ossiq.domain.common import ConstraintType
+from ossiq.domain.common import ConstraintType, RecommendationRung
 from ossiq.service.project.models import ScanRecord, ScanResult
 from ossiq.service.update_impact import TransitiveImpact
 from ossiq.solver.reason import RecommendationReason
@@ -29,6 +29,9 @@ class UpdateEntry:
     is_security: bool = False
     # True when the version was forced via --override — bypasses the solver and the cooldown.
     is_forced: bool = False
+    # Which version-ladder rung recommended_version came from. IN_MAJOR/LATEST require widening
+    # version_defined first — is_held_for_widening holds those out of direct/transitive_entries.
+    from_rung: RecommendationRung | None = None
 
 
 @dataclass(frozen=True)
@@ -48,6 +51,9 @@ class UpdatePlan:
     cooldown_period: int = 0
     # --override targets that are not present anywhere in the scanned dependency tree.
     unknown_override_packages: tuple[str, ...] = ()
+    # Recommendations withheld because reaching them requires widening the declared constraint
+    # first (from_rung is IN_MAJOR/LATEST) — see is_held_for_widening.
+    held_for_widening: list[UpdateEntry] = field(default_factory=list)
 
     @property
     def all_entries(self) -> list[UpdateEntry]:
@@ -68,6 +74,7 @@ def entry_from_record(record: ScanRecord, is_direct: bool) -> UpdateEntry:
         version_defined=record.version_constraint,
         constraint_type=record.constraint_info.type,
         is_security=bool(record.cve),
+        from_rung=record.recommended_from_rung,
     )
 
 
@@ -76,6 +83,19 @@ def is_held_for_cooldown(entry: UpdateEntry, cooldown_period: int) -> bool:
     if entry.is_forced or entry.is_security or entry.reason is None or entry.reason.age_days is None:
         return False
     return entry.reason.age_days < cooldown_period
+
+
+# Rungs only reachable by widening the declared constraint first — see RecommendationRung.
+OUT_OF_RANGE_RUNGS: frozenset[RecommendationRung] = frozenset({RecommendationRung.IN_MAJOR, RecommendationRung.LATEST})
+
+
+def is_held_for_widening(entry: UpdateEntry) -> bool:
+    """A recommendation reachable only by widening the declared constraint first.
+
+    --override is explicit user intent (is_forced=True) and is never held here — the user asked
+    for exactly this version.
+    """
+    return not entry.is_forced and entry.from_rung in OUT_OF_RANGE_RUNGS
 
 
 def forced_entry_from_record(record: ScanRecord, forced_version: str, is_direct: bool) -> UpdateEntry:
@@ -181,6 +201,16 @@ def build_update_plan(
                 transitive.append(entry)
         transitive.sort(key=lambda e: e.package_name)
 
+    # Widening entries never reach the writers: whether they'd also be held for cooldown is moot,
+    # so this must partition before the cooldown hold to avoid double-counting an entry in both.
+    widening = sorted(
+        [e for e in direct + transitive if is_held_for_widening(e)],
+        key=lambda e: e.package_name,
+    )
+    widening_names = {e.package_name for e in widening}
+    direct = [e for e in direct if e.package_name not in widening_names]
+    transitive = [e for e in transitive if e.package_name not in widening_names]
+
     held = sorted(
         [e for e in direct + transitive if is_held_for_cooldown(e, cooldown_period)],
         key=lambda e: e.package_name,
@@ -201,4 +231,5 @@ def build_update_plan(
         held_for_cooldown=held,
         cooldown_period=cooldown_period,
         unknown_override_packages=tuple(unknown_overrides),
+        held_for_widening=widening,
     )

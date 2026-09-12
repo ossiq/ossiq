@@ -1026,6 +1026,73 @@ class TestJsonExportRendererV15:
         assert "time_lag_days" not in entry
         validate(instance=data, schema=json_schema_registry.load_schema(ExportJsonSchemaVersion.V1_5))
 
+    def test_v1_5_emits_ladder_fields_and_validates(self, output_file, settings, sample_project_metrics_record):
+        """latest_in_range/latest_in_major/recommended_from_rung round-trip and validate."""
+        import dataclasses
+
+        from ossiq.domain.common import RecommendationRung
+
+        record = dataclasses.replace(
+            sample_project_metrics_record,
+            latest_in_range="17.0.2",
+            latest_in_major="17.9.0",
+            recommended_version="17.9.0",
+            recommended_from_rung=RecommendationRung.IN_MAJOR,
+        )
+        metrics = ScanResult(
+            project_name="test-project",
+            project_path="/path/to/test-project",
+            packages_registry=ProjectPackagesRegistry.NPM.value,
+            production_packages=[record],
+            optional_packages=[],
+        )
+        renderer = JsonExportRenderer(settings)
+        renderer.render(metrics, destination=str(output_file), schema_version="1.5")
+
+        data = json.loads(output_file.read_text(encoding="utf-8"))
+        pkg = data["production_packages"][0]
+        assert pkg["latest_in_range"] == "17.0.2"
+        assert pkg["latest_in_major"] == "17.9.0"
+        assert pkg["recommended_from_rung"] == "in_major"  # plain string, not an enum repr
+        validate(instance=data, schema=json_schema_registry.load_schema(ExportJsonSchemaVersion.V1_5))
+
+    def test_v1_5_transitive_ladder_fields_omitted_when_null(
+        self, output_file, settings, sample_project_metrics_record
+    ):
+        """Undeterminable ladder rungs are dropped on TransitivePackageMetrics by _compact,
+        distinguishing "not analysed" from PackageMetrics' explicit null."""
+        transitive = ScanRecord(
+            package_name="dep",
+            dependency_name=None,
+            is_optional_dependency=False,
+            installed_version="1.0.0",
+            latest_version=None,
+            versions_diff_index=VersionsDifference(
+                version1="1.0.0", version2="1.0.0", diff_index=0, diff_name="LATEST"
+            ),
+            time_lag_days=None,
+            releases_lag=None,
+            cve=[],
+            dependency_path=["react"],
+            constraint_info=ConstraintSource(type=ConstraintType.DECLARED, source_file=None),
+        )
+        metrics = ScanResult(
+            project_name="test-project",
+            project_path="/path/to/test-project",
+            packages_registry=ProjectPackagesRegistry.NPM.value,
+            production_packages=[sample_project_metrics_record],
+            optional_packages=[],
+            transitive_packages=[transitive],
+        )
+        renderer = JsonExportRenderer(settings)
+        renderer.render(metrics, destination=str(output_file), schema_version="1.5")
+
+        data = json.loads(output_file.read_text(encoding="utf-8"))
+        entry = data["transitive_packages"][0]
+        assert "latest_in_range" not in entry
+        assert "latest_in_major" not in entry
+        validate(instance=data, schema=json_schema_registry.load_schema(ExportJsonSchemaVersion.V1_5))
+
 
 @pytest.fixture
 def engagement_record():

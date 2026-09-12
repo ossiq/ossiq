@@ -15,7 +15,7 @@ from ossiq.service.package import (
     fetch_prospective_detail,
 )
 from ossiq.service.project.models import ScanRecord, ScanResult
-from ossiq.service.project.recommendations import apply_recommendations, clamp_recommendations
+from ossiq.service.project.recommendations import apply_ladder_fallback, apply_recommendations, clamp_recommendations
 from ossiq.service.project.scan import scan
 from ossiq.settings import Settings
 from ossiq.solver import dependencies_solver
@@ -103,6 +103,10 @@ def build_installed_detail(
             allow_prerelease=sources.allow_prerelease,
             cooldown_period=settings.cooldown_period,
         )
+        # No validator here (info has no transitive_by_name map to simulate against) — direct
+        # records already had a recommendation before this block ran, so in practice this only
+        # ever fires for the transitive records the comment above describes.
+        apply_ladder_fallback(needs_solve, sources.packages_registry, now=settings.cutoff_date)
 
     # These fetches hit the already-warm in-process cache — no extra HTTP round-trips.
     package = sources.packages_registry.package_info(canonical_name)

@@ -41,11 +41,16 @@ Example output:
   "package": "requests",
   "next_action": "install with caution",
   "recommended_version": "2.31.0",
+  "latest_in_range": null,
+  "latest_in_major": null,
   "reasons": ["recommend 2.31.0 rather than latest 2.32.0", "single maintainer — bus factor risk"],
   "cves": [],
   "warnings": ["SINGLE_MAINTAINER"]
 }
 ```
+
+`latest_in_range`/`latest_in_major` are only populated for a package already
+installed in the project (not a prospective add) — see the version ladder below.
 
 `next_action` for an add is `install`, `install with caution`, or `do not install`.
 
@@ -70,8 +75,25 @@ Example output:
       "next_action": "Check for the Fix",
       "from": "4.17.15",
       "to": "4.17.21",
+      "latest_in_range": "4.17.15",
+      "latest_in_major": "4.17.21",
       "reasons": ["CVE-2021-23337 (HIGH)", "recommend updating 4.17.15 -> 4.17.21"],
       "cves": [{"id": "CVE-2021-23337", "severity": "HIGH", "summary": "..."}],
+      "transitive_impact": []
+    },
+    {
+      "package": "pydantic",
+      "next_action": "Constrained. Check newer version",
+      "from": "1.10.13",
+      "to": "1.10.26",
+      "latest_in_range": "1.10.13",
+      "latest_in_major": "1.10.26",
+      "requires_constraint_widening": true,
+      "reasons": [
+        "declared range ==1.10.13 caps this below 2.13.5",
+        "declared range ==1.10.13 must be widened to reach 1.10.26"
+      ],
+      "cves": [],
       "transitive_impact": []
     }
   ]
@@ -89,5 +111,14 @@ The top-level `next_action` is the most urgent one across the `updates` list, or
 - **Constrained. Check newer version** — a minor/patch behind, but the declared range
   (e.g. `~7.3.0`) admits no newer version; widening the range is the real next step.
 
-Always pin to `recommended_version` (`to`) when it is set rather than the absolute
-latest — it is the solver's safe choice (avoids known-CVE and too-fresh versions).
+`latest_in_range` (newest version satisfying the declared constraint) and
+`latest_in_major` (newest version sharing the installed major line) are always
+present — equal to `from` when that step has nothing newer, never omitted.
+
+Pin to `recommended_version` (`to`) when it is set — it is the solver's safe
+choice (avoids known-CVE and too-fresh versions) — **unless the entry also carries
+`"requires_constraint_widening": true`**. That flag means `to` is only reachable by
+widening the manifest's declared range first (`==1.10.13` admits nothing past
+1.10.13, so `1.10.26` needs a wider specifier, not just a straight rewrite of the
+pin). `ossiq update`/`ossiq apply` will not write such an entry on their own —
+widen the constraint by hand, then re-run the command.

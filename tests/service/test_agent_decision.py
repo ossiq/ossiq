@@ -5,10 +5,10 @@ Covers the next-action branches for both the add and update flows, driven
 entirely from existing scan/package result fields.
 """
 
-from ossiq.domain.common import ConstraintType, CveDatabase, ProjectPackagesRegistry
+from ossiq.domain.common import ConstraintType, CveDatabase, ProjectPackagesRegistry, RecommendationRung
 from ossiq.domain.cve import CVE, Severity
 from ossiq.domain.project import ConstraintSource
-from ossiq.domain.version import VERSION_DIFF_MAJOR, VERSION_LATEST, VersionsDifference
+from ossiq.domain.version import VERSION_DIFF_MAJOR, VERSION_DIFF_MINOR, VERSION_LATEST, VersionsDifference
 from ossiq.risk.maintenance import MaintenanceAssessment, MaintenanceState
 from ossiq.service.agent import build_add_decide, build_update_decide
 from ossiq.service.package import (
@@ -178,3 +178,95 @@ def test_update_abandoned_at_latest_becomes_an_entry():
     decision = build_update_decide(make_scan([record]))
     assert decision["updates"][0]["next_action"] == "Find alternative"
     assert "refactor_candidates" not in decision
+
+
+# --- version ladder fields ------------------------------------------------------
+
+
+def test_update_entry_exposes_ladder_fields():
+    record = make_record(
+        installed="1.0.0",
+        latest="2.0.0",
+        diff_index=VERSION_DIFF_MAJOR,
+        recommended="2.0.0",
+        latest_in_range="1.0.0",
+        latest_in_major="1.5.0",
+        recommended_from_rung=RecommendationRung.SOLVER,
+    )
+    decision = build_update_decide(make_scan([record]))
+    entry = decision["updates"][0]
+    assert entry["latest_in_range"] == "1.0.0"
+    assert entry["latest_in_major"] == "1.5.0"
+
+
+def test_out_of_range_recommendation_flags_constraint_widening():
+    record = make_record(
+        installed="1.10.13",
+        latest="2.13.5",
+        diff_index=VERSION_DIFF_MAJOR,
+        recommended="1.10.26",
+        latest_in_range="1.10.13",
+        latest_in_major="1.10.26",
+        recommended_from_rung=RecommendationRung.IN_MAJOR,
+        version_constraint="==1.10.13",
+    )
+    decision = build_update_decide(make_scan([record]))
+    entry = decision["updates"][0]
+    assert entry["requires_constraint_widening"] is True
+    assert any("must be widened" in reason for reason in entry["reasons"])
+
+
+def test_in_range_recommendation_does_not_flag_constraint_widening():
+    record = make_record(
+        installed="1.0.0",
+        latest="1.5.0",
+        diff_index=VERSION_DIFF_MAJOR,
+        recommended="1.5.0",
+        recommended_from_rung=RecommendationRung.SOLVER,
+    )
+    decision = build_update_decide(make_scan([record]))
+    assert "requires_constraint_widening" not in decision["updates"][0]
+
+
+def test_next_action_unchanged_for_widening_pick_with_minor_drift():
+    """A ladder pick reachable only by widening the constraint stays "Constrained" — pinning
+    build_update_entry.can_fix (via the rung-aware has_in_range_upgrade) at False."""
+    record = make_record(
+        installed="1.10.13",
+        latest="1.10.26",
+        diff_index=VERSION_DIFF_MINOR,
+        recommended="1.10.26",
+        recommended_from_rung=RecommendationRung.IN_MAJOR,
+        version_constraint="==1.10.13",
+    )
+    decision = build_update_decide(make_scan([record]))
+    entry = decision["updates"][0]
+    assert entry["next_action"] == "Constrained. Check newer version"
+    assert entry["requires_constraint_widening"] is True
+
+
+def make_installed_detail(record: ScanRecord, insight: PackageInsight | None) -> PackageDetailResult:
+    return PackageDetailResult(
+        records=[record],
+        transitive_cve_groups=[],
+        project_name="proj",
+        packages_registry="PYPI",
+        insight=insight,
+        warnings=[],
+        is_prospective=False,
+    )
+
+
+def test_add_decide_includes_ladder_for_installed_package():
+    record = make_record(name="pydantic", installed="1.10.13", latest_in_range="1.10.13", latest_in_major="1.10.26")
+    detail = make_installed_detail(record, make_insight(latest="2.13.5", recommended="1.10.26"))
+    decision = build_add_decide(detail)
+    assert decision["latest_in_range"] == "1.10.13"
+    assert decision["latest_in_major"] == "1.10.26"
+
+
+def test_add_decide_ladder_null_for_prospective():
+    detail = make_detail(make_insight(), warnings=[], cves=[])
+    decision = build_add_decide(detail)
+    assert decision["latest_in_range"] is None
+    assert decision["latest_in_major"] is None

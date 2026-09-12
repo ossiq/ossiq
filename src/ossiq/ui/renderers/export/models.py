@@ -245,6 +245,30 @@ class PackageMetrics(BaseModel):
         default=None,
         description="Solver-recommended version; None when the package is already at the optimal version",
     )
+    latest_in_range: str | None = Field(
+        default=None,
+        description=(
+            "Newest installable version satisfying version_constraint; equals installed_version "
+            "when the declared range admits nothing newer. Null only when undeterminable — e.g. "
+            "the range is satisfiable only below installed_version (manifest/lockfile divergence)."
+        ),
+    )
+    latest_in_major: str | None = Field(
+        default=None,
+        description=(
+            "Newest installable version sharing installed_version's major line (PEP 440 epoch + "
+            "first release segment on PyPI; semver major on npm); equals installed_version when "
+            "the major line is exhausted. Null only when undeterminable."
+        ),
+    )
+    recommended_from_rung: str | None = Field(
+        default=None,
+        description=(
+            "Which version-ladder rung recommended_version came from: 'solver' or 'in_range' sit "
+            "inside version_constraint and are safe to write as-is; 'in_major' or 'latest' require "
+            "widening version_constraint first. Null only when recommended_version is null."
+        ),
+    )
     update_transitive_impacts: list[TransitiveImpactExport] = Field(
         default_factory=list,
         description="Transitive dependency impacts projected from the recommended update",
@@ -362,6 +386,9 @@ class PackageMetrics(BaseModel):
             ),
             extras=record.extras,
             recommended_version=record.recommended_version,
+            latest_in_range=record.latest_in_range,
+            latest_in_major=record.latest_in_major,
+            recommended_from_rung=record.recommended_from_rung.value if record.recommended_from_rung else None,
             update_transitive_impacts=[
                 TransitiveImpactExport(
                     package_name=i.package_name,
@@ -453,6 +480,21 @@ class TransitivePackageMetrics(BaseModel):
     )
     installed_version: str = Field(description="Currently installed version")
     latest_version: str | None = Field(description="Latest available version")
+    latest_in_range: str | None = Field(
+        default=None,
+        description=(
+            "Newest installable version satisfying this dependency's effective constraint; "
+            "equals installed_version when the range admits nothing newer. Absent when "
+            "undeterminable."
+        ),
+    )
+    latest_in_major: str | None = Field(
+        default=None,
+        description=(
+            "Newest installable version sharing installed_version's major line; equals "
+            "installed_version when the major line is exhausted. Absent when undeterminable."
+        ),
+    )
     time_lag_days: int | None = Field(description="Days between installed and latest version")
     version_age_days: int | None = Field(
         default=None, description="Days since the installed version was published to the registry"
@@ -567,6 +609,8 @@ class TransitivePackageMetrics(BaseModel):
             is_optional_dependency=first.is_optional_dependency,
             installed_version=first.installed_version,
             latest_version=first.latest_version,
+            latest_in_range=first.latest_in_range,
+            latest_in_major=first.latest_in_major,
             time_lag_days=first.time_lag_days,
             version_age_days=first.version_age_days,
             releases_lag=first.releases_lag,

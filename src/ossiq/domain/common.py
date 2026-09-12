@@ -83,6 +83,20 @@ class ConstraintType(StrEnum):
     OVERRIDE = "OVERRIDE"  # completely replaces resolution (npm overrides, uv override-dependencies)
 
 
+class RecommendationRung(StrEnum):
+    """Which rung of the version ladder a ScanRecord.recommended_version came from.
+
+    SOLVER and IN_RANGE sit inside the declared version_constraint and are safe for the writers
+    to apply directly. IN_MAJOR and LATEST are only reachable by widening the constraint first —
+    build_update_plan holds those back into UpdatePlan.held_for_widening instead of writing them.
+    """
+
+    SOLVER = "solver"  # the SAT solver's own pick (post apply_recommendations/clamp_recommendations)
+    IN_RANGE = "in_range"  # ladder fallback: newest version satisfying the declared constraint
+    IN_MAJOR = "in_major"  # ladder fallback: newest version within the installed major line
+    LATEST = "latest"  # ladder fallback: newest version overall
+
+
 # Domain-specific Exceptions
 
 
