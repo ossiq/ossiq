@@ -6,7 +6,7 @@
  */
 
 /**
- * Schema for OSS-IQ project metrics export data (v1.5 adds epss to PackageMetrics, TransitivePackageMetrics and CVEInfo, runs_code_at_install/install_execution_reason to PackageMetrics and TransitivePackageMetrics, fix_age_days to CVEInfo, project_epss/packages_with_epss/packages_with_unscored_cves to summary, declares update_transitive_impacts, and replaces the phi_i/phi_p/phi_a CSI channels with the maintenance-state model: maintenance_state, maintenance_risk, maintenance_coverage, flow_trend, deprecation_signals and deprecation_successor on PackageMetrics and TransitivePackageMetrics, and packages_unmaintained/packages_deprecated on summary)
+ * Schema for OSS-IQ project metrics export data (v1.5 adds epss to PackageMetrics, TransitivePackageMetrics and CVEInfo, runs_code_at_install/install_execution_reason to PackageMetrics and TransitivePackageMetrics, fix_age_days to CVEInfo, project_epss/packages_with_epss/packages_with_unscored_cves to summary, declares update_transitive_impacts, and replaces the phi_i/phi_p/phi_a CSI channels with the maintenance-state model: maintenance_state, maintenance_risk, maintenance_coverage, flow_trend, engagement_buckets, deprecation_signals and deprecation_successor on PackageMetrics and TransitivePackageMetrics, and packages_unmaintained/packages_deprecated on summary)
  */
 export interface OSSIQExportSchemaV15 {
   /**
@@ -209,6 +209,18 @@ export interface PackageMetrics {
    */
   recommended_version?: string | null;
   /**
+   * Newest installable version satisfying version_constraint; equals installed_version when the declared range admits nothing newer. Null only when undeterminable — e.g. the range is satisfiable only below installed_version (manifest/lockfile divergence).
+   */
+  latest_in_range?: string | null;
+  /**
+   * Newest installable version sharing installed_version's major line (PEP 440 epoch + first release segment on PyPI; semver major on npm); equals installed_version when the major line is exhausted. Null only when undeterminable.
+   */
+  latest_in_major?: string | null;
+  /**
+   * Which version-ladder rung recommended_version came from: 'solver' or 'in_range' sit inside version_constraint and are safe to write as-is; 'in_major' or 'latest' require widening version_constraint first. Null only when recommended_version is null.
+   */
+  recommended_from_rung?: "solver" | "in_range" | "in_major" | "latest" | null;
+  /**
    * Whether the installed version is a pre-release (alpha/beta/rc/dev)
    */
   is_prerelease: boolean;
@@ -256,6 +268,10 @@ export interface PackageMetrics {
    * Direction of the issue/PR flow ratio over the engagement window
    */
   flow_trend?: "improving" | "stable" | "declining" | null;
+  /**
+   * Raw flow buckets behind flow_trend, oldest ~30-day bucket first: one [issues_opened, issues_closed, prs_opened, prs_merged] row per bucket
+   */
+  engagement_buckets?: [number, number, number, number][] | null;
   /**
    * Explicit end-of-life markers found for the package
    */
@@ -413,11 +429,19 @@ export interface TransitivePackageMetrics {
   /**
    * Latest available version
    */
-  latest_version: string | null;
+  latest_version?: string | null;
+  /**
+   * Newest installable version satisfying this dependency's effective constraint; equals installed_version when the range admits nothing newer. Absent when undeterminable.
+   */
+  latest_in_range?: string | null;
+  /**
+   * Newest installable version sharing installed_version's major line; equals installed_version when the major line is exhausted. Absent when undeterminable.
+   */
+  latest_in_major?: string | null;
   /**
    * Days between installed and latest version
    */
-  time_lag_days: number | null;
+  time_lag_days?: number | null;
   /**
    * Days since the installed version was published to the registry
    */
@@ -425,7 +449,7 @@ export interface TransitivePackageMetrics {
   /**
    * Number of releases between installed and latest
    */
-  releases_lag: number | null;
+  releases_lag?: number | null;
   /**
    * Known CVEs for this package (absent when empty)
    */
@@ -498,6 +522,10 @@ export interface TransitivePackageMetrics {
    * Direction of the issue/PR flow ratio over the engagement window
    */
   flow_trend?: "improving" | "stable" | "declining" | null;
+  /**
+   * Raw flow buckets behind flow_trend, oldest ~30-day bucket first: one [issues_opened, issues_closed, prs_opened, prs_merged] row per bucket
+   */
+  engagement_buckets?: [number, number, number, number][] | null;
   /**
    * Explicit end-of-life markers found for the package
    */

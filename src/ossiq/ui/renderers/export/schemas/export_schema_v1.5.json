@@ -283,6 +283,20 @@
           ],
           "description": "Latest available version"
         },
+        "latest_in_range": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Newest installable version satisfying this dependency's effective constraint; equals installed_version when the range admits nothing newer. Absent when undeterminable."
+        },
+        "latest_in_major": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Newest installable version sharing installed_version's major line; equals installed_version when the major line is exhausted. Absent when undeterminable."
+        },
         "time_lag_days": {
           "type": [
             "integer",
@@ -715,6 +729,34 @@
             "null"
           ],
           "description": "Solver-recommended version; null when the package is already at the optimal version"
+        },
+        "latest_in_range": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Newest installable version satisfying version_constraint; equals installed_version when the declared range admits nothing newer. Null only when undeterminable — e.g. the range is satisfiable only below installed_version (manifest/lockfile divergence)."
+        },
+        "latest_in_major": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Newest installable version sharing installed_version's major line (PEP 440 epoch + first release segment on PyPI; semver major on npm); equals installed_version when the major line is exhausted. Null only when undeterminable."
+        },
+        "recommended_from_rung": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "solver",
+            "in_range",
+            "in_major",
+            "latest",
+            null
+          ],
+          "description": "Which version-ladder rung recommended_version came from: 'solver' or 'in_range' sit inside version_constraint and are safe to write as-is; 'in_major' or 'latest' require widening version_constraint first. Null only when recommended_version is null."
         },
         "is_prerelease": {
           "type": "boolean",

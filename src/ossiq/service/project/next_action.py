@@ -5,6 +5,7 @@ Pure: takes a ScanRecord, returns a label or None. Styling (Rich markup for the 
 colour classes for the HTML report) lives in the renderers that consume this.
 """
 
+from ossiq.domain.common import RecommendationRung
 from ossiq.domain.version import (
     VERSION_DIFF_BUILD,
     VERSION_DIFF_MAJOR,
@@ -37,10 +38,27 @@ NEXT_ACTION_PRIORITY: tuple[str, ...] = (
 
 AT_LATEST_DIFFS: frozenset[int] = frozenset({VERSION_LATEST, VERSION_DIFF_BUILD, VERSION_DIFF_PRERELEASE})
 
+# Rungs that sit inside the declared version_constraint — the writers can apply these directly.
+# IN_MAJOR/LATEST require widening the constraint first, so a package only reachable there is
+# still "Constrained" from this ladder's point of view, matching the console/agent wording that
+# predates the version-ladder fallback.
+WRITABLE_RUNGS: frozenset[RecommendationRung | None] = frozenset(
+    {None, RecommendationRung.SOLVER, RecommendationRung.IN_RANGE}
+)
+
 
 def has_in_range_upgrade(record: ScanRecord) -> bool:
-    """True when the solver found somewhere to move to that isn't the installed version."""
-    return record.recommended_version is not None and record.recommended_version != record.installed_version
+    """True when the solver found somewhere to move to, inside the declared range.
+
+    A ladder pick that only exists by widening version_constraint (IN_MAJOR/LATEST) does not
+    count here — it needs the manifest constraint widened first, so it stays "Constrained" from
+    this function's point of view even though recommended_version is populated.
+    """
+    return (
+        record.recommended_version is not None
+        and record.recommended_version != record.installed_version
+        and record.recommended_from_rung in WRITABLE_RUNGS
+    )
 
 
 def next_action_label(record: ScanRecord) -> str | None:

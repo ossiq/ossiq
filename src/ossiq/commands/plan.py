@@ -112,7 +112,12 @@ def prepare_plan(ctx: typer.Context, options: CommandPlanOptions) -> tuple[Proje
     if options.overrides:
         warn_unknown_override_versions(sources, options.overrides)
 
-    if not plan.direct_entries and not plan.transitive_entries and not plan.held_for_cooldown:
+    if (
+        not plan.direct_entries
+        and not plan.transitive_entries
+        and not plan.held_for_cooldown
+        and not plan.held_for_widening
+    ):
         if options.security_only:
             typer.echo(HELP_PLAN_NO_SECURITY_RECOMMENDATIONS)
         else:

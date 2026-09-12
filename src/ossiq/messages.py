@@ -150,6 +150,8 @@ HELP_PLAN_HELD_FOR_COOLDOWN_HEADER = (
     "Held for cooldown — newer versions exist but are younger than the {days}-day cooldown:"
 )
 
+HELP_PLAN_HELD_FOR_WIDENING_HEADER = "Requires constraint widening — a newer version exists outside the declared range:"
+
 HELP_PLAN_CVE_BYPASS_NOTE = "↳ cooldown bypassed — installed version has a known CVE"
 
 HELP_ADD_COMMAND = """

@@ -4,6 +4,7 @@ Dataclasses for the project scan pipeline.
 
 from dataclasses import dataclass, field
 
+from ossiq.domain.common import RecommendationRung
 from ossiq.domain.cve import CVE
 from ossiq.domain.package import Package
 from ossiq.domain.project import ConstraintSource, PeerRequirement
@@ -74,6 +75,14 @@ class ScanRecord:
     version_constraint: str | None = None
     """Raw version specifier from the manifest, e.g. "^1.2.0"; None for unconstrained deps."""
 
+    latest_in_range: str | None = None
+    """Newest installable version satisfying version_constraint. None only when undeterminable. Computed in
+    service.project.ladder.compute_version_ladder; a plain registry fact, not solver-guarded."""
+
+    latest_in_major: str | None = None
+    """Newest installable version sharing installed_version's major line (PEP 440 epoch + first
+    release segment on PyPI; semver major on npm). None only when undeterminable. Computed alongside latest_in_range."""
+
     version_age_days: int | None = None
     """Days since installed_version was published. None if the publish date is unknown."""
 
@@ -118,6 +127,10 @@ class ScanRecord:
 
     recommended_version_reason: RecommendationReason | None = None
     """Human-readable explanation of why recommended_version was chosen."""
+
+    recommended_from_rung: RecommendationRung | None = None
+    """Which version-ladder rung recommended_version came from. SOLVER and IN_RANGE sit inside
+    version_constraint. None only when recommended_version is None."""
 
     all_constraints: list[str] = field(default_factory=list)
     """All version specifiers from every direct parent; mirrors DependencyDescriptor.all_constraints.

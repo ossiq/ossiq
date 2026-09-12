@@ -12,6 +12,7 @@ from ossiq.domain.project import ConstraintSource, PeerRequirement
 from ossiq.domain.repository import Repository
 from ossiq.risk.maintenance import deprecation_evidence
 from ossiq.service.common import package_versions
+from ossiq.service.project.ladder import compute_version_ladder
 from ossiq.service.project.models import DependencyDescriptor, PrefetchedData, ScanRecord
 from ossiq.solver.version_matchers import version_satisfies_constraint
 
@@ -111,6 +112,15 @@ def scan_record(
     version_diff_index = version_rules.difference_versions(package_version, package_info.latest_version)
     releases_lag = len(releases_since_installed) - 1
 
+    ladder = compute_version_ladder(
+        releases_since_installed,
+        package_version,
+        version_constraint,
+        version_rules,
+        latest_version=package_info.latest_version,
+        now=now,
+    )
+
     deprecation = deprecation_evidence(
         archived=prefetched_repository.archived if prefetched_repository else None,
         classifiers=package_info.classifiers,
@@ -137,6 +147,8 @@ def scan_record(
         is_optional_dependency=is_optional_dependency,
         dependency_path=dependency_path,
         version_constraint=version_constraint,
+        latest_in_range=ladder.latest_in_range,
+        latest_in_major=ladder.latest_in_major,
         extras=extras,
         constraint_info=constraint_info,
         repo_url=package_info.repo_url,

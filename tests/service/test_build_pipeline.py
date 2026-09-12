@@ -9,14 +9,19 @@ from unittest.mock import MagicMock
 
 from packaging.version import Version
 
-from ossiq.domain.common import ConstraintType, CveDatabase, ProjectPackagesRegistry
+from ossiq.domain.common import ConstraintType, CveDatabase, ProjectPackagesRegistry, RecommendationRung
 from ossiq.domain.cve import CVE, Severity
 from ossiq.domain.package import Package
 from ossiq.domain.project import ConstraintSource
 from ossiq.domain.version import PackageVersion, VersionsDifference
 from ossiq.service.common.package_versions import filter_versions_between
 from ossiq.service.project.models import DependencyDescriptor, PrefetchedData, ScanRecord
-from ossiq.service.project.recommendations import apply_conflicts, apply_recommendations, clamp_recommendations
+from ossiq.service.project.recommendations import (
+    apply_conflicts,
+    apply_ladder_fallback,
+    apply_recommendations,
+    clamp_recommendations,
+)
 from ossiq.service.project.records import build_records
 from ossiq.solver.dependencies_solver import (
     EMPTY_OUTPUT,
@@ -68,6 +73,17 @@ def make_version_rules() -> MagicMock:
     rules = MagicMock()
     rules.package_registry = ProjectPackagesRegistry.PYPI
     rules.difference_versions.return_value = _DIFF
+
+    def _compare(v1: str, v2: str) -> int:
+        a, b = Version(v1), Version(v2)
+        return -1 if a < b else (1 if a > b else 0)
+
+    def _newest(candidates):
+        as_list = list(candidates)
+        return max(as_list, key=lambda pv: Version(pv.version)) if as_list else None
+
+    rules.compare_versions.side_effect = _compare
+    rules.newest_version.side_effect = _newest
     return rules
 
 
@@ -407,6 +423,165 @@ class TestClampRecommendations:
         self.clamp([record], registry, cooldown_period=7)
 
         assert record.recommended_version == "5.3.0"
+
+
+# ============================================================================
+# apply_ladder_fallback
+# ============================================================================
+
+
+def make_ladder_record(
+    name: str,
+    installed: str,
+    *,
+    latest_in_range: str | None = None,
+    latest_in_major: str | None = None,
+    latest_version: str | None = None,
+    recommended_version: str | None = None,
+    recommended_from_rung: RecommendationRung | None = None,
+) -> ScanRecord:
+    record = make_record(name, installed=installed)
+    record.latest_in_range = latest_in_range
+    record.latest_in_major = latest_in_major
+    record.latest_version = latest_version
+    record.recommended_version = recommended_version
+    record.recommended_from_rung = recommended_from_rung
+    return record
+
+
+class TestApplyLadderFallback:
+    def test_none_recommendation_filled_from_in_major(self):
+        """The named regression: recommended_version is not None for pydantic==1.10.13."""
+        registry = make_npm_registry({"pydantic": [make_dated_pv("1.10.26"), make_dated_pv("2.13.5")]})
+        record = make_ladder_record(
+            "pydantic", "1.10.13", latest_in_range="1.10.13", latest_in_major="1.10.26", latest_version="2.13.5"
+        )
+
+        apply_ladder_fallback([record], registry, now=FIXED_NOW)
+
+        assert record.recommended_version == "1.10.26"
+        assert record.recommended_version is not None
+        assert record.recommended_from_rung == RecommendationRung.IN_MAJOR
+
+    def test_recommendation_equal_to_installed_is_promoted(self):
+        registry = make_npm_registry({"pkg": [make_dated_pv("1.5.0")]})
+        record = make_ladder_record(
+            "pkg",
+            "1.0.0",
+            latest_in_range="1.5.0",
+            latest_in_major="1.5.0",
+            latest_version="1.5.0",
+            recommended_version="1.0.0",  # solver said "stay put"
+        )
+
+        apply_ladder_fallback([record], registry, now=FIXED_NOW)
+
+        assert record.recommended_version == "1.5.0"
+        assert record.recommended_from_rung == RecommendationRung.IN_RANGE
+
+    def test_existing_upgrade_recommendation_untouched(self):
+        registry = make_npm_registry({})
+        record = make_ladder_record(
+            "pkg",
+            "1.0.0",
+            latest_in_range="1.5.0",
+            latest_in_major="1.5.0",
+            latest_version="1.5.0",
+            recommended_version="1.2.0",
+            recommended_from_rung=RecommendationRung.SOLVER,
+        )
+
+        apply_ladder_fallback([record], registry, now=FIXED_NOW)
+
+        assert record.recommended_version == "1.2.0"
+        assert record.recommended_from_rung == RecommendationRung.SOLVER
+
+    def test_first_strictly_newer_rung_wins(self):
+        """latest_in_range equals installed, so the fallback falls through to latest_in_major."""
+        registry = make_npm_registry({"pkg": [make_dated_pv("1.1.0"), make_dated_pv("2.0.0")]})
+        record = make_ladder_record(
+            "pkg", "1.0.0", latest_in_range="1.0.0", latest_in_major="1.1.0", latest_version="2.0.0"
+        )
+
+        apply_ladder_fallback([record], registry, now=FIXED_NOW)
+
+        assert record.recommended_version == "1.1.0"
+        assert record.recommended_from_rung == RecommendationRung.IN_MAJOR
+
+    def test_no_rung_newer_than_installed_leaves_none(self):
+        registry = make_npm_registry({})
+        record = make_ladder_record(
+            "pkg", "1.0.0", latest_in_range="1.0.0", latest_in_major="1.0.0", latest_version="1.0.0"
+        )
+
+        apply_ladder_fallback([record], registry, now=FIXED_NOW)
+
+        assert record.recommended_version is None
+        assert record.recommended_from_rung is None
+
+    def test_validator_rejection_falls_through_to_next_rung(self):
+        registry = make_npm_registry({"pkg": [make_dated_pv("1.1.0"), make_dated_pv("2.0.0")]})
+        record = make_ladder_record(
+            "pkg", "1.0.0", latest_in_range="1.1.0", latest_in_major="1.1.0", latest_version="2.0.0"
+        )
+
+        apply_ladder_fallback([record], registry, now=FIXED_NOW, validator=lambda pkg, ver: ver != "1.1.0")
+
+        assert record.recommended_version == "2.0.0"
+        assert record.recommended_from_rung == RecommendationRung.LATEST
+
+    def test_synthetic_reason_carries_age_days(self):
+        """Guards the cooldown path: is_held_for_cooldown reads reason.age_days."""
+        registry = make_npm_registry({"pkg": [make_dated_pv("1.1.0", PUBLISHED_FRESH)]})
+        record = make_ladder_record("pkg", "1.0.0", latest_in_range="1.1.0", latest_version="1.1.0")
+
+        apply_ladder_fallback([record], registry, now=FIXED_NOW)
+
+        assert record.recommended_version_reason is not None
+        assert record.recommended_version_reason.age_days == 2  # PUBLISHED_FRESH is 2 days before FIXED_NOW
+
+    def test_ignores_records_without_a_newer_candidate_in_a_mixed_batch(self):
+        registry = make_npm_registry({"b": [make_dated_pv("2.0.0")]})
+        stuck = make_ladder_record(
+            "a", "1.0.0", latest_in_range="1.0.0", latest_in_major="1.0.0", latest_version="1.0.0"
+        )
+        movable = make_ladder_record(
+            "b", "1.0.0", latest_in_range="1.0.0", latest_in_major="2.0.0", latest_version="2.0.0"
+        )
+
+        apply_ladder_fallback([stuck, movable], registry, now=FIXED_NOW)
+
+        assert stuck.recommended_version is None
+        assert movable.recommended_version == "2.0.0"
+
+    def test_requests_recommendation_has_no_more_cves_than_installed(self):
+        """Guard test: a rung is always strictly newer than installed, and older PyPI releases
+        carry strictly more accumulated vulnerabilities — so as long as the ladder never
+        downgrades, a fallback pick can't be *more* vulnerable than staying put. Fails if a
+        future change lets a rung fall back below installed_version."""
+        cve = CVE(
+            id="GHSA-9hjg-9r4m-mvj7",
+            cve_ids=("CVE-2023-0001",),
+            source=CveDatabase.OSV,
+            package_name="requests",
+            package_registry=ProjectPackagesRegistry.PYPI,
+            summary="bad things",
+            severity=Severity.MEDIUM,
+            affected_versions=("2.28.1",),
+            published=None,
+            link="https://example.test/advisory",
+        )
+        registry = make_npm_registry({"requests": [make_dated_pv("2.31.0")]})
+        record = make_ladder_record(
+            "requests", "2.28.1", latest_in_range="2.28.1", latest_in_major="2.31.0", latest_version="2.31.0"
+        )
+        record.cve = [cve]
+
+        apply_ladder_fallback([record], registry, now=FIXED_NOW)
+
+        assert record.recommended_version == "2.31.0"
+        assert registry.compare_versions(record.recommended_version, record.installed_version) > 0
+        assert record.recommended_version not in cve.affected_versions
 
 
 # ============================================================================
