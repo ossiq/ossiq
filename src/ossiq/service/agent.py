@@ -197,16 +197,29 @@ def build_update_entry(record: ScanRecord) -> dict[str, Any] | None:
         reasons.append(f"declared range {record.version_constraint} caps this below {record.latest_version}")
     if can_fix:
         reasons.append(f"recommend updating {installed} -> {recommended}")
+    if record.recommended_version_exceeds_range:
+        # B2: recommended is a ladder fallback (latest_in_major / latest_in_range), not the
+        # solver's own in-constraint pick. B1: this is what keeps `to` below from ever repeating
+        # `from` when the installed version itself is the problem — reaching it needs a manifest
+        # edit, not just a lockfile bump.
+        reasons.append(
+            f"no fix within the declared range {record.version_constraint}; {recommended} resolves it "
+            f"but requires widening the range"
+        )
 
     entry: dict[str, Any] = {
         "package": record.package_name,
         "next_action": agent_next_action(record),
         "from": installed,
         "to": recommended,
+        "latest_in_range": record.latest_in_range,
+        "latest_in_major": record.latest_in_major,
         "reasons": reasons,
         "cves": [cve_summary(cve) for cve in cves],
         "transitive_impact": [impact_summary(impact) for impact in record.update_transitive_impacts],
     }
+    if record.recommended_version_exceeds_range:
+        entry["target_exceeds_declared_range"] = True
     triage = triage_summary(record)
     if triage is not None:
         entry["triage"] = triage

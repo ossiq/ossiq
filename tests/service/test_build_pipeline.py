@@ -9,6 +9,7 @@ from unittest.mock import MagicMock
 
 from packaging.version import Version
 
+from ossiq.adapters.api_pypi import PackageRegistryApiPypi
 from ossiq.domain.common import ConstraintType, CveDatabase, ProjectPackagesRegistry
 from ossiq.domain.cve import CVE, Severity
 from ossiq.domain.package import Package
@@ -16,8 +17,14 @@ from ossiq.domain.project import ConstraintSource
 from ossiq.domain.version import PackageVersion, VersionsDifference
 from ossiq.service.common.package_versions import filter_versions_between
 from ossiq.service.project.models import DependencyDescriptor, PrefetchedData, ScanRecord
-from ossiq.service.project.recommendations import apply_conflicts, apply_recommendations, clamp_recommendations
-from ossiq.service.project.records import build_records
+from ossiq.service.project.recommendations import (
+    apply_conflicts,
+    apply_recommendations,
+    apply_version_ladder_fallback,
+    clamp_recommendations,
+)
+from ossiq.service.project.records import build_records, compute_latest_in_major, compute_latest_in_range
+from ossiq.settings import Settings
 from ossiq.solver.dependencies_solver import (
     EMPTY_OUTPUT,
     ConstraintConflict,
@@ -167,6 +174,51 @@ class TestBuildRecords:
             make_prefetched(packages, pairs),
         )
         assert [r.package_name for r in records] == ["a", "b"]
+
+
+# ============================================================================
+# compute_latest_in_range / compute_latest_in_major  (B2)
+# ============================================================================
+
+PYPI_RULES = PackageRegistryApiPypi(Settings())
+
+
+class TestComputeLatestInRange:
+    def test_exact_pin_reports_itself(self):
+        """An exact pin admits no other candidate — latest_in_range is the pin, not None."""
+        releases = [make_pv(v) for v in ("2.28.1", "2.29.0", "2.34.2")]
+        result = compute_latest_in_range(releases, "2.28.1", "==2.28.1", PYPI_RULES)
+        assert result == "2.28.1"
+
+    def test_open_range_returns_newest_satisfying_release(self):
+        releases = [make_pv(v) for v in ("2.28.1", "2.29.0", "2.34.2")]
+        result = compute_latest_in_range(releases, "2.28.1", ">=2.28.1,<2.30", PYPI_RULES)
+        assert result == "2.29.0"
+
+    def test_yanked_release_excluded(self):
+        releases = [make_pv("2.28.1"), PackageVersion(
+            version="2.29.0", license=None, package_url="x", declared_dependencies={}, is_yanked=True
+        )]
+        result = compute_latest_in_range(releases, "2.28.1", ">=2.28.1", PYPI_RULES)
+        assert result == "2.28.1"
+
+
+class TestComputeLatestInMajor:
+    def test_pydantic_style_pin_finds_newest_patch_in_major(self):
+        """The report's own example: pinned at 1.10.13, 1.10.26 exists, 2.13.5 is a different major."""
+        releases = [make_pv(v) for v in ("1.10.13", "1.10.14", "1.10.26", "2.0.0", "2.13.5")]
+        result = compute_latest_in_major(releases, "1.10.13", PYPI_RULES)
+        assert result == "1.10.26"
+
+    def test_requests_style_pin_matches_latest_version(self):
+        releases = [make_pv(v) for v in ("2.28.1", "2.29.0", "2.34.2")]
+        result = compute_latest_in_major(releases, "2.28.1", PYPI_RULES)
+        assert result == "2.34.2"
+
+    def test_no_same_major_release_returns_none(self):
+        releases = [make_pv("2.0.0")]
+        result = compute_latest_in_major(releases, "1.10.13", PYPI_RULES)
+        assert result is None
 
 
 # ============================================================================
@@ -407,6 +459,100 @@ class TestClampRecommendations:
         self.clamp([record], registry, cooldown_period=7)
 
         assert record.recommended_version == "5.3.0"
+
+
+# ============================================================================
+# apply_version_ladder_fallback  (B2)
+# ============================================================================
+
+
+def make_ladder_record(
+    installed: str,
+    latest_version: str | None,
+    latest_in_major: str | None,
+    latest_in_range: str | None,
+    recommended: str | None,
+) -> ScanRecord:
+    record = make_record("pkg", installed=installed)
+    record.latest_version = latest_version
+    record.latest_in_major = latest_in_major
+    record.latest_in_range = latest_in_range
+    record.recommended_version = recommended
+    return record
+
+
+class TestApplyVersionLadderFallback:
+    def test_pydantic_style_pin_falls_back_to_latest_in_major_not_latest_overall(self):
+        """The report's B2 example: exact pin at 1.10.13, only escape is 1.10.26 within the
+        major — 2.13.5 exists but crosses a breaking major and must not be auto-recommended."""
+        record = make_ladder_record(
+            installed="1.10.13",
+            latest_version="2.13.5",
+            latest_in_major="1.10.26",
+            latest_in_range="1.10.13",
+            recommended="1.10.13",  # solver's own pick: stuck at the pin
+        )
+        apply_version_ladder_fallback([record])
+        assert record.recommended_version == "1.10.26"
+        assert record.recommended_version_exceeds_range is True
+
+    def test_requests_style_pin_falls_back_to_latest_version_when_same_major(self):
+        record = make_ladder_record(
+            installed="2.28.1",
+            latest_version="2.34.2",
+            latest_in_major="2.34.2",
+            latest_in_range="2.28.1",
+            recommended="2.28.1",
+        )
+        apply_version_ladder_fallback([record])
+        assert record.recommended_version == "2.34.2"
+        assert record.recommended_version_exceeds_range is True
+
+    def test_none_recommendation_also_falls_back(self):
+        """Covers the global-solver-conflict path, where recommended_version is never set at all."""
+        record = make_ladder_record(
+            installed="1.10.13",
+            latest_version="2.13.5",
+            latest_in_major="1.10.26",
+            latest_in_range="1.10.13",
+            recommended=None,
+        )
+        apply_version_ladder_fallback([record])
+        assert record.recommended_version == "1.10.26"
+        assert record.recommended_version_exceeds_range is True
+
+    def test_in_range_recommendation_left_untouched(self):
+        """The solver already found a real in-range move — the ladder must not interfere."""
+        record = make_ladder_record(
+            installed="1.0.0",
+            latest_version="1.2.0",
+            latest_in_major="1.2.0",
+            latest_in_range="1.2.0",
+            recommended="1.2.0",
+        )
+        apply_version_ladder_fallback([record])
+        assert record.recommended_version == "1.2.0"
+        assert record.recommended_version_exceeds_range is False
+
+    def test_genuinely_at_latest_stays_untouched(self):
+        record = make_ladder_record(
+            installed="2.34.2",
+            latest_version="2.34.2",
+            latest_in_major="2.34.2",
+            latest_in_range="2.34.2",
+            recommended="2.34.2",
+        )
+        apply_version_ladder_fallback([record])
+        assert record.recommended_version == "2.34.2"
+        assert record.recommended_version_exceeds_range is False
+
+    def test_no_ladder_data_available_is_noop(self):
+        record = make_ladder_record(
+            installed="1.0.0", latest_version=None, latest_in_major=None, latest_in_range=None, recommended=None
+        )
+        apply_version_ladder_fallback([record])
+        assert record.recommended_version is None
+        assert record.recommended_version_exceeds_range is False
 
 
 # ============================================================================

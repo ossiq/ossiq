@@ -55,6 +55,7 @@ def make_record(
     maintenance: MaintenanceAssessment | None = None,
     recommended_version: str | None = None,
     version_constraint: str | None = None,
+    recommended_version_exceeds_range: bool = False,
 ) -> ScanRecord:
     return ScanRecord(
         package_name="demo",
@@ -71,6 +72,7 @@ def make_record(
         maintenance=maintenance,
         recommended_version=recommended_version,
         version_constraint=version_constraint,
+        recommended_version_exceeds_range=recommended_version_exceeds_range,
     )
 
 
@@ -140,3 +142,28 @@ def test_active_cve_outranks_a_constrained_package():
         version_constraint="~1.0.0",
     )
     assert next_action_label(record) == CHECK_FOR_THE_FIX
+
+
+# --- B2: ladder fallback picks are not trivial in-range bumps ---------------------------------
+
+
+def test_ladder_fallback_pick_is_constrained_not_update_immediately():
+    """A pick from apply_version_ladder_fallback differs from installed_version exactly like a
+    real in-range bump does — recommended_version_exceeds_range is what tells next_action_label
+    the two aren't the same thing, so it must not read as a trivial "Update Immediately".
+    """
+    record = make_record(
+        versions_diff_index=MINOR,
+        recommended_version="1.10.26",
+        version_constraint="==1.10.13",
+        recommended_version_exceeds_range=True,
+    )
+    assert next_action_label(record) == CONSTRAINED_CHECK_NEWER
+
+
+def test_in_range_pick_is_unaffected_by_the_exceeds_range_check():
+    """recommended_version_exceeds_range defaults to False, so a genuine in-range solver pick
+    keeps behaving exactly as before B2.
+    """
+    record = make_record(versions_diff_index=MINOR, recommended_version="1.0.7", version_constraint="~1.0.0")
+    assert next_action_label(record) == UPDATE_IMMEDIATELY

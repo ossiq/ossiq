@@ -8,7 +8,7 @@ entirely from existing scan/package result fields.
 from ossiq.domain.common import ConstraintType, CveDatabase, ProjectPackagesRegistry
 from ossiq.domain.cve import CVE, Severity
 from ossiq.domain.project import ConstraintSource
-from ossiq.domain.version import VERSION_DIFF_MAJOR, VERSION_LATEST, VersionsDifference
+from ossiq.domain.version import VERSION_DIFF_MAJOR, VERSION_DIFF_MINOR, VERSION_LATEST, VersionsDifference
 from ossiq.risk.maintenance import MaintenanceAssessment, MaintenanceState
 from ossiq.service.agent import build_add_decide, build_update_decide
 from ossiq.service.package import (
@@ -19,6 +19,7 @@ from ossiq.service.package import (
     PackageWarning,
 )
 from ossiq.service.project.models import ScanRecord, ScanResult
+from ossiq.service.project.recommendations import apply_version_ladder_fallback
 
 
 def make_cve(version: str = "1.0.0", severity: Severity = Severity.HIGH) -> CVE:
@@ -165,6 +166,62 @@ def test_update_check_for_the_fix_when_cve_has_no_fix():
     decision = build_update_decide(make_scan([record]))
     assert decision["next_action"] == "Check for the Fix"
     assert decision["updates"][0]["next_action"] == "Check for the Fix"
+
+
+def test_update_never_recommends_staying_on_a_vulnerable_pin():
+    """B1 regression, reassessed after B2. Finding a target beyond the declared range is now B2's
+    job (apply_version_ladder_fallback, in service.project.recommendations) — this test only
+    checks that build_update_entry correctly surfaces what the ladder already wrote: `to` reflects
+    the fallback pick, never repeats `from`, and the entry says explicitly that reaching it
+    requires widening the declared range. https://github.com/ossiq/ossiq defect report, B1 + B2.
+    """
+    record = make_record(
+        installed="2.28.1",
+        latest="2.34.2",
+        diff_index=VERSION_DIFF_MINOR,
+        cves=[make_cve("2.28.1")],
+        recommended="2.34.2",  # as apply_version_ladder_fallback would already have set it
+        version_constraint="==2.28.1",
+        recommended_version_exceeds_range=True,
+        latest_in_range="2.28.1",
+        latest_in_major="2.34.2",
+    )
+    decision = build_update_decide(make_scan([record]))
+    entry = decision["updates"][0]
+    assert entry["to"] != entry["from"]
+    assert entry["to"] == "2.34.2"
+    assert entry["target_exceeds_declared_range"] is True
+    assert entry["latest_in_range"] == "2.28.1"
+    assert entry["latest_in_major"] == "2.34.2"
+    # can_fix is now True (a target exists somewhere), so this must not fall through to the
+    # "genuinely nothing available" verdict (Check for the Fix) — the exceeds-range branch in
+    # next_action_label takes over instead.
+    assert entry["next_action"] == "Constrained. Check newer version"
+
+
+def test_update_ladder_fallback_composes_with_agent_decision():
+    """B1 + B2 wired together exactly as the real scan pipeline runs them:
+    apply_version_ladder_fallback first (upstream), then build_update_decide consuming its output.
+    Proves the two layers compose correctly without agent.py needing any CVE-specific fallback
+    logic of its own.
+    """
+    record = make_record(
+        installed="2.28.1",
+        latest="2.34.2",
+        diff_index=VERSION_DIFF_MINOR,
+        cves=[make_cve("2.28.1")],
+        recommended="2.28.1",  # the solver's own (stuck) pick, before the fallback runs
+        version_constraint="==2.28.1",
+        latest_in_range="2.28.1",
+        latest_in_major="2.34.2",
+    )
+    apply_version_ladder_fallback([record])
+
+    decision = build_update_decide(make_scan([record]))
+    entry = decision["updates"][0]
+    assert entry["to"] == "2.34.2"
+    assert entry["to"] != entry["from"]
+    assert entry["target_exceeds_declared_range"] is True
 
 
 def test_update_find_alternative_on_yanked():

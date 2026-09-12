@@ -716,6 +716,24 @@
           ],
           "description": "Solver-recommended version; null when the package is already at the optimal version"
         },
+        "recommended_version_exceeds_range": {
+          "type": "boolean",
+          "description": "True when recommended_version falls outside the declared constraint (a B2 fallback pick from latest_in_major/latest_in_range) \u2014 reaching it needs a manifest edit, not just a lockfile bump"
+        },
+        "latest_in_range": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Newest version satisfying the declared constraint; equals installed_version for an exact pin"
+        },
+        "latest_in_major": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Newest version sharing installed_version's major component, regardless of the declared constraint"
+        },
         "is_prerelease": {
           "type": "boolean",
           "description": "Whether the installed version is a pre-release (alpha/beta/rc/dev)"

@@ -62,6 +62,11 @@ def next_action_label(record: ScanRecord) -> str | None:
     if diff_index == VERSION_DIFF_MAJOR:
         return CHECK_RELEASE_NOTES
     if diff_index in (VERSION_DIFF_MINOR, VERSION_DIFF_PATCH):
+        if record.recommended_version_exceeds_range:
+            # B2: recommended_version came from the ladder fallback (latest_in_major /
+            # latest_in_range), not the solver's own in-constraint pick — reaching it needs a
+            # manifest edit, not just a lockfile bump, however trivial the version bump itself is.
+            return CONSTRAINED_CHECK_NEWER
         if has_in_range_upgrade(record):
             return UPDATE_IMMEDIATELY
         # No recommendation and nothing constraining it: the solver simply had no opinion.

@@ -10,10 +10,59 @@ from ossiq.domain.cve import CVE
 from ossiq.domain.package import Package
 from ossiq.domain.project import ConstraintSource, PeerRequirement
 from ossiq.domain.repository import Repository
+from ossiq.domain.version import VERSION_DIFF_MAJOR
 from ossiq.risk.maintenance import deprecation_evidence
 from ossiq.service.common import package_versions
 from ossiq.service.project.models import DependencyDescriptor, PrefetchedData, ScanRecord
 from ossiq.solver.version_matchers import version_satisfies_constraint
+
+
+def compute_latest_in_range(
+    releases: list[package_versions.PackageVersion],
+    installed_version: str,
+    version_constraint: str | None,
+    version_rules: VersionRules,
+) -> str | None:
+    """B2: newest published release satisfying the declared constraint.
+
+    `releases` is already scoped to installed_version-or-newer (see get_package_versions_since),
+    so this never returns anything older than what's installed. Equal to installed_version when
+    the constraint admits nothing else — an exact pin correctly reports itself here, rather than
+    the field going missing. Returns None only when installed_version's own release is absent from
+    `releases` (e.g. it was yanked after being locked in) and nothing else satisfies the range.
+    """
+    eligible = [
+        r
+        for r in releases
+        if not r.is_yanked
+        and not r.is_unpublished
+        and version_satisfies_constraint(r.version, version_constraint, version_rules.package_registry)
+    ]
+    newest = version_rules.newest_version(eligible)
+    return newest.version if newest else None
+
+
+def compute_latest_in_major(
+    releases: list[package_versions.PackageVersion],
+    installed_version: str,
+    version_rules: VersionRules,
+) -> str | None:
+    """B2: newest published release sharing installed_version's major component.
+
+    Deliberately ignores the declared constraint — this is "the newest I could reach without
+    crossing a breaking major," e.g. pydantic 1.10.13 -> 1.10.26 while 2.x exists. Cross-major
+    compatibility itself is out of scope here (see B5); this only tells you how far you can go
+    within the major you're already on. None when no comparable same-major release is found.
+    """
+    same_major = [
+        r
+        for r in releases
+        if not r.is_yanked
+        and not r.is_unpublished
+        and version_rules.difference_versions(installed_version, r.version).diff_index != VERSION_DIFF_MAJOR
+    ]
+    newest = version_rules.newest_version(same_major)
+    return newest.version if newest else None
 
 
 def parse_iso(datetime_str: str | None):
@@ -111,6 +160,11 @@ def scan_record(
     version_diff_index = version_rules.difference_versions(package_version, package_info.latest_version)
     releases_lag = len(releases_since_installed) - 1
 
+    latest_in_range = compute_latest_in_range(
+        releases_since_installed, package_version, version_constraint, version_rules
+    )
+    latest_in_major = compute_latest_in_major(releases_since_installed, package_version, version_rules)
+
     deprecation = deprecation_evidence(
         archived=prefetched_repository.archived if prefetched_repository else None,
         classifiers=package_info.classifiers,
@@ -129,6 +183,8 @@ def scan_record(
         dependency_name=package_name,
         installed_version=package_version,
         latest_version=package_info.latest_version,
+        latest_in_range=latest_in_range,
+        latest_in_major=latest_in_major,
         time_lag_days=time_lag_days,
         version_age_days=version_age_days,
         releases_lag=releases_lag,

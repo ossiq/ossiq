@@ -41,6 +41,48 @@ def apply_recommendations(
             record.recommended_version_reason = output.reasons.get(record.package_name)
 
 
+def apply_version_ladder_fallback(records: list[ScanRecord]) -> None:
+    """B2: when recommended_version is stuck at (or below) installed_version, fall back down the
+    version ladder instead of leaving the caller with nothing to act on.
+
+    Root cause this addresses: the solver only ever proposes versions inside the declared
+    constraint, so an exact pin (or a global solver conflict) leaves recommended_version at
+    None/installed even when a perfectly good newer release exists just outside the pin. B1, B3
+    and B7 are downstream symptoms of that same gap.
+
+    Ladder, most-preferred first:
+      1. latest_version  - but only when it shares installed_version's major. Crossing a breaking
+         major without knowing whether it's API-compatible is exactly the pydantic-1.x-to-2.x
+         trap this bug report opens with; that judgment call is B5's job, not implemented yet, so
+         this step never silently proposes a different major.
+      2. latest_in_major - newest release within the major you're already on.
+      3. latest_in_range - newest release the declared constraint itself allows (usually just
+         installed_version again for an exact pin — kept as the last resort so the field is never
+         simply abandoned).
+
+    Sets recommended_version_exceeds_range when the pick isn't the solver's own in-constraint
+    choice, so downstream consumers (next_action, the MCP/agent format, the export) know reaching
+    it needs a manifest edit, not just a lockfile bump. Runs unconditionally — including when the
+    solver found nothing at all — since a global solver conflict is exactly the situation where a
+    fallback matters most. Leaves the record untouched when the solver already found an in-range
+    move, or when installed_version is genuinely the newest version that exists anywhere.
+    """
+    for record in records:
+        stuck = record.recommended_version is None or record.recommended_version == record.installed_version
+        if not stuck:
+            continue
+
+        same_major_latest = (
+            record.latest_version if record.latest_version == record.latest_in_major else None
+        )
+        pick = same_major_latest or record.latest_in_major or record.latest_in_range
+        if not pick or pick == record.installed_version:
+            continue
+
+        record.recommended_version = pick
+        record.recommended_version_exceeds_range = True
+
+
 def clamp_recommendations(
     records: list[ScanRecord],
     registry: AbstractPackageRegistryApi,

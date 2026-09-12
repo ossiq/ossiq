@@ -119,6 +119,23 @@ class ScanRecord:
     recommended_version_reason: RecommendationReason | None = None
     """Human-readable explanation of why recommended_version was chosen."""
 
+    latest_in_range: str | None = None
+    """Newest published version satisfying the declared constraint (version_constraint). Equal to
+    installed_version when the constraint admits nothing else (e.g. an exact pin) — that's a
+    legitimate answer, not a missing one. None only if installed_version's own release can't be
+    located among the known releases."""
+
+    latest_in_major: str | None = None
+    """Newest published version sharing installed_version's major-version component, regardless of
+    the declared constraint. B2: this is what lets the tool answer "the newest I can safely reach
+    from here" for a package pinned below a breaking major (e.g. pydantic 1.10.13 -> 1.10.26,
+    not 2.13.5). None when installed_version's major couldn't be determined."""
+
+    recommended_version_exceeds_range: bool = False
+    """True when recommended_version was filled in by the B2 fallback ladder (latest_in_major or
+    latest_in_range) rather than the solver's own in-constraint pick — i.e. reaching it requires
+    editing the manifest, not just bumping the lockfile."""
+
     all_constraints: list[str] = field(default_factory=list)
     """All version specifiers from every direct parent; mirrors DependencyDescriptor.all_constraints.
     Passed to the transitive solver so each parent constraint is enforced as a separate L1 clause."""

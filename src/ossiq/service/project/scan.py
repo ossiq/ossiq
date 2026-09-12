@@ -36,7 +36,12 @@ from ossiq.service.project.prefetch import (
     prefetch_versions_since,
     update_latest_versions_for_prerelease,
 )
-from ossiq.service.project.recommendations import apply_conflicts, apply_recommendations, clamp_recommendations
+from ossiq.service.project.recommendations import (
+    apply_conflicts,
+    apply_recommendations,
+    apply_version_ladder_fallback,
+    clamp_recommendations,
+)
 from ossiq.service.project.records import build_records, scan_sort_key
 from ossiq.service.project.stability import populate_stability
 from ossiq.service.update_impact import simulate_single, simulate_update_impacts
@@ -357,6 +362,11 @@ def solve_direct_phase(
                 record.package_name
             ):
                 record.update_transitive_impacts = impact.transitive_impacts
+
+    # B2: runs regardless of whether the solver found anything — a global solver conflict is
+    # exactly the case where a fallback is needed most. Deliberately after impact simulation:
+    # ladder picks are outside what the solver considered, so they carry no simulated impact.
+    apply_version_ladder_fallback(production_packages + optional_packages)
 
     return solver_output, production_packages, optional_packages
 

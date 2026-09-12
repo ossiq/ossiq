@@ -245,6 +245,25 @@ class PackageMetrics(BaseModel):
         default=None,
         description="Solver-recommended version; None when the package is already at the optimal version",
     )
+    recommended_version_exceeds_range: bool = Field(
+        default=False,
+        description=(
+            "True when recommended_version falls outside the declared constraint (a B2 fallback "
+            "pick from latest_in_major/latest_in_range) — reaching it needs a manifest edit, not "
+            "just a lockfile bump. Semver-derived only; compatibility is not verified (see B5)."
+        ),
+    )
+    latest_in_range: str | None = Field(
+        default=None,
+        description="Newest version satisfying the declared constraint; equals installed_version for an exact pin",
+    )
+    latest_in_major: str | None = Field(
+        default=None,
+        description=(
+            "Newest version sharing installed_version's major component, regardless of the "
+            "declared constraint — the newest reachable without crossing a breaking major"
+        ),
+    )
     update_transitive_impacts: list[TransitiveImpactExport] = Field(
         default_factory=list,
         description="Transitive dependency impacts projected from the recommended update",
@@ -362,6 +381,9 @@ class PackageMetrics(BaseModel):
             ),
             extras=record.extras,
             recommended_version=record.recommended_version,
+            recommended_version_exceeds_range=record.recommended_version_exceeds_range,
+            latest_in_range=record.latest_in_range,
+            latest_in_major=record.latest_in_major,
             update_transitive_impacts=[
                 TransitiveImpactExport(
                     package_name=i.package_name,
