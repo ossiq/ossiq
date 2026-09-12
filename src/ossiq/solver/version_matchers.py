@@ -34,6 +34,9 @@ import logging
 import operator
 import re
 
+import semver
+from packaging.version import InvalidVersion
+from packaging.version import Version as PackagingVersion
 from univers.version_constraint import InvalidConstraintsError
 from univers.version_range import InvalidVersionRange, NpmVersionRange, PypiVersionRange
 from univers.versions import PypiVersion, SemverVersion
@@ -209,6 +212,26 @@ def version_satisfies_constraint(version: str, constraint: str | None, registry:
             exc,
         )
         return True
+
+
+def major_key(version: str, registry: ProjectPackagesRegistry) -> tuple[int, int] | None:
+    """Return the (epoch, major) identity of *version*'s major line, or None if unparseable.
+
+    PEP 440 epochs are part of the identity: "1!1.0" is deliberately a different major line
+    than "1.0", which comparing release tuples alone cannot see. npm has no epoch, so it is
+    always 0. A None result never matches another major_key value, so unparseable versions are
+    excluded from major-line grouping rather than silently lumped together.
+    """
+    try:
+        if registry == ProjectPackagesRegistry.PYPI:
+            parsed = PackagingVersion(version)
+            return (parsed.epoch, parsed.release[0] if parsed.release else 0)
+        parts = version.split(".")
+        while len(parts) < 3:
+            parts.append("0")
+        return (0, semver.Version.parse(".".join(parts[:3])).major)
+    except (InvalidVersion, ValueError):
+        return None
 
 
 def satisfies_all_constraints(version: str, constraints: list[str], registry: ProjectPackagesRegistry) -> bool:

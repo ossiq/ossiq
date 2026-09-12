@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from ossiq.domain.common import ConstraintType, CveDatabase, ProjectPackagesRegistry
+from ossiq.domain.common import ConstraintType, CveDatabase, ProjectPackagesRegistry, RecommendationRung
 from ossiq.domain.cve import CVE, Severity
 from ossiq.domain.project import ConstraintSource
 from ossiq.domain.version import VersionsDifference
@@ -345,3 +345,64 @@ class TestForcedOverrides:
         plan = build_update_plan(result, "uv", security_only=True, forced_overrides={"requests": "2.30.0"})
         assert [e.package_name for e in plan.direct_entries] == ["requests"]
         assert plan.direct_entries[0].is_forced is True
+
+
+class TestHeldForWidening:
+    def rung_record(self, name: str, installed: str, recommended: str, rung: RecommendationRung) -> ScanRecord:
+        record = make_record(name, installed, recommended)
+        record.version_constraint = f"=={installed}"
+        record.recommended_from_rung = rung
+        return record
+
+    def test_in_major_rung_held_for_widening(self):
+        record = self.rung_record("pydantic", "1.10.13", "1.10.26", RecommendationRung.IN_MAJOR)
+        plan = build_update_plan(make_scan_result(production=[record]), "uv")
+        assert not plan.direct_entries
+        assert [e.package_name for e in plan.held_for_widening] == ["pydantic"]
+
+    def test_latest_rung_held_for_widening(self):
+        record = self.rung_record("numpy", "1.26.4", "2.5.3", RecommendationRung.LATEST)
+        plan = build_update_plan(make_scan_result(production=[record]), "uv")
+        assert not plan.direct_entries
+        assert [e.package_name for e in plan.held_for_widening] == ["numpy"]
+
+    def test_in_range_rung_written(self):
+        record = self.rung_record("requests", "2.28.0", "2.28.5", RecommendationRung.IN_RANGE)
+        plan = build_update_plan(make_scan_result(production=[record]), "uv")
+        assert [e.package_name for e in plan.direct_entries] == ["requests"]
+        assert not plan.held_for_widening
+
+    def test_solver_rung_written(self):
+        record = self.rung_record("requests", "2.28.0", "2.32.0", RecommendationRung.SOLVER)
+        plan = build_update_plan(make_scan_result(production=[record]), "uv")
+        assert [e.package_name for e in plan.direct_entries] == ["requests"]
+        assert not plan.held_for_widening
+
+    def test_transitive_in_major_rung_held_for_widening(self):
+        record = self.rung_record("urllib3", "1.26.0", "1.26.19", RecommendationRung.IN_MAJOR)
+        plan = build_update_plan(make_scan_result(transitive=[record]), "uv")
+        assert not plan.transitive_entries
+        assert [e.package_name for e in plan.held_for_widening] == ["urllib3"]
+
+    def test_forced_override_never_held_for_widening(self):
+        record = self.rung_record("pydantic", "1.10.13", "1.10.26", RecommendationRung.IN_MAJOR)
+        result = make_scan_result(production=[record])
+        plan = build_update_plan(result, "uv", forced_overrides={"pydantic": "2.13.5"})
+        assert [e.package_name for e in plan.direct_entries] == ["pydantic"]
+        assert plan.direct_entries[0].is_forced is True
+        assert not plan.held_for_widening
+
+    def test_widening_entry_not_double_held_for_cooldown(self):
+        record = self.rung_record("pydantic", "1.10.13", "1.10.26", RecommendationRung.IN_MAJOR)
+        record.recommended_version_reason = reason_with_age("1.10.26", age_days=0)
+        plan = build_update_plan(make_scan_result(production=[record]), "uv", cooldown_period=7)
+        assert [e.package_name for e in plan.held_for_widening] == ["pydantic"]
+        assert not plan.held_for_cooldown
+
+    def test_fresh_in_range_ladder_pick_still_held_for_cooldown(self):
+        record = self.rung_record("requests", "2.28.0", "2.28.5", RecommendationRung.IN_RANGE)
+        record.recommended_version_reason = reason_with_age("2.28.5", age_days=0)
+        plan = build_update_plan(make_scan_result(production=[record]), "uv", cooldown_period=7)
+        assert not plan.direct_entries
+        assert [e.package_name for e in plan.held_for_cooldown] == ["requests"]
+        assert not plan.held_for_widening

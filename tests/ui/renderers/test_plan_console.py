@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from rich.console import Console
 
-from ossiq.domain.common import ConstraintType
+from ossiq.domain.common import ConstraintType, RecommendationRung
 from ossiq.service.update import UpdateEntry, UpdatePlan
 from ossiq.settings import Settings
 from ossiq.solver.reason import RecommendationReason
@@ -46,6 +46,7 @@ def make_plan(
     direct_entries: list[UpdateEntry] | None = None,
     transitive_entries: list[UpdateEntry] | None = None,
     held_for_cooldown: list[UpdateEntry] | None = None,
+    held_for_widening: list[UpdateEntry] | None = None,
     cooldown_period: int = 7,
 ) -> UpdatePlan:
     return UpdatePlan(
@@ -56,6 +57,7 @@ def make_plan(
         direct_entries=direct_entries or [],
         transitive_entries=transitive_entries or [],
         held_for_cooldown=held_for_cooldown or [],
+        held_for_widening=held_for_widening or [],
         cooldown_period=cooldown_period,
     )
 
@@ -82,6 +84,27 @@ def test_held_for_cooldown_section_lists_package(monkeypatch):
     assert "7-day" in output
     assert "@vue/reactivity" in output
     assert "3.5.38" in output
+
+
+def test_held_for_widening_section_lists_package_and_declared_range(monkeypatch):
+    entry = UpdateEntry(
+        package_name="pydantic",
+        current_version="1.10.13",
+        recommended_version="1.10.26",
+        is_direct=True,
+        reason=reason_with_age("1.10.26", 200),
+        version_defined="==1.10.13",
+        constraint_type=ConstraintType.PINNED,
+        from_rung=RecommendationRung.IN_MAJOR,
+    )
+    plan = make_plan(held_for_widening=[entry])
+    output = render(plan, monkeypatch)
+    assert "constraint widening" in output
+    assert "pydantic" in output
+    assert "1.10.13" in output
+    assert "==1.10.13" in output
+    assert "1.10.26" in output
+    assert "same major" in output
 
 
 def make_forced_entry(name: str, current: str, recommended: str, is_direct: bool) -> UpdateEntry:

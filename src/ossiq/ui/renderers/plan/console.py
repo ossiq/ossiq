@@ -4,12 +4,13 @@ from rich.console import Console
 from rich.rule import Rule
 from rich.table import Table
 
-from ossiq.domain.common import Command, UserInterfaceType
+from ossiq.domain.common import Command, RecommendationRung, UserInterfaceType
 from ossiq.messages import (
     HELP_PLAN_CONVERGENCE_NOTICE,
     HELP_PLAN_CVE_BYPASS_NOTE,
     HELP_PLAN_FORCED_WARNING,
     HELP_PLAN_HELD_FOR_COOLDOWN_HEADER,
+    HELP_PLAN_HELD_FOR_WIDENING_HEADER,
     HELP_PLAN_NEW_DEP_FRESH_WARNING,
 )
 from ossiq.service.update import UpdateEntry, UpdatePlan
@@ -102,6 +103,7 @@ class ConsolePlanRenderer(AbstractUserInterfaceRenderer):
                 console.print()
 
         self.render_held_for_cooldown(data)
+        self.render_held_for_widening(data)
 
         if script:
             console.print(Rule("Plan Script — review before running", style="dim"))
@@ -126,5 +128,32 @@ class ConsolePlanRenderer(AbstractUserInterfaceRenderer):
             age = f"{entry.reason.age_days}d" if entry.reason and entry.reason.age_days is not None else "—"
             dep_type = "direct" if entry.is_direct else "transitive"
             table.add_row(entry.package_name, entry.current_version, entry.recommended_version, age, dep_type)
+        console.print(table)
+        console.print()
+
+    def render_held_for_widening(self, data: UpdatePlan) -> None:
+        """List recommendations withheld because reaching them requires widening the declared range."""
+        if not data.held_for_widening:
+            return
+
+        console.print(f"[yellow]{HELP_PLAN_HELD_FOR_WIDENING_HEADER}[/yellow]")
+        table = Table(show_header=True, header_style="bold dim", box=None, padding=(0, 2))
+        table.add_column("Package", style="bold")
+        table.add_column("Current", style="red")
+        table.add_column("Declared", style="dim")
+        table.add_column("Reachable", style="green")
+        table.add_column("Scope", style="dim")
+        table.add_column("Type", style="dim")
+        for entry in data.held_for_widening:
+            dep_type = "direct" if entry.is_direct else "transitive"
+            scope = "new major" if entry.from_rung == RecommendationRung.LATEST else "same major"
+            table.add_row(
+                entry.package_name,
+                entry.current_version,
+                entry.version_defined or "—",
+                entry.recommended_version,
+                scope,
+                dep_type,
+            )
         console.print(table)
         console.print()
