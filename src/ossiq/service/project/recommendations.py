@@ -2,12 +2,14 @@
 Applying solver output (recommendations and conflicts) onto ScanRecord instances.
 """
 
+from collections.abc import Callable
 from datetime import datetime
 
 from ossiq.adapters.api_interfaces import AbstractPackageRegistryApi
-from ossiq.domain.common import ConstraintType
+from ossiq.domain.common import ConstraintType, RecommendationRung
 from ossiq.service.project.models import ScanRecord
 from ossiq.solver import dependencies_solver
+from ossiq.solver.reason import RecommendationReason
 from ossiq.solver.universe import filter_eligible_versions
 from ossiq.solver.version_matchers import version_satisfies_constraint
 from ossiq.timeutil import age_days_from_iso
@@ -39,6 +41,7 @@ def apply_recommendations(
         if rec is not None and (not skip_current or rec != record.installed_version):
             record.recommended_version = rec
             record.recommended_version_reason = output.reasons.get(record.package_name)
+            record.recommended_from_rung = RecommendationRung.SOLVER
 
 
 def clamp_recommendations(
@@ -90,3 +93,53 @@ def clamp_recommendations(
         fitted = aged[0] if aged else (in_range[0] if in_range else None)
         record.recommended_version = fitted.version if fitted else None
         record.recommended_version_reason = None  # reason described the unclamped pick
+        record.recommended_from_rung = RecommendationRung.IN_RANGE if fitted else None
+
+
+def apply_ladder_fallback(
+    records: list[ScanRecord],
+    registry: AbstractPackageRegistryApi,
+    *,
+    now: datetime | None = None,
+    validator: Callable[[str, str], bool] | None = None,
+) -> None:
+    """Fill an empty recommendation from the version ladder: in_range, then in_major, then latest.
+
+    Only fires when the solver produced nothing actionable - recommended_version is None or
+    equals installed_version. Takes the first rung strictly newer than installed_version,
+    optionally gated by ``validator(package_name, candidate_version) -> bool`` (the same
+    transitive-compatibility check the solver's own picks clear). Attaches a synthetic
+    RecommendationReason carrying the picked release's age, so the cooldown hold in
+    service.update.is_held_for_cooldown still applies to a ladder pick exactly as it does to a
+    solver pick, and records which rung fired in recommended_from_rung so build_update_plan can
+    tell an in-range write from a pick that first requires widening the declared constraint.
+    """
+    for record in records:
+        if record.recommended_version is not None and record.recommended_version != record.installed_version:
+            continue  # the solver already found somewhere to go
+
+        rungs: tuple[tuple[RecommendationRung, str | None], ...] = (
+            (RecommendationRung.IN_RANGE, record.latest_in_range),
+            (RecommendationRung.IN_MAJOR, record.latest_in_major),
+            (RecommendationRung.LATEST, record.latest_version),
+        )
+        for rung, candidate in rungs:
+            if candidate is None or registry.compare_versions(candidate, record.installed_version) <= 0:
+                continue
+            if validator is not None and not validator(record.package_name, candidate):
+                continue
+            picked_pv = next(
+                (pv for pv in registry.package_versions(record.package_name) if pv.version == candidate), None
+            )
+            record.recommended_version = candidate
+            record.recommended_from_rung = rung
+            record.recommended_version_reason = RecommendationReason(
+                selected_version=candidate,
+                constraint=record.version_constraint,
+                hard_rejections=[],
+                soft_rejections=[],
+                lower_semver_alternatives=[],
+                age_days=age_days_from_iso(picked_pv.published_date_iso, now=now) if picked_pv else None,
+                is_latest=candidate == record.latest_version,
+            )
+            break

@@ -36,7 +36,12 @@ from ossiq.service.project.prefetch import (
     prefetch_versions_since,
     update_latest_versions_for_prerelease,
 )
-from ossiq.service.project.recommendations import apply_conflicts, apply_recommendations, clamp_recommendations
+from ossiq.service.project.recommendations import (
+    apply_conflicts,
+    apply_ladder_fallback,
+    apply_recommendations,
+    clamp_recommendations,
+)
 from ossiq.service.project.records import build_records, scan_sort_key
 from ossiq.service.project.stability import populate_stability
 from ossiq.service.update_impact import simulate_single, simulate_update_impacts
@@ -357,6 +362,19 @@ def solve_direct_phase(
                 record.package_name
             ):
                 record.update_transitive_impacts = impact.transitive_impacts
+
+    # Runs even when the solver produced nothing at all — a project where the solver has no
+    # recommendations still deserves ladder fallbacks. Deliberately after the impacts loop above,
+    # so that loop's clamped-record guard sees only pre-fallback state (see recommendations.py
+    # apply_ladder_fallback docstring). Ignored packages are excluded: the solver never gives them
+    # a recommendation either, and an un-filtered fallback would feed the writers a version for a
+    # package the user explicitly asked to leave alone.
+    apply_ladder_fallback(
+        [r for r in production_packages + optional_packages if r.package_name not in descriptors.ignore_set],
+        sources.packages_registry,
+        now=now,
+        validator=validate_recommendation,
+    )
 
     return solver_output, production_packages, optional_packages
 
