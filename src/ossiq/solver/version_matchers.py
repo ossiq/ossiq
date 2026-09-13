@@ -52,7 +52,17 @@ logger = logging.getLogger(__name__)
 SEMVER_METADATA_RE = re.compile(r"[-+][0-9A-Za-z-\.]+")
 
 NOT_EQUAL_RE = re.compile(r"^!=\s*(.+)$")
-BARE_VERSION_RE = re.compile(r"^\d+(\.\d+)*([-+][0-9A-Za-z-\.]+)?$")
+# A *partial* bare version - "14" or "14.2" - needs manual caret-expansion below: univers's
+# NpmVersionRange resolves a partial bare version to that exact (zero-padded) version rather
+# than the whole major/minor line the node-semver spec calls for ("14" should match every
+# 14.x.y). A *full* bare version like "4.17.1" does NOT have this problem and must NOT be
+# caret-expanded: per the node-semver spec, a comparator with no operator means equality
+# ("If no operator is specified, then equality is assumed"), and univers already resolves a
+# bare full version to exactly that version on its own. Matching 3+ component bare versions
+# here as well was a real bug (OSS IQ defect report B3): a package.json exact pin such as
+# "express": "4.17.1" was silently treated as "^4.17.1" (anything below 5.0.0), which is why
+# npm's solver looked like it could move past a pin PyPI's exact-pin parsing correctly refused.
+PARTIAL_BARE_VERSION_RE = re.compile(r"^\d+(\.\d+)?([-+][0-9A-Za-z-\.]+)?$")
 
 # Mapping string operators to standard Python math operators
 OPS = {
@@ -139,7 +149,8 @@ def npm_version_satisfies_range(version: str, range_constraint: str, allow_beta:
       - ``||`` union  — "14 || 16"
       - ``^``  caret  — "^1.2.3"  compatible with the same major
       - ``~``  tilde  — "~1.2.3"  compatible with the same minor
-      - bare version  — "14"  treated as a caret range (^14.0.0)
+      - bare partial version  — "14" or "14.2"  treated as a caret range (^14.0.0 / ^14.2.0)
+      - bare full version  — "4.17.1"  exact match only (no operator = equality, per spec)
       - comparison operators  — ">", ">=", "<", "<=", "=", "!="
       - npm alias  — "npm:pkg@^1.2.3"  matched against the embedded range
     """
@@ -156,7 +167,7 @@ def npm_version_satisfies_range(version: str, range_constraint: str, allow_beta:
             return True
 
     parts = [p.strip() for p in constraint.split("||")]
-    processed = " || ".join(f"^{p}" if BARE_VERSION_RE.match(p) else p for p in parts)
+    processed = " || ".join(f"^{p}" if PARTIAL_BARE_VERSION_RE.match(p) else p for p in parts)
 
     try:
         return SemverVersion(version) in NpmVersionRange.from_native(processed)  # type: ignore

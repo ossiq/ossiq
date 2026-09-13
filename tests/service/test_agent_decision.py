@@ -11,6 +11,7 @@ from ossiq.domain.project import ConstraintSource
 from ossiq.domain.version import VERSION_DIFF_MAJOR, VERSION_DIFF_MINOR, VERSION_LATEST, VersionsDifference
 from ossiq.risk.maintenance import MaintenanceAssessment, MaintenanceState
 from ossiq.service.agent import build_add_decide, build_update_decide
+from ossiq.service.library_scan import UpgradePath
 from ossiq.service.package import (
     RULE_SINGLE_MAINTAINER,
     RULE_SINGLE_VERSION,
@@ -135,13 +136,14 @@ def test_add_caution_when_cve_present():
 # --- update decision ----------------------------------------------------------
 
 
-def make_scan(records: list[ScanRecord]) -> ScanResult:
+def make_scan(records: list[ScanRecord], upgrade_paths: list[UpgradePath] | None = None) -> ScanResult:
     return ScanResult(
         project_name="proj",
         packages_registry="PYPI",
         project_path=".",
         production_packages=records,
         optional_packages=[],
+        upgrade_paths=upgrade_paths or [],
     )
 
 
@@ -222,6 +224,56 @@ def test_update_ladder_fallback_composes_with_agent_decision():
     assert entry["to"] == "2.34.2"
     assert entry["to"] != entry["from"]
     assert entry["target_exceeds_declared_range"] is True
+
+
+def test_update_widening_merges_onto_existing_entry():
+    """B3 point 2: the report's own express example. A no-lockfile project's constraint-widening
+    opportunity (previously CLI-only) must appear in the MCP/agent format too, without replacing
+    the conservative in-major `to` - widen_to may cross a major and needs a manifest edit plus
+    human judgment, unlike `to`.
+    """
+    record = make_record(
+        name="express",
+        installed="4.17.1",
+        latest="5.2.1",
+        diff_index=VERSION_DIFF_MAJOR,
+        recommended="4.17.1",
+        version_constraint="4.17.1",
+        latest_in_range="4.17.1",
+        latest_in_major="4.22.2",
+    )
+    path = UpgradePath(
+        package_name="express",
+        current_constraint="4.17.1",
+        latest_in_range="4.17.1",
+        latest_available="5.2.1",
+        suggested_constraint="^5.2.1",
+    )
+    decision = build_update_decide(make_scan([record], upgrade_paths=[path]))
+    entry = decision["updates"][0]
+    assert entry["package"] == "express"
+    assert entry["widen_to"] == "5.2.1"
+    assert entry["widen_suggested_constraint"] == "^5.2.1"
+    # to stays the conservative in-major pick, untouched by the cross-major widen_to
+    assert entry["to"] != "5.2.1"
+
+
+def test_update_widening_adds_standalone_entry_when_otherwise_inactionable():
+    """A widening opportunity must never be silently dropped just because the package didn't
+    otherwise clear build_update_entry's actionable gate.
+    """
+    record = make_record(installed="1.0.0", latest="1.0.0", recommended=None)  # nothing else actionable
+    path = UpgradePath(
+        package_name="demo",
+        current_constraint="1.0.0",
+        latest_in_range="1.0.0",
+        latest_available="2.0.0",
+        suggested_constraint="^2.0.0",
+    )
+    decision = build_update_decide(make_scan([record], upgrade_paths=[path]))
+    packages = {entry["package"]: entry for entry in decision["updates"]}
+    assert "demo" in packages
+    assert packages["demo"]["widen_to"] == "2.0.0"
 
 
 def test_update_find_alternative_on_yanked():

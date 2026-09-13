@@ -11,6 +11,7 @@ from typing import Any
 from ossiq.domain.cve import CVE
 from ossiq.domain.version import VERSION_DIFF_MAJOR, VERSION_DIFF_MINOR, VERSION_DIFF_PATCH
 from ossiq.risk.maintenance import NOT_MAINTAINED
+from ossiq.service.library_scan import UpgradePath
 from ossiq.service.package import PackageDetailResult
 from ossiq.service.project.models import ScanRecord, ScanResult
 from ossiq.service.project.next_action import (
@@ -226,6 +227,23 @@ def build_update_entry(record: ScanRecord) -> dict[str, Any] | None:
     return entry
 
 
+def upgrade_path_summary(path: UpgradePath) -> dict[str, Any]:
+    """B3: constraint-widening data for a no-lockfile project, previously CLI-only (the "Constraint
+    Widening Opportunities" console section) with no MCP equivalent.
+
+    Kept as distinct keys rather than folded into `to`/`latest_in_major`: `widen_to` is the
+    registry's absolute latest and may cross a major version, unlike the in-major ladder pick
+    above, which is safe to treat as a like-for-like bump. Crossing a major needs a manifest edit
+    and human judgment about compatibility (see B5) — conflating the two would repeat B1's mistake
+    of putting two different kinds of recommendation behind one field.
+    """
+    return {
+        "current_constraint": path.current_constraint,
+        "widen_to": path.latest_available,
+        "widen_suggested_constraint": path.suggested_constraint,
+    }
+
+
 def headline_next_action(entries: list[dict[str, Any]]) -> str:
     """The most urgent next action across the update entries, by ladder priority."""
     labels = {entry["next_action"] for entry in entries}
@@ -239,6 +257,30 @@ def build_update_decide(scan: ScanResult) -> AgentDecision:
     """Decision for updating a project's direct dependencies."""
     direct_records = scan.production_packages + scan.optional_packages
     entries = [entry for entry in (build_update_entry(record) for record in direct_records) if entry is not None]
+
+    entries_by_package = {entry["package"]: entry for entry in entries}
+    for path in scan.upgrade_paths:
+        widening = upgrade_path_summary(path)
+        existing = entries_by_package.get(path.package_name)
+        if existing is not None:
+            existing.update(widening)
+        else:
+            # A widening opportunity exists but the package wasn't otherwise actionable enough to
+            # get its own entry (see build_update_entry's actionable gate) - still surface it
+            # rather than silently dropping it, matching B1/B2's "never omit a path forward".
+            entries.append(
+                {
+                    "package": path.package_name,
+                    "next_action": CONSTRAINED_CHECK_NEWER,
+                    "from": path.current_constraint,
+                    "to": None,
+                    "reasons": [f"newer version available outside the declared range {path.current_constraint}"],
+                    "cves": [],
+                    "transitive_impact": [],
+                    **widening,
+                }
+            )
+
     return {
         "operation": "update",
         "registry": scan.packages_registry.lower(),
