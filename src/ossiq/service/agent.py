@@ -162,8 +162,15 @@ def agent_next_action(record: ScanRecord) -> str:
     return label or UPDATE_IMMEDIATELY
 
 
-def build_update_entry(record: ScanRecord) -> dict[str, Any] | None:
-    """Build one update entry, or None when the package needs no action."""
+def build_update_entry(record: ScanRecord) -> dict[str, Any]:
+    """Build one update entry for a direct dependency.
+
+    B7: every direct dependency gets an entry, even when nothing needs to change. Previously a
+    package that cleared none of the actionability checks below was omitted entirely - but an
+    agent reading the response has no way to tell "this package is fine" from "this package was
+    never analysed" when an entry is simply missing. "Nothing to change" is now an explicit
+    per-package statement (next_action=NO_ACTION, empty reasons) instead of an omission.
+    """
     installed = record.installed_version
     recommended = record.recommended_version
     cves = record.cve
@@ -182,8 +189,28 @@ def build_update_entry(record: ScanRecord) -> dict[str, Any] | None:
         or record.is_installed_yanked
         or record.is_installed_package_unpublished
     )
+
+    # Every entry carries the full version picture regardless of actionability - installed,
+    # latest-in-range, latest-in-major, and latest overall - per the defect report's B7 correct
+    # behaviour. latest_version (the absolute newest) was previously only implicit in "to"/the
+    # ladder fields and could differ from both, e.g. a pinned major behind an API break.
+    base: dict[str, Any] = {
+        "package": record.package_name,
+        "from": installed,
+        "latest_version": record.latest_version,
+        "latest_in_range": record.latest_in_range,
+        "latest_in_major": record.latest_in_major,
+    }
+
     if not actionable:
-        return None
+        return {
+            **base,
+            "next_action": NO_ACTION,
+            "to": installed,
+            "reasons": [],
+            "cves": [],
+            "transitive_impact": [],
+        }
 
     reasons: list[str] = [f"{cve.id} ({cve.severity})" for cve in cves]
     if record.is_installed_yanked:
@@ -204,12 +231,9 @@ def build_update_entry(record: ScanRecord) -> dict[str, Any] | None:
         reasons.append(f"recommend updating {installed} -> {recommended}")
 
     entry: dict[str, Any] = {
-        "package": record.package_name,
+        **base,
         "next_action": agent_next_action(record),
-        "from": installed,
         "to": recommended,
-        "latest_in_range": record.latest_in_range,
-        "latest_in_major": record.latest_in_major,
         "reasons": reasons,
         "cves": [cve_summary(cve) for cve in cves],
         "transitive_impact": [impact_summary(impact) for impact in record.update_transitive_impacts],
@@ -242,7 +266,7 @@ def headline_next_action(entries: list[dict[str, Any]]) -> str:
 def build_update_decide(scan: ScanResult, update_strategy: str | None = None) -> AgentDecision:
     """Decision for updating a project's direct dependencies."""
     direct_records = scan.production_packages + scan.optional_packages
-    entries = [entry for entry in (build_update_entry(record) for record in direct_records) if entry is not None]
+    entries = [build_update_entry(record) for record in direct_records]
     result: AgentDecision = {
         "operation": "update",
         "registry": scan.packages_registry.lower(),
