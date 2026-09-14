@@ -95,20 +95,47 @@ Show solver-recommended package version changes without making any changes.
 Use `--pin-all` to write exact ==version specifiers for updated deps.
 Use `--rewrite-versions` to also include PINNED (==x.y.z) deps that are otherwise frozen.
 Use `--override pkg==version` to force an exact version, bypassing the solver and cooldown.
-Use `--security` to narrow the plan to CVE-affected packages only.
+Use `--update-strategy` to pick which tier of the update pyramid to target (default: standard).
 """
 
 HELP_APPLY_COMMAND = """
 Apply solver-recommended updates in-process with rollback on failure.
 
-Shows the plan first and prompts for confirmation (use `--yes` for CI).
+Shows the plan first and prompts for confirmation (use `--yes` for CI). A second confirmation
+covers any update that widens the declared version constraint.
 """
 
 HELP_PLAN_NO_RECOMMENDATIONS = "No updates recommended — the solver found all packages are already at optimal versions."
 
-HELP_SECURITY_ONLY = "Include only CVE-affected packages (direct and transitive) in the update plan."
+HELP_PLAN_NO_RECOMMENDATIONS_FOR_TIER = "No packages need updates under --update-strategy {tier} — nothing to do."
 
-HELP_PLAN_NO_SECURITY_RECOMMENDATIONS = "No CVE-affected packages need updates — nothing to do under --security."
+HELP_UPDATE_STRATEGY = (
+    "Which tier of the update pyramid to target: security, deprecation, standard (default), "
+    "latest, cutting-edge. Each tier is a strict superset of the one below — see strategy/README.md."
+)
+
+HELP_STRATEGY_OVERRIDE = (
+    "Run one package at a different tier than --update-strategy: pkg=tier (repeatable). "
+    "E.g. --strategy-override lodash=cutting-edge."
+)
+
+ERROR_STRATEGY_OVERRIDE_IGNORE_CONFLICT = (
+    "Cannot both --strategy-override and --ignore the same package(s): {packages}."
+)
+
+WARNING_STRATEGY_OVERRIDE_UNKNOWN_PACKAGE = (
+    "--strategy-override {package}: package not found in the dependency tree — ignored."
+)
+
+WARNING_STRATEGY_OVERRIDE_SHADOWED_BY_OVERRIDE = (
+    "--strategy-override {package}: ignored — --override forces an exact version for this package."
+)
+
+HELP_PLAN_HIGHER_TIER_FOOTER = "{count} more update{plural} available under --update-strategy {tier}."
+
+HELP_PLAN_WIDENING_CONFIRM_HEADER = (
+    "The following updates widen the declared version constraint (authorized by --update-strategy {tier}):"
+)
 
 HELP_OVERRIDE_PACKAGE = (
     "Force a package to an exact version, bypassing the solver and the cooldown: --override pkg==1.2.3 "
