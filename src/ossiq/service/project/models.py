@@ -4,6 +4,7 @@ Dataclasses for the project scan pipeline.
 
 from dataclasses import dataclass, field
 
+from ossiq.domain.common import DataCompleteness
 from ossiq.domain.cve import CVE
 from ossiq.domain.package import Package
 from ossiq.domain.project import ConstraintSource, PeerRequirement
@@ -203,6 +204,10 @@ class PrefetchedData:
     readmes: dict[str, str] = field(default_factory=dict)
     """Repo URL -> the first few KB of the README, scanned for a deprecation banner. Absent keys
     are unmeasured (no repo, non-GitHub host, or --no-stability)."""
+    data_completeness: DataCompleteness = field(default_factory=DataCompleteness)
+    """B4: per-step status (ok/partial/unreachable/rate_limited) for the data sources fetched
+    above - see prefetch_scan_data. Carried onto ScanResult so the CLI, export, and exit-code
+    logic can all tell a genuinely clean result apart from one built on missing data."""
 
 
 @dataclass
@@ -227,3 +232,5 @@ class ScanResult:
     ignored_packages: list[IgnoredDependency] = field(default_factory=list)
     project_epss: ProjectEpss | None = None
     project_stability: ProjectStability | None = None
+    data_completeness: DataCompleteness = field(default_factory=DataCompleteness)
+    """B4: per-step data-source status for this scan. See PrefetchedData.data_completeness."""

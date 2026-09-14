@@ -5,6 +5,7 @@ mutual dependencies.
 
 import importlib.metadata
 import re
+from dataclasses import dataclass, field
 from enum import Enum, StrEnum
 from urllib.parse import quote
 
@@ -29,6 +30,50 @@ class CveDatabase(StrEnum):
     NVD = "NVD"
     SNYK = "SNYK"
     OTHER = "OTHER"
+
+
+class DataSourceStatus(StrEnum):
+    """Whether an external data source (OSV, GitHub, ...) actually delivered data for this scan.
+
+    B4: a scan step reaching completion is not the same as it succeeding. These are the explicit
+    per-source states the defect report calls for, replacing a checkmark that previously meant
+    only "we moved past this step" regardless of whether any data came back.
+    """
+
+    OK = "ok"
+    PARTIAL = "partial"  # some chunks failed or were dropped; the rest of the data is real
+    UNREACHABLE = "unreachable"  # nothing came back at all - connection/timeout/HTTP failures
+    RATE_LIMITED = "rate_limited"  # the source's quota was exhausted mid-scan
+
+
+@dataclass(frozen=True)
+class DataCompleteness:
+    """Per-scan-step completeness (B4), keyed by the same step names the progress UI uses
+    (ui.system.SCAN_STEPS) so the checkmark rendering, the export metadata, and the exit-code
+    logic all agree on what actually happened during a scan.
+
+    A step absent from `by_step` is treated as ok - most steps (packages, versions, solver) don't
+    yet report completeness and default to the status quo rather than false alarms.
+    """
+
+    by_step: dict[str, DataSourceStatus] = field(default_factory=dict)
+
+    def status_for(self, step: str) -> DataSourceStatus:
+        return self.by_step.get(step, DataSourceStatus.OK)
+
+    @property
+    def overall(self) -> DataSourceStatus:
+        """Worst status across every tracked step, in the order a user should care about it."""
+        statuses = set(self.by_step.values())
+        for candidate in (DataSourceStatus.RATE_LIMITED, DataSourceStatus.UNREACHABLE, DataSourceStatus.PARTIAL):
+            if candidate in statuses:
+                return candidate
+        return DataSourceStatus.OK
+
+    @property
+    def degraded_steps(self) -> dict[str, DataSourceStatus]:
+        """Only the steps that didn't come back ok - what a warning message should list."""
+        return {step: status for step, status in self.by_step.items() if status != DataSourceStatus.OK}
 
 
 class UserInterfaceType(Enum):

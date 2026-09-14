@@ -12,9 +12,9 @@ from urllib.parse import urlparse
 from packaging.version import InvalidVersion
 
 from ossiq.adapters.api_epss import EpssApiFirstOrg
+from ossiq.adapters.api_github import SourceCodeProviderApiGithub
 from ossiq.adapters.api_interfaces import AbstractPackageRegistryApi
 from ossiq.adapters.detectors import is_git_hosted_source
-from ossiq.domain.common import RepositoryProvider
 from ossiq.domain.cve import CVE
 from ossiq.domain.exceptions import UnknownPackageVersion
 from ossiq.domain.package import Package
@@ -206,18 +206,22 @@ def enrich_cves_with_epss_and_fix_age(
 
 
 def prefetch_source_code_repositories_info(
-    sources: AbstractProjectSources,
+    provider: SourceCodeProviderApiGithub,
     repo_urls: Iterable[str],
 ) -> dict[str, Repository]:
     """
     Pre-fetch repository info for all unique GitHub repo URLs in parallel.
     Returns a mapping of url -> Repository; non-GitHub URLs are skipped.
+
+    Takes an already-constructed provider (rather than `sources`) so the caller can read
+    `provider.last_summary` afterward - see B4 in the defect report. Also means every GitHub
+    fetch in one scan shares a single session instead of opening a fresh one per call.
     """
 
     github_urls = github_only(repo_urls)
     if not github_urls:
         return {}
-    return sources.get_source_code_provider(RepositoryProvider.PROVIDER_GITHUB).repositories_info_batch(github_urls)
+    return provider.repositories_info_batch(github_urls)
 
 
 def github_only(repo_urls: Iterable[str]) -> list[str]:
@@ -227,7 +231,9 @@ def github_only(repo_urls: Iterable[str]) -> list[str]:
     return [url for url in repo_urls if (urlparse(url).hostname or "").lower() == "github.com"]
 
 
-def prefetch_repository_commits(sources: AbstractProjectSources, repo_urls: Iterable[str]) -> dict[str, list[dict]]:
+def prefetch_repository_commits(
+    provider: SourceCodeProviderApiGithub, sources: AbstractProjectSources, repo_urls: Iterable[str]
+) -> dict[str, list[dict]]:
     """
     Pre-fetch the last 100 commits for all unique GitHub repo URLs in parallel.
 
@@ -239,10 +245,12 @@ def prefetch_repository_commits(sources: AbstractProjectSources, repo_urls: Iter
     if not github_urls:
         return {}
     until = sources.settings.cutoff_date.strftime("%Y-%m-%dT%H:%M:%SZ") if sources.settings.cutoff_date else None
-    return sources.get_source_code_provider(RepositoryProvider.PROVIDER_GITHUB).commits_batch(github_urls, until)
+    return provider.commits_batch(github_urls, until)
 
 
-def prefetch_repository_activity(sources: AbstractProjectSources, repo_urls: Iterable[str]) -> dict[str, dict]:
+def prefetch_repository_activity(
+    provider: SourceCodeProviderApiGithub, sources: AbstractProjectSources, repo_urls: Iterable[str]
+) -> dict[str, dict]:
     """Pre-fetch issue / PR activity for all unique GitHub repo URLs via GraphQL.
 
     Covers the engagement look-back window ending at the cutoff date (or now). Feeds the
@@ -253,12 +261,10 @@ def prefetch_repository_activity(sources: AbstractProjectSources, repo_urls: Ite
     if not github_urls:
         return {}
     since = engagement_window_since(sources.settings.cutoff_date)
-    return sources.get_source_code_provider(RepositoryProvider.PROVIDER_GITHUB).repository_activity_batch(
-        github_urls, since
-    )
+    return provider.repository_activity_batch(github_urls, since)
 
 
-def prefetch_repository_readmes(sources: AbstractProjectSources, repo_urls: Iterable[str]) -> dict[str, str]:
+def prefetch_repository_readmes(provider: SourceCodeProviderApiGithub, repo_urls: Iterable[str]) -> dict[str, str]:
     """Pre-fetch the top of each GitHub repo's README, for the deprecation-banner scan.
 
     One request per repository, cached at the stability TTL; see risk/maintenance.py.
@@ -267,7 +273,7 @@ def prefetch_repository_readmes(sources: AbstractProjectSources, repo_urls: Iter
     github_urls = github_only(repo_urls)
     if not github_urls:
         return {}
-    return sources.get_source_code_provider(RepositoryProvider.PROVIDER_GITHUB).readmes_batch(github_urls)
+    return provider.readmes_batch(github_urls)
 
 
 def partition_git_hosted(deps: Iterable[Dependency], enabled: bool) -> tuple[list[Dependency], list[Dependency]]:
