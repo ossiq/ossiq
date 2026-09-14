@@ -17,6 +17,8 @@ from jsonschema import validate
 from ossiq.domain.common import (
     Command,
     ConstraintType,
+    DataCompleteness,
+    DataSourceStatus,
     ExportJsonSchemaVersion,
     ProjectPackagesRegistry,
     UserInterfaceType,
@@ -161,6 +163,51 @@ class TestJsonExportRenderer:
         assert metadata["schema_version"] == "1.5"
         assert "export_timestamp" in metadata
         assert "ossiq_version" not in metadata
+
+    def test_metadata_data_completeness_defaults_to_ok_with_no_sources(
+        self, output_file, sample_project_metrics, settings
+    ):
+        """A ScanResult built without any tracked completeness (the common test-fixture case)
+        must not be mistaken for a scan with degraded sources.
+        """
+        renderer = JsonExportRenderer(settings)
+        renderer.render(sample_project_metrics, destination=str(output_file))
+
+        data = json.loads(output_file.read_text(encoding="utf-8"))
+        completeness = data["metadata"]["data_completeness"]
+
+        assert completeness["overall"] == "ok"
+        assert completeness["sources"] == []
+
+    def test_metadata_data_completeness_surfaces_degraded_sources(
+        self, output_file, sample_project_metrics_record, settings
+    ):
+        """B4 point 3: a firewalled OSV host or exhausted GitHub quota must be visible in the
+        export, not just the CLI's own progress display - any consumer of the JSON needs to be
+        able to tell a genuinely clean report apart from one built on missing data.
+        """
+        scan = ScanResult(
+            project_name="test-project",
+            project_path="/path/to/test-project",
+            packages_registry=ProjectPackagesRegistry.NPM.value,
+            production_packages=[sample_project_metrics_record],
+            optional_packages=[],
+            data_completeness=DataCompleteness(
+                by_step={
+                    "vulnerabilities": DataSourceStatus.UNREACHABLE,
+                    "repositories": DataSourceStatus.OK,
+                }
+            ),
+        )
+        renderer = JsonExportRenderer(settings)
+        renderer.render(scan, destination=str(output_file))
+
+        data = json.loads(output_file.read_text(encoding="utf-8"))
+        completeness = data["metadata"]["data_completeness"]
+
+        assert completeness["overall"] == "unreachable"
+        assert {"step": "vulnerabilities", "status": "unreachable"} in completeness["sources"]
+        assert {"step": "repositories", "status": "ok"} in completeness["sources"]
 
     def test_project_fields_match_input_data(self, output_file, sample_project_metrics, settings):
         """Test project section matches input data.

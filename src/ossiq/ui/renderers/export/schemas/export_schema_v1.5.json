@@ -32,6 +32,43 @@
           "type": "string",
           "format": "date-time",
           "description": "UTC timestamp when the export was generated"
+        },
+        "data_completeness": {
+          "type": "object",
+          "description": "B4: per-source data-source status for this scan",
+          "properties": {
+            "overall": {
+              "type": "string",
+              "enum": [
+                "ok",
+                "partial",
+                "unreachable",
+                "rate_limited"
+              ],
+              "description": "Worst status across every tracked source"
+            },
+            "sources": {
+              "type": "array",
+              "description": "Per-source status, one entry per scan step that reports completeness",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "step": {
+                    "type": "string"
+                  },
+                  "status": {
+                    "type": "string",
+                    "enum": [
+                      "ok",
+                      "partial",
+                      "unreachable",
+                      "rate_limited"
+                    ]
+                  }
+                }
+              }
+            }
+          }
         }
       }
     },

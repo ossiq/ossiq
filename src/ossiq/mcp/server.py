@@ -66,8 +66,13 @@ TOOLS: list[dict[str, Any]] = [
 ]
 
 
-def noop_step(_: str) -> None:
-    """Silent scan progress callback — stdout is reserved for JSON-RPC."""
+def noop_step(_key: str, _status: object = None) -> None:
+    """Silent scan progress callback — stdout is reserved for JSON-RPC.
+
+    Accepts the optional status arg scan()'s step() wrapper always passes now (B4) — typed as
+    `object` rather than importing DataSourceStatus purely for that annotation on a callback that
+    does nothing with it either way.
+    """
 
 
 def evaluate_dependency(settings: Settings, args: dict[str, Any]) -> AgentDecision:
