@@ -154,7 +154,7 @@ def command_info(ctx: typer.Context, options: CommandInfoOptions) -> None:
 
     # Agent format prints JSON to stdout, so progress and warnings must stay silent.
     if is_agent:
-        scan_result = scan(sources, on_step=lambda _: None)
+        scan_result = scan(sources, on_step=lambda _key, _status=None: None)
     else:
         with show_scan_progress(settings) as on_step:
             scan_result = scan(sources, on_step=on_step)

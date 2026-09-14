@@ -220,10 +220,14 @@ def test_prefetch_scan_data_enriches_cves_after_osv_fetch():
         now,
     )
     assert result.cve_map == enriched_cve_map
+    repo_status = sources.get_source_code_provider.return_value.last_summary.status
+    cve_status = sources.cve_database.last_summary.status
     assert step.call_args_list == [
         call("packages"),
         call("repositories"),
+        call("repositories", repo_status),
         call("vulnerabilities"),
+        call("vulnerabilities", cve_status),
         call("epss"),
         call("versions"),
     ]

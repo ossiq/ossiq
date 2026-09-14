@@ -176,7 +176,7 @@ def prefetch_scan_data(
     sources: AbstractProjectSources,
     all_deps: list[DependencyDescriptor],
     now: datetime | None,
-    step: Callable[[str], None],
+    step: Callable[[str, DataSourceStatus | None], None],
 ) -> PrefetchedData:
     """Pass 1: pre-fetch package infos, repositories, CVEs, and versions-since for every dependency."""
     t0 = time.perf_counter()
@@ -220,6 +220,7 @@ def prefetch_scan_data(
     # silent success. A step with nothing to fetch (no repo URLs at all) is legitimately ok, not
     # a data-source failure - that's the empty BatchRunSummary default on a fresh provider.
     completeness: dict[str, DataSourceStatus] = {"repositories": provider.last_summary.status}
+    step("repositories", provider.last_summary.status)
 
     # Batch CVE fetch for all unique packages
     # force unique pair package/version regardless position in the graph
@@ -228,6 +229,7 @@ def prefetch_scan_data(
     step("vulnerabilities")
     cve_map = sources.cve_database.get_cves_batch(unique_packages)
     completeness["vulnerabilities"] = sources.cve_database.last_summary.status
+    step("vulnerabilities", sources.cve_database.last_summary.status)
     step("epss")
     cve_map = enrich_cves_with_epss_and_fix_age(
         cve_map,
@@ -422,14 +424,16 @@ def solve_transitive_phase(
         apply_recommendations(transitive_packages, transitive_output, skip_current=True)
 
 
-def scan(sources: AbstractProjectSources, on_step: Callable[[str], None] | None = None) -> ScanResult:
+def scan(
+    sources: AbstractProjectSources, on_step: Callable[[str, DataSourceStatus | None], None] | None = None
+) -> ScanResult:
     """
     Project scan service: fetch from external sources, compute and return ScanResult.
     """
 
-    def step(key: str) -> None:
+    def step(key: str, status: DataSourceStatus | None = None) -> None:
         if on_step:
-            on_step(key)
+            on_step(key, status)
 
     with sources:
         step("project")

@@ -66,7 +66,7 @@ def command_status(ctx: typer.Context, options: CommandStatusOptions) -> None:
 
     # Agent format prints JSON to stdout, so the progress stepper must stay silent.
     if is_agent:
-        project_scan = scan(sources, on_step=lambda _: None)
+        project_scan = scan(sources, on_step=lambda _key, _status=None: None)
     else:
         with show_scan_progress(settings) as on_step:
             project_scan = scan(sources, on_step=on_step)
