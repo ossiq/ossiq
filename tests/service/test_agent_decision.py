@@ -145,10 +145,30 @@ def make_scan(records: list[ScanRecord]) -> ScanResult:
 
 
 def test_update_no_action_when_nothing_actionable():
+    """B7: a genuinely fine package still gets an entry - explicit 'no action needed', not an
+    omission. An agent can't tell "fine" from "not analysed" when a package is simply missing.
+    """
     decision = build_update_decide(make_scan([make_record()]))
     assert decision["next_action"] == "no action needed"
-    assert decision["updates"] == []
+    assert len(decision["updates"]) == 1
+    entry = decision["updates"][0]
+    assert entry["next_action"] == "no action needed"
+    assert entry["to"] == entry["from"]
+    assert entry["reasons"] == []
+    assert entry["cves"] == []
     assert "verdict" not in decision
+
+
+def test_update_no_action_entry_still_carries_the_full_version_picture():
+    """B7: even a no-action entry carries latest_version/latest_in_range/latest_in_major - an
+    agent shouldn't have to guess whether a package was actually checked.
+    """
+    record = make_record(installed="1.0.0", latest="1.0.0")
+    decision = build_update_decide(make_scan([record]))
+    entry = decision["updates"][0]
+    assert entry["latest_version"] == "1.0.0"
+    assert entry["latest_in_range"] == record.latest_in_range
+    assert entry["latest_in_major"] == record.latest_in_major
 
 
 def test_update_release_notes_for_major_bump():
@@ -270,3 +290,42 @@ def test_add_decide_ladder_null_for_prospective():
     decision = build_add_decide(detail)
     assert decision["latest_in_range"] is None
     assert decision["latest_in_major"] is None
+
+
+# --- B7: agent format must never omit a direct dependency ---------------------
+
+
+def test_all_direct_dependencies_appear_even_when_only_one_has_a_cve():
+    """The defect report's own scenario: 6 pinned direct dependencies, all outdated, only one
+    (pydantic) carries a CVE. The old behaviour listed only pydantic - an agent reading the
+    response would have no way to tell the other 5 were checked and found to need attention too.
+    """
+    records = [
+        make_record(
+            name="pydantic",
+            installed="1.10.13",
+            latest="2.13.5",
+            diff_index=VERSION_DIFF_MAJOR,
+            cves=[make_cve()],
+            recommended="1.10.13",
+        ),
+        make_record(name="requests", installed="2.28.1", latest="2.34.2", diff_index=VERSION_DIFF_MINOR),
+        make_record(name="click", installed="8.1.3", latest="8.1.7", diff_index=VERSION_DIFF_MINOR),
+        make_record(name="jinja2", installed="3.1.2", latest="3.1.4", diff_index=VERSION_DIFF_MINOR),
+        make_record(name="httpx", installed="0.24.0", latest="0.27.0", diff_index=VERSION_DIFF_MINOR),
+        make_record(name="pyyaml", installed="6.0", latest="6.0.2", diff_index=VERSION_DIFF_MINOR),
+    ]
+    decision = build_update_decide(make_scan(records))
+    listed = {entry["package"] for entry in decision["updates"]}
+    assert listed == {"pydantic", "requests", "click", "jinja2", "httpx", "pyyaml"}
+
+
+def test_a_package_up_to_date_and_unaffected_gets_an_explicit_entry_not_an_omission():
+    fine = make_record(name="click", installed="8.1.7", latest="8.1.7")
+    outdated = make_record(name="pydantic", installed="1.10.13", latest="2.13.5", diff_index=VERSION_DIFF_MAJOR)
+    decision = build_update_decide(make_scan([fine, outdated]))
+
+    assert len(decision["updates"]) == 2
+    entries_by_name = {e["package"]: e for e in decision["updates"]}
+    assert entries_by_name["click"]["next_action"] == "no action needed"
+    assert entries_by_name["click"]["to"] == entries_by_name["click"]["from"] == "8.1.7"
