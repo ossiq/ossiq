@@ -1,6 +1,6 @@
 import requests
 
-from ossiq.clients.batch import BatchClient
+from ossiq.clients.batch import BatchClient, BatchRunSummary
 from ossiq.clients.client_osv import ECOSYSTEM_MAPPING, OsvBatchStrategy, OsvDetailsBatchStrategy
 from ossiq.clients.common import get_user_agent
 from ossiq.domain.common import CveDatabase
@@ -27,11 +27,16 @@ class CveApiOsv:
         self._batch_client = BatchClient(self._strategy)
         self._details_batch_client = BatchClient(OsvDetailsBatchStrategy(self.session))
 
+        # B4: completeness of the most recent get_cves_batch() call - worst-of the two batch
+        # clients this method drives (vulnerability IDs, then vulnerability details).
+        self.last_summary = BatchRunSummary()
+
     def __repr__(self):
         return f"CveApiOsv(base_url='{self._strategy.BASE_URL}')"
 
     def get_cves_batch(self, packages_with_versions: list[tuple[Package, str]]) -> dict[tuple[str, str], set[CVE]]:
         if not packages_with_versions:
+            self.last_summary = BatchRunSummary()
             return {}
 
         pkg_map: dict[tuple[str, str], Package] = {(pkg.name, version): pkg for pkg, version in packages_with_versions}
@@ -39,12 +44,17 @@ class CveApiOsv:
         for chunk_data in self._batch_client.run_batch(packages_with_versions):
             for key, vulns in chunk_data.items():
                 merged.setdefault(key, []).extend(vulns)
+        self.last_summary = self._batch_client.last_summary
 
         vulnerability_ids = sorted({vuln["id"] for vulns in merged.values() for vuln in vulns})
         details: dict[str, dict] = {}
         if vulnerability_ids:
             for chunk_data in self._details_batch_client.run_batch(vulnerability_ids):
                 details.update(chunk_data)
+            # A failure fetching *details* still means real vulnerability IDs were found but
+            # couldn't be fully described - worth reflecting in the overall status too, not just
+            # the discovery step.
+            self.last_summary = self.last_summary.combine(self._details_batch_client.last_summary)
 
         return {
             (pkg.name, version): self.parse_cve_response(

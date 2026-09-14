@@ -5,7 +5,8 @@ from unittest.mock import MagicMock, call, patch
 
 from packaging.version import Version
 
-from ossiq.domain.common import ConstraintType, CveDatabase, ProjectPackagesRegistry
+from ossiq.clients.batch import BatchRunSummary
+from ossiq.domain.common import ConstraintType, CveDatabase, DataSourceStatus, ProjectPackagesRegistry
 from ossiq.domain.cve import CVE, Severity
 from ossiq.domain.exceptions import UnknownPackageVersion
 from ossiq.domain.package import Package
@@ -219,10 +220,14 @@ def test_prefetch_scan_data_enriches_cves_after_osv_fetch():
         now,
     )
     assert result.cve_map == enriched_cve_map
+    repo_status = sources.get_source_code_provider.return_value.last_summary.status
+    cve_status = sources.cve_database.last_summary.status
     assert step.call_args_list == [
         call("packages"),
         call("repositories"),
+        call("repositories", repo_status),
         call("vulnerabilities"),
+        call("vulnerabilities", cve_status),
         call("epss"),
         call("versions"),
     ]
@@ -275,8 +280,8 @@ def test_prefetch_scan_data_fetches_stability_signals_for_direct_deps_only():
         prefetch_scan_data(sources, [direct_dep, transitive_dep], now, step)
 
     assert repos_info.call_args.args[1] == {"https://github.com/org/foo", "https://github.com/org/bar"}
-    assert commits.call_args.args[1] == {"https://github.com/org/foo"}
-    assert activity.call_args.args[1] == {"https://github.com/org/foo"}
+    assert commits.call_args.args[2] == {"https://github.com/org/foo"}
+    assert activity.call_args.args[2] == {"https://github.com/org/foo"}
 
 
 def test_prefetch_scan_data_skips_activity_when_responsiveness_disabled():
@@ -301,3 +306,54 @@ def test_prefetch_scan_data_skips_activity_when_responsiveness_disabled():
 
     activity.assert_not_called()
     assert result.activity == {}
+
+
+def test_prefetch_scan_data_records_data_completeness_per_step():
+    """B4: the report's actual scenario, end to end through prefetch_scan_data — a firewalled
+    OSV host and an exhausted GitHub quota must show up in the result's data_completeness, not
+    just vanish into an empty-looking but "successful" cve_map/repositories_info.
+    """
+    direct_dep = _make_dep("foo", dependency_path=None)
+    sources = MagicMock()
+    sources.allow_prerelease = False
+    sources.allow_prerelease_packages = ()
+    sources.settings.stability = False
+    sources.packages_registry.packages_info_batch.return_value = {
+        "foo": _make_package("foo", "https://github.com/org/foo"),
+    }
+    sources.packages_registry.package_versions.return_value = []
+
+    # GitHub: quota exhausted mid-fetch.
+    provider = sources.get_source_code_provider.return_value
+    provider.repositories_info_batch.return_value = {}
+    provider.last_summary = BatchRunSummary(rate_limited=True)
+
+    # OSV: host unreachable, every chunk failed.
+    sources.cve_database.get_cves_batch.return_value = {}
+    sources.cve_database.last_summary = BatchRunSummary(chunks_failed=1)
+
+    result = prefetch_scan_data(sources, [direct_dep], datetime(2025, 1, 11, tzinfo=UTC), MagicMock())
+
+    assert result.data_completeness.status_for("repositories") == DataSourceStatus.RATE_LIMITED
+    assert result.data_completeness.status_for("vulnerabilities") == DataSourceStatus.UNREACHABLE
+    assert result.data_completeness.overall == DataSourceStatus.RATE_LIMITED
+
+
+def test_prefetch_scan_data_completeness_is_ok_on_a_clean_run():
+    direct_dep = _make_dep("foo", dependency_path=None)
+    sources = MagicMock()
+    sources.allow_prerelease = False
+    sources.allow_prerelease_packages = ()
+    sources.settings.stability = False
+    sources.packages_registry.packages_info_batch.return_value = {
+        "foo": _make_package("foo", "https://github.com/org/foo"),
+    }
+    sources.packages_registry.package_versions.return_value = []
+    sources.get_source_code_provider.return_value.last_summary = BatchRunSummary(chunks_ok=1)
+    sources.cve_database.get_cves_batch.return_value = {}
+    sources.cve_database.last_summary = BatchRunSummary(chunks_ok=1)
+
+    result = prefetch_scan_data(sources, [direct_dep], datetime(2025, 1, 11, tzinfo=UTC), MagicMock())
+
+    assert result.data_completeness.overall == DataSourceStatus.OK
+    assert result.data_completeness.degraded_steps == {}

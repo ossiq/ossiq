@@ -9,7 +9,20 @@ import io
 import json
 from unittest.mock import MagicMock
 
+from ossiq.domain.common import DataSourceStatus
 from ossiq.mcp import server
+
+
+def test_noop_step_accepts_the_optional_status_argument():
+    """Regression: scan.py's step() wrapper now ALWAYS calls on_step with two positional
+    arguments (key, status) once B4's completeness reporting fires for the 'repositories' and
+    'vulnerabilities' steps - a callback that only accepted one argument would crash mid-scan.
+    This is exactly the shape scan() actually calls it with; see service/project/scan.py's
+    prefetch_scan_data step("vulnerabilities", status) calls.
+    """
+    server.noop_step("packages")
+    server.noop_step("vulnerabilities", DataSourceStatus.UNREACHABLE)
+    server.noop_step("repositories", DataSourceStatus.OK)
 
 
 def test_initialize_echoes_protocol_and_advertises_tools():
