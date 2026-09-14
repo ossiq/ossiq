@@ -12,6 +12,8 @@ from ossiq.domain.common import Command, UserInterfaceType
 from ossiq.service.project.scan import scan
 from ossiq.settings import Settings
 from ossiq.sources import project_sources
+from ossiq.strategy.overrides import StrategyPlan
+from ossiq.strategy.pyramid import DEFAULT_STRATEGY, UpdateStrategy
 from ossiq.ui.registry import get_renderer
 from ossiq.ui.system import show_scan_progress, show_settings
 
@@ -24,7 +26,8 @@ class CommandStatusOptions:
     allow_prerelease: bool = False
     allow_prerelease_packages: tuple[str, ...] = ()
     registry_type: Literal["npm", "pypi"] | None = None
-    security_only: bool = False
+    update_strategy: UpdateStrategy = DEFAULT_STRATEGY
+    strategy_overrides: tuple[tuple[str, UpdateStrategy], ...] = ()
     ignore_packages: tuple[str, ...] = ()
     output_format: Literal["console", "agent"] = "console"
     full: bool = False
@@ -38,6 +41,7 @@ def command_status(ctx: typer.Context, options: CommandStatusOptions) -> None:
     output_ui = UserInterfaceType(options.output_format)
     is_agent = output_ui == UserInterfaceType.AGENT
     threshold_parsed = timeutil.parse_relative_time_delta(options.lag_threshold_days)
+    strategy = StrategyPlan(default=options.update_strategy, overrides=dict(options.strategy_overrides))
 
     if not is_agent:
         show_settings(
@@ -47,7 +51,7 @@ def command_status(ctx: typer.Context, options: CommandStatusOptions) -> None:
                 "project_path": options.project_path,
                 "lag_threshold_days": f"{threshold_parsed.days} days",
                 "production": options.production,
-                "security": options.security_only,
+                "update_strategy": options.update_strategy.value,
                 "narrow_registry_type": project_sources.REGISTRY_TYPE_MAP.get(options.registry_type or ""),
                 "ignore_packages": options.ignore_packages or None,
             },
@@ -60,7 +64,7 @@ def command_status(ctx: typer.Context, options: CommandStatusOptions) -> None:
         options.allow_prerelease,
         options.allow_prerelease_packages,
         options.registry_type,
-        security_only=options.security_only,
+        strategy=strategy,
         ignore_packages=options.ignore_packages,
     )
 
@@ -77,4 +81,5 @@ def command_status(ctx: typer.Context, options: CommandStatusOptions) -> None:
         data=project_scan,
         lag_threshold_days=threshold_parsed.days,
         full=options.full,
+        update_strategy=options.update_strategy.value,
     )

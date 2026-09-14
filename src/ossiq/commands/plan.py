@@ -1,6 +1,6 @@
 """Plan and preview solver-recommended package version changes."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Literal
 
 import typer
@@ -11,16 +11,23 @@ from ossiq.messages import (
     ERROR_OVERRIDE_IGNORE_CONFLICT,
     ERROR_OVERRIDE_SPEC_INVALID,
     ERROR_OVERRIDE_UNKNOWN_PACKAGES,
+    ERROR_STRATEGY_OVERRIDE_IGNORE_CONFLICT,
     HELP_APPLY_RERUN_HINT,
+    HELP_PLAN_HIGHER_TIER_FOOTER,
     HELP_PLAN_NO_RECOMMENDATIONS,
-    HELP_PLAN_NO_SECURITY_RECOMMENDATIONS,
+    HELP_PLAN_NO_RECOMMENDATIONS_FOR_TIER,
+    HELP_PLAN_WIDENING_CONFIRM_HEADER,
     WARNING_OVERRIDE_VERSION_UNKNOWN,
+    WARNING_STRATEGY_OVERRIDE_SHADOWED_BY_OVERRIDE,
+    WARNING_STRATEGY_OVERRIDE_UNKNOWN_PACKAGE,
 )
 from ossiq.service.project.scan import scan
-from ossiq.service.update import UpdatePlan, build_update_plan
+from ossiq.service.update import UpdateEntry, UpdatePlan, build_update_plan
 from ossiq.settings import Settings
 from ossiq.sources import project_sources
 from ossiq.sources.project_sources import ProjectSources
+from ossiq.strategy.overrides import StrategyPlan
+from ossiq.strategy.pyramid import DEFAULT_STRATEGY, PYRAMID, UpdateStrategy, tier_index
 from ossiq.ui.registry import get_renderer
 from ossiq.ui.system import show_error, show_scan_progress
 
@@ -34,11 +41,12 @@ class CommandPlanOptions:
     allow_prerelease: bool = False
     allow_prerelease_packages: tuple[str, ...] = ()
     production: bool = False
-    security_only: bool = False
+    update_strategy: UpdateStrategy = DEFAULT_STRATEGY
+    strategy_overrides: tuple[tuple[str, UpdateStrategy], ...] = ()
     ignore_packages: tuple[str, ...] = ()
     pin_all: bool = False
     rewrite_versions: bool = False
-    overrides: tuple[tuple[str, str], ...] = ()
+    overrides: tuple[tuple[str, str], ...] = field(default_factory=tuple)
 
 
 def parse_override_specs(raw: list[str] | tuple[str, ...] | None) -> tuple[tuple[str, str], ...]:
@@ -67,6 +75,15 @@ def check_override_ignore_conflict(overrides: tuple[tuple[str, str], ...], ignor
         raise typer.BadParameter(ERROR_OVERRIDE_IGNORE_CONFLICT.format(packages=", ".join(conflicted)))
 
 
+def check_strategy_override_ignore_conflict(
+    strategy_overrides: tuple[tuple[str, UpdateStrategy], ...], ignore_packages: tuple[str, ...]
+) -> None:
+    """Reject any package that is both given a --strategy-override and excluded via --ignore."""
+    conflicted = sorted({name for name, _ in strategy_overrides} & set(ignore_packages))
+    if conflicted:
+        raise typer.BadParameter(ERROR_STRATEGY_OVERRIDE_IGNORE_CONFLICT.format(packages=", ".join(conflicted)))
+
+
 def warn_unknown_override_versions(sources: ProjectSources, overrides: tuple[tuple[str, str], ...]) -> None:
     """Warn when a forced version is absent from the registry (cache is warm after the scan)."""
     for name, version in overrides:
@@ -75,9 +92,31 @@ def warn_unknown_override_versions(sources: ProjectSources, overrides: tuple[tup
             typer.echo(WARNING_OVERRIDE_VERSION_UNKNOWN.format(package=name, version=version), err=True)
 
 
+def warn_strategy_overrides(
+    plan: UpdatePlan,
+    strategy_overrides: tuple[tuple[str, UpdateStrategy], ...],
+    forced_overrides: tuple[tuple[str, str], ...],
+) -> None:
+    """Warn on stderr for a --strategy-override naming an unknown package, or shadowed by --override.
+
+    Not an error — a monorepo may share one flag set across projects (mirrors
+    warn_unknown_override_versions), and --override winning over --strategy-override is documented
+    policy, not a mistake worth failing the run over.
+    """
+    forced_names = {name for name, _ in forced_overrides}
+    known_names = set(plan.installed_versions)
+    for name, _tier in strategy_overrides:
+        if name in forced_names:
+            typer.echo(WARNING_STRATEGY_OVERRIDE_SHADOWED_BY_OVERRIDE.format(package=name), err=True)
+        elif name not in known_names:
+            typer.echo(WARNING_STRATEGY_OVERRIDE_UNKNOWN_PACKAGE.format(package=name), err=True)
+
+
 def prepare_plan(ctx: typer.Context, options: CommandPlanOptions) -> tuple[ProjectSources, UpdatePlan] | None:
     """Scan the project and build the update plan. Returns None when nothing needs updating."""
     settings: Settings = ctx.obj
+
+    strategy = StrategyPlan(default=options.update_strategy, overrides=dict(options.strategy_overrides))
 
     sources = project_sources.build_project_sources(
         settings,
@@ -86,7 +125,7 @@ def prepare_plan(ctx: typer.Context, options: CommandPlanOptions) -> tuple[Proje
         options.allow_prerelease,
         options.allow_prerelease_packages,
         options.registry_type,
-        security_only=options.security_only,
+        strategy=strategy,
         ignore_packages=options.ignore_packages,
         rewrite_versions=options.rewrite_versions,
     )
@@ -100,7 +139,7 @@ def prepare_plan(ctx: typer.Context, options: CommandPlanOptions) -> tuple[Proje
         package_manager_name,
         pin_all=options.pin_all,
         cooldown_period=sources.settings.cooldown_period,
-        security_only=options.security_only,
+        strategy=strategy,
         forced_overrides=dict(options.overrides),
     )
 
@@ -111,6 +150,8 @@ def prepare_plan(ctx: typer.Context, options: CommandPlanOptions) -> tuple[Proje
 
     if options.overrides:
         warn_unknown_override_versions(sources, options.overrides)
+    if options.strategy_overrides:
+        warn_strategy_overrides(plan, options.strategy_overrides, options.overrides)
 
     if (
         not plan.direct_entries
@@ -118,13 +159,24 @@ def prepare_plan(ctx: typer.Context, options: CommandPlanOptions) -> tuple[Proje
         and not plan.held_for_cooldown
         and not plan.held_for_widening
     ):
-        if options.security_only:
-            typer.echo(HELP_PLAN_NO_SECURITY_RECOMMENDATIONS)
-        else:
+        if options.update_strategy == DEFAULT_STRATEGY:
             typer.echo(HELP_PLAN_NO_RECOMMENDATIONS)
+        else:
+            typer.echo(HELP_PLAN_NO_RECOMMENDATIONS_FOR_TIER.format(tier=options.update_strategy.value))
         return None
 
     return sources, plan
+
+
+def render_higher_tier_footer(plan: UpdatePlan) -> None:
+    """Print "N more updates available under --update-strategy X" for each higher tier that
+    would move a withheld package, lowest tier first."""
+    for tier in PYRAMID:
+        count = plan.available_at_higher_tier.get(tier)
+        if not count or tier_index(tier) <= tier_index(plan.strategy):
+            continue
+        plural = "s" if count != 1 else ""
+        typer.echo(HELP_PLAN_HIGHER_TIER_FOOTER.format(count=count, plural=plural, tier=tier.value))
 
 
 def command_plan(ctx: typer.Context, options: CommandPlanOptions) -> None:
@@ -136,6 +188,22 @@ def command_plan(ctx: typer.Context, options: CommandPlanOptions) -> None:
     plan = result[1]
     renderer = get_renderer(Command.PLAN, UserInterfaceType.CONSOLE, ctx.obj)
     renderer.render(data=plan, script="")
+    render_higher_tier_footer(plan)
+
+
+def _confirm_widening(plan: UpdatePlan) -> bool:
+    """Second, apt-style confirmation for entries that widen the declared constraint."""
+    widening_entries: list[UpdateEntry] = [e for e in plan.all_entries if e.widens_constraint]
+    if not widening_entries:
+        return True
+
+    typer.echo(HELP_PLAN_WIDENING_CONFIRM_HEADER.format(tier=plan.strategy.value))
+    for entry in widening_entries:
+        typer.echo(
+            f"  {entry.package_name}  {entry.version_defined or '(none)'} -> {entry.recommended_version}"
+            f"  [{'direct' if entry.is_direct else 'transitive'}]"
+        )
+    return typer.confirm("Proceed with these constraint-widening updates?", default=False)
 
 
 def command_apply(ctx: typer.Context, options: CommandPlanOptions, yes: bool = False) -> None:
@@ -147,6 +215,7 @@ def command_apply(ctx: typer.Context, options: CommandPlanOptions, yes: bool = F
     sources, plan = result
     renderer = get_renderer(Command.PLAN, UserInterfaceType.CONSOLE, ctx.obj)
     renderer.render(data=plan, script="")
+    render_higher_tier_footer(plan)
 
     if not plan.all_entries:
         return
@@ -155,6 +224,8 @@ def command_apply(ctx: typer.Context, options: CommandPlanOptions, yes: bool = F
         n = len(plan.all_entries)
         confirmed = typer.confirm(f"Proceed with {n} update{'s' if n != 1 else ''}?", default=False)
         if not confirmed:
+            raise typer.Exit(0)
+        if not _confirm_widening(plan):
             raise typer.Exit(0)
 
     sources.packages_manager.execute_update(plan)

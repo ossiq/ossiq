@@ -11,6 +11,8 @@ from ossiq.domain.common import Command, ProjectPackagesRegistry, UserInterfaceT
 from ossiq.service.project.scan import scan
 from ossiq.settings import Settings
 from ossiq.sources import project_sources
+from ossiq.strategy.overrides import StrategyPlan
+from ossiq.strategy.pyramid import DEFAULT_STRATEGY, UpdateStrategy
 from ossiq.ui.registry import get_renderer
 from ossiq.ui.system import show_scan_progress, show_settings
 
@@ -25,6 +27,8 @@ class CommandExportOptions:
     allow_prerelease: bool
     allow_prerelease_packages: tuple[str, ...]
     ignore_packages: tuple[str, ...] = ()
+    update_strategy: UpdateStrategy = DEFAULT_STRATEGY
+    strategy_overrides: tuple[tuple[str, UpdateStrategy], ...] = ()
 
 
 def command_export(ctx: typer.Context, options: CommandExportOptions):
@@ -54,6 +58,7 @@ def command_export(ctx: typer.Context, options: CommandExportOptions):
         allow_prerelease=options.allow_prerelease,
         allow_prerelease_packages=options.allow_prerelease_packages,
         narrow_package_registry=registry_type_map[options.registry_type] if options.registry_type else None,
+        strategy=StrategyPlan(default=options.update_strategy, overrides=dict(options.strategy_overrides)),
         ignore_packages=options.ignore_packages,
     )
 
@@ -70,4 +75,5 @@ def command_export(ctx: typer.Context, options: CommandExportOptions):
         data=project_scan,
         destination=options.output_destination,
         schema_version=options.schema_version,
+        update_strategy=options.update_strategy,
     )

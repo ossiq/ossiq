@@ -15,11 +15,14 @@ from ossiq.service.package import (
     fetch_prospective_detail,
 )
 from ossiq.service.project.models import ScanRecord, ScanResult
-from ossiq.service.project.recommendations import apply_ladder_fallback, apply_recommendations, clamp_recommendations
+from ossiq.service.project.recommendations import apply_recommendations, clamp_recommendations
 from ossiq.service.project.scan import scan
+from ossiq.service.project.strategy import apply_update_strategy
 from ossiq.settings import Settings
 from ossiq.solver import dependencies_solver
 from ossiq.sources import project_sources
+from ossiq.strategy.overrides import StrategyPlan
+from ossiq.strategy.pyramid import DEFAULT_STRATEGY, UpdateStrategy
 from ossiq.ui.registry import get_renderer
 from ossiq.ui.system import show_operation_progress, show_scan_progress
 
@@ -35,6 +38,8 @@ class CommandInfoOptions:
     allow_prerelease_packages: tuple[str, ...] = ()
     ignore_packages: tuple[str, ...] = ()
     output_format: Literal["console", "agent"] = "console"
+    update_strategy: UpdateStrategy = DEFAULT_STRATEGY
+    strategy_overrides: tuple[tuple[str, UpdateStrategy], ...] = ()
 
 
 def matches(record: ScanRecord, package_name: str) -> bool:
@@ -103,10 +108,22 @@ def build_installed_detail(
             allow_prerelease=sources.allow_prerelease,
             cooldown_period=settings.cooldown_period,
         )
-        # No validator here (info has no transitive_by_name map to simulate against) — direct
-        # records already had a recommendation before this block ran, so in practice this only
-        # ever fires for the transitive records the comment above describes.
-        apply_ladder_fallback(needs_solve, sources.packages_registry, now=settings.cutoff_date)
+        # No transitive_by_name map to re-simulate against here — direct records already had a
+        # recommendation before this block ran, so in practice this only ever fires for the
+        # transitive records the comment above describes.
+        apply_update_strategy(
+            needs_solve,
+            sources.packages_registry,
+            sources.strategy,
+            versions_since={
+                (r.package_name, r.installed_version): list(sources.packages_registry.package_versions(r.package_name))
+                for r in needs_solve
+            },
+            transitive_by_name={},
+            installed_names=set(),
+            allow_prerelease=sources.allow_prerelease,
+            now=settings.cutoff_date,
+        )
 
     # These fetches hit the already-warm in-process cache — no extra HTTP round-trips.
     package = sources.packages_registry.package_info(canonical_name)
@@ -153,6 +170,7 @@ def command_info(ctx: typer.Context, options: CommandInfoOptions) -> None:
         narrow_package_registry=registry_type_map.get(options.registry_type or ""),
         allow_prerelease=options.allow_prerelease,
         allow_prerelease_packages=options.allow_prerelease_packages,
+        strategy=StrategyPlan(default=options.update_strategy, overrides=dict(options.strategy_overrides)),
         ignore_packages=options.ignore_packages,
     )
 

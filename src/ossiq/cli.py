@@ -19,6 +19,7 @@ from ossiq.commands.install import install_app
 from ossiq.commands.plan import (
     CommandPlanOptions,
     check_override_ignore_conflict,
+    check_strategy_override_ignore_conflict,
     command_apply,
     command_plan,
     parse_override_specs,
@@ -50,13 +51,33 @@ from ossiq.messages import (
     HELP_REGISTRY_TYPE,
     HELP_REWRITE_VERSIONS,
     HELP_SCHEMA_VERSION,
-    HELP_SECURITY_ONLY,
     HELP_STATUS_FULL,
+    HELP_STRATEGY_OVERRIDE,
     HELP_TEXT,
+    HELP_UPDATE_STRATEGY,
 )
 from ossiq.settings import Settings
+from ossiq.strategy.overrides import parse_overrides, parse_strategy
+from ossiq.strategy.pyramid import UpdateStrategy
 from ossiq.timeutil import cutoff_datetime_from_iso_date
 from ossiq.ui.system import show_error, show_settings
+
+
+def parse_update_strategy(value: str) -> UpdateStrategy:
+    """CLI-boundary wrapper: turn parse_strategy's ValueError into typer.BadParameter."""
+    try:
+        return parse_strategy(value)
+    except ValueError as exc:
+        raise typer.BadParameter(str(exc)) from exc
+
+
+def parse_strategy_overrides(raw: list[str] | None) -> tuple[tuple[str, UpdateStrategy], ...]:
+    """CLI-boundary wrapper: turn parse_overrides's ValueError into typer.BadParameter."""
+    try:
+        return parse_overrides(raw)
+    except ValueError as exc:
+        raise typer.BadParameter(str(exc)) from exc
+
 
 app = typer.Typer()
 console = Console()
@@ -283,14 +304,14 @@ def status(
         Literal["npm", "pypi"] | None,
         typer.Option("--registry-type", "-r", help=HELP_REGISTRY_TYPE),
     ] = None,
-    security: Annotated[
-        bool,
-        typer.Option(
-            "--security",
-            is_flag=True,
-            help="Narrow transitive recommendations to CVE-carrying packages only",
-        ),
-    ] = False,
+    update_strategy: Annotated[
+        str,
+        typer.Option("--update-strategy", help=HELP_UPDATE_STRATEGY),
+    ] = "standard",
+    strategy_override: Annotated[
+        list[str] | None,
+        typer.Option("--strategy-override", help=HELP_STRATEGY_OVERRIDE),
+    ] = None,
     full: Annotated[bool, typer.Option("--full", is_flag=True, help=HELP_STATUS_FULL)] = False,
     ignore: Annotated[
         list[str] | None,
@@ -307,6 +328,9 @@ def status(
     if registry_type and registry_type.lower() not in ["npm", "pypi"]:
         raise typer.BadParameter("Only `npm` and `pypi` allowed")
 
+    strategy_overrides = parse_strategy_overrides(strategy_override)
+    check_strategy_override_ignore_conflict(strategy_overrides, tuple(ignore or []))
+
     with error_boundary(context.obj):
         command_status(
             ctx=context,
@@ -317,7 +341,8 @@ def status(
                 allow_prerelease=allow_prerelease,
                 allow_prerelease_packages=tuple(allow_prerelease_package or []),
                 registry_type=registry_type,
-                security_only=security,
+                update_strategy=parse_update_strategy(update_strategy),
+                strategy_overrides=strategy_overrides,
                 ignore_packages=tuple(ignore or []),
                 output_format=output_format,
                 full=full,
@@ -346,14 +371,14 @@ def html(
         str,
         typer.Option("--output", "-o", envvar=f"{Settings.ENV_PREFIX}OUTPUT", help=ARGS_HELP_OUTPUT),
     ] = "./ossiq_scan_report_{project_name}.html",
-    security: Annotated[
-        bool,
-        typer.Option(
-            "--security",
-            is_flag=True,
-            help="Narrow transitive recommendations to CVE-carrying packages only",
-        ),
-    ] = False,
+    update_strategy: Annotated[
+        str,
+        typer.Option("--update-strategy", help=HELP_UPDATE_STRATEGY),
+    ] = "standard",
+    strategy_override: Annotated[
+        list[str] | None,
+        typer.Option("--strategy-override", help=HELP_STRATEGY_OVERRIDE),
+    ] = None,
     ignore: Annotated[
         list[str] | None,
         typer.Option("--ignore", "-i", help=HELP_IGNORE_PACKAGE),
@@ -364,6 +389,9 @@ def html(
     """
     if registry_type and registry_type.lower() not in ["npm", "pypi"]:
         raise typer.BadParameter("Only `npm` and `pypi` allowed")
+
+    strategy_overrides = parse_strategy_overrides(strategy_override)
+    check_strategy_override_ignore_conflict(strategy_overrides, tuple(ignore or []))
 
     with error_boundary(context.obj):
         command_html(
@@ -376,7 +404,8 @@ def html(
                 allow_prerelease_packages=tuple(allow_prerelease_package or []),
                 registry_type=registry_type,
                 output_destination=output,
-                security_only=security,
+                update_strategy=parse_update_strategy(update_strategy),
+                strategy_overrides=strategy_overrides,
                 ignore_packages=tuple(ignore or []),
             ),
         )
@@ -404,6 +433,14 @@ def export(
         Literal["1.5"] | None,
         typer.Option("--schema-version", "-s", envvar=f"{Settings.ENV_PREFIX}SCHEMA_VERSION", help=HELP_SCHEMA_VERSION),
     ] = None,
+    update_strategy: Annotated[
+        str,
+        typer.Option("--update-strategy", help=HELP_UPDATE_STRATEGY),
+    ] = "standard",
+    strategy_override: Annotated[
+        list[str] | None,
+        typer.Option("--strategy-override", help=HELP_STRATEGY_OVERRIDE),
+    ] = None,
     ignore: Annotated[
         list[str] | None,
         typer.Option("--ignore", "-i", help=HELP_IGNORE_PACKAGE),
@@ -414,6 +451,9 @@ def export(
     """
     if registry_type and registry_type.lower() not in ["npm", "pypi"]:
         raise typer.BadParameter("Only `npm` and `pypi` allowed")
+
+    strategy_overrides = parse_strategy_overrides(strategy_override)
+    check_strategy_override_ignore_conflict(strategy_overrides, tuple(ignore or []))
 
     with error_boundary(context.obj):
         command_export(
@@ -426,6 +466,8 @@ def export(
                 schema_version=schema_version,
                 allow_prerelease=allow_prerelease,
                 allow_prerelease_packages=tuple(allow_prerelease_package or []),
+                update_strategy=parse_update_strategy(update_strategy),
+                strategy_overrides=strategy_overrides,
                 ignore_packages=tuple(ignore or []),
             ),
         )
@@ -447,6 +489,14 @@ def info(
         list[str] | None,
         typer.Option("--allow-prerelease-package", help="Allow pre-release for a specific package (repeatable)"),
     ] = None,
+    update_strategy: Annotated[
+        str,
+        typer.Option("--update-strategy", help=HELP_UPDATE_STRATEGY),
+    ] = "standard",
+    strategy_override: Annotated[
+        list[str] | None,
+        typer.Option("--strategy-override", help=HELP_STRATEGY_OVERRIDE),
+    ] = None,
     ignore: Annotated[
         list[str] | None,
         typer.Option("--ignore", "-i", help=HELP_IGNORE_PACKAGE),
@@ -462,6 +512,9 @@ def info(
     if registry_type and registry_type.lower() not in ["npm", "pypi"]:
         raise typer.BadParameter("Only `npm` and `pypi` allowed")
 
+    strategy_overrides = parse_strategy_overrides(strategy_override)
+    check_strategy_override_ignore_conflict(strategy_overrides, tuple(ignore or []))
+
     with error_boundary(context.obj):
         command_info(
             ctx=context,
@@ -471,6 +524,8 @@ def info(
                 registry_type=registry_type,
                 allow_prerelease=allow_prerelease,
                 allow_prerelease_packages=tuple(allow_prerelease_package or []),
+                update_strategy=parse_update_strategy(update_strategy),
+                strategy_overrides=strategy_overrides,
                 ignore_packages=tuple(ignore or []),
                 output_format=output_format,
             ),
@@ -533,10 +588,14 @@ def plan(
         typer.Option("--allow-prerelease-package", help="Allow pre-release for a specific package (repeatable)"),
     ] = None,
     production: Annotated[bool, typer.Option("--production", help=HELP_PRODUCTION_ONLY)] = False,
-    security: Annotated[
-        bool,
-        typer.Option("--security", is_flag=True, help=HELP_SECURITY_ONLY),
-    ] = False,
+    update_strategy: Annotated[
+        str,
+        typer.Option("--update-strategy", help=HELP_UPDATE_STRATEGY),
+    ] = "standard",
+    strategy_override: Annotated[
+        list[str] | None,
+        typer.Option("--strategy-override", help=HELP_STRATEGY_OVERRIDE),
+    ] = None,
     ignore: Annotated[list[str] | None, typer.Option("--ignore", "-i", help=HELP_IGNORE_PACKAGE)] = None,
     pin_all: Annotated[
         bool,
@@ -557,6 +616,8 @@ def plan(
 
     overrides = parse_override_specs(override)
     check_override_ignore_conflict(overrides, tuple(ignore or []))
+    strategy_overrides = parse_strategy_overrides(strategy_override)
+    check_strategy_override_ignore_conflict(strategy_overrides, tuple(ignore or []))
 
     with error_boundary(context.obj):
         command_plan(
@@ -567,7 +628,8 @@ def plan(
                 allow_prerelease=allow_prerelease,
                 allow_prerelease_packages=tuple(allow_prerelease_package or []),
                 production=production,
-                security_only=security,
+                update_strategy=parse_update_strategy(update_strategy),
+                strategy_overrides=strategy_overrides,
                 ignore_packages=tuple(ignore or []),
                 pin_all=pin_all,
                 rewrite_versions=rewrite_versions,
@@ -592,10 +654,14 @@ def apply(
         typer.Option("--allow-prerelease-package", help="Allow pre-release for a specific package (repeatable)"),
     ] = None,
     production: Annotated[bool, typer.Option("--production", help=HELP_PRODUCTION_ONLY)] = False,
-    security: Annotated[
-        bool,
-        typer.Option("--security", is_flag=True, help=HELP_SECURITY_ONLY),
-    ] = False,
+    update_strategy: Annotated[
+        str,
+        typer.Option("--update-strategy", help=HELP_UPDATE_STRATEGY),
+    ] = "standard",
+    strategy_override: Annotated[
+        list[str] | None,
+        typer.Option("--strategy-override", help=HELP_STRATEGY_OVERRIDE),
+    ] = None,
     ignore: Annotated[list[str] | None, typer.Option("--ignore", "-i", help=HELP_IGNORE_PACKAGE)] = None,
     pin_all: Annotated[
         bool,
@@ -620,6 +686,8 @@ def apply(
 
     overrides = parse_override_specs(override)
     check_override_ignore_conflict(overrides, tuple(ignore or []))
+    strategy_overrides = parse_strategy_overrides(strategy_override)
+    check_strategy_override_ignore_conflict(strategy_overrides, tuple(ignore or []))
 
     with error_boundary(context.obj):
         command_apply(
@@ -630,7 +698,8 @@ def apply(
                 allow_prerelease=allow_prerelease,
                 allow_prerelease_packages=tuple(allow_prerelease_package or []),
                 production=production,
-                security_only=security,
+                update_strategy=parse_update_strategy(update_strategy),
+                strategy_overrides=strategy_overrides,
                 ignore_packages=tuple(ignore or []),
                 pin_all=pin_all,
                 rewrite_versions=rewrite_versions,
