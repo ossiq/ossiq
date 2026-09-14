@@ -11,15 +11,17 @@ This module tests the GitHub API adapter implementation, including:
 """
 
 import datetime
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 import pytest
 import requests
 
 from ossiq.adapters.api_github import SourceCodeProviderApiGithub
+from ossiq.clients.batch import BatchRunSummary
 from ossiq.domain.common import (
     VERSION_DATA_SOURCE_GITHUB_RELEASES,
     VERSION_DATA_SOURCE_GITHUB_TAGS,
+    DataSourceStatus,
     RepositoryProvider,
 )
 from ossiq.domain.exceptions import GithubRateLimitError
@@ -685,6 +687,7 @@ class TestRepositoryActivityBatch:
         class FakeBatchClient:
             def __init__(self, strategy):
                 self.strategy = strategy
+                self.last_summary = BatchRunSummary(chunks_ok=2)
 
             def run_batch(self, repo_urls):
                 yield {
@@ -700,3 +703,64 @@ class TestRepositoryActivityBatch:
         assert result[url_ok]["issues"] == [{"n": 1}, {"n": 2}]
         assert result[url_ok]["pulls"] == [{"p": 1}]
         assert result[url_ok]["pinned_titles"] == ["Notice: Deprecation"]
+
+
+class TestLastSummary:
+    """B4: repositories_info_batch() must expose whether GitHub actually answered, not just what
+    it returned - the report's own evidence ("host blocked" -> ✓ shown anyway).
+    """
+
+    def test_host_unreachable_is_unreachable_not_ok(self, github_api_with_token):
+        with (
+            patch.object(github_api_with_token.session, "get", side_effect=requests.ConnectionError("blocked")),
+            patch("ossiq.clients.batch.time.sleep"),
+        ):
+            result = github_api_with_token.repositories_info_batch(["https://github.com/org/repo"])
+
+        assert result == {}
+        assert github_api_with_token.last_summary.status == DataSourceStatus.UNREACHABLE
+
+    def test_quota_exhausted_is_rate_limited(self, github_api_with_token):
+        resp = Mock(spec=requests.Response)
+        resp.status_code = 429
+        resp.headers = {"x-ratelimit-remaining": "0"}
+
+        with patch.object(github_api_with_token.session, "get", return_value=resp):
+            github_api_with_token.repositories_info_batch(["https://github.com/org/repo"])
+
+        assert github_api_with_token.last_summary.status == DataSourceStatus.RATE_LIMITED
+
+    def test_successful_fetch_is_ok(self, github_api_with_token):
+        resp = Mock(spec=requests.Response)
+        resp.status_code = 200
+        resp.json.return_value = {"description": "d", "license": None, "topics": []}
+        resp.headers = {}
+
+        with patch.object(github_api_with_token.session, "get", return_value=resp):
+            result = github_api_with_token.repositories_info_batch(["https://github.com/org/repo"])
+
+        assert "https://github.com/org/repo" in result
+        assert github_api_with_token.last_summary.status == DataSourceStatus.OK
+
+    def test_summary_accumulates_across_multiple_calls_on_one_instance(self, github_api_with_token):
+        """repositories_info_batch and commits_batch both drive last_summary on the same
+        instance - a failure in either must show up, not just whichever ran last.
+        """
+        ok_resp = Mock(spec=requests.Response)
+        ok_resp.status_code = 200
+        ok_resp.json.return_value = {"description": "d", "license": None, "topics": []}
+        ok_resp.headers = {}
+
+        with patch.object(github_api_with_token.session, "get", return_value=ok_resp):
+            github_api_with_token.repositories_info_batch(["https://github.com/org/repo"])
+        assert github_api_with_token.last_summary.status == DataSourceStatus.OK
+
+        with (
+            patch.object(github_api_with_token.session, "get", side_effect=requests.ConnectionError("blocked")),
+            patch("ossiq.clients.batch.time.sleep"),
+        ):
+            github_api_with_token.commits_batch(["https://github.com/org/repo"])
+        # Some data came through (the repo info), some didn't (the commits) - that combination
+        # is exactly what "partial" means, not "unreachable" (which requires nothing came through
+        # at all).
+        assert github_api_with_token.last_summary.status == DataSourceStatus.PARTIAL

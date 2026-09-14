@@ -5,6 +5,7 @@ Presentation-related system-level functions
 import sys
 from contextlib import contextmanager
 
+from ossiq.domain.common import DataSourceStatus
 from ossiq.settings import Settings
 
 try:
@@ -34,42 +35,91 @@ SCAN_STEPS: list[tuple[str, str]] = [
 
 STEP_INDEX: dict[str, int] = {key: i for i, (key, _) in enumerate(SCAN_STEPS)}
 
+# B4: a step reaching completion is not the same as it succeeding. Never draw the plain green
+# checkmark for a step whose outcome we know was degraded - each status gets its own icon, color,
+# and a short suffix, so the difference is visible even skimming past quickly.
+_STEP_STATUS_ICON: dict[DataSourceStatus, tuple[str, str, str]] = {
+    DataSourceStatus.OK: ("✓", "green", ""),
+    DataSourceStatus.PARTIAL: ("⚠", "yellow", "  (partial — some data missing)"),
+    DataSourceStatus.UNREACHABLE: ("✗", "red", "  (unreachable — no data)"),
+    DataSourceStatus.RATE_LIMITED: ("✗", "red", "  (rate limited — no data)"),
+}
+
+
+def render_scan_steps(idx: int, step_status: dict[str, DataSourceStatus]):
+    """Build the vertical stepper display for scan step `idx` (in progress), with earlier steps
+    rendered per their recorded outcome in `step_status` (ok if never reported).
+
+    A standalone function (rather than a closure inside show_scan_progress) specifically so this
+    rendering decision - never draw success for a degraded step - is directly testable without
+    needing a real terminal or a live Rich session.
+    """
+    rows: list = [Text("")]
+    for i, (key, label) in enumerate(SCAN_STEPS):
+        if i < idx:
+            icon, style, suffix = _STEP_STATUS_ICON[step_status.get(key, DataSourceStatus.OK)]
+            rows.append(Text(f"  {icon}  {label}{suffix}", style=style))
+        elif i == idx:
+            rows.append(Spinner("dots", text=Text(f"  {label}", style="bold cyan")))
+        else:
+            rows.append(Text(f"  ○  {label}", style="dim"))
+        if i < len(SCAN_STEPS) - 1:
+            rows.append(Text("  │", style="dim"))
+    return Group(*rows)
+
 
 @contextmanager
 def show_scan_progress(settings: Settings):
     """
     Show an animated vertical stepper while a scan runs.
-    Each call to the yielded callback advances to the named step.
+
+    The yielded callback has two jobs, both keyed by the step names in SCAN_STEPS:
+      on_step(key)              - advance the spinner to this step.
+      on_step(key, status)      - record this step's final outcome (a DataSourceStatus), without
+                                   moving the spinner. Steps that never report a status render as
+                                   ok once passed - most steps (packages, versions, solver) don't
+                                   yet have a completeness signal to report.
+
+    B4: previously a step was drawn as a green checkmark purely because the scan had moved past
+    it - there was no feedback loop from whether the underlying fetch actually succeeded. That's
+    why a firewalled OSV host or an exhausted GitHub quota could render a silent, confident ✓.
     """
     if settings.verbose or not RICH_AVAILABLE:
-        yield lambda _: None
+        yield lambda key, status=None: None
         return
 
     assert console is not None
     current = [-1]
+    step_status: dict[str, DataSourceStatus] = {}
 
-    def render(idx: int):
-        rows: list = [Text("")]
-        for i, (_, label) in enumerate(SCAN_STEPS):
-            if i < idx:
-                rows.append(Text(f"  ✓  {label}", style="green"))
-            elif i == idx:
-                rows.append(Spinner("dots", text=Text(f"  {label}", style="bold cyan")))
+    with Live(render_scan_steps(-1, step_status), console=console, refresh_per_second=8) as live:
+
+        def on_step(key: str, status: DataSourceStatus | None = None) -> None:
+            if status is not None:
+                step_status[key] = status
             else:
-                rows.append(Text(f"  ○  {label}", style="dim"))
-            if i < len(SCAN_STEPS) - 1:
-                rows.append(Text("  │", style="dim"))
-        return Group(*rows)
-
-    with Live(render(-1), console=console, refresh_per_second=8) as live:
-
-        def on_step(key: str) -> None:
-            current[0] = STEP_INDEX.get(key, current[0])
-            live.update(render(current[0]))
+                current[0] = STEP_INDEX.get(key, current[0])
+            live.update(render_scan_steps(current[0], step_status))
 
         yield on_step
-        live.update(render(len(SCAN_STEPS)))
+        live.update(render_scan_steps(len(SCAN_STEPS), step_status))
     print("\n")
+
+    _warn_about_degraded_steps(step_status)
+
+
+def _warn_about_degraded_steps(step_status: dict[str, DataSourceStatus]) -> None:
+    """B4 point 5: the degradation must be a legible warning, not just a smaller icon someone
+    could scroll past - and not a raw Python object repr in a log line no one is watching.
+    """
+    degraded = {key: status for key, status in step_status.items() if status != DataSourceStatus.OK}
+    if not degraded:
+        return
+    labels = dict(SCAN_STEPS)
+    lines = [f"  - {labels.get(key, key)}: {status.value}" for key, status in degraded.items()]
+    show_warning(
+        "Some data sources did not fully respond, so this report may be based on incomplete data:\n" + "\n".join(lines)
+    )
 
 
 @contextmanager

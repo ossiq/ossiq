@@ -11,7 +11,7 @@ from collections.abc import Callable, Iterable
 
 import requests
 
-from ossiq.clients.batch import is_rate_limit_response
+from ossiq.clients.batch import BatchRunSummary, is_rate_limit_response
 from ossiq.clients.client_github import (
     BatchClient,
     GithubCommitsBatchStrategy,
@@ -59,6 +59,11 @@ class SourceCodeProviderApiGithub:
             session.headers["Authorization"] = f"Bearer {self.github_token}"
 
         self.session = session
+
+        # B4: completeness of the most recent batch fetch(es) this instance made. Worst-of
+        # combined across whichever of repositories_info_batch / commits_batch /
+        # repository_activity_batch / readmes_batch get called on it.
+        self.last_summary = BatchRunSummary()
 
     def __repr__(self):
         return "<SourceCodeProviderApiGithub instance>"
@@ -269,6 +274,7 @@ class SourceCodeProviderApiGithub:
                     pushed_at=repo_data.get("pushed_at"),
                     topics=repo_data.get("topics") or [],
                 )
+        self.last_summary = self.last_summary.combine(client.last_summary)
         return result
 
     def commits_batch(self, repo_urls: list[str], until: str | None = None) -> dict[str, list[dict]]:
@@ -283,6 +289,7 @@ class SourceCodeProviderApiGithub:
             for url, commits in chunk_result.items():
                 if commits:
                     result[url] = commits
+        self.last_summary = self.last_summary.combine(client.last_summary)
         return result
 
     def repository_activity_batch(self, repo_urls: list[str], since: str | None = None) -> dict[str, dict]:
@@ -306,6 +313,7 @@ class SourceCodeProviderApiGithub:
                 pulls.setdefault(url, []).extend(payload.get("pulls") or [])
                 if payload.get("pinned_titles"):
                     pinned[url] = payload["pinned_titles"]
+        self.last_summary = self.last_summary.combine(client.last_summary)
         return {
             url: {"issues": issues.get(url, []), "pulls": pulls.get(url, []), "pinned_titles": pinned.get(url, [])}
             for url in issues.keys() | pulls.keys()
@@ -320,6 +328,7 @@ class SourceCodeProviderApiGithub:
             for url, text in chunk_result.items():
                 if text:
                     result[url] = text
+        self.last_summary = self.last_summary.combine(client.last_summary)
         return result
 
     def repository_info(self, repository_url: str | None) -> Repository:

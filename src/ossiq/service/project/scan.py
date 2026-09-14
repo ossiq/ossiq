@@ -12,6 +12,7 @@ from ossiq.adapters.api_interfaces import AbstractPackageRegistryApi
 from ossiq.adapters.api_pypi import PackageRegistryApiPypi
 from ossiq.adapters.detectors import is_git_hosted_source
 from ossiq.adapters.package_managers.dependency_tree import GraphExporter
+from ossiq.domain.common import DataCompleteness, DataSourceStatus, RepositoryProvider
 from ossiq.domain.exceptions import ProjectPathNotFoundError
 from ossiq.domain.package import Package
 from ossiq.domain.project import Dependency
@@ -176,11 +177,11 @@ def prefetch_scan_data(
     sources: AbstractProjectSources,
     all_deps: list[DependencyDescriptor],
     now: datetime | None,
-    step: Callable[[str], None],
+    step: Callable[[str, DataSourceStatus | None], None],
 ) -> PrefetchedData:
     """Pass 1: pre-fetch package infos, repositories, CVEs, and versions-since for every dependency."""
     t0 = time.perf_counter()
-    step("packages")
+    step("packages", None)
     packages_info = prefetch_packages_info(sources.packages_registry, (dep.canonical_name for dep in all_deps))
 
     if sources.allow_prerelease or sources.allow_prerelease_packages:
@@ -193,10 +194,13 @@ def prefetch_scan_data(
 
     apply_cutoff_date(packages_info, sources.packages_registry, now)
 
-    # Github repository info
-    step("repositories")
+    # Github repository info. One provider instance shared across all 4 fetches below (repo info,
+    # commits, activity, readmes): reuses a single session, and lets last_summary accumulate so
+    # the "repositories" step's completeness reflects all of them, not just whichever ran last.
+    step("repositories", None)
+    provider = sources.get_source_code_provider(RepositoryProvider.PROVIDER_GITHUB)
     repo_urls = {pkg.repo_url for pkg in packages_info.values() if pkg.repo_url is not None}
-    repositories_info = prefetch_source_code_repositories_info(sources, repo_urls)
+    repositories_info = prefetch_source_code_repositories_info(provider, repo_urls)
 
     # Stability signals for the direct-dependency repos only - one commit request and one README
     # request each, plus one GraphQL POST per repo per stream (ACTIVITY_CHUNK_SIZE = 1, PR streams
@@ -208,17 +212,26 @@ def prefetch_scan_data(
     if sources.settings.stability:
         direct_packages = (packages_info[dep.canonical_name] for dep in all_deps if dep.dependency_path is None)
         direct_repo_urls = {pkg.repo_url for pkg in direct_packages if pkg.repo_url is not None}
-        commits = prefetch_repository_commits(sources, direct_repo_urls)
-        readmes = prefetch_repository_readmes(sources, direct_repo_urls)
+        commits = prefetch_repository_commits(provider, sources, direct_repo_urls)
+        readmes = prefetch_repository_readmes(provider, direct_repo_urls)
         if sources.settings.responsiveness_enabled():
-            activity = prefetch_repository_activity(sources, direct_repo_urls)
+            activity = prefetch_repository_activity(provider, sources, direct_repo_urls)
+
+    # B4: per-step completeness, so a firewalled host or exhausted quota never renders as a
+    # silent success. A step with nothing to fetch (no repo URLs at all) is legitimately ok, not
+    # a data-source failure - that's the empty BatchRunSummary default on a fresh provider.
+    completeness: dict[str, DataSourceStatus] = {"repositories": provider.last_summary.status}
+    step("repositories", provider.last_summary.status)
+
     # Batch CVE fetch for all unique packages
     # force unique pair package/version regardless position in the graph
     unique_packages = list(set((packages_info[dep.canonical_name], dep.version) for dep in all_deps))
 
-    step("vulnerabilities")
+    step("vulnerabilities", None)
     cve_map = sources.cve_database.get_cves_batch(unique_packages)
-    step("epss")
+    completeness["vulnerabilities"] = sources.cve_database.last_summary.status
+    step("vulnerabilities", sources.cve_database.last_summary.status)
+    step("epss", None)
     cve_map = enrich_cves_with_epss_and_fix_age(
         cve_map,
         sources.epss_score_database,
@@ -227,7 +240,7 @@ def prefetch_scan_data(
     )
 
     # Pre-compute versions-since-installed for all unique (package, version) pairs
-    step("versions")
+    step("versions", None)
     versions_since_map = prefetch_versions_since(
         sources.packages_registry,
         {(packages_info[dep.canonical_name].name, dep.version) for dep in all_deps},
@@ -245,6 +258,7 @@ def prefetch_scan_data(
         commits=commits,
         activity=activity,
         readmes=readmes,
+        data_completeness=DataCompleteness(by_step=completeness),
     )
 
 
@@ -413,17 +427,19 @@ def solve_transitive_phase(
         apply_recommendations(transitive_packages, transitive_output, skip_current=True)
 
 
-def scan(sources: AbstractProjectSources, on_step: Callable[[str], None] | None = None) -> ScanResult:
+def scan(
+    sources: AbstractProjectSources, on_step: Callable[[str, DataSourceStatus | None], None] | None = None
+) -> ScanResult:
     """
     Project scan service: fetch from external sources, compute and return ScanResult.
     """
 
-    def step(key: str) -> None:
+    def step(key: str, status: DataSourceStatus | None = None) -> None:
         if on_step:
-            on_step(key)
+            on_step(key, status)
 
     with sources:
-        step("project")
+        step("project", None)
         project_info = sources.packages_manager.project_info()
         project_info = resolve_library_constraints(project_info, sources.packages_registry)
         # FIXME: catch this issue way before as part of command validation
@@ -451,7 +467,7 @@ def scan(sources: AbstractProjectSources, on_step: Callable[[str], None] | None 
             dep.canonical_name: dep.version for dep in descriptors.prod_deps + descriptors.opt_deps
         }
 
-        step("solver")
+        step("solver", None)
         solver_output, production_packages, optional_packages, validate_recommendation = solve_direct_phase(
             solvable_direct_deps,
             descriptors,
@@ -509,4 +525,5 @@ def scan(sources: AbstractProjectSources, on_step: Callable[[str], None] | None 
             ignored_packages=descriptors.ignored_packages,
             project_epss=project_epss,
             project_stability=project_stability,
+            data_completeness=prefetched.data_completeness,
         )

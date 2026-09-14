@@ -6,10 +6,11 @@ Tests for CveApiOsv in ossiq.adapters.api_osv module.
 from unittest.mock import MagicMock, patch
 
 import pytest
+import requests
 
 from ossiq.adapters.api_osv import CveApiOsv
 from ossiq.clients.batch import BatchClient
-from ossiq.domain.common import CveDatabase, ProjectPackagesRegistry
+from ossiq.domain.common import CveDatabase, DataSourceStatus, ProjectPackagesRegistry
 from ossiq.domain.cve import Severity
 from ossiq.domain.package import Package
 
@@ -301,3 +302,53 @@ class TestExtractFixVersions:
         }
 
         assert api.extract_fix_versions(osv_entry, package) == ()
+
+
+class TestLastSummary:
+    """B4: get_cves_batch() must expose whether OSV actually answered, not just what it returned -
+    a firewalled host and "checked, no CVEs" must not be indistinguishable via the data alone.
+    """
+
+    def test_empty_input_is_ok(self):
+        api = CveApiOsv(MagicMock())
+        api.get_cves_batch([])
+        assert api.last_summary.status == DataSourceStatus.OK
+
+    def test_host_unreachable_is_unreachable_not_ok(self):
+        """The report's literal scenario: api.osv.dev firewalled. Every request raises
+        ConnectionError; get_cves_batch must not silently look like "checked, zero CVEs".
+        """
+        pkg = make_package("lodash")
+        api = CveApiOsv(MagicMock())
+        api._strategy.config.max_retries = 1  # keep the test fast
+
+        with (
+            patch.object(api.session, "post", side_effect=requests.ConnectionError("blocked")),
+            patch("ossiq.clients.batch.time.sleep"),
+        ):
+            result = api.get_cves_batch([(pkg, "4.17.20")])
+
+        assert result[("lodash", "4.17.20")] == set()
+        assert api.last_summary.status == DataSourceStatus.UNREACHABLE
+
+    def test_quota_exhausted_is_rate_limited(self):
+        pkg = make_package("lodash")
+        api = CveApiOsv(MagicMock())
+        resp = MagicMock(spec=requests.Response)
+        resp.status_code = 429
+        resp.headers = {"x-ratelimit-remaining": "0"}
+
+        with patch.object(api.session, "post", return_value=resp):
+            api.get_cves_batch([(pkg, "4.17.20")])
+
+        assert api.last_summary.status == DataSourceStatus.RATE_LIMITED
+
+    def test_successful_fetch_is_ok(self):
+        pkg = make_package("lodash")
+        chunk_data = {("lodash", "4.17.20"): [make_osv_vuln("GHSA-xxxx-0001")]}
+        api = CveApiOsv(MagicMock())
+
+        with patch.object(BatchClient, "run_batch", return_value=iter([chunk_data])):
+            api.get_cves_batch([(pkg, "4.17.20")])
+
+        assert api.last_summary.status == DataSourceStatus.OK

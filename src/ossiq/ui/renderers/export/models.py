@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field, field_serializer, model_serializer
 
 from ossiq.domain.common import (
     ConstraintType,
+    DataCompleteness,
     ExportJsonSchemaVersion,
     ExportUnknownSchemaVersion,
 )
@@ -17,6 +18,37 @@ from ossiq.domain.cve import CVE, Severity
 from ossiq.risk.maintenance import OBSERVATION_COUNT
 from ossiq.service.project.models import ScanResult
 from ossiq.service.project.stability import RepositoryStability
+
+
+class DataSourceStatusExport(BaseModel):
+    """B4: whether one external data source actually delivered data for this scan step."""
+
+    step: str = Field(description="Scan step this covers, e.g. 'repositories', 'vulnerabilities'")
+    status: str = Field(description="ok | partial | unreachable | rate_limited")
+
+
+class DataCompletenessExport(BaseModel):
+    """B4: per-source completeness for this scan, so a report built on missing or degraded data
+    (a firewalled host, an exhausted API quota) is never indistinguishable from a genuinely clean
+    result — every consumer of the export, not just the CLI's own progress display, can see it.
+    """
+
+    overall: str = Field(
+        default="ok", description="Worst status across every tracked source: ok | partial | unreachable | rate_limited"
+    )
+    sources: list[DataSourceStatusExport] = Field(
+        default_factory=list, description="Per-source status, one entry per scan step that reports completeness"
+    )
+
+    @classmethod
+    def from_domain(cls, completeness: DataCompleteness) -> "DataCompletenessExport":
+        return cls(
+            overall=completeness.overall.value,
+            sources=[
+                DataSourceStatusExport(step=step, status=status.value)
+                for step, status in sorted(completeness.by_step.items())
+            ],
+        )
 
 
 class ExportMetadata(BaseModel):
@@ -36,6 +68,10 @@ class ExportMetadata(BaseModel):
             "The update-strategy tier this run targeted: security, deprecation, standard, "
             "latest, or cutting-edge. See PackageMetrics.strategy_* for the per-package verdict."
         ),
+    )
+    data_completeness: DataCompletenessExport = Field(
+        default_factory=DataCompletenessExport,
+        description="B4: per-source data-source status for this scan",
     )
 
     @field_serializer("export_timestamp")
@@ -796,7 +832,11 @@ def build_export_data(
     packages_with_cves = sum(1 for pkg in all_direct if len(pkg.cve) > 0)
     packages_outdated = sum(1 for pkg in all_direct if pkg.versions_diff_index.diff_index > 0)
 
-    metadata = ExportMetadata(schema_version=schema_version, update_strategy=update_strategy)
+    metadata = ExportMetadata(
+        schema_version=schema_version,
+        update_strategy=update_strategy,
+        data_completeness=DataCompletenessExport.from_domain(data.data_completeness),
+    )
     project = ProjectInfo(
         name=data.project_name,
         path=data.project_path,

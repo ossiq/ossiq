@@ -321,6 +321,14 @@ def status(
         Literal["console", "agent"],
         typer.Option("--format", "-f", help="Output format: console (human) or agent (compact JSON decision)"),
     ] = "console",
+    allow_partial: Annotated[
+        bool,
+        typer.Option(
+            "--allow-partial",
+            is_flag=True,
+            help="Render the report even if vulnerability data could not be fully retrieved",
+        ),
+    ] = False,
 ):
     """
     Show dependency health: drift, CVEs, and solver recommendations.
@@ -346,6 +354,7 @@ def status(
                 ignore_packages=tuple(ignore or []),
                 output_format=output_format,
                 full=full,
+                allow_partial=allow_partial,
             ),
         )
 
