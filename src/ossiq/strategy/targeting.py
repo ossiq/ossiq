@@ -89,6 +89,11 @@ def select_target(facts: PackageFacts, strategy: UpdateStrategy, candidates: Seq
          point there.
       6. If every candidate in reach still carries a qualifying CVE, take the newest anyway and
          set `escalation` — never silently stay on the installed version.
+      7. Freshness tiers only: if drift alone leaves nothing in reach (e.g. an exact pin broken
+         by an API change, with newer releases sitting only at IN_MAJOR/LATEST), reach still
+         escalates to the newest candidate overall, same as rule 6 — a package must never come
+         back with no target solely because its only newer releases sit past this tier's base
+         reach. Minimal-diff tiers are exempt: drift alone is not their motive to move at all.
     """
     detected = classify_motives(facts)
     admitted = ADMITTED_MOTIVES[strategy] & detected
@@ -111,6 +116,33 @@ def select_target(facts: PackageFacts, strategy: UpdateStrategy, candidates: Seq
     in_reach = [c for c in candidates if RUNG_ORDER[c.rung] <= RUNG_ORDER[reach]]
 
     if not in_reach:
+        # Rule 7: a freshness tier must never leave a package stuck with no target merely
+        # because its only newer releases sit beyond this tier's base reach - the named
+        # regression this guards against is an exact pin held back by an API-breaking major
+        # (e.g. pydantic==1.10.13 with only 1.10.x/2.x releases, both past IN_RANGE). Widen one
+        # rung at a time, same as the old ladder fallback's ascending walk, so a same-major patch
+        # is preferred over jumping straight to a breaking major when both exist.
+        if strategy not in MINIMAL_DIFF_TIERS and candidates:
+            for wider_reach in (RecommendationRung.IN_MAJOR, RecommendationRung.LATEST):
+                if RUNG_ORDER[wider_reach] <= RUNG_ORDER[reach]:
+                    continue
+                widened = [c for c in candidates if RUNG_ORDER[c.rung] <= RUNG_ORDER[wider_reach]]
+                if not widened:
+                    continue
+                newest = widened[-1]
+                return StrategySelection(
+                    strategy=strategy,
+                    target_version=newest.version,
+                    rung=newest.rung,
+                    motives=admitted,
+                    requires_widening=RUNG_ORDER[newest.rung] > RUNG_ORDER[RecommendationRung.IN_RANGE],
+                    withheld_reason=None,
+                    available_at=None,
+                    escalation=(
+                        f"no version of {facts.package_name} within {strategy} reach; "
+                        f"nearest reachable is {newest.version}"
+                    ),
+                )
         return StrategySelection(
             strategy=strategy,
             target_version=None,
