@@ -21,6 +21,8 @@ from ossiq.service.package import fetch_prospective_detail
 from ossiq.service.project.scan import scan
 from ossiq.settings import Settings
 from ossiq.sources import project_sources
+from ossiq.strategy.overrides import StrategyPlan, parse_strategy
+from ossiq.strategy.pyramid import PYRAMID
 
 PROTOCOL_VERSION = "2025-06-18"
 SERVER_INFO = {"name": "ossiq", "version": importlib.metadata.version("ossiq")}
@@ -58,7 +60,21 @@ TOOLS: list[dict[str, Any]] = [
             "properties": {
                 "project_path": {"type": "string", "description": "Path to the project (default '.')"},
                 "production": {"type": "boolean", "description": "Restrict to production dependencies"},
-                "security": {"type": "boolean", "description": "Narrow transitive recommendations to CVE-carrying"},
+                "update_strategy": {
+                    "type": "string",
+                    "enum": [tier.value for tier in PYRAMID],
+                    "description": (
+                        "Which tier of the update pyramid to target (default: standard). "
+                        "security/deprecation propose the smallest diff that resolves a CVE or "
+                        "end-of-life marker; standard stays inside the declared range; latest/"
+                        "cutting-edge may widen it. See strategy/README.md."
+                    ),
+                },
+                "strategy_overrides": {
+                    "type": "object",
+                    "additionalProperties": {"type": "string", "enum": [tier.value for tier in PYRAMID]},
+                    "description": 'Per-package tier overrides, e.g. {"lodash": "cutting-edge"}',
+                },
             },
             "required": ["project_path"],
         },
@@ -95,6 +111,10 @@ def evaluate_dependency(settings: Settings, args: dict[str, Any]) -> AgentDecisi
 
 def evaluate_updates(settings: Settings, args: dict[str, Any]) -> AgentDecision:
     """Build an update-decision for a project's direct dependencies."""
+    default_tier = parse_strategy(args.get("update_strategy", "standard"))
+    overrides = {str(name): parse_strategy(str(tier)) for name, tier in (args.get("strategy_overrides") or {}).items()}
+    strategy = StrategyPlan(default=default_tier, overrides=overrides)
+
     sources = project_sources.build_project_sources(
         settings,
         args.get("project_path", "."),
@@ -102,10 +122,10 @@ def evaluate_updates(settings: Settings, args: dict[str, Any]) -> AgentDecision:
         allow_prerelease=False,
         allow_prerelease_packages=(),
         registry_type=None,
-        security_only=bool(args.get("security", False)),
+        strategy=strategy,
     )
     scan_result = scan(sources, on_step=noop_step)
-    return build_update_decide(scan_result)
+    return build_update_decide(scan_result, update_strategy=default_tier.value)
 
 
 TOOL_HANDLERS: dict[str, Callable[[Settings, dict[str, Any]], AgentDecision]] = {

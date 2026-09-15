@@ -10,6 +10,7 @@ from ossiq.adapters.api_interfaces import AbstractPackageManagerApi, AbstractPac
 from ossiq.adapters.api_osv import CveApiOsv
 from ossiq.domain.common import ProjectPackagesRegistry, RepositoryProvider
 from ossiq.settings import Settings
+from ossiq.strategy.overrides import StrategyPlan
 
 
 class AbstractProjectSources(abc.ABC):
@@ -27,7 +28,7 @@ class AbstractProjectSources(abc.ABC):
     production: bool
     allow_prerelease: bool
     allow_prerelease_packages: tuple[str, ...]
-    security_only: bool
+    strategy: StrategyPlan
     ignore_packages: tuple[str, ...]
     rewrite_versions: bool
 

@@ -30,6 +30,13 @@ class ExportMetadata(BaseModel):
         default_factory=lambda: datetime.now(UTC),
         description="UTC timestamp when the export was generated",
     )
+    update_strategy: str | None = Field(
+        default=None,
+        description=(
+            "The update-strategy tier this run targeted: security, deprecation, standard, "
+            "latest, or cutting-edge. See PackageMetrics.strategy_* for the per-package verdict."
+        ),
+    )
 
     @field_serializer("export_timestamp")
     def serialize_timestamp(self, dt: datetime) -> str:
@@ -343,6 +350,28 @@ class PackageMetrics(BaseModel):
         default=None,
         description="Recommended action from the EPSS x maintenance matrix: evict, patch, refactor or retain",
     )
+    strategy_motives: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Motives admitted at the run's update-strategy tier for this package: "
+            "exploitable_cve, suppressed_cve, end_of_life, drift. Empty when nothing was admitted"
+        ),
+    )
+    strategy_withheld_reason: str | None = Field(
+        default=None,
+        description=(
+            "Set only when no motive was admitted at the run's tier — names the lowest tier that "
+            "would move this package"
+        ),
+    )
+    strategy_requires_widening: bool = Field(
+        default=False,
+        description="Whether recommended_version sits outside version_constraint under the run's strategy",
+    )
+    strategy_escalation: str | None = Field(
+        default=None,
+        description="Set when the strategy reached past its tier's base ceiling, or every reachable version still carries a qualifying CVE",  # noqa: E501
+    )
 
     @field_serializer(
         "epss",
@@ -408,6 +437,14 @@ class PackageMetrics(BaseModel):
             epss=record.epss,
             runs_code_at_install=record.runs_code_at_install,
             install_execution_reason=record.install_execution_reason,
+            strategy_motives=(
+                sorted(m.value for m in record.strategy_selection.motives) if record.strategy_selection else []
+            ),
+            strategy_withheld_reason=record.strategy_selection.withheld_reason if record.strategy_selection else None,
+            strategy_requires_widening=(
+                record.strategy_selection.requires_widening if record.strategy_selection else False
+            ),
+            strategy_escalation=record.strategy_selection.escalation if record.strategy_selection else None,
             **stability_export_fields(record),
         )
 
@@ -749,6 +786,7 @@ def _build_dependency_tree(
 def build_export_data(
     data: ScanResult,
     schema_version: ExportJsonSchemaVersion,
+    update_strategy: str | None = None,
 ) -> ExportData:
     """
     Create export data from ScanResult domain model.
@@ -758,7 +796,7 @@ def build_export_data(
     packages_with_cves = sum(1 for pkg in all_direct if len(pkg.cve) > 0)
     packages_outdated = sum(1 for pkg in all_direct if pkg.versions_diff_index.diff_index > 0)
 
-    metadata = ExportMetadata(schema_version=schema_version)
+    metadata = ExportMetadata(schema_version=schema_version, update_strategy=update_strategy)
     project = ProjectInfo(
         name=data.project_name,
         path=data.project_path,

@@ -32,6 +32,13 @@
           "type": "string",
           "format": "date-time",
           "description": "UTC timestamp when the export was generated"
+        },
+        "update_strategy": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The update-strategy tier this run targeted: security, deprecation, standard, latest, or cutting-edge."
         }
       }
     },
@@ -735,7 +742,7 @@
             "string",
             "null"
           ],
-          "description": "Newest installable version satisfying version_constraint; equals installed_version when the declared range admits nothing newer. Null only when undeterminable — e.g. the range is satisfiable only below installed_version (manifest/lockfile divergence)."
+          "description": "Newest installable version satisfying version_constraint; equals installed_version when the declared range admits nothing newer. Null only when undeterminable \u2014 e.g. the range is satisfiable only below installed_version (manifest/lockfile divergence)."
         },
         "latest_in_major": {
           "type": [
@@ -953,6 +960,31 @@
             null
           ],
           "description": "Recommended action from the EPSS x maintenance matrix"
+        },
+        "strategy_motives": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Motives admitted at the run's update-strategy tier for this package: exploitable_cve, suppressed_cve, end_of_life, drift. Empty when nothing was admitted"
+        },
+        "strategy_withheld_reason": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Set only when no motive was admitted at the run's tier \u2014 names the lowest tier that would move this package"
+        },
+        "strategy_requires_widening": {
+          "type": "boolean",
+          "description": "Whether recommended_version sits outside version_constraint under the run's strategy"
+        },
+        "strategy_escalation": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Set when the strategy reached past its tier's base ceiling, or every reachable version still carries a qualifying CVE"
         }
       }
     },

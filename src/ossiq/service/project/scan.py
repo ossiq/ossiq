@@ -38,16 +38,17 @@ from ossiq.service.project.prefetch import (
 )
 from ossiq.service.project.recommendations import (
     apply_conflicts,
-    apply_ladder_fallback,
     apply_recommendations,
     clamp_recommendations,
 )
 from ossiq.service.project.records import build_records, scan_sort_key
 from ossiq.service.project.stability import populate_stability
+from ossiq.service.project.strategy import apply_update_strategy
 from ossiq.service.update_impact import simulate_single, simulate_update_impacts
 from ossiq.solver import dependencies_solver
 from ossiq.solver.universe import filter_eligible_versions
 from ossiq.sources.core import AbstractProjectSources
+from ossiq.strategy.pyramid import MINIMAL_DIFF_TIERS
 from ossiq.timeutil import parse_iso_datetime
 
 logger = logging.getLogger(__name__)
@@ -282,8 +283,12 @@ def solve_direct_phase(
     engine_context: dict,
     installed_version_by_name: dict[str, str],
     now: datetime | None,
-) -> tuple[dependencies_solver.SolverOutput, list[ScanRecord], list[ScanRecord]]:
-    """Pass 1.5: run the HPDR solver over direct deps, apply its output, and simulate impacts."""
+) -> tuple[dependencies_solver.SolverOutput, list[ScanRecord], list[ScanRecord], Callable[[str, str], bool]]:
+    """Pass 1.5: run the HPDR solver over direct deps, apply its output, and simulate impacts.
+
+    Returns `validate_recommendation` alongside the usual outputs — `scan()` reuses it to gate the
+    candidate ladder `apply_update_strategy` builds, after `populate_stability` runs.
+    """
     transitive_by_name = {r.package_name: r for r in transitive_packages}
 
     def validate_recommendation(pkg_name: str, candidate_version: str) -> bool:
@@ -363,20 +368,7 @@ def solve_direct_phase(
             ):
                 record.update_transitive_impacts = impact.transitive_impacts
 
-    # Runs even when the solver produced nothing at all — a project where the solver has no
-    # recommendations still deserves ladder fallbacks. Deliberately after the impacts loop above,
-    # so that loop's clamped-record guard sees only pre-fallback state (see recommendations.py
-    # apply_ladder_fallback docstring). Ignored packages are excluded: the solver never gives them
-    # a recommendation either, and an un-filtered fallback would feed the writers a version for a
-    # package the user explicitly asked to leave alone.
-    apply_ladder_fallback(
-        [r for r in production_packages + optional_packages if r.package_name not in descriptors.ignore_set],
-        sources.packages_registry,
-        now=now,
-        validator=validate_recommendation,
-    )
-
-    return solver_output, production_packages, optional_packages
+    return solver_output, production_packages, optional_packages, validate_recommendation
 
 
 def solve_transitive_phase(
@@ -390,12 +382,15 @@ def solve_transitive_phase(
 ) -> None:
     """Pass 1.6: run the HPDR solver over transitive deps and apply its output in place.
 
-    security_only: CVE packages only. Default: all transitive packages.
+    Restricted to CVE-affected packages when the run's tier never exceeds a minimal-diff tier
+    (security/deprecation) — the strategy applies only to direct deps (v1 scope), so this is the
+    one place a transitive-only run still narrows itself to match.
     """
     if not transitive_packages:
         return
+    minimal_diff_run = sources.strategy.max_tier in MINIMAL_DIFF_TIERS
     records_to_solve = [
-        r for r in transitive_packages if r.package_name not in ignore_set and (not sources.security_only or r.cve)
+        r for r in transitive_packages if r.package_name not in ignore_set and (not minimal_diff_run or r.cve)
     ]
     t3 = time.perf_counter()
     transitive_output = dependencies_solver.solve_transitive(
@@ -457,7 +452,7 @@ def scan(sources: AbstractProjectSources, on_step: Callable[[str], None] | None 
         }
 
         step("solver")
-        solver_output, production_packages, optional_packages = solve_direct_phase(
+        solver_output, production_packages, optional_packages, validate_recommendation = solve_direct_phase(
             solvable_direct_deps,
             descriptors,
             sources,
@@ -481,6 +476,25 @@ def scan(sources: AbstractProjectSources, on_step: Callable[[str], None] | None 
         all_records = production_packages + optional_packages + transitive_packages
         project_epss = populate_epss(all_records, descriptors.walker)
         project_stability = populate_stability(all_records, prefetched.commits, now, prefetched.activity)
+
+        # Must run after populate_stability: record.maintenance/triage feed classify_motives's
+        # END_OF_LIFE check. Ignored packages are excluded, mirroring solve_direct_phase's old
+        # apply_ladder_fallback filter — a package the user asked to leave alone never gets a
+        # recommendation from any source.
+        all_installed_names: set[str] = {dep.canonical_name for dep in descriptors.prod_deps + descriptors.opt_deps} | {
+            node.canonical_name for node, _ in descriptors.walker.walk_all_paths(include_optional_roots=True)
+        }
+        apply_update_strategy(
+            [r for r in production_packages + optional_packages if r.package_name not in descriptors.ignore_set],
+            sources.packages_registry,
+            sources.strategy,
+            versions_since=prefetched.versions_since_map,
+            transitive_by_name={r.package_name: r for r in transitive_packages},
+            installed_names=all_installed_names,
+            allow_prerelease=sources.allow_prerelease,
+            now=now,
+            validator=validate_recommendation,
+        )
 
         upgrade_paths = compute_upgrade_paths(project_info, sources.packages_registry)
         return ScanResult(
