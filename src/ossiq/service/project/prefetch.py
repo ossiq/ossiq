@@ -12,8 +12,7 @@ from urllib.parse import urlparse
 from packaging.version import InvalidVersion
 
 from ossiq.adapters.api_epss import EpssApiFirstOrg
-from ossiq.adapters.api_github import SourceCodeProviderApiGithub
-from ossiq.adapters.api_interfaces import AbstractPackageRegistryApi
+from ossiq.adapters.api_interfaces import AbstractPackageRegistryApi, AbstractSourceCodeProviderApi
 from ossiq.adapters.detectors import is_git_hosted_source
 from ossiq.domain.cve import CVE
 from ossiq.domain.exceptions import UnknownPackageVersion
@@ -206,7 +205,7 @@ def enrich_cves_with_epss_and_fix_age(
 
 
 def prefetch_source_code_repositories_info(
-    provider: SourceCodeProviderApiGithub,
+    provider: AbstractSourceCodeProviderApi,
     repo_urls: Iterable[str],
 ) -> dict[str, Repository]:
     """
@@ -232,7 +231,7 @@ def github_only(repo_urls: Iterable[str]) -> list[str]:
 
 
 def prefetch_repository_commits(
-    provider: SourceCodeProviderApiGithub, sources: AbstractProjectSources, repo_urls: Iterable[str]
+    provider: AbstractSourceCodeProviderApi, sources: AbstractProjectSources, repo_urls: Iterable[str]
 ) -> dict[str, list[dict]]:
     """
     Pre-fetch the last 100 commits for all unique GitHub repo URLs in parallel.
@@ -249,7 +248,7 @@ def prefetch_repository_commits(
 
 
 def prefetch_repository_activity(
-    provider: SourceCodeProviderApiGithub, sources: AbstractProjectSources, repo_urls: Iterable[str]
+    provider: AbstractSourceCodeProviderApi, sources: AbstractProjectSources, repo_urls: Iterable[str]
 ) -> dict[str, dict]:
     """Pre-fetch issue / PR activity for all unique GitHub repo URLs via GraphQL.
 
@@ -264,7 +263,7 @@ def prefetch_repository_activity(
     return provider.repository_activity_batch(github_urls, since)
 
 
-def prefetch_repository_readmes(provider: SourceCodeProviderApiGithub, repo_urls: Iterable[str]) -> dict[str, str]:
+def prefetch_repository_readmes(provider: AbstractSourceCodeProviderApi, repo_urls: Iterable[str]) -> dict[str, str]:
     """Pre-fetch the top of each GitHub repo's README, for the deprecation-banner scan.
 
     One request per repository, cached at the stability TTL; see risk/maintenance.py.

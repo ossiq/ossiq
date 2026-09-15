@@ -5,8 +5,11 @@ Abstract project sources: bag of external data providers for a scan run.
 import abc
 
 from ossiq.adapters.api_epss import EpssApiFirstOrg
-from ossiq.adapters.api_github import SourceCodeProviderApiGithub
-from ossiq.adapters.api_interfaces import AbstractPackageManagerApi, AbstractPackageRegistryApi
+from ossiq.adapters.api_interfaces import (
+    AbstractPackageManagerApi,
+    AbstractPackageRegistryApi,
+    AbstractSourceCodeProviderApi,
+)
 from ossiq.adapters.api_osv import CveApiOsv
 from ossiq.domain.common import ProjectPackagesRegistry, RepositoryProvider
 from ossiq.settings import Settings
@@ -33,7 +36,7 @@ class AbstractProjectSources(abc.ABC):
     rewrite_versions: bool
 
     @abc.abstractmethod
-    def get_source_code_provider(self, repository_provider_type: RepositoryProvider) -> SourceCodeProviderApiGithub:
+    def get_source_code_provider(self, repository_provider_type: RepositoryProvider) -> AbstractSourceCodeProviderApi:
         """
         Method to get source code provider by its type. The point here is that
         single project has multiple package installed and each package
