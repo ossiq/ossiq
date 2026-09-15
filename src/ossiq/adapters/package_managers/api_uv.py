@@ -418,9 +418,7 @@ class PackageManagerPythonUv(AbstractPackageManagerApi):
             if new_spec != entry.version_defined:
                 spec_to_write = new_spec or f"=={entry.recommended_version}"
                 for original_dep_str in find_pyproject_direct_specifiers(content, entry.package_name):
-                    content = content.replace(
-                        f'"{original_dep_str}"', f'"{entry.package_name}{spec_to_write}"', 1
-                    )
+                    content = content.replace(f'"{original_dep_str}"', f'"{entry.package_name}{spec_to_write}"', 1)
 
         forced_transitive = {
             entry.package_name: entry.recommended_version for entry in plan.transitive_entries if entry.is_forced
