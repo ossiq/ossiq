@@ -21,6 +21,10 @@ export interface OSSIQExportSchemaV15 {
      * UTC timestamp when the export was generated
      */
     export_timestamp: string;
+    /**
+     * The update-strategy tier this run targeted: security, deprecation, standard, latest, or cutting-edge.
+     */
+    update_strategy?: string | null;
     [k: string]: unknown;
   };
   /**
@@ -316,6 +320,22 @@ export interface PackageMetrics {
    * Recommended action from the EPSS x maintenance matrix
    */
   triage_action?: "evict" | "patch" | "refactor" | "retain" | null;
+  /**
+   * Motives admitted at the run's update-strategy tier for this package: exploitable_cve, suppressed_cve, end_of_life, drift. Empty when nothing was admitted
+   */
+  strategy_motives?: string[];
+  /**
+   * Set only when no motive was admitted at the run's tier — names the lowest tier that would move this package
+   */
+  strategy_withheld_reason?: string | null;
+  /**
+   * Whether recommended_version sits outside version_constraint under the run's strategy
+   */
+  strategy_requires_widening?: boolean;
+  /**
+   * Set when the strategy reached past its tier's base ceiling, or every reachable version still carries a qualifying CVE
+   */
+  strategy_escalation?: string | null;
   [k: string]: unknown;
 }
 /**
