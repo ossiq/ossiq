@@ -181,7 +181,7 @@ def prefetch_scan_data(
 ) -> PrefetchedData:
     """Pass 1: pre-fetch package infos, repositories, CVEs, and versions-since for every dependency."""
     t0 = time.perf_counter()
-    step("packages")
+    step("packages", None)
     packages_info = prefetch_packages_info(sources.packages_registry, (dep.canonical_name for dep in all_deps))
 
     if sources.allow_prerelease or sources.allow_prerelease_packages:
@@ -197,7 +197,7 @@ def prefetch_scan_data(
     # Github repository info. One provider instance shared across all 4 fetches below (repo info,
     # commits, activity, readmes): reuses a single session, and lets last_summary accumulate so
     # the "repositories" step's completeness reflects all of them, not just whichever ran last.
-    step("repositories")
+    step("repositories", None)
     provider = sources.get_source_code_provider(RepositoryProvider.PROVIDER_GITHUB)
     repo_urls = {pkg.repo_url for pkg in packages_info.values() if pkg.repo_url is not None}
     repositories_info = prefetch_source_code_repositories_info(provider, repo_urls)
@@ -227,11 +227,11 @@ def prefetch_scan_data(
     # force unique pair package/version regardless position in the graph
     unique_packages = list(set((packages_info[dep.canonical_name], dep.version) for dep in all_deps))
 
-    step("vulnerabilities")
+    step("vulnerabilities", None)
     cve_map = sources.cve_database.get_cves_batch(unique_packages)
     completeness["vulnerabilities"] = sources.cve_database.last_summary.status
     step("vulnerabilities", sources.cve_database.last_summary.status)
-    step("epss")
+    step("epss", None)
     cve_map = enrich_cves_with_epss_and_fix_age(
         cve_map,
         sources.epss_score_database,
@@ -240,7 +240,7 @@ def prefetch_scan_data(
     )
 
     # Pre-compute versions-since-installed for all unique (package, version) pairs
-    step("versions")
+    step("versions", None)
     versions_since_map = prefetch_versions_since(
         sources.packages_registry,
         {(packages_info[dep.canonical_name].name, dep.version) for dep in all_deps},
@@ -439,7 +439,7 @@ def scan(
             on_step(key, status)
 
     with sources:
-        step("project")
+        step("project", None)
         project_info = sources.packages_manager.project_info()
         project_info = resolve_library_constraints(project_info, sources.packages_registry)
         # FIXME: catch this issue way before as part of command validation
@@ -467,7 +467,7 @@ def scan(
             dep.canonical_name: dep.version for dep in descriptors.prod_deps + descriptors.opt_deps
         }
 
-        step("solver")
+        step("solver", None)
         solver_output, production_packages, optional_packages, validate_recommendation = solve_direct_phase(
             solvable_direct_deps,
             descriptors,

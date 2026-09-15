@@ -322,8 +322,9 @@ class TestLastSummary:
         api = CveApiOsv(MagicMock())
         api._strategy.config.max_retries = 1  # keep the test fast
 
-        with patch.object(api.session, "post", side_effect=requests.ConnectionError("blocked")), patch(
-            "ossiq.clients.batch.time.sleep"
+        with (
+            patch.object(api.session, "post", side_effect=requests.ConnectionError("blocked")),
+            patch("ossiq.clients.batch.time.sleep"),
         ):
             result = api.get_cves_batch([(pkg, "4.17.20")])
 

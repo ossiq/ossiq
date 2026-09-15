@@ -1,10 +1,11 @@
-"""B3 — PyPI and npm must behave the same way under equivalent exact pins.
+"""B3 - PyPI and npm must behave the same way under equivalent exact pins.
 
-Runs the real constraint parser, the real SAT solver, and PR #128's apply_ladder_fallback end to
-end for both ecosystems on structurally equivalent scenarios (exact pin, same-major drift beyond
-it, no CVEs). Ported from the original B3 fix's test (which targeted a different, independent
-ladder implementation) onto this codebase's actual module structure
-(service.project.ladder / service.project.recommendations.apply_ladder_fallback).
+Runs the real constraint parser, the real SAT solver, and the real version ladder + update
+strategy selector end to end for both ecosystems on structurally equivalent scenarios (exact pin,
+same-major drift beyond it, no CVEs). Ported from the original B3 fix's test (which targeted a
+different, independent ladder implementation) onto this codebase's actual module structure
+(service.project.ladder / service.project.strategy.apply_update_strategy - the strategy selector
+replaced apply_ladder_fallback once TODO #2 landed).
 
 Root cause this guards against (see the OSS IQ defect report, B3): a bare npm version like
 "4.17.1" was silently caret-expanded to "^4.17.1" by the constraint parser, so npm's solver
@@ -16,6 +17,7 @@ solver/version_matchers.py; this test is the parity check the original B3 report
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from unittest.mock import MagicMock
 
 import pytest
@@ -28,9 +30,11 @@ from ossiq.domain.project import ConstraintSource
 from ossiq.domain.version import PackageVersion
 from ossiq.service.project.ladder import compute_version_ladder
 from ossiq.service.project.models import ScanRecord
-from ossiq.service.project.recommendations import apply_ladder_fallback
+from ossiq.service.project.strategy import apply_update_strategy
 from ossiq.settings import Settings
 from ossiq.solver.dependencies_solver import solve_direct
+from ossiq.strategy.overrides import StrategyPlan
+from ossiq.strategy.pyramid import UpdateStrategy
 
 
 def _pv(version: str) -> PackageVersion:
@@ -68,10 +72,10 @@ def _fake_registry(real_rules: VersionRules, versions_by_name: dict[str, list[Pa
 
 
 @pytest.mark.parametrize(
-    "real_rules_cls, package_name, installed, all_versions, constraint",
+    "make_real_rules, package_name, installed, all_versions, constraint",
     [
         pytest.param(
-            PackageRegistryApiPypi,
+            lambda: PackageRegistryApiPypi(Settings()),
             "requests",
             "2.28.1",
             ["2.28.1", "2.29.0", "2.30.0", "2.31.0", "2.34.2"],
@@ -79,7 +83,7 @@ def _fake_registry(real_rules: VersionRules, versions_by_name: dict[str, list[Pa
             id="pypi-exact-pin",
         ),
         pytest.param(
-            PackageRegistryApiNpm,
+            lambda: PackageRegistryApiNpm(Settings()),
             "express",
             "4.17.1",
             ["4.17.1", "4.18.0", "4.19.0", "4.20.0", "4.22.2"],
@@ -89,13 +93,13 @@ def _fake_registry(real_rules: VersionRules, versions_by_name: dict[str, list[Pa
     ],
 )
 def test_equivalent_exact_pins_produce_structurally_equivalent_ladders(
-    real_rules_cls: type[VersionRules],
+    make_real_rules: Callable[[], VersionRules],
     package_name: str,
     installed: str,
     all_versions: list[str],
     constraint: str,
 ) -> None:
-    real_rules = real_rules_cls(Settings())
+    real_rules = make_real_rules()
     versions = [_pv(v) for v in all_versions]
     registry = _fake_registry(real_rules, {package_name: versions})
     latest_version = all_versions[-1]
@@ -128,7 +132,16 @@ def test_equivalent_exact_pins_produce_structurally_equivalent_ladders(
         latest_in_range=ladder.latest_in_range,
         latest_in_major=ladder.latest_in_major,
     )
-    apply_ladder_fallback([record], registry)
+    plan = StrategyPlan(default=UpdateStrategy.STANDARD, overrides={})
+    apply_update_strategy(
+        [record],
+        registry,
+        plan,
+        versions_since={(package_name, installed): versions},
+        transitive_by_name={},
+        installed_names={package_name},
+        allow_prerelease=False,
+    )
 
     # 3. Structural parity: the same relationships must hold regardless of ecosystem or the
     #    literal version strings involved.
