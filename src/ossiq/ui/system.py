@@ -88,11 +88,11 @@ def show_scan_progress(settings: Settings):
         yield lambda key, status=None: None
         return
 
-    assert console is not None
+    assert error_console is not None
     current = [-1]
     step_status: dict[str, DataSourceStatus] = {}
 
-    with Live(render_scan_steps(-1, step_status), console=console, refresh_per_second=8) as live:
+    with Live(render_scan_steps(-1, step_status), console=error_console, refresh_per_second=8) as live:
 
         def on_step(key: str, status: DataSourceStatus | None = None) -> None:
             if status is not None:
@@ -103,7 +103,7 @@ def show_scan_progress(settings: Settings):
 
         yield on_step
         live.update(render_scan_steps(len(SCAN_STEPS), step_status))
-    print("\n")
+    print("\n", file=sys.stderr)
 
     _warn_about_degraded_steps(step_status)
 
@@ -137,8 +137,8 @@ def show_operation_progress(settings: Settings, message: str):
         yield noop
         return
 
-    assert console is not None
-    _console = console
+    assert error_console is not None
+    _console = error_console
     try:
         if settings.verbose is False:
             yield lambda: _console.status(f"[bold cyan]{message}")
@@ -151,11 +151,14 @@ def show_operation_progress(settings: Settings, message: str):
 def show_settings(ctx, label: str, settings: dict):
     """
     Show a panel with key/value pairs with settings
+
+    B8: diagnostic output, not the requested payload - goes to stderr like everything else in
+    this module, so it never lands in a piped/redirected stdout regardless of command or format.
     """
     if not RICH_AVAILABLE:
         return
 
-    assert console is not None
+    assert error_console is not None
     settings: Settings = ctx.obj
     if settings.verbose is False:
         return
@@ -169,8 +172,8 @@ def show_settings(ctx, label: str, settings: dict):
         header_text.append(f"{setting}: ", style="bold white")
         header_text.append(f"{value}\n", style="green")
 
-    console.print(f"\n[bold cyan] {label}")
-    console.print(Panel(header_text, expand=False, border_style="cyan"))
+    error_console.print(f"\n[bold cyan] {label}")
+    error_console.print(Panel(header_text, expand=False, border_style="cyan"))
 
 
 def show_error(message: str, title: str = "Error", hint: str | None = None) -> None:

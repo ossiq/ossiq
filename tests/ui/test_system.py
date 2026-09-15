@@ -74,7 +74,7 @@ class TestShowScanProgressIntegration:
         settings = Settings(verbose=False)
         with (
             patch("ossiq.ui.system.RICH_AVAILABLE", True),
-            patch("ossiq.ui.system.console", MagicMock()),
+            patch("ossiq.ui.system.error_console", MagicMock()),
             patch("ossiq.ui.system.show_warning") as warn,
         ):
             with show_scan_progress(settings) as on_step:
@@ -91,7 +91,7 @@ class TestShowScanProgressIntegration:
         settings = Settings(verbose=False)
         with (
             patch("ossiq.ui.system.RICH_AVAILABLE", True),
-            patch("ossiq.ui.system.console", MagicMock()),
+            patch("ossiq.ui.system.error_console", MagicMock()),
             patch("ossiq.ui.system.show_warning") as warn,
         ):
             with show_scan_progress(settings) as on_step:

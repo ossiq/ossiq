@@ -14,10 +14,16 @@ import os
 import tempfile
 import tomllib
 from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 import pytest
+from packaging.requirements import Requirement
 
-from ossiq.adapters.package_managers.api_uv import PackageManagerPythonUv, upsert_uv_override_dependencies
+from ossiq.adapters.package_managers.api_uv import (
+    PackageManagerPythonUv,
+    find_pyproject_direct_specifiers,
+    upsert_uv_override_dependencies,
+)
 from ossiq.domain.common import ConstraintType, ProjectPackagesRegistry
 from ossiq.domain.exceptions import PackageManagerLockfileParsingError
 from ossiq.domain.packages_manager import UV
@@ -931,3 +937,196 @@ class TestUpsertUvOverrideDependencies:
     def test_empty_overrides_returns_content_unchanged(self):
         content = '[project]\nname = "app"\n'
         assert upsert_uv_override_dependencies(content, {}) == content
+
+
+# ============================================================================
+# find_pyproject_direct_specifiers (writer-corruption investigation, item 13)
+# ============================================================================
+
+
+class TestFindPyprojectDirectSpecifiers:
+    """Pure function: locates verbatim dependency strings by normalised-name match."""
+
+    def test_finds_simple_match(self):
+        content = '[project]\ndependencies = ["pydantic==1.10.13", "requests==2.28.1"]\n'
+        assert find_pyproject_direct_specifiers(content, "pydantic") == ["pydantic==1.10.13"]
+
+    def test_does_not_match_a_package_whose_name_is_a_prefix(self):
+        """The regression this whole investigation is about: pydantic is a prefix of
+        pydantic-settings, but they are different packages.
+        """
+        content = '[project]\ndependencies = ["pydantic==1.10.13", "pydantic-settings==2.15.0"]\n'
+        assert find_pyproject_direct_specifiers(content, "pydantic") == ["pydantic==1.10.13"]
+        assert find_pyproject_direct_specifiers(content, "pydantic-settings") == ["pydantic-settings==2.15.0"]
+
+    def test_matches_across_normalised_separators(self):
+        """PyPI treats '-', '_', '.' as equivalent and is case-insensitive."""
+        content = '[project]\ndependencies = ["Pydantic_Settings==2.15.0"]\n'
+        assert find_pyproject_direct_specifiers(content, "pydantic-settings") == ["Pydantic_Settings==2.15.0"]
+
+    def test_finds_matches_in_optional_dependencies_too(self):
+        content = (
+            '[project]\ndependencies = ["pydantic==1.10.13"]\n'
+            '[project.optional-dependencies]\nextra = ["pydantic>=1.9,<2"]\n'
+        )
+        assert find_pyproject_direct_specifiers(content, "pydantic") == ["pydantic==1.10.13", "pydantic>=1.9,<2"]
+
+    def test_package_not_declared_returns_empty(self):
+        content = '[project]\ndependencies = ["requests==2.28.1"]\n'
+        assert find_pyproject_direct_specifiers(content, "pydantic") == []
+
+    def test_invalid_toml_returns_empty_rather_than_raising(self):
+        assert find_pyproject_direct_specifiers("not valid toml [[[", "pydantic") == []
+
+    def test_unparseable_requirement_string_is_skipped(self):
+        content = '[project]\ndependencies = ["not a valid requirement!!!", "pydantic==1.10.13"]\n'
+        assert find_pyproject_direct_specifiers(content, "pydantic") == ["pydantic==1.10.13"]
+
+
+# ============================================================================
+# execute_update's direct-dependency rewrite (writer-corruption investigation)
+# ============================================================================
+
+
+class TestExecuteUpdateDirectRewrite:
+    """execute_update's pyproject.toml rewrite must touch only the intended package's entry.
+
+    Regression coverage for the confirmed writer-corruption bug: updating a package silently
+    destroyed any other declared package whose name it was a string prefix of (pydantic /
+    pydantic-settings, flask / flask-cors, ...), because the old rewrite matched
+    `"{package_name}[^"]*"` - a bare prefix, not a package-name boundary. re.sub then replaced
+    every match, including the unrelated package's line, with the target package's new spec.
+    """
+
+    @staticmethod
+    def _write_project(tmp_path, dependencies_toml: str) -> Path:
+        pyproject_path = tmp_path / "pyproject.toml"
+        pyproject_path.write_text(f'[project]\nname = "demo"\nversion = "0.1.0"\n{dependencies_toml}')
+        return pyproject_path
+
+    @staticmethod
+    def _run_execute_update(tmp_path, settings, package_name, version_defined, recommended_version):
+        pm = PackageManagerPythonUv(project_path=str(tmp_path), settings=settings)
+        entry = UpdateEntry(
+            package_name=package_name,
+            current_version="x",
+            recommended_version=recommended_version,
+            is_direct=True,
+            reason=None,
+            version_defined=version_defined,
+            constraint_type=ConstraintType.PINNED,
+        )
+        plan = UpdatePlan(
+            project_name="demo",
+            project_path=str(tmp_path),
+            registry_type="PYPI",
+            package_manager_name="uv",
+            direct_entries=[entry],
+            transitive_entries=[],
+        )
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0)
+            pm.execute_update(plan)
+
+    def test_updating_pydantic_does_not_corrupt_pydantic_settings(self, tmp_path, settings):
+        """The exact reported corruption: updating pydantic must never touch
+        pydantic-settings's declared version.
+        """
+        pyproject_path = self._write_project(
+            tmp_path,
+            "dependencies = [\n"
+            '    "pydantic==1.10.13",\n'
+            '    "pydantic-settings==2.15.0",\n'
+            '    "requests==2.28.1",\n'
+            "]\n",
+        )
+        self._run_execute_update(tmp_path, settings, "pydantic", "==1.10.13", "1.10.26")
+
+        data = tomllib.loads(pyproject_path.read_text())
+        deps = data["project"]["dependencies"]
+        assert "pydantic==1.10.26" in deps
+        assert "pydantic-settings==2.15.0" in deps
+        assert "requests==2.28.1" in deps
+        assert len(deps) == 3
+
+    def test_updating_pydantic_settings_does_not_touch_pydantic(self, tmp_path, settings):
+        """The reverse direction: the shorter name must not be corrupted either."""
+        pyproject_path = self._write_project(
+            tmp_path, 'dependencies = [\n    "pydantic==1.10.13",\n    "pydantic-settings==2.15.0",\n]\n'
+        )
+        self._run_execute_update(tmp_path, settings, "pydantic-settings", "==2.15.0", "2.16.0")
+
+        data = tomllib.loads(pyproject_path.read_text())
+        deps = data["project"]["dependencies"]
+        assert "pydantic==1.10.13" in deps
+        assert "pydantic-settings==2.16.0" in deps
+
+    @pytest.mark.parametrize(
+        "package_a,package_b",
+        [
+            ("flask", "flask-cors"),
+            ("pytest", "pytest-cov"),
+            ("click", "click-plugins"),
+            ("numpy", "numpydoc"),
+        ],
+    )
+    def test_other_common_prefix_pairs_are_not_corrupted(self, tmp_path, settings, package_a, package_b):
+        pyproject_path = self._write_project(
+            tmp_path, f'dependencies = [\n    "{package_a}==1.0.0",\n    "{package_b}==2.0.0",\n]\n'
+        )
+        self._run_execute_update(tmp_path, settings, package_a, "==1.0.0", "1.1.0")
+
+        data = tomllib.loads(pyproject_path.read_text())
+        deps = data["project"]["dependencies"]
+        assert f"{package_a}==1.1.0" in deps
+        assert f"{package_b}==2.0.0" in deps
+
+    def test_round_trip_only_the_intended_specifier_changes(self, tmp_path, settings):
+        """The plan's own prescribed test: every dependency present before a write is present
+        after it, with only the intended specifier changed.
+        """
+        before_toml = (
+            "dependencies = [\n"
+            '    "pydantic==1.10.13",\n'
+            '    "pydantic-settings==2.15.0",\n'
+            '    "requests==2.28.1",\n'
+            '    "click==8.1.3",\n'
+            "]\n"
+        )
+        pyproject_path = self._write_project(tmp_path, before_toml)
+        before = tomllib.loads(pyproject_path.read_text())["project"]["dependencies"]
+        before_names = {Requirement(d).name for d in before}
+
+        self._run_execute_update(tmp_path, settings, "pydantic", "==1.10.13", "1.10.26")
+
+        after = tomllib.loads(pyproject_path.read_text())["project"]["dependencies"]
+        after_by_name = {Requirement(d).name: d for d in after}
+        after_names = set(after_by_name)
+
+        assert after_names == before_names, "no dependency should appear or disappear"
+        for dep_str in before:
+            req = Requirement(dep_str)
+            if req.name == "pydantic":
+                assert after_by_name[req.name] == "pydantic==1.10.26"
+            else:
+                assert after_by_name[req.name] == dep_str, f"{req.name} must be byte-identical"
+
+    def test_package_declared_in_multiple_sections_is_updated_in_both(self, tmp_path, settings):
+        pyproject_path = self._write_project(
+            tmp_path,
+            'dependencies = ["pydantic==1.10.13"]\n[project.optional-dependencies]\nextra = ["pydantic==1.10.13"]\n',
+        )
+        self._run_execute_update(tmp_path, settings, "pydantic", "==1.10.13", "1.10.26")
+
+        data = tomllib.loads(pyproject_path.read_text())
+        assert data["project"]["dependencies"] == ["pydantic==1.10.26"]
+        assert data["project"]["optional-dependencies"]["extra"] == ["pydantic==1.10.26"]
+
+    def test_no_change_when_specifier_already_matches(self, tmp_path, settings):
+        before_toml = 'dependencies = ["pydantic==1.10.26", "pydantic-settings==2.15.0"]\n'
+        pyproject_path = self._write_project(tmp_path, before_toml)
+        before_content = pyproject_path.read_text()
+
+        self._run_execute_update(tmp_path, settings, "pydantic", "==1.10.26", "1.10.26")
+
+        assert pyproject_path.read_text() == before_content
