@@ -5,7 +5,14 @@ Covers the next-action branches for both the add and update flows, driven
 entirely from existing scan/package result fields.
 """
 
-from ossiq.domain.common import ConstraintType, CveDatabase, ProjectPackagesRegistry, RecommendationRung
+from ossiq.domain.common import (
+    ConstraintType,
+    CveDatabase,
+    DataCompleteness,
+    DataSourceStatus,
+    ProjectPackagesRegistry,
+    RecommendationRung,
+)
 from ossiq.domain.cve import CVE, Severity
 from ossiq.domain.project import ConstraintSource
 from ossiq.domain.version import VERSION_DIFF_MAJOR, VERSION_DIFF_MINOR, VERSION_LATEST, VersionsDifference
@@ -134,13 +141,14 @@ def test_add_caution_when_cve_present():
 # --- update decision ----------------------------------------------------------
 
 
-def make_scan(records: list[ScanRecord]) -> ScanResult:
+def make_scan(records: list[ScanRecord], data_completeness: DataCompleteness | None = None) -> ScanResult:
     return ScanResult(
         project_name="proj",
         packages_registry="PYPI",
         project_path=".",
         production_packages=records,
         optional_packages=[],
+        data_completeness=data_completeness or DataCompleteness(),
     )
 
 
@@ -329,3 +337,25 @@ def test_a_package_up_to_date_and_unaffected_gets_an_explicit_entry_not_an_omiss
     entries_by_name = {e["package"]: e for e in decision["updates"]}
     assert entries_by_name["click"]["next_action"] == "no action needed"
     assert entries_by_name["click"]["to"] == entries_by_name["click"]["from"] == "8.1.7"
+
+
+# --- B8: machine-readable formats must carry data-source degradation inline ----
+
+
+def test_update_decide_carries_ok_completeness_by_default():
+    decision = build_update_decide(make_scan([make_record()]))
+    assert decision["data_completeness"] == {"overall": "ok", "sources": []}
+
+
+def test_update_decide_surfaces_degraded_sources_inline():
+    """B8 point 2: an agent/script consuming this JSON never sees the console warning
+    (show_scan_progress is bypassed entirely for agent/MCP callers) - the only way it can know
+    a data source was degraded is if the document says so itself.
+    """
+    completeness = DataCompleteness(
+        by_step={"vulnerabilities": DataSourceStatus.UNREACHABLE, "repositories": DataSourceStatus.OK}
+    )
+    decision = build_update_decide(make_scan([make_record()], data_completeness=completeness))
+    assert decision["data_completeness"]["overall"] == "unreachable"
+    assert {"step": "vulnerabilities", "status": "unreachable"} in decision["data_completeness"]["sources"]
+    assert {"step": "repositories", "status": "ok"} in decision["data_completeness"]["sources"]

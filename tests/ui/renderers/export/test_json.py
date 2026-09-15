@@ -123,6 +123,27 @@ class TestJsonExportRenderer:
         # Assert
         assert result == expected
 
+    def test_dash_destination_writes_valid_json_to_stdout(self, sample_project_metrics, settings, capsys):
+        """B8's related minor issue: '-' should stream to stdout instead of being written to (or
+        rejected as) a file literally named '-'.
+        """
+        renderer = JsonExportRenderer(settings)
+        renderer.render(sample_project_metrics, destination="-")
+
+        captured = capsys.readouterr()
+        assert captured.err == ""
+        data = json.loads(captured.out)
+        assert data["project"]["name"] == "test-project"
+
+    def test_dash_destination_does_not_create_a_file_named_dash(
+        self, sample_project_metrics, settings, tmp_path, monkeypatch
+    ):
+        monkeypatch.chdir(tmp_path)
+        renderer = JsonExportRenderer(settings)
+        renderer.render(sample_project_metrics, destination="-")
+
+        assert not (tmp_path / "-").exists()
+
     def test_basic_export_creates_valid_json_file(self, output_file, sample_project_metrics, settings):
         """Test basic JSON export creates a valid file with expected structure.
 
