@@ -7,6 +7,7 @@ exercise different diagnostic-output code paths (show_settings vs. the Rich Live
 
 from __future__ import annotations
 
+import dataclasses
 import json
 from unittest.mock import MagicMock, patch
 
@@ -37,17 +38,16 @@ def make_context(verbose: bool) -> typer.Context:
 
 
 def make_options(**overrides) -> CommandExportOptions:
-    defaults = {
-        "project_path": ".",
-        "registry_type": None,
-        "production": False,
-        "output_destination": "-",
-        "schema_version": None,
-        "allow_prerelease": False,
-        "allow_prerelease_packages": (),
-    }
-    defaults.update(overrides)
-    return CommandExportOptions(**defaults)
+    base = CommandExportOptions(
+        project_path=".",
+        registry_type=None,
+        production=False,
+        output_destination="-",
+        schema_version=None,
+        allow_prerelease=False,
+        allow_prerelease_packages=(),
+    )
+    return dataclasses.replace(base, **overrides)
 
 
 @pytest.mark.parametrize("verbose", [True, False])
@@ -57,8 +57,9 @@ def test_stdout_carries_only_json_end_to_end(capsys, verbose):
     """
     scan_result = make_scan_result(DataCompleteness(by_step={"repositories": DataSourceStatus.RATE_LIMITED}))
 
-    with patch("ossiq.commands.export.project_sources.ProjectSources"), patch(
-        "ossiq.commands.export.scan", return_value=scan_result
+    with (
+        patch("ossiq.commands.export.project_sources.ProjectSources"),
+        patch("ossiq.commands.export.scan", return_value=scan_result),
     ):
         command_export(make_context(verbose), make_options())
 
