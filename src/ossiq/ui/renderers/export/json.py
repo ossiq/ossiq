@@ -59,10 +59,13 @@ class JsonExportRenderer(AbstractUserInterfaceRenderer):
             else json_schema_registry.get_latest_version()
         )
 
+        update_strategy = kwargs.get("update_strategy")
+
         # Convert domain model to export model
         export_data = build_export_data(
             data,
             schema_version=resolved_version,
+            update_strategy=update_strategy.value if update_strategy is not None else None,
         )
 
         # Resolve destination path with project name placeholder

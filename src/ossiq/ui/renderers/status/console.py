@@ -100,6 +100,7 @@ class ConsoleStatusRenderer(AbstractUserInterfaceRenderer):
         """
         lag_threshold_days = kwargs.get("lag_threshold_days", 180)
         full = kwargs.get("full", False)
+        update_strategy = kwargs.get("update_strategy")
 
         transitive_with_recs = sorted(
             (r for r in data.transitive_packages if r.recommended_version is not None),
@@ -111,6 +112,8 @@ class ConsoleStatusRenderer(AbstractUserInterfaceRenderer):
         self.console.print(
             f"  Registry: [bold]{data.packages_registry}[/bold]  |  Path: [dim]{data.project_path}[/dim]"
         )
+        if update_strategy is not None:
+            self.console.print(f"  Update strategy: [bold]{update_strategy}[/bold]")
         self.console.print(
             f"  Production: [bold]{len(data.production_packages)}[/bold]  |  "
             f"Dev: [bold]{len(data.optional_packages)}[/bold]  |  "

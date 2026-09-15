@@ -42,4 +42,4 @@ class AgentStatusRenderer(AbstractUserInterfaceRenderer):
 
     def render(self, data: Any, **kwargs) -> None:
         scan: ScanResult = data
-        print(json.dumps(build_update_decide(scan), indent=2))
+        print(json.dumps(build_update_decide(scan, update_strategy=kwargs.get("update_strategy")), indent=2))

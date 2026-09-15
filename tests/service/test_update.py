@@ -10,6 +10,8 @@ from ossiq.service.project.models import ScanRecord, ScanResult
 from ossiq.service.update import build_update_plan
 from ossiq.service.update_impact import TransitiveImpact
 from ossiq.solver.reason import RecommendationReason
+from ossiq.strategy.overrides import StrategyPlan
+from ossiq.strategy.pyramid import UpdateStrategy
 
 NO_DIFF = VersionsDifference("1.0.0", "1.0.0", 0, diff_name="LATEST")
 CONSTRAINT_SOURCE = ConstraintSource(type=ConstraintType.DECLARED, source_file="pyproject.toml")
@@ -249,53 +251,28 @@ class TestCooldownHold:
 
 
 class TestSecurityFilter:
+    """Which packages carry a recommendation under `security` is now decided upstream by
+    service.project.strategy.apply_update_strategy (see tests/strategy/test_targeting.py and
+    tests/service/test_strategy_apply.py) — build_update_plan no longer filters by CVE itself,
+    it only decides cooldown/widening holds over whatever recommendation is already present."""
+
     def cve_record(self, name: str, installed: str, recommended: str) -> ScanRecord:
         record = make_record(name, installed, recommended)
         record.cve = [make_cve(name)]
         return record
 
-    def test_direct_cve_entry_kept(self):
-        result = make_scan_result(
-            production=[
-                self.cve_record("urllib3", "1.26.0", "1.26.19"),
-                make_record("requests", "2.28.0", "2.32.0"),
-            ]
-        )
-        plan = build_update_plan(result, "uv", security_only=True)
-        assert [e.package_name for e in plan.direct_entries] == ["urllib3"]
-
-    def test_transitive_cve_entry_kept(self):
-        result = make_scan_result(
-            transitive=[
-                self.cve_record("certifi", "2022.12.7", "2023.7.22"),
-                make_record("idna", "3.3", "3.6"),
-            ]
-        )
-        plan = build_update_plan(result, "uv", security_only=True)
-        assert [e.package_name for e in plan.transitive_entries] == ["certifi"]
-
-    def test_empty_plan_when_no_cve_packages(self):
-        result = make_scan_result(
-            production=[make_record("requests", "2.28.0", "2.32.0")],
-            transitive=[make_record("idna", "3.3", "3.6")],
-        )
-        plan = build_update_plan(result, "uv", security_only=True)
-        assert not plan.direct_entries
-        assert not plan.transitive_entries
-        assert not plan.held_for_cooldown
-
-    def test_held_for_cooldown_empty_under_security(self):
-        """Security entries bypass the cooldown hold, so nothing can be held in security-only mode."""
+    def test_held_for_cooldown_empty_for_security_entry(self):
+        """A CVE-carrying entry bypasses the cooldown hold regardless of the run's tier."""
         record = self.cve_record("urllib3", "1.26.0", "1.26.19")
         record.recommended_version_reason = reason_with_age("1.26.19", age_days=1)
         result = make_scan_result(production=[record])
-        plan = build_update_plan(result, "uv", cooldown_period=7, security_only=True)
+        plan = build_update_plan(result, "uv", cooldown_period=7)
         assert [e.package_name for e in plan.direct_entries] == ["urllib3"]
         assert not plan.held_for_cooldown
 
     def test_default_keeps_non_cve_entries(self):
         result = make_scan_result(production=[make_record("requests", "2.28.0", "2.32.0")])
-        plan = build_update_plan(result, "uv", security_only=False)
+        plan = build_update_plan(result, "uv")
         assert [e.package_name for e in plan.direct_entries] == ["requests"]
 
 
@@ -340,9 +317,14 @@ class TestForcedOverrides:
         assert [e.package_name for e in plan.direct_entries] == ["requests"]
         assert not plan.held_for_cooldown
 
-    def test_forced_survives_security_filter(self):
+    def test_forced_survives_under_security_tier(self):
         result = make_scan_result(production=[make_record("requests", "2.28.0", "2.32.0")])
-        plan = build_update_plan(result, "uv", security_only=True, forced_overrides={"requests": "2.30.0"})
+        plan = build_update_plan(
+            result,
+            "uv",
+            strategy=StrategyPlan(default=UpdateStrategy.SECURITY),
+            forced_overrides={"requests": "2.30.0"},
+        )
         assert [e.package_name for e in plan.direct_entries] == ["requests"]
         assert plan.direct_entries[0].is_forced is True
 
@@ -398,6 +380,26 @@ class TestHeldForWidening:
         plan = build_update_plan(make_scan_result(production=[record]), "uv", cooldown_period=7)
         assert [e.package_name for e in plan.held_for_widening] == ["pydantic"]
         assert not plan.held_for_cooldown
+
+    def test_in_major_rung_written_under_latest_tier(self):
+        """Picking `latest` IS the authorization to widen — see is_held_for_widening."""
+        record = self.rung_record("pydantic", "1.10.13", "1.10.26", RecommendationRung.IN_MAJOR)
+        plan = build_update_plan(
+            make_scan_result(production=[record]), "uv", strategy=StrategyPlan(default=UpdateStrategy.LATEST)
+        )
+        assert [e.package_name for e in plan.direct_entries] == ["pydantic"]
+        assert plan.direct_entries[0].widens_constraint is True
+        assert not plan.held_for_widening
+
+    def test_per_package_override_authorizes_widening(self):
+        record = self.rung_record("pydantic", "1.10.13", "1.10.26", RecommendationRung.IN_MAJOR)
+        plan = build_update_plan(
+            make_scan_result(production=[record]),
+            "uv",
+            strategy=StrategyPlan(default=UpdateStrategy.STANDARD, overrides={"pydantic": UpdateStrategy.LATEST}),
+        )
+        assert [e.package_name for e in plan.direct_entries] == ["pydantic"]
+        assert not plan.held_for_widening
 
     def test_fresh_in_range_ladder_pick_still_held_for_cooldown(self):
         record = self.rung_record("requests", "2.28.0", "2.28.5", RecommendationRung.IN_RANGE)
