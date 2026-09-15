@@ -57,6 +57,15 @@ def test_pydantic_across_all_five_tiers() -> None:
     assert security.target_version is None
     assert security.withheld_reason is not None
 
+    # The named done-criterion for the version ladder (TODO #1): drift alone must still reach
+    # the newest same-major patch under the default tier, not just under `latest`. Regression
+    # test for rule 7 - without it, `standard`'s base IN_RANGE reach leaves this None, which is
+    # the exact 0%-vs-90% benchmark scenario TODO #1 was filed over.
+    standard = select_target(facts, UpdateStrategy.STANDARD, candidates)
+    assert standard.target_version == "1.10.26"
+    assert standard.rung == IN_MAJOR
+    assert standard.requires_widening is True
+
     latest = select_target(facts, UpdateStrategy.LATEST, candidates)
     assert latest.target_version == "2.13.5"
     assert latest.requires_widening is True
