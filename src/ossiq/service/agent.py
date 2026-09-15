@@ -8,7 +8,7 @@ decision an AI agent can act on directly.
 
 from typing import Any
 
-from ossiq.domain.common import RecommendationRung
+from ossiq.domain.common import DataCompleteness, RecommendationRung
 from ossiq.domain.cve import CVE
 from ossiq.domain.version import VERSION_DIFF_MAJOR, VERSION_DIFF_MINOR, VERSION_DIFF_PATCH
 from ossiq.risk.maintenance import NOT_MAINTAINED
@@ -263,6 +263,19 @@ def headline_next_action(entries: list[dict[str, Any]]) -> str:
     return NO_ACTION
 
 
+def data_completeness_summary(completeness: DataCompleteness) -> dict[str, Any]:
+    """B8 point 2: in a machine-readable format, a degraded data source must be visible inside
+    the document itself, not just as a side-channel console warning - an agent or script reading
+    this JSON never sees show_scan_progress's warning (agent/MCP callers bypass it entirely via
+    the silent on_step callback), so without this the degradation is invisible to exactly the
+    consumer who most needs to know about it.
+    """
+    return {
+        "overall": completeness.overall.value,
+        "sources": [{"step": step, "status": status.value} for step, status in sorted(completeness.by_step.items())],
+    }
+
+
 def build_update_decide(scan: ScanResult, update_strategy: str | None = None) -> AgentDecision:
     """Decision for updating a project's direct dependencies."""
     direct_records = scan.production_packages + scan.optional_packages
@@ -272,6 +285,7 @@ def build_update_decide(scan: ScanResult, update_strategy: str | None = None) ->
         "registry": scan.packages_registry.lower(),
         "next_action": headline_next_action(entries),
         "updates": entries,
+        "data_completeness": data_completeness_summary(scan.data_completeness),
     }
     if update_strategy is not None:
         result["update_strategy"] = update_strategy
