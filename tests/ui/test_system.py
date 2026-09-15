@@ -72,9 +72,11 @@ class TestShowScanProgressIntegration:
 
     def test_degraded_step_produces_a_warning_after_the_progress_bar(self):
         settings = Settings(verbose=False)
-        with patch("ossiq.ui.system.RICH_AVAILABLE", True), patch("ossiq.ui.system.console", MagicMock()), patch(
-            "ossiq.ui.system.show_warning"
-        ) as warn:
+        with (
+            patch("ossiq.ui.system.RICH_AVAILABLE", True),
+            patch("ossiq.ui.system.console", MagicMock()),
+            patch("ossiq.ui.system.show_warning") as warn,
+        ):
             with show_scan_progress(settings) as on_step:
                 on_step("packages")
                 on_step("vulnerabilities")
@@ -87,9 +89,11 @@ class TestShowScanProgressIntegration:
 
     def test_clean_run_produces_no_warning(self):
         settings = Settings(verbose=False)
-        with patch("ossiq.ui.system.RICH_AVAILABLE", True), patch("ossiq.ui.system.console", MagicMock()), patch(
-            "ossiq.ui.system.show_warning"
-        ) as warn:
+        with (
+            patch("ossiq.ui.system.RICH_AVAILABLE", True),
+            patch("ossiq.ui.system.console", MagicMock()),
+            patch("ossiq.ui.system.show_warning") as warn,
+        ):
             with show_scan_progress(settings) as on_step:
                 on_step("packages")
                 on_step("vulnerabilities")

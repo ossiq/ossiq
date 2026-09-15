@@ -118,8 +118,7 @@ def _warn_about_degraded_steps(step_status: dict[str, DataSourceStatus]) -> None
     labels = dict(SCAN_STEPS)
     lines = [f"  - {labels.get(key, key)}: {status.value}" for key, status in degraded.items()]
     show_warning(
-        "Some data sources did not fully respond, so this report may be based on incomplete "
-        "data:\n" + "\n".join(lines)
+        "Some data sources did not fully respond, so this report may be based on incomplete data:\n" + "\n".join(lines)
     )
 
 

@@ -711,9 +711,10 @@ class TestLastSummary:
     """
 
     def test_host_unreachable_is_unreachable_not_ok(self, github_api_with_token):
-        with patch.object(
-            github_api_with_token.session, "get", side_effect=requests.ConnectionError("blocked")
-        ), patch("ossiq.clients.batch.time.sleep"):
+        with (
+            patch.object(github_api_with_token.session, "get", side_effect=requests.ConnectionError("blocked")),
+            patch("ossiq.clients.batch.time.sleep"),
+        ):
             result = github_api_with_token.repositories_info_batch(["https://github.com/org/repo"])
 
         assert result == {}
@@ -754,9 +755,10 @@ class TestLastSummary:
             github_api_with_token.repositories_info_batch(["https://github.com/org/repo"])
         assert github_api_with_token.last_summary.status == DataSourceStatus.OK
 
-        with patch.object(
-            github_api_with_token.session, "get", side_effect=requests.ConnectionError("blocked")
-        ), patch("ossiq.clients.batch.time.sleep"):
+        with (
+            patch.object(github_api_with_token.session, "get", side_effect=requests.ConnectionError("blocked")),
+            patch("ossiq.clients.batch.time.sleep"),
+        ):
             github_api_with_token.commits_batch(["https://github.com/org/repo"])
         # Some data came through (the repo info), some didn't (the commits) - that combination
         # is exactly what "partial" means, not "unreachable" (which requires nothing came through

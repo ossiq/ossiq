@@ -5,6 +5,7 @@ opt out explicitly with --allow-partial.
 
 from __future__ import annotations
 
+import dataclasses
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -14,6 +15,7 @@ from ossiq.commands.status import CommandStatusOptions, command_status
 from ossiq.domain.common import DataCompleteness, DataSourceStatus
 from ossiq.service.project.models import ScanResult
 from ossiq.settings import Settings
+from ossiq.strategy.pyramid import UpdateStrategy
 
 
 def make_scan_result(data_completeness: DataCompleteness | None = None) -> ScanResult:
@@ -34,18 +36,20 @@ def make_context() -> typer.Context:
 
 
 def make_options(**overrides) -> CommandStatusOptions:
-    defaults = {"project_path": ".", "output_format": "agent"}  # agent mode: no Rich rendering side effects
-    defaults.update(overrides)
-    return CommandStatusOptions(**defaults)
+    # agent mode: no Rich rendering side effects
+    base = CommandStatusOptions(project_path=".", output_format="agent")
+    return dataclasses.replace(base, **overrides)
 
 
 class TestCommandStatusDataCompletenessGate:
     def test_renders_normally_when_vulnerabilities_ok(self):
         scan_result = make_scan_result(DataCompleteness(by_step={"vulnerabilities": DataSourceStatus.OK}))
 
-        with patch("ossiq.commands.status.project_sources.build_project_sources"), patch(
-            "ossiq.commands.status.scan", return_value=scan_result
-        ), patch("ossiq.commands.status.get_renderer") as get_renderer:
+        with (
+            patch("ossiq.commands.status.project_sources.build_project_sources"),
+            patch("ossiq.commands.status.scan", return_value=scan_result),
+            patch("ossiq.commands.status.get_renderer") as get_renderer,
+        ):
             command_status(make_context(), make_options())
 
         get_renderer.return_value.render.assert_called_once()
@@ -56,9 +60,11 @@ class TestCommandStatusDataCompletenessGate:
         """
         scan_result = make_scan_result(DataCompleteness())
 
-        with patch("ossiq.commands.status.project_sources.build_project_sources"), patch(
-            "ossiq.commands.status.scan", return_value=scan_result
-        ), patch("ossiq.commands.status.get_renderer") as get_renderer:
+        with (
+            patch("ossiq.commands.status.project_sources.build_project_sources"),
+            patch("ossiq.commands.status.scan", return_value=scan_result),
+            patch("ossiq.commands.status.get_renderer") as get_renderer,
+        ):
             command_status(make_context(), make_options())
 
         get_renderer.return_value.render.assert_called_once()
@@ -69,11 +75,12 @@ class TestCommandStatusDataCompletenessGate:
         """
         scan_result = make_scan_result(DataCompleteness(by_step={"vulnerabilities": DataSourceStatus.UNREACHABLE}))
 
-        with patch("ossiq.commands.status.project_sources.build_project_sources"), patch(
-            "ossiq.commands.status.scan", return_value=scan_result
-        ), patch("ossiq.commands.status.get_renderer") as get_renderer, patch(
-            "ossiq.commands.status.show_error"
-        ) as show_error:
+        with (
+            patch("ossiq.commands.status.project_sources.build_project_sources"),
+            patch("ossiq.commands.status.scan", return_value=scan_result),
+            patch("ossiq.commands.status.get_renderer") as get_renderer,
+            patch("ossiq.commands.status.show_error") as show_error,
+        ):
             with pytest.raises(typer.Exit) as exc_info:
                 command_status(make_context(), make_options())
 
@@ -84,9 +91,12 @@ class TestCommandStatusDataCompletenessGate:
     def test_exits_nonzero_when_vulnerabilities_rate_limited(self):
         scan_result = make_scan_result(DataCompleteness(by_step={"vulnerabilities": DataSourceStatus.RATE_LIMITED}))
 
-        with patch("ossiq.commands.status.project_sources.build_project_sources"), patch(
-            "ossiq.commands.status.scan", return_value=scan_result
-        ), patch("ossiq.commands.status.get_renderer"), patch("ossiq.commands.status.show_error"):
+        with (
+            patch("ossiq.commands.status.project_sources.build_project_sources"),
+            patch("ossiq.commands.status.scan", return_value=scan_result),
+            patch("ossiq.commands.status.get_renderer"),
+            patch("ossiq.commands.status.show_error"),
+        ):
             with pytest.raises(typer.Exit) as exc_info:
                 command_status(make_context(), make_options())
 
@@ -95,9 +105,11 @@ class TestCommandStatusDataCompletenessGate:
     def test_renders_anyway_with_allow_partial(self):
         scan_result = make_scan_result(DataCompleteness(by_step={"vulnerabilities": DataSourceStatus.UNREACHABLE}))
 
-        with patch("ossiq.commands.status.project_sources.build_project_sources"), patch(
-            "ossiq.commands.status.scan", return_value=scan_result
-        ), patch("ossiq.commands.status.get_renderer") as get_renderer:
+        with (
+            patch("ossiq.commands.status.project_sources.build_project_sources"),
+            patch("ossiq.commands.status.scan", return_value=scan_result),
+            patch("ossiq.commands.status.get_renderer") as get_renderer,
+        ):
             command_status(make_context(), make_options(allow_partial=True))
 
         get_renderer.return_value.render.assert_called_once()
@@ -109,21 +121,26 @@ class TestCommandStatusDataCompletenessGate:
         """
         scan_result = make_scan_result(DataCompleteness(by_step={"repositories": DataSourceStatus.UNREACHABLE}))
 
-        with patch("ossiq.commands.status.project_sources.build_project_sources"), patch(
-            "ossiq.commands.status.scan", return_value=scan_result
-        ), patch("ossiq.commands.status.get_renderer") as get_renderer:
+        with (
+            patch("ossiq.commands.status.project_sources.build_project_sources"),
+            patch("ossiq.commands.status.scan", return_value=scan_result),
+            patch("ossiq.commands.status.get_renderer") as get_renderer,
+        ):
             command_status(make_context(), make_options())
 
         get_renderer.return_value.render.assert_called_once()
 
-    def test_gate_applies_regardless_of_security_only_flag(self):
-        """CVE data is fetched for every status run, not gated behind --security (which only
-        narrows *transitive* solving) - the exit-code gate must not depend on that flag either.
+    def test_gate_applies_regardless_of_update_strategy(self):
+        """CVE data is fetched for every status run, not gated behind the update strategy (which
+        only narrows *transitive* solving) - the exit-code gate must not depend on the tier either.
         """
         scan_result = make_scan_result(DataCompleteness(by_step={"vulnerabilities": DataSourceStatus.UNREACHABLE}))
 
-        with patch("ossiq.commands.status.project_sources.build_project_sources"), patch(
-            "ossiq.commands.status.scan", return_value=scan_result
-        ), patch("ossiq.commands.status.get_renderer"), patch("ossiq.commands.status.show_error"):
+        with (
+            patch("ossiq.commands.status.project_sources.build_project_sources"),
+            patch("ossiq.commands.status.scan", return_value=scan_result),
+            patch("ossiq.commands.status.get_renderer"),
+            patch("ossiq.commands.status.show_error"),
+        ):
             with pytest.raises(typer.Exit):
-                command_status(make_context(), make_options(security_only=False))
+                command_status(make_context(), make_options(update_strategy=UpdateStrategy.SECURITY))
