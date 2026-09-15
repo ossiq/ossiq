@@ -1001,7 +1001,7 @@ class TestExecuteUpdateDirectRewrite:
     @staticmethod
     def _write_project(tmp_path, dependencies_toml: str) -> Path:
         pyproject_path = tmp_path / "pyproject.toml"
-        pyproject_path.write_text(f"[project]\nname = \"demo\"\nversion = \"0.1.0\"\n{dependencies_toml}")
+        pyproject_path.write_text(f'[project]\nname = "demo"\nversion = "0.1.0"\n{dependencies_toml}')
         return pyproject_path
 
     @staticmethod
@@ -1034,11 +1034,11 @@ class TestExecuteUpdateDirectRewrite:
         """
         pyproject_path = self._write_project(
             tmp_path,
-            'dependencies = [\n'
+            "dependencies = [\n"
             '    "pydantic==1.10.13",\n'
             '    "pydantic-settings==2.15.0",\n'
             '    "requests==2.28.1",\n'
-            ']\n',
+            "]\n",
         )
         self._run_execute_update(tmp_path, settings, "pydantic", "==1.10.13", "1.10.26")
 
@@ -1086,12 +1086,12 @@ class TestExecuteUpdateDirectRewrite:
         after it, with only the intended specifier changed.
         """
         before_toml = (
-            'dependencies = [\n'
+            "dependencies = [\n"
             '    "pydantic==1.10.13",\n'
             '    "pydantic-settings==2.15.0",\n'
             '    "requests==2.28.1",\n'
             '    "click==8.1.3",\n'
-            ']\n'
+            "]\n"
         )
         pyproject_path = self._write_project(tmp_path, before_toml)
         before = tomllib.loads(pyproject_path.read_text())["project"]["dependencies"]
@@ -1114,9 +1114,7 @@ class TestExecuteUpdateDirectRewrite:
     def test_package_declared_in_multiple_sections_is_updated_in_both(self, tmp_path, settings):
         pyproject_path = self._write_project(
             tmp_path,
-            'dependencies = ["pydantic==1.10.13"]\n'
-            '[project.optional-dependencies]\n'
-            'extra = ["pydantic==1.10.13"]\n',
+            'dependencies = ["pydantic==1.10.13"]\n[project.optional-dependencies]\nextra = ["pydantic==1.10.13"]\n',
         )
         self._run_execute_update(tmp_path, settings, "pydantic", "==1.10.13", "1.10.26")
 
