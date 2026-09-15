@@ -25,7 +25,7 @@ from ossiq.adapters.package_managers.api_uv import (
     upsert_uv_override_dependencies,
 )
 from ossiq.domain.common import ConstraintType, ProjectPackagesRegistry
-from ossiq.domain.exceptions import PackageManagerLockfileParsingError
+from ossiq.domain.exceptions import PackageManagerExecutionError, PackageManagerLockfileParsingError
 from ossiq.domain.packages_manager import UV
 from ossiq.service.update import UpdateEntry, UpdatePlan
 from ossiq.settings import Settings
@@ -1130,3 +1130,78 @@ class TestExecuteUpdateDirectRewrite:
         self._run_execute_update(tmp_path, settings, "pydantic", "==1.10.26", "1.10.26")
 
         assert pyproject_path.read_text() == before_content
+
+    def test_multiple_direct_entries_all_rewritten_in_one_pass(self, tmp_path, settings):
+        """execute_update parses pyproject.toml once and buckets every dependency string by
+        name up front, rather than re-parsing once per changed package - this is the scenario
+        that actually exercises more than one entry per plan.
+        """
+        pyproject_path = self._write_project(
+            tmp_path,
+            "dependencies = [\n"
+            '    "pydantic==1.10.13",\n'
+            '    "pydantic-settings==2.15.0",\n'
+            '    "requests==2.28.1",\n'
+            "]\n",
+        )
+        pm = PackageManagerPythonUv(project_path=str(tmp_path), settings=settings)
+        entries = [
+            UpdateEntry(
+                package_name=name,
+                current_version="x",
+                recommended_version=recommended,
+                is_direct=True,
+                reason=None,
+                version_defined=version_defined,
+                constraint_type=ConstraintType.PINNED,
+            )
+            for name, version_defined, recommended in [
+                ("pydantic", "==1.10.13", "1.10.26"),
+                ("pydantic-settings", "==2.15.0", "2.16.0"),
+                ("requests", "==2.28.1", "2.32.0"),
+            ]
+        ]
+        plan = UpdatePlan(
+            project_name="demo",
+            project_path=str(tmp_path),
+            registry_type="PYPI",
+            package_manager_name="uv",
+            direct_entries=entries,
+            transitive_entries=[],
+        )
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0)
+            pm.execute_update(plan)
+
+        deps = tomllib.loads(pyproject_path.read_text())["project"]["dependencies"]
+        assert set(deps) == {"pydantic==1.10.26", "pydantic-settings==2.16.0", "requests==2.32.0"}
+
+    def test_invalid_manifest_raises_instead_of_silently_skipping_updates(self, tmp_path, settings):
+        """A pyproject.toml that fails to parse must fail the whole update loudly - not degrade
+        into silently rewriting nothing for every package, which is what happened when the
+        per-package lookup re-parsed the document on each loop iteration and swallowed
+        TOMLDecodeError by returning [].
+        """
+        pyproject_path = tmp_path / "pyproject.toml"
+        pyproject_path.write_text("not valid toml [[[")
+        pm = PackageManagerPythonUv(project_path=str(tmp_path), settings=settings)
+        plan = UpdatePlan(
+            project_name="demo",
+            project_path=str(tmp_path),
+            registry_type="PYPI",
+            package_manager_name="uv",
+            direct_entries=[
+                UpdateEntry(
+                    package_name="pydantic",
+                    current_version="x",
+                    recommended_version="1.10.26",
+                    is_direct=True,
+                    reason=None,
+                    version_defined="==1.10.13",
+                    constraint_type=ConstraintType.PINNED,
+                )
+            ],
+            transitive_entries=[],
+        )
+        with pytest.raises(PackageManagerExecutionError):
+            pm.execute_update(plan)

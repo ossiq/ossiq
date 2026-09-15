@@ -8,7 +8,7 @@ import os
 import re
 import subprocess
 import tomllib
-from collections import namedtuple
+from collections import defaultdict, namedtuple
 from collections.abc import Callable, Iterable
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -78,6 +78,21 @@ def apply_pyproject_constraints(root: Dependency, pyproject_specs: dict[str, str
     return divergent
 
 
+def _direct_dependency_strings(pyproject_data: dict) -> list[str]:
+    """Every exact, verbatim dependency string across [project.dependencies] and
+    [project.optional-dependencies] in an already-parsed pyproject.toml document.
+
+    Split out of find_pyproject_direct_specifiers so a caller that needs every package's
+    strings (execute_update) can parse the document once instead of once per package - see
+    execute_update's own docstring for why that matters beyond just performance.
+    """
+    project_section = pyproject_data.get("project", {})
+    dep_strings: list[str] = list(project_section.get("dependencies", []))
+    for group_deps in project_section.get("optional-dependencies", {}).values():
+        dep_strings.extend(group_deps)
+    return dep_strings
+
+
 def find_pyproject_direct_specifiers(content: str, package_name: str) -> list[str]:
     """Every exact, verbatim dependency string in [project.dependencies] /
     [project.optional-dependencies] whose name normalises to `package_name`.
@@ -93,19 +108,19 @@ def find_pyproject_direct_specifiers(content: str, package_name: str) -> list[st
     Returns a list, not one string: the same package can be declared in more than one place (the
     main list and an optional-dependencies group) with different specifiers, and every occurrence
     needs rewriting, exactly as the old code intended before its matching was fixed.
+
+    Single-package convenience wrapper around _direct_dependency_strings, parsing `content` on
+    every call - fine for one-off lookups (and what the tests exercise), but execute_update
+    parses once itself and buckets by name rather than calling this per package.
     """
     try:
         data = tomllib.loads(content)
     except tomllib.TOMLDecodeError:
         return []
-    project_section = data.get("project", {})
-    dep_strings: list[str] = list(project_section.get("dependencies", []))
-    for group_deps in project_section.get("optional-dependencies", {}).values():
-        dep_strings.extend(group_deps)
 
     target = normalize_dist_name(package_name)
     matches: list[str] = []
-    for dep_str in dep_strings:
+    for dep_str in _direct_dependency_strings(data):
         try:
             req = Requirement(dep_str)
         except InvalidRequirement:
@@ -408,16 +423,38 @@ class PackageManagerPythonUv(AbstractPackageManagerApi):
         )
 
     def execute_update(self, plan: UpdatePlan) -> None:
-        """Apply specifier rewrites, run uv lock + uv sync in-process. Restores pyproject.toml on failure."""
+        """Apply specifier rewrites, run uv lock + uv sync in-process. Restores pyproject.toml on failure.
+
+        Parses pyproject.toml once and buckets every direct dependency string by normalised
+        name, rather than calling find_pyproject_direct_specifiers (a full re-parse) once per
+        changed package: that was both an O(n) redundant re-parse of an unchanging document for
+        n changed packages, and fragile - a parse failure there silently returns [], which would
+        make every *remaining* package in the loop receive no rewrite with no warning raised.
+        Parsing content once, up front, before any specifier is rewritten, means an unparseable
+        manifest fails loudly for the whole update instead of degrading package-by-package.
+        """
         manifest_path = Path(plan.project_path) / "pyproject.toml"
         original_content = manifest_path.read_text(encoding="utf-8")
+
+        try:
+            parsed = tomllib.loads(original_content)
+        except tomllib.TOMLDecodeError as exc:
+            raise PackageManagerExecutionError(f"pyproject.toml is not valid TOML: {exc}") from exc
+
+        dependency_strings_by_name: dict[str, list[str]] = defaultdict(list)
+        for dep_str in _direct_dependency_strings(parsed):
+            try:
+                req = Requirement(dep_str)
+            except InvalidRequirement:
+                continue
+            dependency_strings_by_name[normalize_dist_name(req.name)].append(dep_str)
 
         content = original_content
         for entry in plan.direct_entries:
             new_spec = self.resolve_direct_specifier(entry, plan.pin_all)
             if new_spec != entry.version_defined:
                 spec_to_write = new_spec or f"=={entry.recommended_version}"
-                for original_dep_str in find_pyproject_direct_specifiers(content, entry.package_name):
+                for original_dep_str in dependency_strings_by_name.get(normalize_dist_name(entry.package_name), []):
                     content = content.replace(f'"{original_dep_str}"', f'"{entry.package_name}{spec_to_write}"', 1)
 
         forced_transitive = {
