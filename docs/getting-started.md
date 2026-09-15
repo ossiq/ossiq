@@ -131,7 +131,7 @@ a local checkout with `--dev`, see [Reference → install skills](reference.md#i
 ```bash
 ossiq status              # dependency health for the whole project
 ossiq status --full       # every package, every column
-ossiq status --security   # CVE-affected packages only
+ossiq status --update-strategy security   # CVE-affected packages only
 ossiq info sphinx         # one package: drift, CVEs, tree path, peer requirements
 ossiq add requests        # quality-gated install of the recommended version
 ossiq plan                # what the solver would change - read-only
@@ -181,7 +181,7 @@ so a `plan` is a faithful preview of the matching `apply`.
 ```bash
 ossiq plan                    # read-only preview
 ossiq apply                   # prompts for confirmation
-ossiq apply --security --yes  # patch CVE-affected packages only, unattended
+ossiq apply --update-strategy security --yes  # patch CVE-affected packages only, unattended
 ```
 
 Before recommending a version, the solver simulates its full transitive cascade, falls back to the

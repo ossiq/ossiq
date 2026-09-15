@@ -338,14 +338,14 @@ def scenario_security(
     base_args: list[str],
     target_id: str,
 ) -> bool:
-    """plan/apply --security must succeed, including the zero-CVE case."""
+    """plan/apply --update-strategy security must succeed, including the zero-CVE case."""
     scen_dir = target_dir / "security"
     scen_logs = logs_dir / "scenario_security"
     scen_logs.mkdir(exist_ok=True)
     copy_pristine(pristine_dir, scen_dir)
 
     result = run_cmd(
-        OSSIQ_CMD + base_args + ["plan", "--security", str(scen_dir)],
+        OSSIQ_CMD + base_args + ["plan", "--update-strategy", "security", str(scen_dir)],
         cwd=REPO_ROOT,
         timeout=300,
         log_path=scen_logs / "plan_security.log",
@@ -355,7 +355,7 @@ def scenario_security(
         return False
 
     result = run_cmd(
-        OSSIQ_CMD + base_args + ["apply", "--security", "--yes", str(scen_dir)],
+        OSSIQ_CMD + base_args + ["apply", "--update-strategy", "security", "--yes", str(scen_dir)],
         cwd=REPO_ROOT,
         timeout=600,
         log_path=scen_logs / "apply_security.log",
