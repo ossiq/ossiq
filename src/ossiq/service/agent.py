@@ -223,6 +223,10 @@ def build_update_entry(record: ScanRecord) -> dict[str, Any] | None:
     triage = triage_summary(record)
     if triage is not None:
         entry["triage"] = triage
+    if record.strategy_selection is not None:
+        entry["motives"] = sorted(m.value for m in record.strategy_selection.motives)
+        if record.strategy_selection.withheld_reason:
+            entry["strategy_withheld_reason"] = record.strategy_selection.withheld_reason
     return entry
 
 
@@ -235,13 +239,16 @@ def headline_next_action(entries: list[dict[str, Any]]) -> str:
     return NO_ACTION
 
 
-def build_update_decide(scan: ScanResult) -> AgentDecision:
+def build_update_decide(scan: ScanResult, update_strategy: str | None = None) -> AgentDecision:
     """Decision for updating a project's direct dependencies."""
     direct_records = scan.production_packages + scan.optional_packages
     entries = [entry for entry in (build_update_entry(record) for record in direct_records) if entry is not None]
-    return {
+    result: AgentDecision = {
         "operation": "update",
         "registry": scan.packages_registry.lower(),
         "next_action": headline_next_action(entries),
         "updates": entries,
     }
+    if update_strategy is not None:
+        result["update_strategy"] = update_strategy
+    return result

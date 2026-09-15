@@ -16,6 +16,8 @@ from ossiq.domain.exceptions import UnknownProjectPackageManager
 from ossiq.messages import WARNING_MULTIPLE_REGISTRY_TYPES
 from ossiq.settings import Settings
 from ossiq.sources.core import AbstractProjectSources
+from ossiq.strategy.overrides import StrategyPlan
+from ossiq.strategy.pyramid import DEFAULT_STRATEGY, PRERELEASE_TIERS
 from ossiq.ui.system import show_warning
 
 
@@ -32,7 +34,7 @@ class ProjectSources(AbstractProjectSources):
         production: bool = False,
         allow_prerelease: bool = False,
         allow_prerelease_packages: tuple[str, ...] = (),
-        security_only: bool = False,
+        strategy: StrategyPlan | None = None,
         ignore_packages: tuple[str, ...] = (),
         rewrite_versions: bool = False,
     ):
@@ -44,9 +46,11 @@ class ProjectSources(AbstractProjectSources):
         self.project_path = project_path
         self.settings = settings
         self.production = production
-        self.allow_prerelease = allow_prerelease
-        self.allow_prerelease_packages = allow_prerelease_packages
-        self.security_only = security_only
+        self.strategy = strategy or StrategyPlan(default=DEFAULT_STRATEGY)
+        # cutting-edge admits prereleases; handled at prefetch, not as a sixth ladder rung — see
+        # strategy/README.md. A per-package override to cutting-edge only widens that package.
+        self.allow_prerelease = allow_prerelease or self.strategy.default in PRERELEASE_TIERS
+        self.allow_prerelease_packages = tuple(set(allow_prerelease_packages) | set(self.strategy.prerelease_packages))
         self.rewrite_versions = rewrite_versions
         self.ignore_packages = tuple(normalize_dist_name(p) for p in ignore_packages)
         self.narrow_package_registry = narrow_package_registry
@@ -114,7 +118,7 @@ def build_project_sources(
     allow_prerelease_packages: tuple[str, ...],
     registry_type: str | None,
     *,
-    security_only: bool = False,
+    strategy: StrategyPlan | None = None,
     ignore_packages: tuple[str, ...] = (),
     rewrite_versions: bool = False,
 ) -> ProjectSources:
@@ -126,7 +130,7 @@ def build_project_sources(
         allow_prerelease=allow_prerelease,
         allow_prerelease_packages=allow_prerelease_packages,
         narrow_package_registry=REGISTRY_TYPE_MAP.get(registry_type or ""),
-        security_only=security_only,
+        strategy=strategy,
         ignore_packages=ignore_packages,
         rewrite_versions=rewrite_versions,
     )

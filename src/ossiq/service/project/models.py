@@ -17,6 +17,7 @@ from ossiq.service.project.epss import ProjectEpss
 from ossiq.service.project.stability import ProjectStability, RepositoryStability, TriageResult
 from ossiq.service.update_impact import TransitiveImpact
 from ossiq.solver.reason import RecommendationReason
+from ossiq.strategy.targeting import StrategySelection
 
 
 @dataclass(frozen=True)
@@ -179,6 +180,11 @@ class ScanRecord:
     install_execution_reason: str | None = None
     """Human-readable reason for runs_code_at_install, e.g. "npm lifecycle: postinstall" or
     "PyPI source distribution build". None when the signal is unknown or execution was not detected."""
+
+    strategy_selection: StrategySelection | None = None
+    """The update-strategy selector's verdict for this record. Populated in
+    service.project.strategy.apply_update_strategy, after populate_stability. None for transitive
+    records (v1 scope: the strategy applies to direct dependencies only) or an ignored package."""
 
 
 @dataclass
