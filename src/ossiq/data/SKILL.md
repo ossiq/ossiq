@@ -62,12 +62,19 @@ Before bumping versions, run:
 uvx ossiq status <project_path> --format agent
 ```
 
+By default this targets the `standard` tier of the update pyramid (plain drift, inside each
+package's declared range). Pass `--update-strategy security` for the smallest diff that clears
+known CVEs, or `latest`/`cutting-edge` to also widen constraints / admit prereleases — see
+`ossiq status --help`. The MCP tool `ossiq_evaluate_updates` takes the same `update_strategy`
+argument.
+
 Example output:
 
 ```json
 {
   "operation": "update",
   "registry": "npm",
+  "update_strategy": "standard",
   "next_action": "Check for the Fix",
   "updates": [
     {
