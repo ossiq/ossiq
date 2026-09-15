@@ -170,7 +170,7 @@ with sources:
     result = scan(sources)
 ```
 
-Other optional keyword arguments mirror the CLI's own flags: `allow_prerelease`, `allow_prerelease_packages`, `security_only`, `rewrite_versions`, and `narrow_package_registry` (force a specific registry instead of auto-detecting).
+Other optional keyword arguments mirror the CLI's own flags: `allow_prerelease`, `allow_prerelease_packages`, `strategy` (an `ossiq.strategy.overrides.StrategyPlan` — the update-strategy tier and any per-package overrides), `rewrite_versions`, and `narrow_package_registry` (force a specific registry instead of auto-detecting).
 
 ---
 
@@ -347,6 +347,30 @@ That per-alias fitting also applies to the solver's [cooldown](#update-solver): 
     Forced packages are reported with `ConstraintType.OVERRIDE` on subsequent scans, so they remain
     visible until the override is removed.
 
+(update-strategy)=
+### Update Strategy
+
+`--update-strategy` picks which tier of the **dependency update pyramid** a run targets — five
+tiers, each a strict superset of the one below: `security` (the smallest diff that clears an
+exploitable CVE), `deprecation` (also end-of-life packages), `standard` (also plain drift, the
+default — preserves pre-strategy behaviour), `latest` (also widens the declared constraint to
+reach the newest version), and `cutting-edge` (also prereleases). `--strategy-override
+pkg=tier` runs one package at a different tier than the rest of the run (repeatable); `--override
+pkg==version` still wins over both when given for the same package.
+
+Every surface echoes which tier answered: `status`/`plan`/`html` print it in the header, `export`
+writes it to `metadata.update_strategy` (plus a per-package `strategy_motives` /
+`strategy_withheld_reason` on `PackageMetrics`), and `--format agent` / both MCP tools carry
+`update_strategy` and a per-entry `motives`. A withheld package's `plan`/`status` output names the
+lowest tier that would move it ("N more updates available under --update-strategy X").
+
+`apply` treats reaching `latest`/`cutting-edge` for a package as the authorization to widen its
+declared constraint — but asks for a second, separate confirmation before doing so, in addition to
+the usual "proceed with N updates?" prompt. `--yes` skips both.
+
+Full design, the two-axis (motive × reach) model, and a worked example across all five tiers live
+in `src/ossiq/strategy/README.md`.
+
 (version-ladder)=
 ### Version ladder
 
@@ -371,22 +395,23 @@ only when genuinely undeterminable (no release data, or the declared constraint
 is satisfiable only *below* `installed_version`, signalling a manifest/lockfile
 divergence).
 
-When the solver finds no in-range recommendation, `recommended_version` falls
-down the ladder — `latest_in_range`, then `latest_in_major`, then `latest_version`
-— taking the first rung strictly newer than `installed_version`.
-`recommended_from_rung` records which rung it came from:
+`recommended_version` is set by the [update-strategy](#update-strategy) selector, which picks a
+rung from this ladder according to the run's tier — `latest_in_range`, then `latest_in_major`,
+then `latest_version`, taking the first (or, for freshness tiers, the newest) rung the tier
+reaches. `recommended_from_rung` records which rung it came from:
 
 -   **`SOLVER` / `IN_RANGE`** — inside `version_constraint`; `plan`/`apply`/`update`
     write these directly.
--   **`IN_MAJOR` / `LATEST`** — only reachable by widening `version_constraint`
-    first. `build_update_plan` withholds these into `UpdatePlan.held_for_widening`
-    (reported by `plan` under *Requires constraint widening*) rather than writing
-    them, so a plain `ossiq update` never silently widens a constraint you set
-    deliberately. `--override` bypasses this, same as it bypasses the cooldown.
+-   **`IN_MAJOR` / `LATEST`** — only reachable by widening `version_constraint` first.
+    `build_update_plan` withholds these into `UpdatePlan.held_for_widening` (reported by `plan`
+    under *Requires constraint widening*) unless the run's strategy tier authorizes reaching that
+    far (`latest`/`cutting-edge`, or an escalating CVE/end-of-life motive) — see
+    [Update Strategy](#update-strategy). `--override` bypasses this, same as it bypasses the
+    cooldown.
 
-The ladder itself reports plain registry facts — no cooldown, no CVE filtering —
-so `latest_in_range`/`latest_in_major` may differ from what the solver would
-actually recommend once those guardrails apply.
+The ladder itself reports plain registry facts — no cooldown, no CVE filtering, no strategy —
+so `latest_in_range`/`latest_in_major` may differ from what `recommended_version` actually
+settles on once those guardrails apply.
 
 ### Data Provenance
 
@@ -587,7 +612,7 @@ A row with a recommendation can carry indented sub-rows describing what applying
 
 #### Transitive Recommendations
 
-Transitive packages — packages your direct dependencies pull in — for which the solver recommends a different version, most often because the installed version carries a CVE or is far behind. With `--security`, the list narrows to packages with CVEs only. To turn these recommendations into an executable update plan, run `ossiq plan` (see [Update Solver](#update-solver)).
+Transitive packages — packages your direct dependencies pull in — for which the solver recommends a different version, most often because the installed version carries a CVE or is far behind. With `--update-strategy security`, the list narrows to packages with CVEs only. To turn these recommendations into an executable update plan, run `ossiq plan` (see [Update Solver](#update-solver)).
 
 Columns: **Package**, **CVEs**, **Installed**, **Recommended**, **What's Next**; `--full` adds **EPSS**. The **Recommended** version is the one the solver picks within all parent constraints; **What's Next** follows the same rules as the dependency table.
 
