@@ -10,10 +10,10 @@ from ossiq.domain.common import ProjectPackagesRegistry, RepositoryProvider
 from ossiq.settings import Settings
 
 from .api_github import SourceCodeProviderApiGithub
-from .api_interfaces import AbstractPackageRegistryApi
+from .api_interfaces import AbstractPackageRegistryApi, AbstractSourceCodeProviderApi
 
 
-def create_source_code_provider(provider_type: RepositoryProvider, settings: Settings) -> SourceCodeProviderApiGithub:
+def create_source_code_provider(provider_type: RepositoryProvider, settings: Settings) -> AbstractSourceCodeProviderApi:
     """
     Return source code provider (like Github) using factory and respective type
     """

@@ -5,20 +5,66 @@ Interfaces related to external APIs
 from __future__ import annotations
 
 import abc
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from functools import cmp_to_key
 from typing import TYPE_CHECKING
 
+from ossiq.clients.batch import BatchRunSummary
 from ossiq.domain.common import ConstraintType, ProjectPackagesRegistry
 from ossiq.domain.package import Package
 from ossiq.domain.packages_manager import PackageManagerType
 from ossiq.domain.project import Project
 from ossiq.settings import Settings
 
-from ..domain.version import PackageVersion, VersionsDifference
+from ..domain.repository import Repository
+from ..domain.version import PackageVersion, RepositoryVersion, VersionsDifference
 
 if TYPE_CHECKING:
     from ossiq.service.update import UpdatePlan
+
+
+class AbstractSourceCodeProviderApi(abc.ABC):
+    """
+    Abstract client to communicate with source code repositories like GitHub
+    """
+
+    # B4: completeness of the most recent batch fetch(es) this instance made. Worst-of
+    # combined across whichever batch method below gets called on it.
+    last_summary: BatchRunSummary
+
+    @abc.abstractmethod
+    def repository_info(self, repository_url: str | None) -> Repository:
+        raise NotImplementedError
+
+    @abc.abstractmethod
+    def repositories_info_batch(self, repo_urls: list[str]) -> dict[str, Repository]:
+        """Fetch metadata for multiple repos in parallel. Returns url -> Repository."""
+        raise NotImplementedError
+
+    @abc.abstractmethod
+    def repository_versions(
+        self, repository: Repository, package_versions: list[PackageVersion], comparator: Callable
+    ) -> Iterable[RepositoryVersion]:
+        raise NotImplementedError
+
+    @abc.abstractmethod
+    def commits_batch(self, repo_urls: list[str], until: str | None = None) -> dict[str, list[dict]]:
+        """Fetch recent commits for multiple repos in parallel. Feeds the stability estimator."""
+        raise NotImplementedError
+
+    @abc.abstractmethod
+    def repository_activity_batch(self, repo_urls: list[str], since: str | None = None) -> dict[str, dict]:
+        """Fetch issue / PR activity for multiple repos in parallel."""
+        raise NotImplementedError
+
+    @abc.abstractmethod
+    def readmes_batch(self, repo_urls: list[str]) -> dict[str, str]:
+        """Fetch the top of each repo's README in parallel, for the deprecation-banner scan."""
+        raise NotImplementedError
+
+    @abc.abstractmethod
+    def __repr__(self):
+        raise NotImplementedError
 
 
 class VersionRules(abc.ABC):
