@@ -78,6 +78,43 @@ def apply_pyproject_constraints(root: Dependency, pyproject_specs: dict[str, str
     return divergent
 
 
+def find_pyproject_direct_specifiers(content: str, package_name: str) -> list[str]:
+    """Every exact, verbatim dependency string in [project.dependencies] /
+    [project.optional-dependencies] whose name normalises to `package_name`.
+
+    Matching on the normalised name - not a string prefix of package_name - is what
+    execute_update needs to safely target a rewrite. The previous approach matched any quoted
+    string starting with the package name via regex (`"{package_name}[^"]*"`), which also
+    matches "pydantic-settings==2.15.0" when updating "pydantic": re.sub then replaces every
+    match with pydantic's new spec, silently destroying the pydantic-settings entry and leaving
+    a duplicate pydantic line in its place. Confirmed by direct reproduction against
+    execute_update - see the writer-corruption investigation.
+
+    Returns a list, not one string: the same package can be declared in more than one place (the
+    main list and an optional-dependencies group) with different specifiers, and every occurrence
+    needs rewriting, exactly as the old code intended before its matching was fixed.
+    """
+    try:
+        data = tomllib.loads(content)
+    except tomllib.TOMLDecodeError:
+        return []
+    project_section = data.get("project", {})
+    dep_strings: list[str] = list(project_section.get("dependencies", []))
+    for group_deps in project_section.get("optional-dependencies", {}).values():
+        dep_strings.extend(group_deps)
+
+    target = normalize_dist_name(package_name)
+    matches: list[str] = []
+    for dep_str in dep_strings:
+        try:
+            req = Requirement(dep_str)
+        except InvalidRequirement:
+            continue
+        if normalize_dist_name(req.name) == target:
+            matches.append(dep_str)
+    return matches
+
+
 def upsert_uv_override_dependencies(content: str, overrides: dict[str, str]) -> str:
     """Merge forced pkg==version entries into [tool.uv] override-dependencies in pyproject.toml.
 
@@ -380,11 +417,10 @@ class PackageManagerPythonUv(AbstractPackageManagerApi):
             new_spec = self.resolve_direct_specifier(entry, plan.pin_all)
             if new_spec != entry.version_defined:
                 spec_to_write = new_spec or f"=={entry.recommended_version}"
-                content = re.sub(
-                    rf'"{re.escape(entry.package_name)}[^"]*"',
-                    f'"{entry.package_name}{spec_to_write}"',
-                    content,
-                )
+                for original_dep_str in find_pyproject_direct_specifiers(content, entry.package_name):
+                    content = content.replace(
+                        f'"{original_dep_str}"', f'"{entry.package_name}{spec_to_write}"', 1
+                    )
 
         forced_transitive = {
             entry.package_name: entry.recommended_version for entry in plan.transitive_entries if entry.is_forced
