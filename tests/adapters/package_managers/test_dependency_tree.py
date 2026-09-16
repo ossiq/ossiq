@@ -327,6 +327,64 @@ class TestBuildGraph:
         assert lib is not None
         assert lib.version_defined is None
 
+    def test_version_constraint_declared_survives_multi_parent_processing_regardless_of_order(self):
+        """version_constraint_declared always reflects the root manifest's own spec, whichever
+        order Pass 2 processes competing parents in - unlike version_defined, the internal
+        last-writer-wins accumulator, which is free to vary with processing order."""
+        root_first_lockfile = _make_lockfile(
+            _pkg("my-app", "1.0.0", deps=[_dep("lib", "~1.0.0")]),
+            _pkg("lib", "1.0.5"),
+            _pkg("other-pkg", "1.0.0", deps=[_dep("lib", "^1.0.0")]),
+        )
+        root_last_lockfile = _make_lockfile(
+            _pkg("other-pkg", "1.0.0", deps=[_dep("lib", "^1.0.0")]),
+            _pkg("lib", "1.0.5"),
+            _pkg("my-app", "1.0.0", deps=[_dep("lib", "~1.0.0")]),
+        )
+
+        for lockfile in (root_first_lockfile, root_last_lockfile):
+            resolver = DummyResolver(lockfile)
+            root = resolver.build_graph("my-app")
+            assert root is not None
+            lib = root.dependencies["lib"]
+            assert lib is not None
+            assert lib.version_constraint_declared == "~1.0.0"
+
+    def test_pinia_vue_router_regression_declared_constraint_survives_peer_override(self):
+        """Regression test for the PLAN.md pinia/vue-router example: package.json declares pinia
+        "~3.0.4"; vue-router's own dependency on pinia ("^3.0.4") must not clobber the declared
+        value, even though it still wins the internal version_defined accumulator."""
+        lockfile = _make_lockfile(
+            _pkg("my-app", "1.0.0", deps=[_dep("pinia", "~3.0.4"), _dep("vue-router", "4.0.0")]),
+            _pkg("pinia", "3.0.4"),
+            _pkg("vue-router", "4.0.0", deps=[_dep("pinia", "^3.0.4")]),
+        )
+        resolver = DummyResolver(lockfile)
+        root = resolver.build_graph("my-app")
+
+        assert root is not None
+        pinia = root.dependencies["pinia"]
+        assert pinia is not None
+        assert pinia.version_defined == "^3.0.4"
+        assert pinia.version_constraint_declared == "~3.0.4"
+
+    def test_pure_transitive_dep_has_no_declared_constraint(self):
+        """A pure transitive dependency (no root-manifest entry) gets version_constraint_declared
+        None; parent_constraints keeps tracking why it's bounded."""
+        lockfile = _make_lockfile(
+            _pkg("my-app", "1.0.0", deps=[_dep("requests", "2.31.0")]),
+            _pkg("requests", "2.31.0", deps=[_dep("urllib3", ">=2.0")]),
+            _pkg("urllib3", "2.1.0"),
+        )
+        resolver = DummyResolver(lockfile)
+        root = resolver.build_graph("my-app")
+
+        assert root is not None
+        urllib3 = root.dependencies["requests"].dependencies["urllib3"]
+        assert urllib3 is not None
+        assert urllib3.version_constraint_declared is None
+        assert urllib3.parent_constraints == [">=2.0"]
+
     def test_registry_populated(self, simple_lockfile):
         """Test that all packages are registered in the resolver registry."""
         # Arrange

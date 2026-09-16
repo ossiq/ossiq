@@ -262,9 +262,9 @@ class ConsoleStatusRenderer(AbstractUserInterfaceRenderer):
 
                 # Name the range that is holding the package back — the "what to do" half of the
                 # Constrained label. Other blockers (e.g. an override pin) may apply on top.
-                if full and pkg.version_constraint and next_action_label(pkg) == CONSTRAINED_CHECK_NEWER:
+                if full and pkg.version_constraint_declared and next_action_label(pkg) == CONSTRAINED_CHECK_NEWER:
                     table.add_row(
-                        f"  [yellow]↳ {pkg.version_constraint} caps this below {pkg.latest_version}[/]",
+                        f"  [yellow]↳ {pkg.version_constraint_declared} caps this below {pkg.latest_version}[/]",
                         *blanks,
                     )
 

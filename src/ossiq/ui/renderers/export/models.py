@@ -261,7 +261,20 @@ class PackageMetrics(BaseModel):
     )
     version_constraint: str | None = Field(
         default=None,
-        description="Version constraint declared in the project manifest (e.g. '^1.2.3', '>=1.0,<2.0')",
+        description=(
+            "Effective version specifier used internally for solver/ladder computation "
+            "(e.g. '^1.2.3', '>=1.0,<2.0'). Last-writer-wins across every parent that declares a "
+            "spec for this package - not guaranteed to equal the manifest's own declaration. "
+            "Use version_constraint_declared for the manifest's declared value."
+        ),
+    )
+    version_constraint_declared: str | None = Field(
+        default=None,
+        description=(
+            "Version constraint declared by the project manifest itself (e.g. '^1.2.3', "
+            "'>=1.0,<2.0'). None when this dependency has no direct manifest entry or is "
+            'unconstrained. This is the value to show as "the declared constraint".'
+        ),
     )
     repo_url: str | None = Field(default=None, description="Source code repository URL")
     homepage_url: str | None = Field(default=None, description="Package homepage URL")
@@ -453,6 +466,7 @@ class PackageMetrics(BaseModel):
             cve=[CVEInfo.from_domain(cve) for cve in record.cve],
             dependency_path=record.dependency_path,
             version_constraint=record.version_constraint,
+            version_constraint_declared=record.version_constraint_declared,
             repo_url=record.repo_url,
             homepage_url=record.homepage_url,
             package_url=record.package_url,

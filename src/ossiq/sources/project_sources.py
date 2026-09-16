@@ -2,6 +2,8 @@
 ProjectSources: assembles external data providers for a scan run.
 """
 
+import os
+
 from ossiq.adapters.api import (
     create_cve_database,
     create_epss_score_database,
@@ -65,7 +67,17 @@ class ProjectSources(AbstractProjectSources):
         packages_managers = list(create_package_managers(self.project_path, self.settings))
 
         if not packages_managers:
-            raise UnknownProjectPackageManager(f"Unable to identify Package Manager for project at {self.project_path}")
+            manifest_names = ("pyproject.toml", "package.json", "requirements.txt")
+            found = [name for name in manifest_names if os.path.exists(os.path.join(self.project_path, name))]
+            raise UnknownProjectPackageManager(
+                f"Unable to identify Package Manager for project at {self.project_path}",
+                hint=(
+                    f"Inspected {', '.join(manifest_names)}; found: {', '.join(found) if found else 'none'}. "
+                    "A pyproject.toml alone needs either a lockfile (uv.lock, pylock.toml) or a non-empty "
+                    "[project].dependencies section - a Poetry-only manifest ([tool.poetry.dependencies]) "
+                    "isn't supported yet."
+                ),
+            )
 
         if len(packages_managers) > 1 and not self.narrow_package_registry:
             show_warning(WARNING_MULTIPLE_REGISTRY_TYPES.format(project_path=self.project_path))

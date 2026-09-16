@@ -56,6 +56,7 @@ def make_record(
     maintenance: MaintenanceAssessment | None = None,
     recommended_version: str | None = None,
     version_constraint: str | None = None,
+    version_constraint_declared: str | None = None,
 ) -> ScanRecord:
     return ScanRecord(
         package_name=name,
@@ -72,6 +73,7 @@ def make_record(
         maintenance=maintenance,
         recommended_version=recommended_version,
         version_constraint=version_constraint,
+        version_constraint_declared=version_constraint_declared,
     )
 
 
@@ -140,12 +142,32 @@ def test_constrained_package_names_the_range_holding_it_back():
                 latest_version="1.5.0",
                 recommended_version="1.0.0",
                 version_constraint="~1.0.0",
+                version_constraint_declared="~1.0.0",
             )
         ],
         full=True,
     )
     assert "Constrained. Check newer version" in output
     assert "~1.0.0 caps this below 1.5.0" in output
+
+
+def test_constrained_sub_row_shows_declared_not_effective_constraint():
+    """The sub-row must read version_constraint_declared, not version_constraint — the latter is
+    a last-writer-wins accumulator a competing transitive/peer parent can clobber."""
+    output = render_table(
+        [
+            make_record(
+                versions_diff_index=MINOR,
+                latest_version="1.5.0",
+                recommended_version="1.0.0",
+                version_constraint="^1.2.0",  # clobbered by some other parent's spec
+                version_constraint_declared="~1.0.0",  # the manifest's own declaration
+            )
+        ],
+        full=True,
+    )
+    assert "~1.0.0 caps this below 1.5.0" in output
+    assert "^1.2.0" not in output
 
 
 def test_constrained_sub_row_is_full_mode_only():
@@ -156,6 +178,7 @@ def test_constrained_sub_row_is_full_mode_only():
                 latest_version="1.5.0",
                 recommended_version="1.0.0",
                 version_constraint="~1.0.0",
+                version_constraint_declared="~1.0.0",
             )
         ]
     )

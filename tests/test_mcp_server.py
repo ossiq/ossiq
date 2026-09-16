@@ -110,3 +110,23 @@ def test_tools_call_handler_exception_is_reported(monkeypatch):
     assert response is not None
     assert response["result"]["isError"] is True
     assert "kaboom" in response["result"]["content"][0]["text"]
+
+
+def test_tools_call_application_error_includes_title_and_hint(monkeypatch):
+    """cli.py's error_boundary() already renders title+hint for ApplicationError; the MCP
+    handler used to discard both and print only the class name and message, which is the
+    direct source of the bare 'UnknownProjectPackageManager: Unable to identify Package
+    Manager' text with no remedy that PLAN.md reported."""
+    from ossiq.domain.exceptions import UnknownProjectPackageManager
+
+    def boom(_s, _a):
+        raise UnknownProjectPackageManager("Unable to identify Package Manager for project at .")
+
+    monkeypatch.setitem(server.TOOL_HANDLERS, "ossiq_evaluate_updates", boom)
+    params = {"name": "ossiq_evaluate_updates", "arguments": {}}
+    response = server.handle_request(MagicMock(), {"jsonrpc": "2.0", "id": 8, "method": "tools/call", "params": params})
+    assert response is not None
+    assert response["result"]["isError"] is True
+    text = response["result"]["content"][0]["text"]
+    assert "Unknown Package Manager" in text  # .title
+    assert "ossiq supports" in text  # .hint, not just the exception name + message

@@ -56,9 +56,14 @@ def parse_pyproject_direct_specifiers(pyproject_data: dict) -> dict[str, str | N
 
 
 def apply_pyproject_constraints(root: Dependency, pyproject_specs: dict[str, str | None]) -> list[str]:
-    """Override version_defined/constraint_info on root's direct deps from pyproject.toml.
+    """Reassert version_constraint_declared on root's direct deps from pyproject.toml.
 
-    Returns names of packages whose lockfile specifier differed from pyproject.toml
+    Pass 2 of dependency_tree.py's build_graph already sets version_constraint_declared from
+    the lockfile's own recorded specifier (uv.lock's [package.metadata].requires-dist), but
+    that can be stale if pyproject.toml was hand-edited since the last `uv lock`. pyproject.toml
+    is the actual manifest, so its value always wins for the user-facing declared constraint.
+
+    Returns names of packages whose lockfile specifier differs from pyproject.toml's
     (i.e. the lockfile is stale and needs `uv lock` to regenerate).
     """
     divergent: list[str] = []
@@ -67,14 +72,9 @@ def apply_pyproject_constraints(root: Dependency, pyproject_specs: dict[str, str
         if canonical not in pyproject_specs:
             continue
         pyproject_spec = pyproject_specs[canonical]
-        if dep.version_defined == pyproject_spec:
-            continue
-        divergent.append(dep.name)
-        dep.version_defined = pyproject_spec
-        dep.constraint_info = ConstraintSource(
-            type=classify_pypi_specifier(pyproject_spec),
-            source_file="pyproject.toml",
-        )
+        if dep.version_constraint_declared != pyproject_spec:
+            divergent.append(dep.name)
+            dep.version_constraint_declared = pyproject_spec
     return divergent
 
 
@@ -549,9 +549,21 @@ class PackageManagerPythonUv(AbstractPackageManagerApi):
             raise PackageManagerExecutionError(f"uv command failed (exit {exc.returncode})") from exc
 
     def install_package(self, package_name: str, version: str | None = None) -> int:
-        """Run uv add to install a package into the project."""
+        """Run uv add to install a package into the project. Restores pyproject.toml on failure.
+
+        `uv add <spec>` edits pyproject.toml itself, so there's no ossiq-side write to validate
+        first - only the subprocess outcome to guard, the same way execute_update does.
+        """
         spec = f"{package_name}=={version}" if version else package_name
-        return subprocess.run(["uv", "add", spec], cwd=self.project_path).returncode
+        manifest_path = Path(self.project_path) / "pyproject.toml"
+        original_content = manifest_path.read_text(encoding="utf-8")
+
+        try:
+            subprocess.run(["uv", "add", spec], cwd=self.project_path, check=True)
+        except subprocess.CalledProcessError as exc:
+            manifest_path.write_text(original_content, encoding="utf-8")
+            raise PackageManagerExecutionError(f"uv add failed (exit {exc.returncode})") from exc
+        return 0
 
     def __repr__(self):
         return f"{self.package_manager_type.name} Package Manager"

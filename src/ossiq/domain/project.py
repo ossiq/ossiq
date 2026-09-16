@@ -44,6 +44,13 @@ class Dependency:
     canonical_name: str
     # Version, nominally defined in project requirements before resolution
     version_defined: str | None = None
+    # Raw version specifier declared by the root manifest itself for this package, populated
+    # exactly once at root-node registration (never by Pass 2's parent-edge iteration in
+    # dependency_tree.py, which may process parents in arbitrary order). None for packages
+    # with no root-manifest entry, i.e. pure transitive/peer-only dependencies. This is the
+    # value every user-facing consumer must read instead of version_defined, which stays a
+    # last-writer-wins accumulator used internally by the solver.
+    version_constraint_declared: str | None = None
     source: str | None = None
     required_engine: str | None = None
     categories: list[str] = field(default_factory=list, compare=False)

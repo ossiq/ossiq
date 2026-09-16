@@ -284,7 +284,7 @@ def policy_compliance(record: ScanRecord) -> Group:
     table.add_column("Parameter")
     table.add_column("Value")
 
-    table.add_row("Constraint", record.version_constraint or DASH)
+    table.add_row("Constraint", record.version_constraint_declared or DASH)
     table.add_row("Resolved", Text(record.installed_version, style="bold"))
     table.add_row("Latest", Text(record.latest_version or DASH, style="bold green"))
 

@@ -1,0 +1,13 @@
+[project]
+name = "pep621-no-lockfile-demo"
+version = "0.1.0"
+description = "Fresh uv init-style project: PEP 621 dependencies declared, no lockfile yet."
+dependencies = [
+    "requests>=2.31.0",
+    "click>=8.1.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4.0",
+]

@@ -16,6 +16,7 @@ from collections.abc import Callable
 from typing import Any
 
 from ossiq.commands.info import build_installed_detail, matches
+from ossiq.domain.exceptions import ApplicationError
 from ossiq.service.agent import AgentDecision, build_add_decide, build_update_decide
 from ossiq.service.package import fetch_prospective_detail
 from ossiq.service.project.scan import scan
@@ -148,6 +149,14 @@ def handle_tools_call(settings: Settings, params: dict[str, Any]) -> dict[str, A
 
     try:
         decision = handler(settings, params.get("arguments") or {})
+    except ApplicationError as error:
+        # Mirrors cli.py's error_boundary(): title+hint is the whole point of ApplicationError,
+        # and dropping it here left agents staring at "UnknownProjectPackageManager: Unable to
+        # identify Package Manager" with no indication of what to do about it.
+        text = f"{error.title}: {error}"
+        if error.hint:
+            text += f"\n{error.hint}"
+        return {"content": [{"type": "text", "text": text}], "isError": True}
     except Exception as error:  # noqa: BLE001 — surface any failure to the agent, keep the loop alive
         return {"content": [{"type": "text", "text": f"{type(error).__name__}: {error}"}], "isError": True}
 
