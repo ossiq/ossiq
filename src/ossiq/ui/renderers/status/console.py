@@ -52,12 +52,14 @@ def add_status_column(table: Table, name: str) -> None:
     if name == "Package":
         table.add_column(name, style="bold")
     elif name == "Recommended":
-        table.add_column(name, justify="left", style="bold green")
+        table.add_column(name, justify="left", style="bold green", no_wrap=True)
     elif name in ("CVEs", "Update Mode", "State"):
-        table.add_column(name, justify="center")
+        table.add_column(name, justify="center", no_wrap=True)
     elif name in ("EPSS", "Lag"):
-        table.add_column(name, justify="right")
-    else:  # Installed, Latest, What's Next
+        table.add_column(name, justify="right", no_wrap=True)
+    elif name in ("Installed", "Latest"):
+        table.add_column(name, justify="left", no_wrap=True)
+    else:  # What's Next
         table.add_column(name, justify="left")
 
 
@@ -263,8 +265,12 @@ class ConsoleStatusRenderer(AbstractUserInterfaceRenderer):
                 # Name the range that is holding the package back — the "what to do" half of the
                 # Constrained label. Other blockers (e.g. an override pin) may apply on top.
                 if full and pkg.version_constraint_declared and next_action_label(pkg) == CONSTRAINED_CHECK_NEWER:
+                    ladder_note = ""
+                    if pkg.latest_in_major and pkg.latest_in_major != pkg.latest_version:
+                        ladder_note = f"; {pkg.latest_in_major} is the newest in the current major line"
                     table.add_row(
-                        f"  [yellow]↳ {pkg.version_constraint_declared} caps this below {pkg.latest_version}[/]",
+                        f"  [yellow]↳ {pkg.version_constraint_declared} caps this below "
+                        f"{pkg.latest_version}{ladder_note}[/]",
                         *blanks,
                     )
 

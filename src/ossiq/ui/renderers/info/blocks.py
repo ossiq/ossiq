@@ -13,7 +13,7 @@ from rich.rule import Rule
 from rich.table import Table
 from rich.text import Text
 
-from ossiq.domain.common import ConstraintType
+from ossiq.domain.common import ConstraintType, RecommendationRung
 from ossiq.domain.cve import CVE
 from ossiq.risk.maintenance import NOT_MAINTAINED, MaintenanceState
 from ossiq.service.package import PackageDetailResult, PackageInsight, PackageWarning, TransitiveCVEGroup
@@ -38,6 +38,8 @@ SEVERITY_STYLE: dict[str, str] = {
 LAG_THRESHOLD_DAYS = 180
 
 DASH = "—"
+
+WIDENING_RUNGS: frozenset[RecommendationRung] = frozenset({RecommendationRung.IN_MAJOR, RecommendationRung.LATEST})
 
 
 def section(title: str, *body: RenderableType) -> Group:
@@ -291,9 +293,14 @@ def policy_compliance(record: ScanRecord) -> Group:
     if record.recommended_version:
         reason = record.recommended_version_reason
         is_latest = reason is not None and reason.is_latest
-        table.add_row(
-            "Recommended", Text(record.recommended_version, style="bold green" if is_latest else "bold yellow")
-        )
+        value = Text(record.recommended_version, style="bold green" if is_latest else "bold yellow")
+        if record.recommended_from_rung in WIDENING_RUNGS:
+            scope = "new major" if record.recommended_from_rung == RecommendationRung.LATEST else "same major"
+            value.append(
+                f"  (requires widening {record.version_constraint_declared or 'the declared range'} — {scope})",
+                style="dim",
+            )
+        table.add_row("Recommended", value)
 
     if record.constraint_conflict:
         specs = ", ".join(record.constraint_conflict)
