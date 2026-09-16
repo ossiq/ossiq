@@ -268,6 +268,10 @@ class ConsoleStatusRenderer(AbstractUserInterfaceRenderer):
                         *blanks,
                     )
 
+                if full and pkg.rejected_candidates:
+                    for rc in pkg.rejected_candidates:
+                        table.add_row(f"  [dim]↳ {rc.version} rejected: {rc.reason}[/]", *blanks)
+
                 if pkg.constraint_conflict:
                     specs = " + ".join(pkg.constraint_conflict)
                     table.add_row(f"  [bold red]↳ no version satisfies: {specs}[/]", *blanks)
@@ -293,12 +297,19 @@ class ConsoleStatusRenderer(AbstractUserInterfaceRenderer):
         table.add_column("Recommended", justify="left", style="bold green")
         table.add_column("What's Next", justify="left")
 
+        num_columns = 6 if full else 5
+        blanks = [""] * (num_columns - 1)
+
         for pkg in packages:
             row = [pkg.package_name, f"[bold red]{len(pkg.cve)}" if pkg.cve else ""]
             if full:
                 row.append(format_probability(pkg.epss))
             row += [pkg.installed_version, pkg.recommended_version or "", whats_next(pkg)]
             table.add_row(*row)
+
+            if full and pkg.rejected_candidates:
+                for rc in pkg.rejected_candidates:
+                    table.add_row(f"  [dim]↳ {rc.version} rejected: {rc.reason}[/]", *blanks)
         return table
 
     def upgrade_paths_table(self, paths: list[UpgradePath]) -> Table | None:

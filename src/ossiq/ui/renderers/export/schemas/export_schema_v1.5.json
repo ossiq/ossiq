@@ -341,6 +341,13 @@
           ],
           "description": "Newest installable version sharing installed_version's major line; equals installed_version when the major line is exhausted. Absent when undeterminable."
         },
+        "rejected_candidates": {
+          "type": "array",
+          "description": "Releases that would have been the recommendation but were held back by a requires-consistency conflict; capped at one per ladder rung",
+          "items": {
+            "$ref": "#/$defs/RejectedCandidateExport"
+          }
+        },
         "time_lag_days": {
           "type": [
             "integer",
@@ -825,6 +832,13 @@
             "$ref": "#/$defs/TransitiveImpactExport"
           }
         },
+        "rejected_candidates": {
+          "type": "array",
+          "description": "Releases that would have been the recommendation but were held back by a transitive-dependency conflict; capped at one per ladder rung (newest rejected at in_range/in_major/latest)",
+          "items": {
+            "$ref": "#/$defs/RejectedCandidateExport"
+          }
+        },
         "epss": {
           "type": [
             "number",
@@ -1071,6 +1085,24 @@
             "null"
           ],
           "description": "Human-readable conflict description"
+        }
+      }
+    },
+    "RejectedCandidateExport": {
+      "type": "object",
+      "description": "A release that would otherwise have been the recommendation, held back by a conflict",
+      "required": [
+        "version",
+        "reason"
+      ],
+      "properties": {
+        "version": {
+          "type": "string",
+          "description": "The rejected release's version"
+        },
+        "reason": {
+          "type": "string",
+          "description": "Human-readable explanation of why this release was held back"
         }
       }
     },

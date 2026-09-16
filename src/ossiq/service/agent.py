@@ -229,6 +229,8 @@ def build_update_entry(record: ScanRecord) -> dict[str, Any]:
         reasons.append(f"declared range {record.version_constraint} caps this below {record.latest_version}")
     if can_fix:
         reasons.append(f"recommend updating {installed} -> {recommended}")
+    for rc in record.rejected_candidates:
+        reasons.append(f"{rc.version} rejected: {rc.reason}")
 
     entry: dict[str, Any] = {
         **base,

@@ -40,12 +40,13 @@ from ossiq.service.project.prefetch import (
 from ossiq.service.project.recommendations import (
     apply_conflicts,
     apply_recommendations,
+    apply_solver_rejections,
     clamp_recommendations,
 )
 from ossiq.service.project.records import build_records, scan_sort_key
 from ossiq.service.project.stability import populate_stability
 from ossiq.service.project.strategy import apply_update_strategy
-from ossiq.service.update_impact import simulate_single, simulate_update_impacts
+from ossiq.service.update_impact import DirectUpdateImpact, simulate_single, simulate_update_impacts
 from ossiq.solver import dependencies_solver
 from ossiq.solver.universe import filter_eligible_versions
 from ossiq.sources.core import AbstractProjectSources
@@ -297,15 +298,18 @@ def solve_direct_phase(
     engine_context: dict,
     installed_version_by_name: dict[str, str],
     now: datetime | None,
-) -> tuple[dependencies_solver.SolverOutput, list[ScanRecord], list[ScanRecord], Callable[[str, str], bool]]:
+) -> tuple[
+    dependencies_solver.SolverOutput, list[ScanRecord], list[ScanRecord], Callable[[str, str], DirectUpdateImpact]
+]:
     """Pass 1.5: run the HPDR solver over direct deps, apply its output, and simulate impacts.
 
-    Returns `validate_recommendation` alongside the usual outputs — `scan()` reuses it to gate the
-    candidate ladder `apply_update_strategy` builds, after `populate_stability` runs.
+    Returns `simulate_recommendation` alongside the usual outputs — `scan()` reuses it to gate the
+    candidate ladder `apply_update_strategy` builds, after `populate_stability` runs, retaining
+    the full impact (not just its actionability) so a rejected candidate can be explained.
     """
     transitive_by_name = {r.package_name: r for r in transitive_packages}
 
-    def validate_recommendation(pkg_name: str, candidate_version: str) -> bool:
+    def simulate_recommendation(pkg_name: str, candidate_version: str) -> DirectUpdateImpact:
         return simulate_single(
             pkg_name,
             candidate_version,
@@ -314,7 +318,10 @@ def solve_direct_phase(
             sources.allow_prerelease,
             now=now,
             installed_version=installed_version_by_name.get(pkg_name),
-        ).is_actionable
+        )
+
+    def validate_recommendation(pkg_name: str, candidate_version: str) -> bool:
+        return simulate_recommendation(pkg_name, candidate_version).is_actionable
 
     t1 = time.perf_counter()
     solver_output = dependencies_solver.solve_direct(
@@ -382,7 +389,7 @@ def solve_direct_phase(
             ):
                 record.update_transitive_impacts = impact.transitive_impacts
 
-    return solver_output, production_packages, optional_packages, validate_recommendation
+    return solver_output, production_packages, optional_packages, simulate_recommendation
 
 
 def solve_transitive_phase(
@@ -423,6 +430,7 @@ def solve_transitive_phase(
         len(transitive_output.recommendations),
     )
     apply_conflicts(transitive_output, transitive_packages)
+    apply_solver_rejections(transitive_output, transitive_packages)
     if transitive_output.recommendations:
         apply_recommendations(transitive_packages, transitive_output, skip_current=True)
 
@@ -468,7 +476,7 @@ def scan(
         }
 
         step("solver", None)
-        solver_output, production_packages, optional_packages, validate_recommendation = solve_direct_phase(
+        solver_output, production_packages, optional_packages, simulate_recommendation = solve_direct_phase(
             solvable_direct_deps,
             descriptors,
             sources,
@@ -509,7 +517,7 @@ def scan(
             installed_names=all_installed_names,
             allow_prerelease=sources.allow_prerelease,
             now=now,
-            validator=validate_recommendation,
+            validator=simulate_recommendation,
         )
 
         upgrade_paths = compute_upgrade_paths(project_info, sources.packages_registry)

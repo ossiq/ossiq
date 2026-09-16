@@ -27,6 +27,25 @@ def apply_conflicts(
             record.constraint_conflict = conflict.conflicting_constraints
 
 
+def apply_solver_rejections(
+    output: dependencies_solver.SolverOutput,
+    records: list[ScanRecord],
+) -> None:
+    """Write solver rejection info onto ScanRecord instances in-place.
+
+    Populates rejected_candidates for transitive records whose recommendation was dropped by
+    apply_requires_consistency's final sweep, so the console/export layers can explain a blank
+    recommendation instead of staying silent about it (see ScanRecord.rejected_candidates).
+    """
+    if not output.rejected:
+        return
+    by_name = {r.package_name: r for r in records}
+    for pkg, rejected in output.rejected.items():
+        record = by_name.get(pkg)
+        if record is not None:
+            record.rejected_candidates = [rejected]
+
+
 def apply_recommendations(
     records: list[ScanRecord],
     output: dependencies_solver.SolverOutput,

@@ -10,7 +10,8 @@ from ossiq.adapters.api_interfaces import AbstractPackageRegistryApi
 from ossiq.domain.common import ConstraintType
 from ossiq.domain.project import ConstraintSource
 from ossiq.domain.version import PackageVersion
-from ossiq.solver.dependencies_solver import solve_direct
+from ossiq.solver.dependencies_solver import explain_requires_failure, solve_direct
+from ossiq.solver.problem import SolverProblem
 
 # ---------------------------------------------------------------------------
 # Helpers (mirror test_universe.py style)
@@ -221,6 +222,9 @@ class TestSolveDirectPostSolveValidator:
         )
         result = solve_direct(deps, registry, {}, post_solve_validator=lambda _pkg, _ver: False)
         assert "requests" not in result.recommendations
+        assert "requests" in result.rejected
+        assert result.rejected["requests"].version == "2.32.0"
+        assert result.rejected["requests"].reason
 
     def test_validator_independent_per_package(self) -> None:
         """Validator rejection of one package does not affect another."""
@@ -417,3 +421,38 @@ class TestPeerConstraintBlocksUpgrade:
         result = solve_direct(deps, registry, {})
         assert "typescript" not in result.recommendations
         assert result.recommendations.get("other") == "2.0.0"
+
+
+class TestExplainRequiresFailure:
+    """explain_requires_failure names the specific dep/spec/target that broke consistency."""
+
+    def test_names_conflicting_dep_spec_and_target(self) -> None:
+        registry = _make_registry({}, requires={("flask", "3.1.0"): {"werkzeug": ">=3.0.0"}})
+        problem = SolverProblem(constraints=(), candidates={}, engine_context={})
+
+        reason = explain_requires_failure(
+            "flask",
+            "3.1.0",
+            problem,
+            registry,
+            recommendations={},
+            external_targets={"werkzeug": "2.0.0"},
+        )
+
+        assert reason == "werkzeug needs >=3.0.0, held at 2.0.0"
+
+    def test_falls_back_to_generic_message_when_no_requires_conflict(self) -> None:
+        """No declared requirement conflicts with a recommendation/target - nothing to name."""
+        registry = _make_registry({}, requires={("requests", "2.32.0"): {}})
+        problem = SolverProblem(constraints=(), candidates={}, engine_context={})
+
+        reason = explain_requires_failure(
+            "requests",
+            "2.32.0",
+            problem,
+            registry,
+            recommendations={},
+            external_targets={},
+        )
+
+        assert reason == "blocked by a requires-consistency conflict"

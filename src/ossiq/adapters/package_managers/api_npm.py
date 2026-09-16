@@ -117,8 +117,9 @@ class NPMResolverV3(BaseDependencyResolver):
             ),
         )
 
-    def build_graph(self, root_name: str) -> Dependency | None:
+    def build_graph(self, root_name: str, ossiq_overrides: dict[str, str] | None = None) -> Dependency | None:
         root = super().build_graph(root_name)
+        ossiq_overrides = ossiq_overrides or {}
         # Mark any package in the overrides dict with the "overridden" category and constraint_info
         for name in self.overrides:
             node = self.find_root(name)
@@ -129,6 +130,7 @@ class NPMResolverV3(BaseDependencyResolver):
                     type=ConstraintType.OVERRIDE,
                     source_file="package.json",
                     scope_path=self._scope_paths.get(name),
+                    is_ossiq_authored=ossiq_overrides.get(name) == self.overrides[name],
                 )
         return root
 
@@ -351,7 +353,7 @@ class PackageManagerJsNpm(AbstractPackageManagerApi):
 
         return getattr(self, handler_name)
 
-    def parse_lockfile_v2(self, lockfile_data: dict) -> Dependency:
+    def parse_lockfile_v2(self, lockfile_data: dict, ossiq_overrides: dict[str, str] | None = None) -> Dependency:
         """Lockfile parser for NPM v2 (npm v7/v8 default).
 
         v2 carries the same flat packages map as v3, plus a legacy dependencies
@@ -359,17 +361,18 @@ class PackageManagerJsNpm(AbstractPackageManagerApi):
         """
         if "packages" not in lockfile_data:
             raise PackageManagerLockfileParsingError("NPM v2 lockfile is missing the 'packages' section")
-        return self.parse_lockfile_v3(lockfile_data)
+        return self.parse_lockfile_v3(lockfile_data, ossiq_overrides)
 
     def parse_lockfile_v3(
         self,
         lockfile_data: dict,
+        ossiq_overrides: dict[str, str] | None = None,
     ) -> Dependency:
         """
         Lockfile parser for NPM
         """
         resolver = NPMResolverV3(lockfile_data)
-        dependency_tree = resolver.build_graph(lockfile_data["name"])
+        dependency_tree = resolver.build_graph(lockfile_data["name"], ossiq_overrides)
 
         # No dependencies - no analysis, something wrong
         if not dependency_tree or (not dependency_tree.dependencies and not dependency_tree.optional_dependencies):
@@ -444,7 +447,8 @@ class PackageManagerJsNpm(AbstractPackageManagerApi):
         if not lockfile_parser:
             raise PackageManagerLockfileParsingError("Could not find a parser for the given lockfile version")
 
-        return create_project(dependency_tree=lockfile_parser(lockfile_data))
+        ossiq_overrides: dict[str, str] = project_data.get("ossiq:metadata", {}).get("overrides", {})
+        return create_project(dependency_tree=lockfile_parser(lockfile_data, ossiq_overrides))
 
     def execute_update(self, plan: UpdatePlan) -> None:
         """Apply manifest changes then run npm install. Restores package.json on failure."""
@@ -458,8 +462,21 @@ class PackageManagerJsNpm(AbstractPackageManagerApi):
         transitive = {e.package_name: e.recommended_version for e in plan.all_entries if not e.is_direct}
         if transitive:
             overrides = pkg.get("overrides", {})
-            overrides.update(transitive)
+            metadata = pkg.get("ossiq:metadata", {})
+            tool_overrides = metadata.get("overrides", {})
+
+            for name, version in transitive.items():
+                existing = overrides.get(name)
+                # Skip a package whose current override value isn't the one we last wrote — the user
+                # has taken ownership of it (or it was always theirs). Never overwrite silently.
+                if existing is not None and tool_overrides.get(name) != existing:
+                    continue
+                overrides[name] = version
+                tool_overrides[name] = version
+
             pkg["overrides"] = overrides
+            metadata["overrides"] = tool_overrides
+            pkg["ossiq:metadata"] = metadata
 
         with open(manifest_path, "w", encoding="utf-8") as f:
             json.dump(pkg, f, indent=2)

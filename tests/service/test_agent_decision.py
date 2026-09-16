@@ -12,6 +12,7 @@ from ossiq.domain.common import (
     DataSourceStatus,
     ProjectPackagesRegistry,
     RecommendationRung,
+    RejectedCandidate,
 )
 from ossiq.domain.cve import CVE, Severity
 from ossiq.domain.project import ConstraintSource
@@ -193,6 +194,17 @@ def test_update_check_for_the_fix_when_cve_has_no_fix():
     decision = build_update_decide(make_scan([record]))
     assert decision["next_action"] == "Check for the Fix"
     assert decision["updates"][0]["next_action"] == "Check for the Fix"
+
+
+def test_update_reasons_include_rejected_candidate_line():
+    record = make_record(
+        installed="1.0.0",
+        cves=[make_cve()],
+        recommended="1.0.0",
+        rejected_candidates=[RejectedCandidate(version="1.2.0", reason="dep-x requires >=2.0.0")],
+    )
+    decision = build_update_decide(make_scan([record]))
+    assert "1.2.0 rejected: dep-x requires >=2.0.0" in decision["updates"][0]["reasons"]
 
 
 def test_update_find_alternative_on_yanked():
