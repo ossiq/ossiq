@@ -249,11 +249,34 @@ def test_out_of_range_recommendation_flags_constraint_widening():
         latest_in_major="1.10.26",
         recommended_from_rung=RecommendationRung.IN_MAJOR,
         version_constraint="==1.10.13",
+        version_constraint_declared="==1.10.13",
     )
     decision = build_update_decide(make_scan([record]))
     entry = decision["updates"][0]
     assert entry["requires_constraint_widening"] is True
-    assert any("must be widened" in reason for reason in entry["reasons"])
+    assert any("declared range ==1.10.13 must be widened" in reason for reason in entry["reasons"])
+
+
+def test_widening_reason_reads_declared_constraint_not_effective_one():
+    """The reason text must read version_constraint_declared, the root manifest's own spec, not
+    version_constraint — the last-writer-wins accumulator a competing transitive/peer parent can
+    clobber (the pinia/vue-router bug PLAN.md item #15 fixes)."""
+    record = make_record(
+        installed="1.10.13",
+        latest="2.13.5",
+        diff_index=VERSION_DIFF_MAJOR,
+        recommended="1.10.26",
+        latest_in_range="1.10.13",
+        latest_in_major="1.10.26",
+        recommended_from_rung=RecommendationRung.IN_MAJOR,
+        version_constraint="^1.10.0",  # clobbered by some other parent's spec
+        version_constraint_declared="==1.10.13",  # the manifest's own declaration
+    )
+    decision = build_update_decide(make_scan([record]))
+    entry = decision["updates"][0]
+    reason_text = " ".join(entry["reasons"])
+    assert "==1.10.13" in reason_text
+    assert "^1.10.0" not in reason_text
 
 
 def test_in_range_recommendation_does_not_flag_constraint_widening():
@@ -278,6 +301,7 @@ def test_next_action_unchanged_for_widening_pick_with_minor_drift():
         recommended="1.10.26",
         recommended_from_rung=RecommendationRung.IN_MAJOR,
         version_constraint="==1.10.13",
+        version_constraint_declared="==1.10.13",
     )
     decision = build_update_decide(make_scan([record]))
     entry = decision["updates"][0]

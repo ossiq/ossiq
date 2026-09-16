@@ -9,6 +9,7 @@ from collections.abc import Iterable
 
 from ossiq.adapters.api_interfaces import AbstractPackageManagerApi
 from ossiq.adapters.package_managers.api_npm import PackageManagerJsNpm
+from ossiq.adapters.package_managers.api_pep621 import PackageManagerPythonPep621
 from ossiq.adapters.package_managers.api_pip import PackageManagerPythonPip
 from ossiq.adapters.package_managers.api_pip_classic import PackageManagerPythonPipClassic
 from ossiq.adapters.package_managers.api_uv import PackageManagerPythonUv
@@ -17,6 +18,10 @@ from ossiq.settings import Settings
 PACKAGE_MANAGERS = (
     PackageManagerPythonUv,
     PackageManagerPythonPip,
+    # After uv/pylock: a project with a real lockfile must still match the fuller-featured
+    # adapter first. This one only fires when neither of those found a lockfile to pair with
+    # pyproject.toml (see api_pep621.py's has_package_manager).
+    PackageManagerPythonPep621,
     PackageManagerJsNpm,
     PackageManagerPythonPipClassic,
 )

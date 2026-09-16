@@ -11,6 +11,7 @@ Tests focus on:
 """
 
 import os
+import subprocess
 import tempfile
 import tomllib
 from pathlib import Path
@@ -646,12 +647,14 @@ class TestProjectInfo:
         assert "black" in dependency_tree.optional_dependencies
 
     def test_project_info_exposes_version_constraint_from_specifier(self, uv_project_with_lockfile, settings):
-        """Test that project_info exposes version constraints via version_defined on Dependency.
+        """Test that project_info exposes version constraints via version_constraint_declared on Dependency.
 
         AAA Pattern:
         - Arrange: UV project with specifiers in the lockfile
         - Act: Call project_info() which runs the full adapter pipeline
-        - Assert: version_defined on direct dependencies reflects the declared specifier
+        - Assert: version_constraint_declared on direct dependencies reflects pyproject.toml's own
+          specifier — the value apply_pyproject_constraints reasserts from the manifest, not
+          whatever Pass 2 happened to read off the lockfile.
         """
         # Arrange
         uv_manager = PackageManagerPythonUv(uv_project_with_lockfile, settings)
@@ -659,11 +662,11 @@ class TestProjectInfo:
         # Act
         project = uv_manager.project_info()
 
-        # Assert — version_defined matches the specifiers from pyproject.toml
-        assert project.dependencies["requests"].version_defined == ">=2.31.0"
-        assert project.dependencies["click"].version_defined == ">=8.1.0"
-        assert project.optional_dependencies["pytest"].version_defined == ">=7.4.0"
-        assert project.optional_dependencies["black"].version_defined == ">=23.0.0"
+        # Assert — version_constraint_declared matches the specifiers from pyproject.toml
+        assert project.dependencies["requests"].version_constraint_declared == ">=2.31.0"
+        assert project.dependencies["click"].version_constraint_declared == ">=8.1.0"
+        assert project.optional_dependencies["pytest"].version_constraint_declared == ">=7.4.0"
+        assert project.optional_dependencies["black"].version_constraint_declared == ">=23.0.0"
 
     def test_project_info_with_dual_category_deps(self, uv_project_with_dual_category_deps, settings):
         """Test project with dependencies in multiple categories."""
@@ -768,12 +771,14 @@ class TestVersionConstraintIntegration:
     def test_version_constraint_extracted_from_metadata_requires_dist(
         self, pkg_name: str, expected_constraint: str, settings: Settings
     ):
-        """Test version_defined is read from [package.metadata].requires-dist in a real uv.lock.
+        """Test version_constraint_declared reflects pyproject.toml's own specifier text.
 
         AAA Pattern:
         - Arrange: Point adapter at real testdata project with diverse PEP 440 constraints
         - Act: Call project_info() to parse the real lockfile
-        - Assert: version_defined on each direct dep matches the declared specifier
+        - Assert: version_constraint_declared on each direct dep matches pyproject.toml's declared
+          specifier verbatim, even where uv.lock's own [package.metadata].requires-dist records
+          the semantically-equivalent clauses in a different order (e.g. numpy, jsonschema below).
         """
         # Arrange
         uv_manager = PackageManagerPythonUv(_VERSION_CONSTRAINT_TESTDATA, settings)
@@ -784,7 +789,7 @@ class TestVersionConstraintIntegration:
         # Assert
         dep = project.dependencies.get(pkg_name)
         assert dep is not None, f"{pkg_name!r} not found in project dependencies"
-        assert dep.version_defined == expected_constraint
+        assert dep.version_constraint_declared == expected_constraint
 
 
 # ============================================================================
@@ -1205,6 +1210,63 @@ class TestExecuteUpdateDirectRewrite:
         )
         with pytest.raises(PackageManagerExecutionError):
             pm.execute_update(plan)
+
+    def test_restores_original_on_subprocess_failure(self, tmp_path, settings):
+        """The npm-side equivalent (test_restores_original_on_install_failure) already covers
+        this; uv's execute_update had no equivalent rollback test at all."""
+        pyproject_path = self._write_project(tmp_path, 'dependencies = [\n    "pydantic==1.10.13",\n]\n')
+        original_content = pyproject_path.read_text()
+
+        pm = PackageManagerPythonUv(project_path=str(tmp_path), settings=settings)
+        entry = UpdateEntry(
+            package_name="pydantic",
+            current_version="x",
+            recommended_version="1.10.26",
+            is_direct=True,
+            reason=None,
+            version_defined="==1.10.13",
+            constraint_type=ConstraintType.PINNED,
+        )
+        plan = UpdatePlan(
+            project_name="demo",
+            project_path=str(tmp_path),
+            registry_type="PYPI",
+            package_manager_name="uv",
+            direct_entries=[entry],
+            transitive_entries=[],
+        )
+        failure = subprocess.CalledProcessError(1, ["uv", "lock"])
+        with patch("subprocess.run", side_effect=failure):
+            with pytest.raises(PackageManagerExecutionError):
+                pm.execute_update(plan)
+
+        assert pyproject_path.read_text() == original_content
+
+
+class TestInstallPackage:
+    """Tests for install_package() — runs `uv add <spec>`, which edits pyproject.toml itself."""
+
+    def test_returns_zero_on_success(self, tmp_path, settings):
+        (tmp_path / "pyproject.toml").write_text('[project]\nname = "demo"\nversion = "0.1.0"\n')
+        pm = PackageManagerPythonUv(project_path=str(tmp_path), settings=settings)
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0)
+            result = pm.install_package("requests", "2.31.0")
+        assert result == 0
+        assert mock_run.call_args[0][0] == ["uv", "add", "requests==2.31.0"]
+
+    def test_restores_original_on_install_failure(self, tmp_path, settings):
+        pyproject_path = tmp_path / "pyproject.toml"
+        pyproject_path.write_text('[project]\nname = "demo"\nversion = "0.1.0"\n')
+        original_content = pyproject_path.read_text()
+
+        pm = PackageManagerPythonUv(project_path=str(tmp_path), settings=settings)
+        failure = subprocess.CalledProcessError(1, ["uv", "add"])
+        with patch("subprocess.run", side_effect=failure):
+            with pytest.raises(PackageManagerExecutionError):
+                pm.install_package("requests", "2.31.0")
+
+        assert pyproject_path.read_text() == original_content
 
 
 class TestOssiqMetadataOwnershipUv:

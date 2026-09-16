@@ -699,7 +699,14 @@
             "string",
             "null"
           ],
-          "description": "Version constraint declared in the project manifest (e.g. '^1.2.3', '>=1.0,<2.0')"
+          "description": "Effective version specifier used internally for solver/ladder computation (e.g. '^1.2.3', '>=1.0,<2.0'). Last-writer-wins across every parent that declares a spec for this package - not guaranteed to equal the manifest's own declaration. Use version_constraint_declared for the manifest's declared value."
+        },
+        "version_constraint_declared": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Version constraint declared by the project manifest itself (e.g. '^1.2.3', '>=1.0,<2.0'). None when this dependency has no direct manifest entry or is unconstrained. This is the value to show as \"the declared constraint\"."
         },
         "repo_url": {
           "type": [

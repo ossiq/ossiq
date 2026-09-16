@@ -58,7 +58,11 @@ class ProjectPathNotFoundError(ApplicationError):
 
 class UnknownProjectPackageManager(ApplicationError):
     title = "Unknown Package Manager"
-    hint = "ossiq supports npm (package.json) and PyPI (pyproject.toml / requirements.txt)."
+    hint = (
+        "ossiq supports npm (package.json), PyPI with a lockfile (pyproject.toml + uv.lock or "
+        "pylock.toml), PyPI via a plain [project].dependencies section (pyproject.toml, no "
+        "lockfile required), and classic pip (requirements.txt)."
+    )
 
 
 class PackageManagerLockfileParsingError(ApplicationError):

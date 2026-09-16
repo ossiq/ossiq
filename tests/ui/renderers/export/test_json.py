@@ -1124,6 +1124,34 @@ class TestJsonExportRendererV15:
         assert pkg["recommended_from_rung"] == "in_major"  # plain string, not an enum repr
         validate(instance=data, schema=json_schema_registry.load_schema(ExportJsonSchemaVersion.V1_5))
 
+    def test_v1_5_emits_declared_constraint_distinct_from_effective_and_validates(
+        self, output_file, settings, sample_project_metrics_record
+    ):
+        """version_constraint_declared round-trips and stays distinct from version_constraint,
+        the last-writer-wins accumulator a competing transitive/peer parent can clobber."""
+        import dataclasses
+
+        record = dataclasses.replace(
+            sample_project_metrics_record,
+            version_constraint="^1.2.0",
+            version_constraint_declared="~1.0.0",
+        )
+        metrics = ScanResult(
+            project_name="test-project",
+            project_path="/path/to/test-project",
+            packages_registry=ProjectPackagesRegistry.NPM.value,
+            production_packages=[record],
+            optional_packages=[],
+        )
+        renderer = JsonExportRenderer(settings)
+        renderer.render(metrics, destination=str(output_file), schema_version="1.5")
+
+        data = json.loads(output_file.read_text(encoding="utf-8"))
+        pkg = data["production_packages"][0]
+        assert pkg["version_constraint"] == "^1.2.0"
+        assert pkg["version_constraint_declared"] == "~1.0.0"
+        validate(instance=data, schema=json_schema_registry.load_schema(ExportJsonSchemaVersion.V1_5))
+
     def test_v1_5_emits_rejected_candidates_and_validates(self, output_file, settings, sample_project_metrics_record):
         """rejected_candidates round-trips on both PackageMetrics and TransitivePackageMetrics."""
         import dataclasses

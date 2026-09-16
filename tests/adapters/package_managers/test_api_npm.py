@@ -1125,6 +1125,47 @@ class TestExecuteUpdate:
         assert pkg["devDependencies"]["react"] == "^18.2.0"
         assert pkg["peerDependencies"]["react"] == "^18.2.0"
 
+    def test_malformed_package_json_raises_clean_error(self, npm, temp_project_dir):
+        """A syntactically broken package.json must raise a titled ApplicationError, not a raw
+        json.JSONDecodeError that falls through to the CLI's generic 'unexpected error' handler —
+        mirrors uv's tomllib.TOMLDecodeError guard for pyproject.toml."""
+        manifest_path = Path(temp_project_dir) / "package.json"
+        manifest_path.write_text("{not valid json", encoding="utf-8")
+        plan = make_npm_update_plan(
+            direct=[make_npm_update_entry("express", "4.18.0", "4.19.0", version_defined="^4.18.0")],
+            project_path=temp_project_dir,
+        )
+        with pytest.raises(PackageManagerExecutionError):
+            npm.execute_update(plan)
+        assert manifest_path.read_text(encoding="utf-8") == "{not valid json"
+
+
+class TestInstallPackage:
+    """Tests for install_package() — runs `npm install <spec>`, which edits package.json itself."""
+
+    @pytest.fixture
+    def npm(self, settings, temp_project_dir):
+        return PackageManagerJsNpm(temp_project_dir, settings)
+
+    def test_returns_zero_on_success(self, npm, temp_project_dir):
+        write_package_json(temp_project_dir, {"name": "app", "version": "1.0.0", "dependencies": {}})
+        with patch("ossiq.adapters.package_managers.api_npm.subprocess.run") as mock_run:
+            mock_run.return_value.returncode = 0
+            result = npm.install_package("express", "4.19.0")
+        assert result == 0
+        assert mock_run.call_args[0][0] == ["npm", "install", "express@4.19.0"]
+
+    def test_restores_original_on_install_failure(self, npm, temp_project_dir):
+        write_package_json(temp_project_dir, {"name": "app", "version": "1.0.0", "dependencies": {}})
+        manifest_path = Path(temp_project_dir) / "package.json"
+        original_content = manifest_path.read_text(encoding="utf-8")
+
+        failure = subprocess.CalledProcessError(1, ["npm", "install"])
+        with patch("ossiq.adapters.package_managers.api_npm.subprocess.run", side_effect=failure):
+            with pytest.raises(PackageManagerExecutionError):
+                npm.install_package("express", "4.19.0")
+        assert manifest_path.read_text(encoding="utf-8") == original_content
+
 
 def write_lockfile_with_override(project_dir: str, name: str, version: str) -> None:
     lockfile_path = Path(project_dir) / "package-lock.json"

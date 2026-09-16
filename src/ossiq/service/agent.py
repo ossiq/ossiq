@@ -225,8 +225,8 @@ def build_update_entry(record: ScanRecord) -> dict[str, Any]:
         reasons.append(f"major version drift behind {record.latest_version}")
     elif diff_index in BEHIND_DIFFS and not can_fix:
         reasons.append(f"behind the latest {record.latest_version}")
-    if diff_index in BEHIND_DIFFS and not can_fix and record.version_constraint:
-        reasons.append(f"declared range {record.version_constraint} caps this below {record.latest_version}")
+    if diff_index in BEHIND_DIFFS and not can_fix and record.version_constraint_declared:
+        reasons.append(f"declared range {record.version_constraint_declared} caps this below {record.latest_version}")
     if can_fix:
         reasons.append(f"recommend updating {installed} -> {recommended}")
     for rc in record.rejected_candidates:
@@ -245,7 +245,7 @@ def build_update_entry(record: ScanRecord) -> dict[str, Any]:
     # Flag it explicitly so a consumer doesn't read "to" as a safe target to write as-is.
     if record.recommended_from_rung in (RecommendationRung.IN_MAJOR, RecommendationRung.LATEST):
         entry["requires_constraint_widening"] = True
-        reasons.append(f"declared range {record.version_constraint} must be widened to reach {recommended}")
+        reasons.append(f"declared range {record.version_constraint_declared} must be widened to reach {recommended}")
     triage = triage_summary(record)
     if triage is not None:
         entry["triage"] = triage

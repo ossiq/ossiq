@@ -196,8 +196,10 @@ class AbstractPackageManagerApi(abc.ABC):
         raise NotImplementedError(f"In-process execution is not yet supported for {self.package_manager_type.name}.")
 
     def install_package(self, package_name: str, version: str | None = None) -> int:
-        """Install a package into the project. Returns subprocess exit code.
+        """Install a package into the project. Returns subprocess exit code on success.
 
-        Supported package managers override this.
+        Supported package managers override this. Adapters with a manifest to protect (uv, npm)
+        raise PackageManagerExecutionError and restore the original manifest on subprocess
+        failure, rather than returning a nonzero code.
         """
         raise NotImplementedError(f"Package installation is not yet supported for {self.package_manager_type.name}.")

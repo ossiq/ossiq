@@ -191,7 +191,7 @@ def command_plan(ctx: typer.Context, options: CommandPlanOptions) -> None:
     render_higher_tier_footer(plan)
 
 
-def _confirm_widening(plan: UpdatePlan) -> bool:
+def confirm_widening(plan: UpdatePlan) -> bool:
     """Second, apt-style confirmation for entries that widen the declared constraint."""
     widening_entries: list[UpdateEntry] = [e for e in plan.all_entries if e.widens_constraint]
     if not widening_entries:
@@ -225,7 +225,7 @@ def command_apply(ctx: typer.Context, options: CommandPlanOptions, yes: bool = F
         confirmed = typer.confirm(f"Proceed with {n} update{'s' if n != 1 else ''}?", default=False)
         if not confirmed:
             raise typer.Exit(0)
-        if not _confirm_widening(plan):
+        if not confirm_widening(plan):
             raise typer.Exit(0)
 
     sources.packages_manager.execute_update(plan)

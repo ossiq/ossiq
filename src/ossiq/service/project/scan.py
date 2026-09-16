@@ -111,6 +111,7 @@ def build_scan_descriptors(project_info, sources: AbstractProjectSources) -> Sca
             extras=node.extras,
             all_constraints=list(node.parent_constraints),
             peer_requirements=list(node.peer_requirements),
+            version_constraint_declared=node.version_constraint_declared,
         )
     trans_deps = list(trans_descriptors.values())
 
@@ -150,6 +151,7 @@ def direct_descriptor(dep: Dependency, *, is_optional: bool) -> DependencyDescri
         extras=dep.extras,
         all_constraints=[req.spec for req in dep.peer_requirements],
         peer_requirements=list(dep.peer_requirements),
+        version_constraint_declared=dep.version_constraint_declared,
     )
 
 

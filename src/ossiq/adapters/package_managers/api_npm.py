@@ -456,7 +456,10 @@ class PackageManagerJsNpm(AbstractPackageManagerApi):
         with open(manifest_path, encoding="utf-8") as f:
             original_content = f.read()
 
-        pkg = json.loads(original_content)
+        try:
+            pkg = json.loads(original_content)
+        except json.JSONDecodeError as exc:
+            raise PackageManagerExecutionError(f"package.json is not valid JSON: {exc}") from exc
         apply_direct_specs(pkg, plan)
 
         transitive = {e.package_name: e.recommended_version for e in plan.all_entries if not e.is_direct}
@@ -490,9 +493,23 @@ class PackageManagerJsNpm(AbstractPackageManagerApi):
             raise PackageManagerExecutionError(f"npm install failed (exit {exc.returncode})") from exc
 
     def install_package(self, package_name: str, version: str | None = None) -> int:
-        """Run npm install to add a package to the project."""
+        """Run npm install to add a package to the project. Restores package.json on failure.
+
+        `npm install <spec>` edits package.json itself, so there's no ossiq-side write to
+        validate first - only the subprocess outcome to guard, the same way execute_update does.
+        """
         spec = f"{package_name}@{version}" if version else package_name
-        return subprocess.run(["npm", "install", spec], cwd=self.project_path).returncode
+        manifest_path = os.path.join(self.project_path, "package.json")
+        with open(manifest_path, encoding="utf-8") as f:
+            original_content = f.read()
+
+        try:
+            subprocess.run(["npm", "install", spec], cwd=self.project_path, check=True)
+        except subprocess.CalledProcessError as exc:
+            with open(manifest_path, "w", encoding="utf-8") as f:
+                f.write(original_content)
+            raise PackageManagerExecutionError(f"npm install failed (exit {exc.returncode})") from exc
+        return 0
 
     def __repr__(self):
         return f"{self.package_manager_type.name} Package Manager"

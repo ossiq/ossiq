@@ -35,6 +35,11 @@ class DependencyDescriptor:
     # Direct deps: the peer requirements other installed packages place on them.
     all_constraints: list[str] = field(default_factory=list)
     peer_requirements: list[PeerRequirement] = field(default_factory=list)
+    # The root manifest's own declared specifier for this package, mirroring
+    # Dependency.version_constraint_declared. None for transitive-only deps with no
+    # root-manifest entry. This, not version_constraint, is what user-facing surfaces
+    # should read as "the declared constraint" - see domain/project.py.
+    version_constraint_declared: str | None = None
 
 
 @dataclass
@@ -74,7 +79,16 @@ class ScanRecord:
     """Where the active version constraint on this dependency came from (file, scope)."""
 
     version_constraint: str | None = None
-    """Raw version specifier from the manifest, e.g. "^1.2.0"; None for unconstrained deps."""
+    """Effective version specifier used internally for solver/ladder computation, e.g. "^1.2.0".
+    Last-writer-wins across every parent that declares a spec for this package (see
+    dependency_tree.py Pass 2) - it is NOT guaranteed to be the root manifest's own declaration.
+    User-facing surfaces must read version_constraint_declared instead."""
+
+    version_constraint_declared: str | None = None
+    """The root manifest's own declared specifier for this package, e.g. "^1.2.0"; None for
+    transitive-only deps with no root-manifest entry, or unconstrained direct deps. This is the
+    value every user-facing surface (console, export, agent reasons) should show as "the declared
+    constraint" - see domain/project.py's Dependency.version_constraint_declared."""
 
     latest_in_range: str | None = None
     """Newest installable version satisfying version_constraint. None only when undeterminable. Computed in
