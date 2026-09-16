@@ -57,6 +57,7 @@ def make_record(
     recommended_version: str | None = None,
     version_constraint: str | None = None,
     version_constraint_declared: str | None = None,
+    latest_in_major: str | None = None,
 ) -> ScanRecord:
     return ScanRecord(
         package_name=name,
@@ -74,14 +75,17 @@ def make_record(
         recommended_version=recommended_version,
         version_constraint=version_constraint,
         version_constraint_declared=version_constraint_declared,
+        latest_in_major=latest_in_major,
     )
 
 
-def render_table(prod: list[ScanRecord], dev: list[ScanRecord] | None = None, *, full: bool = False) -> str:
+def render_table(
+    prod: list[ScanRecord], dev: list[ScanRecord] | None = None, *, full: bool = False, width: int = 200
+) -> str:
     renderer = ConsoleStatusRenderer(Settings())
     table = renderer.build_main_table(prod, dev or [], lag_threshold_days=180, full=full)
     assert table is not None
-    console = Console(record=True, width=200)
+    console = Console(record=True, width=width)
     console.print(table)
     return console.export_text()
 
@@ -101,6 +105,25 @@ def test_default_mode_shows_minimal_columns():
         assert shown in header
     for hidden in ("Update Mode", "EPSS", "State", "Lag"):
         assert hidden not in header
+
+
+def test_narrow_terminal_keeps_fixed_format_columns_intact():
+    """At a narrow width, Rich may wrap Package/What's Next, but no_wrap columns holding short
+    fixed-format content (versions, badges, counts) must never be split mid-token."""
+    output = render_table(
+        [
+            make_record(
+                name="a-very-long-package-name-that-forces-the-table-to-shrink-columns",
+                versions_diff_index=MINOR,
+                latest_version="9.9.9",
+                recommended_version="9.9.9",
+            )
+        ],
+        full=True,
+        width=80,
+    )
+    assert "1.0.0" in output  # Installed
+    assert "9.9.9" in output  # Latest / Recommended
 
 
 def test_full_mode_shows_detail_columns():
@@ -184,6 +207,42 @@ def test_constrained_sub_row_is_full_mode_only():
     )
     assert "Constrained. Check newer version" in output
     assert "caps this below" not in output
+
+
+def test_constrained_sub_row_names_latest_in_major_when_it_differs_from_latest():
+    output = render_table(
+        [
+            make_record(
+                versions_diff_index=MINOR,
+                latest_version="2.5.0",
+                recommended_version="1.0.0",
+                version_constraint="~1.0.0",
+                version_constraint_declared="~1.0.0",
+                latest_in_major="1.9.0",
+            )
+        ],
+        full=True,
+        width=260,
+    )
+    assert "~1.0.0 caps this below 2.5.0; 1.9.0 is the newest in the current major line" in output
+
+
+def test_constrained_sub_row_omits_latest_in_major_clause_when_equal_to_latest():
+    output = render_table(
+        [
+            make_record(
+                versions_diff_index=MINOR,
+                latest_version="1.5.0",
+                recommended_version="1.0.0",
+                version_constraint="~1.0.0",
+                version_constraint_declared="~1.0.0",
+                latest_in_major="1.5.0",
+            )
+        ],
+        full=True,
+    )
+    assert "~1.0.0 caps this below 1.5.0" in output
+    assert "newest in the current major line" not in output
 
 
 def test_rejected_candidate_sub_row_shown_in_full_mode():

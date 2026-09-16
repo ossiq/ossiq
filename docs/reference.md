@@ -608,7 +608,7 @@ A row with a recommendation can carry indented sub-rows describing what applying
 | `↳ ⚠ <package>: <detail>` | The update collides with a constraint on this transitive package. See [When an update is blocked](#update-blocked). |
 | `✗ no actionable update found` | Every candidate update collides with a transitive constraint; the solver has no version to recommend. See [When an update is blocked](#update-blocked). |
 | `↳ no version satisfies: <specifiers>` | The constraints on this package contradict each other — no published version satisfies all of them at once. Shown together with `[NO RESOLUTION]`. |
-| `↳ <specifier> caps this below <latest>` | *(`--full`)* The declared range is what holds the package behind the registry's latest. Shown with **Constrained. Check newer version**. Other blockers may apply on top of the range. |
+| `↳ <specifier> caps this below <latest>[; <version> is the newest in the current major line]` | *(`--full`)* The declared range is what holds the package behind the registry's latest. The trailing clause appears only when the newest version within the installed major line differs from the latest overall. Shown with **Constrained. Check newer version**. Other blockers may apply on top of the range. |
 
 #### Transitive Recommendations
 
@@ -724,7 +724,7 @@ Any of these can render `—`: it means the signal could not be measured, never 
 | Constraint | Version specifier from the manifest, or `—` for transitive packages without one. |
 | Resolved | The installed version. |
 | Latest | Most recent published version. |
-| Recommended | Solver-recommended target, when one exists. Yellow when held below the latest. |
+| Recommended | Solver-recommended target, when one exists. Yellow when held below the latest. When reaching it requires widening the declared constraint (an out-of-range ladder pick), a dim `(requires widening <constraint> — same major/new major)` caveat is appended — `ossiq update`/`apply` hold these back rather than writing them automatically. |
 | Resolution | `NO VALID VERSION — conflicting constraints: <specifiers>` when the solver found no version satisfying all constraints. See [When an update is blocked](#update-blocked). |
 | Constraint Type | Shown only when the version is controlled by something beyond a plain manifest entry (`PINNED`, `NARROWED`, `ADDITIVE`, `OVERRIDE`), with the file that introduced it. See [Constraint Provenance](#constraint-provenance). |
 
