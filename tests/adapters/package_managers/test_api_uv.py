@@ -1205,3 +1205,79 @@ class TestExecuteUpdateDirectRewrite:
         )
         with pytest.raises(PackageManagerExecutionError):
             pm.execute_update(plan)
+
+
+class TestOssiqMetadataOwnershipUv:
+    """Tests for ossiq:metadata override ownership (item #14) on the uv/pyproject.toml adapter:
+    execute_update records what it wrote to [tool.ossiq.metadata], project_info() compares
+    against it to tell OSS IQ-authored overrides apart from user-authored ones, and a later
+    execute_update never clobbers a user's hand-edit."""
+
+    def test_write_then_read_reports_ossiq_authored(self, uv_project_with_lockfile, settings):
+        pm = PackageManagerPythonUv(uv_project_with_lockfile, settings)
+        plan = make_update_plan(
+            transitive=[make_update_entry("urllib3", "2.0.4", "2.0.7", is_direct=False, is_forced=True)],
+            project_path=uv_project_with_lockfile,
+        )
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0)
+            pm.execute_update(plan)
+
+        pyproject_path = Path(uv_project_with_lockfile) / "pyproject.toml"
+        data = tomllib.loads(pyproject_path.read_text())
+        assert data["tool"]["uv"]["override-dependencies"] == ["urllib3==2.0.7"]
+        assert data["tool"]["ossiq"]["metadata"]["overrides"] == ["urllib3==2.0.7"]
+
+        project = pm.project_info()
+        urllib3 = project.dependency_tree.dependencies["requests"].dependencies.get("urllib3")
+        assert urllib3 is not None
+        assert urllib3.constraint_info.type == ConstraintType.OVERRIDE
+        assert urllib3.constraint_info.is_ossiq_authored is True
+
+    def test_hand_edited_override_is_not_ossiq_authored(self, uv_project_with_lockfile, settings):
+        pm = PackageManagerPythonUv(uv_project_with_lockfile, settings)
+        plan = make_update_plan(
+            transitive=[make_update_entry("urllib3", "2.0.4", "2.0.7", is_direct=False, is_forced=True)],
+            project_path=uv_project_with_lockfile,
+        )
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0)
+            pm.execute_update(plan)
+
+        # Simulate the user hand-editing the override value (only the first occurrence, i.e. the
+        # [tool.uv] entry — [tool.ossiq.metadata]'s record of what we last wrote is untouched).
+        pyproject_path = Path(uv_project_with_lockfile) / "pyproject.toml"
+        edited = pyproject_path.read_text().replace('"urllib3==2.0.7"', '"urllib3==2.0.9"', 1)
+        pyproject_path.write_text(edited)
+
+        project = pm.project_info()
+        urllib3 = project.dependency_tree.dependencies["requests"].dependencies.get("urllib3")
+        assert urllib3 is not None
+        assert urllib3.constraint_info.is_ossiq_authored is False
+
+    def test_second_update_never_clobbers_hand_edited_override(self, uv_project_with_lockfile, settings):
+        pm = PackageManagerPythonUv(uv_project_with_lockfile, settings)
+        plan = make_update_plan(
+            transitive=[make_update_entry("urllib3", "2.0.4", "2.0.7", is_direct=False, is_forced=True)],
+            project_path=uv_project_with_lockfile,
+        )
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0)
+            pm.execute_update(plan)
+
+        # User hand-edits the override to a value OSS IQ never wrote.
+        pyproject_path = Path(uv_project_with_lockfile) / "pyproject.toml"
+        edited = pyproject_path.read_text().replace('"urllib3==2.0.7"', '"urllib3==2.0.9"', 1)
+        pyproject_path.write_text(edited)
+
+        # A second run recommends yet another version for the same package.
+        plan2 = make_update_plan(
+            transitive=[make_update_entry("urllib3", "2.0.4", "2.0.11", is_direct=False, is_forced=True)],
+            project_path=uv_project_with_lockfile,
+        )
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0)
+            pm.execute_update(plan2)
+
+        data = tomllib.loads(pyproject_path.read_text())
+        assert data["tool"]["uv"]["override-dependencies"] == ["urllib3==2.0.9"]

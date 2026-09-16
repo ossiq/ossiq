@@ -25,6 +25,24 @@ export interface OSSIQExportSchemaV15 {
      * The update-strategy tier this run targeted: security, deprecation, standard, latest, or cutting-edge.
      */
     update_strategy?: string | null;
+    /**
+     * B4: per-source data-source status for this scan
+     */
+    data_completeness?: {
+      /**
+       * Worst status across every tracked source
+       */
+      overall?: "ok" | "partial" | "unreachable" | "rate_limited";
+      /**
+       * Per-source status, one entry per scan step that reports completeness
+       */
+      sources?: {
+        step?: string;
+        status?: "ok" | "partial" | "unreachable" | "rate_limited";
+        [k: string]: unknown;
+      }[];
+      [k: string]: unknown;
+    };
     [k: string]: unknown;
   };
   /**
@@ -245,6 +263,10 @@ export interface PackageMetrics {
    */
   update_transitive_impacts?: TransitiveImpactExport[];
   /**
+   * Releases that would have been the recommendation but were held back by a transitive-dependency conflict; capped at one per ladder rung (newest rejected at in_range/in_major/latest)
+   */
+  rejected_candidates?: RejectedCandidateExport[];
+  /**
    * Highest EPSS score among this package's CVEs
    */
   epss?: number | null;
@@ -427,6 +449,20 @@ export interface TransitiveImpactExport {
   [k: string]: unknown;
 }
 /**
+ * A release that would otherwise have been the recommendation, held back by a conflict
+ */
+export interface RejectedCandidateExport {
+  /**
+   * The rejected release's version
+   */
+  version: string;
+  /**
+   * Human-readable explanation of why this release was held back
+   */
+  reason: string;
+  [k: string]: unknown;
+}
+/**
  * Metrics for a transitive package, deduplicated by (package_name, installed_version); path and constraint data lives in dependency_tree
  */
 export interface TransitivePackageMetrics {
@@ -458,6 +494,10 @@ export interface TransitivePackageMetrics {
    * Newest installable version sharing installed_version's major line; equals installed_version when the major line is exhausted. Absent when undeterminable.
    */
   latest_in_major?: string | null;
+  /**
+   * Releases that would have been the recommendation but were held back by a requires-consistency conflict; capped at one per ladder rung
+   */
+  rejected_candidates?: RejectedCandidateExport[];
   /**
    * Days between installed and latest version
    */

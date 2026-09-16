@@ -187,6 +187,13 @@ class TransitiveImpactExport(BaseModel):
         return {k: v for k, v in d.items() if v is not None}
 
 
+class RejectedCandidateExport(BaseModel):
+    """A release that would otherwise have been the recommendation, held back by a conflict."""
+
+    version: str
+    reason: str
+
+
 def stability_export_fields(record) -> dict:
     """Flatten a record's repository-stability, deprecation and maintenance signals for export.
 
@@ -315,6 +322,14 @@ class PackageMetrics(BaseModel):
     update_transitive_impacts: list[TransitiveImpactExport] = Field(
         default_factory=list,
         description="Transitive dependency impacts projected from the recommended update",
+    )
+    rejected_candidates: list[RejectedCandidateExport] = Field(
+        default_factory=list,
+        description=(
+            "Releases that would have been the recommendation but were held back by a "
+            "transitive-dependency conflict; capped at one per ladder rung (newest rejected at "
+            "in_range/in_major/latest)"
+        ),
     )
     is_prerelease: bool = Field(default=False, description="Whether the installed version is a pre-release")
     is_yanked: bool = Field(default=False, description="Whether the installed version is yanked or unpublished")
@@ -466,6 +481,9 @@ class PackageMetrics(BaseModel):
                 )
                 for i in record.update_transitive_impacts
             ],
+            rejected_candidates=[
+                RejectedCandidateExport(version=rc.version, reason=rc.reason) for rc in record.rejected_candidates
+            ],
             is_prerelease=record.is_installed_prerelease,
             is_yanked=record.is_installed_yanked,
             is_deprecated=record.is_installed_deprecated,
@@ -566,6 +584,13 @@ class TransitivePackageMetrics(BaseModel):
         description=(
             "Newest installable version sharing installed_version's major line; equals "
             "installed_version when the major line is exhausted. Absent when undeterminable."
+        ),
+    )
+    rejected_candidates: list[RejectedCandidateExport] = Field(
+        default_factory=list,
+        description=(
+            "Releases that would have been the recommendation but were held back by a "
+            "requires-consistency conflict; capped at one per ladder rung"
         ),
     )
     time_lag_days: int | None = Field(description="Days between installed and latest version")
@@ -684,6 +709,9 @@ class TransitivePackageMetrics(BaseModel):
             latest_version=first.latest_version,
             latest_in_range=first.latest_in_range,
             latest_in_major=first.latest_in_major,
+            rejected_candidates=[
+                RejectedCandidateExport(version=rc.version, reason=rc.reason) for rc in first.rejected_candidates
+            ],
             time_lag_days=first.time_lag_days,
             version_age_days=first.version_age_days,
             releases_lag=first.releases_lag,

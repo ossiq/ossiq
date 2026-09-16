@@ -1124,6 +1124,51 @@ class TestJsonExportRendererV15:
         assert pkg["recommended_from_rung"] == "in_major"  # plain string, not an enum repr
         validate(instance=data, schema=json_schema_registry.load_schema(ExportJsonSchemaVersion.V1_5))
 
+    def test_v1_5_emits_rejected_candidates_and_validates(self, output_file, settings, sample_project_metrics_record):
+        """rejected_candidates round-trips on both PackageMetrics and TransitivePackageMetrics."""
+        import dataclasses
+
+        from ossiq.domain.common import RejectedCandidate
+
+        record = dataclasses.replace(
+            sample_project_metrics_record,
+            rejected_candidates=[RejectedCandidate(version="18.2.0", reason="dep-x requires >=2.0.0")],
+        )
+        transitive = ScanRecord(
+            package_name="dep-y",
+            dependency_name=None,
+            is_optional_dependency=False,
+            installed_version="1.0.0",
+            latest_version="1.0.0",
+            versions_diff_index=VersionsDifference(
+                version1="1.0.0", version2="1.0.0", diff_index=0, diff_name="LATEST"
+            ),
+            time_lag_days=0,
+            releases_lag=0,
+            cve=[],
+            constraint_info=ConstraintSource(type=ConstraintType.DECLARED, source_file=None),
+            rejected_candidates=[RejectedCandidate(version="2.0.0", reason="dep-z needs >=3.0.0, held at 1.0.0")],
+        )
+        metrics = ScanResult(
+            project_name="test-project",
+            project_path="/path/to/test-project",
+            packages_registry=ProjectPackagesRegistry.NPM.value,
+            production_packages=[record],
+            optional_packages=[],
+            transitive_packages=[transitive],
+        )
+        renderer = JsonExportRenderer(settings)
+        renderer.render(metrics, destination=str(output_file), schema_version="1.5")
+
+        data = json.loads(output_file.read_text(encoding="utf-8"))
+        pkg = data["production_packages"][0]
+        assert pkg["rejected_candidates"] == [{"version": "18.2.0", "reason": "dep-x requires >=2.0.0"}]
+        trans_entry = data["transitive_packages"][0]
+        assert trans_entry["rejected_candidates"] == [
+            {"version": "2.0.0", "reason": "dep-z needs >=3.0.0, held at 1.0.0"}
+        ]
+        validate(instance=data, schema=json_schema_registry.load_schema(ExportJsonSchemaVersion.V1_5))
+
     def test_v1_5_transitive_ladder_fields_omitted_when_null(
         self, output_file, settings, sample_project_metrics_record
     ):

@@ -9,6 +9,7 @@ from datetime import datetime
 from typing import Protocol
 
 from ossiq.adapters.api_interfaces import AbstractPackageRegistryApi
+from ossiq.domain.common import RejectedCandidate
 from ossiq.domain.cve import CVE
 from ossiq.domain.project import ConstraintSource
 from ossiq.solver.driver import ConflictSet
@@ -51,6 +52,10 @@ class SolverOutput:
     recommendations: dict[str, str]
     reasons: dict[str, RecommendationReason]
     conflicts: list[ConstraintConflict] = field(default_factory=list)
+    rejected: dict[str, RejectedCandidate] = field(default_factory=dict)
+    """Packages the final requires-consistency sweep dropped, keyed by package name — the
+    recommendation apply_fallback would otherwise have silently discarded, with a reason naming
+    the conflicting dependency. Populated only by apply_requires_consistency's final sweep."""
 
 
 EMPTY_OUTPUT = SolverOutput(recommendations={}, reasons={})
@@ -140,6 +145,30 @@ def build_requires_validator(
     return validate
 
 
+def explain_requires_failure(
+    pkg: str,
+    version: str,
+    problem: SolverProblem,
+    registry: AbstractPackageRegistryApi,
+    recommendations: dict[str, str],
+    external_targets: dict[str, str],
+) -> str:
+    """Name the specific dependency/constraint that makes pkg==version requires-inconsistent.
+
+    Mirrors build_requires_validator's own check so the reason always names the actual cause of
+    the rejection it explains, rather than a generic message.
+    """
+    for dep, spec in registry.package_version_requires(pkg, version).items():
+        if not spec or dep == pkg:
+            continue
+        target = recommendations.get(dep) or external_targets.get(dep)
+        if target is None:
+            continue
+        if not version_satisfies_constraint(target, spec, problem.registry):
+            return f"{dep} needs {spec}, held at {target}"
+    return "blocked by a requires-consistency conflict"
+
+
 def apply_requires_consistency(
     output: SolverOutput,
     problem: SolverProblem,
@@ -155,27 +184,48 @@ def apply_requires_consistency(
     from the previous round's recommendations, because a demotion can invalidate picks that were
     validated against the pre-demotion version. A final drop-only sweep guarantees the returned
     set is consistent even if the loop stops at its round cap.
+
+    Every package that disappears from recommendations — whether during a loop round or the
+    final sweep — is recorded on the returned SolverOutput.rejected, so a caller never has to
+    guess why a pick vanished (previously apply_fallback logged this at DEBUG and discarded it).
     """
     targets = external_targets or {}
+    rejected: dict[str, RejectedCandidate] = {}
 
     def combine(requires_validator: Callable[[str, str], bool]) -> Callable[[str, str], bool]:
         if extra_validator is None:
             return requires_validator
         return lambda pkg, version: extra_validator(pkg, version) and requires_validator(pkg, version)
 
+    def record_drops(before: dict[str, str], after: dict[str, str]) -> None:
+        for pkg, version in before.items():
+            if pkg not in after:
+                rejected[pkg] = RejectedCandidate(
+                    version=version,
+                    reason=explain_requires_failure(pkg, version, problem, registry, before, targets),
+                )
+
     for _ in range(MAX_CONSISTENCY_ROUNDS):
         requires_validator = build_requires_validator(problem, registry, output.recommendations, targets)
         new_output = apply_fallback(output, problem, combine(requires_validator), cooldown_period=cooldown_period)
+        record_drops(output.recommendations, new_output.recommendations)
         if new_output.recommendations == output.recommendations:
-            return new_output
+            return SolverOutput(
+                recommendations=new_output.recommendations,
+                reasons=new_output.reasons,
+                conflicts=new_output.conflicts,
+                rejected=rejected,
+            )
         output = new_output
 
     requires_validator = build_requires_validator(problem, registry, output.recommendations, targets)
     consistent = {pkg: ver for pkg, ver in output.recommendations.items() if requires_validator(pkg, ver)}
+    record_drops(output.recommendations, consistent)
     return SolverOutput(
         recommendations=consistent,
         reasons={pkg: output.reasons[pkg] for pkg in consistent},
         conflicts=output.conflicts,
+        rejected=rejected,
     )
 
 

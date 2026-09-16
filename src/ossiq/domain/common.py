@@ -98,6 +98,14 @@ class RecommendationRung(StrEnum):
     LATEST = "latest"  # ladder fallback: newest version overall
 
 
+@dataclass(frozen=True)
+class RejectedCandidate:
+    """A release that would otherwise have been a candidate, held back by a transitive conflict."""
+
+    version: str
+    reason: str
+
+
 class DataSourceStatus(StrEnum):
     """Whether an external data source (OSV, GitHub, ...) actually delivered data for this scan.
 

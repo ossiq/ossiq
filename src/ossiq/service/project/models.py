@@ -4,7 +4,7 @@ Dataclasses for the project scan pipeline.
 
 from dataclasses import dataclass, field
 
-from ossiq.domain.common import DataCompleteness, RecommendationRung
+from ossiq.domain.common import DataCompleteness, RecommendationRung, RejectedCandidate
 from ossiq.domain.cve import CVE
 from ossiq.domain.package import Package
 from ossiq.domain.project import ConstraintSource, PeerRequirement
@@ -132,6 +132,12 @@ class ScanRecord:
     recommended_from_rung: RecommendationRung | None = None
     """Which version-ladder rung recommended_version came from. SOLVER and IN_RANGE sit inside
     version_constraint. None only when recommended_version is None."""
+
+    rejected_candidates: list[RejectedCandidate] = field(default_factory=list)
+    """Releases that would have been the recommendation but were held back by a transitive-dependency
+    conflict. Capped at one per ladder rung (newest rejected at IN_RANGE/IN_MAJOR/LATEST). Populated by
+    service.project.strategy.apply_update_strategy for direct deps, by
+    service.project.recommendations.apply_solver_rejections for transitive deps."""
 
     all_constraints: list[str] = field(default_factory=list)
     """All version specifiers from every direct parent; mirrors DependencyDescriptor.all_constraints.

@@ -1126,6 +1126,109 @@ class TestExecuteUpdate:
         assert pkg["peerDependencies"]["react"] == "^18.2.0"
 
 
+def write_lockfile_with_override(project_dir: str, name: str, version: str) -> None:
+    lockfile_path = Path(project_dir) / "package-lock.json"
+    lockfile_content = {
+        "name": "app",
+        "version": "1.0.0",
+        "lockfileVersion": 3,
+        "packages": {
+            "": {
+                "name": "app",
+                "version": "1.0.0",
+                "dependencies": {"express": "^4.18.0"},
+                "overrides": {name: version},
+            },
+            "node_modules/express": {"version": "4.18.2", "dependencies": {name: "^2.1.0"}},
+            f"node_modules/{name}": {"version": version},
+        },
+    }
+    lockfile_path.write_text(json.dumps(lockfile_content))
+
+
+class TestOssiqMetadataOwnership:
+    """Tests for ossiq:metadata override ownership (item #14): execute_update records what it
+    wrote, project_info() compares against it to tell OSS IQ-authored overrides apart from
+    user-authored ones, and a later execute_update never clobbers a user's hand-edit."""
+
+    @pytest.fixture
+    def npm(self, settings, temp_project_dir):
+        return PackageManagerJsNpm(temp_project_dir, settings)
+
+    def test_write_then_read_reports_ossiq_authored(self, npm, temp_project_dir):
+        write_package_json(
+            temp_project_dir, {"name": "app", "version": "1.0.0", "dependencies": {"express": "^4.18.0"}}
+        )
+        plan = make_npm_update_plan(
+            transitive=[make_npm_update_entry("ms", "2.1.2", "2.1.3", is_direct=False)],
+            project_path=temp_project_dir,
+        )
+        with patch("ossiq.adapters.package_managers.api_npm.subprocess.run"):
+            npm.execute_update(plan)
+
+        pkg = read_package_json(temp_project_dir)
+        assert pkg["overrides"]["ms"] == "2.1.3"
+        assert pkg["ossiq:metadata"]["overrides"]["ms"] == "2.1.3"
+
+        # execute_update never touches the lockfile — provide one with the matching override so
+        # project_info's read side has something to compare against.
+        write_lockfile_with_override(temp_project_dir, "ms", "2.1.3")
+
+        project = npm.project_info()
+        ms = project.dependency_tree.dependencies["express"].dependencies.get("ms")
+        assert ms is not None
+        assert ms.constraint_info.is_ossiq_authored is True
+
+    def test_hand_edited_override_is_not_ossiq_authored(self, npm, temp_project_dir):
+        write_package_json(
+            temp_project_dir, {"name": "app", "version": "1.0.0", "dependencies": {"express": "^4.18.0"}}
+        )
+        plan = make_npm_update_plan(
+            transitive=[make_npm_update_entry("ms", "2.1.2", "2.1.3", is_direct=False)],
+            project_path=temp_project_dir,
+        )
+        with patch("ossiq.adapters.package_managers.api_npm.subprocess.run"):
+            npm.execute_update(plan)
+
+        # Simulate the user hand-editing the override value (ossiq:metadata is left untouched).
+        pkg = read_package_json(temp_project_dir)
+        pkg["overrides"]["ms"] = "2.1.9"
+        write_package_json(temp_project_dir, pkg)
+        write_lockfile_with_override(temp_project_dir, "ms", "2.1.9")
+
+        project = npm.project_info()
+        ms = project.dependency_tree.dependencies["express"].dependencies.get("ms")
+        assert ms is not None
+        assert ms.constraint_info.is_ossiq_authored is False
+
+    def test_second_update_never_clobbers_hand_edited_override(self, npm, temp_project_dir):
+        write_package_json(
+            temp_project_dir, {"name": "app", "version": "1.0.0", "dependencies": {"express": "^4.18.0"}}
+        )
+        plan = make_npm_update_plan(
+            transitive=[make_npm_update_entry("ms", "2.1.2", "2.1.3", is_direct=False)],
+            project_path=temp_project_dir,
+        )
+        with patch("ossiq.adapters.package_managers.api_npm.subprocess.run"):
+            npm.execute_update(plan)
+
+        # User hand-edits the override to a value OSS IQ never wrote.
+        pkg = read_package_json(temp_project_dir)
+        pkg["overrides"]["ms"] = "2.1.9"
+        write_package_json(temp_project_dir, pkg)
+
+        # A second run recommends yet another version for the same package.
+        plan2 = make_npm_update_plan(
+            transitive=[make_npm_update_entry("ms", "2.1.2", "2.1.5", is_direct=False)],
+            project_path=temp_project_dir,
+        )
+        with patch("ossiq.adapters.package_managers.api_npm.subprocess.run"):
+            npm.execute_update(plan2)
+
+        pkg = read_package_json(temp_project_dir)
+        assert pkg["overrides"]["ms"] == "2.1.9"
+
+
 # ============================================================================
 # Test dev-chain transitive dependency visibility (js-cookie / CVE scenario)
 # ============================================================================

@@ -73,7 +73,7 @@ class TestBuildCandidates:
         releases = list(registry.package_versions("pkg"))
 
         ladder = compute_version_ladder(releases, "1.0.0", "<2.0.0", registry, now=NOW)
-        candidates = build_candidates(record, releases, registry, now=NOW)
+        candidates = build_candidates(record, releases, registry, now=NOW).candidates
 
         in_range = [c for c in candidates if c.rung == RecommendationRung.IN_RANGE]
         assert max(in_range, key=lambda c: Version(c.version)).version == ladder.latest_in_range
@@ -84,7 +84,7 @@ class TestBuildCandidates:
     def test_installed_version_itself_excluded(self) -> None:
         registry = make_registry({"pkg": [pv("1.0.0"), pv("1.1.0")]})
         record = make_record("pkg", "1.0.0")
-        candidates = build_candidates(record, list(registry.package_versions("pkg")), registry, now=NOW)
+        candidates = build_candidates(record, list(registry.package_versions("pkg")), registry, now=NOW).candidates
         assert "1.0.0" not in {c.version for c in candidates}
 
     def test_qualifying_cve_flags_affected_candidate(self) -> None:
@@ -108,10 +108,154 @@ class TestBuildCandidates:
                 epss=0.5,
             )
         ]
-        candidates = build_candidates(record, list(registry.package_versions("pkg")), registry, now=NOW)
+        candidates = build_candidates(record, list(registry.package_versions("pkg")), registry, now=NOW).candidates
         by_version = {c.version: c for c in candidates}
         assert by_version["1.1.0"].has_cve is True
         assert by_version["1.2.0"].has_cve is False
+
+
+class TestBuildCandidatesRejections:
+    """A release that clears the structural pre-filter but fails validator is recorded as a
+    RejectedCandidate instead of silently disappearing (item #6)."""
+
+    def test_rejected_candidate_ossiq_authored_override_reason(self) -> None:
+        registry = make_registry({"pkg": [pv("1.1.0")]})
+        record = make_record("pkg", "1.0.0")
+        blocking_record = make_record("blocked-dep", "2.0.0")
+        blocking_record.constraint_info = ConstraintSource(
+            type=ConstraintType.OVERRIDE, source_file="package.json", is_ossiq_authored=True
+        )
+        impact = DirectUpdateImpact(
+            package_name="pkg",
+            recommended_version="1.1.0",
+            transitive_impacts=[
+                TransitiveImpact(
+                    package_name="blocked-dep",
+                    current_version="2.0.0",
+                    projected_version=None,
+                    new_constraint=">=3.0.0",
+                    driven_by="pkg",
+                    has_conflict=True,
+                    conflict_detail="no version satisfies: >=3.0.0, ==2.0.0",
+                )
+            ],
+            is_actionable=False,
+            fallback_version=None,
+        )
+
+        built = build_candidates(
+            record,
+            list(registry.package_versions("pkg")),
+            registry,
+            now=NOW,
+            validator=lambda _pkg, _ver: impact,
+            transitive_by_name={"blocked-dep": blocking_record},
+        )
+
+        assert built.candidates == ()
+        assert len(built.rejected) == 1
+        assert built.rejected[0].version == "1.1.0"
+        assert built.rejected[0].reason == (
+            "blocked-dep is held by an OSS IQ-authored override (no version satisfies: >=3.0.0, ==2.0.0)"
+        )
+
+    def test_rejected_candidate_user_authored_override_reason(self) -> None:
+        registry = make_registry({"pkg": [pv("1.1.0")]})
+        record = make_record("pkg", "1.0.0")
+        blocking_record = make_record("blocked-dep", "2.0.0")
+        blocking_record.constraint_info = ConstraintSource(
+            type=ConstraintType.OVERRIDE, source_file="pyproject.toml", is_ossiq_authored=False
+        )
+        impact = DirectUpdateImpact(
+            package_name="pkg",
+            recommended_version="1.1.0",
+            transitive_impacts=[
+                TransitiveImpact(
+                    package_name="blocked-dep",
+                    current_version="2.0.0",
+                    projected_version=None,
+                    new_constraint=">=3.0.0",
+                    driven_by="pkg",
+                    has_conflict=True,
+                    conflict_detail=None,
+                )
+            ],
+            is_actionable=False,
+            fallback_version=None,
+        )
+
+        built = build_candidates(
+            record,
+            list(registry.package_versions("pkg")),
+            registry,
+            now=NOW,
+            validator=lambda _pkg, _ver: impact,
+            transitive_by_name={"blocked-dep": blocking_record},
+        )
+
+        assert built.rejected[0].reason == "blocked-dep is held by an override in pyproject.toml"
+
+    def test_rejected_candidate_generic_reason_without_override(self) -> None:
+        registry = make_registry({"pkg": [pv("1.1.0")]})
+        record = make_record("pkg", "1.0.0")
+        blocking_record = make_record("blocked-dep", "2.0.0")  # DECLARED, not OVERRIDE
+        impact = DirectUpdateImpact(
+            package_name="pkg",
+            recommended_version="1.1.0",
+            transitive_impacts=[
+                TransitiveImpact(
+                    package_name="blocked-dep",
+                    current_version="2.0.0",
+                    projected_version=None,
+                    new_constraint=">=3.0.0",
+                    driven_by="pkg",
+                    has_conflict=True,
+                    conflict_detail=None,
+                )
+            ],
+            is_actionable=False,
+            fallback_version=None,
+        )
+
+        built = build_candidates(
+            record,
+            list(registry.package_versions("pkg")),
+            registry,
+            now=NOW,
+            validator=lambda _pkg, _ver: impact,
+            transitive_by_name={"blocked-dep": blocking_record},
+        )
+
+        assert built.rejected[0].reason == "blocked-dep requires >=3.0.0"
+
+    def test_rejected_candidates_capped_one_per_rung_keeps_newest(self) -> None:
+        """Multiple rejected releases at the same rung collapse to the newest; rejections at
+        different rungs each surface."""
+        registry = make_registry({"pkg": [pv("1.1.0"), pv("1.2.0"), pv("3.0.0")]})
+        record = make_record("pkg", "1.0.0", version_constraint="<2.0.0")
+
+        def validator(_pkg: str, ver: str) -> DirectUpdateImpact:
+            return DirectUpdateImpact(
+                package_name="pkg",
+                recommended_version=ver,
+                transitive_impacts=[],
+                is_actionable=False,
+                fallback_version=None,
+            )
+
+        built = build_candidates(
+            record,
+            list(registry.package_versions("pkg")),
+            registry,
+            now=NOW,
+            validator=validator,
+            transitive_by_name={},
+        )
+
+        assert built.candidates == ()
+        # 1.1.0/1.2.0 both satisfy <2.0.0 (IN_RANGE) - only the newest (1.2.0) survives; 3.0.0 is
+        # its own rung (LATEST) and always surfaces.
+        assert [r.version for r in built.rejected] == ["1.2.0", "3.0.0"]
 
 
 class TestApplyUpdateStrategy:
@@ -257,3 +401,66 @@ class TestApplyUpdateStrategy:
         assert record.recommended_version == "1.1.0"
         assert record.recommended_version_reason is not None
         assert record.recommended_version_reason.age_days == 2  # published 2 days before NOW
+
+
+class TestApplyUpdateStrategyRejectedCandidates:
+    """apply_update_strategy is the single writer of rejected_candidates for direct records."""
+
+    def test_written_even_when_no_target_is_selected(self) -> None:
+        registry = make_registry({"pkg": [pv("1.1.0")]})
+        record = make_record("pkg", "1.0.0")
+
+        def validator(_pkg: str, ver: str) -> DirectUpdateImpact:
+            return DirectUpdateImpact(
+                package_name="pkg",
+                recommended_version=ver,
+                transitive_impacts=[],
+                is_actionable=False,
+                fallback_version=None,
+            )
+
+        apply_update_strategy(
+            [record],
+            registry,
+            STANDARD_PLAN,
+            versions_since={("pkg", "1.0.0"): list(registry.package_versions("pkg"))},
+            transitive_by_name={},
+            installed_names=set(),
+            allow_prerelease=False,
+            now=NOW,
+            validator=validator,
+        )
+
+        assert record.recommended_version is None
+        assert len(record.rejected_candidates) == 1
+        assert record.rejected_candidates[0].version == "1.1.0"
+
+    def test_written_alongside_a_lower_recommendation(self) -> None:
+        registry = make_registry({"pkg": [pv("1.1.0"), pv("2.0.0")]})
+        record = make_record("pkg", "1.0.0")
+
+        def validator(_pkg: str, ver: str) -> DirectUpdateImpact:
+            accepted = ver == "1.1.0"
+            return DirectUpdateImpact(
+                package_name="pkg",
+                recommended_version=ver,
+                transitive_impacts=[],
+                is_actionable=accepted,
+                fallback_version=None,
+            )
+
+        apply_update_strategy(
+            [record],
+            registry,
+            STANDARD_PLAN,
+            versions_since={("pkg", "1.0.0"): list(registry.package_versions("pkg"))},
+            transitive_by_name={},
+            installed_names=set(),
+            allow_prerelease=False,
+            now=NOW,
+            validator=validator,
+        )
+
+        assert record.recommended_version == "1.1.0"
+        assert len(record.rejected_candidates) == 1
+        assert record.rejected_candidates[0].version == "2.0.0"

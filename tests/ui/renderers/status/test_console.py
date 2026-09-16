@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from rich.console import Console
 
-from ossiq.domain.common import ConstraintType, CveDatabase, ProjectPackagesRegistry
+from ossiq.domain.common import ConstraintType, CveDatabase, ProjectPackagesRegistry, RejectedCandidate
 from ossiq.domain.cve import CVE, Severity
 from ossiq.domain.project import ConstraintSource
 from ossiq.domain.version import VersionsDifference
@@ -163,6 +163,20 @@ def test_constrained_sub_row_is_full_mode_only():
     assert "caps this below" not in output
 
 
+def test_rejected_candidate_sub_row_shown_in_full_mode():
+    record = make_record(versions_diff_index=MINOR, recommended_version="1.0.0")
+    record.rejected_candidates = [RejectedCandidate(version="1.2.0", reason="dep-x requires >=2.0.0")]
+    output = render_table([record], full=True)
+    assert "1.2.0 rejected: dep-x requires >=2.0.0" in output
+
+
+def test_rejected_candidate_sub_row_absent_without_full():
+    record = make_record(versions_diff_index=MINOR, recommended_version="1.0.0")
+    record.rejected_candidates = [RejectedCandidate(version="1.2.0", reason="dep-x requires >=2.0.0")]
+    output = render_table([record])
+    assert "rejected:" not in output
+
+
 # --- default-mode filtering ------------------------------------------------------------------
 
 
@@ -213,6 +227,26 @@ def test_transitive_table_full_adds_epss():
     console = Console(record=True, width=200)
     console.print(table)
     assert "EPSS" in console.export_text()
+
+
+def test_transitive_table_rejected_candidate_sub_row_shown_in_full_mode():
+    record = make_record(recommended_version=None)
+    record.rejected_candidates = [RejectedCandidate(version="2.0.0", reason="dep-y requires >=3.0.0")]
+    renderer = ConsoleStatusRenderer(Settings())
+    table = renderer.transitive_table([record], full=True)
+    console = Console(record=True, width=200)
+    console.print(table)
+    assert "2.0.0 rejected: dep-y requires >=3.0.0" in console.export_text()
+
+
+def test_transitive_table_rejected_candidate_sub_row_absent_without_full():
+    record = make_record(recommended_version=None)
+    record.rejected_candidates = [RejectedCandidate(version="2.0.0", reason="dep-y requires >=3.0.0")]
+    renderer = ConsoleStatusRenderer(Settings())
+    table = renderer.transitive_table([record], full=False)
+    console = Console(record=True, width=200)
+    console.print(table)
+    assert "rejected:" not in console.export_text()
 
 
 # --- whats_next column ------------------------------------------------------------------------

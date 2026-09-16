@@ -16,6 +16,10 @@ class ConstraintSource:
     type: ConstraintType
     source_file: str | None  # e.g. "package.json", "pyproject.toml", "requirements.txt"
     scope_path: list[str] | None = None  # npm nested override path, e.g. ["foo", "bar"]; None for flat
+    is_ossiq_authored: bool = False
+    """True when this OVERRIDE-type constraint's current value matches what OSS IQ itself last wrote
+    (ossiq:metadata.overrides in package.json / [tool.ossiq.metadata] in pyproject.toml). False for a
+    user-authored override, or when the user has since edited it away from our last-written value."""
 
 
 @dataclass(frozen=True)
