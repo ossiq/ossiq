@@ -556,6 +556,7 @@ class TestProjectInfo:
         assert project.installed_package_version("express") == "4.18.2"
         assert project.installed_package_version("jest") == "29.7.0"
         assert project.has_lockfile is True
+        assert project.declares_esm is False
 
     def test_project_info_without_lockfile(self, npm_project_without_lockfile, settings):
         """Test extracting project info without lockfile (versions from package.json)."""
@@ -608,6 +609,25 @@ class TestProjectInfo:
         # Should use directory name as fallback
 
         assert project.name == os.path.basename(temp_project_dir)
+
+    def test_project_info_declares_esm_when_type_module(self, temp_project_dir, settings):
+        """Project.declares_esm reflects package.json's own "type": "module", not any dependency's."""
+        package_json_path = Path(temp_project_dir) / "package.json"
+        package_json_path.write_text(json.dumps({"name": "esm-project", "version": "1.0.0", "type": "module"}))
+
+        npm_manager = PackageManagerJsNpm(temp_project_dir, settings)
+        project = npm_manager.project_info()
+
+        assert project.declares_esm is True
+
+    def test_project_info_declares_esm_false_without_type(self, temp_project_dir, settings):
+        package_json_path = Path(temp_project_dir) / "package.json"
+        package_json_path.write_text(json.dumps({"name": "cjs-project", "version": "1.0.0"}))
+
+        npm_manager = PackageManagerJsNpm(temp_project_dir, settings)
+        project = npm_manager.project_info()
+
+        assert project.declares_esm is False
 
     def test_project_info_unsupported_lockfile_version(self, npm_project_unsupported_lockfile, settings):
         """Test error when lockfile version is unsupported."""

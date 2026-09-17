@@ -259,6 +259,20 @@ def test_rejected_candidate_sub_row_absent_without_full():
     assert "rejected:" not in output
 
 
+def test_breaking_change_sub_row_shown_in_full_mode():
+    record = make_record(versions_diff_index=MINOR, recommended_version="5.0.0")
+    record.breaking_change = "ESM-only from 5.0.0"
+    output = render_table([record], full=True)
+    assert "ESM-only from 5.0.0" in output
+
+
+def test_breaking_change_sub_row_absent_without_full():
+    record = make_record(versions_diff_index=MINOR, recommended_version="5.0.0")
+    record.breaking_change = "ESM-only from 5.0.0"
+    output = render_table([record])
+    assert "ESM-only from 5.0.0" not in output
+
+
 # --- default-mode filtering ------------------------------------------------------------------
 
 
@@ -329,6 +343,16 @@ def test_transitive_table_rejected_candidate_sub_row_absent_without_full():
     console = Console(record=True, width=200)
     console.print(table)
     assert "rejected:" not in console.export_text()
+
+
+def test_transitive_table_breaking_change_sub_row_shown_in_full_mode():
+    record = make_record(recommended_version="5.0.0")
+    record.breaking_change = "ESM-only from 5.0.0"
+    renderer = ConsoleStatusRenderer(Settings())
+    table = renderer.transitive_table([record], full=True)
+    console = Console(record=True, width=200)
+    console.print(table)
+    assert "ESM-only from 5.0.0" in console.export_text()
 
 
 # --- whats_next column ------------------------------------------------------------------------

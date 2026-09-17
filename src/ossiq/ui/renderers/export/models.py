@@ -324,6 +324,31 @@ class PackageMetrics(BaseModel):
             "the major line is exhausted. Null only when undeterminable."
         ),
     )
+    latest_compatible_major: str | None = Field(
+        default=None,
+        description=(
+            "Newest installable version among majors >= installed_version's major that carries no "
+            "known module-system/API break; diverges from latest_in_major when a clean major sits "
+            "between installed_version and a known break. Null only when undeterminable."
+        ),
+    )
+    module_system: str | None = Field(
+        default=None,
+        description=(
+            "installed_version's own module format: 'esm-only', 'cjs' or 'dual' (npm only; always null on PyPI)"
+        ),
+    )
+    recommended_module_system: str | None = Field(
+        default=None,
+        description="recommended_version's own module format; null whenever recommended_version is null or PyPI",
+    )
+    breaking_change: str | None = Field(
+        default=None,
+        description=(
+            "Reason recommended_version is flagged as a known module-system/API break, e.g. "
+            "'ESM-only from 5.0.0'; null when no known break applies"
+        ),
+    )
     recommended_from_rung: str | None = Field(
         default=None,
         description=(
@@ -482,6 +507,12 @@ class PackageMetrics(BaseModel):
             recommended_version=record.recommended_version,
             latest_in_range=record.latest_in_range,
             latest_in_major=record.latest_in_major,
+            latest_compatible_major=record.latest_compatible_major,
+            module_system=record.module_system.value if record.module_system else None,
+            recommended_module_system=(
+                record.recommended_module_system.value if record.recommended_module_system else None
+            ),
+            breaking_change=record.breaking_change,
             recommended_from_rung=record.recommended_from_rung.value if record.recommended_from_rung else None,
             update_transitive_impacts=[
                 TransitiveImpactExport(
@@ -599,6 +630,24 @@ class TransitivePackageMetrics(BaseModel):
             "Newest installable version sharing installed_version's major line; equals "
             "installed_version when the major line is exhausted. Absent when undeterminable."
         ),
+    )
+    latest_compatible_major: str | None = Field(
+        default=None,
+        description=(
+            "Newest installable version among majors >= installed_version's major that carries no "
+            "known module-system/API break; diverges from latest_in_major when a clean major sits "
+            "between installed_version and a known break. Null only when undeterminable."
+        ),
+    )
+    module_system: str | None = Field(
+        default=None,
+        description=(
+            "installed_version's own module format: 'esm-only', 'cjs' or 'dual' (npm only; always null on PyPI)"
+        ),
+    )
+    recommended_module_system: str | None = Field(
+        default=None,
+        description="recommended_version's own module format; null whenever recommended_version is null or PyPI",
     )
     rejected_candidates: list[RejectedCandidateExport] = Field(
         default_factory=list,
@@ -723,6 +772,11 @@ class TransitivePackageMetrics(BaseModel):
             latest_version=first.latest_version,
             latest_in_range=first.latest_in_range,
             latest_in_major=first.latest_in_major,
+            latest_compatible_major=first.latest_compatible_major,
+            module_system=first.module_system.value if first.module_system else None,
+            recommended_module_system=(
+                first.recommended_module_system.value if first.recommended_module_system else None
+            ),
             rejected_candidates=[
                 RejectedCandidateExport(version=rc.version, reason=rc.reason) for rc in first.rejected_candidates
             ],

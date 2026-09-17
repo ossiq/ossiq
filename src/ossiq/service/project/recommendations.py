@@ -6,6 +6,7 @@ from datetime import datetime
 
 from ossiq.adapters.api_interfaces import AbstractPackageRegistryApi
 from ossiq.domain.common import ConstraintType, RecommendationRung
+from ossiq.service.project.breaking_changes import module_system_label
 from ossiq.service.project.models import ScanRecord
 from ossiq.solver import dependencies_solver
 from ossiq.solver.universe import filter_eligible_versions
@@ -51,14 +52,33 @@ def apply_recommendations(
     output: dependencies_solver.SolverOutput,
     *,
     skip_current: bool = False,
+    registry: AbstractPackageRegistryApi | None = None,
+    project_declares_esm: bool = False,
 ) -> None:
-    """Write solver recommendations back onto ScanRecord instances in-place."""
+    """Write solver recommendations back onto ScanRecord instances in-place.
+
+    When `registry` is given, also finalizes `recommended_module_system`/`breaking_change` for
+    every record whose recommendation was just written — this is the only place a transitive
+    record's recommendation is finalized in the main scan pipeline (direct records go through
+    `service.project.strategy.apply_update_strategy` afterward, which is the single writer for
+    them; passing `registry` here for direct records would just be redone work).
+    """
     for record in records:
         rec = output.recommendations.get(record.package_name)
         if rec is not None and (not skip_current or rec != record.installed_version):
             record.recommended_version = rec
             record.recommended_version_reason = output.reasons.get(record.package_name)
             record.recommended_from_rung = RecommendationRung.SOLVER
+            if registry is not None:
+                releases = list(registry.package_versions(record.package_name))
+                record.recommended_module_system, record.breaking_change = module_system_label(
+                    record.package_name,
+                    record.installed_version,
+                    rec,
+                    releases,
+                    registry.package_registry,
+                    project_declares_esm,
+                )
 
 
 def clamp_recommendations(

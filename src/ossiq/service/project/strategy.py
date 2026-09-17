@@ -8,7 +8,7 @@ Must run after `populate_stability` — `record.maintenance` and `record.triage`
 there, and `classify_motives` needs both to decide `END_OF_LIFE` correctly.
 """
 
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from functools import cmp_to_key
@@ -18,6 +18,7 @@ from ossiq.domain.common import ConstraintType, RecommendationRung, RejectedCand
 from ossiq.risk.maintenance import DEPRECATION_NONE
 from ossiq.risk.triage import EPSS_NOISE_THRESHOLD
 from ossiq.service.common.package_versions import PackageVersion
+from ossiq.service.project.breaking_changes import breaking_majors, module_system_label
 from ossiq.service.project.models import ScanRecord
 from ossiq.service.update_impact import DirectUpdateImpact, simulate_single
 from ossiq.solver.reason import RecommendationReason
@@ -31,6 +32,30 @@ from ossiq.timeutil import age_days_from_iso
 __all__ = ["PackageFacts", "StrategyPlan", "apply_update_strategy", "build_candidates", "facts_from_record"]
 
 RUNG_ORDER = (RecommendationRung.IN_RANGE, RecommendationRung.IN_MAJOR, RecommendationRung.LATEST)
+
+# A gate returns a rejection reason for a release, or None to admit it. Evaluated before
+# `validator` in build_candidates - cheap, in-memory checks first.
+StructuralGate = Callable[[PackageVersion], str | None]
+
+
+def breaking_change_gate(
+    breaks: dict[tuple[int, int], str],
+    registry: AbstractPackageRegistryApi,
+    project_declares_esm: bool,
+) -> StructuralGate:
+    """Reject a release whose major line is a known module-system/API break.
+
+    Never fires when the project itself declares ESM (`project_declares_esm`) - an ESM-only
+    dependency is not a break for a project that is itself `"type": "module"`.
+    """
+
+    def gate(pv: PackageVersion) -> str | None:
+        if project_declares_esm:
+            return None
+        major = major_key(pv.version, registry.package_registry)
+        return breaks.get(major) if major is not None else None
+
+    return gate
 
 
 def facts_from_record(record: ScanRecord) -> PackageFacts:
@@ -96,6 +121,7 @@ def build_candidates(
     now: datetime | None = None,
     validator: Callable[[str, str], DirectUpdateImpact] | None = None,
     transitive_by_name: dict[str, ScanRecord] | None = None,
+    structural_gates: Sequence[StructuralGate] = (),
 ) -> BuiltCandidates:
     """Build the ascending candidate ladder for one record.
 
@@ -104,6 +130,13 @@ def build_candidates(
     can never disagree with the ladder rung on the same input. `has_cve` is true only for a
     qualifying CVE — one at/above EPSS_NOISE_THRESHOLD, or unscored — mirroring
     `strategy.motive.classify_motives`'s EXPLOITABLE_CVE rule.
+
+    `structural_gates` are cheap, in-memory checks (e.g. a known module-system break) evaluated
+    before `validator`; the first non-None reason wins. Unlike `validator`, a structural gate never
+    blanks the whole ladder: if it would reject every installable release, none of them are
+    treated as gated for this call, so `select_target` can still pick the newest and the caller can
+    explain the pick via the same evidence the gate would have used (e.g. ScanRecord.breaking_change) —
+    mirrors the "every reachable version affected -> recommend the newest anyway" CVE rule.
 
     A release that clears the structural pre-filter but fails `validator` (i.e. it would break a
     transitive dependency) is not silently dropped: it's kept as a `RejectedCandidate`, capped at
@@ -129,10 +162,29 @@ def build_candidates(
     ]
     installable.sort(key=cmp_to_key(lambda a, b: registry.compare_versions(a.version, b.version)))
 
+    gate_reasons: dict[str, str] = {}
+    if structural_gates:
+        for pv in installable:
+            for gate in structural_gates:
+                reason = gate(pv)
+                if reason is not None:
+                    gate_reasons[pv.version] = reason
+                    break
+        if gate_reasons and len(gate_reasons) == len(installable):
+            # Every installable release is flagged - never let a structural gate blank the whole
+            # recommendation, so treat none of them as gated this pass.
+            gate_reasons = {}
+
     candidates: list[Candidate] = []
     rejected_by_rung: dict[RecommendationRung, RejectedCandidate] = {}
     for pv in installable:
         rung = classify_rung(pv.version, record, installed_major, registry)
+
+        gate_reason = gate_reasons.get(pv.version)
+        if gate_reason is not None:
+            rejected_by_rung[rung] = RejectedCandidate(version=pv.version, reason=gate_reason)
+            continue
+
         if validator is None:
             candidates.append(Candidate(version=pv.version, rung=rung, has_cve=pv.version in qualifying_versions))
             continue
@@ -162,6 +214,7 @@ def apply_update_strategy(
     allow_prerelease: bool,
     now: datetime | None = None,
     validator: Callable[[str, str], DirectUpdateImpact] | None = None,
+    project_declares_esm: bool = False,
 ) -> None:
     """Run the selector for each record and write its verdict, replacing `apply_ladder_fallback`.
 
@@ -172,8 +225,11 @@ def apply_update_strategy(
     can never end up lower than it — only a minimal-diff tier deliberately lowers it.
 
     Also the single writer of `rejected_candidates` for direct records: every release `validator`
-    held back from the ladder is recorded here regardless of what `select_target` ends up
-    choosing, so a blank or lowered `recommended_version` can always be explained.
+    or a structural gate (module-system break) held back from the ladder is recorded here
+    regardless of what `select_target` ends up choosing, so a blank or lowered
+    `recommended_version` can always be explained. Also the writer of `recommended_module_system`
+    and `breaking_change`, recomputed for whatever target ends up chosen — see
+    `service.project.breaking_changes.module_system_label`.
 
     Re-simulates transitive impacts for any record whose target changed, since a stale
     `update_transitive_impacts` (computed against the old target) would otherwise mislead the
@@ -183,8 +239,16 @@ def apply_update_strategy(
         strategy = plan.for_package(record.package_name)
         facts = facts_from_record(record)
         releases = versions_since.get((record.package_name, record.installed_version), [])
+        breaks = breaking_majors(record.package_name, releases, registry.package_registry)
+        gates = (breaking_change_gate(breaks, registry, project_declares_esm),)
         built = build_candidates(
-            record, releases, registry, now=now, validator=validator, transitive_by_name=transitive_by_name
+            record,
+            releases,
+            registry,
+            now=now,
+            validator=validator,
+            transitive_by_name=transitive_by_name,
+            structural_gates=gates,
         )
         selection = select_target(facts, strategy, built.candidates)
         record.strategy_selection = selection
@@ -196,10 +260,20 @@ def apply_update_strategy(
             record.recommended_from_rung = None
             record.recommended_version_reason = None
             record.update_transitive_impacts = []
+            record.recommended_module_system = None
+            record.breaking_change = None
             continue
 
         record.recommended_version = selection.target_version
         record.recommended_from_rung = selection.rung
+        record.recommended_module_system, record.breaking_change = module_system_label(
+            record.package_name,
+            record.installed_version,
+            record.recommended_version,
+            releases,
+            registry.package_registry,
+            project_declares_esm,
+        )
         if selection.target_version != previous_target:
             picked = next((pv for pv in releases if pv.version == selection.target_version), None)
             record.recommended_version_reason = RecommendationReason(
