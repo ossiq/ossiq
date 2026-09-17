@@ -106,6 +106,18 @@ class RejectedCandidate:
     reason: str
 
 
+class ModuleSystem(StrEnum):
+    """A package release's own module format, as declared by its registry metadata (npm only).
+
+    Derived heuristically from `type`/`exports` in the npm registry doc — not a spec-complete
+    `exports`-map resolver. Always None on PyPI releases (no analogous machine-readable signal).
+    """
+
+    ESM_ONLY = "esm-only"
+    CJS = "cjs"
+    DUAL = "dual"
+
+
 class DataSourceStatus(StrEnum):
     """Whether an external data source (OSV, GitHub, ...) actually delivered data for this scan.
 

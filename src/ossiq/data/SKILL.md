@@ -122,6 +122,41 @@ The top-level `next_action` is the most urgent one across the `updates` list, or
 `latest_in_major` (newest version sharing the installed major line) are always
 present — equal to `from` when that step has nothing newer, never omitted.
 
+### Module-system and API breaks
+
+A recommended version is not always drop-in — semver alone can't see an npm package going
+ESM-only or a PyPI package relocating a top-level API across a major. `to` already routes around a
+known break when a compatible version exists; when every reachable version is affected, `to`
+still lands on the newest one and `breaking_change` explains why instead of leaving the pick a
+silent surprise:
+
+```json
+{
+  "package": "chalk",
+  "next_action": "Check Release Notes",
+  "from": "4.1.2",
+  "to": "4.1.2",
+  "latest_in_range": "4.1.2",
+  "latest_in_major": "4.1.2",
+  "latest_compatible_major": "4.1.2",
+  "module_system": "cjs",
+  "recommended_module_system": "cjs",
+  "breaking_change": null,
+  "reasons": ["major version drift behind 5.2.0"],
+  "cves": [],
+  "transitive_impact": []
+}
+```
+
+Here `latest_compatible_major` (4.1.2) matches `to` because chalk 5+ is ESM-only
+(`require('chalk')` returns the module namespace object, not `.blue`) and this project's
+`package.json` is not itself `"type": "module"` — `5.0.0` was rejected as a candidate for exactly
+that reason (see its `rejected_candidates` entry on the full record). If every release past 4.x
+were ESM-only, `to` would still be the newest of them and `breaking_change` would read something
+like `"ESM-only from 5.0.0 — require('chalk') will fail; use dynamic import() or stay on 4.x"`.
+Never treat `to` as safe to `require()`/`import` without checking `module_system` first when
+`breaking_change` is non-null.
+
 Pin to `recommended_version` (`to`) when it is set — it is the solver's safe
 choice (avoids known-CVE and too-fresh versions) — **unless the entry also carries
 `"requires_constraint_widening": true`**. That flag means `to` is only reachable by

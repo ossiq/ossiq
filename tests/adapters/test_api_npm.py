@@ -7,9 +7,15 @@ from unittest.mock import patch
 
 import pytest
 
-from ossiq.adapters.api_npm import PackageRegistryApiNpm, is_npm_prerelease
+from ossiq.adapters.api_npm import (
+    NPM_EXPORTS_MAX_NODES,
+    PackageRegistryApiNpm,
+    detect_npm_module_system,
+    exports_conditions,
+    is_npm_prerelease,
+)
 from ossiq.clients.batch import BatchClient
-from ossiq.domain.common import ProjectPackagesRegistry
+from ossiq.domain.common import ModuleSystem, ProjectPackagesRegistry
 from ossiq.domain.exceptions import UnableLoadPackage
 from ossiq.domain.version import (
     VERSION_DIFF_BUILD,
@@ -273,6 +279,136 @@ class TestInstallExecutionDetection:
 
         assert deleted.runs_code_at_install is None
         assert deleted.install_execution_reason is None
+
+
+# ============================================================================
+# module_system detection
+# ============================================================================
+
+
+class TestDetectNpmModuleSystem:
+    def test_esm_type_without_exports_is_esm_only(self, npm_api, mock_npm_response):
+        mock_npm_response.set_response(
+            "pkg",
+            {
+                "name": "pkg",
+                "versions": {"1.0.0": {"type": "module"}},
+                "time": {"1.0.0": "2020-01-01T00:00:00.000Z"},
+            },
+        )
+        version = next(v for v in npm_api.package_versions("pkg") if v.version == "1.0.0")
+
+        assert version.module_system == ModuleSystem.ESM_ONLY
+
+    def test_esm_type_with_require_export_is_dual(self, npm_api, mock_npm_response):
+        mock_npm_response.set_response(
+            "pkg",
+            {
+                "name": "pkg",
+                "versions": {
+                    "1.0.0": {
+                        "type": "module",
+                        "exports": {".": {"import": "./index.mjs", "require": "./index.cjs"}},
+                    }
+                },
+                "time": {"1.0.0": "2020-01-01T00:00:00.000Z"},
+            },
+        )
+        version = next(v for v in npm_api.package_versions("pkg") if v.version == "1.0.0")
+
+        assert version.module_system == ModuleSystem.DUAL
+
+    def test_no_type_with_import_only_exports_is_esm_only(self, npm_api, mock_npm_response):
+        mock_npm_response.set_response(
+            "pkg",
+            {
+                "name": "pkg",
+                "versions": {"1.0.0": {"exports": {".": {"import": "./index.mjs"}}}},
+                "time": {"1.0.0": "2020-01-01T00:00:00.000Z"},
+            },
+        )
+        version = next(v for v in npm_api.package_versions("pkg") if v.version == "1.0.0")
+
+        assert version.module_system == ModuleSystem.ESM_ONLY
+
+    def test_plain_cjs_package_is_cjs(self, npm_api, mock_npm_response):
+        mock_npm_response.set_response(
+            "pkg",
+            {
+                "name": "pkg",
+                "versions": {"1.0.0": {"main": "index.js"}},
+                "time": {"1.0.0": "2020-01-01T00:00:00.000Z"},
+            },
+        )
+        version = next(v for v in npm_api.package_versions("pkg") if v.version == "1.0.0")
+
+        assert version.module_system == ModuleSystem.CJS
+
+    def test_absent_fields_default_to_cjs(self, npm_api, mock_npm_response):
+        mock_npm_response.set_response(
+            "pkg",
+            {
+                "name": "pkg",
+                "versions": {"1.0.0": {}},
+                "time": {"1.0.0": "2020-01-01T00:00:00.000Z"},
+            },
+        )
+        version = next(v for v in npm_api.package_versions("pkg") if v.version == "1.0.0")
+
+        assert version.module_system == ModuleSystem.CJS
+
+
+def nested_exports(depth: int, leaf: dict) -> dict:
+    """An `exports` map `depth` environment keys deep, wrapping `leaf` at the bottom."""
+    node = leaf
+    for _ in range(depth):
+        node = {"node": node}
+    return node
+
+
+class TestExportsConditions:
+    """Pure input/output cases for the `exports` walk itself (no fixtures, no HTTP)."""
+
+    @pytest.mark.parametrize(
+        "exports",
+        [None, "./index.js", 42, [], {}, {".": "./index.js"}, {".": ["./index.js", "./legacy.js"]}],
+    )
+    def test_shapes_without_conditions(self, exports):
+        assert exports_conditions(exports) == (False, False)
+
+    def test_conditions_found_across_separate_subpaths(self):
+        exports = {".": {"import": "./index.mjs"}, "./sub": {"require": "./sub.cjs"}}
+
+        assert exports_conditions(exports) == (True, True)
+
+    def test_fallback_array_branch_is_scanned(self):
+        # Node allows an array of alternatives per subpath; a `require` branch hiding in one of
+        # them used to read as import-only, mislabelling a dual package ESM-only.
+        exports = {".": [{"import": "./index.mjs"}, {"require": "./index.cjs"}, "./index.js"]}
+
+        assert exports_conditions(exports) == (True, True)
+
+    def test_fallback_array_with_require_is_dual(self):
+        details = {
+            "type": "module",
+            "exports": {".": [{"import": "./index.mjs"}, {"require": "./index.cjs"}]},
+        }
+
+        assert detect_npm_module_system(details) == ModuleSystem.DUAL
+
+    def test_deeply_nested_exports_does_not_exhaust_the_stack(self):
+        # Registry JSON is attacker-controlled: this is a RecursionError under a recursive walk,
+        # and a RecursionError is not an ApplicationError, so it escapes as a bare traceback.
+        exports = nested_exports(5_000, {"require": "./index.cjs"})
+
+        assert exports_conditions(exports) == (True, False)
+
+    def test_walk_is_bounded_by_the_node_budget(self):
+        # Past the budget the walk stops and the classification is whatever it found so far —
+        # an underestimate is the accepted trade-off for a bounded scan.
+        exports = nested_exports(NPM_EXPORTS_MAX_NODES * 2, {"require": "./index.cjs"})
+
+        assert exports_conditions(exports) == (False, False)
 
 
 # ============================================================================

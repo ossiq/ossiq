@@ -4,7 +4,7 @@ Dataclasses for the project scan pipeline.
 
 from dataclasses import dataclass, field
 
-from ossiq.domain.common import DataCompleteness, RecommendationRung, RejectedCandidate
+from ossiq.domain.common import DataCompleteness, ModuleSystem, RecommendationRung, RejectedCandidate
 from ossiq.domain.cve import CVE
 from ossiq.domain.package import Package
 from ossiq.domain.project import ConstraintSource, PeerRequirement
@@ -201,6 +201,26 @@ class ScanRecord:
     """Human-readable reason for runs_code_at_install, e.g. "npm lifecycle: postinstall" or
     "PyPI source distribution build". None when the signal is unknown or execution was not detected."""
 
+    module_system: ModuleSystem | None = None
+    """installed_version's own module format (npm only, from `type`/`exports`). Populated in
+    service.project.records.scan_record from the installed PackageVersion. Always None on PyPI."""
+
+    recommended_module_system: ModuleSystem | None = None
+    """recommended_version's own module format. None whenever recommended_version is None or the
+    package is on PyPI. Populated alongside breaking_change wherever recommended_version is
+    finalized - see service.project.breaking_changes.module_system_label."""
+
+    breaking_change: str | None = None
+    """Human-readable reason recommended_version is flagged as a known API/module-system break,
+    e.g. "ESM-only from 5.0.0"; None when no known break applies. Never blanks recommended_version
+    on its own - see service.project.strategy.build_candidates's structural_gates."""
+
+    latest_compatible_major: str | None = None
+    """Newest installable release among majors >= installed_version's major that carries no known
+    break (module-system or curated API break). Diverges from latest_in_major when a clean major
+    sits between installed_version and a known break. Computed in
+    service.project.breaking_changes.compute_latest_compatible_major, alongside compute_version_ladder."""
+
     strategy_selection: StrategySelection | None = None
     """The update-strategy selector's verdict for this record. Populated in
     service.project.strategy.apply_update_strategy, after populate_stability. None for transitive
@@ -255,3 +275,6 @@ class ScanResult:
     project_stability: ProjectStability | None = None
     data_completeness: DataCompleteness = field(default_factory=DataCompleteness)
     """B4: per-step data-source status for this scan. See PrefetchedData.data_completeness."""
+    declares_esm: bool = False
+    """Whether the project's own manifest declares `"type": "module"` (npm only, always False for
+    non-npm projects). See domain.project.Project.declares_esm."""

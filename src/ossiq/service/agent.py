@@ -87,6 +87,7 @@ def build_add_decide(detail: PackageDetailResult, requested_version: str | None 
         # populated for a package already installed in the project.
         "latest_in_range": first.latest_in_range if not detail.is_prospective and first else None,
         "latest_in_major": first.latest_in_major if not detail.is_prospective and first else None,
+        "latest_compatible_major": first.latest_compatible_major if not detail.is_prospective and first else None,
         "reasons": reasons,
         "cves": [cve_summary(cve) for cve in cves],
         "warnings": [warning.rule_id for warning in detail.warnings],
@@ -200,6 +201,12 @@ def build_update_entry(record: ScanRecord) -> dict[str, Any]:
         "latest_version": record.latest_version,
         "latest_in_range": record.latest_in_range,
         "latest_in_major": record.latest_in_major,
+        "latest_compatible_major": record.latest_compatible_major,
+        "module_system": record.module_system.value if record.module_system else None,
+        "recommended_module_system": (
+            record.recommended_module_system.value if record.recommended_module_system else None
+        ),
+        "breaking_change": record.breaking_change,
     }
 
     if not actionable:
@@ -231,6 +238,8 @@ def build_update_entry(record: ScanRecord) -> dict[str, Any]:
         reasons.append(f"recommend updating {installed} -> {recommended}")
     for rc in record.rejected_candidates:
         reasons.append(f"{rc.version} rejected: {rc.reason}")
+    if record.breaking_change:
+        reasons.append(record.breaking_change)
 
     entry: dict[str, Any] = {
         **base,

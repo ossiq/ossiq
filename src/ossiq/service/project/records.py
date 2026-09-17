@@ -12,6 +12,7 @@ from ossiq.domain.project import ConstraintSource, PeerRequirement
 from ossiq.domain.repository import Repository
 from ossiq.risk.maintenance import deprecation_evidence
 from ossiq.service.common import package_versions
+from ossiq.service.project.breaking_changes import compute_latest_compatible_major
 from ossiq.service.project.ladder import compute_version_ladder
 from ossiq.service.project.models import DependencyDescriptor, PrefetchedData, ScanRecord
 from ossiq.solver.version_matchers import version_satisfies_constraint
@@ -122,6 +123,15 @@ def scan_record(
         now=now,
     )
 
+    latest_compatible_major = compute_latest_compatible_major(
+        canonical_name,
+        releases_since_installed,
+        package_version,
+        version_rules,
+        version_rules.package_registry,
+        now=now,
+    )
+
     deprecation = deprecation_evidence(
         archived=prefetched_repository.archived if prefetched_repository else None,
         classifiers=package_info.classifiers,
@@ -151,6 +161,7 @@ def scan_record(
         version_constraint_declared=version_constraint_declared,
         latest_in_range=ladder.latest_in_range,
         latest_in_major=ladder.latest_in_major,
+        latest_compatible_major=latest_compatible_major,
         extras=extras,
         constraint_info=constraint_info,
         repo_url=package_info.repo_url,
@@ -179,6 +190,7 @@ def scan_record(
         is_installed_package_unpublished=package_info.is_unpublished,
         runs_code_at_install=installed_release.runs_code_at_install if installed_release else None,
         install_execution_reason=installed_release.install_execution_reason if installed_release else None,
+        module_system=installed_release.module_system if installed_release else None,
     )
 
 

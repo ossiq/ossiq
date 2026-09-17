@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from functools import cmp_to_key
 from typing import TypeVar
 
-from ossiq.domain.common import ConstraintType
+from ossiq.domain.common import ConstraintType, ModuleSystem
 
 # Version is unpublished from the Package Registry or Unknown
 VERSION_NO_DIFF = 10
@@ -112,6 +112,8 @@ class PackageVersion:
     version_constraint: str | None = None
     runs_code_at_install: bool | None = None
     install_execution_reason: str | None = None
+    module_system: ModuleSystem | None = None
+    """This release's own module format (npm only, from `type`/`exports`). Always None on PyPI."""
 
 
 @dataclass

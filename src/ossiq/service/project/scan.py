@@ -402,6 +402,8 @@ def solve_transitive_phase(
     installed_version_by_name: dict[str, str],
     solver_output: dependencies_solver.SolverOutput,
     now: datetime | None,
+    *,
+    project_declares_esm: bool = False,
 ) -> None:
     """Pass 1.6: run the HPDR solver over transitive deps and apply its output in place.
 
@@ -434,7 +436,16 @@ def solve_transitive_phase(
     apply_conflicts(transitive_output, transitive_packages)
     apply_solver_rejections(transitive_output, transitive_packages)
     if transitive_output.recommendations:
-        apply_recommendations(transitive_packages, transitive_output, skip_current=True)
+        # The only finalization point for a transitive record's recommendation in this pipeline
+        # (direct records get a further pass in apply_update_strategy) - resolve
+        # recommended_module_system/breaking_change here so it isn't silently left null.
+        apply_recommendations(
+            transitive_packages,
+            transitive_output,
+            skip_current=True,
+            registry=sources.packages_registry,
+            project_declares_esm=project_declares_esm,
+        )
 
 
 def scan(
@@ -497,6 +508,7 @@ def scan(
             installed_version_by_name,
             solver_output,
             now,
+            project_declares_esm=project_info.declares_esm,
         )
 
         all_records = production_packages + optional_packages + transitive_packages
@@ -520,6 +532,7 @@ def scan(
             allow_prerelease=sources.allow_prerelease,
             now=now,
             validator=simulate_recommendation,
+            project_declares_esm=project_info.declares_esm,
         )
 
         upgrade_paths = compute_upgrade_paths(project_info, sources.packages_registry)
@@ -536,4 +549,5 @@ def scan(
             project_epss=project_epss,
             project_stability=project_stability,
             data_completeness=prefetched.data_completeness,
+            declares_esm=project_info.declares_esm,
         )

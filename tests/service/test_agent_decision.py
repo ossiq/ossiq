@@ -10,6 +10,7 @@ from ossiq.domain.common import (
     CveDatabase,
     DataCompleteness,
     DataSourceStatus,
+    ModuleSystem,
     ProjectPackagesRegistry,
     RecommendationRung,
     RejectedCandidate,
@@ -180,6 +181,42 @@ def test_update_no_action_entry_still_carries_the_full_version_picture():
     assert entry["latest_in_major"] == record.latest_in_major
 
 
+def test_update_no_action_entry_still_carries_module_system_fields():
+    """module_system/recommended_module_system/breaking_change/latest_compatible_major are part
+    of the "full version picture" B7 guarantees, present even when nothing is actionable."""
+    record = make_record(
+        installed="1.0.0",
+        latest="1.0.0",
+        latest_compatible_major="1.0.0",
+        module_system=ModuleSystem.CJS,
+    )
+    decision = build_update_decide(make_scan([record]))
+    entry = decision["updates"][0]
+    assert entry["latest_compatible_major"] == "1.0.0"
+    assert entry["module_system"] == "cjs"
+    assert entry["recommended_module_system"] is None
+    assert entry["breaking_change"] is None
+
+
+def test_update_entry_emits_breaking_change_and_recommended_module_system():
+    record = make_record(
+        installed="4.1.2",
+        latest="5.0.0",
+        diff_index=VERSION_DIFF_MAJOR,
+        recommended="5.0.0",
+        latest_compatible_major="4.1.2",
+        module_system=ModuleSystem.CJS,
+        recommended_module_system=ModuleSystem.ESM_ONLY,
+        breaking_change="ESM-only from 5.0.0",
+    )
+    decision = build_update_decide(make_scan([record]))
+    entry = decision["updates"][0]
+    assert entry["module_system"] == "cjs"
+    assert entry["recommended_module_system"] == "esm-only"
+    assert entry["breaking_change"] == "ESM-only from 5.0.0"
+    assert "ESM-only from 5.0.0" in entry["reasons"]
+
+
 def test_update_release_notes_for_major_bump():
     record = make_record(installed="1.0.0", latest="2.0.0", diff_index=VERSION_DIFF_MAJOR, recommended="2.0.0")
     decision = build_update_decide(make_scan([record]))
@@ -327,6 +364,19 @@ def test_add_decide_includes_ladder_for_installed_package():
     decision = build_add_decide(detail)
     assert decision["latest_in_range"] == "1.10.13"
     assert decision["latest_in_major"] == "1.10.26"
+
+
+def test_add_decide_includes_latest_compatible_major_for_installed_package():
+    record = make_record(name="pydantic", installed="1.10.13", latest_compatible_major="1.10.26")
+    detail = make_installed_detail(record, make_insight(latest="2.13.5", recommended="1.10.26"))
+    decision = build_add_decide(detail)
+    assert decision["latest_compatible_major"] == "1.10.26"
+
+
+def test_add_decide_latest_compatible_major_null_for_prospective():
+    detail = make_detail(make_insight(), warnings=[], cves=[])
+    decision = build_add_decide(detail)
+    assert decision["latest_compatible_major"] is None
 
 
 def test_add_decide_ladder_null_for_prospective():

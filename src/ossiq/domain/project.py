@@ -87,6 +87,7 @@ class Project:
     dependency_tree: Dependency
     engine_constraints: dict[str, str] | None  # e.g. {"python": "3.11"} or {"node": ">=18"}
     has_lockfile: bool
+    declares_esm: bool
 
     def __init__(
         self,
@@ -97,6 +98,7 @@ class Project:
         engine_constraints: dict[str, str] | None = None,
         manifest_lock_divergent: list[str] | None = None,
         has_lockfile: bool = True,
+        declares_esm: bool = False,
     ):
         self.package_manager_type = package_manager_type
         self.name = name
@@ -105,6 +107,7 @@ class Project:
         self.engine_constraints = engine_constraints
         self.manifest_lock_divergent: list[str] = manifest_lock_divergent or []
         self.has_lockfile = has_lockfile
+        self.declares_esm = declares_esm
 
     def __repr__(self):
         return f"""{self.package_manager_type.name} Package(

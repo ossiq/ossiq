@@ -123,6 +123,7 @@ def build_installed_detail(
             installed_names=set(),
             allow_prerelease=sources.allow_prerelease,
             now=settings.cutoff_date,
+            project_declares_esm=scan_result.declares_esm,
         )
 
     # These fetches hit the already-warm in-process cache — no extra HTTP round-trips.

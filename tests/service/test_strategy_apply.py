@@ -5,7 +5,7 @@ from unittest.mock import MagicMock, patch
 
 from packaging.version import Version
 
-from ossiq.domain.common import ConstraintType, ProjectPackagesRegistry, RecommendationRung
+from ossiq.domain.common import ConstraintType, ModuleSystem, ProjectPackagesRegistry, RecommendationRung
 from ossiq.domain.project import ConstraintSource
 from ossiq.domain.version import PackageVersion, VersionsDifference
 from ossiq.service.project.ladder import compute_version_ladder
@@ -21,13 +21,16 @@ NOW = datetime(2024, 6, 1, tzinfo=UTC)
 STANDARD_PLAN = StrategyPlan(default=UpdateStrategy.STANDARD)
 
 
-def pv(version: str, published: str = "2024-01-01T00:00:00Z") -> PackageVersion:
+def pv(
+    version: str, published: str = "2024-01-01T00:00:00Z", module_system: ModuleSystem | None = None
+) -> PackageVersion:
     return PackageVersion(
         version=version,
         license=None,
         package_url=f"https://example.com/{version}",
         declared_dependencies={},
         published_date_iso=published,
+        module_system=module_system,
     )
 
 
@@ -47,6 +50,12 @@ def make_registry(versions_by_name: dict[str, list[PackageVersion]]) -> MagicMoc
 
     registry.compare_versions.side_effect = compare
     registry.newest_version.side_effect = newest
+    return registry
+
+
+def make_npm_registry(versions_by_name: dict[str, list[PackageVersion]]) -> MagicMock:
+    registry = make_registry(versions_by_name)
+    registry.package_registry = ProjectPackagesRegistry.NPM
     return registry
 
 
@@ -464,3 +473,122 @@ class TestApplyUpdateStrategyRejectedCandidates:
         assert record.recommended_version == "1.1.0"
         assert len(record.rejected_candidates) == 1
         assert record.rejected_candidates[0].version == "2.0.0"
+
+
+class TestBuildCandidatesStructuralGates:
+    def test_gate_rejects_flagged_release_when_a_clean_alternative_exists(self) -> None:
+        registry = make_registry({"pkg": [pv("1.1.0"), pv("2.0.0")]})
+        record = make_record("pkg", "1.0.0")
+
+        def gate(candidate: PackageVersion) -> str | None:
+            return "known break" if candidate.version == "2.0.0" else None
+
+        built = build_candidates(
+            record, list(registry.package_versions("pkg")), registry, now=NOW, structural_gates=(gate,)
+        )
+
+        assert [c.version for c in built.candidates] == ["1.1.0"]
+        assert len(built.rejected) == 1
+        assert built.rejected[0].version == "2.0.0"
+        assert built.rejected[0].reason == "known break"
+
+    def test_gate_never_rejects_every_installable_release(self) -> None:
+        """A structural gate must never blank the whole ladder - see build_candidates's docstring
+        and the "recommend the newest anyway" rule for a fully-flagged package."""
+        registry = make_registry({"pkg": [pv("2.0.0")]})
+        record = make_record("pkg", "1.0.0")
+
+        def gate(_candidate: PackageVersion) -> str | None:
+            return "known break"
+
+        built = build_candidates(
+            record, list(registry.package_versions("pkg")), registry, now=NOW, structural_gates=(gate,)
+        )
+
+        assert [c.version for c in built.candidates] == ["2.0.0"]
+        assert built.rejected == ()
+
+
+class TestApplyUpdateStrategyBreakingChange:
+    """End-to-end: apply_update_strategy wires breaking_change_gate + module_system_label."""
+
+    def test_esm_only_candidate_rejected_when_a_compatible_alternative_exists(self) -> None:
+        registry = make_npm_registry(
+            {
+                "chalk": [
+                    pv("4.1.2", module_system=ModuleSystem.CJS),
+                    pv("4.2.0", module_system=ModuleSystem.CJS),
+                    pv("5.0.0", module_system=ModuleSystem.ESM_ONLY),
+                ]
+            }
+        )
+        record = make_record("chalk", "4.1.2")
+
+        apply_update_strategy(
+            [record],
+            registry,
+            STANDARD_PLAN,
+            versions_since={("chalk", "4.1.2"): list(registry.package_versions("chalk"))},
+            transitive_by_name={},
+            installed_names=set(),
+            allow_prerelease=False,
+            now=NOW,
+            project_declares_esm=False,
+        )
+
+        assert record.recommended_version == "4.2.0"
+        assert record.breaking_change is None
+        assert [rc.version for rc in record.rejected_candidates] == ["5.0.0"]
+        assert record.rejected_candidates[0].reason == "ESM-only from 5.0.0"
+
+    def test_recommends_newest_anyway_when_every_candidate_is_esm_only(self) -> None:
+        registry = make_npm_registry(
+            {"chalk": [pv("4.1.2", module_system=ModuleSystem.CJS), pv("5.0.0", module_system=ModuleSystem.ESM_ONLY)]}
+        )
+        record = make_record("chalk", "4.1.2")
+
+        apply_update_strategy(
+            [record],
+            registry,
+            STANDARD_PLAN,
+            versions_since={("chalk", "4.1.2"): list(registry.package_versions("chalk"))},
+            transitive_by_name={},
+            installed_names=set(),
+            allow_prerelease=False,
+            now=NOW,
+            project_declares_esm=False,
+        )
+
+        assert record.recommended_version == "5.0.0"
+        assert record.rejected_candidates == []
+        assert record.breaking_change == "ESM-only from 5.0.0"
+        assert record.recommended_module_system == ModuleSystem.ESM_ONLY
+
+    def test_no_breaking_change_when_project_declares_esm(self) -> None:
+        registry = make_npm_registry(
+            {
+                "chalk": [
+                    pv("4.1.2", module_system=ModuleSystem.CJS),
+                    pv("4.2.0", module_system=ModuleSystem.CJS),
+                    pv("5.0.0", module_system=ModuleSystem.ESM_ONLY),
+                ]
+            }
+        )
+        record = make_record("chalk", "4.1.2")
+
+        apply_update_strategy(
+            [record],
+            registry,
+            STANDARD_PLAN,
+            versions_since={("chalk", "4.1.2"): list(registry.package_versions("chalk"))},
+            transitive_by_name={},
+            installed_names=set(),
+            allow_prerelease=False,
+            now=NOW,
+            project_declares_esm=True,
+        )
+
+        assert record.recommended_version == "5.0.0"
+        assert record.rejected_candidates == []
+        assert record.breaking_change is None
+        assert record.recommended_module_system == ModuleSystem.ESM_ONLY

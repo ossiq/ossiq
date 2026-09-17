@@ -20,6 +20,7 @@ from ossiq.domain.common import (
     DataCompleteness,
     DataSourceStatus,
     ExportJsonSchemaVersion,
+    ModuleSystem,
     ProjectPackagesRegistry,
     UserInterfaceType,
 )
@@ -1122,6 +1123,78 @@ class TestJsonExportRendererV15:
         assert pkg["latest_in_range"] == "17.0.2"
         assert pkg["latest_in_major"] == "17.9.0"
         assert pkg["recommended_from_rung"] == "in_major"  # plain string, not an enum repr
+        validate(instance=data, schema=json_schema_registry.load_schema(ExportJsonSchemaVersion.V1_5))
+
+    def test_v1_5_emits_module_system_fields_and_validates(self, output_file, settings, sample_project_metrics_record):
+        """latest_compatible_major/module_system/recommended_module_system/breaking_change
+        round-trip on PackageMetrics and validate against the v1.5 schema."""
+        import dataclasses
+
+        record = dataclasses.replace(
+            sample_project_metrics_record,
+            latest_compatible_major="4.1.2",
+            module_system=ModuleSystem.CJS,
+            recommended_version="5.0.0",
+            recommended_module_system=ModuleSystem.ESM_ONLY,
+            breaking_change="ESM-only from 5.0.0",
+        )
+        metrics = ScanResult(
+            project_name="test-project",
+            project_path="/path/to/test-project",
+            packages_registry=ProjectPackagesRegistry.NPM.value,
+            production_packages=[record],
+            optional_packages=[],
+        )
+        renderer = JsonExportRenderer(settings)
+        renderer.render(metrics, destination=str(output_file), schema_version="1.5")
+
+        data = json.loads(output_file.read_text(encoding="utf-8"))
+        pkg = data["production_packages"][0]
+        assert pkg["latest_compatible_major"] == "4.1.2"
+        assert pkg["module_system"] == "cjs"  # plain string, not an enum repr
+        assert pkg["recommended_module_system"] == "esm-only"
+        assert pkg["breaking_change"] == "ESM-only from 5.0.0"
+        validate(instance=data, schema=json_schema_registry.load_schema(ExportJsonSchemaVersion.V1_5))
+
+    def test_v1_5_emits_module_system_fields_on_transitive_and_validates(
+        self, output_file, settings, sample_project_metrics_record
+    ):
+        """latest_compatible_major/module_system/recommended_module_system round-trip on
+        TransitivePackageMetrics too - no breaking_change field there (no recommended_version)."""
+        transitive = ScanRecord(
+            package_name="chalk",
+            dependency_name=None,
+            is_optional_dependency=False,
+            installed_version="4.1.2",
+            latest_version="4.1.2",
+            versions_diff_index=VersionsDifference(
+                version1="4.1.2", version2="4.1.2", diff_index=0, diff_name="LATEST"
+            ),
+            time_lag_days=0,
+            releases_lag=0,
+            cve=[],
+            constraint_info=ConstraintSource(type=ConstraintType.DECLARED, source_file=None),
+            latest_compatible_major="4.1.2",
+            module_system=ModuleSystem.CJS,
+            recommended_module_system=ModuleSystem.CJS,
+        )
+        metrics = ScanResult(
+            project_name="test-project",
+            project_path="/path/to/test-project",
+            packages_registry=ProjectPackagesRegistry.NPM.value,
+            production_packages=[sample_project_metrics_record],
+            optional_packages=[],
+            transitive_packages=[transitive],
+        )
+        renderer = JsonExportRenderer(settings)
+        renderer.render(metrics, destination=str(output_file), schema_version="1.5")
+
+        data = json.loads(output_file.read_text(encoding="utf-8"))
+        entry = data["transitive_packages"][0]
+        assert entry["latest_compatible_major"] == "4.1.2"
+        assert entry["module_system"] == "cjs"
+        assert entry["recommended_module_system"] == "cjs"
+        assert "breaking_change" not in entry
         validate(instance=data, schema=json_schema_registry.load_schema(ExportJsonSchemaVersion.V1_5))
 
     def test_v1_5_emits_declared_constraint_distinct_from_effective_and_validates(

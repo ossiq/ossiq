@@ -424,6 +424,7 @@ class PackageManagerJsNpm(AbstractPackageManagerApi):
         engines = project_data.get("engines", {})
         node_constraint = engines.get("node") if isinstance(engines, dict) else None
         engine_constraints = {"node": node_constraint} if node_constraint else None
+        declares_esm = project_data.get("type") == "module"
 
         def create_project(dependency_tree: Dependency, has_lockfile: bool = True) -> Project:
             return Project(
@@ -433,6 +434,7 @@ class PackageManagerJsNpm(AbstractPackageManagerApi):
                 dependency_tree=dependency_tree,
                 engine_constraints=engine_constraints,
                 has_lockfile=has_lockfile,
+                declares_esm=declares_esm,
             )
 
         # Exceptional case, no lockfile

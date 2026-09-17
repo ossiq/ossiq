@@ -278,6 +278,9 @@ class ConsoleStatusRenderer(AbstractUserInterfaceRenderer):
                     for rc in pkg.rejected_candidates:
                         table.add_row(f"  [dim]↳ {rc.version} rejected: {rc.reason}[/]", *blanks)
 
+                if full and pkg.breaking_change:
+                    table.add_row(f"  [yellow]↳ {pkg.breaking_change}[/]", *blanks)
+
                 if pkg.constraint_conflict:
                     specs = " + ".join(pkg.constraint_conflict)
                     table.add_row(f"  [bold red]↳ no version satisfies: {specs}[/]", *blanks)
@@ -316,6 +319,9 @@ class ConsoleStatusRenderer(AbstractUserInterfaceRenderer):
             if full and pkg.rejected_candidates:
                 for rc in pkg.rejected_candidates:
                     table.add_row(f"  [dim]↳ {rc.version} rejected: {rc.reason}[/]", *blanks)
+
+            if full and pkg.breaking_change:
+                table.add_row(f"  [yellow]↳ {pkg.breaking_change}[/]", *blanks)
         return table
 
     def upgrade_paths_table(self, paths: list[UpgradePath]) -> Table | None:
