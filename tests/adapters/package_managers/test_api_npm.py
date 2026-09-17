@@ -28,6 +28,7 @@ from ossiq.adapters.package_managers.api_npm import (
     CATEGORIES_PEER,
     NPMResolverV3,
     PackageManagerJsNpm,
+    extract_min_node_version,
 )
 from ossiq.adapters.package_managers.dependency_tree import GraphExporter
 from ossiq.domain.common import ConstraintType, ProjectPackagesRegistry
@@ -629,6 +630,24 @@ class TestProjectInfo:
 
         assert project.declares_esm is False
 
+    def test_project_info_engine_constraints_node_reduced_to_concrete_version(self, temp_project_dir, settings):
+        """Regression: engines.node must be reduced to a concrete floor, never the raw range.
+
+        Feeding the raw range ">=18.0.0" straight into Project.engine_constraints used to make
+        has_engine_mismatch silently fail open for every npm project (see
+        tests/solver/test_version_matchers.py's
+        test_engine_version_satisfies_requirement_raw_node_range_fails_open).
+        """
+        package_json_path = Path(temp_project_dir) / "package.json"
+        package_json_path.write_text(
+            json.dumps({"name": "engine-project", "version": "1.0.0", "engines": {"node": ">=18.0.0"}})
+        )
+
+        npm_manager = PackageManagerJsNpm(temp_project_dir, settings)
+        project = npm_manager.project_info()
+
+        assert project.engine_constraints == {"node": "18.0.0"}
+
     def test_project_info_unsupported_lockfile_version(self, npm_project_unsupported_lockfile, settings):
         """Test error when lockfile version is unsupported."""
         npm_manager = PackageManagerJsNpm(npm_project_unsupported_lockfile, settings)
@@ -732,6 +751,40 @@ def npm_project_with_overrides(temp_project_dir):
     lockfile_path.write_text(json.dumps(lockfile_content, indent=2))
 
     return temp_project_dir
+
+
+# ============================================================================
+# Test extract_min_node_version helper
+# ============================================================================
+
+
+class TestExtractMinNodeVersion:
+    """Test suite for the extract_min_node_version module-level helper."""
+
+    @pytest.mark.parametrize(
+        "node_range,expected",
+        [
+            (">=18.0.0", "18.0.0"),
+            ("^18", "18.0.0"),
+            ("~18.4", "18.4.0"),
+            ("18 || 20", "18.0.0"),
+            (">=18.0.0 <20.0.0", "18.0.0"),
+            ("18.x", "18.0.0"),
+            ("16.0.0 - 18.0.0", "16.0.0"),
+            (">= 18", "18.0.0"),
+            (">=14.17", "14.17.0"),
+            ("v18.0.0", "18.0.0"),
+            ("<20", None),
+            ("*", None),
+            ("!=19", None),
+            ("14.17.1", "14.17.1"),
+            ("14", "14.0.0"),
+            ("not-a-version", None),
+            ("", None),
+        ],
+    )
+    def test_extract_min_node_version(self, node_range: str, expected: str | None) -> None:
+        assert extract_min_node_version(node_range) == expected
 
 
 # ============================================================================

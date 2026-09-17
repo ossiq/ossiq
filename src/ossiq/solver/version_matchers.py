@@ -276,18 +276,47 @@ def engine_version_satisfies_requirement(
     return True
 
 
+def engine_mismatch_reason(
+    runtime_requirements: dict[str, str] | None,
+    engine_context: dict[str, str],
+) -> str | None:
+    """Return why *runtime_requirements* conflict with *engine_context*, or None if they don't.
+
+    The single definition of the engine check: `has_engine_mismatch` (the solver's L2 clauses),
+    `engine_compatibility`, and `service.project.strategy`'s engine gate all derive from it, so a
+    candidate the gate rejects can never disagree with the verdict written onto the record.
+
+    The returned string is user-facing — it reaches `ScanRecord.rejected_candidates` and from there
+    console, export and agent output. None whenever either side is empty: absence of evidence, not
+    evidence of compatibility.
+    """
+    if not runtime_requirements or not engine_context:
+        return None
+    for engine_key, context_version in engine_context.items():
+        required = runtime_requirements.get(engine_key)
+        if required and not engine_version_satisfies_requirement(engine_key, context_version, required):
+            return f"requires {engine_key} {required}, detected {context_version}"
+    return None
+
+
+def engine_compatibility(
+    runtime_requirements: dict[str, str] | None,
+    engine_context: dict[str, str],
+) -> bool | None:
+    """Tri-state engine verdict: False on conflict, True when checked and clear, None for no evidence.
+
+    None means the question was never answerable — the release declares no runtime requirement, or
+    nothing was detected/declared to check it against. Never read None as compatible.
+    """
+    if not runtime_requirements or not engine_context:
+        return None
+    return engine_mismatch_reason(runtime_requirements, engine_context) is None
+
+
 def has_engine_mismatch(cv: CandidateVersion, engine_context: dict[str, str]) -> bool:
     """Return True if any declared runtime requirement in *cv* is incompatible with *engine_context*.
 
     *engine_context* maps engine key (e.g. ``"python"``, ``"node"``) to the
     currently running version string.  Returns False when either side is empty.
     """
-    if not cv.runtime_requirements or not engine_context:
-        return False
-    for engine_key, context_version in engine_context.items():
-        required = cv.runtime_requirements.get(engine_key)
-        if required is None:
-            continue
-        if not engine_version_satisfies_requirement(engine_key, context_version, required):
-            return True
-    return False
+    return engine_mismatch_reason(cv.runtime_requirements, engine_context) is not None

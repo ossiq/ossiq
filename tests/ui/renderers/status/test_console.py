@@ -80,10 +80,15 @@ def make_record(
 
 
 def render_table(
-    prod: list[ScanRecord], dev: list[ScanRecord] | None = None, *, full: bool = False, width: int = 200
+    prod: list[ScanRecord],
+    dev: list[ScanRecord] | None = None,
+    *,
+    full: bool = False,
+    width: int = 200,
+    engine_context: dict[str, str] | None = None,
 ) -> str:
     renderer = ConsoleStatusRenderer(Settings())
-    table = renderer.build_main_table(prod, dev or [], lag_threshold_days=180, full=full)
+    table = renderer.build_main_table(prod, dev or [], lag_threshold_days=180, full=full, engine_context=engine_context)
     assert table is not None
     console = Console(record=True, width=width)
     console.print(table)
@@ -273,6 +278,30 @@ def test_breaking_change_sub_row_absent_without_full():
     assert "ESM-only from 5.0.0" not in output
 
 
+def test_engine_mismatch_sub_row_shown_in_full_mode():
+    record = make_record(versions_diff_index=MINOR, recommended_version="2.0.0")
+    record.engine_requirement = {"node": ">=22.0.0"}
+    record.engine_compatible = False
+    output = render_table([record], full=True, engine_context={"node": "18.0.0"})
+    assert "requires node >=22.0.0, detected 18.0.0" in output
+
+
+def test_engine_mismatch_sub_row_absent_without_full():
+    record = make_record(versions_diff_index=MINOR, recommended_version="2.0.0")
+    record.engine_requirement = {"node": ">=22.0.0"}
+    record.engine_compatible = False
+    output = render_table([record], engine_context={"node": "18.0.0"})
+    assert "requires node" not in output
+
+
+def test_engine_mismatch_sub_row_absent_when_compatible():
+    record = make_record(versions_diff_index=MINOR, recommended_version="2.0.0")
+    record.engine_requirement = {"node": ">=16.0.0"}
+    record.engine_compatible = True
+    output = render_table([record], full=True, engine_context={"node": "18.0.0"})
+    assert "requires node" not in output
+
+
 # --- default-mode filtering ------------------------------------------------------------------
 
 
@@ -353,6 +382,28 @@ def test_transitive_table_breaking_change_sub_row_shown_in_full_mode():
     console = Console(record=True, width=200)
     console.print(table)
     assert "ESM-only from 5.0.0" in console.export_text()
+
+
+def test_transitive_table_engine_mismatch_sub_row_shown_in_full_mode():
+    record = make_record(recommended_version="2.0.0")
+    record.engine_requirement = {"node": ">=22.0.0"}
+    record.engine_compatible = False
+    renderer = ConsoleStatusRenderer(Settings())
+    table = renderer.transitive_table([record], full=True, engine_context={"node": "18.0.0"})
+    console = Console(record=True, width=200)
+    console.print(table)
+    assert "requires node >=22.0.0, detected 18.0.0" in console.export_text()
+
+
+def test_transitive_table_engine_mismatch_sub_row_absent_without_full():
+    record = make_record(recommended_version="2.0.0")
+    record.engine_requirement = {"node": ">=22.0.0"}
+    record.engine_compatible = False
+    renderer = ConsoleStatusRenderer(Settings())
+    table = renderer.transitive_table([record], full=False, engine_context={"node": "18.0.0"})
+    console = Console(record=True, width=200)
+    console.print(table)
+    assert "requires node" not in console.export_text()
 
 
 # --- whats_next column ------------------------------------------------------------------------

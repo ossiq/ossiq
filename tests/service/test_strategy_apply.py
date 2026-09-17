@@ -5,7 +5,13 @@ from unittest.mock import MagicMock, patch
 
 from packaging.version import Version
 
-from ossiq.domain.common import ConstraintType, ModuleSystem, ProjectPackagesRegistry, RecommendationRung
+from ossiq.domain.common import (
+    ConstraintType,
+    EngineContextSource,
+    ModuleSystem,
+    ProjectPackagesRegistry,
+    RecommendationRung,
+)
 from ossiq.domain.project import ConstraintSource
 from ossiq.domain.version import PackageVersion, VersionsDifference
 from ossiq.service.project.ladder import compute_version_ladder
@@ -22,7 +28,10 @@ STANDARD_PLAN = StrategyPlan(default=UpdateStrategy.STANDARD)
 
 
 def pv(
-    version: str, published: str = "2024-01-01T00:00:00Z", module_system: ModuleSystem | None = None
+    version: str,
+    published: str = "2024-01-01T00:00:00Z",
+    module_system: ModuleSystem | None = None,
+    runtime_requirements: dict[str, str] | None = None,
 ) -> PackageVersion:
     return PackageVersion(
         version=version,
@@ -31,6 +40,7 @@ def pv(
         declared_dependencies={},
         published_date_iso=published,
         module_system=module_system,
+        runtime_requirements=runtime_requirements,
     )
 
 
@@ -592,3 +602,86 @@ class TestApplyUpdateStrategyBreakingChange:
         assert record.rejected_candidates == []
         assert record.breaking_change is None
         assert record.recommended_module_system == ModuleSystem.ESM_ONLY
+
+
+class TestApplyUpdateStrategyEngineMismatch:
+    """End-to-end: apply_update_strategy wires engine_mismatch_gate + the 3 engine_* fields."""
+
+    def test_engine_mismatch_candidate_rejected_when_a_compatible_alternative_exists(self) -> None:
+        registry = make_npm_registry(
+            {
+                "pkg": [
+                    pv("1.1.0", runtime_requirements={"node": ">=16.0.0"}),
+                    pv("1.2.0", runtime_requirements={"node": ">=22.0.0"}),
+                ]
+            }
+        )
+        record = make_record("pkg", "1.0.0")
+
+        apply_update_strategy(
+            [record],
+            registry,
+            STANDARD_PLAN,
+            versions_since={("pkg", "1.0.0"): list(registry.package_versions("pkg"))},
+            transitive_by_name={},
+            installed_names=set(),
+            allow_prerelease=False,
+            now=NOW,
+            engine_context={"node": "18.0.0"},
+            engine_context_source=EngineContextSource.DETECTED,
+        )
+
+        assert record.recommended_version == "1.1.0"
+        assert record.engine_compatible is True
+        assert record.engine_requirement == {"node": ">=16.0.0"}
+        assert record.engine_context_source == EngineContextSource.DETECTED
+        assert [rc.version for rc in record.rejected_candidates] == ["1.2.0"]
+        assert record.rejected_candidates[0].reason == "requires node >=22.0.0, detected 18.0.0"
+
+    def test_recommends_newest_anyway_when_every_candidate_mismatches(self) -> None:
+        registry = make_npm_registry(
+            {
+                "pkg": [
+                    pv("1.1.0", runtime_requirements={"node": ">=22.0.0"}),
+                    pv("1.2.0", runtime_requirements={"node": ">=22.0.0"}),
+                ]
+            }
+        )
+        record = make_record("pkg", "1.0.0")
+
+        apply_update_strategy(
+            [record],
+            registry,
+            STANDARD_PLAN,
+            versions_since={("pkg", "1.0.0"): list(registry.package_versions("pkg"))},
+            transitive_by_name={},
+            installed_names=set(),
+            allow_prerelease=False,
+            now=NOW,
+            engine_context={"node": "18.0.0"},
+            engine_context_source=EngineContextSource.DETECTED,
+        )
+
+        assert record.recommended_version == "1.2.0"
+        assert record.rejected_candidates == []
+        assert record.engine_compatible is False
+        assert record.engine_requirement == {"node": ">=22.0.0"}
+
+    def test_no_engine_fields_when_engine_context_empty(self) -> None:
+        registry = make_npm_registry({"pkg": [pv("1.1.0", runtime_requirements={"node": ">=22.0.0"})]})
+        record = make_record("pkg", "1.0.0")
+
+        apply_update_strategy(
+            [record],
+            registry,
+            STANDARD_PLAN,
+            versions_since={("pkg", "1.0.0"): list(registry.package_versions("pkg"))},
+            transitive_by_name={},
+            installed_names=set(),
+            allow_prerelease=False,
+            now=NOW,
+        )
+
+        assert record.recommended_version == "1.1.0"
+        assert record.engine_compatible is None
+        assert record.engine_context_source == EngineContextSource.NONE

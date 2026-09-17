@@ -118,6 +118,19 @@ class ModuleSystem(StrEnum):
     DUAL = "dual"
 
 
+class EngineContextSource(StrEnum):
+    """Which source populated the engine_context a record's engine compatibility was checked against.
+
+    DETECTED wins when a runtime probe succeeds (see adapters.runtime_environment); DECLARED falls
+    back to the project's own manifest floor (Project.engine_constraints); NONE means neither was
+    available.
+    """
+
+    DETECTED = "detected"
+    DECLARED = "declared"
+    NONE = "none"
+
+
 class DataSourceStatus(StrEnum):
     """Whether an external data source (OSV, GitHub, ...) actually delivered data for this scan.
 

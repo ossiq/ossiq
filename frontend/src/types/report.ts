@@ -6,7 +6,7 @@
  */
 
 /**
- * Schema for OSS-IQ project metrics export data (v1.5 adds epss to PackageMetrics, TransitivePackageMetrics and CVEInfo, runs_code_at_install/install_execution_reason to PackageMetrics and TransitivePackageMetrics, fix_age_days to CVEInfo, project_epss/packages_with_epss/packages_with_unscored_cves to summary, declares update_transitive_impacts, and replaces the phi_i/phi_p/phi_a CSI channels with the maintenance-state model: maintenance_state, maintenance_risk, maintenance_coverage, flow_trend, engagement_buckets, deprecation_signals and deprecation_successor on PackageMetrics and TransitivePackageMetrics, and packages_unmaintained/packages_deprecated on summary)
+ * Schema for OSS-IQ project metrics export data (v1.5 adds epss to PackageMetrics, TransitivePackageMetrics and CVEInfo, runs_code_at_install/install_execution_reason to PackageMetrics and TransitivePackageMetrics, fix_age_days to CVEInfo, project_epss/packages_with_epss/packages_with_unscored_cves to summary, declares update_transitive_impacts, and replaces the phi_i/phi_p/phi_a CSI channels with the maintenance-state model: maintenance_state, maintenance_risk, maintenance_coverage, flow_trend, engagement_buckets, deprecation_signals and deprecation_successor on PackageMetrics and TransitivePackageMetrics, and packages_unmaintained/packages_deprecated on summary; and adds latest_compatible_major, module_system, recommended_module_system to PackageMetrics and TransitivePackageMetrics, and breaking_change to PackageMetrics; and adds engine_requirement, engine_compatible, engine_context_source to PackageMetrics and TransitivePackageMetrics)
  */
 export interface OSSIQExportSchemaV15 {
   /**
@@ -191,9 +191,13 @@ export interface PackageMetrics {
    */
   dependency_path?: string[] | null;
   /**
-   * Version constraint declared in the project manifest (e.g. '^1.2.3', '>=1.0,<2.0')
+   * Effective version specifier used internally for solver/ladder computation (e.g. '^1.2.3', '>=1.0,<2.0'). Last-writer-wins across every parent that declares a spec for this package - not guaranteed to equal the manifest's own declaration. Use version_constraint_declared for the manifest's declared value.
    */
   version_constraint?: string | null;
+  /**
+   * Version constraint declared by the project manifest itself (e.g. '^1.2.3', '>=1.0,<2.0'). None when this dependency has no direct manifest entry or is unconstrained. This is the value to show as "the declared constraint".
+   */
+  version_constraint_declared?: string | null;
   /**
    * Source code repository URL
    */
@@ -238,6 +242,36 @@ export interface PackageMetrics {
    * Newest installable version sharing installed_version's major line (PEP 440 epoch + first release segment on PyPI; semver major on npm); equals installed_version when the major line is exhausted. Null only when undeterminable.
    */
   latest_in_major?: string | null;
+  /**
+   * Newest installable version among majors >= installed_version's major that carries no known module-system/API break; diverges from latest_in_major when a clean major sits between installed_version and a known break. Null only when undeterminable.
+   */
+  latest_compatible_major?: string | null;
+  /**
+   * installed_version's own module format: 'esm-only', 'cjs' or 'dual' (npm only; always null on PyPI)
+   */
+  module_system?: string | null;
+  /**
+   * recommended_version's own module format; null whenever recommended_version is null or PyPI
+   */
+  recommended_module_system?: string | null;
+  /**
+   * Reason recommended_version is flagged as a known module-system/API break, e.g. 'ESM-only from 5.0.0'; null when no known break applies
+   */
+  breaking_change?: string | null;
+  /**
+   * recommended_version's own runtime requirement, e.g. {'node': '>=20.19.0'}; null when recommended_version is null or declares no engine requirement
+   */
+  engine_requirement?: {
+    [k: string]: string;
+  } | null;
+  /**
+   * False when engine_requirement conflicts with the scan's engine_context; null = no evidence either way (no requirement, or no engine_context to compare against)
+   */
+  engine_compatible?: boolean | null;
+  /**
+   * Which source populated engine_context this record was checked against: 'detected' (actually-installed runtime), 'declared' (manifest floor), or 'none'
+   */
+  engine_context_source?: "detected" | "declared" | "none";
   /**
    * Which version-ladder rung recommended_version came from: 'solver' or 'in_range' sit inside version_constraint and are safe to write as-is; 'in_major' or 'latest' require widening version_constraint first. Null only when recommended_version is null.
    */
@@ -494,6 +528,32 @@ export interface TransitivePackageMetrics {
    * Newest installable version sharing installed_version's major line; equals installed_version when the major line is exhausted. Absent when undeterminable.
    */
   latest_in_major?: string | null;
+  /**
+   * Newest installable version among majors >= installed_version's major that carries no known module-system/API break; diverges from latest_in_major when a clean major sits between installed_version and a known break. Null only when undeterminable.
+   */
+  latest_compatible_major?: string | null;
+  /**
+   * installed_version's own module format: 'esm-only', 'cjs' or 'dual' (npm only; always null on PyPI)
+   */
+  module_system?: string | null;
+  /**
+   * recommended_version's own module format; null whenever recommended_version is null or PyPI
+   */
+  recommended_module_system?: string | null;
+  /**
+   * recommended_version's own runtime requirement, e.g. {'node': '>=20.19.0'}; null when recommended_version is null or declares no engine requirement
+   */
+  engine_requirement?: {
+    [k: string]: string;
+  } | null;
+  /**
+   * False when engine_requirement conflicts with the scan's engine_context; null = no evidence either way (no requirement, or no engine_context to compare against)
+   */
+  engine_compatible?: boolean | null;
+  /**
+   * Which source populated engine_context this record was checked against: 'detected' (actually-installed runtime), 'declared' (manifest floor), or 'none'
+   */
+  engine_context_source?: "detected" | "declared" | "none";
   /**
    * Releases that would have been the recommendation but were held back by a requires-consistency conflict; capped at one per ladder rung
    */
