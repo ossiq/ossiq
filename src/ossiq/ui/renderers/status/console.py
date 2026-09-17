@@ -74,6 +74,17 @@ def recommended_cell(pkg: ScanRecord) -> str:
     return pkg.recommended_version
 
 
+def engine_mismatch_text(pkg: ScanRecord, engine_context: dict[str, str] | None) -> str:
+    """Explain why pkg.engine_compatible is False: the concrete requirement vs. what was detected."""
+    engine_context = engine_context or {}
+    requirement = pkg.engine_requirement or {}
+    parts = [
+        f"requires {engine_key} {required}, detected {engine_context.get(engine_key, '?')}"
+        for engine_key, required in requirement.items()
+    ]
+    return f"{'; '.join(parts)} ({pkg.engine_context_source})"
+
+
 class ConsoleStatusRenderer(AbstractUserInterfaceRenderer):
     """Console renderer for status command."""
 
@@ -143,6 +154,7 @@ class ConsoleStatusRenderer(AbstractUserInterfaceRenderer):
             data.optional_packages,
             lag_threshold_days,
             full=full,
+            engine_context=data.engine_context,
         )
         if main_table:
             self.console.print(main_table)
@@ -151,7 +163,9 @@ class ConsoleStatusRenderer(AbstractUserInterfaceRenderer):
         if transitive_with_recs:
             self.console.print(Rule("Transitive Recommendations", style="dim"))
             self.console.print()
-            self.console.print(self.transitive_table(transitive_with_recs, full=full))
+            self.console.print(
+                self.transitive_table(transitive_with_recs, full=full, engine_context=data.engine_context)
+            )
             self.console.print()
 
         new_dep_impacts = [
@@ -199,6 +213,7 @@ class ConsoleStatusRenderer(AbstractUserInterfaceRenderer):
         lag_threshold_days: int,
         *,
         full: bool = False,
+        engine_context: dict[str, str] | None = None,
     ) -> Table | None:
         """Single borderless table merging prod and dev sections.
 
@@ -281,6 +296,9 @@ class ConsoleStatusRenderer(AbstractUserInterfaceRenderer):
                 if full and pkg.breaking_change:
                     table.add_row(f"  [yellow]↳ {pkg.breaking_change}[/]", *blanks)
 
+                if full and pkg.engine_compatible is False and pkg.engine_requirement:
+                    table.add_row(f"  [red]↳ {engine_mismatch_text(pkg, engine_context)}[/]", *blanks)
+
                 if pkg.constraint_conflict:
                     specs = " + ".join(pkg.constraint_conflict)
                     table.add_row(f"  [bold red]↳ no version satisfies: {specs}[/]", *blanks)
@@ -295,7 +313,9 @@ class ConsoleStatusRenderer(AbstractUserInterfaceRenderer):
 
         return table
 
-    def transitive_table(self, packages: list[ScanRecord], *, full: bool = False) -> Table:
+    def transitive_table(
+        self, packages: list[ScanRecord], *, full: bool = False, engine_context: dict[str, str] | None = None
+    ) -> Table:
         """Borderless table for transitive packages with solver-recommended versions."""
         table = Table(show_header=True, header_style="bold dim", box=None, padding=(0, 2))
         table.add_column("Package", justify="left", style="bold")
@@ -322,6 +342,9 @@ class ConsoleStatusRenderer(AbstractUserInterfaceRenderer):
 
             if full and pkg.breaking_change:
                 table.add_row(f"  [yellow]↳ {pkg.breaking_change}[/]", *blanks)
+
+            if full and pkg.engine_compatible is False and pkg.engine_requirement:
+                table.add_row(f"  [red]↳ {engine_mismatch_text(pkg, engine_context)}[/]", *blanks)
         return table
 
     def upgrade_paths_table(self, paths: list[UpgradePath]) -> Table | None:

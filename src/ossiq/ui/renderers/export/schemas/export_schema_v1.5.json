@@ -2,7 +2,7 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://ossiq.org/schemas/export/v1.5.json",
   "title": "OSS-IQ Export Schema v1.5",
-  "description": "Schema for OSS-IQ project metrics export data (v1.5 adds epss to PackageMetrics, TransitivePackageMetrics and CVEInfo, runs_code_at_install/install_execution_reason to PackageMetrics and TransitivePackageMetrics, fix_age_days to CVEInfo, project_epss/packages_with_epss/packages_with_unscored_cves to summary, declares update_transitive_impacts, and replaces the phi_i/phi_p/phi_a CSI channels with the maintenance-state model: maintenance_state, maintenance_risk, maintenance_coverage, flow_trend, engagement_buckets, deprecation_signals and deprecation_successor on PackageMetrics and TransitivePackageMetrics, and packages_unmaintained/packages_deprecated on summary; and adds latest_compatible_major, module_system, recommended_module_system to PackageMetrics and TransitivePackageMetrics, and breaking_change to PackageMetrics)",
+  "description": "Schema for OSS-IQ project metrics export data (v1.5 adds epss to PackageMetrics, TransitivePackageMetrics and CVEInfo, runs_code_at_install/install_execution_reason to PackageMetrics and TransitivePackageMetrics, fix_age_days to CVEInfo, project_epss/packages_with_epss/packages_with_unscored_cves to summary, declares update_transitive_impacts, and replaces the phi_i/phi_p/phi_a CSI channels with the maintenance-state model: maintenance_state, maintenance_risk, maintenance_coverage, flow_trend, engagement_buckets, deprecation_signals and deprecation_successor on PackageMetrics and TransitivePackageMetrics, and packages_unmaintained/packages_deprecated on summary; and adds latest_compatible_major, module_system, recommended_module_system to PackageMetrics and TransitivePackageMetrics, and breaking_change to PackageMetrics; and adds engine_requirement, engine_compatible, engine_context_source to PackageMetrics and TransitivePackageMetrics)",
   "type": "object",
   "required": [
     "metadata",
@@ -361,6 +361,32 @@
             "null"
           ],
           "description": "recommended_version's own module format; null whenever recommended_version is null or PyPI"
+        },
+        "engine_requirement": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "recommended_version's own runtime requirement, e.g. {'node': '>=20.19.0'}; null when recommended_version is null or declares no engine requirement"
+        },
+        "engine_compatible": {
+          "type": [
+            "boolean",
+            "null"
+          ],
+          "description": "False when engine_requirement conflicts with the scan's engine_context; null = no evidence either way (no requirement, or no engine_context to compare against)"
+        },
+        "engine_context_source": {
+          "type": "string",
+          "enum": [
+            "detected",
+            "declared",
+            "none"
+          ],
+          "description": "Which source populated engine_context this record was checked against: 'detected' (actually-installed runtime), 'declared' (manifest floor), or 'none'"
         },
         "rejected_candidates": {
           "type": "array",
@@ -850,6 +876,32 @@
             "null"
           ],
           "description": "Reason recommended_version is flagged as a known module-system/API break, e.g. 'ESM-only from 5.0.0'; null when no known break applies"
+        },
+        "engine_requirement": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "recommended_version's own runtime requirement, e.g. {'node': '>=20.19.0'}; null when recommended_version is null or declares no engine requirement"
+        },
+        "engine_compatible": {
+          "type": [
+            "boolean",
+            "null"
+          ],
+          "description": "False when engine_requirement conflicts with the scan's engine_context; null = no evidence either way (no requirement, or no engine_context to compare against)"
+        },
+        "engine_context_source": {
+          "type": "string",
+          "enum": [
+            "detected",
+            "declared",
+            "none"
+          ],
+          "description": "Which source populated engine_context this record was checked against: 'detected' (actually-installed runtime), 'declared' (manifest floor), or 'none'"
         },
         "recommended_from_rung": {
           "type": [

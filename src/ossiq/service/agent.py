@@ -207,6 +207,9 @@ def build_update_entry(record: ScanRecord) -> dict[str, Any]:
             record.recommended_module_system.value if record.recommended_module_system else None
         ),
         "breaking_change": record.breaking_change,
+        "engine_requirement": record.engine_requirement,
+        "engine_compatible": record.engine_compatible,
+        "engine_context_source": record.engine_context_source.value,
     }
 
     if not actionable:
@@ -240,6 +243,8 @@ def build_update_entry(record: ScanRecord) -> dict[str, Any]:
         reasons.append(f"{rc.version} rejected: {rc.reason}")
     if record.breaking_change:
         reasons.append(record.breaking_change)
+    if record.engine_compatible is False:
+        reasons.append(f"requires {record.engine_requirement} ({record.engine_context_source})")
 
     entry: dict[str, Any] = {
         **base,

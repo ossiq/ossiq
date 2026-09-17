@@ -206,6 +206,18 @@ def test_engine_version_satisfies_requirement(
     assert engine_version_satisfies_requirement(engine_key, context_version, requirement) == expected
 
 
+def test_engine_version_satisfies_requirement_raw_node_range_fails_open() -> None:
+    """Regression: a raw, unreduced range as context_version still fails open here.
+
+    This function is not buggy for its documented contract (a *concrete* context_version) — the
+    real fix is at the one caller that used to feed it a raw range:
+    adapters.package_managers.api_npm.project_info(), which now reduces engines.node via
+    extract_min_node_version() before it ever reaches Project.engine_constraints. See
+    tests/adapters/package_managers/test_api_npm.py for that regression instead.
+    """
+    assert engine_version_satisfies_requirement("node", ">=18.0.0", ">=18.19.0") is True
+
+
 # ── has_engine_mismatch ────────────────────────────────────────────────────
 
 

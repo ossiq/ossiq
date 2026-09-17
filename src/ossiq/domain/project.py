@@ -85,7 +85,7 @@ class Project:
     name: str
     project_path: str | None
     dependency_tree: Dependency
-    engine_constraints: dict[str, str] | None  # e.g. {"python": "3.11"} or {"node": ">=18"}
+    engine_constraints: dict[str, str] | None  # e.g. {"python": "3.11"} or {"node": "18.0.0"}
     has_lockfile: bool
     declares_esm: bool
 

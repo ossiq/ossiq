@@ -11,6 +11,9 @@ from collections import defaultdict, namedtuple
 from collections.abc import Callable, Iterable
 from typing import TYPE_CHECKING
 
+from univers.version_constraint import InvalidConstraintsError
+from univers.version_range import InvalidVersionRange, NpmVersionRange
+
 from ossiq.adapters.api_interfaces import AbstractPackageManagerApi
 from ossiq.adapters.package_managers.dependency_tree import BaseDependencyResolver
 from ossiq.adapters.package_managers.utils import find_lockfile_parser
@@ -215,6 +218,33 @@ def parse_node_engine(engines: dict | list | None) -> str | None:
     if isinstance(engines, list) and engines:
         return engines[0]
     return None
+
+
+NODE_FLOOR_COMPARATORS = frozenset({">=", ">", "=", "=="})
+
+
+def extract_min_node_version(node_range: str) -> str | None:
+    """Return the lowest concrete version admitted by an engines.node range.
+
+    ">=18.0.0" -> "18.0.0", "^18" -> "18.0.0", "~18.4" -> "18.4.0", "18 || 20" -> "18.0.0",
+    ">=18.0.0 <20.0.0" -> "18.0.0", "16.0.0 - 18.0.0" -> "16.0.0", "18.x" -> "18.0.0".
+    None for ranges with no lower bound at all ("<20", "*") or that fail to parse ("!=19") —
+    mirrors utils.extract_min_python_version's contract, which does the same for PyPI via
+    packaging's SpecifierSet.
+
+    Range parsing is univers's NpmVersionRange (the same parser solver.version_matchers matches
+    against), not hand-rolled: it already normalizes caret/tilde/x/hyphen forms and pads partial
+    versions. It flattens `||` branches into one constraint list, so the result is the lowest bound
+    anywhere in the range rather than a per-branch floor — the distinction only shows up in
+    declarations like "<16 || >=20" that no real engines field uses.
+    """
+    try:
+        constraints = NpmVersionRange.from_native(node_range).constraints
+    except (ValueError, InvalidVersionRange, InvalidConstraintsError):
+        return None
+
+    floors = [c.version for c in constraints if c.comparator in NODE_FLOOR_COMPARATORS and c.version is not None]
+    return str(min(floors)) if floors else None
 
 
 def make_manifest_dependency(name: str, version: str, categories: list[str]) -> Dependency:
@@ -423,7 +453,8 @@ class PackageManagerJsNpm(AbstractPackageManagerApi):
 
         engines = project_data.get("engines", {})
         node_constraint = engines.get("node") if isinstance(engines, dict) else None
-        engine_constraints = {"node": node_constraint} if node_constraint else None
+        min_node = extract_min_node_version(node_constraint) if node_constraint else None
+        engine_constraints = {"node": min_node} if min_node else None
         declares_esm = project_data.get("type") == "module"
 
         def create_project(dependency_tree: Dependency, has_lockfile: bool = True) -> Project:

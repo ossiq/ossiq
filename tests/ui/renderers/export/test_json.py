@@ -19,6 +19,7 @@ from ossiq.domain.common import (
     ConstraintType,
     DataCompleteness,
     DataSourceStatus,
+    EngineContextSource,
     ExportJsonSchemaVersion,
     ModuleSystem,
     ProjectPackagesRegistry,
@@ -1195,6 +1196,76 @@ class TestJsonExportRendererV15:
         assert entry["module_system"] == "cjs"
         assert entry["recommended_module_system"] == "cjs"
         assert "breaking_change" not in entry
+        validate(instance=data, schema=json_schema_registry.load_schema(ExportJsonSchemaVersion.V1_5))
+
+    def test_v1_5_emits_engine_fields_and_validates(self, output_file, settings, sample_project_metrics_record):
+        """engine_requirement/engine_compatible/engine_context_source round-trip on PackageMetrics
+        and validate against the v1.5 schema."""
+        import dataclasses
+
+        record = dataclasses.replace(
+            sample_project_metrics_record,
+            recommended_version="1.2.0",
+            engine_requirement={"node": ">=22.0.0"},
+            engine_compatible=False,
+            engine_context_source=EngineContextSource.DETECTED,
+        )
+        metrics = ScanResult(
+            project_name="test-project",
+            project_path="/path/to/test-project",
+            packages_registry=ProjectPackagesRegistry.NPM.value,
+            production_packages=[record],
+            optional_packages=[],
+        )
+        renderer = JsonExportRenderer(settings)
+        renderer.render(metrics, destination=str(output_file), schema_version="1.5")
+
+        data = json.loads(output_file.read_text(encoding="utf-8"))
+        pkg = data["production_packages"][0]
+        assert pkg["engine_requirement"] == {"node": ">=22.0.0"}
+        assert pkg["engine_compatible"] is False
+        assert pkg["engine_context_source"] == "detected"  # plain string, not an enum repr
+        validate(instance=data, schema=json_schema_registry.load_schema(ExportJsonSchemaVersion.V1_5))
+
+    def test_v1_5_emits_engine_fields_on_transitive_and_validates(
+        self, output_file, settings, sample_project_metrics_record
+    ):
+        """engine_requirement/engine_compatible/engine_context_source round-trip on
+        TransitivePackageMetrics too - engine compatibility is meaningful for transitives
+        independent of what's recommended for their parent."""
+        transitive = ScanRecord(
+            package_name="chalk",
+            dependency_name=None,
+            is_optional_dependency=False,
+            installed_version="4.1.2",
+            latest_version="4.1.2",
+            versions_diff_index=VersionsDifference(
+                version1="4.1.2", version2="4.1.2", diff_index=0, diff_name="LATEST"
+            ),
+            time_lag_days=0,
+            releases_lag=0,
+            cve=[],
+            constraint_info=ConstraintSource(type=ConstraintType.DECLARED, source_file=None),
+            engine_requirement={"node": ">=22.0.0"},
+            engine_compatible=True,
+            engine_context_source=EngineContextSource.DECLARED,
+        )
+        metrics = ScanResult(
+            project_name="test-project",
+            project_path="/path/to/test-project",
+            packages_registry=ProjectPackagesRegistry.NPM.value,
+            production_packages=[sample_project_metrics_record],
+            optional_packages=[],
+            transitive_packages=[transitive],
+        )
+        renderer = JsonExportRenderer(settings)
+        renderer.render(metrics, destination=str(output_file), schema_version="1.5")
+
+        data = json.loads(output_file.read_text(encoding="utf-8"))
+        entry = data["transitive_packages"][0]
+        assert entry["engine_requirement"] == {"node": ">=22.0.0"}
+        assert entry["engine_compatible"] is True
+        assert entry["engine_context_source"] == "declared"
         validate(instance=data, schema=json_schema_registry.load_schema(ExportJsonSchemaVersion.V1_5))
 
     def test_v1_5_emits_declared_constraint_distinct_from_effective_and_validates(

@@ -14,7 +14,7 @@ from datetime import datetime
 from functools import cmp_to_key
 
 from ossiq.adapters.api_interfaces import AbstractPackageRegistryApi
-from ossiq.domain.common import ConstraintType, RecommendationRung, RejectedCandidate
+from ossiq.domain.common import ConstraintType, EngineContextSource, RecommendationRung, RejectedCandidate
 from ossiq.risk.maintenance import DEPRECATION_NONE
 from ossiq.risk.triage import EPSS_NOISE_THRESHOLD
 from ossiq.service.common.package_versions import PackageVersion
@@ -23,7 +23,12 @@ from ossiq.service.project.models import ScanRecord
 from ossiq.service.update_impact import DirectUpdateImpact, simulate_single
 from ossiq.solver.reason import RecommendationReason
 from ossiq.solver.universe import is_published_before
-from ossiq.solver.version_matchers import major_key, version_satisfies_constraint
+from ossiq.solver.version_matchers import (
+    engine_compatibility,
+    engine_mismatch_reason,
+    major_key,
+    version_satisfies_constraint,
+)
 from ossiq.strategy.motive import PackageFacts
 from ossiq.strategy.overrides import StrategyPlan
 from ossiq.strategy.targeting import Candidate, select_target
@@ -54,6 +59,19 @@ def breaking_change_gate(
             return None
         major = major_key(pv.version, registry.package_registry)
         return breaks.get(major) if major is not None else None
+
+    return gate
+
+
+def engine_mismatch_gate(engine_context: dict[str, str]) -> StructuralGate:
+    """Reject a release whose declared runtime_requirements conflict with engine_context.
+
+    No-op (never rejects) when engine_context is empty — `engine_mismatch_reason` applies the same
+    "either side empty -> no mismatch" rule the solver's own L2 check uses.
+    """
+
+    def gate(pv: PackageVersion) -> str | None:
+        return engine_mismatch_reason(pv.runtime_requirements, engine_context)
 
     return gate
 
@@ -215,6 +233,8 @@ def apply_update_strategy(
     now: datetime | None = None,
     validator: Callable[[str, str], DirectUpdateImpact] | None = None,
     project_declares_esm: bool = False,
+    engine_context: dict[str, str] | None = None,
+    engine_context_source: EngineContextSource = EngineContextSource.NONE,
 ) -> None:
     """Run the selector for each record and write its verdict, replacing `apply_ladder_fallback`.
 
@@ -225,22 +245,27 @@ def apply_update_strategy(
     can never end up lower than it — only a minimal-diff tier deliberately lowers it.
 
     Also the single writer of `rejected_candidates` for direct records: every release `validator`
-    or a structural gate (module-system break) held back from the ladder is recorded here
-    regardless of what `select_target` ends up choosing, so a blank or lowered
-    `recommended_version` can always be explained. Also the writer of `recommended_module_system`
-    and `breaking_change`, recomputed for whatever target ends up chosen — see
+    or a structural gate (module-system break, engine mismatch) held back from the ladder is
+    recorded here regardless of what `select_target` ends up choosing, so a blank or lowered
+    `recommended_version` can always be explained. Also the writer of `recommended_module_system`,
+    `breaking_change`, `engine_requirement`, `engine_compatible` and `engine_context_source`,
+    recomputed for whatever target ends up chosen — see
     `service.project.breaking_changes.module_system_label`.
 
     Re-simulates transitive impacts for any record whose target changed, since a stale
     `update_transitive_impacts` (computed against the old target) would otherwise mislead the
     writers; clears it when the re-simulation says the new target is not actionable.
     """
+    engine_context = engine_context or {}
     for record in records:
         strategy = plan.for_package(record.package_name)
         facts = facts_from_record(record)
         releases = versions_since.get((record.package_name, record.installed_version), [])
         breaks = breaking_majors(record.package_name, releases, registry.package_registry)
-        gates = (breaking_change_gate(breaks, registry, project_declares_esm),)
+        gates = (
+            breaking_change_gate(breaks, registry, project_declares_esm),
+            engine_mismatch_gate(engine_context),
+        )
         built = build_candidates(
             record,
             releases,
@@ -262,6 +287,9 @@ def apply_update_strategy(
             record.update_transitive_impacts = []
             record.recommended_module_system = None
             record.breaking_change = None
+            record.engine_requirement = None
+            record.engine_compatible = None
+            record.engine_context_source = EngineContextSource.NONE
             continue
 
         record.recommended_version = selection.target_version
@@ -274,8 +302,11 @@ def apply_update_strategy(
             registry.package_registry,
             project_declares_esm,
         )
+        picked = next((pv for pv in releases if pv.version == record.recommended_version), None)
+        record.engine_requirement = picked.runtime_requirements if picked else None
+        record.engine_compatible = engine_compatibility(record.engine_requirement, engine_context)
+        record.engine_context_source = engine_context_source
         if selection.target_version != previous_target:
-            picked = next((pv for pv in releases if pv.version == selection.target_version), None)
             record.recommended_version_reason = RecommendationReason(
                 selected_version=selection.target_version,
                 constraint=record.version_constraint,

@@ -4,7 +4,13 @@ Dataclasses for the project scan pipeline.
 
 from dataclasses import dataclass, field
 
-from ossiq.domain.common import DataCompleteness, ModuleSystem, RecommendationRung, RejectedCandidate
+from ossiq.domain.common import (
+    DataCompleteness,
+    EngineContextSource,
+    ModuleSystem,
+    RecommendationRung,
+    RejectedCandidate,
+)
 from ossiq.domain.cve import CVE
 from ossiq.domain.package import Package
 from ossiq.domain.project import ConstraintSource, PeerRequirement
@@ -226,6 +232,19 @@ class ScanRecord:
     service.project.strategy.apply_update_strategy, after populate_stability. None for transitive
     records (v1 scope: the strategy applies to direct dependencies only) or an ignored package."""
 
+    engine_requirement: dict[str, str] | None = None
+    """recommended_version's own runtime_requirements (e.g. {"node": ">=20.19.0"}). None when
+    recommended_version is None or the picked release declares no engine requirement."""
+
+    engine_compatible: bool | None = None
+    """False when engine_requirement conflicts with the scan's engine_context. None = no evidence
+    either way (no requirement, or no engine_context to compare against) - never implies
+    compatibility was actually checked and passed just because it isn't False."""
+
+    engine_context_source: EngineContextSource = EngineContextSource.NONE
+    """Which source populated the engine_context this record's engine_compatible was checked
+    against - DETECTED (actually-installed runtime), DECLARED (manifest floor), or NONE."""
+
 
 @dataclass
 class PrefetchedData:
@@ -274,7 +293,12 @@ class ScanResult:
     project_epss: ProjectEpss | None = None
     project_stability: ProjectStability | None = None
     data_completeness: DataCompleteness = field(default_factory=DataCompleteness)
-    """B4: per-step data-source status for this scan. See PrefetchedData.data_completeness."""
+    """Per-step data-source status for this scan. See PrefetchedData.data_completeness."""
     declares_esm: bool = False
-    """Whether the project's own manifest declares `"type": "module"` (npm only, always False for
-    non-npm projects). See domain.project.Project.declares_esm."""
+    """Whether the project's own manifest declares `"type": "module"` (npm only)"""
+    engine_context: dict[str, str] = field(default_factory=dict)
+    """Runtime versions every record's engine_compatible was checked against"""
+    engine_context_source: EngineContextSource = EngineContextSource.NONE
+    """Which source populated engine_context for this scan."""
+    npm_cli_version: str | None = None
+    """Best-effort detected npm CLI version, display-only"""

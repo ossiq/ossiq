@@ -10,6 +10,7 @@ from ossiq.domain.common import (
     CveDatabase,
     DataCompleteness,
     DataSourceStatus,
+    EngineContextSource,
     ModuleSystem,
     ProjectPackagesRegistry,
     RecommendationRung,
@@ -215,6 +216,33 @@ def test_update_entry_emits_breaking_change_and_recommended_module_system():
     assert entry["recommended_module_system"] == "esm-only"
     assert entry["breaking_change"] == "ESM-only from 5.0.0"
     assert "ESM-only from 5.0.0" in entry["reasons"]
+
+
+def test_update_entry_emits_engine_fields():
+    record = make_record(
+        installed="1.0.0",
+        latest="1.1.0",
+        diff_index=VERSION_DIFF_MINOR,
+        recommended="1.1.0",
+        engine_requirement={"node": ">=22.0.0"},
+        engine_compatible=False,
+        engine_context_source=EngineContextSource.DETECTED,
+    )
+    decision = build_update_decide(make_scan([record]))
+    entry = decision["updates"][0]
+    assert entry["engine_requirement"] == {"node": ">=22.0.0"}
+    assert entry["engine_compatible"] is False
+    assert entry["engine_context_source"] == "detected"
+    assert "requires {'node': '>=22.0.0'} (detected)" in entry["reasons"]
+
+
+def test_update_no_action_entry_still_carries_engine_fields_default_none():
+    record = make_record(installed="1.0.0", latest="1.0.0")
+    decision = build_update_decide(make_scan([record]))
+    entry = decision["updates"][0]
+    assert entry["engine_requirement"] is None
+    assert entry["engine_compatible"] is None
+    assert entry["engine_context_source"] == "none"
 
 
 def test_update_release_notes_for_major_bump():

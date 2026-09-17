@@ -5,12 +5,12 @@ Applying solver output (recommendations and conflicts) onto ScanRecord instances
 from datetime import datetime
 
 from ossiq.adapters.api_interfaces import AbstractPackageRegistryApi
-from ossiq.domain.common import ConstraintType, RecommendationRung
+from ossiq.domain.common import ConstraintType, EngineContextSource, RecommendationRung
 from ossiq.service.project.breaking_changes import module_system_label
 from ossiq.service.project.models import ScanRecord
 from ossiq.solver import dependencies_solver
 from ossiq.solver.universe import filter_eligible_versions
-from ossiq.solver.version_matchers import version_satisfies_constraint
+from ossiq.solver.version_matchers import engine_compatibility, version_satisfies_constraint
 from ossiq.timeutil import age_days_from_iso
 
 
@@ -54,15 +54,19 @@ def apply_recommendations(
     skip_current: bool = False,
     registry: AbstractPackageRegistryApi | None = None,
     project_declares_esm: bool = False,
+    engine_context: dict[str, str] | None = None,
+    engine_context_source: EngineContextSource = EngineContextSource.NONE,
 ) -> None:
     """Write solver recommendations back onto ScanRecord instances in-place.
 
-    When `registry` is given, also finalizes `recommended_module_system`/`breaking_change` for
-    every record whose recommendation was just written — this is the only place a transitive
-    record's recommendation is finalized in the main scan pipeline (direct records go through
+    When `registry` is given, also finalizes `recommended_module_system`/`breaking_change`/
+    `engine_requirement`/`engine_compatible`/`engine_context_source` for every record whose
+    recommendation was just written — this is the only place a transitive record's recommendation
+    is finalized in the main scan pipeline (direct records go through
     `service.project.strategy.apply_update_strategy` afterward, which is the single writer for
     them; passing `registry` here for direct records would just be redone work).
     """
+    engine_context = engine_context or {}
     for record in records:
         rec = output.recommendations.get(record.package_name)
         if rec is not None and (not skip_current or rec != record.installed_version):
@@ -79,6 +83,10 @@ def apply_recommendations(
                     registry.package_registry,
                     project_declares_esm,
                 )
+                picked = next((pv for pv in releases if pv.version == rec), None)
+                record.engine_requirement = picked.runtime_requirements if picked else None
+                record.engine_compatible = engine_compatibility(record.engine_requirement, engine_context)
+                record.engine_context_source = engine_context_source
 
 
 def clamp_recommendations(

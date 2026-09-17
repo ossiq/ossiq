@@ -36,6 +36,7 @@ from ossiq.messages import (
     ARGS_HELP_DEBUG,
     ARGS_HELP_GITHUB_TOKEN,
     ARGS_HELP_OUTPUT,
+    ARGS_HELP_PROBE_RUNTIME,
     ARGS_HELP_STABILITY,
     ARGS_HELP_STABILITY_CACHE_TTL,
     ARGS_HELP_STABILITY_RESPONSIVENESS,
@@ -219,6 +220,14 @@ def main(
             help=ARGS_HELP_STABILITY_RESPONSIVENESS,
         ),
     ] = None,
+    probe_runtime: Annotated[
+        bool | None,
+        typer.Option(
+            "--probe-runtime/--no-probe-runtime",
+            envvar=f"{Settings.ENV_PREFIX}PROBE_RUNTIME",
+            help=ARGS_HELP_PROBE_RUNTIME,
+        ),
+    ] = None,
     version: Annotated[  # pylint: disable=unused-argument
         bool,
         typer.Option(
@@ -251,6 +260,7 @@ def main(
         "cooldown_period": cooldown_period,
         "stability": stability,
         "stability_responsiveness": stability_responsiveness,
+        "probe_runtime": probe_runtime,
     }
     # Filter out None values so we only override with explicitly provided options
     update_data = {k: v for k, v in cli_overrides.items() if v is not None}

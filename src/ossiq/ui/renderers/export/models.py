@@ -349,6 +349,27 @@ class PackageMetrics(BaseModel):
             "'ESM-only from 5.0.0'; null when no known break applies"
         ),
     )
+    engine_requirement: dict[str, str] | None = Field(
+        default=None,
+        description=(
+            "recommended_version's own runtime requirement, e.g. {'node': '>=20.19.0'}; null when "
+            "recommended_version is null or declares no engine requirement"
+        ),
+    )
+    engine_compatible: bool | None = Field(
+        default=None,
+        description=(
+            "False when engine_requirement conflicts with the scan's engine_context; null = no "
+            "evidence either way (no requirement, or no engine_context to compare against)"
+        ),
+    )
+    engine_context_source: str = Field(
+        default="none",
+        description=(
+            "Which source populated engine_context this record was checked against: 'detected' "
+            "(actually-installed runtime), 'declared' (manifest floor), or 'none'"
+        ),
+    )
     recommended_from_rung: str | None = Field(
         default=None,
         description=(
@@ -513,6 +534,9 @@ class PackageMetrics(BaseModel):
                 record.recommended_module_system.value if record.recommended_module_system else None
             ),
             breaking_change=record.breaking_change,
+            engine_requirement=record.engine_requirement,
+            engine_compatible=record.engine_compatible,
+            engine_context_source=record.engine_context_source.value,
             recommended_from_rung=record.recommended_from_rung.value if record.recommended_from_rung else None,
             update_transitive_impacts=[
                 TransitiveImpactExport(
@@ -649,6 +673,27 @@ class TransitivePackageMetrics(BaseModel):
         default=None,
         description="recommended_version's own module format; null whenever recommended_version is null or PyPI",
     )
+    engine_requirement: dict[str, str] | None = Field(
+        default=None,
+        description=(
+            "recommended_version's own runtime requirement, e.g. {'node': '>=20.19.0'}; null when "
+            "recommended_version is null or declares no engine requirement"
+        ),
+    )
+    engine_compatible: bool | None = Field(
+        default=None,
+        description=(
+            "False when engine_requirement conflicts with the scan's engine_context; null = no "
+            "evidence either way (no requirement, or no engine_context to compare against)"
+        ),
+    )
+    engine_context_source: str = Field(
+        default="none",
+        description=(
+            "Which source populated engine_context this record was checked against: 'detected' "
+            "(actually-installed runtime), 'declared' (manifest floor), or 'none'"
+        ),
+    )
     rejected_candidates: list[RejectedCandidateExport] = Field(
         default_factory=list,
         description=(
@@ -777,6 +822,9 @@ class TransitivePackageMetrics(BaseModel):
             recommended_module_system=(
                 first.recommended_module_system.value if first.recommended_module_system else None
             ),
+            engine_requirement=first.engine_requirement,
+            engine_compatible=first.engine_compatible,
+            engine_context_source=first.engine_context_source.value,
             rejected_candidates=[
                 RejectedCandidateExport(version=rc.version, reason=rc.reason) for rc in first.rejected_candidates
             ],

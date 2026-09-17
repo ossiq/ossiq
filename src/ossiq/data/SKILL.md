@@ -164,3 +164,30 @@ widening the manifest's declared range first (`==1.10.13` admits nothing past
 1.10.13, so `1.10.26` needs a wider specifier, not just a straight rewrite of the
 pin). `ossiq update`/`ossiq apply` will not write such an entry on their own —
 widen the constraint by hand, then re-run the command.
+
+### Engine/runtime compatibility
+
+`to` also routes around a package version whose declared runtime requirement (npm `engines.node`,
+PyPI `requires-python`) conflicts with the runtime actually checked, the same way it routes around
+a module-system break — `engine_requirement`/`engine_compatible`/`engine_context_source` report the
+result for whichever version `to` ended up being:
+
+```json
+{
+  "package": "some-pkg",
+  "to": "1.1.0",
+  "engine_requirement": {"node": ">=16.0.0"},
+  "engine_compatible": true,
+  "engine_context_source": "detected",
+  "reasons": []
+}
+```
+
+`engine_context_source` says what `engine_compatible` was checked against: `"detected"` means OSS
+IQ actually found the installed Python/Node on this machine (`.venv`, `.python-version`, or a
+`node --version` probe — disable with `--no-probe-runtime`); `"declared"` falls back to the
+project's own manifest floor (`engines.node`/`requires-python`) when nothing could be detected;
+`"none"` means neither was available, and `engine_compatible` is `null` in that case — absence of
+evidence, not evidence of compatibility. When every reachable version conflicts, `to` still lands
+on the newest one and `engine_compatible: false` names the concrete requirement and what was
+detected instead of leaving it a silent runtime failure.

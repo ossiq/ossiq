@@ -12,7 +12,12 @@ from ossiq.adapters.api_interfaces import AbstractPackageRegistryApi
 from ossiq.adapters.api_pypi import PackageRegistryApiPypi
 from ossiq.adapters.detectors import is_git_hosted_source
 from ossiq.adapters.package_managers.dependency_tree import GraphExporter
-from ossiq.domain.common import DataCompleteness, DataSourceStatus, RepositoryProvider
+from ossiq.adapters.runtime_environment import (
+    detect_actual_node_version,
+    detect_actual_npm_cli_version,
+    detect_actual_python_version,
+)
+from ossiq.domain.common import DataCompleteness, DataSourceStatus, EngineContextSource, RepositoryProvider
 from ossiq.domain.exceptions import ProjectPathNotFoundError
 from ossiq.domain.package import Package
 from ossiq.domain.project import Dependency
@@ -404,6 +409,7 @@ def solve_transitive_phase(
     now: datetime | None,
     *,
     project_declares_esm: bool = False,
+    engine_context_source: EngineContextSource = EngineContextSource.NONE,
 ) -> None:
     """Pass 1.6: run the HPDR solver over transitive deps and apply its output in place.
 
@@ -438,13 +444,15 @@ def solve_transitive_phase(
     if transitive_output.recommendations:
         # The only finalization point for a transitive record's recommendation in this pipeline
         # (direct records get a further pass in apply_update_strategy) - resolve
-        # recommended_module_system/breaking_change here so it isn't silently left null.
+        # recommended_module_system/breaking_change/engine_* here so it isn't silently left null.
         apply_recommendations(
             transitive_packages,
             transitive_output,
             skip_current=True,
             registry=sources.packages_registry,
             project_declares_esm=project_declares_esm,
+            engine_context=engine_context,
+            engine_context_source=engine_context_source,
         )
 
 
@@ -483,7 +491,21 @@ def scan(
         # Transitive records built first — the Phase 4c validator needs them to assess impacts.
         transitive_packages = build_records(descriptors.trans_deps, sources.packages_registry, prefetched, now=now)
 
-        engine_context = project_info.engine_constraints or {}
+        actual_engine_context: dict[str, str] = {}
+        if sources.settings.probe_runtime:
+            if py_version := detect_actual_python_version(sources.project_path):
+                actual_engine_context["python"] = py_version
+            if node_version := detect_actual_node_version():
+                actual_engine_context["node"] = node_version
+        engine_context = actual_engine_context or (project_info.engine_constraints or {})
+        engine_context_source = (
+            EngineContextSource.DETECTED
+            if actual_engine_context
+            else EngineContextSource.DECLARED
+            if project_info.engine_constraints
+            else EngineContextSource.NONE
+        )
+        npm_cli_version = detect_actual_npm_cli_version() if sources.settings.probe_runtime else None
         installed_version_by_name = {
             dep.canonical_name: dep.version for dep in descriptors.prod_deps + descriptors.opt_deps
         }
@@ -509,6 +531,7 @@ def scan(
             solver_output,
             now,
             project_declares_esm=project_info.declares_esm,
+            engine_context_source=engine_context_source,
         )
 
         all_records = production_packages + optional_packages + transitive_packages
@@ -533,6 +556,8 @@ def scan(
             now=now,
             validator=simulate_recommendation,
             project_declares_esm=project_info.declares_esm,
+            engine_context=engine_context,
+            engine_context_source=engine_context_source,
         )
 
         upgrade_paths = compute_upgrade_paths(project_info, sources.packages_registry)
@@ -550,4 +575,7 @@ def scan(
             project_stability=project_stability,
             data_completeness=prefetched.data_completeness,
             declares_esm=project_info.declares_esm,
+            engine_context=engine_context,
+            engine_context_source=engine_context_source,
+            npm_cli_version=npm_cli_version,
         )
