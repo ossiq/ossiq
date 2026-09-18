@@ -191,3 +191,51 @@ project's own manifest floor (`engines.node`/`requires-python`) when nothing cou
 evidence, not evidence of compatibility. When every reachable version conflicts, `to` still lands
 on the newest one and `engine_compatible: false` names the concrete requirement and what was
 detected instead of leaving it a silent runtime failure.
+
+## Before applying an update to a specific version
+
+`to` above is OSS IQ's own recommendation. If you (or the user) want to go to a *different*
+version — one `ossiq status`/`ossiq_evaluate_updates` didn't propose — check it first instead of
+discovering a break via test failure:
+
+```bash
+uvx ossiq update-context <package> <project_path> --to <version>
+```
+
+or, over MCP, `ossiq_update_context` with `{"package": ..., "target_version": ...}`. `target_version`
+is optional and defaults to the recommended version, so the same call also works as "explain the
+recommendation in detail" with no `--to` at all.
+
+Example — asking about `chalk 6.0.0` on a CommonJS project that's currently on `4.1.2`:
+
+```json
+{
+  "package": "chalk",
+  "registry": "npm",
+  "from_version": "4.1.2",
+  "to_version": "6.0.0",
+  "module_system": {"from": "cjs", "to": "esm-only", "project_declares_esm": false},
+  "breaking_change": "ESM-only from 5.0.0",
+  "latest_compatible_major": "4.1.2",
+  "engine": {
+    "requirement": {"node": ">=20.19.0"},
+    "context_version": "20.11.0",
+    "context_source": "detected",
+    "compatible": false
+  },
+  "npm_cli_version": "10.2.4",
+  "rejected_candidates": [{"version": "5.0.0", "reason": "ESM-only from 5.0.0"}]
+}
+```
+
+This says: going to `6.0.0` hits the same ESM-only break as `5.0.0` (`module_system.to`), and
+separately its `engines.node` requirement (`>=20.19.0`) is newer than what's actually installed
+locally (`20.11.0`) — two independent reasons this specific version is risky, neither of which
+`recommended_version` alone would have surfaced for an arbitrary target. `latest_compatible_major`
+(`4.1.2`) is where `recommended_version` would fall back to instead. `rejected_candidates` lists
+versions at or below the requested target that a normal scan already rejected along the way — use
+it for "what else already failed on the path here", not as an exhaustive audit of every release.
+
+For a package not yet installed, `from_version` is `null` and the payload otherwise has the same
+shape — useful for previewing a brand-new dependency's own module-system/engine story before
+adding it.
