@@ -73,6 +73,13 @@ class ExportMetadata(BaseModel):
         default_factory=DataCompletenessExport,
         description="B4: per-source data-source status for this scan",
     )
+    warnings: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Non-fatal problems found while assembling the project's sources, e.g. a tree "
+            "containing more than one package registry"
+        ),
+    )
 
     @field_serializer("export_timestamp")
     def serialize_timestamp(self, dt: datetime) -> str:
@@ -238,7 +245,121 @@ def engagement_buckets(stability: RepositoryStability | None) -> list[list[int]]
     ]
 
 
-class PackageMetrics(BaseModel):
+class LadderFields(BaseModel):
+    """The version-ladder rungs, shared verbatim by direct and transitive package metrics.
+
+    Declared once so the two can't drift — they already had: one copy said "Absent when
+    undeterminable" where the other said "Null only when undeterminable", for the same field with
+    the same semantics.
+    """
+
+    latest_in_range: str | None = Field(
+        default=None,
+        description=(
+            "Newest installable version satisfying version_constraint; equals installed_version "
+            "when the declared range admits nothing newer. Null only when undeterminable — e.g. "
+            "the range is satisfiable only below installed_version (manifest/lockfile divergence)."
+        ),
+    )
+    latest_in_major: str | None = Field(
+        default=None,
+        description=(
+            "Newest installable version sharing installed_version's major line (PEP 440 epoch + "
+            "first release segment on PyPI; semver major on npm); equals installed_version when "
+            "the major line is exhausted. Null only when undeterminable."
+        ),
+    )
+    latest_compatible_major: str | None = Field(
+        default=None,
+        description=(
+            "Newest installable version among majors >= installed_version's major that carries no "
+            "known module-system/API break; diverges from latest_in_major when a clean major sits "
+            "between installed_version and a known break. Null only when undeterminable."
+        ),
+    )
+
+
+class CompatibilityFields(BaseModel):
+    """Module-system and engine facts about the installed and recommended versions.
+
+    Mirrors the cluster `service.project.target_facts` writes onto a ScanRecord, minus
+    `breaking_change`, which only direct metrics carry.
+    """
+
+    module_system: str | None = Field(
+        default=None,
+        description=(
+            "installed_version's own module format: 'esm-only', 'cjs' or 'dual' (npm only; always null on PyPI)"
+        ),
+    )
+    recommended_module_system: str | None = Field(
+        default=None,
+        description="recommended_version's own module format; null whenever recommended_version is null or PyPI",
+    )
+    engine_requirement: dict[str, str] | None = Field(
+        default=None,
+        description=(
+            "recommended_version's own runtime requirement, e.g. {'node': '>=20.19.0'}; null when "
+            "recommended_version is null or declares no engine requirement"
+        ),
+    )
+    engine_compatible: bool | None = Field(
+        default=None,
+        description=(
+            "False when engine_requirement conflicts with the scan's engine_context; null = no "
+            "evidence either way (no requirement, or no engine_context to compare against)"
+        ),
+    )
+
+
+class StrategySelectionExport(BaseModel):
+    """The update-strategy selector's verdict for one package.
+
+    Nested rather than four flattened `strategy_*` fields, each of which needed its own
+    `if record.strategy_selection else <default>` guard at the call site — same shape
+    DataCompletenessExport already uses.
+    """
+
+    motives: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Motives admitted at the run's update-strategy tier for this package: "
+            "exploitable_cve, suppressed_cve, end_of_life, drift. Empty when nothing was admitted"
+        ),
+    )
+    withheld_reason: str | None = Field(
+        default=None,
+        description=(
+            "Set only when no motive was admitted at the run's tier — names the lowest tier that "
+            "would move this package"
+        ),
+    )
+    requires_widening: bool = Field(
+        default=False,
+        description="Whether recommended_version sits outside version_constraint under the run's strategy",
+    )
+    escalation: str | None = Field(
+        default=None,
+        description=(
+            "Set when the strategy reached past its tier's base ceiling, or every reachable "
+            "version still carries a qualifying CVE"
+        ),
+    )
+
+    @classmethod
+    def from_domain(cls, selection) -> "StrategySelectionExport | None":
+        """Build from a StrategySelection, or None when the selector never ran for this record."""
+        if selection is None:
+            return None
+        return cls(
+            motives=sorted(m.value for m in selection.motives),
+            withheld_reason=selection.withheld_reason,
+            requires_widening=selection.requires_widening,
+            escalation=selection.escalation,
+        )
+
+
+class PackageMetrics(LadderFields, CompatibilityFields):
     """Metrics for a single package (schema v1.0–1.2)."""
 
     package_name: str = Field(description="Package name (canonical registry name)")
@@ -308,66 +429,11 @@ class PackageMetrics(BaseModel):
         default=None,
         description="Solver-recommended version; None when the package is already at the optimal version",
     )
-    latest_in_range: str | None = Field(
-        default=None,
-        description=(
-            "Newest installable version satisfying version_constraint; equals installed_version "
-            "when the declared range admits nothing newer. Null only when undeterminable — e.g. "
-            "the range is satisfiable only below installed_version (manifest/lockfile divergence)."
-        ),
-    )
-    latest_in_major: str | None = Field(
-        default=None,
-        description=(
-            "Newest installable version sharing installed_version's major line (PEP 440 epoch + "
-            "first release segment on PyPI; semver major on npm); equals installed_version when "
-            "the major line is exhausted. Null only when undeterminable."
-        ),
-    )
-    latest_compatible_major: str | None = Field(
-        default=None,
-        description=(
-            "Newest installable version among majors >= installed_version's major that carries no "
-            "known module-system/API break; diverges from latest_in_major when a clean major sits "
-            "between installed_version and a known break. Null only when undeterminable."
-        ),
-    )
-    module_system: str | None = Field(
-        default=None,
-        description=(
-            "installed_version's own module format: 'esm-only', 'cjs' or 'dual' (npm only; always null on PyPI)"
-        ),
-    )
-    recommended_module_system: str | None = Field(
-        default=None,
-        description="recommended_version's own module format; null whenever recommended_version is null or PyPI",
-    )
     breaking_change: str | None = Field(
         default=None,
         description=(
             "Reason recommended_version is flagged as a known module-system/API break, e.g. "
             "'ESM-only from 5.0.0'; null when no known break applies"
-        ),
-    )
-    engine_requirement: dict[str, str] | None = Field(
-        default=None,
-        description=(
-            "recommended_version's own runtime requirement, e.g. {'node': '>=20.19.0'}; null when "
-            "recommended_version is null or declares no engine requirement"
-        ),
-    )
-    engine_compatible: bool | None = Field(
-        default=None,
-        description=(
-            "False when engine_requirement conflicts with the scan's engine_context; null = no "
-            "evidence either way (no requirement, or no engine_context to compare against)"
-        ),
-    )
-    engine_context_source: str = Field(
-        default="none",
-        description=(
-            "Which source populated engine_context this record was checked against: 'detected' "
-            "(actually-installed runtime), 'declared' (manifest floor), or 'none'"
         ),
     )
     recommended_from_rung: str | None = Field(
@@ -460,27 +526,9 @@ class PackageMetrics(BaseModel):
         default=None,
         description="Recommended action from the EPSS x maintenance matrix: evict, patch, refactor or retain",
     )
-    strategy_motives: list[str] = Field(
-        default_factory=list,
-        description=(
-            "Motives admitted at the run's update-strategy tier for this package: "
-            "exploitable_cve, suppressed_cve, end_of_life, drift. Empty when nothing was admitted"
-        ),
-    )
-    strategy_withheld_reason: str | None = Field(
+    strategy: StrategySelectionExport | None = Field(
         default=None,
-        description=(
-            "Set only when no motive was admitted at the run's tier — names the lowest tier that "
-            "would move this package"
-        ),
-    )
-    strategy_requires_widening: bool = Field(
-        default=False,
-        description="Whether recommended_version sits outside version_constraint under the run's strategy",
-    )
-    strategy_escalation: str | None = Field(
-        default=None,
-        description="Set when the strategy reached past its tier's base ceiling, or every reachable version still carries a qualifying CVE",  # noqa: E501
+        description="The update-strategy selector's verdict for this package; null when it never ran",
     )
 
     @field_serializer(
@@ -500,6 +548,7 @@ class PackageMetrics(BaseModel):
     @classmethod
     def from_domain(cls, record) -> "PackageMetrics":
         """Convert domain ScanRecord to export model."""
+        facts = record.compatibility
         return cls(
             package_name=record.package_name,
             dependency_name=record.dependency_name,
@@ -526,17 +575,16 @@ class PackageMetrics(BaseModel):
             ),
             extras=record.extras,
             recommended_version=record.recommended_version,
-            latest_in_range=record.latest_in_range,
-            latest_in_major=record.latest_in_major,
-            latest_compatible_major=record.latest_compatible_major,
-            module_system=record.module_system.value if record.module_system else None,
+            latest_in_range=facts.latest_in_range,
+            latest_in_major=facts.latest_in_major,
+            latest_compatible_major=facts.latest_compatible_major,
+            module_system=facts.module_system.value if facts.module_system else None,
             recommended_module_system=(
-                record.recommended_module_system.value if record.recommended_module_system else None
+                facts.recommended_module_system.value if facts.recommended_module_system else None
             ),
-            breaking_change=record.breaking_change,
-            engine_requirement=record.engine_requirement,
-            engine_compatible=record.engine_compatible,
-            engine_context_source=record.engine_context_source.value,
+            breaking_change=facts.breaking_change,
+            engine_requirement=facts.engine_requirement,
+            engine_compatible=facts.engine_compatible,
             recommended_from_rung=record.recommended_from_rung.value if record.recommended_from_rung else None,
             update_transitive_impacts=[
                 TransitiveImpactExport(
@@ -560,14 +608,7 @@ class PackageMetrics(BaseModel):
             epss=record.epss,
             runs_code_at_install=record.runs_code_at_install,
             install_execution_reason=record.install_execution_reason,
-            strategy_motives=(
-                sorted(m.value for m in record.strategy_selection.motives) if record.strategy_selection else []
-            ),
-            strategy_withheld_reason=record.strategy_selection.withheld_reason if record.strategy_selection else None,
-            strategy_requires_widening=(
-                record.strategy_selection.requires_widening if record.strategy_selection else False
-            ),
-            strategy_escalation=record.strategy_selection.escalation if record.strategy_selection else None,
+            strategy=StrategySelectionExport.from_domain(record.strategy_selection),
             **stability_export_fields(record),
         )
 
@@ -624,7 +665,7 @@ class DependencyTreeRoot(BaseModel):
         return {k: v for k, v in d.items() if not (v is None or (isinstance(v, list) and len(v) == 0))}
 
 
-class TransitivePackageMetrics(BaseModel):
+class TransitivePackageMetrics(LadderFields, CompatibilityFields):
     """
     Metrics for a transitive package (schema v1.3+).
 
@@ -640,60 +681,6 @@ class TransitivePackageMetrics(BaseModel):
     )
     installed_version: str = Field(description="Currently installed version")
     latest_version: str | None = Field(description="Latest available version")
-    latest_in_range: str | None = Field(
-        default=None,
-        description=(
-            "Newest installable version satisfying this dependency's effective constraint; "
-            "equals installed_version when the range admits nothing newer. Absent when "
-            "undeterminable."
-        ),
-    )
-    latest_in_major: str | None = Field(
-        default=None,
-        description=(
-            "Newest installable version sharing installed_version's major line; equals "
-            "installed_version when the major line is exhausted. Absent when undeterminable."
-        ),
-    )
-    latest_compatible_major: str | None = Field(
-        default=None,
-        description=(
-            "Newest installable version among majors >= installed_version's major that carries no "
-            "known module-system/API break; diverges from latest_in_major when a clean major sits "
-            "between installed_version and a known break. Null only when undeterminable."
-        ),
-    )
-    module_system: str | None = Field(
-        default=None,
-        description=(
-            "installed_version's own module format: 'esm-only', 'cjs' or 'dual' (npm only; always null on PyPI)"
-        ),
-    )
-    recommended_module_system: str | None = Field(
-        default=None,
-        description="recommended_version's own module format; null whenever recommended_version is null or PyPI",
-    )
-    engine_requirement: dict[str, str] | None = Field(
-        default=None,
-        description=(
-            "recommended_version's own runtime requirement, e.g. {'node': '>=20.19.0'}; null when "
-            "recommended_version is null or declares no engine requirement"
-        ),
-    )
-    engine_compatible: bool | None = Field(
-        default=None,
-        description=(
-            "False when engine_requirement conflicts with the scan's engine_context; null = no "
-            "evidence either way (no requirement, or no engine_context to compare against)"
-        ),
-    )
-    engine_context_source: str = Field(
-        default="none",
-        description=(
-            "Which source populated engine_context this record was checked against: 'detected' "
-            "(actually-installed runtime), 'declared' (manifest floor), or 'none'"
-        ),
-    )
     rejected_candidates: list[RejectedCandidateExport] = Field(
         default_factory=list,
         description=(
@@ -809,22 +796,22 @@ class TransitivePackageMetrics(BaseModel):
     ) -> "TransitivePackageMetrics":
         """Build one TransitivePackageMetrics from a group of ScanRecords sharing (package_name, installed_version)."""
         first = records[0]
+        facts = first.compatibility
         return cls(
             id=idx,
             package_name=first.package_name,
             is_optional_dependency=first.is_optional_dependency,
             installed_version=first.installed_version,
             latest_version=first.latest_version,
-            latest_in_range=first.latest_in_range,
-            latest_in_major=first.latest_in_major,
-            latest_compatible_major=first.latest_compatible_major,
-            module_system=first.module_system.value if first.module_system else None,
+            latest_in_range=facts.latest_in_range,
+            latest_in_major=facts.latest_in_major,
+            latest_compatible_major=facts.latest_compatible_major,
+            module_system=facts.module_system.value if facts.module_system else None,
             recommended_module_system=(
-                first.recommended_module_system.value if first.recommended_module_system else None
+                facts.recommended_module_system.value if facts.recommended_module_system else None
             ),
-            engine_requirement=first.engine_requirement,
-            engine_compatible=first.engine_compatible,
-            engine_context_source=first.engine_context_source.value,
+            engine_requirement=facts.engine_requirement,
+            engine_compatible=facts.engine_compatible,
             rejected_candidates=[
                 RejectedCandidateExport(version=rc.version, reason=rc.reason) for rc in first.rejected_candidates
             ],
@@ -857,11 +844,54 @@ class TransitivePackageMetrics(BaseModel):
 # ── Export data containers ────────────────────────────────────────────────────
 
 
+class RuntimeContextExport(BaseModel):
+    """The runtime this scan checked engine requirements against, stated once for the whole scan.
+
+    One fact about the scan, not about each package: `engine_context_source` used to be repeated on
+    every PackageMetrics and TransitivePackageMetrics, where it had already drifted - one scan
+    reported "detected" on actionable records and "none" on the rest.
+    """
+
+    engine_versions: dict[str, str] = Field(
+        default_factory=dict,
+        description="Runtime versions every record's engine_compatible was checked against, e.g. {'node': '20.11.0'}",
+    )
+    engine_context_source: str = Field(
+        default="none",
+        description=(
+            "Which source populated engine_versions: 'detected' (actually-installed runtime), "
+            "'declared' (manifest floor), or 'none'"
+        ),
+    )
+    npm_cli_version: str | None = Field(
+        default=None,
+        description="Detected npm CLI version; display-only, null on PyPI or when not probed",
+    )
+    project_declares_esm: bool = Field(
+        default=False,
+        description='Whether the project\'s own manifest declares `"type": "module"` (npm only)',
+    )
+
+    @classmethod
+    def from_domain(cls, data: "ScanResult") -> "RuntimeContextExport":
+        """Build from a ScanResult's engine context and runtime facts."""
+        return cls(
+            engine_versions=dict(data.engine_context.versions),
+            engine_context_source=data.engine_context.source.value,
+            npm_cli_version=data.npm_cli_version,
+            project_declares_esm=data.declares_esm,
+        )
+
+
 class ExportDataBase(BaseModel):
     """Common fields shared across all export schema versions."""
 
     metadata: ExportMetadata = Field(description="Export metadata")
     project: ProjectInfo = Field(description="Project information")
+    runtime_context: RuntimeContextExport = Field(
+        default_factory=RuntimeContextExport,
+        description="The runtime this scan checked engine requirements against",
+    )
     summary: ProjectSummary = Field(description="Summary statistics")
     production_packages: list[PackageMetrics] = Field(
         default_factory=list,
@@ -980,12 +1010,14 @@ def build_export_data(
         schema_version=schema_version,
         update_strategy=update_strategy,
         data_completeness=DataCompletenessExport.from_domain(data.data_completeness),
+        warnings=list(data.source_warnings),
     )
     project = ProjectInfo(
         name=data.project_name,
         path=data.project_path,
         registry=data.packages_registry,
     )
+    runtime_context = RuntimeContextExport.from_domain(data)
     summary = ProjectSummary(
         total_packages=len(all_direct),
         production_packages=len(data.production_packages),
@@ -1010,6 +1042,7 @@ def build_export_data(
     return ExportData(
         metadata=metadata,
         project=project,
+        runtime_context=runtime_context,
         summary=summary,
         production_packages=production,
         development_packages=development,

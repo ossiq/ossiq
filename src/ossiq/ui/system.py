@@ -5,7 +5,8 @@ Presentation-related system-level functions
 import sys
 from contextlib import contextmanager
 
-from ossiq.domain.common import DataSourceStatus
+from ossiq.domain.common import DataCompleteness, DataSourceStatus, ScanStep
+from ossiq.service.project.scan import ScanProgress
 from ossiq.settings import Settings
 
 try:
@@ -23,22 +24,24 @@ except ImportError:
     console = None
     error_console = None
 
-SCAN_STEPS: list[tuple[str, str]] = [
-    ("project", "Reading project dependencies"),
-    ("packages", "Fetching package metadata"),
-    ("repositories", "Fetching repository info and activity from GitHub"),
-    ("vulnerabilities", "Checking for vulnerabilities via OSV.dev"),
-    ("epss", "Fetching EPSS scores via api.first.org"),
-    ("versions", "Analyzing version history"),
-    ("solver", "Solving dependency constraints"),
+# Display labels only - ScanStep owns the keys, and the pipeline emits them. Order is the order
+# the stepper draws, which is also the order scan() runs them in.
+SCAN_STEPS: list[tuple[ScanStep, str]] = [
+    (ScanStep.PROJECT, "Reading project dependencies"),
+    (ScanStep.PACKAGES, "Fetching package metadata"),
+    (ScanStep.REPOSITORIES, "Fetching repository info and activity from GitHub"),
+    (ScanStep.VULNERABILITIES, "Checking for vulnerabilities via OSV.dev"),
+    (ScanStep.EPSS, "Fetching EPSS scores via api.first.org"),
+    (ScanStep.VERSIONS, "Analyzing version history"),
+    (ScanStep.SOLVER, "Solving dependency constraints"),
 ]
 
-STEP_INDEX: dict[str, int] = {key: i for i, (key, _) in enumerate(SCAN_STEPS)}
+STEP_INDEX: dict[ScanStep, int] = {key: i for i, (key, _) in enumerate(SCAN_STEPS)}
 
 # B4: a step reaching completion is not the same as it succeeding. Never draw the plain green
 # checkmark for a step whose outcome we know was degraded - each status gets its own icon, color,
 # and a short suffix, so the difference is visible even skimming past quickly.
-_STEP_STATUS_ICON: dict[DataSourceStatus, tuple[str, str, str]] = {
+STEP_STATUS_ICON: dict[DataSourceStatus, tuple[str, str, str]] = {
     DataSourceStatus.OK: ("✓", "green", ""),
     DataSourceStatus.PARTIAL: ("⚠", "yellow", "  (partial — some data missing)"),
     DataSourceStatus.UNREACHABLE: ("✗", "red", "  (unreachable — no data)"),
@@ -46,18 +49,19 @@ _STEP_STATUS_ICON: dict[DataSourceStatus, tuple[str, str, str]] = {
 }
 
 
-def render_scan_steps(idx: int, step_status: dict[str, DataSourceStatus]):
+def render_scan_steps(idx: int, step_status: dict[ScanStep, DataSourceStatus]) -> "Group":
     """Build the vertical stepper display for scan step `idx` (in progress), with earlier steps
     rendered per their recorded outcome in `step_status` (ok if never reported).
 
     A standalone function (rather than a closure inside show_scan_progress) specifically so this
     rendering decision - never draw success for a degraded step - is directly testable without
-    needing a real terminal or a live Rich session.
+    needing a real terminal or a live Rich session. The return annotation is a string because
+    `Group` only exists on the branch where rich imported successfully.
     """
     rows: list = [Text("")]
     for i, (key, label) in enumerate(SCAN_STEPS):
         if i < idx:
-            icon, style, suffix = _STEP_STATUS_ICON[step_status.get(key, DataSourceStatus.OK)]
+            icon, style, suffix = STEP_STATUS_ICON[step_status.get(key, DataSourceStatus.OK)]
             rows.append(Text(f"  {icon}  {label}{suffix}", style=style))
         elif i == idx:
             rows.append(Spinner("dots", text=Text(f"  {label}", style="bold cyan")))
@@ -73,46 +77,52 @@ def show_scan_progress(settings: Settings):
     """
     Show an animated vertical stepper while a scan runs.
 
-    The yielded callback has two jobs, both keyed by the step names in SCAN_STEPS:
-      on_step(key)              - advance the spinner to this step.
-      on_step(key, status)      - record this step's final outcome (a DataSourceStatus), without
-                                   moving the spinner. Steps that never report a status render as
-                                   ok once passed - most steps (packages, versions, solver) don't
-                                   yet have a completeness signal to report.
+    Yields a `ScanProgress` whose two callbacks do two different jobs, both keyed by `ScanStep`:
+      on_step_start(step)          - advance the spinner to this step.
+      on_step_done(step, status)   - record this step's final outcome, without moving the spinner.
+                                     Steps that never report one render as ok once passed; see
+                                     ScanStep for which steps can report and why the rest can't.
 
     B4: previously a step was drawn as a green checkmark purely because the scan had moved past
     it - there was no feedback loop from whether the underlying fetch actually succeeded. That's
     why a firewalled OSV host or an exhausted GitHub quota could render a silent, confident ✓.
     """
     if settings.verbose or not RICH_AVAILABLE:
-        yield lambda key, status=None: None
+        yield ScanProgress()
         return
 
     assert error_console is not None
     current = [-1]
-    step_status: dict[str, DataSourceStatus] = {}
+    step_status: dict[ScanStep, DataSourceStatus] = {}
 
     with Live(render_scan_steps(-1, step_status), console=error_console, refresh_per_second=8) as live:
 
-        def on_step(key: str, status: DataSourceStatus | None = None) -> None:
-            if status is not None:
-                step_status[key] = status
-            else:
-                current[0] = STEP_INDEX.get(key, current[0])
+        def on_step_start(step: ScanStep) -> None:
+            current[0] = STEP_INDEX.get(step, current[0])
             live.update(render_scan_steps(current[0], step_status))
 
-        yield on_step
+        def on_step_done(step: ScanStep, status: DataSourceStatus) -> None:
+            step_status[step] = status
+            live.update(render_scan_steps(current[0], step_status))
+
+        yield ScanProgress(on_step_start=on_step_start, on_step_done=on_step_done)
         live.update(render_scan_steps(len(SCAN_STEPS), step_status))
     print("\n", file=sys.stderr)
 
-    _warn_about_degraded_steps(step_status)
+    warn_about_degraded_steps(DataCompleteness(by_step=step_status))
 
 
-def _warn_about_degraded_steps(step_status: dict[str, DataSourceStatus]) -> None:
-    """B4 point 5: the degradation must be a legible warning, not just a smaller icon someone
-    could scroll past - and not a raw Python object repr in a log line no one is watching.
+def warn_about_degraded_steps(completeness: DataCompleteness) -> None:
+    """Warn on stderr when any scan step came back degraded.
+
+    Takes the domain value rather than a bare dict so `degraded_steps` decides what counts as
+    degraded — this used to re-implement that filter as its own comprehension. A smaller icon is
+    easy to scroll past, and a log line no one is watching is not a warning at all.
+
+    Args:
+        completeness: Per-step outcomes accumulated over the scan.
     """
-    degraded = {key: status for key, status in step_status.items() if status != DataSourceStatus.OK}
+    degraded = completeness.degraded_steps
     if not degraded:
         return
     labels = dict(SCAN_STEPS)

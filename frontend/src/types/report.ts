@@ -6,7 +6,7 @@
  */
 
 /**
- * Schema for OSS-IQ project metrics export data (v1.5 adds epss to PackageMetrics, TransitivePackageMetrics and CVEInfo, runs_code_at_install/install_execution_reason to PackageMetrics and TransitivePackageMetrics, fix_age_days to CVEInfo, project_epss/packages_with_epss/packages_with_unscored_cves to summary, declares update_transitive_impacts, and replaces the phi_i/phi_p/phi_a CSI channels with the maintenance-state model: maintenance_state, maintenance_risk, maintenance_coverage, flow_trend, engagement_buckets, deprecation_signals and deprecation_successor on PackageMetrics and TransitivePackageMetrics, and packages_unmaintained/packages_deprecated on summary; and adds latest_compatible_major, module_system, recommended_module_system to PackageMetrics and TransitivePackageMetrics, and breaking_change to PackageMetrics; and adds engine_requirement, engine_compatible, engine_context_source to PackageMetrics and TransitivePackageMetrics)
+ * Schema for OSS-IQ project metrics export data (v1.5 adds epss to PackageMetrics, TransitivePackageMetrics and CVEInfo, runs_code_at_install/install_execution_reason to PackageMetrics and TransitivePackageMetrics, fix_age_days to CVEInfo, project_epss/packages_with_epss/packages_with_unscored_cves to summary, declares update_transitive_impacts, and replaces the phi_i/phi_p/phi_a CSI channels with the maintenance-state model: maintenance_state, maintenance_risk, maintenance_coverage, flow_trend, engagement_buckets, deprecation_signals and deprecation_successor on PackageMetrics and TransitivePackageMetrics, and packages_unmaintained/packages_deprecated on summary; and adds latest_compatible_major, module_system, recommended_module_system to PackageMetrics and TransitivePackageMetrics, and breaking_change to PackageMetrics; and adds engine_requirement, engine_compatible, engine_context_source to PackageMetrics and TransitivePackageMetrics; and adds metadata.warnings and a scan-level runtime_context block, moving engine_context_source off the per-package models)
  */
 export interface OSSIQExportSchemaV15 {
   /**
@@ -43,6 +43,34 @@ export interface OSSIQExportSchemaV15 {
       }[];
       [k: string]: unknown;
     };
+    /**
+     * Non-fatal problems found while assembling the project's sources, e.g. a tree containing more than one package registry
+     */
+    warnings?: string[];
+    [k: string]: unknown;
+  };
+  /**
+   * The runtime this scan checked engine requirements against, stated once for the whole scan
+   */
+  runtime_context?: {
+    /**
+     * Runtime versions every record's engine_compatible was checked against, e.g. {'node': '20.11.0'}
+     */
+    engine_versions?: {
+      [k: string]: string;
+    };
+    /**
+     * Which source populated engine_versions: 'detected' (actually-installed runtime), 'declared' (manifest floor), or 'none'
+     */
+    engine_context_source?: "detected" | "declared" | "none";
+    /**
+     * Detected npm CLI version; display-only, null on PyPI or when not probed
+     */
+    npm_cli_version?: string | null;
+    /**
+     * Whether the project's own manifest declares `"type": "module"` (npm only)
+     */
+    project_declares_esm?: boolean;
     [k: string]: unknown;
   };
   /**
@@ -269,10 +297,6 @@ export interface PackageMetrics {
    */
   engine_compatible?: boolean | null;
   /**
-   * Which source populated engine_context this record was checked against: 'detected' (actually-installed runtime), 'declared' (manifest floor), or 'none'
-   */
-  engine_context_source?: "detected" | "declared" | "none";
-  /**
    * Which version-ladder rung recommended_version came from: 'solver' or 'in_range' sit inside version_constraint and are safe to write as-is; 'in_major' or 'latest' require widening version_constraint first. Null only when recommended_version is null.
    */
   recommended_from_rung?: "solver" | "in_range" | "in_major" | "latest" | null;
@@ -377,21 +401,9 @@ export interface PackageMetrics {
    */
   triage_action?: "evict" | "patch" | "refactor" | "retain" | null;
   /**
-   * Motives admitted at the run's update-strategy tier for this package: exploitable_cve, suppressed_cve, end_of_life, drift. Empty when nothing was admitted
+   * The update-strategy selector's verdict for this package; null when it never ran
    */
-  strategy_motives?: string[];
-  /**
-   * Set only when no motive was admitted at the run's tier — names the lowest tier that would move this package
-   */
-  strategy_withheld_reason?: string | null;
-  /**
-   * Whether recommended_version sits outside version_constraint under the run's strategy
-   */
-  strategy_requires_widening?: boolean;
-  /**
-   * Set when the strategy reached past its tier's base ceiling, or every reachable version still carries a qualifying CVE
-   */
-  strategy_escalation?: string | null;
+  strategy?: StrategySelectionExport | null;
   [k: string]: unknown;
 }
 /**
@@ -497,6 +509,28 @@ export interface RejectedCandidateExport {
   [k: string]: unknown;
 }
 /**
+ * The update-strategy selector's verdict for one package
+ */
+export interface StrategySelectionExport {
+  /**
+   * Motives admitted at the run's update-strategy tier for this package: exploitable_cve, suppressed_cve, end_of_life, drift. Empty when nothing was admitted
+   */
+  motives?: string[];
+  /**
+   * Set only when no motive was admitted at the run's tier — names the lowest tier that would move this package
+   */
+  withheld_reason?: string | null;
+  /**
+   * Whether recommended_version sits outside version_constraint under the run's strategy
+   */
+  requires_widening?: boolean;
+  /**
+   * Set when the strategy reached past its tier's base ceiling, or every reachable version still carries a qualifying CVE
+   */
+  escalation?: string | null;
+  [k: string]: unknown;
+}
+/**
  * Metrics for a transitive package, deduplicated by (package_name, installed_version); path and constraint data lives in dependency_tree
  */
 export interface TransitivePackageMetrics {
@@ -521,11 +555,11 @@ export interface TransitivePackageMetrics {
    */
   latest_version?: string | null;
   /**
-   * Newest installable version satisfying this dependency's effective constraint; equals installed_version when the range admits nothing newer. Absent when undeterminable.
+   * Newest installable version satisfying version_constraint; equals installed_version when the declared range admits nothing newer. Null only when undeterminable — e.g. the range is satisfiable only below installed_version (manifest/lockfile divergence).
    */
   latest_in_range?: string | null;
   /**
-   * Newest installable version sharing installed_version's major line; equals installed_version when the major line is exhausted. Absent when undeterminable.
+   * Newest installable version sharing installed_version's major line (PEP 440 epoch + first release segment on PyPI; semver major on npm); equals installed_version when the major line is exhausted. Null only when undeterminable.
    */
   latest_in_major?: string | null;
   /**
@@ -550,10 +584,6 @@ export interface TransitivePackageMetrics {
    * False when engine_requirement conflicts with the scan's engine_context; null = no evidence either way (no requirement, or no engine_context to compare against)
    */
   engine_compatible?: boolean | null;
-  /**
-   * Which source populated engine_context this record was checked against: 'detected' (actually-installed runtime), 'declared' (manifest floor), or 'none'
-   */
-  engine_context_source?: "detected" | "declared" | "none";
   /**
    * Releases that would have been the recommendation but were held back by a requires-consistency conflict; capped at one per ladder rung
    */

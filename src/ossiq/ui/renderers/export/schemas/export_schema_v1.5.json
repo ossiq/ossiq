@@ -2,7 +2,7 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://ossiq.org/schemas/export/v1.5.json",
   "title": "OSS-IQ Export Schema v1.5",
-  "description": "Schema for OSS-IQ project metrics export data (v1.5 adds epss to PackageMetrics, TransitivePackageMetrics and CVEInfo, runs_code_at_install/install_execution_reason to PackageMetrics and TransitivePackageMetrics, fix_age_days to CVEInfo, project_epss/packages_with_epss/packages_with_unscored_cves to summary, declares update_transitive_impacts, and replaces the phi_i/phi_p/phi_a CSI channels with the maintenance-state model: maintenance_state, maintenance_risk, maintenance_coverage, flow_trend, engagement_buckets, deprecation_signals and deprecation_successor on PackageMetrics and TransitivePackageMetrics, and packages_unmaintained/packages_deprecated on summary; and adds latest_compatible_major, module_system, recommended_module_system to PackageMetrics and TransitivePackageMetrics, and breaking_change to PackageMetrics; and adds engine_requirement, engine_compatible, engine_context_source to PackageMetrics and TransitivePackageMetrics)",
+  "description": "Schema for OSS-IQ project metrics export data (v1.5 adds epss to PackageMetrics, TransitivePackageMetrics and CVEInfo, runs_code_at_install/install_execution_reason to PackageMetrics and TransitivePackageMetrics, fix_age_days to CVEInfo, project_epss/packages_with_epss/packages_with_unscored_cves to summary, declares update_transitive_impacts, and replaces the phi_i/phi_p/phi_a CSI channels with the maintenance-state model: maintenance_state, maintenance_risk, maintenance_coverage, flow_trend, engagement_buckets, deprecation_signals and deprecation_successor on PackageMetrics and TransitivePackageMetrics, and packages_unmaintained/packages_deprecated on summary; and adds latest_compatible_major, module_system, recommended_module_system to PackageMetrics and TransitivePackageMetrics, and breaking_change to PackageMetrics; and adds engine_requirement, engine_compatible, engine_context_source to PackageMetrics and TransitivePackageMetrics; and adds metadata.warnings and a scan-level runtime_context block, moving engine_context_source off the per-package models)",
   "type": "object",
   "required": [
     "metadata",
@@ -76,6 +76,46 @@
               }
             }
           }
+        },
+        "warnings": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Non-fatal problems found while assembling the project's sources, e.g. a tree containing more than one package registry"
+        }
+      }
+    },
+    "runtime_context": {
+      "type": "object",
+      "description": "The runtime this scan checked engine requirements against, stated once for the whole scan",
+      "properties": {
+        "engine_versions": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Runtime versions every record's engine_compatible was checked against, e.g. {'node': '20.11.0'}"
+        },
+        "engine_context_source": {
+          "type": "string",
+          "enum": [
+            "detected",
+            "declared",
+            "none"
+          ],
+          "description": "Which source populated engine_versions: 'detected' (actually-installed runtime), 'declared' (manifest floor), or 'none'"
+        },
+        "npm_cli_version": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Detected npm CLI version; display-only, null on PyPI or when not probed"
+        },
+        "project_declares_esm": {
+          "type": "boolean",
+          "description": "Whether the project's own manifest declares `\"type\": \"module\"` (npm only)"
         }
       }
     },
@@ -332,14 +372,14 @@
             "string",
             "null"
           ],
-          "description": "Newest installable version satisfying this dependency's effective constraint; equals installed_version when the range admits nothing newer. Absent when undeterminable."
+          "description": "Newest installable version satisfying version_constraint; equals installed_version when the declared range admits nothing newer. Null only when undeterminable \u2014 e.g. the range is satisfiable only below installed_version (manifest/lockfile divergence)."
         },
         "latest_in_major": {
           "type": [
             "string",
             "null"
           ],
-          "description": "Newest installable version sharing installed_version's major line; equals installed_version when the major line is exhausted. Absent when undeterminable."
+          "description": "Newest installable version sharing installed_version's major line (PEP 440 epoch + first release segment on PyPI; semver major on npm); equals installed_version when the major line is exhausted. Null only when undeterminable."
         },
         "latest_compatible_major": {
           "type": [
@@ -378,15 +418,6 @@
             "null"
           ],
           "description": "False when engine_requirement conflicts with the scan's engine_context; null = no evidence either way (no requirement, or no engine_context to compare against)"
-        },
-        "engine_context_source": {
-          "type": "string",
-          "enum": [
-            "detected",
-            "declared",
-            "none"
-          ],
-          "description": "Which source populated engine_context this record was checked against: 'detected' (actually-installed runtime), 'declared' (manifest floor), or 'none'"
         },
         "rejected_candidates": {
           "type": "array",
@@ -894,15 +925,6 @@
           ],
           "description": "False when engine_requirement conflicts with the scan's engine_context; null = no evidence either way (no requirement, or no engine_context to compare against)"
         },
-        "engine_context_source": {
-          "type": "string",
-          "enum": [
-            "detected",
-            "declared",
-            "none"
-          ],
-          "description": "Which source populated engine_context this record was checked against: 'detected' (actually-installed runtime), 'declared' (manifest floor), or 'none'"
-        },
         "recommended_from_rung": {
           "type": [
             "string",
@@ -1120,25 +1142,42 @@
           ],
           "description": "Recommended action from the EPSS x maintenance matrix"
         },
-        "strategy_motives": {
+        "strategy": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/StrategySelectionExport"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The update-strategy selector's verdict for this package; null when it never ran"
+        }
+      }
+    },
+    "StrategySelectionExport": {
+      "type": "object",
+      "description": "The update-strategy selector's verdict for one package",
+      "properties": {
+        "motives": {
           "type": "array",
           "items": {
             "type": "string"
           },
           "description": "Motives admitted at the run's update-strategy tier for this package: exploitable_cve, suppressed_cve, end_of_life, drift. Empty when nothing was admitted"
         },
-        "strategy_withheld_reason": {
+        "withheld_reason": {
           "type": [
             "string",
             "null"
           ],
-          "description": "Set only when no motive was admitted at the run's tier \u2014 names the lowest tier that would move this package"
+          "description": "Set only when no motive was admitted at the run's tier — names the lowest tier that would move this package"
         },
-        "strategy_requires_widening": {
+        "requires_widening": {
           "type": "boolean",
           "description": "Whether recommended_version sits outside version_constraint under the run's strategy"
         },
-        "strategy_escalation": {
+        "escalation": {
           "type": [
             "string",
             "null"
