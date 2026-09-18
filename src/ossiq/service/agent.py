@@ -8,10 +8,19 @@ decision an AI agent can act on directly.
 
 from typing import Any
 
+from ossiq.adapters.api_interfaces import AbstractPackageRegistryApi
+from ossiq.domain.common import (
+    ENGINE_CONTEXT_KEY_BY_REGISTRY,
+    WIDENING_RUNGS,
+    DataCompleteness,
+    EngineContext,
+)
+from ossiq.domain.compatibility import CompatibilityFacts
 from ossiq.domain.cve import CVE
-from ossiq.domain.version import VERSION_DIFF_MAJOR, VERSION_DIFF_MINOR, VERSION_DIFF_PATCH
+from ossiq.domain.version import VERSION_DIFF_MAJOR, VERSION_DIFF_MINOR, VERSION_DIFF_PATCH, PackageVersion
 from ossiq.risk.maintenance import NOT_MAINTAINED
 from ossiq.service.package import PackageDetailResult
+from ossiq.service.project.breaking_changes import compute_latest_compatible_major, module_system_label
 from ossiq.service.project.models import ScanRecord, ScanResult
 from ossiq.service.project.next_action import (
     CHECK_FOR_THE_FIX,
@@ -20,10 +29,12 @@ from ossiq.service.project.next_action import (
     FIND_ALTERNATIVE,
     NEXT_ACTION_PRIORITY,
     UPDATE_IMMEDIATELY,
+    engine_mismatch_summary,
     has_in_range_upgrade,
     next_action_label,
 )
 from ossiq.service.update_impact import TransitiveImpact
+from ossiq.solver.version_matchers import engine_compatibility
 
 # JSON-ready decision shape. The output is JSON, so a plain dict is the natural
 # (and lazy) carrier; the type alias documents intent without a dataclass.
@@ -51,12 +62,12 @@ def build_add_decide(detail: PackageDetailResult, requested_version: str | None 
     insight = detail.insight
     recommended = insight.recommended_version if insight else None
     latest = insight.latest_version if insight else None
+    first = detail.records[0] if detail.records else None
 
     if detail.is_prospective:
         cves = detail.prospective_cves
         package_name = detail.prospective_name or ""
     else:
-        first = detail.records[0] if detail.records else None
         cves = first.cve if first else []
         package_name = first.package_name if first else ""
 
@@ -76,12 +87,21 @@ def build_add_decide(detail: PackageDetailResult, requested_version: str | None 
     else:
         next_action = INSTALL
 
+    # An empty CompatibilityFacts for the prospective case keeps the three ladder keys present and
+    # null, rather than making each one carry its own guard.
+    ladder = first.compatibility if (not detail.is_prospective and first) else CompatibilityFacts()
+
     result: AgentDecision = {
         "operation": "add",
         "registry": detail.packages_registry.lower(),
         "package": package_name,
         "next_action": next_action,
         "recommended_version": recommended,
+        # A prospective add has no declared constraint yet, so the ladder is meaningless — only
+        # populated for a package already installed in the project.
+        "latest_in_range": ladder.latest_in_range,
+        "latest_in_major": ladder.latest_in_major,
+        "latest_compatible_major": ladder.latest_compatible_major,
         "reasons": reasons,
         "cves": [cve_summary(cve) for cve in cves],
         "warnings": [warning.rule_id for warning in detail.warnings],
@@ -157,8 +177,17 @@ def agent_next_action(record: ScanRecord) -> str:
     return label or UPDATE_IMMEDIATELY
 
 
-def build_update_entry(record: ScanRecord) -> dict[str, Any] | None:
-    """Build one update entry, or None when the package needs no action."""
+def build_update_entry(record: ScanRecord, engine_context: EngineContext | None = None) -> dict[str, Any]:
+    """Build one update entry for a direct dependency.
+
+    B7: every direct dependency gets an entry, even when nothing needs to change. Previously a
+    package that cleared none of the actionability checks below was omitted entirely - but an
+    agent reading the response has no way to tell "this package is fine" from "this package was
+    never analysed" when an entry is simply missing. "Nothing to change" is now an explicit
+    per-package statement (next_action=NO_ACTION, empty reasons) instead of an omission.
+    """
+    engine_context = engine_context or EngineContext()
+    facts = record.compatibility
     installed = record.installed_version
     recommended = record.recommended_version
     cves = record.cve
@@ -177,8 +206,38 @@ def build_update_entry(record: ScanRecord) -> dict[str, Any] | None:
         or record.is_installed_yanked
         or record.is_installed_package_unpublished
     )
+
+    # Every entry carries the full version picture regardless of actionability - installed,
+    # latest-in-range, latest-in-major, and latest overall - per the defect report's B7 correct
+    # behaviour. latest_version (the absolute newest) was previously only implicit in "to"/the
+    # ladder fields and could differ from both, e.g. a pinned major behind an API break.
+    base: dict[str, Any] = {
+        "package": record.package_name,
+        "from": installed,
+        "latest_version": record.latest_version,
+        "latest_in_range": facts.latest_in_range,
+        "latest_in_major": facts.latest_in_major,
+        "latest_compatible_major": facts.latest_compatible_major,
+        "module_system": record.compatibility.module_system.value if record.compatibility.module_system else None,
+        "recommended_module_system": (
+            record.compatibility.recommended_module_system.value
+            if record.compatibility.recommended_module_system
+            else None
+        ),
+        "breaking_change": record.compatibility.breaking_change,
+        "engine_requirement": record.compatibility.engine_requirement,
+        "engine_compatible": record.compatibility.engine_compatible,
+    }
+
     if not actionable:
-        return None
+        return {
+            **base,
+            "next_action": NO_ACTION,
+            "to": installed,
+            "reasons": [],
+            "cves": [],
+            "transitive_impact": [],
+        }
 
     reasons: list[str] = [f"{cve.id} ({cve.severity})" for cve in cves]
     if record.is_installed_yanked:
@@ -193,23 +252,56 @@ def build_update_entry(record: ScanRecord) -> dict[str, Any] | None:
         reasons.append(f"major version drift behind {record.latest_version}")
     elif diff_index in BEHIND_DIFFS and not can_fix:
         reasons.append(f"behind the latest {record.latest_version}")
-    if diff_index in BEHIND_DIFFS and not can_fix and record.version_constraint:
-        reasons.append(f"declared range {record.version_constraint} caps this below {record.latest_version}")
+    if diff_index in BEHIND_DIFFS and not can_fix and record.version_constraint_declared:
+        reasons.append(f"declared range {record.version_constraint_declared} caps this below {record.latest_version}")
     if can_fix:
         reasons.append(f"recommend updating {installed} -> {recommended}")
+    for rc in record.rejected_candidates:
+        reasons.append(f"{rc.version} rejected: {rc.reason}")
+    if facts.breaking_change:
+        reasons.append(facts.breaking_change)
+    if facts.engine_compatible is False:
+        # engine_mismatch_reason's own sentence, not a raw dict interpolated into user-facing
+        # text - the same string the console shows and the gate wrote into rejected_candidates.
+        mismatch = engine_mismatch_summary(record, engine_context.versions)
+        if mismatch:
+            reasons.append(f"{mismatch} ({engine_context.source})")
 
     entry: dict[str, Any] = {
-        "package": record.package_name,
+        **base,
         "next_action": agent_next_action(record),
-        "from": installed,
         "to": recommended,
         "reasons": reasons,
         "cves": [cve_summary(cve) for cve in cves],
         "transitive_impact": [impact_summary(impact) for impact in record.update_transitive_impacts],
     }
+    # A ladder pick that only exists by widening the declared constraint (IN_MAJOR/LATEST) is not
+    # something the writers will apply on their own — see build_update_plan's held_for_widening.
+    # Flag it explicitly so a consumer doesn't read "to" as a safe target to write as-is.
+    if record.recommended_from_rung in WIDENING_RUNGS:
+        entry["requires_constraint_widening"] = True
+        # A transitive-only dep has no declaration of its own; naming it would print "declared
+        # range None must be widened".
+        if record.version_constraint_declared:
+            reasons.append(
+                f"declared range {record.version_constraint_declared} must be widened to reach {recommended}"
+            )
+        else:
+            reasons.append(f"{recommended} is outside the declared range")
+    # A pick whose major line is a known break means every installable release was gated and
+    # build_candidates' escape hatch admitted the newest anyway. It can sit inside the declared
+    # range, so requires_constraint_widening above would not flag it - same second look the CLI
+    # asks a human for (commands.plan.confirm_acknowledged). The break itself is already in
+    # `reasons` and in `breaking_change`; this is the machine-readable gate.
+    if facts.breaking_change:
+        entry["carries_known_break"] = True
     triage = triage_summary(record)
     if triage is not None:
         entry["triage"] = triage
+    if record.strategy_selection is not None:
+        entry["motives"] = sorted(m.value for m in record.strategy_selection.motives)
+        if record.strategy_selection.withheld_reason:
+            entry["strategy_withheld_reason"] = record.strategy_selection.withheld_reason
     return entry
 
 
@@ -222,13 +314,121 @@ def headline_next_action(entries: list[dict[str, Any]]) -> str:
     return NO_ACTION
 
 
-def build_update_decide(scan: ScanResult) -> AgentDecision:
+def data_completeness_summary(completeness: DataCompleteness) -> dict[str, Any]:
+    """B8 point 2: in a machine-readable format, a degraded data source must be visible inside
+    the document itself, not just as a side-channel console warning - an agent or script reading
+    this JSON never sees show_scan_progress's warning (agent/MCP callers bypass it entirely via
+    the silent on_step callback), so without this the degradation is invisible to exactly the
+    consumer who most needs to know about it.
+    """
+    return {
+        "overall": completeness.overall.value,
+        "sources": [{"step": step, "status": status.value} for step, status in sorted(completeness.by_step.items())],
+    }
+
+
+def runtime_context_summary(scan: ScanResult) -> dict[str, Any]:
+    """The runtime every record's engine_compatible was checked against, stated once.
+
+    One fact about the scan, so it belongs at the top of the document rather than repeated on every
+    update entry - where it had already drifted, reporting "detected" on actionable entries and
+    "none" on the rest of the same scan.
+    """
+    return {
+        "engine_versions": dict(scan.engine_context.versions),
+        "engine_context_source": scan.engine_context.source.value,
+        "npm_cli_version": scan.npm_cli_version,
+        "project_declares_esm": scan.declares_esm,
+    }
+
+
+def build_update_decide(scan: ScanResult, update_strategy: str | None = None) -> AgentDecision:
     """Decision for updating a project's direct dependencies."""
     direct_records = scan.production_packages + scan.optional_packages
-    entries = [entry for entry in (build_update_entry(record) for record in direct_records) if entry is not None]
-    return {
+    entries = [build_update_entry(record, scan.engine_context) for record in direct_records]
+    result: AgentDecision = {
         "operation": "update",
         "registry": scan.packages_registry.lower(),
         "next_action": headline_next_action(entries),
         "updates": entries,
+        "data_completeness": data_completeness_summary(scan.data_completeness),
+        "runtime_context": runtime_context_summary(scan),
+    }
+    if update_strategy is not None:
+        result["update_strategy"] = update_strategy
+    # Same reasoning as data_completeness: an agent reading this JSON never sees a console
+    # warning, so anything worth warning a human about belongs inside the document too.
+    if scan.source_warnings:
+        result["warnings"] = list(scan.source_warnings)
+    return result
+
+
+def build_update_context(
+    detail: PackageDetailResult,
+    target_version: str | None,
+    releases: list[PackageVersion],
+    registry: AbstractPackageRegistryApi,
+    engine_context: EngineContext,
+    project_declares_esm: bool,
+    npm_cli_version: str | None = None,
+) -> dict[str, Any]:
+    """Diff installed_version -> target_version for a single package.
+
+    Reuses the same pure helpers (module_system_label, engine_compatibility) that the
+    recommendation pipeline uses for `recommended_version`, against an arbitrary target an agent is
+    evaluating that may not be OSS IQ's own recommendation (e.g. "what changes if I go to 6.0.0").
+    """
+    record = detail.records[0] if (not detail.is_prospective and detail.records) else None
+    package_name = record.package_name if record else (detail.prospective_name or "")
+    installed_version = record.installed_version if record else None
+    recommended = record.recommended_version if record else None
+
+    to_version = target_version or recommended
+    if to_version is None:
+        return {"package": package_name, "error": "no recommendation available; pass target_version explicitly"}
+
+    registry_enum = registry.package_registry
+    module_system, breaking_change = module_system_label(
+        package_name,
+        installed_version or "0.0.0",
+        to_version,
+        releases,
+        registry_enum,
+        project_declares_esm,
+    )
+    target_release = next((pv for pv in releases if pv.version == to_version), None)
+    engine_requirement = target_release.runtime_requirements if target_release else None
+
+    latest_compatible_major = (
+        record.compatibility.latest_compatible_major
+        if record is not None
+        else compute_latest_compatible_major(package_name, releases, "0.0.0", registry, registry_enum)
+    )
+
+    rejected = record.rejected_candidates if record else []
+    rejected_up_to_target = [rc for rc in rejected if registry.compare_versions(rc.version, to_version) <= 0]
+
+    engine_key = ENGINE_CONTEXT_KEY_BY_REGISTRY.get(registry_enum)
+    context_version = engine_context.versions.get(engine_key) if engine_key else None
+
+    return {
+        "package": package_name,
+        "registry": registry_enum.value.lower(),
+        "from_version": installed_version,
+        "to_version": to_version,
+        "module_system": {
+            "from": record.compatibility.module_system.value if record and record.compatibility.module_system else None,
+            "to": module_system.value if module_system else None,
+            "project_declares_esm": project_declares_esm,
+        },
+        "breaking_change": breaking_change,
+        "latest_compatible_major": latest_compatible_major,
+        "engine": {
+            "requirement": engine_requirement,
+            "context_version": context_version,
+            "context_source": engine_context.source.value,
+            "compatible": engine_compatibility(engine_requirement, engine_context.versions),
+        },
+        "npm_cli_version": npm_cli_version,
+        "rejected_candidates": [{"version": rc.version, "reason": rc.reason} for rc in rejected_up_to_target],
     }

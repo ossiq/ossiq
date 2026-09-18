@@ -41,11 +41,16 @@ Example output:
   "package": "requests",
   "next_action": "install with caution",
   "recommended_version": "2.31.0",
+  "latest_in_range": null,
+  "latest_in_major": null,
   "reasons": ["recommend 2.31.0 rather than latest 2.32.0", "single maintainer — bus factor risk"],
   "cves": [],
   "warnings": ["SINGLE_MAINTAINER"]
 }
 ```
+
+`latest_in_range`/`latest_in_major` are only populated for a package already
+installed in the project (not a prospective add) — see the version ladder below.
 
 `next_action` for an add is `install`, `install with caution`, or `do not install`.
 
@@ -57,12 +62,19 @@ Before bumping versions, run:
 uvx ossiq status <project_path> --format agent
 ```
 
+By default this targets the `standard` tier of the update pyramid (plain drift, inside each
+package's declared range). Pass `--update-strategy security` for the smallest diff that clears
+known CVEs, or `latest`/`cutting-edge` to also widen constraints / admit prereleases — see
+`ossiq status --help`. The MCP tool `ossiq_evaluate_updates` takes the same `update_strategy`
+argument.
+
 Example output:
 
 ```json
 {
   "operation": "update",
   "registry": "npm",
+  "update_strategy": "standard",
   "next_action": "Check for the Fix",
   "updates": [
     {
@@ -70,8 +82,25 @@ Example output:
       "next_action": "Check for the Fix",
       "from": "4.17.15",
       "to": "4.17.21",
+      "latest_in_range": "4.17.15",
+      "latest_in_major": "4.17.21",
       "reasons": ["CVE-2021-23337 (HIGH)", "recommend updating 4.17.15 -> 4.17.21"],
       "cves": [{"id": "CVE-2021-23337", "severity": "HIGH", "summary": "..."}],
+      "transitive_impact": []
+    },
+    {
+      "package": "pydantic",
+      "next_action": "Constrained. Check newer version",
+      "from": "1.10.13",
+      "to": "1.10.26",
+      "latest_in_range": "1.10.13",
+      "latest_in_major": "1.10.26",
+      "requires_constraint_widening": true,
+      "reasons": [
+        "declared range ==1.10.13 caps this below 2.13.5",
+        "declared range ==1.10.13 must be widened to reach 1.10.26"
+      ],
+      "cves": [],
       "transitive_impact": []
     }
   ]
@@ -89,5 +118,124 @@ The top-level `next_action` is the most urgent one across the `updates` list, or
 - **Constrained. Check newer version** — a minor/patch behind, but the declared range
   (e.g. `~7.3.0`) admits no newer version; widening the range is the real next step.
 
-Always pin to `recommended_version` (`to`) when it is set rather than the absolute
-latest — it is the solver's safe choice (avoids known-CVE and too-fresh versions).
+`latest_in_range` (newest version satisfying the declared constraint) and
+`latest_in_major` (newest version sharing the installed major line) are always
+present — equal to `from` when that step has nothing newer, never omitted.
+
+### Module-system and API breaks
+
+A recommended version is not always drop-in — semver alone can't see an npm package going
+ESM-only or a PyPI package relocating a top-level API across a major. `to` already routes around a
+known break when a compatible version exists; when every reachable version is affected, `to`
+still lands on the newest one and `breaking_change` explains why instead of leaving the pick a
+silent surprise:
+
+```json
+{
+  "package": "chalk",
+  "next_action": "Check Release Notes",
+  "from": "4.1.2",
+  "to": "4.1.2",
+  "latest_in_range": "4.1.2",
+  "latest_in_major": "4.1.2",
+  "latest_compatible_major": "4.1.2",
+  "module_system": "cjs",
+  "recommended_module_system": "cjs",
+  "breaking_change": null,
+  "reasons": ["major version drift behind 5.2.0"],
+  "cves": [],
+  "transitive_impact": []
+}
+```
+
+Here `latest_compatible_major` (4.1.2) matches `to` because chalk 5+ is ESM-only
+(`require('chalk')` returns the module namespace object, not `.blue`) and this project's
+`package.json` is not itself `"type": "module"` — `5.0.0` was rejected as a candidate for exactly
+that reason (see its `rejected_candidates` entry on the full record). If every release past 4.x
+were ESM-only, `to` would still be the newest of them and `breaking_change` would read something
+like `"ESM-only from 5.0.0 — require('chalk') will fail; use dynamic import() or stay on 4.x"`.
+Never treat `to` as safe to `require()`/`import` without checking `module_system` first when
+`breaking_change` is non-null.
+
+Pin to `recommended_version` (`to`) when it is set — it is the solver's safe
+choice (avoids known-CVE and too-fresh versions) — **unless the entry also carries
+`"requires_constraint_widening": true`**. That flag means `to` is only reachable by
+widening the manifest's declared range first (`==1.10.13` admits nothing past
+1.10.13, so `1.10.26` needs a wider specifier, not just a straight rewrite of the
+pin). `ossiq update`/`ossiq apply` will not write such an entry on their own —
+widen the constraint by hand, then re-run the command.
+
+### Engine/runtime compatibility
+
+`to` also routes around a package version whose declared runtime requirement (npm `engines.node`,
+PyPI `requires-python`) conflicts with the runtime actually checked, the same way it routes around
+a module-system break — `engine_requirement`/`engine_compatible`/`engine_context_source` report the
+result for whichever version `to` ended up being:
+
+```json
+{
+  "package": "some-pkg",
+  "to": "1.1.0",
+  "engine_requirement": {"node": ">=16.0.0"},
+  "engine_compatible": true,
+  "engine_context_source": "detected",
+  "reasons": []
+}
+```
+
+`engine_context_source` says what `engine_compatible` was checked against: `"detected"` means OSS
+IQ actually found the installed Python/Node on this machine (`.venv`, `.python-version`, or a
+`node --version` probe — disable with `--no-probe-runtime`); `"declared"` falls back to the
+project's own manifest floor (`engines.node`/`requires-python`) when nothing could be detected;
+`"none"` means neither was available, and `engine_compatible` is `null` in that case — absence of
+evidence, not evidence of compatibility. When every reachable version conflicts, `to` still lands
+on the newest one and `engine_compatible: false` names the concrete requirement and what was
+detected instead of leaving it a silent runtime failure.
+
+## Before applying an update to a specific version
+
+`to` above is OSS IQ's own recommendation. If you (or the user) want to go to a *different*
+version — one `ossiq status`/`ossiq_evaluate_updates` didn't propose — check it first instead of
+discovering a break via test failure:
+
+```bash
+uvx ossiq update-context <package> <project_path> --to <version>
+```
+
+or, over MCP, `ossiq_update_context` with `{"package": ..., "target_version": ...}`. `target_version`
+is optional and defaults to the recommended version, so the same call also works as "explain the
+recommendation in detail" with no `--to` at all.
+
+Example — asking about `chalk 6.0.0` on a CommonJS project that's currently on `4.1.2`:
+
+```json
+{
+  "package": "chalk",
+  "registry": "npm",
+  "from_version": "4.1.2",
+  "to_version": "6.0.0",
+  "module_system": {"from": "cjs", "to": "esm-only", "project_declares_esm": false},
+  "breaking_change": "ESM-only from 5.0.0",
+  "latest_compatible_major": "4.1.2",
+  "engine": {
+    "requirement": {"node": ">=20.19.0"},
+    "context_version": "20.11.0",
+    "context_source": "detected",
+    "compatible": false
+  },
+  "npm_cli_version": "10.2.4",
+  "rejected_candidates": [{"version": "5.0.0", "reason": "ESM-only from 5.0.0"}]
+}
+```
+
+This says: going to `6.0.0` hits the same ESM-only break as `5.0.0` (`module_system.to`), and
+separately its `engines.node` requirement (`>=20.19.0`) is newer than what's actually installed
+locally (`20.11.0`) — two independent reasons this specific version is risky, neither of which
+`recommended_version` alone would have surfaced for an arbitrary target. `latest_compatible_major`
+(`4.1.2`) is where `recommended_version` would fall back to instead. `rejected_candidates` lists
+versions at or below the requested target that a normal scan already rejected along the way — use
+it for "what else already failed on the path here", not as an exhaustive audit of every release.
+
+For a package not yet installed, `from_version` is `null` and the payload otherwise has the same
+shape — useful for previewing a brand-new dependency's own module-system/engine story before
+adding it.

@@ -16,7 +16,11 @@ from ossiq.domain.project import ConstraintSource
 from ossiq.domain.version import PackageVersion, VersionsDifference
 from ossiq.service.common.package_versions import filter_versions_between
 from ossiq.service.project.models import DependencyDescriptor, PrefetchedData, ScanRecord
-from ossiq.service.project.recommendations import apply_conflicts, apply_recommendations, clamp_recommendations
+from ossiq.service.project.recommendations import (
+    apply_conflicts,
+    apply_recommendations,
+    clamp_recommendations,
+)
 from ossiq.service.project.records import build_records
 from ossiq.solver.dependencies_solver import (
     EMPTY_OUTPUT,
@@ -68,6 +72,17 @@ def make_version_rules() -> MagicMock:
     rules = MagicMock()
     rules.package_registry = ProjectPackagesRegistry.PYPI
     rules.difference_versions.return_value = _DIFF
+
+    def _compare(v1: str, v2: str) -> int:
+        a, b = Version(v1), Version(v2)
+        return -1 if a < b else (1 if a > b else 0)
+
+    def _newest(candidates):
+        as_list = list(candidates)
+        return max(as_list, key=lambda pv: Version(pv.version)) if as_list else None
+
+    rules.compare_versions.side_effect = _compare
+    rules.newest_version.side_effect = _newest
     return rules
 
 

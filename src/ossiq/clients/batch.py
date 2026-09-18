@@ -17,6 +17,8 @@ from typing import Any
 
 import requests
 
+from ossiq.domain.common import DataSourceStatus
+
 
 def _chunked(items: Iterable, n: int) -> Generator:
     """Yield successive n-sized chunks from items. Backport of itertools.batched (3.12+)."""
@@ -70,6 +72,46 @@ class ChunkResult:
     message: str | None = None
 
 
+@dataclass(frozen=True)
+class BatchRunSummary:
+    """What actually happened during one run_batch() call.
+
+    B4: the old code already tracked chunks_ok/chunks_failed internally (see run_batch below) but
+    only ever logged them at debug level - a caller had no way to tell "checked, found nothing"
+    apart from "couldn't check at all". This is that signal, made available to callers.
+
+    Counts *chunks*, not items - a coarser but good-enough proxy for completeness without tracking
+    every individual item's fate.
+    """
+
+    chunks_ok: int = 0
+    chunks_failed: int = 0
+    chunks_aborted: int = 0  # dropped with no attempt at all, because the global abort flag was set
+    rate_limited: bool = False  # the quota-exhausted path in _handle_rate_limit fired at least once
+
+    @property
+    def status(self) -> DataSourceStatus:
+        if self.rate_limited:
+            return DataSourceStatus.RATE_LIMITED
+        attempted = self.chunks_ok + self.chunks_failed
+        if attempted == 0 and self.chunks_aborted == 0:
+            return DataSourceStatus.OK  # nothing was ever attempted - an empty batch, not a failure
+        if self.chunks_ok == 0 and (self.chunks_failed > 0 or self.chunks_aborted > 0):
+            return DataSourceStatus.UNREACHABLE
+        if self.chunks_failed > 0 or self.chunks_aborted > 0:
+            return DataSourceStatus.PARTIAL
+        return DataSourceStatus.OK
+
+    def combine(self, other: "BatchRunSummary") -> "BatchRunSummary":
+        """Worst-of merge, for a data source whose fetch is made of more than one batch call."""
+        return BatchRunSummary(
+            chunks_ok=self.chunks_ok + other.chunks_ok,
+            chunks_failed=self.chunks_failed + other.chunks_failed,
+            chunks_aborted=self.chunks_aborted + other.chunks_aborted,
+            rate_limited=self.rate_limited or other.rate_limited,
+        )
+
+
 class BatchStrategy(ABC):
     """
     Abstract base for a batching strategy.
@@ -116,6 +158,15 @@ class BatchStrategy(ABC):
         """
         return ()
 
+    def __str__(self) -> str:
+        """A short, human-readable name for log/warning messages.
+
+        B4 point 5: without this, str(self) on a strategy instance falls back to the default
+        object repr ("<ossiq.clients.client_github.GithubRepoBatchStrategy object at 0x...>"),
+        which is what the rate-limit warning was leaking verbatim.
+        """
+        return type(self).__name__.removesuffix("BatchStrategy") or type(self).__name__
+
 
 class BatchClient:
     """
@@ -150,15 +201,27 @@ class BatchClient:
         # Signals worker threads to stop processing and exit.
         self._abort = threading.Event()
 
+        # Set by _handle_rate_limit's quota-exhausted branch; read into last_summary below.
+        self._rate_limited = False
+
+        # B4: completeness signal for the most recent run_batch() call. Defaults to "nothing
+        # attempted yet", which BatchRunSummary().status correctly reports as ok.
+        self.last_summary = BatchRunSummary()
+
     def run_batch(self, items: Iterable[Any]) -> Generator:
         """
         Yield results for all items, processing them in parallel chunks.
         Before putting into batch, checking for `None`. Skip if `prepare_item` returns None.
         Items that fail permanently after all retries are silently dropped
         (logged at INFO level) so a bad chunk never blocks good ones.
+
+        Sets self.last_summary before returning - callers that fully drain this generator (the
+        normal usage pattern everywhere in this codebase) can read it immediately afterward to
+        find out whether the data they just received is complete.
         """
 
         if not items:
+            self.last_summary = BatchRunSummary()
             return
 
         chunk_size = self.strategy.config.chunk_size
@@ -172,7 +235,8 @@ class BatchClient:
         pending_follow_ups = deque()
 
         t0 = time.perf_counter()
-        chunks_ok = chunks_failed = items_yielded = 0
+        chunks_ok = chunks_failed = chunks_aborted = items_yielded = 0
+        self._rate_limited = False  # this run's own state, not a prior call's
 
         with ThreadPoolExecutor(max_workers=self.strategy.config.max_workers) as pool:
             future_to_chunk: dict = {}
@@ -207,8 +271,8 @@ class BatchClient:
                     try:
                         response = future.result()
 
-                        if not response:  # [] from abort or max_retries=0
-                            chunks_failed += 1
+                        if not response:  # [] — dropped with no attempt: the abort flag was set
+                            chunks_aborted += 1
                             continue
 
                         if not response.success:
@@ -230,12 +294,20 @@ class BatchClient:
                         logger.info("Chunk of %d items failed: %s", len(original_chunk), exc)
                         chunks_failed += 1
 
+        self.last_summary = BatchRunSummary(
+            chunks_ok=chunks_ok,
+            chunks_failed=chunks_failed,
+            chunks_aborted=chunks_aborted,
+            rate_limited=self._rate_limited,
+        )
         logger.debug(
-            "[%s] batch done: chunks_ok=%d chunks_failed=%d items=%d total_time=%.3fs",
+            "[%s] batch done: chunks_ok=%d chunks_failed=%d chunks_aborted=%d items=%d status=%s total_time=%.3fs",
             type(self.strategy).__name__,
             chunks_ok,
             chunks_failed,
+            chunks_aborted,
             items_yielded,
+            self.last_summary.status,
             time.perf_counter() - t0,
         )
 
@@ -278,6 +350,7 @@ class BatchClient:
                 if is_rate_limit_response(resp):
                     rate_limit_pauses += 1
                     if rate_limit_pauses > MAX_RATE_LIMIT_PAUSES:
+                        self._rate_limited = True
                         return ChunkResult(
                             data=[],
                             success=False,
@@ -383,6 +456,7 @@ class BatchClient:
                         "Set OSSIQ_GITHUB_TOKEN (or --github-token) to raise the GitHub limit.",
                         str(self.strategy),
                     )
+                    self._rate_limited = True
                     self._gate.set()
                     self._abort.set()
                     return

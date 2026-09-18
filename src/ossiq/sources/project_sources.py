@@ -2,21 +2,23 @@
 ProjectSources: assembles external data providers for a scan run.
 """
 
+from pathlib import Path
+
 from ossiq.adapters.api import (
     create_cve_database,
     create_epss_score_database,
     create_package_registry_api,
     create_source_code_provider,
 )
-from ossiq.adapters.api_github import SourceCodeProviderApiGithub
-from ossiq.adapters.package_managers.api import create_package_managers
-from ossiq.adapters.package_managers.utils import normalize_dist_name
-from ossiq.domain.common import ProjectPackagesRegistry, RepositoryProvider
+from ossiq.adapters.api_interfaces import AbstractSourceCodeProviderApi
+from ossiq.adapters.package_managers.api import create_package_managers, inspected_manifests
+from ossiq.domain.common import ProjectPackagesRegistry, RepositoryProvider, normalize_dist_name
 from ossiq.domain.exceptions import UnknownProjectPackageManager
-from ossiq.messages import WARNING_MULTIPLE_REGISTRY_TYPES
+from ossiq.messages import HINT_NO_PACKAGE_MANAGER, WARNING_MULTIPLE_REGISTRY_TYPES
 from ossiq.settings import Settings
 from ossiq.sources.core import AbstractProjectSources
-from ossiq.ui.system import show_warning
+from ossiq.strategy.overrides import StrategyPlan
+from ossiq.strategy.pyramid import DEFAULT_STRATEGY, PRERELEASE_TIERS
 
 
 class ProjectSources(AbstractProjectSources):
@@ -32,7 +34,7 @@ class ProjectSources(AbstractProjectSources):
         production: bool = False,
         allow_prerelease: bool = False,
         allow_prerelease_packages: tuple[str, ...] = (),
-        security_only: bool = False,
+        strategy: StrategyPlan | None = None,
         ignore_packages: tuple[str, ...] = (),
         rewrite_versions: bool = False,
     ):
@@ -41,12 +43,19 @@ class ProjectSources(AbstractProjectSources):
         """
         super().__init__()
 
+        # Diagnostics, not output: __enter__ collects here and the scan carries them onto
+        # ScanResult, so the renderer decides how (and whether) a surface shows them. This module
+        # used to call ui.system.show_warning directly, which printed to stderr even for the
+        # JSON-emitting front doors that have their own channel for it.
+        self.warnings: list[str] = []
         self.project_path = project_path
         self.settings = settings
         self.production = production
-        self.allow_prerelease = allow_prerelease
-        self.allow_prerelease_packages = allow_prerelease_packages
-        self.security_only = security_only
+        self.strategy = strategy or StrategyPlan(default=DEFAULT_STRATEGY)
+        # cutting-edge admits prereleases; handled at prefetch, not as a sixth ladder rung — see
+        # strategy/README.md. A per-package override to cutting-edge only widens that package.
+        self.allow_prerelease = allow_prerelease or self.strategy.default in PRERELEASE_TIERS
+        self.allow_prerelease_packages = tuple(set(allow_prerelease_packages) | set(self.strategy.prerelease_packages))
         self.rewrite_versions = rewrite_versions
         self.ignore_packages = tuple(normalize_dist_name(p) for p in ignore_packages)
         self.narrow_package_registry = narrow_package_registry
@@ -61,10 +70,20 @@ class ProjectSources(AbstractProjectSources):
         packages_managers = list(create_package_managers(self.project_path, self.settings))
 
         if not packages_managers:
-            raise UnknownProjectPackageManager(f"Unable to identify Package Manager for project at {self.project_path}")
+            manifest_names = inspected_manifests()
+            found = [name for name in manifest_names if (Path(self.project_path) / name).exists()]
+            raise UnknownProjectPackageManager(
+                f"Unable to identify Package Manager for project at {self.project_path}",
+                hint=HINT_NO_PACKAGE_MANAGER.format(
+                    inspected=", ".join(manifest_names),
+                    found=", ".join(found) if found else "none",
+                ),
+            )
 
+        # create_package_managers yields at most one adapter per registry, so more than one here is
+        # genuinely more than one ecosystem - not two adapters arguing over the same pyproject.toml.
         if len(packages_managers) > 1 and not self.narrow_package_registry:
-            show_warning(WARNING_MULTIPLE_REGISTRY_TYPES.format(project_path=self.project_path))
+            self.warnings.append(WARNING_MULTIPLE_REGISTRY_TYPES.format(project_path=self.project_path).strip())
 
         packages_manager = packages_managers[0]
 
@@ -93,7 +112,7 @@ class ProjectSources(AbstractProjectSources):
     def __exit__(self, *args):
         pass
 
-    def get_source_code_provider(self, repository_provider_type: RepositoryProvider) -> SourceCodeProviderApiGithub:
+    def get_source_code_provider(self, repository_provider_type: RepositoryProvider) -> AbstractSourceCodeProviderApi:
         """
         Return source code provider (like Github) using factory and respective type
         """
@@ -114,7 +133,7 @@ def build_project_sources(
     allow_prerelease_packages: tuple[str, ...],
     registry_type: str | None,
     *,
-    security_only: bool = False,
+    strategy: StrategyPlan | None = None,
     ignore_packages: tuple[str, ...] = (),
     rewrite_versions: bool = False,
 ) -> ProjectSources:
@@ -126,7 +145,7 @@ def build_project_sources(
         allow_prerelease=allow_prerelease,
         allow_prerelease_packages=allow_prerelease_packages,
         narrow_package_registry=REGISTRY_TYPE_MAP.get(registry_type or ""),
-        security_only=security_only,
+        strategy=strategy,
         ignore_packages=ignore_packages,
         rewrite_versions=rewrite_versions,
     )

@@ -9,7 +9,8 @@ from ossiq.domain.cve import CVE
 from ossiq.domain.package import Package
 from ossiq.domain.project import ConstraintSource
 from ossiq.domain.version import PackageVersion
-from ossiq.service.project.models import DependencyDescriptor, ScanRecord
+from ossiq.service.project.models import DependencyDescriptor, ScanRecord, ScanResult
+from ossiq.service.project.recommendations import apply_recommendations, clamp_recommendations
 from ossiq.service.project.records import calculate_version_age_days
 from ossiq.settings import Settings
 from ossiq.solver import dependencies_solver
@@ -145,7 +146,7 @@ def fetch_prospective_detail(
 
     cves: list[CVE] = []
     if package.latest_version:
-        cve_map = sources.cve_database.get_cves_batch([(package, package.latest_version)])
+        cve_map = sources.cve_database.get_cves_batch([(package, package.latest_version)]).data
         cves = list(cve_map.get((package.name, package.latest_version), set()))
 
     # Run solver (unconstrained) to get proper recommendation + full rationale.
@@ -192,4 +193,133 @@ def fetch_prospective_detail(
         prospective_cves=cves,
         prospective_package=package,
         prospective_reason=prospective_reason,
+    )
+
+
+SEVERITY_ORDER: dict[str, int] = {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2, "LOW": 3}
+
+
+def matches(record: ScanRecord, package_name: str) -> bool:
+    """Case-insensitive exact match on dependency_name or package_name (canonical)."""
+    needle = package_name.lower()
+    return (
+        record.dependency_name is not None and record.dependency_name.lower() == needle
+    ) or record.package_name.lower() == needle
+
+
+def collect_transitive_cve_groups(scan_result: ScanResult, package_name: str) -> list[TransitiveCVEGroup]:
+    """
+    Find all transitive packages downstream of `package_name`
+    (i.e. `package_name` appears in their dependency_path) and have CVEs.
+    Group by (name, version), sort by worst CVE severity.
+    """
+    acc: dict[str, TransitiveCVEGroup] = {}
+    needle = package_name.lower()
+
+    for record in scan_result.transitive_packages:
+        if not record.cve:
+            continue
+        path = record.dependency_path or []
+        if any(p.lower() == needle for p in path):
+            key = f"{record.package_name}@{record.installed_version}"
+            if key not in acc:
+                acc[key] = TransitiveCVEGroup(
+                    name=record.package_name,
+                    version=record.installed_version,
+                    cves=list(record.cve),
+                )
+
+    def worst_severity(group: TransitiveCVEGroup) -> int:
+        return min(SEVERITY_ORDER.get(c.severity, 99) for c in group.cves)
+
+    return sorted(acc.values(), key=worst_severity)
+
+
+def build_installed_detail(
+    matched: list[ScanRecord],
+    scan_result: ScanResult,
+    package_name: str,
+    sources: AbstractProjectSources,
+    settings: Settings,
+) -> PackageDetailResult:
+    """Build a PackageDetailResult for a package already installed in the project.
+
+    Lives here rather than in `commands/info.py` because both front doors need it: the CLI's
+    `info`/`update-context` and the MCP server's `ossiq_evaluate_dependency`/
+    `ossiq_evaluate_update_context`. A front door importing from another front door is what
+    Architecture rule 6 forbids.
+    """
+    record = matched[0]
+    canonical_name = record.package_name
+
+    # Transitive records are solved with skip_current=True during the scan, so an up-to-date one
+    # never gets recommended_version set and `info`'s [03]/[07] blocks would render blank. Solving
+    # those here fills the display gap; the registry cache is warm, so no extra HTTP calls.
+    #
+    # Deliberately transitive-only, and deliberately without apply_update_strategy. Every record
+    # with no recommendation used to land here, direct ones included - and be re-run through the
+    # whole selector with degraded inputs: a versions_since built from unfiltered
+    # package_versions() (prereleases and all, unlike prefetch_versions_since), no
+    # transitive_by_name, no installed_names, no validator and no engine context. So `ossiq info`
+    # could report a different recommendation from `ossiq status` for the same package, and could
+    # surface a prerelease, and could resurrect a recommendation the selector had deliberately
+    # withheld. The scan's verdict for a direct record is the verdict; this function does not
+    # re-decide it. (The strategy is direct-dependencies-only in v1 anyway - see
+    # ScanRecord.strategy_selection - so running it over transitive records was out of scope too.)
+    transitive_names = {r.package_name for r in scan_result.transitive_packages}
+    needs_solve = [
+        r
+        for r in matched
+        if r.recommended_version is None and r.dependency_path is not None and r.package_name in transitive_names
+    ]
+    if needs_solve:
+        solo_output = dependencies_solver.solve_transitive(
+            needs_solve,
+            sources.packages_registry,
+            scan_result.engine_context.versions,
+            allow_prerelease=sources.allow_prerelease,
+            cooldown_period=settings.cooldown_period,
+        )
+        # registry/engine_context/project_declares_esm so the compatibility cluster is written by
+        # the same single writer (target_facts.annotate_target_facts) the scan uses, on the same
+        # evidence, instead of being left stale.
+        apply_recommendations(
+            needs_solve,
+            solo_output,
+            skip_current=False,
+            registry=sources.packages_registry,
+            project_declares_esm=scan_result.declares_esm,
+            engine_context=scan_result.engine_context,
+        )
+        clamp_recommendations(
+            needs_solve,
+            sources.packages_registry,
+            allow_prerelease=sources.allow_prerelease,
+            cooldown_period=settings.cooldown_period,
+        )
+
+    # These fetches hit the already-warm in-process cache — no extra HTTP round-trips.
+    package = sources.packages_registry.package_info(canonical_name)
+    versions = list(sources.packages_registry.package_versions(canonical_name))
+    package.downloads_recent = sources.packages_registry.fetch_downloads_recent(canonical_name)
+
+    rec_version = record.recommended_version
+    rec_age = record.recommended_version_reason.age_days if record.recommended_version_reason else None
+
+    insight = build_package_insight(
+        package=package,
+        versions=versions,
+        settings=settings,
+        recommended_version=rec_version,
+        recommended_version_age_days=rec_age,
+    )
+    warnings = evaluate_package_rules(insight, settings)
+
+    return PackageDetailResult(
+        records=matched,
+        transitive_cve_groups=collect_transitive_cve_groups(scan_result, package_name),
+        project_name=scan_result.project_name,
+        packages_registry=scan_result.packages_registry,
+        insight=insight,
+        warnings=warnings,
     )

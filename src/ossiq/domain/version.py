@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from functools import cmp_to_key
 from typing import TypeVar
 
-from ossiq.domain.common import ConstraintType
+from ossiq.domain.common import ConstraintType, ModuleSystem
 
 # Version is unpublished from the Package Registry or Unknown
 VERSION_NO_DIFF = 10
@@ -112,6 +112,8 @@ class PackageVersion:
     version_constraint: str | None = None
     runs_code_at_install: bool | None = None
     install_execution_reason: str | None = None
+    module_system: ModuleSystem | None = None
+    """This release's own module format (npm only, from `type`/`exports`). Always None on PyPI."""
 
 
 @dataclass
@@ -262,6 +264,28 @@ def normalize_version(version: str) -> str:
         version = version.split()[0].strip()
 
     return version
+
+
+def pad_npm_version(version: str) -> str:
+    """Pad an npm version to exactly three segments so semver can parse it.
+
+    npm accepts partial versions ("14", "14.2") where strict semver does not. Shared by every
+    npm-side parser — `solver.version_matchers.major_key`,
+    `service.project.breaking_changes.npm_sort_key` and `service.library_scan` — so a version one
+    of them considers parseable is never rejected by another.
+
+    Args:
+        version: A version string, possibly with fewer or more than three dotted segments.
+
+    Returns:
+        The first three dot-separated segments, zero-filled on the right. The split is on "."
+        alone, so a dotted prerelease ("1.2.3-rc.1") loses its tail — harmless for every current
+        caller, but this is not a general-purpose semver normalizer.
+    """
+    parts = version.split(".")
+    while len(parts) < 3:
+        parts.append("0")
+    return ".".join(parts[:3])
 
 
 # ---------------------------------------------------------------------------

@@ -5,6 +5,7 @@ Pure: takes a ScanRecord, returns a label or None. Styling (Rich markup for the 
 colour classes for the HTML report) lives in the renderers that consume this.
 """
 
+from ossiq.domain.common import WIDENING_RUNGS
 from ossiq.domain.version import (
     VERSION_DIFF_BUILD,
     VERSION_DIFF_MAJOR,
@@ -16,6 +17,7 @@ from ossiq.domain.version import (
 from ossiq.risk.maintenance import NOT_MAINTAINED, MaintenanceState
 from ossiq.risk.triage import EPSS_EXPLOIT_THRESHOLD
 from ossiq.service.project.models import ScanRecord
+from ossiq.solver.version_matchers import engine_mismatch_reason
 
 CHECK_FOR_THE_FIX = "Check for the Fix"
 FIND_ALTERNATIVE = "Find alternative"
@@ -39,8 +41,19 @@ AT_LATEST_DIFFS: frozenset[int] = frozenset({VERSION_LATEST, VERSION_DIFF_BUILD,
 
 
 def has_in_range_upgrade(record: ScanRecord) -> bool:
-    """True when the solver found somewhere to move to that isn't the installed version."""
-    return record.recommended_version is not None and record.recommended_version != record.installed_version
+    """True when the solver found somewhere to move to, inside the declared range.
+
+    A ladder pick that only exists by widening version_constraint (IN_MAJOR/LATEST) does not
+    count here — it needs the manifest constraint widened first, so it stays "Constrained" from
+    this function's point of view even though recommended_version is populated.
+    """
+    return (
+        record.recommended_version is not None
+        and record.recommended_version != record.installed_version
+        # Anything not in WIDENING_RUNGS is writable as-is; the None/SOLVER rungs the old
+        # WRITABLE_RUNGS set enumerated are already implied by the two conditions above.
+        and record.recommended_from_rung not in WIDENING_RUNGS
+    )
 
 
 def next_action_label(record: ScanRecord) -> str | None:
@@ -70,3 +83,16 @@ def next_action_label(record: ScanRecord) -> str | None:
         # Behind the registry's latest, but the declared range admits no bump to make.
         return CONSTRAINED_CHECK_NEWER
     return None
+
+
+def engine_mismatch_summary(record: ScanRecord, engine_context: dict[str, str] | None) -> str | None:
+    """Explain why record.compatibility.engine_compatible is False, or None when nothing conflicts.
+
+    Lives here rather than in the renderer because the check itself is `solver/`'s, which
+    `ui/renderers/` may not import (test_import_boundaries). Deriving it from the one
+    reason-returning function also keeps the console text identical to the string the gate already
+    wrote into ScanRecord.rejected_candidates, and reports only the engine that actually
+    mismatches — a package declaring both `node` and `npm` used to have the satisfied one named
+    too.
+    """
+    return engine_mismatch_reason(record.compatibility.engine_requirement, engine_context or {})

@@ -56,8 +56,8 @@ Quarantine creates one deliberate tension: what if the quarantined version fixes
 resolves it in favour of the *known* risk — a package whose installed version carries a CVE bypasses
 the cooldown hold, because a concrete vulnerability outweighs the statistical freshness risk. The
 bypass is always visible in the plan (a `CVE` tag and a "cooldown bypassed" note), and teams that
-want manual control can scope runs with `--security` or force a vetted version with
-`--override pkg==version`. Brand-new transitive dependencies sit outside the quarantine — they are
+want manual control can scope runs with `--update-strategy security` (the smallest diff that
+resolves a CVE) or force a vetted version with `--override pkg==version`. Brand-new transitive dependencies sit outside the quarantine — they are
 resolved by the native package manager — so the plan surfaces their age and flags fresh ones with
 `⚠` instead of silently admitting them.
 

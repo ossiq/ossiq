@@ -11,6 +11,9 @@ from collections import defaultdict, namedtuple
 from collections.abc import Callable, Iterable
 from typing import TYPE_CHECKING
 
+from univers.version_constraint import InvalidConstraintsError
+from univers.version_range import InvalidVersionRange, NpmVersionRange
+
 from ossiq.adapters.api_interfaces import AbstractPackageManagerApi
 from ossiq.adapters.package_managers.dependency_tree import BaseDependencyResolver
 from ossiq.adapters.package_managers.utils import find_lockfile_parser
@@ -117,8 +120,9 @@ class NPMResolverV3(BaseDependencyResolver):
             ),
         )
 
-    def build_graph(self, root_name: str) -> Dependency | None:
+    def build_graph(self, root_name: str, ossiq_overrides: dict[str, str] | None = None) -> Dependency | None:
         root = super().build_graph(root_name)
+        ossiq_overrides = ossiq_overrides or {}
         # Mark any package in the overrides dict with the "overridden" category and constraint_info
         for name in self.overrides:
             node = self.find_root(name)
@@ -129,6 +133,7 @@ class NPMResolverV3(BaseDependencyResolver):
                     type=ConstraintType.OVERRIDE,
                     source_file="package.json",
                     scope_path=self._scope_paths.get(name),
+                    is_ossiq_authored=ossiq_overrides.get(name) == self.overrides[name],
                 )
         return root
 
@@ -213,6 +218,31 @@ def parse_node_engine(engines: dict | list | None) -> str | None:
     if isinstance(engines, list) and engines:
         return engines[0]
     return None
+
+
+NODE_FLOOR_COMPARATORS = frozenset({">=", "=", "=="})
+
+
+def extract_min_node_version(node_range: str) -> str | None:
+    """Return the lowest concrete version admitted by an engines.node range.
+
+    ">=18.0.0" -> "18.0.0", "^18" -> "18.0.0", "~18.4" -> "18.4.0", "18 || 20" -> "18.0.0",
+    ">=18.0.0 <20.0.0" -> "18.0.0", "16.0.0 - 18.0.0" -> "16.0.0", "18.x" -> "18.0.0".
+    None for ranges with no lower bound this can name exactly ("<20", "*", ">18.0.0") or that fail
+    to parse ("!=19") — mirrors utils.extract_min_python_version's contract, which accepts only
+    >=, ~= and == for the same reason: an exclusive ">" names a bound the range itself excludes.
+
+    Range parsing is univers's NpmVersionRange (the same parser solver.version_matchers matches
+    against), not hand-rolled: it already normalizes caret/tilde/x/hyphen forms and pads partial
+    versions, and flattens `||` branches so the result is the lowest bound anywhere in the range.
+    """
+    try:
+        constraints = NpmVersionRange.from_native(node_range).constraints
+    except (ValueError, InvalidVersionRange, InvalidConstraintsError):
+        return None
+
+    floors = [c.version for c in constraints if c.comparator in NODE_FLOOR_COMPARATORS and c.version is not None]
+    return str(min(floors)) if floors else None
 
 
 def make_manifest_dependency(name: str, version: str, categories: list[str]) -> Dependency:
@@ -351,7 +381,7 @@ class PackageManagerJsNpm(AbstractPackageManagerApi):
 
         return getattr(self, handler_name)
 
-    def parse_lockfile_v2(self, lockfile_data: dict) -> Dependency:
+    def parse_lockfile_v2(self, lockfile_data: dict, ossiq_overrides: dict[str, str] | None = None) -> Dependency:
         """Lockfile parser for NPM v2 (npm v7/v8 default).
 
         v2 carries the same flat packages map as v3, plus a legacy dependencies
@@ -359,17 +389,18 @@ class PackageManagerJsNpm(AbstractPackageManagerApi):
         """
         if "packages" not in lockfile_data:
             raise PackageManagerLockfileParsingError("NPM v2 lockfile is missing the 'packages' section")
-        return self.parse_lockfile_v3(lockfile_data)
+        return self.parse_lockfile_v3(lockfile_data, ossiq_overrides)
 
     def parse_lockfile_v3(
         self,
         lockfile_data: dict,
+        ossiq_overrides: dict[str, str] | None = None,
     ) -> Dependency:
         """
         Lockfile parser for NPM
         """
         resolver = NPMResolverV3(lockfile_data)
-        dependency_tree = resolver.build_graph(lockfile_data["name"])
+        dependency_tree = resolver.build_graph(lockfile_data["name"], ossiq_overrides)
 
         # No dependencies - no analysis, something wrong
         if not dependency_tree or (not dependency_tree.dependencies and not dependency_tree.optional_dependencies):
@@ -420,7 +451,9 @@ class PackageManagerJsNpm(AbstractPackageManagerApi):
 
         engines = project_data.get("engines", {})
         node_constraint = engines.get("node") if isinstance(engines, dict) else None
-        engine_constraints = {"node": node_constraint} if node_constraint else None
+        min_node = extract_min_node_version(node_constraint) if node_constraint else None
+        engine_constraints = {"node": min_node} if min_node else None
+        declares_esm = project_data.get("type") == "module"
 
         def create_project(dependency_tree: Dependency, has_lockfile: bool = True) -> Project:
             return Project(
@@ -430,6 +463,7 @@ class PackageManagerJsNpm(AbstractPackageManagerApi):
                 dependency_tree=dependency_tree,
                 engine_constraints=engine_constraints,
                 has_lockfile=has_lockfile,
+                declares_esm=declares_esm,
             )
 
         # Exceptional case, no lockfile
@@ -444,7 +478,8 @@ class PackageManagerJsNpm(AbstractPackageManagerApi):
         if not lockfile_parser:
             raise PackageManagerLockfileParsingError("Could not find a parser for the given lockfile version")
 
-        return create_project(dependency_tree=lockfile_parser(lockfile_data))
+        ossiq_overrides: dict[str, str] = project_data.get("ossiq:metadata", {}).get("overrides", {})
+        return create_project(dependency_tree=lockfile_parser(lockfile_data, ossiq_overrides))
 
     def execute_update(self, plan: UpdatePlan) -> None:
         """Apply manifest changes then run npm install. Restores package.json on failure."""
@@ -452,14 +487,30 @@ class PackageManagerJsNpm(AbstractPackageManagerApi):
         with open(manifest_path, encoding="utf-8") as f:
             original_content = f.read()
 
-        pkg = json.loads(original_content)
+        try:
+            pkg = json.loads(original_content)
+        except json.JSONDecodeError as exc:
+            raise PackageManagerExecutionError(f"package.json is not valid JSON: {exc}") from exc
         apply_direct_specs(pkg, plan)
 
         transitive = {e.package_name: e.recommended_version for e in plan.all_entries if not e.is_direct}
         if transitive:
             overrides = pkg.get("overrides", {})
-            overrides.update(transitive)
+            metadata = pkg.get("ossiq:metadata", {})
+            tool_overrides = metadata.get("overrides", {})
+
+            for name, version in transitive.items():
+                existing = overrides.get(name)
+                # Skip a package whose current override value isn't the one we last wrote — the user
+                # has taken ownership of it (or it was always theirs). Never overwrite silently.
+                if existing is not None and tool_overrides.get(name) != existing:
+                    continue
+                overrides[name] = version
+                tool_overrides[name] = version
+
             pkg["overrides"] = overrides
+            metadata["overrides"] = tool_overrides
+            pkg["ossiq:metadata"] = metadata
 
         with open(manifest_path, "w", encoding="utf-8") as f:
             json.dump(pkg, f, indent=2)
@@ -473,9 +524,23 @@ class PackageManagerJsNpm(AbstractPackageManagerApi):
             raise PackageManagerExecutionError(f"npm install failed (exit {exc.returncode})") from exc
 
     def install_package(self, package_name: str, version: str | None = None) -> int:
-        """Run npm install to add a package to the project."""
+        """Run npm install to add a package to the project. Restores package.json on failure.
+
+        `npm install <spec>` edits package.json itself, so there's no ossiq-side write to
+        validate first - only the subprocess outcome to guard, the same way execute_update does.
+        """
         spec = f"{package_name}@{version}" if version else package_name
-        return subprocess.run(["npm", "install", spec], cwd=self.project_path).returncode
+        manifest_path = os.path.join(self.project_path, "package.json")
+        with open(manifest_path, encoding="utf-8") as f:
+            original_content = f.read()
+
+        try:
+            subprocess.run(["npm", "install", spec], cwd=self.project_path, check=True)
+        except subprocess.CalledProcessError as exc:
+            with open(manifest_path, "w", encoding="utf-8") as f:
+                f.write(original_content)
+            raise PackageManagerExecutionError(f"npm install failed (exit {exc.returncode})") from exc
+        return 0
 
     def __repr__(self):
         return f"{self.package_manager_type.name} Package Manager"

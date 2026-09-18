@@ -13,7 +13,7 @@ from rich.rule import Rule
 from rich.table import Table
 from rich.text import Text
 
-from ossiq.domain.common import ConstraintType
+from ossiq.domain.common import WIDENING_RUNGS, ConstraintType, rung_scope_label
 from ossiq.domain.cve import CVE
 from ossiq.risk.maintenance import NOT_MAINTAINED, MaintenanceState
 from ossiq.service.package import PackageDetailResult, PackageInsight, PackageWarning, TransitiveCVEGroup
@@ -284,16 +284,21 @@ def policy_compliance(record: ScanRecord) -> Group:
     table.add_column("Parameter")
     table.add_column("Value")
 
-    table.add_row("Constraint", record.version_constraint or DASH)
+    table.add_row("Constraint", record.version_constraint_declared or DASH)
     table.add_row("Resolved", Text(record.installed_version, style="bold"))
     table.add_row("Latest", Text(record.latest_version or DASH, style="bold green"))
 
     if record.recommended_version:
         reason = record.recommended_version_reason
         is_latest = reason is not None and reason.is_latest
-        table.add_row(
-            "Recommended", Text(record.recommended_version, style="bold green" if is_latest else "bold yellow")
-        )
+        value = Text(record.recommended_version, style="bold green" if is_latest else "bold yellow")
+        if record.recommended_from_rung in WIDENING_RUNGS:
+            scope = rung_scope_label(record.recommended_from_rung)
+            value.append(
+                f"  (requires widening {record.version_constraint_declared or 'the declared range'} — {scope})",
+                style="dim",
+            )
+        table.add_row("Recommended", value)
 
     if record.constraint_conflict:
         specs = ", ".join(record.constraint_conflict)

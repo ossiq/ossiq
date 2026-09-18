@@ -16,6 +16,10 @@ class ConstraintSource:
     type: ConstraintType
     source_file: str | None  # e.g. "package.json", "pyproject.toml", "requirements.txt"
     scope_path: list[str] | None = None  # npm nested override path, e.g. ["foo", "bar"]; None for flat
+    is_ossiq_authored: bool = False
+    """True when this OVERRIDE-type constraint's current value matches what OSS IQ itself last wrote
+    (ossiq:metadata.overrides in package.json / [tool.ossiq.metadata] in pyproject.toml). False for a
+    user-authored override, or when the user has since edited it away from our last-written value."""
 
 
 @dataclass(frozen=True)
@@ -40,6 +44,13 @@ class Dependency:
     canonical_name: str
     # Version, nominally defined in project requirements before resolution
     version_defined: str | None = None
+    # Raw version specifier declared by the root manifest itself for this package, populated
+    # exactly once at root-node registration (never by Pass 2's parent-edge iteration in
+    # dependency_tree.py, which may process parents in arbitrary order). None for packages
+    # with no root-manifest entry, i.e. pure transitive/peer-only dependencies. This is the
+    # value every user-facing consumer must read instead of version_defined, which stays a
+    # last-writer-wins accumulator used internally by the solver.
+    version_constraint_declared: str | None = None
     source: str | None = None
     required_engine: str | None = None
     categories: list[str] = field(default_factory=list, compare=False)
@@ -74,8 +85,9 @@ class Project:
     name: str
     project_path: str | None
     dependency_tree: Dependency
-    engine_constraints: dict[str, str] | None  # e.g. {"python": "3.11"} or {"node": ">=18"}
+    engine_constraints: dict[str, str] | None  # e.g. {"python": "3.11"} or {"node": "18.0.0"}
     has_lockfile: bool
+    declares_esm: bool
 
     def __init__(
         self,
@@ -86,6 +98,7 @@ class Project:
         engine_constraints: dict[str, str] | None = None,
         manifest_lock_divergent: list[str] | None = None,
         has_lockfile: bool = True,
+        declares_esm: bool = False,
     ):
         self.package_manager_type = package_manager_type
         self.name = name
@@ -94,6 +107,7 @@ class Project:
         self.engine_constraints = engine_constraints
         self.manifest_lock_divergent: list[str] = manifest_lock_divergent or []
         self.has_lockfile = has_lockfile
+        self.declares_esm = declares_esm
 
     def __repr__(self):
         return f"""{self.package_manager_type.name} Package(

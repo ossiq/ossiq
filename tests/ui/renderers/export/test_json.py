@@ -17,10 +17,18 @@ from jsonschema import validate
 from ossiq.domain.common import (
     Command,
     ConstraintType,
+    DataCompleteness,
+    DataSourceStatus,
+    EngineContext,
+    EngineContextSource,
     ExportJsonSchemaVersion,
+    ModuleSystem,
     ProjectPackagesRegistry,
+    RecommendationRung,
+    ScanStep,
     UserInterfaceType,
 )
+from ossiq.domain.compatibility import CompatibilityFacts
 from ossiq.domain.cve import CVE, CveDatabase, Severity
 from ossiq.domain.exceptions import DestinationDoesntExist
 from ossiq.domain.project import ConstraintSource
@@ -29,6 +37,9 @@ from ossiq.risk.stability import EngagementBucket, EngagementSeries
 from ossiq.service.project.models import ScanRecord, ScanResult
 from ossiq.service.project.stability import RepositoryStability
 from ossiq.settings import Settings
+from ossiq.strategy.motive import UpdateMotive
+from ossiq.strategy.pyramid import UpdateStrategy
+from ossiq.strategy.targeting import StrategySelection
 from ossiq.ui.renderers.export.json import JsonExportRenderer
 from ossiq.ui.renderers.export.json_schema_registry import json_schema_registry
 
@@ -121,6 +132,27 @@ class TestJsonExportRenderer:
         # Assert
         assert result == expected
 
+    def test_dash_destination_writes_valid_json_to_stdout(self, sample_project_metrics, settings, capsys):
+        """B8's related minor issue: '-' should stream to stdout instead of being written to (or
+        rejected as) a file literally named '-'.
+        """
+        renderer = JsonExportRenderer(settings)
+        renderer.render(sample_project_metrics, destination="-")
+
+        captured = capsys.readouterr()
+        assert captured.err == ""
+        data = json.loads(captured.out)
+        assert data["project"]["name"] == "test-project"
+
+    def test_dash_destination_does_not_create_a_file_named_dash(
+        self, sample_project_metrics, settings, tmp_path, monkeypatch
+    ):
+        monkeypatch.chdir(tmp_path)
+        renderer = JsonExportRenderer(settings)
+        renderer.render(sample_project_metrics, destination="-")
+
+        assert not (tmp_path / "-").exists()
+
     def test_basic_export_creates_valid_json_file(self, output_file, sample_project_metrics, settings):
         """Test basic JSON export creates a valid file with expected structure.
 
@@ -161,6 +193,51 @@ class TestJsonExportRenderer:
         assert metadata["schema_version"] == "1.5"
         assert "export_timestamp" in metadata
         assert "ossiq_version" not in metadata
+
+    def test_metadata_data_completeness_defaults_to_ok_with_no_sources(
+        self, output_file, sample_project_metrics, settings
+    ):
+        """A ScanResult built without any tracked completeness (the common test-fixture case)
+        must not be mistaken for a scan with degraded sources.
+        """
+        renderer = JsonExportRenderer(settings)
+        renderer.render(sample_project_metrics, destination=str(output_file))
+
+        data = json.loads(output_file.read_text(encoding="utf-8"))
+        completeness = data["metadata"]["data_completeness"]
+
+        assert completeness["overall"] == "ok"
+        assert completeness["sources"] == []
+
+    def test_metadata_data_completeness_surfaces_degraded_sources(
+        self, output_file, sample_project_metrics_record, settings
+    ):
+        """B4 point 3: a firewalled OSV host or exhausted GitHub quota must be visible in the
+        export, not just the CLI's own progress display - any consumer of the JSON needs to be
+        able to tell a genuinely clean report apart from one built on missing data.
+        """
+        scan = ScanResult(
+            project_name="test-project",
+            project_path="/path/to/test-project",
+            packages_registry=ProjectPackagesRegistry.NPM.value,
+            production_packages=[sample_project_metrics_record],
+            optional_packages=[],
+            data_completeness=DataCompleteness(
+                by_step={
+                    ScanStep.VULNERABILITIES: DataSourceStatus.UNREACHABLE,
+                    ScanStep.REPOSITORIES: DataSourceStatus.OK,
+                }
+            ),
+        )
+        renderer = JsonExportRenderer(settings)
+        renderer.render(scan, destination=str(output_file))
+
+        data = json.loads(output_file.read_text(encoding="utf-8"))
+        completeness = data["metadata"]["data_completeness"]
+
+        assert completeness["overall"] == "unreachable"
+        assert {"step": "vulnerabilities", "status": "unreachable"} in completeness["sources"]
+        assert {"step": "repositories", "status": "ok"} in completeness["sources"]
 
     def test_project_fields_match_input_data(self, output_file, sample_project_metrics, settings):
         """Test project section matches input data.
@@ -829,6 +906,7 @@ class TestJsonExportRendererV14:
             production_packages=[sample_project_metrics_record],
             optional_packages=[],
             transitive_packages=[transitive],
+            engine_context=EngineContext({"node": ">=18.0.0"}, EngineContextSource.DECLARED),
         )
         renderer = JsonExportRenderer(settings)
         renderer.render(metrics, destination=str(output_file), schema_version="1.5")
@@ -978,6 +1056,7 @@ class TestJsonExportRendererV15:
             production_packages=[sample_project_metrics_record],
             optional_packages=[],
             transitive_packages=[transitive],
+            engine_context=EngineContext({"node": ">=18.0.0"}, EngineContextSource.DECLARED),
         )
         renderer = JsonExportRenderer(settings)
         renderer.render(metrics, destination=str(output_file), schema_version="1.5")
@@ -1018,12 +1097,366 @@ class TestJsonExportRendererV15:
             production_packages=[sample_project_metrics_record],
             optional_packages=[],
             transitive_packages=[transitive],
+            engine_context=EngineContext({"node": ">=18.0.0"}, EngineContextSource.DECLARED),
         )
         JsonExportRenderer(settings).render(metrics, destination=str(output_file), schema_version="1.5")
 
         data = json.loads(output_file.read_text(encoding="utf-8"))
         entry = data["transitive_packages"][0]
         assert "time_lag_days" not in entry
+        validate(instance=data, schema=json_schema_registry.load_schema(ExportJsonSchemaVersion.V1_5))
+
+    def test_v1_5_emits_ladder_fields_and_validates(self, output_file, settings, sample_project_metrics_record):
+        """latest_in_range/latest_in_major/recommended_from_rung round-trip and validate."""
+        import dataclasses
+
+        from ossiq.domain.common import RecommendationRung
+
+        record = dataclasses.replace(
+            sample_project_metrics_record,
+            compatibility=CompatibilityFacts(latest_in_range="17.0.2", latest_in_major="17.9.0"),
+            recommended_version="17.9.0",
+            recommended_from_rung=RecommendationRung.IN_MAJOR,
+        )
+        metrics = ScanResult(
+            project_name="test-project",
+            project_path="/path/to/test-project",
+            packages_registry=ProjectPackagesRegistry.NPM.value,
+            production_packages=[record],
+            optional_packages=[],
+        )
+        renderer = JsonExportRenderer(settings)
+        renderer.render(metrics, destination=str(output_file), schema_version="1.5")
+
+        data = json.loads(output_file.read_text(encoding="utf-8"))
+        pkg = data["production_packages"][0]
+        assert pkg["latest_in_range"] == "17.0.2"
+        assert pkg["latest_in_major"] == "17.9.0"
+        assert pkg["recommended_from_rung"] == "in_major"  # plain string, not an enum repr
+        validate(instance=data, schema=json_schema_registry.load_schema(ExportJsonSchemaVersion.V1_5))
+
+    def test_v1_5_emits_module_system_fields_and_validates(self, output_file, settings, sample_project_metrics_record):
+        """latest_compatible_major/module_system/recommended_module_system/breaking_change
+        round-trip on PackageMetrics and validate against the v1.5 schema."""
+        import dataclasses
+
+        record = dataclasses.replace(
+            sample_project_metrics_record,
+            compatibility=CompatibilityFacts(
+                latest_compatible_major="4.1.2",
+                module_system=ModuleSystem.CJS,
+                recommended_module_system=ModuleSystem.ESM_ONLY,
+                breaking_change="ESM-only from 5.0.0",
+            ),
+            recommended_version="5.0.0",
+        )
+        metrics = ScanResult(
+            project_name="test-project",
+            project_path="/path/to/test-project",
+            packages_registry=ProjectPackagesRegistry.NPM.value,
+            production_packages=[record],
+            optional_packages=[],
+        )
+        renderer = JsonExportRenderer(settings)
+        renderer.render(metrics, destination=str(output_file), schema_version="1.5")
+
+        data = json.loads(output_file.read_text(encoding="utf-8"))
+        pkg = data["production_packages"][0]
+        assert pkg["latest_compatible_major"] == "4.1.2"
+        assert pkg["module_system"] == "cjs"  # plain string, not an enum repr
+        assert pkg["recommended_module_system"] == "esm-only"
+        assert pkg["breaking_change"] == "ESM-only from 5.0.0"
+        validate(instance=data, schema=json_schema_registry.load_schema(ExportJsonSchemaVersion.V1_5))
+
+    def test_v1_5_emits_module_system_fields_on_transitive_and_validates(
+        self, output_file, settings, sample_project_metrics_record
+    ):
+        """latest_compatible_major/module_system/recommended_module_system round-trip on
+        TransitivePackageMetrics too - no breaking_change field there (no recommended_version)."""
+        transitive = ScanRecord(
+            package_name="chalk",
+            dependency_name=None,
+            is_optional_dependency=False,
+            installed_version="4.1.2",
+            latest_version="4.1.2",
+            versions_diff_index=VersionsDifference(
+                version1="4.1.2", version2="4.1.2", diff_index=0, diff_name="LATEST"
+            ),
+            time_lag_days=0,
+            releases_lag=0,
+            cve=[],
+            constraint_info=ConstraintSource(type=ConstraintType.DECLARED, source_file=None),
+            compatibility=CompatibilityFacts(
+                latest_compatible_major="4.1.2",
+                module_system=ModuleSystem.CJS,
+                recommended_module_system=ModuleSystem.CJS,
+            ),
+        )
+        metrics = ScanResult(
+            project_name="test-project",
+            project_path="/path/to/test-project",
+            packages_registry=ProjectPackagesRegistry.NPM.value,
+            production_packages=[sample_project_metrics_record],
+            optional_packages=[],
+            transitive_packages=[transitive],
+            engine_context=EngineContext({"node": ">=18.0.0"}, EngineContextSource.DECLARED),
+        )
+        renderer = JsonExportRenderer(settings)
+        renderer.render(metrics, destination=str(output_file), schema_version="1.5")
+
+        data = json.loads(output_file.read_text(encoding="utf-8"))
+        entry = data["transitive_packages"][0]
+        assert entry["latest_compatible_major"] == "4.1.2"
+        assert entry["module_system"] == "cjs"
+        assert entry["recommended_module_system"] == "cjs"
+        assert "breaking_change" not in entry
+        validate(instance=data, schema=json_schema_registry.load_schema(ExportJsonSchemaVersion.V1_5))
+
+    def test_v1_5_emits_the_nested_strategy_object_and_validates(
+        self, output_file, settings, sample_project_metrics_record
+    ):
+        """The selector's verdict is one nested object built by StrategySelectionExport.from_domain,
+        not four flattened fields each guarding on `if record.strategy_selection` at the call site."""
+        import dataclasses
+
+        record = dataclasses.replace(
+            sample_project_metrics_record,
+            recommended_version="1.2.0",
+            strategy_selection=StrategySelection(
+                strategy=UpdateStrategy.STANDARD,
+                target_version="1.2.0",
+                rung=RecommendationRung.IN_MAJOR,
+                motives=frozenset({UpdateMotive.DRIFT}),
+                requires_widening=True,
+                withheld_reason=None,
+                available_at=None,
+                escalation="nothing in reach",
+            ),
+        )
+        metrics = ScanResult(
+            project_name="test-project",
+            project_path="/path/to/test-project",
+            packages_registry=ProjectPackagesRegistry.NPM.value,
+            production_packages=[record],
+            optional_packages=[],
+        )
+        renderer = JsonExportRenderer(settings)
+        renderer.render(metrics, destination=str(output_file), schema_version="1.5")
+
+        data = json.loads(output_file.read_text(encoding="utf-8"))
+        assert data["production_packages"][0]["strategy"] == {
+            "motives": ["drift"],
+            "withheld_reason": None,
+            "requires_widening": True,
+            "escalation": "nothing in reach",
+        }
+        validate(instance=data, schema=json_schema_registry.load_schema(ExportJsonSchemaVersion.V1_5))
+
+    def test_v1_5_strategy_is_null_when_the_selector_never_ran(
+        self, output_file, settings, sample_project_metrics_record
+    ):
+        metrics = ScanResult(
+            project_name="test-project",
+            project_path="/path/to/test-project",
+            packages_registry=ProjectPackagesRegistry.NPM.value,
+            production_packages=[sample_project_metrics_record],
+            optional_packages=[],
+        )
+        renderer = JsonExportRenderer(settings)
+        renderer.render(metrics, destination=str(output_file), schema_version="1.5")
+
+        data = json.loads(output_file.read_text(encoding="utf-8"))
+        assert data["production_packages"][0]["strategy"] is None
+        validate(instance=data, schema=json_schema_registry.load_schema(ExportJsonSchemaVersion.V1_5))
+
+    def test_v1_5_emits_engine_fields_and_validates(self, output_file, settings, sample_project_metrics_record):
+        """engine_requirement/engine_compatible round-trip on PackageMetrics, and the runtime the
+        scan checked them against is stated once at the top rather than on every record."""
+        import dataclasses
+
+        record = dataclasses.replace(
+            sample_project_metrics_record,
+            recommended_version="1.2.0",
+            compatibility=CompatibilityFacts(engine_requirement={"node": ">=22.0.0"}, engine_compatible=False),
+        )
+        metrics = ScanResult(
+            project_name="test-project",
+            project_path="/path/to/test-project",
+            packages_registry=ProjectPackagesRegistry.NPM.value,
+            production_packages=[record],
+            optional_packages=[],
+            engine_context=EngineContext({"node": "20.11.0"}, EngineContextSource.DETECTED),
+            npm_cli_version="10.2.4",
+        )
+        renderer = JsonExportRenderer(settings)
+        renderer.render(metrics, destination=str(output_file), schema_version="1.5")
+
+        data = json.loads(output_file.read_text(encoding="utf-8"))
+        pkg = data["production_packages"][0]
+        assert pkg["engine_requirement"] == {"node": ">=22.0.0"}
+        assert pkg["engine_compatible"] is False
+        # Provenance is one fact about the scan; it used to be denormalized onto every record and
+        # the copies drifted within a single run.
+        assert "engine_context_source" not in pkg
+        assert data["runtime_context"] == {
+            "engine_versions": {"node": "20.11.0"},
+            "engine_context_source": "detected",  # plain string, not an enum repr
+            "npm_cli_version": "10.2.4",
+            "project_declares_esm": False,
+        }
+        validate(instance=data, schema=json_schema_registry.load_schema(ExportJsonSchemaVersion.V1_5))
+
+    def test_v1_5_emits_engine_fields_on_transitive_and_validates(
+        self, output_file, settings, sample_project_metrics_record
+    ):
+        """engine_requirement/engine_compatible round-trip on TransitivePackageMetrics too - engine
+        compatibility is meaningful for transitives independent of what's recommended for their
+        parent."""
+        transitive = ScanRecord(
+            package_name="chalk",
+            dependency_name=None,
+            is_optional_dependency=False,
+            installed_version="4.1.2",
+            latest_version="4.1.2",
+            versions_diff_index=VersionsDifference(
+                version1="4.1.2", version2="4.1.2", diff_index=0, diff_name="LATEST"
+            ),
+            time_lag_days=0,
+            releases_lag=0,
+            cve=[],
+            constraint_info=ConstraintSource(type=ConstraintType.DECLARED, source_file=None),
+            compatibility=CompatibilityFacts(engine_requirement={"node": ">=22.0.0"}, engine_compatible=True),
+        )
+        metrics = ScanResult(
+            project_name="test-project",
+            project_path="/path/to/test-project",
+            packages_registry=ProjectPackagesRegistry.NPM.value,
+            production_packages=[sample_project_metrics_record],
+            optional_packages=[],
+            transitive_packages=[transitive],
+            engine_context=EngineContext({"node": ">=18.0.0"}, EngineContextSource.DECLARED),
+        )
+        renderer = JsonExportRenderer(settings)
+        renderer.render(metrics, destination=str(output_file), schema_version="1.5")
+
+        data = json.loads(output_file.read_text(encoding="utf-8"))
+        entry = data["transitive_packages"][0]
+        assert entry["engine_requirement"] == {"node": ">=22.0.0"}
+        assert entry["engine_compatible"] is True
+        assert "engine_context_source" not in entry
+        assert data["runtime_context"]["engine_context_source"] == "declared"
+        validate(instance=data, schema=json_schema_registry.load_schema(ExportJsonSchemaVersion.V1_5))
+
+    def test_v1_5_emits_declared_constraint_distinct_from_effective_and_validates(
+        self, output_file, settings, sample_project_metrics_record
+    ):
+        """version_constraint_declared round-trips and stays distinct from version_constraint,
+        the last-writer-wins accumulator a competing transitive/peer parent can clobber."""
+        import dataclasses
+
+        record = dataclasses.replace(
+            sample_project_metrics_record,
+            version_constraint="^1.2.0",
+            version_constraint_declared="~1.0.0",
+        )
+        metrics = ScanResult(
+            project_name="test-project",
+            project_path="/path/to/test-project",
+            packages_registry=ProjectPackagesRegistry.NPM.value,
+            production_packages=[record],
+            optional_packages=[],
+        )
+        renderer = JsonExportRenderer(settings)
+        renderer.render(metrics, destination=str(output_file), schema_version="1.5")
+
+        data = json.loads(output_file.read_text(encoding="utf-8"))
+        pkg = data["production_packages"][0]
+        assert pkg["version_constraint"] == "^1.2.0"
+        assert pkg["version_constraint_declared"] == "~1.0.0"
+        validate(instance=data, schema=json_schema_registry.load_schema(ExportJsonSchemaVersion.V1_5))
+
+    def test_v1_5_emits_rejected_candidates_and_validates(self, output_file, settings, sample_project_metrics_record):
+        """rejected_candidates round-trips on both PackageMetrics and TransitivePackageMetrics."""
+        import dataclasses
+
+        from ossiq.domain.common import RejectedCandidate
+
+        record = dataclasses.replace(
+            sample_project_metrics_record,
+            rejected_candidates=[RejectedCandidate(version="18.2.0", reason="dep-x requires >=2.0.0")],
+        )
+        transitive = ScanRecord(
+            package_name="dep-y",
+            dependency_name=None,
+            is_optional_dependency=False,
+            installed_version="1.0.0",
+            latest_version="1.0.0",
+            versions_diff_index=VersionsDifference(
+                version1="1.0.0", version2="1.0.0", diff_index=0, diff_name="LATEST"
+            ),
+            time_lag_days=0,
+            releases_lag=0,
+            cve=[],
+            constraint_info=ConstraintSource(type=ConstraintType.DECLARED, source_file=None),
+            rejected_candidates=[RejectedCandidate(version="2.0.0", reason="dep-z needs >=3.0.0, held at 1.0.0")],
+        )
+        metrics = ScanResult(
+            project_name="test-project",
+            project_path="/path/to/test-project",
+            packages_registry=ProjectPackagesRegistry.NPM.value,
+            production_packages=[record],
+            optional_packages=[],
+            transitive_packages=[transitive],
+            engine_context=EngineContext({"node": ">=18.0.0"}, EngineContextSource.DECLARED),
+        )
+        renderer = JsonExportRenderer(settings)
+        renderer.render(metrics, destination=str(output_file), schema_version="1.5")
+
+        data = json.loads(output_file.read_text(encoding="utf-8"))
+        pkg = data["production_packages"][0]
+        assert pkg["rejected_candidates"] == [{"version": "18.2.0", "reason": "dep-x requires >=2.0.0"}]
+        trans_entry = data["transitive_packages"][0]
+        assert trans_entry["rejected_candidates"] == [
+            {"version": "2.0.0", "reason": "dep-z needs >=3.0.0, held at 1.0.0"}
+        ]
+        validate(instance=data, schema=json_schema_registry.load_schema(ExportJsonSchemaVersion.V1_5))
+
+    def test_v1_5_transitive_ladder_fields_omitted_when_null(
+        self, output_file, settings, sample_project_metrics_record
+    ):
+        """Undeterminable ladder rungs are dropped on TransitivePackageMetrics by _compact,
+        distinguishing "not analysed" from PackageMetrics' explicit null."""
+        transitive = ScanRecord(
+            package_name="dep",
+            dependency_name=None,
+            is_optional_dependency=False,
+            installed_version="1.0.0",
+            latest_version=None,
+            versions_diff_index=VersionsDifference(
+                version1="1.0.0", version2="1.0.0", diff_index=0, diff_name="LATEST"
+            ),
+            time_lag_days=None,
+            releases_lag=None,
+            cve=[],
+            dependency_path=["react"],
+            constraint_info=ConstraintSource(type=ConstraintType.DECLARED, source_file=None),
+        )
+        metrics = ScanResult(
+            project_name="test-project",
+            project_path="/path/to/test-project",
+            packages_registry=ProjectPackagesRegistry.NPM.value,
+            production_packages=[sample_project_metrics_record],
+            optional_packages=[],
+            transitive_packages=[transitive],
+            engine_context=EngineContext({"node": ">=18.0.0"}, EngineContextSource.DECLARED),
+        )
+        renderer = JsonExportRenderer(settings)
+        renderer.render(metrics, destination=str(output_file), schema_version="1.5")
+
+        data = json.loads(output_file.read_text(encoding="utf-8"))
+        entry = data["transitive_packages"][0]
+        assert "latest_in_range" not in entry
+        assert "latest_in_major" not in entry
         validate(instance=data, schema=json_schema_registry.load_schema(ExportJsonSchemaVersion.V1_5))
 
 
@@ -1082,3 +1515,48 @@ class TestJsonExportRendererEngagementBuckets:
         data = self.export(output_file, settings, sample_project_metrics_record)
 
         assert data["production_packages"][0]["engagement_buckets"] is None
+
+
+def test_compatibility_cluster_stays_flat_on_the_wire(output_file, settings, sample_project_metrics_record):
+    """The domain nests these eight fields in CompatibilityFacts; the published contract does not.
+
+    Only one of the two shapes has consumers outside this repo, so nesting the record was allowed
+    to change the model but must not change the JSON. Guards against a future "tidy-up" quietly
+    reshaping the export to match the domain.
+    """
+    import dataclasses
+
+    record = dataclasses.replace(
+        sample_project_metrics_record,
+        recommended_version="5.0.0",
+        compatibility=CompatibilityFacts(
+            latest_in_range="4.1.2",
+            latest_in_major="4.9.0",
+            latest_compatible_major="4.1.2",
+            module_system=ModuleSystem.CJS,
+            recommended_module_system=ModuleSystem.ESM_ONLY,
+            breaking_change="ESM-only from 5.0.0",
+            engine_requirement={"node": ">=22.0.0"},
+            engine_compatible=False,
+        ),
+    )
+    metrics = ScanResult(
+        project_name="test-project",
+        project_path="/path/to/test-project",
+        packages_registry=ProjectPackagesRegistry.NPM.value,
+        production_packages=[record],
+        optional_packages=[],
+    )
+    JsonExportRenderer(settings).render(metrics, destination=str(output_file), schema_version="1.5")
+
+    pkg = json.loads(output_file.read_text(encoding="utf-8"))["production_packages"][0]
+
+    assert "compatibility" not in pkg
+    assert pkg["latest_in_range"] == "4.1.2"
+    assert pkg["latest_in_major"] == "4.9.0"
+    assert pkg["latest_compatible_major"] == "4.1.2"
+    assert pkg["module_system"] == "cjs"
+    assert pkg["recommended_module_system"] == "esm-only"
+    assert pkg["breaking_change"] == "ESM-only from 5.0.0"
+    assert pkg["engine_requirement"] == {"node": ">=22.0.0"}
+    assert pkg["engine_compatible"] is False

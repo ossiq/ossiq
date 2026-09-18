@@ -5,8 +5,9 @@ Applying solver output (recommendations and conflicts) onto ScanRecord instances
 from datetime import datetime
 
 from ossiq.adapters.api_interfaces import AbstractPackageRegistryApi
-from ossiq.domain.common import ConstraintType
+from ossiq.domain.common import ConstraintType, EngineContext, RecommendationRung
 from ossiq.service.project.models import ScanRecord
+from ossiq.service.project.target_facts import annotate_target_facts
 from ossiq.solver import dependencies_solver
 from ossiq.solver.universe import filter_eligible_versions
 from ossiq.solver.version_matchers import version_satisfies_constraint
@@ -27,18 +28,58 @@ def apply_conflicts(
             record.constraint_conflict = conflict.conflicting_constraints
 
 
+def apply_solver_rejections(
+    output: dependencies_solver.SolverOutput,
+    records: list[ScanRecord],
+) -> None:
+    """Write solver rejection info onto ScanRecord instances in-place.
+
+    Populates rejected_candidates for transitive records whose recommendation was dropped by
+    apply_requires_consistency's final sweep, so the console/export layers can explain a blank
+    recommendation instead of staying silent about it (see ScanRecord.rejected_candidates).
+    """
+    if not output.rejected:
+        return
+    by_name = {r.package_name: r for r in records}
+    for pkg, rejected in output.rejected.items():
+        record = by_name.get(pkg)
+        if record is not None:
+            record.rejected_candidates = [rejected]
+
+
 def apply_recommendations(
     records: list[ScanRecord],
     output: dependencies_solver.SolverOutput,
     *,
     skip_current: bool = False,
+    registry: AbstractPackageRegistryApi | None = None,
+    project_declares_esm: bool = False,
+    engine_context: EngineContext | None = None,
 ) -> None:
-    """Write solver recommendations back onto ScanRecord instances in-place."""
+    """Write solver recommendations back onto ScanRecord instances in-place.
+
+    When `registry` is given, also annotates the target-compatibility cluster via
+    `target_facts.annotate_target_facts` — the shared writer. This is the only place a transitive
+    record's recommendation is finalized in the main scan pipeline; direct records go through
+    `service.project.strategy.apply_update_strategy` afterward, so passing `registry` here for
+    them would just be redone work.
+    """
+    engine_context = engine_context or EngineContext()
     for record in records:
         rec = output.recommendations.get(record.package_name)
         if rec is not None and (not skip_current or rec != record.installed_version):
             record.recommended_version = rec
             record.recommended_version_reason = output.reasons.get(record.package_name)
+            record.recommended_from_rung = RecommendationRung.SOLVER
+            if registry is not None:
+                annotate_target_facts(
+                    record,
+                    rec,
+                    list(registry.package_versions(record.package_name)),
+                    registry.package_registry,
+                    engine_context=engine_context,
+                    project_declares_esm=project_declares_esm,
+                )
 
 
 def clamp_recommendations(
@@ -90,3 +131,4 @@ def clamp_recommendations(
         fitted = aged[0] if aged else (in_range[0] if in_range else None)
         record.recommended_version = fitted.version if fitted else None
         record.recommended_version_reason = None  # reason described the unclamped pick
+        record.recommended_from_rung = RecommendationRung.IN_RANGE if fitted else None

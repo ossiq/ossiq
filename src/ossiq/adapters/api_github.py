@@ -23,16 +23,22 @@ from ossiq.clients.common import get_user_agent
 from ossiq.settings import Settings
 
 # from ossiq.clients.github import GithubSession
-from ..domain.common import VERSION_DATA_SOURCE_GITHUB_RELEASES, VERSION_DATA_SOURCE_GITHUB_TAGS, RepositoryProvider
+from ..domain.common import (
+    VERSION_DATA_SOURCE_GITHUB_RELEASES,
+    VERSION_DATA_SOURCE_GITHUB_TAGS,
+    RepositoryProvider,
+    SourceFetch,
+)
 from ..domain.exceptions import GithubRateLimitError
 from ..domain.repository import Repository
 from ..domain.version import Commit, PackageVersion, RepositoryVersion, User, sort_versions
+from .api_interfaces import AbstractSourceCodeProviderApi
 
 logger = logging.getLogger(__name__)
 GITHUB_API = "https://api.github.com"
 
 
-class SourceCodeProviderApiGithub:
+class SourceCodeProviderApiGithub(AbstractSourceCodeProviderApi):
     """
     Implementation of SourceCodeApiClient for Github
     """
@@ -246,7 +252,7 @@ class SourceCodeProviderApiGithub:
             if n == len(versions_set):
                 break
 
-    def repositories_info_batch(self, repo_urls: list[str]) -> dict[str, Repository]:
+    def repositories_info_batch(self, repo_urls: list[str]) -> SourceFetch[dict[str, Repository]]:
         """
         Fetch GitHub repository metadata for a list of URLs in parallel.
         """
@@ -269,9 +275,9 @@ class SourceCodeProviderApiGithub:
                     pushed_at=repo_data.get("pushed_at"),
                     topics=repo_data.get("topics") or [],
                 )
-        return result
+        return SourceFetch(result, client.last_summary.status)
 
-    def commits_batch(self, repo_urls: list[str], until: str | None = None) -> dict[str, list[dict]]:
+    def commits_batch(self, repo_urls: list[str], until: str | None = None) -> SourceFetch[dict[str, list[dict]]]:
         """
         Fetch the last 100 commits for a list of repo URLs in parallel.
 
@@ -283,9 +289,9 @@ class SourceCodeProviderApiGithub:
             for url, commits in chunk_result.items():
                 if commits:
                     result[url] = commits
-        return result
+        return SourceFetch(result, client.last_summary.status)
 
-    def repository_activity_batch(self, repo_urls: list[str], since: str | None = None) -> dict[str, dict]:
+    def repository_activity_batch(self, repo_urls: list[str], since: str | None = None) -> SourceFetch[dict[str, dict]]:
         """Fetch issue / PR activity for a list of repo URLs via batched GraphQL.
 
         `since` is the ISO-8601 start of the engagement window. Issues and PRs are fetched in
@@ -306,13 +312,16 @@ class SourceCodeProviderApiGithub:
                 pulls.setdefault(url, []).extend(payload.get("pulls") or [])
                 if payload.get("pinned_titles"):
                     pinned[url] = payload["pinned_titles"]
-        return {
-            url: {"issues": issues.get(url, []), "pulls": pulls.get(url, []), "pinned_titles": pinned.get(url, [])}
-            for url in issues.keys() | pulls.keys()
-            if issues.get(url) or pulls.get(url)
-        }
+        return SourceFetch(
+            {
+                url: {"issues": issues.get(url, []), "pulls": pulls.get(url, []), "pinned_titles": pinned.get(url, [])}
+                for url in issues.keys() | pulls.keys()
+                if issues.get(url) or pulls.get(url)
+            },
+            client.last_summary.status,
+        )
 
-    def readmes_batch(self, repo_urls: list[str]) -> dict[str, str]:
+    def readmes_batch(self, repo_urls: list[str]) -> SourceFetch[dict[str, str]]:
         """Fetch the top of each repo's README in parallel, for the deprecation-banner scan."""
         client = BatchClient(GithubReadmeBatchStrategy(self.session))
         result: dict[str, str] = {}
@@ -320,7 +329,7 @@ class SourceCodeProviderApiGithub:
             for url, text in chunk_result.items():
                 if text:
                     result[url] = text
-        return result
+        return SourceFetch(result, client.last_summary.status)
 
     def repository_info(self, repository_url: str | None) -> Repository:
         """

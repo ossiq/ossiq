@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import dataclasses
+from collections import Counter
 from dataclasses import dataclass, field
 
-from ossiq.domain.common import ConstraintType
+from ossiq.domain.common import WIDENING_RUNGS, ConstraintType, RecommendationRung
 from ossiq.service.project.models import ScanRecord, ScanResult
 from ossiq.service.update_impact import TransitiveImpact
 from ossiq.solver.reason import RecommendationReason
+from ossiq.strategy.overrides import StrategyPlan
+from ossiq.strategy.pyramid import DEFAULT_STRATEGY, MAX_REACH, RUNG_ORDER, UpdateStrategy
 
 
 @dataclass(frozen=True)
@@ -29,6 +32,20 @@ class UpdateEntry:
     is_security: bool = False
     # True when the version was forced via --override — bypasses the solver and the cooldown.
     is_forced: bool = False
+    # Which version-ladder rung recommended_version came from. IN_MAJOR/LATEST require widening
+    # version_defined first — is_held_for_widening holds those out of direct/transitive_entries
+    # unless the run's strategy tier authorizes reaching that far.
+    from_rung: RecommendationRung | None = None
+    # True when recommended_version sits outside version_defined (from_rung is IN_MAJOR/LATEST).
+    # Distinct from is_held_for_widening: an entry can widen the constraint and still be written
+    # (a `latest`-tier pick) — command_apply uses this to gate a second confirmation regardless.
+    widens_constraint: bool = False
+    # True when the target's major line is a known API/module-system break. For a direct record this
+    # means build_candidates' escape hatch fired: every installable release was gated, so rather
+    # than blank the recommendation it admitted the newest anyway. That pick can sit inside the
+    # declared range (e.g. `uuid@>11.0.0` admitting ESM-only 14.0.2), in which case
+    # widens_constraint is False and nothing else would ask before writing it.
+    carries_known_break: bool = False
 
 
 @dataclass(frozen=True)
@@ -48,6 +65,15 @@ class UpdatePlan:
     cooldown_period: int = 0
     # --override targets that are not present anywhere in the scanned dependency tree.
     unknown_override_packages: tuple[str, ...] = ()
+    # Recommendations withheld because the run's strategy tier does not reach that rung yet
+    # (from_rung is IN_MAJOR/LATEST) — see is_held_for_widening.
+    held_for_widening: list[UpdateEntry] = field(default_factory=list)
+    # The tier in force for this run (the default; per-package tiers are strategy_overrides).
+    strategy: UpdateStrategy = DEFAULT_STRATEGY
+    strategy_overrides: dict[str, UpdateStrategy] = field(default_factory=dict)
+    # Packages withheld at the run's tier, counted by the lowest higher tier that would move
+    # them — powers the "N more updates available under --update-strategy X" footer.
+    available_at_higher_tier: dict[UpdateStrategy, int] = field(default_factory=dict)
 
     @property
     def all_entries(self) -> list[UpdateEntry]:
@@ -65,9 +91,15 @@ def entry_from_record(record: ScanRecord, is_direct: bool) -> UpdateEntry:
         reason=record.recommended_version_reason,
         transitive_impacts=list(record.update_transitive_impacts),
         is_actionable=all(not i.has_conflict for i in record.update_transitive_impacts),
-        version_defined=record.version_constraint,
+        # The declaration, not version_constraint's last-writer-wins accumulator: the uv writer
+        # rewrites this exact string into pyproject.toml (api_uv.resolve_direct_specifier), so it
+        # has to be the root manifest's own spec. Transitive-only records fall back to the LWW value.
+        version_defined=record.version_constraint_declared or record.version_constraint,
         constraint_type=record.constraint_info.type,
         is_security=bool(record.cve),
+        from_rung=record.recommended_from_rung,
+        widens_constraint=record.recommended_from_rung in WIDENING_RUNGS,
+        carries_known_break=record.compatibility.breaking_change is not None,
     )
 
 
@@ -78,12 +110,39 @@ def is_held_for_cooldown(entry: UpdateEntry, cooldown_period: int) -> bool:
     return entry.reason.age_days < cooldown_period
 
 
+def is_held_for_widening(entry: UpdateEntry, strategy: UpdateStrategy, *, rewrite_versions: bool = False) -> bool:
+    """A recommendation reachable only by widening the declared constraint first, held back
+    because the tier in force for this package does not reach that far.
+
+    Held only when the tier's own MAX_REACH sits below the entry's rung — picking `latest` (whose
+    MAX_REACH is already LATEST) *is* the authorization to widen, so nothing from that tier is
+    ever held here. `--override` is explicit user intent (is_forced=True) and is never held here
+    either — the user asked for exactly this version.
+
+    `rewrite_versions` (`--rewrite-versions`) exempts `==x.y.z` pins for the same reason
+    `--override` is exempt: widening those pins is the whole point of the flag, and holding them
+    here made it a no-op. Mirrors clamp_recommendations' own rewrite_pinned skip, npm aliases
+    included — their inner constraint can't be rewritten.
+    """
+    if entry.is_forced or not entry.widens_constraint or entry.from_rung is None:
+        return False
+    if (
+        rewrite_versions
+        and entry.constraint_type == ConstraintType.PINNED
+        and not (entry.version_defined or "").startswith("npm:")
+    ):
+        return False
+    return RUNG_ORDER[entry.from_rung] > RUNG_ORDER[MAX_REACH[strategy]]
+
+
 def forced_entry_from_record(record: ScanRecord, forced_version: str, is_direct: bool) -> UpdateEntry:
     """Build an UpdateEntry for a --override forced version, bypassing solver output.
 
     Transitive entries are marked OVERRIDE so writers persist them (package.json `overrides` /
     [tool.uv] `override-dependencies`). No impact simulation is attached: compatibility of the
-    forced version is deliberately unverified.
+    forced version is deliberately unverified. widens_constraint and carries_known_break both stay
+    False: --override is explicit user intent and is exempt from the acknowledgement prompt, same as
+    it is exempt from is_held_for_widening.
     """
     if is_direct:
         constraint_type = record.constraint_info.type
@@ -95,7 +154,7 @@ def forced_entry_from_record(record: ScanRecord, forced_version: str, is_direct:
         recommended_version=forced_version,
         is_direct=is_direct,
         reason=None,
-        version_defined=record.version_constraint,
+        version_defined=record.version_constraint_declared or record.version_constraint,
         constraint_type=constraint_type,
         is_security=bool(record.cve),
         is_forced=True,
@@ -107,33 +166,46 @@ def build_update_plan(
     package_manager_name: str,
     pin_all: bool = False,
     cooldown_period: int = 0,
-    security_only: bool = False,
+    strategy: StrategyPlan | None = None,
     forced_overrides: dict[str, str] | None = None,
+    rewrite_versions: bool = False,
 ) -> UpdatePlan:
     """Filter scan results to packages with solver recommendations that differ from installed.
 
     Recommendations whose target version is younger than cooldown_period days are withheld into
     held_for_cooldown (unless they fix a CVE), so a freshly published version is never applied.
-    With security_only, the plan keeps only CVE-affected packages — direct and transitive alike.
+    Which packages carry a recommendation at all was already decided upstream, by
+    service.project.strategy.apply_update_strategy against `strategy` — this function no longer
+    filters by motive itself, only by widening authorization and cooldown.
     forced_overrides ({package: version} from --override) replace any solver recommendation for
-    those packages, bypass the security filter and the cooldown hold; targets absent from the
+    those packages, bypassing the strategy and the cooldown hold; targets absent from the
     dependency tree are collected into unknown_override_packages for the caller to report.
+    rewrite_versions (--rewrite-versions) lets `==x.y.z` pins through the widening hold — see
+    is_held_for_widening.
     """
+    plan = strategy or StrategyPlan(default=DEFAULT_STRATEGY)
     all_records = scan_result.production_packages + scan_result.optional_packages + scan_result.transitive_packages
     installed_versions = {r.package_name: r.installed_version for r in all_records}
     all_direct_names = {r.package_name for r in scan_result.production_packages + scan_result.optional_packages}
+    direct_records = scan_result.production_packages + scan_result.optional_packages
     direct = [
         entry_from_record(r, is_direct=True)
-        for r in scan_result.production_packages + scan_result.optional_packages
+        for r in direct_records
         if r.recommended_version and r.recommended_version != r.installed_version
     ]
+
+    available_at_higher_tier: Counter[UpdateStrategy] = Counter(
+        r.strategy_selection.available_at
+        for r in direct_records
+        if r.strategy_selection is not None and r.strategy_selection.available_at is not None
+    )
 
     # The transitive solver uses current-lockfile constraints, so its recommendations may be
     # lower than what a recommended direct dep update will actually require. Impact simulation
     # (Pass 1.5b) computes the correct post-upgrade version for each affected transitive dep.
     # Example: solver says modelsearch 1.2.2, but wagtail 7.4 requires >=1.3,<1.4 → use 1.3.1.
     impact_versions: dict[str, str] = {}
-    for record in scan_result.production_packages + scan_result.optional_packages:
+    for record in direct_records:
         for impact in record.update_transitive_impacts:
             if impact.projected_version and not impact.has_conflict:
                 impact_versions[impact.package_name] = impact.projected_version
@@ -155,20 +227,16 @@ def build_update_plan(
         key=lambda e: e.package_name,
     )
 
-    if security_only:
-        direct = [e for e in direct if e.is_security]
-        transitive = [e for e in transitive if e.is_security]
-
     unknown_overrides: list[str] = []
     if forced_overrides:
-        direct_records = {r.package_name: r for r in scan_result.production_packages + scan_result.optional_packages}
+        direct_by_name = {r.package_name: r for r in direct_records}
         transitive_records = {r.package_name: r for r in scan_result.transitive_packages}
         forced_names = set(forced_overrides)
         direct = [e for e in direct if e.package_name not in forced_names]
         transitive = [e for e in transitive if e.package_name not in forced_names]
         for name, version in forced_overrides.items():
-            is_direct = name in direct_records
-            record = direct_records.get(name) or transitive_records.get(name)
+            is_direct = name in direct_by_name
+            record = direct_by_name.get(name) or transitive_records.get(name)
             if record is None:
                 unknown_overrides.append(name)
                 continue
@@ -180,6 +248,20 @@ def build_update_plan(
             else:
                 transitive.append(entry)
         transitive.sort(key=lambda e: e.package_name)
+
+    # Widening entries never reach the writers: whether they'd also be held for cooldown is moot,
+    # so this must partition before the cooldown hold to avoid double-counting an entry in both.
+    widening = sorted(
+        [
+            e
+            for e in direct + transitive
+            if is_held_for_widening(e, plan.for_package(e.package_name), rewrite_versions=rewrite_versions)
+        ],
+        key=lambda e: e.package_name,
+    )
+    widening_names = {e.package_name for e in widening}
+    direct = [e for e in direct if e.package_name not in widening_names]
+    transitive = [e for e in transitive if e.package_name not in widening_names]
 
     held = sorted(
         [e for e in direct + transitive if is_held_for_cooldown(e, cooldown_period)],
@@ -201,4 +283,8 @@ def build_update_plan(
         held_for_cooldown=held,
         cooldown_period=cooldown_period,
         unknown_override_packages=tuple(unknown_overrides),
+        held_for_widening=widening,
+        strategy=plan.default,
+        strategy_overrides=dict(plan.overrides),
+        available_at_higher_tier=dict(available_at_higher_tier),
     )

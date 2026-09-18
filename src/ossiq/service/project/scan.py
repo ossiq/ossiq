@@ -12,6 +12,14 @@ from ossiq.adapters.api_interfaces import AbstractPackageRegistryApi
 from ossiq.adapters.api_pypi import PackageRegistryApiPypi
 from ossiq.adapters.detectors import is_git_hosted_source
 from ossiq.adapters.package_managers.dependency_tree import GraphExporter
+from ossiq.domain.common import (
+    DataCompleteness,
+    DataSourceStatus,
+    EngineContext,
+    RepositoryProvider,
+    ScanStep,
+    combine_statuses,
+)
 from ossiq.domain.exceptions import ProjectPathNotFoundError
 from ossiq.domain.package import Package
 from ossiq.domain.project import Dependency
@@ -36,16 +44,47 @@ from ossiq.service.project.prefetch import (
     prefetch_versions_since,
     update_latest_versions_for_prerelease,
 )
-from ossiq.service.project.recommendations import apply_conflicts, apply_recommendations, clamp_recommendations
+from ossiq.service.project.recommendations import (
+    apply_conflicts,
+    apply_recommendations,
+    apply_solver_rejections,
+    clamp_recommendations,
+)
 from ossiq.service.project.records import build_records, scan_sort_key
+from ossiq.service.project.runtime_context import detect_engine_context
 from ossiq.service.project.stability import populate_stability
-from ossiq.service.update_impact import simulate_single, simulate_update_impacts
+from ossiq.service.project.strategy import apply_update_strategy
+from ossiq.service.update_impact import DirectUpdateImpact, simulate_single, simulate_update_impacts
 from ossiq.solver import dependencies_solver
 from ossiq.solver.universe import filter_eligible_versions
 from ossiq.sources.core import AbstractProjectSources
+from ossiq.strategy.pyramid import MINIMAL_DIFF_TIERS
 from ossiq.timeutil import parse_iso_datetime
 
 logger = logging.getLogger(__name__)
+
+
+def ignore_step_start(step: ScanStep) -> None:
+    """Default `ScanProgress.on_step_start`: a caller that wants no progress passes nothing."""
+
+
+def ignore_step_done(step: ScanStep, status: DataSourceStatus) -> None:
+    """Default `ScanProgress.on_step_done`: a caller that wants no progress passes nothing."""
+
+
+@dataclass(frozen=True)
+class ScanProgress:
+    """The two distinct events a scan emits, as two callbacks.
+
+    These used to be one `on_step(key, status=None)` disambiguated by `status is None` - an
+    advance and an outcome report are different events, and every silent caller had to spell out
+    a two-argument no-op lambda to say it wanted neither.
+
+    Not every step reports an outcome; see `ScanStep` for which ones can and why.
+    """
+
+    on_step_start: Callable[[ScanStep], None] = ignore_step_start
+    on_step_done: Callable[[ScanStep, DataSourceStatus], None] = ignore_step_done
 
 
 @dataclass
@@ -103,6 +142,7 @@ def build_scan_descriptors(project_info, sources: AbstractProjectSources) -> Sca
             extras=node.extras,
             all_constraints=list(node.parent_constraints),
             peer_requirements=list(node.peer_requirements),
+            version_constraint_declared=node.version_constraint_declared,
         )
     trans_deps = list(trans_descriptors.values())
 
@@ -142,6 +182,7 @@ def direct_descriptor(dep: Dependency, *, is_optional: bool) -> DependencyDescri
         extras=dep.extras,
         all_constraints=[req.spec for req in dep.peer_requirements],
         peer_requirements=list(dep.peer_requirements),
+        version_constraint_declared=dep.version_constraint_declared,
     )
 
 
@@ -170,11 +211,11 @@ def prefetch_scan_data(
     sources: AbstractProjectSources,
     all_deps: list[DependencyDescriptor],
     now: datetime | None,
-    step: Callable[[str], None],
+    progress: ScanProgress,
 ) -> PrefetchedData:
     """Pass 1: pre-fetch package infos, repositories, CVEs, and versions-since for every dependency."""
     t0 = time.perf_counter()
-    step("packages")
+    progress.on_step_start(ScanStep.PACKAGES)
     packages_info = prefetch_packages_info(sources.packages_registry, (dep.canonical_name for dep in all_deps))
 
     if sources.allow_prerelease or sources.allow_prerelease_packages:
@@ -187,10 +228,13 @@ def prefetch_scan_data(
 
     apply_cutoff_date(packages_info, sources.packages_registry, now)
 
-    # Github repository info
-    step("repositories")
+    # Github repository info. One provider instance shared across all 4 fetches below (repo info,
+    # commits, activity, readmes): reuses a single session instead of opening a fresh one per call.
+    progress.on_step_start(ScanStep.REPOSITORIES)
+    provider = sources.get_source_code_provider(RepositoryProvider.PROVIDER_GITHUB)
     repo_urls = {pkg.repo_url for pkg in packages_info.values() if pkg.repo_url is not None}
-    repositories_info = prefetch_source_code_repositories_info(sources, repo_urls)
+    repositories_fetch = prefetch_source_code_repositories_info(provider, repo_urls)
+    repository_statuses = [repositories_fetch.status]
 
     # Stability signals for the direct-dependency repos only - one commit request and one README
     # request each, plus one GraphQL POST per repo per stream (ACTIVITY_CHUNK_SIZE = 1, PR streams
@@ -202,26 +246,44 @@ def prefetch_scan_data(
     if sources.settings.stability:
         direct_packages = (packages_info[dep.canonical_name] for dep in all_deps if dep.dependency_path is None)
         direct_repo_urls = {pkg.repo_url for pkg in direct_packages if pkg.repo_url is not None}
-        commits = prefetch_repository_commits(sources, direct_repo_urls)
-        readmes = prefetch_repository_readmes(sources, direct_repo_urls)
+        commits_fetch = prefetch_repository_commits(provider, sources, direct_repo_urls)
+        readmes_fetch = prefetch_repository_readmes(provider, direct_repo_urls)
+        commits, readmes = commits_fetch.data, readmes_fetch.data
+        repository_statuses += [commits_fetch.status, readmes_fetch.status]
         if sources.settings.responsiveness_enabled():
-            activity = prefetch_repository_activity(sources, direct_repo_urls)
+            activity_fetch = prefetch_repository_activity(provider, sources, direct_repo_urls)
+            activity = activity_fetch.data
+            repository_statuses.append(activity_fetch.status)
+
+    # B4: per-step completeness, so a firewalled host or exhausted quota never renders as a
+    # silent success. All four GitHub fetches report under one step, combined explicitly here -
+    # a step with nothing to fetch (no repo URLs at all) is legitimately ok, not a failure.
+    repositories_status = combine_statuses(repository_statuses)
+    completeness: dict[ScanStep, DataSourceStatus] = {ScanStep.REPOSITORIES: repositories_status}
+    progress.on_step_done(ScanStep.REPOSITORIES, repositories_status)
+
     # Batch CVE fetch for all unique packages
     # force unique pair package/version regardless position in the graph
     unique_packages = list(set((packages_info[dep.canonical_name], dep.version) for dep in all_deps))
 
-    step("vulnerabilities")
-    cve_map = sources.cve_database.get_cves_batch(unique_packages)
-    step("epss")
-    cve_map = enrich_cves_with_epss_and_fix_age(
-        cve_map,
+    progress.on_step_start(ScanStep.VULNERABILITIES)
+    cve_fetch = sources.cve_database.get_cves_batch(unique_packages)
+    completeness[ScanStep.VULNERABILITIES] = cve_fetch.status
+    progress.on_step_done(ScanStep.VULNERABILITIES, cve_fetch.status)
+
+    progress.on_step_start(ScanStep.EPSS)
+    epss_fetch = enrich_cves_with_epss_and_fix_age(
+        cve_fetch.data,
         sources.epss_score_database,
         sources.packages_registry,
         now,
     )
+    cve_map = epss_fetch.data
+    completeness[ScanStep.EPSS] = epss_fetch.status
+    progress.on_step_done(ScanStep.EPSS, epss_fetch.status)
 
     # Pre-compute versions-since-installed for all unique (package, version) pairs
-    step("versions")
+    progress.on_step_start(ScanStep.VERSIONS)
     versions_since_map = prefetch_versions_since(
         sources.packages_registry,
         {(packages_info[dep.canonical_name].name, dep.version) for dep in all_deps},
@@ -235,10 +297,11 @@ def prefetch_scan_data(
         packages_info=packages_info,
         cve_map=cve_map,
         versions_since_map=versions_since_map,
-        repositories_info=repositories_info,
+        repositories_info=repositories_fetch.data,
         commits=commits,
         activity=activity,
         readmes=readmes,
+        data_completeness=DataCompleteness(by_step=completeness),
     )
 
 
@@ -274,14 +337,21 @@ def solve_direct_phase(
     sources: AbstractProjectSources,
     prefetched: PrefetchedData,
     transitive_packages: list[ScanRecord],
-    engine_context: dict,
+    engine_context: EngineContext,
     installed_version_by_name: dict[str, str],
     now: datetime | None,
-) -> tuple[dependencies_solver.SolverOutput, list[ScanRecord], list[ScanRecord]]:
-    """Pass 1.5: run the HPDR solver over direct deps, apply its output, and simulate impacts."""
+) -> tuple[
+    dependencies_solver.SolverOutput, list[ScanRecord], list[ScanRecord], Callable[[str, str], DirectUpdateImpact]
+]:
+    """Pass 1.5: run the HPDR solver over direct deps, apply its output, and simulate impacts.
+
+    Returns `simulate_recommendation` alongside the usual outputs — `scan()` reuses it to gate the
+    candidate ladder `apply_update_strategy` builds, after `populate_stability` runs, retaining
+    the full impact (not just its actionability) so a rejected candidate can be explained.
+    """
     transitive_by_name = {r.package_name: r for r in transitive_packages}
 
-    def validate_recommendation(pkg_name: str, candidate_version: str) -> bool:
+    def simulate_recommendation(pkg_name: str, candidate_version: str) -> DirectUpdateImpact:
         return simulate_single(
             pkg_name,
             candidate_version,
@@ -290,13 +360,16 @@ def solve_direct_phase(
             sources.allow_prerelease,
             now=now,
             installed_version=installed_version_by_name.get(pkg_name),
-        ).is_actionable
+        )
+
+    def validate_recommendation(pkg_name: str, candidate_version: str) -> bool:
+        return simulate_recommendation(pkg_name, candidate_version).is_actionable
 
     t1 = time.perf_counter()
     solver_output = dependencies_solver.solve_direct(
         solvable_direct_deps,
         sources.packages_registry,
-        engine_context,
+        engine_context.versions,
         allow_prerelease=sources.allow_prerelease,
         post_solve_validator=validate_recommendation,
         _now=now,
@@ -358,32 +431,37 @@ def solve_direct_phase(
             ):
                 record.update_transitive_impacts = impact.transitive_impacts
 
-    return solver_output, production_packages, optional_packages
+    return solver_output, production_packages, optional_packages, simulate_recommendation
 
 
 def solve_transitive_phase(
     transitive_packages: list[ScanRecord],
     ignore_set: frozenset[str],
     sources: AbstractProjectSources,
-    engine_context: dict,
+    engine_context: EngineContext,
     installed_version_by_name: dict[str, str],
     solver_output: dependencies_solver.SolverOutput,
     now: datetime | None,
+    *,
+    project_declares_esm: bool = False,
 ) -> None:
     """Pass 1.6: run the HPDR solver over transitive deps and apply its output in place.
 
-    security_only: CVE packages only. Default: all transitive packages.
+    Restricted to CVE-affected packages when the run's tier never exceeds a minimal-diff tier
+    (security/deprecation) — the strategy applies only to direct deps (v1 scope), so this is the
+    one place a transitive-only run still narrows itself to match.
     """
     if not transitive_packages:
         return
+    minimal_diff_run = sources.strategy.max_tier in MINIMAL_DIFF_TIERS
     records_to_solve = [
-        r for r in transitive_packages if r.package_name not in ignore_set and (not sources.security_only or r.cve)
+        r for r in transitive_packages if r.package_name not in ignore_set and (not minimal_diff_run or r.cve)
     ]
     t3 = time.perf_counter()
     transitive_output = dependencies_solver.solve_transitive(
         records_to_solve,
         sources.packages_registry,
-        engine_context,
+        engine_context.versions,
         allow_prerelease=sources.allow_prerelease,
         now=now,
         cooldown_period=sources.settings.cooldown_period,
@@ -396,21 +474,29 @@ def solve_transitive_phase(
         len(transitive_output.recommendations),
     )
     apply_conflicts(transitive_output, transitive_packages)
+    apply_solver_rejections(transitive_output, transitive_packages)
     if transitive_output.recommendations:
-        apply_recommendations(transitive_packages, transitive_output, skip_current=True)
+        # The only finalization point for a transitive record's recommendation in this pipeline
+        # (direct records get a further pass in apply_update_strategy) - resolve
+        # recommended_module_system/breaking_change/engine_* here so it isn't silently left null.
+        apply_recommendations(
+            transitive_packages,
+            transitive_output,
+            skip_current=True,
+            registry=sources.packages_registry,
+            project_declares_esm=project_declares_esm,
+            engine_context=engine_context,
+        )
 
 
-def scan(sources: AbstractProjectSources, on_step: Callable[[str], None] | None = None) -> ScanResult:
+def scan(sources: AbstractProjectSources, progress: ScanProgress | None = None) -> ScanResult:
     """
     Project scan service: fetch from external sources, compute and return ScanResult.
     """
-
-    def step(key: str) -> None:
-        if on_step:
-            on_step(key)
+    progress = progress or ScanProgress()
 
     with sources:
-        step("project")
+        progress.on_step_start(ScanStep.PROJECT)
         project_info = sources.packages_manager.project_info()
         project_info = resolve_library_constraints(project_info, sources.packages_registry)
         # FIXME: catch this issue way before as part of command validation
@@ -421,7 +507,7 @@ def scan(sources: AbstractProjectSources, on_step: Callable[[str], None] | None 
         all_deps = descriptors.prod_deps + descriptors.opt_deps + descriptors.trans_deps
 
         now = sources.settings.cutoff_date
-        prefetched = prefetch_scan_data(sources, all_deps, now, step)
+        prefetched = prefetch_scan_data(sources, all_deps, now, progress)
 
         # Ignored packages still get full ScanRecords (status/export/html show the row), but
         # they're excluded from solver input so they never receive a recommended_version.
@@ -433,13 +519,17 @@ def scan(sources: AbstractProjectSources, on_step: Callable[[str], None] | None 
         # Transitive records built first — the Phase 4c validator needs them to assess impacts.
         transitive_packages = build_records(descriptors.trans_deps, sources.packages_registry, prefetched, now=now)
 
-        engine_context = project_info.engine_constraints or {}
+        engine_context, npm_cli_version = detect_engine_context(
+            project_info,
+            sources.project_path,
+            probe_runtime=sources.settings.probe_runtime,
+        )
         installed_version_by_name = {
             dep.canonical_name: dep.version for dep in descriptors.prod_deps + descriptors.opt_deps
         }
 
-        step("solver")
-        solver_output, production_packages, optional_packages = solve_direct_phase(
+        progress.on_step_start(ScanStep.SOLVER)
+        solver_output, production_packages, optional_packages, simulate_recommendation = solve_direct_phase(
             solvable_direct_deps,
             descriptors,
             sources,
@@ -458,11 +548,33 @@ def scan(sources: AbstractProjectSources, on_step: Callable[[str], None] | None 
             installed_version_by_name,
             solver_output,
             now,
+            project_declares_esm=project_info.declares_esm,
         )
 
         all_records = production_packages + optional_packages + transitive_packages
         project_epss = populate_epss(all_records, descriptors.walker)
         project_stability = populate_stability(all_records, prefetched.commits, now, prefetched.activity)
+
+        # Must run after populate_stability: record.maintenance/triage feed classify_motives's
+        # END_OF_LIFE check. Ignored packages are excluded, mirroring solve_direct_phase's old
+        # apply_ladder_fallback filter — a package the user asked to leave alone never gets a
+        # recommendation from any source.
+        all_installed_names: set[str] = {dep.canonical_name for dep in descriptors.prod_deps + descriptors.opt_deps} | {
+            node.canonical_name for node, _ in descriptors.walker.walk_all_paths(include_optional_roots=True)
+        }
+        apply_update_strategy(
+            [r for r in production_packages + optional_packages if r.package_name not in descriptors.ignore_set],
+            sources.packages_registry,
+            sources.strategy,
+            versions_since=prefetched.versions_since_map,
+            transitive_by_name={r.package_name: r for r in transitive_packages},
+            installed_names=all_installed_names,
+            allow_prerelease=sources.allow_prerelease,
+            now=now,
+            validator=simulate_recommendation,
+            project_declares_esm=project_info.declares_esm,
+            engine_context=engine_context,
+        )
 
         upgrade_paths = compute_upgrade_paths(project_info, sources.packages_registry)
         return ScanResult(
@@ -477,4 +589,9 @@ def scan(sources: AbstractProjectSources, on_step: Callable[[str], None] | None 
             ignored_packages=descriptors.ignored_packages,
             project_epss=project_epss,
             project_stability=project_stability,
+            data_completeness=prefetched.data_completeness,
+            declares_esm=project_info.declares_esm,
+            engine_context=engine_context,
+            npm_cli_version=npm_cli_version,
+            source_warnings=list(sources.warnings),
         )

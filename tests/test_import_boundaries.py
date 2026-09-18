@@ -8,8 +8,23 @@ import pathlib
 # root, so the boundary check passed without inspecting anything.
 PROJECT_ROOT = pathlib.Path(__file__).resolve().parent.parent
 RENDERERS_ROOT = PROJECT_ROOT / "src" / "ossiq" / "ui" / "renderers"
-FORBIDDEN_PREFIXES = ("ossiq.clients", "ossiq.adapters", "ossiq.sources", "ossiq.solver")
-FORBIDDEN_NAMES = {"ProjectSources", "AbstractProjectSources", "build_project_sources"}
+FORBIDDEN_PREFIXES = (
+    "ossiq.clients",
+    "ossiq.adapters",
+    "ossiq.sources",
+    "ossiq.solver",
+    # A renderer reaching into the pure selector would be re-deriving a verdict the pipeline
+    # already wrote onto ScanRecord — the contradictory-surfaces class PLAN.md exists to prevent.
+    "ossiq.strategy",
+)
+# Names that carry an adapter or a live registry handle into a renderer even when the module they
+# come from is allowed — AgentUpdateContextRenderer used to take one through untyped **kwargs.
+FORBIDDEN_NAMES = {
+    "ProjectSources",
+    "AbstractProjectSources",
+    "build_project_sources",
+    "AbstractPackageRegistryApi",
+}
 
 
 def _imports_for(path: pathlib.Path) -> list[tuple[str, set[str]]]:

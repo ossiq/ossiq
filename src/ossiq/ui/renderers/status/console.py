@@ -4,12 +4,12 @@ from rich.console import Console
 from rich.rule import Rule
 from rich.table import Table
 
-from ossiq.domain.common import Command, ConstraintType, UserInterfaceType
+from ossiq.domain.common import Command, ConstraintType, EngineContext, UserInterfaceType
 from ossiq.domain.version import VERSION_DIFF_MAJOR, VERSION_DIFF_MINOR, VERSION_DIFF_PATCH
 from ossiq.risk.maintenance import NOT_MAINTAINED
 from ossiq.service.library_scan import UpgradePath
 from ossiq.service.project.models import ScanRecord, ScanResult
-from ossiq.service.project.next_action import CONSTRAINED_CHECK_NEWER, next_action_label
+from ossiq.service.project.next_action import CONSTRAINED_CHECK_NEWER, engine_mismatch_summary, next_action_label
 from ossiq.settings import Settings
 from ossiq.ui.interfaces import AbstractUserInterfaceRenderer
 from ossiq.ui.renderers.impact_utils import (
@@ -52,12 +52,14 @@ def add_status_column(table: Table, name: str) -> None:
     if name == "Package":
         table.add_column(name, style="bold")
     elif name == "Recommended":
-        table.add_column(name, justify="left", style="bold green")
+        table.add_column(name, justify="left", style="bold green", no_wrap=True)
     elif name in ("CVEs", "Update Mode", "State"):
-        table.add_column(name, justify="center")
+        table.add_column(name, justify="center", no_wrap=True)
     elif name in ("EPSS", "Lag"):
-        table.add_column(name, justify="right")
-    else:  # Installed, Latest, What's Next
+        table.add_column(name, justify="right", no_wrap=True)
+    elif name in ("Installed", "Latest"):
+        table.add_column(name, justify="left", no_wrap=True)
+    else:  # What's Next
         table.add_column(name, justify="left")
 
 
@@ -70,6 +72,32 @@ def recommended_cell(pkg: ScanRecord) -> str:
     if pkg.recommended_version != pkg.latest_version:
         return f"[bold yellow]{pkg.recommended_version}[/]"
     return pkg.recommended_version
+
+
+def add_detail_subrows(table: Table, pkg: ScanRecord, engine_context: EngineContext) -> None:
+    """Append the per-package explanation sub-rows shared by both status tables.
+
+    Args:
+        table: The table to append to; the blank-cell padding is derived from its own column
+            count, so adding a column can never silently misalign these rows.
+        pkg: The record being explained.
+        engine_context: The runtime versions this scan checked against, and their provenance.
+    """
+    blanks = [""] * (len(table.columns) - 1)
+
+    for rc in pkg.rejected_candidates:
+        table.add_row(f"  [dim]↳ {rc.version} rejected: {rc.reason}[/]", *blanks)
+
+    if pkg.compatibility.breaking_change:
+        table.add_row(f"  [yellow]↳ {pkg.compatibility.breaking_change}[/]", *blanks)
+
+    if pkg.compatibility.engine_compatible is False:
+        # engine_compatible is denormalized onto the record; only draw the row when the check
+        # still finds a conflict to name. The source suffix is presentation, so it is applied
+        # here rather than inside engine_mismatch_summary.
+        mismatch = engine_mismatch_summary(pkg, engine_context.versions)
+        if mismatch:
+            table.add_row(f"  [red]↳ {mismatch} ({engine_context.source})[/]", *blanks)
 
 
 class ConsoleStatusRenderer(AbstractUserInterfaceRenderer):
@@ -100,6 +128,7 @@ class ConsoleStatusRenderer(AbstractUserInterfaceRenderer):
         """
         lag_threshold_days = kwargs.get("lag_threshold_days", 180)
         full = kwargs.get("full", False)
+        update_strategy = kwargs.get("update_strategy")
 
         transitive_with_recs = sorted(
             (r for r in data.transitive_packages if r.recommended_version is not None),
@@ -111,6 +140,8 @@ class ConsoleStatusRenderer(AbstractUserInterfaceRenderer):
         self.console.print(
             f"  Registry: [bold]{data.packages_registry}[/bold]  |  Path: [dim]{data.project_path}[/dim]"
         )
+        if update_strategy is not None:
+            self.console.print(f"  Update strategy: [bold]{update_strategy}[/bold]")
         self.console.print(
             f"  Production: [bold]{len(data.production_packages)}[/bold]  |  "
             f"Dev: [bold]{len(data.optional_packages)}[/bold]  |  "
@@ -131,6 +162,8 @@ class ConsoleStatusRenderer(AbstractUserInterfaceRenderer):
                 f"[bold]{stability.scored_packages}[/bold] assessed  |  "
                 f"Unassessed: [bold]{stability.unknown_packages}[/bold]"
             )
+        for warning in data.source_warnings:
+            self.console.print(f"  [yellow]![/yellow] {warning}")
         self.console.print()
 
         main_table = self.build_main_table(
@@ -138,6 +171,7 @@ class ConsoleStatusRenderer(AbstractUserInterfaceRenderer):
             data.optional_packages,
             lag_threshold_days,
             full=full,
+            engine_context=data.engine_context,
         )
         if main_table:
             self.console.print(main_table)
@@ -146,7 +180,9 @@ class ConsoleStatusRenderer(AbstractUserInterfaceRenderer):
         if transitive_with_recs:
             self.console.print(Rule("Transitive Recommendations", style="dim"))
             self.console.print()
-            self.console.print(self.transitive_table(transitive_with_recs, full=full))
+            self.console.print(
+                self.transitive_table(transitive_with_recs, full=full, engine_context=data.engine_context)
+            )
             self.console.print()
 
         new_dep_impacts = [
@@ -194,6 +230,7 @@ class ConsoleStatusRenderer(AbstractUserInterfaceRenderer):
         lag_threshold_days: int,
         *,
         full: bool = False,
+        engine_context: EngineContext | None = None,
     ) -> Table | None:
         """Single borderless table merging prod and dev sections.
 
@@ -259,11 +296,18 @@ class ConsoleStatusRenderer(AbstractUserInterfaceRenderer):
 
                 # Name the range that is holding the package back — the "what to do" half of the
                 # Constrained label. Other blockers (e.g. an override pin) may apply on top.
-                if full and pkg.version_constraint and next_action_label(pkg) == CONSTRAINED_CHECK_NEWER:
+                if full and pkg.version_constraint_declared and next_action_label(pkg) == CONSTRAINED_CHECK_NEWER:
+                    ladder_note = ""
+                    if pkg.compatibility.latest_in_major and pkg.compatibility.latest_in_major != pkg.latest_version:
+                        ladder_note = f"; {pkg.compatibility.latest_in_major} is the newest in the current major line"
                     table.add_row(
-                        f"  [yellow]↳ {pkg.version_constraint} caps this below {pkg.latest_version}[/]",
+                        f"  [yellow]↳ {pkg.version_constraint_declared} caps this below "
+                        f"{pkg.latest_version}{ladder_note}[/]",
                         *blanks,
                     )
+
+                if full:
+                    add_detail_subrows(table, pkg, engine_context or EngineContext())
 
                 if pkg.constraint_conflict:
                     specs = " + ".join(pkg.constraint_conflict)
@@ -279,7 +323,9 @@ class ConsoleStatusRenderer(AbstractUserInterfaceRenderer):
 
         return table
 
-    def transitive_table(self, packages: list[ScanRecord], *, full: bool = False) -> Table:
+    def transitive_table(
+        self, packages: list[ScanRecord], *, full: bool = False, engine_context: EngineContext | None = None
+    ) -> Table:
         """Borderless table for transitive packages with solver-recommended versions."""
         table = Table(show_header=True, header_style="bold dim", box=None, padding=(0, 2))
         table.add_column("Package", justify="left", style="bold")
@@ -296,6 +342,9 @@ class ConsoleStatusRenderer(AbstractUserInterfaceRenderer):
                 row.append(format_probability(pkg.epss))
             row += [pkg.installed_version, pkg.recommended_version or "", whats_next(pkg)]
             table.add_row(*row)
+
+            if full:
+                add_detail_subrows(table, pkg, engine_context or EngineContext())
         return table
 
     def upgrade_paths_table(self, paths: list[UpgradePath]) -> Table | None:

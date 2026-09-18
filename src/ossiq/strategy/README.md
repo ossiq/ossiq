@@ -1,0 +1,151 @@
+# Update Strategy — the dependency update pyramid
+
+Pure decision module that answers one question per package: *given the evidence OSS IQ has
+gathered, which version should be recommended, and why?* It sits where `risk/` sits — it computes
+a verdict from facts, and never touches the registry, the solver, or a `ScanRecord` directly.
+
+```
+                    ┌──────────────┐
+                    │ cutting-edge │  + prereleases
+                  ┌─┴──────────────┴─┐
+                  │      latest      │  + widen the constraint to reach newest
+                ┌─┴──────────────────┴─┐
+                │       standard       │  + any drift, inside the declared range
+              ┌─┴──────────────────────┴─┐
+              │       deprecation        │  + end-of-life packages
+            ┌─┴──────────────────────────┴─┐
+            │          security            │  exploitable CVEs only, minimal diff
+            └──────────────────────────────┘
+```
+
+Each tier is a strict superset of the one below it: every motive the lower tier admits, the higher
+tier admits too, and it can reach at least as far up the version ladder. `security` proposes the
+smallest possible diff that clears exploitable CVEs; `cutting-edge` proposes whatever is newest,
+prereleases included.
+
+---
+
+## Module map
+
+```
+strategy/
+├── pyramid.py       UpdateStrategy + the two tables (ADMITTED_MOTIVES, MAX_REACH) that define the pyramid
+├── motive.py        UpdateMotive + PackageFacts + classify_motives() — why a package may move
+├── targeting.py      Candidate, StrategySelection, select_target() — the selector itself
+└── overrides.py      StrategyPlan + parse_strategy / parse_overrides — per-run, per-package tiers
+```
+
+---
+
+## The two axes
+
+A strategy is not one dial, it is two, kept separate on purpose:
+
+- **Motive** — *why* a package is allowed to move: an exploitable CVE, an end-of-life marker, or
+  plain drift.
+- **Reach** — *how far up the ladder* it may go on that motive: inside the declared range, inside
+  the installed major line, or anywhere.
+
+### `ADMITTED_MOTIVES`
+
+| Tier | exploitable_cve | end_of_life | drift |
+|---|:---:|:---:|:---:|
+| `security` | ✓ | | |
+| `deprecation` | ✓ | ✓ | |
+| `standard` | ✓ | ✓ | ✓ |
+| `latest` | ✓ | ✓ | ✓ |
+| `cutting-edge` | ✓ | ✓ | ✓ |
+
+### `MAX_REACH`
+
+| Tier | Base reach | Escalates to `LATEST` when... |
+|---|---|---|
+| `security` | in-range | an admitted motive is `exploitable_cve` (no in-range version clears the CVE) |
+| `deprecation` | in-range | an admitted motive is `exploitable_cve` or `end_of_life` |
+| `standard` | in-range | same as above |
+| `latest` | latest | already maximal |
+| `cutting-edge` | latest | already maximal, plus prereleases admitted |
+
+### Worked example
+
+`pydantic==1.10.13` pinned exactly, no CVE, no maintenance signal; `requests==2.28.1`, CVEs affect
+`2.28.1…2.31.0`, releases run through `2.34.2`:
+
+| Tier | `pydantic` | `requests` |
+|---|---|---|
+| `security` | no target (no CVE) | `2.32.0` — nearest CVE-clear version |
+| `deprecation` | no target | `2.32.0` |
+| `standard` | `1.10.13` — pin admits no in-range move | `2.34.2` — newest, already CVE-clear |
+| `latest` | `2.13.5` — widens the pin, `requires_widening=True` | `2.34.2` |
+| `cutting-edge` | `2.13.5` (or newer, if a prerelease exists) | `2.34.2` |
+
+---
+
+## Interacting with OSS IQ
+
+| Flag / field | Meaning |
+|---|---|
+| `--update-strategy <tier>` | The default tier for the run. Default: `standard` — preserves pre-fix behaviour. |
+| `--strategy-override pkg=tier` | Run one package at a different tier than the run default. Repeatable. |
+| `--override pkg==version` | Force an exact version, bypassing the strategy and the solver entirely. Wins over a `--strategy-override` on the same package. |
+| `--allow-prerelease` / `cutting-edge` | Prereleases are not a sixth rung — `cutting-edge` is `latest` plus `allow_prerelease=True`, applied at prefetch so prereleases flow into the ladder through the existing path. |
+| `--security` (retired) | Removed, not aliased — this is pre-release software; use `--update-strategy security`. |
+| MCP `update_strategy` / `strategy_overrides` arguments | Same semantics, over the wire, on both MCP tools. |
+| Export `metadata.update_strategy`, `PackageMetrics.strategy_*` | The tier used for the run and the per-package verdict, in `ossiq export` / `ossiq html`. |
+| Agent JSON `update_strategy`, per-entry `motives` / `withheld_reason` | Same verdict, in `--format agent` and both MCP tools. |
+
+---
+
+## Reading the output
+
+- **`withheld_reason`** — set only when *no* motive was admitted at the chosen tier (e.g. a package
+  with no CVE, under `security`). Names the lowest tier that would have moved it, so a project can
+  report "N more updates available under `--update-strategy standard`".
+- **`requires_widening`** — the target sits outside the declared constraint (`IN_MAJOR` / `LATEST`
+  rung). `apply` confirms these in a separate prompt before writing them; `--yes` skips both
+  prompts.
+- **`escalation`** — set when reach was pushed past the tier's base `MAX_REACH` (a CVE or
+  end-of-life motive escalated it), or when every reachable candidate still carries a qualifying
+  CVE and the newest was picked anyway. Never silently "stay put".
+
+---
+
+## Key Implementation Decisions
+
+**Why two tables rather than one dial?** Collapsing motive and reach into a single ordered list of
+five tiers would make "why did this move" and "how far could it move" the same question, and they
+aren't: an end-of-life package can need to leave its declared range even under the otherwise
+minimal-diff `deprecation` tier. Keeping them as two tables makes each tier's behaviour a lookup,
+not a special case.
+
+**Why do unscored CVEs count as exploitable, when `risk.triage` drops them?** `triage` is advisory
+— an operator reads its verdict and decides. This module gates *writes*: recommending a version
+that still carries an unscored CVE is a decision made on behalf of the user, and absent evidence
+must not silently read as absent risk.
+
+**Why is `WINDING_DOWN` not end-of-life?** It already surfaces as "Consider alternative" in
+`next_action`, which is the right severity — a maintainer who is slowing down has not stopped.
+Escalating it to `end_of_life` would make `deprecation`/`security` tiers move packages whose
+maintainers are still shipping fixes, defeating the "minimal diff" promise of the bottom two tiers.
+
+**Why minimal-diff for the bottom two tiers, freshness for the top three?** `security` and
+`deprecation` exist to answer "what must I patch today" — the smallest change that resolves the
+motive. `standard` and above answer "what would I install today" — freshness is the point.
+Conflating them would make a security patch also carry unrelated drift, which is exactly the kind
+of unreviewable diff this module exists to prevent.
+
+**Why no fourth `PRERELEASE` rung?** `RecommendationRung` and the version ladder are about *where*
+on the ladder a version sits (in-range / in-major / latest), which is orthogonal to whether
+prereleases are visible on that ladder at all. Modelling prerelease admission as `allow_prerelease`
+at prefetch time — exactly like `--allow-prerelease` already works — means `cutting-edge` needs no
+changes to `VersionLadder`, `RecommendationRung`, or the export schema.
+
+**Why is `Candidate` pre-tagged rather than parsed here?** Keeping version parsing, constraint
+matching and registry lookups entirely in `service.project.strategy.build_candidates` means this
+module has zero registry coupling and is trivially property-testable: a `Candidate` list is just
+data, and `select_target` is a pure function over it.
+
+**Why `--strategy-override` and not `--override-strategy`?** `--override pkg==version` already
+exists and means "force this exact version". `--override-strategy` reads as a variant of the same
+flag and invites the wrong mental model; `--strategy-override` parses unambiguously as "an override
+of the strategy" for one package.

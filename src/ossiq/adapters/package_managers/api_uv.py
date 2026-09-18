@@ -8,7 +8,7 @@ import os
 import re
 import subprocess
 import tomllib
-from collections import namedtuple
+from collections import defaultdict, namedtuple
 from collections.abc import Callable, Iterable
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -19,8 +19,8 @@ from ossiq.adapters.api_interfaces import AbstractPackageManagerApi
 from ossiq.adapters.api_pypi import PackageRegistryApiPypi
 from ossiq.adapters.package_managers.api_pypi import enrich_registry_constraints
 from ossiq.adapters.package_managers.dependency_tree import BaseDependencyResolver
-from ossiq.adapters.package_managers.utils import extract_min_python_version, find_lockfile_parser, normalize_dist_name
-from ossiq.domain.common import ConstraintType
+from ossiq.adapters.package_managers.utils import extract_min_python_version, find_lockfile_parser
+from ossiq.domain.common import ConstraintType, normalize_dist_name
 from ossiq.domain.exceptions import PackageManagerExecutionError, PackageManagerLockfileParsingError
 from ossiq.domain.packages_manager import UV, PackageManagerType
 from ossiq.domain.project import ConstraintSource, Dependency, Project
@@ -56,9 +56,14 @@ def parse_pyproject_direct_specifiers(pyproject_data: dict) -> dict[str, str | N
 
 
 def apply_pyproject_constraints(root: Dependency, pyproject_specs: dict[str, str | None]) -> list[str]:
-    """Override version_defined/constraint_info on root's direct deps from pyproject.toml.
+    """Reassert version_constraint_declared on root's direct deps from pyproject.toml.
 
-    Returns names of packages whose lockfile specifier differed from pyproject.toml
+    Pass 2 of dependency_tree.py's build_graph already sets version_constraint_declared from
+    the lockfile's own recorded specifier (uv.lock's [package.metadata].requires-dist), but
+    that can be stale if pyproject.toml was hand-edited since the last `uv lock`. pyproject.toml
+    is the actual manifest, so its value always wins for the user-facing declared constraint.
+
+    Returns names of packages whose lockfile specifier differs from pyproject.toml's
     (i.e. the lockfile is stale and needs `uv lock` to regenerate).
     """
     divergent: list[str] = []
@@ -67,30 +72,93 @@ def apply_pyproject_constraints(root: Dependency, pyproject_specs: dict[str, str
         if canonical not in pyproject_specs:
             continue
         pyproject_spec = pyproject_specs[canonical]
-        if dep.version_defined == pyproject_spec:
-            continue
-        divergent.append(dep.name)
-        dep.version_defined = pyproject_spec
-        dep.constraint_info = ConstraintSource(
-            type=classify_pypi_specifier(pyproject_spec),
-            source_file="pyproject.toml",
-        )
+        if dep.version_constraint_declared != pyproject_spec:
+            divergent.append(dep.name)
+            dep.version_constraint_declared = pyproject_spec
     return divergent
 
 
-def upsert_uv_override_dependencies(content: str, overrides: dict[str, str]) -> str:
-    """Merge forced pkg==version entries into [tool.uv] override-dependencies in pyproject.toml.
+def _direct_dependency_strings(pyproject_data: dict) -> list[str]:
+    """Every exact, verbatim dependency string across [project.dependencies] and
+    [project.optional-dependencies] in an already-parsed pyproject.toml document.
+
+    Split out of find_pyproject_direct_specifiers so a caller that needs every package's
+    strings (execute_update) can parse the document once instead of once per package - see
+    execute_update's own docstring for why that matters beyond just performance.
+    """
+    project_section = pyproject_data.get("project", {})
+    dep_strings: list[str] = list(project_section.get("dependencies", []))
+    for group_deps in project_section.get("optional-dependencies", {}).values():
+        dep_strings.extend(group_deps)
+    return dep_strings
+
+
+def find_pyproject_direct_specifiers(content: str, package_name: str) -> list[str]:
+    """Every exact, verbatim dependency string in [project.dependencies] /
+    [project.optional-dependencies] whose name normalises to `package_name`.
+
+    Matching on the normalised name - not a string prefix of package_name - is what
+    execute_update needs to safely target a rewrite. The previous approach matched any quoted
+    string starting with the package name via regex (`"{package_name}[^"]*"`), which also
+    matches "pydantic-settings==2.15.0" when updating "pydantic": re.sub then replaces every
+    match with pydantic's new spec, silently destroying the pydantic-settings entry and leaving
+    a duplicate pydantic line in its place. Confirmed by direct reproduction against
+    execute_update - see the writer-corruption investigation.
+
+    Returns a list, not one string: the same package can be declared in more than one place (the
+    main list and an optional-dependencies group) with different specifiers, and every occurrence
+    needs rewriting, exactly as the old code intended before its matching was fixed.
+
+    Single-package convenience wrapper around _direct_dependency_strings, parsing `content` on
+    every call - fine for one-off lookups (and what the tests exercise), but execute_update
+    parses once itself and buckets by name rather than calling this per package.
+    """
+    try:
+        data = tomllib.loads(content)
+    except tomllib.TOMLDecodeError:
+        return []
+
+    target = normalize_dist_name(package_name)
+    matches: list[str] = []
+    for dep_str in _direct_dependency_strings(data):
+        try:
+            req = Requirement(dep_str)
+        except InvalidRequirement:
+            continue
+        if normalize_dist_name(req.name) == target:
+            matches.append(dep_str)
+    return matches
+
+
+def _parse_toml_array_specs(data: dict, table_path: tuple[str, ...], key: str) -> dict[str, str]:
+    """Read a `key = ["pkg==version", ...]` array under `[table_path]`, keyed by normalised name."""
+    table_data: dict = data
+    for part in table_path:
+        table_data = table_data.get(part, {})
+    specs: dict[str, str] = {}
+    for spec in table_data.get(key, []):
+        try:
+            specs[normalize_dist_name(Requirement(spec).name)] = spec
+        except InvalidRequirement:
+            specs[spec] = spec
+    return specs
+
+
+def upsert_toml_array(content: str, table_path: tuple[str, ...], key: str, overrides: dict[str, str]) -> str:
+    """Merge forced pkg==version entries into a `key = [...]` array under `[table_path]` in pyproject.toml.
 
     Existing entries for other packages are preserved; an entry for a forced package is replaced.
-    The [tool.uv] section and the override-dependencies key are created when missing. Editing is
-    text-based so the rest of the file stays byte-identical; the result is re-parsed to guarantee
-    valid TOML before it is returned.
+    The table and the array key are created when missing. Editing is text-based so the rest of the
+    file stays byte-identical; the result is re-parsed to guarantee valid TOML before it is returned.
     """
     if not overrides:
         return content
 
     data = tomllib.loads(content)
-    existing_specs: list[str] = data.get("tool", {}).get("uv", {}).get("override-dependencies", [])
+    table_data: dict = data
+    for part in table_path:
+        table_data = table_data.get(part, {})
+    existing_specs: list[str] = table_data.get(key, [])
 
     merged: dict[str, str] = {}
     for spec in existing_specs:
@@ -102,21 +170,41 @@ def upsert_uv_override_dependencies(content: str, overrides: dict[str, str]) -> 
         merged[normalize_dist_name(name)] = f"{name}=={version}"
 
     entries = "\n".join(f'    "{spec}",' for spec in merged.values())
-    block = f"override-dependencies = [\n{entries}\n]"
+    block = f"{key} = [\n{entries}\n]"
 
-    if "override-dependencies" in data.get("tool", {}).get("uv", {}):
+    table_header = ".".join(table_path)
+    key_present = key in table_data
+
+    if key_present:
+        new_content = re.sub(rf"{re.escape(key)}\s*=\s*\[.*?\]", lambda match: block, content, count=1, flags=re.DOTALL)
+    elif re.search(rf"^\[{re.escape(table_header)}\]\s*$", content, flags=re.MULTILINE):
         new_content = re.sub(
-            r"override-dependencies\s*=\s*\[.*?\]", lambda match: block, content, count=1, flags=re.DOTALL
-        )
-    elif re.search(r"^\[tool\.uv\]\s*$", content, flags=re.MULTILINE):
-        new_content = re.sub(
-            r"^\[tool\.uv\]\s*$", lambda match: f"[tool.uv]\n{block}", content, count=1, flags=re.MULTILINE
+            rf"^\[{re.escape(table_header)}\]\s*$",
+            lambda match: f"[{table_header}]\n{block}",
+            content,
+            count=1,
+            flags=re.MULTILINE,
         )
     else:
-        new_content = f"{content.rstrip()}\n\n[tool.uv]\n{block}\n"
+        new_content = f"{content.rstrip()}\n\n[{table_header}]\n{block}\n"
 
     tomllib.loads(new_content)  # raises TOMLDecodeError when the edit produced invalid TOML
     return new_content
+
+
+def upsert_uv_override_dependencies(content: str, overrides: dict[str, str]) -> str:
+    """Merge forced pkg==version entries into [tool.uv] override-dependencies in pyproject.toml."""
+    return upsert_toml_array(content, ("tool", "uv"), "override-dependencies", overrides)
+
+
+def upsert_ossiq_metadata_overrides(content: str, overrides: dict[str, str]) -> str:
+    """Merge pkg==version entries into [tool.ossiq.metadata] overrides in pyproject.toml.
+
+    Records what OSS IQ itself last wrote to [tool.uv] override-dependencies, so a later run can
+    tell its own writes apart from a user-authored override (see constraint_dependencies_setting's
+    is_ossiq_authored).
+    """
+    return upsert_toml_array(content, ("tool", "ossiq", "metadata"), "overrides", overrides)
 
 
 class UVResolverV1R3(BaseDependencyResolver):
@@ -278,18 +366,33 @@ class PackageManagerPythonUv(AbstractPackageManagerApi):
     def constraint_dependencies_setting(
         dep_tree: Dependency,
         constraint_names: set[str],
-        override_names: set[str],
+        override_specs: dict[str, str],
+        ossiq_overrides: dict[str, str] | None = None,
         source_file: str = "pyproject.toml",
     ) -> None:
-        """Walk dep_tree recursively and set constraint_info on matching nodes."""
+        """Walk dep_tree recursively and set constraint_info on matching nodes.
+
+        override_specs and ossiq_overrides map normalised package name to the raw "pkg==version"
+        specifier currently in [tool.uv] override-dependencies / [tool.ossiq.metadata] overrides
+        respectively. is_ossiq_authored is only True when the two specifiers match exactly - if
+        the user hand-edits the override's version, the values diverge and it correctly flips to
+        False, even though the package name is still present in our last-written record.
+        """
+        ossiq_overrides = ossiq_overrides or {}
         for dep in {**dep_tree.dependencies, **dep_tree.optional_dependencies}.values():
             norm = normalize_dist_name(dep.canonical_name)
-            if norm in override_names:
-                dep.constraint_info = ConstraintSource(type=ConstraintType.OVERRIDE, source_file=source_file)
+            if norm in override_specs:
+                dep.constraint_info = ConstraintSource(
+                    type=ConstraintType.OVERRIDE,
+                    source_file=source_file,
+                    is_ossiq_authored=ossiq_overrides.get(norm) == override_specs[norm],
+                )
             elif norm in constraint_names:
                 dep.constraint_info = ConstraintSource(type=ConstraintType.ADDITIVE, source_file=source_file)
 
-            PackageManagerPythonUv.constraint_dependencies_setting(dep, constraint_names, override_names, source_file)
+            PackageManagerPythonUv.constraint_dependencies_setting(
+                dep, constraint_names, override_specs, ossiq_overrides, source_file
+            )
 
     def load_pyproject_data(self):
         """
@@ -337,8 +440,12 @@ class PackageManagerPythonUv(AbstractPackageManagerApi):
         override_specs: list[str] = uv_section.get("override-dependencies", [])
         if constraint_specs or override_specs:
             constraint_names = {normalize_dist_name(s) for s in constraint_specs}
-            override_names = {normalize_dist_name(s) for s in override_specs}
-            self.constraint_dependencies_setting(dependency_tree, constraint_names, override_names)
+            override_specs_by_name = {normalize_dist_name(s): s for s in override_specs}
+            ossiq_metadata = pyproject_data.get("tool", {}).get("ossiq", {}).get("metadata", {})
+            ossiq_overrides_by_name = {normalize_dist_name(s): s for s in ossiq_metadata.get("overrides", [])}
+            self.constraint_dependencies_setting(
+                dependency_tree, constraint_names, override_specs_by_name, ossiq_overrides_by_name
+            )
 
         requires_python = pyproject_data.get("project", {}).get("requires-python")
         engine_constraints = None
@@ -371,26 +478,60 @@ class PackageManagerPythonUv(AbstractPackageManagerApi):
         )
 
     def execute_update(self, plan: UpdatePlan) -> None:
-        """Apply specifier rewrites, run uv lock + uv sync in-process. Restores pyproject.toml on failure."""
+        """Apply specifier rewrites, run uv lock + uv sync in-process. Restores pyproject.toml on failure.
+
+        Parses pyproject.toml once and buckets every direct dependency string by normalised
+        name, rather than calling find_pyproject_direct_specifiers (a full re-parse) once per
+        changed package: that was both an O(n) redundant re-parse of an unchanging document for
+        n changed packages, and fragile - a parse failure there silently returns [], which would
+        make every *remaining* package in the loop receive no rewrite with no warning raised.
+        Parsing content once, up front, before any specifier is rewritten, means an unparseable
+        manifest fails loudly for the whole update instead of degrading package-by-package.
+        """
         manifest_path = Path(plan.project_path) / "pyproject.toml"
         original_content = manifest_path.read_text(encoding="utf-8")
+
+        try:
+            parsed = tomllib.loads(original_content)
+        except tomllib.TOMLDecodeError as exc:
+            raise PackageManagerExecutionError(f"pyproject.toml is not valid TOML: {exc}") from exc
+
+        dependency_strings_by_name: dict[str, list[str]] = defaultdict(list)
+        for dep_str in _direct_dependency_strings(parsed):
+            try:
+                req = Requirement(dep_str)
+            except InvalidRequirement:
+                continue
+            dependency_strings_by_name[normalize_dist_name(req.name)].append(dep_str)
 
         content = original_content
         for entry in plan.direct_entries:
             new_spec = self.resolve_direct_specifier(entry, plan.pin_all)
             if new_spec != entry.version_defined:
                 spec_to_write = new_spec or f"=={entry.recommended_version}"
-                content = re.sub(
-                    rf'"{re.escape(entry.package_name)}[^"]*"',
-                    f'"{entry.package_name}{spec_to_write}"',
-                    content,
-                )
+                for original_dep_str in dependency_strings_by_name.get(normalize_dist_name(entry.package_name), []):
+                    content = content.replace(f'"{original_dep_str}"', f'"{entry.package_name}{spec_to_write}"', 1)
 
         forced_transitive = {
             entry.package_name: entry.recommended_version for entry in plan.transitive_entries if entry.is_forced
         }
         if forced_transitive:
-            content = upsert_uv_override_dependencies(content, forced_transitive)
+            existing_overrides = _parse_toml_array_specs(parsed, ("tool", "uv"), "override-dependencies")
+            existing_metadata = _parse_toml_array_specs(parsed, ("tool", "ossiq", "metadata"), "overrides")
+
+            to_write: dict[str, str] = {}
+            for name, version in forced_transitive.items():
+                norm = normalize_dist_name(name)
+                existing_spec = existing_overrides.get(norm)
+                # Skip a package whose current override value isn't the one we last wrote — the
+                # user has taken ownership of it (or it was always theirs). Never overwrite silently.
+                if existing_spec is not None and existing_metadata.get(norm) != existing_spec:
+                    continue
+                to_write[name] = version
+
+            if to_write:
+                content = upsert_uv_override_dependencies(content, to_write)
+                content = upsert_ossiq_metadata_overrides(content, to_write)
 
         if content != original_content:
             manifest_path.write_text(content, encoding="utf-8")
@@ -408,9 +549,21 @@ class PackageManagerPythonUv(AbstractPackageManagerApi):
             raise PackageManagerExecutionError(f"uv command failed (exit {exc.returncode})") from exc
 
     def install_package(self, package_name: str, version: str | None = None) -> int:
-        """Run uv add to install a package into the project."""
+        """Run uv add to install a package into the project. Restores pyproject.toml on failure.
+
+        `uv add <spec>` edits pyproject.toml itself, so there's no ossiq-side write to validate
+        first - only the subprocess outcome to guard, the same way execute_update does.
+        """
         spec = f"{package_name}=={version}" if version else package_name
-        return subprocess.run(["uv", "add", spec], cwd=self.project_path).returncode
+        manifest_path = Path(self.project_path) / "pyproject.toml"
+        original_content = manifest_path.read_text(encoding="utf-8")
+
+        try:
+            subprocess.run(["uv", "add", spec], cwd=self.project_path, check=True)
+        except subprocess.CalledProcessError as exc:
+            manifest_path.write_text(original_content, encoding="utf-8")
+            raise PackageManagerExecutionError(f"uv add failed (exit {exc.returncode})") from exc
+        return 0
 
     def __repr__(self):
         return f"{self.package_manager_type.name} Package Manager"
