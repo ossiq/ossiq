@@ -15,7 +15,7 @@ import pytest
 import typer
 
 from ossiq.commands.export import CommandExportOptions, command_export
-from ossiq.domain.common import DataCompleteness, DataSourceStatus
+from ossiq.domain.common import DataCompleteness, DataSourceStatus, ScanStep
 from ossiq.service.project.models import ScanResult
 from ossiq.settings import Settings
 
@@ -55,7 +55,7 @@ def test_stdout_carries_only_json_end_to_end(capsys, verbose):
     """Degraded data sources too: this is exactly the scenario the report's evidence hit a
     rate-limit warning during - confirm the warning (if any fires) still never reaches stdout.
     """
-    scan_result = make_scan_result(DataCompleteness(by_step={"repositories": DataSourceStatus.RATE_LIMITED}))
+    scan_result = make_scan_result(DataCompleteness(by_step={ScanStep.REPOSITORIES: DataSourceStatus.RATE_LIMITED}))
 
     with (
         patch("ossiq.commands.export.project_sources.ProjectSources"),

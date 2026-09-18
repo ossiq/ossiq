@@ -62,8 +62,8 @@ def command_export(ctx: typer.Context, options: CommandExportOptions):
         ignore_packages=options.ignore_packages,
     )
 
-    with show_scan_progress(settings) as on_step:
-        project_scan = scan(sources, on_step=on_step)
+    with show_scan_progress(settings) as progress:
+        project_scan = scan(sources, progress=progress)
 
     renderer = get_renderer(
         command=Command.EXPORT,
