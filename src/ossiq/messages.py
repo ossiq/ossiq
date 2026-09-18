@@ -39,6 +39,15 @@ WARNING_MULTIPLE_REGISTRY_TYPES = """
 `{project_path}` contains multiple registry types. Use `--registry-type` option to narrow it down
 """
 
+# The inspected filenames come from the adapters themselves (api.inspected_manifests), so this text
+# never has to be kept in step with which adapters exist.
+HINT_NO_PACKAGE_MANAGER = (
+    "Inspected {inspected}; found: {found}. "
+    "A pyproject.toml alone needs either a lockfile (uv.lock, pylock.toml) or a non-empty "
+    "[project].dependencies section - a Poetry-only manifest ([tool.poetry.dependencies]) "
+    "isn't supported yet."
+)
+
 ERROR_EXIT_OUTDATED_PACKAGES = """There are libraries with outdated versions:
 exiting with non-zero exit code
 """.replace("\n", " ")
@@ -109,7 +118,7 @@ HELP_APPLY_COMMAND = """
 Apply solver-recommended updates in-process with rollback on failure.
 
 Shows the plan first and prompts for confirmation (use `--yes` for CI). A second confirmation
-covers any update that widens the declared version constraint.
+covers any update that widens the declared version constraint or carries a known API break.
 """
 
 HELP_PLAN_NO_RECOMMENDATIONS = "No updates recommended — the solver found all packages are already at optimal versions."
@@ -140,8 +149,9 @@ WARNING_STRATEGY_OVERRIDE_SHADOWED_BY_OVERRIDE = (
 
 HELP_PLAN_HIGHER_TIER_FOOTER = "{count} more update{plural} available under --update-strategy {tier}."
 
-HELP_PLAN_WIDENING_CONFIRM_HEADER = (
-    "The following updates widen the declared version constraint (authorized by --update-strategy {tier}):"
+HELP_PLAN_ACKNOWLEDGE_CONFIRM_HEADER = (
+    "The following updates need explicit acknowledgement - they widen the declared version "
+    "constraint (authorized by --update-strategy {tier}), or carry a known API/module-system break:"
 )
 
 HELP_OVERRIDE_PACKAGE = (
@@ -188,6 +198,8 @@ HELP_PLAN_HELD_FOR_WIDENING_HEADER = "Requires constraint widening — a newer v
 
 HELP_PLAN_CVE_BYPASS_NOTE = "↳ cooldown bypassed — installed version has a known CVE"
 
+HELP_PLAN_KNOWN_BREAK_NOTE = "↳ known API/module-system break — every newer release carries it, so none was held back"
+
 HELP_ADD_COMMAND = """
 Inspect a package's health metrics and warnings before adding it to your project.
 
@@ -206,3 +218,14 @@ HELP_APPLY_RERUN_HINT = (
     "Updates are resolved in a single pass; applying them re-resolves the dependency tree and can surface "
     "further recommendations. Re-run `ossiq plan` to check whether a follow-up pass is needed."
 )
+
+HELP_UPDATE_CONTEXT_COMMAND = """
+Diff a package's installed (or prospective) version against an arbitrary target version.
+
+Reports module-system/API breaking changes, engine (Node/Python) compatibility against the
+detected or declared runtime, and any candidates rejected along the way — for a specific version
+an agent is considering, which need not be OSS IQ's own recommendation. Use before applying an
+update to a version other than `recommended_version`.
+"""
+
+HELP_UPDATE_CONTEXT_TO = "Target version to evaluate against. Default: OSS IQ's recommended_version."

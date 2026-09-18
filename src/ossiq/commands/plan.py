@@ -5,7 +5,13 @@ from typing import Literal
 
 import typer
 
-from ossiq.domain.common import Command, UserInterfaceType
+from ossiq.domain.common import (
+    Command,
+    NameValueSpecError,
+    UserInterfaceType,
+    normalize_dist_name,
+    parse_name_value_specs,
+)
 from ossiq.messages import (
     ERROR_OVERRIDE_DUPLICATE,
     ERROR_OVERRIDE_IGNORE_CONFLICT,
@@ -13,16 +19,16 @@ from ossiq.messages import (
     ERROR_OVERRIDE_UNKNOWN_PACKAGES,
     ERROR_STRATEGY_OVERRIDE_IGNORE_CONFLICT,
     HELP_APPLY_RERUN_HINT,
+    HELP_PLAN_ACKNOWLEDGE_CONFIRM_HEADER,
     HELP_PLAN_HIGHER_TIER_FOOTER,
     HELP_PLAN_NO_RECOMMENDATIONS,
     HELP_PLAN_NO_RECOMMENDATIONS_FOR_TIER,
-    HELP_PLAN_WIDENING_CONFIRM_HEADER,
     WARNING_OVERRIDE_VERSION_UNKNOWN,
     WARNING_STRATEGY_OVERRIDE_SHADOWED_BY_OVERRIDE,
     WARNING_STRATEGY_OVERRIDE_UNKNOWN_PACKAGE,
 )
 from ossiq.service.project.scan import scan
-from ossiq.service.update import UpdateEntry, UpdatePlan, build_update_plan
+from ossiq.service.update import UpdatePlan, build_update_plan
 from ossiq.settings import Settings
 from ossiq.sources import project_sources
 from ossiq.sources.project_sources import ProjectSources
@@ -52,25 +58,37 @@ class CommandPlanOptions:
 def parse_override_specs(raw: list[str] | tuple[str, ...] | None) -> tuple[tuple[str, str], ...]:
     """Parse --override values of the form `package==version` into (name, version) pairs.
 
-    Supports scoped npm names (@scope/pkg==1.2.3). Raises typer.BadParameter on a malformed
-    spec or when the same package is given two conflicting versions.
+    CLI-boundary wrapper over the shared parser: names are normalised the same way
+    `--strategy-override` and `--ignore` normalise them, so one spelling can't resolve to two
+    different packages depending on which flag introduced it. Scoped npm names
+    (@scope/pkg==1.2.3) survive intact.
+
+    Args:
+        raw: The raw --override values, or None when the option was never given.
+
+    Returns:
+        (canonical_name, version) pairs.
+
+    Raises:
+        typer.BadParameter: On a malformed spec, or a package given two conflicting versions.
     """
-    parsed: dict[str, str] = {}
-    for value in raw or []:
-        name, separator, version = value.partition("==")
-        name = name.strip()
-        version = version.strip()
-        if not separator or not name or not version:
-            raise typer.BadParameter(ERROR_OVERRIDE_SPEC_INVALID.format(value=value))
-        if name in parsed and parsed[name] != version:
-            raise typer.BadParameter(ERROR_OVERRIDE_DUPLICATE.format(package=name))
-        parsed[name] = version
-    return tuple(parsed.items())
+    try:
+        return parse_name_value_specs(raw, separator="==", flag="--override", value_parser=str)
+    except NameValueSpecError as exc:
+        if exc.package is not None:
+            raise typer.BadParameter(ERROR_OVERRIDE_DUPLICATE.format(package=exc.package)) from exc
+        raise typer.BadParameter(ERROR_OVERRIDE_SPEC_INVALID.format(value=exc.value)) from exc
 
 
 def check_override_ignore_conflict(overrides: tuple[tuple[str, str], ...], ignore_packages: tuple[str, ...]) -> None:
-    """Reject any package that is both forced via --override and excluded via --ignore."""
-    conflicted = sorted({name for name, _ in overrides} & set(ignore_packages))
+    """Reject any package that is both forced via --override and excluded via --ignore.
+
+    Both sides are compared canonically — the override names already are, and ProjectSources
+    normalizes --ignore the same way, so `--override Foo==1.0 --ignore foo` is the conflict it
+    looks like.
+    """
+    ignored = {normalize_dist_name(p) for p in ignore_packages}
+    conflicted = sorted({name for name, _ in overrides} & ignored)
     if conflicted:
         raise typer.BadParameter(ERROR_OVERRIDE_IGNORE_CONFLICT.format(packages=", ".join(conflicted)))
 
@@ -78,8 +96,12 @@ def check_override_ignore_conflict(overrides: tuple[tuple[str, str], ...], ignor
 def check_strategy_override_ignore_conflict(
     strategy_overrides: tuple[tuple[str, UpdateStrategy], ...], ignore_packages: tuple[str, ...]
 ) -> None:
-    """Reject any package that is both given a --strategy-override and excluded via --ignore."""
-    conflicted = sorted({name for name, _ in strategy_overrides} & set(ignore_packages))
+    """Reject any package that is both given a --strategy-override and excluded via --ignore.
+
+    Canonical on both sides, for the same reason as check_override_ignore_conflict.
+    """
+    ignored = {normalize_dist_name(p) for p in ignore_packages}
+    conflicted = sorted({name for name, _ in strategy_overrides} & ignored)
     if conflicted:
         raise typer.BadParameter(ERROR_STRATEGY_OVERRIDE_IGNORE_CONFLICT.format(packages=", ".join(conflicted)))
 
@@ -130,8 +152,8 @@ def prepare_plan(ctx: typer.Context, options: CommandPlanOptions) -> tuple[Proje
         rewrite_versions=options.rewrite_versions,
     )
 
-    with show_scan_progress(settings) as on_step:
-        scan_result = scan(sources, on_step=on_step)
+    with show_scan_progress(settings) as progress:
+        scan_result = scan(sources, progress=progress)
 
     package_manager_name = sources.packages_manager.package_manager_type.name
     plan = build_update_plan(
@@ -141,6 +163,7 @@ def prepare_plan(ctx: typer.Context, options: CommandPlanOptions) -> tuple[Proje
         cooldown_period=sources.settings.cooldown_period,
         strategy=strategy,
         forced_overrides=dict(options.overrides),
+        rewrite_versions=options.rewrite_versions,
     )
 
     if plan.unknown_override_packages:
@@ -191,19 +214,42 @@ def command_plan(ctx: typer.Context, options: CommandPlanOptions) -> None:
     render_higher_tier_footer(plan)
 
 
-def confirm_widening(plan: UpdatePlan) -> bool:
-    """Second, apt-style confirmation for entries that widen the declared constraint."""
-    widening_entries: list[UpdateEntry] = [e for e in plan.all_entries if e.widens_constraint]
-    if not widening_entries:
+def confirm_acknowledged(plan: UpdatePlan) -> bool:
+    """Second, apt-style confirmation for entries that need explicit acknowledgement.
+
+    Two distinct reasons land here:
+
+    - the pick sits outside the declared constraint, so applying it rewrites the manifest's range;
+    - the pick's major line is a known API/module-system break, which means every installable
+      release was gated and `build_candidates`' escape hatch admitted the newest anyway rather
+      than blanking the recommendation.
+
+    The second case used to pass through silently whenever the pick happened to sit inside the
+    declared range: `uuid@>11.0.0` admits ESM-only 14.0.2, so `widens_constraint` was False and
+    nothing asked. Both reasons are now named per entry.
+
+    Args:
+        plan: The plan about to be applied.
+
+    Returns:
+        True when there is nothing to acknowledge, or the user confirmed.
+    """
+    flagged = [e for e in plan.all_entries if e.widens_constraint or e.carries_known_break]
+    if not flagged:
         return True
 
-    typer.echo(HELP_PLAN_WIDENING_CONFIRM_HEADER.format(tier=plan.strategy.value))
-    for entry in widening_entries:
+    typer.echo(HELP_PLAN_ACKNOWLEDGE_CONFIRM_HEADER.format(tier=plan.strategy.value))
+    for entry in flagged:
+        reasons = []
+        if entry.widens_constraint:
+            reasons.append(f"widens {entry.version_defined or '(none)'}")
+        if entry.carries_known_break:
+            reasons.append("known break")
         typer.echo(
             f"  {entry.package_name}  {entry.version_defined or '(none)'} -> {entry.recommended_version}"
-            f"  [{'direct' if entry.is_direct else 'transitive'}]"
+            f"  [{'direct' if entry.is_direct else 'transitive'}]  ({', '.join(reasons)})"
         )
-    return typer.confirm("Proceed with these constraint-widening updates?", default=False)
+    return typer.confirm("Proceed with these updates?", default=False)
 
 
 def command_apply(ctx: typer.Context, options: CommandPlanOptions, yes: bool = False) -> None:
@@ -225,7 +271,7 @@ def command_apply(ctx: typer.Context, options: CommandPlanOptions, yes: bool = F
         confirmed = typer.confirm(f"Proceed with {n} update{'s' if n != 1 else ''}?", default=False)
         if not confirmed:
             raise typer.Exit(0)
-        if not confirm_widening(plan):
+        if not confirm_acknowledged(plan):
             raise typer.Exit(0)
 
     sources.packages_manager.execute_update(plan)

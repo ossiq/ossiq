@@ -30,6 +30,25 @@ class AgentInfoRenderer(AbstractUserInterfaceRenderer):
         print(json.dumps(decision, indent=2))
 
 
+class AgentUpdateContextRenderer(AbstractUserInterfaceRenderer):
+    """Render a single-package version diff (installed/prospective -> arbitrary target) as JSON.
+
+    Receives the finished payload from `service.update_context`, not a live registry handle and a
+    raw release list to assemble one from — a renderer holding an adapter is what Architecture
+    rule 4 forbids, and `test_import_boundaries` can only see imports, not `**kwargs`.
+    """
+
+    command = Command.UPDATE_CONTEXT
+    user_interface_type = UserInterfaceType.AGENT
+
+    @staticmethod
+    def supports(command: Command, user_interface_type: UserInterfaceType) -> bool:
+        return command == Command.UPDATE_CONTEXT and user_interface_type == UserInterfaceType.AGENT
+
+    def render(self, data: Any, **kwargs) -> None:
+        print(json.dumps(data, indent=2))
+
+
 class AgentStatusRenderer(AbstractUserInterfaceRenderer):
     """Render a project update decision as JSON."""
 

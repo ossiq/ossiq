@@ -60,8 +60,8 @@ def command_html(ctx: typer.Context, options: CommandHtmlOptions) -> None:
         ignore_packages=options.ignore_packages,
     )
 
-    with show_scan_progress(settings) as on_step:
-        project_scan = scan(sources, on_step=on_step)
+    with show_scan_progress(settings) as progress:
+        project_scan = scan(sources, progress=progress)
 
     renderer = get_renderer(command=Command.HTML, user_interface_type=UserInterfaceType.HTML, settings=settings)
 

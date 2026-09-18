@@ -15,11 +15,11 @@ import sys
 from collections.abc import Callable
 from typing import Any
 
-from ossiq.commands.info import build_installed_detail, matches
 from ossiq.domain.exceptions import ApplicationError
 from ossiq.service.agent import AgentDecision, build_add_decide, build_update_decide
-from ossiq.service.package import fetch_prospective_detail
+from ossiq.service.package import build_installed_detail, fetch_prospective_detail, matches
 from ossiq.service.project.scan import scan
+from ossiq.service.update_context import build_update_context_payload
 from ossiq.settings import Settings
 from ossiq.sources import project_sources
 from ossiq.strategy.overrides import StrategyPlan, parse_strategy
@@ -80,16 +80,29 @@ TOOLS: list[dict[str, Any]] = [
             "required": ["project_path"],
         },
     },
+    {
+        "name": "ossiq_update_context",
+        "description": (
+            "Diff an installed (or not-yet-installed) package's version against an arbitrary target "
+            "(default: OSS IQ's own recommendation) — module-system/API breaking changes, engine "
+            "(Node/Python) compatibility, and structural rejections along the way. Use before applying "
+            "an update to a specific version, especially one that isn't the recommended one."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "package": {"type": "string", "description": "Package name to evaluate"},
+                "project_path": {"type": "string", "description": "Path to the project (default '.')"},
+                "target_version": {
+                    "type": "string",
+                    "description": "Version to evaluate against (default: OSS IQ's recommended_version)",
+                },
+                "registry_type": {"type": "string", "enum": ["npm", "pypi"], "description": "Force the registry"},
+            },
+            "required": ["package"],
+        },
+    },
 ]
-
-
-def noop_step(_key: str, _status: object = None) -> None:
-    """Silent scan progress callback — stdout is reserved for JSON-RPC.
-
-    Accepts the optional status arg scan()'s step() wrapper always passes now (B4) — typed as
-    `object` rather than importing DataSourceStatus purely for that annotation on a callback that
-    does nothing with it either way.
-    """
 
 
 def evaluate_dependency(settings: Settings, args: dict[str, Any]) -> AgentDecision:
@@ -103,7 +116,7 @@ def evaluate_dependency(settings: Settings, args: dict[str, Any]) -> AgentDecisi
         allow_prerelease_packages=(),
         registry_type=args.get("registry_type"),
     )
-    scan_result = scan(sources, on_step=noop_step)
+    scan_result = scan(sources)
 
     all_records = scan_result.production_packages + scan_result.optional_packages + scan_result.transitive_packages
     matched = [record for record in all_records if matches(record, package_name)]
@@ -130,13 +143,25 @@ def evaluate_updates(settings: Settings, args: dict[str, Any]) -> AgentDecision:
         registry_type=None,
         strategy=strategy,
     )
-    scan_result = scan(sources, on_step=noop_step)
+    scan_result = scan(sources)
     return build_update_decide(scan_result, update_strategy=default_tier.value)
+
+
+def evaluate_update_context(settings: Settings, args: dict[str, Any]) -> dict[str, Any]:
+    """Build an update-context diff for a single package against an arbitrary target version."""
+    return build_update_context_payload(
+        settings,
+        project_path=args.get("project_path", "."),
+        package_name=args["package"],
+        target_version=args.get("target_version"),
+        registry_type=args.get("registry_type"),
+    )
 
 
 TOOL_HANDLERS: dict[str, Callable[[Settings, dict[str, Any]], AgentDecision]] = {
     "ossiq_evaluate_dependency": evaluate_dependency,
     "ossiq_evaluate_updates": evaluate_updates,
+    "ossiq_update_context": evaluate_update_context,
 }
 
 
@@ -150,13 +175,7 @@ def handle_tools_call(settings: Settings, params: dict[str, Any]) -> dict[str, A
     try:
         decision = handler(settings, params.get("arguments") or {})
     except ApplicationError as error:
-        # Mirrors cli.py's error_boundary(): title+hint is the whole point of ApplicationError,
-        # and dropping it here left agents staring at "UnknownProjectPackageManager: Unable to
-        # identify Package Manager" with no indication of what to do about it.
-        text = f"{error.title}: {error}"
-        if error.hint:
-            text += f"\n{error.hint}"
-        return {"content": [{"type": "text", "text": text}], "isError": True}
+        return {"content": [{"type": "text", "text": error.render()}], "isError": True}
     except Exception as error:  # noqa: BLE001 — surface any failure to the agent, keep the loop alive
         return {"content": [{"type": "text", "text": f"{type(error).__name__}: {error}"}], "isError": True}
 
