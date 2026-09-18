@@ -72,6 +72,34 @@ def normalize_npm_license(value: str | dict[str, object] | None) -> str | None:
     return value or None
 
 
+def normalize_npm_engines(value: object) -> dict[str, str] | None:
+    """Coerce a registry `engines` field into the {engine: range} shape PackageVersion declares.
+
+    npm also accepts the legacy array form, `["node >=0.6.0"]`, which is still present in
+    published metadata (extsprintf@1.3.0, for one). Callers downstream do `.get(engine)` on this,
+    so letting a list through is an AttributeError waiting for the first package that uses it.
+    See https://docs.npmjs.com/cli/v8/configuring-npm/package-json#engines
+
+    Args:
+        value: Whatever the registry put in `engines`.
+
+    Returns:
+        {engine: version range}, or None when there is nothing usable to compare against.
+    """
+    if isinstance(value, dict):
+        return {k: v for k, v in value.items() if isinstance(k, str) and isinstance(v, str)} or None
+    if isinstance(value, list):
+        entries: dict[str, str] = {}
+        for item in value:
+            if not isinstance(item, str):
+                continue
+            engine, _, spec = item.strip().partition(" ")
+            if engine and spec:
+                entries[engine] = spec.strip()
+        return entries or None
+    return None
+
+
 def detect_npm_install_execution(details: dict) -> tuple[bool | None, str | None]:
     """Return (runs_code_at_install, reason) from a single npm registry version object."""
     scripts = details.get("scripts") or {}
@@ -127,16 +155,20 @@ def detect_npm_module_system(details: dict) -> ModuleSystem | None:
     """Return this release's own module format from its `type`/`exports` registry fields.
 
     Approximates Node's own dual-package heuristic without reimplementing full `exports`-map
-    resolution: `type == "module"` with a `require` condition anywhere in `exports` -> DUAL;
-    `type == "module"` (or no `type` but `exports` has only an `import` condition, no `require`)
+    resolution: both a `require` and an `import` condition in `exports` -> DUAL, whatever `type`
+    says; `type == "module"` alone (or no `type` but an `import` condition and no `require`)
     -> ESM_ONLY; otherwise CJS.
     """
     has_require, has_import = exports_conditions(details.get("exports"))
     is_esm_type = details.get("type") == "module"
 
+    # Both conditions means the package ships both formats, whether or not it declares a `type`.
+    # Reading the no-`type` case as CJS mislabelled every dual package that relies on the default.
+    if has_require and has_import:
+        return ModuleSystem.DUAL
     if is_esm_type and has_require:
         return ModuleSystem.DUAL
-    if is_esm_type or (has_import and not has_require):
+    if is_esm_type or has_import:
         return ModuleSystem.ESM_ONLY
     return ModuleSystem.CJS
 
@@ -375,7 +407,7 @@ class PackageRegistryApiNpm(AbstractPackageRegistryApi):
                     published_date_iso=timestamp_map.get(version, None),
                     declared_dependencies=details.get("dependencies", {}),
                     license=normalize_npm_license(details.get("license")),
-                    runtime_requirements=details.get("engines", None),
+                    runtime_requirements=normalize_npm_engines(details.get("engines")),
                     declared_dev_dependencies=details.get("devDependencies", {}),
                     description=details.get("description", None),
                     package_url=f"{NPM_REGISTRY_FRONT}/package/{package_name}/v/{version}",

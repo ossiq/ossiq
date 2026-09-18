@@ -8,6 +8,7 @@ from unittest.mock import MagicMock, patch
 from ossiq.adapters.api_epss import EpssApiFirstOrg
 from ossiq.clients.batch import BatchClient, ChunkResult
 from ossiq.clients.client_epss import EpssBatchStrategy
+from ossiq.domain.common import DataSourceStatus
 
 
 def make_chunk_result(data: list[dict]) -> ChunkResult:
@@ -70,9 +71,11 @@ class TestEpssApiFirstOrg:
         client = EpssApiFirstOrg(MagicMock())
 
         with patch.object(BatchClient, "run_batch") as mock_run:
-            result = client.get_epss_batch([])
+            fetch = client.get_epss_batch([])
 
-        assert result == {}
+        assert fetch.data == {}
+        # Nothing was asked for, so nothing failed - the scan's epss step must not show degraded.
+        assert fetch.status == DataSourceStatus.OK
         mock_run.assert_not_called()
 
     def test_dedupes_and_sorts_before_batching(self):
@@ -90,6 +93,6 @@ class TestEpssApiFirstOrg:
         chunk_b = {"CVE-2023-0002": 0.2}
 
         with patch.object(BatchClient, "run_batch", return_value=iter([chunk_a, chunk_b])):
-            result = client.get_epss_batch(["CVE-2023-0001", "CVE-2023-0002"])
+            fetch = client.get_epss_batch(["CVE-2023-0001", "CVE-2023-0002"])
 
-        assert result == {"CVE-2023-0001": 0.1, "CVE-2023-0002": 0.2}
+        assert fetch.data == {"CVE-2023-0001": 0.1, "CVE-2023-0002": 0.2}

@@ -23,6 +23,7 @@ from ossiq.domain.common import (
     VERSION_DATA_SOURCE_GITHUB_TAGS,
     DataSourceStatus,
     RepositoryProvider,
+    combine_statuses,
 )
 from ossiq.domain.exceptions import GithubRateLimitError
 from ossiq.domain.repository import Repository
@@ -697,17 +698,18 @@ class TestRepositoryActivityBatch:
                 yield {url_ok: {"issues": [{"n": 2}], "pulls": [{"p": 1}], "pinned_titles": []}}
 
         monkeypatch.setattr("ossiq.adapters.api_github.BatchClient", FakeBatchClient)
-        result = github_api_with_token.repository_activity_batch([url_ok, url_bad], "2026-01-01T00:00:00Z")
+        fetch = github_api_with_token.repository_activity_batch([url_ok, url_bad], "2026-01-01T00:00:00Z")
 
-        assert url_bad not in result
-        assert result[url_ok]["issues"] == [{"n": 1}, {"n": 2}]
-        assert result[url_ok]["pulls"] == [{"p": 1}]
-        assert result[url_ok]["pinned_titles"] == ["Notice: Deprecation"]
+        assert url_bad not in fetch.data
+        assert fetch.data[url_ok]["issues"] == [{"n": 1}, {"n": 2}]
+        assert fetch.data[url_ok]["pulls"] == [{"p": 1}]
+        assert fetch.data[url_ok]["pinned_titles"] == ["Notice: Deprecation"]
 
 
-class TestLastSummary:
-    """B4: repositories_info_batch() must expose whether GitHub actually answered, not just what
-    it returned - the report's own evidence ("host blocked" -> ✓ shown anyway).
+class TestFetchStatus:
+    """B4: a batch fetch must expose whether GitHub actually answered, not just what it returned -
+    the report's own evidence ("host blocked" -> ✓ shown anyway). The status rides back with the
+    payload rather than being left on the instance for the caller to go and read.
     """
 
     def test_host_unreachable_is_unreachable_not_ok(self, github_api_with_token):
@@ -715,10 +717,10 @@ class TestLastSummary:
             patch.object(github_api_with_token.session, "get", side_effect=requests.ConnectionError("blocked")),
             patch("ossiq.clients.batch.time.sleep"),
         ):
-            result = github_api_with_token.repositories_info_batch(["https://github.com/org/repo"])
+            fetch = github_api_with_token.repositories_info_batch(["https://github.com/org/repo"])
 
-        assert result == {}
-        assert github_api_with_token.last_summary.status == DataSourceStatus.UNREACHABLE
+        assert fetch.data == {}
+        assert fetch.status == DataSourceStatus.UNREACHABLE
 
     def test_quota_exhausted_is_rate_limited(self, github_api_with_token):
         resp = Mock(spec=requests.Response)
@@ -726,9 +728,9 @@ class TestLastSummary:
         resp.headers = {"x-ratelimit-remaining": "0"}
 
         with patch.object(github_api_with_token.session, "get", return_value=resp):
-            github_api_with_token.repositories_info_batch(["https://github.com/org/repo"])
+            fetch = github_api_with_token.repositories_info_batch(["https://github.com/org/repo"])
 
-        assert github_api_with_token.last_summary.status == DataSourceStatus.RATE_LIMITED
+        assert fetch.status == DataSourceStatus.RATE_LIMITED
 
     def test_successful_fetch_is_ok(self, github_api_with_token):
         resp = Mock(spec=requests.Response)
@@ -737,14 +739,15 @@ class TestLastSummary:
         resp.headers = {}
 
         with patch.object(github_api_with_token.session, "get", return_value=resp):
-            result = github_api_with_token.repositories_info_batch(["https://github.com/org/repo"])
+            fetch = github_api_with_token.repositories_info_batch(["https://github.com/org/repo"])
 
-        assert "https://github.com/org/repo" in result
-        assert github_api_with_token.last_summary.status == DataSourceStatus.OK
+        assert "https://github.com/org/repo" in fetch.data
+        assert fetch.status == DataSourceStatus.OK
 
-    def test_summary_accumulates_across_multiple_calls_on_one_instance(self, github_api_with_token):
-        """repositories_info_batch and commits_batch both drive last_summary on the same
-        instance - a failure in either must show up, not just whichever ran last.
+    def test_each_call_reports_its_own_status_independently(self, github_api_with_token):
+        """No shared accumulator on the instance: one call succeeding and the next failing are
+        two separate facts. Combining them into the one 'repositories' step is the scan
+        pipeline's job (prefetch_scan_data), where it is explicit.
         """
         ok_resp = Mock(spec=requests.Response)
         ok_resp.status_code = 200
@@ -752,15 +755,16 @@ class TestLastSummary:
         ok_resp.headers = {}
 
         with patch.object(github_api_with_token.session, "get", return_value=ok_resp):
-            github_api_with_token.repositories_info_batch(["https://github.com/org/repo"])
-        assert github_api_with_token.last_summary.status == DataSourceStatus.OK
+            repos = github_api_with_token.repositories_info_batch(["https://github.com/org/repo"])
+        assert repos.status == DataSourceStatus.OK
 
         with (
             patch.object(github_api_with_token.session, "get", side_effect=requests.ConnectionError("blocked")),
             patch("ossiq.clients.batch.time.sleep"),
         ):
-            github_api_with_token.commits_batch(["https://github.com/org/repo"])
+            commits = github_api_with_token.commits_batch(["https://github.com/org/repo"])
+        assert commits.status == DataSourceStatus.UNREACHABLE
         # Some data came through (the repo info), some didn't (the commits) - that combination
         # is exactly what "partial" means, not "unreachable" (which requires nothing came through
-        # at all).
-        assert github_api_with_token.last_summary.status == DataSourceStatus.PARTIAL
+        # at all). combine_statuses is what the scan applies to reach that verdict.
+        assert combine_statuses([repos.status, commits.status]) == DataSourceStatus.PARTIAL

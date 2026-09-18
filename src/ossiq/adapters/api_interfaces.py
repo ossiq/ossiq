@@ -9,8 +9,7 @@ from collections.abc import Callable, Iterable
 from functools import cmp_to_key
 from typing import TYPE_CHECKING
 
-from ossiq.clients.batch import BatchRunSummary
-from ossiq.domain.common import ConstraintType, ProjectPackagesRegistry
+from ossiq.domain.common import ConstraintType, ProjectPackagesRegistry, SourceFetch
 from ossiq.domain.package import Package
 from ossiq.domain.packages_manager import PackageManagerType
 from ossiq.domain.project import Project
@@ -26,18 +25,19 @@ if TYPE_CHECKING:
 class AbstractSourceCodeProviderApi(abc.ABC):
     """
     Abstract client to communicate with source code repositories like GitHub
-    """
 
-    # B4: completeness of the most recent batch fetch(es) this instance made. Worst-of
-    # combined across whichever batch method below gets called on it.
-    last_summary: BatchRunSummary
+    Every batch method returns its payload wrapped in a `SourceFetch`, so a caller can tell
+    "checked, found nothing" apart from "couldn't check at all" without interrogating the
+    instance afterwards. The port deliberately speaks `DataSourceStatus`, not the `clients/`
+    batch-run type it happens to be derived from.
+    """
 
     @abc.abstractmethod
     def repository_info(self, repository_url: str | None) -> Repository:
         raise NotImplementedError
 
     @abc.abstractmethod
-    def repositories_info_batch(self, repo_urls: list[str]) -> dict[str, Repository]:
+    def repositories_info_batch(self, repo_urls: list[str]) -> SourceFetch[dict[str, Repository]]:
         """Fetch metadata for multiple repos in parallel. Returns url -> Repository."""
         raise NotImplementedError
 
@@ -48,17 +48,17 @@ class AbstractSourceCodeProviderApi(abc.ABC):
         raise NotImplementedError
 
     @abc.abstractmethod
-    def commits_batch(self, repo_urls: list[str], until: str | None = None) -> dict[str, list[dict]]:
+    def commits_batch(self, repo_urls: list[str], until: str | None = None) -> SourceFetch[dict[str, list[dict]]]:
         """Fetch recent commits for multiple repos in parallel. Feeds the stability estimator."""
         raise NotImplementedError
 
     @abc.abstractmethod
-    def repository_activity_batch(self, repo_urls: list[str], since: str | None = None) -> dict[str, dict]:
+    def repository_activity_batch(self, repo_urls: list[str], since: str | None = None) -> SourceFetch[dict[str, dict]]:
         """Fetch issue / PR activity for multiple repos in parallel."""
         raise NotImplementedError
 
     @abc.abstractmethod
-    def readmes_batch(self, repo_urls: list[str]) -> dict[str, str]:
+    def readmes_batch(self, repo_urls: list[str]) -> SourceFetch[dict[str, str]]:
         """Fetch the top of each repo's README in parallel, for the deprecation-banner scan."""
         raise NotImplementedError
 
