@@ -4,7 +4,15 @@ from __future__ import annotations
 
 from rich.console import Console
 
-from ossiq.domain.common import ConstraintType, CveDatabase, ProjectPackagesRegistry, RejectedCandidate
+from ossiq.domain.common import (
+    ConstraintType,
+    CveDatabase,
+    EngineContext,
+    EngineContextSource,
+    ProjectPackagesRegistry,
+    RejectedCandidate,
+)
+from ossiq.domain.compatibility import CompatibilityFacts
 from ossiq.domain.cve import CVE, Severity
 from ossiq.domain.project import ConstraintSource
 from ossiq.domain.version import VersionsDifference
@@ -58,6 +66,9 @@ def make_record(
     version_constraint: str | None = None,
     version_constraint_declared: str | None = None,
     latest_in_major: str | None = None,
+    breaking_change: str | None = None,
+    engine_requirement: dict[str, str] | None = None,
+    engine_compatible: bool | None = None,
 ) -> ScanRecord:
     return ScanRecord(
         package_name=name,
@@ -75,7 +86,12 @@ def make_record(
         recommended_version=recommended_version,
         version_constraint=version_constraint,
         version_constraint_declared=version_constraint_declared,
-        latest_in_major=latest_in_major,
+        compatibility=CompatibilityFacts(
+            latest_in_major=latest_in_major,
+            breaking_change=breaking_change,
+            engine_requirement=engine_requirement,
+            engine_compatible=engine_compatible,
+        ),
     )
 
 
@@ -85,7 +101,7 @@ def render_table(
     *,
     full: bool = False,
     width: int = 200,
-    engine_context: dict[str, str] | None = None,
+    engine_context: EngineContext | None = None,
 ) -> str:
     renderer = ConsoleStatusRenderer(Settings())
     table = renderer.build_main_table(prod, dev or [], lag_threshold_days=180, full=full, engine_context=engine_context)
@@ -266,39 +282,69 @@ def test_rejected_candidate_sub_row_absent_without_full():
 
 def test_breaking_change_sub_row_shown_in_full_mode():
     record = make_record(versions_diff_index=MINOR, recommended_version="5.0.0")
-    record.breaking_change = "ESM-only from 5.0.0"
+    record.compatibility.breaking_change = "ESM-only from 5.0.0"
     output = render_table([record], full=True)
     assert "ESM-only from 5.0.0" in output
 
 
 def test_breaking_change_sub_row_absent_without_full():
     record = make_record(versions_diff_index=MINOR, recommended_version="5.0.0")
-    record.breaking_change = "ESM-only from 5.0.0"
+    record.compatibility.breaking_change = "ESM-only from 5.0.0"
     output = render_table([record])
     assert "ESM-only from 5.0.0" not in output
 
 
 def test_engine_mismatch_sub_row_shown_in_full_mode():
     record = make_record(versions_diff_index=MINOR, recommended_version="2.0.0")
-    record.engine_requirement = {"node": ">=22.0.0"}
-    record.engine_compatible = False
-    output = render_table([record], full=True, engine_context={"node": "18.0.0"})
+    record.compatibility.engine_requirement = {"node": ">=22.0.0"}
+    record.compatibility.engine_compatible = False
+    output = render_table(
+        [record], full=True, engine_context=EngineContext({"node": "18.0.0"}, EngineContextSource.DETECTED)
+    )
     assert "requires node >=22.0.0, detected 18.0.0" in output
+
+
+def test_engine_mismatch_sub_row_names_only_the_mismatching_engine():
+    # A line was printed for every engine_requirement key, mismatching or not - so a package
+    # declaring both node and npm reported the npm requirement too, against a "?" placeholder.
+    # The text now derives from engine_mismatch_reason, the same check the solver's gate applies.
+    record = make_record(versions_diff_index=MINOR, recommended_version="2.0.0")
+    record.compatibility.engine_requirement = {"node": ">=22.0.0", "npm": ">=9.0.0"}
+    record.compatibility.engine_compatible = False
+    output = render_table(
+        [record], full=True, engine_context=EngineContext({"node": "18.0.0"}, EngineContextSource.DETECTED)
+    )
+    assert "requires node >=22.0.0, detected 18.0.0" in output
+    assert "npm" not in output
+
+
+def test_engine_mismatch_sub_row_omitted_when_nothing_actually_mismatches():
+    # engine_compatible is denormalized onto the record and can outlive the pick it was computed
+    # for; rather than print a bare arrow, render nothing when the check finds no conflict.
+    record = make_record(versions_diff_index=MINOR, recommended_version="2.0.0")
+    record.compatibility.engine_requirement = {"node": ">=16.0.0"}
+    record.compatibility.engine_compatible = False
+    output = render_table(
+        [record], full=True, engine_context=EngineContext({"node": "18.0.0"}, EngineContextSource.DETECTED)
+    )
+    assert "↳" not in output
 
 
 def test_engine_mismatch_sub_row_absent_without_full():
     record = make_record(versions_diff_index=MINOR, recommended_version="2.0.0")
-    record.engine_requirement = {"node": ">=22.0.0"}
-    record.engine_compatible = False
-    output = render_table([record], engine_context={"node": "18.0.0"})
+    record.compatibility.engine_requirement = {"node": ">=22.0.0"}
+    record.compatibility.engine_compatible = False
+    output = render_table([record], engine_context=EngineContext({"node": "18.0.0"}, EngineContextSource.DETECTED))
     assert "requires node" not in output
 
 
 def test_engine_mismatch_sub_row_absent_when_compatible():
     record = make_record(versions_diff_index=MINOR, recommended_version="2.0.0")
-    record.engine_requirement = {"node": ">=16.0.0"}
-    record.engine_compatible = True
-    output = render_table([record], full=True, engine_context={"node": "18.0.0"})
+    record.compatibility.engine_requirement = {"node": ">=16.0.0"}
+    record.compatibility.engine_compatible = True
+    output = render_table(
+        [record], full=True, engine_context=EngineContext({"node": "18.0.0"}, EngineContextSource.DETECTED)
+    )
     assert "requires node" not in output
 
 
@@ -376,7 +422,7 @@ def test_transitive_table_rejected_candidate_sub_row_absent_without_full():
 
 def test_transitive_table_breaking_change_sub_row_shown_in_full_mode():
     record = make_record(recommended_version="5.0.0")
-    record.breaking_change = "ESM-only from 5.0.0"
+    record.compatibility.breaking_change = "ESM-only from 5.0.0"
     renderer = ConsoleStatusRenderer(Settings())
     table = renderer.transitive_table([record], full=True)
     console = Console(record=True, width=200)
@@ -386,10 +432,12 @@ def test_transitive_table_breaking_change_sub_row_shown_in_full_mode():
 
 def test_transitive_table_engine_mismatch_sub_row_shown_in_full_mode():
     record = make_record(recommended_version="2.0.0")
-    record.engine_requirement = {"node": ">=22.0.0"}
-    record.engine_compatible = False
+    record.compatibility.engine_requirement = {"node": ">=22.0.0"}
+    record.compatibility.engine_compatible = False
     renderer = ConsoleStatusRenderer(Settings())
-    table = renderer.transitive_table([record], full=True, engine_context={"node": "18.0.0"})
+    table = renderer.transitive_table(
+        [record], full=True, engine_context=EngineContext({"node": "18.0.0"}, EngineContextSource.DETECTED)
+    )
     console = Console(record=True, width=200)
     console.print(table)
     assert "requires node >=22.0.0, detected 18.0.0" in console.export_text()
@@ -397,13 +445,33 @@ def test_transitive_table_engine_mismatch_sub_row_shown_in_full_mode():
 
 def test_transitive_table_engine_mismatch_sub_row_absent_without_full():
     record = make_record(recommended_version="2.0.0")
-    record.engine_requirement = {"node": ">=22.0.0"}
-    record.engine_compatible = False
+    record.compatibility.engine_requirement = {"node": ">=22.0.0"}
+    record.compatibility.engine_compatible = False
     renderer = ConsoleStatusRenderer(Settings())
-    table = renderer.transitive_table([record], full=False, engine_context={"node": "18.0.0"})
+    table = renderer.transitive_table(
+        [record], full=False, engine_context=EngineContext({"node": "18.0.0"}, EngineContextSource.DETECTED)
+    )
     console = Console(record=True, width=200)
     console.print(table)
     assert "requires node" not in console.export_text()
+
+
+# --- sub-row padding -------------------------------------------------------------------------
+
+
+def test_sub_rows_pad_to_the_tables_own_column_count():
+    """add_detail_subrows derives its blank cells from len(table.columns), so adding a column
+    can't silently misalign every sub-row the way a hand-maintained count did."""
+    record = make_record(recommended_version="5.0.0")
+    record.compatibility.breaking_change = "ESM-only from 5.0.0"
+    renderer = ConsoleStatusRenderer(Settings())
+
+    for table in (
+        renderer.transitive_table([record], full=True),
+        renderer.transitive_table([record], full=False),
+    ):
+        cells_per_row = {len(column._cells) for column in table.columns}
+        assert len(cells_per_row) == 1, "sub-rows disagree with the header on column count"
 
 
 # --- whats_next column ------------------------------------------------------------------------

@@ -24,7 +24,14 @@ def reason_with_age(version: str, age_days: int) -> RecommendationReason:
     )
 
 
-def make_entry(name: str, current: str, recommended: str, age_days: int, is_direct: bool) -> UpdateEntry:
+def make_entry(
+    name: str,
+    current: str,
+    recommended: str,
+    age_days: int,
+    is_direct: bool,
+    carries_known_break: bool = False,
+) -> UpdateEntry:
     return UpdateEntry(
         package_name=name,
         current_version=current,
@@ -32,6 +39,7 @@ def make_entry(name: str, current: str, recommended: str, age_days: int, is_dire
         is_direct=is_direct,
         reason=reason_with_age(recommended, age_days),
         constraint_type=ConstraintType.DECLARED,
+        carries_known_break=carries_known_break,
     )
 
 
@@ -172,3 +180,31 @@ def test_non_security_entry_has_no_cve_tag(monkeypatch):
     plan = make_plan(direct_entries=[make_entry("requests", "2.28.0", "2.32.0", 90, is_direct=True)])
     output = render(plan, monkeypatch)
     assert "CVE" not in output
+
+
+class TestKnownBreakSubRow:
+    """A pick whose major line is a known break reached the plan only because every installable
+    release was gated and build_candidates' escape hatch admitted the newest anyway. It can sit
+    inside the declared range, so it appears as an ordinary row - the sub-row is what says otherwise.
+    """
+
+    def test_direct_entry_gets_a_break_sub_row(self, monkeypatch) -> None:
+        entry = make_entry("uuid", "13.0.0", "14.0.2", 30, is_direct=True, carries_known_break=True)
+
+        output = render(make_plan(direct_entries=[entry]), monkeypatch)
+
+        assert "known API/module-system break" in output
+
+    def test_transitive_entry_gets_one_too(self, monkeypatch) -> None:
+        entry = make_entry("uuid", "13.0.0", "14.0.2", 30, is_direct=False, carries_known_break=True)
+
+        output = render(make_plan(transitive_entries=[entry]), monkeypatch)
+
+        assert "known API/module-system break" in output
+
+    def test_a_clean_entry_gets_no_sub_row(self, monkeypatch) -> None:
+        entry = make_entry("lodash", "4.17.20", "4.17.21", 30, is_direct=True)
+
+        output = render(make_plan(direct_entries=[entry]), monkeypatch)
+
+        assert "known API/module-system break" not in output

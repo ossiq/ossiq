@@ -24,6 +24,7 @@ class TestSchemaRegistryV15(SchemaRegistryBaseTest):
         "DependencyTreeRoot",
         "DependencyTreeNode",
         "TransitivePackageMetrics",
+        "StrategySelectionExport",
     ]
     included_versions = [
         ExportJsonSchemaVersion.V1_5,
@@ -35,6 +36,25 @@ class TestSchemaRegistryV15(SchemaRegistryBaseTest):
 
     def test_update_transitive_impacts_export_defined(self, schema):
         assert "TransitiveImpactExport" in schema["$defs"]
+
+    def test_strategy_is_a_nested_object_not_flattened_fields(self, schema):
+        props = schema["$defs"]["PackageMetrics"]["properties"]
+        assert not [key for key in props if key.startswith("strategy_")]
+        assert props["strategy"]["oneOf"][0]["$ref"] == "#/$defs/StrategySelectionExport"
+
+    def _assert_ladder_fields_on(self, defs, definition_name):
+        """Both metrics models inherit the ladder rungs from one mixin, so their descriptions
+        must be identical — they had already drifted ("Absent when" vs "Null only when")."""
+        props = defs[definition_name]["properties"]
+        for field in ("latest_in_range", "latest_in_major", "latest_compatible_major"):
+            assert props[field]["type"] == ["string", "null"]
+            assert "Null only when undeterminable" in props[field]["description"]
+
+    def test_package_metrics_has_ladder_fields(self, schema):
+        self._assert_ladder_fields_on(schema["$defs"], "PackageMetrics")
+
+    def test_transitive_package_metrics_has_ladder_fields(self, schema):
+        self._assert_ladder_fields_on(schema["$defs"], "TransitivePackageMetrics")
 
     def _assert_epss_fields_on(self, defs, definition_name):
         props = defs[definition_name]["properties"]
