@@ -14,20 +14,26 @@ from datetime import datetime
 from functools import cmp_to_key
 
 from ossiq.adapters.api_interfaces import AbstractPackageRegistryApi
-from ossiq.domain.common import ConstraintType, EngineContextSource, RecommendationRung, RejectedCandidate
+from ossiq.domain.common import (
+    RUNG_ORDER,
+    ConstraintType,
+    EngineContext,
+    RecommendationRung,
+    RejectedCandidate,
+)
 from ossiq.risk.maintenance import DEPRECATION_NONE
 from ossiq.risk.triage import EPSS_NOISE_THRESHOLD
 from ossiq.service.common.package_versions import PackageVersion
-from ossiq.service.project.breaking_changes import breaking_majors, module_system_label
+from ossiq.service.project.breaking_changes import breaking_majors
+from ossiq.service.project.ladder import classify_rung as ladder_classify_rung
+from ossiq.service.project.ladder import installable_releases
 from ossiq.service.project.models import ScanRecord
+from ossiq.service.project.target_facts import annotate_target_facts, clear_target_facts
 from ossiq.service.update_impact import DirectUpdateImpact, simulate_single
 from ossiq.solver.reason import RecommendationReason
-from ossiq.solver.universe import is_published_before
 from ossiq.solver.version_matchers import (
-    engine_compatibility,
     engine_mismatch_reason,
     major_key,
-    version_satisfies_constraint,
 )
 from ossiq.strategy.motive import PackageFacts
 from ossiq.strategy.overrides import StrategyPlan
@@ -35,8 +41,6 @@ from ossiq.strategy.targeting import Candidate, select_target
 from ossiq.timeutil import age_days_from_iso
 
 __all__ = ["PackageFacts", "StrategyPlan", "apply_update_strategy", "build_candidates", "facts_from_record"]
-
-RUNG_ORDER = (RecommendationRung.IN_RANGE, RecommendationRung.IN_MAJOR, RecommendationRung.LATEST)
 
 # A gate returns a rejection reason for a release, or None to admit it. Evaluated before
 # `validator` in build_candidates - cheap, in-memory checks first.
@@ -63,15 +67,15 @@ def breaking_change_gate(
     return gate
 
 
-def engine_mismatch_gate(engine_context: dict[str, str]) -> StructuralGate:
+def engine_mismatch_gate(engine_context: EngineContext) -> StructuralGate:
     """Reject a release whose declared runtime_requirements conflict with engine_context.
 
-    No-op (never rejects) when engine_context is empty — `engine_mismatch_reason` applies the same
-    "either side empty -> no mismatch" rule the solver's own L2 check uses.
+    No-op (never rejects) when the context carries no versions — `engine_mismatch_reason` applies
+    the same "either side empty -> no mismatch" rule the solver's own L2 check uses.
     """
 
     def gate(pv: PackageVersion) -> str | None:
-        return engine_mismatch_reason(pv.runtime_requirements, engine_context)
+        return engine_mismatch_reason(pv.runtime_requirements, engine_context.versions)
 
     return gate
 
@@ -102,11 +106,13 @@ def classify_rung(
     installed_major: tuple[int, int] | None,
     registry: AbstractPackageRegistryApi,
 ) -> RecommendationRung:
-    if version_satisfies_constraint(version, record.version_constraint, registry.package_registry):
-        return RecommendationRung.IN_RANGE
-    if installed_major is not None and major_key(version, registry.package_registry) == installed_major:
-        return RecommendationRung.IN_MAJOR
-    return RecommendationRung.LATEST
+    """Place *version* on the widening ladder relative to what *record*'s root manifest declares."""
+    # The declaration, not version_constraint's last-writer-wins accumulator: this rung decides
+    # whether `ossiq apply` may write, and it must be the same string the user is shown. Falls
+    # back for transitive-only records, which have no declaration of their own - passing None
+    # through would admit every candidate as IN_RANGE.
+    constraint = record.version_constraint_declared or record.version_constraint
+    return ladder_classify_rung(version, constraint, installed_major, registry.package_registry)
 
 
 def describe_rejection(impact: DirectUpdateImpact, transitive_by_name: dict[str, ScanRecord]) -> str:
@@ -143,10 +149,9 @@ def build_candidates(
 ) -> BuiltCandidates:
     """Build the ascending candidate ladder for one record.
 
-    Reuses the same three helpers `service.project.ladder.compute_version_ladder` uses
-    (`is_published_before`, `version_satisfies_constraint`, `major_key`), so a candidate's rung
-    can never disagree with the ladder rung on the same input. `has_cve` is true only for a
-    qualifying CVE — one at/above EPSS_NOISE_THRESHOLD, or unscored — mirroring
+    Shares `installable_releases` and `classify_rung` with `ladder.compute_version_ladder`, so a
+    candidate's rung can never disagree with the ladder rung on the same input. `has_cve` is true
+    only for a qualifying CVE — one at/above EPSS_NOISE_THRESHOLD, or unscored — mirroring
     `strategy.motive.classify_motives`'s EXPLOITABLE_CVE rule.
 
     `structural_gates` are cheap, in-memory checks (e.g. a known module-system break) evaluated
@@ -169,15 +174,7 @@ def build_candidates(
     installed_major = major_key(record.installed_version, registry.package_registry)
     transitive_by_name = transitive_by_name or {}
 
-    installable = [
-        pv
-        for pv in releases
-        if not pv.is_yanked
-        and not pv.is_unpublished
-        and is_published_before(pv.published_date_iso, now)
-        and major_key(pv.version, registry.package_registry) is not None
-        and registry.compare_versions(pv.version, record.installed_version) > 0
-    ]
+    installable = installable_releases(releases, registry, now=now, newer_than=record.installed_version)
     installable.sort(key=cmp_to_key(lambda a, b: registry.compare_versions(a.version, b.version)))
 
     gate_reasons: dict[str, str] = {}
@@ -217,7 +214,7 @@ def build_candidates(
                 version=pv.version, reason=describe_rejection(impact, transitive_by_name)
             )
 
-    rejected = tuple(rejected_by_rung[rung] for rung in RUNG_ORDER if rung in rejected_by_rung)
+    rejected = tuple(rejected_by_rung[rung] for rung in sorted(rejected_by_rung, key=RUNG_ORDER.__getitem__))
     return BuiltCandidates(candidates=tuple(candidates), rejected=rejected)
 
 
@@ -233,8 +230,7 @@ def apply_update_strategy(
     now: datetime | None = None,
     validator: Callable[[str, str], DirectUpdateImpact] | None = None,
     project_declares_esm: bool = False,
-    engine_context: dict[str, str] | None = None,
-    engine_context_source: EngineContextSource = EngineContextSource.NONE,
+    engine_context: EngineContext | None = None,
 ) -> None:
     """Run the selector for each record and write its verdict, replacing `apply_ladder_fallback`.
 
@@ -247,16 +243,16 @@ def apply_update_strategy(
     Also the single writer of `rejected_candidates` for direct records: every release `validator`
     or a structural gate (module-system break, engine mismatch) held back from the ladder is
     recorded here regardless of what `select_target` ends up choosing, so a blank or lowered
-    `recommended_version` can always be explained. Also the writer of `recommended_module_system`,
-    `breaking_change`, `engine_requirement`, `engine_compatible` and `engine_context_source`,
-    recomputed for whatever target ends up chosen — see
-    `service.project.breaking_changes.module_system_label`.
+    The target-compatibility cluster (`recommended_module_system`, `breaking_change`,
+    `engine_requirement`, `engine_compatible`) is written by
+    `target_facts.annotate_target_facts` for whatever target ends up chosen — one writer shared
+    with `apply_recommendations`, which annotates transitive records the same way.
 
     Re-simulates transitive impacts for any record whose target changed, since a stale
     `update_transitive_impacts` (computed against the old target) would otherwise mislead the
     writers; clears it when the re-simulation says the new target is not actionable.
     """
-    engine_context = engine_context or {}
+    engine_context = engine_context or EngineContext()
     for record in records:
         strategy = plan.for_package(record.package_name)
         facts = facts_from_record(record)
@@ -285,27 +281,20 @@ def apply_update_strategy(
             record.recommended_from_rung = None
             record.recommended_version_reason = None
             record.update_transitive_impacts = []
-            record.recommended_module_system = None
-            record.breaking_change = None
-            record.engine_requirement = None
-            record.engine_compatible = None
-            record.engine_context_source = EngineContextSource.NONE
+            clear_target_facts(record)
             continue
 
         record.recommended_version = selection.target_version
         record.recommended_from_rung = selection.rung
-        record.recommended_module_system, record.breaking_change = module_system_label(
-            record.package_name,
-            record.installed_version,
-            record.recommended_version,
+        annotate_target_facts(
+            record,
+            selection.target_version,
             releases,
             registry.package_registry,
-            project_declares_esm,
+            engine_context=engine_context,
+            project_declares_esm=project_declares_esm,
         )
-        picked = next((pv for pv in releases if pv.version == record.recommended_version), None)
-        record.engine_requirement = picked.runtime_requirements if picked else None
-        record.engine_compatible = engine_compatibility(record.engine_requirement, engine_context)
-        record.engine_context_source = engine_context_source
+        picked = next((pv for pv in releases if pv.version == selection.target_version), None)
         if selection.target_version != previous_target:
             record.recommended_version_reason = RecommendationReason(
                 selected_version=selection.target_version,

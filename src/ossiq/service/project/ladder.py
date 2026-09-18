@@ -7,10 +7,12 @@ the common case of a dependency held back on a major by an API break that still 
 patch reachable inside that major
 """
 
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime
 
 from ossiq.adapters.api_interfaces import VersionRules
+from ossiq.domain.common import ProjectPackagesRegistry, RecommendationRung
 from ossiq.domain.version import PackageVersion
 from ossiq.solver.universe import is_published_before
 from ossiq.solver.version_matchers import major_key, version_satisfies_constraint
@@ -38,6 +40,86 @@ class VersionLadder:
     """Newest installable version, ignoring both the constraint and the major line."""
 
 
+def installable_releases(
+    releases: Iterable[PackageVersion],
+    version_rules: VersionRules,
+    *,
+    now: datetime | None = None,
+    newer_than: str | None = None,
+) -> list[PackageVersion]:
+    """Return the releases a user could actually install today, in the order they were given.
+
+    The single definition of "installable", shared by the ladder, the candidate builder and the
+    compatible-major scan so none of them can drift from the others.
+
+    Args:
+        releases: Candidate releases, typically already floored at the installed version.
+        version_rules: Registry-specific version semantics (comparison plus registry identity).
+        now: Cutoff instant; releases published after it are excluded, so a rung never outruns a
+            `--cutoff-date`-adjusted `latest_version`.
+        newer_than: When given, keep only releases strictly newer than this version.
+
+    Returns:
+        The surviving releases, unsorted — callers needing an order apply their own.
+    """
+    registry = version_rules.package_registry
+    kept = [
+        pv
+        for pv in releases
+        if not pv.is_yanked
+        and not pv.is_unpublished
+        and is_published_before(pv.published_date_iso, now)
+        # major_key returning None means the version didn't parse under this registry's scheme;
+        # exclude it so one malformed entry can't blow up a later compare_versions call.
+        and major_key(pv.version, registry) is not None
+    ]
+    if newer_than is None:
+        return kept
+    return [pv for pv in kept if version_rules.compare_versions(pv.version, newer_than) > 0]
+
+
+def in_declared_range(version: str, constraint: str | None, registry: ProjectPackagesRegistry) -> bool:
+    """The single definition of "inside the declared range"."""
+    return version_satisfies_constraint(version, constraint, registry)
+
+
+def in_installed_major(
+    version: str,
+    installed_major: tuple[int, int] | None,
+    registry: ProjectPackagesRegistry,
+) -> bool:
+    """The single definition of "inside the installed major line"."""
+    return installed_major is not None and major_key(version, registry) == installed_major
+
+
+def classify_rung(
+    version: str,
+    constraint: str | None,
+    installed_major: tuple[int, int] | None,
+    registry: ProjectPackagesRegistry,
+) -> RecommendationRung:
+    """Place *version* on the widening ladder relative to *constraint*.
+
+    Args:
+        version: The release being placed.
+        constraint: The constraint the root manifest declares, or None.
+        installed_major: `major_key` of the installed version, or None when it doesn't parse.
+        registry: Which registry's version scheme applies.
+
+    Returns:
+        IN_RANGE, IN_MAJOR or LATEST — the lowest rung that reaches *version*.
+    """
+    # Composed from the same two predicates compute_version_ladder uses, not the other way round:
+    # the ladder's rungs are independent predicates rather than a partition (a version can satisfy
+    # the constraint while sitting outside the installed major), so only the predicates can be
+    # shared - see strategy/README.md.
+    if in_declared_range(version, constraint, registry):
+        return RecommendationRung.IN_RANGE
+    if in_installed_major(version, installed_major, registry):
+        return RecommendationRung.IN_MAJOR
+    return RecommendationRung.LATEST
+
+
 def compute_version_ladder(
     releases_since_installed: list[PackageVersion],
     installed_version: str,
@@ -60,29 +142,12 @@ def compute_version_ladder(
     for `latest_overall` when known; falls back to the newest installable release otherwise, so a
     cutoff-adjusted "latest" is never contradicted by an uncapped release list.
     """
+    registry = version_rules.package_registry
     try:
-        installable = [
-            pv
-            for pv in releases_since_installed
-            if not pv.is_yanked
-            and not pv.is_unpublished
-            and is_published_before(pv.published_date_iso, now)
-            # major_key returning None means the version didn't parse under this registry's
-            # scheme; exclude it here too so one malformed entry can't blow up compare_versions
-            # in newest_version() below and blank the whole ladder.
-            and major_key(pv.version, version_rules.package_registry) is not None
-        ]
-        in_range = [
-            pv
-            for pv in installable
-            if version_satisfies_constraint(pv.version, version_constraint, version_rules.package_registry)
-        ]
-        installed_major = major_key(installed_version, version_rules.package_registry)
-        in_major = [
-            pv
-            for pv in installable
-            if installed_major is not None and major_key(pv.version, version_rules.package_registry) == installed_major
-        ]
+        installable = installable_releases(releases_since_installed, version_rules, now=now)
+        installed_major = major_key(installed_version, registry)
+        in_range = [pv for pv in installable if in_declared_range(pv.version, version_constraint, registry)]
+        in_major = [pv for pv in installable if in_installed_major(pv.version, installed_major, registry)]
 
         newest_in_range = version_rules.newest_version(in_range)
         newest_in_major = version_rules.newest_version(in_major)

@@ -310,10 +310,13 @@ def build_rows() -> tuple[list[Row], ActivityCoverage]:
     provider = SourceCodeProviderApiGithub(settings)
     urls = {f"https://github.com/{repo}": repo for repo in CORPUS}
     url_list = list(urls)
-    commits_by_url = provider.commits_batch(url_list)
-    activity_by_url = provider.repository_activity_batch(url_list, engagement_window_since())
-    repos_by_url = provider.repositories_info_batch(url_list)
-    readmes_by_url = provider.readmes_batch(url_list)
+    # .data throughout: the batch methods return a SourceFetch so callers can tell "checked,
+    # found nothing" from "couldn't check". This calibration run reports coverage via
+    # ResourceLimitCounter instead, so only the payloads are needed here.
+    commits_by_url = provider.commits_batch(url_list).data
+    activity_by_url = provider.repository_activity_batch(url_list, engagement_window_since()).data
+    repos_by_url = provider.repositories_info_batch(url_list).data
+    readmes_by_url = provider.readmes_batch(url_list).data
     packages = registry_packages(settings)
 
     coverage = ActivityCoverage(

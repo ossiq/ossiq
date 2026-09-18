@@ -6,11 +6,11 @@ from dataclasses import dataclass, field
 
 from ossiq.domain.common import (
     DataCompleteness,
-    EngineContextSource,
-    ModuleSystem,
+    EngineContext,
     RecommendationRung,
     RejectedCandidate,
 )
+from ossiq.domain.compatibility import CompatibilityFacts
 from ossiq.domain.cve import CVE
 from ossiq.domain.package import Package
 from ossiq.domain.project import ConstraintSource, PeerRequirement
@@ -95,14 +95,6 @@ class ScanRecord:
     transitive-only deps with no root-manifest entry, or unconstrained direct deps. This is the
     value every user-facing surface (console, export, agent reasons) should show as "the declared
     constraint" - see domain/project.py's Dependency.version_constraint_declared."""
-
-    latest_in_range: str | None = None
-    """Newest installable version satisfying version_constraint. None only when undeterminable. Computed in
-    service.project.ladder.compute_version_ladder; a plain registry fact, not solver-guarded."""
-
-    latest_in_major: str | None = None
-    """Newest installable version sharing installed_version's major line (PEP 440 epoch + first
-    release segment on PyPI; semver major on npm). None only when undeterminable. Computed alongside latest_in_range."""
 
     version_age_days: int | None = None
     """Days since installed_version was published. None if the publish date is unknown."""
@@ -207,43 +199,15 @@ class ScanRecord:
     """Human-readable reason for runs_code_at_install, e.g. "npm lifecycle: postinstall" or
     "PyPI source distribution build". None when the signal is unknown or execution was not detected."""
 
-    module_system: ModuleSystem | None = None
-    """installed_version's own module format (npm only, from `type`/`exports`). Populated in
-    service.project.records.scan_record from the installed PackageVersion. Always None on PyPI."""
-
-    recommended_module_system: ModuleSystem | None = None
-    """recommended_version's own module format. None whenever recommended_version is None or the
-    package is on PyPI. Populated alongside breaking_change wherever recommended_version is
-    finalized - see service.project.breaking_changes.module_system_label."""
-
-    breaking_change: str | None = None
-    """Human-readable reason recommended_version is flagged as a known API/module-system break,
-    e.g. "ESM-only from 5.0.0"; None when no known break applies. Never blanks recommended_version
-    on its own - see service.project.strategy.build_candidates's structural_gates."""
-
-    latest_compatible_major: str | None = None
-    """Newest installable release among majors >= installed_version's major that carries no known
-    break (module-system or curated API break). Diverges from latest_in_major when a clean major
-    sits between installed_version and a known break. Computed in
-    service.project.breaking_changes.compute_latest_compatible_major, alongside compute_version_ladder."""
+    compatibility: CompatibilityFacts = field(default_factory=CompatibilityFacts)
+    """Where this record sits on the version ladder and what is true about the version it picked -
+    see domain/compatibility.py. Eight fields that answer one question together, lifted off this
+    record because ~50 flat fields had made it the bottleneck for every new surface."""
 
     strategy_selection: StrategySelection | None = None
     """The update-strategy selector's verdict for this record. Populated in
     service.project.strategy.apply_update_strategy, after populate_stability. None for transitive
     records (v1 scope: the strategy applies to direct dependencies only) or an ignored package."""
-
-    engine_requirement: dict[str, str] | None = None
-    """recommended_version's own runtime_requirements (e.g. {"node": ">=20.19.0"}). None when
-    recommended_version is None or the picked release declares no engine requirement."""
-
-    engine_compatible: bool | None = None
-    """False when engine_requirement conflicts with the scan's engine_context. None = no evidence
-    either way (no requirement, or no engine_context to compare against) - never implies
-    compatibility was actually checked and passed just because it isn't False."""
-
-    engine_context_source: EngineContextSource = EngineContextSource.NONE
-    """Which source populated the engine_context this record's engine_compatible was checked
-    against - DETECTED (actually-installed runtime), DECLARED (manifest floor), or NONE."""
 
 
 @dataclass
@@ -296,9 +260,13 @@ class ScanResult:
     """Per-step data-source status for this scan. See PrefetchedData.data_completeness."""
     declares_esm: bool = False
     """Whether the project's own manifest declares `"type": "module"` (npm only)"""
-    engine_context: dict[str, str] = field(default_factory=dict)
-    """Runtime versions every record's engine_compatible was checked against"""
-    engine_context_source: EngineContextSource = EngineContextSource.NONE
-    """Which source populated engine_context for this scan."""
+    engine_context: EngineContext = field(default_factory=EngineContext)
+    """Runtime versions every record's engine_compatible was checked against, and where they came
+    from. The sole home for both: the provenance used to be copied onto every ScanRecord as well,
+    and the two copies drifted."""
     npm_cli_version: str | None = None
     """Best-effort detected npm CLI version, display-only"""
+    source_warnings: list[str] = field(default_factory=list)
+    """Non-fatal problems found while assembling the project's sources, e.g. a tree containing more
+    than one registry. Carried as a value so each surface decides how to show it - `sources/` used
+    to print these itself, which reached stderr even for the JSON front doors."""

@@ -14,6 +14,7 @@ from packaging.version import InvalidVersion
 from ossiq.adapters.api_epss import EpssApiFirstOrg
 from ossiq.adapters.api_interfaces import AbstractPackageRegistryApi, AbstractSourceCodeProviderApi
 from ossiq.adapters.detectors import is_git_hosted_source
+from ossiq.domain.common import SourceFetch
 from ossiq.domain.cve import CVE
 from ossiq.domain.exceptions import UnknownPackageVersion
 from ossiq.domain.package import Package
@@ -161,14 +162,20 @@ def enrich_cves_with_epss_and_fix_age(
     epss_client: EpssApiFirstOrg,
     registry: AbstractPackageRegistryApi,
     now: datetime | None,
-) -> dict[tuple[str, str], set[CVE]]:
-    """Return a copy of cve_map with EPSS scores and fix-release ages populated."""
+) -> SourceFetch[dict[tuple[str, str], set[CVE]]]:
+    """Return a copy of cve_map with EPSS scores and fix-release ages populated.
+
+    Returns:
+        The enriched map, and whether the EPSS source delivered. An unscored CVE and an
+        unreachable first.org both leave `epss` None, so the status is what separates them.
+    """
     if not cve_map:
-        return {}
+        return SourceFetch({})
 
     cve_backlink = aggregate_cve_ids(cve_map)
     cve_ids = set(chain.from_iterable(cve_backlink.values()))
-    epss_scores = epss_client.get_epss_batch(cve_ids)
+    epss_fetch = epss_client.get_epss_batch(cve_ids)
+    epss_scores = epss_fetch.data
 
     release_cache: dict[str, tuple[package_versions.PackageVersion, ...]] = {}
     enriched_map: dict[tuple[str, str], set[CVE]] = {}
@@ -201,25 +208,25 @@ def enrich_cves_with_epss_and_fix_age(
 
         enriched_map[(package_name, installed_version)] = enriched_cves
 
-    return enriched_map
+    return SourceFetch(enriched_map, epss_fetch.status)
 
 
 def prefetch_source_code_repositories_info(
     provider: AbstractSourceCodeProviderApi,
     repo_urls: Iterable[str],
-) -> dict[str, Repository]:
+) -> SourceFetch[dict[str, Repository]]:
     """
     Pre-fetch repository info for all unique GitHub repo URLs in parallel.
     Returns a mapping of url -> Repository; non-GitHub URLs are skipped.
 
-    Takes an already-constructed provider (rather than `sources`) so the caller can read
-    `provider.last_summary` afterward - see B4 in the defect report. Also means every GitHub
-    fetch in one scan shares a single session instead of opening a fresh one per call.
+    Takes an already-constructed provider (rather than `sources`) so every GitHub fetch in one
+    scan shares a single session instead of opening a fresh one per call.
     """
 
     github_urls = github_only(repo_urls)
     if not github_urls:
-        return {}
+        # Nothing to ask for is not a data-source failure.
+        return SourceFetch({})
     return provider.repositories_info_batch(github_urls)
 
 
@@ -232,7 +239,7 @@ def github_only(repo_urls: Iterable[str]) -> list[str]:
 
 def prefetch_repository_commits(
     provider: AbstractSourceCodeProviderApi, sources: AbstractProjectSources, repo_urls: Iterable[str]
-) -> dict[str, list[dict]]:
+) -> SourceFetch[dict[str, list[dict]]]:
     """
     Pre-fetch the last 100 commits for all unique GitHub repo URLs in parallel.
 
@@ -242,14 +249,14 @@ def prefetch_repository_commits(
 
     github_urls = github_only(repo_urls)
     if not github_urls:
-        return {}
+        return SourceFetch({})
     until = sources.settings.cutoff_date.strftime("%Y-%m-%dT%H:%M:%SZ") if sources.settings.cutoff_date else None
     return provider.commits_batch(github_urls, until)
 
 
 def prefetch_repository_activity(
     provider: AbstractSourceCodeProviderApi, sources: AbstractProjectSources, repo_urls: Iterable[str]
-) -> dict[str, dict]:
+) -> SourceFetch[dict[str, dict]]:
     """Pre-fetch issue / PR activity for all unique GitHub repo URLs via GraphQL.
 
     Covers the engagement look-back window ending at the cutoff date (or now). Feeds the
@@ -258,12 +265,14 @@ def prefetch_repository_activity(
 
     github_urls = github_only(repo_urls)
     if not github_urls:
-        return {}
+        return SourceFetch({})
     since = engagement_window_since(sources.settings.cutoff_date)
     return provider.repository_activity_batch(github_urls, since)
 
 
-def prefetch_repository_readmes(provider: AbstractSourceCodeProviderApi, repo_urls: Iterable[str]) -> dict[str, str]:
+def prefetch_repository_readmes(
+    provider: AbstractSourceCodeProviderApi, repo_urls: Iterable[str]
+) -> SourceFetch[dict[str, str]]:
     """Pre-fetch the top of each GitHub repo's README, for the deprecation-banner scan.
 
     One request per repository, cached at the stability TTL; see risk/maintenance.py.
@@ -271,7 +280,7 @@ def prefetch_repository_readmes(provider: AbstractSourceCodeProviderApi, repo_ur
 
     github_urls = github_only(repo_urls)
     if not github_urls:
-        return {}
+        return SourceFetch({})
     return provider.readmes_batch(github_urls)
 
 

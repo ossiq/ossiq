@@ -1,8 +1,9 @@
 """Per-run and per-package tier selection.
 
-`parse_overrides` mirrors `commands.plan.parse_override_specs` exactly: same `name=value` shape,
-same duplicate-conflict rejection, same scoped-npm-name handling. Names are normalised with
-`normalize_dist_name`, as `ProjectSources` already does for `--ignore`.
+`parse_overrides` and `commands.plan.parse_override_specs` are the same parse — same `name=value`
+shape, same duplicate-conflict rejection, same scoped-npm-name handling — so both now call
+`domain.common.parse_name_value_specs`. Names are normalised with `normalize_dist_name`, as
+`ProjectSources` already does for `--ignore`.
 
 Flag naming: `--strategy-override pkg=tier`, deliberately not `--override-strategy`, because
 `--override pkg==version` already exists and means "force this exact version". Reading
@@ -13,7 +14,7 @@ parses as "an override of the strategy".
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 
-from ossiq.adapters.package_managers.utils import normalize_dist_name
+from ossiq.domain.common import parse_name_value_specs
 from ossiq.strategy.pyramid import PRERELEASE_TIERS, PYRAMID, UpdateStrategy, tier_index
 
 
@@ -29,22 +30,16 @@ def parse_strategy(value: str) -> UpdateStrategy:
 def parse_overrides(raw: Iterable[str] | None) -> tuple[tuple[str, UpdateStrategy], ...]:
     """Parse `--strategy-override` values of the form `package=tier` into (name, tier) pairs.
 
-    Supports scoped npm names (@scope/pkg=cutting-edge). Raises ValueError on a malformed spec,
-    an unknown tier, or when the same package is given two conflicting tiers.
+    Args:
+        raw: The raw option values, or None when the option was never given.
+
+    Returns:
+        (canonical_name, tier) pairs. Scoped npm names (@scope/pkg=cutting-edge) survive intact.
+
+    Raises:
+        ValueError: On a malformed spec, an unknown tier, or a package given two conflicting tiers.
     """
-    parsed: dict[str, UpdateStrategy] = {}
-    for value in raw or []:
-        name, separator, tier_raw = value.partition("=")
-        name = name.strip()
-        tier_raw = tier_raw.strip()
-        if not separator or not name or not tier_raw:
-            raise ValueError(f"Invalid --strategy-override value '{value}'; expected package=tier")
-        canonical = normalize_dist_name(name)
-        tier = parse_strategy(tier_raw)
-        if canonical in parsed and parsed[canonical] != tier:
-            raise ValueError(f"Conflicting --strategy-override values for '{canonical}'")
-        parsed[canonical] = tier
-    return tuple(parsed.items())
+    return parse_name_value_specs(raw, separator="=", flag="--strategy-override", value_parser=parse_strategy)
 
 
 @dataclass(frozen=True)
