@@ -2,7 +2,7 @@
 ProjectSources: assembles external data providers for a scan run.
 """
 
-import os
+from pathlib import Path
 
 from ossiq.adapters.api import (
     create_cve_database,
@@ -11,16 +11,14 @@ from ossiq.adapters.api import (
     create_source_code_provider,
 )
 from ossiq.adapters.api_interfaces import AbstractSourceCodeProviderApi
-from ossiq.adapters.package_managers.api import create_package_managers
-from ossiq.adapters.package_managers.utils import normalize_dist_name
-from ossiq.domain.common import ProjectPackagesRegistry, RepositoryProvider
+from ossiq.adapters.package_managers.api import create_package_managers, inspected_manifests
+from ossiq.domain.common import ProjectPackagesRegistry, RepositoryProvider, normalize_dist_name
 from ossiq.domain.exceptions import UnknownProjectPackageManager
-from ossiq.messages import WARNING_MULTIPLE_REGISTRY_TYPES
+from ossiq.messages import HINT_NO_PACKAGE_MANAGER, WARNING_MULTIPLE_REGISTRY_TYPES
 from ossiq.settings import Settings
 from ossiq.sources.core import AbstractProjectSources
 from ossiq.strategy.overrides import StrategyPlan
 from ossiq.strategy.pyramid import DEFAULT_STRATEGY, PRERELEASE_TIERS
-from ossiq.ui.system import show_warning
 
 
 class ProjectSources(AbstractProjectSources):
@@ -45,6 +43,11 @@ class ProjectSources(AbstractProjectSources):
         """
         super().__init__()
 
+        # Diagnostics, not output: __enter__ collects here and the scan carries them onto
+        # ScanResult, so the renderer decides how (and whether) a surface shows them. This module
+        # used to call ui.system.show_warning directly, which printed to stderr even for the
+        # JSON-emitting front doors that have their own channel for it.
+        self.warnings: list[str] = []
         self.project_path = project_path
         self.settings = settings
         self.production = production
@@ -67,20 +70,20 @@ class ProjectSources(AbstractProjectSources):
         packages_managers = list(create_package_managers(self.project_path, self.settings))
 
         if not packages_managers:
-            manifest_names = ("pyproject.toml", "package.json", "requirements.txt")
-            found = [name for name in manifest_names if os.path.exists(os.path.join(self.project_path, name))]
+            manifest_names = inspected_manifests()
+            found = [name for name in manifest_names if (Path(self.project_path) / name).exists()]
             raise UnknownProjectPackageManager(
                 f"Unable to identify Package Manager for project at {self.project_path}",
-                hint=(
-                    f"Inspected {', '.join(manifest_names)}; found: {', '.join(found) if found else 'none'}. "
-                    "A pyproject.toml alone needs either a lockfile (uv.lock, pylock.toml) or a non-empty "
-                    "[project].dependencies section - a Poetry-only manifest ([tool.poetry.dependencies]) "
-                    "isn't supported yet."
+                hint=HINT_NO_PACKAGE_MANAGER.format(
+                    inspected=", ".join(manifest_names),
+                    found=", ".join(found) if found else "none",
                 ),
             )
 
+        # create_package_managers yields at most one adapter per registry, so more than one here is
+        # genuinely more than one ecosystem - not two adapters arguing over the same pyproject.toml.
         if len(packages_managers) > 1 and not self.narrow_package_registry:
-            show_warning(WARNING_MULTIPLE_REGISTRY_TYPES.format(project_path=self.project_path))
+            self.warnings.append(WARNING_MULTIPLE_REGISTRY_TYPES.format(project_path=self.project_path).strip())
 
         packages_manager = packages_managers[0]
 

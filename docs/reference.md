@@ -359,8 +359,9 @@ pkg=tier` runs one package at a different tier than the rest of the run (repeata
 pkg==version` still wins over both when given for the same package.
 
 Every surface echoes which tier answered: `status`/`plan`/`html` print it in the header, `export`
-writes it to `metadata.update_strategy` (plus a per-package `strategy_motives` /
-`strategy_withheld_reason` on `PackageMetrics`), and `--format agent` / both MCP tools carry
+writes it to `metadata.update_strategy` (plus a per-package `strategy` object on `PackageMetrics`
+carrying `motives` / `withheld_reason` / `requires_widening` / `escalation`, null when the selector
+never ran for that package), and `--format agent` / both MCP tools carry
 `update_strategy` and a per-entry `motives`. A withheld package's `plan`/`status` output names the
 lowest tier that would move it ("N more updates available under --update-strategy X").
 

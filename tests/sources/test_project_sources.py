@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 
+from ossiq.domain.common import ProjectPackagesRegistry
 from ossiq.domain.exceptions import UnknownProjectPackageManager
 from ossiq.settings import Settings
 from ossiq.sources.project_sources import ProjectSources
@@ -72,3 +73,37 @@ class TestProjectSourcesPep621Detection:
         assert hint is not None
         assert "pyproject.toml" in hint
         assert "requirements.txt" in hint
+
+
+MIXED_TESTDATA = Path(__file__).parents[2] / "testdata" / "mixed"
+
+
+class TestProjectSourcesWarnings:
+    """Architecture rule 3: lower layers return diagnostics, they never print. __enter__ used to
+    call ui.system.show_warning directly, which reached stderr even for the JSON front doors."""
+
+    def test_multiple_registries_collects_a_warning_instead_of_printing(self):
+        sources = ProjectSources(settings=Settings(), project_path=str(MIXED_TESTDATA))
+        with sources:
+            pass
+
+        assert len(sources.warnings) == 1
+        assert "multiple registry types" in sources.warnings[0]
+
+    def test_narrowed_registry_is_not_ambiguous(self):
+        sources = ProjectSources(
+            settings=Settings(),
+            project_path=str(MIXED_TESTDATA),
+            narrow_package_registry=ProjectPackagesRegistry.PYPI,
+        )
+        with sources:
+            pass
+
+        assert sources.warnings == []
+
+    def test_single_registry_project_warns_about_nothing(self):
+        sources = ProjectSources(settings=Settings(), project_path=str(PEP621_NO_LOCKFILE_TESTDATA))
+        with sources:
+            pass
+
+        assert sources.warnings == []

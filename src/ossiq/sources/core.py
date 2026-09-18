@@ -34,6 +34,9 @@ class AbstractProjectSources(abc.ABC):
     strategy: StrategyPlan
     ignore_packages: tuple[str, ...]
     rewrite_versions: bool
+    warnings: list[str]
+    """Non-fatal problems found while assembling the sources, for the scan to carry onto
+    ScanResult. A value, not a print: nothing below ui/ decides what the user sees."""
 
     @abc.abstractmethod
     def get_source_code_provider(self, repository_provider_type: RepositoryProvider) -> AbstractSourceCodeProviderApi:
