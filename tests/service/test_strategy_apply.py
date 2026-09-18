@@ -7,6 +7,7 @@ from packaging.version import Version
 
 from ossiq.domain.common import (
     ConstraintType,
+    EngineContext,
     EngineContextSource,
     ModuleSystem,
     ProjectPackagesRegistry,
@@ -69,7 +70,12 @@ def make_npm_registry(versions_by_name: dict[str, list[PackageVersion]]) -> Magi
     return registry
 
 
-def make_record(name: str, installed: str, version_constraint: str | None = None) -> ScanRecord:
+def make_record(
+    name: str,
+    installed: str,
+    version_constraint: str | None = None,
+    version_constraint_declared: str | None = None,
+) -> ScanRecord:
     return ScanRecord(
         package_name=name,
         dependency_name=name,
@@ -82,6 +88,7 @@ def make_record(name: str, installed: str, version_constraint: str | None = None
         cve=[],
         constraint_info=CONSTRAINT_SOURCE,
         version_constraint=version_constraint,
+        version_constraint_declared=version_constraint_declared,
     )
 
 
@@ -99,6 +106,32 @@ class TestBuildCandidates:
 
         same_major = [c for c in candidates if c.rung in (RecommendationRung.IN_RANGE, RecommendationRung.IN_MAJOR)]
         assert max(same_major, key=lambda c: Version(c.version)).version == ladder.latest_in_major
+
+    def test_rung_classified_against_the_declaration_not_the_lww_constraint(self) -> None:
+        # version_constraint is a last-writer-wins accumulator across every parent that declares a
+        # spec, so it can be some transitive parent's range rather than the root manifest's own.
+        # The rung decides whether `ossiq apply` may write, so it has to follow the declaration -
+        # otherwise the gate and the constraint shown to the user are different strings.
+        registry = make_registry({"pkg": [pv("1.5.0"), pv("2.0.0")]})
+        record = make_record("pkg", "1.0.0", version_constraint="<3.0.0", version_constraint_declared="<2.0.0")
+
+        candidates = build_candidates(record, list(registry.package_versions("pkg")), registry, now=NOW).candidates
+        rung_by_version = {c.version: c.rung for c in candidates}
+
+        assert rung_by_version["1.5.0"] == RecommendationRung.IN_RANGE
+        assert rung_by_version["2.0.0"] == RecommendationRung.LATEST
+
+    def test_rung_falls_back_to_the_lww_constraint_when_nothing_is_declared(self) -> None:
+        # Transitive-only records carry no declaration of their own; passing None through to the
+        # matcher would admit every candidate as IN_RANGE and wipe out the widening hold.
+        registry = make_registry({"pkg": [pv("1.5.0"), pv("2.0.0")]})
+        record = make_record("pkg", "1.0.0", version_constraint="<2.0.0", version_constraint_declared=None)
+
+        candidates = build_candidates(record, list(registry.package_versions("pkg")), registry, now=NOW).candidates
+        rung_by_version = {c.version: c.rung for c in candidates}
+
+        assert rung_by_version["1.5.0"] == RecommendationRung.IN_RANGE
+        assert rung_by_version["2.0.0"] == RecommendationRung.LATEST
 
     def test_installed_version_itself_excluded(self) -> None:
         registry = make_registry({"pkg": [pv("1.0.0"), pv("1.1.0")]})
@@ -547,7 +580,7 @@ class TestApplyUpdateStrategyBreakingChange:
         )
 
         assert record.recommended_version == "4.2.0"
-        assert record.breaking_change is None
+        assert record.compatibility.breaking_change is None
         assert [rc.version for rc in record.rejected_candidates] == ["5.0.0"]
         assert record.rejected_candidates[0].reason == "ESM-only from 5.0.0"
 
@@ -571,8 +604,8 @@ class TestApplyUpdateStrategyBreakingChange:
 
         assert record.recommended_version == "5.0.0"
         assert record.rejected_candidates == []
-        assert record.breaking_change == "ESM-only from 5.0.0"
-        assert record.recommended_module_system == ModuleSystem.ESM_ONLY
+        assert record.compatibility.breaking_change == "ESM-only from 5.0.0"
+        assert record.compatibility.recommended_module_system == ModuleSystem.ESM_ONLY
 
     def test_no_breaking_change_when_project_declares_esm(self) -> None:
         registry = make_npm_registry(
@@ -600,8 +633,8 @@ class TestApplyUpdateStrategyBreakingChange:
 
         assert record.recommended_version == "5.0.0"
         assert record.rejected_candidates == []
-        assert record.breaking_change is None
-        assert record.recommended_module_system == ModuleSystem.ESM_ONLY
+        assert record.compatibility.breaking_change is None
+        assert record.compatibility.recommended_module_system == ModuleSystem.ESM_ONLY
 
 
 class TestApplyUpdateStrategyEngineMismatch:
@@ -627,14 +660,12 @@ class TestApplyUpdateStrategyEngineMismatch:
             installed_names=set(),
             allow_prerelease=False,
             now=NOW,
-            engine_context={"node": "18.0.0"},
-            engine_context_source=EngineContextSource.DETECTED,
+            engine_context=EngineContext({"node": "18.0.0"}, EngineContextSource.DETECTED),
         )
 
         assert record.recommended_version == "1.1.0"
-        assert record.engine_compatible is True
-        assert record.engine_requirement == {"node": ">=16.0.0"}
-        assert record.engine_context_source == EngineContextSource.DETECTED
+        assert record.compatibility.engine_compatible is True
+        assert record.compatibility.engine_requirement == {"node": ">=16.0.0"}
         assert [rc.version for rc in record.rejected_candidates] == ["1.2.0"]
         assert record.rejected_candidates[0].reason == "requires node >=22.0.0, detected 18.0.0"
 
@@ -658,14 +689,13 @@ class TestApplyUpdateStrategyEngineMismatch:
             installed_names=set(),
             allow_prerelease=False,
             now=NOW,
-            engine_context={"node": "18.0.0"},
-            engine_context_source=EngineContextSource.DETECTED,
+            engine_context=EngineContext({"node": "18.0.0"}, EngineContextSource.DETECTED),
         )
 
         assert record.recommended_version == "1.2.0"
         assert record.rejected_candidates == []
-        assert record.engine_compatible is False
-        assert record.engine_requirement == {"node": ">=22.0.0"}
+        assert record.compatibility.engine_compatible is False
+        assert record.compatibility.engine_requirement == {"node": ">=22.0.0"}
 
     def test_no_engine_fields_when_engine_context_empty(self) -> None:
         registry = make_npm_registry({"pkg": [pv("1.1.0", runtime_requirements={"node": ">=22.0.0"})]})
@@ -683,5 +713,7 @@ class TestApplyUpdateStrategyEngineMismatch:
         )
 
         assert record.recommended_version == "1.1.0"
-        assert record.engine_compatible is None
-        assert record.engine_context_source == EngineContextSource.NONE
+        # The release's own requirement is still recorded; only the verdict is unknown, because
+        # there is nothing to compare it against.
+        assert record.compatibility.engine_requirement == {"node": ">=22.0.0"}
+        assert record.compatibility.engine_compatible is None

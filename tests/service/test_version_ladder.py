@@ -11,8 +11,15 @@ from datetime import UTC, datetime
 
 from ossiq.adapters.api_npm import PackageRegistryApiNpm
 from ossiq.adapters.api_pypi import PackageRegistryApiPypi
+from ossiq.domain.common import RecommendationRung
 from ossiq.domain.version import PackageVersion
-from ossiq.service.project.ladder import compute_version_ladder
+from ossiq.service.project.ladder import (
+    classify_rung,
+    compute_version_ladder,
+    in_declared_range,
+    in_installed_major,
+    installable_releases,
+)
 from ossiq.settings import Settings
 
 PYPI = PackageRegistryApiPypi(Settings())
@@ -31,6 +38,76 @@ def _pv(
         is_yanked=yanked,
         is_unpublished=unpublished,
     )
+
+
+class TestInstallableReleases:
+    """The one installability filter shared by the ladder, build_candidates and
+    compute_latest_compatible_major."""
+
+    def test_keeps_input_order_and_drops_nothing_when_all_installable(self):
+        releases = [_pv("1.0.0"), _pv("1.2.0"), _pv("1.1.0")]
+
+        kept = installable_releases(releases, PYPI)
+
+        assert [pv.version for pv in kept] == ["1.0.0", "1.2.0", "1.1.0"]
+
+    def test_drops_yanked_unpublished_and_unparseable(self):
+        releases = [
+            _pv("1.0.0"),
+            _pv("1.1.0", yanked=True),
+            _pv("1.2.0", unpublished=True),
+            _pv("not-a-version"),
+        ]
+
+        assert [pv.version for pv in installable_releases(releases, PYPI)] == ["1.0.0"]
+
+    def test_drops_releases_published_after_now(self):
+        releases = [_pv("1.0.0", published="2024-01-01T00:00:00Z"), _pv("2.0.0", published="2024-12-01T00:00:00Z")]
+
+        kept = installable_releases(releases, PYPI, now=datetime(2024, 7, 1, tzinfo=UTC))
+
+        assert [pv.version for pv in kept] == ["1.0.0"]
+
+    def test_newer_than_is_strict(self):
+        releases = [_pv("1.0.0"), _pv("1.0.1"), _pv("2.0.0")]
+
+        kept = installable_releases(releases, PYPI, newer_than="1.0.0")
+
+        assert [pv.version for pv in kept] == ["1.0.1", "2.0.0"]
+
+    def test_newer_than_uses_registry_semantics(self):
+        """PEP 440: 1.0.10 is newer than 1.0.9, which a string compare would get backwards."""
+        releases = [_pv("1.0.10")]
+
+        assert [pv.version for pv in installable_releases(releases, PYPI, newer_than="1.0.9")] == ["1.0.10"]
+
+
+class TestClassifyRung:
+    def test_in_range_wins_over_major(self):
+        rung = classify_rung("1.5.0", ">=1.0.0", (0, 1), PYPI.package_registry)
+
+        assert rung == RecommendationRung.IN_RANGE
+
+    def test_in_range_for_a_different_major_is_still_in_range(self):
+        """The ladder's two buckets are not a partition: 2.0.0 satisfies `>=1.0.0` while sitting
+        outside the installed major, which is why only the predicates can be shared."""
+        assert in_declared_range("2.0.0", ">=1.0.0", PYPI.package_registry) is True
+        assert in_installed_major("2.0.0", (0, 1), PYPI.package_registry) is False
+        assert classify_rung("2.0.0", ">=1.0.0", (0, 1), PYPI.package_registry) == RecommendationRung.IN_RANGE
+
+    def test_in_major_when_range_excludes_it(self):
+        rung = classify_rung("1.5.0", "==1.0.0", (0, 1), PYPI.package_registry)
+
+        assert rung == RecommendationRung.IN_MAJOR
+
+    def test_latest_when_neither(self):
+        rung = classify_rung("2.0.0", "==1.0.0", (0, 1), PYPI.package_registry)
+
+        assert rung == RecommendationRung.LATEST
+
+    def test_unparseable_installed_major_never_matches(self):
+        assert in_installed_major("1.0.0", None, PYPI.package_registry) is False
+        assert classify_rung("1.0.0", "==0.9.0", None, PYPI.package_registry) == RecommendationRung.LATEST
 
 
 class TestPyPILadder:

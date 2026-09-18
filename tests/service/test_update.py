@@ -329,6 +329,33 @@ class TestForcedOverrides:
         assert plan.direct_entries[0].is_forced is True
 
 
+class TestVersionDefined:
+    """UpdateEntry.version_defined is what api_uv.resolve_direct_specifier rewrites into
+    pyproject.toml, so it must be the root manifest's own spec, not the last-writer-wins
+    accumulator some transitive parent contributed to.
+    """
+
+    def test_reads_the_declaration_over_the_lww_constraint(self):
+        record = make_record("pydantic", "2.12.5", "2.13.5")
+        record.version_constraint = ">=2.0.0,<3.0.0"
+        record.version_constraint_declared = ">=2.0.0"
+        plan = build_update_plan(make_scan_result(production=[record]), "uv")
+        assert plan.direct_entries[0].version_defined == ">=2.0.0"
+
+    def test_falls_back_to_the_lww_constraint_when_nothing_is_declared(self):
+        record = make_record("urllib3", "2.6.3", "2.7.0")
+        record.version_constraint = ">=2.0.0"
+        plan = build_update_plan(make_scan_result(transitive=[record]), "uv")
+        assert plan.transitive_entries[0].version_defined == ">=2.0.0"
+
+    def test_forced_entry_reads_the_declaration_too(self):
+        record = make_record("requests", "2.31.0", None)
+        record.version_constraint = ">=2.0.0,<3.0.0"
+        record.version_constraint_declared = "~=2.31.0"
+        plan = build_update_plan(make_scan_result(production=[record]), "uv", forced_overrides={"requests": "2.34.2"})
+        assert plan.direct_entries[0].version_defined == "~=2.31.0"
+
+
 class TestHeldForWidening:
     def rung_record(self, name: str, installed: str, recommended: str, rung: RecommendationRung) -> ScanRecord:
         record = make_record(name, installed, recommended)
@@ -408,3 +435,111 @@ class TestHeldForWidening:
         assert not plan.direct_entries
         assert [e.package_name for e in plan.held_for_cooldown] == ["requests"]
         assert not plan.held_for_widening
+
+
+class TestHeldForWideningUnderRewriteVersions:
+    """--rewrite-versions exists to move `==x.y.z` pins past the range they declare.
+
+    Holding those picks back for widening authorization made the flag a no-op: every pinned dep
+    landed in held_for_widening and `Direct: 0` came out the other end.
+    """
+
+    def pinned_record(self, name: str, installed: str, recommended: str) -> ScanRecord:
+        record = make_pinned_record(name, installed, recommended)
+        record.version_constraint = f"=={installed}"
+        record.recommended_from_rung = RecommendationRung.IN_MAJOR
+        return record
+
+    def test_pinned_entry_held_without_the_flag(self):
+        record = self.pinned_record("black", "25.11.0", "26.5.1")
+        plan = build_update_plan(make_scan_result(production=[record]), "uv")
+        assert not plan.direct_entries
+        assert [e.package_name for e in plan.held_for_widening] == ["black"]
+
+    def test_pinned_entry_written_with_the_flag(self):
+        record = self.pinned_record("black", "25.11.0", "26.5.1")
+        plan = build_update_plan(make_scan_result(production=[record]), "uv", rewrite_versions=True)
+        assert [e.package_name for e in plan.direct_entries] == ["black"]
+        assert not plan.held_for_widening
+        # Still flagged as widening so command_apply's second confirmation keeps firing.
+        assert plan.direct_entries[0].widens_constraint is True
+
+    def test_npm_alias_pin_stays_held_with_the_flag(self):
+        # The inner constraint of `npm:pkg@x.y.z` can't be rewritten, so the flag can't
+        # authorize it - mirrors clamp_recommendations' own alias carve-out.
+        record = make_pinned_record("chalk", "4.1.2", "5.6.2")
+        record.version_constraint = "npm:chalk@4.1.2"
+        record.version_constraint_declared = "npm:chalk@4.1.2"
+        record.recommended_from_rung = RecommendationRung.LATEST
+        plan = build_update_plan(make_scan_result(production=[record]), "npm", rewrite_versions=True)
+        assert not plan.direct_entries
+        assert [e.package_name for e in plan.held_for_widening] == ["chalk"]
+
+    def test_unpinned_out_of_range_entry_stays_held_with_the_flag(self):
+        # The flag drops `==` pins only; a declared range is still the user's to widen.
+        record = make_record("requests", "2.31.0", "2.34.2")
+        record.version_constraint = "~=2.31.0"
+        record.recommended_from_rung = RecommendationRung.IN_MAJOR
+        plan = build_update_plan(make_scan_result(production=[record]), "uv", rewrite_versions=True)
+        assert not plan.direct_entries
+        assert [e.package_name for e in plan.held_for_widening] == ["requests"]
+
+
+class TestCarriesKnownBreak:
+    """The structural-gate escape hatch: when every installable release is gated, build_candidates
+    admits the newest anyway rather than blanking the recommendation. That pick can sit inside the
+    declared range - `uuid@>11.0.0` admits ESM-only 14.0.2 - so widens_constraint is False and
+    nothing else would ask before writing it.
+    """
+
+    def test_a_break_carrying_pick_is_flagged(self) -> None:
+        record = make_record("uuid", "11.1.0", recommended="14.0.2")
+        record.compatibility.breaking_change = "ESM-only from 12.0.0"
+
+        plan = build_update_plan(make_scan_result(production=[record]), "npm")
+
+        entry = plan.direct_entries[0]
+        assert entry.carries_known_break is True
+        # In range, so the widening gate would not have caught it - that was the hole.
+        assert entry.widens_constraint is False
+
+    def test_it_is_still_applied_not_withheld(self) -> None:
+        """The acknowledgement is the gate, so --yes and MCP callers keep working unchanged."""
+        record = make_record("uuid", "11.1.0", recommended="14.0.2")
+        record.compatibility.breaking_change = "ESM-only from 12.0.0"
+
+        plan = build_update_plan(make_scan_result(production=[record]), "npm")
+
+        assert [e.package_name for e in plan.direct_entries] == ["uuid"]
+        assert plan.held_for_widening == []
+
+    def test_a_clean_pick_is_not_flagged(self) -> None:
+        record = make_record("lodash", "4.17.20", recommended="4.17.21")
+
+        plan = build_update_plan(make_scan_result(production=[record]), "npm")
+
+        assert plan.direct_entries[0].carries_known_break is False
+
+    def test_an_override_forced_pick_is_never_flagged(self) -> None:
+        """--override is explicit user intent, exempt from the acknowledgement prompt for the same
+        reason it is exempt from is_held_for_widening."""
+        record = make_record("uuid", "11.1.0", recommended="14.0.2")
+        record.compatibility.breaking_change = "ESM-only from 12.0.0"
+
+        plan = build_update_plan(
+            make_scan_result(production=[record]),
+            "npm",
+            forced_overrides={"uuid": "14.0.2"},
+        )
+
+        entry = plan.direct_entries[0]
+        assert entry.is_forced is True
+        assert entry.carries_known_break is False
+
+    def test_a_transitive_break_carrying_pick_is_flagged_too(self) -> None:
+        record = make_record("uuid", "11.1.0", recommended="14.0.2")
+        record.compatibility.breaking_change = "ESM-only from 12.0.0"
+
+        plan = build_update_plan(make_scan_result(transitive=[record]), "npm")
+
+        assert plan.transitive_entries[0].carries_known_break is True

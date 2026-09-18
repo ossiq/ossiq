@@ -11,8 +11,24 @@ Everything else in this module is bookkeeping over those two tables.
 from collections.abc import Mapping
 from enum import StrEnum
 
-from ossiq.domain.common import RecommendationRung
+from ossiq.domain.common import RUNG_ORDER, RecommendationRung
 from ossiq.strategy.motive import UpdateMotive
+
+# RUNG_ORDER is domain.common's — re-exported here because the reach ceilings below are what makes
+# it useful, and every caller that compares a rung against a ceiling imports both together.
+__all__ = [
+    "ADMITTED_MOTIVES",
+    "DEFAULT_STRATEGY",
+    "ESCALATING_MOTIVES",
+    "MAX_REACH",
+    "MINIMAL_DIFF_TIERS",
+    "PRERELEASE_TIERS",
+    "PYRAMID",
+    "RUNG_ORDER",
+    "UpdateStrategy",
+    "includes",
+    "tier_index",
+]
 
 
 class UpdateStrategy(StrEnum):
@@ -60,14 +76,6 @@ MAX_REACH: Mapping[UpdateStrategy, RecommendationRung] = {
 }
 """How far up the ladder a tier may reach absent escalation. SECURITY/DEPRECATION/STANDARD cap at
 IN_RANGE; a motive in ESCALATING_MOTIVES pushes the effective reach to LATEST regardless of tier."""
-
-RUNG_ORDER: Mapping[RecommendationRung, int] = {
-    RecommendationRung.IN_RANGE: 0,
-    RecommendationRung.IN_MAJOR: 1,
-    RecommendationRung.LATEST: 2,
-}
-"""Total order over the three ladder rungs a strategy can reach (SOLVER sits outside the ladder
-and is never compared here). Used to test whether a candidate's rung is within a reach ceiling."""
 
 MINIMAL_DIFF_TIERS: frozenset[UpdateStrategy] = frozenset({UpdateStrategy.SECURITY, UpdateStrategy.DEPRECATION})
 """Tiers that minimise the diff rather than maximise freshness — the bottom two."""

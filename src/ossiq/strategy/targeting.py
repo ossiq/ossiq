@@ -9,7 +9,7 @@ live in `service.project.strategy.build_candidates`.
 from collections.abc import Sequence
 from dataclasses import dataclass
 
-from ossiq.domain.common import RecommendationRung
+from ossiq.domain.common import WIDENING_RUNGS, RecommendationRung
 from ossiq.strategy.motive import PackageFacts, UpdateMotive, classify_motives
 from ossiq.strategy.pyramid import (
     ADMITTED_MOTIVES,
@@ -123,7 +123,7 @@ def select_target(facts: PackageFacts, strategy: UpdateStrategy, candidates: Seq
         # rung at a time, same as the old ladder fallback's ascending walk, so a same-major patch
         # is preferred over jumping straight to a breaking major when both exist.
         if strategy not in MINIMAL_DIFF_TIERS and candidates:
-            for wider_reach in (RecommendationRung.IN_MAJOR, RecommendationRung.LATEST):
+            for wider_reach in sorted(WIDENING_RUNGS, key=RUNG_ORDER.__getitem__):
                 if RUNG_ORDER[wider_reach] <= RUNG_ORDER[reach]:
                     continue
                 widened = [c for c in candidates if RUNG_ORDER[c.rung] <= RUNG_ORDER[wider_reach]]

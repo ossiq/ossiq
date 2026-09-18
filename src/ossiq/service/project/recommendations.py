@@ -5,12 +5,12 @@ Applying solver output (recommendations and conflicts) onto ScanRecord instances
 from datetime import datetime
 
 from ossiq.adapters.api_interfaces import AbstractPackageRegistryApi
-from ossiq.domain.common import ConstraintType, EngineContextSource, RecommendationRung
-from ossiq.service.project.breaking_changes import module_system_label
+from ossiq.domain.common import ConstraintType, EngineContext, RecommendationRung
 from ossiq.service.project.models import ScanRecord
+from ossiq.service.project.target_facts import annotate_target_facts
 from ossiq.solver import dependencies_solver
 from ossiq.solver.universe import filter_eligible_versions
-from ossiq.solver.version_matchers import engine_compatibility, version_satisfies_constraint
+from ossiq.solver.version_matchers import version_satisfies_constraint
 from ossiq.timeutil import age_days_from_iso
 
 
@@ -54,19 +54,17 @@ def apply_recommendations(
     skip_current: bool = False,
     registry: AbstractPackageRegistryApi | None = None,
     project_declares_esm: bool = False,
-    engine_context: dict[str, str] | None = None,
-    engine_context_source: EngineContextSource = EngineContextSource.NONE,
+    engine_context: EngineContext | None = None,
 ) -> None:
     """Write solver recommendations back onto ScanRecord instances in-place.
 
-    When `registry` is given, also finalizes `recommended_module_system`/`breaking_change`/
-    `engine_requirement`/`engine_compatible`/`engine_context_source` for every record whose
-    recommendation was just written — this is the only place a transitive record's recommendation
-    is finalized in the main scan pipeline (direct records go through
-    `service.project.strategy.apply_update_strategy` afterward, which is the single writer for
-    them; passing `registry` here for direct records would just be redone work).
+    When `registry` is given, also annotates the target-compatibility cluster via
+    `target_facts.annotate_target_facts` — the shared writer. This is the only place a transitive
+    record's recommendation is finalized in the main scan pipeline; direct records go through
+    `service.project.strategy.apply_update_strategy` afterward, so passing `registry` here for
+    them would just be redone work.
     """
-    engine_context = engine_context or {}
+    engine_context = engine_context or EngineContext()
     for record in records:
         rec = output.recommendations.get(record.package_name)
         if rec is not None and (not skip_current or rec != record.installed_version):
@@ -74,19 +72,14 @@ def apply_recommendations(
             record.recommended_version_reason = output.reasons.get(record.package_name)
             record.recommended_from_rung = RecommendationRung.SOLVER
             if registry is not None:
-                releases = list(registry.package_versions(record.package_name))
-                record.recommended_module_system, record.breaking_change = module_system_label(
-                    record.package_name,
-                    record.installed_version,
+                annotate_target_facts(
+                    record,
                     rec,
-                    releases,
+                    list(registry.package_versions(record.package_name)),
                     registry.package_registry,
-                    project_declares_esm,
+                    engine_context=engine_context,
+                    project_declares_esm=project_declares_esm,
                 )
-                picked = next((pv for pv in releases if pv.version == rec), None)
-                record.engine_requirement = picked.runtime_requirements if picked else None
-                record.engine_compatible = engine_compatibility(record.engine_requirement, engine_context)
-                record.engine_context_source = engine_context_source
 
 
 def clamp_recommendations(

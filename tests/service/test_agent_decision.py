@@ -5,17 +5,22 @@ Covers the next-action branches for both the add and update flows, driven
 entirely from existing scan/package result fields.
 """
 
+import dataclasses
+
 from ossiq.domain.common import (
     ConstraintType,
     CveDatabase,
     DataCompleteness,
     DataSourceStatus,
+    EngineContext,
     EngineContextSource,
     ModuleSystem,
     ProjectPackagesRegistry,
     RecommendationRung,
     RejectedCandidate,
+    ScanStep,
 )
+from ossiq.domain.compatibility import CompatibilityFacts
 from ossiq.domain.cve import CVE, Severity
 from ossiq.domain.project import ConstraintSource
 from ossiq.domain.version import VERSION_DIFF_MAJOR, VERSION_DIFF_MINOR, VERSION_LATEST, VersionsDifference
@@ -82,6 +87,11 @@ def abandoned_assessment() -> MaintenanceAssessment:
     )
 
 
+# The ladder/module-system/engine cluster now lives in a nested value object; keeping the call
+# sites' flat kwargs means this split happens once here rather than in every test.
+COMPATIBILITY_FIELDS = {f.name for f in dataclasses.fields(CompatibilityFacts)}
+
+
 def make_record(
     name: str = "pkg",
     installed: str = "1.0.0",
@@ -103,6 +113,7 @@ def make_record(
         cve=cves or [],
         constraint_info=ConstraintSource(type=ConstraintType.DECLARED, source_file="pyproject.toml"),
         recommended_version=recommended,
+        compatibility=CompatibilityFacts(**{k: flags.pop(k) for k in list(flags) if k in COMPATIBILITY_FIELDS}),
         **flags,
     )
 
@@ -144,7 +155,11 @@ def test_add_caution_when_cve_present():
 # --- update decision ----------------------------------------------------------
 
 
-def make_scan(records: list[ScanRecord], data_completeness: DataCompleteness | None = None) -> ScanResult:
+def make_scan(
+    records: list[ScanRecord],
+    data_completeness: DataCompleteness | None = None,
+    engine_context: EngineContext | None = None,
+) -> ScanResult:
     return ScanResult(
         project_name="proj",
         packages_registry="PYPI",
@@ -152,6 +167,7 @@ def make_scan(records: list[ScanRecord], data_completeness: DataCompleteness | N
         production_packages=records,
         optional_packages=[],
         data_completeness=data_completeness or DataCompleteness(),
+        engine_context=engine_context or EngineContext(),
     )
 
 
@@ -178,8 +194,8 @@ def test_update_no_action_entry_still_carries_the_full_version_picture():
     decision = build_update_decide(make_scan([record]))
     entry = decision["updates"][0]
     assert entry["latest_version"] == "1.0.0"
-    assert entry["latest_in_range"] == record.latest_in_range
-    assert entry["latest_in_major"] == record.latest_in_major
+    assert entry["latest_in_range"] == record.compatibility.latest_in_range
+    assert entry["latest_in_major"] == record.compatibility.latest_in_major
 
 
 def test_update_no_action_entry_still_carries_module_system_fields():
@@ -226,14 +242,39 @@ def test_update_entry_emits_engine_fields():
         recommended="1.1.0",
         engine_requirement={"node": ">=22.0.0"},
         engine_compatible=False,
-        engine_context_source=EngineContextSource.DETECTED,
     )
-    decision = build_update_decide(make_scan([record]))
+    scan = make_scan([record], engine_context=EngineContext({"node": "20.11.0"}, EngineContextSource.DETECTED))
+    decision = build_update_decide(scan)
     entry = decision["updates"][0]
     assert entry["engine_requirement"] == {"node": ">=22.0.0"}
     assert entry["engine_compatible"] is False
-    assert entry["engine_context_source"] == "detected"
-    assert "requires {'node': '>=22.0.0'} (detected)" in entry["reasons"]
+    # Provenance is stated once for the scan, not repeated per entry - it used to be, and reported
+    # "detected" on actionable entries and "none" on the rest of the same scan.
+    assert "engine_context_source" not in entry
+    assert decision["runtime_context"] == {
+        "engine_versions": {"node": "20.11.0"},
+        "engine_context_source": "detected",
+        "npm_cli_version": None,
+        "project_declares_esm": False,
+    }
+    # engine_mismatch_reason's sentence, not a raw dict repr: the same string the console prints
+    # and the structural gate wrote into rejected_candidates.
+    assert "requires node >=22.0.0, detected 20.11.0 (detected)" in entry["reasons"]
+
+
+def test_update_entry_omits_engine_reason_without_an_engine_context():
+    """No engine_context means no evidence either way — nothing to name, so no reason line."""
+    record = make_record(
+        installed="1.0.0",
+        latest="1.1.0",
+        diff_index=VERSION_DIFF_MINOR,
+        recommended="1.1.0",
+        engine_requirement={"node": ">=22.0.0"},
+        engine_compatible=False,
+    )
+    entry = build_update_decide(make_scan([record]))["updates"][0]
+
+    assert not any("requires node" in reason for reason in entry["reasons"])
 
 
 def test_update_no_action_entry_still_carries_engine_fields_default_none():
@@ -242,7 +283,7 @@ def test_update_no_action_entry_still_carries_engine_fields_default_none():
     entry = decision["updates"][0]
     assert entry["engine_requirement"] is None
     assert entry["engine_compatible"] is None
-    assert entry["engine_context_source"] == "none"
+    assert decision["runtime_context"]["engine_context_source"] == "none"
 
 
 def test_update_release_notes_for_major_bump():
@@ -320,6 +361,27 @@ def test_out_of_range_recommendation_flags_constraint_widening():
     entry = decision["updates"][0]
     assert entry["requires_constraint_widening"] is True
     assert any("declared range ==1.10.13 must be widened" in reason for reason in entry["reasons"])
+
+
+def test_widening_reason_omits_the_constraint_when_nothing_is_declared():
+    # A transitive-only dep has no declaration of its own, and interpolating it produced
+    # "declared range None must be widened" in user-facing agent output.
+    record = make_record(
+        installed="1.10.13",
+        latest="2.13.5",
+        diff_index=VERSION_DIFF_MAJOR,
+        recommended="1.10.26",
+        latest_in_range="1.10.13",
+        latest_in_major="1.10.26",
+        recommended_from_rung=RecommendationRung.IN_MAJOR,
+        version_constraint=None,
+        version_constraint_declared=None,
+    )
+    decision = build_update_decide(make_scan([record]))
+    entry = decision["updates"][0]
+    assert entry["requires_constraint_widening"] is True
+    assert not any("None" in reason for reason in entry["reasons"])
+    assert any("1.10.26 is outside the declared range" in reason for reason in entry["reasons"])
 
 
 def test_widening_reason_reads_declared_constraint_not_effective_one():
@@ -467,9 +529,65 @@ def test_update_decide_surfaces_degraded_sources_inline():
     a data source was degraded is if the document says so itself.
     """
     completeness = DataCompleteness(
-        by_step={"vulnerabilities": DataSourceStatus.UNREACHABLE, "repositories": DataSourceStatus.OK}
+        by_step={ScanStep.VULNERABILITIES: DataSourceStatus.UNREACHABLE, ScanStep.REPOSITORIES: DataSourceStatus.OK}
     )
     decision = build_update_decide(make_scan([make_record()], data_completeness=completeness))
     assert decision["data_completeness"]["overall"] == "unreachable"
     assert {"step": "vulnerabilities", "status": "unreachable"} in decision["data_completeness"]["sources"]
     assert {"step": "repositories", "status": "ok"} in decision["data_completeness"]["sources"]
+
+
+def test_one_scan_reports_one_engine_context_source_for_every_entry():
+    """Regression: the provenance used to be copied onto every ScanRecord, and one real scan
+    reported "detected" on actionable entries and "none" on the non-actionable ones. With it on
+    ScanResult only, there is exactly one value and nothing to disagree with.
+    """
+    actionable = make_record(
+        installed="1.0.0",
+        latest="1.1.0",
+        diff_index=VERSION_DIFF_MINOR,
+        recommended="1.1.0",
+    )
+    at_latest = make_record(installed="1.0.0", latest="1.0.0")
+    scan = make_scan(
+        [actionable, at_latest],
+        engine_context=EngineContext({"node": "20.11.0"}, EngineContextSource.DETECTED),
+    )
+
+    decision = build_update_decide(scan)
+
+    assert [e["next_action"] for e in decision["updates"]] == ["Update Immediately", "no action needed"]
+    assert not any("engine_context_source" in entry for entry in decision["updates"])
+    assert decision["runtime_context"]["engine_context_source"] == "detected"
+
+
+def test_update_entry_flags_a_known_break_the_widening_gate_would_miss():
+    """An agent needs the same second look the CLI asks a human for. A pick whose major line is a
+    known break can sit inside the declared range, so requires_constraint_widening does not fire.
+    """
+    record = make_record(
+        installed="11.1.0",
+        latest="14.0.2",
+        diff_index=VERSION_DIFF_MAJOR,
+        recommended="14.0.2",
+        recommended_from_rung=RecommendationRung.IN_RANGE,
+        breaking_change="ESM-only from 12.0.0",
+    )
+    entry = build_update_decide(make_scan([record]))["updates"][0]
+
+    assert entry["carries_known_break"] is True
+    assert "requires_constraint_widening" not in entry
+    assert "ESM-only from 12.0.0" in entry["reasons"]
+
+
+def test_update_entry_omits_the_break_flag_for_a_clean_pick():
+    record = make_record(
+        installed="1.0.0",
+        latest="1.1.0",
+        diff_index=VERSION_DIFF_MINOR,
+        recommended="1.1.0",
+        recommended_from_rung=RecommendationRung.IN_RANGE,
+    )
+    entry = build_update_decide(make_scan([record]))["updates"][0]
+
+    assert "carries_known_break" not in entry

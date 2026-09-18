@@ -6,6 +6,7 @@ from datetime import UTC, datetime
 
 from ossiq.adapters.api_interfaces import VersionRules
 from ossiq.domain.common import build_purl, parse_spdx_expression
+from ossiq.domain.compatibility import CompatibilityFacts
 from ossiq.domain.cve import CVE
 from ossiq.domain.package import Package
 from ossiq.domain.project import ConstraintSource, PeerRequirement
@@ -114,10 +115,14 @@ def scan_record(
     version_diff_index = version_rules.difference_versions(package_version, package_info.latest_version)
     releases_lag = len(releases_since_installed) - 1
 
+    # The declaration, not version_constraint's last-writer-wins accumulator: latest_in_range and
+    # service.project.strategy.classify_rung's IN_RANGE verdict must be computed against the same
+    # specifier, or the rung that authorizes a manifest write disagrees with the rung the ladder
+    # shows. Falls back for transitive-only records, which have no declaration of their own.
     ladder = compute_version_ladder(
         releases_since_installed,
         package_version,
-        version_constraint,
+        version_constraint_declared or version_constraint,
         version_rules,
         latest_version=package_info.latest_version,
         now=now,
@@ -159,9 +164,15 @@ def scan_record(
         dependency_path=dependency_path,
         version_constraint=version_constraint,
         version_constraint_declared=version_constraint_declared,
-        latest_in_range=ladder.latest_in_range,
-        latest_in_major=ladder.latest_in_major,
-        latest_compatible_major=latest_compatible_major,
+        # The ladder half of CompatibilityFacts, built once here; the target half
+        # (recommended_module_system/breaking_change/engine_*) is written later by
+        # service.project.target_facts, once a recommendation exists to describe.
+        compatibility=CompatibilityFacts(
+            latest_in_range=ladder.latest_in_range,
+            latest_in_major=ladder.latest_in_major,
+            latest_compatible_major=latest_compatible_major,
+            module_system=installed_release.module_system if installed_release else None,
+        ),
         extras=extras,
         constraint_info=constraint_info,
         repo_url=package_info.repo_url,
@@ -190,7 +201,6 @@ def scan_record(
         is_installed_package_unpublished=package_info.is_unpublished,
         runs_code_at_install=installed_release.runs_code_at_install if installed_release else None,
         install_execution_reason=installed_release.install_execution_reason if installed_release else None,
-        module_system=installed_release.module_system if installed_release else None,
     )
 
 

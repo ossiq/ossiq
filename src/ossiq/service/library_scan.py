@@ -23,22 +23,20 @@ from packaging.version import Version as PackagingVersion
 from ossiq.adapters.api_interfaces import AbstractPackageRegistryApi
 from ossiq.domain.exceptions import ApplicationError
 from ossiq.domain.project import Dependency, Project
-from ossiq.domain.version import normalize_version
+from ossiq.domain.version import normalize_version, pad_npm_version
 
 _BARE_SEMVER = re.compile(r"^v?\d+(\.\d+){0,2}([.-][a-zA-Z0-9._-]+)*$")
 
 
-def _parse(v: str) -> semver.Version:
-    parts = v.split(".")
-    while len(parts) < 3:
-        parts.append("0")
-    return semver.Version.parse(".".join(parts[:3]))
+def parse_npm_version(v: str) -> semver.Version:
+    """Parse an npm version, tolerating missing minor/patch segments."""
+    return semver.Version.parse(pad_npm_version(v))
 
 
 def _max_stable(versions: list[str]) -> str:
-    stable = [v for v in versions if _parse(v).prerelease is None]
+    stable = [v for v in versions if parse_npm_version(v).prerelease is None]
     candidates = stable or versions
-    return str(max(candidates, key=_parse))
+    return str(max(candidates, key=parse_npm_version))
 
 
 def _max_pep440(versions: list[str]) -> str | None:
@@ -68,21 +66,25 @@ def latest_version_for_constraint(versions: list[str], constraint: str) -> str:
 
     if s.startswith("^"):
         try:
-            base = _parse(s[1:])
-            candidates = [v for v in versions if _parse(v).major == base.major and _parse(v) >= base]
-            return str(max(candidates, key=_parse)) if candidates else s[1:]
+            base = parse_npm_version(s[1:])
+            candidates = [
+                v for v in versions if parse_npm_version(v).major == base.major and parse_npm_version(v) >= base
+            ]
+            return str(max(candidates, key=parse_npm_version)) if candidates else s[1:]
         except ValueError:
             return normalize_version(constraint)
 
     if s.startswith("~") and not s.startswith("~="):
         try:
-            base = _parse(s[1:])
+            base = parse_npm_version(s[1:])
             candidates = [
                 v
                 for v in versions
-                if _parse(v).major == base.major and _parse(v).minor == base.minor and _parse(v) >= base
+                if parse_npm_version(v).major == base.major
+                and parse_npm_version(v).minor == base.minor
+                and parse_npm_version(v) >= base
             ]
-            return str(max(candidates, key=_parse)) if candidates else s[1:]
+            return str(max(candidates, key=parse_npm_version)) if candidates else s[1:]
         except ValueError:
             return normalize_version(constraint)
 

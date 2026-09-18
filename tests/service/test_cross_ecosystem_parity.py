@@ -26,6 +26,7 @@ from ossiq.adapters.api_interfaces import AbstractPackageRegistryApi, VersionRul
 from ossiq.adapters.api_npm import PackageRegistryApiNpm
 from ossiq.adapters.api_pypi import PackageRegistryApiPypi
 from ossiq.domain.common import ConstraintType, RecommendationRung
+from ossiq.domain.compatibility import CompatibilityFacts
 from ossiq.domain.project import ConstraintSource
 from ossiq.domain.version import PackageVersion
 from ossiq.service.project.ladder import compute_version_ladder
@@ -129,8 +130,10 @@ def test_equivalent_exact_pins_produce_structurally_equivalent_ladders(
         constraint_info=ConstraintSource(type=ConstraintType.PINNED, source_file="manifest"),
         version_constraint=constraint,
         recommended_version=solver_output.recommendations[package_name],
-        latest_in_range=ladder.latest_in_range,
-        latest_in_major=ladder.latest_in_major,
+        compatibility=CompatibilityFacts(
+            latest_in_range=ladder.latest_in_range,
+            latest_in_major=ladder.latest_in_major,
+        ),
     )
     plan = StrategyPlan(default=UpdateStrategy.STANDARD, overrides={})
     apply_update_strategy(

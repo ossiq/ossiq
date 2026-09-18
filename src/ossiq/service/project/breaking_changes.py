@@ -16,21 +16,14 @@ import semver
 
 from ossiq.adapters.api_interfaces import VersionRules
 from ossiq.domain.common import ModuleSystem, ProjectPackagesRegistry
-from ossiq.domain.version import PackageVersion
-from ossiq.solver.universe import is_published_before
+from ossiq.domain.version import PackageVersion, pad_npm_version
+from ossiq.service.project.ladder import installable_releases
 from ossiq.solver.version_matchers import major_key
 
 
 def npm_sort_key(version: str) -> semver.Version:
-    """Parse an npm version for ordering, tolerating missing minor/patch segments.
-
-    Mirrors solver.version_matchers.major_key's own padding so a bucket already grouped by that
-    helper can be sorted with it without disagreeing on parseability.
-    """
-    parts = version.split(".")
-    while len(parts) < 3:
-        parts.append("0")
-    return semver.Version.parse(".".join(parts[:3]))
+    """Parse an npm version for ordering, tolerating missing minor/patch segments."""
+    return semver.Version.parse(pad_npm_version(version))
 
 
 def breaking_majors(
@@ -80,17 +73,14 @@ def compute_latest_compatible_major(
     try:
         breaks = breaking_majors(package_name, releases_since_installed, registry)
         installed_major = major_key(installed_version, registry)
-        installable = [
+        reachable = [
             pv
-            for pv in releases_since_installed
-            if not pv.is_yanked
-            and not pv.is_unpublished
-            and is_published_before(pv.published_date_iso, now)
-            and (mk := major_key(pv.version, registry)) is not None
+            for pv in installable_releases(releases_since_installed, version_rules, now=now)
+            if (mk := major_key(pv.version, registry)) is not None
             and (installed_major is None or mk >= installed_major)
             and mk not in breaks
         ]
-        newest = version_rules.newest_version(installable)
+        newest = version_rules.newest_version(reachable)
         return newest.version if newest else None
     except (ValueError, TypeError):
         # Mirrors compute_version_ladder's own fallback: a registry-specific compare_versions/
