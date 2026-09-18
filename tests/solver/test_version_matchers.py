@@ -15,8 +15,8 @@ from univers.versions import SemverVersion
 from ossiq.domain.common import ProjectPackagesRegistry
 from ossiq.solver.problem import CandidateVersion
 from ossiq.solver.version_matchers import (
-    _fallback_evaluate_bounds,
     engine_version_satisfies_requirement,
+    fallback_evaluate_bounds,
     has_engine_mismatch,
     npm_version_satisfies_range,
     pypi_version_satisfies_specifier,
@@ -77,6 +77,17 @@ from ossiq.solver.version_matchers import (
         ("6.5.0", ">=2.9.0 || >=3.0.0-0 <3.0.0 || >=6.0.1 <8.0.0", True),
         # hyphen range untouched by prerelease stripping (spaces around the dash)
         ("1.5.0", "1.2.3 - 2.0.0", True),
+        # || union — two tildes sharing an upper bound. univers flattens the union to
+        # ['>=5.5.8', '>=5.5.10', '<5.6.0', '<5.6.0'], which 6.1.13 satisfies under no branch;
+        # only per-branch evaluation rejects it (@pdfme/common on testdata/npm/version-constrained).
+        ("6.1.13", "~5.5.8 || ~5.5.10", False),
+        ("5.5.9", "~5.5.8 || ~5.5.10", True),
+        ("5.5.11", "~5.5.8 || ~5.5.10", True),
+        ("5.6.0", "~5.5.8 || ~5.5.10", False),
+        # || union — carets, whose bound pairs stay adjacent even when flattened
+        ("1.5.0", "^1.0.0 || ^2.0.0", True),
+        ("2.5.0", "^1.0.0 || ^2.0.0", True),
+        ("3.0.0", "^1.0.0 || ^2.0.0", False),
     ],
 )
 def test_npm_version_satisfies_range(version: str, range_constraint: str, expected: bool) -> None:
@@ -87,7 +98,7 @@ def test_npm_version_satisfies_range_allow_beta() -> None:
     assert npm_version_satisfies_range("1.3.0-rc.1", ">=1.2.0", allow_beta=True) is True
 
 
-# ── _fallback_evaluate_bounds ─────────────────────────────────────────────
+# ── fallback_evaluate_bounds ──────────────────────────────────────────────
 
 
 @pytest.mark.parametrize(
@@ -119,7 +130,7 @@ def test_npm_version_satisfies_range_allow_beta() -> None:
     ],
 )
 def test_fallback_evaluate_bounds(version: str, constraint: str, expected: bool) -> None:
-    assert _fallback_evaluate_bounds(SemverVersion(version), constraint) == expected  # type: ignore
+    assert fallback_evaluate_bounds(SemverVersion(version), constraint) == expected  # type: ignore
 
 
 # ── _pypi_version_satisfies_specifier ─────────────────────────────────────

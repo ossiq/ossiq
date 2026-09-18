@@ -148,6 +148,37 @@ class TestPackageVersions:
         assert versions[0].runtime_requirements == {"node": ">=14"}
         assert versions[0].is_unpublished is False
 
+    def test_legacy_array_engines_are_normalized_to_a_mapping(self, npm_api, mock_npm_response):
+        """npm still accepts the legacy `engines: ["node >=0.6.0"]` form and published metadata
+        still carries it (extsprintf@1.3.0). Passing the list straight through made every
+        downstream `.get(engine)` an AttributeError — `ossiq status --full` on
+        testdata/npm/deprecated crashed on exactly this."""
+        mock_npm_response.set_response(
+            "pkg",
+            {
+                "name": "pkg",
+                "versions": {"1.0.0": {"engines": ["node >=0.6.0", "npm >=1.0"]}},
+                "time": {"1.0.0": "2020-01-01T00:00:00.000Z"},
+            },
+        )
+        versions = list(npm_api.package_versions("pkg"))
+
+        assert versions[0].runtime_requirements == {"node": ">=0.6.0", "npm": ">=1.0"}
+
+    def test_unusable_engines_become_none_rather_than_an_empty_mapping(self, npm_api, mock_npm_response):
+        """None means "no evidence either way", which is what engine_mismatch_reason keys off."""
+        mock_npm_response.set_response(
+            "pkg",
+            {
+                "name": "pkg",
+                "versions": {"1.0.0": {"engines": ["nonsense-without-a-range"]}, "1.1.0": {"engines": "node >=14"}},
+                "time": {"1.0.0": "2020-01-01T00:00:00.000Z", "1.1.0": "2020-02-01T00:00:00.000Z"},
+            },
+        )
+        versions = list(npm_api.package_versions("pkg"))
+
+        assert [v.runtime_requirements for v in versions] == [None, None]
+
     def test_fully_unpublished_package(self, npm_api, mock_npm_response):
         mock_npm_response.set_response(
             "pkg",
@@ -395,6 +426,20 @@ class TestExportsConditions:
         }
 
         assert detect_npm_module_system(details) == ModuleSystem.DUAL
+
+    def test_both_conditions_without_a_type_field_is_dual(self):
+        # No `type` means CJS by default, but an `import` condition alongside `require` is a
+        # package shipping both formats — reading it as plain CJS mislabelled every dual package
+        # that relies on the default rather than declaring "type": "commonjs".
+        details = {"exports": {".": {"require": "./index.cjs", "import": "./index.mjs"}}}
+
+        assert detect_npm_module_system(details) == ModuleSystem.DUAL
+
+    def test_require_only_without_a_type_field_stays_cjs(self):
+        # A `require` condition on its own is a CJS-only package with an exports map, not a dual.
+        details = {"exports": {".": {"require": "./index.cjs"}}}
+
+        assert detect_npm_module_system(details) == ModuleSystem.CJS
 
     def test_deeply_nested_exports_does_not_exhaust_the_stack(self):
         # Registry JSON is attacker-controlled: this is a RecursionError under a recursive walk,

@@ -42,6 +42,7 @@ from univers.version_range import InvalidVersionRange, NpmVersionRange, PypiVers
 from univers.versions import PypiVersion, SemverVersion
 
 from ossiq.domain.common import ProjectPackagesRegistry
+from ossiq.domain.version import pad_npm_version
 from ossiq.solver.problem import CandidateVersion
 
 logger = logging.getLogger(__name__)
@@ -114,7 +115,7 @@ def preprocess_pypi_specifier(specifier: str) -> str:
     )
 
 
-def _fallback_evaluate_bounds(version_obj: SemverVersion, constraint_string: str) -> bool:
+def fallback_evaluate_bounds(version_obj: SemverVersion, constraint_string: str) -> bool:
     """
     Manually evaluates constraint branches mathematically when strict semver
     parsers (like univers) crash on overlapping or redundant prerelease boundaries.
@@ -156,6 +157,13 @@ def npm_version_satisfies_range(version: str, range_constraint: str, allow_beta:
       - bare full version  — "4.17.1"  exact match only (no operator = equality, per spec)
       - comparison operators  — ">", ">=", "<", "<=", "=", "!="
       - npm alias  — "npm:pkg@^1.2.3"  matched against the embedded range
+
+    Each ``||`` branch is evaluated on its own rather than handed to univers as one string:
+    univers flattens a union into an ungrouped constraint list, so "~5.5.8 || ~5.5.10" became
+    ``['>=5.5.8', '>=5.5.10', '<5.6.0', '<5.6.0']`` and admitted 6.1.13. Branch adjacency survives
+    for "^1.0.0 || ^2.0.0" by luck of bound ordering; two tildes sharing an upper bound lose it.
+    An unparseable branch passes through as True, the same fail-open this function has always
+    applied to an unparseable constraint.
     """
     if not allow_beta and "-" in version:
         return False
@@ -169,21 +177,35 @@ def npm_version_satisfies_range(version: str, range_constraint: str, allow_beta:
         except ValueError:
             return True
 
-    parts = [p.strip() for p in constraint.split("||")]
-    processed = " || ".join(f"^{p}" if PARTIAL_BARE_VERSION_RE.match(p) else p for p in parts)
-
     try:
-        return SemverVersion(version) in NpmVersionRange.from_native(processed)  # type: ignore
-    except InvalidConstraintsError:
-        try:
-            return _fallback_evaluate_bounds(SemverVersion(version), processed)  # type: ignore
-        except ValueError:
-            return True
+        candidate = SemverVersion(version)  # type: ignore
     except ValueError as exc:
         logger.debug(
             "npm_version_satisfies_range: unparseable version=%r constraint=%r error=%s", version, range_constraint, exc
         )
         return True
+
+    for raw_branch in constraint.split("||"):
+        branch = raw_branch.strip()
+        if not branch:
+            continue
+        if PARTIAL_BARE_VERSION_RE.match(branch):
+            branch = f"^{branch}"
+        try:
+            if candidate in NpmVersionRange.from_native(branch):
+                return True
+        except InvalidConstraintsError:
+            if fallback_evaluate_bounds(candidate, branch):
+                return True
+        except (ValueError, InvalidVersionRange) as exc:
+            logger.debug(
+                "npm_version_satisfies_range: unparseable branch=%r constraint=%r error=%s",
+                branch,
+                range_constraint,
+                exc,
+            )
+            return True
+    return False
 
 
 # ── PyPI / PEP 440
@@ -237,10 +259,7 @@ def major_key(version: str, registry: ProjectPackagesRegistry) -> tuple[int, int
         if registry == ProjectPackagesRegistry.PYPI:
             parsed = PackagingVersion(version)
             return (parsed.epoch, parsed.release[0] if parsed.release else 0)
-        parts = version.split(".")
-        while len(parts) < 3:
-            parts.append("0")
-        return (0, semver.Version.parse(".".join(parts[:3])).major)
+        return (0, semver.Version.parse(pad_npm_version(version)).major)
     except (InvalidVersion, ValueError):
         return None
 

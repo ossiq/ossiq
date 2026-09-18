@@ -266,6 +266,28 @@ def normalize_version(version: str) -> str:
     return version
 
 
+def pad_npm_version(version: str) -> str:
+    """Pad an npm version to exactly three segments so semver can parse it.
+
+    npm accepts partial versions ("14", "14.2") where strict semver does not. Shared by every
+    npm-side parser — `solver.version_matchers.major_key`,
+    `service.project.breaking_changes.npm_sort_key` and `service.library_scan` — so a version one
+    of them considers parseable is never rejected by another.
+
+    Args:
+        version: A version string, possibly with fewer or more than three dotted segments.
+
+    Returns:
+        The first three dot-separated segments, zero-filled on the right. The split is on "."
+        alone, so a dotted prerelease ("1.2.3-rc.1") loses its tail — harmless for every current
+        caller, but this is not a general-purpose semver normalizer.
+    """
+    parts = version.split(".")
+    while len(parts) < 3:
+        parts.append("0")
+    return ".".join(parts[:3])
+
+
 # ---------------------------------------------------------------------------
 # Version-specifier classification
 # ---------------------------------------------------------------------------

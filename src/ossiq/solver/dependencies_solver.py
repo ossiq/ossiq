@@ -114,21 +114,35 @@ def apply_fallback(
     return SolverOutput(recommendations=new_recs, reasons=new_reasons, conflicts=output.conflicts)
 
 
-def build_requires_validator(
+def build_requires_reason(
     problem: SolverProblem,
     registry: AbstractPackageRegistryApi,
     recommendations: dict[str, str],
     external_targets: dict[str, str],
-) -> Callable[[str, str], bool]:
-    """Reject candidates whose requirements conflict with other pinned or held versions.
+) -> Callable[[str, str], str | None]:
+    """Build the requires-consistency check, as a function returning why a candidate fails.
+
+    The single definition of the check: `build_requires_validator` is this function's result
+    reduced to a bool, so the reason a candidate is reported with always names the actual cause
+    of the rejection it explains. (The explain-side copy of this loop used to be its own
+    function, marked "Mirrors build_requires_validator's own check".)
 
     A recommended version is acceptable only when every dependency it declares is satisfied by
     the version that dependency will end up at: its own recommendation within this solve, or an
     external target (e.g. direct-dep versions when solving transitives). Dependencies outside
     the solution are skipped — the package manager resolves them freely.
+
+    Args:
+        problem: The solve in progress, for its registry's version semantics.
+        registry: Registry client, for each candidate's declared requirements.
+        recommendations: Versions picked so far in this solve.
+        external_targets: Versions fixed outside this solve.
+
+    Returns:
+        A (package, version) -> reason function; None means the candidate is consistent.
     """
 
-    def validate(pkg: str, version: str) -> bool:
+    def reason_for(pkg: str, version: str) -> str | None:
         for dep, spec in registry.package_version_requires(pkg, version).items():
             if not spec or dep == pkg:
                 continue
@@ -139,34 +153,24 @@ def build_requires_validator(
             #       version is not pinned in the plan, so the resolver may still move it in-range.
             if not version_satisfies_constraint(target, spec, problem.registry):
                 logger.debug("requires check: %s==%s needs %s%s, held at %s", pkg, version, dep, spec, target)
-                return False
-        return True
+                return f"{dep} needs {spec}, held at {target}"
+        return None
 
-    return validate
+    return reason_for
 
 
-def explain_requires_failure(
-    pkg: str,
-    version: str,
+def build_requires_validator(
     problem: SolverProblem,
     registry: AbstractPackageRegistryApi,
     recommendations: dict[str, str],
     external_targets: dict[str, str],
-) -> str:
-    """Name the specific dependency/constraint that makes pkg==version requires-inconsistent.
+) -> Callable[[str, str], bool]:
+    """Reject candidates whose requirements conflict with other pinned or held versions.
 
-    Mirrors build_requires_validator's own check so the reason always names the actual cause of
-    the rejection it explains, rather than a generic message.
+    Derived from `build_requires_reason` — see there for what makes a candidate acceptable.
     """
-    for dep, spec in registry.package_version_requires(pkg, version).items():
-        if not spec or dep == pkg:
-            continue
-        target = recommendations.get(dep) or external_targets.get(dep)
-        if target is None:
-            continue
-        if not version_satisfies_constraint(target, spec, problem.registry):
-            return f"{dep} needs {spec}, held at {target}"
-    return "blocked by a requires-consistency conflict"
+    reason_for = build_requires_reason(problem, registry, recommendations, external_targets)
+    return lambda pkg, version: reason_for(pkg, version) is None
 
 
 def apply_requires_consistency(
@@ -198,11 +202,12 @@ def apply_requires_consistency(
         return lambda pkg, version: extra_validator(pkg, version) and requires_validator(pkg, version)
 
     def record_drops(before: dict[str, str], after: dict[str, str]) -> None:
+        reason_for = build_requires_reason(problem, registry, before, targets)
         for pkg, version in before.items():
             if pkg not in after:
                 rejected[pkg] = RejectedCandidate(
                     version=version,
-                    reason=explain_requires_failure(pkg, version, problem, registry, before, targets),
+                    reason=reason_for(pkg, version) or "blocked by a requires-consistency conflict",
                 )
 
     for _ in range(MAX_CONSISTENCY_ROUNDS):

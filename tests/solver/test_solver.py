@@ -10,7 +10,7 @@ from ossiq.adapters.api_interfaces import AbstractPackageRegistryApi
 from ossiq.domain.common import ConstraintType
 from ossiq.domain.project import ConstraintSource
 from ossiq.domain.version import PackageVersion
-from ossiq.solver.dependencies_solver import explain_requires_failure, solve_direct
+from ossiq.solver.dependencies_solver import build_requires_reason, build_requires_validator, solve_direct
 from ossiq.solver.problem import SolverProblem
 
 # ---------------------------------------------------------------------------
@@ -423,36 +423,34 @@ class TestPeerConstraintBlocksUpgrade:
         assert result.recommendations.get("other") == "2.0.0"
 
 
-class TestExplainRequiresFailure:
-    """explain_requires_failure names the specific dep/spec/target that broke consistency."""
+class TestBuildRequiresReason:
+    """build_requires_reason names the specific dep/spec/target that broke consistency, and
+    build_requires_validator is the same check reduced to a bool — so the reason a candidate is
+    reported with can never disagree with the verdict that dropped it."""
 
     def test_names_conflicting_dep_spec_and_target(self) -> None:
         registry = _make_registry({}, requires={("flask", "3.1.0"): {"werkzeug": ">=3.0.0"}})
         problem = SolverProblem(constraints=(), candidates={}, engine_context={})
 
-        reason = explain_requires_failure(
-            "flask",
-            "3.1.0",
-            problem,
-            registry,
-            recommendations={},
-            external_targets={"werkzeug": "2.0.0"},
-        )
+        reason_for = build_requires_reason(problem, registry, {}, {"werkzeug": "2.0.0"})
 
-        assert reason == "werkzeug needs >=3.0.0, held at 2.0.0"
+        assert reason_for("flask", "3.1.0") == "werkzeug needs >=3.0.0, held at 2.0.0"
 
-    def test_falls_back_to_generic_message_when_no_requires_conflict(self) -> None:
+    def test_returns_none_when_no_requires_conflict(self) -> None:
         """No declared requirement conflicts with a recommendation/target - nothing to name."""
         registry = _make_registry({}, requires={("requests", "2.32.0"): {}})
         problem = SolverProblem(constraints=(), candidates={}, engine_context={})
 
-        reason = explain_requires_failure(
-            "requests",
-            "2.32.0",
-            problem,
-            registry,
-            recommendations={},
-            external_targets={},
-        )
+        reason_for = build_requires_reason(problem, registry, {}, {})
 
-        assert reason == "blocked by a requires-consistency conflict"
+        assert reason_for("requests", "2.32.0") is None
+
+    def test_validator_is_the_reason_function_reduced_to_a_bool(self) -> None:
+        registry = _make_registry({}, requires={("flask", "3.1.0"): {"werkzeug": ">=3.0.0"}})
+        problem = SolverProblem(constraints=(), candidates={}, engine_context={})
+        targets = {"werkzeug": "2.0.0"}
+
+        reason_for = build_requires_reason(problem, registry, {}, targets)
+        validate = build_requires_validator(problem, registry, {}, targets)
+
+        assert validate("flask", "3.1.0") is (reason_for("flask", "3.1.0") is None) is False

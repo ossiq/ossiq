@@ -14,6 +14,19 @@ class ApplicationError(Exception):
         if hint is not None:
             self.hint = hint
 
+    def render(self) -> str:
+        """Render as plain text for a surface that has no panel to draw.
+
+        The title and the hint are the whole point of this exception — dropping them left MCP
+        agents staring at a bare class name with no indication of what to do about it. `cli.py`
+        renders the same three parts as a Rich panel instead.
+
+        Returns:
+            "title: message", plus the hint on its own line when one is set.
+        """
+        text = f"{self.title}: {self}"
+        return f"{text}\n{self.hint}" if self.hint else text
+
 
 class GithubRateLimitError(ApplicationError):
     """Raised when the GitHub API rate limit is exceeded."""

@@ -30,6 +30,7 @@ from ossiq.domain.version import (
     classify_pypi_specifier,
     create_version_difference_no_diff,
     normalize_version,
+    pad_npm_version,
     sort_versions,
 )
 
@@ -137,6 +138,34 @@ class TestNormalizeVersion:
     def test_version_with_epoch(self):
         """Version with epoch should be preserved."""
         assert normalize_version("1:1.2.3") == "1:1.2.3"
+
+
+class TestPadNpmVersion:
+    """The one npm padding helper — major_key, npm_sort_key and library_scan all use it, so any
+    version one of them can parse must be parseable by the others."""
+
+    @pytest.mark.parametrize(
+        ("raw", "expected"),
+        [
+            ("1", "1.0.0"),
+            ("1.2", "1.2.0"),
+            ("1.2.3", "1.2.3"),
+            ("1.2.3.4", "1.2.3"),
+            ("1.2.3-rc1", "1.2.3-rc1"),
+        ],
+    )
+    def test_pads_and_truncates_to_three_segments(self, raw, expected):
+        assert pad_npm_version(raw) == expected
+
+    def test_a_dotted_prerelease_is_truncated_with_the_rest(self):
+        """Documented sharp edge, unchanged from the three copies this replaced: the split is on
+        '.' alone, so a dotted prerelease loses its tail. Harmless in every current caller —
+        major_key reads only .major, and a truncated tag is still a prerelease — but it means this
+        is not a general-purpose semver normalizer."""
+        assert pad_npm_version("1.2.3-rc.1") == "1.2.3-rc"
+
+    def test_empty_string_is_not_normalized_to_zeros(self):
+        assert pad_npm_version("") == ".0.0"
 
 
 class TestSortVersions:

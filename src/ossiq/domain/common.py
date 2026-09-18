@@ -5,9 +5,13 @@ mutual dependencies.
 
 import importlib.metadata
 import re
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
 from enum import Enum, StrEnum
+from typing import Generic, TypeVar
 from urllib.parse import quote
+
+T = TypeVar("T")
 
 # Source of versions data within target source code repository
 VERSION_DATA_SOURCE_GITHUB_RELEASES = "GITHUB-RELEASES"
@@ -57,6 +61,7 @@ class Command(Enum):
     ADD = "add"
     PLAN = "plan"
     APPLY = "apply"
+    UPDATE_CONTEXT = "update-context"
 
 
 class ExportUnknownSchemaVersion(StrEnum):
@@ -98,6 +103,33 @@ class RecommendationRung(StrEnum):
     LATEST = "latest"  # ladder fallback: newest version overall
 
 
+WIDENING_RUNGS: frozenset[RecommendationRung] = frozenset({RecommendationRung.IN_MAJOR, RecommendationRung.LATEST})
+"""Rungs only reachable by widening the declared constraint first. The single definition — it
+decides whether `ossiq apply` may write, whether an entry lands in UpdatePlan.held_for_widening,
+whether an agent entry carries requires_constraint_widening, and whether "Constrained" is the
+right next action. Anything not in here is writable as-is."""
+
+RUNG_ORDER: Mapping[RecommendationRung, int] = {
+    RecommendationRung.IN_RANGE: 0,
+    RecommendationRung.IN_MAJOR: 1,
+    RecommendationRung.LATEST: 2,
+}
+"""Total order over the three ladder rungs a strategy can reach. SOLVER sits outside the ladder
+and is never compared here, so indexing this with it is a KeyError by design."""
+
+
+def rung_scope_label(rung: RecommendationRung | None) -> str:
+    """How far a widening rung reaches, in the wording the plan table and info block both use.
+
+    Args:
+        rung: The rung a recommendation came from.
+
+    Returns:
+        "new major" for LATEST, "same major" for anything else.
+    """
+    return "new major" if rung == RecommendationRung.LATEST else "same major"
+
+
 @dataclass(frozen=True)
 class RejectedCandidate:
     """A release that would otherwise have been a candidate, held back by a transitive conflict."""
@@ -131,6 +163,54 @@ class EngineContextSource(StrEnum):
     NONE = "none"
 
 
+# Which engine key a registry's packages declare requirements against. Also decides which runtime
+# probes are worth spawning: a pure-PyPI scan has no use for `node --version`.
+ENGINE_CONTEXT_KEY_BY_REGISTRY: Mapping[ProjectPackagesRegistry, str] = {
+    ProjectPackagesRegistry.NPM: "node",
+    ProjectPackagesRegistry.PYPI: "python",
+}
+
+
+@dataclass(frozen=True)
+class EngineContext:
+    """The runtime versions a scan checked engine requirements against, and where they came from.
+
+    One value rather than two parallel fields: the versions and their provenance were threaded
+    separately through the pipeline and the renderers, and the pair drifted - one scan reported
+    `detected` on actionable records and `none` on the rest. `versions` is a plain dict (mutable
+    inside a frozen dataclass, as elsewhere in the codebase); treat it as read-only.
+    """
+
+    versions: dict[str, str] = field(default_factory=dict)
+    source: EngineContextSource = EngineContextSource.NONE
+
+
+class ScanStep(StrEnum):
+    """The stages a project scan moves through, and the keys its completeness is reported under.
+
+    One definition shared by the pipeline that emits the events (`service.project.scan`), the
+    stepper that draws them (`ui.system.SCAN_STEPS` supplies only the labels), and
+    `DataCompleteness.by_step`. They used to be magic strings duplicated across all three.
+
+    Only REPOSITORIES, VULNERABILITIES and EPSS report a DataSourceStatus:
+
+    - PACKAGES / VERSIONS read the registry port the solver also depends on
+      (`packages_info_batch`, `package_versions`). That is a per-package cached read, not one
+      batch run, so widening its return type to carry a status would ripple through `solver/`,
+      `clamp_recommendations` and `library_scan`. Deferred deliberately.
+    - PROJECT / SOLVER touch no external data source at all, so a DataSourceStatus would be a
+      category error, not a missing feature.
+    """
+
+    PROJECT = "project"
+    PACKAGES = "packages"
+    REPOSITORIES = "repositories"
+    VULNERABILITIES = "vulnerabilities"
+    EPSS = "epss"
+    VERSIONS = "versions"
+    SOLVER = "solver"
+
+
 class DataSourceStatus(StrEnum):
     """Whether an external data source (OSV, GitHub, ...) actually delivered data for this scan.
 
@@ -146,23 +226,70 @@ class DataSourceStatus(StrEnum):
 
 
 @dataclass(frozen=True)
-class DataCompleteness:
-    """Per-scan-step completeness (B4), keyed by the same step names the progress UI uses
-    (ui.system.SCAN_STEPS) so the checkmark rendering, the export metadata, and the exit-code
-    logic all agree on what actually happened during a scan.
+class SourceFetch(Generic[T]):
+    """What one fetch from an external source returned, and whether the source delivered it.
 
-    A step absent from `by_step` is treated as ok - most steps (packages, versions, solver) don't
-    yet report completeness and default to the status quo rather than false alarms.
+    Adapters used to answer the second half by leaving a summary on themselves for the caller to
+    read afterwards (`last_summary`), which forced the scan pipeline to hold adapter instances
+    just to interrogate them. Returning the pair keeps the diagnostic a value, per the house rule
+    that lower layers return diagnostics rather than stashing them.
     """
 
-    by_step: dict[str, DataSourceStatus] = field(default_factory=dict)
+    data: T
+    status: DataSourceStatus = DataSourceStatus.OK
 
-    def status_for(self, step: str) -> DataSourceStatus:
+
+def combine_statuses(statuses: Iterable[DataSourceStatus]) -> DataSourceStatus:
+    """Merge several fetches' outcomes into one status for the source they came from.
+
+    A mix of success and failure is PARTIAL rather than the worse of the two: one failed GitHub
+    stream out of four does not mean GitHub was unreachable. RATE_LIMITED wins outright, because
+    the cause is a quota that applies to every later call as well.
+
+    Distinct from DataCompleteness.overall, which asks the project-level question ("is this whole
+    report degraded?") and is deliberately a plain worst-of.
+
+    Args:
+        statuses: The outcomes of the individual fetches that make up one source.
+
+    Returns:
+        The single status to report for that source. An empty input is OK - nothing was attempted.
+    """
+    seen = list(statuses)
+    if not seen:
+        return DataSourceStatus.OK
+    if DataSourceStatus.RATE_LIMITED in seen:
+        return DataSourceStatus.RATE_LIMITED
+    failed = [s for s in seen if s != DataSourceStatus.OK]
+    if not failed:
+        return DataSourceStatus.OK
+    if len(failed) == len(seen) and all(s == DataSourceStatus.UNREACHABLE for s in failed):
+        return DataSourceStatus.UNREACHABLE
+    return DataSourceStatus.PARTIAL
+
+
+@dataclass(frozen=True)
+class DataCompleteness:
+    """Per-scan-step completeness (B4), keyed by `ScanStep` so the checkmark rendering, the export
+    metadata, and the exit-code logic all agree on what actually happened during a scan.
+
+    A step absent from `by_step` is treated as ok - see ScanStep for which steps report a status
+    and why the rest cannot.
+    """
+
+    by_step: dict[ScanStep, DataSourceStatus] = field(default_factory=dict)
+
+    def status_for(self, step: ScanStep) -> DataSourceStatus:
         return self.by_step.get(step, DataSourceStatus.OK)
 
     @property
     def overall(self) -> DataSourceStatus:
-        """Worst status across every tracked step, in the order a user should care about it."""
+        """Worst status across every tracked step, in the order a user should care about it.
+
+        Deliberately not `combine_statuses`: this answers "is the whole report degraded?", where
+        one failed source taints the result. `combine_statuses` answers "did this one source
+        deliver?", where a mix of success and failure is PARTIAL rather than the worse of the two.
+        """
         statuses = set(self.by_step.values())
         for candidate in (DataSourceStatus.RATE_LIMITED, DataSourceStatus.UNREACHABLE, DataSourceStatus.PARTIAL):
             if candidate in statuses:
@@ -170,7 +297,7 @@ class DataCompleteness:
         return DataSourceStatus.OK
 
     @property
-    def degraded_steps(self) -> dict[str, DataSourceStatus]:
+    def degraded_steps(self) -> dict[ScanStep, DataSourceStatus]:
         """Only the steps that didn't come back ok - what a warning message should list."""
         return {step: status for step, status in self.by_step.items() if status != DataSourceStatus.OK}
 
@@ -210,6 +337,84 @@ _PURL_TYPE: dict[str, str] = {
     "NPM": "npm",
     "PYPI": "pypi",
 }
+
+
+# Leading distribution name in a dependency specifier (stops at version operators, the extras
+# bracket, environment markers, whitespace).
+_DIST_NAME_RE = re.compile(r"^([A-Za-z0-9]([A-Za-z0-9._-]*[A-Za-z0-9])?)")
+
+
+def normalize_dist_name(spec: str) -> str:
+    """Extract and normalise a distribution name from a dependency specifier.
+
+    Strips version operators, extras, environment markers and whitespace, then applies PyPA name
+    normalization (lowercase; collapse runs of [-_.] to a single '-'). Scoped npm names survive
+    intact apart from case, since the pattern doesn't match a leading '@'.
+
+    Examples:
+        "urllib3<2.0"             -> "urllib3"
+        "requests[security]>=2.0" -> "requests"
+        "My_Package"              -> "my-package"
+        "@Scope/Pkg"              -> "@scope/pkg"
+    """
+    spec = spec.strip()
+    m = _DIST_NAME_RE.match(spec)
+    name = m.group(1) if m else spec
+    return re.sub(r"[-_.]+", "-", name).lower()
+
+
+class NameValueSpecError(ValueError):
+    """A malformed or conflicting `name=value` CLI spec.
+
+    Carries the offending spec and package so a front door can render its own wording without
+    parsing the message back out of the string.
+    """
+
+    def __init__(self, message: str, *, value: str | None = None, package: str | None = None):
+        super().__init__(message)
+        self.value = value
+        self.package = package
+
+
+def parse_name_value_specs(
+    raw: Iterable[str] | None,
+    *,
+    separator: str,
+    flag: str,
+    value_parser: Callable[[str], T],
+) -> tuple[tuple[str, T], ...]:
+    """Parse repeatable `name<separator>value` CLI specs into normalised (name, value) pairs.
+
+    One parser for `--override pkg==version` and `--strategy-override pkg=tier`, which had
+    diverged: only the latter normalised names, so the same spelling resolved to different
+    packages depending on which flag you used.
+
+    Args:
+        raw: The raw option values, or None when the option was never given.
+        separator: What splits the name from the value ("==" or "=").
+        flag: The option name, used in error messages.
+        value_parser: Turns the value half into its final type; may raise ValueError.
+
+    Returns:
+        (canonical_name, parsed_value) pairs, deduplicated, in first-seen order.
+
+    Raises:
+        NameValueSpecError: On a malformed spec, or the same package given two conflicting values.
+        ValueError: Whatever `value_parser` raises for a value it rejects.
+    """
+    parsed: dict[str, T] = {}
+    for entry in raw or []:
+        name, found, value_raw = entry.partition(separator)
+        name = name.strip()
+        value_raw = value_raw.strip()
+        if not found or not name or not value_raw:
+            raise NameValueSpecError(f"Invalid {flag} value '{entry}'; expected package{separator}value", value=entry)
+        canonical = normalize_dist_name(name)
+        value = value_parser(value_raw)
+        if canonical in parsed and parsed[canonical] != value:
+            raise NameValueSpecError(f"Conflicting {flag} values for '{canonical}'", package=canonical)
+        parsed[canonical] = value
+    return tuple(parsed.items())
 
 
 def build_purl(registry: "ProjectPackagesRegistry", name: str, version: str) -> str:
