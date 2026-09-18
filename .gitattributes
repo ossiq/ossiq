@@ -1,0 +1,25 @@
+# Normalize line endings on the way into the index so a checkout on Windows can't commit CRLF
+# back. Without this, 14 files were stored CRLF and kept flipping, inflating one review diff by
+# ~2,700 phantom lines. frontend/.gitattributes already carried the same rule for the SPA.
+* text=auto eol=lf
+
+*.py    text eol=lf
+*.md    text eol=lf
+*.toml  text eol=lf
+*.json  text eol=lf
+*.yml   text eol=lf
+*.yaml  text eol=lf
+*.cfg   text eol=lf
+*.txt   text eol=lf
+
+# Windows-native files keep CRLF where the tooling expects it.
+*.bat   text eol=crlf
+*.ps1   text eol=crlf
+
+*.png   binary
+*.ico   binary
+*.jpg   binary
+*.jpeg  binary
+*.gif   binary
+*.webp  binary
+*.pdf   binary
