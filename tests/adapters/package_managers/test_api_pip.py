@@ -20,8 +20,7 @@ from pathlib import Path
 import pytest
 
 from ossiq.adapters.package_managers.api_pip import PackageManagerPythonPip
-from ossiq.adapters.package_managers.utils import normalize_dist_name
-from ossiq.domain.common import ProjectPackagesRegistry
+from ossiq.domain.common import ProjectPackagesRegistry, normalize_dist_name
 from ossiq.domain.exceptions import PackageManagerLockfileParsingError
 from ossiq.domain.packages_manager import PIP
 from ossiq.settings import Settings

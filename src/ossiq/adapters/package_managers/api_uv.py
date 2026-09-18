@@ -19,8 +19,8 @@ from ossiq.adapters.api_interfaces import AbstractPackageManagerApi
 from ossiq.adapters.api_pypi import PackageRegistryApiPypi
 from ossiq.adapters.package_managers.api_pypi import enrich_registry_constraints
 from ossiq.adapters.package_managers.dependency_tree import BaseDependencyResolver
-from ossiq.adapters.package_managers.utils import extract_min_python_version, find_lockfile_parser, normalize_dist_name
-from ossiq.domain.common import ConstraintType
+from ossiq.adapters.package_managers.utils import extract_min_python_version, find_lockfile_parser
+from ossiq.domain.common import ConstraintType, normalize_dist_name
 from ossiq.domain.exceptions import PackageManagerExecutionError, PackageManagerLockfileParsingError
 from ossiq.domain.packages_manager import UV, PackageManagerType
 from ossiq.domain.project import ConstraintSource, Dependency, Project

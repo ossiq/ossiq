@@ -16,7 +16,7 @@ import pytest
 from ossiq.adapters.package_managers.api import create_package_managers
 from ossiq.adapters.package_managers.api_pep621 import PackageManagerPythonPep621
 from ossiq.adapters.package_managers.api_uv import PackageManagerPythonUv
-from ossiq.domain.common import ConstraintType
+from ossiq.domain.common import ConstraintType, ProjectPackagesRegistry
 from ossiq.settings import Settings
 
 # ============================================================================
@@ -94,16 +94,18 @@ class TestHasPackageManager:
         pyproject_path.write_text("not valid toml [[[")
         assert PackageManagerPythonPep621.has_package_manager(temp_project_dir) is False
 
-    def test_uv_project_with_lockfile_does_not_match_pep621(self, temp_project_dir):
-        """A project WITH a real lockfile must keep matching only PackageManagerPythonUv, not
-        this adapter too - see has_package_manager's docstring for why matching both would be
-        a problem (a spurious "multiple registry types" warning)."""
+    def test_a_uv_project_also_matches_this_predicate(self, temp_project_dir):
+        """has_package_manager answers only "does this tree look like mine?". A uv project does
+        look like a PEP 621 project - it has a pyproject.toml with dependencies - and saying so is
+        correct. Which adapter actually drives the scan is the registry's call, not this one's;
+        the predicate used to call its two siblings' checks to break that tie itself.
+        """
         pyproject_path = Path(temp_project_dir) / "pyproject.toml"
         pyproject_path.write_text('[project]\nname = "demo"\nversion = "0.1.0"\ndependencies = ["requests"]\n')
         (Path(temp_project_dir) / "uv.lock").write_text("version = 1\nrevision = 3\n")
 
         assert PackageManagerPythonUv.has_package_manager(temp_project_dir) is True
-        assert PackageManagerPythonPep621.has_package_manager(temp_project_dir) is False
+        assert PackageManagerPythonPep621.has_package_manager(temp_project_dir) is True
 
 
 class TestCreatePackageManagers:
@@ -116,10 +118,9 @@ class TestCreatePackageManagers:
         assert isinstance(managers[0], PackageManagerPythonPep621)
 
     def test_uv_wins_over_pep621_when_a_lockfile_is_present(self, temp_project_dir, settings):
-        """A project with a real lockfile must match only PackageManagerPythonUv - this
-        adapter's has_package_manager explicitly defers when uv's own check also matches, so
-        create_package_managers() doesn't yield both and spuriously trip the "multiple registry
-        types" ambiguity warning."""
+        """Both adapters' predicates match this tree; PACKAGE_MANAGERS' order decides. Yielding
+        both would hand ProjectSources two PyPI adapters and spuriously trip its "multiple
+        registry types" ambiguity warning."""
         pyproject_path = Path(temp_project_dir) / "pyproject.toml"
         pyproject_path.write_text('[project]\nname = "demo"\nversion = "0.1.0"\ndependencies = ["requests>=2.31.0"]\n')
         lockfile_path = Path(temp_project_dir) / "uv.lock"
@@ -127,6 +128,30 @@ class TestCreatePackageManagers:
         managers = list(create_package_managers(temp_project_dir, settings))
         assert len(managers) == 1
         assert isinstance(managers[0], PackageManagerPythonUv)
+
+    def test_requirements_txt_beside_pyproject_yields_one_pypi_adapter(self, temp_project_dir, settings):
+        """Regression: pip-classic and pep621 both match this tree, and both are PyPI. Before
+        precedence moved into the registry, create_package_managers yielded both and every scan of
+        such a project warned about "multiple registry types" that were in fact one registry.
+        """
+        (Path(temp_project_dir) / "pyproject.toml").write_text(
+            '[project]\nname = "demo"\nversion = "0.1.0"\ndependencies = ["requests>=2.31.0"]\n'
+        )
+        (Path(temp_project_dir) / "requirements.txt").write_text("requests>=2.31.0\n")
+
+        managers = list(create_package_managers(temp_project_dir, settings))
+
+        assert len(managers) == 1
+        assert isinstance(managers[0], PackageManagerPythonPep621)
+
+    def test_mixed_tree_still_yields_one_adapter_per_registry(self, settings):
+        """The genuine multi-ecosystem case must keep yielding both - first-match-wins is per
+        registry, not global."""
+        managers = list(create_package_managers("testdata/mixed", settings))
+
+        registries = {m.package_manager_type.package_registry for m in managers}
+        assert len(managers) == 2
+        assert registries == {ProjectPackagesRegistry.NPM, ProjectPackagesRegistry.PYPI}
 
 
 # ============================================================================

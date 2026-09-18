@@ -5,26 +5,23 @@ Handles a bare `[project].dependencies` declaration (e.g. a fresh `uv init`-styl
 before `uv lock` has ever run) that no other adapter recognises: PackageManagerPythonUv and
 PackageManagerPythonPip both additionally require a lockfile (uv.lock / pylock.toml), so a
 project with only pyproject.toml previously matched no adapter at all and failed with
-UnknownProjectPackageManager. has_package_manager below explicitly defers to those two when
-either also matches, so a project that does have a real lockfile keeps matching the
-fuller-featured adapter and only that one - not both, which would otherwise spuriously trip
-ProjectSources.__enter__()'s "multiple registry types" ambiguity warning.
+UnknownProjectPackageManager. A project that *does* have a lockfile matches this adapter too, and
+`adapters.package_managers.api.PACKAGE_MANAGERS`' precedence order is what hands it to the
+fuller-featured adapter instead - this module knows nothing about its siblings.
 
 Scope: PEP 621 (`[project].dependencies`) only. A Poetry-only manifest (`[tool.poetry.dependencies]`,
 no `[project]` table) does not match has_package_manager below and is not handled here - it needs
 its own adapter (manifest parsing, poetry.lock format, non-PEP508 constraint syntax).
 """
 
-import os
 import tomllib
 from collections import namedtuple
+from pathlib import Path
 
 from packaging.requirements import InvalidRequirement, Requirement
 
 from ossiq.adapters.api_interfaces import AbstractPackageManagerApi
-from ossiq.adapters.package_managers.api_pip import PackageManagerPythonPip
-from ossiq.adapters.package_managers.api_uv import PackageManagerPythonUv
-from ossiq.adapters.package_managers.utils import normalize_dist_name
+from ossiq.domain.common import normalize_dist_name
 from ossiq.domain.packages_manager import PEP621, PackageManagerType
 from ossiq.domain.project import ConstraintSource, Dependency, Project
 from ossiq.domain.version import classify_pypi_specifier, normalize_version
@@ -48,7 +45,7 @@ class PackageManagerPythonPep621(AbstractPackageManagerApi):
 
     @staticmethod
     def project_files(project_path: str) -> Pep621Project:
-        return Pep621Project(manifest=os.path.join(project_path, PEP621.primary_manifest.name))
+        return Pep621Project(manifest=str(Path(project_path) / PEP621.primary_manifest.name))
 
     @staticmethod
     def has_package_manager(project_path: str) -> bool:
@@ -57,23 +54,17 @@ class PackageManagerPythonPep621(AbstractPackageManagerApi):
         [project].dependencies list. An empty or absent section does not match - that avoids
         falsely claiming e.g. a pure-Poetry pyproject.toml with no [project] table.
 
-        A project that also has a real lockfile must NOT match here: uv/pylock's own
-        has_package_manager checks aren't exclusive of this one (they only check for the
-        lockfile, not the absence of one), so without this guard a project with e.g. uv.lock
-        would match both adapters and spuriously trip ProjectSources.__enter__()'s "multiple
-        registry types" ambiguity warning - even though both matches are the same PyPI registry.
+        Answers only "does this tree look like mine?", nothing about other adapters. A uv or pylock
+        project matches here too - both also have a pyproject.toml with dependencies - and the
+        PACKAGE_MANAGERS precedence order is what hands those trees to the lockfile-backed adapter
+        instead. This predicate used to call its two siblings' own has_package_manager to break
+        that tie, which a Poetry adapter would have had to be added to as well.
         """
         project_files = PackageManagerPythonPep621.project_files(project_path)
-        if not os.path.exists(project_files.manifest):
-            return False
-        if PackageManagerPythonUv.has_package_manager(project_path) or PackageManagerPythonPip.has_package_manager(
-            project_path
-        ):
-            return False
+        manifest = Path(project_files.manifest)
         try:
-            with open(project_files.manifest, "rb") as f:
-                data = tomllib.load(f)
-        except (tomllib.TOMLDecodeError, OSError):
+            data = tomllib.loads(manifest.read_text(encoding="utf-8"))
+        except (tomllib.TOMLDecodeError, OSError, UnicodeDecodeError):
             return False
         return bool(data.get("project", {}).get("dependencies"))
 
@@ -145,10 +136,9 @@ class PackageManagerPythonPep621(AbstractPackageManagerApi):
         see domain/project.py's Project.has_lockfile.
         """
         project_files = self.project_files(self.project_path)
-        with open(project_files.manifest, "rb") as f:
-            pyproject_data = tomllib.load(f)
+        pyproject_data = tomllib.loads(Path(project_files.manifest).read_text(encoding="utf-8"))
 
-        project_package_name = pyproject_data.get("project", {}).get("name", os.path.basename(self.project_path))
+        project_package_name = pyproject_data.get("project", {}).get("name", Path(self.project_path).name)
         main_deps, optional_deps = self.parse_pyproject_dependencies(pyproject_data)
 
         dependency_tree = Dependency(

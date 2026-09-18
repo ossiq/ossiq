@@ -777,6 +777,12 @@ class TestExtractMinNodeVersion:
             ("<20", None),
             ("*", None),
             ("!=19", None),
+            # An exclusive floor names a version the range itself excludes, so there is no
+            # concrete minimum to report — extract_min_python_version refuses ">" for the
+            # same reason. Returning "18.0.0" here made 18.0.0 look admitted when it isn't.
+            (">18.0.0", None),
+            (">18", None),
+            (">=18.0.0 || >19.0.0", "18.0.0"),
             ("14.17.1", "14.17.1"),
             ("14", "14.0.0"),
             ("not-a-version", None),

@@ -220,7 +220,7 @@ def parse_node_engine(engines: dict | list | None) -> str | None:
     return None
 
 
-NODE_FLOOR_COMPARATORS = frozenset({">=", ">", "=", "=="})
+NODE_FLOOR_COMPARATORS = frozenset({">=", "=", "=="})
 
 
 def extract_min_node_version(node_range: str) -> str | None:
@@ -228,15 +228,13 @@ def extract_min_node_version(node_range: str) -> str | None:
 
     ">=18.0.0" -> "18.0.0", "^18" -> "18.0.0", "~18.4" -> "18.4.0", "18 || 20" -> "18.0.0",
     ">=18.0.0 <20.0.0" -> "18.0.0", "16.0.0 - 18.0.0" -> "16.0.0", "18.x" -> "18.0.0".
-    None for ranges with no lower bound at all ("<20", "*") or that fail to parse ("!=19") —
-    mirrors utils.extract_min_python_version's contract, which does the same for PyPI via
-    packaging's SpecifierSet.
+    None for ranges with no lower bound this can name exactly ("<20", "*", ">18.0.0") or that fail
+    to parse ("!=19") — mirrors utils.extract_min_python_version's contract, which accepts only
+    >=, ~= and == for the same reason: an exclusive ">" names a bound the range itself excludes.
 
     Range parsing is univers's NpmVersionRange (the same parser solver.version_matchers matches
     against), not hand-rolled: it already normalizes caret/tilde/x/hyphen forms and pads partial
-    versions. It flattens `||` branches into one constraint list, so the result is the lowest bound
-    anywhere in the range rather than a per-branch floor — the distinction only shows up in
-    declarations like "<16 || >=20" that no real engines field uses.
+    versions, and flattens `||` branches so the result is the lowest bound anywhere in the range.
     """
     try:
         constraints = NpmVersionRange.from_native(node_range).constraints
