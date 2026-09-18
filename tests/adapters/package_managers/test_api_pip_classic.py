@@ -20,8 +20,7 @@ from ossiq.adapters.package_managers.api_pip_classic import (
     _SKIP_LINE_PATTERN,
     PackageManagerPythonPipClassic,
 )
-from ossiq.adapters.package_managers.utils import normalize_dist_name
-from ossiq.domain.common import ConstraintType
+from ossiq.domain.common import ConstraintType, normalize_dist_name
 from ossiq.domain.exceptions import PackageManagerLockfileParsingError
 from ossiq.domain.packages_manager import PIP_CLASSIC
 from ossiq.settings import Settings

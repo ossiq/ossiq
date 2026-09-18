@@ -7,11 +7,10 @@ import logging
 import requests
 from packaging.requirements import InvalidRequirement, Requirement
 
-from ossiq.adapters.package_managers.utils import normalize_dist_name
 from ossiq.clients.batch import BatchClient
 from ossiq.clients.client_pypi import PypiVersionBatchStrategy
 from ossiq.clients.common import get_user_agent
-from ossiq.domain.common import ConstraintType
+from ossiq.domain.common import ConstraintType, normalize_dist_name
 from ossiq.domain.project import ConstraintSource, Dependency
 from ossiq.domain.version import classify_pypi_specifier
 
