@@ -27,6 +27,7 @@ from ossiq.messages import (
     WARNING_STRATEGY_OVERRIDE_SHADOWED_BY_OVERRIDE,
     WARNING_STRATEGY_OVERRIDE_UNKNOWN_PACKAGE,
 )
+from ossiq.service.completeness import check_security_data_complete
 from ossiq.service.project.scan import scan
 from ossiq.service.update import UpdatePlan, build_update_plan
 from ossiq.settings import Settings
@@ -53,6 +54,7 @@ class CommandPlanOptions:
     pin_all: bool = False
     rewrite_versions: bool = False
     overrides: tuple[tuple[str, str], ...] = field(default_factory=tuple)
+    allow_partial: bool = False
 
 
 def parse_override_specs(raw: list[str] | tuple[str, ...] | None) -> tuple[tuple[str, str], ...]:
@@ -154,6 +156,12 @@ def prepare_plan(ctx: typer.Context, options: CommandPlanOptions) -> tuple[Proje
 
     with show_scan_progress(settings) as progress:
         scan_result = scan(sources, progress=progress)
+
+    check_security_data_complete(
+        scan_result.data_completeness,
+        options.update_strategy,
+        allow_partial=options.allow_partial,
+    )
 
     package_manager_name = sources.packages_manager.package_manager_type.name
     plan = build_update_plan(

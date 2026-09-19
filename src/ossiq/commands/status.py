@@ -9,6 +9,7 @@ import typer
 
 from ossiq import timeutil
 from ossiq.domain.common import Command, UserInterfaceType
+from ossiq.service.completeness import check_security_data_complete
 from ossiq.service.project.scan import scan
 from ossiq.settings import Settings
 from ossiq.sources import project_sources
@@ -31,6 +32,7 @@ class CommandStatusOptions:
     ignore_packages: tuple[str, ...] = ()
     output_format: Literal["console", "agent"] = "console"
     full: bool = False
+    allow_partial: bool = False
 
 
 def command_status(ctx: typer.Context, options: CommandStatusOptions) -> None:
@@ -74,6 +76,12 @@ def command_status(ctx: typer.Context, options: CommandStatusOptions) -> None:
     else:
         with show_scan_progress(settings) as progress:
             project_scan = scan(sources, progress=progress)
+
+    check_security_data_complete(
+        project_scan.data_completeness,
+        options.update_strategy,
+        allow_partial=options.allow_partial,
+    )
 
     renderer = get_renderer(command=Command.STATUS, user_interface_type=output_ui, settings=settings)
 

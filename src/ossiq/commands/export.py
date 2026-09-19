@@ -8,6 +8,7 @@ from typing import Literal
 import typer
 
 from ossiq.domain.common import Command, ProjectPackagesRegistry, UserInterfaceType
+from ossiq.service.completeness import check_security_data_complete
 from ossiq.service.project.scan import scan
 from ossiq.settings import Settings
 from ossiq.sources import project_sources
@@ -29,6 +30,7 @@ class CommandExportOptions:
     ignore_packages: tuple[str, ...] = ()
     update_strategy: UpdateStrategy = DEFAULT_STRATEGY
     strategy_overrides: tuple[tuple[str, UpdateStrategy], ...] = ()
+    allow_partial: bool = False
 
 
 def command_export(ctx: typer.Context, options: CommandExportOptions):
@@ -64,6 +66,12 @@ def command_export(ctx: typer.Context, options: CommandExportOptions):
 
     with show_scan_progress(settings) as progress:
         project_scan = scan(sources, progress=progress)
+
+    check_security_data_complete(
+        project_scan.data_completeness,
+        options.update_strategy,
+        allow_partial=options.allow_partial,
+    )
 
     renderer = get_renderer(
         command=Command.EXPORT,

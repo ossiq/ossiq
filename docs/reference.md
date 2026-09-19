@@ -365,6 +365,15 @@ never ran for that package), and `--format agent` / both MCP tools carry
 `update_strategy` and a per-entry `motives`. A withheld package's `plan`/`status` output names the
 lowest tier that would move it ("N more updates available under --update-strategy X").
 
+`security` and `deprecation` move a package only on a qualifying CVE or end-of-life marker, so a
+run at either tier whose vulnerability data did not arrive would print *"nothing to do"* character
+for character identically to a clean project. `status`, `plan` and `export` refuse that answer
+instead — a non-zero exit with a *Security Data Incomplete* error, or the same error as an MCP
+error payload — unless `--allow-partial` (MCP: `allow_partial`) says to accept it. Every other
+tier is unaffected and still exits 0: drift alone justifies a move there, so a degraded run
+produces a thinner answer rather than an empty one. A degraded `repositories` step is never
+grounds for refusing; it thins `deprecation`'s coverage rather than emptying its result.
+
 `apply` treats reaching `latest`/`cutting-edge` for a package as the authorization to widen its
 declared constraint — but asks for a second, separate confirmation before doing so, in addition to
 the usual "proceed with N updates?" prompt. `--yes` skips both.

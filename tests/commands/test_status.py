@@ -2,8 +2,12 @@
 
 A degraded source is reported, never fatal: the console run gets ui.system's "data sources did
 not fully respond" warning, and the agent/export/MCP documents carry `data_completeness` inside
-the payload. `ossiq status` itself always exits 0, so a transient OSV blip can't break a pipeline
-that only checks the exit code. A CI-shaped experience is separate, unbuilt work.
+the payload. `ossiq status` is not a CI gate, so a transient OSV blip can't break a pipeline that
+only checks the exit code.
+
+The one carve-out is `--update-strategy security`/`deprecation`, which move a package only on a
+qualifying CVE: without vulnerability data their "nothing to do" is character-for-character what a
+clean project prints, so they refuse rather than answer. `--allow-partial` opts back in.
 """
 
 from __future__ import annotations
@@ -16,6 +20,7 @@ import typer
 
 from ossiq.commands.status import CommandStatusOptions, command_status
 from ossiq.domain.common import DataCompleteness, DataSourceStatus, ScanStep
+from ossiq.domain.exceptions import SecurityDataIncomplete
 from ossiq.service.project.models import ScanResult
 from ossiq.settings import Settings
 from ossiq.strategy.pyramid import UpdateStrategy
@@ -86,12 +91,50 @@ class TestCommandStatusRendersDespiteDegradedData:
         ):
             command_status(make_context(), make_options())  # must not raise typer.Exit
 
-    def test_renders_regardless_of_update_strategy(self) -> None:
+    @pytest.mark.parametrize(
+        "strategy",
+        [UpdateStrategy.STANDARD, UpdateStrategy.LATEST, UpdateStrategy.CUTTING_EDGE],
+        ids=["standard", "latest", "cutting-edge"],
+    )
+    def test_freshness_tiers_render_despite_unreachable_vulnerabilities(self, strategy: UpdateStrategy) -> None:
+        """Drift alone justifies an update above the minimal-diff tiers, so a degraded OSV run
+        produces a thinner answer rather than a silently empty one."""
         scan_result = make_scan_result(
             DataCompleteness(by_step={ScanStep.VULNERABILITIES: DataSourceStatus.UNREACHABLE})
         )
 
-        get_renderer = run_status(scan_result, update_strategy=UpdateStrategy.SECURITY)
+        get_renderer = run_status(scan_result, update_strategy=strategy)
+
+        get_renderer.return_value.render.assert_called_once()
+
+    @pytest.mark.parametrize(
+        "strategy", [UpdateStrategy.SECURITY, UpdateStrategy.DEPRECATION], ids=["security", "deprecation"]
+    )
+    def test_minimal_diff_tiers_refuse_an_answer_they_cannot_back_up(self, strategy: UpdateStrategy) -> None:
+        """These tiers move a package only on a qualifying CVE, so without vulnerability data
+        their "nothing to do" is character-for-character what a clean project prints."""
+        scan_result = make_scan_result(
+            DataCompleteness(by_step={ScanStep.VULNERABILITIES: DataSourceStatus.UNREACHABLE})
+        )
+
+        with pytest.raises(SecurityDataIncomplete):
+            run_status(scan_result, update_strategy=strategy)
+
+    def test_allow_partial_accepts_the_incomplete_answer(self) -> None:
+        scan_result = make_scan_result(
+            DataCompleteness(by_step={ScanStep.VULNERABILITIES: DataSourceStatus.UNREACHABLE})
+        )
+
+        get_renderer = run_status(scan_result, update_strategy=UpdateStrategy.SECURITY, allow_partial=True)
+
+        get_renderer.return_value.render.assert_called_once()
+
+    def test_a_degraded_repositories_step_is_not_grounds_for_refusing(self) -> None:
+        """GitHub feeds end_of_life, which degrades deprecation's coverage rather than emptying
+        its result the way a missing CVE feed does."""
+        scan_result = make_scan_result(DataCompleteness(by_step={ScanStep.REPOSITORIES: DataSourceStatus.UNREACHABLE}))
+
+        get_renderer = run_status(scan_result, update_strategy=UpdateStrategy.DEPRECATION)
 
         get_renderer.return_value.render.assert_called_once()
 

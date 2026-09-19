@@ -17,6 +17,7 @@ from typing import Any
 
 from ossiq.domain.exceptions import ApplicationError
 from ossiq.service.agent import AgentDecision, build_add_decide, build_update_decide
+from ossiq.service.completeness import check_security_data_complete
 from ossiq.service.package import build_installed_detail, fetch_prospective_detail, matches
 from ossiq.service.project.scan import scan
 from ossiq.service.update_context import build_update_context_payload
@@ -76,6 +77,14 @@ TOOLS: list[dict[str, Any]] = [
                     "type": "object",
                     "additionalProperties": {"type": "string", "enum": [tier.value for tier in PYRAMID]},
                     "description": 'Per-package tier overrides, e.g. {"lodash": "cutting-edge"}',
+                },
+                "allow_partial": {
+                    "type": "boolean",
+                    "description": (
+                        "Accept a result built on incomplete data. Only security/deprecation refuse "
+                        "one: without vulnerability data their empty result is indistinguishable "
+                        "from a clean project. Check data_completeness in the payload either way."
+                    ),
                 },
             },
             "required": ["project_path"],
@@ -145,6 +154,15 @@ def evaluate_updates(settings: Settings, args: dict[str, Any]) -> AgentDecision:
         strategy=strategy,
     )
     scan_result = scan(sources)
+    # Same rule as the CLI, from the same service function: a security-tier answer built on
+    # missing vulnerability data is indistinguishable from a clean one, and an agent has even less
+    # chance than a human of noticing. The handler below renders it as a titled error, where the
+    # CLI renders an exit code.
+    check_security_data_complete(
+        scan_result.data_completeness,
+        default_tier,
+        allow_partial=bool(args.get("allow_partial", False)),
+    )
     return build_update_decide(scan_result, update_strategy=default_tier.value)
 
 

@@ -96,3 +96,12 @@ class PackageManagerExecutionError(ApplicationError):
 class UnknownEcosystem(ApplicationError):
     title = "Unknown Ecosystem"
     hint = "Provided ecosystem is not recognized among supported ecosystems (NPM, etc...)"
+
+
+class SecurityDataIncomplete(ApplicationError):
+    title = "Security Data Incomplete"
+    hint = (
+        "A security-tier run whose vulnerability data did not arrive reports 'nothing to do' "
+        "identically to a clean project. Re-run when the source is reachable, or pass "
+        "--allow-partial to accept the result as incomplete."
+    )

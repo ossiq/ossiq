@@ -248,7 +248,9 @@ cell **with** a `↳` row means it found something and refused it, and the row s
 
 - **Mistaking advice for a gate.** `triage_action` and `next_action` change no exit code. `ossiq
   status` exits 0 on a project full of `evict` verdicts. Any CI gate is yours to write, over the
-  JSON export.
+  JSON export. The single exception is not a gate but a refusal: a `security`/`deprecation` run
+  whose vulnerability data never arrived exits non-zero rather than report an empty result it
+  cannot back up — see [§6](#partial-data).
 - **Reading one surface only.** The target lives in *Recommended*; the reason it is what it is lives
   in the `↳` rows (`--full`), in `info`'s *Policy Compliance* block, or in the agent payload's
   `reasons` array. The default console view is deliberately narrow.
@@ -434,7 +436,7 @@ output:
 
 | Degraded | Direct effect | The recommendation you get |
 |---|---|---|
-| **OSV** (`vulnerabilities`) | no CVEs on any record | `--update-strategy security` finds no `exploitable_cve` motive anywhere and prints *"No packages need updates under --update-strategy security — nothing to do."* `Check for the Fix` never fires. Triage cannot reach `patch` or `evict`. |
+| **OSV** (`vulnerabilities`) | no CVEs on any record | `--update-strategy security` would find no `exploitable_cve` motive anywhere and print *"No packages need updates under --update-strategy security — nothing to do."*, identical to a clean project — so it **refuses to answer instead**, unless `--allow-partial`. `Check for the Fix` never fires. Triage cannot reach `patch` or `evict`. |
 | **EPSS** | CVEs present, all unscored | The strategy treats unscored as exploitable and moves **more** packages than usual; triage sees no scores, finds no exploit signal, and falls back to `retain`/`refactor`. The two disagree — correctly. |
 | **GitHub** (`repositories`) | no maintenance state, no stability, weaker deprecation evidence | No `end_of_life` motive unless a registry marker exists, so `--update-strategy deprecation` under-reports. `Find alternative` / `Consider alternative` never fire. Triage cannot reach `refactor` or `evict`. |
 | **Registry** (`packages`, `versions`) | **not tracked** | A thin or failed registry read degrades the ladder itself, with no status to show for it. |
@@ -448,7 +450,7 @@ output:
 | `--format agent`, MCP | `data_completeness: {overall, sources[]}` inside the payload | ✅ |
 | `export` | `metadata.data_completeness` | ✅ |
 | HTML report | an **Incomplete data** banner above the table, naming each degraded source and carrying `metadata.warnings` | ✅ |
-| Exit code | — | ❌ `status` exits 0 whether or not the scan was degraded |
+| Exit code | non-zero (MCP: a titled error) when `--update-strategy security`/`deprecation` ran without vulnerability data. Every other tier still exits 0 | ✅ opt out with `--allow-partial` |
 
 ```{note}
 Every surface now says so, but they do not say it equally well. Machine-readable output

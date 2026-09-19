@@ -44,6 +44,7 @@ from ossiq.messages import (
     HELP_ADD_FORCE,
     HELP_ADD_PACKAGE_NAME,
     HELP_ADD_VERSION,
+    HELP_ALLOW_PARTIAL,
     HELP_IGNORE_PACKAGE,
     HELP_LAG_THRESHOULD,
     HELP_OVERRIDE_PACKAGE,
@@ -348,6 +349,7 @@ def status(
         Literal["console", "agent"],
         typer.Option("--format", "-f", help="Output format: console (human) or agent (compact JSON decision)"),
     ] = "console",
+    allow_partial: Annotated[bool, typer.Option("--allow-partial", help=HELP_ALLOW_PARTIAL)] = False,
 ):
     """
     Show dependency health: drift, CVEs, and solver recommendations.
@@ -372,6 +374,7 @@ def status(
                 ignore_packages=tuple(ignore or []),
                 output_format=output_format,
                 full=full,
+                allow_partial=allow_partial,
             ),
         )
 
@@ -458,6 +461,7 @@ def export(
         list[str] | None,
         typer.Option("--ignore", "-i", help=HELP_IGNORE_PACKAGE),
     ] = None,
+    allow_partial: Annotated[bool, typer.Option("--allow-partial", help=HELP_ALLOW_PARTIAL)] = False,
 ):
     """
     Export project metrics to a file
@@ -476,6 +480,7 @@ def export(
                 production=production,
                 output_destination=output,
                 schema_version=schema_version,
+                allow_partial=allow_partial,
                 allow_prerelease=allow_prerelease,
                 allow_prerelease_packages=tuple(allow_prerelease_package or []),
                 update_strategy=default_strategy,
@@ -645,6 +650,7 @@ def plan(
         list[str] | None,
         typer.Option("--override", help=HELP_OVERRIDE_PACKAGE),
     ] = None,
+    allow_partial: Annotated[bool, typer.Option("--allow-partial", help=HELP_ALLOW_PARTIAL)] = False,
 ):
     """Show what would change."""
     if registry_type and registry_type.lower() not in ["npm", "pypi"]:
@@ -669,6 +675,7 @@ def plan(
                 pin_all=pin_all,
                 rewrite_versions=rewrite_versions,
                 overrides=overrides,
+                allow_partial=allow_partial,
             ),
         )
 

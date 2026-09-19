@@ -58,6 +58,11 @@ Name of the package to inspect. Exact match against the package name or its alia
 
 HELP_IGNORE_PACKAGE = "Exclude package from solver recommendations (repeatable)."
 
+HELP_ALLOW_PARTIAL = (
+    "Accept a result built on incomplete data. Only --update-strategy security/deprecation refuse "
+    "one: without vulnerability data their 'nothing to do' is indistinguishable from a clean project."
+)
+
 IGNORE_REASON_NON_REGISTRY = "not on npm registry (git/URL source)"
 IGNORE_REASON_IGNORE_FLAG = "excluded via --ignore"
 
