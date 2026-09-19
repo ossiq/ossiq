@@ -30,6 +30,11 @@ export interface RegistryEntry {
   is_prerelease: boolean
   is_deprecated: boolean
   is_package_unpublished: boolean
+  // The scan's own verdict, carried through rather than re-derived on the way to the tree view.
+  next_action: string | null
+  latest_in_range: string | null
+  latest_in_major: string | null
+  latest_compatible_major: string | null
   epss: number | null
   maintenance_coverage: number | null
   maintenance_risk: number | null
@@ -69,6 +74,15 @@ export interface DirectEntry {
   is_prerelease: boolean
   is_deprecated: boolean
   is_package_unpublished: boolean
+  // The scan's own verdict, carried through rather than re-derived on the way to the tree view.
+  next_action: string | null
+  requires_constraint_widening: boolean
+  recommended_version: string | null
+  recommended_from_rung: string | null
+  latest_in_range: string | null
+  latest_in_major: string | null
+  latest_compatible_major: string | null
+  version_constraint_declared: string | null
   epss: number | null
   maintenance_coverage: number | null
   maintenance_risk: number | null

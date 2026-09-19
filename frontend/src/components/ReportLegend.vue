@@ -112,6 +112,26 @@ import { constraintCircleClasses } from '@/explorer/nodeStyle'
           </div>
         </div>
 
+        <!-- Version ladder -->
+        <div class="flex items-start gap-3">
+          <span class="material-symbols-rounded text-lg text-slate-400 shrink-0">stairs</span>
+          <div>
+            <div class="text-sm font-bold text-slate-900">Version Ladder</div>
+            <p class="text-xs text-slate-500 leading-relaxed">
+              How far a package can actually move from where it is. Under <span class="font-bold">Latest</span>,
+              <span class="font-mono text-[11px]">in range</span> is the newest version the declared constraint
+              already admits — reachable with no manifest edit — and
+              <span class="font-mono text-[11px]">in major</span> is the newest sharing the installed major
+              version. Either line appears only when it sits below the registry's latest, which is precisely when
+              something is holding the package back. A
+              <span class="px-1 py-0.5 text-[8px] font-bold uppercase tracking-wide bg-amber-100 text-amber-700 border border-amber-300 rounded">widen</span>
+              badge on the recommendation means it lies outside the declared range: applying it means widening
+              the range first, so <span class="font-mono text-[11px]">ossiq apply</span> will not write it on its
+              own. Select a package for the full ladder.
+            </p>
+          </div>
+        </div>
+
         <!-- EPSS -->
         <div class="flex items-start gap-3">
           <span class="material-symbols-rounded text-lg text-slate-400 shrink-0">speed</span>

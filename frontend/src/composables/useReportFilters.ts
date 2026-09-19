@@ -15,14 +15,11 @@ export type SortColumn =
   | 'versionAge'
   | 'epss'
 
-export type WhatsNext =
-  | 'Check for the Fix'
-  | 'Find alternative'
-  | 'Consider alternative'
-  | 'Check Release Notes'
-  | 'Update Immediately'
-  | 'Constrained. Check newer version'
-  | null
+// The label set is the export schema's, not a second list maintained here: the CLI, the agent
+// payload, the export and this report all read one writer (next_action_label in the Python
+// pipeline). A hand-written copy of those rules used to live in this file and had already drifted
+// out of step with it.
+export type WhatsNext = NonNullable<PackageMetrics['next_action']> | null
 
 export interface ReportRow {
   pkg: PackageMetrics
@@ -53,10 +50,6 @@ export function computeDriftStatus(
   return 'DIFF_PATCH'
 }
 
-// At or above a 10% chance of exploitation a CVE is an active threat (mirrors
-// EPSS_EXPLOIT_THRESHOLD in the CLI's risk/triage.py).
-const EPSS_EXPLOIT_THRESHOLD = 0.1
-
 export const WHATS_NEXT_CLASS: Record<string, string> = {
   'Check for the Fix': 'text-red-700',
   'Find alternative': 'text-red-700',
@@ -64,41 +57,6 @@ export const WHATS_NEXT_CLASS: Record<string, string> = {
   'Check Release Notes': 'text-slate-600',
   'Update Immediately': 'text-slate-600',
   'Constrained. Check newer version': 'text-amber-600',
-}
-
-// The single next action for a package, first match wins. Mirrors whats_next() in the CLI's
-// ui/renderers/impact_utils.py: an exploitable CVE outranks a dying upstream, which outranks drift.
-export function computeWhatsNext(opts: {
-  driftStatus: DriftStatus
-  cveCount: number
-  epss: number | null | undefined
-  maintenanceState: string | null | undefined
-  installedVersion: string
-  recommendedVersion: string | null | undefined
-  versionConstraint: string | null | undefined
-}): WhatsNext {
-  const {
-    driftStatus,
-    cveCount,
-    epss,
-    maintenanceState,
-    installedVersion,
-    recommendedVersion,
-    versionConstraint,
-  } = opts
-  if (cveCount > 0 && epss != null && epss >= EPSS_EXPLOIT_THRESHOLD) return 'Check for the Fix'
-  if (driftStatus === 'LATEST' && (maintenanceState === 'abandoned' || maintenanceState === 'deprecated'))
-    return 'Find alternative'
-  if (maintenanceState === 'winding_down') return 'Consider alternative'
-  if (driftStatus === 'DIFF_MAJOR') return 'Check Release Notes'
-  if (driftStatus === 'DIFF_MINOR' || driftStatus === 'DIFF_PATCH') {
-    // Recommended is the solver's pick clamped into the declared range; when it is not a move
-    // away from what's installed, "Update Immediately" would name no target.
-    if (recommendedVersion != null && recommendedVersion !== installedVersion) return 'Update Immediately'
-    if (recommendedVersion == null && !versionConstraint) return 'Update Immediately'
-    return 'Constrained. Check newer version'
-  }
-  return null
 }
 
 // Whether a package needs the reader's attention. Mirrors needs_action() in the CLI's
@@ -176,15 +134,7 @@ export function useReportFilters() {
         pkg,
         isDev,
         driftStatus,
-        whatsNext: computeWhatsNext({
-          driftStatus,
-          cveCount: pkg.cve.length,
-          epss: pkg.epss,
-          maintenanceState: pkg.maintenance_state,
-          installedVersion: pkg.installed_version,
-          recommendedVersion: pkg.recommended_version,
-          versionConstraint: pkg.version_constraint,
-        }),
+        whatsNext: pkg.next_action ?? null,
         timeLagDisplay: formatTimeLag(pkg.time_lag_days),
         versionAgeDisplay: formatTimeLag(pkg.version_age_days),
         cveCount: pkg.cve.length,

@@ -519,6 +519,8 @@ The `status` command prints a project-wide report; the `info` command prints a d
 
 The `ossiq html` command produces a self-contained HTML file embedding an interactive Vue.js single-page application. The report includes the full dependency tables and the **Transitive Dependency Explorer**: an interactive D3 tree that visualises the `transitive_packages` dependency graph.
 
+The dependency table shows the same version ladder the console does. Under **Latest**, a dim `in range <version>` line names the newest version the declared constraint already admits, and `in major <version>` the newest in the installed major line; each appears only when it sits below the registry's latest, which is exactly when something is holding the package back. A `widen` badge on **Rec. Version** means the recommendation lies outside the declared range, so `ossiq apply` will not write it without the range being widened first. Selecting a package opens a **Version Ladder** block with every rung and the one the recommendation came from. **What's Next** carries the label the scan decided, so it never disagrees with `ossiq status`.
+
 The Explorer supports:
 
 - Color-coded nodes by risk type — six priority tiers: CVE (red), OVERRIDE (orange dash-dot), ADDITIVE (green dotted), PINNED (orange solid-thick), NARROWED (yellow dashed), DECLARED (blue)
