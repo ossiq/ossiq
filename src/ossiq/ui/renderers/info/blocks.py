@@ -13,7 +13,7 @@ from rich.rule import Rule
 from rich.table import Table
 from rich.text import Text
 
-from ossiq.domain.common import WIDENING_RUNGS, ConstraintType, rung_scope_label
+from ossiq.domain.common import WIDENING_RUNGS, ConstraintType, RecommendationRung, rung_scope_label
 from ossiq.domain.cve import CVE
 from ossiq.risk.maintenance import NOT_MAINTAINED, MaintenanceState
 from ossiq.service.package import PackageDetailResult, PackageInsight, PackageWarning, TransitiveCVEGroup
@@ -278,6 +278,42 @@ def dependency_tree(record: ScanRecord) -> Group:
     return section("Dependency Tree", "  [bold]→[/bold] root", *ancestors, leaf)
 
 
+RECOMMENDED_MARKER = "  ← recommended"
+
+
+def ladder_rows(record: ScanRecord) -> list[tuple[str, Text]]:
+    """The version-ladder rungs as (label, value) rows, in ascending reach.
+
+    A rung equal to the installed version is still rendered, dimmed: "nothing to do" is an
+    explicit equality, never an absent row. Only an undeterminable rung is omitted.
+
+    Args:
+        record: The package whose ladder to render.
+
+    Returns:
+        One row per determinable rung.
+    """
+    facts = record.compatibility
+    candidates: list[tuple[str, str | None, RecommendationRung | None]] = [
+        ("In Range", facts.latest_in_range, RecommendationRung.IN_RANGE),
+        ("In Major", facts.latest_in_major, RecommendationRung.IN_MAJOR),
+    ]
+    # latest_compatible_major only carries information when a known break sits below the newest
+    # release in the major line; otherwise it restates the row above it.
+    if facts.latest_compatible_major != facts.latest_in_major:
+        candidates.append(("Compatible Major", facts.latest_compatible_major, None))
+
+    rows: list[tuple[str, Text]] = []
+    for label, version, rung in candidates:
+        if version is None:
+            continue
+        value = Text(version, style="dim" if version == record.installed_version else "bold")
+        if rung is not None and record.recommended_from_rung == rung:
+            value.append(RECOMMENDED_MARKER, style="dim")
+        rows.append((label, value))
+    return rows
+
+
 def policy_compliance(record: ScanRecord) -> Group:
     """Declared constraint versus what was resolved, plus conflicts and constraint overrides."""
     table = Table(show_header=True, header_style="bold dim", box=None, padding=(0, 2))
@@ -286,7 +322,14 @@ def policy_compliance(record: ScanRecord) -> Group:
 
     table.add_row("Constraint", record.version_constraint_declared or DASH)
     table.add_row("Resolved", Text(record.installed_version, style="bold"))
-    table.add_row("Latest", Text(record.latest_version or DASH, style="bold green"))
+
+    for label, value in ladder_rows(record):
+        table.add_row(label, value)
+
+    latest = Text(record.latest_version or DASH, style="bold green")
+    if record.latest_version and record.recommended_from_rung == RecommendationRung.LATEST:
+        latest.append(RECOMMENDED_MARKER, style="dim")
+    table.add_row("Latest", latest)
 
     if record.recommended_version:
         reason = record.recommended_version_reason

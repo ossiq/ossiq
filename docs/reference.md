@@ -724,8 +724,11 @@ Any of these can render `—`: it means the signal could not be measured, never 
 |---|---|
 | Constraint | Version specifier from the manifest, or `—` for transitive packages without one. |
 | Resolved | The installed version. |
+| In Range | Newest version the declared constraint already admits — reachable with no manifest edit. Dimmed when it equals the installed version, which means the range admits nothing newer; omitted only when it could not be determined. |
+| In Major | Newest version sharing the installed major line, under the same rules. |
+| Compatible Major | Newest version across majors at or above the installed one that carries no known module-system or API break. Shown only when it differs from **In Major**, i.e. when a known break sits in between. |
 | Latest | Most recent published version. |
-| Recommended | Solver-recommended target, when one exists. Yellow when held below the latest. When reaching it requires widening the declared constraint (an out-of-range ladder pick), a dim `(requires widening <constraint> — same major/new major)` caveat is appended — `ossiq update`/`apply` hold these back rather than writing them automatically. |
+| Recommended | Solver-recommended target, when one exists. Yellow when held below the latest. When reaching it requires widening the declared constraint (an out-of-range ladder pick), a dim `(requires widening <constraint> — same major/new major)` caveat is appended — `ossiq update`/`apply` hold these back rather than writing them automatically. The rung it came from is marked `← recommended` in the ladder rows above. |
 | Resolution | `NO VALID VERSION — conflicting constraints: <specifiers>` when the solver found no version satisfying all constraints. See [When an update is blocked](#update-blocked). |
 | Constraint Type | Shown only when the version is controlled by something beyond a plain manifest entry (`PINNED`, `NARROWED`, `ADDITIVE`, `OVERRIDE`), with the file that introduced it. See [Constraint Provenance](#constraint-provenance). |
 

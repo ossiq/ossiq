@@ -5,6 +5,7 @@ from __future__ import annotations
 from rich.console import Console
 
 from ossiq.domain.common import ConstraintType, CveDatabase, ProjectPackagesRegistry, RecommendationRung
+from ossiq.domain.compatibility import CompatibilityFacts
 from ossiq.domain.cve import CVE, Severity
 from ossiq.domain.package import Package
 from ossiq.domain.project import ConstraintSource, PeerRequirement
@@ -59,8 +60,16 @@ def make_record(
     is_installed_yanked: bool = False,
     recommended_from_rung: RecommendationRung | None = None,
     version_constraint_declared: str | None = "^1.0.0",
+    latest_in_range: str | None = None,
+    latest_in_major: str | None = None,
+    latest_compatible_major: str | None = None,
 ) -> ScanRecord:
     return ScanRecord(
+        compatibility=CompatibilityFacts(
+            latest_in_range=latest_in_range,
+            latest_in_major=latest_in_major,
+            latest_compatible_major=latest_compatible_major,
+        ),
         package_name="left-pad",
         dependency_name="left-pad",
         is_optional_dependency=False,
@@ -144,6 +153,70 @@ def test_policy_compliance_recommended_row_has_no_widening_caveat_for_in_range_p
 
     no_rung = make_record(recommended="1.2.0", version_constraint_declared="^1.0.0")
     assert "requires widening" not in render_policy_compliance(no_rung)
+
+
+def test_policy_compliance_shows_the_version_ladder() -> None:
+    record = make_record(recommended="2.5.0", latest_in_range="1.4.0", latest_in_major="1.9.0")
+    output = render_policy_compliance(record)
+    assert "In Range" in output
+    assert "1.4.0" in output
+    assert "In Major" in output
+    assert "1.9.0" in output
+
+
+def test_policy_compliance_renders_a_rung_equal_to_installed() -> None:
+    """ "Nothing to do" is an explicit equality here, never a missing row."""
+    record = make_record(installed="1.0.0", latest_in_range="1.0.0", latest_in_major="1.9.0")
+    output = render_policy_compliance(record)
+    assert "In Range" in output
+
+
+def test_policy_compliance_omits_undeterminable_rungs() -> None:
+    output = render_policy_compliance(make_record(latest_in_range=None, latest_in_major=None))
+    assert "In Range" not in output
+    assert "In Major" not in output
+
+
+def test_policy_compliance_omits_compatible_major_when_it_restates_in_major() -> None:
+    same = make_record(latest_in_major="1.9.0", latest_compatible_major="1.9.0")
+    assert "Compatible Major" not in render_policy_compliance(same)
+
+    differs = make_record(latest_in_major="2.9.0", latest_compatible_major="1.9.0")
+    assert "Compatible Major" in render_policy_compliance(differs)
+
+
+def test_policy_compliance_marks_the_rung_the_recommendation_came_from() -> None:
+    record = make_record(
+        recommended="1.9.0",
+        latest_in_range="1.4.0",
+        latest_in_major="1.9.0",
+        recommended_from_rung=RecommendationRung.IN_MAJOR,
+    )
+    output = render_policy_compliance(record)
+    in_major_line = next(line for line in output.splitlines() if "In Major" in line)
+    in_range_line = next(line for line in output.splitlines() if "In Range" in line)
+    assert "← recommended" in in_major_line
+    assert "← recommended" not in in_range_line
+
+
+def test_policy_compliance_marks_latest_for_a_latest_rung_pick() -> None:
+    record = make_record(
+        recommended="3.0.0",
+        latest_in_major="1.9.0",
+        recommended_from_rung=RecommendationRung.LATEST,
+    )
+    latest_line = next(line for line in render_policy_compliance(record).splitlines() if "Latest" in line)
+    assert "← recommended" in latest_line
+
+
+def test_policy_compliance_marks_no_rung_for_a_solver_pick() -> None:
+    record = make_record(
+        recommended="1.4.0",
+        latest_in_range="1.4.0",
+        latest_in_major="1.9.0",
+        recommended_from_rung=RecommendationRung.SOLVER,
+    )
+    assert "← recommended" not in render_policy_compliance(record)
 
 
 def test_installed_render_covers_every_occurrence_block() -> None:
