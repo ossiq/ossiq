@@ -13,8 +13,11 @@ from ossiq.service.project.next_action import (
     CONSTRAINED_CHECK_NEWER,
     FIND_ALTERNATIVE,
     UPDATE_IMMEDIATELY,
+    WITHHELD_BY_STRATEGY,
     next_action_label,
 )
+from ossiq.strategy.pyramid import UpdateStrategy
+from ossiq.strategy.targeting import StrategySelection
 
 MINOR = VersionsDifference("1.0.0", "1.1.0", VERSION_DIFF_MINOR, "DIFF_MINOR")
 MAJOR = VersionsDifference("1.0.0", "2.0.0", VERSION_DIFF_MAJOR, "DIFF_MAJOR")
@@ -140,3 +143,52 @@ def test_active_cve_outranks_a_constrained_package():
         version_constraint="~1.0.0",
     )
     assert next_action_label(record) == CHECK_FOR_THE_FIX
+
+
+class TestWithheldByStrategy:
+    """A tier refusing to move a package is not the declared range capping it.
+
+    scikit-learn 1.8.0 declared `<2.0.0` under --update-strategy security has no writable target,
+    and used to report `Constrained. Check newer version` with a sub-row blaming `<2.0.0` — which
+    admits 1.9.1 perfectly well. select_target sets withheld_reason on exactly the no-admitted-
+    motive branch, and leaves it None when the tier admitted a motive but nothing was reachable.
+    """
+
+    def withheld_record(self, withheld_reason: str | None) -> ScanRecord:
+        record = make_record(versions_diff_index=MINOR, version_constraint="<2.0.0")
+        record.strategy_selection = StrategySelection(
+            strategy=UpdateStrategy.SECURITY,
+            target_version=None,
+            rung=None,
+            motives=frozenset(),
+            requires_widening=False,
+            withheld_reason=withheld_reason,
+            available_at=UpdateStrategy.STANDARD if withheld_reason else None,
+            escalation=None,
+        )
+        return record
+
+    def test_tier_withholding_is_its_own_label(self):
+        record = self.withheld_record("no motive admitted at security; available under --update-strategy standard")
+        assert next_action_label(record) == WITHHELD_BY_STRATEGY
+
+    def test_admitted_motive_with_nothing_reachable_stays_constrained(self):
+        assert next_action_label(self.withheld_record(None)) == CONSTRAINED_CHECK_NEWER
+
+    def test_no_strategy_selection_stays_constrained(self):
+        """Transitive and ignored records never get a selection — they must not change label."""
+        record = make_record(versions_diff_index=MINOR, version_constraint="<2.0.0")
+        assert record.strategy_selection is None
+        assert next_action_label(record) == CONSTRAINED_CHECK_NEWER
+
+    def test_a_writable_target_outranks_withholding(self):
+        """A withheld_reason cannot coexist with a target, but the ladder order must still hold."""
+        record = self.withheld_record("no motive admitted at security; available under --update-strategy standard")
+        record.recommended_version = "1.1.0"
+        assert next_action_label(record) == UPDATE_IMMEDIATELY
+
+    def test_active_cve_outranks_withholding(self):
+        record = self.withheld_record("no motive admitted at security; available under --update-strategy standard")
+        record.cve = [fake_cve(0.2)]
+        record.epss = 0.2
+        assert next_action_label(record) == CHECK_FOR_THE_FIX

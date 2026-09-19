@@ -19,6 +19,8 @@ from ossiq.domain.version import VersionsDifference
 from ossiq.risk.maintenance import MaintenanceAssessment, MaintenanceState
 from ossiq.service.project.models import ScanRecord
 from ossiq.settings import Settings
+from ossiq.strategy.pyramid import UpdateStrategy
+from ossiq.strategy.targeting import StrategySelection
 from ossiq.ui.renderers.impact_utils import whats_next
 from ossiq.ui.renderers.status.console import MIN_WIDTH_DEFAULT, MIN_WIDTH_FULL, ConsoleStatusRenderer
 
@@ -591,3 +593,56 @@ def test_whats_next_patch_drift_is_update_immediately():
 def test_whats_next_clean_package_is_empty():
     record = make_record(maintenance=assessment(MaintenanceState.MAINTAINED))
     assert whats_next(record) == ""
+
+
+class TestWithheldByStrategySubRow:
+    """The tier, not the declared range, gets named when the tier is what withheld the package."""
+
+    def withheld_record(self) -> ScanRecord:
+        record = make_record(
+            name="scikit-learn",
+            versions_diff_index=MINOR,
+            latest_version="1.9.1",
+            version_constraint="<2.0.0",
+            version_constraint_declared="<2.0.0",
+        )
+        record.compatibility.latest_in_range = "1.9.1"
+        record.strategy_selection = StrategySelection(
+            strategy=UpdateStrategy.SECURITY,
+            target_version=None,
+            rung=None,
+            motives=frozenset(),
+            requires_widening=False,
+            withheld_reason="no motive admitted at security; available under --update-strategy standard",
+            available_at=UpdateStrategy.STANDARD,
+            escalation=None,
+        )
+        return record
+
+    def test_withheld_package_names_the_tier_not_the_range(self):
+        output = render_table([self.withheld_record()], full=True)
+
+        assert "Withheld by strategy" in output
+        assert "available under --update-strategy standard" in output
+        # The bug this replaced: <2.0.0 admits 1.9.1, so it caps nothing.
+        assert "caps this below" not in output
+
+    def test_range_that_admits_a_newer_version_is_never_blamed(self):
+        """Without a strategy selection the label stays Constrained, but the range still has to
+        actually exclude something before the sub-row names it."""
+        record = self.withheld_record()
+        record.strategy_selection = None
+
+        output = render_table([record], full=True)
+
+        assert "Constrained. Check newer version" in output
+        assert "caps this below" not in output
+
+    def test_a_genuinely_capping_range_is_still_named(self):
+        record = self.withheld_record()
+        record.strategy_selection = None
+        record.compatibility.latest_in_range = "1.0.0"  # equals installed: nothing in range
+
+        output = render_table([record], full=True)
+
+        assert "<2.0.0 caps this below 1.9.1" in output

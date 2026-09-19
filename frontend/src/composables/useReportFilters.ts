@@ -57,6 +57,8 @@ export const WHATS_NEXT_CLASS: Record<string, string> = {
   'Check Release Notes': 'text-slate-600',
   'Update Immediately': 'text-slate-600',
   'Constrained. Check newer version': 'text-amber-600',
+  // Muted: nothing is wrong with the package, the scan's tier just did not ask for it.
+  'Withheld by strategy': 'text-slate-400',
 }
 
 // Whether a package needs the reader's attention. Mirrors needs_action() in the CLI's

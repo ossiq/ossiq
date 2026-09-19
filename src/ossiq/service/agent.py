@@ -260,7 +260,16 @@ def build_update_entry(record: ScanRecord, engine_context: EngineContext | None 
         reasons.append(f"major version drift behind {record.latest_version}")
     elif diff_index in BEHIND_DIFFS and not can_fix:
         reasons.append(f"behind the latest {record.latest_version}")
-    if diff_index in BEHIND_DIFFS and not can_fix and record.version_constraint_declared:
+    # Only blame the declared range when it genuinely admits nothing newer. A tier that refused to
+    # move the package produces the same "no writable target", and this reason then contradicted
+    # strategy_withheld_reason further down in the very same entry.
+    if (
+        diff_index in BEHIND_DIFFS
+        and not can_fix
+        and record.version_constraint_declared
+        and not (record.strategy_selection is not None and record.strategy_selection.withheld_reason)
+        and facts.latest_in_range in (None, installed)
+    ):
         reasons.append(f"declared range {record.version_constraint_declared} caps this below {record.latest_version}")
     if can_fix:
         reasons.append(f"recommend updating {installed} -> {recommended}")

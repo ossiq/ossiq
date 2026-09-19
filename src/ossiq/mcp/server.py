@@ -52,7 +52,8 @@ TOOLS: list[dict[str, Any]] = [
         "description": (
             "Evaluate UPDATING a project's existing direct dependencies. Returns a per-package "
             "`next_action` (Update Immediately / Check Release Notes / Check for the Fix / Consider "
-            "alternative / Find alternative / Constrained. Check newer version) with recommended "
+            "alternative / Find alternative / Constrained. Check newer version / Withheld by "
+            "strategy) with recommended "
             "versions, CVEs, and transitive impact. "
             "Use before bumping dependency versions."
         ),

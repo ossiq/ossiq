@@ -21,6 +21,7 @@ from ossiq.service.project.next_action import (
     CONSTRAINED_CHECK_NEWER,
     FIND_ALTERNATIVE,
     UPDATE_IMMEDIATELY,
+    WITHHELD_BY_STRATEGY,
     next_action_label,
 )
 from ossiq.service.update_impact import TransitiveImpact
@@ -110,6 +111,8 @@ WHATS_NEXT_STYLE: dict[str, str] = {
     CHECK_RELEASE_NOTES: "default",
     UPDATE_IMMEDIATELY: "default",
     CONSTRAINED_CHECK_NEWER: "yellow",
+    # Dim, not yellow: nothing is wrong with the package, this run just did not ask for it.
+    WITHHELD_BY_STRATEGY: "dim",
 }
 
 

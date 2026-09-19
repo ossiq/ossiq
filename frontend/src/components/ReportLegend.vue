@@ -106,7 +106,9 @@ import { constraintCircleClasses } from '@/explorer/nodeStyle'
               <span class="font-bold">Update Immediately</span>: a minor or patch behind, with a newer version
               inside the declared range. <span class="text-amber-600 font-bold">Constrained. Check newer
               version</span>: a minor or patch behind, but the declared range admits no bump — widening it is the
-              real next step. By default the table hides packages with nothing to do — tick
+              real next step. <span class="text-slate-400 font-bold">Withheld by strategy</span>: a bump is
+              available, but the update strategy this scan ran under admitted no reason to take it.
+              By default the table hides packages with nothing to do — tick
               <span class="font-bold">Show all packages</span> to see them.
             </p>
           </div>

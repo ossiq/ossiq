@@ -117,6 +117,9 @@ The top-level `next_action` is the most urgent one across the `updates` list, or
 - **Update Immediately** — a minor/patch behind, or a recommended version exists; bump it.
 - **Constrained. Check newer version** — a minor/patch behind, but the declared range
   (e.g. `~7.3.0`) admits no newer version; widening the range is the real next step.
+- **Withheld by strategy** — a minor/patch behind, and the range admits a bump, but the run's
+  `--update-strategy` tier admitted no motive to take it. Nothing is wrong with the package;
+  `strategy_withheld_reason` names the lowest tier that would move it.
 
 `latest_in_range` (newest version satisfying the declared constraint) and
 `latest_in_major` (newest version sharing the installed major line) are always

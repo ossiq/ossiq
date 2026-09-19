@@ -431,6 +431,7 @@
             "Check Release Notes",
             "Update Immediately",
             "Constrained. Check newer version",
+            "Withheld by strategy",
             null
           ],
           "description": "The single next action for this package, exactly as the CLI's What's Next column and the HTML report show it; absent when nothing is due. The agent payload's next_action applies two further escalations on top of this label and can therefore differ."
@@ -971,6 +972,7 @@
             "Check Release Notes",
             "Update Immediately",
             "Constrained. Check newer version",
+            "Withheld by strategy",
             null
           ],
           "description": "The single next action for this package, exactly as the CLI's What's Next column and the HTML report show it; null when nothing is due. The agent payload's next_action applies two further escalations on top of this label and can therefore differ."

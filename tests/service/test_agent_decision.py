@@ -34,6 +34,8 @@ from ossiq.service.package import (
     PackageWarning,
 )
 from ossiq.service.project.models import ScanRecord, ScanResult
+from ossiq.strategy.pyramid import UpdateStrategy
+from ossiq.strategy.targeting import StrategySelection
 
 
 def make_cve(version: str = "1.0.0", severity: Severity = Severity.HIGH) -> CVE:
@@ -612,3 +614,50 @@ def test_update_entry_omits_the_break_flag_for_a_clean_pick():
     entry = build_update_decide(make_scan([record]))["updates"][0]
 
     assert "carries_known_break" not in entry
+
+
+def test_withheld_package_does_not_blame_the_declared_range():
+    """The agent payload used to carry a reason contradicting its own strategy_withheld_reason:
+    `declared range <2.0.0 caps this below 1.9.1` next to `no motive admitted at security`, in the
+    same entry, when <2.0.0 admits 1.9.1 perfectly well."""
+    record = make_record(
+        name="scikit-learn",
+        installed="1.8.0",
+        latest="1.9.1",
+        diff_index=VERSION_DIFF_MINOR,
+        version_constraint="<2.0.0",
+        version_constraint_declared="<2.0.0",
+        latest_in_range="1.9.1",
+    )
+    record.strategy_selection = StrategySelection(
+        strategy=UpdateStrategy.SECURITY,
+        target_version=None,
+        rung=None,
+        motives=frozenset(),
+        requires_widening=False,
+        withheld_reason="no motive admitted at security; available under --update-strategy standard",
+        available_at=UpdateStrategy.STANDARD,
+        escalation=None,
+    )
+
+    entry = build_update_decide(make_scan([record]))["updates"][0]
+
+    assert entry["next_action"] == "Withheld by strategy"
+    assert entry["strategy_withheld_reason"].startswith("no motive admitted at security")
+    assert not any("caps this below" in reason for reason in entry["reasons"])
+
+
+def test_a_genuinely_capping_range_is_still_reported():
+    record = make_record(
+        name="fuse.js",
+        installed="7.3.0",
+        latest="7.5.0",
+        diff_index=VERSION_DIFF_MINOR,
+        version_constraint="~7.3.0",
+        version_constraint_declared="~7.3.0",
+        latest_in_range="7.3.0",
+    )
+
+    entry = build_update_decide(make_scan([record]))["updates"][0]
+
+    assert any("declared range ~7.3.0 caps this below 7.5.0" == reason for reason in entry["reasons"])

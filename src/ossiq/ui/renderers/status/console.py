@@ -83,6 +83,38 @@ def recommended_cell(pkg: ScanRecord) -> str:
     return pkg.recommended_version
 
 
+def blocker_sub_row_texts(pkg: ScanRecord) -> list[str]:
+    """Explain why a package behind the registry's latest has no target, or return nothing.
+
+    Two different things produce "no writable target", and saying the wrong one is worse than
+    saying nothing. `scikit-learn 1.8.0` declared `<2.0.0` under `--update-strategy security`
+    used to print `↳ <2.0.0 caps this below 1.9.1` — but `<2.0.0` admits 1.9.1; the tier withheld
+    it. The declared range is named only when it genuinely admits nothing newer than what is
+    installed, which is what `latest_in_range` records.
+
+    Args:
+        pkg: The record being explained.
+
+    Returns:
+        Rich-markup sub-row strings, one per blocker, or an empty list.
+    """
+    selection = pkg.strategy_selection
+    if selection is not None and selection.withheld_reason:
+        return [f"  [dim]↳ {selection.withheld_reason}[/]"]
+
+    if not pkg.version_constraint_declared or next_action_label(pkg) != CONSTRAINED_CHECK_NEWER:
+        return []
+    in_range = pkg.compatibility.latest_in_range
+    if in_range is not None and in_range != pkg.installed_version:
+        # The range admits something newer, so it is not what is holding the package back —
+        # a rejected candidate or an engine mismatch is, and those draw their own rows.
+        return []
+    ladder_note = ""
+    if pkg.compatibility.latest_in_major and pkg.compatibility.latest_in_major != pkg.latest_version:
+        ladder_note = f"; {pkg.compatibility.latest_in_major} is the newest in the current major line"
+    return [f"  [yellow]↳ {pkg.version_constraint_declared} caps this below {pkg.latest_version}{ladder_note}[/]"]
+
+
 def add_detail_subrows(table: Table, pkg: ScanRecord, engine_context: EngineContext) -> None:
     """Append the per-package explanation sub-rows shared by both status tables.
 
@@ -319,17 +351,9 @@ class ConsoleStatusRenderer(AbstractUserInterfaceRenderer):
                     for text in impact_sub_row_texts(pkg.update_transitive_impacts):
                         table.add_row(text, *blanks)
 
-                # Name the range that is holding the package back — the "what to do" half of the
-                # Constrained label. Other blockers (e.g. an override pin) may apply on top.
-                if full and pkg.version_constraint_declared and next_action_label(pkg) == CONSTRAINED_CHECK_NEWER:
-                    ladder_note = ""
-                    if pkg.compatibility.latest_in_major and pkg.compatibility.latest_in_major != pkg.latest_version:
-                        ladder_note = f"; {pkg.compatibility.latest_in_major} is the newest in the current major line"
-                    table.add_row(
-                        f"  [yellow]↳ {pkg.version_constraint_declared} caps this below "
-                        f"{pkg.latest_version}{ladder_note}[/]",
-                        *blanks,
-                    )
+                if full:
+                    for text in blocker_sub_row_texts(pkg):
+                        table.add_row(text, *blanks)
 
                 if full:
                     add_detail_subrows(table, pkg, engine_context or EngineContext())
