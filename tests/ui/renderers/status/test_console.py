@@ -20,7 +20,7 @@ from ossiq.risk.maintenance import MaintenanceAssessment, MaintenanceState
 from ossiq.service.project.models import ScanRecord
 from ossiq.settings import Settings
 from ossiq.ui.renderers.impact_utils import whats_next
-from ossiq.ui.renderers.status.console import ConsoleStatusRenderer
+from ossiq.ui.renderers.status.console import MIN_WIDTH_DEFAULT, MIN_WIDTH_FULL, ConsoleStatusRenderer
 
 LATEST = VersionsDifference("1.0.0", "1.0.0", 0, "LATEST")
 MINOR = VersionsDifference("1.0.0", "1.1.0", 4, "DIFF_MINOR")
@@ -104,7 +104,9 @@ def render_table(
     engine_context: EngineContext | None = None,
 ) -> str:
     renderer = ConsoleStatusRenderer(Settings())
-    table = renderer.build_main_table(prod, dev or [], lag_threshold_days=180, full=full, engine_context=engine_context)
+    table = renderer.build_main_table(
+        prod, dev or [], lag_threshold_days=180, full=full, engine_context=engine_context, width=width
+    )
     assert table is not None
     console = Console(record=True, width=width)
     console.print(table)
@@ -264,6 +266,81 @@ def test_constrained_sub_row_omits_latest_in_major_clause_when_equal_to_latest()
     )
     assert "~1.0.0 caps this below 1.5.0" in output
     assert "newest in the current major line" not in output
+
+
+# --- narrow terminals ---------------------------------------------------------------------------
+
+
+def constrained_record(name: str = "left-pad") -> ScanRecord:
+    """A record whose What's Next is the widest label in the set."""
+    return make_record(
+        name,
+        versions_diff_index=MINOR,
+        latest_version="1.5.0",
+        recommended_version="1.0.0",
+        version_constraint="~1.0.0",
+        version_constraint_declared="~1.0.0",
+    )
+
+
+def test_whats_next_abbreviated_below_the_narrow_threshold():
+    output = render_table([constrained_record()], width=MIN_WIDTH_DEFAULT - 1)
+    assert "Constrained" in output
+    assert "Check newer version" not in output
+
+
+def test_whats_next_keeps_the_full_label_at_the_threshold():
+    output = render_table([constrained_record()], width=MIN_WIDTH_DEFAULT)
+    assert "Constrained. Check newer version" in output
+
+
+def test_compact_row_fits_at_the_threshold_width():
+    """What pins MIN_WIDTH_DEFAULT: at the threshold a representative worst-case row still renders
+    on one line with nothing ellipsized. Adding a column means re-measuring the constant, not
+    nudging it."""
+    output = render_table([constrained_record("vite-plugin-vue-devtools")], width=MIN_WIDTH_DEFAULT)
+    assert "Constrained. Check newer version" in output
+    assert "…" not in output
+
+
+def test_full_row_fits_at_the_full_threshold_width():
+    """The same for MIN_WIDTH_FULL, measured with the `--full` sub-row present — it shares the
+    Package column, so it is part of what the constant has to cover."""
+    record = constrained_record("vite-plugin-vue-devtools")
+    renderer = ConsoleStatusRenderer(Settings())
+    # Build wide so the table itself never abbreviates, then print at the threshold: this measures
+    # the layout, not the abbreviation that a real run at this width would apply.
+    table = renderer.build_main_table([record], [], lag_threshold_days=180, full=True, width=10_000)
+    assert table is not None
+    console = Console(record=True, width=MIN_WIDTH_FULL)
+    console.print(table)
+    output = console.export_text()
+    assert "Constrained. Check newer version" in output
+    assert "…" not in output
+
+
+def test_full_mode_uses_its_own_wider_threshold():
+    """The full column set needs more room, so a width that is roomy for the compact table still
+    abbreviates here — otherwise the label would wrap exactly where the extra columns start."""
+    output = render_table([constrained_record()], full=True, width=MIN_WIDTH_DEFAULT)
+    assert "Check newer version" not in output
+
+
+def test_constrained_sub_row_survives_abbreviation():
+    """The sub-row is what makes the short label legible, so it is never abbreviated away."""
+    output = render_table(
+        [constrained_record()],
+        full=True,
+        width=MIN_WIDTH_FULL - 1,
+    )
+    assert "Check newer version" not in output
+    assert "~1.0.0 caps this below 1.5.0" in output
+
+
+def test_abbreviation_is_console_only():
+    """whats_next without `short` returns the canonical label, so info / agent / export are
+    untouched by the console's width handling."""
+    assert whats_next(constrained_record()) == "[yellow]Constrained. Check newer version[/]"
 
 
 def test_rejected_candidate_sub_row_shown_in_full_mode():

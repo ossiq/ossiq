@@ -113,10 +113,28 @@ WHATS_NEXT_STYLE: dict[str, str] = {
 }
 
 
-def whats_next(record: ScanRecord) -> str:
-    """The package's next action (service.project.next_action) styled by urgency; empty when none."""
+WHATS_NEXT_SHORT: dict[str, str] = {CONSTRAINED_CHECK_NEWER: "Constrained"}
+"""Console-only abbreviations for labels too wide for a narrow terminal. Presentation, not
+contract: the canonical label is what next_action_label returns and what every machine-readable
+surface carries. Keyed by the canonical label, so no style entry is ever needed twice."""
+
+
+def whats_next(record: ScanRecord, *, short: bool = False) -> str:
+    """The package's next action (service.project.next_action) styled by urgency; empty when none.
+
+    Args:
+        record: The package to describe.
+        short: Use the abbreviated wording where one exists, for consoles too narrow to fit the
+            full label on one line.
+
+    Returns:
+        The label with Rich markup, or an empty string when nothing is due.
+    """
     label = next_action_label(record)
-    return "" if label is None else f"[{WHATS_NEXT_STYLE[label]}]{label}[/]"
+    if label is None:
+        return ""
+    text = WHATS_NEXT_SHORT.get(label, label) if short else label
+    return f"[{WHATS_NEXT_STYLE[label]}]{text}[/]"
 
 
 def impact_sub_row_texts(impacts: list[TransitiveImpact]) -> list[str]:

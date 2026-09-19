@@ -33,6 +33,11 @@ MAIN_COLUMNS_DEFAULT: tuple[str, ...] = (
     "Recommended",
     "What's Next",
 )
+# Console width at which this column set still fits the 32-char "Constrained. Check newer version"
+# on one line, measured against a 24-character package name. Below it the label is abbreviated
+# rather than wrapped onto a second row. Pinned by test_compact_row_fits_at_the_threshold_width —
+# adding a column means re-measuring, not adjusting by eye.
+MIN_WIDTH_DEFAULT = 110
 MAIN_COLUMNS_FULL: tuple[str, ...] = (
     "Package",
     "CVEs",
@@ -45,6 +50,10 @@ MAIN_COLUMNS_FULL: tuple[str, ...] = (
     "State",
     "What's Next",
 )
+# The same measurement for the four extra columns MAIN_COLUMNS_FULL adds, taken with the `--full`
+# sub-rows present: they share the Package column, so a long one widens it. A representative case,
+# not a guarantee — an unusually long rejection reason can still push a row onto a second line.
+MIN_WIDTH_FULL = 157
 
 
 def add_status_column(table: Table, name: str) -> None:
@@ -231,12 +240,26 @@ class ConsoleStatusRenderer(AbstractUserInterfaceRenderer):
         *,
         full: bool = False,
         engine_context: EngineContext | None = None,
+        width: int | None = None,
     ) -> Table | None:
         """Single borderless table merging prod and dev sections.
 
         `full` picks the wide column set and keeps every package; the default keeps a minimal
         column set and only the packages that need action (drift, a CVE, an unmaintained
         upstream, or an unsolvable constraint).
+
+        Args:
+            prod: Production dependency records.
+            dev: Development/optional dependency records.
+            lag_threshold_days: Above this many days the time lag is highlighted.
+            full: Use the wide column set and keep every package.
+            engine_context: The runtime versions this scan checked against.
+            width: Console width to lay the table out for; defaults to this renderer's own
+                console. Only the What's Next wording depends on it — the `--full` sub-rows keep
+                the detail at every width.
+
+        Returns:
+            The table, or None when no package qualifies for the current mode.
         """
 
         def needs_action(pkg: ScanRecord) -> bool:
@@ -256,6 +279,8 @@ class ConsoleStatusRenderer(AbstractUserInterfaceRenderer):
             return None
 
         columns = MAIN_COLUMNS_FULL if full else MAIN_COLUMNS_DEFAULT
+        available = self.console.width if width is None else width
+        short_labels = available < (MIN_WIDTH_FULL if full else MIN_WIDTH_DEFAULT)
 
         table = Table(show_header=True, header_style="bold dim", box=None, padding=(0, 2))
         for name in columns:
@@ -286,7 +311,7 @@ class ConsoleStatusRenderer(AbstractUserInterfaceRenderer):
                     "Recommended": recommended_cell(pkg),
                     "Lag": format_time_delta(pkg.time_lag_days, lag_threshold_days),
                     "State": format_state(pkg),
-                    "What's Next": whats_next(pkg),
+                    "What's Next": whats_next(pkg, short=short_labels),
                 }
                 table.add_row(*(cells[name] for name in columns))
 
@@ -324,9 +349,19 @@ class ConsoleStatusRenderer(AbstractUserInterfaceRenderer):
         return table
 
     def transitive_table(
-        self, packages: list[ScanRecord], *, full: bool = False, engine_context: EngineContext | None = None
+        self,
+        packages: list[ScanRecord],
+        *,
+        full: bool = False,
+        engine_context: EngineContext | None = None,
+        width: int | None = None,
     ) -> Table:
         """Borderless table for transitive packages with solver-recommended versions."""
+        available = self.console.width if width is None else width
+        # This table is narrower than the compact main one (no Latest, no Update Mode), so
+        # MIN_WIDTH_DEFAULT is a conservative threshold rather than a measured one — it keeps the
+        # two tables agreeing on wording at any given width, which matters more than one column.
+        short_labels = available < MIN_WIDTH_DEFAULT
         table = Table(show_header=True, header_style="bold dim", box=None, padding=(0, 2))
         table.add_column("Package", justify="left", style="bold")
         table.add_column("CVEs", justify="center")
@@ -340,7 +375,7 @@ class ConsoleStatusRenderer(AbstractUserInterfaceRenderer):
             row = [pkg.package_name, f"[bold red]{len(pkg.cve)}" if pkg.cve else ""]
             if full:
                 row.append(format_probability(pkg.epss))
-            row += [pkg.installed_version, pkg.recommended_version or "", whats_next(pkg)]
+            row += [pkg.installed_version, pkg.recommended_version or "", whats_next(pkg, short=short_labels)]
             table.add_row(*row)
 
             if full:
