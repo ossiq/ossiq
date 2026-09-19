@@ -436,24 +436,18 @@ output:
 | Surface | Shown as | Present? |
 |---|---|---|
 | Console stepper | per-step icon and suffix — `⚠ … (partial — some data missing)`, `✗ … (unreachable — no data)`, `✗ … (rate limited — no data)`. A degraded step never draws the green `✓` | ✅ |
-| Console, after the scan | a stderr warning block: *"Some data sources did not fully respond, so this report may be based on incomplete data"*, listing each degraded step | ✅ |
+| Console, after the scan | a stderr warning block: *"Some data sources did not fully respond, so this report may be based on incomplete data"*, listing each degraded step. Emitted on every path — including `--verbose` and a missing Rich, which skip the stepper but not the warning, and a scan that raises partway | ✅ |
 | `--format agent`, MCP | `data_completeness: {overall, sources[]}` inside the payload | ✅ |
 | `export` | `metadata.data_completeness` | ✅ |
-| HTML report | carried inside the embedded JSON payload | ⚠ present in the data, **not drawn by the report UI** |
+| HTML report | an **Incomplete data** banner above the table, naming each degraded source and carrying `metadata.warnings` | ✅ |
 | Exit code | — | ❌ `status` exits 0 whether or not the scan was degraded |
 
-```{warning}
-Two gaps to know about:
-
-- **`--verbose` suppresses the stderr warning.** The warning is emitted by the progress stepper,
-  which is skipped entirely in verbose mode and when Rich is unavailable. A verbose CI log is
-  exactly where you would expect to find it, and it is not there.
-- **The HTML report does not display it.** `metadata.data_completeness` is embedded in the report
-  file, but no component renders it. An HTML report built on a rate-limited scan looks like any
-  other.
-
-Machine-readable output (`--format agent`, MCP, `export`) is the reliable channel: the degradation
-is inside the document, where the consumer who most needs it will actually see it.
+```{note}
+Every surface now says so, but they do not say it equally well. Machine-readable output
+(`--format agent`, MCP, `export`) carries the degradation *inside* the document, where a consumer
+cannot process the result without also being handed the caveat. The console warning and the HTML
+banner sit beside the result and can be scrolled past. If you are automating on top of OSS IQ,
+read `data_completeness` rather than trusting that someone saw the banner.
 ```
 
 ### The governing rule

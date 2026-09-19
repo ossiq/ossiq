@@ -6,6 +6,7 @@ import type { ReportRow } from '@/composables/useReportFilters'
 import ReportFilters from '@/components/ReportFilters.vue'
 import ReportTable from '@/components/ReportTable.vue'
 import ReportLegend from '@/components/ReportLegend.vue'
+import ReportBanner from '@/components/ReportBanner.vue'
 import DependencyDetailPanel from '@/components/DependencyDetailPanel.vue'
 import type { SelectedNodeDetail } from '@/types/dependency-tree'
 import type { DependencyTreeRoot, TransitivePackageMetrics } from '@/types/report'
@@ -155,6 +156,9 @@ function handlePanelClose() {
             </div>
           </div>
         </div>
+
+        <!-- Degraded data sources — drawn only when something did not come back ok -->
+        <ReportBanner />
 
         <!-- Help text -->
         <div v-if="showHelp" class="w-3/4">
