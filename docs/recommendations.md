@@ -4,8 +4,8 @@
 behalf. This page says what each decision means, which evidence it rests on, and what it costs you
 when that evidence is missing or wrong.**
 
-[Reference → Update Strategy](../reference.md#update-strategy) and
-[Reference → Version ladder](../reference.md#version-ladder) define the flags and the fields. This
+[Reference → Update Strategy](reference.md#update-strategy) and
+[Reference → Version ladder](reference.md#version-ladder) define the flags and the fields. This
 page is the *why*, and it is the one to read before you wire `ossiq` into CI, hand it to a coding
 agent, or run `apply --yes`.
 
@@ -100,8 +100,9 @@ two tiers, verified output:
 | `pydantic` | `>=2.0.0` | 2.12.5 | no target | **2.13.5** |
 | `scikit-learn` | `<2.0.0` | 1.8.0 | no target | **1.9.1** |
 
-The `security` run closes with `4 more updates available under --update-strategy standard.` — the
-tier reports what it withheld and names the cheapest tier that would move it.
+`ossiq plan` at `security` closes with `4 more updates available under --update-strategy
+standard.` — the tier reports what it withheld and names the cheapest tier that would move it. In
+`status --full` the same fact arrives per package, as the `↳` row under `Withheld by strategy`.
 
 ### What tier choice risks
 
@@ -129,7 +130,7 @@ from facts already on the scan record.
 |---|---|---|
 | `exploitable_cve` | any CVE with EPSS ≥ 0.005 **or with no EPSS score at all** | OSV + EPSS |
 | `suppressed_cve` | a CVE scored below 0.005 | OSV + EPSS |
-| `end_of_life` | maintenance state is `abandoned`/`deprecated`, **or** a registry deprecation marker, **or** strong deprecation evidence | registry + GitHub + the [maintenance model](repository-stability.md) |
+| `end_of_life` | maintenance state is `abandoned`/`deprecated`, **or** a registry deprecation marker, **or** strong deprecation evidence | registry + GitHub + the [maintenance model](explanation/repository-stability.md) |
 | `drift` | always | — |
 
 Which tier admits which:
@@ -176,7 +177,7 @@ against different evidence, and they are *not* rankings of each other.
 
 ### 3.1 The target — `recommended_version` + `recommended_from_rung`
 
-The version to move to, and which rung of the [version ladder](../reference.md#version-ladder) it
+The version to move to, and which rung of the [version ladder](reference.md#version-ladder) it
 came from.
 
 | Rung | Meaning | Writable by `apply`? |
@@ -218,7 +219,7 @@ a higher tier is a confirmation, never a cross-check you are obliged to perform.
 
 ### 3.3 `triage.action` — the operational verdict
 
-From the EPSS × maintenance matrix (see [Repository stability](repository-stability.md#the-triage-matrix)):
+From the EPSS × maintenance matrix (see [Repository stability](explanation/repository-stability.md#the-triage-matrix)):
 `retain`, `patch`, `refactor`, `evict`. **Advisory only** — it appears on every surface but changes
 no recommendation and gates no build.
 
@@ -233,7 +234,7 @@ These carry as much decision-making weight as the targets, and are easier to ski
 
 | Output | Means | Where |
 |---|---|---|
-| `withheld_reason` | no motive admitted at this tier; names the lowest tier that would move it | `plan` footer, agent `strategy_withheld_reason`, export `strategy` |
+| `withheld_reason` | no motive admitted at this tier; names the lowest tier that would move it | `plan` footer, the `status --full` `↳` row under `Withheld by strategy`, agent `strategy_withheld_reason`, export `strategy` |
 | *Held for cooldown* | target is younger than `--cooldown-period` (default 7 days). CVE-carrying packages are exempt | `plan` section |
 | *Requires constraint widening* | target sits outside the declared range and the tier does not authorize rewriting it | `plan` section, export `requires_constraint_widening` |
 | `rejected_candidates` | a newer release was found and held back — by a transitive conflict, a known module-system break, or an engine mismatch — one per rung, with the reason | `status --full` `↳` rows, export, agent `reasons` |
