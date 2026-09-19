@@ -130,6 +130,28 @@ def rung_scope_label(rung: RecommendationRung | None) -> str:
     return "new major" if rung == RecommendationRung.LATEST else "same major"
 
 
+def display_package_name(package_name: str, dependency_name: str | None) -> str:
+    """How to name a dependency to a human: the manifest key, plus the registry name when aliased.
+
+    npm aliases let one package be installed several times under different keys
+    (`uuid-v7: "npm:uuid@^7.0.0"`), and every one of them carries `uuid` as its registry name.
+    Printing only that name renders them as indistinguishable duplicate rows.
+
+    One function rather than a property on each of ScanRecord and UpdateEntry, so the scan and the
+    update plan can never name the same dependency two different ways.
+
+    Args:
+        package_name: The canonical registry name.
+        dependency_name: The manifest key, when known and possibly different.
+
+    Returns:
+        "key (registry-name)" for an alias, the plain name otherwise.
+    """
+    if dependency_name and dependency_name != package_name:
+        return f"{dependency_name} ({package_name})"
+    return package_name
+
+
 @dataclass(frozen=True)
 class RejectedCandidate:
     """A release that would otherwise have been a candidate, held back by a transitive conflict."""

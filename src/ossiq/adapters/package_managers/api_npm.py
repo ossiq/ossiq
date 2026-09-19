@@ -245,10 +245,10 @@ def extract_min_node_version(node_range: str) -> str | None:
     return str(min(floors)) if floors else None
 
 
-# The engine keys a project's own `engines` block can declare a floor for. `node` is the runtime;
-# the rest are package managers, whose requirements packages do publish (`engines.npm`) and which
-# were previously parsed for nothing because no context key ever carried them.
-DECLARABLE_ENGINES: tuple[str, ...] = ("node", "npm", "pnpm", "yarn")
+# The engine keys a project's own `engines` block can declare a floor for. Kept in step with
+# solver.version_matchers.NPM_SEMVER_ENGINES: a floor for an engine nothing evaluates is noise,
+# and one evaluated only when declared is worse than noise.
+DECLARABLE_ENGINES: tuple[str, ...] = ("node", "npm")
 
 
 def declared_engine_floors(engines: dict[str, object] | None) -> dict[str, str] | None:

@@ -272,9 +272,11 @@ def satisfies_all_constraints(version: str, constraints: list[str], registry: Pr
 # ── Engine requirement checks
 
 
-# Engine keys whose versions and requirements are both npm semver. The runtime and the package
-# managers that install for it share one range grammar, so they share one matcher.
-NPM_SEMVER_ENGINES: frozenset[str] = frozenset({"node", "nodejs", "npm", "pnpm", "yarn"})
+# Engine keys whose versions and requirements are both npm semver. Limited to what OSS IQ can
+# actually check: `node` and `npm` are both probed. pnpm and yarn are deliberately absent — OSS IQ
+# has no adapter for either, so nothing probes them and a declared floor for one would be checked
+# on some runs and not others. When pnpm support lands, it is one entry here plus a probe.
+NPM_SEMVER_ENGINES: frozenset[str] = frozenset({"node", "nodejs", "npm"})
 
 
 def engine_version_satisfies_requirement(

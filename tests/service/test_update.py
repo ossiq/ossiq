@@ -7,7 +7,7 @@ from ossiq.domain.cve import CVE, Severity
 from ossiq.domain.project import ConstraintSource
 from ossiq.domain.version import VersionsDifference
 from ossiq.service.project.models import ScanRecord, ScanResult
-from ossiq.service.update import build_update_plan
+from ossiq.service.update import build_update_plan, find_override_record, override_alias_siblings
 from ossiq.service.update_impact import TransitiveImpact
 from ossiq.solver.reason import RecommendationReason
 from ossiq.strategy.overrides import StrategyPlan
@@ -612,3 +612,65 @@ class TestNpmAliasIdentity:
         entry = build_update_plan(make_scan_result(production=[record]), "npm").direct_entries[0]
 
         assert entry.display_name == "uuid-v7 (uuid)"
+
+
+class TestOverrideTargetResolution:
+    """--override has to resolve a user-supplied name the same way everywhere.
+
+    Accepting the alias key in build_update_plan while a sibling validator asked the registry for
+    a package literally called `uuid-v11` produced "Unable to load package: uuid-v11" — accepted
+    by one half of the command and fatal in the other.
+    """
+
+    def scan(self) -> ScanResult:
+        first = make_record("uuid", "7.0.3", "11.1.1")
+        first.dependency_name = "uuid-v7"
+        second = make_record("uuid", "13.0.0", "14.0.2")
+        second.dependency_name = "uuid-v11"
+        plain = make_record("requests", "2.28.0", "2.32.0")
+        return make_scan_result(production=[first, second, plain], transitive=[make_record("urllib3", "1.26.18")])
+
+    def test_an_alias_key_resolves_to_that_alias(self):
+        record = find_override_record(self.scan(), "uuid-v11")
+
+        assert record is not None
+        assert (record.package_name, record.installed_version) == ("uuid", "13.0.0")
+
+    def test_the_registry_name_resolves_to_a_record_carrying_it(self):
+        """Ambiguous by construction — the caller warns; this only has to not crash or invent."""
+        record = find_override_record(self.scan(), "uuid")
+
+        assert record is not None
+        assert record.package_name == "uuid"
+
+    def test_an_unaliased_direct_dep_resolves_by_its_own_name(self):
+        record = find_override_record(self.scan(), "requests")
+
+        assert record is not None and record.package_name == "requests"
+
+    def test_a_transitive_resolves_too(self):
+        record = find_override_record(self.scan(), "urllib3")
+
+        assert record is not None and record.package_name == "urllib3"
+
+    def test_an_unknown_name_resolves_to_nothing(self):
+        assert find_override_record(self.scan(), "nope") is None
+
+    def test_alias_siblings_are_reported_only_when_there_are_several(self):
+        assert override_alias_siblings(self.scan(), "uuid") == ["uuid-v11", "uuid-v7"]
+        assert override_alias_siblings(self.scan(), "requests") == []
+        assert override_alias_siblings(self.scan(), "nope") == []
+
+    def test_forcing_one_alias_leaves_its_sibling_on_its_own_recommendation(self):
+        plan = build_update_plan(self.scan(), "npm", forced_overrides={"uuid-v11": "14.0.2"})
+
+        by_identity = {e.identity: (e.recommended_version, e.is_forced) for e in plan.direct_entries}
+        assert by_identity["uuid-v11"] == ("14.0.2", True)
+        assert by_identity["uuid-v7"] == ("11.1.1", False)
+
+    def test_forcing_the_registry_name_replaces_every_entry_carrying_it(self):
+        plan = build_update_plan(self.scan(), "npm", forced_overrides={"uuid": "14.0.2"})
+
+        uuid_entries = [e for e in plan.direct_entries if e.package_name == "uuid"]
+        assert len(uuid_entries) == 1
+        assert uuid_entries[0].is_forced is True

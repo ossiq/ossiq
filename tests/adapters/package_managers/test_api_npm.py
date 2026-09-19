@@ -1488,8 +1488,13 @@ class TestDeclaredEngineFloors:
 
         assert floors == {"node": "18.0.0", "npm": "9.0.0"}
 
-    def test_package_manager_floors_are_parsed_as_npm_ranges(self):
-        assert declared_engine_floors({"pnpm": "^8.6.0", "yarn": "~4.1"}) == {"pnpm": "8.6.0", "yarn": "4.1.0"}
+    def test_the_npm_floor_is_parsed_as_an_npm_range(self):
+        assert declared_engine_floors({"npm": "^8.6.0"}) == {"npm": "8.6.0"}
+
+    def test_unevaluable_package_managers_are_not_carried(self):
+        """pnpm/yarn have no adapter and no probe, so a declared floor for one would be checked
+        only on the declared path — worse than not checking it at all."""
+        assert declared_engine_floors({"pnpm": "^8.6.0", "yarn": "~4.1"}) is None
 
     def test_a_range_with_no_nameable_floor_is_dropped_not_guessed(self):
         assert declared_engine_floors({"node": ">=18.0.0", "npm": "*"}) == {"node": "18.0.0"}

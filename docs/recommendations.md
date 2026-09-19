@@ -275,12 +275,13 @@ PyPI. A release that cannot run on your runtime is not a candidate, however new 
 
 Probes are gated by registry: a pure-PyPI scan never spawns `node --version`.
 
-Both sides carry the package managers as well as the runtime, so a release declaring
-`engines.npm` is checked against the npm you actually have — `node` and `npm` share one semver
-grammar and one matcher. `pnpm` and `yarn` are evaluated by the same matcher but nothing probes
-them, so a requirement naming one is checked only when the project declares its own floor. The
-npm probe never selects `detected` on its own: an npm-only context would discard the project's
-declared node floor, which on a failed Node probe is the only thing left to check against.
+Both sides carry `npm` as well as `node`, so a release declaring `engines.npm` is checked against
+the npm you actually have — the two share one semver grammar and one matcher. `pnpm` and `yarn`
+are deliberately **not** evaluated: OSS IQ has no adapter for either, so nothing probes them, and
+a floor checked on the declared path but not the detected one would be worse than no check at all.
+They pass through as satisfied like any other engine key OSS IQ cannot evaluate. The npm probe
+never selects `detected` on its own: an npm-only context would discard the project's declared node
+floor, which on a failed Node probe is the only thing left to check against.
 
 ### One definition, three consumers
 

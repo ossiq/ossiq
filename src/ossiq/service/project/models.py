@@ -9,6 +9,7 @@ from ossiq.domain.common import (
     EngineContext,
     RecommendationRung,
     RejectedCandidate,
+    display_package_name,
 )
 from ossiq.domain.compatibility import CompatibilityFacts
 from ossiq.domain.cve import CVE
@@ -58,7 +59,12 @@ class ScanRecord:
     """Canonical registry name of the package (post alias-resolution). Never None."""
 
     dependency_name: str | None
-    """Name as declared by the importer (may be an npm alias); None when unavailable."""
+    """Name as declared by the importer (may be an npm alias); None when unavailable.
+
+    Read it through `identity_name`, which falls back to `package_name`. Two npm aliases of one
+    package share a `package_name`, so that is what tells them apart — see `UpdateEntry.identity`,
+    which carries the same distinction into the update plan and the manifest writer.
+    """
 
     is_optional_dependency: bool
     """True if this dependency is only pulled in via an optional/extra group."""
@@ -208,6 +214,20 @@ class ScanRecord:
     """The update-strategy selector's verdict for this record. Populated in
     service.project.strategy.apply_update_strategy, after populate_stability. None for transitive
     records (v1 scope: the strategy applies to direct dependencies only) or an ignored package."""
+
+    @property
+    def identity_name(self) -> str:
+        """The manifest key this record answers for — `dependency_name`, else `package_name`.
+
+        The counterpart of `UpdateEntry.identity`, so one definition of "which declaration is
+        this?" spans the scan and the update plan.
+        """
+        return self.dependency_name or self.package_name
+
+    @property
+    def display_name(self) -> str:
+        """How to name this record to a human — see domain.common.display_package_name."""
+        return display_package_name(self.package_name, self.dependency_name)
 
 
 @dataclass

@@ -23,13 +23,20 @@ from ossiq.messages import (
     HELP_PLAN_HIGHER_TIER_FOOTER,
     HELP_PLAN_NO_RECOMMENDATIONS,
     HELP_PLAN_NO_RECOMMENDATIONS_FOR_TIER,
+    WARNING_OVERRIDE_AMBIGUOUS_ALIAS,
     WARNING_OVERRIDE_VERSION_UNKNOWN,
     WARNING_STRATEGY_OVERRIDE_SHADOWED_BY_OVERRIDE,
     WARNING_STRATEGY_OVERRIDE_UNKNOWN_PACKAGE,
 )
 from ossiq.service.completeness import check_security_data_complete
+from ossiq.service.project.models import ScanResult
 from ossiq.service.project.scan import scan
-from ossiq.service.update import UpdatePlan, build_update_plan
+from ossiq.service.update import (
+    UpdatePlan,
+    build_update_plan,
+    find_override_record,
+    override_alias_siblings,
+)
 from ossiq.settings import Settings
 from ossiq.sources import project_sources
 from ossiq.sources.project_sources import ProjectSources
@@ -108,12 +115,41 @@ def check_strategy_override_ignore_conflict(
         raise typer.BadParameter(ERROR_STRATEGY_OVERRIDE_IGNORE_CONFLICT.format(packages=", ".join(conflicted)))
 
 
-def warn_unknown_override_versions(sources: ProjectSources, overrides: tuple[tuple[str, str], ...]) -> None:
-    """Warn when a forced version is absent from the registry (cache is warm after the scan)."""
+def warn_unknown_override_versions(
+    sources: ProjectSources,
+    scan_result: ScanResult,
+    overrides: tuple[tuple[str, str], ...],
+) -> None:
+    """Warn when a forced version is absent from the registry (cache is warm after the scan).
+
+    The registry is asked for the *canonical* name. `--override uuid-v11==14.0.2` names a manifest
+    key, and asking npm for a package called `uuid-v11` raised instead of warning. A name that
+    resolves to no record at all is left alone: build_update_plan already collects those into
+    unknown_override_packages, which the caller reports as an error.
+    """
     for name, version in overrides:
-        known_versions = {pv.version for pv in sources.packages_registry.package_versions(name)}
+        record = find_override_record(scan_result, name)
+        if record is None:
+            continue
+        known_versions = {pv.version for pv in sources.packages_registry.package_versions(record.package_name)}
         if known_versions and version not in known_versions:
             typer.echo(WARNING_OVERRIDE_VERSION_UNKNOWN.format(package=name, version=version), err=True)
+
+
+def warn_ambiguous_override_targets(scan_result: ScanResult, overrides: tuple[tuple[str, str], ...]) -> None:
+    """Warn when a forced package name is shared by several npm aliases.
+
+    `--override uuid==14.0.2` on a project declaring both `uuid-v7` and `uuid-v11` names two
+    separately installed copies, and only one can be forced. Naming the manifest key picks one
+    without guessing.
+    """
+    for name, _version in overrides:
+        siblings = override_alias_siblings(scan_result, name)
+        if siblings:
+            typer.echo(
+                WARNING_OVERRIDE_AMBIGUOUS_ALIAS.format(package=name, aliases=", ".join(siblings)),
+                err=True,
+            )
 
 
 def warn_strategy_overrides(
@@ -180,7 +216,8 @@ def prepare_plan(ctx: typer.Context, options: CommandPlanOptions) -> tuple[Proje
         raise typer.Exit(2)
 
     if options.overrides:
-        warn_unknown_override_versions(sources, options.overrides)
+        warn_unknown_override_versions(sources, scan_result, options.overrides)
+        warn_ambiguous_override_targets(scan_result, options.overrides)
     if options.strategy_overrides:
         warn_strategy_overrides(plan, options.strategy_overrides, options.overrides)
 

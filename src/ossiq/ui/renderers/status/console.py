@@ -334,7 +334,9 @@ class ConsoleStatusRenderer(AbstractUserInterfaceRenderer):
         def add_pkg_rows(packages: list[ScanRecord]) -> None:
             for pkg in packages:
                 cells = {
-                    "Package": pkg.package_name,
+                    # Names the manifest key, so two npm aliases of one package are not two
+                    # identical rows — the plan table and the acknowledgement prompt agree.
+                    "Package": pkg.display_name,
                     "CVEs": f"[bold red]{len(pkg.cve)}" if pkg.cve else "",
                     "EPSS": format_probability(pkg.epss),
                     "Update Mode": format_lag_status(pkg.versions_diff_index),
@@ -396,7 +398,7 @@ class ConsoleStatusRenderer(AbstractUserInterfaceRenderer):
         table.add_column("What's Next", justify="left")
 
         for pkg in packages:
-            row = [pkg.package_name, f"[bold red]{len(pkg.cve)}" if pkg.cve else ""]
+            row = [pkg.display_name, f"[bold red]{len(pkg.cve)}" if pkg.cve else ""]
             if full:
                 row.append(format_probability(pkg.epss))
             row += [pkg.installed_version, pkg.recommended_version or "", whats_next(pkg, short=short_labels)]

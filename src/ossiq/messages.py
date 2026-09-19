@@ -180,6 +180,11 @@ WARNING_OVERRIDE_VERSION_UNKNOWN = (
     "--override {package}=={version}: version not found in the registry — install may fail."
 )
 
+WARNING_OVERRIDE_AMBIGUOUS_ALIAS = (
+    "--override {package}: the project declares it under several manifest keys ({aliases}), which "
+    "npm installs as separate copies. Only one can be forced — name the key instead to pick it."
+)
+
 HELP_PLAN_FORCED_WARNING = (
     "Forced versions (--override) bypass solver compatibility checks and the cooldown period. "
     "OSS IQ has not verified these versions satisfy parent constraints — review and test before shipping."

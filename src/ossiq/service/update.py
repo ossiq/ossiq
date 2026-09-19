@@ -6,7 +6,7 @@ import dataclasses
 from collections import Counter
 from dataclasses import dataclass, field
 
-from ossiq.domain.common import WIDENING_RUNGS, ConstraintType, RecommendationRung
+from ossiq.domain.common import WIDENING_RUNGS, ConstraintType, RecommendationRung, display_package_name
 from ossiq.service.project.models import ScanRecord, ScanResult
 from ossiq.service.update_impact import TransitiveImpact
 from ossiq.solver.reason import RecommendationReason
@@ -66,13 +66,8 @@ class UpdateEntry:
 
     @property
     def display_name(self) -> str:
-        """How to name this entry to a human: the manifest key, plus the registry name when aliased.
-
-        Without the suffix two npm aliases of one package render as two identical `uuid` rows.
-        """
-        if self.dependency_name and self.dependency_name != self.package_name:
-            return f"{self.dependency_name} ({self.package_name})"
-        return self.package_name
+        """How to name this entry to a human — see domain.common.display_package_name."""
+        return display_package_name(self.package_name, self.dependency_name)
 
 
 @dataclass(frozen=True)
@@ -190,6 +185,53 @@ def forced_entry_from_record(record: ScanRecord, forced_version: str, is_direct:
     )
 
 
+def find_override_record(scan_result: ScanResult, name: str) -> ScanRecord | None:
+    """Resolve a `--override` target to the record it names, or None when nothing matches.
+
+    Accepts either spelling: the manifest key (`uuid-v7`, the only unambiguous way to name one of
+    two npm aliases) or the registry name (`uuid`). The manifest key is tried first, so a project
+    declaring both `uuid` and `uuid-v7` can address each of them.
+
+    Every caller that acts on a `--override` name must resolve it through this function, including
+    those that only want the registry name: `--override uuid-v11==14.0.2` used to be accepted by
+    the plan and then crash a sibling validator that asked the registry for a package called
+    `uuid-v11`.
+
+    Args:
+        scan_result: The scanned tree to resolve against.
+        name: The package name as the user spelled it.
+
+    Returns:
+        The matching record, direct before transitive, or None.
+    """
+    direct = scan_result.production_packages + scan_result.optional_packages
+    for record in direct:
+        if record.dependency_name == name:
+            return record
+    for pool in (direct, scan_result.transitive_packages):
+        for record in pool:
+            if record.package_name == name:
+                return record
+    return None
+
+
+def override_alias_siblings(scan_result: ScanResult, name: str) -> list[str]:
+    """Manifest keys sharing the registry name *name*, when more than one direct record does.
+
+    `--override uuid==14.0.2` on a project declaring both `uuid-v7` and `uuid-v11` names two
+    installed copies and can only be applied to one of them. The caller reports the alternatives
+    rather than picking silently.
+    """
+    keys = sorted(
+        {
+            record.identity_name
+            for record in scan_result.production_packages + scan_result.optional_packages
+            if record.package_name == name
+        }
+    )
+    return keys if len(keys) > 1 else []
+
+
 def build_update_plan(
     scan_result: ScanResult,
     package_manager_name: str,
@@ -258,24 +300,20 @@ def build_update_plan(
 
     unknown_overrides: list[str] = []
     if forced_overrides:
-        # --override accepts either spelling: the manifest key (`uuid-v7`, the only unambiguous
-        # way to name one of two npm aliases) or the registry name (`uuid`, which resolves to an
-        # arbitrary alias when several share it — the pre-existing behaviour, kept so the flag
-        # does not change meaning for the overwhelmingly common unaliased case).
-        direct_by_name = {r.package_name: r for r in direct_records}
-        direct_by_name.update({r.dependency_name: r for r in direct_records if r.dependency_name})
-        transitive_records = {r.package_name: r for r in scan_result.transitive_packages}
+        direct_identities = {r.identity_name for r in direct_records}
         forced_names = set(forced_overrides)
+        # Drop by whichever spelling the user used: naming an alias replaces only that alias,
+        # naming the registry name replaces every entry carrying it.
         direct = [e for e in direct if e.identity not in forced_names and e.package_name not in forced_names]
         transitive = [e for e in transitive if e.package_name not in forced_names]
         for name, version in forced_overrides.items():
-            is_direct = name in direct_by_name
-            record = direct_by_name.get(name) or transitive_records.get(name)
+            record = find_override_record(scan_result, name)
             if record is None:
                 unknown_overrides.append(name)
                 continue
             if version == record.installed_version:
                 continue
+            is_direct = record.identity_name in direct_identities
             entry = forced_entry_from_record(record, version, is_direct)
             if is_direct:
                 direct.append(entry)
