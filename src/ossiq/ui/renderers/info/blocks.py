@@ -13,7 +13,7 @@ from rich.rule import Rule
 from rich.table import Table
 from rich.text import Text
 
-from ossiq.domain.common import WIDENING_RUNGS, ConstraintType, RecommendationRung, rung_scope_label
+from ossiq.domain.common import WIDENING_RUNGS, ConstraintType, rung_scope_label
 from ossiq.domain.cve import CVE
 from ossiq.risk.maintenance import NOT_MAINTAINED, MaintenanceState
 from ossiq.service.package import PackageDetailResult, PackageInsight, PackageWarning, TransitiveCVEGroup
@@ -294,24 +294,36 @@ def ladder_rows(record: ScanRecord) -> list[tuple[str, Text]]:
         One row per determinable rung.
     """
     facts = record.compatibility
-    candidates: list[tuple[str, str | None, RecommendationRung | None]] = [
-        ("In Range", facts.latest_in_range, RecommendationRung.IN_RANGE),
-        ("In Major", facts.latest_in_major, RecommendationRung.IN_MAJOR),
+    candidates: list[tuple[str, str | None]] = [
+        ("In Range", facts.latest_in_range),
+        ("In Major", facts.latest_in_major),
     ]
     # latest_compatible_major only carries information when a known break sits below the newest
     # release in the major line; otherwise it restates the row above it.
     if facts.latest_compatible_major != facts.latest_in_major:
-        candidates.append(("Compatible Major", facts.latest_compatible_major, None))
+        candidates.append(("Compatible Major", facts.latest_compatible_major))
 
     rows: list[tuple[str, Text]] = []
-    for label, version, rung in candidates:
+    for label, version in candidates:
         if version is None:
             continue
         value = Text(version, style="dim" if version == record.installed_version else "bold")
-        if rung is not None and record.recommended_from_rung == rung:
+        if is_the_recommended_version(record, version):
             value.append(RECOMMENDED_MARKER, style="dim")
         rows.append((label, value))
     return rows
+
+
+def is_the_recommended_version(record: ScanRecord, version: str) -> bool:
+    """Whether a ladder row holds the version actually recommended.
+
+    Keyed on the version, not on the rung. RecommendationRung.LATEST means "reachable only by
+    widening past the installed major", **not** "the newest release": for uuid@^7.0.0 the pick is
+    11.1.1 because build_candidates gated 12-14 behind the ESM break, and the rung is still
+    LATEST — so marking the Latest row on rung equality printed "14.0.2 ← recommended" beside
+    "Recommended 11.1.1". The nearest-candidate tiers mismark In Range/In Major the same way.
+    """
+    return record.recommended_version is not None and version == record.recommended_version
 
 
 def policy_compliance(record: ScanRecord) -> Group:
@@ -327,9 +339,15 @@ def policy_compliance(record: ScanRecord) -> Group:
         table.add_row(label, value)
 
     latest = Text(record.latest_version or DASH, style="bold green")
-    if record.latest_version and record.recommended_from_rung == RecommendationRung.LATEST:
+    if record.latest_version and is_the_recommended_version(record, record.latest_version):
         latest.append(RECOMMENDED_MARKER, style="dim")
     table.add_row("Latest", latest)
+
+    # When the pick matches no rung above — the gated-candidates case that makes the marker
+    # version-keyed in the first place — the ladder alone cannot say why it landed where it did.
+    # rejected_candidates holds exactly the releases that were passed over.
+    for rejected in record.rejected_candidates:
+        table.add_row("", Text(f"{rejected.version} rejected: {rejected.reason}", style="dim"))
 
     if record.recommended_version:
         reason = record.recommended_version_reason

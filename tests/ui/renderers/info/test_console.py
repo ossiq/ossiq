@@ -4,7 +4,13 @@ from __future__ import annotations
 
 from rich.console import Console
 
-from ossiq.domain.common import ConstraintType, CveDatabase, ProjectPackagesRegistry, RecommendationRung
+from ossiq.domain.common import (
+    ConstraintType,
+    CveDatabase,
+    ProjectPackagesRegistry,
+    RecommendationRung,
+    RejectedCandidate,
+)
 from ossiq.domain.compatibility import CompatibilityFacts
 from ossiq.domain.cve import CVE, Severity
 from ossiq.domain.package import Package
@@ -52,6 +58,7 @@ def make_reason(version: str = "1.2.0", is_latest: bool = False) -> Recommendati
 def make_record(
     *,
     installed: str = "1.0.0",
+    latest: str = "3.0.0",
     dependency_path: list[str] | None = None,
     license: list[str] | None = None,
     cve: list[CVE] | None = None,
@@ -74,8 +81,8 @@ def make_record(
         dependency_name="left-pad",
         is_optional_dependency=False,
         installed_version=installed,
-        latest_version="3.0.0",
-        versions_diff_index=VersionsDifference(installed, "3.0.0", VERSION_DIFF_MAJOR, "major"),
+        latest_version=latest,
+        versions_diff_index=VersionsDifference(installed, latest, VERSION_DIFF_MAJOR, "major"),
         time_lag_days=400,
         releases_lag=6,
         cve=cve or [],
@@ -209,14 +216,46 @@ def test_policy_compliance_marks_latest_for_a_latest_rung_pick() -> None:
     assert "← recommended" in latest_line
 
 
-def test_policy_compliance_marks_no_rung_for_a_solver_pick() -> None:
+def test_policy_compliance_marks_a_solver_pick_that_lands_on_a_rung() -> None:
+    """The marker is keyed on the version, so a SOLVER pick equal to a rung is still marked —
+    the rung it is not "from" is nonetheless the row holding that version."""
     record = make_record(
         recommended="1.4.0",
         latest_in_range="1.4.0",
         latest_in_major="1.9.0",
         recommended_from_rung=RecommendationRung.SOLVER,
     )
+    output = render_policy_compliance(record)
+    assert "1.4.0  ← recommended" in output
+    assert "1.9.0  ← recommended" not in output
+
+
+def test_policy_compliance_marks_nothing_when_the_pick_matches_no_rung() -> None:
+    record = make_record(
+        recommended="1.5.2",
+        latest_in_range="1.4.0",
+        latest_in_major="1.9.0",
+        latest="3.0.0",
+        recommended_from_rung=RecommendationRung.SOLVER,
+    )
     assert "← recommended" not in render_policy_compliance(record)
+
+
+def test_policy_compliance_does_not_mark_latest_for_a_gated_pick() -> None:
+    """uuid@^7.0.0: the pick is 11.1.1 because 12-14 are gated behind the ESM break, and its rung
+    is LATEST — which means "past the installed major", not "the newest release". Keying the
+    marker on the rung printed "14.0.2 ← recommended" beside "Recommended 11.1.1"."""
+    record = make_record(
+        installed="7.0.3",
+        latest="14.0.2",
+        recommended="11.1.1",
+        latest_in_range="7.0.3",
+        latest_in_major="7.0.3",
+        recommended_from_rung=RecommendationRung.LATEST,
+    )
+    output = render_policy_compliance(record)
+    assert "14.0.2  ← recommended" not in output
+    assert "11.1.1" in output
 
 
 def test_installed_render_covers_every_occurrence_block() -> None:
@@ -428,3 +467,21 @@ def test_drift_status_omits_next_when_nothing_due() -> None:
     output = render(data)
 
     assert "Next      :" not in output
+
+
+def test_policy_compliance_names_the_candidates_that_were_passed_over() -> None:
+    """When the pick matches no rung, the rejections are the only thing that explains where it
+    landed — and the block had no reader for them at all."""
+    record = make_record(
+        installed="7.0.3",
+        latest="14.0.2",
+        recommended="11.1.1",
+        latest_in_range="7.0.3",
+        latest_in_major="7.0.3",
+        recommended_from_rung=RecommendationRung.LATEST,
+    )
+    record.rejected_candidates = [RejectedCandidate(version="14.0.2", reason="ESM-only from 12.0.0")]
+
+    output = render_policy_compliance(record)
+
+    assert "14.0.2 rejected: ESM-only from 12.0.0" in output
