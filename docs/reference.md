@@ -547,6 +547,8 @@ Since v1.5, every `PackageMetrics` entry (production, development, and transitiv
 
 Every `PackageMetrics` entry also carries the [version ladder](#version-ladder): `latest_in_range` and `latest_in_major` (both `null` only when undeterminable, equal to `installed_version` when that rung has nothing newer), plus `recommended_from_rung` on production/development entries naming which rung `recommended_version` came from (`solver`, `in_range`, `in_major`, or `latest`). `TransitivePackageMetrics` carries `latest_in_range`/`latest_in_major` but not `recommended_from_rung`; on transitive entries the two rung fields are omitted entirely (rather than `null`) when undeterminable, per the schema's existing null-dropping convention for that array.
 
+Every entry also carries `next_action`: the same label the status table's **What's Next** column and the HTML report show, so a consumer never has to re-derive it and cannot arrive at a different answer (`null`, and omitted on transitive entries, when nothing is due). Note that the `--format agent` payload's field of the same name applies two further escalations on top of this label — a CVE with no available fix, and an installed version gone from the registry — so the two can legitimately differ. Production and development entries additionally carry `requires_constraint_widening`: `true` when `recommended_from_rung` is `in_major` or `latest`, meaning the target lies outside the declared range and `ossiq apply` will not write it.
+
 (console-reports)=
 ## Console Reports
 

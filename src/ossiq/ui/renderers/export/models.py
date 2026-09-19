@@ -9,6 +9,7 @@ from datetime import UTC, datetime
 from pydantic import BaseModel, Field, field_serializer, model_serializer
 
 from ossiq.domain.common import (
+    WIDENING_RUNGS,
     ConstraintType,
     DataCompleteness,
     ExportJsonSchemaVersion,
@@ -17,6 +18,7 @@ from ossiq.domain.common import (
 from ossiq.domain.cve import CVE, Severity
 from ossiq.risk.maintenance import OBSERVATION_COUNT
 from ossiq.service.project.models import ScanResult
+from ossiq.service.project.next_action import next_action_label
 from ossiq.service.project.stability import RepositoryStability
 
 
@@ -279,6 +281,19 @@ class LadderFields(BaseModel):
     )
 
 
+class NextActionFields(BaseModel):
+    """The one next action for a package, shared verbatim by direct and transitive metrics."""
+
+    next_action: str | None = Field(
+        default=None,
+        description=(
+            "The single next action for this package, exactly as the CLI's What's Next column and "
+            "the HTML report show it; null when nothing is due. The agent payload's next_action "
+            "applies two further escalations on top of this label and can therefore differ."
+        ),
+    )
+
+
 class CompatibilityFields(BaseModel):
     """Module-system and engine facts about the installed and recommended versions.
 
@@ -359,7 +374,7 @@ class StrategySelectionExport(BaseModel):
         )
 
 
-class PackageMetrics(LadderFields, CompatibilityFields):
+class PackageMetrics(LadderFields, CompatibilityFields, NextActionFields):
     """Metrics for a single package (schema v1.0–1.2)."""
 
     package_name: str = Field(description="Package name (canonical registry name)")
@@ -442,6 +457,14 @@ class PackageMetrics(LadderFields, CompatibilityFields):
             "Which version-ladder rung recommended_version came from: 'solver' or 'in_range' sit "
             "inside version_constraint and are safe to write as-is; 'in_major' or 'latest' require "
             "widening version_constraint first. Null only when recommended_version is null."
+        ),
+    )
+    requires_constraint_widening: bool = Field(
+        default=False,
+        description=(
+            "True when recommended_version is only reachable by widening version_constraint first "
+            "- i.e. recommended_from_rung is 'in_major' or 'latest'. `ossiq apply` writes nothing "
+            "for these; `ossiq plan` reports them under constraint widening instead."
         ),
     )
     update_transitive_impacts: list[TransitiveImpactExport] = Field(
@@ -586,6 +609,8 @@ class PackageMetrics(LadderFields, CompatibilityFields):
             engine_requirement=facts.engine_requirement,
             engine_compatible=facts.engine_compatible,
             recommended_from_rung=record.recommended_from_rung.value if record.recommended_from_rung else None,
+            requires_constraint_widening=record.recommended_from_rung in WIDENING_RUNGS,
+            next_action=next_action_label(record),
             update_transitive_impacts=[
                 TransitiveImpactExport(
                     package_name=i.package_name,
@@ -665,7 +690,7 @@ class DependencyTreeRoot(BaseModel):
         return {k: v for k, v in d.items() if not (v is None or (isinstance(v, list) and len(v) == 0))}
 
 
-class TransitivePackageMetrics(LadderFields, CompatibilityFields):
+class TransitivePackageMetrics(LadderFields, CompatibilityFields, NextActionFields):
     """
     Metrics for a transitive package (schema v1.3+).
 
@@ -812,6 +837,9 @@ class TransitivePackageMetrics(LadderFields, CompatibilityFields):
             ),
             engine_requirement=facts.engine_requirement,
             engine_compatible=facts.engine_compatible,
+            # _compact drops nulls, so an absent next_action on a transitive means "nothing due",
+            # matching whats_next rendering an empty cell for a None label.
+            next_action=next_action_label(first),
             rejected_candidates=[
                 RejectedCandidateExport(version=rc.version, reason=rc.reason) for rc in first.rejected_candidates
             ],

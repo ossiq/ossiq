@@ -1135,6 +1135,96 @@ class TestJsonExportRendererV15:
         assert pkg["recommended_from_rung"] == "in_major"  # plain string, not an enum repr
         validate(instance=data, schema=json_schema_registry.load_schema(ExportJsonSchemaVersion.V1_5))
 
+    def test_v1_5_emits_next_action_and_widening_flag(self, output_file, settings, sample_project_metrics_record):
+        """next_action and requires_constraint_widening come from the pipeline, not from each
+        surface re-deriving them. The HTML report used to compute its own and disagreed."""
+        import dataclasses
+
+        from ossiq.domain.common import RecommendationRung
+        from ossiq.service.project.next_action import next_action_label
+
+        record = dataclasses.replace(
+            sample_project_metrics_record,
+            compatibility=CompatibilityFacts(latest_in_range="17.0.2", latest_in_major="17.9.0"),
+            recommended_version="17.9.0",
+            recommended_from_rung=RecommendationRung.IN_MAJOR,
+        )
+        metrics = ScanResult(
+            project_name="test-project",
+            project_path="/path/to/test-project",
+            packages_registry=ProjectPackagesRegistry.NPM.value,
+            production_packages=[record],
+            optional_packages=[],
+        )
+        renderer = JsonExportRenderer(settings)
+        renderer.render(metrics, destination=str(output_file), schema_version="1.5")
+
+        data = json.loads(output_file.read_text(encoding="utf-8"))
+        pkg = data["production_packages"][0]
+        assert pkg["next_action"] == next_action_label(record)
+        assert pkg["requires_constraint_widening"] is True
+        validate(instance=data, schema=json_schema_registry.load_schema(ExportJsonSchemaVersion.V1_5))
+
+    def test_v1_5_widening_pick_is_not_reported_as_an_ordinary_update(
+        self, output_file, settings, sample_project_metrics_record
+    ):
+        """The cross-surface regression: a recommendation only reachable by widening must not read
+        as "Update Immediately" anywhere. The CLI has always said "Constrained. Check newer
+        version" for these; the exported label is now the same one it renders."""
+        import dataclasses
+
+        from ossiq.domain.common import RecommendationRung
+        from ossiq.domain.version import VersionsDifference
+
+        record = dataclasses.replace(
+            sample_project_metrics_record,
+            latest_version="17.9.0",
+            versions_diff_index=VersionsDifference(
+                version1="17.0.2", version2="17.9.0", diff_index=4, diff_name="DIFF_MINOR"
+            ),
+            compatibility=CompatibilityFacts(latest_in_range="17.0.2", latest_in_major="17.9.0"),
+            version_constraint="~17.0.2",
+            version_constraint_declared="~17.0.2",
+            recommended_version="17.9.0",
+            recommended_from_rung=RecommendationRung.IN_MAJOR,
+        )
+        metrics = ScanResult(
+            project_name="test-project",
+            project_path="/path/to/test-project",
+            packages_registry=ProjectPackagesRegistry.NPM.value,
+            production_packages=[record],
+            optional_packages=[],
+        )
+        renderer = JsonExportRenderer(settings)
+        renderer.render(metrics, destination=str(output_file), schema_version="1.5")
+
+        pkg = json.loads(output_file.read_text(encoding="utf-8"))["production_packages"][0]
+        assert pkg["next_action"] == "Constrained. Check newer version"
+        assert pkg["requires_constraint_widening"] is True
+
+    def test_v1_5_in_range_pick_does_not_require_widening(self, output_file, settings, sample_project_metrics_record):
+        import dataclasses
+
+        from ossiq.domain.common import RecommendationRung
+
+        record = dataclasses.replace(
+            sample_project_metrics_record,
+            recommended_version="18.2.0",
+            recommended_from_rung=RecommendationRung.SOLVER,
+        )
+        metrics = ScanResult(
+            project_name="test-project",
+            project_path="/path/to/test-project",
+            packages_registry=ProjectPackagesRegistry.NPM.value,
+            production_packages=[record],
+            optional_packages=[],
+        )
+        renderer = JsonExportRenderer(settings)
+        renderer.render(metrics, destination=str(output_file), schema_version="1.5")
+
+        pkg = json.loads(output_file.read_text(encoding="utf-8"))["production_packages"][0]
+        assert pkg["requires_constraint_widening"] is False
+
     def test_v1_5_emits_module_system_fields_and_validates(self, output_file, settings, sample_project_metrics_record):
         """latest_compatible_major/module_system/recommended_module_system/breaking_change
         round-trip on PackageMetrics and validate against the v1.5 schema."""

@@ -2,7 +2,7 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://ossiq.org/schemas/export/v1.5.json",
   "title": "OSS-IQ Export Schema v1.5",
-  "description": "Schema for OSS-IQ project metrics export data (v1.5 adds epss to PackageMetrics, TransitivePackageMetrics and CVEInfo, runs_code_at_install/install_execution_reason to PackageMetrics and TransitivePackageMetrics, fix_age_days to CVEInfo, project_epss/packages_with_epss/packages_with_unscored_cves to summary, declares update_transitive_impacts, and replaces the phi_i/phi_p/phi_a CSI channels with the maintenance-state model: maintenance_state, maintenance_risk, maintenance_coverage, flow_trend, engagement_buckets, deprecation_signals and deprecation_successor on PackageMetrics and TransitivePackageMetrics, and packages_unmaintained/packages_deprecated on summary; and adds latest_compatible_major, module_system, recommended_module_system to PackageMetrics and TransitivePackageMetrics, and breaking_change to PackageMetrics; and adds engine_requirement, engine_compatible, engine_context_source to PackageMetrics and TransitivePackageMetrics; and adds metadata.warnings and a scan-level runtime_context block, moving engine_context_source off the per-package models)",
+  "description": "Schema for OSS-IQ project metrics export data (v1.5 adds epss to PackageMetrics, TransitivePackageMetrics and CVEInfo, runs_code_at_install/install_execution_reason to PackageMetrics and TransitivePackageMetrics, fix_age_days to CVEInfo, project_epss/packages_with_epss/packages_with_unscored_cves to summary, declares update_transitive_impacts, and replaces the phi_i/phi_p/phi_a CSI channels with the maintenance-state model: maintenance_state, maintenance_risk, maintenance_coverage, flow_trend, engagement_buckets, deprecation_signals and deprecation_successor on PackageMetrics and TransitivePackageMetrics, and packages_unmaintained/packages_deprecated on summary; and adds latest_compatible_major, module_system, recommended_module_system to PackageMetrics and TransitivePackageMetrics, and breaking_change to PackageMetrics; and adds engine_requirement, engine_compatible, engine_context_source to PackageMetrics and TransitivePackageMetrics; and adds metadata.warnings and a scan-level runtime_context block, moving engine_context_source off the per-package models; and adds next_action to PackageMetrics and TransitivePackageMetrics and requires_constraint_widening to PackageMetrics, so every surface reads one next-action label instead of re-deriving it)",
   "type": "object",
   "required": [
     "metadata",
@@ -418,6 +418,22 @@
             "null"
           ],
           "description": "False when engine_requirement conflicts with the scan's engine_context; null = no evidence either way (no requirement, or no engine_context to compare against)"
+        },
+        "next_action": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "Check for the Fix",
+            "Find alternative",
+            "Consider alternative",
+            "Check Release Notes",
+            "Update Immediately",
+            "Constrained. Check newer version",
+            null
+          ],
+          "description": "The single next action for this package, exactly as the CLI's What's Next column and the HTML report show it; absent when nothing is due. The agent payload's next_action applies two further escalations on top of this label and can therefore differ."
         },
         "rejected_candidates": {
           "type": "array",
@@ -938,6 +954,26 @@
             null
           ],
           "description": "Which version-ladder rung recommended_version came from: 'solver' or 'in_range' sit inside version_constraint and are safe to write as-is; 'in_major' or 'latest' require widening version_constraint first. Null only when recommended_version is null."
+        },
+        "requires_constraint_widening": {
+          "type": "boolean",
+          "description": "True when recommended_version is only reachable by widening version_constraint first - i.e. recommended_from_rung is 'in_major' or 'latest'. `ossiq apply` writes nothing for these; `ossiq plan` reports them under constraint widening instead."
+        },
+        "next_action": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "Check for the Fix",
+            "Find alternative",
+            "Consider alternative",
+            "Check Release Notes",
+            "Update Immediately",
+            "Constrained. Check newer version",
+            null
+          ],
+          "description": "The single next action for this package, exactly as the CLI's What's Next column and the HTML report show it; null when nothing is due. The agent payload's next_action applies two further escalations on top of this label and can therefore differ."
         },
         "is_prerelease": {
           "type": "boolean",

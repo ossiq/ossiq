@@ -16,6 +16,20 @@ Two kinds of changes require a new version:
 
 Breaking changes (removing required fields, renaming) are **never** made to an existing version — always bump.
 
+### The standing exception: v1.5 while it is unreleased
+
+v1.5 has not shipped in a release (the package is still `0.1.10`), so it has no consumers outside
+this repository and additive fields have been **amended into `export_schema_v1.5.json` in place**
+rather than bumped. Amended this way so far: the version-ladder fields (`latest_in_range`,
+`latest_in_major`, `latest_compatible_major`, `recommended_from_rung`), the module-system and
+engine fields, and `next_action` / `requires_constraint_widening`. Each addition is optional, not
+in `required`, and neither `$def` sets `additionalProperties: false`, so documents produced before
+the amendment still validate.
+
+This exception ends the moment v1.5 ships. After that the policy above applies without
+qualification: additive changes bump the minor version. Amending in place still means running the
+rest of the checklist below — regenerate the TS types, type-check the frontend, rebuild the SPA.
+
 ---
 
 ## Step-by-step: introducing v1.6
