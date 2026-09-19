@@ -5,6 +5,7 @@ data source was actually degraded - see ossiq-defect-report.md, B4.
 from io import StringIO
 from unittest.mock import MagicMock, patch
 
+import pytest
 from rich.console import Console
 
 from ossiq.domain.common import DataCompleteness, DataSourceStatus, ScanStep
@@ -118,9 +119,10 @@ class TestShowScanProgressIntegration:
         warn.assert_called_once()
         assert "GitHub" in warn.call_args.args[0]
 
-    def test_verbose_mode_yields_a_silent_progress(self):
-        """The verbose/agent-format path yields a real ScanProgress whose callbacks do nothing,
-        so scan() never has to check whether it has one.
+    def test_verbose_mode_yields_a_progress_that_draws_nothing(self):
+        """The verbose/agent-format path yields a real ScanProgress, so scan() never has to check
+        whether it has one. on_step_start is a no-op there; on_step_done still records the outcome,
+        which is what TestDegradedWarningOnEverySurface then depends on.
         """
         settings = Settings(verbose=True)
         with show_scan_progress(settings) as progress:
@@ -157,3 +159,59 @@ class TestWarnAboutDegradedSteps:
             warn_about_degraded_steps(DataCompleteness())
 
         warn.assert_not_called()
+
+
+class TestDegradedWarningOnEverySurface:
+    """The stepper is skipped under --verbose and without Rich; the warning is not.
+
+    show_scan_progress used to return before warn_about_degraded_steps on both paths, so a
+    verbose CI log — the one place someone would go looking for it — never carried it.
+    """
+
+    def run_scan(self, settings: Settings, rich_available: bool) -> MagicMock:
+        with (
+            patch("ossiq.ui.system.RICH_AVAILABLE", rich_available),
+            patch("ossiq.ui.system.error_console", MagicMock()),
+            patch("ossiq.ui.system.show_warning") as warn,
+        ):
+            with show_scan_progress(settings) as progress:
+                progress.on_step_start(ScanStep.VULNERABILITIES)
+                progress.on_step_done(ScanStep.VULNERABILITIES, DataSourceStatus.UNREACHABLE)
+        return warn
+
+    def test_verbose_still_warns(self):
+        warn = self.run_scan(Settings(verbose=True), rich_available=True)
+
+        warn.assert_called_once()
+        assert "vulnerabilities" in warn.call_args.args[0].lower()
+
+    def test_missing_rich_still_warns(self):
+        warn = self.run_scan(Settings(verbose=False), rich_available=False)
+
+        warn.assert_called_once()
+
+    def test_verbose_clean_run_still_warns_about_nothing(self):
+        with (
+            patch("ossiq.ui.system.RICH_AVAILABLE", True),
+            patch("ossiq.ui.system.error_console", MagicMock()),
+            patch("ossiq.ui.system.show_warning") as warn,
+        ):
+            with show_scan_progress(Settings(verbose=True)) as progress:
+                progress.on_step_done(ScanStep.VULNERABILITIES, DataSourceStatus.OK)
+
+        warn.assert_not_called()
+
+    def test_a_scan_that_raises_still_warns_about_what_it_got(self):
+        """The warning moved into a finally: a scan that dies partway has more need of it, not
+        less, and its partial outcomes are already recorded."""
+        with (
+            patch("ossiq.ui.system.RICH_AVAILABLE", True),
+            patch("ossiq.ui.system.error_console", MagicMock()),
+            patch("ossiq.ui.system.show_warning") as warn,
+            pytest.raises(RuntimeError),
+        ):
+            with show_scan_progress(Settings(verbose=True)) as progress:
+                progress.on_step_done(ScanStep.VULNERABILITIES, DataSourceStatus.RATE_LIMITED)
+                raise RuntimeError("scan blew up")
+
+        warn.assert_called_once()

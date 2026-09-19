@@ -87,29 +87,38 @@ def show_scan_progress(settings: Settings):
     it - there was no feedback loop from whether the underlying fetch actually succeeded. That's
     why a firewalled OSV host or an exhausted GitHub quota could render a silent, confident ✓.
     """
-    if settings.verbose or not RICH_AVAILABLE:
-        yield ScanProgress()
-        return
-
-    assert error_console is not None
-    current = [-1]
     step_status: dict[ScanStep, DataSourceStatus] = {}
 
-    with Live(render_scan_steps(-1, step_status), console=error_console, refresh_per_second=8) as live:
+    def record_step_done(step: ScanStep, status: DataSourceStatus) -> None:
+        step_status[step] = status
 
-        def on_step_start(step: ScanStep) -> None:
-            current[0] = STEP_INDEX.get(step, current[0])
-            live.update(render_scan_steps(current[0], step_status))
+    try:
+        # --verbose and a missing Rich both skip the stepper, but neither is a reason to skip the
+        # warning: a verbose CI log is exactly where someone would look for it, and it used to be
+        # the one place it could never appear. The outcome callback still runs so there is
+        # something to warn about; only the animation is dropped.
+        if settings.verbose or not RICH_AVAILABLE:
+            yield ScanProgress(on_step_done=record_step_done)
+            return
 
-        def on_step_done(step: ScanStep, status: DataSourceStatus) -> None:
-            step_status[step] = status
-            live.update(render_scan_steps(current[0], step_status))
+        assert error_console is not None
+        current = [-1]
 
-        yield ScanProgress(on_step_start=on_step_start, on_step_done=on_step_done)
-        live.update(render_scan_steps(len(SCAN_STEPS), step_status))
-    print("\n", file=sys.stderr)
+        with Live(render_scan_steps(-1, step_status), console=error_console, refresh_per_second=8) as live:
 
-    warn_about_degraded_steps(DataCompleteness(by_step=step_status))
+            def on_step_start(step: ScanStep) -> None:
+                current[0] = STEP_INDEX.get(step, current[0])
+                live.update(render_scan_steps(current[0], step_status))
+
+            def on_step_done(step: ScanStep, status: DataSourceStatus) -> None:
+                record_step_done(step, status)
+                live.update(render_scan_steps(current[0], step_status))
+
+            yield ScanProgress(on_step_start=on_step_start, on_step_done=on_step_done)
+            live.update(render_scan_steps(len(SCAN_STEPS), step_status))
+        print("\n", file=sys.stderr)
+    finally:
+        warn_about_degraded_steps(DataCompleteness(by_step=step_status))
 
 
 def warn_about_degraded_steps(completeness: DataCompleteness) -> None:
