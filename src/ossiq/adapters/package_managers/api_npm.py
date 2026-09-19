@@ -245,6 +245,37 @@ def extract_min_node_version(node_range: str) -> str | None:
     return str(min(floors)) if floors else None
 
 
+# The engine keys a project's own `engines` block can declare a floor for. `node` is the runtime;
+# the rest are package managers, whose requirements packages do publish (`engines.npm`) and which
+# were previously parsed for nothing because no context key ever carried them.
+DECLARABLE_ENGINES: tuple[str, ...] = ("node", "npm", "pnpm", "yarn")
+
+
+def declared_engine_floors(engines: dict[str, object] | None) -> dict[str, str] | None:
+    """Lowest version the project's own manifest claims to support, per engine key.
+
+    Used when no runtime probe ran (`--no-probe-runtime`, or a probe that failed): the floor is
+    what the project says it supports, not what it is running on. Keys whose range names no exact
+    lower bound are dropped rather than guessed at.
+
+    Args:
+        engines: The manifest's `engines` block, or None when it is absent or not an object.
+
+    Returns:
+        {engine_key: floor_version}, or None when nothing could be determined.
+    """
+    if not engines:
+        return None
+    floors: dict[str, str] = {}
+    for key in DECLARABLE_ENGINES:
+        declared = engines.get(key)
+        if not isinstance(declared, str):
+            continue
+        if floor := extract_min_node_version(declared):
+            floors[key] = floor
+    return floors or None
+
+
 def make_manifest_dependency(name: str, version: str, categories: list[str]) -> Dependency:
     """Build a Dependency from a package.json entry (no lockfile needed)."""
     canonical_name, constraint = PackageManagerJsNpm.parse_npm_alias(version)
@@ -453,10 +484,8 @@ class PackageManagerJsNpm(AbstractPackageManagerApi):
         fallback_name = os.path.basename(self.project_path)
         project_package_name = project_data.get("name", fallback_name)
 
-        engines = project_data.get("engines", {})
-        node_constraint = engines.get("node") if isinstance(engines, dict) else None
-        min_node = extract_min_node_version(node_constraint) if node_constraint else None
-        engine_constraints = {"node": min_node} if min_node else None
+        declared_engines = project_data.get("engines")
+        engine_constraints = declared_engine_floors(declared_engines if isinstance(declared_engines, dict) else None)
         declares_esm = project_data.get("type") == "module"
 
         def create_project(dependency_tree: Dependency, has_lockfile: bool = True) -> Project:

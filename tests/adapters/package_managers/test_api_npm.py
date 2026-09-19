@@ -29,6 +29,7 @@ from ossiq.adapters.package_managers.api_npm import (
     NPMResolverV3,
     PackageManagerJsNpm,
     apply_direct_specs,
+    declared_engine_floors,
     extract_min_node_version,
 )
 from ossiq.adapters.package_managers.dependency_tree import GraphExporter
@@ -1476,3 +1477,28 @@ class TestApplyDirectSpecsWithAliases:
         apply_direct_specs(pkg, make_npm_update_plan(direct=[entry]))
 
         assert pkg["dependencies"]["lodash"] == "^4.18.1"
+
+
+class TestDeclaredEngineFloors:
+    """The declared fallback carried only `node`, so the --no-probe-runtime path had no npm floor
+    to check an `engines.npm` requirement against even once the matcher could evaluate one."""
+
+    def test_node_and_npm_floors_are_both_carried(self):
+        floors = declared_engine_floors({"node": ">=18.0.0", "npm": ">=9.0.0"})
+
+        assert floors == {"node": "18.0.0", "npm": "9.0.0"}
+
+    def test_package_manager_floors_are_parsed_as_npm_ranges(self):
+        assert declared_engine_floors({"pnpm": "^8.6.0", "yarn": "~4.1"}) == {"pnpm": "8.6.0", "yarn": "4.1.0"}
+
+    def test_a_range_with_no_nameable_floor_is_dropped_not_guessed(self):
+        assert declared_engine_floors({"node": ">=18.0.0", "npm": "*"}) == {"node": "18.0.0"}
+
+    def test_non_string_and_absent_engines_are_ignored(self):
+        assert declared_engine_floors({"node": {"nested": "junk"}}) is None
+        assert declared_engine_floors({}) is None
+        assert declared_engine_floors(None) is None
+
+    def test_unknown_engine_keys_are_not_carried(self):
+        """Only keys the matcher can actually evaluate; a floor nothing checks is noise."""
+        assert declared_engine_floors({"bun": ">=1.0.0", "node": ">=18.0.0"}) == {"node": "18.0.0"}

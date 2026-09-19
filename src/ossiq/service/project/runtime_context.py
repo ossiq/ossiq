@@ -53,9 +53,17 @@ def detect_engine_context(
             if version := detect_actual_python_version(project_path):
                 detected[ENGINE_CONTEXT_KEY_BY_REGISTRY[ProjectPackagesRegistry.PYPI]] = version
         elif registry == ProjectPackagesRegistry.NPM:
+            npm_cli_version = detect_actual_npm_cli_version()
             if version := detect_actual_node_version():
                 detected[ENGINE_CONTEXT_KEY_BY_REGISTRY[ProjectPackagesRegistry.NPM]] = version
-            npm_cli_version = detect_actual_npm_cli_version()
+                # The npm probe already ran for display; carrying it in the context is what makes
+                # a package's `engines.npm` requirement checkable at all, since
+                # engine_mismatch_reason iterates context keys and a key absent here is a
+                # requirement never examined. Gated on the runtime probe rather than added
+                # independently: `detected` non-empty is what selects DETECTED over the declared
+                # floors, and an npm-only context would discard the project's declared node floor.
+                if npm_cli_version:
+                    detected["npm"] = npm_cli_version
 
     declared = project_info.engine_constraints or {}
     if detected:

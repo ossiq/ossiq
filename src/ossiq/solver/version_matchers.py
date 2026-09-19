@@ -272,6 +272,11 @@ def satisfies_all_constraints(version: str, constraints: list[str], registry: Pr
 # ── Engine requirement checks
 
 
+# Engine keys whose versions and requirements are both npm semver. The runtime and the package
+# managers that install for it share one range grammar, so they share one matcher.
+NPM_SEMVER_ENGINES: frozenset[str] = frozenset({"node", "nodejs", "npm", "pnpm", "yarn"})
+
+
 def engine_version_satisfies_requirement(
     engine_key: str,
     context_version: str,
@@ -280,15 +285,18 @@ def engine_version_satisfies_requirement(
     """Return True if the running *context_version* satisfies a package's engine *requirement*.
 
     Dispatcher:
-      - ``"python"``           -> PEP 440 ``PypiVersionRange``
-      - ``"node"`` / ``"nodejs"`` -> npm semver range
+      - ``"python"``                      -> PEP 440 ``PypiVersionRange``
+      - ``"node"`` / ``"nodejs"``         -> npm semver range
+      - ``"npm"`` / ``"pnpm"`` / ``"yarn"`` -> npm semver range
 
-    Unknown engine keys pass through as True.
+    Unknown engine keys pass through as True — an engine nobody can check must not read as a
+    conflict. The package managers were previously in that bucket, so an `engines.npm` requirement
+    was silently unenforced however far the installed CLI was from it.
     """
     try:
         if engine_key == "python":
             return pypi_version_satisfies_specifier(context_version, requirement)
-        if engine_key in ("node", "nodejs"):
+        if engine_key in NPM_SEMVER_ENGINES:
             return npm_version_satisfies_range(context_version, requirement)
     except (ValueError, InvalidVersionRange, InvalidConstraintsError):
         pass

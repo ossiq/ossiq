@@ -64,7 +64,8 @@ class TestProbeGating:
         python_probe.assert_not_called()
         node_probe.assert_called_once()
         npm_probe.assert_called_once()
-        assert context.versions == {"node": "20.11.0"}
+        # The npm CLI version rides along in the context so `engines.npm` is checkable at all.
+        assert context.versions == {"node": "20.11.0", "npm": "10.2.4"}
         assert npm_cli_version == "10.2.4"
 
     def test_probe_runtime_disabled_spawns_nothing(self, probes):
@@ -89,7 +90,7 @@ class TestContextSource:
 
         context, _ = detect_engine_context(project, ".", probe_runtime=True)
 
-        assert context.versions == {"node": "20.11.0"}
+        assert context.versions == {"node": "20.11.0", "npm": "10.2.4"}
         assert context.source == EngineContextSource.DETECTED
 
     def test_declared_floor_is_the_fallback_when_no_probe_succeeds(self, probes):
@@ -126,3 +127,31 @@ class TestContextSource:
         context.versions["node"] = "tampered"
 
         assert declared == {"node": ">=18.0.0"}
+
+
+class TestNpmEngineKey:
+    """A package's `engines.npm` requirement was unreachable by two independent routes: no context
+    ever carried an npm key, and the matcher returned True for every key but python and node."""
+
+    def test_a_failed_node_probe_does_not_strand_the_declared_floors(self, probes):
+        """The npm probe must not select DETECTED on its own — an npm-only context would discard
+        the project's declared node floor, which is the only thing left to check against."""
+        _, node_probe, _ = probes
+        node_probe.return_value = None
+        project = make_project(ProjectPackagesRegistry.NPM, {"node": ">=18.0.0", "npm": ">=9.0.0"})
+
+        context, npm_cli_version = detect_engine_context(project, ".", probe_runtime=True)
+
+        assert context.versions == {"node": ">=18.0.0", "npm": ">=9.0.0"}
+        assert context.source == EngineContextSource.DECLARED
+        # Still reported for display, just not used as a context on its own.
+        assert npm_cli_version == "10.2.4"
+
+    def test_no_npm_probe_result_leaves_the_node_context_intact(self, probes):
+        _, _, npm_probe = probes
+        npm_probe.return_value = None
+
+        context, _ = detect_engine_context(make_project(ProjectPackagesRegistry.NPM), ".", probe_runtime=True)
+
+        assert context.versions == {"node": "20.11.0"}
+        assert context.source == EngineContextSource.DETECTED

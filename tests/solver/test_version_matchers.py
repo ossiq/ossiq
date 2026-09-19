@@ -15,6 +15,7 @@ from univers.versions import SemverVersion
 from ossiq.domain.common import ProjectPackagesRegistry
 from ossiq.solver.problem import CandidateVersion
 from ossiq.solver.version_matchers import (
+    engine_mismatch_reason,
     engine_version_satisfies_requirement,
     fallback_evaluate_bounds,
     has_engine_mismatch,
@@ -207,6 +208,12 @@ def test_version_satisfies_constraint_npm(version: str, constraint: str, expecte
         ("node", "14.0.0", ">=16", False),
         ("nodejs", "18.0.0", "^18", True),
         ("nodejs", "20.0.0", "^18", False),
+        # package managers → npm semver. These returned True for everything, so an engines.npm
+        # requirement was silently unenforced however far the installed CLI was from it.
+        ("npm", "10.2.4", ">=9.0.0", True),
+        ("npm", "8.19.2", ">=9.0.0", False),
+        ("pnpm", "9.0.0", ">=8", True),
+        ("yarn", "1.22.19", ">=4.0.0", False),
         # unknown engine → passthrough True
         ("bun", "1.0.0", ">=1.0.0", True),
     ],
@@ -264,3 +271,20 @@ def test_has_engine_mismatch_violated() -> None:
 def test_has_engine_mismatch_engine_not_declared() -> None:
     # context has "node" but cv only declares "python" — no mismatch
     assert has_engine_mismatch(_cv({"python": ">=3.9"}), {"node": "18.0.0"}) is False
+
+
+def test_engine_mismatch_reason_names_the_package_manager_that_mismatches() -> None:
+    """The test the engine work could not previously write: with npm unenforceable, a package
+    declaring both node and npm could only ever be judged on node."""
+    reason = engine_mismatch_reason({"node": ">=18.0.0", "npm": ">=9.0.0"}, {"node": "20.11.0", "npm": "8.19.2"})
+
+    assert reason == "requires npm >=9.0.0, detected 8.19.2"
+
+
+def test_engine_mismatch_reason_clear_when_both_engines_satisfied() -> None:
+    assert engine_mismatch_reason({"node": ">=18.0.0", "npm": ">=9.0.0"}, {"node": "20.11.0", "npm": "10.2.4"}) is None
+
+
+def test_engine_mismatch_reason_ignores_a_package_manager_absent_from_the_context() -> None:
+    """A probe that did not run is not a conflict — absence of evidence, per the tri-state rule."""
+    assert engine_mismatch_reason({"npm": ">=9.0.0"}, {"node": "20.11.0"}) is None

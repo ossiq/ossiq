@@ -266,11 +266,18 @@ PyPI. A release that cannot run on your runtime is not a candidate, however new 
 
 | Source | Used when | Value |
 |---|---|---|
-| `detected` | a runtime probe succeeded | the actual interpreter — the project's virtualenv Python, or `node --version` from `PATH` |
-| `declared` | no probe (or `--no-probe-runtime`) | the **lowest** version the project's own manifest claims to support |
+| `detected` | a runtime probe succeeded | the actual interpreter — the project's virtualenv Python, or `node --version` **and `npm --version`** from `PATH` |
+| `declared` | no probe (or `--no-probe-runtime`) | the **lowest** version the project's own manifest claims to support, per engine key |
 | `none` | neither available | no engine checking happens at all |
 
 Probes are gated by registry: a pure-PyPI scan never spawns `node --version`.
+
+Both sides carry the package managers as well as the runtime, so a release declaring
+`engines.npm` is checked against the npm you actually have — `node` and `npm` share one semver
+grammar and one matcher. `pnpm` and `yarn` are evaluated by the same matcher but nothing probes
+them, so a requirement naming one is checked only when the project declares its own floor. The
+npm probe never selects `detected` on its own: an npm-only context would discard the project's
+declared node floor, which on a failed Node probe is the only thing left to check against.
 
 ### One definition, three consumers
 
@@ -303,7 +310,8 @@ the best available answer**; OSS IQ's obligation is to say so, not to hide it.
 |---|---|
 | **The probed runtime may not be the deployed one** | On npm, the detected Node is whatever is on the `PATH` of the shell running `ossiq` — a developer laptop, not CI or production. Recommendations are gated against that. |
 | **The declared floor is a floor, not your runtime** | Without a probe, checks run against the *lowest* version the manifest supports. A package requiring `node >=22` is reported incompatible for a project declaring `>=18`, even if every real deployment runs 24. |
-| **The check fails open** | Unknown engine keys and unparseable ranges return "satisfied". A malformed `engines` field reads as compatible, not as unknown. |
+| **The check fails open** | An engine key nothing can evaluate (`bun`, say) and an unparseable range both return "satisfied". A malformed `engines` field reads as compatible, not as unknown. |
+| **An engine absent from the context is never checked** | The check iterates the runtime versions it has, not the requirements a release declares. A `pnpm` requirement on a project that declares no `pnpm` floor is passed over in silence, exactly as an `npm` requirement was everywhere before it was probed. |
 | **`None` is easy to misread** | An absent requirement and a verified pass are different states and look similar in JSON. |
 
 (the-cycle)=
