@@ -23,7 +23,8 @@ console = Console()
 
 def package_cell_text(entry: UpdateEntry) -> str:
     """Package cell with non-actionable (✗) and CVE markers applied."""
-    text = entry.package_name if entry.is_actionable else f"[red]✗ {entry.package_name}[/red]"
+    name = entry.display_name
+    text = name if entry.is_actionable else f"[red]✗ {name}[/red]"
     if entry.is_security:
         text = f"{text} [red]CVE[/red]"
     return text
@@ -132,7 +133,7 @@ class ConsolePlanRenderer(AbstractUserInterfaceRenderer):
         for entry in data.held_for_cooldown:
             age = f"{entry.reason.age_days}d" if entry.reason and entry.reason.age_days is not None else "—"
             dep_type = "direct" if entry.is_direct else "transitive"
-            table.add_row(entry.package_name, entry.current_version, entry.recommended_version, age, dep_type)
+            table.add_row(entry.display_name, entry.current_version, entry.recommended_version, age, dep_type)
         console.print(table)
         console.print()
 
@@ -153,7 +154,7 @@ class ConsolePlanRenderer(AbstractUserInterfaceRenderer):
             dep_type = "direct" if entry.is_direct else "transitive"
             scope = rung_scope_label(entry.from_rung)
             table.add_row(
-                entry.package_name,
+                entry.display_name,
                 entry.current_version,
                 entry.version_defined or "—",
                 entry.recommended_version,

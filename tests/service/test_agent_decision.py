@@ -436,6 +436,27 @@ def test_next_action_unchanged_for_widening_pick_with_minor_drift():
     assert entry["requires_constraint_widening"] is True
 
 
+def test_aliased_entry_carries_its_manifest_key():
+    """Two npm aliases of one package produce two entries sharing "package" — the manifest key is
+    the only thing that tells a consumer which declaration each one answers for."""
+    record = make_record(name="uuid", installed="13.0.0", latest="14.0.2", recommended="14.0.2")
+    record.dependency_name = "uuid-v11"
+
+    entry = build_update_decide(make_scan([record]))["updates"][0]
+
+    assert entry["package"] == "uuid"
+    assert entry["dependency_name"] == "uuid-v11"
+
+
+def test_unaliased_entry_omits_the_manifest_key():
+    record = make_record(name="requests", installed="2.28.0", latest="2.32.0", recommended="2.32.0")
+    record.dependency_name = "requests"
+
+    entry = build_update_decide(make_scan([record]))["updates"][0]
+
+    assert "dependency_name" not in entry
+
+
 def make_installed_detail(record: ScanRecord, insight: PackageInsight | None) -> PackageDetailResult:
     return PackageDetailResult(
         records=[record],

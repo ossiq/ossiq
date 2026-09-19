@@ -297,7 +297,11 @@ def apply_direct_specs(pkg: dict, plan: UpdatePlan) -> None:
     Updated deps are relaxed via relax_spec (or exact-pinned for forced/pin-all);
     deps not in the plan are left untouched.
     """
-    direct_entries = {e.package_name: e for e in plan.direct_entries}
+    # Keyed by the manifest key, which is what this loop iterates. For an npm alias
+    # (`uuid-v7: "npm:uuid@^7.0.0"`) the registry name never equals the key, so keying on
+    # package_name matched nothing at all — and a plain `uuid` declared alongside an aliased
+    # `uuid-*` could pick up the wrong entry's version.
+    direct_entries = {e.identity: e for e in plan.direct_entries}
     for section in DEP_SECTIONS:
         for name, current_spec in list(pkg.get(section, {}).items()):
             entry = direct_entries.get(name)

@@ -122,6 +122,11 @@ The top-level `next_action` is the most urgent one across the `updates` list, or
 `latest_in_major` (newest version sharing the installed major line) are always
 present — equal to `from` when that step has nothing newer, never omitted.
 
+`dependency_name` appears only when the manifest declares the package under a different key
+than its registry name — npm aliases (`"uuid-v7": "npm:uuid@^7.0.0"`) are the only case today.
+Two aliases of one package produce two entries sharing `"package"`, so `dependency_name` is what
+tells you which declaration an entry answers for and which line to edit.
+
 ### Module-system and API breaks
 
 A recommended version is not always drop-in — semver alone can't see an npm package going

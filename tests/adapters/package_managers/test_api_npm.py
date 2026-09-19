@@ -28,6 +28,7 @@ from ossiq.adapters.package_managers.api_npm import (
     CATEGORIES_PEER,
     NPMResolverV3,
     PackageManagerJsNpm,
+    apply_direct_specs,
     extract_min_node_version,
 )
 from ossiq.adapters.package_managers.dependency_tree import GraphExporter
@@ -1017,9 +1018,11 @@ def make_npm_update_entry(
     version_defined: str | None = None,
     is_direct: bool = True,
     is_forced: bool = False,
+    dependency_name: str | None = None,
 ) -> UpdateEntry:
     return UpdateEntry(
         package_name=name,
+        dependency_name=dependency_name,
         current_version=current,
         recommended_version=recommended,
         is_direct=is_direct,
@@ -1432,3 +1435,44 @@ class TestDevTransitiveDeps:
         discovered = {node.name for node, _ in walker.walk_all_paths(include_optional_roots=False)}
         assert "js-cookie" not in discovered
         assert "js-helper" not in discovered
+
+
+class TestApplyDirectSpecsWithAliases:
+    """The manifest rewrite iterates manifest keys, so it has to be keyed on them.
+
+    An npm alias declares `uuid-v7: "npm:uuid@^7.0.0"`; the entry's registry name is `uuid`, which
+    matches no key in any DEP_SECTIONS map. Keying on package_name meant apply silently wrote
+    nothing for every aliased dependency, and a plain `uuid` declared alongside an aliased
+    `uuid-*` could pick up the wrong entry's version.
+    """
+
+    def test_aliased_dep_is_matched_and_left_untouched(self):
+        pkg = {"dependencies": {"uuid-v7": "npm:uuid@^7.0.0"}}
+        entry = make_npm_update_entry("uuid", "7.0.3", "7.1.0", dependency_name="uuid-v7")
+
+        apply_direct_specs(pkg, make_npm_update_plan(direct=[entry]))
+
+        # relax_spec deliberately returns npm: specs unchanged — but it is now reached at all.
+        assert pkg["dependencies"]["uuid-v7"] == "npm:uuid@^7.0.0"
+
+    def test_plain_dep_alongside_an_alias_gets_its_own_entry(self):
+        pkg = {"dependencies": {"uuid": "^7.0.0", "uuid-v11": "npm:uuid@>11.0.0"}}
+        plan = make_npm_update_plan(
+            direct=[
+                make_npm_update_entry("uuid", "7.0.3", "7.1.0"),
+                make_npm_update_entry("uuid", "13.0.0", "14.0.2", dependency_name="uuid-v11"),
+            ]
+        )
+
+        apply_direct_specs(pkg, plan)
+
+        assert pkg["dependencies"]["uuid"] == "^7.1.0"
+        assert pkg["dependencies"]["uuid-v11"] == "npm:uuid@>11.0.0"
+
+    def test_unaliased_dep_is_unaffected(self):
+        pkg = {"dependencies": {"lodash": "^4.17.0"}}
+        entry = make_npm_update_entry("lodash", "4.17.21", "4.18.1")
+
+        apply_direct_specs(pkg, make_npm_update_plan(direct=[entry]))
+
+        assert pkg["dependencies"]["lodash"] == "^4.18.1"

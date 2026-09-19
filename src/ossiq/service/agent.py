@@ -213,6 +213,14 @@ def build_update_entry(record: ScanRecord, engine_context: EngineContext | None 
     # ladder fields and could differ from both, e.g. a pinned major behind an API break.
     base: dict[str, Any] = {
         "package": record.package_name,
+        # Two npm aliases of one package produce two entries sharing "package"; without the
+        # manifest key a consumer cannot tell which declaration each one answers for, nor which
+        # line of package.json to edit. Omitted when it adds nothing, matching the export.
+        **(
+            {"dependency_name": record.dependency_name}
+            if record.dependency_name and record.dependency_name != record.package_name
+            else {}
+        ),
         "from": installed,
         "latest_version": record.latest_version,
         "latest_in_range": facts.latest_in_range,

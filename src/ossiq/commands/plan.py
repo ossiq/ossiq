@@ -246,7 +246,7 @@ def confirm_acknowledged(plan: UpdatePlan) -> bool:
         if entry.carries_known_break:
             reasons.append("known break")
         typer.echo(
-            f"  {entry.package_name}  {entry.version_defined or '(none)'} -> {entry.recommended_version}"
+            f"  {entry.display_name}  {entry.version_defined or '(none)'} -> {entry.recommended_version}"
             f"  [{'direct' if entry.is_direct else 'transitive'}]  ({', '.join(reasons)})"
         )
     return typer.confirm("Proceed with these updates?", default=False)

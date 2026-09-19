@@ -31,9 +31,11 @@ def make_entry(
     age_days: int,
     is_direct: bool,
     carries_known_break: bool = False,
+    dependency_name: str | None = None,
 ) -> UpdateEntry:
     return UpdateEntry(
         package_name=name,
+        dependency_name=dependency_name,
         current_version=current,
         recommended_version=recommended,
         is_direct=is_direct,
@@ -208,3 +210,29 @@ class TestKnownBreakSubRow:
         output = render(make_plan(direct_entries=[entry]), monkeypatch)
 
         assert "known API/module-system break" not in output
+
+
+class TestAliasedPackageNames:
+    """Two npm aliases of one package must not render as two identical rows."""
+
+    def test_direct_row_names_the_manifest_key(self, monkeypatch):
+        plan = make_plan(
+            direct_entries=[
+                make_entry("uuid", "13.0.0", "14.0.2", 30, True, dependency_name="uuid-v11"),
+            ]
+        )
+
+        assert "uuid-v11 (uuid)" in render(plan, monkeypatch)
+
+    def test_widening_row_names_the_manifest_key(self, monkeypatch):
+        entry = make_entry("uuid", "7.0.3", "11.1.1", 30, True, dependency_name="uuid-v7")
+        plan = make_plan(held_for_widening=[entry])
+
+        assert "uuid-v7 (uuid)" in render(plan, monkeypatch)
+
+    def test_unaliased_row_is_unchanged(self, monkeypatch):
+        plan = make_plan(direct_entries=[make_entry("requests", "2.28.0", "2.32.0", 30, True)])
+        output = render(plan, monkeypatch)
+
+        assert "requests" in output
+        assert "(" not in output.split("requests")[1].split("\n")[0]

@@ -23,6 +23,11 @@ class UpdateEntry:
     recommended_version: str
     is_direct: bool
     reason: RecommendationReason | None
+    # The key this dependency is declared under in the manifest, when it differs from the registry
+    # name — npm aliases (`uuid-v7: "npm:uuid@^7.0.0"`) are the only source of a difference today.
+    # None for transitive records, which have no declaration of their own. Read it through
+    # `identity`, never directly.
+    dependency_name: str | None = None
     transitive_impacts: list[TransitiveImpact] = field(default_factory=list)
     # False when transitive conflicts exist and no conflict-free candidate was found.
     is_actionable: bool = True
@@ -46,6 +51,28 @@ class UpdateEntry:
     # declared range (e.g. `uuid@>11.0.0` admitting ESM-only 14.0.2), in which case
     # widens_constraint is False and nothing else would ask before writing it.
     carries_known_break: bool = False
+
+    @property
+    def identity(self) -> str:
+        """The manifest key this entry writes to — the plan's unit of identity.
+
+        Two npm aliases of one package (`uuid-v7` and `uuid-v11`) share a `package_name`, so
+        keying the plan's partitions or the manifest rewrite on that name makes them collide:
+        holding one for widening dropped the other from the plan entirely, and the npm writer
+        matched neither because the manifest key is the alias. `package_name` remains the registry
+        name — the solver, OSV and the registry clients all key on it and must keep doing so.
+        """
+        return self.dependency_name or self.package_name
+
+    @property
+    def display_name(self) -> str:
+        """How to name this entry to a human: the manifest key, plus the registry name when aliased.
+
+        Without the suffix two npm aliases of one package render as two identical `uuid` rows.
+        """
+        if self.dependency_name and self.dependency_name != self.package_name:
+            return f"{self.dependency_name} ({self.package_name})"
+        return self.package_name
 
 
 @dataclass(frozen=True)
@@ -85,6 +112,7 @@ def entry_from_record(record: ScanRecord, is_direct: bool) -> UpdateEntry:
     assert record.recommended_version is not None
     return UpdateEntry(
         package_name=record.package_name,
+        dependency_name=record.dependency_name,
         current_version=record.installed_version,
         recommended_version=record.recommended_version,
         is_direct=is_direct,
@@ -150,6 +178,7 @@ def forced_entry_from_record(record: ScanRecord, forced_version: str, is_direct:
         constraint_type = ConstraintType.OVERRIDE
     return UpdateEntry(
         package_name=record.package_name,
+        dependency_name=record.dependency_name,
         current_version=record.installed_version,
         recommended_version=forced_version,
         is_direct=is_direct,
@@ -229,10 +258,15 @@ def build_update_plan(
 
     unknown_overrides: list[str] = []
     if forced_overrides:
+        # --override accepts either spelling: the manifest key (`uuid-v7`, the only unambiguous
+        # way to name one of two npm aliases) or the registry name (`uuid`, which resolves to an
+        # arbitrary alias when several share it — the pre-existing behaviour, kept so the flag
+        # does not change meaning for the overwhelmingly common unaliased case).
         direct_by_name = {r.package_name: r for r in direct_records}
+        direct_by_name.update({r.dependency_name: r for r in direct_records if r.dependency_name})
         transitive_records = {r.package_name: r for r in scan_result.transitive_packages}
         forced_names = set(forced_overrides)
-        direct = [e for e in direct if e.package_name not in forced_names]
+        direct = [e for e in direct if e.identity not in forced_names and e.package_name not in forced_names]
         transitive = [e for e in transitive if e.package_name not in forced_names]
         for name, version in forced_overrides.items():
             is_direct = name in direct_by_name
@@ -259,17 +293,20 @@ def build_update_plan(
         ],
         key=lambda e: e.package_name,
     )
-    widening_names = {e.package_name for e in widening}
-    direct = [e for e in direct if e.package_name not in widening_names]
-    transitive = [e for e in transitive if e.package_name not in widening_names]
+    # Subtract by identity, not by registry name: two npm aliases of one package share a
+    # package_name, so holding `uuid-v7` for widening used to drop `uuid-v11` from the plan
+    # entirely — including its ESM-break acknowledgement prompt.
+    widening_ids = {e.identity for e in widening}
+    direct = [e for e in direct if e.identity not in widening_ids]
+    transitive = [e for e in transitive if e.identity not in widening_ids]
 
     held = sorted(
         [e for e in direct + transitive if is_held_for_cooldown(e, cooldown_period)],
         key=lambda e: e.package_name,
     )
-    held_names = {e.package_name for e in held}
-    direct = [e for e in direct if e.package_name not in held_names]
-    transitive = [e for e in transitive if e.package_name not in held_names]
+    held_ids = {e.identity for e in held}
+    direct = [e for e in direct if e.identity not in held_ids]
+    transitive = [e for e in transitive if e.identity not in held_ids]
 
     return UpdatePlan(
         project_name=scan_result.project_name,

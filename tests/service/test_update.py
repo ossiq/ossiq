@@ -543,3 +543,72 @@ class TestCarriesKnownBreak:
         plan = build_update_plan(make_scan_result(transitive=[record]), "npm")
 
         assert plan.transitive_entries[0].carries_known_break is True
+
+
+class TestNpmAliasIdentity:
+    """Two npm aliases of one package must stay two entries.
+
+    `uuid-v7: "npm:uuid@^7.0.0"` and `uuid-v11: "npm:uuid@>11.0.0"` both carry
+    `package_name == "uuid"`, so the widening and cooldown partitions — which subtracted by
+    registry name — dropped the sibling of any held entry from the plan entirely. On
+    testdata/npm/version-constrained that silently removed uuid 13.0.0 -> ESM-only 14.0.2 from
+    both the plan table and the acknowledgement prompt.
+    """
+
+    def alias_record(self, alias: str, installed: str, recommended: str) -> ScanRecord:
+        record = make_record("uuid", installed, recommended)
+        record.dependency_name = alias
+        record.version_constraint = f"npm:uuid@^{installed}"
+        return record
+
+    def test_holding_one_alias_for_widening_keeps_its_sibling(self):
+        held = self.alias_record("uuid-v7", "7.0.3", "11.1.1")
+        held.recommended_from_rung = RecommendationRung.LATEST
+        kept = self.alias_record("uuid-v11", "13.0.0", "14.0.2")
+        kept.recommended_from_rung = RecommendationRung.IN_RANGE
+
+        plan = build_update_plan(make_scan_result(production=[held, kept]), "npm")
+
+        assert [e.identity for e in plan.held_for_widening] == ["uuid-v7"]
+        assert [e.identity for e in plan.direct_entries] == ["uuid-v11"]
+
+    def test_holding_one_alias_for_cooldown_keeps_its_sibling(self):
+        held = self.alias_record("uuid-v7", "7.0.3", "7.1.0")
+        held.recommended_version_reason = reason_with_age("7.1.0", age_days=1)
+        kept = self.alias_record("uuid-v11", "13.0.0", "14.0.2")
+        kept.recommended_version_reason = reason_with_age("14.0.2", age_days=400)
+
+        plan = build_update_plan(make_scan_result(production=[held, kept]), "npm", cooldown_period=7)
+
+        assert [e.identity for e in plan.held_for_cooldown] == ["uuid-v7"]
+        assert [e.identity for e in plan.direct_entries] == ["uuid-v11"]
+
+    def test_override_by_alias_key_resolves_that_alias_only(self):
+        first = self.alias_record("uuid-v7", "7.0.3", "7.1.0")
+        second = self.alias_record("uuid-v11", "13.0.0", "14.0.2")
+
+        plan = build_update_plan(
+            make_scan_result(production=[first, second]),
+            "npm",
+            forced_overrides={"uuid-v7": "7.5.0"},
+        )
+
+        forced = [e for e in plan.direct_entries if e.is_forced]
+        assert [(e.identity, e.recommended_version) for e in forced] == [("uuid-v7", "7.5.0")]
+        assert [e.recommended_version for e in plan.direct_entries if not e.is_forced] == ["14.0.2"]
+
+    def test_identity_falls_back_to_the_registry_name(self):
+        record = make_record("requests", "2.28.0", "2.32.0")
+        record.dependency_name = None
+
+        entry = build_update_plan(make_scan_result(production=[record]), "uv").direct_entries[0]
+
+        assert entry.identity == "requests"
+        assert entry.display_name == "requests"
+
+    def test_display_name_names_both_spellings_when_aliased(self):
+        record = self.alias_record("uuid-v7", "7.0.3", "7.1.0")
+
+        entry = build_update_plan(make_scan_result(production=[record]), "npm").direct_entries[0]
+
+        assert entry.display_name == "uuid-v7 (uuid)"
