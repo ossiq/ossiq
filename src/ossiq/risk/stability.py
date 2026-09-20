@@ -58,6 +58,21 @@ MIN_BUCKETS_FOR_TREND = 3
 FLOW_TREND_SLOPE = 0.03
 """|OLS slope of flow_ratio per bucket| at or above which the flow trend is called directional."""
 
+MIN_BUCKET_VOLUME = 3
+"""Items (opened + closed) a bucket needs before its ratio counts as measured. One issue opened
+and nothing closed is a 0.0 that carries no more information than an empty bucket, yet the old
+code gave it the same weight in the fit as a bucket with thirty items - enough, on a quiet
+month, to trip the sharp-drop rule on its own."""
+
+INBOUND_SPIKE_CAP = 2.0
+"""Ceiling on one bucket's `opened` count, as a multiple of the median across measured buckets.
+
+flow_ratio divides by `opened`, so a burst of *inbound* work drives the ratio toward zero and
+reads exactly like the maintainer going silent - the signal inverts. A drive-by contributor
+filing a dozen PRs in a fortnight is the common shape, and bot filtering cannot catch it
+because the author is human. Capping the denominator lets a spike dilute the ratio without
+manufacturing a collapse out of what is really a sign of interest in the project."""
+
 SECONDS_PER_DAY = 24 * 60 * 60
 
 BOT_LOGIN_RE = re.compile(r".*\[bot\]$|^(dependabot|renovate|pre-commit-ci|github-actions)$", re.IGNORECASE)
@@ -163,15 +178,18 @@ FLOW_DECLINING = "declining"
 class EngagementBucket:
     """One ~30-day slice of issue / pull-request flow. `index` 0 is the oldest bucket in the window.
 
-    `*_closed` / `*_merged` count items that closed *in* this bucket regardless of when they
-    opened - the cohort-matched denominator that arXiv:2508.01358's cumulative totals lacked.
+    `*_closed` counts items that closed *in* this bucket regardless of when they opened - the
+    cohort-matched denominator that arXiv:2508.01358's cumulative totals lacked. A pull request
+    counts as outflow when it closes, merged or not: rejecting a PR is the maintainer responding,
+    and counting only merges made every project with a high bar for contributions read as
+    unresponsive.
     """
 
     index: int
     issues_opened: int
     issues_closed: int
     prs_opened: int
-    prs_merged: int
+    prs_closed: int
 
 
 @dataclass(frozen=True)
@@ -192,6 +210,39 @@ def flow_ratio(opened: int, closed: int) -> float | None:
     if opened == 0 and closed == 0:
         return None
     return closed / max(opened, 1)
+
+
+def flow_ratios(pairs: Sequence[tuple[int, int]]) -> list[float | None]:
+    """Per-bucket flow ratios for a whole series of `(opened, closed)` counts, oldest first.
+
+    The series is what makes the two corrections here possible - neither is decidable from one
+    bucket alone:
+
+    - a bucket below MIN_BUCKET_VOLUME is reported unmeasured rather than as a confident 0.0;
+    - every bucket's denominator is capped at INBOUND_SPIKE_CAP times the median `opened` across
+      the measured buckets, so an inbound burst dilutes the ratio instead of zeroing it.
+
+    Args:
+        pairs: One `(opened, closed)` tuple per bucket, oldest bucket first.
+
+    Returns:
+        One ratio per input bucket, None where the bucket carries no usable signal.
+    """
+
+    measured = [(opened, closed) for opened, closed in pairs if opened + closed >= MIN_BUCKET_VOLUME]
+    baseline = statistics.median(opened for opened, _ in measured) if measured else 0
+    # Below one inbound item a bucket there is no baseline to call a spike against, so nothing
+    # is capped - capping to zero would flatter every repo instead.
+    cap = INBOUND_SPIKE_CAP * baseline if baseline >= 1 else None
+
+    ratios: list[float | None] = []
+    for opened, closed in pairs:
+        if opened + closed < MIN_BUCKET_VOLUME:
+            ratios.append(None)
+            continue
+        effective = min(opened, cap) if cap is not None else float(opened)
+        ratios.append(closed / max(effective, 1.0))
+    return ratios
 
 
 def trend_slope(values: Sequence[float | None]) -> float | None:

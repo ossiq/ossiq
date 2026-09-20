@@ -676,7 +676,7 @@
             "minItems": 4,
             "maxItems": 4
           },
-          "description": "Raw flow buckets behind flow_trend, oldest ~30-day bucket first: one [issues_opened, issues_closed, prs_opened, prs_merged] row per bucket"
+          "description": "Raw flow buckets behind flow_trend, oldest ~30-day bucket first: one [issues_opened, issues_closed, prs_opened, prs_closed] row per bucket"
         },
         "deprecation_signals": {
           "type": "array",
@@ -1151,7 +1151,7 @@
             "minItems": 4,
             "maxItems": 4
           },
-          "description": "Raw flow buckets behind flow_trend, oldest ~30-day bucket first: one [issues_opened, issues_closed, prs_opened, prs_merged] row per bucket"
+          "description": "Raw flow buckets behind flow_trend, oldest ~30-day bucket first: one [issues_opened, issues_closed, prs_opened, prs_closed] row per bucket"
         },
         "deprecation_signals": {
           "type": "array",

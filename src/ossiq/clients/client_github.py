@@ -215,7 +215,8 @@ def build_activity_query(chunk: list, since: str) -> str:
     deprecation / migration notice is a maintenance signal.
     """
     issue_fields = "createdAt closedAt author { __typename login }"
-    pr_fields = "createdAt mergedAt closedAt updatedAt author { __typename login }"
+    # No `mergedAt`: the engagement channel counts a PR as outflow when it closes, merged or not.
+    pr_fields = "createdAt closedAt updatedAt author { __typename login }"
     aliases = []
     for index, item in enumerate(chunk):
         _, owner, name, stream, after, _ = item
@@ -241,7 +242,7 @@ def parse_activity_alias(node: dict, since: str, stream: str) -> dict:
     """One repository alias -> raw nodes for `stream`, its pinned-issue titles, and its next cursor.
 
     Only the windowing that decides *how many pages to fetch* happens here (PRs carry no
-    server-side date filter). Bot filtering and createdAt/closedAt/mergedAt bucketing for the
+    server-side date filter). Bot filtering and createdAt/closedAt bucketing for the
     statistics themselves happen in `service/project/stability.py` over the raw nodes.
     """
     if stream == "issues":

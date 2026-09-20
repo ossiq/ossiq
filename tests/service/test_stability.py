@@ -187,6 +187,28 @@ class TestEngagementSeries:
         series = engagement_series({"issues": [bot_issue], "pulls": []}, NOW.timestamp())
         assert all(bucket.issues_opened == 0 for bucket in series.buckets)
 
+    def test_a_rejected_pull_request_counts_as_outflow(self) -> None:
+        # Closed without a merge: the maintainer answered, which is what the channel measures.
+        latest = BUCKET_COUNT - 1
+        rejected = issue_node(opened_days_ago=bucket_open_days(latest), closed_days_ago=bucket_open_days(latest))
+        series = engagement_series({"issues": [], "pulls": [rejected]}, NOW.timestamp())
+        assert series.buckets[latest].prs_closed == 1
+
+    def test_an_inbound_spike_is_tallied_but_capped_downstream(self) -> None:
+        # A drive-by contributor opening thirty PRs in one month, on a repo that was keeping pace
+        # before. The authors are human, so bot filtering cannot help; the denominator cap in
+        # flow_ratios is what stops the burst reading as silence (see TestFlowRatios).
+        issues = []
+        for index in range(BUCKET_COUNT):
+            issues += [
+                issue_node(opened_days_ago=bucket_open_days(index), closed_days_ago=bucket_open_days(index))
+                for _ in range(5)
+            ]
+        spike = [issue_node(opened_days_ago=bucket_open_days(BUCKET_COUNT - 1)) for _ in range(30)]
+        series = engagement_series({"issues": issues, "pulls": spike}, NOW.timestamp())
+        assert series.buckets[BUCKET_COUNT - 1].prs_opened == 30
+        assert series.buckets[BUCKET_COUNT - 1].issues_closed == 5
+
 
 def stability_stub(*, silence_p: float | None = 0.5, silence_days: float | None = 5.0, flow_trend: str | None = None):
     return RepositoryStability(silence_p=silence_p, silence_days=silence_days, flow_trend=flow_trend)

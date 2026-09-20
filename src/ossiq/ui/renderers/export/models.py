@@ -288,7 +288,7 @@ def engagement_buckets(stability: RepositoryStability | None) -> list[list[int]]
     if stability is None or stability.engagement is None:
         return None
     return [
-        [bucket.issues_opened, bucket.issues_closed, bucket.prs_opened, bucket.prs_merged]
+        [bucket.issues_opened, bucket.issues_closed, bucket.prs_opened, bucket.prs_closed]
         for bucket in stability.engagement.buckets
     ]
 
@@ -578,7 +578,7 @@ class PackageMetrics(LadderFields, CompatibilityFields, NextActionFields):
     engagement_buckets: list[list[int]] | None = Field(
         default=None,
         description="Raw flow buckets behind flow_trend, oldest ~30-day bucket first: one "
-        "[issues_opened, issues_closed, prs_opened, prs_merged] row per bucket, kept for offline "
+        "[issues_opened, issues_closed, prs_opened, prs_closed] row per bucket, kept for offline "
         "recalibration. Null without the GraphQL activity sample",
     )
     deprecation_signals: list[str] = Field(
@@ -829,7 +829,7 @@ class TransitivePackageMetrics(LadderFields, CompatibilityFields, NextActionFiel
     engagement_buckets: list[list[int]] | None = Field(
         default=None,
         description="Raw flow buckets behind flow_trend, oldest ~30-day bucket first: one "
-        "[issues_opened, issues_closed, prs_opened, prs_merged] row per bucket, kept for offline "
+        "[issues_opened, issues_closed, prs_opened, prs_closed] row per bucket, kept for offline "
         "recalibration. Null without the GraphQL activity sample",
     )
     deprecation_signals: list[str] = Field(

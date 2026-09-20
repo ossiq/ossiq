@@ -48,7 +48,7 @@ class TestBuildActivityQuery:
         assert "pullRequests(first: 100" in query
         assert "issues(" not in query
         assert "pinnedIssues" not in query
-        assert "mergedAt" in query
+        assert "closedAt" in query
 
     def test_issues_continuation_uses_the_cursor_and_drops_pinned_issues(self) -> None:
         query = build_activity_query([item("u0", "o", "n", "issues", after="IC", page=1)], SINCE)

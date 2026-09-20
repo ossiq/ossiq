@@ -29,7 +29,7 @@ from ossiq.risk.stability import (
     EngagementSeries,
     commit_gaps,
     commit_timestamps,
-    flow_ratio,
+    flow_ratios,
     flow_trend,
     gap_dispersion,
     has_stopped,
@@ -60,9 +60,11 @@ def engagement_series(activity: Mapping, boundary: float) -> EngagementSeries:
     """Reduce one repo's raw GraphQL activity payload to ~30-day flow buckets and a trend verdict.
 
     `boundary` is epoch seconds (now, or the scan's cutoff). Bots are filtered before counting.
-    Items are bucketed by *opened* date; closes / merges land in the bucket they closed in,
-    regardless of when they opened - the cohort-matched denominator arXiv:2508.01358's cumulative
-    totals lacked. Bucket index 0 is the oldest in the window.
+    Items are bucketed by *opened* date; closes land in the bucket they closed in, regardless of
+    when they opened - the cohort-matched denominator arXiv:2508.01358's cumulative totals
+    lacked. Pull requests are counted by `closedAt`, which GitHub sets on a merge too, so a
+    merged and a rejected PR both count as the maintainer responding. Bucket index 0 is the
+    oldest in the window.
     """
 
     bucket_count = RESPONSIVENESS_WINDOW_DAYS // ENGAGEMENT_BUCKET_DAYS
@@ -79,7 +81,7 @@ def engagement_series(activity: Mapping, boundary: float) -> EngagementSeries:
     issues_opened = [0] * bucket_count
     issues_closed = [0] * bucket_count
     prs_opened = [0] * bucket_count
-    prs_merged = [0] * bucket_count
+    prs_closed = [0] * bucket_count
 
     def tally(nodes: Iterable[Mapping], opened: list[int], done: list[int], done_field: str) -> None:
         for node in nodes:
@@ -93,7 +95,7 @@ def engagement_series(activity: Mapping, boundary: float) -> EngagementSeries:
                 done[done_bucket] += 1
 
     tally(activity.get("issues") or [], issues_opened, issues_closed, "closedAt")
-    tally(activity.get("pulls") or [], prs_opened, prs_merged, "mergedAt")
+    tally(activity.get("pulls") or [], prs_opened, prs_closed, "closedAt")
 
     buckets = [
         EngagementBucket(
@@ -101,11 +103,11 @@ def engagement_series(activity: Mapping, boundary: float) -> EngagementSeries:
             issues_opened=issues_opened[index],
             issues_closed=issues_closed[index],
             prs_opened=prs_opened[index],
-            prs_merged=prs_merged[index],
+            prs_closed=prs_closed[index],
         )
         for index in range(bucket_count)
     ]
-    ratios = [flow_ratio(b.issues_opened + b.prs_opened, b.issues_closed + b.prs_merged) for b in buckets]
+    ratios = flow_ratios([(b.issues_opened + b.prs_opened, b.issues_closed + b.prs_closed) for b in buckets])
     return EngagementSeries(buckets, flow_trend(ratios))
 
 

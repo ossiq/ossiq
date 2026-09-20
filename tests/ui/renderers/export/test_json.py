@@ -1590,8 +1590,8 @@ class TestJsonExportRendererV15:
 def engagement_record():
     """ScanRecord carrying a two-bucket engagement sample, for the raw-bucket export."""
     buckets = [
-        EngagementBucket(index=0, issues_opened=4, issues_closed=3, prs_opened=2, prs_merged=2),
-        EngagementBucket(index=1, issues_opened=1, issues_closed=0, prs_opened=1, prs_merged=0),
+        EngagementBucket(index=0, issues_opened=4, issues_closed=3, prs_opened=2, prs_closed=2),
+        EngagementBucket(index=1, issues_opened=1, issues_closed=0, prs_opened=1, prs_closed=0),
     ]
     return ScanRecord(
         package_name="flowing-lib",
@@ -1626,7 +1626,7 @@ class TestJsonExportRendererEngagementBuckets:
         return json.loads(output_file.read_text(encoding="utf-8"))
 
     def test_buckets_exported_as_fixed_order_rows(self, output_file, settings, engagement_record):
-        """Oldest bucket first, one [issues_opened, issues_closed, prs_opened, prs_merged] row each."""
+        """Oldest bucket first, one [issues_opened, issues_closed, prs_opened, prs_closed] row each."""
         data = self.export(output_file, settings, engagement_record)
 
         assert data["production_packages"][0]["engagement_buckets"] == [[4, 3, 2, 2], [1, 0, 1, 0]]
