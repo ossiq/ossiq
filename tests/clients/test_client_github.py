@@ -90,6 +90,29 @@ class TestParseActivityAlias:
         }
         assert parse_activity_alias(node, SINCE, "pulls")["next"] is None
 
+    def test_null_nodes_from_a_partial_response_are_dropped(self) -> None:
+        # GitHub answers a per-node INTERNAL error with HTTP 200 and a null in `nodes`; the
+        # response is cached for a week, so one null crashed every later scan of that project.
+        node = {
+            "pullRequests": {
+                "pageInfo": {"hasNextPage": False},
+                "nodes": [{"updatedAt": IN_WINDOW}, None, {"updatedAt": IN_WINDOW}],
+            }
+        }
+        assert parse_activity_alias(node, SINCE, "pulls")["pulls"] == [
+            {"updatedAt": IN_WINDOW},
+            {"updatedAt": IN_WINDOW},
+        ]
+
+    def test_null_issue_and_pinned_nodes_are_dropped(self) -> None:
+        node = {
+            "issues": {"pageInfo": {"hasNextPage": False}, "nodes": [None, {"createdAt": IN_WINDOW}]},
+            "pinnedIssues": {"nodes": [None, {"issue": {"title": "Deprecated"}}]},
+        }
+        parsed = parse_activity_alias(node, SINCE, "issues")
+        assert parsed["issues"] == [{"createdAt": IN_WINDOW}]
+        assert parsed["pinned_titles"] == ["Deprecated"]
+
 
 class TestProcessResponse:
     def test_maps_aliases_back_to_urls_and_nulls_an_errored_alias(self) -> None:

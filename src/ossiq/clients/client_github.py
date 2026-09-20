@@ -142,7 +142,22 @@ def graphql_payload(response: ChunkResult) -> dict:
         )
     elif not data and errors:
         logger.warning("GraphQL activity query returned no data: %s", errors[0].get("message"))
+    elif errors:
+        # A partial response: some aliases or individual nodes failed, the rest of the payload is
+        # real. Worth a trace, not a warning - the sample is thinner, not wrong.
+        logger.debug("GraphQL activity query returned %d partial error(s): %s", len(errors), errors[0].get("message"))
     return data
+
+
+def connection_nodes(conn: dict) -> list[dict]:
+    """The non-null entries of a GraphQL connection's `nodes` list.
+
+    GitHub answers a per-node failure (`errors` carrying `"type": "INTERNAL"` and a path into
+    `nodes`) with HTTP 200 and a `null` in place of that one item, the rest of the page intact.
+    Responses are cached for the stability TTL, so one null node left unfiltered crashes every
+    scan of that project for a week, not just the run that fetched it.
+    """
+    return [node for node in conn.get("nodes") or [] if node is not None]
 
 
 def to_datetime(value: str | None) -> datetime:
@@ -192,9 +207,9 @@ def parse_activity_alias(node: dict, since: str, stream: str) -> dict:
     if stream == "issues":
         conn = node.get("issues") or {}
         page = conn.get("pageInfo") or {}
-        pinned = (node.get("pinnedIssues") or {}).get("nodes") or []
+        pinned = connection_nodes(node.get("pinnedIssues") or {})
         return {
-            "issues": conn.get("nodes") or [],
+            "issues": connection_nodes(conn),
             "pulls": [],
             "pinned_titles": [(entry.get("issue") or {}).get("title") or "" for entry in pinned],
             "next": page.get("endCursor") if page.get("hasNextPage") else None,
@@ -203,7 +218,7 @@ def parse_activity_alias(node: dict, since: str, stream: str) -> dict:
     since_dt = datetime.fromisoformat(since)
     conn = node.get("pullRequests") or {}
     page = conn.get("pageInfo") or {}
-    pr_nodes = conn.get("nodes") or []
+    pr_nodes = connection_nodes(conn)
     # PRs come back UPDATED_AT desc with no `since` filter: once the oldest PR on a page predates
     # the window, every later page is outside it too.
     pr_window_open = bool(pr_nodes) and to_datetime(pr_nodes[-1].get("updatedAt")) >= since_dt
