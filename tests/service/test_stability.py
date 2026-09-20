@@ -234,6 +234,21 @@ class TestMaintenanceObservations:
         record.days_since_push = 200  # aging
         assert maintenance_observations(record)["flow_trend"] == "declining"
 
+    def test_release_age_is_observed_once_the_repo_has_gone_quiet(self) -> None:
+        record = make_record("x")
+        record.stability = stability_stub()
+        record.days_since_push = 200  # aging
+        record.latest_release_age_days = 40
+        assert maintenance_observations(record)["release_age"] == "current"
+
+    def test_release_age_is_dropped_on_a_freshly_pushed_repo(self) -> None:
+        # Correlated with the push it would be scored alongside; counting both double-counts.
+        record = make_record("x")
+        record.stability = stability_stub()
+        record.days_since_push = 10  # fresh
+        record.latest_release_age_days = 40
+        assert maintenance_observations(record)["release_age"] is None
+
     def test_none_deprecation_strength_alone_is_not_an_observation(self) -> None:
         record = make_record("x")  # no repository, no stability, no deprecation markers
         assert all(value is None for value in maintenance_observations(record).values())

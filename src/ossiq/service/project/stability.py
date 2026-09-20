@@ -19,6 +19,7 @@ from ossiq.risk.maintenance import (
     assess_maintenance,
     gated_observations,
     push_age_bucket,
+    release_age_bucket,
 )
 from ossiq.risk.stability import (
     ENGAGEMENT_BUCKET_DAYS,
@@ -200,7 +201,7 @@ def maintenance_observations(record: "models.ScanRecord") -> dict[str, object]:
 
     A `"none"` deprecation strength on its own is not enough to assess a package: a repository we
     never measured and found no markers on stays unknown rather than pinned to the prior. The
-    other two gates live in `gated_observations`, shared with the calibration harness.
+    other gates live in `gated_observations`, shared with the calibration harness.
     """
 
     stability = record.stability
@@ -212,6 +213,7 @@ def maintenance_observations(record: "models.ScanRecord") -> dict[str, object]:
         has_stopped=stopped,
         push_age=push_age_bucket(record.days_since_push),
         flow_trend=stability.flow_trend if stability is not None else None,
+        release_age=release_age_bucket(record.latest_release_age_days),
     )
 
 

@@ -107,6 +107,11 @@ def scan_record(
     # FIXME: here is pretty large opportunity to improve performance, but it is impractical to do it now.
     time_lag_days = calculate_time_lag_in_days(releases_since_installed, package_version, package_info.latest_version)
     version_age_days = calculate_version_age_days(releases_since_installed, package_version, now=now)
+    latest_release_age_days = (
+        calculate_version_age_days(releases_since_installed, package_info.latest_version, now=now)
+        if package_info.latest_version
+        else None
+    )
 
     installed_release = next(
         (release for release in releases_since_installed if release.version == package_version), None
@@ -157,6 +162,7 @@ def scan_record(
         latest_version=package_info.latest_version,
         time_lag_days=time_lag_days,
         version_age_days=version_age_days,
+        latest_release_age_days=latest_release_age_days,
         releases_lag=releases_lag,
         versions_diff_index=version_diff_index,
         cve=list(prefetched_cves) if installed_release else [],

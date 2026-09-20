@@ -46,8 +46,10 @@ from ossiq.risk.maintenance import (
     deprecation_evidence,
     gated_observations,
     push_age_bucket,
+    release_age_bucket,
 )
 from ossiq.risk.stability import engagement_window_since, has_stopped
+from ossiq.service.project.records import calculate_version_age_days
 from ossiq.service.project.stability import RepositoryStability, repository_stability
 from ossiq.settings import Settings
 from ossiq.timeutil import age_days_from_iso
@@ -246,6 +248,7 @@ class Row:
     entry: CorpusEntry
     stability: RepositoryStability | None
     days_since_push: int | None
+    release_age_days: int | None
     deprecation_strength: str
     maintenance: MaintenanceAssessment | None = field(default=None)
 
@@ -274,16 +277,33 @@ class Row:
         return has_stopped(self.stability.silence_p, self.stability.silence_days)
 
 
-def registry_packages(settings: Settings) -> dict[str, Package]:
-    """Fetch PyPI + npm metadata for every corpus entry that names a registry package."""
+def registry_packages(settings: Settings) -> tuple[dict[str, Package], dict[str, int | None]]:
+    """PyPI + npm metadata for every corpus entry that names a registry package, plus release ages.
+
+    `package_versions` is served from the `_raw_cache` that `packages_info_batch` just populated,
+    so the latest-release dates cost no extra requests.
+
+    Returns:
+        (name -> Package, name -> days since the latest release, or None when undated).
+    """
     packages: dict[str, Package] = {}
+    release_ages: dict[str, int | None] = {}
     pypi_names = [entry.pypi for entry in CORPUS.values() if entry.pypi]
     npm_names = [entry.npm for entry in CORPUS.values() if entry.npm]
-    if pypi_names:
-        packages.update(PackageRegistryApiPypi(settings).packages_info_batch(pypi_names))
-    if npm_names:
-        packages.update(PackageRegistryApiNpm(settings).packages_info_batch(npm_names))
-    return packages
+    for api, names in (
+        (PackageRegistryApiPypi(settings), pypi_names),
+        (PackageRegistryApiNpm(settings), npm_names),
+    ):
+        if not names:
+            continue
+        fetched = api.packages_info_batch(names)
+        packages.update(fetched)
+        for name, package in fetched.items():
+            versions = list(api.package_versions(name))
+            release_ages[name] = (
+                calculate_version_age_days(versions, package.latest_version) if package.latest_version else None
+            )
+    return packages, release_ages
 
 
 def calibrate_cache_path(settings: Settings) -> str:
@@ -317,7 +337,7 @@ def build_rows() -> tuple[list[Row], ActivityCoverage]:
     activity_by_url = provider.repository_activity_batch(url_list, engagement_window_since()).data
     repos_by_url = provider.repositories_info_batch(url_list).data
     readmes_by_url = provider.readmes_batch(url_list).data
-    packages = registry_packages(settings)
+    packages, release_ages = registry_packages(settings)
 
     coverage = ActivityCoverage(
         resource_limit_hits=counter.count,
@@ -329,7 +349,8 @@ def build_rows() -> tuple[list[Row], ActivityCoverage]:
         entry = CORPUS[repo]
         stability = repository_stability(commits_by_url.get(url, []), None, activity_by_url.get(url))
         repository = repos_by_url.get(url)
-        package = packages.get(entry.pypi or "") or packages.get(entry.npm or "")
+        registry_name = entry.pypi or entry.npm or ""
+        package = packages.get(registry_name)
         days_since_push = age_days_from_iso(repository.pushed_at) if repository else None
 
         evidence = deprecation_evidence(
@@ -350,6 +371,7 @@ def build_rows() -> tuple[list[Row], ActivityCoverage]:
             has_stopped=has_stopped(stability.silence_p, stability.silence_days) if stability is not None else None,
             push_age=push_age_bucket(days_since_push),
             flow_trend=stability.flow_trend if stability else None,
+            release_age=release_age_bucket(release_ages.get(registry_name)),
         )
         rows.append(
             Row(
@@ -357,6 +379,7 @@ def build_rows() -> tuple[list[Row], ActivityCoverage]:
                 entry=entry,
                 stability=stability,
                 days_since_push=days_since_push,
+                release_age_days=release_ages.get(registry_name),
                 deprecation_strength=evidence.strength,
                 maintenance=assess_maintenance(observations),
             )
@@ -372,7 +395,7 @@ def num(value: float | None, width: int = 7, places: int = 3) -> str:
 def print_table(rows: list[Row]) -> None:
     header = (
         f"{'repo':<28} {'label':<13} {'gap_cv':>8} {'commits':>8} {'silence_d':>10} {'stopped':>8} "
-        f"{'push_d':>7} {'depr':>7} {'flow':>10} {'predicted':<13} {'risk':>6}"
+        f"{'push_d':>7} {'rel_d':>7} {'depr':>7} {'flow':>10} {'predicted':<13} {'risk':>6}"
     )
     print(header)
     print("-" * len(header))
@@ -386,7 +409,8 @@ def print_table(rows: list[Row]) -> None:
         print(
             f"{row.repo:<28} {row.label:<13} {num(gap_cv, 8):>8} {commits:>8} "
             f"{num(row.silence_days, 10, 1):>10} {str(row.stopped):>8} "
-            f"{('-' if row.days_since_push is None else row.days_since_push):>7} {row.deprecation_strength:>7} "
+            f"{('-' if row.days_since_push is None else row.days_since_push):>7} "
+            f"{('-' if row.release_age_days is None else row.release_age_days):>7} {row.deprecation_strength:>7} "
             f"{flow:>10} {predicted:<13} {num(risk, 6, 2)}"
         )
 

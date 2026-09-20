@@ -478,6 +478,46 @@ class TestCalculateVersionAgeDays:
         assert result > 0
 
 
+class TestLatestReleaseAgeDays:
+    """scan_record dates the registry's latest release, not just the installed one."""
+
+    def test_records_the_age_of_the_latest_release(self, mock_package_registry, mock_package, mock_versions) -> None:
+        record = scan_record(
+            version_rules=mock_package_registry,
+            package_info=mock_package,
+            package_name="requests",
+            canonical_name="requests",
+            package_version="2.31.0",
+            is_optional_dependency=False,
+            prefetched_cves=set(),
+            prefetched_versions_since=mock_versions,
+            constraint_info=ConstraintSource(type=ConstraintType.DECLARED, source_file="pyproject.toml"),
+            # Naive to match the fixture's published_date_iso values.
+            now=datetime(2024, 6, 8),  # noqa: DTZ001
+        )
+        # The installed 2.31.0 went out in 2023, the latest 2.32.0 on 2024-05-29: the two clocks
+        # the maintenance model needs to tell apart.
+        assert record.version_age_days == 383
+        assert record.latest_release_age_days == 10
+
+    def test_none_when_the_registry_names_no_latest_version(
+        self, mock_package_registry, mock_package, mock_versions
+    ) -> None:
+        mock_package.latest_version = None
+        record = scan_record(
+            version_rules=mock_package_registry,
+            package_info=mock_package,
+            package_name="requests",
+            canonical_name="requests",
+            package_version="2.31.0",
+            is_optional_dependency=False,
+            prefetched_cves=set(),
+            prefetched_versions_since=mock_versions,
+            constraint_info=ConstraintSource(type=ConstraintType.DECLARED, source_file="pyproject.toml"),
+        )
+        assert record.latest_release_age_days is None
+
+
 class TestScanSortKey:
     """Regression: sorting must not crash when time_lag_days is None (cutoff-date scans)."""
 

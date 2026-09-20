@@ -142,6 +142,18 @@ Edit the constants in [`src/ossiq/risk/maintenance.py`](../../src/ossiq/risk/mai
   show that value?
   - e.g. `LIKELIHOOD["has_stopped"][True]["abandoned"]` ≈ (abandoned repos flagged stopped) / (abandoned repos measured)
   - `LIKELIHOOD["flow_trend"]["declining"]["winding_down"]` ≈ (winding_down repos whose `flow` column reads `declining`) / (winding_down repos with a flow trend)
+- **Count only the rows the gate actually admits.** `gated_observations` drops observations before
+  the model reads them, so a cell fitted over every corpus row can be fitted over rows where that
+  observation is never consulted. Fitting `release_age` off the raw `rel_d` column, rather than off
+  the rows that reach it, measurably worsened the Brier score.
+
+  This bites hardest on `release_age`, where the corpus currently supports only half the table:
+  every `maintained` entry pushes inside `PUSH_AGE_FRESH_DAYS` (the fresh gate drops `release_age`)
+  and every `deprecated` entry carries a strong marker (which drops everything else), so **no
+  `maintained` or `deprecated` row reaches that observation at all** and those two columns are set
+  by reasoning, not measurement. Closing the gap needs corpus entries that are alive but
+  slow-pushing — a mature library on a quarterly cadence with quiet months in between
+  (`expressjs/express` and `pallets/flask` are close, but both still push inside the window).
 - **Keep every cell in `[0.01, 0.99]`** (Laplace smoothing) so one surprising observation
   can never zero out a state.
 - `MAINTENANCE_THRESHOLD` (default `0.5`) — the `P(abandoned) + P(deprecated)` cut that makes

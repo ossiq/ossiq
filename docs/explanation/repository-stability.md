@@ -32,30 +32,43 @@ P(S \mid o_1 \dots o_k) \;\propto\; P(S) \prod_{i=1}^{k} P(o_i \mid S)
 $$
 
 `PRIORS` and the `LIKELIHOOD` tables are hand-tunable constants, fit from the 63-repo, 4-state
-corpus in `qa/calibrate_stability.py`. Four observations feed the model, each dropped when it
+corpus in `qa/calibrate_stability.py`. Five observations feed the model, each dropped when it
 can't be measured:
 
 | Observation | Values | Source |
 |---|---|---|
 | `deprecation_strength` | weak / strong | [deprecation evidence](#deprecation-evidence) |
 | `has_stopped` | true / false | [commit-gap estimator](#the-commit-gap-estimator) — validated |
-| `push_age` | fresh $<30$d / recent $<90$d / aging $<365$d / stale $<730$d / ancient | `days_since_push` |
+| `push_age` | fresh $<45$d / recent $<90$d / aging $<365$d / stale $<730$d / ancient | `days_since_push` |
 | `flow_trend` | improving / stable / declining | [engagement-flow channel](#the-engagement-flow-channel) |
+| `release_age` | current $<90$d / recent $<365$d / stale $<730$d / ancient | `latest_release_age_days` |
+
+The first four describe the *repository*; `release_age` describes what reached *users*. A package
+can be quiet on one clock and alive on the other, and telling a library that is finished from one
+that is dying needs both — in the corpus no maintained repo has gone a year without a release, and
+no abandoned one has shipped inside a year.
 
 Finding *no* deprecation marker is not an observation: the strength only reaches the model once at
 least one signal fires, so a repository nobody has flagged stays scored on its commit history
 instead of being pushed toward `maintained` by the absence of a notice.
 
-### Two independence gates
+### Three independence gates
 
-Naive Bayes assumes the observations are conditionally independent. The commit-derived ones
-aren't, so two gates drop the correlated signal instead of double-counting it:
+Naive Bayes assumes the observations are conditionally independent. The activity-derived ones
+aren't, so three gates drop the correlated signal instead of double-counting it:
 
 - **`deprecation_strength = strong`** (archived, registry-deprecated, or PyPI
   `Development Status :: 7 - Inactive`) drops every other observation. An archived repo with
   fresh CI commits is still deprecated.
-- **`push_age = fresh`** drops `flow_trend`. A repo pushed in the last 30 days is active whatever
+- **`push_age = fresh`** drops `flow_trend`. A repo pushed in the last 45 days is active whatever
   its issue backlog does; in mature libraries flow decline is release-driven, not decay.
+- **`push_age = fresh`** also drops `release_age`, for the opposite reason: the push already
+  proved the project is being worked on, so a recent release would say the same thing twice.
+
+One consequence limits what the corpus can check. Every `maintained` entry in it pushes inside the
+fresh window and every `deprecated` entry carries a strong marker, so neither ever reaches
+`release_age` — two of that table's four columns are set by reasoning rather than fitted. Closing
+the gap needs corpus entries that are alive but slow-pushing.
 
 ### What it reports
 
@@ -70,11 +83,11 @@ At or above `MAINTENANCE_THRESHOLD` $= 0.5$, triage marks the package unstable.
 $$
 \texttt{maintenance_risk} = P(\text{not maintained})
 \qquad
-\texttt{maintenance_coverage} = \frac{\text{observations used}}{4}
+\texttt{maintenance_coverage} = \frac{\text{observations used}}{5}
 $$
 
 Coverage counts the observations that actually reached the model, so a `strong` deprecation
-marker scores $0.25$ — the gate dropped the rest by design, not for lack of data. Both fields are
+marker scores $0.2$ — the gate dropped the rest by design, not for lack of data. Both fields are
 `null` when nothing could be observed.
 
 ## The commit-gap estimator
@@ -153,13 +166,26 @@ It tracks issue and PR **flow** across a 180-day window in six ~30-day buckets. 
 one ratio per bucket $b$:
 
 $$
-r_b = \frac{\text{issues closed}_b + \text{PRs merged}_b}{\max(\text{issues opened}_b + \text{PRs opened}_b,\, 1)}
+r_b = \frac{\text{issues closed}_b + \text{PRs closed}_b}{\max(\min(\text{opened}_b,\; 2\tilde{o}),\, 1)}
 $$
 
 The numerator counts items finished *in* that bucket regardless of when they opened, so slow items
-that outlive the window still count. Pull requests count as outflow only when **merged** — a PR
-closed unmerged is a backlog item dropped, not work shipped. Read $r_b > 1$ as a draining backlog,
+that outlive the window still count. A pull request counts as outflow when it **closes**, merged or
+not: rejecting a PR is the maintainer responding, and counting only merges made every project with
+a high bar for contributions read as unresponsive. Read $r_b > 1$ as a draining backlog,
 $\approx 1$ as keeping pace, $\to 0$ as falling behind.
+
+Two corrections keep the ratio from inverting, neither decidable from a single bucket:
+
+- The denominator is capped at twice $\tilde{o}$, the median `opened` across measured buckets.
+  Dividing by inbound volume means a *burst of incoming work* drives $r_b$ toward zero and reads
+  exactly like the maintainer going silent. A drive-by contributor filing a dozen PRs in a
+  fortnight is the common shape, and bot filtering cannot catch it because the author is human.
+  Capping lets a spike dilute the ratio without manufacturing a collapse out of what is really a
+  sign of interest in the project.
+- A bucket with fewer than three items of movement is reported unmeasured rather than as a
+  confident $0.0$. One issue opened and nothing closed carries no more information than an empty
+  bucket, but it used to enter the fit with the same weight as a bucket of thirty items.
 
 `flow_trend` is the direction of the OLS slope $\hat{\beta}$ of $r_b$ against bucket index, with
 one override for a sharp recent drop:
@@ -185,7 +211,7 @@ is not.
 GraphQL needs a token, so the channel **defaults on when `OSSIQ_GITHUB_TOKEN` is set, off
 otherwise**; force it with `--stability-responsiveness` / `--no-stability-responsiveness`. Direct
 dependencies only, cached 7 days. The raw buckets are persisted in the JSON export as
-`engagement_buckets` — one `[issues_opened, issues_closed, prs_opened, prs_merged]` row per
+`engagement_buckets` — one `[issues_opened, issues_closed, prs_opened, prs_closed]` row per
 bucket, oldest first — so the trend can be re-fitted offline.
 
 ## Deprecation evidence

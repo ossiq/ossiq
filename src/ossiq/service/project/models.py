@@ -105,6 +105,13 @@ class ScanRecord:
     version_age_days: int | None = None
     """Days since installed_version was published. None if the publish date is unknown."""
 
+    latest_release_age_days: int | None = None
+    """Days since latest_version was published. None if the publish date is unknown.
+
+    The registry-side half of the maintenance signal: days_since_push says the repository is
+    being worked on, this says something reached users. A package can be quiet on one clock and
+    alive on the other, and telling a finished library from a dying one needs both."""
+
     dependency_path: list[str] | None = None
     """Chain of package names from a root dependency down to this one; None for direct deps."""
 
