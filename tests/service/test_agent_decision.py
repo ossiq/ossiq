@@ -261,7 +261,7 @@ def test_update_entry_emits_engine_fields():
     }
     # engine_mismatch_reason's sentence, not a raw dict repr: the same string the console prints
     # and the structural gate wrote into rejected_candidates.
-    assert "requires node >=22.0.0, detected 20.11.0 (detected)" in entry["reasons"]
+    assert "requires node >=22.0.0, checked against 20.11.0 (detected)" in entry["reasons"]
 
 
 def test_update_entry_omits_engine_reason_without_an_engine_context():

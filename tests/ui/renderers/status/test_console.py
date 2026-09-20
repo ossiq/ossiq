@@ -380,7 +380,7 @@ def test_engine_mismatch_sub_row_shown_in_full_mode():
     output = render_table(
         [record], full=True, engine_context=EngineContext({"node": "18.0.0"}, EngineContextSource.DETECTED)
     )
-    assert "requires node >=22.0.0, detected 18.0.0" in output
+    assert "requires node >=22.0.0, checked against 18.0.0" in output
 
 
 def test_engine_mismatch_sub_row_names_only_the_mismatching_engine():
@@ -393,7 +393,7 @@ def test_engine_mismatch_sub_row_names_only_the_mismatching_engine():
     output = render_table(
         [record], full=True, engine_context=EngineContext({"node": "18.0.0"}, EngineContextSource.DETECTED)
     )
-    assert "requires node >=22.0.0, detected 18.0.0" in output
+    assert "requires node >=22.0.0, checked against 18.0.0" in output
     assert "npm" not in output
 
 
@@ -519,7 +519,7 @@ def test_transitive_table_engine_mismatch_sub_row_shown_in_full_mode():
     )
     console = Console(record=True, width=200)
     console.print(table)
-    assert "requires node >=22.0.0, detected 18.0.0" in console.export_text()
+    assert "requires node >=22.0.0, checked against 18.0.0" in console.export_text()
 
 
 def test_transitive_table_engine_mismatch_sub_row_absent_without_full():

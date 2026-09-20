@@ -284,7 +284,7 @@ def engine_version_satisfies_requirement(
     context_version: str,
     requirement: str,
 ) -> bool:
-    """Return True if the running *context_version* satisfies a package's engine *requirement*.
+    """Return True if *context_version* satisfies a package's engine *requirement*.
 
     Dispatcher:
       - ``"python"``                      -> PEP 440 ``PypiVersionRange``
@@ -303,6 +303,22 @@ def engine_version_satisfies_requirement(
     except (ValueError, InvalidVersionRange, InvalidConstraintsError):
         pass
     return True
+
+
+def stricter_engine_floor(engine_key: str, detected: str, declared: str) -> str:
+    """Return whichever of *detected* / *declared* an engine requirement is likelier to fail against.
+
+    Engine requirements are lower bounds in practice (``>=3.12``, ``>=18``), so the binding version
+    is the lower of the two: a project promising support down to Python 3.11 breaks for its 3.11
+    users however new the interpreter this scan happens to run on.
+
+    Ordering is decided by `engine_version_satisfies_requirement` rather than a second comparator,
+    so each ecosystem keeps its own rules, and a version it cannot parse resolves to *declared* —
+    the bound that does not depend on whatever this machine happens to have installed.
+    """
+    if engine_version_satisfies_requirement(engine_key, detected, f">={declared}"):
+        return declared
+    return detected
 
 
 def engine_mismatch_reason(
@@ -324,7 +340,7 @@ def engine_mismatch_reason(
     for engine_key, context_version in engine_context.items():
         required = runtime_requirements.get(engine_key)
         if required and not engine_version_satisfies_requirement(engine_key, context_version, required):
-            return f"requires {engine_key} {required}, detected {context_version}"
+            return f"requires {engine_key} {required}, checked against {context_version}"
     return None
 
 
@@ -345,7 +361,8 @@ def engine_compatibility(
 def has_engine_mismatch(cv: CandidateVersion, engine_context: dict[str, str]) -> bool:
     """Return True if any declared runtime requirement in *cv* is incompatible with *engine_context*.
 
-    *engine_context* maps engine key (e.g. ``"python"``, ``"node"``) to the
-    currently running version string.  Returns False when either side is empty.
+    *engine_context* maps engine key (e.g. ``"python"``, ``"node"``) to the version that engine is
+    held to — the stricter of what was probed and what the manifest declares, see
+    `service.project.runtime_context`.  Returns False when either side is empty.
     """
     return engine_mismatch_reason(cv.runtime_requirements, engine_context) is not None

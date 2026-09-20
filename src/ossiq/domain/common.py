@@ -173,11 +173,12 @@ class ModuleSystem(StrEnum):
 
 
 class EngineContextSource(StrEnum):
-    """Which source populated the engine_context a record's engine compatibility was checked against.
+    """Which source supplied the engine versions a record's compatibility was checked against.
 
-    DETECTED wins when a runtime probe succeeds (see adapters.runtime_environment); DECLARED falls
-    back to the project's own manifest floor (Project.engine_constraints); NONE means neither was
-    available.
+    Each engine is held to the stricter of the probed runtime and the project's own manifest floor,
+    so DECLARED means that floor (Project.engine_constraints) is what binds for at least one
+    engine, DETECTED that the probe (see adapters.runtime_environment) binds throughout, and NONE
+    that neither was available.
     """
 
     DETECTED = "detected"

@@ -18,6 +18,7 @@ from ossiq.domain.common import (
     RUNG_ORDER,
     ConstraintType,
     EngineContext,
+    ProjectPackagesRegistry,
     RecommendationRung,
     RejectedCandidate,
 )
@@ -146,6 +147,7 @@ def build_candidates(
     validator: Callable[[str, str], DirectUpdateImpact] | None = None,
     transitive_by_name: dict[str, ScanRecord] | None = None,
     structural_gates: Sequence[StructuralGate] = (),
+    binding_gates: Sequence[StructuralGate] = (),
 ) -> BuiltCandidates:
     """Build the ascending candidate ladder for one record.
 
@@ -160,6 +162,11 @@ def build_candidates(
     treated as gated for this call, so `select_target` can still pick the newest and the caller can
     explain the pick via the same evidence the gate would have used (e.g. ScanRecord.breaking_change) —
     mirrors the "every reachable version affected -> recommend the newest anyway" CVE rule.
+
+    `binding_gates` are the exception, for rejections the installer will enforce whatever OSS IQ
+    says: a release excluded by `requires-python` is not "incompatible but still the best answer",
+    it is one `uv`/`pip` refuse to resolve at all. Waiving those produced a recommendation that
+    could only ever fail at `apply`, so they empty the ladder rather than be waived.
 
     A release that clears the structural pre-filter but fails `validator` (i.e. it would break a
     transitive dependency) is not silently dropped: it's kept as a `RejectedCandidate`, capped at
@@ -189,6 +196,15 @@ def build_candidates(
             # Every installable release is flagged - never let a structural gate blank the whole
             # recommendation, so treat none of them as gated this pass.
             gate_reasons = {}
+
+    # Applied after the waiver, and overwriting it: these rejections are not advisory, so a ladder
+    # they empty stays empty.
+    for pv in installable:
+        for gate in binding_gates:
+            reason = gate(pv)
+            if reason is not None:
+                gate_reasons[pv.version] = reason
+                break
 
     candidates: list[Candidate] = []
     rejected_by_rung: dict[RecommendationRung, RejectedCandidate] = {}
@@ -258,10 +274,13 @@ def apply_update_strategy(
         facts = facts_from_record(record)
         releases = versions_since.get((record.package_name, record.installed_version), [])
         breaks = breaking_majors(record.package_name, releases, registry.package_registry)
-        gates = (
-            breaking_change_gate(breaks, registry, project_declares_esm),
-            engine_mismatch_gate(engine_context),
-        )
+        engine_gate = engine_mismatch_gate(engine_context)
+        # npm installs an engines mismatch anyway (a warning, not a refusal), so there it stays
+        # advisory and waivable. pip and uv refuse outright, so on PyPI the gate has to bind.
+        engine_gate_binds = registry.package_registry == ProjectPackagesRegistry.PYPI
+        gates: tuple[StructuralGate, ...] = (breaking_change_gate(breaks, registry, project_declares_esm),)
+        if not engine_gate_binds:
+            gates += (engine_gate,)
         built = build_candidates(
             record,
             releases,
@@ -270,6 +289,7 @@ def apply_update_strategy(
             validator=validator,
             transitive_by_name=transitive_by_name,
             structural_gates=gates,
+            binding_gates=(engine_gate,) if engine_gate_binds else (),
         )
         selection = select_target(facts, strategy, built.candidates)
         record.strategy_selection = selection

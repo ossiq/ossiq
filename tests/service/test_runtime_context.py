@@ -84,23 +84,50 @@ class TestProbeGating:
 
 
 class TestContextSource:
-    def test_detected_runtime_beats_the_declared_floor(self, probes):
-        """The floor says what the project claims to support; the probe says what it will run on."""
-        project = make_project(ProjectPackagesRegistry.NPM, {"node": ">=18.0.0"})
+    """Floors are bare versions here because that is what the adapters produce:
+    `declared_engine_floors` and `extract_min_python_version` both reduce a declared range to its
+    lowest concrete version before it ever reaches a Project."""
+
+    def test_the_declared_floor_binds_over_a_newer_detected_runtime(self, probes):
+        """What the project promises outranks what this machine happens to run: a release needing
+        node 20 breaks the project's declared node 18 users whatever is on this PATH."""
+        project = make_project(ProjectPackagesRegistry.NPM, {"node": "18.0.0"})
+
+        context, _ = detect_engine_context(project, ".", probe_runtime=True)
+
+        assert context.versions == {"node": "18.0.0", "npm": "10.2.4"}
+        assert context.source == EngineContextSource.DECLARED
+
+    def test_the_python_floor_binds_over_a_newer_interpreter(self, probes):
+        """The reported bug: a 3.13 virtualenv admitted a release requiring >=3.12 into a project
+        declaring `requires-python = ">=3.11"`, and uv then refused to resolve the 3.11 split."""
+        python_probe, _, _ = probes
+        python_probe.return_value = "3.13.2"
+        project = make_project(ProjectPackagesRegistry.PYPI, {"python": "3.11"})
+
+        context, _ = detect_engine_context(project, ".", probe_runtime=True)
+
+        assert context.versions == {"python": "3.11"}
+        assert context.source == EngineContextSource.DECLARED
+
+    def test_a_runtime_older_than_the_floor_binds_instead(self, probes):
+        """Stricter wins in both directions — a stale virtualenv is the binding constraint even
+        when the manifest claims a higher floor."""
+        project = make_project(ProjectPackagesRegistry.NPM, {"node": "22.0.0"})
 
         context, _ = detect_engine_context(project, ".", probe_runtime=True)
 
         assert context.versions == {"node": "20.11.0", "npm": "10.2.4"}
         assert context.source == EngineContextSource.DETECTED
 
-    def test_declared_floor_is_the_fallback_when_no_probe_succeeds(self, probes):
+    def test_the_floor_is_all_there_is_when_no_probe_succeeds(self, probes):
         _, node_probe, _ = probes
         node_probe.return_value = None
-        project = make_project(ProjectPackagesRegistry.NPM, {"node": ">=18.0.0"})
+        project = make_project(ProjectPackagesRegistry.NPM, {"node": "18.0.0"})
 
         context, _ = detect_engine_context(project, ".", probe_runtime=True)
 
-        assert context.versions == {"node": ">=18.0.0"}
+        assert context.versions == {"node": "18.0.0", "npm": "10.2.4"}
         assert context.source == EngineContextSource.DECLARED
 
     def test_nothing_declared_and_nothing_detected_is_none(self, probes):
@@ -120,13 +147,13 @@ class TestContextSource:
         """A mutation of the context must not reach back into Project.engine_constraints."""
         _, node_probe, _ = probes
         node_probe.return_value = None
-        declared = {"node": ">=18.0.0"}
+        declared = {"node": "18.0.0"}
         project = make_project(ProjectPackagesRegistry.NPM, declared)
 
         context, _ = detect_engine_context(project, ".", probe_runtime=True)
         context.versions["node"] = "tampered"
 
-        assert declared == {"node": ">=18.0.0"}
+        assert declared == {"node": "18.0.0"}
 
 
 class TestNpmEngineKey:
@@ -134,18 +161,28 @@ class TestNpmEngineKey:
     ever carried an npm key, and the matcher returned True for every key but python and node."""
 
     def test_a_failed_node_probe_does_not_strand_the_declared_floors(self, probes):
-        """The npm probe must not select DETECTED on its own — an npm-only context would discard
-        the project's declared node floor, which is the only thing left to check against."""
         _, node_probe, _ = probes
         node_probe.return_value = None
-        project = make_project(ProjectPackagesRegistry.NPM, {"node": ">=18.0.0", "npm": ">=9.0.0"})
+        project = make_project(ProjectPackagesRegistry.NPM, {"node": "18.0.0", "npm": "9.0.0"})
 
         context, npm_cli_version = detect_engine_context(project, ".", probe_runtime=True)
 
-        assert context.versions == {"node": ">=18.0.0", "npm": ">=9.0.0"}
+        # node has only the floor left to go on; npm has both, and the floor is the lower.
+        assert context.versions == {"node": "18.0.0", "npm": "9.0.0"}
         assert context.source == EngineContextSource.DECLARED
-        # Still reported for display, just not used as a context on its own.
         assert npm_cli_version == "10.2.4"
+
+    def test_a_probed_npm_stands_on_its_own_when_the_node_probe_fails(self, probes):
+        """The npm probe used to be discarded unless Node answered too, because an npm-only
+        context would have replaced the declared node floor. Floors are merged now, not replaced,
+        so there is nothing left to protect against."""
+        _, node_probe, _ = probes
+        node_probe.return_value = None
+
+        context, _ = detect_engine_context(make_project(ProjectPackagesRegistry.NPM), ".", probe_runtime=True)
+
+        assert context.versions == {"npm": "10.2.4"}
+        assert context.source == EngineContextSource.DETECTED
 
     def test_no_npm_probe_result_leaves_the_node_context_intact(self, probes):
         _, _, npm_probe = probes

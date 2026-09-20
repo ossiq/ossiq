@@ -191,14 +191,17 @@ result for whichever version `to` ended up being:
 }
 ```
 
-`engine_context_source` says what `engine_compatible` was checked against: `"detected"` means OSS
-IQ actually found the installed Python/Node on this machine (`.venv`, `.python-version`, or a
-`node --version` probe — disable with `--no-probe-runtime`); `"declared"` falls back to the
-project's own manifest floor (`engines.node`/`requires-python`) when nothing could be detected;
-`"none"` means neither was available, and `engine_compatible` is `null` in that case — absence of
-evidence, not evidence of compatibility. When every reachable version conflicts, `to` still lands
-on the newest one and `engine_compatible: false` names the concrete requirement and what was
-detected instead of leaving it a silent runtime failure.
+`engine_compatible` is checked against the **lower** of two versions per engine: the runtime found
+on this machine (`.venv`, `.python-version`, or a `node --version` probe — disable with
+`--no-probe-runtime`) and the project's own manifest floor (`engines.node`/`requires-python`). The
+floor counts even when a newer runtime is installed, because a release that outruns it breaks the
+project's own users and will fail resolution — `uv` resolves every Python version in the declared
+range, not just the one you are on. `engine_context_source` says which side is binding:
+`"detected"` (the probe, for every engine), `"declared"` (the manifest floor, for at least one),
+or `"none"` — neither was available, and `engine_compatible` is `null` in that case, absence of
+evidence rather than evidence of compatibility. When every reachable version conflicts, `to` still
+lands on the newest one and `engine_compatible: false` names the concrete requirement and the
+version it was checked against instead of leaving it a silent runtime failure.
 
 ## Before applying an update to a specific version
 

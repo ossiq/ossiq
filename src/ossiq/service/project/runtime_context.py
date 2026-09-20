@@ -17,6 +17,7 @@ from ossiq.domain.common import (
     ProjectPackagesRegistry,
 )
 from ossiq.domain.project import Project
+from ossiq.solver.version_matchers import stricter_engine_floor
 
 
 def detect_engine_context(
@@ -27,9 +28,10 @@ def detect_engine_context(
 ) -> tuple[EngineContext, str | None]:
     """Resolve the runtime versions to check engine requirements against.
 
-    An actually-installed runtime beats the manifest's declared floor: the floor says what the
-    project claims to support, the probe says what it will really run on, and the gap between them
-    is the thing worth reporting.
+    Probe and manifest floor are not alternatives: an engine requirement has to hold for *every*
+    version the project claims to support, so each engine is held to the stricter of the two. A
+    probe that replaced the floor outright hid the common case — a developer on Python 3.13 whose
+    package still promises 3.11 — until `uv` refused to resolve the update it had recommended.
 
     Probes are gated on the project's registry. `probe_runtime` used to spawn the Python probe,
     `node --version` and `npm --version` on every scan regardless - up to three subprocesses at
@@ -54,20 +56,20 @@ def detect_engine_context(
                 detected[ENGINE_CONTEXT_KEY_BY_REGISTRY[ProjectPackagesRegistry.PYPI]] = version
         elif registry == ProjectPackagesRegistry.NPM:
             npm_cli_version = detect_actual_npm_cli_version()
+            if npm_cli_version:
+                detected["npm"] = npm_cli_version
             if version := detect_actual_node_version():
                 detected[ENGINE_CONTEXT_KEY_BY_REGISTRY[ProjectPackagesRegistry.NPM]] = version
-                # The npm probe already ran for display; carrying it in the context is what makes
-                # a package's `engines.npm` requirement checkable at all, since
-                # engine_mismatch_reason iterates context keys and a key absent here is a
-                # requirement never examined. Gated on the runtime probe rather than added
-                # independently: `detected` non-empty is what selects DETECTED over the declared
-                # floors, and an npm-only context would discard the project's declared node floor.
-                if npm_cli_version:
-                    detected["npm"] = npm_cli_version
 
-    declared = project_info.engine_constraints or {}
-    if detected:
-        return EngineContext(versions=detected, source=EngineContextSource.DETECTED), npm_cli_version
-    if declared:
-        return EngineContext(versions=dict(declared), source=EngineContextSource.DECLARED), npm_cli_version
-    return EngineContext(), npm_cli_version
+    enforced = dict(detected)
+    floor_binds = False
+    for engine_key, floor in (project_info.engine_constraints or {}).items():
+        probed = enforced.get(engine_key)
+        binding = floor if probed is None else stricter_engine_floor(engine_key, probed, floor)
+        enforced[engine_key] = binding
+        floor_binds = floor_binds or binding != probed
+
+    if not enforced:
+        return EngineContext(), npm_cli_version
+    source = EngineContextSource.DECLARED if floor_binds else EngineContextSource.DETECTED
+    return EngineContext(versions=enforced, source=source), npm_cli_version

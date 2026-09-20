@@ -21,6 +21,7 @@ from ossiq.solver.version_matchers import (
     has_engine_mismatch,
     npm_version_satisfies_range,
     pypi_version_satisfies_specifier,
+    stricter_engine_floor,
     version_satisfies_constraint,
 )
 
@@ -281,7 +282,7 @@ def test_engine_mismatch_reason_names_the_package_manager_that_mismatches() -> N
     declaring both node and npm could only ever be judged on node."""
     reason = engine_mismatch_reason({"node": ">=18.0.0", "npm": ">=9.0.0"}, {"node": "20.11.0", "npm": "8.19.2"})
 
-    assert reason == "requires npm >=9.0.0, detected 8.19.2"
+    assert reason == "requires npm >=9.0.0, checked against 8.19.2"
 
 
 def test_engine_mismatch_reason_clear_when_both_engines_satisfied() -> None:
@@ -291,3 +292,33 @@ def test_engine_mismatch_reason_clear_when_both_engines_satisfied() -> None:
 def test_engine_mismatch_reason_ignores_a_package_manager_absent_from_the_context() -> None:
     """A probe that did not run is not a conflict — absence of evidence, per the tri-state rule."""
     assert engine_mismatch_reason({"npm": ">=9.0.0"}, {"node": "20.11.0"}) is None
+
+
+# ── stricter_engine_floor ──────────────────────────────────────────────────
+
+
+def test_stricter_engine_floor_prefers_the_declared_python_floor() -> None:
+    """The reported bug in miniature: 3.13 on this machine, 3.11 promised to everyone else."""
+    assert stricter_engine_floor("python", "3.13.2", "3.11") == "3.11"
+
+
+def test_stricter_engine_floor_prefers_an_older_python_runtime() -> None:
+    assert stricter_engine_floor("python", "3.9.6", "3.11") == "3.9.6"
+
+
+def test_stricter_engine_floor_prefers_the_declared_node_floor() -> None:
+    assert stricter_engine_floor("node", "20.11.0", "18.0.0") == "18.0.0"
+
+
+def test_stricter_engine_floor_prefers_an_older_node_runtime() -> None:
+    assert stricter_engine_floor("node", "16.20.0", "18.0.0") == "16.20.0"
+
+
+def test_stricter_engine_floor_keeps_equal_versions() -> None:
+    assert stricter_engine_floor("node", "18.0.0", "18.0.0") == "18.0.0"
+
+
+def test_stricter_engine_floor_falls_back_to_the_declared_floor() -> None:
+    """A probe result nothing can parse resolves to the bound that does not depend on this machine."""
+    assert stricter_engine_floor("node", "garbage", "18.0.0") == "18.0.0"
+    assert stricter_engine_floor("python", "garbage", "3.11") == "3.11"

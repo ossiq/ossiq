@@ -667,7 +667,82 @@ class TestApplyUpdateStrategyEngineMismatch:
         assert record.compatibility.engine_compatible is True
         assert record.compatibility.engine_requirement == {"node": ">=16.0.0"}
         assert [rc.version for rc in record.rejected_candidates] == ["1.2.0"]
-        assert record.rejected_candidates[0].reason == "requires node >=22.0.0, detected 18.0.0"
+        assert record.rejected_candidates[0].reason == "requires node >=22.0.0, checked against 18.0.0"
+
+    def test_a_release_outrunning_the_declared_python_floor_is_rejected(self) -> None:
+        """The reported bug end to end: on a 3.13 interpreter this recommended the 3.12-only
+        release, and uv then refused to resolve the project's own 3.11 split. The context here is
+        what detect_engine_context now builds for such a project — the floor, not the interpreter."""
+        registry = make_registry(
+            {
+                "sphinx": [
+                    pv("8.2.3", runtime_requirements={"python": ">=3.11"}),
+                    pv("9.1.0", runtime_requirements={"python": ">=3.12"}),
+                ]
+            }
+        )
+        record = make_record("sphinx", "8.1.0")
+
+        apply_update_strategy(
+            [record],
+            registry,
+            STANDARD_PLAN,
+            versions_since={("sphinx", "8.1.0"): list(registry.package_versions("sphinx"))},
+            transitive_by_name={},
+            installed_names=set(),
+            allow_prerelease=False,
+            now=NOW,
+            engine_context=EngineContext({"python": "3.11"}, EngineContextSource.DECLARED),
+        )
+
+        assert record.recommended_version == "8.2.3"
+        assert record.compatibility.engine_compatible is True
+        assert [rc.version for rc in record.rejected_candidates] == ["9.1.0"]
+        assert record.rejected_candidates[0].reason == "requires python >=3.12, checked against 3.11"
+
+    def test_a_python_floor_mismatch_is_not_waived_when_it_empties_the_ladder(self) -> None:
+        """The sphinx case exactly: 9.0.4 installed, 9.1.0 the only release above it and 3.12-only.
+        Waiving the gate here recommended an update `uv` then refused to resolve, so on PyPI the
+        gate binds — no recommendation beats one that cannot be applied."""
+        registry = make_registry({"sphinx": [pv("9.1.0", runtime_requirements={"python": ">=3.12"})]})
+        record = make_record("sphinx", "9.0.4")
+
+        apply_update_strategy(
+            [record],
+            registry,
+            STANDARD_PLAN,
+            versions_since={("sphinx", "9.0.4"): list(registry.package_versions("sphinx"))},
+            transitive_by_name={},
+            installed_names=set(),
+            allow_prerelease=False,
+            now=NOW,
+            engine_context=EngineContext({"python": "3.11"}, EngineContextSource.DECLARED),
+        )
+
+        assert record.recommended_version is None
+        assert [rc.version for rc in record.rejected_candidates] == ["9.1.0"]
+        assert record.rejected_candidates[0].reason == "requires python >=3.12, checked against 3.11"
+
+    def test_an_npm_engine_mismatch_is_still_waived_when_it_empties_the_ladder(self) -> None:
+        """npm installs an engines mismatch with a warning rather than refusing it, so the
+        best-available-answer rule still applies there."""
+        registry = make_npm_registry({"pkg": [pv("1.1.0", runtime_requirements={"node": ">=22.0.0"})]})
+        record = make_record("pkg", "1.0.0")
+
+        apply_update_strategy(
+            [record],
+            registry,
+            STANDARD_PLAN,
+            versions_since={("pkg", "1.0.0"): list(registry.package_versions("pkg"))},
+            transitive_by_name={},
+            installed_names=set(),
+            allow_prerelease=False,
+            now=NOW,
+            engine_context=EngineContext({"node": "18.0.0"}, EngineContextSource.DETECTED),
+        )
+
+        assert record.recommended_version == "1.1.0"
+        assert record.compatibility.engine_compatible is False
 
     def test_recommends_newest_anyway_when_every_candidate_mismatches(self) -> None:
         registry = make_npm_registry(
