@@ -2,6 +2,7 @@
 
 from rich.table import Table
 
+from ossiq.domain.common import RejectionDetail
 from ossiq.domain.version import (
     VERSION_DIFF_BUILD,
     VERSION_DIFF_MAJOR,
@@ -144,6 +145,27 @@ def whats_next(record: ScanRecord, *, short: bool = False) -> str:
     return f"[{WHATS_NEXT_STYLE[label]}]{text}[/]"
 
 
+REJECTION_DETAIL_LIMIT = 5
+"""How many specs a table cell shows before it starts counting. Five fits the narrowest console
+the status table supports; the rest is a number, not an omission — the export, the agent output
+and `ossiq info` all print RejectedCandidate.full_reason in full."""
+
+
+def format_rejection_detail(detail: RejectionDetail, limit: int = REJECTION_DETAIL_LIMIT) -> str:
+    """Render a spec list short enough for a table cell.
+
+    Args:
+        detail: The label and specs behind a rejection.
+        limit: How many specs to show before summarising the remainder.
+
+    Returns:
+        `no version satisfies: a, b, c, d, e (+7 more)`, or the whole list when it fits.
+    """
+    shown = ", ".join(detail.items[:limit])
+    hidden = len(detail.items) - limit
+    return f"{detail.label}: {shown}" + (f" (+{hidden} more)" if hidden > 0 else "")
+
+
 def impact_sub_row_texts(impacts: list[TransitiveImpact]) -> list[str]:
     """Return Rich-markup strings for each transitive impact, one per sub-row."""
     is_actionable = all(not i.has_conflict for i in impacts if i.current_version is not None)
@@ -158,7 +180,8 @@ def impact_sub_row_texts(impacts: list[TransitiveImpact]) -> list[str]:
     show_detail = (len(impacts) - len(new_deps)) <= 3
 
     for impact in conflicts:
-        rows.append(f"[yellow]  ↳ ⚠ {impact.package_name}: {impact.conflict_detail or 'conflict'}[/yellow]")
+        summary = format_rejection_detail(impact.conflict) if impact.conflict else "conflict"
+        rows.append(f"[yellow]  ↳ ⚠ {impact.package_name}: {summary}[/yellow]")
 
     if show_detail:
         for impact in normal:

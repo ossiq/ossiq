@@ -13,7 +13,7 @@ from unittest.mock import patch
 import pytest
 from packaging.version import InvalidVersion
 
-from ossiq.adapters.api_pypi import PackageRegistryApiPypi, is_valid_pep440_version
+from ossiq.adapters.api_pypi import PackageRegistryApiPypi, get_repo_url, is_valid_pep440_version
 from ossiq.clients.batch import BatchClient
 from ossiq.domain.common import ConstraintType, ProjectPackagesRegistry
 from ossiq.domain.exceptions import UnableLoadPackage
@@ -693,3 +693,57 @@ class TestRewriteSpecifier:
     def test_override_is_unchanged(self):
         result = PackageRegistryApiPypi.rewrite_specifier("==8.0.0", "9.0.4", ConstraintType.OVERRIDE)
         assert result == "==8.0.0"
+
+
+class TestGetRepoUrl:
+    """PyPI has no required key for the repository, so discovery has to cope with what projects
+    actually publish. Each case here is a real package whose repository the exact-case
+    "Repository"/"Source"/"Source Code" lookup used to miss entirely — and a miss costs that
+    package every maintenance and activity signal, because nothing is ever fetched for it."""
+
+    def test_explicit_repository_key(self) -> None:
+        urls = {"Repository": "https://github.com/owner/repo", "Homepage": "https://example.com"}
+        assert get_repo_url(urls) == "https://github.com/owner/repo"
+
+    def test_lowercase_repository_key(self) -> None:
+        # pandas
+        urls = {"homepage": "https://pandas.pydata.org", "repository": "https://github.com/pandas-dev/pandas"}
+        assert get_repo_url(urls) == "https://github.com/pandas-dev/pandas"
+
+    def test_homepage_pointing_at_a_repository(self) -> None:
+        # rich
+        urls = {
+            "Documentation": "https://rich.readthedocs.io/en/latest/",
+            "Homepage": "https://github.com/Textualize/rich",
+        }
+        assert get_repo_url(urls) == "https://github.com/Textualize/rich"
+
+    def test_named_key_wins_over_a_repository_shaped_homepage(self) -> None:
+        urls = {"Homepage": "https://github.com/mirror/repo", "Source": "https://github.com/owner/repo"}
+        assert get_repo_url(urls) == "https://github.com/owner/repo"
+
+    def test_sub_pages_are_not_mistaken_for_the_repository(self) -> None:
+        # semver: every entry but one is a sub-page of the repo, and the one that is not is
+        # called "GitHub Homepage".
+        urls = {
+            "Bug Tracker": "https://github.com/python-semver/python-semver/issues",
+            "Changelog": "https://python-semver.readthedocs.io/en/latest/changelog.html",
+            "GitHub Homepage": "https://github.com/python-semver/python-semver",
+            "Releases": "https://github.com/python-semver/python-semver/releases",
+        }
+        assert get_repo_url(urls) == "https://github.com/python-semver/python-semver"
+
+    def test_only_sub_pages_finds_nothing(self) -> None:
+        urls = {"Bug Tracker": "https://github.com/owner/repo/issues"}
+        assert get_repo_url(urls) is None
+
+    def test_no_repository_anywhere(self) -> None:
+        assert get_repo_url({"Documentation": "https://example.readthedocs.io"}) is None
+
+    def test_empty_and_missing(self) -> None:
+        assert get_repo_url({}) is None
+        assert get_repo_url(None) is None
+
+    def test_blank_values_are_skipped(self) -> None:
+        urls = {"Repository": "", "Homepage": "https://github.com/owner/repo"}
+        assert get_repo_url(urls) == "https://github.com/owner/repo"

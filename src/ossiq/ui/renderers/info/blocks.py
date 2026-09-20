@@ -347,7 +347,7 @@ def policy_compliance(record: ScanRecord) -> Group:
     # version-keyed in the first place — the ladder alone cannot say why it landed where it did.
     # rejected_candidates holds exactly the releases that were passed over.
     for rejected in record.rejected_candidates:
-        table.add_row("", Text(f"{rejected.version} rejected: {rejected.reason}", style="dim"))
+        table.add_row("", Text(f"{rejected.version} rejected: {rejected.full_reason}", style="dim"))
 
     if record.recommended_version:
         reason = record.recommended_version_reason

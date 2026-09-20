@@ -670,7 +670,7 @@ class PackageMetrics(LadderFields, CompatibilityFields, NextActionFields):
                 for i in record.update_transitive_impacts
             ],
             rejected_candidates=[
-                RejectedCandidateExport(version=rc.version, reason=rc.reason) for rc in record.rejected_candidates
+                RejectedCandidateExport(version=rc.version, reason=rc.full_reason) for rc in record.rejected_candidates
             ],
             is_prerelease=record.is_installed_prerelease,
             is_yanked=record.is_installed_yanked,
@@ -887,7 +887,7 @@ class TransitivePackageMetrics(LadderFields, CompatibilityFields, NextActionFiel
             # matching whats_next rendering an empty cell for a None label.
             next_action=next_action_label(first),
             rejected_candidates=[
-                RejectedCandidateExport(version=rc.version, reason=rc.reason) for rc in first.rejected_candidates
+                RejectedCandidateExport(version=rc.version, reason=rc.full_reason) for rc in first.rejected_candidates
             ],
             time_lag_days=first.time_lag_days,
             version_age_days=first.version_age_days,

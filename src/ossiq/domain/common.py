@@ -23,6 +23,31 @@ class RepositoryProvider(StrEnum):
     PROVIDER_UNKNOWN = "UNKNOWN"
 
 
+class SignalCoverage(StrEnum):
+    """Whether a package's upstream-activity signals could be read at all, and if not, why.
+
+    The commit, engagement and README channels are GitHub-only, so a package hosted elsewhere is
+    unmeasured rather than unhealthy - a distinction a bare `stability is None` cannot carry, which
+    is why a scan could report "7 unassessed" without being able to name one of the seven.
+    """
+
+    FULL = "full"
+    NO_REPOSITORY = "no_repository"
+    """The registry declared no source repository for this package."""
+
+    UNSUPPORTED_HOST = "unsupported_host"
+    """A repository, but not on GitHub - GitLab, Codeberg, self-hosted. Never fetched."""
+
+    REPOSITORY_UNAVAILABLE = "repository_unavailable"
+    """A GitHub repository that returned nothing: renamed, private, deleted, or rate-limited."""
+
+    ACTIVITY_UNAVAILABLE = "activity_unavailable"
+    """The repository answered, but its commit history did not, so the package has metadata and
+    no maintenance assessment. Only reachable for a direct dependency: the commit, README and
+    engagement channels are fetched for those alone, so a transitive package missing them is out
+    of scope rather than degraded."""
+
+
 class ProjectPackagesRegistry(StrEnum):
     NPM = "NPM"
     PYPI = "PYPI"
@@ -153,11 +178,40 @@ def display_package_name(package_name: str, dependency_name: str | None) -> str:
 
 
 @dataclass(frozen=True)
+class RejectionDetail:
+    """The specs behind a rejection headline, unjoined so a table can elide them.
+
+    Kept apart from the headline because the two want different treatment: the headline is one
+    short clause every surface prints, while `items` can run to a dozen specs that would widen a
+    console table's first column for every other row in it.
+    """
+
+    label: str
+    """What `items` are, e.g. "no version satisfies" or "3.5.43 violates"."""
+
+    items: tuple[str, ...]
+
+    def render(self) -> str:
+        """The whole list, for the surfaces that print one line and can afford it."""
+        return f"{self.label}: {', '.join(self.items)}"
+
+
+@dataclass(frozen=True)
 class RejectedCandidate:
     """A release that would otherwise have been a candidate, held back by a transitive conflict."""
 
     version: str
+
     reason: str
+    """The headline: the one thing holding this release back, e.g. "@vue/shared requires 3.5.43"."""
+
+    detail: RejectionDetail | None = None
+    """The specs behind `reason`, when the producer had them. None from producers that don't."""
+
+    @property
+    def full_reason(self) -> str:
+        """Headline and detail as one line - what every non-tabular surface prints."""
+        return f"{self.reason} ({self.detail.render()})" if self.detail else self.reason
 
 
 @dataclass(frozen=True)

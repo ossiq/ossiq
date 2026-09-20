@@ -210,6 +210,23 @@ HELP_STATUS_COOLDOWN_HOLD = (
     "↳ {version} is {age_days} days old; nothing older to move to before the {days}-day cooldown"
 )
 
+HELP_WARNING_COUNTS_ARE_REQUESTS = (
+    "  Counts are requests, not packages — one package can lose several.\n"
+    "  Run `ossiq status --full` for the Upstream Signal Coverage panel, which names them."
+)
+
+HELP_STATUS_COVERAGE_HEADER = "Upstream Signal Coverage"
+
+HELP_STATUS_COVERAGE_INTRO = (
+    "Maintenance and activity signals are read from GitHub. "
+    "{gaps} of {total} packages (including transitive) gave up less than the full signal set:"
+)
+
+HELP_STATUS_COVERAGE_UNSUPPORTED_HOST = "Not on GitHub"
+HELP_STATUS_COVERAGE_NO_REPOSITORY = "No repository declared"
+HELP_STATUS_COVERAGE_REPOSITORY_UNAVAILABLE = "Repository unreachable"
+HELP_STATUS_COVERAGE_ACTIVITY_UNAVAILABLE = "Commit history unreachable"
+
 HELP_PLAN_CVE_BYPASS_NOTE = "↳ cooldown bypassed — installed version has a known CVE or is end-of-life"
 
 HELP_PLAN_KNOWN_BREAK_NOTE = "↳ known API/module-system break — every newer release carries it, so none was held back"

@@ -8,6 +8,7 @@ from ossiq.domain.common import (
     CveDatabase,
     ProjectPackagesRegistry,
     RecommendationRung,
+    RejectionDetail,
 )
 from ossiq.domain.cve import CVE, Severity
 from ossiq.domain.project import ConstraintSource
@@ -168,7 +169,7 @@ class TestBuildUpdatePlan:
             new_constraint=">=1.3,<1.4",
             driven_by="wagtail",
             has_conflict=False,
-            conflict_detail=None,
+            conflict=None,
         )
         wagtail = make_record("wagtail", "7.3.1", "7.4")
         wagtail.update_transitive_impacts = [modelsearch_impact]
@@ -202,7 +203,7 @@ class TestBuildUpdatePlan:
             new_constraint=">=1.3,<1.4",
             driven_by="wagtail",
             has_conflict=True,
-            conflict_detail="no version satisfies all constraints",
+            conflict=RejectionDetail("no version satisfies", ("all constraints",)),
         )
         wagtail = make_record("wagtail", "7.3.1", "7.4")
         wagtail.update_transitive_impacts = [conflicting_impact]

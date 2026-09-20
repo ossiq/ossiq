@@ -9,6 +9,7 @@ from ossiq.domain.common import (
     EngineContext,
     RecommendationRung,
     RejectedCandidate,
+    SignalCoverage,
     display_package_name,
 )
 from ossiq.domain.compatibility import CompatibilityFacts
@@ -126,6 +127,11 @@ class ScanRecord:
 
     repository: Repository | None = None
     """Fetched repository metadata (stars, activity, etc.) for repo_url, if resolved."""
+
+    signal_coverage: SignalCoverage = SignalCoverage.FULL
+    """Whether the GitHub-only activity channels could be read for this package, and if not, why.
+    Written once, in service.project.records.scan_record, beside repo_url and repository. Defaults
+    to FULL on the same "absent means ok" convention as DataCompleteness.status_for."""
 
     homepage_url: str | None = None
     """Project homepage URL reported by the package registry."""

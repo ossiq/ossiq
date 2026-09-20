@@ -7,13 +7,12 @@ from collections.abc import Iterable
 from dataclasses import replace
 from datetime import datetime
 from itertools import chain
-from urllib.parse import urlparse
 
 from packaging.version import InvalidVersion
 
 from ossiq.adapters.api_epss import EpssApiFirstOrg
 from ossiq.adapters.api_interfaces import AbstractPackageRegistryApi, AbstractSourceCodeProviderApi
-from ossiq.adapters.detectors import is_git_hosted_source
+from ossiq.adapters.detectors import is_git_hosted_source, is_github_url
 from ossiq.domain.common import RateLimitBudget, SourceFetch
 from ossiq.domain.cve import CVE
 from ossiq.domain.exceptions import UnknownPackageVersion
@@ -232,9 +231,12 @@ def prefetch_source_code_repositories_info(
 
 def github_only(repo_urls: Iterable[str]) -> list[str]:
     """Keep only github.com URLs. Everything else (GitLab, Codeberg, no URL at all) stays
-    unmeasured rather than being reported as a negative signal."""
+    unmeasured rather than being reported as a negative signal.
 
-    return [url for url in repo_urls if (urlparse(url).hostname or "").lower() == "github.com"]
+    What that costs the user is reported by `coverage.classify_signal_coverage`, which shares
+    `is_github_url` with this filter so the two agree on who was left out."""
+
+    return [url for url in repo_urls if is_github_url(url)]
 
 
 # What one scan spends per repository, by quota. REST: one /repos call for every repo in the

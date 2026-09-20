@@ -14,6 +14,7 @@ from ossiq.domain.repository import Repository
 from ossiq.risk.maintenance import deprecation_evidence
 from ossiq.service.common import package_versions
 from ossiq.service.project.breaking_changes import compute_latest_compatible_major
+from ossiq.service.project.coverage import classify_signal_coverage
 from ossiq.service.project.ladder import compute_version_ladder
 from ossiq.service.project.models import DependencyDescriptor, PrefetchedData, ScanRecord
 from ossiq.solver.version_matchers import version_satisfies_constraint
@@ -97,6 +98,8 @@ def scan_record(
     readme_head: str | None = None,
     pinned_titles: list[str] | None = None,
     *,
+    commits_expected: bool = False,
+    has_commits: bool = False,
     now: datetime | None = None,
 ) -> ScanRecord:
     """
@@ -183,6 +186,12 @@ def scan_record(
         constraint_info=constraint_info,
         repo_url=package_info.repo_url,
         repository=prefetched_repository,
+        signal_coverage=classify_signal_coverage(
+            package_info.repo_url,
+            prefetched_repository,
+            commits_expected=commits_expected,
+            has_commits=has_commits,
+        ),
         deprecation=deprecation,
         homepage_url=package_info.homepage_url,
         package_url=package_info.package_url,
@@ -222,6 +231,11 @@ def build_records(
     def repo_url_of(dep: DependencyDescriptor) -> str:
         return prefetched.packages_info[dep.canonical_name].repo_url or ""
 
+    # Whether the commit channel ran at all this scan, rather than whether it ran for any one
+    # package: under --no-stability it is switched off for everyone, and a channel the user
+    # turned off is not missing data. Direct dependencies are the only ones it covers.
+    commits_ran = bool(prefetched.commits)
+
     return [
         scan_record(
             version_rules,
@@ -242,6 +256,8 @@ def build_records(
             dep.peer_requirements,
             prefetched.readmes.get(repo_url_of(dep)),
             (prefetched.activity.get(repo_url_of(dep)) or {}).get("pinned_titles"),
+            commits_expected=commits_ran and dep.dependency_path is None,
+            has_commits=bool(prefetched.commits.get(repo_url_of(dep))),
             now=now,
         )
         for dep in descriptors

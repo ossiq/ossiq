@@ -15,7 +15,15 @@ from ossiq.domain.common import RateLimitBudget
 logger = logging.getLogger(__name__)
 
 GITHUB_API = "https://api.github.com"
-GITHUB_URL_RE = re.compile(r"github\.com[:/](?P<owner>[^/]+)/(?P<name>[^/.]+)")
+GITHUB_URL_RE = re.compile(r"github\.com[:/](?P<owner>[^/]+)/(?P<name>[^/#?\s]+)")
+"""Owner and repository from a GitHub URL in any form a registry reports it.
+
+The name deliberately admits dots. It used to be `[^/.]+`, which truncated at the first one, so
+every repository whose name carries an extension - `mustache.js`, `rollup-plugin-vue.js`,
+`whatever.py` - was requested as `repos/owner/mustache` and answered with a 404. The package then
+lost its repository, its commits and its README: three failed fetches that the scan reported only
+as a count, with nothing naming the package they belonged to.
+"""
 
 FIRST_PAGE = "\x00first"
 """Sentinel `after` value for the first request of a repo/stream, before any GraphQL cursor exists."""
@@ -36,12 +44,17 @@ dependency over the 180-day window, cached 7 days)."""
 
 
 def repo_owner_name(url: str) -> tuple[str, str]:
-    """(owner, name) for a GitHub URL in any form a registry reports it."""
+    """(owner, name) for a GitHub URL in any form a registry reports it.
+
+    The `.git` suffix is stripped here rather than in the pattern so that a repository genuinely
+    named `something.git` is the only case that can lose it, and a name like `mustache.js` keeps
+    the extension the API expects.
+    """
     stripped = url.strip().removeprefix("git+").removeprefix("https://")
     match = GITHUB_URL_RE.search(stripped)
     if not match:
         raise ValueError(f"Invalid GitHub URL: {url}")
-    return match.group("owner"), match.group("name")
+    return match.group("owner"), match.group("name").removesuffix(".git")
 
 
 def repo_api_path(url: str) -> str:

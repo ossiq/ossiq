@@ -274,7 +274,7 @@ def build_update_entry(record: ScanRecord, engine_context: EngineContext | None 
     if can_fix:
         reasons.append(f"recommend updating {installed} -> {recommended}")
     for rc in record.rejected_candidates:
-        reasons.append(f"{rc.version} rejected: {rc.reason}")
+        reasons.append(f"{rc.version} rejected: {rc.full_reason}")
     if facts.breaking_change:
         reasons.append(facts.breaking_change)
     if facts.engine_compatible is False:

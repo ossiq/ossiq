@@ -187,6 +187,30 @@ class TestWarnAboutDegradedSteps:
         message = warn.call_args.args[0]
         assert "partial — 3 not found (renamed, deleted or private)" in message
 
+    def test_repository_warning_says_the_count_is_requests_and_points_at_the_panel(self):
+        """The reported confusion: "3 not found" reads as three packages, but one package that
+        loses its repository, its commits and its README raises all three on its own. The count
+        alone matched nothing the user could see anywhere in the report."""
+        completeness = DataCompleteness(
+            by_step={ScanStep.REPOSITORIES: DataSourceStatus.PARTIAL},
+            diagnostics={ScanStep.REPOSITORIES: FetchDiagnostics(failures=((DegradeReason.NOT_FOUND, 3),))},
+        )
+        with patch("ossiq.ui.system.show_warning") as warn:
+            warn_about_degraded_steps(completeness)
+
+        message = warn.call_args.args[0]
+        assert "Counts are requests, not packages" in message
+        assert "Upstream Signal Coverage" in message
+
+    def test_a_non_repository_step_gets_no_coverage_pointer(self):
+        # The panel only explains GitHub coverage; pointing at it from an OSV failure would send
+        # the reader somewhere that says nothing about it.
+        completeness = DataCompleteness(by_step={ScanStep.VULNERABILITIES: DataSourceStatus.UNREACHABLE})
+        with patch("ossiq.ui.system.show_warning") as warn:
+            warn_about_degraded_steps(completeness)
+
+        assert "Upstream Signal Coverage" not in warn.call_args.args[0]
+
     def test_warning_reports_the_quota_the_scan_ended_on(self):
         completeness = DataCompleteness(
             by_step={ScanStep.REPOSITORIES: DataSourceStatus.RATE_LIMITED},

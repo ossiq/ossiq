@@ -15,6 +15,7 @@ from ossiq.domain.common import (
     RateLimitBudget,
     ScanStep,
 )
+from ossiq.messages import HELP_WARNING_COUNTS_ARE_REQUESTS
 from ossiq.service.project.scan import ScanProgress
 from ossiq.settings import Settings
 
@@ -229,6 +230,11 @@ def warn_about_degraded_steps(completeness: DataCompleteness) -> None:
     budgets = [replace(budget, needed=None) for budget in completeness.budgets]
     if budgets:
         lines.append("  API quota at the end of the scan: " + "; ".join(format_budget(b) for b in budgets))
+    if ScanStep.REPOSITORIES in degraded:
+        # One package can lose its repository, its commits and its README, so these counts run
+        # ahead of the number of packages affected and match nothing a reader can see. Naming
+        # the packages is the coverage panel's job; this says where to find it.
+        lines.append(HELP_WARNING_COUNTS_ARE_REQUESTS)
     show_warning(
         "Some data sources did not fully respond, so this report may be based on incomplete data:\n" + "\n".join(lines)
     )

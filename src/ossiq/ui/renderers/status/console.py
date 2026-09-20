@@ -1,14 +1,24 @@
 """Console renderer for status command."""
 
 from rich.console import Console
+from rich.padding import Padding
 from rich.rule import Rule
 from rich.table import Table
 
-from ossiq.domain.common import Command, ConstraintType, EngineContext, UserInterfaceType
+from ossiq.domain.common import Command, ConstraintType, EngineContext, SignalCoverage, UserInterfaceType
 from ossiq.domain.version import VERSION_DIFF_MAJOR, VERSION_DIFF_MINOR, VERSION_DIFF_PATCH
-from ossiq.messages import HELP_STATUS_COOLDOWN_HOLD
+from ossiq.messages import (
+    HELP_STATUS_COOLDOWN_HOLD,
+    HELP_STATUS_COVERAGE_ACTIVITY_UNAVAILABLE,
+    HELP_STATUS_COVERAGE_HEADER,
+    HELP_STATUS_COVERAGE_INTRO,
+    HELP_STATUS_COVERAGE_NO_REPOSITORY,
+    HELP_STATUS_COVERAGE_REPOSITORY_UNAVAILABLE,
+    HELP_STATUS_COVERAGE_UNSUPPORTED_HOST,
+)
 from ossiq.risk.maintenance import NOT_MAINTAINED
 from ossiq.service.library_scan import UpgradePath
+from ossiq.service.project.coverage import coverage_gaps
 from ossiq.service.project.models import ScanRecord, ScanResult
 from ossiq.service.project.next_action import CONSTRAINED_CHECK_NEWER, engine_mismatch_summary, next_action_label
 from ossiq.settings import Settings
@@ -16,6 +26,7 @@ from ossiq.ui.interfaces import AbstractUserInterfaceRenderer
 from ossiq.ui.renderers.impact_utils import (
     format_lag_status,
     format_probability,
+    format_rejection_detail,
     format_state,
     format_status_badge,
     format_time_delta,
@@ -55,6 +66,20 @@ MAIN_COLUMNS_FULL: tuple[str, ...] = (
 # sub-rows present: they share the Package column, so a long one widens it. A representative case,
 # not a guarantee — an unusually long rejection reason can still push a row onto a second line.
 MIN_WIDTH_FULL = 157
+
+COVERAGE_LABELS: dict[SignalCoverage, str] = {
+    SignalCoverage.REPOSITORY_UNAVAILABLE: HELP_STATUS_COVERAGE_REPOSITORY_UNAVAILABLE,
+    SignalCoverage.ACTIVITY_UNAVAILABLE: HELP_STATUS_COVERAGE_ACTIVITY_UNAVAILABLE,
+    SignalCoverage.UNSUPPORTED_HOST: HELP_STATUS_COVERAGE_UNSUPPORTED_HOST,
+    SignalCoverage.NO_REPOSITORY: HELP_STATUS_COVERAGE_NO_REPOSITORY,
+}
+"""The coverage panel's rows, failed fetches first: those are the states that also raised the
+scan's degraded warning, so they are what a reader arrives looking for. FULL is absent by design —
+it is the state the panel exists to exclude, so iterating this can never print a "covered" row."""
+
+COVERAGE_NAME_LIMIT = 12
+"""How many package names one row lists before it starts counting. A whole dependency graph can
+sit behind one unreachable host, and a row that long buries the other reasons."""
 
 
 def add_status_column(table: Table, name: str) -> None:
@@ -127,6 +152,42 @@ def blocker_sub_row_texts(pkg: ScanRecord) -> list[str]:
     return [f"  [yellow]↳ {pkg.version_constraint_declared} caps this below {pkg.latest_version}{ladder_note}[/]"]
 
 
+def signal_coverage_table(records: list[ScanRecord]) -> Table | None:
+    """Name the packages whose upstream signals were never read, grouped by what stopped them.
+
+    The detail behind two numbers that could not previously be acted on: the header's
+    `Unassessed: N`, and the scan's `partial — N not found` warning. That warning counts failed
+    requests, so one package that lost its repository, its commits and its README raised three of
+    them — which is why the count alone never matched anything a reader could see.
+
+    Args:
+        records: Every package the scan assessed, transitive ones included: the `/repos` call
+            covers the whole graph, so a transitive package's failure is in that count too.
+
+    Returns:
+        The panel's table, or None when every package gave up its full signal set.
+    """
+    gaps = coverage_gaps(records)
+    if not gaps:
+        return None
+
+    table = Table(show_header=False, box=None, padding=(0, 2))
+    table.add_column("State", style="dim", no_wrap=True)
+    table.add_column("Packages")
+
+    for state, label in COVERAGE_LABELS.items():
+        names = gaps.get(state)
+        if not names:
+            continue
+        shown = ", ".join(names[:COVERAGE_NAME_LIMIT])
+        hidden = len(names) - COVERAGE_NAME_LIMIT
+        if hidden > 0:
+            shown += f" (+{hidden} more)"
+        table.add_row(f"{label} ({len(names)})", f"[dim]{shown}[/dim]")
+
+    return table
+
+
 def add_detail_subrows(table: Table, pkg: ScanRecord, engine_context: EngineContext) -> None:
     """Append the per-package explanation sub-rows shared by both status tables.
 
@@ -140,6 +201,10 @@ def add_detail_subrows(table: Table, pkg: ScanRecord, engine_context: EngineCont
 
     for rc in pkg.rejected_candidates:
         table.add_row(f"  [dim]↳ {rc.version} rejected: {rc.reason}[/]", *blanks)
+        if rc.detail is not None:
+            # The spec list on its own indented line: joined onto the headline it ran to a dozen
+            # specs, and every sub-row lives in column 0, so one of them widened the whole table.
+            table.add_row(f"      [dim]{format_rejection_detail(rc.detail)}[/]", *blanks)
 
     if pkg.compatibility.breaking_change:
         table.add_row(f"  [yellow]↳ {pkg.compatibility.breaking_change}[/]", *blanks)
@@ -275,6 +340,35 @@ class ConsoleStatusRenderer(AbstractUserInterfaceRenderer):
                 spec = f"  [dim]{dep.spec}[/dim]" if dep.spec else ""
                 self.console.print(f"  [yellow]•[/yellow] {dep.name}{spec}  [dim]({dep.reason})[/dim]")
             self.console.print()
+
+        if full:
+            # Transitive records included: the /repos fetch covers the whole graph, so leaving
+            # them out left part of the scan's own degraded count with nothing to point at.
+            self.render_signal_coverage(data.production_packages + data.optional_packages + data.transitive_packages)
+
+    def render_signal_coverage(self, records: list[ScanRecord]) -> None:
+        """Print the coverage panel, or nothing when every package contributed a signal.
+
+        Sits below every other section: it explains what the report could not see, which is
+        context for the tables above rather than a finding of its own.
+
+        Args:
+            records: Production and development records — the packages the tables above covered.
+        """
+        table = signal_coverage_table(records)
+        if table is None:
+            return
+
+        gaps = sum(1 for record in records if record.signal_coverage != SignalCoverage.FULL)
+        intro = HELP_STATUS_COVERAGE_INTRO.format(gaps=gaps, total=len(records))
+        self.console.print(Rule(HELP_STATUS_COVERAGE_HEADER, style="dim"))
+        self.console.print()
+        # Padding rather than a literal two-space prefix: the intro is long enough to wrap on a
+        # narrow console, and a prefix indents only the first line.
+        self.console.print(Padding(f"[dim]{intro}[/dim]", (0, 2)))
+        self.console.print()
+        self.console.print(table)
+        self.console.print()
 
     def build_main_table(
         self,

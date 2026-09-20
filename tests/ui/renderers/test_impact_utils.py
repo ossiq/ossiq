@@ -3,9 +3,12 @@
 from rich.console import Console
 from rich.table import Table
 
+from ossiq.domain.common import RejectionDetail
 from ossiq.service.update_impact import TransitiveImpact
 from ossiq.ui.renderers.impact_utils import (
+    REJECTION_DETAIL_LIMIT,
     format_probability,
+    format_rejection_detail,
     impact_sub_row_texts,
     is_fresh_new_dep,
     new_transitive_deps_table,
@@ -20,7 +23,7 @@ def make_impact(
     new_constraint: str = ">=2.0",
     driven_by: str = "requests",
     has_conflict: bool = False,
-    conflict_detail: str | None = None,
+    conflict: RejectionDetail | None = None,
     projected_age_days: int | None = None,
 ) -> TransitiveImpact:
     return TransitiveImpact(
@@ -30,7 +33,7 @@ def make_impact(
         new_constraint=new_constraint,
         driven_by=driven_by,
         has_conflict=has_conflict,
-        conflict_detail=conflict_detail,
+        conflict=conflict,
         projected_age_days=projected_age_days,
     )
 
@@ -136,7 +139,13 @@ def test_impact_sub_row_texts_new_dep_shows_projected_version_when_available():
 
 
 def test_impact_sub_row_texts_conflict_shows_warning():
-    impacts = [make_impact("urllib3", has_conflict=True, conflict_detail="no version satisfies: >=2.0,<1.5")]
+    impacts = [
+        make_impact(
+            "urllib3",
+            has_conflict=True,
+            conflict=RejectionDetail("no version satisfies", (">=2.0", "<1.5")),
+        )
+    ]
     rows = impact_sub_row_texts(impacts)
     assert any("✗ no actionable update found" in r for r in rows)
     assert any("⚠" in r for r in rows)
@@ -158,3 +167,35 @@ def test_format_probability():
     assert format_probability(0.1234) == "12.3%"
     assert format_probability(0.0) == "0.0%"
     assert format_probability(None) == "[dim]—[/dim]"
+
+
+def test_format_rejection_detail_under_the_limit_shows_everything():
+    detail = RejectionDetail("no version satisfies", (">=2.0", "<1.5"))
+
+    assert format_rejection_detail(detail) == "no version satisfies: >=2.0, <1.5"
+    assert "more" not in format_rejection_detail(detail)
+
+
+def test_format_rejection_detail_at_the_limit_does_not_count():
+    items = tuple(f">={n}.0" for n in range(REJECTION_DETAIL_LIMIT))
+    detail = RejectionDetail("blocked by", items)
+
+    assert format_rejection_detail(detail) == "blocked by: " + ", ".join(items)
+
+
+def test_format_rejection_detail_over_the_limit_counts_the_remainder():
+    items = tuple(f">={n}.0" for n in range(REJECTION_DETAIL_LIMIT + 7))
+
+    rendered = format_rejection_detail(RejectionDetail("blocked by", items))
+
+    assert rendered.endswith("(+7 more)")
+    assert f">={REJECTION_DETAIL_LIMIT}.0" not in rendered
+
+
+def test_impact_conflict_row_elides_a_long_spec_list():
+    items = tuple(f">={n}.0" for n in range(REJECTION_DETAIL_LIMIT + 2))
+    impacts = [make_impact("urllib3", has_conflict=True, conflict=RejectionDetail("no version satisfies", items))]
+
+    rows = impact_sub_row_texts(impacts)
+
+    assert any("(+2 more)" in row for row in rows)

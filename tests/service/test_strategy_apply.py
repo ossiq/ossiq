@@ -12,6 +12,7 @@ from ossiq.domain.common import (
     ModuleSystem,
     ProjectPackagesRegistry,
     RecommendationRung,
+    RejectionDetail,
 )
 from ossiq.domain.project import ConstraintSource
 from ossiq.domain.version import PackageVersion, VersionsDifference
@@ -188,7 +189,7 @@ class TestBuildCandidatesRejections:
                     new_constraint=">=3.0.0",
                     driven_by="pkg",
                     has_conflict=True,
-                    conflict_detail="no version satisfies: >=3.0.0, ==2.0.0",
+                    conflict=RejectionDetail("no version satisfies", (">=3.0.0", "==2.0.0")),
                 )
             ],
             is_actionable=False,
@@ -207,7 +208,10 @@ class TestBuildCandidatesRejections:
         assert built.candidates == ()
         assert len(built.rejected) == 1
         assert built.rejected[0].version == "1.1.0"
-        assert built.rejected[0].reason == (
+        assert built.rejected[0].reason == "blocked-dep is held by an OSS IQ-authored override"
+        assert built.rejected[0].detail == RejectionDetail("no version satisfies", (">=3.0.0", "==2.0.0"))
+        # The one-line form every non-tabular surface still prints, unchanged by the split.
+        assert built.rejected[0].full_reason == (
             "blocked-dep is held by an OSS IQ-authored override (no version satisfies: >=3.0.0, ==2.0.0)"
         )
 
@@ -229,7 +233,7 @@ class TestBuildCandidatesRejections:
                     new_constraint=">=3.0.0",
                     driven_by="pkg",
                     has_conflict=True,
-                    conflict_detail=None,
+                    conflict=None,
                 )
             ],
             is_actionable=False,
@@ -262,7 +266,7 @@ class TestBuildCandidatesRejections:
                     new_constraint=">=3.0.0",
                     driven_by="pkg",
                     has_conflict=True,
-                    conflict_detail=None,
+                    conflict=None,
                 )
             ],
             is_actionable=False,
@@ -388,7 +392,7 @@ class TestApplyUpdateStrategy:
                 new_constraint=">=1.0.0",
                 driven_by="pkg",
                 has_conflict=False,
-                conflict_detail=None,
+                conflict=None,
             )
         ]
         impact = DirectUpdateImpact(

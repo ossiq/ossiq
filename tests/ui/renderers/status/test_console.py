@@ -12,18 +12,25 @@ from ossiq.domain.common import (
     EngineContextSource,
     ProjectPackagesRegistry,
     RejectedCandidate,
+    RejectionDetail,
+    SignalCoverage,
 )
 from ossiq.domain.compatibility import CompatibilityFacts
 from ossiq.domain.cve import CVE, Severity
 from ossiq.domain.project import ConstraintSource
 from ossiq.domain.version import VersionsDifference
 from ossiq.risk.maintenance import MaintenanceAssessment, MaintenanceState
-from ossiq.service.project.models import ScanRecord
+from ossiq.service.project.models import ScanRecord, ScanResult
 from ossiq.settings import Settings
 from ossiq.strategy.pyramid import UpdateStrategy
 from ossiq.strategy.targeting import StrategySelection
-from ossiq.ui.renderers.impact_utils import whats_next
-from ossiq.ui.renderers.status.console import MIN_WIDTH_DEFAULT, MIN_WIDTH_FULL, ConsoleStatusRenderer
+from ossiq.ui.renderers.impact_utils import REJECTION_DETAIL_LIMIT, whats_next
+from ossiq.ui.renderers.status.console import (
+    COVERAGE_NAME_LIMIT,
+    MIN_WIDTH_DEFAULT,
+    MIN_WIDTH_FULL,
+    ConsoleStatusRenderer,
+)
 
 LATEST = VersionsDifference("1.0.0", "1.0.0", 0, "LATEST")
 MINOR = VersionsDifference("1.0.0", "1.1.0", 4, "DIFF_MINOR")
@@ -360,6 +367,48 @@ def test_rejected_candidate_sub_row_absent_without_full():
     assert "rejected:" not in output
 
 
+def test_rejection_detail_moves_to_its_own_indented_row():
+    record = make_record(versions_diff_index=MINOR, recommended_version="1.0.0")
+    record.rejected_candidates = [
+        RejectedCandidate(
+            version="3.5.43",
+            reason="@vue/shared requires 3.5.43",
+            detail=RejectionDetail("no version satisfies", ("^3.5.18", "3.5.42")),
+        )
+    ]
+    lines = render_table([record], full=True).splitlines()
+
+    headline = next(i for i, line in enumerate(lines) if "3.5.43 rejected: @vue/shared requires 3.5.43" in line)
+    # The spec list is not on the headline - joined there, one row widened the whole table.
+    assert "no version satisfies" not in lines[headline]
+    assert "no version satisfies: ^3.5.18, 3.5.42" in lines[headline + 1]
+
+
+def test_rejection_detail_list_is_capped():
+    record = make_record(versions_diff_index=MINOR, recommended_version="1.0.0")
+    specs = tuple(f">={n}.0.0" for n in range(REJECTION_DETAIL_LIMIT + 3))
+    record.rejected_candidates = [
+        RejectedCandidate(version="3.5.43", reason="dep-x requires 3.5.43", detail=RejectionDetail("blocked by", specs))
+    ]
+    output = render_table([record], full=True)
+
+    assert f">={REJECTION_DETAIL_LIMIT - 1}.0.0" in output
+    assert f">={REJECTION_DETAIL_LIMIT}.0.0" not in output
+    assert "(+3 more)" in output
+
+
+def test_rejection_detail_row_absent_without_full():
+    record = make_record(versions_diff_index=MINOR, recommended_version="1.0.0")
+    record.rejected_candidates = [
+        RejectedCandidate(
+            version="1.2.0",
+            reason="dep-x requires >=2.0.0",
+            detail=RejectionDetail("no version satisfies", (">=2.0.0",)),
+        )
+    ]
+    assert "no version satisfies" not in render_table([record])
+
+
 def test_breaking_change_sub_row_shown_in_full_mode():
     record = make_record(versions_diff_index=MINOR, recommended_version="5.0.0")
     record.compatibility.breaking_change = "ESM-only from 5.0.0"
@@ -691,3 +740,112 @@ class TestCooldownHoldSubRow:
         output = render_table([record], full=True)
 
         assert "caps this below" not in output
+
+
+# --- upstream signal coverage panel -----------------------------------------------------------
+
+
+def render_report(
+    prod: list[ScanRecord],
+    dev: list[ScanRecord] | None = None,
+    *,
+    transitive: list[ScanRecord] | None = None,
+    full: bool = False,
+    width: int = 200,
+) -> str:
+    """Drive the whole renderer, not just the main table — the panel is a `render()` section."""
+    renderer = ConsoleStatusRenderer(Settings())
+    renderer.console = Console(record=True, width=width)
+    renderer.render(
+        ScanResult(
+            project_name="demo",
+            packages_registry=ProjectPackagesRegistry.NPM,
+            project_path="/tmp/demo",
+            production_packages=prod,
+            optional_packages=dev or [],
+            transitive_packages=transitive or [],
+        ),
+        full=full,
+    )
+    return renderer.console.export_text()
+
+
+def uncovered(name: str, coverage: SignalCoverage) -> ScanRecord:
+    record = make_record(name)
+    record.signal_coverage = coverage
+    return record
+
+
+class TestSignalCoveragePanel:
+    def test_panel_names_each_package_under_its_reason(self):
+        output = render_report(
+            [
+                uncovered("gitlab-pkg", SignalCoverage.UNSUPPORTED_HOST),
+                uncovered("orphan-pkg", SignalCoverage.NO_REPOSITORY),
+                uncovered("private-pkg", SignalCoverage.REPOSITORY_UNAVAILABLE),
+                make_record("covered-pkg"),
+            ],
+            full=True,
+        )
+
+        assert "Upstream Signal Coverage" in output
+        assert "3 of 4 packages (including transitive) gave up less than the full signal set" in output
+        for label, name in (
+            ("Not on GitHub (1)", "gitlab-pkg"),
+            ("No repository declared (1)", "orphan-pkg"),
+            ("Repository unreachable (1)", "private-pkg"),
+        ):
+            line = next(line for line in output.splitlines() if label in line)
+            assert name in line
+        # The panel exists to name what was missed; a covered package is not a gap.
+        assert "covered-pkg" not in output.split("Upstream Signal Coverage")[1]
+
+    def test_panel_absent_when_every_package_is_covered(self):
+        output = render_report([make_record("a"), make_record("b")], full=True)
+
+        assert "Upstream Signal Coverage" not in output
+
+    def test_panel_absent_without_full(self):
+        output = render_report([uncovered("gitlab-pkg", SignalCoverage.UNSUPPORTED_HOST)])
+
+        assert "Upstream Signal Coverage" not in output
+
+    def test_development_packages_are_counted_too(self):
+        output = render_report(
+            [make_record("prod-pkg")],
+            [uncovered("dev-pkg", SignalCoverage.UNSUPPORTED_HOST)],
+            full=True,
+        )
+
+        assert "1 of 2 packages (including transitive) gave up less than the full signal set" in output
+        assert "dev-pkg" in output
+
+    def test_transitive_packages_are_counted_too(self):
+        # The /repos fetch covers the whole graph, so a transitive package's failed fetch is in
+        # the scan's degraded count. Leaving it out of the panel left that count unattributable.
+        output = render_report(
+            [make_record("prod-pkg")],
+            transitive=[uncovered("deep-pkg", SignalCoverage.REPOSITORY_UNAVAILABLE)],
+            full=True,
+        )
+
+        assert "1 of 2 packages" in output
+        assert "deep-pkg" in output
+
+    def test_commit_history_gap_is_reported_separately_from_the_repository(self):
+        # A package whose repo answered but whose commits did not has metadata and no maintenance
+        # assessment — two failed fetches for one package, and only one of them named here.
+        output = render_report([uncovered("half-pkg", SignalCoverage.ACTIVITY_UNAVAILABLE)], full=True)
+
+        line = next(line for line in output.splitlines() if "Commit history unreachable (1)" in line)
+        assert "half-pkg" in line
+
+    def test_long_name_lists_are_capped(self):
+        records = [uncovered(f"pkg-{n:02d}", SignalCoverage.UNSUPPORTED_HOST) for n in range(COVERAGE_NAME_LIMIT + 4)]
+
+        # Scoped to the panel: every name is also a row in the main table above it.
+        panel = render_report(records, full=True).split("Upstream Signal Coverage")[1]
+
+        assert "pkg-00" in panel
+        assert f"pkg-{COVERAGE_NAME_LIMIT:02d}" not in panel
+        assert "(+4 more)" in panel

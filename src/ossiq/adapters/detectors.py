@@ -2,7 +2,40 @@
 Module with various rules to detect different types of data sources
 """
 
+from urllib.parse import urlparse
+
 from ossiq.domain.common import RepositoryProvider, UnsupportedRepositoryProvider
+
+GITHUB_HOSTNAME = "github.com"
+
+
+def is_github_url(repo_url: str | None) -> bool:
+    """True when this URL points at github.com itself.
+
+    The single definition of the host test, shared by everything that has to agree on which
+    packages GitHub can answer for: `prefetch.github_only` decides what to fetch with it,
+    `coverage.classify_signal_coverage` decides what to report with it, and `get_repo_url` decides
+    what counts as a repository with it.
+
+    Subdomains (gist., raw.githubusercontent.) are excluded: they serve neither the commits nor
+    the activity API, so treating them as GitHub would promise data no fetch can deliver.
+    """
+    if not repo_url:
+        return False
+    return (urlparse(repo_url).hostname or "").lower() == GITHUB_HOSTNAME
+
+
+def is_repository_root_url(url: str | None) -> bool:
+    """True when this URL is a GitHub repository root — `github.com/owner/name`, nothing deeper.
+
+    The depth check is what makes it safe to scan every `project_urls` entry for a repository:
+    a project's "Issues", "Releases" or "Changelog" link is the same host with a third path
+    segment, and only the root is something the repository API can be asked about.
+    """
+    if not is_github_url(url):
+        return False
+    segments = [segment for segment in urlparse(url or "").path.split("/") if segment]
+    return len(segments) == 2
 
 
 def detect_source_code_provider(repo_url: str | None) -> RepositoryProvider:

@@ -19,6 +19,7 @@ from ossiq.clients.client_github import (
     GithubReadmeBatchStrategy,
     GithubRepoBatchStrategy,
     fetch_rate_limit,
+    repo_owner_name,
 )
 from ossiq.clients.common import get_user_agent
 from ossiq.settings import Settings
@@ -262,16 +263,18 @@ class SourceCodeProviderApiGithub(AbstractSourceCodeProviderApi):
         result: dict[str, Repository] = {}
         for chunk_result in client.run_batch(repo_urls):
             for url, repo_data in chunk_result.items():
-                s = url.strip().removeprefix("git+").removeprefix("https://")
-                m = re.search(r"github\.com[:/](?P<owner>[^/]+)/(?P<name>[^/.]+)", s)
-                if not m:
+                # Parsed by the same function that built the request path, so the Repository can
+                # never disagree with the URL that was actually fetched.
+                try:
+                    owner, name = repo_owner_name(url)
+                except ValueError:
                     continue
                 result[url] = Repository(
                     provider=RepositoryProvider.PROVIDER_GITHUB,
-                    name=m.group("name"),
-                    owner=m.group("owner"),
+                    name=name,
+                    owner=owner,
                     description=repo_data.get("description"),
-                    html_url=f"https://github.com/{m.group('owner')}/{m.group('name')}",
+                    html_url=f"https://github.com/{owner}/{name}",
                     license=(repo_data.get("license") or {}).get("spdx_id") or None,
                     archived=repo_data.get("archived"),
                     pushed_at=repo_data.get("pushed_at"),
@@ -349,13 +352,7 @@ class SourceCodeProviderApiGithub(AbstractSourceCodeProviderApi):
         """
         if repository_url is None:
             raise ValueError("Repository URL cannot be None")
-        s = repository_url.strip().removeprefix("git+").removeprefix("https://")
-        m = re.search(r"github\.com[:/](?P<owner>[^/]+)/(?P<name>[^/.]+)", s)
-
-        if not m:
-            raise ValueError(f"Invalid GitHub URL: {repository_url}")
-
-        owner, repo_name = m.group("owner"), m.group("name")
+        owner, repo_name = repo_owner_name(repository_url)
 
         # Fetch repository details to get the description
         repo_api_url = f"{GITHUB_API}/repos/{owner}/{repo_name}"

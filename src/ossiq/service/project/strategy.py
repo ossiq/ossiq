@@ -21,6 +21,7 @@ from ossiq.domain.common import (
     ProjectPackagesRegistry,
     RecommendationRung,
     RejectedCandidate,
+    RejectionDetail,
 )
 from ossiq.risk.maintenance import DEPRECATION_NONE
 from ossiq.risk.triage import EPSS_NOISE_THRESHOLD
@@ -116,16 +117,21 @@ def classify_rung(
     return ladder_classify_rung(version, constraint, installed_major, registry.package_registry)
 
 
-def describe_rejection(impact: DirectUpdateImpact, transitive_by_name: dict[str, ScanRecord]) -> str:
+def describe_rejection(
+    impact: DirectUpdateImpact, transitive_by_name: dict[str, ScanRecord]
+) -> tuple[str, RejectionDetail | None]:
     """Explain why a candidate release was rejected, naming the blocking transitive dep.
 
     Attributes the block to an OSS IQ-authored override only when constraint_info says so —
     ConstraintSource.is_ossiq_authored (item #14) is what makes that claim verifiable rather than
     a guess.
+
+    Returns the headline and its spec list separately rather than one joined sentence: the list
+    can run to a dozen specs, and a table needs to elide what a log line prints in full.
     """
     blockers = [ti for ti in impact.transitive_impacts if ti.has_conflict]
     if not blockers:
-        return "blocked by a transitive dependency conflict"
+        return "blocked by a transitive dependency conflict", None
     ti = blockers[0]
     blocking = transitive_by_name.get(ti.package_name)
     if blocking and blocking.constraint_info.type == ConstraintType.OVERRIDE:
@@ -135,7 +141,7 @@ def describe_rejection(impact: DirectUpdateImpact, transitive_by_name: dict[str,
             prefix = f"{ti.package_name} is held by an override in {blocking.constraint_info.source_file}"
     else:
         prefix = f"{ti.package_name} requires {ti.new_constraint}"
-    return f"{prefix} ({ti.conflict_detail})" if ti.conflict_detail else prefix
+    return prefix, ti.conflict
 
 
 def build_candidates(
@@ -238,9 +244,8 @@ def build_candidates(
         else:
             # Overwriting on each hit keeps the newest rejected release per rung, since
             # installable is sorted ascending.
-            rejected_by_rung[rung] = RejectedCandidate(
-                version=pv.version, reason=describe_rejection(impact, transitive_by_name)
-            )
+            headline, detail = describe_rejection(impact, transitive_by_name)
+            rejected_by_rung[rung] = RejectedCandidate(version=pv.version, reason=headline, detail=detail)
 
     rejected = tuple(rejected_by_rung[rung] for rung in sorted(rejected_by_rung, key=RUNG_ORDER.__getitem__))
     return BuiltCandidates(candidates=tuple(candidates), rejected=rejected)
