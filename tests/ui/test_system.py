@@ -38,28 +38,45 @@ class TestRenderScanSteps:
         text = render_to_text(2, {ScanStep.PACKAGES: DataSourceStatus.OK})
         assert "✓  Fetching package metadata" in text
 
-    def test_unreachable_step_never_shows_a_plain_checkmark(self):
-        """The report's literal scenario: a firewalled OSV host. Once the scan has moved past
-        the vulnerabilities step, it must not render as an unqualified green ✓.
+    @pytest.mark.parametrize(
+        "step,status,plain_checkmark_line,expected_substrings",
+        [
+            (
+                ScanStep.VULNERABILITIES,
+                DataSourceStatus.UNREACHABLE,
+                "✓  Checking for vulnerabilities via OSV.dev",
+                ["✗", "unreachable"],
+            ),
+            (
+                ScanStep.REPOSITORIES,
+                DataSourceStatus.RATE_LIMITED,
+                "✓  Fetching repository info and activity from GitHub",
+                ["rate limited"],
+            ),
+            (
+                ScanStep.REPOSITORIES,
+                DataSourceStatus.PARTIAL,
+                "✓  Fetching repository info and activity from GitHub",
+                ["⚠", "partial"],
+            ),
+        ],
+        ids=["unreachable_step", "rate_limited_step", "partial_step"],
+    )
+    def test_degraded_step_never_shows_a_plain_checkmark(
+        self,
+        step: ScanStep,
+        status: DataSourceStatus,
+        plain_checkmark_line: str,
+        expected_substrings: list[str],
+    ):
+        """The report's literal scenario: a firewalled OSV host. Once the scan has moved past a
+        degraded step, it must not render as an unqualified green ✓.
         """
-        idx = STEP_INDEX[ScanStep.VULNERABILITIES] + 1
-        text = render_to_text(idx, {ScanStep.VULNERABILITIES: DataSourceStatus.UNREACHABLE})
-        assert "✓  Checking for vulnerabilities via OSV.dev" not in text
-        assert "✗" in text
-        assert "unreachable" in text
-
-    def test_rate_limited_step_never_shows_a_plain_checkmark(self):
-        idx = STEP_INDEX[ScanStep.REPOSITORIES] + 1
-        text = render_to_text(idx, {ScanStep.REPOSITORIES: DataSourceStatus.RATE_LIMITED})
-        assert "✓  Fetching repository info and activity from GitHub" not in text
-        assert "rate limited" in text
-
-    def test_partial_step_never_shows_a_plain_checkmark(self):
-        idx = STEP_INDEX[ScanStep.REPOSITORIES] + 1
-        text = render_to_text(idx, {ScanStep.REPOSITORIES: DataSourceStatus.PARTIAL})
-        assert "✓  Fetching repository info and activity from GitHub" not in text
-        assert "⚠" in text
-        assert "partial" in text
+        idx = STEP_INDEX[step] + 1
+        text = render_to_text(idx, {step: status})
+        assert plain_checkmark_line not in text
+        for substring in expected_substrings:
+            assert substring in text
 
     def test_step_with_no_recorded_status_defaults_to_ok(self):
         """Steps that don't yet report completeness (packages, versions, solver, epss) must keep

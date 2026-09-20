@@ -7,6 +7,8 @@ entirely from existing scan/package result fields.
 
 import dataclasses
 
+import pytest
+
 from ossiq.domain.common import (
     ConstraintType,
     CveDatabase,
@@ -474,32 +476,41 @@ def make_installed_detail(record: ScanRecord, insight: PackageInsight | None) ->
     )
 
 
-def test_add_decide_includes_ladder_for_installed_package():
-    record = make_record(name="pydantic", installed="1.10.13", latest_in_range="1.10.13", latest_in_major="1.10.26")
-    detail = make_installed_detail(record, make_insight(latest="2.13.5", recommended="1.10.26"))
+@pytest.mark.parametrize(
+    "record_kwargs,is_prospective,expected",
+    [
+        (
+            {"name": "pydantic", "installed": "1.10.13", "latest_in_range": "1.10.13", "latest_in_major": "1.10.26"},
+            False,
+            {"latest_in_range": "1.10.13", "latest_in_major": "1.10.26"},
+        ),
+        (
+            {"name": "pydantic", "installed": "1.10.13", "latest_compatible_major": "1.10.26"},
+            False,
+            {"latest_compatible_major": "1.10.26"},
+        ),
+        (None, True, {"latest_in_range": None, "latest_in_major": None}),
+        (None, True, {"latest_compatible_major": None}),
+    ],
+    ids=[
+        "installed_package_includes_ladder",
+        "installed_package_includes_latest_compatible_major",
+        "prospective_package_ladder_is_null",
+        "prospective_package_latest_compatible_major_is_null",
+    ],
+)
+def test_add_decide_ladder_and_latest_compatible_major(
+    record_kwargs: dict | None, is_prospective: bool, expected: dict
+):
+    if is_prospective:
+        detail = make_detail(make_insight(), warnings=[], cves=[])
+    else:
+        assert record_kwargs is not None
+        record = make_record(**record_kwargs)
+        detail = make_installed_detail(record, make_insight(latest="2.13.5", recommended="1.10.26"))
     decision = build_add_decide(detail)
-    assert decision["latest_in_range"] == "1.10.13"
-    assert decision["latest_in_major"] == "1.10.26"
-
-
-def test_add_decide_includes_latest_compatible_major_for_installed_package():
-    record = make_record(name="pydantic", installed="1.10.13", latest_compatible_major="1.10.26")
-    detail = make_installed_detail(record, make_insight(latest="2.13.5", recommended="1.10.26"))
-    decision = build_add_decide(detail)
-    assert decision["latest_compatible_major"] == "1.10.26"
-
-
-def test_add_decide_latest_compatible_major_null_for_prospective():
-    detail = make_detail(make_insight(), warnings=[], cves=[])
-    decision = build_add_decide(detail)
-    assert decision["latest_compatible_major"] is None
-
-
-def test_add_decide_ladder_null_for_prospective():
-    detail = make_detail(make_insight(), warnings=[], cves=[])
-    decision = build_add_decide(detail)
-    assert decision["latest_in_range"] is None
-    assert decision["latest_in_major"] is None
+    for key, value in expected.items():
+        assert decision[key] == value
 
 
 # --- B7: agent format must never omit a direct dependency ---------------------

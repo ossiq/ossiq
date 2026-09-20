@@ -15,6 +15,7 @@ import threading
 import time
 from unittest.mock import MagicMock, call, patch
 
+import pytest
 import requests
 
 from ossiq.clients.batch import (
@@ -572,24 +573,27 @@ class TestBatchClient429:
 
 
 class TestIsRateLimitResponse:
-    def test_429_is_rate_limit(self):
-        assert is_rate_limit_response(make_response(429, {})) is True
-
-    def test_403_with_retry_after_is_rate_limit(self):
-        assert is_rate_limit_response(make_response(403, {}, headers={"Retry-After": "60"})) is True
-
-    def test_403_with_zero_remaining_is_rate_limit(self):
-        assert is_rate_limit_response(make_response(403, {}, headers={"x-ratelimit-remaining": "0"})) is True
-
-    def test_bare_403_is_not_rate_limit(self):
-        """403 without rate-limit headers (org PAT restrictions, blocked repos) is a plain failure."""
-        assert is_rate_limit_response(make_response(403, {})) is False
-
-    def test_403_with_nonzero_remaining_is_not_rate_limit(self):
-        assert is_rate_limit_response(make_response(403, {}, headers={"x-ratelimit-remaining": "4999"})) is False
-
-    def test_200_is_not_rate_limit(self):
-        assert is_rate_limit_response(make_response(200, {})) is False
+    @pytest.mark.parametrize(
+        "status,headers,expected",
+        [
+            (429, {}, True),
+            (403, {"Retry-After": "60"}, True),
+            (403, {"x-ratelimit-remaining": "0"}, True),
+            (403, {}, False),  # org PAT restrictions, blocked repos: a plain failure
+            (403, {"x-ratelimit-remaining": "4999"}, False),
+            (200, {}, False),
+        ],
+        ids=[
+            "429_is_rate_limit",
+            "403_with_retry_after_is_rate_limit",
+            "403_with_zero_remaining_is_rate_limit",
+            "bare_403_is_not_rate_limit",
+            "403_with_nonzero_remaining_is_not_rate_limit",
+            "200_is_not_rate_limit",
+        ],
+    )
+    def test_is_rate_limit_response(self, status: int, headers: dict, expected: bool):
+        assert is_rate_limit_response(make_response(status, {}, headers=headers)) is expected
 
 
 class TestBatchClient403:

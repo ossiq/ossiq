@@ -872,37 +872,40 @@ def make_update_plan(
 class TestResolveDirectSpecifier:
     """Tests for the static helper that decides sed vs lockfile-only per entry."""
 
-    def test_pin_returns_exact_version(self):
-        entry = make_update_entry("sphinx", "8.0.0", "9.0.4", "~=8.0.0", ConstraintType.NARROWED)
-        assert PackageManagerPythonUv.resolve_direct_specifier(entry, pin_all=True) == "==9.0.4"
-
-    def test_declared_specifier_unchanged(self):
-        entry = make_update_entry("sphinx", "8.0.0", "9.0.4", ">=8.0.0", ConstraintType.DECLARED)
-        assert PackageManagerPythonUv.resolve_direct_specifier(entry, pin_all=False) == ">=8.0.0"
-
-    def test_narrowed_tilde_rewritten(self):
-        entry = make_update_entry("sphinx", "8.0.0", "9.0.4", "~=8.0.0", ConstraintType.NARROWED)
-        assert PackageManagerPythonUv.resolve_direct_specifier(entry, pin_all=False) == "~=9.0.4"
-
-    def test_narrowed_tilde_two_part(self):
-        entry = make_update_entry("sphinx", "8.0", "9.0.4", "~=8.0", ConstraintType.NARROWED)
-        assert PackageManagerPythonUv.resolve_direct_specifier(entry, pin_all=False) == "~=9.0"
-
-    def test_pinned_eq_rewritten(self):
-        entry = make_update_entry("sphinx", "8.0.0", "9.0.4", "==8.0.0", ConstraintType.PINNED)
-        assert PackageManagerPythonUv.resolve_direct_specifier(entry, pin_all=False) == "==9.0.4"
-
-    def test_narrowed_compound_falls_back_to_pin(self):
-        entry = make_update_entry("sphinx", "8.0.0", "9.0.4", ">=8.0,<9.0", ConstraintType.NARROWED)
-        assert PackageManagerPythonUv.resolve_direct_specifier(entry, pin_all=False) == "==9.0.4"
-
-    def test_none_version_defined_declared_stays_none(self):
-        entry = make_update_entry("sphinx", "8.0.0", "9.0.4", None, ConstraintType.DECLARED)
-        assert PackageManagerPythonUv.resolve_direct_specifier(entry, pin_all=False) is None
-
-    def test_forced_returns_exact_version_regardless_of_mode(self):
-        entry = make_update_entry("sphinx", "8.0.0", "9.0.4", ">=8.0.0", ConstraintType.DECLARED, is_forced=True)
-        assert PackageManagerPythonUv.resolve_direct_specifier(entry, pin_all=False) == "==9.0.4"
+    @pytest.mark.parametrize(
+        "declared_specifier,constraint_type,pin_all,is_forced,expected",
+        [
+            ("~=8.0.0", ConstraintType.NARROWED, True, False, "==9.0.4"),
+            (">=8.0.0", ConstraintType.DECLARED, False, False, ">=8.0.0"),
+            ("~=8.0.0", ConstraintType.NARROWED, False, False, "~=9.0.4"),
+            ("~=8.0", ConstraintType.NARROWED, False, False, "~=9.0"),
+            ("==8.0.0", ConstraintType.PINNED, False, False, "==9.0.4"),
+            (">=8.0,<9.0", ConstraintType.NARROWED, False, False, "==9.0.4"),
+            (None, ConstraintType.DECLARED, False, False, None),
+            (">=8.0.0", ConstraintType.DECLARED, False, True, "==9.0.4"),
+        ],
+        ids=[
+            "pin_all_returns_exact_version",
+            "declared_specifier_unchanged",
+            "narrowed_tilde_rewritten",
+            "narrowed_tilde_two_part",
+            "pinned_eq_rewritten",
+            "narrowed_compound_falls_back_to_pin",
+            "none_version_defined_declared_stays_none",
+            "forced_returns_exact_version_regardless_of_mode",
+        ],
+    )
+    def test_resolve_direct_specifier(
+        self,
+        declared_specifier: str | None,
+        constraint_type: ConstraintType,
+        pin_all: bool,
+        is_forced: bool,
+        expected: str | None,
+    ):
+        old = "8.0" if declared_specifier == "~=8.0" else "8.0.0"
+        entry = make_update_entry("sphinx", old, "9.0.4", declared_specifier, constraint_type, is_forced=is_forced)
+        assert PackageManagerPythonUv.resolve_direct_specifier(entry, pin_all=pin_all) == expected
 
 
 # ============================================================================
