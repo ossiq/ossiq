@@ -9,14 +9,94 @@ from datetime import UTC, datetime
 from pydantic import BaseModel, Field, field_serializer, model_serializer
 
 from ossiq.domain.common import (
+    WIDENING_RUNGS,
     ConstraintType,
+    DataCompleteness,
     ExportJsonSchemaVersion,
     ExportUnknownSchemaVersion,
 )
 from ossiq.domain.cve import CVE, Severity
 from ossiq.risk.maintenance import OBSERVATION_COUNT
 from ossiq.service.project.models import ScanResult
+from ossiq.service.project.next_action import next_action_label
 from ossiq.service.project.stability import RepositoryStability
+
+
+class FetchFailureExport(BaseModel):
+    """Why fetches inside one step failed, counted by cause - `partial` alone can't tell a
+    renamed repository apart from an exhausted quota, and the two call for different responses."""
+
+    reason: str = Field(
+        description="not_found | rate_limited | unavailable | rejected | empty_response | aborted | unknown"
+    )
+    count: int = Field(description="How many fetches in this step failed for this reason")
+
+
+class RateLimitBudgetExport(BaseModel):
+    """What an API's quota looked like for this scan, so a thin report can be attributed to it."""
+
+    resource: str = Field(description="The metered resource, as the API names it, e.g. 'core', 'graphql'")
+    limit: int | None = Field(default=None, description="Requests allowed per window")
+    remaining: int | None = Field(default=None, description="Requests left in the current window")
+    reset_at: float | None = Field(default=None, description="Epoch seconds at which the window rolls over")
+    needed: int | None = Field(
+        default=None, description="Requests this scan was forecast to need against this resource"
+    )
+
+
+class DataSourceStatusExport(BaseModel):
+    """B4: whether one external data source actually delivered data for this scan step."""
+
+    step: str = Field(description="Scan step this covers, e.g. 'repositories', 'vulnerabilities'")
+    status: str = Field(description="ok | partial | unreachable | rate_limited")
+    failures: list[FetchFailureExport] = Field(
+        default_factory=list, description="Causes behind a degraded status, counted; empty when the step was ok"
+    )
+
+
+class DataCompletenessExport(BaseModel):
+    """B4: per-source completeness for this scan, so a report built on missing or degraded data
+    (a firewalled host, an exhausted API quota) is never indistinguishable from a genuinely clean
+    result — every consumer of the export, not just the CLI's own progress display, can see it.
+    """
+
+    overall: str = Field(
+        default="ok", description="Worst status across every tracked source: ok | partial | unreachable | rate_limited"
+    )
+    sources: list[DataSourceStatusExport] = Field(
+        default_factory=list, description="Per-source status, one entry per scan step that reports completeness"
+    )
+    api_budgets: list[RateLimitBudgetExport] = Field(
+        default_factory=list,
+        description="Quota observed or forecast for each metered API this scan touched",
+    )
+
+    @classmethod
+    def from_domain(cls, completeness: DataCompleteness) -> "DataCompletenessExport":
+        return cls(
+            overall=completeness.overall.value,
+            sources=[
+                DataSourceStatusExport(
+                    step=step,
+                    status=status.value,
+                    failures=[
+                        FetchFailureExport(reason=reason.value, count=count)
+                        for reason, count in completeness.diagnostics_for(step).failures
+                    ],
+                )
+                for step, status in sorted(completeness.by_step.items())
+            ],
+            api_budgets=[
+                RateLimitBudgetExport(
+                    resource=budget.resource,
+                    limit=budget.limit,
+                    remaining=budget.remaining,
+                    reset_at=budget.reset_at,
+                    needed=budget.needed,
+                )
+                for budget in completeness.budgets
+            ],
+        )
 
 
 class ExportMetadata(BaseModel):
@@ -29,6 +109,24 @@ class ExportMetadata(BaseModel):
     export_timestamp: datetime = Field(
         default_factory=lambda: datetime.now(UTC),
         description="UTC timestamp when the export was generated",
+    )
+    update_strategy: str | None = Field(
+        default=None,
+        description=(
+            "The update-strategy tier this run targeted: security, deprecation, standard, "
+            "latest, or cutting-edge. See PackageMetrics.strategy_* for the per-package verdict."
+        ),
+    )
+    data_completeness: DataCompletenessExport = Field(
+        default_factory=DataCompletenessExport,
+        description="B4: per-source data-source status for this scan",
+    )
+    warnings: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Non-fatal problems found while assembling the project's sources, e.g. a tree "
+            "containing more than one package registry"
+        ),
     )
 
     @field_serializer("export_timestamp")
@@ -144,6 +242,13 @@ class TransitiveImpactExport(BaseModel):
         return {k: v for k, v in d.items() if v is not None}
 
 
+class RejectedCandidateExport(BaseModel):
+    """A release that would otherwise have been the recommendation, held back by a conflict."""
+
+    version: str
+    reason: str
+
+
 def stability_export_fields(record) -> dict:
     """Flatten a record's repository-stability, deprecation and maintenance signals for export.
 
@@ -183,12 +288,139 @@ def engagement_buckets(stability: RepositoryStability | None) -> list[list[int]]
     if stability is None or stability.engagement is None:
         return None
     return [
-        [bucket.issues_opened, bucket.issues_closed, bucket.prs_opened, bucket.prs_merged]
+        [bucket.issues_opened, bucket.issues_closed, bucket.prs_opened, bucket.prs_closed]
         for bucket in stability.engagement.buckets
     ]
 
 
-class PackageMetrics(BaseModel):
+class LadderFields(BaseModel):
+    """The version-ladder rungs, shared verbatim by direct and transitive package metrics.
+
+    Declared once so the two can't drift — they already had: one copy said "Absent when
+    undeterminable" where the other said "Null only when undeterminable", for the same field with
+    the same semantics.
+    """
+
+    latest_in_range: str | None = Field(
+        default=None,
+        description=(
+            "Newest installable version satisfying version_constraint; equals installed_version "
+            "when the declared range admits nothing newer. Null only when undeterminable — e.g. "
+            "the range is satisfiable only below installed_version (manifest/lockfile divergence)."
+        ),
+    )
+    latest_in_major: str | None = Field(
+        default=None,
+        description=(
+            "Newest installable version sharing installed_version's major line (PEP 440 epoch + "
+            "first release segment on PyPI; semver major on npm); equals installed_version when "
+            "the major line is exhausted. Null only when undeterminable."
+        ),
+    )
+    latest_compatible_major: str | None = Field(
+        default=None,
+        description=(
+            "Newest installable version among majors >= installed_version's major that carries no "
+            "known module-system/API break; diverges from latest_in_major when a clean major sits "
+            "between installed_version and a known break. Null only when undeterminable."
+        ),
+    )
+
+
+class NextActionFields(BaseModel):
+    """The one next action for a package, shared verbatim by direct and transitive metrics."""
+
+    next_action: str | None = Field(
+        default=None,
+        description=(
+            "The single next action for this package, exactly as the CLI's What's Next column and "
+            "the HTML report show it; null when nothing is due. The agent payload's next_action "
+            "applies two further escalations on top of this label and can therefore differ."
+        ),
+    )
+
+
+class CompatibilityFields(BaseModel):
+    """Module-system and engine facts about the installed and recommended versions.
+
+    Mirrors the cluster `service.project.target_facts` writes onto a ScanRecord, minus
+    `breaking_change`, which only direct metrics carry.
+    """
+
+    module_system: str | None = Field(
+        default=None,
+        description=(
+            "installed_version's own module format: 'esm-only', 'cjs' or 'dual' (npm only; always null on PyPI)"
+        ),
+    )
+    recommended_module_system: str | None = Field(
+        default=None,
+        description="recommended_version's own module format; null whenever recommended_version is null or PyPI",
+    )
+    engine_requirement: dict[str, str] | None = Field(
+        default=None,
+        description=(
+            "recommended_version's own runtime requirement, e.g. {'node': '>=20.19.0'}; null when "
+            "recommended_version is null or declares no engine requirement"
+        ),
+    )
+    engine_compatible: bool | None = Field(
+        default=None,
+        description=(
+            "False when engine_requirement conflicts with the scan's engine_context; null = no "
+            "evidence either way (no requirement, or no engine_context to compare against)"
+        ),
+    )
+
+
+class StrategySelectionExport(BaseModel):
+    """The update-strategy selector's verdict for one package.
+
+    Nested rather than four flattened `strategy_*` fields, each of which needed its own
+    `if record.strategy_selection else <default>` guard at the call site — same shape
+    DataCompletenessExport already uses.
+    """
+
+    motives: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Motives admitted at the run's update-strategy tier for this package: "
+            "exploitable_cve, suppressed_cve, end_of_life, drift. Empty when nothing was admitted"
+        ),
+    )
+    withheld_reason: str | None = Field(
+        default=None,
+        description=(
+            "Set only when no motive was admitted at the run's tier — names the lowest tier that "
+            "would move this package"
+        ),
+    )
+    requires_widening: bool = Field(
+        default=False,
+        description="Whether recommended_version sits outside version_constraint under the run's strategy",
+    )
+    escalation: str | None = Field(
+        default=None,
+        description=(
+            "Set when the strategy reached past its tier's base ceiling, or every reachable "
+            "version still carries a qualifying CVE"
+        ),
+    )
+
+    @classmethod
+    def from_domain(cls, selection) -> "StrategySelectionExport | None":
+        """Build from a StrategySelection, or None when the selector never ran for this record."""
+        if selection is None:
+            return None
+        return cls(
+            motives=sorted(m.value for m in selection.motives),
+            withheld_reason=selection.withheld_reason,
+            requires_widening=selection.requires_widening,
+            escalation=selection.escalation,
+        )
+
+
+class PackageMetrics(LadderFields, CompatibilityFields, NextActionFields):
     """Metrics for a single package (schema v1.0–1.2)."""
 
     package_name: str = Field(description="Package name (canonical registry name)")
@@ -211,7 +443,20 @@ class PackageMetrics(BaseModel):
     )
     version_constraint: str | None = Field(
         default=None,
-        description="Version constraint declared in the project manifest (e.g. '^1.2.3', '>=1.0,<2.0')",
+        description=(
+            "Effective version specifier used internally for solver/ladder computation "
+            "(e.g. '^1.2.3', '>=1.0,<2.0'). Last-writer-wins across every parent that declares a "
+            "spec for this package - not guaranteed to equal the manifest's own declaration. "
+            "Use version_constraint_declared for the manifest's declared value."
+        ),
+    )
+    version_constraint_declared: str | None = Field(
+        default=None,
+        description=(
+            "Version constraint declared by the project manifest itself (e.g. '^1.2.3', "
+            "'>=1.0,<2.0'). None when this dependency has no direct manifest entry or is "
+            'unconstrained. This is the value to show as "the declared constraint".'
+        ),
     )
     repo_url: str | None = Field(default=None, description="Source code repository URL")
     homepage_url: str | None = Field(default=None, description="Package homepage URL")
@@ -245,9 +490,40 @@ class PackageMetrics(BaseModel):
         default=None,
         description="Solver-recommended version; None when the package is already at the optimal version",
     )
+    breaking_change: str | None = Field(
+        default=None,
+        description=(
+            "Reason recommended_version is flagged as a known module-system/API break, e.g. "
+            "'ESM-only from 5.0.0'; null when no known break applies"
+        ),
+    )
+    recommended_from_rung: str | None = Field(
+        default=None,
+        description=(
+            "Which version-ladder rung recommended_version came from: 'solver' or 'in_range' sit "
+            "inside version_constraint and are safe to write as-is; 'in_major' or 'latest' require "
+            "widening version_constraint first. Null only when recommended_version is null."
+        ),
+    )
+    requires_constraint_widening: bool = Field(
+        default=False,
+        description=(
+            "True when recommended_version is only reachable by widening version_constraint first "
+            "- i.e. recommended_from_rung is 'in_major' or 'latest'. `ossiq apply` writes nothing "
+            "for these; `ossiq plan` reports them under constraint widening instead."
+        ),
+    )
     update_transitive_impacts: list[TransitiveImpactExport] = Field(
         default_factory=list,
         description="Transitive dependency impacts projected from the recommended update",
+    )
+    rejected_candidates: list[RejectedCandidateExport] = Field(
+        default_factory=list,
+        description=(
+            "Releases that would have been the recommendation but were held back by a "
+            "transitive-dependency conflict; capped at one per ladder rung (newest rejected at "
+            "in_range/in_major/latest)"
+        ),
     )
     is_prerelease: bool = Field(default=False, description="Whether the installed version is a pre-release")
     is_yanked: bool = Field(default=False, description="Whether the installed version is yanked or unpublished")
@@ -302,7 +578,7 @@ class PackageMetrics(BaseModel):
     engagement_buckets: list[list[int]] | None = Field(
         default=None,
         description="Raw flow buckets behind flow_trend, oldest ~30-day bucket first: one "
-        "[issues_opened, issues_closed, prs_opened, prs_merged] row per bucket, kept for offline "
+        "[issues_opened, issues_closed, prs_opened, prs_closed] row per bucket, kept for offline "
         "recalibration. Null without the GraphQL activity sample",
     )
     deprecation_signals: list[str] = Field(
@@ -318,6 +594,10 @@ class PackageMetrics(BaseModel):
     triage_action: str | None = Field(
         default=None,
         description="Recommended action from the EPSS x maintenance matrix: evict, patch, refactor or retain",
+    )
+    strategy: StrategySelectionExport | None = Field(
+        default=None,
+        description="The update-strategy selector's verdict for this package; null when it never ran",
     )
 
     @field_serializer(
@@ -337,6 +617,7 @@ class PackageMetrics(BaseModel):
     @classmethod
     def from_domain(cls, record) -> "PackageMetrics":
         """Convert domain ScanRecord to export model."""
+        facts = record.compatibility
         return cls(
             package_name=record.package_name,
             dependency_name=record.dependency_name,
@@ -349,6 +630,7 @@ class PackageMetrics(BaseModel):
             cve=[CVEInfo.from_domain(cve) for cve in record.cve],
             dependency_path=record.dependency_path,
             version_constraint=record.version_constraint,
+            version_constraint_declared=record.version_constraint_declared,
             repo_url=record.repo_url,
             homepage_url=record.homepage_url,
             package_url=record.package_url,
@@ -362,6 +644,19 @@ class PackageMetrics(BaseModel):
             ),
             extras=record.extras,
             recommended_version=record.recommended_version,
+            latest_in_range=facts.latest_in_range,
+            latest_in_major=facts.latest_in_major,
+            latest_compatible_major=facts.latest_compatible_major,
+            module_system=facts.module_system.value if facts.module_system else None,
+            recommended_module_system=(
+                facts.recommended_module_system.value if facts.recommended_module_system else None
+            ),
+            breaking_change=facts.breaking_change,
+            engine_requirement=facts.engine_requirement,
+            engine_compatible=facts.engine_compatible,
+            recommended_from_rung=record.recommended_from_rung.value if record.recommended_from_rung else None,
+            requires_constraint_widening=record.recommended_from_rung in WIDENING_RUNGS,
+            next_action=next_action_label(record),
             update_transitive_impacts=[
                 TransitiveImpactExport(
                     package_name=i.package_name,
@@ -374,6 +669,9 @@ class PackageMetrics(BaseModel):
                 )
                 for i in record.update_transitive_impacts
             ],
+            rejected_candidates=[
+                RejectedCandidateExport(version=rc.version, reason=rc.full_reason) for rc in record.rejected_candidates
+            ],
             is_prerelease=record.is_installed_prerelease,
             is_yanked=record.is_installed_yanked,
             is_deprecated=record.is_installed_deprecated,
@@ -381,6 +679,7 @@ class PackageMetrics(BaseModel):
             epss=record.epss,
             runs_code_at_install=record.runs_code_at_install,
             install_execution_reason=record.install_execution_reason,
+            strategy=StrategySelectionExport.from_domain(record.strategy_selection),
             **stability_export_fields(record),
         )
 
@@ -437,7 +736,7 @@ class DependencyTreeRoot(BaseModel):
         return {k: v for k, v in d.items() if not (v is None or (isinstance(v, list) and len(v) == 0))}
 
 
-class TransitivePackageMetrics(BaseModel):
+class TransitivePackageMetrics(LadderFields, CompatibilityFields, NextActionFields):
     """
     Metrics for a transitive package (schema v1.3+).
 
@@ -453,6 +752,13 @@ class TransitivePackageMetrics(BaseModel):
     )
     installed_version: str = Field(description="Currently installed version")
     latest_version: str | None = Field(description="Latest available version")
+    rejected_candidates: list[RejectedCandidateExport] = Field(
+        default_factory=list,
+        description=(
+            "Releases that would have been the recommendation but were held back by a "
+            "requires-consistency conflict; capped at one per ladder rung"
+        ),
+    )
     time_lag_days: int | None = Field(description="Days between installed and latest version")
     version_age_days: int | None = Field(
         default=None, description="Days since the installed version was published to the registry"
@@ -523,7 +829,7 @@ class TransitivePackageMetrics(BaseModel):
     engagement_buckets: list[list[int]] | None = Field(
         default=None,
         description="Raw flow buckets behind flow_trend, oldest ~30-day bucket first: one "
-        "[issues_opened, issues_closed, prs_opened, prs_merged] row per bucket, kept for offline "
+        "[issues_opened, issues_closed, prs_opened, prs_closed] row per bucket, kept for offline "
         "recalibration. Null without the GraphQL activity sample",
     )
     deprecation_signals: list[str] = Field(
@@ -561,12 +867,28 @@ class TransitivePackageMetrics(BaseModel):
     ) -> "TransitivePackageMetrics":
         """Build one TransitivePackageMetrics from a group of ScanRecords sharing (package_name, installed_version)."""
         first = records[0]
+        facts = first.compatibility
         return cls(
             id=idx,
             package_name=first.package_name,
             is_optional_dependency=first.is_optional_dependency,
             installed_version=first.installed_version,
             latest_version=first.latest_version,
+            latest_in_range=facts.latest_in_range,
+            latest_in_major=facts.latest_in_major,
+            latest_compatible_major=facts.latest_compatible_major,
+            module_system=facts.module_system.value if facts.module_system else None,
+            recommended_module_system=(
+                facts.recommended_module_system.value if facts.recommended_module_system else None
+            ),
+            engine_requirement=facts.engine_requirement,
+            engine_compatible=facts.engine_compatible,
+            # _compact drops nulls, so an absent next_action on a transitive means "nothing due",
+            # matching whats_next rendering an empty cell for a None label.
+            next_action=next_action_label(first),
+            rejected_candidates=[
+                RejectedCandidateExport(version=rc.version, reason=rc.full_reason) for rc in first.rejected_candidates
+            ],
             time_lag_days=first.time_lag_days,
             version_age_days=first.version_age_days,
             releases_lag=first.releases_lag,
@@ -596,11 +918,54 @@ class TransitivePackageMetrics(BaseModel):
 # ── Export data containers ────────────────────────────────────────────────────
 
 
+class RuntimeContextExport(BaseModel):
+    """The runtime this scan checked engine requirements against, stated once for the whole scan.
+
+    One fact about the scan, not about each package: `engine_context_source` used to be repeated on
+    every PackageMetrics and TransitivePackageMetrics, where it had already drifted - one scan
+    reported "detected" on actionable records and "none" on the rest.
+    """
+
+    engine_versions: dict[str, str] = Field(
+        default_factory=dict,
+        description="Runtime versions every record's engine_compatible was checked against, e.g. {'node': '20.11.0'}",
+    )
+    engine_context_source: str = Field(
+        default="none",
+        description=(
+            "Which source populated engine_versions: 'detected' (actually-installed runtime), "
+            "'declared' (manifest floor), or 'none'"
+        ),
+    )
+    npm_cli_version: str | None = Field(
+        default=None,
+        description="Detected npm CLI version; display-only, null on PyPI or when not probed",
+    )
+    project_declares_esm: bool = Field(
+        default=False,
+        description='Whether the project\'s own manifest declares `"type": "module"` (npm only)',
+    )
+
+    @classmethod
+    def from_domain(cls, data: "ScanResult") -> "RuntimeContextExport":
+        """Build from a ScanResult's engine context and runtime facts."""
+        return cls(
+            engine_versions=dict(data.engine_context.versions),
+            engine_context_source=data.engine_context.source.value,
+            npm_cli_version=data.npm_cli_version,
+            project_declares_esm=data.declares_esm,
+        )
+
+
 class ExportDataBase(BaseModel):
     """Common fields shared across all export schema versions."""
 
     metadata: ExportMetadata = Field(description="Export metadata")
     project: ProjectInfo = Field(description="Project information")
+    runtime_context: RuntimeContextExport = Field(
+        default_factory=RuntimeContextExport,
+        description="The runtime this scan checked engine requirements against",
+    )
     summary: ProjectSummary = Field(description="Summary statistics")
     production_packages: list[PackageMetrics] = Field(
         default_factory=list,
@@ -705,6 +1070,7 @@ def _build_dependency_tree(
 def build_export_data(
     data: ScanResult,
     schema_version: ExportJsonSchemaVersion,
+    update_strategy: str | None = None,
 ) -> ExportData:
     """
     Create export data from ScanResult domain model.
@@ -714,12 +1080,18 @@ def build_export_data(
     packages_with_cves = sum(1 for pkg in all_direct if len(pkg.cve) > 0)
     packages_outdated = sum(1 for pkg in all_direct if pkg.versions_diff_index.diff_index > 0)
 
-    metadata = ExportMetadata(schema_version=schema_version)
+    metadata = ExportMetadata(
+        schema_version=schema_version,
+        update_strategy=update_strategy,
+        data_completeness=DataCompletenessExport.from_domain(data.data_completeness),
+        warnings=list(data.source_warnings),
+    )
     project = ProjectInfo(
         name=data.project_name,
         path=data.project_path,
         registry=data.packages_registry,
     )
+    runtime_context = RuntimeContextExport.from_domain(data)
     summary = ProjectSummary(
         total_packages=len(all_direct),
         production_packages=len(data.production_packages),
@@ -744,6 +1116,7 @@ def build_export_data(
     return ExportData(
         metadata=metadata,
         project=project,
+        runtime_context=runtime_context,
         summary=summary,
         production_packages=production,
         development_packages=development,

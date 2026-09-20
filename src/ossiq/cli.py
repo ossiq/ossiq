@@ -19,11 +19,13 @@ from ossiq.commands.install import install_app
 from ossiq.commands.plan import (
     CommandPlanOptions,
     check_override_ignore_conflict,
+    check_strategy_override_ignore_conflict,
     command_apply,
     command_plan,
     parse_override_specs,
 )
 from ossiq.commands.status import CommandStatusOptions, command_status
+from ossiq.commands.update_context import CommandUpdateContextOptions, command_update_context
 from ossiq.domain.exceptions import ApplicationError
 from ossiq.mcp.server import serve as serve_mcp
 from ossiq.messages import (
@@ -35,12 +37,14 @@ from ossiq.messages import (
     ARGS_HELP_DEBUG,
     ARGS_HELP_GITHUB_TOKEN,
     ARGS_HELP_OUTPUT,
+    ARGS_HELP_PROBE_RUNTIME,
     ARGS_HELP_STABILITY,
     ARGS_HELP_STABILITY_CACHE_TTL,
     ARGS_HELP_STABILITY_RESPONSIVENESS,
     HELP_ADD_FORCE,
     HELP_ADD_PACKAGE_NAME,
     HELP_ADD_VERSION,
+    HELP_ALLOW_PARTIAL,
     HELP_IGNORE_PACKAGE,
     HELP_LAG_THRESHOULD,
     HELP_OVERRIDE_PACKAGE,
@@ -50,13 +54,53 @@ from ossiq.messages import (
     HELP_REGISTRY_TYPE,
     HELP_REWRITE_VERSIONS,
     HELP_SCHEMA_VERSION,
-    HELP_SECURITY_ONLY,
     HELP_STATUS_FULL,
+    HELP_STRATEGY_OVERRIDE,
     HELP_TEXT,
+    HELP_UPDATE_CONTEXT_TO,
+    HELP_UPDATE_STRATEGY,
 )
 from ossiq.settings import Settings
+from ossiq.strategy.overrides import parse_overrides, parse_strategy
+from ossiq.strategy.pyramid import UpdateStrategy
 from ossiq.timeutil import cutoff_datetime_from_iso_date
 from ossiq.ui.system import show_error, show_settings
+
+# Declared once and reused by all six commands that accept a strategy. Hand-copied option
+# declarations were the reason a seventh command would have been easy to get subtly wrong.
+UpdateStrategyOption = Annotated[str, typer.Option("--update-strategy", help=HELP_UPDATE_STRATEGY)]
+StrategyOverrideOption = Annotated[list[str] | None, typer.Option("--strategy-override", help=HELP_STRATEGY_OVERRIDE)]
+
+
+def resolve_strategy(
+    update_strategy: str,
+    strategy_override: list[str] | None,
+    ignore: list[str] | None,
+) -> tuple[UpdateStrategy, tuple[tuple[str, UpdateStrategy], ...]]:
+    """Parse and validate a command's strategy options together.
+
+    The CLI boundary for `strategy/`'s pure parsers: turns their ValueError into
+    typer.BadParameter, and rejects a package that is both overridden and ignored.
+
+    Args:
+        update_strategy: Raw `--update-strategy` value.
+        strategy_override: Raw repeated `--strategy-override` values, or None.
+        ignore: Raw repeated `--ignore` values, or None.
+
+    Returns:
+        (run default tier, per-package override pairs).
+
+    Raises:
+        typer.BadParameter: On an unknown tier, a malformed override, or an override/ignore clash.
+    """
+    try:
+        default = parse_strategy(update_strategy)
+        overrides = parse_overrides(strategy_override)
+    except ValueError as exc:
+        raise typer.BadParameter(str(exc)) from exc
+    check_strategy_override_ignore_conflict(overrides, tuple(ignore or []))
+    return default, overrides
+
 
 app = typer.Typer()
 console = Console()
@@ -72,7 +116,9 @@ def error_boundary(settings: Settings) -> Generator[None, None, None]:
     except ApplicationError as exc:
         if settings.traceback:
             raise
-        show_error(str(exc), title=getattr(exc, "title", "Error"), hint=getattr(exc, "hint", None))
+        # ApplicationError declares both as class attributes, so they're always present; the
+        # panel renders them as three parts where mcp/server.py uses exc.render()'s plain text.
+        show_error(str(exc), title=exc.title, hint=exc.hint)
         raise typer.Exit(1) from None
     except Exception as exc:
         if settings.traceback:
@@ -198,6 +244,14 @@ def main(
             help=ARGS_HELP_STABILITY_RESPONSIVENESS,
         ),
     ] = None,
+    probe_runtime: Annotated[
+        bool | None,
+        typer.Option(
+            "--probe-runtime/--no-probe-runtime",
+            envvar=f"{Settings.ENV_PREFIX}PROBE_RUNTIME",
+            help=ARGS_HELP_PROBE_RUNTIME,
+        ),
+    ] = None,
     version: Annotated[  # pylint: disable=unused-argument
         bool,
         typer.Option(
@@ -230,6 +284,7 @@ def main(
         "cooldown_period": cooldown_period,
         "stability": stability,
         "stability_responsiveness": stability_responsiveness,
+        "probe_runtime": probe_runtime,
     }
     # Filter out None values so we only override with explicitly provided options
     update_data = {k: v for k, v in cli_overrides.items() if v is not None}
@@ -283,14 +338,8 @@ def status(
         Literal["npm", "pypi"] | None,
         typer.Option("--registry-type", "-r", help=HELP_REGISTRY_TYPE),
     ] = None,
-    security: Annotated[
-        bool,
-        typer.Option(
-            "--security",
-            is_flag=True,
-            help="Narrow transitive recommendations to CVE-carrying packages only",
-        ),
-    ] = False,
+    update_strategy: UpdateStrategyOption = "standard",
+    strategy_override: StrategyOverrideOption = None,
     full: Annotated[bool, typer.Option("--full", is_flag=True, help=HELP_STATUS_FULL)] = False,
     ignore: Annotated[
         list[str] | None,
@@ -300,12 +349,15 @@ def status(
         Literal["console", "agent"],
         typer.Option("--format", "-f", help="Output format: console (human) or agent (compact JSON decision)"),
     ] = "console",
+    allow_partial: Annotated[bool, typer.Option("--allow-partial", help=HELP_ALLOW_PARTIAL)] = False,
 ):
     """
     Show dependency health: drift, CVEs, and solver recommendations.
     """
     if registry_type and registry_type.lower() not in ["npm", "pypi"]:
         raise typer.BadParameter("Only `npm` and `pypi` allowed")
+
+    default_strategy, strategy_overrides = resolve_strategy(update_strategy, strategy_override, ignore)
 
     with error_boundary(context.obj):
         command_status(
@@ -317,10 +369,12 @@ def status(
                 allow_prerelease=allow_prerelease,
                 allow_prerelease_packages=tuple(allow_prerelease_package or []),
                 registry_type=registry_type,
-                security_only=security,
+                update_strategy=default_strategy,
+                strategy_overrides=strategy_overrides,
                 ignore_packages=tuple(ignore or []),
                 output_format=output_format,
                 full=full,
+                allow_partial=allow_partial,
             ),
         )
 
@@ -346,14 +400,8 @@ def html(
         str,
         typer.Option("--output", "-o", envvar=f"{Settings.ENV_PREFIX}OUTPUT", help=ARGS_HELP_OUTPUT),
     ] = "./ossiq_scan_report_{project_name}.html",
-    security: Annotated[
-        bool,
-        typer.Option(
-            "--security",
-            is_flag=True,
-            help="Narrow transitive recommendations to CVE-carrying packages only",
-        ),
-    ] = False,
+    update_strategy: UpdateStrategyOption = "standard",
+    strategy_override: StrategyOverrideOption = None,
     ignore: Annotated[
         list[str] | None,
         typer.Option("--ignore", "-i", help=HELP_IGNORE_PACKAGE),
@@ -364,6 +412,8 @@ def html(
     """
     if registry_type and registry_type.lower() not in ["npm", "pypi"]:
         raise typer.BadParameter("Only `npm` and `pypi` allowed")
+
+    default_strategy, strategy_overrides = resolve_strategy(update_strategy, strategy_override, ignore)
 
     with error_boundary(context.obj):
         command_html(
@@ -376,7 +426,8 @@ def html(
                 allow_prerelease_packages=tuple(allow_prerelease_package or []),
                 registry_type=registry_type,
                 output_destination=output,
-                security_only=security,
+                update_strategy=default_strategy,
+                strategy_overrides=strategy_overrides,
                 ignore_packages=tuple(ignore or []),
             ),
         )
@@ -404,16 +455,21 @@ def export(
         Literal["1.5"] | None,
         typer.Option("--schema-version", "-s", envvar=f"{Settings.ENV_PREFIX}SCHEMA_VERSION", help=HELP_SCHEMA_VERSION),
     ] = None,
+    update_strategy: UpdateStrategyOption = "standard",
+    strategy_override: StrategyOverrideOption = None,
     ignore: Annotated[
         list[str] | None,
         typer.Option("--ignore", "-i", help=HELP_IGNORE_PACKAGE),
     ] = None,
+    allow_partial: Annotated[bool, typer.Option("--allow-partial", help=HELP_ALLOW_PARTIAL)] = False,
 ):
     """
     Export project metrics to a file
     """
     if registry_type and registry_type.lower() not in ["npm", "pypi"]:
         raise typer.BadParameter("Only `npm` and `pypi` allowed")
+
+    default_strategy, strategy_overrides = resolve_strategy(update_strategy, strategy_override, ignore)
 
     with error_boundary(context.obj):
         command_export(
@@ -424,8 +480,11 @@ def export(
                 production=production,
                 output_destination=output,
                 schema_version=schema_version,
+                allow_partial=allow_partial,
                 allow_prerelease=allow_prerelease,
                 allow_prerelease_packages=tuple(allow_prerelease_package or []),
+                update_strategy=default_strategy,
+                strategy_overrides=strategy_overrides,
                 ignore_packages=tuple(ignore or []),
             ),
         )
@@ -447,6 +506,8 @@ def info(
         list[str] | None,
         typer.Option("--allow-prerelease-package", help="Allow pre-release for a specific package (repeatable)"),
     ] = None,
+    update_strategy: UpdateStrategyOption = "standard",
+    strategy_override: StrategyOverrideOption = None,
     ignore: Annotated[
         list[str] | None,
         typer.Option("--ignore", "-i", help=HELP_IGNORE_PACKAGE),
@@ -462,6 +523,8 @@ def info(
     if registry_type and registry_type.lower() not in ["npm", "pypi"]:
         raise typer.BadParameter("Only `npm` and `pypi` allowed")
 
+    default_strategy, strategy_overrides = resolve_strategy(update_strategy, strategy_override, ignore)
+
     with error_boundary(context.obj):
         command_info(
             ctx=context,
@@ -471,6 +534,8 @@ def info(
                 registry_type=registry_type,
                 allow_prerelease=allow_prerelease,
                 allow_prerelease_packages=tuple(allow_prerelease_package or []),
+                update_strategy=default_strategy,
+                strategy_overrides=strategy_overrides,
                 ignore_packages=tuple(ignore or []),
                 output_format=output_format,
             ),
@@ -517,6 +582,43 @@ def add(
         )
 
 
+@app.command(name="update-context")
+def update_context(
+    context: typer.Context,
+    package_name: Annotated[str, typer.Argument(help=HELP_PACKAGE_NAME)],
+    project_path: Annotated[str, typer.Argument()] = ".",
+    to_version: Annotated[
+        str | None,
+        typer.Option("--to", help=HELP_UPDATE_CONTEXT_TO),
+    ] = None,
+    registry_type: Annotated[
+        Literal["npm", "pypi"] | None,
+        typer.Option("--registry-type", "-r", help=HELP_REGISTRY_TYPE),
+    ] = None,
+    allow_prerelease: Annotated[
+        bool, typer.Option("--allow-prerelease", help="Include pre-release versions in drift calculations")
+    ] = False,
+):
+    """
+    Diff a package's installed version against an arbitrary target: module-system breaks, engine
+    compatibility, and rejections along the way.
+    """
+    if registry_type and registry_type.lower() not in ["npm", "pypi"]:
+        raise typer.BadParameter("Only `npm` and `pypi` allowed")
+
+    with error_boundary(context.obj):
+        command_update_context(
+            ctx=context,
+            options=CommandUpdateContextOptions(
+                project_path=project_path,
+                package_name=package_name,
+                to_version=to_version,
+                registry_type=registry_type,
+                allow_prerelease=allow_prerelease,
+            ),
+        )
+
+
 @app.command()
 def plan(
     context: typer.Context,
@@ -533,10 +635,8 @@ def plan(
         typer.Option("--allow-prerelease-package", help="Allow pre-release for a specific package (repeatable)"),
     ] = None,
     production: Annotated[bool, typer.Option("--production", help=HELP_PRODUCTION_ONLY)] = False,
-    security: Annotated[
-        bool,
-        typer.Option("--security", is_flag=True, help=HELP_SECURITY_ONLY),
-    ] = False,
+    update_strategy: UpdateStrategyOption = "standard",
+    strategy_override: StrategyOverrideOption = None,
     ignore: Annotated[list[str] | None, typer.Option("--ignore", "-i", help=HELP_IGNORE_PACKAGE)] = None,
     pin_all: Annotated[
         bool,
@@ -550,6 +650,7 @@ def plan(
         list[str] | None,
         typer.Option("--override", help=HELP_OVERRIDE_PACKAGE),
     ] = None,
+    allow_partial: Annotated[bool, typer.Option("--allow-partial", help=HELP_ALLOW_PARTIAL)] = False,
 ):
     """Show what would change."""
     if registry_type and registry_type.lower() not in ["npm", "pypi"]:
@@ -557,6 +658,7 @@ def plan(
 
     overrides = parse_override_specs(override)
     check_override_ignore_conflict(overrides, tuple(ignore or []))
+    default_strategy, strategy_overrides = resolve_strategy(update_strategy, strategy_override, ignore)
 
     with error_boundary(context.obj):
         command_plan(
@@ -567,11 +669,13 @@ def plan(
                 allow_prerelease=allow_prerelease,
                 allow_prerelease_packages=tuple(allow_prerelease_package or []),
                 production=production,
-                security_only=security,
+                update_strategy=default_strategy,
+                strategy_overrides=strategy_overrides,
                 ignore_packages=tuple(ignore or []),
                 pin_all=pin_all,
                 rewrite_versions=rewrite_versions,
                 overrides=overrides,
+                allow_partial=allow_partial,
             ),
         )
 
@@ -592,10 +696,8 @@ def apply(
         typer.Option("--allow-prerelease-package", help="Allow pre-release for a specific package (repeatable)"),
     ] = None,
     production: Annotated[bool, typer.Option("--production", help=HELP_PRODUCTION_ONLY)] = False,
-    security: Annotated[
-        bool,
-        typer.Option("--security", is_flag=True, help=HELP_SECURITY_ONLY),
-    ] = False,
+    update_strategy: UpdateStrategyOption = "standard",
+    strategy_override: StrategyOverrideOption = None,
     ignore: Annotated[list[str] | None, typer.Option("--ignore", "-i", help=HELP_IGNORE_PACKAGE)] = None,
     pin_all: Annotated[
         bool,
@@ -620,6 +722,7 @@ def apply(
 
     overrides = parse_override_specs(override)
     check_override_ignore_conflict(overrides, tuple(ignore or []))
+    default_strategy, strategy_overrides = resolve_strategy(update_strategy, strategy_override, ignore)
 
     with error_boundary(context.obj):
         command_apply(
@@ -630,7 +733,8 @@ def apply(
                 allow_prerelease=allow_prerelease,
                 allow_prerelease_packages=tuple(allow_prerelease_package or []),
                 production=production,
-                security_only=security,
+                update_strategy=default_strategy,
+                strategy_overrides=strategy_overrides,
                 ignore_packages=tuple(ignore or []),
                 pin_all=pin_all,
                 rewrite_versions=rewrite_versions,

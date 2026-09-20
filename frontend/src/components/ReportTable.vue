@@ -2,7 +2,7 @@
 import { ref } from 'vue'
 import type { ReportRow, SortColumn, SortDirection } from '@/composables/useReportFilters'
 import { WHATS_NEXT_CLASS } from '@/composables/useReportFilters'
-import type { TransitiveImpactExport } from '@/types/report'
+import type { PackageMetrics, TransitiveImpactExport } from '@/types/report'
 import { constraintCircleClasses } from '@/explorer/nodeStyle'
 
 defineProps<{
@@ -30,6 +30,33 @@ function hasImpacts(row: ReportRow): boolean {
 
 function hasConflict(row: ReportRow): boolean {
   return row.pkg.update_transitive_impacts?.some(i => i.has_conflict) ?? false
+}
+
+// The ladder rungs worth naming next to Latest: the ones that sit strictly below it, i.e. the
+// versions this package can actually reach from where it is. Nothing is drawn when latest is
+// itself reachable. Mirrors the CLI's "↳ <range> caps this below <latest>" sub-row.
+function reachableRungs(pkg: PackageMetrics): { label: string; version: string }[] {
+  const latest = pkg.latest_version
+  if (!latest) return []
+  const rungs: { label: string; version: string }[] = []
+  if (pkg.latest_in_range && pkg.latest_in_range !== latest) {
+    rungs.push({ label: 'in range', version: pkg.latest_in_range })
+  }
+  if (pkg.latest_in_major && pkg.latest_in_major !== latest && pkg.latest_in_major !== pkg.latest_in_range) {
+    rungs.push({ label: 'in major', version: pkg.latest_in_major })
+  }
+  return rungs
+}
+
+function widensConstraint(pkg: PackageMetrics): boolean {
+  return pkg.requires_constraint_widening === true
+}
+
+function widenTitle(pkg: PackageMetrics): string {
+  const declared = pkg.version_constraint_declared
+  return declared
+    ? `${pkg.recommended_version} is outside the declared range ${declared} — applying it means widening the range first`
+    : `${pkg.recommended_version} is outside the declared range — applying it means widening the range first`
 }
 
 function impactStatus(impact: TransitiveImpactExport): string {
@@ -240,8 +267,16 @@ function spdxUrl(spdxId: string): string {
               >pre</span>
             </td>
 
-            <!-- Latest -->
-            <td class="px-3 py-2 text-xs font-mono text-zinc-700">{{ row.pkg.latest_version ?? '—' }}</td>
+            <!-- Latest, with the ladder rungs that sit below it -->
+            <td class="px-3 py-2 text-xs font-mono text-zinc-700">
+              <div>{{ row.pkg.latest_version ?? '—' }}</div>
+              <div
+                v-for="rung in reachableRungs(row.pkg)"
+                :key="rung.label"
+                class="text-[9px] text-zinc-400 whitespace-nowrap"
+                :title="`${rung.version} is the newest version reachable ${rung.label}`"
+              >{{ rung.label }} {{ rung.version }}</div>
+            </td>
 
             <!-- Releases Distance -->
             <td class="px-3 py-2 text-xs text-zinc-700">{{ row.pkg.releases_lag ?? 0 }}</td>
@@ -277,6 +312,11 @@ function spdxUrl(spdxId: string): string {
                 class="font-mono font-semibold text-violet-700"
               >{{ row.pkg.recommended_version }}</span>
               <span v-else class="text-zinc-300">—</span>
+              <span
+                v-if="widensConstraint(row.pkg)"
+                class="ml-1 px-1 py-0.5 text-[8px] font-bold uppercase tracking-wide bg-amber-100 text-amber-700 border border-amber-300 rounded"
+                :title="widenTitle(row.pkg)"
+              >widen</span>
             </td>
 
             <!-- What's Next -->

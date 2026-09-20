@@ -3,7 +3,7 @@ import requests
 from ossiq.clients.batch import BatchClient
 from ossiq.clients.client_osv import ECOSYSTEM_MAPPING, OsvBatchStrategy, OsvDetailsBatchStrategy
 from ossiq.clients.common import get_user_agent
-from ossiq.domain.common import CveDatabase
+from ossiq.domain.common import CveDatabase, SourceFetch, combine_statuses
 from ossiq.domain.cve import CVE, Severity
 from ossiq.domain.package import Package
 from ossiq.settings import Settings
@@ -30,30 +30,47 @@ class CveApiOsv:
     def __repr__(self):
         return f"CveApiOsv(base_url='{self._strategy.BASE_URL}')"
 
-    def get_cves_batch(self, packages_with_versions: list[tuple[Package, str]]) -> dict[tuple[str, str], set[CVE]]:
+    def get_cves_batch(
+        self, packages_with_versions: list[tuple[Package, str]]
+    ) -> SourceFetch[dict[tuple[str, str], set[CVE]]]:
+        """Discover vulnerability IDs for each (package, version), then fetch their full records.
+
+        Args:
+            packages_with_versions: The exact pairs to query.
+
+        Returns:
+            The CVE map, and whether OSV actually delivered it. A failure fetching *details*
+            counts against the status too, not just a failure discovering IDs: real vulnerability
+            IDs that could not be fully described are still missing data.
+        """
         if not packages_with_versions:
-            return {}
+            return SourceFetch({})
 
         pkg_map: dict[tuple[str, str], Package] = {(pkg.name, version): pkg for pkg, version in packages_with_versions}
         merged: dict[tuple[str, str], list[dict]] = {}
         for chunk_data in self._batch_client.run_batch(packages_with_versions):
             for key, vulns in chunk_data.items():
                 merged.setdefault(key, []).extend(vulns)
+        statuses = [self._batch_client.last_summary.status]
 
         vulnerability_ids = sorted({vuln["id"] for vulns in merged.values() for vuln in vulns})
         details: dict[str, dict] = {}
         if vulnerability_ids:
             for chunk_data in self._details_batch_client.run_batch(vulnerability_ids):
                 details.update(chunk_data)
+            statuses.append(self._details_batch_client.last_summary.status)
 
-        return {
-            (pkg.name, version): self.parse_cve_response(
-                [details.get(vuln["id"], vuln) for vuln in merged.get((pkg.name, version), [])],
-                pkg_map[(pkg.name, version)],
-                version,
-            )
-            for pkg, version in packages_with_versions
-        }
+        return SourceFetch(
+            {
+                (pkg.name, version): self.parse_cve_response(
+                    [details.get(vuln["id"], vuln) for vuln in merged.get((pkg.name, version), [])],
+                    pkg_map[(pkg.name, version)],
+                    version,
+                )
+                for pkg, version in packages_with_versions
+            },
+            combine_statuses(statuses),
+        )
 
     def parse_cve_response(self, raw_vulns: list[dict], package: Package, installed_version: str) -> set[CVE]:
         cves = set()

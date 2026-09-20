@@ -18,21 +18,30 @@ from ossiq.clients.client_github import (
     GithubGraphQLBatchStrategy,
     GithubReadmeBatchStrategy,
     GithubRepoBatchStrategy,
+    fetch_rate_limit,
+    repo_owner_name,
 )
 from ossiq.clients.common import get_user_agent
 from ossiq.settings import Settings
 
 # from ossiq.clients.github import GithubSession
-from ..domain.common import VERSION_DATA_SOURCE_GITHUB_RELEASES, VERSION_DATA_SOURCE_GITHUB_TAGS, RepositoryProvider
+from ..domain.common import (
+    VERSION_DATA_SOURCE_GITHUB_RELEASES,
+    VERSION_DATA_SOURCE_GITHUB_TAGS,
+    RateLimitBudget,
+    RepositoryProvider,
+    SourceFetch,
+)
 from ..domain.exceptions import GithubRateLimitError
 from ..domain.repository import Repository
 from ..domain.version import Commit, PackageVersion, RepositoryVersion, User, sort_versions
+from .api_interfaces import AbstractSourceCodeProviderApi
 
 logger = logging.getLogger(__name__)
 GITHUB_API = "https://api.github.com"
 
 
-class SourceCodeProviderApiGithub:
+class SourceCodeProviderApiGithub(AbstractSourceCodeProviderApi):
     """
     Implementation of SourceCodeApiClient for Github
     """
@@ -246,7 +255,7 @@ class SourceCodeProviderApiGithub:
             if n == len(versions_set):
                 break
 
-    def repositories_info_batch(self, repo_urls: list[str]) -> dict[str, Repository]:
+    def repositories_info_batch(self, repo_urls: list[str]) -> SourceFetch[dict[str, Repository]]:
         """
         Fetch GitHub repository metadata for a list of URLs in parallel.
         """
@@ -254,24 +263,26 @@ class SourceCodeProviderApiGithub:
         result: dict[str, Repository] = {}
         for chunk_result in client.run_batch(repo_urls):
             for url, repo_data in chunk_result.items():
-                s = url.strip().removeprefix("git+").removeprefix("https://")
-                m = re.search(r"github\.com[:/](?P<owner>[^/]+)/(?P<name>[^/.]+)", s)
-                if not m:
+                # Parsed by the same function that built the request path, so the Repository can
+                # never disagree with the URL that was actually fetched.
+                try:
+                    owner, name = repo_owner_name(url)
+                except ValueError:
                     continue
                 result[url] = Repository(
                     provider=RepositoryProvider.PROVIDER_GITHUB,
-                    name=m.group("name"),
-                    owner=m.group("owner"),
+                    name=name,
+                    owner=owner,
                     description=repo_data.get("description"),
-                    html_url=f"https://github.com/{m.group('owner')}/{m.group('name')}",
+                    html_url=f"https://github.com/{owner}/{name}",
                     license=(repo_data.get("license") or {}).get("spdx_id") or None,
                     archived=repo_data.get("archived"),
                     pushed_at=repo_data.get("pushed_at"),
                     topics=repo_data.get("topics") or [],
                 )
-        return result
+        return SourceFetch(result, client.last_summary.status, client.last_summary.diagnostics)
 
-    def commits_batch(self, repo_urls: list[str], until: str | None = None) -> dict[str, list[dict]]:
+    def commits_batch(self, repo_urls: list[str], until: str | None = None) -> SourceFetch[dict[str, list[dict]]]:
         """
         Fetch the last 100 commits for a list of repo URLs in parallel.
 
@@ -283,9 +294,9 @@ class SourceCodeProviderApiGithub:
             for url, commits in chunk_result.items():
                 if commits:
                     result[url] = commits
-        return result
+        return SourceFetch(result, client.last_summary.status, client.last_summary.diagnostics)
 
-    def repository_activity_batch(self, repo_urls: list[str], since: str | None = None) -> dict[str, dict]:
+    def repository_activity_batch(self, repo_urls: list[str], since: str | None = None) -> SourceFetch[dict[str, dict]]:
         """Fetch issue / PR activity for a list of repo URLs via batched GraphQL.
 
         `since` is the ISO-8601 start of the engagement window. Issues and PRs are fetched in
@@ -306,13 +317,17 @@ class SourceCodeProviderApiGithub:
                 pulls.setdefault(url, []).extend(payload.get("pulls") or [])
                 if payload.get("pinned_titles"):
                     pinned[url] = payload["pinned_titles"]
-        return {
-            url: {"issues": issues.get(url, []), "pulls": pulls.get(url, []), "pinned_titles": pinned.get(url, [])}
-            for url in issues.keys() | pulls.keys()
-            if issues.get(url) or pulls.get(url)
-        }
+        return SourceFetch(
+            {
+                url: {"issues": issues.get(url, []), "pulls": pulls.get(url, []), "pinned_titles": pinned.get(url, [])}
+                for url in issues.keys() | pulls.keys()
+                if issues.get(url) or pulls.get(url)
+            },
+            client.last_summary.status,
+            client.last_summary.diagnostics,
+        )
 
-    def readmes_batch(self, repo_urls: list[str]) -> dict[str, str]:
+    def readmes_batch(self, repo_urls: list[str]) -> SourceFetch[dict[str, str]]:
         """Fetch the top of each repo's README in parallel, for the deprecation-banner scan."""
         client = BatchClient(GithubReadmeBatchStrategy(self.session))
         result: dict[str, str] = {}
@@ -320,7 +335,16 @@ class SourceCodeProviderApiGithub:
             for url, text in chunk_result.items():
                 if text:
                     result[url] = text
-        return result
+        return SourceFetch(result, client.last_summary.status, client.last_summary.diagnostics)
+
+    def rate_limit_budgets(self) -> tuple[RateLimitBudget, ...]:
+        """What this token's GitHub quota looks like right now, before the scan spends any of it.
+
+        Returns:
+            One budget per metered resource, or an empty tuple when GitHub didn't answer - a
+            pre-flight check that fails is one less thing to report, never a failed scan.
+        """
+        return fetch_rate_limit(self.session)
 
     def repository_info(self, repository_url: str | None) -> Repository:
         """
@@ -328,13 +352,7 @@ class SourceCodeProviderApiGithub:
         """
         if repository_url is None:
             raise ValueError("Repository URL cannot be None")
-        s = repository_url.strip().removeprefix("git+").removeprefix("https://")
-        m = re.search(r"github\.com[:/](?P<owner>[^/]+)/(?P<name>[^/.]+)", s)
-
-        if not m:
-            raise ValueError(f"Invalid GitHub URL: {repository_url}")
-
-        owner, repo_name = m.group("owner"), m.group("name")
+        owner, repo_name = repo_owner_name(repository_url)
 
         # Fetch repository details to get the description
         repo_api_url = f"{GITHUB_API}/repos/{owner}/{repo_name}"

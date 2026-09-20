@@ -104,10 +104,34 @@ import { constraintCircleClasses } from '@/explorer/nodeStyle'
               abandoned or deprecated. <span class="text-amber-600 font-bold">Consider alternative</span>: the
               upstream is winding down. <span class="font-bold">Check Release Notes</span>: a major version behind.
               <span class="font-bold">Update Immediately</span>: a minor or patch behind, with a newer version
-              inside the declared range. <span class="text-amber-600 font-bold">Constrained. Check newer
+              inside the declared range. <span class="text-slate-400 font-bold">Wait for cooldown</span>: a newer
+              version exists, but every version you could move to is younger than the cooldown period — there is
+              nothing safe to take yet. <span class="text-amber-600 font-bold">Constrained. Check newer
               version</span>: a minor or patch behind, but the declared range admits no bump — widening it is the
-              real next step. By default the table hides packages with nothing to do — tick
+              real next step. <span class="text-slate-400 font-bold">Withheld by strategy</span>: a bump is
+              available, but the update strategy this scan ran under admitted no reason to take it.
+              By default the table hides packages with nothing to do — tick
               <span class="font-bold">Show all packages</span> to see them.
+            </p>
+          </div>
+        </div>
+
+        <!-- Version ladder -->
+        <div class="flex items-start gap-3">
+          <span class="material-symbols-rounded text-lg text-slate-400 shrink-0">stairs</span>
+          <div>
+            <div class="text-sm font-bold text-slate-900">Version Ladder</div>
+            <p class="text-xs text-slate-500 leading-relaxed">
+              How far a package can actually move from where it is. Under <span class="font-bold">Latest</span>,
+              <span class="font-mono text-[11px]">in range</span> is the newest version the declared constraint
+              already admits — reachable with no manifest edit — and
+              <span class="font-mono text-[11px]">in major</span> is the newest sharing the installed major
+              version. Either line appears only when it sits below the registry's latest, which is precisely when
+              something is holding the package back. A
+              <span class="px-1 py-0.5 text-[8px] font-bold uppercase tracking-wide bg-amber-100 text-amber-700 border border-amber-300 rounded">widen</span>
+              badge on the recommendation means it lies outside the declared range: applying it means widening
+              the range first, so <span class="font-mono text-[11px]">ossiq apply</span> will not write it on its
+              own. Select a package for the full ladder.
             </p>
           </div>
         </div>

@@ -10,11 +10,20 @@ from datetime import UTC, datetime
 import requests
 
 from ossiq.clients.batch import BatchClient, BatchStrategy, BatchStrategySettings, ChunkResult
+from ossiq.domain.common import RateLimitBudget
 
 logger = logging.getLogger(__name__)
 
 GITHUB_API = "https://api.github.com"
-GITHUB_URL_RE = re.compile(r"github\.com[:/](?P<owner>[^/]+)/(?P<name>[^/.]+)")
+GITHUB_URL_RE = re.compile(r"github\.com[:/](?P<owner>[^/]+)/(?P<name>[^/#?\s]+)")
+"""Owner and repository from a GitHub URL in any form a registry reports it.
+
+The name deliberately admits dots. It used to be `[^/.]+`, which truncated at the first one, so
+every repository whose name carries an extension - `mustache.js`, `rollup-plugin-vue.js`,
+`whatever.py` - was requested as `repos/owner/mustache` and answered with a 404. The package then
+lost its repository, its commits and its README: three failed fetches that the scan reported only
+as a count, with nothing naming the package they belonged to.
+"""
 
 FIRST_PAGE = "\x00first"
 """Sentinel `after` value for the first request of a repo/stream, before any GraphQL cursor exists."""
@@ -35,18 +44,62 @@ dependency over the 180-day window, cached 7 days)."""
 
 
 def repo_owner_name(url: str) -> tuple[str, str]:
-    """(owner, name) for a GitHub URL in any form a registry reports it."""
+    """(owner, name) for a GitHub URL in any form a registry reports it.
+
+    The `.git` suffix is stripped here rather than in the pattern so that a repository genuinely
+    named `something.git` is the only case that can lose it, and a name like `mustache.js` keeps
+    the extension the API expects.
+    """
     stripped = url.strip().removeprefix("git+").removeprefix("https://")
     match = GITHUB_URL_RE.search(stripped)
     if not match:
         raise ValueError(f"Invalid GitHub URL: {url}")
-    return match.group("owner"), match.group("name")
+    return match.group("owner"), match.group("name").removesuffix(".git")
 
 
 def repo_api_path(url: str) -> str:
     """Build the `repos/owner/name` API path for a GitHub URL in any form a registry reports it."""
     owner, name = repo_owner_name(url)
     return f"repos/{owner}/{name}"
+
+
+def fetch_rate_limit(session: requests.Session, timeout: float = 5.0) -> tuple[RateLimitBudget, ...]:
+    """Current quota for the two resources a scan spends: `core` (REST) and `graphql`.
+
+    GET /rate_limit is itself free - it is the only GitHub endpoint that doesn't count against the
+    quota it reports - and is exempt from the HTTP cache, since a replayed reading is worse than
+    no reading. A failure here is never worth failing a scan for: the caller gets an empty tuple
+    and reports one less thing.
+
+    Args:
+        session: The session the scan's GitHub calls will use, so the reading covers that token.
+        timeout: Seconds to wait before giving up on the pre-flight check.
+
+    Returns:
+        One budget per metered resource, or an empty tuple when GitHub didn't answer.
+    """
+    try:
+        response = session.get(f"{GITHUB_API}/rate_limit", timeout=timeout)
+        resources = (response.json() or {}).get("resources") or {}
+    except (requests.RequestException, ValueError) as exc:
+        logger.debug("Rate-limit pre-flight check failed: %s", exc)
+        return ()
+
+    budgets = []
+    for resource in ("core", "graphql"):
+        quota = resources.get(resource)
+        if not quota:
+            continue
+        reset = quota.get("reset")
+        budgets.append(
+            RateLimitBudget(
+                resource=resource,
+                limit=quota.get("limit"),
+                remaining=quota.get("remaining"),
+                reset_at=float(reset) if reset is not None else None,
+            )
+        )
+    return tuple(budgets)
 
 
 class GithubRepoBatchStrategy(BatchStrategy):
@@ -142,7 +195,22 @@ def graphql_payload(response: ChunkResult) -> dict:
         )
     elif not data and errors:
         logger.warning("GraphQL activity query returned no data: %s", errors[0].get("message"))
+    elif errors:
+        # A partial response: some aliases or individual nodes failed, the rest of the payload is
+        # real. Worth a trace, not a warning - the sample is thinner, not wrong.
+        logger.debug("GraphQL activity query returned %d partial error(s): %s", len(errors), errors[0].get("message"))
     return data
+
+
+def connection_nodes(conn: dict) -> list[dict]:
+    """The non-null entries of a GraphQL connection's `nodes` list.
+
+    GitHub answers a per-node failure (`errors` carrying `"type": "INTERNAL"` and a path into
+    `nodes`) with HTTP 200 and a `null` in place of that one item, the rest of the page intact.
+    Responses are cached for the stability TTL, so one null node left unfiltered crashes every
+    scan of that project for a week, not just the run that fetched it.
+    """
+    return [node for node in conn.get("nodes") or [] if node is not None]
 
 
 def to_datetime(value: str | None) -> datetime:
@@ -160,7 +228,8 @@ def build_activity_query(chunk: list, since: str) -> str:
     deprecation / migration notice is a maintenance signal.
     """
     issue_fields = "createdAt closedAt author { __typename login }"
-    pr_fields = "createdAt mergedAt closedAt updatedAt author { __typename login }"
+    # No `mergedAt`: the engagement channel counts a PR as outflow when it closes, merged or not.
+    pr_fields = "createdAt closedAt updatedAt author { __typename login }"
     aliases = []
     for index, item in enumerate(chunk):
         _, owner, name, stream, after, _ = item
@@ -186,15 +255,15 @@ def parse_activity_alias(node: dict, since: str, stream: str) -> dict:
     """One repository alias -> raw nodes for `stream`, its pinned-issue titles, and its next cursor.
 
     Only the windowing that decides *how many pages to fetch* happens here (PRs carry no
-    server-side date filter). Bot filtering and createdAt/closedAt/mergedAt bucketing for the
+    server-side date filter). Bot filtering and createdAt/closedAt bucketing for the
     statistics themselves happen in `service/project/stability.py` over the raw nodes.
     """
     if stream == "issues":
         conn = node.get("issues") or {}
         page = conn.get("pageInfo") or {}
-        pinned = (node.get("pinnedIssues") or {}).get("nodes") or []
+        pinned = connection_nodes(node.get("pinnedIssues") or {})
         return {
-            "issues": conn.get("nodes") or [],
+            "issues": connection_nodes(conn),
             "pulls": [],
             "pinned_titles": [(entry.get("issue") or {}).get("title") or "" for entry in pinned],
             "next": page.get("endCursor") if page.get("hasNextPage") else None,
@@ -203,7 +272,7 @@ def parse_activity_alias(node: dict, since: str, stream: str) -> dict:
     since_dt = datetime.fromisoformat(since)
     conn = node.get("pullRequests") or {}
     page = conn.get("pageInfo") or {}
-    pr_nodes = conn.get("nodes") or []
+    pr_nodes = connection_nodes(conn)
     # PRs come back UPDATED_AT desc with no `since` filter: once the oldest PR on a page predates
     # the window, every later page is outside it too.
     pr_window_open = bool(pr_nodes) and to_datetime(pr_nodes[-1].get("updatedAt")) >= since_dt

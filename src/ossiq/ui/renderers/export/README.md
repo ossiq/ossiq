@@ -2,9 +2,6 @@
 
 This directory owns the versioned JSON export format. Follow this guide when introducing a new schema version (e.g. v1.6).
 
-The CSV export was removed in GH-121 — the export command now produces JSON only. Historical
-JSON schema versions v1.0–v1.4 were dropped at the same time; only the latest version is kept
-registered.
 
 ---
 
@@ -18,6 +15,21 @@ Two kinds of changes require a new version:
 | Structural — changed field types, renamed fields, different array item shapes | v1.3's `transitive_packages` item type change | Yes (minor) |
 
 Breaking changes (removing required fields, renaming) are **never** made to an existing version — always bump.
+
+### The standing exception: v1.5 while it is unreleased
+
+v1.5 has not shipped in a release (the package is still `0.1.10`), so it has no consumers outside
+this repository and additive fields have been **amended into `export_schema_v1.5.json` in place**
+rather than bumped. Amended this way so far: the version-ladder fields (`latest_in_range`,
+`latest_in_major`, `latest_compatible_major`, `recommended_from_rung`), the module-system and
+engine fields, `next_action` / `requires_constraint_widening`, and the data-completeness
+diagnostics (`data_completeness.sources[].failures` and `data_completeness.api_budgets`). Each addition is optional, not
+in `required`, and neither `$def` sets `additionalProperties: false`, so documents produced before
+the amendment still validate.
+
+This exception ends the moment v1.5 ships. After that the policy above applies without
+qualification: additive changes bump the minor version. Amending in place still means running the
+rest of the checklist below — regenerate the TS types, type-check the frontend, rebuild the SPA.
 
 ---
 

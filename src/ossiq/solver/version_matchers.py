@@ -34,11 +34,15 @@ import logging
 import operator
 import re
 
+import semver
+from packaging.version import InvalidVersion
+from packaging.version import Version as PackagingVersion
 from univers.version_constraint import InvalidConstraintsError
 from univers.version_range import InvalidVersionRange, NpmVersionRange, PypiVersionRange
 from univers.versions import PypiVersion, SemverVersion
 
 from ossiq.domain.common import ProjectPackagesRegistry
+from ossiq.domain.version import pad_npm_version
 from ossiq.solver.problem import CandidateVersion
 
 logger = logging.getLogger(__name__)
@@ -52,7 +56,17 @@ logger = logging.getLogger(__name__)
 SEMVER_METADATA_RE = re.compile(r"[-+][0-9A-Za-z-\.]+")
 
 NOT_EQUAL_RE = re.compile(r"^!=\s*(.+)$")
-BARE_VERSION_RE = re.compile(r"^\d+(\.\d+)*([-+][0-9A-Za-z-\.]+)?$")
+# A *partial* bare version - "14" or "14.2" - needs manual caret-expansion below: univers's
+# NpmVersionRange resolves a partial bare version to that exact (zero-padded) version rather
+# than the whole major/minor line the node-semver spec calls for ("14" should match every
+# 14.x.y). A *full* bare version like "4.17.1" does NOT have this problem and must NOT be
+# caret-expanded: per the node-semver spec, a comparator with no operator means equality
+# ("If no operator is specified, then equality is assumed"), and univers already resolves a
+# bare full version to exactly that version on its own. Matching 3+ component bare versions
+# here as well was a real bug (OSS IQ defect report B3): a package.json exact pin such as
+# "express": "4.17.1" was silently treated as "^4.17.1" (anything below 5.0.0), which is why
+# npm's solver looked like it could move past a pin PyPI's exact-pin parsing correctly refused.
+PARTIAL_BARE_VERSION_RE = re.compile(r"^\d+(\.\d+)?([-+][0-9A-Za-z-\.]+)?$")
 
 # Mapping string operators to standard Python math operators
 OPS = {
@@ -101,7 +115,7 @@ def preprocess_pypi_specifier(specifier: str) -> str:
     )
 
 
-def _fallback_evaluate_bounds(version_obj: SemverVersion, constraint_string: str) -> bool:
+def fallback_evaluate_bounds(version_obj: SemverVersion, constraint_string: str) -> bool:
     """
     Manually evaluates constraint branches mathematically when strict semver
     parsers (like univers) crash on overlapping or redundant prerelease boundaries.
@@ -139,9 +153,17 @@ def npm_version_satisfies_range(version: str, range_constraint: str, allow_beta:
       - ``||`` union  — "14 || 16"
       - ``^``  caret  — "^1.2.3"  compatible with the same major
       - ``~``  tilde  — "~1.2.3"  compatible with the same minor
-      - bare version  — "14"  treated as a caret range (^14.0.0)
+      - bare partial version  — "14" or "14.2"  treated as a caret range (^14.0.0 / ^14.2.0)
+      - bare full version  — "4.17.1"  exact match only (no operator = equality, per spec)
       - comparison operators  — ">", ">=", "<", "<=", "=", "!="
       - npm alias  — "npm:pkg@^1.2.3"  matched against the embedded range
+
+    Each ``||`` branch is evaluated on its own rather than handed to univers as one string:
+    univers flattens a union into an ungrouped constraint list, so "~5.5.8 || ~5.5.10" became
+    ``['>=5.5.8', '>=5.5.10', '<5.6.0', '<5.6.0']`` and admitted 6.1.13. Branch adjacency survives
+    for "^1.0.0 || ^2.0.0" by luck of bound ordering; two tildes sharing an upper bound lose it.
+    An unparseable branch passes through as True, the same fail-open this function has always
+    applied to an unparseable constraint.
     """
     if not allow_beta and "-" in version:
         return False
@@ -155,21 +177,35 @@ def npm_version_satisfies_range(version: str, range_constraint: str, allow_beta:
         except ValueError:
             return True
 
-    parts = [p.strip() for p in constraint.split("||")]
-    processed = " || ".join(f"^{p}" if BARE_VERSION_RE.match(p) else p for p in parts)
-
     try:
-        return SemverVersion(version) in NpmVersionRange.from_native(processed)  # type: ignore
-    except InvalidConstraintsError:
-        try:
-            return _fallback_evaluate_bounds(SemverVersion(version), processed)  # type: ignore
-        except ValueError:
-            return True
+        candidate = SemverVersion(version)  # type: ignore
     except ValueError as exc:
         logger.debug(
             "npm_version_satisfies_range: unparseable version=%r constraint=%r error=%s", version, range_constraint, exc
         )
         return True
+
+    for raw_branch in constraint.split("||"):
+        branch = raw_branch.strip()
+        if not branch:
+            continue
+        if PARTIAL_BARE_VERSION_RE.match(branch):
+            branch = f"^{branch}"
+        try:
+            if candidate in NpmVersionRange.from_native(branch):
+                return True
+        except InvalidConstraintsError:
+            if fallback_evaluate_bounds(candidate, branch):
+                return True
+        except (ValueError, InvalidVersionRange) as exc:
+            logger.debug(
+                "npm_version_satisfies_range: unparseable branch=%r constraint=%r error=%s",
+                branch,
+                range_constraint,
+                exc,
+            )
+            return True
+    return False
 
 
 # ── PyPI / PEP 440
@@ -211,6 +247,23 @@ def version_satisfies_constraint(version: str, constraint: str | None, registry:
         return True
 
 
+def major_key(version: str, registry: ProjectPackagesRegistry) -> tuple[int, int] | None:
+    """Return the (epoch, major) identity of *version*'s major line, or None if unparseable.
+
+    PEP 440 epochs are part of the identity: "1!1.0" is deliberately a different major line
+    than "1.0", which comparing release tuples alone cannot see. npm has no epoch, so it is
+    always 0. A None result never matches another major_key value, so unparseable versions are
+    excluded from major-line grouping rather than silently lumped together.
+    """
+    try:
+        if registry == ProjectPackagesRegistry.PYPI:
+            parsed = PackagingVersion(version)
+            return (parsed.epoch, parsed.release[0] if parsed.release else 0)
+        return (0, semver.Version.parse(pad_npm_version(version)).major)
+    except (InvalidVersion, ValueError):
+        return None
+
+
 def satisfies_all_constraints(version: str, constraints: list[str], registry: ProjectPackagesRegistry) -> bool:
     """Return True when version satisfies every non-empty constraint in the list."""
     return all(version_satisfies_constraint(version, c, registry) for c in constraints if c)
@@ -219,41 +272,97 @@ def satisfies_all_constraints(version: str, constraints: list[str], registry: Pr
 # ── Engine requirement checks
 
 
+# Engine keys whose versions and requirements are both npm semver. Limited to what OSS IQ can
+# actually check: `node` and `npm` are both probed. pnpm and yarn are deliberately absent — OSS IQ
+# has no adapter for either, so nothing probes them and a declared floor for one would be checked
+# on some runs and not others. When pnpm support lands, it is one entry here plus a probe.
+NPM_SEMVER_ENGINES: frozenset[str] = frozenset({"node", "nodejs", "npm"})
+
+
 def engine_version_satisfies_requirement(
     engine_key: str,
     context_version: str,
     requirement: str,
 ) -> bool:
-    """Return True if the running *context_version* satisfies a package's engine *requirement*.
+    """Return True if *context_version* satisfies a package's engine *requirement*.
 
     Dispatcher:
-      - ``"python"``           -> PEP 440 ``PypiVersionRange``
-      - ``"node"`` / ``"nodejs"`` -> npm semver range
+      - ``"python"``                      -> PEP 440 ``PypiVersionRange``
+      - ``"node"`` / ``"nodejs"``         -> npm semver range
+      - ``"npm"`` / ``"pnpm"`` / ``"yarn"`` -> npm semver range
 
-    Unknown engine keys pass through as True.
+    Unknown engine keys pass through as True — an engine nobody can check must not read as a
+    conflict. The package managers were previously in that bucket, so an `engines.npm` requirement
+    was silently unenforced however far the installed CLI was from it.
     """
     try:
         if engine_key == "python":
             return pypi_version_satisfies_specifier(context_version, requirement)
-        if engine_key in ("node", "nodejs"):
+        if engine_key in NPM_SEMVER_ENGINES:
             return npm_version_satisfies_range(context_version, requirement)
     except (ValueError, InvalidVersionRange, InvalidConstraintsError):
         pass
     return True
 
 
+def stricter_engine_floor(engine_key: str, detected: str, declared: str) -> str:
+    """Return whichever of *detected* / *declared* an engine requirement is likelier to fail against.
+
+    Engine requirements are lower bounds in practice (``>=3.12``, ``>=18``), so the binding version
+    is the lower of the two: a project promising support down to Python 3.11 breaks for its 3.11
+    users however new the interpreter this scan happens to run on.
+
+    Ordering is decided by `engine_version_satisfies_requirement` rather than a second comparator,
+    so each ecosystem keeps its own rules, and a version it cannot parse resolves to *declared* —
+    the bound that does not depend on whatever this machine happens to have installed.
+    """
+    if engine_version_satisfies_requirement(engine_key, detected, f">={declared}"):
+        return declared
+    return detected
+
+
+def engine_mismatch_reason(
+    runtime_requirements: dict[str, str] | None,
+    engine_context: dict[str, str],
+) -> str | None:
+    """Return why *runtime_requirements* conflict with *engine_context*, or None if they don't.
+
+    The single definition of the engine check: `has_engine_mismatch` (the solver's L2 clauses),
+    `engine_compatibility`, and `service.project.strategy`'s engine gate all derive from it, so a
+    candidate the gate rejects can never disagree with the verdict written onto the record.
+
+    The returned string is user-facing — it reaches `ScanRecord.rejected_candidates` and from there
+    console, export and agent output. None whenever either side is empty: absence of evidence, not
+    evidence of compatibility.
+    """
+    if not runtime_requirements or not engine_context:
+        return None
+    for engine_key, context_version in engine_context.items():
+        required = runtime_requirements.get(engine_key)
+        if required and not engine_version_satisfies_requirement(engine_key, context_version, required):
+            return f"requires {engine_key} {required}, checked against {context_version}"
+    return None
+
+
+def engine_compatibility(
+    runtime_requirements: dict[str, str] | None,
+    engine_context: dict[str, str],
+) -> bool | None:
+    """Tri-state engine verdict: False on conflict, True when checked and clear, None for no evidence.
+
+    None means the question was never answerable — the release declares no runtime requirement, or
+    nothing was detected/declared to check it against. Never read None as compatible.
+    """
+    if not runtime_requirements or not engine_context:
+        return None
+    return engine_mismatch_reason(runtime_requirements, engine_context) is None
+
+
 def has_engine_mismatch(cv: CandidateVersion, engine_context: dict[str, str]) -> bool:
     """Return True if any declared runtime requirement in *cv* is incompatible with *engine_context*.
 
-    *engine_context* maps engine key (e.g. ``"python"``, ``"node"``) to the
-    currently running version string.  Returns False when either side is empty.
+    *engine_context* maps engine key (e.g. ``"python"``, ``"node"``) to the version that engine is
+    held to — the stricter of what was probed and what the manifest declares, see
+    `service.project.runtime_context`.  Returns False when either side is empty.
     """
-    if not cv.runtime_requirements or not engine_context:
-        return False
-    for engine_key, context_version in engine_context.items():
-        required = cv.runtime_requirements.get(engine_key)
-        if required is None:
-            continue
-        if not engine_version_satisfies_requirement(engine_key, context_version, required):
-            return True
-    return False
+    return engine_mismatch_reason(cv.runtime_requirements, engine_context) is not None

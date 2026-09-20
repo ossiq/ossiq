@@ -15,11 +15,13 @@ from univers.versions import SemverVersion
 from ossiq.domain.common import ProjectPackagesRegistry
 from ossiq.solver.problem import CandidateVersion
 from ossiq.solver.version_matchers import (
-    _fallback_evaluate_bounds,
+    engine_mismatch_reason,
     engine_version_satisfies_requirement,
+    fallback_evaluate_bounds,
     has_engine_mismatch,
     npm_version_satisfies_range,
     pypi_version_satisfies_specifier,
+    stricter_engine_floor,
     version_satisfies_constraint,
 )
 
@@ -77,6 +79,17 @@ from ossiq.solver.version_matchers import (
         ("6.5.0", ">=2.9.0 || >=3.0.0-0 <3.0.0 || >=6.0.1 <8.0.0", True),
         # hyphen range untouched by prerelease stripping (spaces around the dash)
         ("1.5.0", "1.2.3 - 2.0.0", True),
+        # || union — two tildes sharing an upper bound. univers flattens the union to
+        # ['>=5.5.8', '>=5.5.10', '<5.6.0', '<5.6.0'], which 6.1.13 satisfies under no branch;
+        # only per-branch evaluation rejects it (@pdfme/common on testdata/npm/version-constrained).
+        ("6.1.13", "~5.5.8 || ~5.5.10", False),
+        ("5.5.9", "~5.5.8 || ~5.5.10", True),
+        ("5.5.11", "~5.5.8 || ~5.5.10", True),
+        ("5.6.0", "~5.5.8 || ~5.5.10", False),
+        # || union — carets, whose bound pairs stay adjacent even when flattened
+        ("1.5.0", "^1.0.0 || ^2.0.0", True),
+        ("2.5.0", "^1.0.0 || ^2.0.0", True),
+        ("3.0.0", "^1.0.0 || ^2.0.0", False),
     ],
 )
 def test_npm_version_satisfies_range(version: str, range_constraint: str, expected: bool) -> None:
@@ -87,7 +100,7 @@ def test_npm_version_satisfies_range_allow_beta() -> None:
     assert npm_version_satisfies_range("1.3.0-rc.1", ">=1.2.0", allow_beta=True) is True
 
 
-# ── _fallback_evaluate_bounds ─────────────────────────────────────────────
+# ── fallback_evaluate_bounds ──────────────────────────────────────────────
 
 
 @pytest.mark.parametrize(
@@ -119,7 +132,7 @@ def test_npm_version_satisfies_range_allow_beta() -> None:
     ],
 )
 def test_fallback_evaluate_bounds(version: str, constraint: str, expected: bool) -> None:
-    assert _fallback_evaluate_bounds(SemverVersion(version), constraint) == expected  # type: ignore
+    assert fallback_evaluate_bounds(SemverVersion(version), constraint) == expected  # type: ignore
 
 
 # ── _pypi_version_satisfies_specifier ─────────────────────────────────────
@@ -196,6 +209,15 @@ def test_version_satisfies_constraint_npm(version: str, constraint: str, expecte
         ("node", "14.0.0", ">=16", False),
         ("nodejs", "18.0.0", "^18", True),
         ("nodejs", "20.0.0", "^18", False),
+        # package managers → npm semver. These returned True for everything, so an engines.npm
+        # requirement was silently unenforced however far the installed CLI was from it.
+        ("npm", "10.2.4", ">=9.0.0", True),
+        ("npm", "8.19.2", ">=9.0.0", False),
+        # pnpm/yarn are NOT dispatched: nothing probes them, so evaluating a declared floor
+        # would check them on some runs and not others. They pass through like any other
+        # unevaluable key until OSS IQ has an adapter and a probe.
+        ("pnpm", "1.0.0", ">=8", True),
+        ("yarn", "1.22.19", ">=4.0.0", True),
         # unknown engine → passthrough True
         ("bun", "1.0.0", ">=1.0.0", True),
     ],
@@ -204,6 +226,18 @@ def test_engine_version_satisfies_requirement(
     engine_key: str, context_version: str, requirement: str, expected: bool
 ) -> None:
     assert engine_version_satisfies_requirement(engine_key, context_version, requirement) == expected
+
+
+def test_engine_version_satisfies_requirement_raw_node_range_fails_open() -> None:
+    """Regression: a raw, unreduced range as context_version still fails open here.
+
+    This function is not buggy for its documented contract (a *concrete* context_version) — the
+    real fix is at the one caller that used to feed it a raw range:
+    adapters.package_managers.api_npm.project_info(), which now reduces engines.node via
+    extract_min_node_version() before it ever reaches Project.engine_constraints. See
+    tests/adapters/package_managers/test_api_npm.py for that regression instead.
+    """
+    assert engine_version_satisfies_requirement("node", ">=18.0.0", ">=18.19.0") is True
 
 
 # ── has_engine_mismatch ────────────────────────────────────────────────────
@@ -241,3 +275,50 @@ def test_has_engine_mismatch_violated() -> None:
 def test_has_engine_mismatch_engine_not_declared() -> None:
     # context has "node" but cv only declares "python" — no mismatch
     assert has_engine_mismatch(_cv({"python": ">=3.9"}), {"node": "18.0.0"}) is False
+
+
+def test_engine_mismatch_reason_names_the_package_manager_that_mismatches() -> None:
+    """The test the engine work could not previously write: with npm unenforceable, a package
+    declaring both node and npm could only ever be judged on node."""
+    reason = engine_mismatch_reason({"node": ">=18.0.0", "npm": ">=9.0.0"}, {"node": "20.11.0", "npm": "8.19.2"})
+
+    assert reason == "requires npm >=9.0.0, checked against 8.19.2"
+
+
+def test_engine_mismatch_reason_clear_when_both_engines_satisfied() -> None:
+    assert engine_mismatch_reason({"node": ">=18.0.0", "npm": ">=9.0.0"}, {"node": "20.11.0", "npm": "10.2.4"}) is None
+
+
+def test_engine_mismatch_reason_ignores_a_package_manager_absent_from_the_context() -> None:
+    """A probe that did not run is not a conflict — absence of evidence, per the tri-state rule."""
+    assert engine_mismatch_reason({"npm": ">=9.0.0"}, {"node": "20.11.0"}) is None
+
+
+# ── stricter_engine_floor ──────────────────────────────────────────────────
+
+
+def test_stricter_engine_floor_prefers_the_declared_python_floor() -> None:
+    """The reported bug in miniature: 3.13 on this machine, 3.11 promised to everyone else."""
+    assert stricter_engine_floor("python", "3.13.2", "3.11") == "3.11"
+
+
+def test_stricter_engine_floor_prefers_an_older_python_runtime() -> None:
+    assert stricter_engine_floor("python", "3.9.6", "3.11") == "3.9.6"
+
+
+def test_stricter_engine_floor_prefers_the_declared_node_floor() -> None:
+    assert stricter_engine_floor("node", "20.11.0", "18.0.0") == "18.0.0"
+
+
+def test_stricter_engine_floor_prefers_an_older_node_runtime() -> None:
+    assert stricter_engine_floor("node", "16.20.0", "18.0.0") == "16.20.0"
+
+
+def test_stricter_engine_floor_keeps_equal_versions() -> None:
+    assert stricter_engine_floor("node", "18.0.0", "18.0.0") == "18.0.0"
+
+
+def test_stricter_engine_floor_falls_back_to_the_declared_floor() -> None:
+    """A probe result nothing can parse resolves to the bound that does not depend on this machine."""
+    assert stricter_engine_floor("node", "garbage", "18.0.0") == "18.0.0"
+    assert stricter_engine_floor("python", "garbage", "3.11") == "3.11"

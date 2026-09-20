@@ -7,9 +7,28 @@ with a stubbed handler and verify framing, initialize, tools/list, and errors.
 
 import io
 import json
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
+from ossiq.domain.common import DataCompleteness, DataSourceStatus, ScanStep
 from ossiq.mcp import server
+from ossiq.service.project.models import ScanResult
+from ossiq.settings import Settings
+
+
+def test_scan_is_called_without_a_progress_callback():
+    """Regression: stdout is reserved for JSON-RPC, so the MCP front door must never drive the
+    progress stepper. It used to pass a hand-rolled `noop_step` whose signature had to track
+    scan()'s; now it passes nothing and `ScanProgress`'s own defaults do the swallowing.
+    """
+    with (
+        patch.object(server, "scan") as scan,
+        patch.object(server, "project_sources"),
+        patch.object(server, "build_update_decide"),
+    ):
+        server.evaluate_updates(MagicMock(), {"project_path": "."})
+
+    assert scan.call_args.kwargs == {}
+    assert len(scan.call_args.args) == 1
 
 
 def test_initialize_echoes_protocol_and_advertises_tools():
@@ -20,11 +39,11 @@ def test_initialize_echoes_protocol_and_advertises_tools():
     assert "tools" in response["result"]["capabilities"]
 
 
-def test_tools_list_returns_both_tools():
+def test_tools_list_returns_all_tools():
     response = server.handle_request(MagicMock(), {"jsonrpc": "2.0", "id": 2, "method": "tools/list"})
     assert response is not None
     names = {tool["name"] for tool in response["result"]["tools"]}
-    assert names == {"ossiq_evaluate_dependency", "ossiq_evaluate_updates"}
+    assert names == {"ossiq_evaluate_dependency", "ossiq_evaluate_updates", "ossiq_update_context"}
 
 
 def test_notifications_get_no_response():
@@ -47,6 +66,20 @@ def test_tools_call_serializes_decision(monkeypatch):
     assert response is not None
     assert response["result"]["content"][0]["text"] == '{"next_action": "no action needed"}'
     assert "isError" not in response["result"]
+
+
+def test_tools_call_update_context_round_trip(monkeypatch):
+    monkeypatch.setitem(
+        server.TOOL_HANDLERS,
+        "ossiq_update_context",
+        lambda _s, _a: {"package": "chalk", "to_version": "6.0.0", "breaking_change": "ESM-only from 5.0.0"},
+    )
+    params = {"name": "ossiq_update_context", "arguments": {"package": "chalk", "target_version": "6.0.0"}}
+    response = server.handle_request(MagicMock(), {"jsonrpc": "2.0", "id": 9, "method": "tools/call", "params": params})
+    assert response is not None
+    assert "isError" not in response["result"]
+    payload = json.loads(response["result"]["content"][0]["text"])
+    assert payload == {"package": "chalk", "to_version": "6.0.0", "breaking_change": "ESM-only from 5.0.0"}
 
 
 def test_tools_call_unknown_tool_is_error():
@@ -97,3 +130,45 @@ def test_tools_call_handler_exception_is_reported(monkeypatch):
     assert response is not None
     assert response["result"]["isError"] is True
     assert "kaboom" in response["result"]["content"][0]["text"]
+
+
+def test_tools_call_application_error_includes_title_and_hint(monkeypatch):
+    """cli.py's error_boundary() already renders title+hint for ApplicationError; the MCP
+    handler used to discard both and print only the class name and message, which is the
+    direct source of the bare 'UnknownProjectPackageManager: Unable to identify Package
+    Manager' text with no remedy that PLAN.md reported."""
+    from ossiq.domain.exceptions import UnknownProjectPackageManager
+
+    def boom(_s, _a):
+        raise UnknownProjectPackageManager("Unable to identify Package Manager for project at .")
+
+    monkeypatch.setitem(server.TOOL_HANDLERS, "ossiq_evaluate_updates", boom)
+    params = {"name": "ossiq_evaluate_updates", "arguments": {}}
+    response = server.handle_request(MagicMock(), {"jsonrpc": "2.0", "id": 8, "method": "tools/call", "params": params})
+    assert response is not None
+    assert response["result"]["isError"] is True
+    text = response["result"]["content"][0]["text"]
+    assert "Unknown Package Manager" in text  # .title
+    assert "ossiq supports" in text  # .hint, not just the exception name + message
+
+
+def test_evaluate_updates_surfaces_degraded_data_sources(monkeypatch):
+    """B4 on the MCP surface: an agent calling ossiq_evaluate_updates while OSV is unreachable
+    must see that in the payload. The console gets show_scan_progress's warning; MCP bypasses
+    the stepper entirely, so data_completeness inside the document is its only channel.
+    """
+    scan_result = ScanResult(
+        project_name="proj",
+        packages_registry="PYPI",
+        project_path=".",
+        production_packages=[],
+        optional_packages=[],
+        data_completeness=DataCompleteness(by_step={ScanStep.VULNERABILITIES: DataSourceStatus.UNREACHABLE}),
+    )
+    monkeypatch.setattr(server, "project_sources", MagicMock())
+    monkeypatch.setattr(server, "scan", lambda _sources: scan_result)
+
+    decision = server.evaluate_updates(Settings(), {"project_path": "."})
+
+    assert decision["data_completeness"]["overall"] == "unreachable"
+    assert {"step": "vulnerabilities", "status": "unreachable"} in decision["data_completeness"]["sources"]

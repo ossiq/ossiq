@@ -7,6 +7,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING
 
 from ossiq.adapters.api_interfaces import AbstractPackageRegistryApi
+from ossiq.domain.common import RejectionDetail
 from ossiq.domain.version import PackageVersion
 from ossiq.solver.version_matchers import satisfies_all_constraints, version_satisfies_constraint
 from ossiq.timeutil import age_days_from_iso, parse_iso_datetime
@@ -30,9 +31,19 @@ class TransitiveImpact:
     driven_by: str
     # True when projected_version violates an existing parent constraint (multi-parent diamond).
     has_conflict: bool
-    conflict_detail: str | None
+    # The specs behind the conflict, unjoined. None when there is no conflict to explain.
+    conflict: RejectionDetail | None = None
     # Age of the projected version in days at the reference time; None when unknown.
     projected_age_days: int | None = None
+
+    @property
+    def conflict_detail(self) -> str | None:
+        """The conflict as one sentence — derived, so no surface can word it differently.
+
+        A table that cannot afford the whole spec list reads `conflict` and elides it itself;
+        see ui.renderers.impact_utils.format_rejection_detail.
+        """
+        return self.conflict.render() if self.conflict else None
 
 
 @dataclass(frozen=True)
@@ -135,7 +146,6 @@ def assess_transitive_impact(
             new_constraint=new_constraint,
             driven_by=driven_by,
             has_conflict=False,
-            conflict_detail=None,
             projected_age_days=age_days_from_iso(best.published_date_iso, now=now) if best else None,
         )
 
@@ -145,7 +155,10 @@ def assess_transitive_impact(
     base_constraints = list(record.all_constraints)
     if old_constraint_from_driven_by and old_constraint_from_driven_by in base_constraints:
         base_constraints.remove(old_constraint_from_driven_by)
-    merged_constraints = base_constraints + [new_constraint]
+    # all_constraints carries one entry per parent, so a widely-shared dep repeats the same spec
+    # a dozen times. Duplicates never changed what satisfies_all_constraints accepts; they only
+    # ever reached a human, as an unreadable wall of identical specs.
+    merged_constraints = list(dict.fromkeys(base_constraints + [new_constraint]))
     best = find_best_satisfying_package_version(dep_name, merged_constraints, registry, allow_prerelease, now=now)
 
     if best is None:
@@ -156,7 +169,7 @@ def assess_transitive_impact(
             new_constraint=new_constraint,
             driven_by=driven_by,
             has_conflict=True,
-            conflict_detail=f"no version satisfies: {', '.join(merged_constraints)}",
+            conflict=RejectionDetail("no version satisfies", tuple(merged_constraints)),
         )
 
     projected = best.version
@@ -170,7 +183,7 @@ def assess_transitive_impact(
         new_constraint=new_constraint,
         driven_by=driven_by,
         has_conflict=bool(violating),
-        conflict_detail=f"{projected} violates: {', '.join(violating)}" if violating else None,
+        conflict=RejectionDetail(f"{projected} violates", tuple(violating)) if violating else None,
         projected_age_days=age_days_from_iso(best.published_date_iso, now=now),
     )
 

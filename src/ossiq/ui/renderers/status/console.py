@@ -1,20 +1,32 @@
 """Console renderer for status command."""
 
 from rich.console import Console
+from rich.padding import Padding
 from rich.rule import Rule
 from rich.table import Table
 
-from ossiq.domain.common import Command, ConstraintType, UserInterfaceType
+from ossiq.domain.common import Command, ConstraintType, EngineContext, SignalCoverage, UserInterfaceType
 from ossiq.domain.version import VERSION_DIFF_MAJOR, VERSION_DIFF_MINOR, VERSION_DIFF_PATCH
+from ossiq.messages import (
+    HELP_STATUS_COOLDOWN_HOLD,
+    HELP_STATUS_COVERAGE_ACTIVITY_UNAVAILABLE,
+    HELP_STATUS_COVERAGE_HEADER,
+    HELP_STATUS_COVERAGE_INTRO,
+    HELP_STATUS_COVERAGE_NO_REPOSITORY,
+    HELP_STATUS_COVERAGE_REPOSITORY_UNAVAILABLE,
+    HELP_STATUS_COVERAGE_UNSUPPORTED_HOST,
+)
 from ossiq.risk.maintenance import NOT_MAINTAINED
 from ossiq.service.library_scan import UpgradePath
+from ossiq.service.project.coverage import coverage_gaps
 from ossiq.service.project.models import ScanRecord, ScanResult
-from ossiq.service.project.next_action import CONSTRAINED_CHECK_NEWER, next_action_label
+from ossiq.service.project.next_action import CONSTRAINED_CHECK_NEWER, engine_mismatch_summary, next_action_label
 from ossiq.settings import Settings
 from ossiq.ui.interfaces import AbstractUserInterfaceRenderer
 from ossiq.ui.renderers.impact_utils import (
     format_lag_status,
     format_probability,
+    format_rejection_detail,
     format_state,
     format_status_badge,
     format_time_delta,
@@ -33,6 +45,11 @@ MAIN_COLUMNS_DEFAULT: tuple[str, ...] = (
     "Recommended",
     "What's Next",
 )
+# Console width at which this column set still fits the 32-char "Constrained. Check newer version"
+# on one line, measured against a 24-character package name. Below it the label is abbreviated
+# rather than wrapped onto a second row. Pinned by test_compact_row_fits_at_the_threshold_width —
+# adding a column means re-measuring, not adjusting by eye.
+MIN_WIDTH_DEFAULT = 110
 MAIN_COLUMNS_FULL: tuple[str, ...] = (
     "Package",
     "CVEs",
@@ -45,6 +62,24 @@ MAIN_COLUMNS_FULL: tuple[str, ...] = (
     "State",
     "What's Next",
 )
+# The same measurement for the four extra columns MAIN_COLUMNS_FULL adds, taken with the `--full`
+# sub-rows present: they share the Package column, so a long one widens it. A representative case,
+# not a guarantee — an unusually long rejection reason can still push a row onto a second line.
+MIN_WIDTH_FULL = 157
+
+COVERAGE_LABELS: dict[SignalCoverage, str] = {
+    SignalCoverage.REPOSITORY_UNAVAILABLE: HELP_STATUS_COVERAGE_REPOSITORY_UNAVAILABLE,
+    SignalCoverage.ACTIVITY_UNAVAILABLE: HELP_STATUS_COVERAGE_ACTIVITY_UNAVAILABLE,
+    SignalCoverage.UNSUPPORTED_HOST: HELP_STATUS_COVERAGE_UNSUPPORTED_HOST,
+    SignalCoverage.NO_REPOSITORY: HELP_STATUS_COVERAGE_NO_REPOSITORY,
+}
+"""The coverage panel's rows, failed fetches first: those are the states that also raised the
+scan's degraded warning, so they are what a reader arrives looking for. FULL is absent by design —
+it is the state the panel exists to exclude, so iterating this can never print a "covered" row."""
+
+COVERAGE_NAME_LIMIT = 12
+"""How many package names one row lists before it starts counting. A whole dependency graph can
+sit behind one unreachable host, and a row that long buries the other reasons."""
 
 
 def add_status_column(table: Table, name: str) -> None:
@@ -52,12 +87,14 @@ def add_status_column(table: Table, name: str) -> None:
     if name == "Package":
         table.add_column(name, style="bold")
     elif name == "Recommended":
-        table.add_column(name, justify="left", style="bold green")
+        table.add_column(name, justify="left", style="bold green", no_wrap=True)
     elif name in ("CVEs", "Update Mode", "State"):
-        table.add_column(name, justify="center")
+        table.add_column(name, justify="center", no_wrap=True)
     elif name in ("EPSS", "Lag"):
-        table.add_column(name, justify="right")
-    else:  # Installed, Latest, What's Next
+        table.add_column(name, justify="right", no_wrap=True)
+    elif name in ("Installed", "Latest"):
+        table.add_column(name, justify="left", no_wrap=True)
+    else:  # What's Next
         table.add_column(name, justify="left")
 
 
@@ -70,6 +107,115 @@ def recommended_cell(pkg: ScanRecord) -> str:
     if pkg.recommended_version != pkg.latest_version:
         return f"[bold yellow]{pkg.recommended_version}[/]"
     return pkg.recommended_version
+
+
+def blocker_sub_row_texts(pkg: ScanRecord) -> list[str]:
+    """Explain why a package behind the registry's latest has no target, or return nothing.
+
+    Two different things produce "no writable target", and saying the wrong one is worse than
+    saying nothing. `scikit-learn 1.8.0` declared `<2.0.0` under `--update-strategy security`
+    used to print `↳ <2.0.0 caps this below 1.9.1` — but `<2.0.0` admits 1.9.1; the tier withheld
+    it. The declared range is named only when it genuinely admits nothing newer than what is
+    installed, which is what `latest_in_range` records.
+
+    Args:
+        pkg: The record being explained.
+
+    Returns:
+        Rich-markup sub-row strings, one per blocker, or an empty list.
+    """
+    selection = pkg.strategy_selection
+    if selection is not None and selection.withheld_reason:
+        return [f"  [dim]↳ {selection.withheld_reason}[/]"]
+
+    # A third producer of "no writable target", and the one that looks most like a bug from the
+    # outside: a blank Recommended cell next to a newer Latest. Named ahead of the declared range
+    # below, since the range is not what is holding the package back here.
+    if selection is not None and selection.cooldown_hold is not None:
+        hold = selection.cooldown_hold
+        return [
+            "  [dim]"
+            + HELP_STATUS_COOLDOWN_HOLD.format(version=hold.version, age_days=hold.age_days, days=hold.cooldown_period)
+            + "[/]"
+        ]
+
+    if not pkg.version_constraint_declared or next_action_label(pkg) != CONSTRAINED_CHECK_NEWER:
+        return []
+    in_range = pkg.compatibility.latest_in_range
+    if in_range is not None and in_range != pkg.installed_version:
+        # The range admits something newer, so it is not what is holding the package back —
+        # a rejected candidate or an engine mismatch is, and those draw their own rows.
+        return []
+    ladder_note = ""
+    if pkg.compatibility.latest_in_major and pkg.compatibility.latest_in_major != pkg.latest_version:
+        ladder_note = f"; {pkg.compatibility.latest_in_major} is the newest in the current major line"
+    return [f"  [yellow]↳ {pkg.version_constraint_declared} caps this below {pkg.latest_version}{ladder_note}[/]"]
+
+
+def signal_coverage_table(records: list[ScanRecord]) -> Table | None:
+    """Name the packages whose upstream signals were never read, grouped by what stopped them.
+
+    The detail behind two numbers that could not previously be acted on: the header's
+    `Unassessed: N`, and the scan's `partial — N not found` warning. That warning counts failed
+    requests, so one package that lost its repository, its commits and its README raised three of
+    them — which is why the count alone never matched anything a reader could see.
+
+    Args:
+        records: Every package the scan assessed, transitive ones included: the `/repos` call
+            covers the whole graph, so a transitive package's failure is in that count too.
+
+    Returns:
+        The panel's table, or None when every package gave up its full signal set.
+    """
+    gaps = coverage_gaps(records)
+    if not gaps:
+        return None
+
+    table = Table(show_header=False, box=None, padding=(0, 2))
+    table.add_column("State", style="dim", no_wrap=True)
+    table.add_column("Packages")
+
+    for state, label in COVERAGE_LABELS.items():
+        names = gaps.get(state)
+        if not names:
+            continue
+        shown = ", ".join(names[:COVERAGE_NAME_LIMIT])
+        hidden = len(names) - COVERAGE_NAME_LIMIT
+        if hidden > 0:
+            shown += f" (+{hidden} more)"
+        table.add_row(f"{label} ({len(names)})", f"[dim]{shown}[/dim]")
+
+    return table
+
+
+def add_detail_subrows(table: Table, pkg: ScanRecord, engine_context: EngineContext) -> None:
+    """Append the per-package explanation sub-rows shared by both status tables.
+
+    Args:
+        table: The table to append to; the blank-cell padding is derived from its own column
+            count, so adding a column can never silently misalign these rows.
+        pkg: The record being explained.
+        engine_context: The runtime versions this scan checked against, and their provenance.
+    """
+    blanks = [""] * (len(table.columns) - 1)
+
+    for rc in pkg.rejected_candidates:
+        table.add_row(f"  [dim]↳ {rc.version} rejected: {rc.reason}[/]", *blanks)
+        if rc.detail is not None:
+            # The spec list on its own indented line: joined onto the headline it ran to a dozen
+            # specs, and every sub-row lives in column 0, so one of them widened the whole table.
+            table.add_row(f"      [dim]{format_rejection_detail(rc.detail)}[/]", *blanks)
+
+    if pkg.compatibility.breaking_change:
+        table.add_row(f"  [yellow]↳ {pkg.compatibility.breaking_change}[/]", *blanks)
+
+    if pkg.compatibility.engine_compatible is False:
+        # engine_compatible is denormalized onto the record; only draw the row when the check
+        # still finds a conflict to name. The source suffix is presentation, so it is applied
+        # here rather than inside engine_mismatch_summary.
+        mismatch = engine_mismatch_summary(pkg, engine_context.versions)
+        if mismatch:
+            table.add_row(f"  [red]↳ {mismatch} ({engine_context.source})[/]", *blanks)
 
 
 class ConsoleStatusRenderer(AbstractUserInterfaceRenderer):
@@ -100,6 +246,7 @@ class ConsoleStatusRenderer(AbstractUserInterfaceRenderer):
         """
         lag_threshold_days = kwargs.get("lag_threshold_days", 180)
         full = kwargs.get("full", False)
+        update_strategy = kwargs.get("update_strategy")
 
         transitive_with_recs = sorted(
             (r for r in data.transitive_packages if r.recommended_version is not None),
@@ -111,6 +258,8 @@ class ConsoleStatusRenderer(AbstractUserInterfaceRenderer):
         self.console.print(
             f"  Registry: [bold]{data.packages_registry}[/bold]  |  Path: [dim]{data.project_path}[/dim]"
         )
+        if update_strategy is not None:
+            self.console.print(f"  Update strategy: [bold]{update_strategy}[/bold]")
         self.console.print(
             f"  Production: [bold]{len(data.production_packages)}[/bold]  |  "
             f"Dev: [bold]{len(data.optional_packages)}[/bold]  |  "
@@ -131,6 +280,8 @@ class ConsoleStatusRenderer(AbstractUserInterfaceRenderer):
                 f"[bold]{stability.scored_packages}[/bold] assessed  |  "
                 f"Unassessed: [bold]{stability.unknown_packages}[/bold]"
             )
+        for warning in data.source_warnings:
+            self.console.print(f"  [yellow]![/yellow] {warning}")
         self.console.print()
 
         main_table = self.build_main_table(
@@ -138,6 +289,7 @@ class ConsoleStatusRenderer(AbstractUserInterfaceRenderer):
             data.optional_packages,
             lag_threshold_days,
             full=full,
+            engine_context=data.engine_context,
         )
         if main_table:
             self.console.print(main_table)
@@ -146,7 +298,9 @@ class ConsoleStatusRenderer(AbstractUserInterfaceRenderer):
         if transitive_with_recs:
             self.console.print(Rule("Transitive Recommendations", style="dim"))
             self.console.print()
-            self.console.print(self.transitive_table(transitive_with_recs, full=full))
+            self.console.print(
+                self.transitive_table(transitive_with_recs, full=full, engine_context=data.engine_context)
+            )
             self.console.print()
 
         new_dep_impacts = [
@@ -187,6 +341,35 @@ class ConsoleStatusRenderer(AbstractUserInterfaceRenderer):
                 self.console.print(f"  [yellow]•[/yellow] {dep.name}{spec}  [dim]({dep.reason})[/dim]")
             self.console.print()
 
+        if full:
+            # Transitive records included: the /repos fetch covers the whole graph, so leaving
+            # them out left part of the scan's own degraded count with nothing to point at.
+            self.render_signal_coverage(data.production_packages + data.optional_packages + data.transitive_packages)
+
+    def render_signal_coverage(self, records: list[ScanRecord]) -> None:
+        """Print the coverage panel, or nothing when every package contributed a signal.
+
+        Sits below every other section: it explains what the report could not see, which is
+        context for the tables above rather than a finding of its own.
+
+        Args:
+            records: Production and development records — the packages the tables above covered.
+        """
+        table = signal_coverage_table(records)
+        if table is None:
+            return
+
+        gaps = sum(1 for record in records if record.signal_coverage != SignalCoverage.FULL)
+        intro = HELP_STATUS_COVERAGE_INTRO.format(gaps=gaps, total=len(records))
+        self.console.print(Rule(HELP_STATUS_COVERAGE_HEADER, style="dim"))
+        self.console.print()
+        # Padding rather than a literal two-space prefix: the intro is long enough to wrap on a
+        # narrow console, and a prefix indents only the first line.
+        self.console.print(Padding(f"[dim]{intro}[/dim]", (0, 2)))
+        self.console.print()
+        self.console.print(table)
+        self.console.print()
+
     def build_main_table(
         self,
         prod: list[ScanRecord],
@@ -194,12 +377,27 @@ class ConsoleStatusRenderer(AbstractUserInterfaceRenderer):
         lag_threshold_days: int,
         *,
         full: bool = False,
+        engine_context: EngineContext | None = None,
+        width: int | None = None,
     ) -> Table | None:
         """Single borderless table merging prod and dev sections.
 
         `full` picks the wide column set and keeps every package; the default keeps a minimal
         column set and only the packages that need action (drift, a CVE, an unmaintained
         upstream, or an unsolvable constraint).
+
+        Args:
+            prod: Production dependency records.
+            dev: Development/optional dependency records.
+            lag_threshold_days: Above this many days the time lag is highlighted.
+            full: Use the wide column set and keep every package.
+            engine_context: The runtime versions this scan checked against.
+            width: Console width to lay the table out for; defaults to this renderer's own
+                console. Only the What's Next wording depends on it — the `--full` sub-rows keep
+                the detail at every width.
+
+        Returns:
+            The table, or None when no package qualifies for the current mode.
         """
 
         def needs_action(pkg: ScanRecord) -> bool:
@@ -219,6 +417,8 @@ class ConsoleStatusRenderer(AbstractUserInterfaceRenderer):
             return None
 
         columns = MAIN_COLUMNS_FULL if full else MAIN_COLUMNS_DEFAULT
+        available = self.console.width if width is None else width
+        short_labels = available < (MIN_WIDTH_FULL if full else MIN_WIDTH_DEFAULT)
 
         table = Table(show_header=True, header_style="bold dim", box=None, padding=(0, 2))
         for name in columns:
@@ -240,7 +440,9 @@ class ConsoleStatusRenderer(AbstractUserInterfaceRenderer):
         def add_pkg_rows(packages: list[ScanRecord]) -> None:
             for pkg in packages:
                 cells = {
-                    "Package": pkg.package_name,
+                    # Names the manifest key, so two npm aliases of one package are not two
+                    # identical rows — the plan table and the acknowledgement prompt agree.
+                    "Package": pkg.display_name,
                     "CVEs": f"[bold red]{len(pkg.cve)}" if pkg.cve else "",
                     "EPSS": format_probability(pkg.epss),
                     "Update Mode": format_lag_status(pkg.versions_diff_index),
@@ -249,7 +451,7 @@ class ConsoleStatusRenderer(AbstractUserInterfaceRenderer):
                     "Recommended": recommended_cell(pkg),
                     "Lag": format_time_delta(pkg.time_lag_days, lag_threshold_days),
                     "State": format_state(pkg),
-                    "What's Next": whats_next(pkg),
+                    "What's Next": whats_next(pkg, short=short_labels),
                 }
                 table.add_row(*(cells[name] for name in columns))
 
@@ -257,13 +459,12 @@ class ConsoleStatusRenderer(AbstractUserInterfaceRenderer):
                     for text in impact_sub_row_texts(pkg.update_transitive_impacts):
                         table.add_row(text, *blanks)
 
-                # Name the range that is holding the package back — the "what to do" half of the
-                # Constrained label. Other blockers (e.g. an override pin) may apply on top.
-                if full and pkg.version_constraint and next_action_label(pkg) == CONSTRAINED_CHECK_NEWER:
-                    table.add_row(
-                        f"  [yellow]↳ {pkg.version_constraint} caps this below {pkg.latest_version}[/]",
-                        *blanks,
-                    )
+                if full:
+                    for text in blocker_sub_row_texts(pkg):
+                        table.add_row(text, *blanks)
+
+                if full:
+                    add_detail_subrows(table, pkg, engine_context or EngineContext())
 
                 if pkg.constraint_conflict:
                     specs = " + ".join(pkg.constraint_conflict)
@@ -279,8 +480,20 @@ class ConsoleStatusRenderer(AbstractUserInterfaceRenderer):
 
         return table
 
-    def transitive_table(self, packages: list[ScanRecord], *, full: bool = False) -> Table:
+    def transitive_table(
+        self,
+        packages: list[ScanRecord],
+        *,
+        full: bool = False,
+        engine_context: EngineContext | None = None,
+        width: int | None = None,
+    ) -> Table:
         """Borderless table for transitive packages with solver-recommended versions."""
+        available = self.console.width if width is None else width
+        # This table is narrower than the compact main one (no Latest, no Update Mode), so
+        # MIN_WIDTH_DEFAULT is a conservative threshold rather than a measured one — it keeps the
+        # two tables agreeing on wording at any given width, which matters more than one column.
+        short_labels = available < MIN_WIDTH_DEFAULT
         table = Table(show_header=True, header_style="bold dim", box=None, padding=(0, 2))
         table.add_column("Package", justify="left", style="bold")
         table.add_column("CVEs", justify="center")
@@ -291,11 +504,14 @@ class ConsoleStatusRenderer(AbstractUserInterfaceRenderer):
         table.add_column("What's Next", justify="left")
 
         for pkg in packages:
-            row = [pkg.package_name, f"[bold red]{len(pkg.cve)}" if pkg.cve else ""]
+            row = [pkg.display_name, f"[bold red]{len(pkg.cve)}" if pkg.cve else ""]
             if full:
                 row.append(format_probability(pkg.epss))
-            row += [pkg.installed_version, pkg.recommended_version or "", whats_next(pkg)]
+            row += [pkg.installed_version, pkg.recommended_version or "", whats_next(pkg, short=short_labels)]
             table.add_row(*row)
+
+            if full:
+                add_detail_subrows(table, pkg, engine_context or EngineContext())
         return table
 
     def upgrade_paths_table(self, paths: list[UpgradePath]) -> Table | None:

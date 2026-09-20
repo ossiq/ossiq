@@ -6,12 +6,16 @@ from datetime import UTC, datetime
 
 from ossiq.adapters.api_interfaces import VersionRules
 from ossiq.domain.common import build_purl, parse_spdx_expression
+from ossiq.domain.compatibility import CompatibilityFacts
 from ossiq.domain.cve import CVE
 from ossiq.domain.package import Package
 from ossiq.domain.project import ConstraintSource, PeerRequirement
 from ossiq.domain.repository import Repository
 from ossiq.risk.maintenance import deprecation_evidence
 from ossiq.service.common import package_versions
+from ossiq.service.project.breaking_changes import compute_latest_compatible_major
+from ossiq.service.project.coverage import classify_signal_coverage
+from ossiq.service.project.ladder import compute_version_ladder
 from ossiq.service.project.models import DependencyDescriptor, PrefetchedData, ScanRecord
 from ossiq.solver.version_matchers import version_satisfies_constraint
 
@@ -86,6 +90,7 @@ def scan_record(
     constraint_info: ConstraintSource,
     dependency_path: list[str] | None = None,
     version_constraint: str | None = None,
+    version_constraint_declared: str | None = None,
     prefetched_repository: Repository | None = None,
     extras: list[str] | None = None,
     all_constraints: list[str] | None = None,
@@ -93,6 +98,8 @@ def scan_record(
     readme_head: str | None = None,
     pinned_titles: list[str] | None = None,
     *,
+    commits_expected: bool = False,
+    has_commits: bool = False,
     now: datetime | None = None,
 ) -> ScanRecord:
     """
@@ -103,6 +110,11 @@ def scan_record(
     # FIXME: here is pretty large opportunity to improve performance, but it is impractical to do it now.
     time_lag_days = calculate_time_lag_in_days(releases_since_installed, package_version, package_info.latest_version)
     version_age_days = calculate_version_age_days(releases_since_installed, package_version, now=now)
+    latest_release_age_days = (
+        calculate_version_age_days(releases_since_installed, package_info.latest_version, now=now)
+        if package_info.latest_version
+        else None
+    )
 
     installed_release = next(
         (release for release in releases_since_installed if release.version == package_version), None
@@ -110,6 +122,28 @@ def scan_record(
 
     version_diff_index = version_rules.difference_versions(package_version, package_info.latest_version)
     releases_lag = len(releases_since_installed) - 1
+
+    # The declaration, not version_constraint's last-writer-wins accumulator: latest_in_range and
+    # service.project.strategy.classify_rung's IN_RANGE verdict must be computed against the same
+    # specifier, or the rung that authorizes a manifest write disagrees with the rung the ladder
+    # shows. Falls back for transitive-only records, which have no declaration of their own.
+    ladder = compute_version_ladder(
+        releases_since_installed,
+        package_version,
+        version_constraint_declared or version_constraint,
+        version_rules,
+        latest_version=package_info.latest_version,
+        now=now,
+    )
+
+    latest_compatible_major = compute_latest_compatible_major(
+        canonical_name,
+        releases_since_installed,
+        package_version,
+        version_rules,
+        version_rules.package_registry,
+        now=now,
+    )
 
     deprecation = deprecation_evidence(
         archived=prefetched_repository.archived if prefetched_repository else None,
@@ -131,16 +165,33 @@ def scan_record(
         latest_version=package_info.latest_version,
         time_lag_days=time_lag_days,
         version_age_days=version_age_days,
+        latest_release_age_days=latest_release_age_days,
         releases_lag=releases_lag,
         versions_diff_index=version_diff_index,
         cve=list(prefetched_cves) if installed_release else [],
         is_optional_dependency=is_optional_dependency,
         dependency_path=dependency_path,
         version_constraint=version_constraint,
+        version_constraint_declared=version_constraint_declared,
+        # The ladder half of CompatibilityFacts, built once here; the target half
+        # (recommended_module_system/breaking_change/engine_*) is written later by
+        # service.project.target_facts, once a recommendation exists to describe.
+        compatibility=CompatibilityFacts(
+            latest_in_range=ladder.latest_in_range,
+            latest_in_major=ladder.latest_in_major,
+            latest_compatible_major=latest_compatible_major,
+            module_system=installed_release.module_system if installed_release else None,
+        ),
         extras=extras,
         constraint_info=constraint_info,
         repo_url=package_info.repo_url,
         repository=prefetched_repository,
+        signal_coverage=classify_signal_coverage(
+            package_info.repo_url,
+            prefetched_repository,
+            commits_expected=commits_expected,
+            has_commits=has_commits,
+        ),
         deprecation=deprecation,
         homepage_url=package_info.homepage_url,
         package_url=package_info.package_url,
@@ -180,6 +231,11 @@ def build_records(
     def repo_url_of(dep: DependencyDescriptor) -> str:
         return prefetched.packages_info[dep.canonical_name].repo_url or ""
 
+    # Whether the commit channel ran at all this scan, rather than whether it ran for any one
+    # package: under --no-stability it is switched off for everyone, and a channel the user
+    # turned off is not missing data. Direct dependencies are the only ones it covers.
+    commits_ran = bool(prefetched.commits)
+
     return [
         scan_record(
             version_rules,
@@ -193,12 +249,15 @@ def build_records(
             dep.constraint_info,
             dep.dependency_path,
             dep.version_constraint,
+            dep.version_constraint_declared,
             prefetched.repositories_info.get(repo_url_of(dep)),
             dep.extras,
             dep.all_constraints,
             dep.peer_requirements,
             prefetched.readmes.get(repo_url_of(dep)),
             (prefetched.activity.get(repo_url_of(dep)) or {}).get("pinned_titles"),
+            commits_expected=commits_ran and dep.dependency_path is None,
+            has_commits=bool(prefetched.commits.get(repo_url_of(dep))),
             now=now,
         )
         for dep in descriptors

@@ -5,11 +5,15 @@ Abstract project sources: bag of external data providers for a scan run.
 import abc
 
 from ossiq.adapters.api_epss import EpssApiFirstOrg
-from ossiq.adapters.api_github import SourceCodeProviderApiGithub
-from ossiq.adapters.api_interfaces import AbstractPackageManagerApi, AbstractPackageRegistryApi
+from ossiq.adapters.api_interfaces import (
+    AbstractPackageManagerApi,
+    AbstractPackageRegistryApi,
+    AbstractSourceCodeProviderApi,
+)
 from ossiq.adapters.api_osv import CveApiOsv
 from ossiq.domain.common import ProjectPackagesRegistry, RepositoryProvider
 from ossiq.settings import Settings
+from ossiq.strategy.overrides import StrategyPlan
 
 
 class AbstractProjectSources(abc.ABC):
@@ -27,12 +31,15 @@ class AbstractProjectSources(abc.ABC):
     production: bool
     allow_prerelease: bool
     allow_prerelease_packages: tuple[str, ...]
-    security_only: bool
+    strategy: StrategyPlan
     ignore_packages: tuple[str, ...]
     rewrite_versions: bool
+    warnings: list[str]
+    """Non-fatal problems found while assembling the sources, for the scan to carry onto
+    ScanResult. A value, not a print: nothing below ui/ decides what the user sees."""
 
     @abc.abstractmethod
-    def get_source_code_provider(self, repository_provider_type: RepositoryProvider) -> SourceCodeProviderApiGithub:
+    def get_source_code_provider(self, repository_provider_type: RepositoryProvider) -> AbstractSourceCodeProviderApi:
         """
         Method to get source code provider by its type. The point here is that
         single project has multiple package installed and each package

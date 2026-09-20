@@ -4,15 +4,33 @@ from __future__ import annotations
 
 from rich.console import Console
 
-from ossiq.domain.common import ConstraintType, CveDatabase, ProjectPackagesRegistry
+from ossiq.domain.common import (
+    ConstraintType,
+    CooldownHold,
+    CveDatabase,
+    EngineContext,
+    EngineContextSource,
+    ProjectPackagesRegistry,
+    RejectedCandidate,
+    RejectionDetail,
+    SignalCoverage,
+)
+from ossiq.domain.compatibility import CompatibilityFacts
 from ossiq.domain.cve import CVE, Severity
 from ossiq.domain.project import ConstraintSource
 from ossiq.domain.version import VersionsDifference
 from ossiq.risk.maintenance import MaintenanceAssessment, MaintenanceState
-from ossiq.service.project.models import ScanRecord
+from ossiq.service.project.models import ScanRecord, ScanResult
 from ossiq.settings import Settings
-from ossiq.ui.renderers.impact_utils import whats_next
-from ossiq.ui.renderers.status.console import ConsoleStatusRenderer
+from ossiq.strategy.pyramid import UpdateStrategy
+from ossiq.strategy.targeting import StrategySelection
+from ossiq.ui.renderers.impact_utils import REJECTION_DETAIL_LIMIT, whats_next
+from ossiq.ui.renderers.status.console import (
+    COVERAGE_NAME_LIMIT,
+    MIN_WIDTH_DEFAULT,
+    MIN_WIDTH_FULL,
+    ConsoleStatusRenderer,
+)
 
 LATEST = VersionsDifference("1.0.0", "1.0.0", 0, "LATEST")
 MINOR = VersionsDifference("1.0.0", "1.1.0", 4, "DIFF_MINOR")
@@ -56,6 +74,11 @@ def make_record(
     maintenance: MaintenanceAssessment | None = None,
     recommended_version: str | None = None,
     version_constraint: str | None = None,
+    version_constraint_declared: str | None = None,
+    latest_in_major: str | None = None,
+    breaking_change: str | None = None,
+    engine_requirement: dict[str, str] | None = None,
+    engine_compatible: bool | None = None,
 ) -> ScanRecord:
     return ScanRecord(
         package_name=name,
@@ -72,14 +95,30 @@ def make_record(
         maintenance=maintenance,
         recommended_version=recommended_version,
         version_constraint=version_constraint,
+        version_constraint_declared=version_constraint_declared,
+        compatibility=CompatibilityFacts(
+            latest_in_major=latest_in_major,
+            breaking_change=breaking_change,
+            engine_requirement=engine_requirement,
+            engine_compatible=engine_compatible,
+        ),
     )
 
 
-def render_table(prod: list[ScanRecord], dev: list[ScanRecord] | None = None, *, full: bool = False) -> str:
+def render_table(
+    prod: list[ScanRecord],
+    dev: list[ScanRecord] | None = None,
+    *,
+    full: bool = False,
+    width: int = 200,
+    engine_context: EngineContext | None = None,
+) -> str:
     renderer = ConsoleStatusRenderer(Settings())
-    table = renderer.build_main_table(prod, dev or [], lag_threshold_days=180, full=full)
+    table = renderer.build_main_table(
+        prod, dev or [], lag_threshold_days=180, full=full, engine_context=engine_context, width=width
+    )
     assert table is not None
-    console = Console(record=True, width=200)
+    console = Console(record=True, width=width)
     console.print(table)
     return console.export_text()
 
@@ -99,6 +138,25 @@ def test_default_mode_shows_minimal_columns():
         assert shown in header
     for hidden in ("Update Mode", "EPSS", "State", "Lag"):
         assert hidden not in header
+
+
+def test_narrow_terminal_keeps_fixed_format_columns_intact():
+    """At a narrow width, Rich may wrap Package/What's Next, but no_wrap columns holding short
+    fixed-format content (versions, badges, counts) must never be split mid-token."""
+    output = render_table(
+        [
+            make_record(
+                name="a-very-long-package-name-that-forces-the-table-to-shrink-columns",
+                versions_diff_index=MINOR,
+                latest_version="9.9.9",
+                recommended_version="9.9.9",
+            )
+        ],
+        full=True,
+        width=80,
+    )
+    assert "1.0.0" in output  # Installed
+    assert "9.9.9" in output  # Latest / Recommended
 
 
 def test_full_mode_shows_detail_columns():
@@ -140,12 +198,32 @@ def test_constrained_package_names_the_range_holding_it_back():
                 latest_version="1.5.0",
                 recommended_version="1.0.0",
                 version_constraint="~1.0.0",
+                version_constraint_declared="~1.0.0",
             )
         ],
         full=True,
     )
     assert "Constrained. Check newer version" in output
     assert "~1.0.0 caps this below 1.5.0" in output
+
+
+def test_constrained_sub_row_shows_declared_not_effective_constraint():
+    """The sub-row must read version_constraint_declared, not version_constraint — the latter is
+    a last-writer-wins accumulator a competing transitive/peer parent can clobber."""
+    output = render_table(
+        [
+            make_record(
+                versions_diff_index=MINOR,
+                latest_version="1.5.0",
+                recommended_version="1.0.0",
+                version_constraint="^1.2.0",  # clobbered by some other parent's spec
+                version_constraint_declared="~1.0.0",  # the manifest's own declaration
+            )
+        ],
+        full=True,
+    )
+    assert "~1.0.0 caps this below 1.5.0" in output
+    assert "^1.2.0" not in output
 
 
 def test_constrained_sub_row_is_full_mode_only():
@@ -156,11 +234,247 @@ def test_constrained_sub_row_is_full_mode_only():
                 latest_version="1.5.0",
                 recommended_version="1.0.0",
                 version_constraint="~1.0.0",
+                version_constraint_declared="~1.0.0",
             )
         ]
     )
     assert "Constrained. Check newer version" in output
     assert "caps this below" not in output
+
+
+def test_constrained_sub_row_names_latest_in_major_when_it_differs_from_latest():
+    output = render_table(
+        [
+            make_record(
+                versions_diff_index=MINOR,
+                latest_version="2.5.0",
+                recommended_version="1.0.0",
+                version_constraint="~1.0.0",
+                version_constraint_declared="~1.0.0",
+                latest_in_major="1.9.0",
+            )
+        ],
+        full=True,
+        width=260,
+    )
+    assert "~1.0.0 caps this below 2.5.0; 1.9.0 is the newest in the current major line" in output
+
+
+def test_constrained_sub_row_omits_latest_in_major_clause_when_equal_to_latest():
+    output = render_table(
+        [
+            make_record(
+                versions_diff_index=MINOR,
+                latest_version="1.5.0",
+                recommended_version="1.0.0",
+                version_constraint="~1.0.0",
+                version_constraint_declared="~1.0.0",
+                latest_in_major="1.5.0",
+            )
+        ],
+        full=True,
+    )
+    assert "~1.0.0 caps this below 1.5.0" in output
+    assert "newest in the current major line" not in output
+
+
+# --- narrow terminals ---------------------------------------------------------------------------
+
+
+def constrained_record(name: str = "left-pad") -> ScanRecord:
+    """A record whose What's Next is the widest label in the set."""
+    return make_record(
+        name,
+        versions_diff_index=MINOR,
+        latest_version="1.5.0",
+        recommended_version="1.0.0",
+        version_constraint="~1.0.0",
+        version_constraint_declared="~1.0.0",
+    )
+
+
+def test_whats_next_abbreviated_below_the_narrow_threshold():
+    output = render_table([constrained_record()], width=MIN_WIDTH_DEFAULT - 1)
+    assert "Constrained" in output
+    assert "Check newer version" not in output
+
+
+def test_whats_next_keeps_the_full_label_at_the_threshold():
+    output = render_table([constrained_record()], width=MIN_WIDTH_DEFAULT)
+    assert "Constrained. Check newer version" in output
+
+
+def test_compact_row_fits_at_the_threshold_width():
+    """What pins MIN_WIDTH_DEFAULT: at the threshold a representative worst-case row still renders
+    on one line with nothing ellipsized. Adding a column means re-measuring the constant, not
+    nudging it."""
+    output = render_table([constrained_record("vite-plugin-vue-devtools")], width=MIN_WIDTH_DEFAULT)
+    assert "Constrained. Check newer version" in output
+    assert "…" not in output
+
+
+def test_full_row_fits_at_the_full_threshold_width():
+    """The same for MIN_WIDTH_FULL, measured with the `--full` sub-row present — it shares the
+    Package column, so it is part of what the constant has to cover."""
+    record = constrained_record("vite-plugin-vue-devtools")
+    renderer = ConsoleStatusRenderer(Settings())
+    # Build wide so the table itself never abbreviates, then print at the threshold: this measures
+    # the layout, not the abbreviation that a real run at this width would apply.
+    table = renderer.build_main_table([record], [], lag_threshold_days=180, full=True, width=10_000)
+    assert table is not None
+    console = Console(record=True, width=MIN_WIDTH_FULL)
+    console.print(table)
+    output = console.export_text()
+    assert "Constrained. Check newer version" in output
+    assert "…" not in output
+
+
+def test_full_mode_uses_its_own_wider_threshold():
+    """The full column set needs more room, so a width that is roomy for the compact table still
+    abbreviates here — otherwise the label would wrap exactly where the extra columns start."""
+    output = render_table([constrained_record()], full=True, width=MIN_WIDTH_DEFAULT)
+    assert "Check newer version" not in output
+
+
+def test_constrained_sub_row_survives_abbreviation():
+    """The sub-row is what makes the short label legible, so it is never abbreviated away."""
+    output = render_table(
+        [constrained_record()],
+        full=True,
+        width=MIN_WIDTH_FULL - 1,
+    )
+    assert "Check newer version" not in output
+    assert "~1.0.0 caps this below 1.5.0" in output
+
+
+def test_abbreviation_is_console_only():
+    """whats_next without `short` returns the canonical label, so info / agent / export are
+    untouched by the console's width handling."""
+    assert whats_next(constrained_record()) == "[yellow]Constrained. Check newer version[/]"
+
+
+def test_rejected_candidate_sub_row_shown_in_full_mode():
+    record = make_record(versions_diff_index=MINOR, recommended_version="1.0.0")
+    record.rejected_candidates = [RejectedCandidate(version="1.2.0", reason="dep-x requires >=2.0.0")]
+    output = render_table([record], full=True)
+    assert "1.2.0 rejected: dep-x requires >=2.0.0" in output
+
+
+def test_rejected_candidate_sub_row_absent_without_full():
+    record = make_record(versions_diff_index=MINOR, recommended_version="1.0.0")
+    record.rejected_candidates = [RejectedCandidate(version="1.2.0", reason="dep-x requires >=2.0.0")]
+    output = render_table([record])
+    assert "rejected:" not in output
+
+
+def test_rejection_detail_moves_to_its_own_indented_row():
+    record = make_record(versions_diff_index=MINOR, recommended_version="1.0.0")
+    record.rejected_candidates = [
+        RejectedCandidate(
+            version="3.5.43",
+            reason="@vue/shared requires 3.5.43",
+            detail=RejectionDetail("no version satisfies", ("^3.5.18", "3.5.42")),
+        )
+    ]
+    lines = render_table([record], full=True).splitlines()
+
+    headline = next(i for i, line in enumerate(lines) if "3.5.43 rejected: @vue/shared requires 3.5.43" in line)
+    # The spec list is not on the headline - joined there, one row widened the whole table.
+    assert "no version satisfies" not in lines[headline]
+    assert "no version satisfies: ^3.5.18, 3.5.42" in lines[headline + 1]
+
+
+def test_rejection_detail_list_is_capped():
+    record = make_record(versions_diff_index=MINOR, recommended_version="1.0.0")
+    specs = tuple(f">={n}.0.0" for n in range(REJECTION_DETAIL_LIMIT + 3))
+    record.rejected_candidates = [
+        RejectedCandidate(version="3.5.43", reason="dep-x requires 3.5.43", detail=RejectionDetail("blocked by", specs))
+    ]
+    output = render_table([record], full=True)
+
+    assert f">={REJECTION_DETAIL_LIMIT - 1}.0.0" in output
+    assert f">={REJECTION_DETAIL_LIMIT}.0.0" not in output
+    assert "(+3 more)" in output
+
+
+def test_rejection_detail_row_absent_without_full():
+    record = make_record(versions_diff_index=MINOR, recommended_version="1.0.0")
+    record.rejected_candidates = [
+        RejectedCandidate(
+            version="1.2.0",
+            reason="dep-x requires >=2.0.0",
+            detail=RejectionDetail("no version satisfies", (">=2.0.0",)),
+        )
+    ]
+    assert "no version satisfies" not in render_table([record])
+
+
+def test_breaking_change_sub_row_shown_in_full_mode():
+    record = make_record(versions_diff_index=MINOR, recommended_version="5.0.0")
+    record.compatibility.breaking_change = "ESM-only from 5.0.0"
+    output = render_table([record], full=True)
+    assert "ESM-only from 5.0.0" in output
+
+
+def test_breaking_change_sub_row_absent_without_full():
+    record = make_record(versions_diff_index=MINOR, recommended_version="5.0.0")
+    record.compatibility.breaking_change = "ESM-only from 5.0.0"
+    output = render_table([record])
+    assert "ESM-only from 5.0.0" not in output
+
+
+def test_engine_mismatch_sub_row_shown_in_full_mode():
+    record = make_record(versions_diff_index=MINOR, recommended_version="2.0.0")
+    record.compatibility.engine_requirement = {"node": ">=22.0.0"}
+    record.compatibility.engine_compatible = False
+    output = render_table(
+        [record], full=True, engine_context=EngineContext({"node": "18.0.0"}, EngineContextSource.DETECTED)
+    )
+    assert "requires node >=22.0.0, checked against 18.0.0" in output
+
+
+def test_engine_mismatch_sub_row_names_only_the_mismatching_engine():
+    # A line was printed for every engine_requirement key, mismatching or not - so a package
+    # declaring both node and npm reported the npm requirement too, against a "?" placeholder.
+    # The text now derives from engine_mismatch_reason, the same check the solver's gate applies.
+    record = make_record(versions_diff_index=MINOR, recommended_version="2.0.0")
+    record.compatibility.engine_requirement = {"node": ">=22.0.0", "npm": ">=9.0.0"}
+    record.compatibility.engine_compatible = False
+    output = render_table(
+        [record], full=True, engine_context=EngineContext({"node": "18.0.0"}, EngineContextSource.DETECTED)
+    )
+    assert "requires node >=22.0.0, checked against 18.0.0" in output
+    assert "npm" not in output
+
+
+def test_engine_mismatch_sub_row_omitted_when_nothing_actually_mismatches():
+    # engine_compatible is denormalized onto the record and can outlive the pick it was computed
+    # for; rather than print a bare arrow, render nothing when the check finds no conflict.
+    record = make_record(versions_diff_index=MINOR, recommended_version="2.0.0")
+    record.compatibility.engine_requirement = {"node": ">=16.0.0"}
+    record.compatibility.engine_compatible = False
+    output = render_table(
+        [record], full=True, engine_context=EngineContext({"node": "18.0.0"}, EngineContextSource.DETECTED)
+    )
+    assert "↳" not in output
+
+
+def test_engine_mismatch_sub_row_absent_without_full():
+    record = make_record(versions_diff_index=MINOR, recommended_version="2.0.0")
+    record.compatibility.engine_requirement = {"node": ">=22.0.0"}
+    record.compatibility.engine_compatible = False
+    output = render_table([record], engine_context=EngineContext({"node": "18.0.0"}, EngineContextSource.DETECTED))
+    assert "requires node" not in output
+
+
+def test_engine_mismatch_sub_row_absent_when_compatible():
+    record = make_record(versions_diff_index=MINOR, recommended_version="2.0.0")
+    record.compatibility.engine_requirement = {"node": ">=16.0.0"}
+    record.compatibility.engine_compatible = True
+    output = render_table(
+        [record], full=True, engine_context=EngineContext({"node": "18.0.0"}, EngineContextSource.DETECTED)
+    )
+    assert "requires node" not in output
 
 
 # --- default-mode filtering ------------------------------------------------------------------
@@ -215,6 +529,80 @@ def test_transitive_table_full_adds_epss():
     assert "EPSS" in console.export_text()
 
 
+def test_transitive_table_rejected_candidate_sub_row_shown_in_full_mode():
+    record = make_record(recommended_version=None)
+    record.rejected_candidates = [RejectedCandidate(version="2.0.0", reason="dep-y requires >=3.0.0")]
+    renderer = ConsoleStatusRenderer(Settings())
+    table = renderer.transitive_table([record], full=True)
+    console = Console(record=True, width=200)
+    console.print(table)
+    assert "2.0.0 rejected: dep-y requires >=3.0.0" in console.export_text()
+
+
+def test_transitive_table_rejected_candidate_sub_row_absent_without_full():
+    record = make_record(recommended_version=None)
+    record.rejected_candidates = [RejectedCandidate(version="2.0.0", reason="dep-y requires >=3.0.0")]
+    renderer = ConsoleStatusRenderer(Settings())
+    table = renderer.transitive_table([record], full=False)
+    console = Console(record=True, width=200)
+    console.print(table)
+    assert "rejected:" not in console.export_text()
+
+
+def test_transitive_table_breaking_change_sub_row_shown_in_full_mode():
+    record = make_record(recommended_version="5.0.0")
+    record.compatibility.breaking_change = "ESM-only from 5.0.0"
+    renderer = ConsoleStatusRenderer(Settings())
+    table = renderer.transitive_table([record], full=True)
+    console = Console(record=True, width=200)
+    console.print(table)
+    assert "ESM-only from 5.0.0" in console.export_text()
+
+
+def test_transitive_table_engine_mismatch_sub_row_shown_in_full_mode():
+    record = make_record(recommended_version="2.0.0")
+    record.compatibility.engine_requirement = {"node": ">=22.0.0"}
+    record.compatibility.engine_compatible = False
+    renderer = ConsoleStatusRenderer(Settings())
+    table = renderer.transitive_table(
+        [record], full=True, engine_context=EngineContext({"node": "18.0.0"}, EngineContextSource.DETECTED)
+    )
+    console = Console(record=True, width=200)
+    console.print(table)
+    assert "requires node >=22.0.0, checked against 18.0.0" in console.export_text()
+
+
+def test_transitive_table_engine_mismatch_sub_row_absent_without_full():
+    record = make_record(recommended_version="2.0.0")
+    record.compatibility.engine_requirement = {"node": ">=22.0.0"}
+    record.compatibility.engine_compatible = False
+    renderer = ConsoleStatusRenderer(Settings())
+    table = renderer.transitive_table(
+        [record], full=False, engine_context=EngineContext({"node": "18.0.0"}, EngineContextSource.DETECTED)
+    )
+    console = Console(record=True, width=200)
+    console.print(table)
+    assert "requires node" not in console.export_text()
+
+
+# --- sub-row padding -------------------------------------------------------------------------
+
+
+def test_sub_rows_pad_to_the_tables_own_column_count():
+    """add_detail_subrows derives its blank cells from len(table.columns), so adding a column
+    can't silently misalign every sub-row the way a hand-maintained count did."""
+    record = make_record(recommended_version="5.0.0")
+    record.compatibility.breaking_change = "ESM-only from 5.0.0"
+    renderer = ConsoleStatusRenderer(Settings())
+
+    for table in (
+        renderer.transitive_table([record], full=True),
+        renderer.transitive_table([record], full=False),
+    ):
+        cells_per_row = {len(column._cells) for column in table.columns}
+        assert len(cells_per_row) == 1, "sub-rows disagree with the header on column count"
+
+
 # --- whats_next column ------------------------------------------------------------------------
 
 
@@ -255,3 +643,209 @@ def test_whats_next_patch_drift_is_update_immediately():
 def test_whats_next_clean_package_is_empty():
     record = make_record(maintenance=assessment(MaintenanceState.MAINTAINED))
     assert whats_next(record) == ""
+
+
+class TestWithheldByStrategySubRow:
+    """The tier, not the declared range, gets named when the tier is what withheld the package."""
+
+    def withheld_record(self) -> ScanRecord:
+        record = make_record(
+            name="scikit-learn",
+            versions_diff_index=MINOR,
+            latest_version="1.9.1",
+            version_constraint="<2.0.0",
+            version_constraint_declared="<2.0.0",
+        )
+        record.compatibility.latest_in_range = "1.9.1"
+        record.strategy_selection = StrategySelection(
+            strategy=UpdateStrategy.SECURITY,
+            target_version=None,
+            rung=None,
+            motives=frozenset(),
+            requires_widening=False,
+            withheld_reason="no motive admitted at security; available under --update-strategy standard",
+            available_at=UpdateStrategy.STANDARD,
+            escalation=None,
+        )
+        return record
+
+    def test_withheld_package_names_the_tier_not_the_range(self):
+        output = render_table([self.withheld_record()], full=True)
+
+        assert "Withheld by strategy" in output
+        assert "available under --update-strategy standard" in output
+        # The bug this replaced: <2.0.0 admits 1.9.1, so it caps nothing.
+        assert "caps this below" not in output
+
+    def test_range_that_admits_a_newer_version_is_never_blamed(self):
+        """Without a strategy selection the label stays Constrained, but the range still has to
+        actually exclude something before the sub-row names it."""
+        record = self.withheld_record()
+        record.strategy_selection = None
+
+        output = render_table([record], full=True)
+
+        assert "Constrained. Check newer version" in output
+        assert "caps this below" not in output
+
+    def test_a_genuinely_capping_range_is_still_named(self):
+        record = self.withheld_record()
+        record.strategy_selection = None
+        record.compatibility.latest_in_range = "1.0.0"  # equals installed: nothing in range
+
+        output = render_table([record], full=True)
+
+        assert "<2.0.0 caps this below 1.9.1" in output
+
+
+class TestCooldownHoldSubRow:
+    """A blank Recommended cell next to a newer Latest reads as a bug unless the cooldown is named."""
+
+    def held_record(self) -> ScanRecord:
+        record = make_record(
+            name="common-expression-language",
+            versions_diff_index=MINOR,
+            latest_version="0.10.0",
+        )
+        record.recommended_version = None
+        record.strategy_selection = StrategySelection(
+            strategy=UpdateStrategy.STANDARD,
+            target_version=None,
+            rung=None,
+            motives=frozenset(),
+            requires_widening=False,
+            withheld_reason=None,
+            available_at=None,
+            escalation=None,
+            cooldown_hold=CooldownHold(version="0.10.0", age_days=5, cooldown_period=7),
+        )
+        return record
+
+    def test_held_package_says_wait_and_names_the_version_and_the_wait(self):
+        output = render_table([self.held_record()], full=True)
+
+        assert "Wait for cooldown" in output
+        assert "0.10.0 is 5 days old" in output
+        assert "7-day cooldown" in output
+        # The reported defect, in one assertion: the label must not promise an update that
+        # `apply` will refuse.
+        assert "Update Immediately" not in output
+
+    def test_the_declared_range_is_not_blamed_for_a_cooldown_hold(self):
+        record = self.held_record()
+        record.version_constraint = "<1.0.0"
+        record.version_constraint_declared = "<1.0.0"
+        record.compatibility.latest_in_range = record.installed_version
+
+        output = render_table([record], full=True)
+
+        assert "caps this below" not in output
+
+
+# --- upstream signal coverage panel -----------------------------------------------------------
+
+
+def render_report(
+    prod: list[ScanRecord],
+    dev: list[ScanRecord] | None = None,
+    *,
+    transitive: list[ScanRecord] | None = None,
+    full: bool = False,
+    width: int = 200,
+) -> str:
+    """Drive the whole renderer, not just the main table — the panel is a `render()` section."""
+    renderer = ConsoleStatusRenderer(Settings())
+    renderer.console = Console(record=True, width=width)
+    renderer.render(
+        ScanResult(
+            project_name="demo",
+            packages_registry=ProjectPackagesRegistry.NPM,
+            project_path="/tmp/demo",
+            production_packages=prod,
+            optional_packages=dev or [],
+            transitive_packages=transitive or [],
+        ),
+        full=full,
+    )
+    return renderer.console.export_text()
+
+
+def uncovered(name: str, coverage: SignalCoverage) -> ScanRecord:
+    record = make_record(name)
+    record.signal_coverage = coverage
+    return record
+
+
+class TestSignalCoveragePanel:
+    def test_panel_names_each_package_under_its_reason(self):
+        output = render_report(
+            [
+                uncovered("gitlab-pkg", SignalCoverage.UNSUPPORTED_HOST),
+                uncovered("orphan-pkg", SignalCoverage.NO_REPOSITORY),
+                uncovered("private-pkg", SignalCoverage.REPOSITORY_UNAVAILABLE),
+                make_record("covered-pkg"),
+            ],
+            full=True,
+        )
+
+        assert "Upstream Signal Coverage" in output
+        assert "3 of 4 packages (including transitive) gave up less than the full signal set" in output
+        for label, name in (
+            ("Not on GitHub (1)", "gitlab-pkg"),
+            ("No repository declared (1)", "orphan-pkg"),
+            ("Repository unreachable (1)", "private-pkg"),
+        ):
+            line = next(line for line in output.splitlines() if label in line)
+            assert name in line
+        # The panel exists to name what was missed; a covered package is not a gap.
+        assert "covered-pkg" not in output.split("Upstream Signal Coverage")[1]
+
+    def test_panel_absent_when_every_package_is_covered(self):
+        output = render_report([make_record("a"), make_record("b")], full=True)
+
+        assert "Upstream Signal Coverage" not in output
+
+    def test_panel_absent_without_full(self):
+        output = render_report([uncovered("gitlab-pkg", SignalCoverage.UNSUPPORTED_HOST)])
+
+        assert "Upstream Signal Coverage" not in output
+
+    def test_development_packages_are_counted_too(self):
+        output = render_report(
+            [make_record("prod-pkg")],
+            [uncovered("dev-pkg", SignalCoverage.UNSUPPORTED_HOST)],
+            full=True,
+        )
+
+        assert "1 of 2 packages (including transitive) gave up less than the full signal set" in output
+        assert "dev-pkg" in output
+
+    def test_transitive_packages_are_counted_too(self):
+        # The /repos fetch covers the whole graph, so a transitive package's failed fetch is in
+        # the scan's degraded count. Leaving it out of the panel left that count unattributable.
+        output = render_report(
+            [make_record("prod-pkg")],
+            transitive=[uncovered("deep-pkg", SignalCoverage.REPOSITORY_UNAVAILABLE)],
+            full=True,
+        )
+
+        assert "1 of 2 packages" in output
+        assert "deep-pkg" in output
+
+    def test_commit_history_gap_is_reported_separately_from_the_repository(self):
+        # A package whose repo answered but whose commits did not has metadata and no maintenance
+        # assessment — two failed fetches for one package, and only one of them named here.
+        output = render_report([uncovered("half-pkg", SignalCoverage.ACTIVITY_UNAVAILABLE)], full=True)
+
+        line = next(line for line in output.splitlines() if "Commit history unreachable (1)" in line)
+        assert "half-pkg" in line
+
+    def test_long_name_lists_are_capped(self):
+        records = [uncovered(f"pkg-{n:02d}", SignalCoverage.UNSUPPORTED_HOST) for n in range(COVERAGE_NAME_LIMIT + 4)]
+
+        # Scoped to the panel: every name is also a row in the main table above it.
+        panel = render_report(records, full=True).split("Upstream Signal Coverage")[1]
+
+        assert "pkg-00" in panel
+        assert f"pkg-{COVERAGE_NAME_LIMIT:02d}" not in panel
+        assert "(+4 more)" in panel

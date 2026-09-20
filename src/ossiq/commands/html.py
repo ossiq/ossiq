@@ -11,6 +11,8 @@ from ossiq.domain.common import Command, UserInterfaceType
 from ossiq.service.project.scan import scan
 from ossiq.settings import Settings
 from ossiq.sources import project_sources
+from ossiq.strategy.overrides import StrategyPlan
+from ossiq.strategy.pyramid import DEFAULT_STRATEGY, UpdateStrategy
 from ossiq.ui.registry import get_renderer
 from ossiq.ui.system import show_scan_progress, show_settings
 
@@ -24,7 +26,8 @@ class CommandHtmlOptions:
     allow_prerelease_packages: tuple[str, ...] = ()
     registry_type: Literal["npm", "pypi"] | None = None
     output_destination: str = "./ossiq_scan_report_{project_name}.html"
-    security_only: bool = False
+    update_strategy: UpdateStrategy = DEFAULT_STRATEGY
+    strategy_overrides: tuple[tuple[str, UpdateStrategy], ...] = ()
     ignore_packages: tuple[str, ...] = ()
 
 
@@ -40,7 +43,7 @@ def command_html(ctx: typer.Context, options: CommandHtmlOptions) -> None:
             "project_path": options.project_path,
             "output_destination": options.output_destination,
             "production": options.production,
-            "security": options.security_only,
+            "update_strategy": options.update_strategy.value,
             "narrow_registry_type": project_sources.REGISTRY_TYPE_MAP.get(options.registry_type or ""),
             "ignore_packages": options.ignore_packages or None,
         },
@@ -53,12 +56,12 @@ def command_html(ctx: typer.Context, options: CommandHtmlOptions) -> None:
         options.allow_prerelease,
         options.allow_prerelease_packages,
         options.registry_type,
-        security_only=options.security_only,
+        strategy=StrategyPlan(default=options.update_strategy, overrides=dict(options.strategy_overrides)),
         ignore_packages=options.ignore_packages,
     )
 
-    with show_scan_progress(settings) as on_step:
-        project_scan = scan(sources, on_step=on_step)
+    with show_scan_progress(settings) as progress:
+        project_scan = scan(sources, progress=progress)
 
     renderer = get_renderer(command=Command.HTML, user_interface_type=UserInterfaceType.HTML, settings=settings)
 

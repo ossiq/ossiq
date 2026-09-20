@@ -4,19 +4,25 @@ Tests for the pure pipeline helpers in service/project/ and service/common/packa
 All functions here are data-in / data-out — zero network mocks needed.
 """
 
+from dataclasses import replace
 from datetime import UTC, datetime
 from unittest.mock import MagicMock
 
 from packaging.version import Version
 
-from ossiq.domain.common import ConstraintType, CveDatabase, ProjectPackagesRegistry
+from ossiq.domain.common import ConstraintType, CveDatabase, ProjectPackagesRegistry, SignalCoverage
 from ossiq.domain.cve import CVE, Severity
 from ossiq.domain.package import Package
 from ossiq.domain.project import ConstraintSource
+from ossiq.domain.repository import Repository
 from ossiq.domain.version import PackageVersion, VersionsDifference
 from ossiq.service.common.package_versions import filter_versions_between
 from ossiq.service.project.models import DependencyDescriptor, PrefetchedData, ScanRecord
-from ossiq.service.project.recommendations import apply_conflicts, apply_recommendations, clamp_recommendations
+from ossiq.service.project.recommendations import (
+    apply_conflicts,
+    apply_recommendations,
+    clamp_recommendations,
+)
 from ossiq.service.project.records import build_records
 from ossiq.solver.dependencies_solver import (
     EMPTY_OUTPUT,
@@ -54,6 +60,10 @@ def make_package(name: str, latest: str = "2.0.0") -> Package:
     )
 
 
+def make_repository() -> Repository:
+    return Repository(provider="GITHUB", name="repo", owner="owner", description=None, html_url=None)
+
+
 def make_pv(version: str) -> PackageVersion:
     return PackageVersion(
         version=version,
@@ -68,6 +78,17 @@ def make_version_rules() -> MagicMock:
     rules = MagicMock()
     rules.package_registry = ProjectPackagesRegistry.PYPI
     rules.difference_versions.return_value = _DIFF
+
+    def _compare(v1: str, v2: str) -> int:
+        a, b = Version(v1), Version(v2)
+        return -1 if a < b else (1 if a > b else 0)
+
+    def _newest(candidates):
+        as_list = list(candidates)
+        return max(as_list, key=lambda pv: Version(pv.version)) if as_list else None
+
+    rules.compare_versions.side_effect = _compare
+    rules.newest_version.side_effect = _newest
     return rules
 
 
@@ -124,6 +145,58 @@ class TestBuildRecords:
         )
         assert records[0].package_name == "requests"
         assert records[0].dependency_name == "requests-alias"
+
+    def test_signal_coverage_is_set_from_the_repo_url_and_what_came_back(self):
+        # The pipeline half of the coverage panel: without this, a GitLab package and a GitHub
+        # package whose fetch failed both reach the renderer as an indistinguishable `None`.
+        gitlab = make_package("gitlab-pkg")
+        gitlab.repo_url = "https://gitlab.com/owner/repo"
+        orphan = make_package("orphan-pkg")
+        missing = make_package("missing-pkg")
+        missing.repo_url = "https://github.com/owner/repo"
+
+        records = build_records(
+            [make_dep(name) for name in ("gitlab-pkg", "orphan-pkg", "missing-pkg")],
+            make_version_rules(),
+            make_prefetched(
+                {"gitlab-pkg": gitlab, "orphan-pkg": orphan, "missing-pkg": missing},
+                [(name, "1.0.0") for name in ("gitlab-pkg", "orphan-pkg", "missing-pkg")],
+            ),
+        )
+
+        assert [r.signal_coverage for r in records] == [
+            SignalCoverage.UNSUPPORTED_HOST,
+            SignalCoverage.NO_REPOSITORY,
+            SignalCoverage.REPOSITORY_UNAVAILABLE,
+        ]
+
+    def test_commit_gap_is_reported_for_direct_deps_only(self):
+        # Commits are fetched for direct dependencies alone, so a transitive package without them
+        # is out of scope, not degraded — otherwise every graph would report as half-measured.
+        direct = make_package("direct-pkg")
+        direct.repo_url = "https://github.com/owner/direct"
+        deep = make_package("deep-pkg")
+        deep.repo_url = "https://github.com/owner/deep"
+
+        prefetched = make_prefetched(
+            {"direct-pkg": direct, "deep-pkg": deep},
+            [("direct-pkg", "1.0.0"), ("deep-pkg", "1.0.0")],
+        )
+        prefetched.repositories_info = {
+            "https://github.com/owner/direct": make_repository(),
+            "https://github.com/owner/deep": make_repository(),
+        }
+        # Some commits came back this scan, so the channel demonstrably ran — but not for these.
+        prefetched.commits = {"https://github.com/owner/other": [{"commit": {}}]}
+
+        deep_dep = make_dep("deep-pkg")
+        deep_dep = replace(deep_dep, dependency_path=["direct-pkg"])
+        records = build_records([make_dep("direct-pkg"), deep_dep], make_version_rules(), prefetched)
+
+        assert [r.signal_coverage for r in records] == [
+            SignalCoverage.ACTIVITY_UNAVAILABLE,
+            SignalCoverage.FULL,
+        ]
 
     def test_installed_version_matches_descriptor(self):
         pkg = make_package("django")

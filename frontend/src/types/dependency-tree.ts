@@ -28,6 +28,16 @@ export interface DependencyNode {
   is_deprecated?: boolean
   is_package_unpublished?: boolean
   recommended_version?: string | null
+  // The scan's own verdict for this package, copied across rather than re-derived: the ladder
+  // rungs it is reachable on, whether taking the recommendation needs the declared range widened,
+  // and the one next action every other surface shows.
+  next_action?: string | null
+  requires_constraint_widening?: boolean
+  recommended_from_rung?: string | null
+  latest_in_range?: string | null
+  latest_in_major?: string | null
+  latest_compatible_major?: string | null
+  version_constraint_declared?: string | null
   epss?: number | null
   maintenance_coverage?: number | null
   maintenance_risk?: number | null
@@ -80,6 +90,16 @@ export interface SelectedNodeDetail {
   is_deprecated?: boolean
   is_package_unpublished?: boolean
   recommended_version?: string | null
+  // The scan's own verdict for this package, copied across rather than re-derived: the ladder
+  // rungs it is reachable on, whether taking the recommendation needs the declared range widened,
+  // and the one next action every other surface shows.
+  next_action?: string | null
+  requires_constraint_widening?: boolean
+  recommended_from_rung?: string | null
+  latest_in_range?: string | null
+  latest_in_major?: string | null
+  latest_compatible_major?: string | null
+  version_constraint_declared?: string | null
   epss?: number | null
   maintenance_coverage?: number | null
   maintenance_risk?: number | null

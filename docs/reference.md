@@ -57,6 +57,9 @@ Per-package analysis record. Each entry in the `ScanResult` lists above is one `
 | `latest_version` | `str \| None` | Most recent published version |
 | `recommended_version` | `str \| None` | Solver-recommended update target |
 | `recommended_version_reason` | `RecommendationReason \| None` | Why this version was chosen |
+| `recommended_from_rung` | `RecommendationRung \| None` | Which version-ladder rung `recommended_version` came from: `SOLVER`/`IN_RANGE` sit inside `version_constraint`; `IN_MAJOR`/`LATEST` require widening it first — see [Version ladder](#version-ladder) |
+| `latest_in_range` | `str \| None` | Newest version satisfying `version_constraint`; equals `installed_version` when the range admits nothing newer, `None` only when undeterminable |
+| `latest_in_major` | `str \| None` | Newest version sharing `installed_version`'s major line; equals `installed_version` when that line is exhausted, `None` only when undeterminable |
 | `time_lag_days` | `int \| None` | Days between installed and latest version |
 | `releases_lag` | `int \| None` | Number of releases between installed and latest |
 | `version_age_days` | `int \| None` | Age of the installed version in days |
@@ -167,7 +170,7 @@ with sources:
     result = scan(sources)
 ```
 
-Other optional keyword arguments mirror the CLI's own flags: `allow_prerelease`, `allow_prerelease_packages`, `security_only`, `rewrite_versions`, and `narrow_package_registry` (force a specific registry instead of auto-detecting).
+Other optional keyword arguments mirror the CLI's own flags: `allow_prerelease`, `allow_prerelease_packages`, `strategy` (an `ossiq.strategy.overrides.StrategyPlan` — the update-strategy tier and any per-package overrides), `rewrite_versions`, and `narrow_package_registry` (force a specific registry instead of auto-detecting).
 
 ---
 
@@ -304,7 +307,9 @@ This is how a project runs two versions of the same package side by side — com
 
 That per-alias fitting also applies to the solver's [cooldown](#update-solver): when the shared candidate the solver would otherwise recommend falls outside one alias's own range, OSS IQ re-fits that alias to the newest version that satisfies its range and (like the solver itself) still prefers one older than the cooldown period when one exists. If no published version satisfies an alias's own range, that alias is reported with no recommendation rather than inheriting a sibling's.
 
-**Console output does not display the alias name.** The `status` table's *Package* column and the `info` header both print `package_name` — the canonical name — so `chalk-legacy` and `chalk` both read as `chalk` in a scan report; only the *Installed* / *Recommended* columns (and `dependency_path` for transitive occurrences) tell the rows apart. `ossiq info <alias-name>` matches on the alias name directly and opens that one occurrence; `ossiq info <real-name>` matches every occurrence — aliased or not — and lists each as a separate `Occurrence n of m` block.
+**Console output names the alias.** The `status` and `plan` tables and the `apply` acknowledgement prompt all print the *Package* column as `chalk-legacy (chalk)` — the manifest key, with the canonical name after it — so two occurrences of one package are never two identical rows. `ossiq info <alias-name>` matches on the alias name directly and opens that one occurrence; `ossiq info <real-name>` matches every occurrence — aliased or not — and lists each as a separate `Occurrence n of m` block. In machine-readable output the two names stay separate fields: `package_name` is always canonical, and `dependency_name` carries the manifest key (in the JSON export always, in `--format agent` and the MCP tools only when it differs).
+
+**`--override` accepts either spelling.** `--override chalk-legacy==4.2.0` forces that one alias and leaves its siblings on their own recommendations. `--override chalk==4.2.0` names every occurrence at once, so on a project with several aliases of one package OSS IQ says which manifest keys it found and forces none of them — name the key to pick one. `--strategy-override` is canonical-only: `--strategy-override chalk=latest` retiers every occurrence, and an alias key is reported as not found rather than silently ignored.
 
 **`plan` / `apply` cannot rewrite an alias's inner range.** The update solver still computes a per-alias recommendation as described above, but writing it back to `package.json` is unsupported for `npm:pkg@range` specifiers — the alias entry is left untouched by `apply`. Use the recommendation as a manual target and edit the alias range yourself.
 
@@ -323,11 +328,19 @@ That per-alias fitting also applies to the solver's [cooldown](#update-solver): 
 -   **Single pass.** The solver recommends versions against the *current* lockfile. Applying a plan
     re-resolves the tree, which can surface further recommendations; re-run `plan` until it reports
     no updates (most projects converge in one or two passes).
--   **Cooldown.** Candidate versions younger than `--cooldown-period` days (default 7) receive a
-    heavy soft-penalty in the solver; recommendations that are still younger than the cooldown after
-    solving are withheld into the plan's *Held for cooldown* section and never applied.
--   **CVE bypass.** When the installed version of a package carries a CVE, its recommendation is
-    exempt from the cooldown hold. CVE-affected candidate versions themselves are hard-forbidden.
+-   **Cooldown.** The cooldown shapes the recommendation itself, not just what `apply` will write:
+    a direct dependency is recommended the newest version at least `--cooldown-period` days old
+    (default 7), so a settled `0.9.0` is preferred over a two-day-old `0.10.0` rather than the
+    latter being recommended and then refused. When *every* reachable version is younger than the
+    cooldown, no version is recommended at all — `status` shows a blank *Recommended* cell and
+    **Wait for cooldown**, and the plan lists the package under *Held for cooldown* so you still
+    know what is coming. Transitive candidates additionally receive a heavy soft-penalty in the
+    solver, and anything still younger than the cooldown after solving is withheld the same way.
+    A version with no publish date in the registry is never withheld.
+-   **CVE and end-of-life bypass.** When the installed version carries a CVE or the package is
+    abandoned/deprecated, waiting out a cooldown is not an option: the newest reachable version is
+    recommended even if it is fresh, and the plan marks it `↳ cooldown bypassed`. CVE-affected
+    candidate versions themselves are hard-forbidden.
 -   **New transitive dependencies.** Packages entering the tree for the first time are resolved by
     the native package manager at apply time, outside the cooldown. The plan projects their version
     and age and flags entries younger than the cooldown with `⚠`. Under `--cutoff-date`, projections
@@ -343,6 +356,82 @@ That per-alias fitting also applies to the solver's [cooldown](#update-solver): 
 
     Forced packages are reported with `ConstraintType.OVERRIDE` on subsequent scans, so they remain
     visible until the override is removed.
+
+(update-strategy)=
+### Update Strategy
+
+`--update-strategy` picks which tier of the **dependency update pyramid** a run targets — five
+tiers, each a strict superset of the one below: `security` (the smallest diff that clears an
+exploitable CVE), `deprecation` (also end-of-life packages), `standard` (also plain drift, the
+default — preserves pre-strategy behaviour), `latest` (also widens the declared constraint to
+reach the newest version), and `cutting-edge` (also prereleases). `--strategy-override
+pkg=tier` runs one package at a different tier than the rest of the run (repeatable); `--override
+pkg==version` still wins over both when given for the same package.
+
+Every surface echoes which tier answered: `status`/`plan`/`html` print it in the header, `export`
+writes it to `metadata.update_strategy` (plus a per-package `strategy` object on `PackageMetrics`
+carrying `motives` / `withheld_reason` / `requires_widening` / `escalation`, null when the selector
+never ran for that package), and `--format agent` / both MCP tools carry
+`update_strategy` and a per-entry `motives`. A withheld package's `plan`/`status` output names the
+lowest tier that would move it ("N more updates available under --update-strategy X").
+
+`security` and `deprecation` move a package only on a qualifying CVE or end-of-life marker, so a
+run at either tier whose vulnerability data did not arrive would print *"nothing to do"* character
+for character identically to a clean project. `status`, `plan` and `export` refuse that answer
+instead — a non-zero exit with a *Security Data Incomplete* error, or the same error as an MCP
+error payload — unless `--allow-partial` (MCP: `allow_partial`) says to accept it. Every other
+tier is unaffected and still exits 0: drift alone justifies a move there, so a degraded run
+produces a thinner answer rather than an empty one. A degraded `repositories` step is never
+grounds for refusing; it thins `deprecation`'s coverage rather than emptying its result.
+
+`apply` treats reaching `latest`/`cutting-edge` for a package as the authorization to widen its
+declared constraint — but asks for a second, separate confirmation before doing so, in addition to
+the usual "proceed with N updates?" prompt. `--yes` skips both.
+
+Full design, the two-axis (motive × reach) model, and a worked example across all five tiers live
+in `src/ossiq/strategy/README.md`.
+
+(version-ladder)=
+### Version ladder
+
+`latest_version` alone can leave a package with nowhere to go: a dependency held
+back on a major version by an API break (e.g. `pydantic==1.10.13`, where 2.x moved
+`BaseSettings` to a separate package) has a `latest_version` the project cannot
+take, and historically `recommended_version` then fell back to `None` — the
+dependency was never touched even though a safe newer patch existed.
+
+Every `ScanRecord` instead carries the full ladder of reachable versions:
+
+| Field | Meaning |
+|---|---|
+| `latest_in_range` | Newest version satisfying the declared `version_constraint` |
+| `latest_in_major` | Newest version sharing `installed_version`'s major line |
+| `latest_version` | Newest version overall (unchanged) |
+
+Each rung is either a real version newer than `installed_version`, or exactly
+equal to it when that step admits nothing newer — never omitted, so "already at
+the top of this rung" and "not analysed" are never confused. A rung is `None`
+only when genuinely undeterminable (no release data, or the declared constraint
+is satisfiable only *below* `installed_version`, signalling a manifest/lockfile
+divergence).
+
+`recommended_version` is set by the [update-strategy](#update-strategy) selector, which picks a
+rung from this ladder according to the run's tier — `latest_in_range`, then `latest_in_major`,
+then `latest_version`, taking the first (or, for freshness tiers, the newest) rung the tier
+reaches. `recommended_from_rung` records which rung it came from:
+
+-   **`SOLVER` / `IN_RANGE`** — inside `version_constraint`; `plan`/`apply`/`update`
+    write these directly.
+-   **`IN_MAJOR` / `LATEST`** — only reachable by widening `version_constraint` first.
+    `build_update_plan` withholds these into `UpdatePlan.held_for_widening` (reported by `plan`
+    under *Requires constraint widening*) unless the run's strategy tier authorizes reaching that
+    far (`latest`/`cutting-edge`, or an escalating CVE/end-of-life motive) — see
+    [Update Strategy](#update-strategy). `--override` bypasses this, same as it bypasses the
+    cooldown.
+
+The ladder itself reports plain registry facts — no cooldown, no CVE filtering, no strategy —
+so `latest_in_range`/`latest_in_major` may differ from what `recommended_version` actually
+settles on once those guardrails apply.
 
 ### Data Provenance
 
@@ -449,6 +538,8 @@ The `status` command prints a project-wide report; the `info` command prints a d
 
 The `ossiq html` command produces a self-contained HTML file embedding an interactive Vue.js single-page application. The report includes the full dependency tables and the **Transitive Dependency Explorer**: an interactive D3 tree that visualises the `transitive_packages` dependency graph.
 
+The dependency table shows the same version ladder the console does. Under **Latest**, a dim `in range <version>` line names the newest version the declared constraint already admits, and `in major <version>` the newest in the installed major line; each appears only when it sits below the registry's latest, which is exactly when something is holding the package back. A `widen` badge on **Rec. Version** means the recommendation lies outside the declared range, so `ossiq apply` will not write it without the range being widened first. Selecting a package opens a **Version Ladder** block with every rung and the one the recommendation came from. **What's Next** carries the label the scan decided, so it never disagrees with `ossiq status`.
+
 The Explorer supports:
 
 - Color-coded nodes by risk type — six priority tiers: CVE (red), OVERRIDE (orange dash-dot), ADDITIVE (green dotted), PINNED (orange solid-thick), NARROWED (yellow dashed), DECLARED (blue)
@@ -473,7 +564,11 @@ The `export` command writes a single `.json` file conforming to [export schema v
 | `development_packages` | Array of `PackageMetrics` |
 | `transitive_packages` | Array of `PackageMetrics` with `dependency_path` set |
 
-Since v1.5, every `PackageMetrics` entry (production, development, and transitive) also carries `epss` (the highest EPSS among the package's CVEs), `runs_code_at_install` with `install_execution_reason`, and the maintenance-state fields: `maintenance_state`, `maintenance_risk` (P(abandoned) + P(deprecated), the value that feeds triage), `maintenance_coverage` (fraction of the four maintenance observations that were available), `gap_cv`, `median_gap_days`, `silence_days`, `silence_p`, `commits_sampled`, `span_days`, `flow_trend`, `deprecation_signals`, `deprecation_successor`, `days_since_push`, `archived`, and `triage_action`. Any of them may be `null` when the underlying signal could not be measured — that means "unknown," never "no risk." See [Repository stability](explanation/repository-stability.md) for what each field means.
+Since v1.5, every `PackageMetrics` entry (production, development, and transitive) also carries `epss` (the highest EPSS among the package's CVEs), `runs_code_at_install` with `install_execution_reason`, and the maintenance-state fields: `maintenance_state`, `maintenance_risk` (P(abandoned) + P(deprecated), the value that feeds triage), `maintenance_coverage` (fraction of the five maintenance observations that were available), `gap_cv`, `median_gap_days`, `silence_days`, `silence_p`, `commits_sampled`, `span_days`, `flow_trend`, `deprecation_signals`, `deprecation_successor`, `days_since_push`, `archived`, and `triage_action`. Any of them may be `null` when the underlying signal could not be measured — that means "unknown," never "no risk." See [Repository stability](explanation/repository-stability.md) for what each field means.
+
+Every `PackageMetrics` entry also carries the [version ladder](#version-ladder): `latest_in_range` and `latest_in_major` (both `null` only when undeterminable, equal to `installed_version` when that rung has nothing newer), plus `recommended_from_rung` on production/development entries naming which rung `recommended_version` came from (`solver`, `in_range`, `in_major`, or `latest`). `TransitivePackageMetrics` carries `latest_in_range`/`latest_in_major` but not `recommended_from_rung`; on transitive entries the two rung fields are omitted entirely (rather than `null`) when undeterminable, per the schema's existing null-dropping convention for that array.
+
+Every entry also carries `next_action`: the same label the status table's **What's Next** column and the HTML report show, so a consumer never has to re-derive it and cannot arrive at a different answer (`null`, and omitted on transitive entries, when nothing is due). Note that the `--format agent` payload's field of the same name applies two further escalations on top of this label — a CVE with no available fix, and an installed version gone from the registry — so the two can legitimately differ. Production and development entries additionally carry `requires_constraint_widening`: `true` when `recommended_from_rung` is `in_major` or `latest`, meaning the target lies outside the declared range and `ossiq apply` will not write it.
 
 (console-reports)=
 ## Console Reports
@@ -514,10 +609,10 @@ Next**. `--full` adds **EPSS**, **Update Mode**, **Lag**, and **State**.
 | Update Mode | *(`--full`)* Semantic drift between installed and latest version: `Latest`, `Patch`, `Minor`, `Major`, `Prerelease`, `Build`, or `N/A` when the latest version is unknown. |
 | Installed | Version resolved in the lockfile, with a lifecycle marker when one applies (see below). |
 | Latest | Newest version the registry publishes, ignoring your declared range. This is what **Update Mode** and **Lag** are measured against. `—` when it could not be determined. |
-| Recommended | Solver-recommended update target — clamped into your declared range, so it is often *not* the Latest version. Yellow when the recommendation is older than the latest version — usually held back by the [cooldown](#update-solver) or by a constraint. `[NO RESOLUTION]` when no published version satisfies all constraints. Blank when the solver found no acceptable target at all. |
+| Recommended | Solver-recommended update target — clamped into your declared range, so it is often *not* the Latest version. Yellow when the recommendation is older than the latest version — usually held back by the [cooldown](#update-solver) or by a constraint. `[NO RESOLUTION]` when no published version satisfies all constraints. Blank when no acceptable target was found at all — including when every newer version is still inside the [cooldown](#update-solver), in which case *What's Next* reads **Wait for cooldown**. |
 | Lag | *(`--full`)* Time between the installed and the latest version. Red when it exceeds `--lag-threshold-delta` (default `1y`). |
 | State | *(`--full`)* Maintenance-state verdict for the upstream repository: `maintained`, `winding_down`, `abandoned`, or `deprecated`. `—` when the package could not be assessed. See [Repository Stability](explanation/repository-stability.md). |
-| What's Next | The single next action for this package (first match wins): **Check for the Fix** (a CVE with EPSS ≥ 10%), **Find alternative** (at the latest version but abandoned/deprecated), **Consider alternative** (upstream winding down), **Check Release Notes** (a major version behind), **Update Immediately** (a minor or patch behind, with a newer version inside the declared range), **Constrained. Check newer version** (a minor or patch behind, but the declared range admits no bump — widening it is the real next step). Blank when nothing is due. |
+| What's Next | The single next action for this package (first match wins): **Check for the Fix** (a CVE with EPSS ≥ 10%), **Find alternative** (at the latest version but abandoned/deprecated), **Consider alternative** (upstream winding down), **Check Release Notes** (a major version behind), **Update Immediately** (a minor or patch behind, with a newer version inside the declared range), **Wait for cooldown** (a newer version exists, but every version reachable from here is younger than the cooldown period — there is nothing settled enough to move to yet, so no version is recommended at all), **Constrained. Check newer version** (a minor or patch behind, but the declared range admits no bump — widening it is the real next step), **Withheld by strategy** (a bump is available and the range admits it, but the run's `--update-strategy` tier admitted no motive to take it — the sub-row names the lowest tier that would). Blank when nothing is due. On terminals too narrow to fit the widest label on one line — under 110 columns, or under 157 with `--full` — **Constrained. Check newer version** is shortened to **Constrained**; the `--full` sub-row below the package still names the range and what it caps. This is a display width only: the label in `--format agent`, the JSON export, the MCP tools and the HTML report is always the full one. |
 
 Lifecycle markers on the Installed column:
 
@@ -537,11 +632,13 @@ A row with a recommendation can carry indented sub-rows describing what applying
 | `↳ ⚠ <package>: <detail>` | The update collides with a constraint on this transitive package. See [When an update is blocked](#update-blocked). |
 | `✗ no actionable update found` | Every candidate update collides with a transitive constraint; the solver has no version to recommend. See [When an update is blocked](#update-blocked). |
 | `↳ no version satisfies: <specifiers>` | The constraints on this package contradict each other — no published version satisfies all of them at once. Shown together with `[NO RESOLUTION]`. |
-| `↳ <specifier> caps this below <latest>` | *(`--full`)* The declared range is what holds the package behind the registry's latest. Shown with **Constrained. Check newer version**. Other blockers may apply on top of the range. |
+| `↳ <specifier> caps this below <latest>[; <version> is the newest in the current major line]` | *(`--full`)* The declared range is what holds the package behind the registry's latest. Drawn only when the range genuinely admits nothing newer than what is installed — when it does admit a bump, the blocker is something else and draws its own row. The trailing clause appears only when the newest version within the installed major line differs from the latest overall. Shown with **Constrained. Check newer version**. |
+| `↳ <version> is <n> days old; nothing older to move to before the <n>-day cooldown` | *(`--full`)* Every release newer than the installed one is younger than `--cooldown-period`, so no version was recommended. Names the release being waited on. Not drawn when a CVE or end-of-life motive is in play — those escalate past the cooldown rather than waiting it out. Shown with **Wait for cooldown**. |
+| `↳ no motive admitted at <tier>; available under --update-strategy <tier>` | *(`--full`)* The run's update strategy, not the declared range, is what left this package without a target. Shown with **Withheld by strategy**. |
 
 #### Transitive Recommendations
 
-Transitive packages — packages your direct dependencies pull in — for which the solver recommends a different version, most often because the installed version carries a CVE or is far behind. With `--security`, the list narrows to packages with CVEs only. To turn these recommendations into an executable update plan, run `ossiq plan` (see [Update Solver](#update-solver)).
+Transitive packages — packages your direct dependencies pull in — for which the solver recommends a different version, most often because the installed version carries a CVE or is far behind. With `--update-strategy security`, the list narrows to packages with CVEs only. To turn these recommendations into an executable update plan, run `ossiq plan` (see [Update Solver](#update-solver)).
 
 Columns: **Package**, **CVEs**, **Installed**, **Recommended**, **What's Next**; `--full` adds **EPSS**. The **Recommended** version is the one the solver picks within all parent constraints; **What's Next** follows the same rules as the dependency table.
 
@@ -652,8 +749,11 @@ Any of these can render `—`: it means the signal could not be measured, never 
 |---|---|
 | Constraint | Version specifier from the manifest, or `—` for transitive packages without one. |
 | Resolved | The installed version. |
+| In Range | Newest version the declared constraint already admits — reachable with no manifest edit. Dimmed when it equals the installed version, which means the range admits nothing newer; omitted only when it could not be determined. |
+| In Major | Newest version sharing the installed major line, under the same rules. |
+| Compatible Major | Newest version across majors at or above the installed one that carries no known module-system or API break. Shown only when it differs from **In Major**, i.e. when a known break sits in between. |
 | Latest | Most recent published version. |
-| Recommended | Solver-recommended target, when one exists. Yellow when held below the latest. |
+| Recommended | Solver-recommended target, when one exists. Yellow when held below the latest. When reaching it requires widening the declared constraint (an out-of-range ladder pick), a dim `(requires widening <constraint> — same major/new major)` caveat is appended — `ossiq update`/`apply` hold these back rather than writing them automatically. The rung it came from is marked `← recommended` in the ladder rows above. |
 | Resolution | `NO VALID VERSION — conflicting constraints: <specifiers>` when the solver found no version satisfying all constraints. See [When an update is blocked](#update-blocked). |
 | Constraint Type | Shown only when the version is controlled by something beyond a plain manifest entry (`PINNED`, `NARROWED`, `ADDITIVE`, `OVERRIDE`), with the file that introduced it. See [Constraint Provenance](#constraint-provenance). |
 
@@ -687,7 +787,7 @@ Every decision leads with a `next_action` string:
 - **add** (`info` / `add`): `install`, `install with caution`, or `do not install`.
 - **update** (`status`): per entry — `Check for the Fix`, `Find alternative`, `Consider alternative`, `Check Release Notes`, or `Update Immediately`. The top-level `next_action` is the most urgent of those, or `no action needed` when the `updates` list is empty.
 
-The `updates` list contains only packages that need attention (a CVE, a recommended upgrade, version drift, or an unmaintained upstream).
+The `updates` list contains only packages that need attention (a CVE, a recommended upgrade, version drift, or an unmaintained upstream). Each entry carries the [version ladder](#version-ladder) (`latest_in_range`, `latest_in_major`) alongside `from`/`to`, and sets `requires_constraint_widening: true` when `to` is only reachable by widening the declared constraint — the same condition `plan` reports as *Requires constraint widening* rather than writing.
 
 (install-skills)=
 ## Install Skills

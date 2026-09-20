@@ -2,7 +2,7 @@
 import { computed } from 'vue'
 import type { SelectedNodeDetail, DependencyNode } from '@/types/dependency-tree'
 import type { CVEInfo } from '@/types/report'
-import { computeDriftStatus, computeWhatsNext, formatTimeLag, WHATS_NEXT_CLASS } from '@/composables/useReportFilters'
+import { computeDriftStatus, formatTimeLag, WHATS_NEXT_CLASS } from '@/composables/useReportFilters'
 
 const props = defineProps<{
   node: SelectedNodeDetail | null
@@ -18,20 +18,32 @@ const driftStatus = computed(() =>
   props.node ? computeDriftStatus(props.node.version_installed, props.node.latest_version ?? null) : 'LATEST',
 )
 
-// The single next step for this package — same ladder as the report table and the CLI.
-const whatsNext = computed(() =>
-  props.node
-    ? computeWhatsNext({
-        driftStatus: driftStatus.value,
-        cveCount: props.node.cve?.length ?? 0,
-        epss: props.node.epss,
-        maintenanceState: props.node.maintenance_state,
-        installedVersion: props.node.version_installed,
-        recommendedVersion: props.node.recommended_version,
-        versionConstraint: props.node.version_defined,
-      })
-    : null,
-)
+// The single next step for this package, as the scan decided it — not re-derived here.
+const whatsNext = computed(() => props.node?.next_action ?? null)
+
+// The version ladder in ascending reach, with the rung the recommendation came from marked. A
+// rung equal to the installed version is still listed: "nothing to do" is an explicit equality,
+// never a missing row. Undeterminable rungs are the only ones omitted.
+const ladderRungs = computed<{ label: string; version: string; isPick: boolean }[]>(() => {
+  const node = props.node
+  if (!node) return []
+  const rung = node.recommended_from_rung
+  const candidates: { label: string; version: string | null | undefined; pickedBy: string | null }[] = [
+    { label: 'Installed', version: node.version_installed, pickedBy: null },
+    { label: 'In range', version: node.latest_in_range, pickedBy: 'in_range' },
+    { label: 'In major', version: node.latest_in_major, pickedBy: 'in_major' },
+  ]
+  // latest_compatible_major only carries information when a known break sits below the newest
+  // release in the major line; otherwise it restates the row above it.
+  if (node.latest_compatible_major !== node.latest_in_major) {
+    candidates.push({ label: 'Compatible major', version: node.latest_compatible_major, pickedBy: null })
+  }
+  candidates.push({ label: 'Latest', version: node.latest_version, pickedBy: 'latest' })
+
+  return candidates
+    .filter((c): c is { label: string; version: string; pickedBy: string | null } => Boolean(c.version))
+    .map(c => ({ label: c.label, version: c.version, isPick: c.pickedBy != null && c.pickedBy === rung }))
+})
 
 const lagBarWidth = computed(() => {
   const days = props.node?.time_lag_days
@@ -264,6 +276,9 @@ const transitiveCVEGroups = computed<TransitiveCVEGroup[]>(() => {
                   <span class="text-violet-700">{{ node.recommended_version }}</span>
                 </p>
                 <p v-else class="text-sm font-bold font-mono text-slate-300">—</p>
+                <p v-if="node.requires_constraint_widening" class="text-[10px] text-amber-600 font-semibold">
+                  requires widening {{ node.version_constraint_declared ?? 'the declared range' }}
+                </p>
               </div>
               <div class="space-y-0.5">
                 <p class="text-[10px] font-bold text-slate-400 uppercase">EPSS</p>
@@ -276,6 +291,30 @@ const transitiveCVEGroups = computed<TransitiveCVEGroup[]>(() => {
                 </p>
                 <p v-else class="text-sm font-bold font-mono text-slate-300">—</p>
               </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Version ladder — how far this package can move, and from which rung the
+             recommendation came. The console's `ossiq info` Policy Compliance block shows the
+             same rungs in the same order. -->
+        <section v-if="ladderRungs.length > 0">
+          <p class="text-[10px] font-bold uppercase tracking-widest text-slate-400 font-mono mb-3">Version Ladder</p>
+          <div class="border-t border-slate-100 pt-4 space-y-2">
+            <p v-if="node.version_constraint_declared" class="text-[10px] text-slate-400">
+              declared <span class="font-mono text-slate-600">{{ node.version_constraint_declared }}</span>
+            </p>
+            <div
+              v-for="rung in ladderRungs"
+              :key="rung.label"
+              class="flex items-baseline gap-2"
+            >
+              <span class="text-[10px] font-bold text-slate-400 uppercase w-32 shrink-0">{{ rung.label }}</span>
+              <span
+                class="text-sm font-mono"
+                :class="rung.version === node.version_installed ? 'text-slate-400' : 'font-bold text-slate-700'"
+              >{{ rung.version }}</span>
+              <span v-if="rung.isPick" class="text-[10px] font-semibold text-violet-700">← recommended</span>
             </div>
           </div>
         </section>

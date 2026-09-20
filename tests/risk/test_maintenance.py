@@ -9,14 +9,17 @@ from ossiq.risk.maintenance import (
     INACTIVE_CLASSIFIER,
     NOT_MAINTAINED,
     PRIORS,
+    PUSH_AGE_FRESH_DAYS,
     DeprecationEvidence,
     DeprecationSignal,
     MaintenanceState,
     assess_maintenance,
     deprecation_evidence,
+    gated_observations,
     maintenance_posterior,
     named_successor,
     push_age_bucket,
+    release_age_bucket,
 )
 
 
@@ -109,8 +112,8 @@ class TestNamedSuccessor:
 class TestPushAgeBucket:
     def test_boundaries(self) -> None:
         assert push_age_bucket(0) == "fresh"
-        assert push_age_bucket(29) == "fresh"
-        assert push_age_bucket(30) == "recent"
+        assert push_age_bucket(44) == "fresh"
+        assert push_age_bucket(45) == "recent"
         assert push_age_bucket(89) == "recent"
         assert push_age_bucket(90) == "aging"
         assert push_age_bucket(364) == "aging"
@@ -120,6 +123,52 @@ class TestPushAgeBucket:
 
     def test_unknown(self) -> None:
         assert push_age_bucket(None) is None
+
+
+class TestReleaseAgeBucket:
+    def test_boundaries(self) -> None:
+        assert release_age_bucket(0) == "current"
+        assert release_age_bucket(89) == "current"
+        assert release_age_bucket(90) == "recent"
+        assert release_age_bucket(364) == "recent"
+        assert release_age_bucket(365) == "stale"
+        assert release_age_bucket(729) == "stale"
+        assert release_age_bucket(730) == "ancient"
+
+    def test_unknown(self) -> None:
+        assert release_age_bucket(None) is None
+
+
+class TestGatedObservations:
+    def test_strong_deprecation_drops_every_activity_observation(self) -> None:
+        assert gated_observations(
+            deprecation_strength=DEPRECATION_STRONG,
+            has_stopped=False,
+            push_age="fresh",
+            flow_trend="improving",
+            release_age="current",
+        ) == {"deprecation_strength": DEPRECATION_STRONG}
+
+    def test_a_fresh_push_drops_both_correlated_observations(self) -> None:
+        gated = gated_observations(
+            deprecation_strength=None,
+            has_stopped=False,
+            push_age="fresh",
+            flow_trend="declining",
+            release_age="current",
+        )
+        assert gated["flow_trend"] is None
+        assert gated["release_age"] is None
+
+    def test_release_age_is_kept_once_the_repo_has_gone_quiet(self) -> None:
+        gated = gated_observations(
+            deprecation_strength=None,
+            has_stopped=False,
+            push_age="aging",
+            flow_trend="stable",
+            release_age="current",
+        )
+        assert gated["release_age"] == "current"
 
 
 class TestMaintenancePosterior:
@@ -140,6 +189,42 @@ class TestMaintenancePosterior:
 
     def test_unknown_observation_names_are_ignored(self) -> None:
         assert maintenance_posterior({"bogus": "value"}) == PRIORS
+
+    def test_a_quiet_repo_that_still_ships_reads_maintained(self) -> None:
+        # The fuse.js shape: a couple of months between pushes, a release last quarter, and a
+        # declining issue/PR flow. Every one of those is ordinary for a mature library, and the
+        # model used to combine them into winding_down at P=0.92.
+        posterior = maintenance_posterior(
+            {"has_stopped": False, "push_age": "recent", "flow_trend": "declining", "release_age": "current"}
+        )
+        assert max(posterior, key=posterior.__getitem__) == MaintenanceState.MAINTAINED
+
+    def test_a_quiet_repo_that_has_stopped_shipping_reads_winding_down(self) -> None:
+        # Same repository silence, opposite release history - which is the whole point of
+        # observing the registry clock as well as the repository one.
+        posterior = maintenance_posterior(
+            {"has_stopped": False, "push_age": "recent", "flow_trend": "declining", "release_age": "ancient"}
+        )
+        assert max(posterior, key=posterior.__getitem__) == MaintenanceState.WINDING_DOWN
+
+    def test_the_push_age_boundary_is_a_gradient_not_a_cliff(self) -> None:
+        # One day of wall-clock across PUSH_AGE_FRESH_DAYS used to move the verdict from
+        # maintained at 0.94 to winding_down at 0.92, because crossing it both swapped the
+        # push_age row and switched the gated flow_trend penalty on.
+        def posterior_at(days: int) -> dict[str, float]:
+            gated = gated_observations(
+                deprecation_strength=None,
+                has_stopped=False,
+                push_age=push_age_bucket(days),
+                flow_trend="declining",
+                release_age="current",
+            )
+            return maintenance_posterior({k: v for k, v in gated.items() if v is not None})
+
+        before = posterior_at(PUSH_AGE_FRESH_DAYS - 1)
+        after = posterior_at(PUSH_AGE_FRESH_DAYS)
+        assert max(before, key=before.__getitem__) == MaintenanceState.MAINTAINED
+        assert max(after, key=after.__getitem__) == MaintenanceState.MAINTAINED
 
 
 class TestAssessMaintenance:

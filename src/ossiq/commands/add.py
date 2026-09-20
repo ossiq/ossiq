@@ -64,6 +64,8 @@ def command_add(ctx: typer.Context, options: CommandAddOptions) -> None:
     if not typer.confirm(f"\nAdd {display_spec} to your project?"):
         raise typer.Abort()
 
+    # uv/npm raise PackageManagerExecutionError (title+hint via error_boundary) and restore the
+    # manifest on failure; this fallback only fires for adapters that still just return a code.
     result = packages_manager.install_package(options.package_name, version)
     if result != 0:
         raise typer.Exit(result)

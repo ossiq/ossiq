@@ -21,6 +21,7 @@ from ossiq.risk.stability import (
     commit_timestamps,
     engagement_window_since,
     flow_ratio,
+    flow_ratios,
     flow_trend,
     gap_dispersion,
     has_stopped,
@@ -169,6 +170,68 @@ class TestFlowRatio:
 
     def test_closing_old_backlog_with_nothing_new(self) -> None:
         assert flow_ratio(0, 3) == pytest.approx(3.0)
+
+
+class TestFlowRatios:
+    def test_matches_the_single_bucket_ratio_on_an_even_series(self) -> None:
+        # opened is flat at 4, so the spike cap (2x the median) never binds.
+        assert flow_ratios([(4, 4), (4, 2), (4, 8)]) == [
+            pytest.approx(1.0),
+            pytest.approx(0.5),
+            pytest.approx(2.0),
+        ]
+
+    def test_a_bucket_below_the_volume_floor_is_unmeasured(self) -> None:
+        # One issue opened and nothing closed is not evidence of anything.
+        assert flow_ratios([(6, 6), (6, 6), (1, 0)])[2] is None
+
+    def test_the_volume_floor_counts_both_directions(self) -> None:
+        # Three closures and no new work is a real bucket, not an empty one.
+        assert flow_ratios([(6, 6), (6, 6), (0, 3)])[2] == pytest.approx(3.0)
+
+    def test_an_inbound_spike_dilutes_rather_than_zeroes_the_ratio(self) -> None:
+        # Median opened is 5, so the last bucket's denominator caps at 10 rather than 60 - the
+        # drive-by-contributor shape, where a burst of unsolicited PRs used to read as silence.
+        spiked = flow_ratios([(5, 5), (5, 5), (5, 5), (60, 5)])
+        last = spiked[3]
+        assert last is not None
+        assert last == pytest.approx(0.5)
+        assert last > 5 / 60  # what the uncapped denominator would have given
+
+    def test_an_inbound_spike_cannot_trip_the_sharp_drop_rule(self) -> None:
+        # Outflow never moved - five items closed every bucket, including the last. Uncapped, the
+        # final ratio falls to 5/35, the last two buckets average under 60% of the earlier median,
+        # and `declining` is *forced* regardless of the fit. Capping the denominator at twice the
+        # median inflow bounds a single spike bucket at half the baseline ratio, which keeps that
+        # two-bucket mean above the threshold. The OLS slope still registers the growing backlog,
+        # which is right - what a spike must not do is override the fit.
+        steady = [(5, 5)] * 5
+        capped = [ratio for ratio in flow_ratios([*steady, (35, 5)]) if ratio is not None]
+        uncapped = [1.0] * 5 + [5 / 35]
+
+        def trips_sharp_drop(ratios: list[float]) -> bool:
+            return statistics.mean(ratios[-2:]) < 0.6 * statistics.median(ratios[:-2])
+
+        assert not trips_sharp_drop(capped)
+        assert trips_sharp_drop(uncapped)
+
+    def test_the_cap_cannot_invent_outflow_that_is_not_there(self) -> None:
+        # Capping the denominator changes the magnitude of a drop, never its existence.
+        assert flow_ratios([(5, 5), (5, 5), (5, 5), (60, 0)])[3] == 0.0
+
+    def test_no_inbound_baseline_means_no_capping(self) -> None:
+        # Every measured bucket is pure outflow, so there is no spike to measure against and
+        # capping to zero would flatter the repo instead.
+        assert flow_ratios([(0, 4), (0, 6)]) == [pytest.approx(4.0), pytest.approx(6.0)]
+
+    def test_empty_series_is_all_unmeasured(self) -> None:
+        assert flow_ratios([(0, 0), (0, 0)]) == [None, None]
+
+    def test_a_lone_quiet_bucket_no_longer_forces_declining(self) -> None:
+        # The fuse.js shape: a steady series, then one month with a single item and nothing
+        # closed. That bucket used to enter the fit as a confident 0.0 and drag the trend down.
+        steady = [(6, 6)] * 5
+        assert flow_trend(flow_ratios([*steady, (1, 0)])) != FLOW_DECLINING
 
 
 class TestTrendSlope:

@@ -15,12 +15,16 @@ import sys
 from collections.abc import Callable
 from typing import Any
 
-from ossiq.commands.info import build_installed_detail, matches
+from ossiq.domain.exceptions import ApplicationError
 from ossiq.service.agent import AgentDecision, build_add_decide, build_update_decide
-from ossiq.service.package import fetch_prospective_detail
+from ossiq.service.completeness import check_security_data_complete
+from ossiq.service.package import build_installed_detail, fetch_prospective_detail, matches
 from ossiq.service.project.scan import scan
+from ossiq.service.update_context import build_update_context_payload
 from ossiq.settings import Settings
 from ossiq.sources import project_sources
+from ossiq.strategy.overrides import StrategyPlan, parse_strategy
+from ossiq.strategy.pyramid import PYRAMID
 
 PROTOCOL_VERSION = "2025-06-18"
 SERVER_INFO = {"name": "ossiq", "version": importlib.metadata.version("ossiq")}
@@ -49,7 +53,8 @@ TOOLS: list[dict[str, Any]] = [
         "description": (
             "Evaluate UPDATING a project's existing direct dependencies. Returns a per-package "
             "`next_action` (Update Immediately / Check Release Notes / Check for the Fix / Consider "
-            "alternative / Find alternative / Constrained. Check newer version) with recommended "
+            "alternative / Find alternative / Constrained. Check newer version / Withheld by "
+            "strategy) with recommended "
             "versions, CVEs, and transitive impact. "
             "Use before bumping dependency versions."
         ),
@@ -58,16 +63,56 @@ TOOLS: list[dict[str, Any]] = [
             "properties": {
                 "project_path": {"type": "string", "description": "Path to the project (default '.')"},
                 "production": {"type": "boolean", "description": "Restrict to production dependencies"},
-                "security": {"type": "boolean", "description": "Narrow transitive recommendations to CVE-carrying"},
+                "update_strategy": {
+                    "type": "string",
+                    "enum": [tier.value for tier in PYRAMID],
+                    "description": (
+                        "Which tier of the update pyramid to target (default: standard). "
+                        "security/deprecation propose the smallest diff that resolves a CVE or "
+                        "end-of-life marker; standard stays inside the declared range; latest/"
+                        "cutting-edge may widen it. See strategy/README.md."
+                    ),
+                },
+                "strategy_overrides": {
+                    "type": "object",
+                    "additionalProperties": {"type": "string", "enum": [tier.value for tier in PYRAMID]},
+                    "description": 'Per-package tier overrides, e.g. {"lodash": "cutting-edge"}',
+                },
+                "allow_partial": {
+                    "type": "boolean",
+                    "description": (
+                        "Accept a result built on incomplete data. Only security/deprecation refuse "
+                        "one: without vulnerability data their empty result is indistinguishable "
+                        "from a clean project. Check data_completeness in the payload either way."
+                    ),
+                },
             },
             "required": ["project_path"],
         },
     },
+    {
+        "name": "ossiq_update_context",
+        "description": (
+            "Diff an installed (or not-yet-installed) package's version against an arbitrary target "
+            "(default: OSS IQ's own recommendation) — module-system/API breaking changes, engine "
+            "(Node/Python) compatibility, and structural rejections along the way. Use before applying "
+            "an update to a specific version, especially one that isn't the recommended one."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "package": {"type": "string", "description": "Package name to evaluate"},
+                "project_path": {"type": "string", "description": "Path to the project (default '.')"},
+                "target_version": {
+                    "type": "string",
+                    "description": "Version to evaluate against (default: OSS IQ's recommended_version)",
+                },
+                "registry_type": {"type": "string", "enum": ["npm", "pypi"], "description": "Force the registry"},
+            },
+            "required": ["package"],
+        },
+    },
 ]
-
-
-def noop_step(_: str) -> None:
-    """Silent scan progress callback — stdout is reserved for JSON-RPC."""
 
 
 def evaluate_dependency(settings: Settings, args: dict[str, Any]) -> AgentDecision:
@@ -81,7 +126,7 @@ def evaluate_dependency(settings: Settings, args: dict[str, Any]) -> AgentDecisi
         allow_prerelease_packages=(),
         registry_type=args.get("registry_type"),
     )
-    scan_result = scan(sources, on_step=noop_step)
+    scan_result = scan(sources)
 
     all_records = scan_result.production_packages + scan_result.optional_packages + scan_result.transitive_packages
     matched = [record for record in all_records if matches(record, package_name)]
@@ -95,6 +140,10 @@ def evaluate_dependency(settings: Settings, args: dict[str, Any]) -> AgentDecisi
 
 def evaluate_updates(settings: Settings, args: dict[str, Any]) -> AgentDecision:
     """Build an update-decision for a project's direct dependencies."""
+    default_tier = parse_strategy(args.get("update_strategy", "standard"))
+    overrides = {str(name): parse_strategy(str(tier)) for name, tier in (args.get("strategy_overrides") or {}).items()}
+    strategy = StrategyPlan(default=default_tier, overrides=overrides)
+
     sources = project_sources.build_project_sources(
         settings,
         args.get("project_path", "."),
@@ -102,15 +151,36 @@ def evaluate_updates(settings: Settings, args: dict[str, Any]) -> AgentDecision:
         allow_prerelease=False,
         allow_prerelease_packages=(),
         registry_type=None,
-        security_only=bool(args.get("security", False)),
+        strategy=strategy,
     )
-    scan_result = scan(sources, on_step=noop_step)
-    return build_update_decide(scan_result)
+    scan_result = scan(sources)
+    # Same rule as the CLI, from the same service function: a security-tier answer built on
+    # missing vulnerability data is indistinguishable from a clean one, and an agent has even less
+    # chance than a human of noticing. The handler below renders it as a titled error, where the
+    # CLI renders an exit code.
+    check_security_data_complete(
+        scan_result.data_completeness,
+        default_tier,
+        allow_partial=bool(args.get("allow_partial", False)),
+    )
+    return build_update_decide(scan_result, update_strategy=default_tier.value)
+
+
+def evaluate_update_context(settings: Settings, args: dict[str, Any]) -> dict[str, Any]:
+    """Build an update-context diff for a single package against an arbitrary target version."""
+    return build_update_context_payload(
+        settings,
+        project_path=args.get("project_path", "."),
+        package_name=args["package"],
+        target_version=args.get("target_version"),
+        registry_type=args.get("registry_type"),
+    )
 
 
 TOOL_HANDLERS: dict[str, Callable[[Settings, dict[str, Any]], AgentDecision]] = {
     "ossiq_evaluate_dependency": evaluate_dependency,
     "ossiq_evaluate_updates": evaluate_updates,
+    "ossiq_update_context": evaluate_update_context,
 }
 
 
@@ -123,6 +193,8 @@ def handle_tools_call(settings: Settings, params: dict[str, Any]) -> dict[str, A
 
     try:
         decision = handler(settings, params.get("arguments") or {})
+    except ApplicationError as error:
+        return {"content": [{"type": "text", "text": error.render()}], "isError": True}
     except Exception as error:  # noqa: BLE001 — surface any failure to the agent, keep the loop alive
         return {"content": [{"type": "text", "text": f"{type(error).__name__}: {error}"}], "isError": True}
 

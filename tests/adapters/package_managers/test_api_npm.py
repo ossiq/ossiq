@@ -28,6 +28,9 @@ from ossiq.adapters.package_managers.api_npm import (
     CATEGORIES_PEER,
     NPMResolverV3,
     PackageManagerJsNpm,
+    apply_direct_specs,
+    declared_engine_floors,
+    extract_min_node_version,
 )
 from ossiq.adapters.package_managers.dependency_tree import GraphExporter
 from ossiq.domain.common import ConstraintType, ProjectPackagesRegistry
@@ -556,6 +559,7 @@ class TestProjectInfo:
         assert project.installed_package_version("express") == "4.18.2"
         assert project.installed_package_version("jest") == "29.7.0"
         assert project.has_lockfile is True
+        assert project.declares_esm is False
 
     def test_project_info_without_lockfile(self, npm_project_without_lockfile, settings):
         """Test extracting project info without lockfile (versions from package.json)."""
@@ -608,6 +612,43 @@ class TestProjectInfo:
         # Should use directory name as fallback
 
         assert project.name == os.path.basename(temp_project_dir)
+
+    def test_project_info_declares_esm_when_type_module(self, temp_project_dir, settings):
+        """Project.declares_esm reflects package.json's own "type": "module", not any dependency's."""
+        package_json_path = Path(temp_project_dir) / "package.json"
+        package_json_path.write_text(json.dumps({"name": "esm-project", "version": "1.0.0", "type": "module"}))
+
+        npm_manager = PackageManagerJsNpm(temp_project_dir, settings)
+        project = npm_manager.project_info()
+
+        assert project.declares_esm is True
+
+    def test_project_info_declares_esm_false_without_type(self, temp_project_dir, settings):
+        package_json_path = Path(temp_project_dir) / "package.json"
+        package_json_path.write_text(json.dumps({"name": "cjs-project", "version": "1.0.0"}))
+
+        npm_manager = PackageManagerJsNpm(temp_project_dir, settings)
+        project = npm_manager.project_info()
+
+        assert project.declares_esm is False
+
+    def test_project_info_engine_constraints_node_reduced_to_concrete_version(self, temp_project_dir, settings):
+        """Regression: engines.node must be reduced to a concrete floor, never the raw range.
+
+        Feeding the raw range ">=18.0.0" straight into Project.engine_constraints used to make
+        has_engine_mismatch silently fail open for every npm project (see
+        tests/solver/test_version_matchers.py's
+        test_engine_version_satisfies_requirement_raw_node_range_fails_open).
+        """
+        package_json_path = Path(temp_project_dir) / "package.json"
+        package_json_path.write_text(
+            json.dumps({"name": "engine-project", "version": "1.0.0", "engines": {"node": ">=18.0.0"}})
+        )
+
+        npm_manager = PackageManagerJsNpm(temp_project_dir, settings)
+        project = npm_manager.project_info()
+
+        assert project.engine_constraints == {"node": "18.0.0"}
 
     def test_project_info_unsupported_lockfile_version(self, npm_project_unsupported_lockfile, settings):
         """Test error when lockfile version is unsupported."""
@@ -712,6 +753,46 @@ def npm_project_with_overrides(temp_project_dir):
     lockfile_path.write_text(json.dumps(lockfile_content, indent=2))
 
     return temp_project_dir
+
+
+# ============================================================================
+# Test extract_min_node_version helper
+# ============================================================================
+
+
+class TestExtractMinNodeVersion:
+    """Test suite for the extract_min_node_version module-level helper."""
+
+    @pytest.mark.parametrize(
+        "node_range,expected",
+        [
+            (">=18.0.0", "18.0.0"),
+            ("^18", "18.0.0"),
+            ("~18.4", "18.4.0"),
+            ("18 || 20", "18.0.0"),
+            (">=18.0.0 <20.0.0", "18.0.0"),
+            ("18.x", "18.0.0"),
+            ("16.0.0 - 18.0.0", "16.0.0"),
+            (">= 18", "18.0.0"),
+            (">=14.17", "14.17.0"),
+            ("v18.0.0", "18.0.0"),
+            ("<20", None),
+            ("*", None),
+            ("!=19", None),
+            # An exclusive floor names a version the range itself excludes, so there is no
+            # concrete minimum to report — extract_min_python_version refuses ">" for the
+            # same reason. Returning "18.0.0" here made 18.0.0 look admitted when it isn't.
+            (">18.0.0", None),
+            (">18", None),
+            (">=18.0.0 || >19.0.0", "18.0.0"),
+            ("14.17.1", "14.17.1"),
+            ("14", "14.0.0"),
+            ("not-a-version", None),
+            ("", None),
+        ],
+    )
+    def test_extract_min_node_version(self, node_range: str, expected: str | None) -> None:
+        assert extract_min_node_version(node_range) == expected
 
 
 # ============================================================================
@@ -938,9 +1019,11 @@ def make_npm_update_entry(
     version_defined: str | None = None,
     is_direct: bool = True,
     is_forced: bool = False,
+    dependency_name: str | None = None,
 ) -> UpdateEntry:
     return UpdateEntry(
         package_name=name,
+        dependency_name=dependency_name,
         current_version=current,
         recommended_version=recommended,
         is_direct=is_direct,
@@ -1125,6 +1208,150 @@ class TestExecuteUpdate:
         assert pkg["devDependencies"]["react"] == "^18.2.0"
         assert pkg["peerDependencies"]["react"] == "^18.2.0"
 
+    def test_malformed_package_json_raises_clean_error(self, npm, temp_project_dir):
+        """A syntactically broken package.json must raise a titled ApplicationError, not a raw
+        json.JSONDecodeError that falls through to the CLI's generic 'unexpected error' handler —
+        mirrors uv's tomllib.TOMLDecodeError guard for pyproject.toml."""
+        manifest_path = Path(temp_project_dir) / "package.json"
+        manifest_path.write_text("{not valid json", encoding="utf-8")
+        plan = make_npm_update_plan(
+            direct=[make_npm_update_entry("express", "4.18.0", "4.19.0", version_defined="^4.18.0")],
+            project_path=temp_project_dir,
+        )
+        with pytest.raises(PackageManagerExecutionError):
+            npm.execute_update(plan)
+        assert manifest_path.read_text(encoding="utf-8") == "{not valid json"
+
+
+class TestInstallPackage:
+    """Tests for install_package() — runs `npm install <spec>`, which edits package.json itself."""
+
+    @pytest.fixture
+    def npm(self, settings, temp_project_dir):
+        return PackageManagerJsNpm(temp_project_dir, settings)
+
+    def test_returns_zero_on_success(self, npm, temp_project_dir):
+        write_package_json(temp_project_dir, {"name": "app", "version": "1.0.0", "dependencies": {}})
+        with patch("ossiq.adapters.package_managers.api_npm.subprocess.run") as mock_run:
+            mock_run.return_value.returncode = 0
+            result = npm.install_package("express", "4.19.0")
+        assert result == 0
+        assert mock_run.call_args[0][0] == ["npm", "install", "express@4.19.0"]
+
+    def test_restores_original_on_install_failure(self, npm, temp_project_dir):
+        write_package_json(temp_project_dir, {"name": "app", "version": "1.0.0", "dependencies": {}})
+        manifest_path = Path(temp_project_dir) / "package.json"
+        original_content = manifest_path.read_text(encoding="utf-8")
+
+        failure = subprocess.CalledProcessError(1, ["npm", "install"])
+        with patch("ossiq.adapters.package_managers.api_npm.subprocess.run", side_effect=failure):
+            with pytest.raises(PackageManagerExecutionError):
+                npm.install_package("express", "4.19.0")
+        assert manifest_path.read_text(encoding="utf-8") == original_content
+
+
+def write_lockfile_with_override(project_dir: str, name: str, version: str) -> None:
+    lockfile_path = Path(project_dir) / "package-lock.json"
+    lockfile_content = {
+        "name": "app",
+        "version": "1.0.0",
+        "lockfileVersion": 3,
+        "packages": {
+            "": {
+                "name": "app",
+                "version": "1.0.0",
+                "dependencies": {"express": "^4.18.0"},
+                "overrides": {name: version},
+            },
+            "node_modules/express": {"version": "4.18.2", "dependencies": {name: "^2.1.0"}},
+            f"node_modules/{name}": {"version": version},
+        },
+    }
+    lockfile_path.write_text(json.dumps(lockfile_content))
+
+
+class TestOssiqMetadataOwnership:
+    """Tests for ossiq:metadata override ownership (item #14): execute_update records what it
+    wrote, project_info() compares against it to tell OSS IQ-authored overrides apart from
+    user-authored ones, and a later execute_update never clobbers a user's hand-edit."""
+
+    @pytest.fixture
+    def npm(self, settings, temp_project_dir):
+        return PackageManagerJsNpm(temp_project_dir, settings)
+
+    def test_write_then_read_reports_ossiq_authored(self, npm, temp_project_dir):
+        write_package_json(
+            temp_project_dir, {"name": "app", "version": "1.0.0", "dependencies": {"express": "^4.18.0"}}
+        )
+        plan = make_npm_update_plan(
+            transitive=[make_npm_update_entry("ms", "2.1.2", "2.1.3", is_direct=False)],
+            project_path=temp_project_dir,
+        )
+        with patch("ossiq.adapters.package_managers.api_npm.subprocess.run"):
+            npm.execute_update(plan)
+
+        pkg = read_package_json(temp_project_dir)
+        assert pkg["overrides"]["ms"] == "2.1.3"
+        assert pkg["ossiq:metadata"]["overrides"]["ms"] == "2.1.3"
+
+        # execute_update never touches the lockfile — provide one with the matching override so
+        # project_info's read side has something to compare against.
+        write_lockfile_with_override(temp_project_dir, "ms", "2.1.3")
+
+        project = npm.project_info()
+        ms = project.dependency_tree.dependencies["express"].dependencies.get("ms")
+        assert ms is not None
+        assert ms.constraint_info.is_ossiq_authored is True
+
+    def test_hand_edited_override_is_not_ossiq_authored(self, npm, temp_project_dir):
+        write_package_json(
+            temp_project_dir, {"name": "app", "version": "1.0.0", "dependencies": {"express": "^4.18.0"}}
+        )
+        plan = make_npm_update_plan(
+            transitive=[make_npm_update_entry("ms", "2.1.2", "2.1.3", is_direct=False)],
+            project_path=temp_project_dir,
+        )
+        with patch("ossiq.adapters.package_managers.api_npm.subprocess.run"):
+            npm.execute_update(plan)
+
+        # Simulate the user hand-editing the override value (ossiq:metadata is left untouched).
+        pkg = read_package_json(temp_project_dir)
+        pkg["overrides"]["ms"] = "2.1.9"
+        write_package_json(temp_project_dir, pkg)
+        write_lockfile_with_override(temp_project_dir, "ms", "2.1.9")
+
+        project = npm.project_info()
+        ms = project.dependency_tree.dependencies["express"].dependencies.get("ms")
+        assert ms is not None
+        assert ms.constraint_info.is_ossiq_authored is False
+
+    def test_second_update_never_clobbers_hand_edited_override(self, npm, temp_project_dir):
+        write_package_json(
+            temp_project_dir, {"name": "app", "version": "1.0.0", "dependencies": {"express": "^4.18.0"}}
+        )
+        plan = make_npm_update_plan(
+            transitive=[make_npm_update_entry("ms", "2.1.2", "2.1.3", is_direct=False)],
+            project_path=temp_project_dir,
+        )
+        with patch("ossiq.adapters.package_managers.api_npm.subprocess.run"):
+            npm.execute_update(plan)
+
+        # User hand-edits the override to a value OSS IQ never wrote.
+        pkg = read_package_json(temp_project_dir)
+        pkg["overrides"]["ms"] = "2.1.9"
+        write_package_json(temp_project_dir, pkg)
+
+        # A second run recommends yet another version for the same package.
+        plan2 = make_npm_update_plan(
+            transitive=[make_npm_update_entry("ms", "2.1.2", "2.1.5", is_direct=False)],
+            project_path=temp_project_dir,
+        )
+        with patch("ossiq.adapters.package_managers.api_npm.subprocess.run"):
+            npm.execute_update(plan2)
+
+        pkg = read_package_json(temp_project_dir)
+        assert pkg["overrides"]["ms"] == "2.1.9"
+
 
 # ============================================================================
 # Test dev-chain transitive dependency visibility (js-cookie / CVE scenario)
@@ -1209,3 +1436,74 @@ class TestDevTransitiveDeps:
         discovered = {node.name for node, _ in walker.walk_all_paths(include_optional_roots=False)}
         assert "js-cookie" not in discovered
         assert "js-helper" not in discovered
+
+
+class TestApplyDirectSpecsWithAliases:
+    """The manifest rewrite iterates manifest keys, so it has to be keyed on them.
+
+    An npm alias declares `uuid-v7: "npm:uuid@^7.0.0"`; the entry's registry name is `uuid`, which
+    matches no key in any DEP_SECTIONS map. Keying on package_name meant apply silently wrote
+    nothing for every aliased dependency, and a plain `uuid` declared alongside an aliased
+    `uuid-*` could pick up the wrong entry's version.
+    """
+
+    def test_aliased_dep_is_matched_and_left_untouched(self):
+        pkg = {"dependencies": {"uuid-v7": "npm:uuid@^7.0.0"}}
+        entry = make_npm_update_entry("uuid", "7.0.3", "7.1.0", dependency_name="uuid-v7")
+
+        apply_direct_specs(pkg, make_npm_update_plan(direct=[entry]))
+
+        # relax_spec deliberately returns npm: specs unchanged — but it is now reached at all.
+        assert pkg["dependencies"]["uuid-v7"] == "npm:uuid@^7.0.0"
+
+    def test_plain_dep_alongside_an_alias_gets_its_own_entry(self):
+        pkg = {"dependencies": {"uuid": "^7.0.0", "uuid-v11": "npm:uuid@>11.0.0"}}
+        plan = make_npm_update_plan(
+            direct=[
+                make_npm_update_entry("uuid", "7.0.3", "7.1.0"),
+                make_npm_update_entry("uuid", "13.0.0", "14.0.2", dependency_name="uuid-v11"),
+            ]
+        )
+
+        apply_direct_specs(pkg, plan)
+
+        assert pkg["dependencies"]["uuid"] == "^7.1.0"
+        assert pkg["dependencies"]["uuid-v11"] == "npm:uuid@>11.0.0"
+
+    def test_unaliased_dep_is_unaffected(self):
+        pkg = {"dependencies": {"lodash": "^4.17.0"}}
+        entry = make_npm_update_entry("lodash", "4.17.21", "4.18.1")
+
+        apply_direct_specs(pkg, make_npm_update_plan(direct=[entry]))
+
+        assert pkg["dependencies"]["lodash"] == "^4.18.1"
+
+
+class TestDeclaredEngineFloors:
+    """The declared fallback carried only `node`, so the --no-probe-runtime path had no npm floor
+    to check an `engines.npm` requirement against even once the matcher could evaluate one."""
+
+    def test_node_and_npm_floors_are_both_carried(self):
+        floors = declared_engine_floors({"node": ">=18.0.0", "npm": ">=9.0.0"})
+
+        assert floors == {"node": "18.0.0", "npm": "9.0.0"}
+
+    def test_the_npm_floor_is_parsed_as_an_npm_range(self):
+        assert declared_engine_floors({"npm": "^8.6.0"}) == {"npm": "8.6.0"}
+
+    def test_unevaluable_package_managers_are_not_carried(self):
+        """pnpm/yarn have no adapter and no probe, so a declared floor for one would be checked
+        only on the declared path — worse than not checking it at all."""
+        assert declared_engine_floors({"pnpm": "^8.6.0", "yarn": "~4.1"}) is None
+
+    def test_a_range_with_no_nameable_floor_is_dropped_not_guessed(self):
+        assert declared_engine_floors({"node": ">=18.0.0", "npm": "*"}) == {"node": "18.0.0"}
+
+    def test_non_string_and_absent_engines_are_ignored(self):
+        assert declared_engine_floors({"node": {"nested": "junk"}}) is None
+        assert declared_engine_floors({}) is None
+        assert declared_engine_floors(None) is None
+
+    def test_unknown_engine_keys_are_not_carried(self):
+        """Only keys the matcher can actually evaluate; a floor nothing checks is noise."""
+        assert declared_engine_floors({"bun": ">=1.0.0", "node": ">=18.0.0"}) == {"node": "18.0.0"}

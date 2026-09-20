@@ -74,6 +74,14 @@ PIP_CLASSIC = PackageManagerType(
     lockfile=None,
 )
 
+PEP621_PYPROJECT = Manifest(name="pyproject.toml")
+PEP621 = PackageManagerType(
+    name="pep621",
+    package_registry=ProjectPackagesRegistry.PYPI,
+    primary_manifest=PEP621_PYPROJECT,
+    lockfile=None,
+)
+
 # --- NPM Package Managers (for future use) ---
 
 NPM_PACKAGE_JSON = Manifest(name="package.json")
@@ -102,6 +110,6 @@ PNPM = PackageManagerType(
 )
 
 # A list to hold all supported managers for easier lookup
-PYPI_MANAGERS = [UV, POETRY, PDM, PIP, PIP_CLASSIC]
+PYPI_MANAGERS = [UV, POETRY, PDM, PIP, PIP_CLASSIC, PEP621]
 NPM_MANAGERS = [NPM, YARN, PNPM]
 ALL_MANAGERS = PYPI_MANAGERS + NPM_MANAGERS

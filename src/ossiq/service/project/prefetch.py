@@ -7,14 +7,13 @@ from collections.abc import Iterable
 from dataclasses import replace
 from datetime import datetime
 from itertools import chain
-from urllib.parse import urlparse
 
 from packaging.version import InvalidVersion
 
 from ossiq.adapters.api_epss import EpssApiFirstOrg
-from ossiq.adapters.api_interfaces import AbstractPackageRegistryApi
-from ossiq.adapters.detectors import is_git_hosted_source
-from ossiq.domain.common import RepositoryProvider
+from ossiq.adapters.api_interfaces import AbstractPackageRegistryApi, AbstractSourceCodeProviderApi
+from ossiq.adapters.detectors import is_git_hosted_source, is_github_url
+from ossiq.domain.common import RateLimitBudget, SourceFetch
 from ossiq.domain.cve import CVE
 from ossiq.domain.exceptions import UnknownPackageVersion
 from ossiq.domain.package import Package
@@ -162,14 +161,20 @@ def enrich_cves_with_epss_and_fix_age(
     epss_client: EpssApiFirstOrg,
     registry: AbstractPackageRegistryApi,
     now: datetime | None,
-) -> dict[tuple[str, str], set[CVE]]:
-    """Return a copy of cve_map with EPSS scores and fix-release ages populated."""
+) -> SourceFetch[dict[tuple[str, str], set[CVE]]]:
+    """Return a copy of cve_map with EPSS scores and fix-release ages populated.
+
+    Returns:
+        The enriched map, and whether the EPSS source delivered. An unscored CVE and an
+        unreachable first.org both leave `epss` None, so the status is what separates them.
+    """
     if not cve_map:
-        return {}
+        return SourceFetch({})
 
     cve_backlink = aggregate_cve_ids(cve_map)
     cve_ids = set(chain.from_iterable(cve_backlink.values()))
-    epss_scores = epss_client.get_epss_batch(cve_ids)
+    epss_fetch = epss_client.get_epss_batch(cve_ids)
+    epss_scores = epss_fetch.data
 
     release_cache: dict[str, tuple[package_versions.PackageVersion, ...]] = {}
     enriched_map: dict[tuple[str, str], set[CVE]] = {}
@@ -202,32 +207,93 @@ def enrich_cves_with_epss_and_fix_age(
 
         enriched_map[(package_name, installed_version)] = enriched_cves
 
-    return enriched_map
+    return SourceFetch(enriched_map, epss_fetch.status)
 
 
 def prefetch_source_code_repositories_info(
-    sources: AbstractProjectSources,
+    provider: AbstractSourceCodeProviderApi,
     repo_urls: Iterable[str],
-) -> dict[str, Repository]:
+) -> SourceFetch[dict[str, Repository]]:
     """
     Pre-fetch repository info for all unique GitHub repo URLs in parallel.
     Returns a mapping of url -> Repository; non-GitHub URLs are skipped.
+
+    Takes an already-constructed provider (rather than `sources`) so every GitHub fetch in one
+    scan shares a single session instead of opening a fresh one per call.
     """
 
     github_urls = github_only(repo_urls)
     if not github_urls:
-        return {}
-    return sources.get_source_code_provider(RepositoryProvider.PROVIDER_GITHUB).repositories_info_batch(github_urls)
+        # Nothing to ask for is not a data-source failure.
+        return SourceFetch({})
+    return provider.repositories_info_batch(github_urls)
 
 
 def github_only(repo_urls: Iterable[str]) -> list[str]:
     """Keep only github.com URLs. Everything else (GitLab, Codeberg, no URL at all) stays
-    unmeasured rather than being reported as a negative signal."""
+    unmeasured rather than being reported as a negative signal.
 
-    return [url for url in repo_urls if (urlparse(url).hostname or "").lower() == "github.com"]
+    What that costs the user is reported by `coverage.classify_signal_coverage`, which shares
+    `is_github_url` with this filter so the two agree on who was left out."""
+
+    return [url for url in repo_urls if is_github_url(url)]
 
 
-def prefetch_repository_commits(sources: AbstractProjectSources, repo_urls: Iterable[str]) -> dict[str, list[dict]]:
+# What one scan spends per repository, by quota. REST: one /repos call for every repo in the
+# graph, plus a commits and a README call for each direct dependency. GraphQL: one query per
+# stream (issues, pulls) per direct dependency, before any pagination. Deliberately an upper
+# bound - it ignores the HTTP cache, so a warm scan is forecast to cost more than it will.
+REST_REQUESTS_PER_REPO = 1
+REST_REQUESTS_PER_DIRECT_REPO = 2
+GRAPHQL_REQUESTS_PER_DIRECT_REPO = 2
+
+
+def forecast_github_budget(
+    provider: AbstractSourceCodeProviderApi,
+    repo_urls: Iterable[str],
+    direct_repo_urls: Iterable[str],
+    *,
+    stability: bool,
+    responsiveness: bool,
+) -> tuple[RateLimitBudget, ...]:
+    """Read GitHub's remaining quota before the scan spends it, against what the scan will need.
+
+    The quota check itself is free and uncached. Without it, an exhausted quota only shows up
+    once the scan has spent minutes pausing and retrying into a wall - and a warm cache can hide
+    it entirely, since the run never touches the network to find out.
+
+    Args:
+        provider: The GitHub provider the scan's fetches will use.
+        repo_urls: Every repository URL in the dependency graph.
+        direct_repo_urls: The direct dependencies' repositories, which alone get the stability
+            channels.
+        stability: Whether the commits and README fetches will run.
+        responsiveness: Whether the GraphQL activity fetch will run.
+
+    Returns:
+        One budget per metered resource with `needed` filled in, or an empty tuple when there is
+        nothing to fetch or GitHub didn't answer.
+    """
+    repo_count = len(github_only(repo_urls))
+    if not repo_count:
+        return ()
+    direct_count = len(github_only(direct_repo_urls))
+
+    needed = {
+        "core": repo_count * REST_REQUESTS_PER_REPO
+        + (direct_count * REST_REQUESTS_PER_DIRECT_REPO if stability else 0),
+        "graphql": direct_count * GRAPHQL_REQUESTS_PER_DIRECT_REPO if stability and responsiveness else 0,
+    }
+    return tuple(
+        replace(budget, needed=needed.get(budget.resource))
+        for budget in provider.rate_limit_budgets()
+        if needed.get(budget.resource)
+    )
+
+
+def prefetch_repository_commits(
+    provider: AbstractSourceCodeProviderApi, sources: AbstractProjectSources, repo_urls: Iterable[str]
+) -> SourceFetch[dict[str, list[dict]]]:
     """
     Pre-fetch the last 100 commits for all unique GitHub repo URLs in parallel.
 
@@ -237,12 +303,14 @@ def prefetch_repository_commits(sources: AbstractProjectSources, repo_urls: Iter
 
     github_urls = github_only(repo_urls)
     if not github_urls:
-        return {}
+        return SourceFetch({})
     until = sources.settings.cutoff_date.strftime("%Y-%m-%dT%H:%M:%SZ") if sources.settings.cutoff_date else None
-    return sources.get_source_code_provider(RepositoryProvider.PROVIDER_GITHUB).commits_batch(github_urls, until)
+    return provider.commits_batch(github_urls, until)
 
 
-def prefetch_repository_activity(sources: AbstractProjectSources, repo_urls: Iterable[str]) -> dict[str, dict]:
+def prefetch_repository_activity(
+    provider: AbstractSourceCodeProviderApi, sources: AbstractProjectSources, repo_urls: Iterable[str]
+) -> SourceFetch[dict[str, dict]]:
     """Pre-fetch issue / PR activity for all unique GitHub repo URLs via GraphQL.
 
     Covers the engagement look-back window ending at the cutoff date (or now). Feeds the
@@ -251,14 +319,14 @@ def prefetch_repository_activity(sources: AbstractProjectSources, repo_urls: Ite
 
     github_urls = github_only(repo_urls)
     if not github_urls:
-        return {}
+        return SourceFetch({})
     since = engagement_window_since(sources.settings.cutoff_date)
-    return sources.get_source_code_provider(RepositoryProvider.PROVIDER_GITHUB).repository_activity_batch(
-        github_urls, since
-    )
+    return provider.repository_activity_batch(github_urls, since)
 
 
-def prefetch_repository_readmes(sources: AbstractProjectSources, repo_urls: Iterable[str]) -> dict[str, str]:
+def prefetch_repository_readmes(
+    provider: AbstractSourceCodeProviderApi, repo_urls: Iterable[str]
+) -> SourceFetch[dict[str, str]]:
     """Pre-fetch the top of each GitHub repo's README, for the deprecation-banner scan.
 
     One request per repository, cached at the stability TTL; see risk/maintenance.py.
@@ -266,8 +334,8 @@ def prefetch_repository_readmes(sources: AbstractProjectSources, repo_urls: Iter
 
     github_urls = github_only(repo_urls)
     if not github_urls:
-        return {}
-    return sources.get_source_code_provider(RepositoryProvider.PROVIDER_GITHUB).readmes_batch(github_urls)
+        return SourceFetch({})
+    return provider.readmes_batch(github_urls)
 
 
 def partition_git_hosted(deps: Iterable[Dependency], enabled: bool) -> tuple[list[Dependency], list[Dependency]]:

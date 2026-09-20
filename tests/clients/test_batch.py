@@ -15,15 +15,18 @@ import threading
 import time
 from unittest.mock import MagicMock, call, patch
 
+import pytest
 import requests
 
 from ossiq.clients.batch import (
     BatchClient,
+    BatchRunSummary,
     BatchStrategy,
     BatchStrategySettings,
     ChunkResult,
     is_rate_limit_response,
 )
+from ossiq.domain.common import DataSourceStatus, DegradeReason, RateLimitBudget
 
 # Capture the real time.sleep before any test patches it on the shared module object.
 # patch("ossiq.clients.batch.time.sleep") replaces sleep on the same module object
@@ -570,24 +573,27 @@ class TestBatchClient429:
 
 
 class TestIsRateLimitResponse:
-    def test_429_is_rate_limit(self):
-        assert is_rate_limit_response(make_response(429, {})) is True
-
-    def test_403_with_retry_after_is_rate_limit(self):
-        assert is_rate_limit_response(make_response(403, {}, headers={"Retry-After": "60"})) is True
-
-    def test_403_with_zero_remaining_is_rate_limit(self):
-        assert is_rate_limit_response(make_response(403, {}, headers={"x-ratelimit-remaining": "0"})) is True
-
-    def test_bare_403_is_not_rate_limit(self):
-        """403 without rate-limit headers (org PAT restrictions, blocked repos) is a plain failure."""
-        assert is_rate_limit_response(make_response(403, {})) is False
-
-    def test_403_with_nonzero_remaining_is_not_rate_limit(self):
-        assert is_rate_limit_response(make_response(403, {}, headers={"x-ratelimit-remaining": "4999"})) is False
-
-    def test_200_is_not_rate_limit(self):
-        assert is_rate_limit_response(make_response(200, {})) is False
+    @pytest.mark.parametrize(
+        "status,headers,expected",
+        [
+            (429, {}, True),
+            (403, {"Retry-After": "60"}, True),
+            (403, {"x-ratelimit-remaining": "0"}, True),
+            (403, {}, False),  # org PAT restrictions, blocked repos: a plain failure
+            (403, {"x-ratelimit-remaining": "4999"}, False),
+            (200, {}, False),
+        ],
+        ids=[
+            "429_is_rate_limit",
+            "403_with_retry_after_is_rate_limit",
+            "403_with_zero_remaining_is_rate_limit",
+            "bare_403_is_not_rate_limit",
+            "403_with_nonzero_remaining_is_not_rate_limit",
+            "200_is_not_rate_limit",
+        ],
+    )
+    def test_is_rate_limit_response(self, status: int, headers: dict, expected: bool):
+        assert is_rate_limit_response(make_response(status, {}, headers=headers)) is expected
 
 
 class TestBatchClient403:
@@ -880,3 +886,241 @@ class TestBatchClientResultMapping:
         # Assert
         assert results == []
         assert process_called == []
+
+
+# ---------------------------------------------------------------------------
+# G. BatchRunSummary.status classification (B4)
+# ---------------------------------------------------------------------------
+
+
+class TestBatchRunSummaryStatus:
+    """Pure classification logic — no I/O, no BatchClient involved."""
+
+    def test_nothing_attempted_is_ok(self):
+        assert BatchRunSummary().status == DataSourceStatus.OK
+
+    def test_all_chunks_succeeded_is_ok(self):
+        assert BatchRunSummary(chunks_ok=3).status == DataSourceStatus.OK
+
+    def test_some_failed_alongside_successes_is_partial(self):
+        assert BatchRunSummary(chunks_ok=2, chunks_failed=1).status == DataSourceStatus.PARTIAL
+
+    def test_some_aborted_alongside_successes_is_partial(self):
+        assert BatchRunSummary(chunks_ok=2, chunks_aborted=1).status == DataSourceStatus.PARTIAL
+
+    def test_every_chunk_failed_with_none_succeeding_is_unreachable(self):
+        """The B4 scenario: an OSV/GitHub host that's firewalled. Every attempt fails, nothing
+        comes back — this must not be indistinguishable from "genuinely found nothing".
+        """
+        assert BatchRunSummary(chunks_failed=3).status == DataSourceStatus.UNREACHABLE
+
+    def test_every_chunk_aborted_with_none_succeeding_is_unreachable(self):
+        assert BatchRunSummary(chunks_aborted=3).status == DataSourceStatus.UNREACHABLE
+
+    def test_rate_limited_wins_over_everything_else(self):
+        assert BatchRunSummary(chunks_ok=5, chunks_failed=0, rate_limited=True).status == DataSourceStatus.RATE_LIMITED
+
+    def test_combine_is_worst_of_both(self):
+        ok = BatchRunSummary(chunks_ok=3)
+        limited = BatchRunSummary(chunks_ok=1, rate_limited=True)
+        combined = ok.combine(limited)
+        assert combined.chunks_ok == 4
+        assert combined.status == DataSourceStatus.RATE_LIMITED
+
+
+# ---------------------------------------------------------------------------
+# H. BatchClient.last_summary through real run_batch() calls (B4)
+# ---------------------------------------------------------------------------
+
+
+class TestBatchClientLastSummary:
+    def test_empty_items_is_ok(self):
+        client = make_client()
+        collect(client.run_batch([]))
+        assert client.last_summary.status == DataSourceStatus.OK
+
+    def test_all_succeed_is_ok(self):
+        session = MagicMock()
+        session.post.return_value = make_response(200, {"result": "ok"})
+        client = make_client(make_strategy(session, chunk_size=3))
+
+        collect(client.run_batch([1, 2, 3]))
+
+        assert client.last_summary.status == DataSourceStatus.OK
+        assert client.last_summary.chunks_ok == 1
+        assert client.last_summary.chunks_failed == 0
+
+    def test_host_unreachable_every_retry_is_unreachable_not_ok(self):
+        """The report's literal B4 scenario: api.osv.dev firewalled. Every request raises
+        ConnectionError, every retry is exhausted — this must surface as unreachable, not read
+        as a clean "nothing found" result the way it silently did before.
+        """
+        session = MagicMock()
+        session.post.side_effect = requests.ConnectionError("host unreachable")
+        client = make_client(make_strategy(session, max_retries=2))
+
+        with patch("ossiq.clients.batch.time.sleep"):
+            results = collect(client.run_batch([1]))
+
+        assert results == []
+        assert client.last_summary.status == DataSourceStatus.UNREACHABLE
+        assert client.last_summary.chunks_ok == 0
+
+    def test_quota_exhausted_is_rate_limited_not_ok(self):
+        """The report's rate-limit scenario: x-ratelimit-remaining: 0 aborts the whole batch.
+        Previously indistinguishable, via the returned data alone, from a clean empty result.
+        """
+        session = MagicMock()
+        session.post.return_value = make_response(429, {}, headers={"x-ratelimit-remaining": "0"})
+        client = make_client(make_strategy(session, max_retries=3))
+
+        results = collect(client.run_batch([1]))
+
+        assert results == []
+        assert client.last_summary.status == DataSourceStatus.RATE_LIMITED
+
+    def test_mixed_success_and_failure_is_partial(self):
+        """Some chunks succeed, some fail permanently — real data came back, but it's incomplete."""
+        session = MagicMock()
+        responses = [make_response(200, {"result": "ok"}), make_response(404, {})]
+        session.post.side_effect = responses
+        client = make_client(make_strategy(session, chunk_size=1, max_retries=1))
+
+        results = collect(client.run_batch([1, 2]))
+
+        assert results == [{"result": "ok"}]
+        assert client.last_summary.status == DataSourceStatus.PARTIAL
+
+    def test_last_summary_reflects_only_the_most_recent_run(self):
+        """A BatchClient instance reused across multiple run_batch() calls (the pattern used by
+        several adapters) must not accumulate stale state from a prior call.
+        """
+        session = MagicMock()
+        client = make_client(make_strategy(session, max_retries=1))
+
+        session.post.side_effect = requests.ConnectionError("down")
+        with patch("ossiq.clients.batch.time.sleep"):
+            collect(client.run_batch([1]))
+        assert client.last_summary.status == DataSourceStatus.UNREACHABLE
+
+        session.post.side_effect = None
+        session.post.return_value = make_response(200, {"result": "ok"})
+        collect(client.run_batch([2]))
+        assert client.last_summary.status == DataSourceStatus.OK
+
+
+# ---------------------------------------------------------------------------
+# H2. Why a run degraded, and what the quota looked like while it did
+# ---------------------------------------------------------------------------
+
+
+class TestBatchRunDiagnostics:
+    """A bare `partial` can't tell a renamed repository from an exhausted quota, and the two
+    call for completely different responses from whoever reads the warning."""
+
+    def test_404s_are_reported_as_not_found(self):
+        session = MagicMock()
+        session.post.return_value = make_response(404, {})
+        client = make_client(make_strategy(session, chunk_size=1))
+
+        collect(client.run_batch([1, 2]))
+
+        assert client.last_summary.failures == ((DegradeReason.NOT_FOUND, 2),)
+
+    def test_other_4xx_is_reported_as_rejected(self):
+        session = MagicMock()
+        session.post.return_value = make_response(401, {})
+        client = make_client(make_strategy(session, chunk_size=1))
+
+        collect(client.run_batch([1]))
+
+        assert client.last_summary.failures == ((DegradeReason.REJECTED, 1),)
+
+    def test_exhausted_retries_are_reported_as_unavailable(self):
+        session = MagicMock()
+        session.post.side_effect = requests.ConnectionError("down")
+        client = make_client(make_strategy(session, max_retries=1))
+
+        with patch("ossiq.clients.batch.time.sleep"):
+            collect(client.run_batch([1]))
+
+        assert client.last_summary.failures == ((DegradeReason.UNAVAILABLE, 1),)
+
+    def test_rate_limit_headers_are_captured_from_live_responses(self):
+        session = MagicMock()
+        session.post.return_value = make_response(
+            200,
+            {"result": "ok"},
+            headers={
+                "x-ratelimit-resource": "graphql",
+                "x-ratelimit-limit": "5000",
+                "x-ratelimit-remaining": "4987",
+                "x-ratelimit-reset": "1700000000",
+            },
+        )
+        client = make_client(make_strategy(session))
+
+        collect(client.run_batch([1]))
+
+        assert client.last_summary.budgets == (
+            RateLimitBudget(resource="graphql", limit=5000, remaining=4987, reset_at=1700000000.0),
+        )
+
+    def test_the_tightest_reading_per_resource_wins(self):
+        session = MagicMock()
+        session.post.side_effect = [
+            make_response(200, {}, headers={"x-ratelimit-resource": "core", "x-ratelimit-remaining": "40"}),
+            make_response(200, {}, headers={"x-ratelimit-resource": "core", "x-ratelimit-remaining": "12"}),
+        ]
+        client = make_client(make_strategy(session, chunk_size=1))
+
+        collect(client.run_batch([1, 2]))
+
+        assert client.last_summary.budgets == (RateLimitBudget(resource="core", remaining=12),)
+
+    def test_a_cached_response_reports_no_budget(self):
+        """requests-cache replays the headers of the call that filled the cache - a week-old
+        quota reading is not evidence of anything."""
+        response = make_response(200, {}, headers={"x-ratelimit-remaining": "3"})
+        response.from_cache = True
+        session = MagicMock()
+        session.post.return_value = response
+        client = make_client(make_strategy(session))
+
+        collect(client.run_batch([1]))
+
+        assert client.last_summary.budgets == ()
+
+    def test_diagnostics_do_not_leak_between_runs(self):
+        session = MagicMock()
+        session.post.return_value = make_response(404, {})
+        client = make_client(make_strategy(session, chunk_size=1))
+        collect(client.run_batch([1]))
+
+        session.post.return_value = make_response(200, {"result": "ok"}, headers={"x-ratelimit-remaining": "9"})
+        collect(client.run_batch([2]))
+
+        assert client.last_summary.failures == ()
+        assert client.last_summary.budgets == (RateLimitBudget(resource="core", remaining=9),)
+
+
+# ---------------------------------------------------------------------------
+# I. BatchStrategy.__str__ (B4 point 5)
+# ---------------------------------------------------------------------------
+
+
+class TestBatchStrategyStr:
+    def test_str_is_not_the_default_object_repr(self):
+        """This is what the rate-limit warning interpolates via %s — must read like a name,
+        not "<ossiq.clients.client_github.GithubRepoBatchStrategy object at 0x...>".
+        """
+        strategy = make_strategy()
+        text = str(strategy)
+        assert "object at 0x" not in text
+        assert "<" not in text
+
+    def test_strips_the_batchstrategy_suffix(self):
+        class GithubRepoBatchStrategy(FakeBatchStrategy):
+            pass
+
+        assert str(GithubRepoBatchStrategy()) == "GithubRepo"

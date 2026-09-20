@@ -8,7 +8,12 @@ based on URL patterns.
 
 import pytest
 
-from ossiq.adapters.detectors import detect_source_code_provider, is_git_hosted_source
+from ossiq.adapters.detectors import (
+    detect_source_code_provider,
+    is_git_hosted_source,
+    is_github_url,
+    is_repository_root_url,
+)
 from ossiq.domain.common import RepositoryProvider, UnsupportedRepositoryProvider
 
 
@@ -145,3 +150,47 @@ class TestIsGitHostedSource:
 
     def test_none_spec_and_source_not_detected(self) -> None:
         assert is_git_hosted_source(None, None) is False
+
+
+class TestIsGithubUrl:
+    """URL host test shared by the fetch filter, the coverage panel, and PyPI repo discovery."""
+
+    def test_https_github_url(self) -> None:
+        assert is_github_url("https://github.com/owner/repo") is True
+
+    def test_git_prefixed_url(self) -> None:
+        # npm's `repository.url` shape; urlparse still reports github.com as the host.
+        assert is_github_url("git+https://github.com/janl/mustache.js.git") is True
+
+    def test_subdomain_is_not_github(self) -> None:
+        # gist. and raw.githubusercontent. serve neither the commits nor the activity API, so
+        # treating them as GitHub would promise data no fetch can deliver.
+        assert is_github_url("https://gist.github.com/owner/abc123") is False
+
+    def test_other_hosts(self) -> None:
+        assert is_github_url("https://gitlab.com/owner/repo") is False
+        assert is_github_url("https://codeberg.org/owner/repo") is False
+
+    def test_missing_url(self) -> None:
+        assert is_github_url(None) is False
+        assert is_github_url("") is False
+
+
+class TestIsRepositoryRootUrl:
+    def test_repository_root(self) -> None:
+        assert is_repository_root_url("https://github.com/Textualize/rich") is True
+
+    def test_trailing_slash_is_still_the_root(self) -> None:
+        assert is_repository_root_url("https://github.com/Textualize/rich/") is True
+
+    def test_sub_pages_are_not_the_repository(self) -> None:
+        # The depth check is what makes scanning every project_urls entry safe: a project's
+        # Issues/Releases/Changelog links share the host but are not something /repos can answer.
+        for path in ("issues", "releases", "blob/main/README.md"):
+            assert is_repository_root_url(f"https://github.com/owner/repo/{path}") is False
+
+    def test_owner_page_is_not_a_repository(self) -> None:
+        assert is_repository_root_url("https://github.com/owner") is False
+
+    def test_non_github_host(self) -> None:
+        assert is_repository_root_url("https://gitlab.com/owner/repo") is False

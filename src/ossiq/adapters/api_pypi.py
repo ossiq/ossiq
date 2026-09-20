@@ -9,6 +9,7 @@ from packaging.version import InvalidVersion
 from packaging.version import Version as PackagingVersion
 
 from ossiq.adapters.api_interfaces import AbstractPackageRegistryApi
+from ossiq.adapters.detectors import is_repository_root_url
 from ossiq.adapters.package_managers.api_pypi import batch_fetch_requires_dist, parse_requires_dist
 from ossiq.clients.batch import BatchClient
 from ossiq.clients.client_pypi import PypiBatchStrategy
@@ -54,13 +55,41 @@ def is_valid_pep440_version(version_str: str) -> bool:
         return False
 
 
-def get_repo_url(project_urls: dict) -> str | None:
-    """Helper to find repo url from project_urls."""
+REPO_URL_KEYS: tuple[str, ...] = ("repository", "source", "source code", "sourcecode", "code")
+"""project_urls keys that name the repository outright, lowercased, most explicit first. Checked
+before any URL-shape guess so a project that says where its source lives is always believed."""
+
+
+def get_repo_url(project_urls: dict | None) -> str | None:
+    """Find the source repository among a PyPI project's declared URLs.
+
+    PyPI has no required key for it, and the three exact-case keys this used to check missed the
+    majority of real projects: `rich` and `coverage` file theirs under "Homepage", `pandas` uses a
+    lowercase "repository", `semver` calls it "GitHub Homepage". Each miss cost that package every
+    maintenance and activity signal, silently — a scan cannot fetch a repository it never found.
+
+    Args:
+        project_urls: The `info.project_urls` mapping from the PyPI JSON API.
+
+    Returns:
+        The repository URL, or None when no entry names or looks like one.
+    """
     if not project_urls:
         return None
-    for key in ("Repository", "Source", "Source Code"):
-        if key in project_urls:
-            return project_urls[key]
+
+    normalized = {str(key).strip().lower(): value for key, value in project_urls.items() if value}
+
+    for key in REPO_URL_KEYS:
+        if key in normalized:
+            return normalized[key]
+
+    # No key named it, so fall back to shape: any entry pointing at a repository root. Sub-pages
+    # (Issues, Releases, Changelog) share the host but carry a third path segment, so they cannot
+    # be mistaken for the repository itself.
+    for value in normalized.values():
+        if is_repository_root_url(value):
+            return value
+
     return None
 
 

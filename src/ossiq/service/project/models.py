@@ -4,6 +4,15 @@ Dataclasses for the project scan pipeline.
 
 from dataclasses import dataclass, field
 
+from ossiq.domain.common import (
+    DataCompleteness,
+    EngineContext,
+    RecommendationRung,
+    RejectedCandidate,
+    SignalCoverage,
+    display_package_name,
+)
+from ossiq.domain.compatibility import CompatibilityFacts
 from ossiq.domain.cve import CVE
 from ossiq.domain.package import Package
 from ossiq.domain.project import ConstraintSource, PeerRequirement
@@ -16,6 +25,7 @@ from ossiq.service.project.epss import ProjectEpss
 from ossiq.service.project.stability import ProjectStability, RepositoryStability, TriageResult
 from ossiq.service.update_impact import TransitiveImpact
 from ossiq.solver.reason import RecommendationReason
+from ossiq.strategy.targeting import StrategySelection
 
 
 @dataclass(frozen=True)
@@ -33,6 +43,11 @@ class DependencyDescriptor:
     # Direct deps: the peer requirements other installed packages place on them.
     all_constraints: list[str] = field(default_factory=list)
     peer_requirements: list[PeerRequirement] = field(default_factory=list)
+    # The root manifest's own declared specifier for this package, mirroring
+    # Dependency.version_constraint_declared. None for transitive-only deps with no
+    # root-manifest entry. This, not version_constraint, is what user-facing surfaces
+    # should read as "the declared constraint" - see domain/project.py.
+    version_constraint_declared: str | None = None
 
 
 @dataclass
@@ -45,7 +60,12 @@ class ScanRecord:
     """Canonical registry name of the package (post alias-resolution). Never None."""
 
     dependency_name: str | None
-    """Name as declared by the importer (may be an npm alias); None when unavailable."""
+    """Name as declared by the importer (may be an npm alias); None when unavailable.
+
+    Read it through `identity_name`, which falls back to `package_name`. Two npm aliases of one
+    package share a `package_name`, so that is what tells them apart — see `UpdateEntry.identity`,
+    which carries the same distinction into the update plan and the manifest writer.
+    """
 
     is_optional_dependency: bool
     """True if this dependency is only pulled in via an optional/extra group."""
@@ -72,10 +92,26 @@ class ScanRecord:
     """Where the active version constraint on this dependency came from (file, scope)."""
 
     version_constraint: str | None = None
-    """Raw version specifier from the manifest, e.g. "^1.2.0"; None for unconstrained deps."""
+    """Effective version specifier used internally for solver/ladder computation, e.g. "^1.2.0".
+    Last-writer-wins across every parent that declares a spec for this package (see
+    dependency_tree.py Pass 2) - it is NOT guaranteed to be the root manifest's own declaration.
+    User-facing surfaces must read version_constraint_declared instead."""
+
+    version_constraint_declared: str | None = None
+    """The root manifest's own declared specifier for this package, e.g. "^1.2.0"; None for
+    transitive-only deps with no root-manifest entry, or unconstrained direct deps. This is the
+    value every user-facing surface (console, export, agent reasons) should show as "the declared
+    constraint" - see domain/project.py's Dependency.version_constraint_declared."""
 
     version_age_days: int | None = None
     """Days since installed_version was published. None if the publish date is unknown."""
+
+    latest_release_age_days: int | None = None
+    """Days since latest_version was published. None if the publish date is unknown.
+
+    The registry-side half of the maintenance signal: days_since_push says the repository is
+    being worked on, this says something reached users. A package can be quiet on one clock and
+    alive on the other, and telling a finished library from a dying one needs both."""
 
     dependency_path: list[str] | None = None
     """Chain of package names from a root dependency down to this one; None for direct deps."""
@@ -91,6 +127,11 @@ class ScanRecord:
 
     repository: Repository | None = None
     """Fetched repository metadata (stars, activity, etc.) for repo_url, if resolved."""
+
+    signal_coverage: SignalCoverage = SignalCoverage.FULL
+    """Whether the GitHub-only activity channels could be read for this package, and if not, why.
+    Written once, in service.project.records.scan_record, beside repo_url and repository. Defaults
+    to FULL on the same "absent means ok" convention as DataCompleteness.status_for."""
 
     homepage_url: str | None = None
     """Project homepage URL reported by the package registry."""
@@ -118,6 +159,16 @@ class ScanRecord:
 
     recommended_version_reason: RecommendationReason | None = None
     """Human-readable explanation of why recommended_version was chosen."""
+
+    recommended_from_rung: RecommendationRung | None = None
+    """Which version-ladder rung recommended_version came from. SOLVER and IN_RANGE sit inside
+    version_constraint. None only when recommended_version is None."""
+
+    rejected_candidates: list[RejectedCandidate] = field(default_factory=list)
+    """Releases that would have been the recommendation but were held back by a transitive-dependency
+    conflict. Capped at one per ladder rung (newest rejected at IN_RANGE/IN_MAJOR/LATEST). Populated by
+    service.project.strategy.apply_update_strategy for direct deps, by
+    service.project.recommendations.apply_solver_rejections for transitive deps."""
 
     all_constraints: list[str] = field(default_factory=list)
     """All version specifiers from every direct parent; mirrors DependencyDescriptor.all_constraints.
@@ -167,6 +218,30 @@ class ScanRecord:
     """Human-readable reason for runs_code_at_install, e.g. "npm lifecycle: postinstall" or
     "PyPI source distribution build". None when the signal is unknown or execution was not detected."""
 
+    compatibility: CompatibilityFacts = field(default_factory=CompatibilityFacts)
+    """Where this record sits on the version ladder and what is true about the version it picked -
+    see domain/compatibility.py. Eight fields that answer one question together, lifted off this
+    record because ~50 flat fields had made it the bottleneck for every new surface."""
+
+    strategy_selection: StrategySelection | None = None
+    """The update-strategy selector's verdict for this record. Populated in
+    service.project.strategy.apply_update_strategy, after populate_stability. None for transitive
+    records (v1 scope: the strategy applies to direct dependencies only) or an ignored package."""
+
+    @property
+    def identity_name(self) -> str:
+        """The manifest key this record answers for — `dependency_name`, else `package_name`.
+
+        The counterpart of `UpdateEntry.identity`, so one definition of "which declaration is
+        this?" spans the scan and the update plan.
+        """
+        return self.dependency_name or self.package_name
+
+    @property
+    def display_name(self) -> str:
+        """How to name this record to a human — see domain.common.display_package_name."""
+        return display_package_name(self.package_name, self.dependency_name)
+
 
 @dataclass
 class PrefetchedData:
@@ -186,6 +261,10 @@ class PrefetchedData:
     readmes: dict[str, str] = field(default_factory=dict)
     """Repo URL -> the first few KB of the README, scanned for a deprecation banner. Absent keys
     are unmeasured (no repo, non-GitHub host, or --no-stability)."""
+    data_completeness: DataCompleteness = field(default_factory=DataCompleteness)
+    """B4: per-step status (ok/partial/unreachable/rate_limited) for the data sources fetched
+    above - see prefetch_scan_data. Carried onto ScanResult so the CLI, export, and exit-code
+    logic can all tell a genuinely clean result apart from one built on missing data."""
 
 
 @dataclass
@@ -210,3 +289,17 @@ class ScanResult:
     ignored_packages: list[IgnoredDependency] = field(default_factory=list)
     project_epss: ProjectEpss | None = None
     project_stability: ProjectStability | None = None
+    data_completeness: DataCompleteness = field(default_factory=DataCompleteness)
+    """Per-step data-source status for this scan. See PrefetchedData.data_completeness."""
+    declares_esm: bool = False
+    """Whether the project's own manifest declares `"type": "module"` (npm only)"""
+    engine_context: EngineContext = field(default_factory=EngineContext)
+    """Runtime versions every record's engine_compatible was checked against, and where they came
+    from. The sole home for both: the provenance used to be copied onto every ScanRecord as well,
+    and the two copies drifted."""
+    npm_cli_version: str | None = None
+    """Best-effort detected npm CLI version, display-only"""
+    source_warnings: list[str] = field(default_factory=list)
+    """Non-fatal problems found while assembling the project's sources, e.g. a tree containing more
+    than one registry. Carried as a value so each surface decides how to show it - `sources/` used
+    to print these itself, which reached stderr even for the JSON front doors."""

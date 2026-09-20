@@ -39,6 +39,15 @@ WARNING_MULTIPLE_REGISTRY_TYPES = """
 `{project_path}` contains multiple registry types. Use `--registry-type` option to narrow it down
 """
 
+# The inspected filenames come from the adapters themselves (api.inspected_manifests), so this text
+# never has to be kept in step with which adapters exist.
+HINT_NO_PACKAGE_MANAGER = (
+    "Inspected {inspected}; found: {found}. "
+    "A pyproject.toml alone needs either a lockfile (uv.lock, pylock.toml) or a non-empty "
+    "[project].dependencies section - a Poetry-only manifest ([tool.poetry.dependencies]) "
+    "isn't supported yet."
+)
+
 ERROR_EXIT_OUTDATED_PACKAGES = """There are libraries with outdated versions:
 exiting with non-zero exit code
 """.replace("\n", " ")
@@ -48,6 +57,11 @@ Name of the package to inspect. Exact match against the package name or its alia
 """
 
 HELP_IGNORE_PACKAGE = "Exclude package from solver recommendations (repeatable)."
+
+HELP_ALLOW_PARTIAL = (
+    "Accept a result built on incomplete data. Only --update-strategy security/deprecation refuse "
+    "one: without vulnerability data their 'nothing to do' is indistinguishable from a clean project."
+)
 
 IGNORE_REASON_NON_REGISTRY = "not on npm registry (git/URL source)"
 IGNORE_REASON_IGNORE_FLAG = "excluded via --ignore"
@@ -79,6 +93,13 @@ ARGS_HELP_STABILITY_RESPONSIVENESS = (
     "token; defaults on when one is set, off otherwise. Overrides OSSIQ_STABILITY_RESPONSIVENESS "
     "env var."
 )
+ARGS_HELP_PROBE_RUNTIME = (
+    "Detect the actually-installed Python/Node/npm runtime (default: on), preferred over the "
+    "project's declared engine floor when checking recommendation compatibility. Runs a few local "
+    "subprocess/file probes (timeout 3s each, never blocks a scan on failure); disable with "
+    "--no-probe-runtime for CI/sandboxed environments or to compare only against the declared "
+    "floor. Overrides OSSIQ_PROBE_RUNTIME env var."
+)
 
 HELP_INFO_COMMAND = """
 Deep-dive into a single package: drift status, dependency tree trace, policy compliance,
@@ -95,20 +116,48 @@ Show solver-recommended package version changes without making any changes.
 Use `--pin-all` to write exact ==version specifiers for updated deps.
 Use `--rewrite-versions` to also include PINNED (==x.y.z) deps that are otherwise frozen.
 Use `--override pkg==version` to force an exact version, bypassing the solver and cooldown.
-Use `--security` to narrow the plan to CVE-affected packages only.
+Use `--update-strategy` to pick which tier of the update pyramid to target (default: standard).
 """
 
 HELP_APPLY_COMMAND = """
 Apply solver-recommended updates in-process with rollback on failure.
 
-Shows the plan first and prompts for confirmation (use `--yes` for CI).
+Shows the plan first and prompts for confirmation (use `--yes` for CI). A second confirmation
+covers any update that widens the declared version constraint or carries a known API break.
 """
 
 HELP_PLAN_NO_RECOMMENDATIONS = "No updates recommended — the solver found all packages are already at optimal versions."
 
-HELP_SECURITY_ONLY = "Include only CVE-affected packages (direct and transitive) in the update plan."
+HELP_PLAN_NO_RECOMMENDATIONS_FOR_TIER = "No packages need updates under --update-strategy {tier} — nothing to do."
 
-HELP_PLAN_NO_SECURITY_RECOMMENDATIONS = "No CVE-affected packages need updates — nothing to do under --security."
+HELP_UPDATE_STRATEGY = (
+    "Which tier of the update pyramid to target: security, deprecation, standard (default), "
+    "latest, cutting-edge. Each tier is a strict superset of the one below — see strategy/README.md."
+)
+
+HELP_STRATEGY_OVERRIDE = (
+    "Run one package at a different tier than --update-strategy: pkg=tier (repeatable). "
+    "E.g. --strategy-override lodash=cutting-edge."
+)
+
+ERROR_STRATEGY_OVERRIDE_IGNORE_CONFLICT = (
+    "Cannot both --strategy-override and --ignore the same package(s): {packages}."
+)
+
+WARNING_STRATEGY_OVERRIDE_UNKNOWN_PACKAGE = (
+    "--strategy-override {package}: package not found in the dependency tree — ignored."
+)
+
+WARNING_STRATEGY_OVERRIDE_SHADOWED_BY_OVERRIDE = (
+    "--strategy-override {package}: ignored — --override forces an exact version for this package."
+)
+
+HELP_PLAN_HIGHER_TIER_FOOTER = "{count} more update{plural} available under --update-strategy {tier}."
+
+HELP_PLAN_ACKNOWLEDGE_CONFIRM_HEADER = (
+    "The following updates need explicit acknowledgement - they widen the declared version "
+    "constraint (authorized by --update-strategy {tier}), or carry a known API/module-system break:"
+)
 
 HELP_OVERRIDE_PACKAGE = (
     "Force a package to an exact version, bypassing the solver and the cooldown: --override pkg==1.2.3 "
@@ -131,6 +180,11 @@ WARNING_OVERRIDE_VERSION_UNKNOWN = (
     "--override {package}=={version}: version not found in the registry — install may fail."
 )
 
+WARNING_OVERRIDE_AMBIGUOUS_ALIAS = (
+    "--override {package}: the project declares it under several manifest keys ({aliases}), which "
+    "npm installs as separate copies. Only one can be forced — name the key instead to pick it."
+)
+
 HELP_PLAN_FORCED_WARNING = (
     "Forced versions (--override) bypass solver compatibility checks and the cooldown period. "
     "OSS IQ has not verified these versions satisfy parent constraints — review and test before shipping."
@@ -150,7 +204,32 @@ HELP_PLAN_HELD_FOR_COOLDOWN_HEADER = (
     "Held for cooldown — newer versions exist but are younger than the {days}-day cooldown:"
 )
 
-HELP_PLAN_CVE_BYPASS_NOTE = "↳ cooldown bypassed — installed version has a known CVE"
+HELP_PLAN_HELD_FOR_WIDENING_HEADER = "Requires constraint widening — a newer version exists outside the declared range:"
+
+HELP_STATUS_COOLDOWN_HOLD = (
+    "↳ {version} is {age_days} days old; nothing older to move to before the {days}-day cooldown"
+)
+
+HELP_WARNING_COUNTS_ARE_REQUESTS = (
+    "  Counts are requests, not packages — one package can lose several.\n"
+    "  Run `ossiq status --full` for the Upstream Signal Coverage panel, which names them."
+)
+
+HELP_STATUS_COVERAGE_HEADER = "Upstream Signal Coverage"
+
+HELP_STATUS_COVERAGE_INTRO = (
+    "Maintenance and activity signals are read from GitHub. "
+    "{gaps} of {total} packages (including transitive) gave up less than the full signal set:"
+)
+
+HELP_STATUS_COVERAGE_UNSUPPORTED_HOST = "Not on GitHub"
+HELP_STATUS_COVERAGE_NO_REPOSITORY = "No repository declared"
+HELP_STATUS_COVERAGE_REPOSITORY_UNAVAILABLE = "Repository unreachable"
+HELP_STATUS_COVERAGE_ACTIVITY_UNAVAILABLE = "Commit history unreachable"
+
+HELP_PLAN_CVE_BYPASS_NOTE = "↳ cooldown bypassed — installed version has a known CVE or is end-of-life"
+
+HELP_PLAN_KNOWN_BREAK_NOTE = "↳ known API/module-system break — every newer release carries it, so none was held back"
 
 HELP_ADD_COMMAND = """
 Inspect a package's health metrics and warnings before adding it to your project.
@@ -170,3 +249,14 @@ HELP_APPLY_RERUN_HINT = (
     "Updates are resolved in a single pass; applying them re-resolves the dependency tree and can surface "
     "further recommendations. Re-run `ossiq plan` to check whether a follow-up pass is needed."
 )
+
+HELP_UPDATE_CONTEXT_COMMAND = """
+Diff a package's installed (or prospective) version against an arbitrary target version.
+
+Reports module-system/API breaking changes, engine (Node/Python) compatibility against the
+detected or declared runtime, and any candidates rejected along the way — for a specific version
+an agent is considering, which need not be OSS IQ's own recommendation. Use before applying an
+update to a version other than `recommended_version`.
+"""
+
+HELP_UPDATE_CONTEXT_TO = "Target version to evaluate against. Default: OSS IQ's recommended_version."

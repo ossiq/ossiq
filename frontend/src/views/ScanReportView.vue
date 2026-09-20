@@ -6,6 +6,7 @@ import type { ReportRow } from '@/composables/useReportFilters'
 import ReportFilters from '@/components/ReportFilters.vue'
 import ReportTable from '@/components/ReportTable.vue'
 import ReportLegend from '@/components/ReportLegend.vue'
+import ReportBanner from '@/components/ReportBanner.vue'
 import DependencyDetailPanel from '@/components/DependencyDetailPanel.vue'
 import type { SelectedNodeDetail } from '@/types/dependency-tree'
 import type { DependencyTreeRoot, TransitivePackageMetrics } from '@/types/report'
@@ -66,6 +67,13 @@ function handleSelectPackage(row: ReportRow) {
     is_package_unpublished: row.pkg.is_package_unpublished ?? false,
     version_age_days: row.pkg.version_age_days,
     recommended_version: row.pkg.recommended_version ?? null,
+    next_action: row.pkg.next_action ?? null,
+    requires_constraint_widening: row.pkg.requires_constraint_widening ?? false,
+    recommended_from_rung: row.pkg.recommended_from_rung ?? null,
+    latest_in_range: row.pkg.latest_in_range ?? null,
+    latest_in_major: row.pkg.latest_in_major ?? null,
+    latest_compatible_major: row.pkg.latest_compatible_major ?? null,
+    version_constraint_declared: row.pkg.version_constraint_declared ?? null,
     epss: row.pkg.epss ?? null,
     maintenance_coverage: row.pkg.maintenance_coverage ?? null,
     maintenance_risk: row.pkg.maintenance_risk ?? null,
@@ -148,6 +156,9 @@ function handlePanelClose() {
             </div>
           </div>
         </div>
+
+        <!-- Degraded data sources — drawn only when something did not come back ok -->
+        <ReportBanner />
 
         <!-- Help text -->
         <div v-if="showHelp" class="w-3/4">

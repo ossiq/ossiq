@@ -2,14 +2,18 @@
 
 from unittest.mock import MagicMock
 
+import requests
+
 from ossiq.clients.batch import ChunkResult
 from ossiq.clients.client_github import (
     FIRST_PAGE,
     RESPONSIVENESS_PAGE_CAP,
     GithubGraphQLBatchStrategy,
     build_activity_query,
+    fetch_rate_limit,
     parse_activity_alias,
 )
+from ossiq.domain.common import RateLimitBudget
 
 SINCE = "2026-05-01T00:00:00Z"
 IN_WINDOW = "2026-06-01T00:00:00Z"
@@ -44,7 +48,7 @@ class TestBuildActivityQuery:
         assert "pullRequests(first: 100" in query
         assert "issues(" not in query
         assert "pinnedIssues" not in query
-        assert "mergedAt" in query
+        assert "closedAt" in query
 
     def test_issues_continuation_uses_the_cursor_and_drops_pinned_issues(self) -> None:
         query = build_activity_query([item("u0", "o", "n", "issues", after="IC", page=1)], SINCE)
@@ -55,6 +59,39 @@ class TestBuildActivityQuery:
     def test_pulls_continuation_uses_the_cursor(self) -> None:
         query = build_activity_query([item("u0", "o", "n", "pulls", after="PRCURSOR", page=2)], SINCE)
         assert 'pullRequests(first: 100, orderBy: {field: UPDATED_AT, direction: DESC}, after: "PRCURSOR")' in query
+
+
+class TestFetchRateLimit:
+    """The pre-flight quota check: free to call, and the only reading a fully cached scan gets."""
+
+    def session_returning(self, body: dict) -> MagicMock:
+        session = MagicMock()
+        session.get.return_value.json.return_value = body
+        return session
+
+    def test_reads_core_and_graphql(self) -> None:
+        session = self.session_returning(
+            {
+                "resources": {
+                    "core": {"limit": 5000, "remaining": 4537, "reset": 1700000000},
+                    "graphql": {"limit": 5000, "remaining": 5000, "reset": 1700000500},
+                    "search": {"limit": 30, "remaining": 30, "reset": 1700000000},
+                }
+            }
+        )
+
+        budgets = fetch_rate_limit(session)
+
+        assert budgets == (
+            RateLimitBudget(resource="core", limit=5000, remaining=4537, reset_at=1700000000.0),
+            RateLimitBudget(resource="graphql", limit=5000, remaining=5000, reset_at=1700000500.0),
+        )
+
+    def test_a_failed_check_is_one_less_thing_to_report_not_a_failed_scan(self) -> None:
+        session = MagicMock()
+        session.get.side_effect = requests.ConnectionError("down")
+
+        assert fetch_rate_limit(session) == ()
 
 
 class TestParseActivityAlias:
@@ -89,6 +126,29 @@ class TestParseActivityAlias:
             }
         }
         assert parse_activity_alias(node, SINCE, "pulls")["next"] is None
+
+    def test_null_nodes_from_a_partial_response_are_dropped(self) -> None:
+        # GitHub answers a per-node INTERNAL error with HTTP 200 and a null in `nodes`; the
+        # response is cached for a week, so one null crashed every later scan of that project.
+        node = {
+            "pullRequests": {
+                "pageInfo": {"hasNextPage": False},
+                "nodes": [{"updatedAt": IN_WINDOW}, None, {"updatedAt": IN_WINDOW}],
+            }
+        }
+        assert parse_activity_alias(node, SINCE, "pulls")["pulls"] == [
+            {"updatedAt": IN_WINDOW},
+            {"updatedAt": IN_WINDOW},
+        ]
+
+    def test_null_issue_and_pinned_nodes_are_dropped(self) -> None:
+        node = {
+            "issues": {"pageInfo": {"hasNextPage": False}, "nodes": [None, {"createdAt": IN_WINDOW}]},
+            "pinnedIssues": {"nodes": [None, {"issue": {"title": "Deprecated"}}]},
+        }
+        parsed = parse_activity_alias(node, SINCE, "issues")
+        assert parsed["issues"] == [{"createdAt": IN_WINDOW}]
+        assert parsed["pinned_titles"] == ["Deprecated"]
 
 
 class TestProcessResponse:

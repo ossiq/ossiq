@@ -122,14 +122,19 @@ class BaseDependencyResolver(ABC):
                             if category == CATEGORY_PEER:
                                 child.peer_requirements.append(PeerRequirement(requirer_name=name, spec=d_ver))
 
+                            # The root manifest's own declaration is the only user-facing
+                            # "declared constraint" — capture it once, from this specific edge,
+                            # regardless of what order other parents are processed in below.
+                            if name == root_name:
+                                child.version_constraint_declared = d_ver
+
                             # Only update version_defined when the specifier differs from the
                             # resolved version to avoid redundant data (e.g. "4.17.21" == "4.17.21").
-                            # TODO: last-writer-wins across parents, so a direct dep's manifest
-                            #       specifier gets overwritten by an arbitrary consumer's range
-                            #       (e.g. typescript "~6.0.3" -> ">=5.0.0" from vue-tsc). Fixing
-                            #       this makes version_constraint a real L1 bound for direct deps
-                            #       and would freeze them inside their declared ranges — needs a
-                            #       decision on whether the root specifier should bind at all.
+                            # version_defined remains a last-writer-wins accumulator across all
+                            # parents (root and transitive) feeding the solver's L1 clauses via
+                            # parent_constraints; it is not itself user-facing — user-facing
+                            # surfaces must read version_constraint_declared instead (see
+                            # domain/project.py).
                             if d_ver != child.version_installed:
                                 child.version_defined = d_ver
                             # Always reclassify specificity from the parent-declared specifier,

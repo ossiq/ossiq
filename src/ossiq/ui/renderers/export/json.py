@@ -7,6 +7,7 @@ detailed package metrics.
 """
 
 import os
+import sys
 
 from ossiq.domain.common import Command, ExportJsonSchemaVersion, UserInterfaceType
 from ossiq.domain.exceptions import DestinationDoesntExist
@@ -15,6 +16,10 @@ from ossiq.service.project.models import ScanResult
 from ossiq.ui.interfaces import AbstractUserInterfaceRenderer
 from ossiq.ui.renderers.export.json_schema_registry import json_schema_registry
 from ossiq.ui.renderers.export.models import build_export_data
+
+STDOUT_DESTINATION = "-"
+"""B8: the conventional Unix "write to stdout" destination, so export can stream directly into
+a pipeline (`ossiq export -o - | jq .`) instead of only ever writing a file."""
 
 
 class JsonExportRenderer(AbstractUserInterfaceRenderer):
@@ -37,7 +42,8 @@ class JsonExportRenderer(AbstractUserInterfaceRenderer):
 
         Args:
             data: ScanResult from scan service
-            destination: Output file path (supports {project_name} placeholder)
+            destination: Output file path (supports {project_name} placeholder), or "-" to
+                write to stdout instead of a file.
             schema_version: Schema version string (e.g. "1.0", "1.1"). Defaults to latest.
             **kwargs: Optional arguments:
                 - validate_schema (bool): Validate against JSON schema (default: True)
@@ -46,12 +52,6 @@ class JsonExportRenderer(AbstractUserInterfaceRenderer):
             DestinationDoesntExist: If destination directory doesn't exist
             jsonschema.ValidationError: If schema validation fails
         """
-        destination = os.path.expanduser(destination)
-        # Validate destination directory
-        dest_dir = os.path.dirname(destination)
-        if dest_dir and not os.path.exists(dest_dir):
-            raise DestinationDoesntExist(f"Destination `{destination}` doesn't exist.")
-
         # Resolve schema version: use provided value or fall back to latest
         resolved_version = (
             ExportJsonSchemaVersion(schema_version)
@@ -59,11 +59,27 @@ class JsonExportRenderer(AbstractUserInterfaceRenderer):
             else json_schema_registry.get_latest_version()
         )
 
+        update_strategy = kwargs.get("update_strategy")
+
         # Convert domain model to export model
         export_data = build_export_data(
             data,
             schema_version=resolved_version,
+            update_strategy=update_strategy.value if update_strategy is not None else None,
         )
+
+        if destination == STDOUT_DESTINATION:
+            # B8: stdout carries only the requested payload - safe only because
+            # show_settings/show_scan_progress (called earlier in command_export) already write
+            # their diagnostic output to stderr, not this stream.
+            sys.stdout.write(export_data.model_dump_json())
+            return
+
+        destination = os.path.expanduser(destination)
+        # Validate destination directory
+        dest_dir = os.path.dirname(destination)
+        if dest_dir and not os.path.exists(dest_dir):
+            raise DestinationDoesntExist(f"Destination `{destination}` doesn't exist.")
 
         # Resolve destination path with project name placeholder
         target_path = destination.format(

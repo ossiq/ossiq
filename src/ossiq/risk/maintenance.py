@@ -217,13 +217,18 @@ LIKELIHOOD: dict[str, dict[object, dict[str, float]]] = {
         False: {"maintained": 0.97, "winding_down": 0.78, "abandoned": 0.05, "deprecated": 0.15},
     },
     "push_age": {
-        # fresh (<30d): a push this recent is near-decisive for "active" - the strongest single
+        # fresh (<45d): a push this recent is near-decisive for "active" - the strongest single
         # recency signal, split out from `recent` so release-driven low-churn repos (werkzeug,
         # sqlalchemy) can't drift toward winding_down on commit dispersion alone.
         "fresh": {"maintained": 0.93, "winding_down": 0.12, "abandoned": 0.01, "deprecated": 0.02},
-        # recent (30-90d): a maintained project rarely lets its repo sit 1-3 months untouched;
-        # in the corpus every `recent` repo (pytz, distlib, mccabe) is winding_down.
-        "recent": {"maintained": 0.18, "winding_down": 0.60, "abandoned": 0.06, "deprecated": 0.10},
+        # recent (45-90d): a six-week to three-month gap between pushes. The old row put this at
+        # 0.18/0.60 on the strength of three dormant PyPI repos (pytz, distlib, mccabe), which
+        # made the bucket decide the verdict by itself - `fuse.js`, 42 days since its last push
+        # and a release six weeks earlier, came out winding_down at P=0.92 with every other
+        # observation neutral or positive. On npm a six-week quiet spell is ordinary for a mature
+        # library, so the row is now barely directional and the release-cadence and flow
+        # observations do the work of separating a lull from a wind-down.
+        "recent": {"maintained": 0.45, "winding_down": 0.40, "abandoned": 0.08, "deprecated": 0.10},
         # aging (90-365d): WINDING_DOWN PEAKS HERE
         "aging": {"maintained": 0.09, "winding_down": 0.68, "abandoned": 0.20, "deprecated": 0.20},
         # stale (365-730d): genuinely split - a finished library (jinja, itsdangerous) and a
@@ -232,11 +237,53 @@ LIKELIHOOD: dict[str, dict[object, dict[str, float]]] = {
         "ancient": {"maintained": 0.01, "winding_down": 0.06, "abandoned": 0.37, "deprecated": 0.36},
     },
     "flow_trend": {
-        "improving": {"maintained": 0.45, "winding_down": 0.20, "abandoned": 0.05, "deprecated": 0.05},
+        # `improving` and `declining` are fitted from the corpus (see the counts below); `stable`
+        # and the abandoned / deprecated columns are not, because a repo dead enough to be labelled
+        # either has no issue or PR movement left to measure - 21 of the 22 abandoned/deprecated
+        # entries report no flow_trend at all. Those cells are left at their hand-set values and
+        # should not be read as calibrated.
+        #
+        # Corpus flow_trend among repos where it is measured:
+        #   maintained   (n=26): improving 13, stable 8, declining 5
+        #   winding_down (n=10): improving  5, stable 0, declining 5
+        # A healthy project declining on issue/PR flow is ordinary - it usually means the project
+        # got popular faster than the maintainers grew. The table below is that ratio blended
+        # halfway back toward the previous hand-set row, because n=10 is thin.
+        "improving": {"maintained": 0.47, "winding_down": 0.33, "abandoned": 0.05, "deprecated": 0.05},
         "stable": {"maintained": 0.40, "winding_down": 0.34, "abandoned": 0.13, "deprecated": 0.18},
-        # declining engagement is winding_down's *signature*, not just an abandonment tell - the
-        # three states share it almost evenly.
-        "declining": {"maintained": 0.11, "winding_down": 0.70, "abandoned": 0.72, "deprecated": 0.66},
+        # Was 0.11 : 0.70, a 6.4x tilt the corpus never supported (it measures 1 : 2.6). At that
+        # strength one noisy directional signal decided the verdict on its own, which is how a
+        # package that had shipped six weeks earlier came out winding_down at P=0.92.
+        "declining": {"maintained": 0.22, "winding_down": 0.55, "abandoned": 0.72, "deprecated": 0.66},
+    },
+    "release_age": {
+        # How long since the registry last saw a release. The push observations describe the
+        # repository; this one describes what actually reached users, and a package can be quiet
+        # on one clock while alive on the other - which is the case the model had no way to see.
+        #
+        # Only two of the four columns are fitted, and the corpus cannot currently fix the other
+        # two - counting rows where `gated_observations` actually admits this observation:
+        #   maintained   (n= 0)
+        #   winding_down (n=10): current 1, recent 3, stale 3, ancient 3
+        #   abandoned    (n=10): current 0, recent 0, stale 1, ancient 9
+        #   deprecated   (n= 0)
+        # Every maintained repo in the corpus pushed inside PUSH_AGE_FRESH_DAYS, so the fresh gate
+        # drops release_age before the model sees it; every deprecated one carries a strong marker,
+        # which drops everything else. Fitting those two columns from the ungated counts would be
+        # fitting on rows this observation never reads. They are set by reasoning instead and are
+        # marked as such: a package that has not pushed in six weeks but shipped last month is
+        # almost always one that releases on a slow cadence, and the deprecated column is
+        # near-unreachable in practice. Closing the gap needs corpus entries that are alive but
+        # slow-pushing - see qa/manual/stability-calibrate.md.
+        #
+        # What the fitted half says: no release in two years favours abandoned over winding_down
+        # about 2.4 to 1, while one to two years leans the other way. That is the distinction the
+        # model had no way to draw before - `six` (stale, still answering) and `nose` (ancient,
+        # gone) look identical on push age alone.
+        "current": {"maintained": 0.55, "winding_down": 0.14, "abandoned": 0.07, "deprecated": 0.07},
+        "recent": {"maintained": 0.30, "winding_down": 0.29, "abandoned": 0.07, "deprecated": 0.10},
+        "stale": {"maintained": 0.10, "winding_down": 0.29, "abandoned": 0.14, "deprecated": 0.13},
+        "ancient": {"maintained": 0.05, "winding_down": 0.29, "abandoned": 0.71, "deprecated": 0.70},
     },
 }
 
@@ -246,10 +293,19 @@ MAINTENANCE_THRESHOLD = 0.5
 OBSERVATION_COUNT = len(LIKELIHOOD)
 """How many observation types the model can consume - the denominator for `coverage`."""
 
-PUSH_AGE_FRESH_DAYS = 30
+PUSH_AGE_FRESH_DAYS = 45
+"""Widened from 30: at 30 the `fresh`/`recent` boundary was a cliff, not a gradient - one day of
+wall-clock moved the posterior from maintained 0.94 to winding_down 0.92, because crossing it
+both swapped the push_age row and switched the gated flow_trend penalty on. Six weeks is the
+point where an npm library's quiet spell stops being ordinary."""
+
 PUSH_AGE_RECENT_DAYS = 90
 PUSH_AGE_AGING_DAYS = 365
 PUSH_AGE_STALE_DAYS = 730
+
+RELEASE_AGE_CURRENT_DAYS = 90
+RELEASE_AGE_RECENT_DAYS = 365
+RELEASE_AGE_STALE_DAYS = 730
 
 
 def push_age_bucket(days_since_push: int | None) -> str | None:
@@ -263,6 +319,23 @@ def push_age_bucket(days_since_push: int | None) -> str | None:
     if days_since_push < PUSH_AGE_AGING_DAYS:
         return "aging"
     if days_since_push < PUSH_AGE_STALE_DAYS:
+        return "stale"
+    return "ancient"
+
+
+def release_age_bucket(days_since_release: int | None) -> str | None:
+    """Discretize the age of the latest published release, or None when the registry had no date.
+
+    Deliberately coarser than `push_age_bucket`: release cadence is the slower of the two clocks,
+    and a library that ships twice a year is not drifting.
+    """
+    if days_since_release is None:
+        return None
+    if days_since_release < RELEASE_AGE_CURRENT_DAYS:
+        return "current"
+    if days_since_release < RELEASE_AGE_RECENT_DAYS:
+        return "recent"
+    if days_since_release < RELEASE_AGE_STALE_DAYS:
         return "stale"
     return "ancient"
 
@@ -312,26 +385,43 @@ def gated_observations(
     has_stopped: bool | None,
     push_age: str | None,
     flow_trend: str | None,
+    release_age: str | None = None,
 ) -> dict[str, object]:
-    """Apply the two naive-Bayes independence gates and return the observation dict.
+    """Apply the naive-Bayes independence gates and return the observation dict.
 
-    The commit-derived signals are correlated, which naive-Bayes assumes away. Two conditionals
-    keep it honest - and both the real scan path and `qa/calibrate_stability.py` route through
-    here so the calibrated numbers match what ships:
+    The activity-derived signals are correlated, which naive-Bayes assumes away. Three
+    conditionals keep it honest - and both the real scan path and `qa/calibrate_stability.py`
+    route through here so the calibrated numbers match what ships:
 
     - a `strong` deprecation marker (archived / registry-deprecated / inactive classifier) is
       near-deterministic - an archived repo with recent CI commits is still deprecated - so every
-      commit-recency observation is dropped and only the deprecation signal feeds the model.
-    - `flow_trend` is release-driven noise on a repo that pushed in the last 30 days; it only
-      carries a maintenance signal once the commit activity itself has slowed.
+      activity observation is dropped and only the deprecation signal feeds the model.
+    - `flow_trend` is release-driven noise on a repo that pushed in the last PUSH_AGE_FRESH_DAYS;
+      it only carries a maintenance signal once the commit activity itself has slowed.
+    - `release_age` is dropped on that same fresh repo, for the opposite reason: the push already
+      proved the project is being worked on, and letting a recent release say so again would
+      count one fact twice. Where it is not dropped is exactly where it earns its keep - a
+      library that ships on a slow cadence without much repo churn between releases.
+
+    Args:
+        deprecation_strength: `none` / `weak` / `strong`, or None when nothing was checked.
+        has_stopped: Whether the commit stream is in an unusually long silence.
+        push_age: Bucket from `push_age_bucket`.
+        flow_trend: `improving` / `stable` / `declining`, or None without a GraphQL sample.
+        release_age: Bucket from `release_age_bucket`, or None when no release date is known.
+
+    Returns:
+        Observation name -> value, with None left in place for the model to drop.
     """
     if deprecation_strength == DEPRECATION_STRONG:
         return {"deprecation_strength": DEPRECATION_STRONG}
+    is_fresh = push_age == "fresh"
     return {
         "deprecation_strength": deprecation_strength,
         "has_stopped": has_stopped,
         "push_age": push_age,
-        "flow_trend": flow_trend if push_age != "fresh" else None,
+        "flow_trend": None if is_fresh else flow_trend,
+        "release_age": None if is_fresh else release_age,
     }
 
 

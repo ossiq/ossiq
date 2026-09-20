@@ -11,15 +11,22 @@ Tests focus on:
 """
 
 import os
+import subprocess
 import tempfile
 import tomllib
 from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 import pytest
+from packaging.requirements import Requirement
 
-from ossiq.adapters.package_managers.api_uv import PackageManagerPythonUv, upsert_uv_override_dependencies
+from ossiq.adapters.package_managers.api_uv import (
+    PackageManagerPythonUv,
+    find_pyproject_direct_specifiers,
+    upsert_uv_override_dependencies,
+)
 from ossiq.domain.common import ConstraintType, ProjectPackagesRegistry
-from ossiq.domain.exceptions import PackageManagerLockfileParsingError
+from ossiq.domain.exceptions import PackageManagerExecutionError, PackageManagerLockfileParsingError
 from ossiq.domain.packages_manager import UV
 from ossiq.service.update import UpdateEntry, UpdatePlan
 from ossiq.settings import Settings
@@ -640,12 +647,14 @@ class TestProjectInfo:
         assert "black" in dependency_tree.optional_dependencies
 
     def test_project_info_exposes_version_constraint_from_specifier(self, uv_project_with_lockfile, settings):
-        """Test that project_info exposes version constraints via version_defined on Dependency.
+        """Test that project_info exposes version constraints via version_constraint_declared on Dependency.
 
         AAA Pattern:
         - Arrange: UV project with specifiers in the lockfile
         - Act: Call project_info() which runs the full adapter pipeline
-        - Assert: version_defined on direct dependencies reflects the declared specifier
+        - Assert: version_constraint_declared on direct dependencies reflects pyproject.toml's own
+          specifier — the value apply_pyproject_constraints reasserts from the manifest, not
+          whatever Pass 2 happened to read off the lockfile.
         """
         # Arrange
         uv_manager = PackageManagerPythonUv(uv_project_with_lockfile, settings)
@@ -653,11 +662,11 @@ class TestProjectInfo:
         # Act
         project = uv_manager.project_info()
 
-        # Assert — version_defined matches the specifiers from pyproject.toml
-        assert project.dependencies["requests"].version_defined == ">=2.31.0"
-        assert project.dependencies["click"].version_defined == ">=8.1.0"
-        assert project.optional_dependencies["pytest"].version_defined == ">=7.4.0"
-        assert project.optional_dependencies["black"].version_defined == ">=23.0.0"
+        # Assert — version_constraint_declared matches the specifiers from pyproject.toml
+        assert project.dependencies["requests"].version_constraint_declared == ">=2.31.0"
+        assert project.dependencies["click"].version_constraint_declared == ">=8.1.0"
+        assert project.optional_dependencies["pytest"].version_constraint_declared == ">=7.4.0"
+        assert project.optional_dependencies["black"].version_constraint_declared == ">=23.0.0"
 
     def test_project_info_with_dual_category_deps(self, uv_project_with_dual_category_deps, settings):
         """Test project with dependencies in multiple categories."""
@@ -762,12 +771,14 @@ class TestVersionConstraintIntegration:
     def test_version_constraint_extracted_from_metadata_requires_dist(
         self, pkg_name: str, expected_constraint: str, settings: Settings
     ):
-        """Test version_defined is read from [package.metadata].requires-dist in a real uv.lock.
+        """Test version_constraint_declared reflects pyproject.toml's own specifier text.
 
         AAA Pattern:
         - Arrange: Point adapter at real testdata project with diverse PEP 440 constraints
         - Act: Call project_info() to parse the real lockfile
-        - Assert: version_defined on each direct dep matches the declared specifier
+        - Assert: version_constraint_declared on each direct dep matches pyproject.toml's declared
+          specifier verbatim, even where uv.lock's own [package.metadata].requires-dist records
+          the semantically-equivalent clauses in a different order (e.g. numpy, jsonschema below).
         """
         # Arrange
         uv_manager = PackageManagerPythonUv(_VERSION_CONSTRAINT_TESTDATA, settings)
@@ -778,7 +789,7 @@ class TestVersionConstraintIntegration:
         # Assert
         dep = project.dependencies.get(pkg_name)
         assert dep is not None, f"{pkg_name!r} not found in project dependencies"
-        assert dep.version_defined == expected_constraint
+        assert dep.version_constraint_declared == expected_constraint
 
 
 # ============================================================================
@@ -861,37 +872,40 @@ def make_update_plan(
 class TestResolveDirectSpecifier:
     """Tests for the static helper that decides sed vs lockfile-only per entry."""
 
-    def test_pin_returns_exact_version(self):
-        entry = make_update_entry("sphinx", "8.0.0", "9.0.4", "~=8.0.0", ConstraintType.NARROWED)
-        assert PackageManagerPythonUv.resolve_direct_specifier(entry, pin_all=True) == "==9.0.4"
-
-    def test_declared_specifier_unchanged(self):
-        entry = make_update_entry("sphinx", "8.0.0", "9.0.4", ">=8.0.0", ConstraintType.DECLARED)
-        assert PackageManagerPythonUv.resolve_direct_specifier(entry, pin_all=False) == ">=8.0.0"
-
-    def test_narrowed_tilde_rewritten(self):
-        entry = make_update_entry("sphinx", "8.0.0", "9.0.4", "~=8.0.0", ConstraintType.NARROWED)
-        assert PackageManagerPythonUv.resolve_direct_specifier(entry, pin_all=False) == "~=9.0.4"
-
-    def test_narrowed_tilde_two_part(self):
-        entry = make_update_entry("sphinx", "8.0", "9.0.4", "~=8.0", ConstraintType.NARROWED)
-        assert PackageManagerPythonUv.resolve_direct_specifier(entry, pin_all=False) == "~=9.0"
-
-    def test_pinned_eq_rewritten(self):
-        entry = make_update_entry("sphinx", "8.0.0", "9.0.4", "==8.0.0", ConstraintType.PINNED)
-        assert PackageManagerPythonUv.resolve_direct_specifier(entry, pin_all=False) == "==9.0.4"
-
-    def test_narrowed_compound_falls_back_to_pin(self):
-        entry = make_update_entry("sphinx", "8.0.0", "9.0.4", ">=8.0,<9.0", ConstraintType.NARROWED)
-        assert PackageManagerPythonUv.resolve_direct_specifier(entry, pin_all=False) == "==9.0.4"
-
-    def test_none_version_defined_declared_stays_none(self):
-        entry = make_update_entry("sphinx", "8.0.0", "9.0.4", None, ConstraintType.DECLARED)
-        assert PackageManagerPythonUv.resolve_direct_specifier(entry, pin_all=False) is None
-
-    def test_forced_returns_exact_version_regardless_of_mode(self):
-        entry = make_update_entry("sphinx", "8.0.0", "9.0.4", ">=8.0.0", ConstraintType.DECLARED, is_forced=True)
-        assert PackageManagerPythonUv.resolve_direct_specifier(entry, pin_all=False) == "==9.0.4"
+    @pytest.mark.parametrize(
+        "declared_specifier,constraint_type,pin_all,is_forced,expected",
+        [
+            ("~=8.0.0", ConstraintType.NARROWED, True, False, "==9.0.4"),
+            (">=8.0.0", ConstraintType.DECLARED, False, False, ">=8.0.0"),
+            ("~=8.0.0", ConstraintType.NARROWED, False, False, "~=9.0.4"),
+            ("~=8.0", ConstraintType.NARROWED, False, False, "~=9.0"),
+            ("==8.0.0", ConstraintType.PINNED, False, False, "==9.0.4"),
+            (">=8.0,<9.0", ConstraintType.NARROWED, False, False, "==9.0.4"),
+            (None, ConstraintType.DECLARED, False, False, None),
+            (">=8.0.0", ConstraintType.DECLARED, False, True, "==9.0.4"),
+        ],
+        ids=[
+            "pin_all_returns_exact_version",
+            "declared_specifier_unchanged",
+            "narrowed_tilde_rewritten",
+            "narrowed_tilde_two_part",
+            "pinned_eq_rewritten",
+            "narrowed_compound_falls_back_to_pin",
+            "none_version_defined_declared_stays_none",
+            "forced_returns_exact_version_regardless_of_mode",
+        ],
+    )
+    def test_resolve_direct_specifier(
+        self,
+        declared_specifier: str | None,
+        constraint_type: ConstraintType,
+        pin_all: bool,
+        is_forced: bool,
+        expected: str | None,
+    ):
+        old = "8.0" if declared_specifier == "~=8.0" else "8.0.0"
+        entry = make_update_entry("sphinx", old, "9.0.4", declared_specifier, constraint_type, is_forced=is_forced)
+        assert PackageManagerPythonUv.resolve_direct_specifier(entry, pin_all=pin_all) == expected
 
 
 # ============================================================================
@@ -931,3 +945,404 @@ class TestUpsertUvOverrideDependencies:
     def test_empty_overrides_returns_content_unchanged(self):
         content = '[project]\nname = "app"\n'
         assert upsert_uv_override_dependencies(content, {}) == content
+
+
+# ============================================================================
+# find_pyproject_direct_specifiers (writer-corruption investigation, item 13)
+# ============================================================================
+
+
+class TestFindPyprojectDirectSpecifiers:
+    """Pure function: locates verbatim dependency strings by normalised-name match."""
+
+    def test_finds_simple_match(self):
+        content = '[project]\ndependencies = ["pydantic==1.10.13", "requests==2.28.1"]\n'
+        assert find_pyproject_direct_specifiers(content, "pydantic") == ["pydantic==1.10.13"]
+
+    def test_does_not_match_a_package_whose_name_is_a_prefix(self):
+        """The regression this whole investigation is about: pydantic is a prefix of
+        pydantic-settings, but they are different packages.
+        """
+        content = '[project]\ndependencies = ["pydantic==1.10.13", "pydantic-settings==2.15.0"]\n'
+        assert find_pyproject_direct_specifiers(content, "pydantic") == ["pydantic==1.10.13"]
+        assert find_pyproject_direct_specifiers(content, "pydantic-settings") == ["pydantic-settings==2.15.0"]
+
+    def test_matches_across_normalised_separators(self):
+        """PyPI treats '-', '_', '.' as equivalent and is case-insensitive."""
+        content = '[project]\ndependencies = ["Pydantic_Settings==2.15.0"]\n'
+        assert find_pyproject_direct_specifiers(content, "pydantic-settings") == ["Pydantic_Settings==2.15.0"]
+
+    def test_finds_matches_in_optional_dependencies_too(self):
+        content = (
+            '[project]\ndependencies = ["pydantic==1.10.13"]\n'
+            '[project.optional-dependencies]\nextra = ["pydantic>=1.9,<2"]\n'
+        )
+        assert find_pyproject_direct_specifiers(content, "pydantic") == ["pydantic==1.10.13", "pydantic>=1.9,<2"]
+
+    def test_package_not_declared_returns_empty(self):
+        content = '[project]\ndependencies = ["requests==2.28.1"]\n'
+        assert find_pyproject_direct_specifiers(content, "pydantic") == []
+
+    def test_invalid_toml_returns_empty_rather_than_raising(self):
+        assert find_pyproject_direct_specifiers("not valid toml [[[", "pydantic") == []
+
+    def test_unparseable_requirement_string_is_skipped(self):
+        content = '[project]\ndependencies = ["not a valid requirement!!!", "pydantic==1.10.13"]\n'
+        assert find_pyproject_direct_specifiers(content, "pydantic") == ["pydantic==1.10.13"]
+
+
+# ============================================================================
+# execute_update's direct-dependency rewrite (writer-corruption investigation)
+# ============================================================================
+
+
+class TestExecuteUpdateDirectRewrite:
+    """execute_update's pyproject.toml rewrite must touch only the intended package's entry.
+
+    Regression coverage for the confirmed writer-corruption bug: updating a package silently
+    destroyed any other declared package whose name it was a string prefix of (pydantic /
+    pydantic-settings, flask / flask-cors, ...), because the old rewrite matched
+    `"{package_name}[^"]*"` - a bare prefix, not a package-name boundary. re.sub then replaced
+    every match, including the unrelated package's line, with the target package's new spec.
+    """
+
+    @staticmethod
+    def _write_project(tmp_path, dependencies_toml: str) -> Path:
+        pyproject_path = tmp_path / "pyproject.toml"
+        pyproject_path.write_text(f'[project]\nname = "demo"\nversion = "0.1.0"\n{dependencies_toml}')
+        return pyproject_path
+
+    @staticmethod
+    def _run_execute_update(tmp_path, settings, package_name, version_defined, recommended_version):
+        pm = PackageManagerPythonUv(project_path=str(tmp_path), settings=settings)
+        entry = UpdateEntry(
+            package_name=package_name,
+            current_version="x",
+            recommended_version=recommended_version,
+            is_direct=True,
+            reason=None,
+            version_defined=version_defined,
+            constraint_type=ConstraintType.PINNED,
+        )
+        plan = UpdatePlan(
+            project_name="demo",
+            project_path=str(tmp_path),
+            registry_type="PYPI",
+            package_manager_name="uv",
+            direct_entries=[entry],
+            transitive_entries=[],
+        )
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0)
+            pm.execute_update(plan)
+
+    def test_updating_pydantic_does_not_corrupt_pydantic_settings(self, tmp_path, settings):
+        """The exact reported corruption: updating pydantic must never touch
+        pydantic-settings's declared version.
+        """
+        pyproject_path = self._write_project(
+            tmp_path,
+            "dependencies = [\n"
+            '    "pydantic==1.10.13",\n'
+            '    "pydantic-settings==2.15.0",\n'
+            '    "requests==2.28.1",\n'
+            "]\n",
+        )
+        self._run_execute_update(tmp_path, settings, "pydantic", "==1.10.13", "1.10.26")
+
+        data = tomllib.loads(pyproject_path.read_text())
+        deps = data["project"]["dependencies"]
+        assert "pydantic==1.10.26" in deps
+        assert "pydantic-settings==2.15.0" in deps
+        assert "requests==2.28.1" in deps
+        assert len(deps) == 3
+
+    def test_updating_pydantic_settings_does_not_touch_pydantic(self, tmp_path, settings):
+        """The reverse direction: the shorter name must not be corrupted either."""
+        pyproject_path = self._write_project(
+            tmp_path, 'dependencies = [\n    "pydantic==1.10.13",\n    "pydantic-settings==2.15.0",\n]\n'
+        )
+        self._run_execute_update(tmp_path, settings, "pydantic-settings", "==2.15.0", "2.16.0")
+
+        data = tomllib.loads(pyproject_path.read_text())
+        deps = data["project"]["dependencies"]
+        assert "pydantic==1.10.13" in deps
+        assert "pydantic-settings==2.16.0" in deps
+
+    @pytest.mark.parametrize(
+        "package_a,package_b",
+        [
+            ("flask", "flask-cors"),
+            ("pytest", "pytest-cov"),
+            ("click", "click-plugins"),
+            ("numpy", "numpydoc"),
+        ],
+    )
+    def test_other_common_prefix_pairs_are_not_corrupted(self, tmp_path, settings, package_a, package_b):
+        pyproject_path = self._write_project(
+            tmp_path, f'dependencies = [\n    "{package_a}==1.0.0",\n    "{package_b}==2.0.0",\n]\n'
+        )
+        self._run_execute_update(tmp_path, settings, package_a, "==1.0.0", "1.1.0")
+
+        data = tomllib.loads(pyproject_path.read_text())
+        deps = data["project"]["dependencies"]
+        assert f"{package_a}==1.1.0" in deps
+        assert f"{package_b}==2.0.0" in deps
+
+    def test_round_trip_only_the_intended_specifier_changes(self, tmp_path, settings):
+        """The plan's own prescribed test: every dependency present before a write is present
+        after it, with only the intended specifier changed.
+        """
+        before_toml = (
+            "dependencies = [\n"
+            '    "pydantic==1.10.13",\n'
+            '    "pydantic-settings==2.15.0",\n'
+            '    "requests==2.28.1",\n'
+            '    "click==8.1.3",\n'
+            "]\n"
+        )
+        pyproject_path = self._write_project(tmp_path, before_toml)
+        before = tomllib.loads(pyproject_path.read_text())["project"]["dependencies"]
+        before_names = {Requirement(d).name for d in before}
+
+        self._run_execute_update(tmp_path, settings, "pydantic", "==1.10.13", "1.10.26")
+
+        after = tomllib.loads(pyproject_path.read_text())["project"]["dependencies"]
+        after_by_name = {Requirement(d).name: d for d in after}
+        after_names = set(after_by_name)
+
+        assert after_names == before_names, "no dependency should appear or disappear"
+        for dep_str in before:
+            req = Requirement(dep_str)
+            if req.name == "pydantic":
+                assert after_by_name[req.name] == "pydantic==1.10.26"
+            else:
+                assert after_by_name[req.name] == dep_str, f"{req.name} must be byte-identical"
+
+    def test_package_declared_in_multiple_sections_is_updated_in_both(self, tmp_path, settings):
+        pyproject_path = self._write_project(
+            tmp_path,
+            'dependencies = ["pydantic==1.10.13"]\n[project.optional-dependencies]\nextra = ["pydantic==1.10.13"]\n',
+        )
+        self._run_execute_update(tmp_path, settings, "pydantic", "==1.10.13", "1.10.26")
+
+        data = tomllib.loads(pyproject_path.read_text())
+        assert data["project"]["dependencies"] == ["pydantic==1.10.26"]
+        assert data["project"]["optional-dependencies"]["extra"] == ["pydantic==1.10.26"]
+
+    def test_no_change_when_specifier_already_matches(self, tmp_path, settings):
+        before_toml = 'dependencies = ["pydantic==1.10.26", "pydantic-settings==2.15.0"]\n'
+        pyproject_path = self._write_project(tmp_path, before_toml)
+        before_content = pyproject_path.read_text()
+
+        self._run_execute_update(tmp_path, settings, "pydantic", "==1.10.26", "1.10.26")
+
+        assert pyproject_path.read_text() == before_content
+
+    def test_multiple_direct_entries_all_rewritten_in_one_pass(self, tmp_path, settings):
+        """execute_update parses pyproject.toml once and buckets every dependency string by
+        name up front, rather than re-parsing once per changed package - this is the scenario
+        that actually exercises more than one entry per plan.
+        """
+        pyproject_path = self._write_project(
+            tmp_path,
+            "dependencies = [\n"
+            '    "pydantic==1.10.13",\n'
+            '    "pydantic-settings==2.15.0",\n'
+            '    "requests==2.28.1",\n'
+            "]\n",
+        )
+        pm = PackageManagerPythonUv(project_path=str(tmp_path), settings=settings)
+        entries = [
+            UpdateEntry(
+                package_name=name,
+                current_version="x",
+                recommended_version=recommended,
+                is_direct=True,
+                reason=None,
+                version_defined=version_defined,
+                constraint_type=ConstraintType.PINNED,
+            )
+            for name, version_defined, recommended in [
+                ("pydantic", "==1.10.13", "1.10.26"),
+                ("pydantic-settings", "==2.15.0", "2.16.0"),
+                ("requests", "==2.28.1", "2.32.0"),
+            ]
+        ]
+        plan = UpdatePlan(
+            project_name="demo",
+            project_path=str(tmp_path),
+            registry_type="PYPI",
+            package_manager_name="uv",
+            direct_entries=entries,
+            transitive_entries=[],
+        )
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0)
+            pm.execute_update(plan)
+
+        deps = tomllib.loads(pyproject_path.read_text())["project"]["dependencies"]
+        assert set(deps) == {"pydantic==1.10.26", "pydantic-settings==2.16.0", "requests==2.32.0"}
+
+    def test_invalid_manifest_raises_instead_of_silently_skipping_updates(self, tmp_path, settings):
+        """A pyproject.toml that fails to parse must fail the whole update loudly - not degrade
+        into silently rewriting nothing for every package, which is what happened when the
+        per-package lookup re-parsed the document on each loop iteration and swallowed
+        TOMLDecodeError by returning [].
+        """
+        pyproject_path = tmp_path / "pyproject.toml"
+        pyproject_path.write_text("not valid toml [[[")
+        pm = PackageManagerPythonUv(project_path=str(tmp_path), settings=settings)
+        plan = UpdatePlan(
+            project_name="demo",
+            project_path=str(tmp_path),
+            registry_type="PYPI",
+            package_manager_name="uv",
+            direct_entries=[
+                UpdateEntry(
+                    package_name="pydantic",
+                    current_version="x",
+                    recommended_version="1.10.26",
+                    is_direct=True,
+                    reason=None,
+                    version_defined="==1.10.13",
+                    constraint_type=ConstraintType.PINNED,
+                )
+            ],
+            transitive_entries=[],
+        )
+        with pytest.raises(PackageManagerExecutionError):
+            pm.execute_update(plan)
+
+    def test_restores_original_on_subprocess_failure(self, tmp_path, settings):
+        """The npm-side equivalent (test_restores_original_on_install_failure) already covers
+        this; uv's execute_update had no equivalent rollback test at all."""
+        pyproject_path = self._write_project(tmp_path, 'dependencies = [\n    "pydantic==1.10.13",\n]\n')
+        original_content = pyproject_path.read_text()
+
+        pm = PackageManagerPythonUv(project_path=str(tmp_path), settings=settings)
+        entry = UpdateEntry(
+            package_name="pydantic",
+            current_version="x",
+            recommended_version="1.10.26",
+            is_direct=True,
+            reason=None,
+            version_defined="==1.10.13",
+            constraint_type=ConstraintType.PINNED,
+        )
+        plan = UpdatePlan(
+            project_name="demo",
+            project_path=str(tmp_path),
+            registry_type="PYPI",
+            package_manager_name="uv",
+            direct_entries=[entry],
+            transitive_entries=[],
+        )
+        failure = subprocess.CalledProcessError(1, ["uv", "lock"])
+        with patch("subprocess.run", side_effect=failure):
+            with pytest.raises(PackageManagerExecutionError):
+                pm.execute_update(plan)
+
+        assert pyproject_path.read_text() == original_content
+
+
+class TestInstallPackage:
+    """Tests for install_package() — runs `uv add <spec>`, which edits pyproject.toml itself."""
+
+    def test_returns_zero_on_success(self, tmp_path, settings):
+        (tmp_path / "pyproject.toml").write_text('[project]\nname = "demo"\nversion = "0.1.0"\n')
+        pm = PackageManagerPythonUv(project_path=str(tmp_path), settings=settings)
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0)
+            result = pm.install_package("requests", "2.31.0")
+        assert result == 0
+        assert mock_run.call_args[0][0] == ["uv", "add", "requests==2.31.0"]
+
+    def test_restores_original_on_install_failure(self, tmp_path, settings):
+        pyproject_path = tmp_path / "pyproject.toml"
+        pyproject_path.write_text('[project]\nname = "demo"\nversion = "0.1.0"\n')
+        original_content = pyproject_path.read_text()
+
+        pm = PackageManagerPythonUv(project_path=str(tmp_path), settings=settings)
+        failure = subprocess.CalledProcessError(1, ["uv", "add"])
+        with patch("subprocess.run", side_effect=failure):
+            with pytest.raises(PackageManagerExecutionError):
+                pm.install_package("requests", "2.31.0")
+
+        assert pyproject_path.read_text() == original_content
+
+
+class TestOssiqMetadataOwnershipUv:
+    """Tests for ossiq:metadata override ownership (item #14) on the uv/pyproject.toml adapter:
+    execute_update records what it wrote to [tool.ossiq.metadata], project_info() compares
+    against it to tell OSS IQ-authored overrides apart from user-authored ones, and a later
+    execute_update never clobbers a user's hand-edit."""
+
+    def test_write_then_read_reports_ossiq_authored(self, uv_project_with_lockfile, settings):
+        pm = PackageManagerPythonUv(uv_project_with_lockfile, settings)
+        plan = make_update_plan(
+            transitive=[make_update_entry("urllib3", "2.0.4", "2.0.7", is_direct=False, is_forced=True)],
+            project_path=uv_project_with_lockfile,
+        )
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0)
+            pm.execute_update(plan)
+
+        pyproject_path = Path(uv_project_with_lockfile) / "pyproject.toml"
+        data = tomllib.loads(pyproject_path.read_text())
+        assert data["tool"]["uv"]["override-dependencies"] == ["urllib3==2.0.7"]
+        assert data["tool"]["ossiq"]["metadata"]["overrides"] == ["urllib3==2.0.7"]
+
+        project = pm.project_info()
+        urllib3 = project.dependency_tree.dependencies["requests"].dependencies.get("urllib3")
+        assert urllib3 is not None
+        assert urllib3.constraint_info.type == ConstraintType.OVERRIDE
+        assert urllib3.constraint_info.is_ossiq_authored is True
+
+    def test_hand_edited_override_is_not_ossiq_authored(self, uv_project_with_lockfile, settings):
+        pm = PackageManagerPythonUv(uv_project_with_lockfile, settings)
+        plan = make_update_plan(
+            transitive=[make_update_entry("urllib3", "2.0.4", "2.0.7", is_direct=False, is_forced=True)],
+            project_path=uv_project_with_lockfile,
+        )
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0)
+            pm.execute_update(plan)
+
+        # Simulate the user hand-editing the override value (only the first occurrence, i.e. the
+        # [tool.uv] entry — [tool.ossiq.metadata]'s record of what we last wrote is untouched).
+        pyproject_path = Path(uv_project_with_lockfile) / "pyproject.toml"
+        edited = pyproject_path.read_text().replace('"urllib3==2.0.7"', '"urllib3==2.0.9"', 1)
+        pyproject_path.write_text(edited)
+
+        project = pm.project_info()
+        urllib3 = project.dependency_tree.dependencies["requests"].dependencies.get("urllib3")
+        assert urllib3 is not None
+        assert urllib3.constraint_info.is_ossiq_authored is False
+
+    def test_second_update_never_clobbers_hand_edited_override(self, uv_project_with_lockfile, settings):
+        pm = PackageManagerPythonUv(uv_project_with_lockfile, settings)
+        plan = make_update_plan(
+            transitive=[make_update_entry("urllib3", "2.0.4", "2.0.7", is_direct=False, is_forced=True)],
+            project_path=uv_project_with_lockfile,
+        )
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0)
+            pm.execute_update(plan)
+
+        # User hand-edits the override to a value OSS IQ never wrote.
+        pyproject_path = Path(uv_project_with_lockfile) / "pyproject.toml"
+        edited = pyproject_path.read_text().replace('"urllib3==2.0.7"', '"urllib3==2.0.9"', 1)
+        pyproject_path.write_text(edited)
+
+        # A second run recommends yet another version for the same package.
+        plan2 = make_update_plan(
+            transitive=[make_update_entry("urllib3", "2.0.4", "2.0.11", is_direct=False, is_forced=True)],
+            project_path=uv_project_with_lockfile,
+        )
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0)
+            pm.execute_update(plan2)
+
+        data = tomllib.loads(pyproject_path.read_text())
+        assert data["tool"]["uv"]["override-dependencies"] == ["urllib3==2.0.9"]

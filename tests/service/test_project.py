@@ -7,6 +7,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from ossiq.adapters.api_pypi import PackageRegistryApiPypi
 from ossiq.domain.common import ConstraintType, CveDatabase, ProjectPackagesRegistry
 from ossiq.domain.cve import CVE, Severity
 from ossiq.domain.package import Package
@@ -17,6 +18,7 @@ from ossiq.service.project.models import DependencyDescriptor, ScanRecord
 from ossiq.service.project.prefetch import build_ignored_packages, get_package_versions_since, partition_git_hosted
 from ossiq.service.project.records import calculate_version_age_days, scan_record, scan_sort_key
 from ossiq.service.project.scan import direct_descriptor
+from ossiq.settings import Settings
 
 # ============================================================================
 # Module-level constants
@@ -24,6 +26,20 @@ from ossiq.service.project.scan import direct_descriptor
 
 _PRERELEASE_VERSION = "1.0.0b1"
 _STABLE_VERSION = "1.0.0"
+
+# Real PEP 440 semantics (the constructor does no I/O) for the ladder tests below, where a
+# MagicMock registry would make latest_in_range a mock attribute rather than a version.
+_REAL_PYPI = PackageRegistryApiPypi(Settings())
+_LADDER_VERSIONS = [
+    PackageVersion(
+        version=version,
+        license="Apache-2.0",
+        package_url=f"https://pypi.org/project/requests/{version}/",
+        declared_dependencies={},
+        published_date_iso="2023-05-22T00:00:00",
+    )
+    for version in ("2.31.0", "2.32.0")
+]
 
 _prerelease_pv = PackageVersion(
     version=_PRERELEASE_VERSION,
@@ -182,6 +198,32 @@ class TestScanRecord:
         record = self._make_record(mock_package_registry, mock_package, mock_versions, version_constraint=constraint)
 
         assert record.version_constraint == constraint
+
+    def test_ladder_is_computed_against_the_declaration_not_the_lww_constraint(self, mock_package):
+        """version_constraint is a last-writer-wins accumulator that a transitive consumer can
+        overwrite; the declaration is what authorizes a manifest write. latest_in_range must be
+        computed against the same string service.project.strategy.classify_rung uses, or the rung
+        shown and the rung that gates `ossiq apply` disagree."""
+        record = self._make_record(
+            _REAL_PYPI,
+            mock_package,
+            _LADDER_VERSIONS,
+            version_constraint=">=2.0.0",
+            version_constraint_declared="==2.31.0",
+        )
+
+        assert record.compatibility.latest_in_range == "2.31.0"
+
+    def test_ladder_falls_back_to_the_lww_constraint_without_a_declaration(self, mock_package):
+        record = self._make_record(
+            _REAL_PYPI,
+            mock_package,
+            _LADDER_VERSIONS,
+            version_constraint=">=2.0.0",
+            version_constraint_declared=None,
+        )
+
+        assert record.compatibility.latest_in_range == "2.32.0"
 
     def test_purl_uses_canonical_name_and_registry(self, mock_package_registry, mock_package, mock_versions):
         """PURL is built from the canonical name, not any alias, and reflects the correct registry."""
@@ -434,6 +476,46 @@ class TestCalculateVersionAgeDays:
         result = calculate_version_age_days(versions, "1.0.0")
         assert isinstance(result, int)
         assert result > 0
+
+
+class TestLatestReleaseAgeDays:
+    """scan_record dates the registry's latest release, not just the installed one."""
+
+    def test_records_the_age_of_the_latest_release(self, mock_package_registry, mock_package, mock_versions) -> None:
+        record = scan_record(
+            version_rules=mock_package_registry,
+            package_info=mock_package,
+            package_name="requests",
+            canonical_name="requests",
+            package_version="2.31.0",
+            is_optional_dependency=False,
+            prefetched_cves=set(),
+            prefetched_versions_since=mock_versions,
+            constraint_info=ConstraintSource(type=ConstraintType.DECLARED, source_file="pyproject.toml"),
+            # Naive to match the fixture's published_date_iso values.
+            now=datetime(2024, 6, 8),  # noqa: DTZ001
+        )
+        # The installed 2.31.0 went out in 2023, the latest 2.32.0 on 2024-05-29: the two clocks
+        # the maintenance model needs to tell apart.
+        assert record.version_age_days == 383
+        assert record.latest_release_age_days == 10
+
+    def test_none_when_the_registry_names_no_latest_version(
+        self, mock_package_registry, mock_package, mock_versions
+    ) -> None:
+        mock_package.latest_version = None
+        record = scan_record(
+            version_rules=mock_package_registry,
+            package_info=mock_package,
+            package_name="requests",
+            canonical_name="requests",
+            package_version="2.31.0",
+            is_optional_dependency=False,
+            prefetched_cves=set(),
+            prefetched_versions_since=mock_versions,
+            constraint_info=ConstraintSource(type=ConstraintType.DECLARED, source_file="pyproject.toml"),
+        )
+        assert record.latest_release_age_days is None
 
 
 class TestScanSortKey:

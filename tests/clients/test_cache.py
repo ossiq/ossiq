@@ -5,6 +5,7 @@ Tests for install_requests_cache (ossiq.clients).
 from unittest.mock import patch
 
 import requests
+import requests_cache
 
 from ossiq.clients import install_requests_cache, trim_vary_header
 
@@ -18,6 +19,8 @@ def test_install_requests_cache_sets_stability_url_ttls():
         backend="sqlite",
         expire_after=24 * 3600,
         urls_expire_after={
+            # A replayed quota reading is worse than none, so the pre-flight check never caches.
+            "*/rate_limit*": requests_cache.DO_NOT_CACHE,
             "*/commits*": 168 * 3600,
             "*/graphql*": 168 * 3600,
             "*/readme*": 168 * 3600,

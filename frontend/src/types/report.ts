@@ -6,7 +6,7 @@
  */
 
 /**
- * Schema for OSS-IQ project metrics export data (v1.5 adds epss to PackageMetrics, TransitivePackageMetrics and CVEInfo, runs_code_at_install/install_execution_reason to PackageMetrics and TransitivePackageMetrics, fix_age_days to CVEInfo, project_epss/packages_with_epss/packages_with_unscored_cves to summary, declares update_transitive_impacts, and replaces the phi_i/phi_p/phi_a CSI channels with the maintenance-state model: maintenance_state, maintenance_risk, maintenance_coverage, flow_trend, deprecation_signals and deprecation_successor on PackageMetrics and TransitivePackageMetrics, and packages_unmaintained/packages_deprecated on summary)
+ * Schema for OSS-IQ project metrics export data (v1.5 adds epss to PackageMetrics, TransitivePackageMetrics and CVEInfo, runs_code_at_install/install_execution_reason to PackageMetrics and TransitivePackageMetrics, fix_age_days to CVEInfo, project_epss/packages_with_epss/packages_with_unscored_cves to summary, declares update_transitive_impacts, and replaces the phi_i/phi_p/phi_a CSI channels with the maintenance-state model: maintenance_state, maintenance_risk, maintenance_coverage, flow_trend, engagement_buckets, deprecation_signals and deprecation_successor on PackageMetrics and TransitivePackageMetrics, and packages_unmaintained/packages_deprecated on summary; and adds latest_compatible_major, module_system, recommended_module_system to PackageMetrics and TransitivePackageMetrics, and breaking_change to PackageMetrics; and adds engine_requirement, engine_compatible, engine_context_source to PackageMetrics and TransitivePackageMetrics; and adds metadata.warnings and a scan-level runtime_context block, moving engine_context_source off the per-package models; and adds next_action to PackageMetrics and TransitivePackageMetrics and requires_constraint_widening to PackageMetrics, so every surface reads one next-action label instead of re-deriving it)
  */
 export interface OSSIQExportSchemaV15 {
   /**
@@ -21,6 +21,90 @@ export interface OSSIQExportSchemaV15 {
      * UTC timestamp when the export was generated
      */
     export_timestamp: string;
+    /**
+     * The update-strategy tier this run targeted: security, deprecation, standard, latest, or cutting-edge.
+     */
+    update_strategy?: string | null;
+    /**
+     * B4: per-source data-source status for this scan
+     */
+    data_completeness?: {
+      /**
+       * Worst status across every tracked source
+       */
+      overall?: "ok" | "partial" | "unreachable" | "rate_limited";
+      /**
+       * Per-source status, one entry per scan step that reports completeness
+       */
+      sources?: {
+        step?: string;
+        status?: "ok" | "partial" | "unreachable" | "rate_limited";
+        /**
+         * Causes behind a degraded status, counted by cause; empty when the step was ok
+         */
+        failures?: {
+          reason?: "not_found" | "rate_limited" | "unavailable" | "rejected" | "empty_response" | "aborted" | "unknown";
+          count?: number;
+          [k: string]: unknown;
+        }[];
+        [k: string]: unknown;
+      }[];
+      /**
+       * Quota observed or forecast for each metered API this scan touched
+       */
+      api_budgets?: {
+        /**
+         * The metered resource, as the API names it, e.g. 'core', 'graphql'
+         */
+        resource?: string;
+        /**
+         * Requests allowed per window
+         */
+        limit?: number | null;
+        /**
+         * Requests left in the current window
+         */
+        remaining?: number | null;
+        /**
+         * Epoch seconds at which the window rolls over
+         */
+        reset_at?: number | null;
+        /**
+         * Requests this scan was forecast to need against this resource
+         */
+        needed?: number | null;
+        [k: string]: unknown;
+      }[];
+      [k: string]: unknown;
+    };
+    /**
+     * Non-fatal problems found while assembling the project's sources, e.g. a tree containing more than one package registry
+     */
+    warnings?: string[];
+    [k: string]: unknown;
+  };
+  /**
+   * The runtime this scan checked engine requirements against, stated once for the whole scan
+   */
+  runtime_context?: {
+    /**
+     * Runtime versions every record's engine_compatible was checked against, e.g. {'node': '20.11.0'}
+     */
+    engine_versions?: {
+      [k: string]: string;
+    };
+    /**
+     * Which source populated engine_versions: 'detected' (actually-installed runtime), 'declared' (manifest floor), or 'none'
+     */
+    engine_context_source?: "detected" | "declared" | "none";
+    /**
+     * Detected npm CLI version; display-only, null on PyPI or when not probed
+     */
+    npm_cli_version?: string | null;
+    /**
+     * Whether the project's own manifest declares `"type": "module"` (npm only)
+     */
+    project_declares_esm?: boolean;
     [k: string]: unknown;
   };
   /**
@@ -169,9 +253,13 @@ export interface PackageMetrics {
    */
   dependency_path?: string[] | null;
   /**
-   * Version constraint declared in the project manifest (e.g. '^1.2.3', '>=1.0,<2.0')
+   * Effective version specifier used internally for solver/ladder computation (e.g. '^1.2.3', '>=1.0,<2.0'). Last-writer-wins across every parent that declares a spec for this package - not guaranteed to equal the manifest's own declaration. Use version_constraint_declared for the manifest's declared value.
    */
   version_constraint?: string | null;
+  /**
+   * Version constraint declared by the project manifest itself (e.g. '^1.2.3', '>=1.0,<2.0'). None when this dependency has no direct manifest entry or is unconstrained. This is the value to show as "the declared constraint".
+   */
+  version_constraint_declared?: string | null;
   /**
    * Source code repository URL
    */
@@ -209,6 +297,60 @@ export interface PackageMetrics {
    */
   recommended_version?: string | null;
   /**
+   * Newest installable version satisfying version_constraint; equals installed_version when the declared range admits nothing newer. Null only when undeterminable — e.g. the range is satisfiable only below installed_version (manifest/lockfile divergence).
+   */
+  latest_in_range?: string | null;
+  /**
+   * Newest installable version sharing installed_version's major line (PEP 440 epoch + first release segment on PyPI; semver major on npm); equals installed_version when the major line is exhausted. Null only when undeterminable.
+   */
+  latest_in_major?: string | null;
+  /**
+   * Newest installable version among majors >= installed_version's major that carries no known module-system/API break; diverges from latest_in_major when a clean major sits between installed_version and a known break. Null only when undeterminable.
+   */
+  latest_compatible_major?: string | null;
+  /**
+   * installed_version's own module format: 'esm-only', 'cjs' or 'dual' (npm only; always null on PyPI)
+   */
+  module_system?: string | null;
+  /**
+   * recommended_version's own module format; null whenever recommended_version is null or PyPI
+   */
+  recommended_module_system?: string | null;
+  /**
+   * Reason recommended_version is flagged as a known module-system/API break, e.g. 'ESM-only from 5.0.0'; null when no known break applies
+   */
+  breaking_change?: string | null;
+  /**
+   * recommended_version's own runtime requirement, e.g. {'node': '>=20.19.0'}; null when recommended_version is null or declares no engine requirement
+   */
+  engine_requirement?: {
+    [k: string]: string;
+  } | null;
+  /**
+   * False when engine_requirement conflicts with the scan's engine_context; null = no evidence either way (no requirement, or no engine_context to compare against)
+   */
+  engine_compatible?: boolean | null;
+  /**
+   * Which version-ladder rung recommended_version came from: 'solver' or 'in_range' sit inside version_constraint and are safe to write as-is; 'in_major' or 'latest' require widening version_constraint first. Null only when recommended_version is null.
+   */
+  recommended_from_rung?: "solver" | "in_range" | "in_major" | "latest" | null;
+  /**
+   * True when recommended_version is only reachable by widening version_constraint first - i.e. recommended_from_rung is 'in_major' or 'latest'. `ossiq apply` writes nothing for these; `ossiq plan` reports them under constraint widening instead.
+   */
+  requires_constraint_widening?: boolean;
+  /**
+   * The single next action for this package, exactly as the CLI's What's Next column and the HTML report show it; null when nothing is due. The agent payload's next_action applies two further escalations on top of this label and can therefore differ.
+   */
+  next_action?:
+    | "Check for the Fix"
+    | "Find alternative"
+    | "Consider alternative"
+    | "Check Release Notes"
+    | "Update Immediately"
+    | "Constrained. Check newer version"
+    | "Withheld by strategy"
+    | null;
+  /**
    * Whether the installed version is a pre-release (alpha/beta/rc/dev)
    */
   is_prerelease: boolean;
@@ -228,6 +370,10 @@ export interface PackageMetrics {
    * Transitive dependency impacts projected from the recommended update
    */
   update_transitive_impacts?: TransitiveImpactExport[];
+  /**
+   * Releases that would have been the recommendation but were held back by a transitive-dependency conflict; capped at one per ladder rung (newest rejected at in_range/in_major/latest)
+   */
+  rejected_candidates?: RejectedCandidateExport[];
   /**
    * Highest EPSS score among this package's CVEs
    */
@@ -256,6 +402,10 @@ export interface PackageMetrics {
    * Direction of the issue/PR flow ratio over the engagement window
    */
   flow_trend?: "improving" | "stable" | "declining" | null;
+  /**
+   * Raw flow buckets behind flow_trend, oldest ~30-day bucket first: one [issues_opened, issues_closed, prs_opened, prs_merged] row per bucket
+   */
+  engagement_buckets?: [number, number, number, number][] | null;
   /**
    * Explicit end-of-life markers found for the package
    */
@@ -300,6 +450,10 @@ export interface PackageMetrics {
    * Recommended action from the EPSS x maintenance matrix
    */
   triage_action?: "evict" | "patch" | "refactor" | "retain" | null;
+  /**
+   * The update-strategy selector's verdict for this package; null when it never ran
+   */
+  strategy?: StrategySelectionExport | null;
   [k: string]: unknown;
 }
 /**
@@ -391,6 +545,42 @@ export interface TransitiveImpactExport {
   [k: string]: unknown;
 }
 /**
+ * A release that would otherwise have been the recommendation, held back by a conflict
+ */
+export interface RejectedCandidateExport {
+  /**
+   * The rejected release's version
+   */
+  version: string;
+  /**
+   * Human-readable explanation of why this release was held back
+   */
+  reason: string;
+  [k: string]: unknown;
+}
+/**
+ * The update-strategy selector's verdict for one package
+ */
+export interface StrategySelectionExport {
+  /**
+   * Motives admitted at the run's update-strategy tier for this package: exploitable_cve, suppressed_cve, end_of_life, drift. Empty when nothing was admitted
+   */
+  motives?: string[];
+  /**
+   * Set only when no motive was admitted at the run's tier — names the lowest tier that would move this package
+   */
+  withheld_reason?: string | null;
+  /**
+   * Whether recommended_version sits outside version_constraint under the run's strategy
+   */
+  requires_widening?: boolean;
+  /**
+   * Set when the strategy reached past its tier's base ceiling, or every reachable version still carries a qualifying CVE
+   */
+  escalation?: string | null;
+  [k: string]: unknown;
+}
+/**
  * Metrics for a transitive package, deduplicated by (package_name, installed_version); path and constraint data lives in dependency_tree
  */
 export interface TransitivePackageMetrics {
@@ -413,11 +603,57 @@ export interface TransitivePackageMetrics {
   /**
    * Latest available version
    */
-  latest_version: string | null;
+  latest_version?: string | null;
+  /**
+   * Newest installable version satisfying version_constraint; equals installed_version when the declared range admits nothing newer. Null only when undeterminable — e.g. the range is satisfiable only below installed_version (manifest/lockfile divergence).
+   */
+  latest_in_range?: string | null;
+  /**
+   * Newest installable version sharing installed_version's major line (PEP 440 epoch + first release segment on PyPI; semver major on npm); equals installed_version when the major line is exhausted. Null only when undeterminable.
+   */
+  latest_in_major?: string | null;
+  /**
+   * Newest installable version among majors >= installed_version's major that carries no known module-system/API break; diverges from latest_in_major when a clean major sits between installed_version and a known break. Null only when undeterminable.
+   */
+  latest_compatible_major?: string | null;
+  /**
+   * installed_version's own module format: 'esm-only', 'cjs' or 'dual' (npm only; always null on PyPI)
+   */
+  module_system?: string | null;
+  /**
+   * recommended_version's own module format; null whenever recommended_version is null or PyPI
+   */
+  recommended_module_system?: string | null;
+  /**
+   * recommended_version's own runtime requirement, e.g. {'node': '>=20.19.0'}; null when recommended_version is null or declares no engine requirement
+   */
+  engine_requirement?: {
+    [k: string]: string;
+  } | null;
+  /**
+   * False when engine_requirement conflicts with the scan's engine_context; null = no evidence either way (no requirement, or no engine_context to compare against)
+   */
+  engine_compatible?: boolean | null;
+  /**
+   * The single next action for this package, exactly as the CLI's What's Next column and the HTML report show it; absent when nothing is due. The agent payload's next_action applies two further escalations on top of this label and can therefore differ.
+   */
+  next_action?:
+    | "Check for the Fix"
+    | "Find alternative"
+    | "Consider alternative"
+    | "Check Release Notes"
+    | "Update Immediately"
+    | "Constrained. Check newer version"
+    | "Withheld by strategy"
+    | null;
+  /**
+   * Releases that would have been the recommendation but were held back by a requires-consistency conflict; capped at one per ladder rung
+   */
+  rejected_candidates?: RejectedCandidateExport[];
   /**
    * Days between installed and latest version
    */
-  time_lag_days: number | null;
+  time_lag_days?: number | null;
   /**
    * Days since the installed version was published to the registry
    */
@@ -425,7 +661,7 @@ export interface TransitivePackageMetrics {
   /**
    * Number of releases between installed and latest
    */
-  releases_lag: number | null;
+  releases_lag?: number | null;
   /**
    * Known CVEs for this package (absent when empty)
    */
@@ -498,6 +734,10 @@ export interface TransitivePackageMetrics {
    * Direction of the issue/PR flow ratio over the engagement window
    */
   flow_trend?: "improving" | "stable" | "declining" | null;
+  /**
+   * Raw flow buckets behind flow_trend, oldest ~30-day bucket first: one [issues_opened, issues_closed, prs_opened, prs_merged] row per bucket
+   */
+  engagement_buckets?: [number, number, number, number][] | null;
   /**
    * Explicit end-of-life markers found for the package
    */

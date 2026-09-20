@@ -2,6 +2,7 @@
 
 from rich.table import Table
 
+from ossiq.domain.common import RejectionDetail
 from ossiq.domain.version import (
     VERSION_DIFF_BUILD,
     VERSION_DIFF_MAJOR,
@@ -21,6 +22,8 @@ from ossiq.service.project.next_action import (
     CONSTRAINED_CHECK_NEWER,
     FIND_ALTERNATIVE,
     UPDATE_IMMEDIATELY,
+    WAIT_FOR_COOLDOWN,
+    WITHHELD_BY_STRATEGY,
     next_action_label,
 )
 from ossiq.service.update_impact import TransitiveImpact
@@ -109,14 +112,58 @@ WHATS_NEXT_STYLE: dict[str, str] = {
     CONSIDER_ALTERNATIVE: "bold yellow",
     CHECK_RELEASE_NOTES: "default",
     UPDATE_IMMEDIATELY: "default",
+    # Dim for the same reason as WITHHELD_BY_STRATEGY: nothing is wrong with the package, there is
+    # simply nothing to do about it yet.
+    WAIT_FOR_COOLDOWN: "dim",
     CONSTRAINED_CHECK_NEWER: "yellow",
+    # Dim, not yellow: nothing is wrong with the package, this run just did not ask for it.
+    WITHHELD_BY_STRATEGY: "dim",
 }
 
 
-def whats_next(record: ScanRecord) -> str:
-    """The package's next action (service.project.next_action) styled by urgency; empty when none."""
+WHATS_NEXT_SHORT: dict[str, str] = {CONSTRAINED_CHECK_NEWER: "Constrained"}
+"""Console-only abbreviations for labels too wide for a narrow terminal. Presentation, not
+contract: the canonical label is what next_action_label returns and what every machine-readable
+surface carries. Keyed by the canonical label, so no style entry is ever needed twice."""
+
+
+def whats_next(record: ScanRecord, *, short: bool = False) -> str:
+    """The package's next action (service.project.next_action) styled by urgency; empty when none.
+
+    Args:
+        record: The package to describe.
+        short: Use the abbreviated wording where one exists, for consoles too narrow to fit the
+            full label on one line.
+
+    Returns:
+        The label with Rich markup, or an empty string when nothing is due.
+    """
     label = next_action_label(record)
-    return "" if label is None else f"[{WHATS_NEXT_STYLE[label]}]{label}[/]"
+    if label is None:
+        return ""
+    text = WHATS_NEXT_SHORT.get(label, label) if short else label
+    return f"[{WHATS_NEXT_STYLE[label]}]{text}[/]"
+
+
+REJECTION_DETAIL_LIMIT = 5
+"""How many specs a table cell shows before it starts counting. Five fits the narrowest console
+the status table supports; the rest is a number, not an omission — the export, the agent output
+and `ossiq info` all print RejectedCandidate.full_reason in full."""
+
+
+def format_rejection_detail(detail: RejectionDetail, limit: int = REJECTION_DETAIL_LIMIT) -> str:
+    """Render a spec list short enough for a table cell.
+
+    Args:
+        detail: The label and specs behind a rejection.
+        limit: How many specs to show before summarising the remainder.
+
+    Returns:
+        `no version satisfies: a, b, c, d, e (+7 more)`, or the whole list when it fits.
+    """
+    shown = ", ".join(detail.items[:limit])
+    hidden = len(detail.items) - limit
+    return f"{detail.label}: {shown}" + (f" (+{hidden} more)" if hidden > 0 else "")
 
 
 def impact_sub_row_texts(impacts: list[TransitiveImpact]) -> list[str]:
@@ -133,7 +180,8 @@ def impact_sub_row_texts(impacts: list[TransitiveImpact]) -> list[str]:
     show_detail = (len(impacts) - len(new_deps)) <= 3
 
     for impact in conflicts:
-        rows.append(f"[yellow]  ↳ ⚠ {impact.package_name}: {impact.conflict_detail or 'conflict'}[/yellow]")
+        summary = format_rejection_detail(impact.conflict) if impact.conflict else "conflict"
+        rows.append(f"[yellow]  ↳ ⚠ {impact.package_name}: {summary}[/yellow]")
 
     if show_detail:
         for impact in normal:

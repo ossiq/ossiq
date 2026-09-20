@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from unittest.mock import MagicMock
 
-from ossiq.domain.common import ConstraintType
+from ossiq.domain.common import ConstraintType, RejectionDetail
 from ossiq.domain.project import ConstraintSource
 from ossiq.domain.version import PackageVersion, VersionsDifference
 from ossiq.service.project.models import ScanRecord
@@ -207,6 +207,19 @@ class TestAssessTransitiveImpact:
         assert result.conflict_detail is not None
         assert "<2.0" in result.conflict_detail
         assert ">=2.0" in result.conflict_detail
+
+    def test_repeated_parent_specs_are_listed_once(self):
+        # all_constraints carries one entry per parent, so a widely-shared dep repeated the same
+        # spec a dozen times and the rendered explanation became a wall of identical versions.
+        record = make_scan_record("urllib3", "1.26.18", all_constraints=["<2.0", "<2.0", "<2.0", "<1.9"])
+        transitive_by_name = {"urllib3": record}
+        registry = make_registry(versions_by_name={"urllib3": [pv("2.2.0"), pv("1.26.18")]})
+
+        result = assess_transitive_impact("urllib3", ">=2.0", "requests", transitive_by_name, registry)
+
+        assert result is not None
+        assert result.conflict is not None
+        assert result.conflict.items == ("<2.0", "<1.9", ">=2.0")
 
     def test_projected_version_violates_other_parent_constraint(self):
         # Parent A requires <3.0, parent B (new) requires >=2.0.
@@ -536,7 +549,7 @@ def make_transitive_impact(*, has_conflict: bool) -> TransitiveImpact:
         new_constraint=">=2.0",
         driven_by="requests",
         has_conflict=has_conflict,
-        conflict_detail="conflict" if has_conflict else None,
+        conflict=RejectionDetail("conflict", ()) if has_conflict else None,
     )
 
 

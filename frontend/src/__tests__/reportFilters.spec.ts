@@ -1,6 +1,8 @@
-import { describe, it, expect } from 'vitest'
-import { computeWhatsNext, isActionable, type ReportRow } from '../composables/useReportFilters'
-import type { PackageMetrics } from '../types/report'
+import { describe, it, expect, beforeEach } from 'vitest'
+import { createPinia, setActivePinia } from 'pinia'
+import { isActionable, useReportFilters, type ReportRow } from '../composables/useReportFilters'
+import { useOssiqStore } from '../stores/ossiq'
+import type { OSSIQExportSchemaV15, PackageMetrics } from '../types/report'
 
 function row(over: Partial<PackageMetrics>, rowOver: Partial<ReportRow> = {}): ReportRow {
   const pkg = {
@@ -34,74 +36,60 @@ function row(over: Partial<PackageMetrics>, rowOver: Partial<ReportRow> = {}): R
   }
 }
 
-type WhatsNextOpts = Parameters<typeof computeWhatsNext>[0]
-
-// Unconstrained package with an in-range bump available, so drift advice defaults to the
-// straightforward "Update Immediately" and each test overrides only what it is about.
-function nextFor(over: Partial<WhatsNextOpts>): ReturnType<typeof computeWhatsNext> {
-  return computeWhatsNext({
-    driftStatus: 'LATEST',
-    cveCount: 0,
-    epss: null,
-    maintenanceState: null,
-    installedVersion: '1.0.0',
-    recommendedVersion: '1.1.0',
-    versionConstraint: null,
-    ...over,
-  })
+function reportWith(pkg: Partial<PackageMetrics>): OSSIQExportSchemaV15 {
+  return {
+    project: { name: 'demo', registry: 'npm' },
+    production_packages: [
+      {
+        package_name: 'demo',
+        installed_version: '1.0.0',
+        latest_version: '1.9.0',
+        cve: [],
+        is_optional_dependency: false,
+        is_prerelease: false,
+        is_yanked: false,
+        is_deprecated: false,
+        is_package_unpublished: false,
+        ...pkg,
+      },
+    ],
+    development_packages: [],
+    transitive_packages: [],
+    dependency_tree: [],
+  } as unknown as OSSIQExportSchemaV15
 }
 
-describe('computeWhatsNext', () => {
-  it('flags an exploitable CVE ahead of everything else', () => {
-    expect(
-      nextFor({ driftStatus: 'DIFF_MINOR', cveCount: 1, epss: 0.2, maintenanceState: 'winding_down' }),
-    ).toBe('Check for the Fix')
+describe("the report's What's Next column", () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
   })
 
-  it('falls through a low-EPSS CVE to the version-drift advice', () => {
-    expect(nextFor({ driftStatus: 'DIFF_MINOR', cveCount: 1, epss: 0.05 })).toBe('Update Immediately')
+  it('shows the label the scan decided, not one re-derived here', () => {
+    useOssiqStore().setReport(reportWith({ next_action: 'Check Release Notes' }))
+    expect(useReportFilters().sortedRows.value[0].whatsNext).toBe('Check Release Notes')
   })
 
-  it('says find an alternative for a current but dead package', () => {
-    expect(nextFor({ driftStatus: 'LATEST', maintenanceState: 'deprecated' })).toBe('Find alternative')
-  })
-
-  it('says consider an alternative for a winding-down upstream', () => {
-    expect(nextFor({ driftStatus: 'DIFF_MINOR', maintenanceState: 'winding_down' })).toBe(
-      'Consider alternative',
+  it('says constrained for a recommendation that needs the declared range widened', () => {
+    // The regression this field exists for: a hand-written copy of the CLI's rules lived here and
+    // had no notion of ladder rungs, so it called this one "Update Immediately" — naming a target
+    // the reader cannot apply without editing the manifest first.
+    useOssiqStore().setReport(
+      reportWith({
+        next_action: 'Constrained. Check newer version',
+        recommended_version: '1.9.0',
+        recommended_from_rung: 'in_major',
+        requires_constraint_widening: true,
+        version_constraint_declared: '~1.0.0',
+      }),
     )
+    expect(useReportFilters().sortedRows.value[0].whatsNext).toBe('Constrained. Check newer version')
   })
 
-  it('points to the release notes for a major bump', () => {
-    expect(nextFor({ driftStatus: 'DIFF_MAJOR' })).toBe('Check Release Notes')
-  })
-
-  it('returns null for a clean, current package', () => {
-    expect(nextFor({ driftStatus: 'LATEST', maintenanceState: 'maintained' })).toBeNull()
-  })
-
-  it('says constrained when the recommendation is pinned to the installed version', () => {
-    expect(
-      nextFor({ driftStatus: 'DIFF_MINOR', recommendedVersion: '1.0.0', versionConstraint: '~1.0.0' }),
-    ).toBe('Constrained. Check newer version')
-  })
-
-  it('says constrained when a declared range left the solver with no recommendation', () => {
-    expect(
-      nextFor({ driftStatus: 'DIFF_MINOR', recommendedVersion: null, versionConstraint: '~1.0.0' }),
-    ).toBe('Constrained. Check newer version')
-  })
-
-  it('keeps update-immediately when nothing is constraining the package', () => {
-    expect(nextFor({ driftStatus: 'DIFF_MINOR', recommendedVersion: null, versionConstraint: null })).toBe(
-      'Update Immediately',
-    )
-  })
-
-  it('still reads the release notes for a major bump the range blocks', () => {
-    expect(
-      nextFor({ driftStatus: 'DIFF_MAJOR', recommendedVersion: '1.0.0', versionConstraint: '~1.0.0' }),
-    ).toBe('Check Release Notes')
+  it('leaves the column empty when nothing is due', () => {
+    useOssiqStore().setReport(reportWith({ latest_version: '1.0.0', next_action: null }))
+    const filters = useReportFilters()
+    filters.showAll.value = true
+    expect(filters.sortedRows.value[0].whatsNext).toBeNull()
   })
 })
 

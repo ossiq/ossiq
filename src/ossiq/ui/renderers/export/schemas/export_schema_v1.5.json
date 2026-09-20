@@ -2,7 +2,7 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://ossiq.org/schemas/export/v1.5.json",
   "title": "OSS-IQ Export Schema v1.5",
-  "description": "Schema for OSS-IQ project metrics export data (v1.5 adds epss to PackageMetrics, TransitivePackageMetrics and CVEInfo, runs_code_at_install/install_execution_reason to PackageMetrics and TransitivePackageMetrics, fix_age_days to CVEInfo, project_epss/packages_with_epss/packages_with_unscored_cves to summary, declares update_transitive_impacts, and replaces the phi_i/phi_p/phi_a CSI channels with the maintenance-state model: maintenance_state, maintenance_risk, maintenance_coverage, flow_trend, engagement_buckets, deprecation_signals and deprecation_successor on PackageMetrics and TransitivePackageMetrics, and packages_unmaintained/packages_deprecated on summary)",
+  "description": "Schema for OSS-IQ project metrics export data (v1.5 adds epss to PackageMetrics, TransitivePackageMetrics and CVEInfo, runs_code_at_install/install_execution_reason to PackageMetrics and TransitivePackageMetrics, fix_age_days to CVEInfo, project_epss/packages_with_epss/packages_with_unscored_cves to summary, declares update_transitive_impacts, and replaces the phi_i/phi_p/phi_a CSI channels with the maintenance-state model: maintenance_state, maintenance_risk, maintenance_coverage, flow_trend, engagement_buckets, deprecation_signals and deprecation_successor on PackageMetrics and TransitivePackageMetrics, and packages_unmaintained/packages_deprecated on summary; and adds latest_compatible_major, module_system, recommended_module_system to PackageMetrics and TransitivePackageMetrics, and breaking_change to PackageMetrics; and adds engine_requirement, engine_compatible, engine_context_source to PackageMetrics and TransitivePackageMetrics; and adds metadata.warnings and a scan-level runtime_context block, moving engine_context_source off the per-package models; and adds next_action to PackageMetrics and TransitivePackageMetrics and requires_constraint_widening to PackageMetrics, so every surface reads one next-action label instead of re-deriving it)",
   "type": "object",
   "required": [
     "metadata",
@@ -32,6 +32,155 @@
           "type": "string",
           "format": "date-time",
           "description": "UTC timestamp when the export was generated"
+        },
+        "update_strategy": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The update-strategy tier this run targeted: security, deprecation, standard, latest, or cutting-edge."
+        },
+        "data_completeness": {
+          "type": "object",
+          "description": "B4: per-source data-source status for this scan",
+          "properties": {
+            "overall": {
+              "type": "string",
+              "enum": [
+                "ok",
+                "partial",
+                "unreachable",
+                "rate_limited"
+              ],
+              "description": "Worst status across every tracked source"
+            },
+            "sources": {
+              "type": "array",
+              "description": "Per-source status, one entry per scan step that reports completeness",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "step": {
+                    "type": "string"
+                  },
+                  "status": {
+                    "type": "string",
+                    "enum": [
+                      "ok",
+                      "partial",
+                      "unreachable",
+                      "rate_limited"
+                    ]
+                  },
+                  "failures": {
+                    "type": "array",
+                    "description": "Causes behind a degraded status, counted by cause; empty when the step was ok",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "reason": {
+                          "type": "string",
+                          "enum": [
+                            "not_found",
+                            "rate_limited",
+                            "unavailable",
+                            "rejected",
+                            "empty_response",
+                            "aborted",
+                            "unknown"
+                          ]
+                        },
+                        "count": {
+                          "type": "integer"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "api_budgets": {
+              "type": "array",
+              "description": "Quota observed or forecast for each metered API this scan touched",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "resource": {
+                    "type": "string",
+                    "description": "The metered resource, as the API names it, e.g. 'core', 'graphql'"
+                  },
+                  "limit": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ],
+                    "description": "Requests allowed per window"
+                  },
+                  "remaining": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ],
+                    "description": "Requests left in the current window"
+                  },
+                  "reset_at": {
+                    "type": [
+                      "number",
+                      "null"
+                    ],
+                    "description": "Epoch seconds at which the window rolls over"
+                  },
+                  "needed": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ],
+                    "description": "Requests this scan was forecast to need against this resource"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "warnings": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Non-fatal problems found while assembling the project's sources, e.g. a tree containing more than one package registry"
+        }
+      }
+    },
+    "runtime_context": {
+      "type": "object",
+      "description": "The runtime this scan checked engine requirements against, stated once for the whole scan",
+      "properties": {
+        "engine_versions": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Runtime versions every record's engine_compatible was checked against, e.g. {'node': '20.11.0'}"
+        },
+        "engine_context_source": {
+          "type": "string",
+          "enum": [
+            "detected",
+            "declared",
+            "none"
+          ],
+          "description": "Which source populated engine_versions: 'detected' (actually-installed runtime), 'declared' (manifest floor), or 'none'"
+        },
+        "npm_cli_version": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Detected npm CLI version; display-only, null on PyPI or when not probed"
+        },
+        "project_declares_esm": {
+          "type": "boolean",
+          "description": "Whether the project's own manifest declares `\"type\": \"module\"` (npm only)"
         }
       }
     },
@@ -283,6 +432,82 @@
           ],
           "description": "Latest available version"
         },
+        "latest_in_range": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Newest installable version satisfying version_constraint; equals installed_version when the declared range admits nothing newer. Null only when undeterminable \u2014 e.g. the range is satisfiable only below installed_version (manifest/lockfile divergence)."
+        },
+        "latest_in_major": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Newest installable version sharing installed_version's major line (PEP 440 epoch + first release segment on PyPI; semver major on npm); equals installed_version when the major line is exhausted. Null only when undeterminable."
+        },
+        "latest_compatible_major": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Newest installable version among majors >= installed_version's major that carries no known module-system/API break; diverges from latest_in_major when a clean major sits between installed_version and a known break. Null only when undeterminable."
+        },
+        "module_system": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "installed_version's own module format: 'esm-only', 'cjs' or 'dual' (npm only; always null on PyPI)"
+        },
+        "recommended_module_system": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "recommended_version's own module format; null whenever recommended_version is null or PyPI"
+        },
+        "engine_requirement": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "recommended_version's own runtime requirement, e.g. {'node': '>=20.19.0'}; null when recommended_version is null or declares no engine requirement"
+        },
+        "engine_compatible": {
+          "type": [
+            "boolean",
+            "null"
+          ],
+          "description": "False when engine_requirement conflicts with the scan's engine_context; null = no evidence either way (no requirement, or no engine_context to compare against)"
+        },
+        "next_action": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "Check for the Fix",
+            "Find alternative",
+            "Consider alternative",
+            "Check Release Notes",
+            "Update Immediately",
+            "Constrained. Check newer version",
+            "Withheld by strategy",
+            null
+          ],
+          "description": "The single next action for this package, exactly as the CLI's What's Next column and the HTML report show it; absent when nothing is due. The agent payload's next_action applies two further escalations on top of this label and can therefore differ."
+        },
+        "rejected_candidates": {
+          "type": "array",
+          "description": "Releases that would have been the recommendation but were held back by a requires-consistency conflict; capped at one per ladder rung",
+          "items": {
+            "$ref": "#/$defs/RejectedCandidateExport"
+          }
+        },
         "time_lag_days": {
           "type": [
             "integer",
@@ -451,7 +676,7 @@
             "minItems": 4,
             "maxItems": 4
           },
-          "description": "Raw flow buckets behind flow_trend, oldest ~30-day bucket first: one [issues_opened, issues_closed, prs_opened, prs_merged] row per bucket"
+          "description": "Raw flow buckets behind flow_trend, oldest ~30-day bucket first: one [issues_opened, issues_closed, prs_opened, prs_closed] row per bucket"
         },
         "deprecation_signals": {
           "type": "array",
@@ -634,7 +859,14 @@
             "string",
             "null"
           ],
-          "description": "Version constraint declared in the project manifest (e.g. '^1.2.3', '>=1.0,<2.0')"
+          "description": "Effective version specifier used internally for solver/ladder computation (e.g. '^1.2.3', '>=1.0,<2.0'). Last-writer-wins across every parent that declares a spec for this package - not guaranteed to equal the manifest's own declaration. Use version_constraint_declared for the manifest's declared value."
+        },
+        "version_constraint_declared": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Version constraint declared by the project manifest itself (e.g. '^1.2.3', '>=1.0,<2.0'). None when this dependency has no direct manifest entry or is unconstrained. This is the value to show as \"the declared constraint\"."
         },
         "repo_url": {
           "type": [
@@ -716,6 +948,100 @@
           ],
           "description": "Solver-recommended version; null when the package is already at the optimal version"
         },
+        "latest_in_range": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Newest installable version satisfying version_constraint; equals installed_version when the declared range admits nothing newer. Null only when undeterminable \u2014 e.g. the range is satisfiable only below installed_version (manifest/lockfile divergence)."
+        },
+        "latest_in_major": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Newest installable version sharing installed_version's major line (PEP 440 epoch + first release segment on PyPI; semver major on npm); equals installed_version when the major line is exhausted. Null only when undeterminable."
+        },
+        "latest_compatible_major": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Newest installable version among majors >= installed_version's major that carries no known module-system/API break; diverges from latest_in_major when a clean major sits between installed_version and a known break. Null only when undeterminable."
+        },
+        "module_system": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "installed_version's own module format: 'esm-only', 'cjs' or 'dual' (npm only; always null on PyPI)"
+        },
+        "recommended_module_system": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "recommended_version's own module format; null whenever recommended_version is null or PyPI"
+        },
+        "breaking_change": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Reason recommended_version is flagged as a known module-system/API break, e.g. 'ESM-only from 5.0.0'; null when no known break applies"
+        },
+        "engine_requirement": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "recommended_version's own runtime requirement, e.g. {'node': '>=20.19.0'}; null when recommended_version is null or declares no engine requirement"
+        },
+        "engine_compatible": {
+          "type": [
+            "boolean",
+            "null"
+          ],
+          "description": "False when engine_requirement conflicts with the scan's engine_context; null = no evidence either way (no requirement, or no engine_context to compare against)"
+        },
+        "recommended_from_rung": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "solver",
+            "in_range",
+            "in_major",
+            "latest",
+            null
+          ],
+          "description": "Which version-ladder rung recommended_version came from: 'solver' or 'in_range' sit inside version_constraint and are safe to write as-is; 'in_major' or 'latest' require widening version_constraint first. Null only when recommended_version is null."
+        },
+        "requires_constraint_widening": {
+          "type": "boolean",
+          "description": "True when recommended_version is only reachable by widening version_constraint first - i.e. recommended_from_rung is 'in_major' or 'latest'. `ossiq apply` writes nothing for these; `ossiq plan` reports them under constraint widening instead."
+        },
+        "next_action": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "Check for the Fix",
+            "Find alternative",
+            "Consider alternative",
+            "Check Release Notes",
+            "Update Immediately",
+            "Constrained. Check newer version",
+            "Withheld by strategy",
+            null
+          ],
+          "description": "The single next action for this package, exactly as the CLI's What's Next column and the HTML report show it; null when nothing is due. The agent payload's next_action applies two further escalations on top of this label and can therefore differ."
+        },
         "is_prerelease": {
           "type": "boolean",
           "description": "Whether the installed version is a pre-release (alpha/beta/rc/dev)"
@@ -737,6 +1063,13 @@
           "description": "Transitive dependency impacts projected from the recommended update",
           "items": {
             "$ref": "#/$defs/TransitiveImpactExport"
+          }
+        },
+        "rejected_candidates": {
+          "type": "array",
+          "description": "Releases that would have been the recommendation but were held back by a transitive-dependency conflict; capped at one per ladder rung (newest rejected at in_range/in_major/latest)",
+          "items": {
+            "$ref": "#/$defs/RejectedCandidateExport"
           }
         },
         "epss": {
@@ -818,7 +1151,7 @@
             "minItems": 4,
             "maxItems": 4
           },
-          "description": "Raw flow buckets behind flow_trend, oldest ~30-day bucket first: one [issues_opened, issues_closed, prs_opened, prs_merged] row per bucket"
+          "description": "Raw flow buckets behind flow_trend, oldest ~30-day bucket first: one [issues_opened, issues_closed, prs_opened, prs_closed] row per bucket"
         },
         "deprecation_signals": {
           "type": "array",
@@ -911,6 +1244,48 @@
             null
           ],
           "description": "Recommended action from the EPSS x maintenance matrix"
+        },
+        "strategy": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/StrategySelectionExport"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The update-strategy selector's verdict for this package; null when it never ran"
+        }
+      }
+    },
+    "StrategySelectionExport": {
+      "type": "object",
+      "description": "The update-strategy selector's verdict for one package",
+      "properties": {
+        "motives": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Motives admitted at the run's update-strategy tier for this package: exploitable_cve, suppressed_cve, end_of_life, drift. Empty when nothing was admitted"
+        },
+        "withheld_reason": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Set only when no motive was admitted at the run's tier — names the lowest tier that would move this package"
+        },
+        "requires_widening": {
+          "type": "boolean",
+          "description": "Whether recommended_version sits outside version_constraint under the run's strategy"
+        },
+        "escalation": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Set when the strategy reached past its tier's base ceiling, or every reachable version still carries a qualifying CVE"
         }
       }
     },
@@ -960,6 +1335,24 @@
             "null"
           ],
           "description": "Human-readable conflict description"
+        }
+      }
+    },
+    "RejectedCandidateExport": {
+      "type": "object",
+      "description": "A release that would otherwise have been the recommendation, held back by a conflict",
+      "required": [
+        "version",
+        "reason"
+      ],
+      "properties": {
+        "version": {
+          "type": "string",
+          "description": "The rejected release's version"
+        },
+        "reason": {
+          "type": "string",
+          "description": "Human-readable explanation of why this release was held back"
         }
       }
     },
