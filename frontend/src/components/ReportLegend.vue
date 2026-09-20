@@ -104,7 +104,9 @@ import { constraintCircleClasses } from '@/explorer/nodeStyle'
               abandoned or deprecated. <span class="text-amber-600 font-bold">Consider alternative</span>: the
               upstream is winding down. <span class="font-bold">Check Release Notes</span>: a major version behind.
               <span class="font-bold">Update Immediately</span>: a minor or patch behind, with a newer version
-              inside the declared range. <span class="text-amber-600 font-bold">Constrained. Check newer
+              inside the declared range. <span class="text-slate-400 font-bold">Wait for cooldown</span>: a newer
+              version exists, but every version you could move to is younger than the cooldown period — there is
+              nothing safe to take yet. <span class="text-amber-600 font-bold">Constrained. Check newer
               version</span>: a minor or patch behind, but the declared range admits no bump — widening it is the
               real next step. <span class="text-slate-400 font-bold">Withheld by strategy</span>: a bump is
               available, but the update strategy this scan ran under admitted no reason to take it.

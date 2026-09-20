@@ -1,6 +1,6 @@
 """Tests for the shared next-action ladder (service.project.next_action)."""
 
-from ossiq.domain.common import ConstraintType, CveDatabase, ProjectPackagesRegistry
+from ossiq.domain.common import ConstraintType, CooldownHold, CveDatabase, ProjectPackagesRegistry
 from ossiq.domain.cve import CVE, Severity
 from ossiq.domain.project import ConstraintSource
 from ossiq.domain.version import VERSION_DIFF_MAJOR, VERSION_DIFF_MINOR, VERSION_LATEST, VersionsDifference
@@ -12,7 +12,9 @@ from ossiq.service.project.next_action import (
     CONSIDER_ALTERNATIVE,
     CONSTRAINED_CHECK_NEWER,
     FIND_ALTERNATIVE,
+    NEXT_ACTION_PRIORITY,
     UPDATE_IMMEDIATELY,
+    WAIT_FOR_COOLDOWN,
     WITHHELD_BY_STRATEGY,
     next_action_label,
 )
@@ -192,3 +194,57 @@ class TestWithheldByStrategy:
         record.cve = [fake_cve(0.2)]
         record.epss = 0.2
         assert next_action_label(record) == CHECK_FOR_THE_FIX
+
+
+# --- drift the cooldown will not let you act on yet --------------------------------------------
+
+
+class TestCooldownHold:
+    """A bump the user cannot take yet must not be labelled as one they can.
+
+    That mismatch is the reported defect: `status` said "Update Immediately" for a 5-day-old
+    release while `apply` refused it as younger than the 7-day cooldown.
+    """
+
+    @staticmethod
+    def held_record(
+        versions_diff_index: VersionsDifference = MINOR,
+        cve: list[CVE] | None = None,
+        epss: float | None = None,
+    ) -> ScanRecord:
+        record = make_record(versions_diff_index=versions_diff_index, cve=cve, epss=epss)
+        record.strategy_selection = StrategySelection(
+            strategy=UpdateStrategy.STANDARD,
+            target_version=None,
+            rung=None,
+            motives=frozenset(),
+            requires_widening=False,
+            withheld_reason=None,
+            available_at=None,
+            escalation=None,
+            cooldown_hold=CooldownHold(version="0.10.0", age_days=5, cooldown_period=7),
+        )
+        return record
+
+    def test_cooldown_hold_is_its_own_label(self):
+        assert next_action_label(self.held_record()) == WAIT_FOR_COOLDOWN
+
+    def test_cooldown_hold_outranks_major_drift(self):
+        # A major bump the cooldown is holding is still not something to go read release notes
+        # about yet — there is nothing to move to.
+        assert next_action_label(self.held_record(versions_diff_index=MAJOR)) == WAIT_FOR_COOLDOWN
+
+    def test_an_active_cve_outranks_the_cooldown_hold(self):
+        # Belt and braces: select_target escalates past the cooldown for an exploitable CVE rather
+        # than setting a hold, so this combination should not arise — but if it does, the CVE wins.
+        record = self.held_record(cve=[fake_cve(0.2)], epss=0.2)
+        assert next_action_label(record) == CHECK_FOR_THE_FIX
+
+    def test_no_hold_falls_through_to_the_drift_ladder(self):
+        record = make_record(versions_diff_index=MINOR, recommended_version="1.1.0")
+        assert next_action_label(record) == UPDATE_IMMEDIATELY
+
+    def test_label_is_ranked_below_update_immediately(self):
+        order = list(NEXT_ACTION_PRIORITY)
+        assert order.index(UPDATE_IMMEDIATELY) < order.index(WAIT_FOR_COOLDOWN)
+        assert order.index(WAIT_FOR_COOLDOWN) < order.index(CONSTRAINED_CHECK_NEWER)

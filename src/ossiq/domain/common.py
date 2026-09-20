@@ -160,6 +160,20 @@ class RejectedCandidate:
     reason: str
 
 
+@dataclass(frozen=True)
+class CooldownHold:
+    """The newest reachable release, withheld because it is younger than the cooldown period.
+
+    Carries the version rather than a rendered sentence so every surface can word it its own way;
+    `age_days` is None when the registry gave no publish date, which is also the only case where a
+    release is treated as aged rather than fresh (never hold on missing data).
+    """
+
+    version: str
+    age_days: int | None
+    cooldown_period: int
+
+
 class ModuleSystem(StrEnum):
     """A package release's own module format, as declared by its registry metadata (npm only).
 

@@ -6,6 +6,7 @@ from rich.console import Console
 
 from ossiq.domain.common import (
     ConstraintType,
+    CooldownHold,
     CveDatabase,
     EngineContext,
     EngineContextSource,
@@ -646,3 +647,47 @@ class TestWithheldByStrategySubRow:
         output = render_table([record], full=True)
 
         assert "<2.0.0 caps this below 1.9.1" in output
+
+
+class TestCooldownHoldSubRow:
+    """A blank Recommended cell next to a newer Latest reads as a bug unless the cooldown is named."""
+
+    def held_record(self) -> ScanRecord:
+        record = make_record(
+            name="common-expression-language",
+            versions_diff_index=MINOR,
+            latest_version="0.10.0",
+        )
+        record.recommended_version = None
+        record.strategy_selection = StrategySelection(
+            strategy=UpdateStrategy.STANDARD,
+            target_version=None,
+            rung=None,
+            motives=frozenset(),
+            requires_widening=False,
+            withheld_reason=None,
+            available_at=None,
+            escalation=None,
+            cooldown_hold=CooldownHold(version="0.10.0", age_days=5, cooldown_period=7),
+        )
+        return record
+
+    def test_held_package_says_wait_and_names_the_version_and_the_wait(self):
+        output = render_table([self.held_record()], full=True)
+
+        assert "Wait for cooldown" in output
+        assert "0.10.0 is 5 days old" in output
+        assert "7-day cooldown" in output
+        # The reported defect, in one assertion: the label must not promise an update that
+        # `apply` will refuse.
+        assert "Update Immediately" not in output
+
+    def test_the_declared_range_is_not_blamed_for_a_cooldown_hold(self):
+        record = self.held_record()
+        record.version_constraint = "<1.0.0"
+        record.version_constraint_declared = "<1.0.0"
+        record.compatibility.latest_in_range = record.installed_version
+
+        output = render_table([record], full=True)
+
+        assert "caps this below" not in output

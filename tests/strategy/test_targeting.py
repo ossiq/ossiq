@@ -129,6 +129,96 @@ def test_no_candidates_in_reach_yields_no_target_without_withheld_reason() -> No
     assert selection.withheld_reason is None
 
 
+def test_cooldown_prefers_the_newest_aged_release_over_a_fresher_one() -> None:
+    """The reported defect: status recommended 0.10.0 (5d) while apply held it, with 0.9.0 (12d)
+    sitting unrecommended in between."""
+    facts = make_facts(installed_version="0.8.0")
+    candidates = [
+        Candidate("0.9.0", IN_RANGE, has_cve=False, age_days=12),
+        Candidate("0.10.0", IN_RANGE, has_cve=False, age_days=5),
+    ]
+
+    selection = select_target(facts, UpdateStrategy.STANDARD, candidates, cooldown_period=7)
+    assert selection.target_version == "0.9.0"
+    assert selection.cooldown_hold is None
+    assert selection.cooldown_bypassed is False
+
+
+def test_cooldown_of_zero_is_a_no_op() -> None:
+    facts = make_facts(installed_version="0.8.0")
+    candidates = [
+        Candidate("0.9.0", IN_RANGE, has_cve=False, age_days=12),
+        Candidate("0.10.0", IN_RANGE, has_cve=False, age_days=5),
+    ]
+
+    assert select_target(facts, UpdateStrategy.STANDARD, candidates, cooldown_period=0).target_version == "0.10.0"
+    assert select_target(facts, UpdateStrategy.STANDARD, candidates).target_version == "0.10.0"
+
+
+def test_nothing_aged_leaves_no_target_and_records_the_hold() -> None:
+    facts = make_facts()
+    candidates = [
+        Candidate("1.1.0", IN_RANGE, has_cve=False, age_days=3),
+        Candidate("1.2.0", IN_RANGE, has_cve=False, age_days=1),
+    ]
+
+    selection = select_target(facts, UpdateStrategy.STANDARD, candidates, cooldown_period=7)
+    assert selection.target_version is None
+    assert selection.withheld_reason is None  # the tier admitted drift; the cooldown is the blocker
+    assert selection.cooldown_hold is not None
+    assert selection.cooldown_hold.version == "1.2.0"
+    assert selection.cooldown_hold.age_days == 1
+    assert selection.cooldown_hold.cooldown_period == 7
+
+
+def test_exploitable_cve_outranks_the_cooldown() -> None:
+    facts = make_facts(cve_epss_scores=(0.5,))
+    candidates = [
+        Candidate("1.1.0", IN_RANGE, has_cve=True, age_days=40),
+        Candidate("1.2.0", IN_RANGE, has_cve=False, age_days=2),
+    ]
+
+    for tier in (UpdateStrategy.SECURITY, UpdateStrategy.STANDARD):
+        selection = select_target(facts, tier, candidates, cooldown_period=7)
+        assert selection.target_version == "1.2.0", tier
+        assert selection.cooldown_bypassed is True, tier
+        assert selection.cooldown_hold is None, tier
+
+
+def test_end_of_life_outranks_the_cooldown() -> None:
+    facts = make_facts(maintenance_state="abandoned")
+    candidates = [Candidate("2.0.0", LATEST, has_cve=False, age_days=2)]
+
+    selection = select_target(facts, UpdateStrategy.DEPRECATION, candidates, cooldown_period=7)
+    assert selection.target_version == "2.0.0"
+    assert selection.cooldown_bypassed is True
+
+
+def test_escalation_over_the_settled_ladder_not_the_raw_one() -> None:
+    """Rule 8's widening walk must see the cooldown-filtered ladder, or it reaches past an aged
+    same-major release to a fresh breaking major."""
+    facts = make_facts()
+    candidates = [
+        Candidate("1.10.1", IN_MAJOR, has_cve=False, age_days=30),
+        Candidate("2.0.0", LATEST, has_cve=False, age_days=2),
+    ]
+
+    selection = select_target(facts, UpdateStrategy.LATEST, candidates, cooldown_period=7)
+    assert selection.target_version == "1.10.1"
+    assert selection.cooldown_bypassed is False
+
+
+def test_a_release_with_no_publish_date_is_never_held() -> None:
+    """Missing registry data must not withhold a bump — the same rule is_held_for_cooldown uses."""
+    facts = make_facts()
+    candidates = [Candidate("1.1.0", IN_RANGE, has_cve=False, age_days=None)]
+
+    selection = select_target(facts, UpdateStrategy.STANDARD, candidates, cooldown_period=7)
+    assert selection.target_version == "1.1.0"
+    assert selection.cooldown_hold is None
+    assert selection.cooldown_bypassed is False
+
+
 def _random_candidates(rng: random.Random, n: int) -> list[Candidate]:
     rung_cycle = [IN_RANGE, IN_MAJOR, LATEST]
     current = 0

@@ -6,6 +6,7 @@ from rich.table import Table
 
 from ossiq.domain.common import Command, ConstraintType, EngineContext, UserInterfaceType
 from ossiq.domain.version import VERSION_DIFF_MAJOR, VERSION_DIFF_MINOR, VERSION_DIFF_PATCH
+from ossiq.messages import HELP_STATUS_COOLDOWN_HOLD
 from ossiq.risk.maintenance import NOT_MAINTAINED
 from ossiq.service.library_scan import UpgradePath
 from ossiq.service.project.models import ScanRecord, ScanResult
@@ -101,6 +102,17 @@ def blocker_sub_row_texts(pkg: ScanRecord) -> list[str]:
     selection = pkg.strategy_selection
     if selection is not None and selection.withheld_reason:
         return [f"  [dim]↳ {selection.withheld_reason}[/]"]
+
+    # A third producer of "no writable target", and the one that looks most like a bug from the
+    # outside: a blank Recommended cell next to a newer Latest. Named ahead of the declared range
+    # below, since the range is not what is holding the package back here.
+    if selection is not None and selection.cooldown_hold is not None:
+        hold = selection.cooldown_hold
+        return [
+            "  [dim]"
+            + HELP_STATUS_COOLDOWN_HOLD.format(version=hold.version, age_days=hold.age_days, days=hold.cooldown_period)
+            + "[/]"
+        ]
 
     if not pkg.version_constraint_declared or next_action_label(pkg) != CONSTRAINED_CHECK_NEWER:
         return []

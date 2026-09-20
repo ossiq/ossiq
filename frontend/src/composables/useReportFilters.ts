@@ -56,6 +56,8 @@ export const WHATS_NEXT_CLASS: Record<string, string> = {
   'Consider alternative': 'text-amber-600',
   'Check Release Notes': 'text-slate-600',
   'Update Immediately': 'text-slate-600',
+  // Muted for the same reason as 'Withheld by strategy': there is nothing to do about it yet.
+  'Wait for cooldown': 'text-slate-400',
   'Constrained. Check newer version': 'text-amber-600',
   // Muted: nothing is wrong with the package, the scan's tier just did not ask for it.
   'Withheld by strategy': 'text-slate-400',

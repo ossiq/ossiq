@@ -31,8 +31,15 @@ def package_cell_text(entry: UpdateEntry) -> str:
 
 
 def is_cooldown_bypassed(entry: UpdateEntry, cooldown_period: int) -> bool:
-    """True when a CVE-driven recommendation is younger than the cooldown it bypassed."""
-    if not entry.is_security or entry.reason is None or entry.reason.age_days is None:
+    """True when an escalated recommendation is younger than the cooldown it bypassed.
+
+    `cooldown_bypassed` covers the end-of-life escalation that `is_security` alone misses — the
+    selector took a fresh release because nothing aged resolved the motive, so the note has to be
+    drawn for that case too.
+    """
+    if not (entry.is_security or entry.cooldown_bypassed):
+        return False
+    if entry.reason is None or entry.reason.age_days is None:
         return False
     return entry.reason.age_days < cooldown_period
 

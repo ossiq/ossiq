@@ -2,7 +2,13 @@
 
 from __future__ import annotations
 
-from ossiq.domain.common import ConstraintType, CveDatabase, ProjectPackagesRegistry, RecommendationRung
+from ossiq.domain.common import (
+    ConstraintType,
+    CooldownHold,
+    CveDatabase,
+    ProjectPackagesRegistry,
+    RecommendationRung,
+)
 from ossiq.domain.cve import CVE, Severity
 from ossiq.domain.project import ConstraintSource
 from ossiq.domain.version import VersionsDifference
@@ -12,6 +18,7 @@ from ossiq.service.update_impact import TransitiveImpact
 from ossiq.solver.reason import RecommendationReason
 from ossiq.strategy.overrides import StrategyPlan
 from ossiq.strategy.pyramid import UpdateStrategy
+from ossiq.strategy.targeting import StrategySelection
 
 NO_DIFF = VersionsDifference("1.0.0", "1.0.0", 0, diff_name="LATEST")
 CONSTRAINT_SOURCE = ConstraintSource(type=ConstraintType.DECLARED, source_file="pyproject.toml")
@@ -26,6 +33,26 @@ def reason_with_age(selected_version: str, age_days: int) -> RecommendationReaso
         lower_semver_alternatives=[],
         age_days=age_days,
         is_latest=False,
+    )
+
+
+def selection_with(
+    *,
+    target_version: str | None = None,
+    cooldown_hold: CooldownHold | None = None,
+    cooldown_bypassed: bool = False,
+) -> StrategySelection:
+    return StrategySelection(
+        strategy=UpdateStrategy.STANDARD,
+        target_version=target_version,
+        rung=RecommendationRung.IN_RANGE if target_version else None,
+        motives=frozenset(),
+        requires_widening=False,
+        withheld_reason=None,
+        available_at=None,
+        escalation=None,
+        cooldown_hold=cooldown_hold,
+        cooldown_bypassed=cooldown_bypassed,
     )
 
 
@@ -247,6 +274,51 @@ class TestCooldownHold:
         result = make_scan_result(production=[make_record("requests", "2.28.0", "2.32.0")])
         plan = build_update_plan(result, "uv", cooldown_period=7)
         assert [e.package_name for e in plan.direct_entries] == ["requests"]
+        assert not plan.held_for_cooldown
+
+
+class TestCooldownBlankedRecords:
+    """Direct records apply_update_strategy left with no recommendation at all, because every
+    reachable release was fresher than the cooldown. They can never become an UpdateEntry, so the
+    plan has to name them from the record or drop them silently."""
+
+    def blanked_record(self, name: str, installed: str, held: str, age_days: int) -> ScanRecord:
+        record = make_record(name, installed, recommended=None)
+        record.strategy_selection = selection_with(
+            cooldown_hold=CooldownHold(version=held, age_days=age_days, cooldown_period=7)
+        )
+        return record
+
+    def test_blanked_record_is_still_listed_as_held(self):
+        result = make_scan_result(production=[self.blanked_record("cel", "0.8.0", "0.10.0", age_days=5)])
+        plan = build_update_plan(result, "uv", cooldown_period=7)
+
+        assert not plan.direct_entries
+        assert [e.package_name for e in plan.held_for_cooldown] == ["cel"]
+        entry = plan.held_for_cooldown[0]
+        assert entry.recommended_version == "0.10.0"
+        assert entry.current_version == "0.8.0"
+        assert entry.reason is not None and entry.reason.age_days == 5
+
+    def test_an_override_on_a_blanked_record_wins_over_the_hold(self):
+        result = make_scan_result(production=[self.blanked_record("cel", "0.8.0", "0.10.0", age_days=5)])
+        plan = build_update_plan(result, "uv", cooldown_period=7, forced_overrides={"cel": "0.10.0"})
+
+        assert [e.package_name for e in plan.direct_entries] == ["cel"]
+        assert not plan.held_for_cooldown
+
+    def test_a_bypassed_entry_is_not_re_held(self):
+        # select_target took a fresh release because an end-of-life motive left nothing aged that
+        # resolved it. is_security does not cover that case, so without cooldown_bypassed the hold
+        # downstream would contradict the recommendation `status` just made.
+        record = make_record("abandoned-pkg", "1.0.0", "2.0.0")
+        record.recommended_version_reason = reason_with_age("2.0.0", age_days=2)
+        record.strategy_selection = selection_with(target_version="2.0.0", cooldown_bypassed=True)
+        result = make_scan_result(production=[record])
+
+        plan = build_update_plan(result, "uv", cooldown_period=7)
+        assert [e.package_name for e in plan.direct_entries] == ["abandoned-pkg"]
+        assert plan.direct_entries[0].cooldown_bypassed is True
         assert not plan.held_for_cooldown
 
 

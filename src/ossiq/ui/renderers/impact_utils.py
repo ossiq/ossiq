@@ -21,6 +21,7 @@ from ossiq.service.project.next_action import (
     CONSTRAINED_CHECK_NEWER,
     FIND_ALTERNATIVE,
     UPDATE_IMMEDIATELY,
+    WAIT_FOR_COOLDOWN,
     WITHHELD_BY_STRATEGY,
     next_action_label,
 )
@@ -110,6 +111,9 @@ WHATS_NEXT_STYLE: dict[str, str] = {
     CONSIDER_ALTERNATIVE: "bold yellow",
     CHECK_RELEASE_NOTES: "default",
     UPDATE_IMMEDIATELY: "default",
+    # Dim for the same reason as WITHHELD_BY_STRATEGY: nothing is wrong with the package, there is
+    # simply nothing to do about it yet.
+    WAIT_FOR_COOLDOWN: "dim",
     CONSTRAINED_CHECK_NEWER: "yellow",
     # Dim, not yellow: nothing is wrong with the package, this run just did not ask for it.
     WITHHELD_BY_STRATEGY: "dim",

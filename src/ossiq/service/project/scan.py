@@ -574,6 +574,7 @@ def scan(sources: AbstractProjectSources, progress: ScanProgress | None = None) 
             validator=simulate_recommendation,
             project_declares_esm=project_info.declares_esm,
             engine_context=engine_context,
+            cooldown_period=sources.settings.cooldown_period,
         )
 
         upgrade_paths = compute_upgrade_paths(project_info, sources.packages_registry)

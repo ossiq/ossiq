@@ -143,7 +143,17 @@ changes to `VersionLadder`, `RecommendationRung`, or the export schema.
 **Why is `Candidate` pre-tagged rather than parsed here?** Keeping version parsing, constraint
 matching and registry lookups entirely in `service.project.strategy.build_candidates` means this
 module has zero registry coupling and is trivially property-testable: a `Candidate` list is just
-data, and `select_target` is a pure function over it.
+data, and `select_target` is a pure function over it. A release's age rides along the same way, as
+`Candidate.age_days`: the tag is a registry fact, the threshold (`cooldown_period`) is a parameter,
+and the decision stays here.
+
+**Why does the cooldown live in the selector rather than in `plan`/`apply`?** It used to live only
+there, as `service.update.is_held_for_cooldown`. But `apply_update_strategy` runs last and rewrites
+`recommended_version`, so `status` would recommend a two-day-old release with "Update Immediately"
+while `apply` refused it — with a settled release sitting between the two, recommended by nobody.
+Filtering fresh candidates out of the ladder here makes one decision serve every surface, which is
+the whole point of rule 5 in the root `CLAUDE.md`. The downstream hold survives as a backstop for
+transitive recommendations, which come from the solver's *soft* freshness penalty.
 
 **Why `--strategy-override` and not `--override-strategy`?** `--override pkg==version` already
 exists and means "force this exact version". `--override-strategy` reads as a variant of the same

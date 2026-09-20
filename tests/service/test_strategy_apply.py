@@ -792,3 +792,111 @@ class TestApplyUpdateStrategyEngineMismatch:
         # there is nothing to compare it against.
         assert record.compatibility.engine_requirement == {"node": ">=22.0.0"}
         assert record.compatibility.engine_compatible is None
+
+
+class TestApplyUpdateStrategyCooldown:
+    """The cooldown reaches `recommended_version` here, not only at `plan`/`apply` time.
+
+    The reported defect: `status` recommended a 5-day-old release with "Update Immediately" while
+    `apply` refused it as too fresh — and an aged release sat in between, recommended by nobody.
+    """
+
+    def test_prefers_the_newest_aged_release_over_a_fresher_one(self) -> None:
+        # common-expression-language, the reported case: 0.9.0 is 12 days old, 0.10.0 is 5.
+        registry = make_registry(
+            {
+                "cel": [
+                    pv("0.9.0", published="2024-05-20T00:00:00Z"),
+                    pv("0.10.0", published="2024-05-27T00:00:00Z"),
+                ]
+            }
+        )
+        record = make_record("cel", "0.8.0")
+
+        apply_update_strategy(
+            [record],
+            registry,
+            STANDARD_PLAN,
+            versions_since={("cel", "0.8.0"): list(registry.package_versions("cel"))},
+            transitive_by_name={},
+            installed_names=set(),
+            allow_prerelease=False,
+            now=NOW,
+            cooldown_period=7,
+        )
+
+        assert record.recommended_version == "0.9.0"
+        assert record.recommended_version_reason is not None
+        assert record.recommended_version_reason.age_days == 12
+        assert record.strategy_selection is not None
+        assert record.strategy_selection.cooldown_hold is None
+
+    def test_no_recommendation_when_every_reachable_release_is_fresh(self) -> None:
+        registry = make_registry({"cel": [pv("0.10.0", published="2024-05-27T00:00:00Z")]})
+        record = make_record("cel", "0.8.0")
+
+        apply_update_strategy(
+            [record],
+            registry,
+            STANDARD_PLAN,
+            versions_since={("cel", "0.8.0"): list(registry.package_versions("cel"))},
+            transitive_by_name={},
+            installed_names=set(),
+            allow_prerelease=False,
+            now=NOW,
+            cooldown_period=7,
+        )
+
+        assert record.recommended_version is None
+        assert record.recommended_from_rung is None
+        assert record.strategy_selection is not None
+        hold = record.strategy_selection.cooldown_hold
+        assert hold is not None
+        assert (hold.version, hold.age_days, hold.cooldown_period) == ("0.10.0", 5, 7)
+
+    def test_default_cooldown_period_of_zero_changes_nothing(self) -> None:
+        registry = make_registry(
+            {
+                "cel": [
+                    pv("0.9.0", published="2024-05-20T00:00:00Z"),
+                    pv("0.10.0", published="2024-05-27T00:00:00Z"),
+                ]
+            }
+        )
+        record = make_record("cel", "0.8.0")
+
+        apply_update_strategy(
+            [record],
+            registry,
+            STANDARD_PLAN,
+            versions_since={("cel", "0.8.0"): list(registry.package_versions("cel"))},
+            transitive_by_name={},
+            installed_names=set(),
+            allow_prerelease=False,
+            now=NOW,
+        )
+
+        assert record.recommended_version == "0.10.0"
+
+    def test_a_reason_blanked_by_clamp_recommendations_is_rebuilt(self) -> None:
+        # clamp_recommendations blanks the reason for the pick it re-fitted, so an unchanged target
+        # used to reach `plan` with no age_days at all - no cooldown hold, and "—" in the Age column.
+        registry = make_registry({"pkg": [pv("1.1.0", published="2024-05-20T00:00:00Z")]})
+        record = make_record("pkg", "1.0.0")
+        record.recommended_version = "1.1.0"
+        record.recommended_version_reason = None
+
+        apply_update_strategy(
+            [record],
+            registry,
+            STANDARD_PLAN,
+            versions_since={("pkg", "1.0.0"): list(registry.package_versions("pkg"))},
+            transitive_by_name={},
+            installed_names=set(),
+            allow_prerelease=False,
+            now=NOW,
+        )
+
+        assert record.recommended_version == "1.1.0"
+        assert record.recommended_version_reason is not None
+        assert record.recommended_version_reason.age_days == 12

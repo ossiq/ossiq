@@ -328,11 +328,19 @@ That per-alias fitting also applies to the solver's [cooldown](#update-solver): 
 -   **Single pass.** The solver recommends versions against the *current* lockfile. Applying a plan
     re-resolves the tree, which can surface further recommendations; re-run `plan` until it reports
     no updates (most projects converge in one or two passes).
--   **Cooldown.** Candidate versions younger than `--cooldown-period` days (default 7) receive a
-    heavy soft-penalty in the solver; recommendations that are still younger than the cooldown after
-    solving are withheld into the plan's *Held for cooldown* section and never applied.
--   **CVE bypass.** When the installed version of a package carries a CVE, its recommendation is
-    exempt from the cooldown hold. CVE-affected candidate versions themselves are hard-forbidden.
+-   **Cooldown.** The cooldown shapes the recommendation itself, not just what `apply` will write:
+    a direct dependency is recommended the newest version at least `--cooldown-period` days old
+    (default 7), so a settled `0.9.0` is preferred over a two-day-old `0.10.0` rather than the
+    latter being recommended and then refused. When *every* reachable version is younger than the
+    cooldown, no version is recommended at all — `status` shows a blank *Recommended* cell and
+    **Wait for cooldown**, and the plan lists the package under *Held for cooldown* so you still
+    know what is coming. Transitive candidates additionally receive a heavy soft-penalty in the
+    solver, and anything still younger than the cooldown after solving is withheld the same way.
+    A version with no publish date in the registry is never withheld.
+-   **CVE and end-of-life bypass.** When the installed version carries a CVE or the package is
+    abandoned/deprecated, waiting out a cooldown is not an option: the newest reachable version is
+    recommended even if it is fresh, and the plan marks it `↳ cooldown bypassed`. CVE-affected
+    candidate versions themselves are hard-forbidden.
 -   **New transitive dependencies.** Packages entering the tree for the first time are resolved by
     the native package manager at apply time, outside the cooldown. The plan projects their version
     and age and flags entries younger than the cooldown with `⚠`. Under `--cutoff-date`, projections
@@ -601,10 +609,10 @@ Next**. `--full` adds **EPSS**, **Update Mode**, **Lag**, and **State**.
 | Update Mode | *(`--full`)* Semantic drift between installed and latest version: `Latest`, `Patch`, `Minor`, `Major`, `Prerelease`, `Build`, or `N/A` when the latest version is unknown. |
 | Installed | Version resolved in the lockfile, with a lifecycle marker when one applies (see below). |
 | Latest | Newest version the registry publishes, ignoring your declared range. This is what **Update Mode** and **Lag** are measured against. `—` when it could not be determined. |
-| Recommended | Solver-recommended update target — clamped into your declared range, so it is often *not* the Latest version. Yellow when the recommendation is older than the latest version — usually held back by the [cooldown](#update-solver) or by a constraint. `[NO RESOLUTION]` when no published version satisfies all constraints. Blank when the solver found no acceptable target at all. |
+| Recommended | Solver-recommended update target — clamped into your declared range, so it is often *not* the Latest version. Yellow when the recommendation is older than the latest version — usually held back by the [cooldown](#update-solver) or by a constraint. `[NO RESOLUTION]` when no published version satisfies all constraints. Blank when no acceptable target was found at all — including when every newer version is still inside the [cooldown](#update-solver), in which case *What's Next* reads **Wait for cooldown**. |
 | Lag | *(`--full`)* Time between the installed and the latest version. Red when it exceeds `--lag-threshold-delta` (default `1y`). |
 | State | *(`--full`)* Maintenance-state verdict for the upstream repository: `maintained`, `winding_down`, `abandoned`, or `deprecated`. `—` when the package could not be assessed. See [Repository Stability](explanation/repository-stability.md). |
-| What's Next | The single next action for this package (first match wins): **Check for the Fix** (a CVE with EPSS ≥ 10%), **Find alternative** (at the latest version but abandoned/deprecated), **Consider alternative** (upstream winding down), **Check Release Notes** (a major version behind), **Update Immediately** (a minor or patch behind, with a newer version inside the declared range), **Constrained. Check newer version** (a minor or patch behind, but the declared range admits no bump — widening it is the real next step), **Withheld by strategy** (a bump is available and the range admits it, but the run's `--update-strategy` tier admitted no motive to take it — the sub-row names the lowest tier that would). Blank when nothing is due. On terminals too narrow to fit the widest label on one line — under 110 columns, or under 157 with `--full` — **Constrained. Check newer version** is shortened to **Constrained**; the `--full` sub-row below the package still names the range and what it caps. This is a display width only: the label in `--format agent`, the JSON export, the MCP tools and the HTML report is always the full one. |
+| What's Next | The single next action for this package (first match wins): **Check for the Fix** (a CVE with EPSS ≥ 10%), **Find alternative** (at the latest version but abandoned/deprecated), **Consider alternative** (upstream winding down), **Check Release Notes** (a major version behind), **Update Immediately** (a minor or patch behind, with a newer version inside the declared range), **Wait for cooldown** (a newer version exists, but every version reachable from here is younger than the cooldown period — there is nothing settled enough to move to yet, so no version is recommended at all), **Constrained. Check newer version** (a minor or patch behind, but the declared range admits no bump — widening it is the real next step), **Withheld by strategy** (a bump is available and the range admits it, but the run's `--update-strategy` tier admitted no motive to take it — the sub-row names the lowest tier that would). Blank when nothing is due. On terminals too narrow to fit the widest label on one line — under 110 columns, or under 157 with `--full` — **Constrained. Check newer version** is shortened to **Constrained**; the `--full` sub-row below the package still names the range and what it caps. This is a display width only: the label in `--format agent`, the JSON export, the MCP tools and the HTML report is always the full one. |
 
 Lifecycle markers on the Installed column:
 
@@ -625,6 +633,7 @@ A row with a recommendation can carry indented sub-rows describing what applying
 | `✗ no actionable update found` | Every candidate update collides with a transitive constraint; the solver has no version to recommend. See [When an update is blocked](#update-blocked). |
 | `↳ no version satisfies: <specifiers>` | The constraints on this package contradict each other — no published version satisfies all of them at once. Shown together with `[NO RESOLUTION]`. |
 | `↳ <specifier> caps this below <latest>[; <version> is the newest in the current major line]` | *(`--full`)* The declared range is what holds the package behind the registry's latest. Drawn only when the range genuinely admits nothing newer than what is installed — when it does admit a bump, the blocker is something else and draws its own row. The trailing clause appears only when the newest version within the installed major line differs from the latest overall. Shown with **Constrained. Check newer version**. |
+| `↳ <version> is <n> days old; nothing older to move to before the <n>-day cooldown` | *(`--full`)* Every release newer than the installed one is younger than `--cooldown-period`, so no version was recommended. Names the release being waited on. Not drawn when a CVE or end-of-life motive is in play — those escalate past the cooldown rather than waiting it out. Shown with **Wait for cooldown**. |
 | `↳ no motive admitted at <tier>; available under --update-strategy <tier>` | *(`--full`)* The run's update strategy, not the declared range, is what left this package without a target. Shown with **Withheld by strategy**. |
 
 #### Transitive Recommendations

@@ -24,6 +24,7 @@ FIND_ALTERNATIVE = "Find alternative"
 CONSIDER_ALTERNATIVE = "Consider alternative"
 CHECK_RELEASE_NOTES = "Check Release Notes"
 UPDATE_IMMEDIATELY = "Update Immediately"
+WAIT_FOR_COOLDOWN = "Wait for cooldown"
 CONSTRAINED_CHECK_NEWER = "Constrained. Check newer version"
 WITHHELD_BY_STRATEGY = "Withheld by strategy"
 
@@ -37,6 +38,7 @@ NEXT_ACTION_PRIORITY: tuple[str, ...] = (
     CONSIDER_ALTERNATIVE,
     CHECK_RELEASE_NOTES,
     UPDATE_IMMEDIATELY,
+    WAIT_FOR_COOLDOWN,
     CONSTRAINED_CHECK_NEWER,
     WITHHELD_BY_STRATEGY,
 )
@@ -76,6 +78,13 @@ def next_action_label(record: ScanRecord) -> str | None:
         return FIND_ALTERNATIVE
     if state == MaintenanceState.WINDING_DOWN:
         return CONSIDER_ALTERNATIVE
+    # Checked below the rules above and above the drift ladder: those describe the package, this
+    # describes the bump. An update the user cannot take yet must not be labelled as one they can —
+    # that mismatch is what made `status` say "Update Immediately" for a version `apply` refused.
+    # Never reached with a CVE or end-of-life motive: select_target escalates past the cooldown
+    # for those rather than setting a hold.
+    if record.strategy_selection is not None and record.strategy_selection.cooldown_hold is not None:
+        return WAIT_FOR_COOLDOWN
     if diff_index == VERSION_DIFF_MAJOR:
         return CHECK_RELEASE_NOTES
     if diff_index in (VERSION_DIFF_MINOR, VERSION_DIFF_PATCH):

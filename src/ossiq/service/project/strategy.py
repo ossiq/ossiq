@@ -172,6 +172,11 @@ def build_candidates(
     transitive dependency) is not silently dropped: it's kept as a `RejectedCandidate`, capped at
     one per rung (the newest rejected release at that rung), so callers can explain a blank or
     lower `recommended_version` instead of staying silent about it.
+
+    The cooldown is deliberately *not* applied here: every installable release becomes a candidate,
+    tagged with its `age_days`, and `select_target` decides. Dropping fresh releases at this level
+    would hide them from its escalation rules, which have to be able to see a fresh release to take
+    it when a CVE leaves no other option.
     """
     qualifying_versions: set[str] = set()
     for cve in record.cve:
@@ -216,13 +221,20 @@ def build_candidates(
             rejected_by_rung[rung] = RejectedCandidate(version=pv.version, reason=gate_reason)
             continue
 
+        candidate = Candidate(
+            version=pv.version,
+            rung=rung,
+            has_cve=pv.version in qualifying_versions,
+            age_days=age_days_from_iso(pv.published_date_iso, now=now),
+        )
+
         if validator is None:
-            candidates.append(Candidate(version=pv.version, rung=rung, has_cve=pv.version in qualifying_versions))
+            candidates.append(candidate)
             continue
 
         impact = validator(record.package_name, pv.version)
         if impact.is_actionable:
-            candidates.append(Candidate(version=pv.version, rung=rung, has_cve=pv.version in qualifying_versions))
+            candidates.append(candidate)
         else:
             # Overwriting on each hit keeps the newest rejected release per rung, since
             # installable is sorted ascending.
@@ -247,6 +259,7 @@ def apply_update_strategy(
     validator: Callable[[str, str], DirectUpdateImpact] | None = None,
     project_declares_esm: bool = False,
     engine_context: EngineContext | None = None,
+    cooldown_period: int = 0,
 ) -> None:
     """Run the selector for each record and write its verdict, replacing `apply_ladder_fallback`.
 
@@ -263,6 +276,14 @@ def apply_update_strategy(
     `engine_requirement`, `engine_compatible`) is written by
     `target_facts.annotate_target_facts` for whatever target ends up chosen — one writer shared
     with `apply_recommendations`, which annotates transitive records the same way.
+
+    Running last also makes this the only place the cooldown can be honoured for a direct
+    dependency: the solver's soft `W_VERY_FRESH` penalty and `clamp_recommendations`' aged
+    preference are both upstream of this pass and were simply overwritten by it, so `status`
+    recommended a release `apply` then refused. `cooldown_period` is forwarded to `select_target`,
+    which prefers an aged release, blanks the target when only fresh ones are reachable (recording
+    `strategy_selection.cooldown_hold`), and sets `cooldown_bypassed` when a CVE or end-of-life
+    motive justified taking a fresh one anyway.
 
     Re-simulates transitive impacts for any record whose target changed, since a stale
     `update_transitive_impacts` (computed against the old target) would otherwise mislead the
@@ -291,7 +312,7 @@ def apply_update_strategy(
             structural_gates=gates,
             binding_gates=(engine_gate,) if engine_gate_binds else (),
         )
-        selection = select_target(facts, strategy, built.candidates)
+        selection = select_target(facts, strategy, built.candidates, cooldown_period=cooldown_period)
         record.strategy_selection = selection
         record.rejected_candidates = list(built.rejected)
 
@@ -315,7 +336,10 @@ def apply_update_strategy(
             project_declares_esm=project_declares_esm,
         )
         picked = next((pv for pv in releases if pv.version == selection.target_version), None)
-        if selection.target_version != previous_target:
+        # `clamp_recommendations` blanks the reason for the pick it re-fitted, so an unchanged
+        # target can still arrive here with no reason at all - and a reason is where the cooldown
+        # hold and the plan's Age column read `age_days` from.
+        if selection.target_version != previous_target or record.recommended_version_reason is None:
             record.recommended_version_reason = RecommendationReason(
                 selected_version=selection.target_version,
                 constraint=record.version_constraint,

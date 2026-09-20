@@ -206,7 +206,11 @@ HELP_PLAN_HELD_FOR_COOLDOWN_HEADER = (
 
 HELP_PLAN_HELD_FOR_WIDENING_HEADER = "Requires constraint widening — a newer version exists outside the declared range:"
 
-HELP_PLAN_CVE_BYPASS_NOTE = "↳ cooldown bypassed — installed version has a known CVE"
+HELP_STATUS_COOLDOWN_HOLD = (
+    "↳ {version} is {age_days} days old; nothing older to move to before the {days}-day cooldown"
+)
+
+HELP_PLAN_CVE_BYPASS_NOTE = "↳ cooldown bypassed — installed version has a known CVE or is end-of-life"
 
 HELP_PLAN_KNOWN_BREAK_NOTE = "↳ known API/module-system break — every newer release carries it, so none was held back"
 

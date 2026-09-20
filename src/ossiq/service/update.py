@@ -6,7 +6,13 @@ import dataclasses
 from collections import Counter
 from dataclasses import dataclass, field
 
-from ossiq.domain.common import WIDENING_RUNGS, ConstraintType, RecommendationRung, display_package_name
+from ossiq.domain.common import (
+    WIDENING_RUNGS,
+    ConstraintType,
+    CooldownHold,
+    RecommendationRung,
+    display_package_name,
+)
 from ossiq.service.project.models import ScanRecord, ScanResult
 from ossiq.service.update_impact import TransitiveImpact
 from ossiq.solver.reason import RecommendationReason
@@ -51,6 +57,11 @@ class UpdateEntry:
     # declared range (e.g. `uuid@>11.0.0` admitting ESM-only 14.0.2), in which case
     # widens_constraint is False and nothing else would ask before writing it.
     carries_known_break: bool = False
+    # True when select_target knowingly took a release younger than the cooldown because an
+    # escalating motive (exploitable CVE, end-of-life) left nothing aged that resolved it. Exempts
+    # the entry from the cooldown hold the same way is_security does, but covers the end-of-life
+    # case that is_security alone misses.
+    cooldown_bypassed: bool = False
 
     @property
     def identity(self) -> str:
@@ -123,12 +134,49 @@ def entry_from_record(record: ScanRecord, is_direct: bool) -> UpdateEntry:
         from_rung=record.recommended_from_rung,
         widens_constraint=record.recommended_from_rung in WIDENING_RUNGS,
         carries_known_break=record.compatibility.breaking_change is not None,
+        cooldown_bypassed=record.strategy_selection is not None and record.strategy_selection.cooldown_bypassed,
+    )
+
+
+def cooldown_entry_from_record(record: ScanRecord, hold: CooldownHold) -> UpdateEntry:
+    """Build a display-only entry for a record the cooldown left without a recommendation.
+
+    `apply_update_strategy` blanks `recommended_version` when every reachable release is younger
+    than the cooldown, so such a record can never become a real `UpdateEntry` — and would drop out
+    of the plan silently. This rebuilds just enough of one to keep it listed under "held for
+    cooldown". It never enters direct_entries/transitive_entries, so nothing writes it.
+    """
+    return UpdateEntry(
+        package_name=record.package_name,
+        dependency_name=record.dependency_name,
+        current_version=record.installed_version,
+        recommended_version=hold.version,
+        is_direct=True,
+        reason=RecommendationReason(
+            selected_version=hold.version,
+            constraint=record.version_constraint,
+            hard_rejections=[],
+            soft_rejections=[],
+            lower_semver_alternatives=[],
+            age_days=hold.age_days,
+            is_latest=hold.version == record.latest_version,
+        ),
+        version_defined=record.version_constraint_declared or record.version_constraint,
+        constraint_type=record.constraint_info.type,
+        is_security=bool(record.cve),
     )
 
 
 def is_held_for_cooldown(entry: UpdateEntry, cooldown_period: int) -> bool:
-    """A non-security recommendation whose target version is younger than the cooldown period."""
-    if entry.is_forced or entry.is_security or entry.reason is None or entry.reason.age_days is None:
+    """A non-security recommendation whose target version is younger than the cooldown period.
+
+    A backstop, not the primary enforcement: direct records are already settled by `select_target`
+    (see apply_update_strategy), so this mostly catches transitive entries, whose recommendations
+    come from the solver's *soft* freshness penalty and can still land on a fresh release.
+    """
+    if entry.is_forced or entry.is_security or entry.cooldown_bypassed:
+        return False
+    if entry.reason is None or entry.reason.age_days is None:
         return False
     return entry.reason.age_days < cooldown_period
 
@@ -245,6 +293,9 @@ def build_update_plan(
 
     Recommendations whose target version is younger than cooldown_period days are withheld into
     held_for_cooldown (unless they fix a CVE), so a freshly published version is never applied.
+    Direct records that `apply_update_strategy` already left without a recommendation for that same
+    reason are listed there too, rebuilt by cooldown_entry_from_record — the plan has to name them
+    even though they carry no target.
     Which packages carry a recommendation at all was already decided upstream, by
     service.project.strategy.apply_update_strategy against `strategy` — this function no longer
     filters by motive itself, only by widening authorization and cooldown.
@@ -299,9 +350,9 @@ def build_update_plan(
     )
 
     unknown_overrides: list[str] = []
+    forced_names = set(forced_overrides or {})
     if forced_overrides:
         direct_identities = {r.identity_name for r in direct_records}
-        forced_names = set(forced_overrides)
         # Drop by whichever spelling the user used: naming an alias replaces only that alias,
         # naming the registry name replaces every entry carrying it.
         direct = [e for e in direct if e.identity not in forced_names and e.package_name not in forced_names]
@@ -338,8 +389,20 @@ def build_update_plan(
     direct = [e for e in direct if e.identity not in widening_ids]
     transitive = [e for e in transitive if e.identity not in widening_ids]
 
+    # Two sources, one list: entries that carry a fresh recommendation (transitive picks from the
+    # solver's soft penalty), and direct records select_target left with no recommendation at all
+    # because everything reachable was fresh — those never became entries, and would otherwise
+    # vanish from the plan without a word.
+    cooldown_blanked = [
+        cooldown_entry_from_record(r, r.strategy_selection.cooldown_hold)
+        for r in direct_records
+        if r.strategy_selection is not None
+        and r.strategy_selection.cooldown_hold is not None
+        and r.package_name not in forced_names
+        and r.identity_name not in forced_names
+    ]
     held = sorted(
-        [e for e in direct + transitive if is_held_for_cooldown(e, cooldown_period)],
+        [e for e in direct + transitive if is_held_for_cooldown(e, cooldown_period)] + cooldown_blanked,
         key=lambda e: e.package_name,
     )
     held_ids = {e.identity for e in held}
