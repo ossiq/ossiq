@@ -19,11 +19,14 @@ from ossiq.domain.common import (
     ConstraintType,
     DataCompleteness,
     DataSourceStatus,
+    DegradeReason,
     EngineContext,
     EngineContextSource,
     ExportJsonSchemaVersion,
+    FetchDiagnostics,
     ModuleSystem,
     ProjectPackagesRegistry,
+    RateLimitBudget,
     RecommendationRung,
     ScanStep,
     UserInterfaceType,
@@ -236,8 +239,41 @@ class TestJsonExportRenderer:
         completeness = data["metadata"]["data_completeness"]
 
         assert completeness["overall"] == "unreachable"
-        assert {"step": "vulnerabilities", "status": "unreachable"} in completeness["sources"]
-        assert {"step": "repositories", "status": "ok"} in completeness["sources"]
+        assert {"step": "vulnerabilities", "status": "unreachable", "failures": []} in completeness["sources"]
+        assert {"step": "repositories", "status": "ok", "failures": []} in completeness["sources"]
+
+    def test_metadata_data_completeness_carries_causes_and_quota(
+        self, output_file, sample_project_metrics_record, settings
+    ):
+        """Why a source degraded, and the quota behind it: a consumer that can see "3 not found"
+        knows a retry changes nothing, where a bare `partial` invites one into a spent quota."""
+        scan = ScanResult(
+            project_name="test-project",
+            project_path="/path/to/test-project",
+            packages_registry=ProjectPackagesRegistry.NPM.value,
+            production_packages=[sample_project_metrics_record],
+            optional_packages=[],
+            data_completeness=DataCompleteness(
+                by_step={ScanStep.REPOSITORIES: DataSourceStatus.PARTIAL},
+                diagnostics={
+                    ScanStep.REPOSITORIES: FetchDiagnostics(
+                        failures=((DegradeReason.NOT_FOUND, 3),),
+                        budgets=(RateLimitBudget(resource="core", limit=5000, remaining=120, reset_at=1700000000.0),),
+                    )
+                },
+            ),
+        )
+        renderer = JsonExportRenderer(settings)
+        renderer.render(scan, destination=str(output_file))
+
+        completeness = json.loads(output_file.read_text(encoding="utf-8"))["metadata"]["data_completeness"]
+
+        assert completeness["sources"] == [
+            {"step": "repositories", "status": "partial", "failures": [{"reason": "not_found", "count": 3}]}
+        ]
+        assert completeness["api_budgets"] == [
+            {"resource": "core", "limit": 5000, "remaining": 120, "reset_at": 1700000000.0, "needed": None}
+        ]
 
     def test_project_fields_match_input_data(self, output_file, sample_project_metrics, settings):
         """Test project section matches input data.

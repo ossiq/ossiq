@@ -14,7 +14,7 @@ from packaging.version import InvalidVersion
 from ossiq.adapters.api_epss import EpssApiFirstOrg
 from ossiq.adapters.api_interfaces import AbstractPackageRegistryApi, AbstractSourceCodeProviderApi
 from ossiq.adapters.detectors import is_git_hosted_source
-from ossiq.domain.common import SourceFetch
+from ossiq.domain.common import RateLimitBudget, SourceFetch
 from ossiq.domain.cve import CVE
 from ossiq.domain.exceptions import UnknownPackageVersion
 from ossiq.domain.package import Package
@@ -235,6 +235,58 @@ def github_only(repo_urls: Iterable[str]) -> list[str]:
     unmeasured rather than being reported as a negative signal."""
 
     return [url for url in repo_urls if (urlparse(url).hostname or "").lower() == "github.com"]
+
+
+# What one scan spends per repository, by quota. REST: one /repos call for every repo in the
+# graph, plus a commits and a README call for each direct dependency. GraphQL: one query per
+# stream (issues, pulls) per direct dependency, before any pagination. Deliberately an upper
+# bound - it ignores the HTTP cache, so a warm scan is forecast to cost more than it will.
+REST_REQUESTS_PER_REPO = 1
+REST_REQUESTS_PER_DIRECT_REPO = 2
+GRAPHQL_REQUESTS_PER_DIRECT_REPO = 2
+
+
+def forecast_github_budget(
+    provider: AbstractSourceCodeProviderApi,
+    repo_urls: Iterable[str],
+    direct_repo_urls: Iterable[str],
+    *,
+    stability: bool,
+    responsiveness: bool,
+) -> tuple[RateLimitBudget, ...]:
+    """Read GitHub's remaining quota before the scan spends it, against what the scan will need.
+
+    The quota check itself is free and uncached. Without it, an exhausted quota only shows up
+    once the scan has spent minutes pausing and retrying into a wall - and a warm cache can hide
+    it entirely, since the run never touches the network to find out.
+
+    Args:
+        provider: The GitHub provider the scan's fetches will use.
+        repo_urls: Every repository URL in the dependency graph.
+        direct_repo_urls: The direct dependencies' repositories, which alone get the stability
+            channels.
+        stability: Whether the commits and README fetches will run.
+        responsiveness: Whether the GraphQL activity fetch will run.
+
+    Returns:
+        One budget per metered resource with `needed` filled in, or an empty tuple when there is
+        nothing to fetch or GitHub didn't answer.
+    """
+    repo_count = len(github_only(repo_urls))
+    if not repo_count:
+        return ()
+    direct_count = len(github_only(direct_repo_urls))
+
+    needed = {
+        "core": repo_count * REST_REQUESTS_PER_REPO
+        + (direct_count * REST_REQUESTS_PER_DIRECT_REPO if stability else 0),
+        "graphql": direct_count * GRAPHQL_REQUESTS_PER_DIRECT_REPO if stability and responsiveness else 0,
+    }
+    return tuple(
+        replace(budget, needed=needed.get(budget.resource))
+        for budget in provider.rate_limit_budgets()
+        if needed.get(budget.resource)
+    )
 
 
 def prefetch_repository_commits(

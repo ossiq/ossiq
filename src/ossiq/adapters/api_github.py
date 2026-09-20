@@ -18,6 +18,7 @@ from ossiq.clients.client_github import (
     GithubGraphQLBatchStrategy,
     GithubReadmeBatchStrategy,
     GithubRepoBatchStrategy,
+    fetch_rate_limit,
 )
 from ossiq.clients.common import get_user_agent
 from ossiq.settings import Settings
@@ -26,6 +27,7 @@ from ossiq.settings import Settings
 from ..domain.common import (
     VERSION_DATA_SOURCE_GITHUB_RELEASES,
     VERSION_DATA_SOURCE_GITHUB_TAGS,
+    RateLimitBudget,
     RepositoryProvider,
     SourceFetch,
 )
@@ -275,7 +277,7 @@ class SourceCodeProviderApiGithub(AbstractSourceCodeProviderApi):
                     pushed_at=repo_data.get("pushed_at"),
                     topics=repo_data.get("topics") or [],
                 )
-        return SourceFetch(result, client.last_summary.status)
+        return SourceFetch(result, client.last_summary.status, client.last_summary.diagnostics)
 
     def commits_batch(self, repo_urls: list[str], until: str | None = None) -> SourceFetch[dict[str, list[dict]]]:
         """
@@ -289,7 +291,7 @@ class SourceCodeProviderApiGithub(AbstractSourceCodeProviderApi):
             for url, commits in chunk_result.items():
                 if commits:
                     result[url] = commits
-        return SourceFetch(result, client.last_summary.status)
+        return SourceFetch(result, client.last_summary.status, client.last_summary.diagnostics)
 
     def repository_activity_batch(self, repo_urls: list[str], since: str | None = None) -> SourceFetch[dict[str, dict]]:
         """Fetch issue / PR activity for a list of repo URLs via batched GraphQL.
@@ -319,6 +321,7 @@ class SourceCodeProviderApiGithub(AbstractSourceCodeProviderApi):
                 if issues.get(url) or pulls.get(url)
             },
             client.last_summary.status,
+            client.last_summary.diagnostics,
         )
 
     def readmes_batch(self, repo_urls: list[str]) -> SourceFetch[dict[str, str]]:
@@ -329,7 +332,16 @@ class SourceCodeProviderApiGithub(AbstractSourceCodeProviderApi):
             for url, text in chunk_result.items():
                 if text:
                     result[url] = text
-        return SourceFetch(result, client.last_summary.status)
+        return SourceFetch(result, client.last_summary.status, client.last_summary.diagnostics)
+
+    def rate_limit_budgets(self) -> tuple[RateLimitBudget, ...]:
+        """What this token's GitHub quota looks like right now, before the scan spends any of it.
+
+        Returns:
+            One budget per metered resource, or an empty tuple when GitHub didn't answer - a
+            pre-flight check that fails is one less thing to report, never a failed scan.
+        """
+        return fetch_rate_limit(self.session)
 
     def repository_info(self, repository_url: str | None) -> Repository:
         """

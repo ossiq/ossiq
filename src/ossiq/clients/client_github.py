@@ -10,6 +10,7 @@ from datetime import UTC, datetime
 import requests
 
 from ossiq.clients.batch import BatchClient, BatchStrategy, BatchStrategySettings, ChunkResult
+from ossiq.domain.common import RateLimitBudget
 
 logger = logging.getLogger(__name__)
 
@@ -47,6 +48,45 @@ def repo_api_path(url: str) -> str:
     """Build the `repos/owner/name` API path for a GitHub URL in any form a registry reports it."""
     owner, name = repo_owner_name(url)
     return f"repos/{owner}/{name}"
+
+
+def fetch_rate_limit(session: requests.Session, timeout: float = 5.0) -> tuple[RateLimitBudget, ...]:
+    """Current quota for the two resources a scan spends: `core` (REST) and `graphql`.
+
+    GET /rate_limit is itself free - it is the only GitHub endpoint that doesn't count against the
+    quota it reports - and is exempt from the HTTP cache, since a replayed reading is worse than
+    no reading. A failure here is never worth failing a scan for: the caller gets an empty tuple
+    and reports one less thing.
+
+    Args:
+        session: The session the scan's GitHub calls will use, so the reading covers that token.
+        timeout: Seconds to wait before giving up on the pre-flight check.
+
+    Returns:
+        One budget per metered resource, or an empty tuple when GitHub didn't answer.
+    """
+    try:
+        response = session.get(f"{GITHUB_API}/rate_limit", timeout=timeout)
+        resources = (response.json() or {}).get("resources") or {}
+    except (requests.RequestException, ValueError) as exc:
+        logger.debug("Rate-limit pre-flight check failed: %s", exc)
+        return ()
+
+    budgets = []
+    for resource in ("core", "graphql"):
+        quota = resources.get(resource)
+        if not quota:
+            continue
+        reset = quota.get("reset")
+        budgets.append(
+            RateLimitBudget(
+                resource=resource,
+                limit=quota.get("limit"),
+                remaining=quota.get("remaining"),
+                reset_at=float(reset) if reset is not None else None,
+            )
+        )
+    return tuple(budgets)
 
 
 class GithubRepoBatchStrategy(BatchStrategy):

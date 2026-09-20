@@ -25,7 +25,7 @@ from ossiq.clients.batch import (
     ChunkResult,
     is_rate_limit_response,
 )
-from ossiq.domain.common import DataSourceStatus
+from ossiq.domain.common import DataSourceStatus, DegradeReason, RateLimitBudget
 
 # Capture the real time.sleep before any test patches it on the shared module object.
 # patch("ossiq.clients.batch.time.sleep") replaces sleep on the same module object
@@ -1003,6 +1003,101 @@ class TestBatchClientLastSummary:
         session.post.return_value = make_response(200, {"result": "ok"})
         collect(client.run_batch([2]))
         assert client.last_summary.status == DataSourceStatus.OK
+
+
+# ---------------------------------------------------------------------------
+# H2. Why a run degraded, and what the quota looked like while it did
+# ---------------------------------------------------------------------------
+
+
+class TestBatchRunDiagnostics:
+    """A bare `partial` can't tell a renamed repository from an exhausted quota, and the two
+    call for completely different responses from whoever reads the warning."""
+
+    def test_404s_are_reported_as_not_found(self):
+        session = MagicMock()
+        session.post.return_value = make_response(404, {})
+        client = make_client(make_strategy(session, chunk_size=1))
+
+        collect(client.run_batch([1, 2]))
+
+        assert client.last_summary.failures == ((DegradeReason.NOT_FOUND, 2),)
+
+    def test_other_4xx_is_reported_as_rejected(self):
+        session = MagicMock()
+        session.post.return_value = make_response(401, {})
+        client = make_client(make_strategy(session, chunk_size=1))
+
+        collect(client.run_batch([1]))
+
+        assert client.last_summary.failures == ((DegradeReason.REJECTED, 1),)
+
+    def test_exhausted_retries_are_reported_as_unavailable(self):
+        session = MagicMock()
+        session.post.side_effect = requests.ConnectionError("down")
+        client = make_client(make_strategy(session, max_retries=1))
+
+        with patch("ossiq.clients.batch.time.sleep"):
+            collect(client.run_batch([1]))
+
+        assert client.last_summary.failures == ((DegradeReason.UNAVAILABLE, 1),)
+
+    def test_rate_limit_headers_are_captured_from_live_responses(self):
+        session = MagicMock()
+        session.post.return_value = make_response(
+            200,
+            {"result": "ok"},
+            headers={
+                "x-ratelimit-resource": "graphql",
+                "x-ratelimit-limit": "5000",
+                "x-ratelimit-remaining": "4987",
+                "x-ratelimit-reset": "1700000000",
+            },
+        )
+        client = make_client(make_strategy(session))
+
+        collect(client.run_batch([1]))
+
+        assert client.last_summary.budgets == (
+            RateLimitBudget(resource="graphql", limit=5000, remaining=4987, reset_at=1700000000.0),
+        )
+
+    def test_the_tightest_reading_per_resource_wins(self):
+        session = MagicMock()
+        session.post.side_effect = [
+            make_response(200, {}, headers={"x-ratelimit-resource": "core", "x-ratelimit-remaining": "40"}),
+            make_response(200, {}, headers={"x-ratelimit-resource": "core", "x-ratelimit-remaining": "12"}),
+        ]
+        client = make_client(make_strategy(session, chunk_size=1))
+
+        collect(client.run_batch([1, 2]))
+
+        assert client.last_summary.budgets == (RateLimitBudget(resource="core", remaining=12),)
+
+    def test_a_cached_response_reports_no_budget(self):
+        """requests-cache replays the headers of the call that filled the cache - a week-old
+        quota reading is not evidence of anything."""
+        response = make_response(200, {}, headers={"x-ratelimit-remaining": "3"})
+        response.from_cache = True
+        session = MagicMock()
+        session.post.return_value = response
+        client = make_client(make_strategy(session))
+
+        collect(client.run_batch([1]))
+
+        assert client.last_summary.budgets == ()
+
+    def test_diagnostics_do_not_leak_between_runs(self):
+        session = MagicMock()
+        session.post.return_value = make_response(404, {})
+        client = make_client(make_strategy(session, chunk_size=1))
+        collect(client.run_batch([1]))
+
+        session.post.return_value = make_response(200, {"result": "ok"}, headers={"x-ratelimit-remaining": "9"})
+        collect(client.run_batch([2]))
+
+        assert client.last_summary.failures == ()
+        assert client.last_summary.budgets == (RateLimitBudget(resource="core", remaining=9),)
 
 
 # ---------------------------------------------------------------------------

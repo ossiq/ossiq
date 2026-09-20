@@ -337,10 +337,35 @@ def data_completeness_summary(completeness: DataCompleteness) -> dict[str, Any]:
     this JSON never sees show_scan_progress's warning (agent/MCP callers bypass it entirely via
     the silent on_step callback), so without this the degradation is invisible to exactly the
     consumer who most needs to know about it.
+
+    The same argument applies to *why* a source degraded and to the API quota behind it: an agent
+    that can see "3 repositories not found" retries nothing, where one that sees a bare `partial`
+    may well re-run the whole scan into an exhausted quota.
     """
     return {
         "overall": completeness.overall.value,
-        "sources": [{"step": step, "status": status.value} for step, status in sorted(completeness.by_step.items())],
+        "sources": [
+            {
+                "step": step,
+                "status": status.value,
+                **(
+                    {"failures": [{"reason": reason.value, "count": count} for reason, count in failures]}
+                    if (failures := completeness.diagnostics_for(step).failures)
+                    else {}
+                ),
+            }
+            for step, status in sorted(completeness.by_step.items())
+        ],
+        "api_budgets": [
+            {
+                "resource": budget.resource,
+                "limit": budget.limit,
+                "remaining": budget.remaining,
+                "reset_at": budget.reset_at,
+                "needed": budget.needed,
+            }
+            for budget in completeness.budgets
+        ],
     }
 
 

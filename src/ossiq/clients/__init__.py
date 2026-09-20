@@ -44,6 +44,9 @@ def install_requests_cache(cache_destination: str, cache_ttl_hours: int, stabili
         backend="sqlite",
         expire_after=cache_ttl_hours * 3600,
         urls_expire_after={
+            # The quota pre-flight check reports a number that only means anything live - a
+            # replayed reading would claim yesterday's budget and is worse than no reading.
+            "*/rate_limit*": requests_cache.DO_NOT_CACHE,
             "*/commits*": stability_cache_ttl_hours * 3600,
             "*/graphql*": stability_cache_ttl_hours * 3600,
             "*/readme*": stability_cache_ttl_hours * 3600,

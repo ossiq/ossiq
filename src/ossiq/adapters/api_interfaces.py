@@ -9,7 +9,7 @@ from collections.abc import Callable, Iterable
 from functools import cmp_to_key
 from typing import TYPE_CHECKING
 
-from ossiq.domain.common import ConstraintType, ProjectPackagesRegistry, SourceFetch
+from ossiq.domain.common import ConstraintType, ProjectPackagesRegistry, RateLimitBudget, SourceFetch
 from ossiq.domain.package import Package
 from ossiq.domain.packages_manager import PackageManagerType
 from ossiq.domain.project import Project
@@ -60,6 +60,11 @@ class AbstractSourceCodeProviderApi(abc.ABC):
     @abc.abstractmethod
     def readmes_batch(self, repo_urls: list[str]) -> SourceFetch[dict[str, str]]:
         """Fetch the top of each repo's README in parallel, for the deprecation-banner scan."""
+        raise NotImplementedError
+
+    @abc.abstractmethod
+    def rate_limit_budgets(self) -> tuple[RateLimitBudget, ...]:
+        """Report the provider's remaining quota, without spending any of it."""
         raise NotImplementedError
 
     @abc.abstractmethod

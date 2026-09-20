@@ -22,7 +22,8 @@ v1.5 has not shipped in a release (the package is still `0.1.10`), so it has no 
 this repository and additive fields have been **amended into `export_schema_v1.5.json` in place**
 rather than bumped. Amended this way so far: the version-ladder fields (`latest_in_range`,
 `latest_in_major`, `latest_compatible_major`, `recommended_from_rung`), the module-system and
-engine fields, and `next_action` / `requires_constraint_widening`. Each addition is optional, not
+engine fields, `next_action` / `requires_constraint_widening`, and the data-completeness
+diagnostics (`data_completeness.sources[].failures` and `data_completeness.api_budgets`). Each addition is optional, not
 in `required`, and neither `$def` sets `additionalProperties: false`, so documents produced before
 the amendment still validate.
 

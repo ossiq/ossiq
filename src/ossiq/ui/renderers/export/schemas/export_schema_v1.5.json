@@ -71,6 +71,71 @@
                       "unreachable",
                       "rate_limited"
                     ]
+                  },
+                  "failures": {
+                    "type": "array",
+                    "description": "Causes behind a degraded status, counted by cause; empty when the step was ok",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "reason": {
+                          "type": "string",
+                          "enum": [
+                            "not_found",
+                            "rate_limited",
+                            "unavailable",
+                            "rejected",
+                            "empty_response",
+                            "aborted",
+                            "unknown"
+                          ]
+                        },
+                        "count": {
+                          "type": "integer"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "api_budgets": {
+              "type": "array",
+              "description": "Quota observed or forecast for each metered API this scan touched",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "resource": {
+                    "type": "string",
+                    "description": "The metered resource, as the API names it, e.g. 'core', 'graphql'"
+                  },
+                  "limit": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ],
+                    "description": "Requests allowed per window"
+                  },
+                  "remaining": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ],
+                    "description": "Requests left in the current window"
+                  },
+                  "reset_at": {
+                    "type": [
+                      "number",
+                      "null"
+                    ],
+                    "description": "Epoch seconds at which the window rolls over"
+                  },
+                  "needed": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ],
+                    "description": "Requests this scan was forecast to need against this resource"
                   }
                 }
               }

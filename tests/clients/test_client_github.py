@@ -2,14 +2,18 @@
 
 from unittest.mock import MagicMock
 
+import requests
+
 from ossiq.clients.batch import ChunkResult
 from ossiq.clients.client_github import (
     FIRST_PAGE,
     RESPONSIVENESS_PAGE_CAP,
     GithubGraphQLBatchStrategy,
     build_activity_query,
+    fetch_rate_limit,
     parse_activity_alias,
 )
+from ossiq.domain.common import RateLimitBudget
 
 SINCE = "2026-05-01T00:00:00Z"
 IN_WINDOW = "2026-06-01T00:00:00Z"
@@ -55,6 +59,39 @@ class TestBuildActivityQuery:
     def test_pulls_continuation_uses_the_cursor(self) -> None:
         query = build_activity_query([item("u0", "o", "n", "pulls", after="PRCURSOR", page=2)], SINCE)
         assert 'pullRequests(first: 100, orderBy: {field: UPDATED_AT, direction: DESC}, after: "PRCURSOR")' in query
+
+
+class TestFetchRateLimit:
+    """The pre-flight quota check: free to call, and the only reading a fully cached scan gets."""
+
+    def session_returning(self, body: dict) -> MagicMock:
+        session = MagicMock()
+        session.get.return_value.json.return_value = body
+        return session
+
+    def test_reads_core_and_graphql(self) -> None:
+        session = self.session_returning(
+            {
+                "resources": {
+                    "core": {"limit": 5000, "remaining": 4537, "reset": 1700000000},
+                    "graphql": {"limit": 5000, "remaining": 5000, "reset": 1700000500},
+                    "search": {"limit": 30, "remaining": 30, "reset": 1700000000},
+                }
+            }
+        )
+
+        budgets = fetch_rate_limit(session)
+
+        assert budgets == (
+            RateLimitBudget(resource="core", limit=5000, remaining=4537, reset_at=1700000000.0),
+            RateLimitBudget(resource="graphql", limit=5000, remaining=5000, reset_at=1700000500.0),
+        )
+
+    def test_a_failed_check_is_one_less_thing_to_report_not_a_failed_scan(self) -> None:
+        session = MagicMock()
+        session.get.side_effect = requests.ConnectionError("down")
+
+        assert fetch_rate_limit(session) == ()
 
 
 class TestParseActivityAlias:

@@ -6,7 +6,7 @@ mutual dependencies.
 import importlib.metadata
 import re
 from collections.abc import Callable, Iterable, Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from enum import Enum, StrEnum
 from typing import Generic, TypeVar
 from urllib.parse import quote
@@ -262,6 +262,109 @@ class DataSourceStatus(StrEnum):
     RATE_LIMITED = "rate_limited"  # the source's quota was exhausted mid-scan
 
 
+class DegradeReason(StrEnum):
+    """Why one fetch inside a data source failed - the question `DataSourceStatus` can't answer.
+
+    Three renamed repositories and an exhausted quota both render as a bare `partial`, which is
+    exactly how a dead repo URL gets mistaken for a rate limit. The status says whether the source
+    delivered; this says what stopped it, so the warning can name the cause.
+    """
+
+    NOT_FOUND = "not_found"  # 404 - the resource is gone, renamed, or private
+    RATE_LIMITED = "rate_limited"  # the source's quota ran out mid-fetch
+    UNAVAILABLE = "unavailable"  # timeouts, connection errors, 5xx - retried and still failing
+    REJECTED = "rejected"  # other 4xx: bad credentials, validation, blocked resource
+    EMPTY_RESPONSE = "empty_response"  # 2xx with no JSON body to map
+    ABORTED = "aborted"  # dropped with no attempt at all, after a global abort
+    UNKNOWN = "unknown"  # the response arrived but mapping it raised
+
+
+@dataclass(frozen=True)
+class RateLimitBudget:
+    """What one API's quota looked like, either observed mid-scan or forecast before it.
+
+    `needed` is set only by a pre-flight forecast, where the question is "will this scan fit in
+    what's left?"; a budget read off a response's headers reports what remained and leaves it None.
+    """
+
+    resource: str
+    """The quota this covers, as the API names it - GitHub meters `core` and `graphql` apart."""
+
+    limit: int | None = None
+    remaining: int | None = None
+    reset_at: float | None = None
+    """Epoch seconds at which the window rolls over, as the API reported it."""
+
+    needed: int | None = None
+    """Requests this scan is expected to spend against `resource`, when this is a forecast."""
+
+    @property
+    def short_by(self) -> int:
+        """How many requests the forecast is short by; 0 when it fits or isn't a forecast."""
+        if self.needed is None or self.remaining is None:
+            return 0
+        return max(0, self.needed - self.remaining)
+
+    @property
+    def exhausted(self) -> bool:
+        return self.remaining == 0
+
+    def seconds_until_reset(self, now: float) -> float | None:
+        """Seconds until the window rolls over, or None when the API didn't say."""
+        return max(0.0, self.reset_at - now) if self.reset_at is not None else None
+
+    def worse_of(self, other: "RateLimitBudget") -> "RateLimitBudget":
+        """The tighter of two readings of the same resource - the lower `remaining` wins.
+
+        Quota only falls within a window, so the lowest reading is the most recent one; `needed`
+        survives from whichever side forecast it.
+        """
+        if self.remaining is None:
+            tighter, looser = other, self  # a reading that says nothing never wins over one that does
+        elif other.remaining is None or self.remaining <= other.remaining:
+            tighter, looser = self, other
+        else:
+            tighter, looser = other, self
+        return replace(tighter, needed=tighter.needed if tighter.needed is not None else looser.needed)
+
+
+@dataclass(frozen=True)
+class FetchDiagnostics:
+    """Why a fetch came back degraded, and what the source's quota looked like while it ran.
+
+    Rule 3 of the architecture: a failed fetch is a value the renderer decides how to show. This
+    is that value for the "why" - counts rather than messages, so the wording stays in `ui/`.
+    """
+
+    failures: tuple[tuple[DegradeReason, int], ...] = ()
+    """(reason, count) pairs, counted over chunks - the same granularity as the status itself."""
+
+    budgets: tuple[RateLimitBudget, ...] = ()
+    """One entry per metered resource the fetch touched."""
+
+    def merge(self, other: "FetchDiagnostics") -> "FetchDiagnostics":
+        """Combine two fetches' diagnostics: failure counts add, budgets keep the tighter reading."""
+        counts: dict[DegradeReason, int] = {}
+        for reason, count in self.failures + other.failures:
+            counts[reason] = counts.get(reason, 0) + count
+        budgets: dict[str, RateLimitBudget] = {}
+        for budget in self.budgets + other.budgets:
+            known = budgets.get(budget.resource)
+            budgets[budget.resource] = known.worse_of(budget) if known else budget
+        return FetchDiagnostics(
+            failures=tuple(sorted(counts.items())),
+            budgets=tuple(budgets[resource] for resource in sorted(budgets)),
+        )
+
+
+def merge_diagnostics(items: Iterable[FetchDiagnostics]) -> FetchDiagnostics:
+    """Fold several fetches' diagnostics into the one a scan step reports."""
+    merged = FetchDiagnostics()
+    for item in items:
+        merged = merged.merge(item)
+    return merged
+
+
 @dataclass(frozen=True)
 class SourceFetch(Generic[T]):
     """What one fetch from an external source returned, and whether the source delivered it.
@@ -274,6 +377,8 @@ class SourceFetch(Generic[T]):
 
     data: T
     status: DataSourceStatus = DataSourceStatus.OK
+    diagnostics: FetchDiagnostics = field(default_factory=FetchDiagnostics)
+    """Why the status is what it is - empty when the fetch had nothing to report."""
 
 
 def combine_statuses(statuses: Iterable[DataSourceStatus]) -> DataSourceStatus:
@@ -316,8 +421,20 @@ class DataCompleteness:
 
     by_step: dict[ScanStep, DataSourceStatus] = field(default_factory=dict)
 
+    diagnostics: dict[ScanStep, FetchDiagnostics] = field(default_factory=dict)
+    """Why each degraded step degraded, and the quota its source reported while it ran. Optional:
+    a step that reports a status but no diagnostics is the old behaviour, not an error."""
+
     def status_for(self, step: ScanStep) -> DataSourceStatus:
         return self.by_step.get(step, DataSourceStatus.OK)
+
+    def diagnostics_for(self, step: ScanStep) -> FetchDiagnostics:
+        return self.diagnostics.get(step, FetchDiagnostics())
+
+    @property
+    def budgets(self) -> tuple[RateLimitBudget, ...]:
+        """Every metered resource this scan touched, tightest reading per resource."""
+        return merge_diagnostics(self.diagnostics.values()).budgets
 
     @property
     def overall(self) -> DataSourceStatus:

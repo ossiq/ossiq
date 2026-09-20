@@ -22,11 +22,36 @@ from ossiq.service.project.next_action import next_action_label
 from ossiq.service.project.stability import RepositoryStability
 
 
+class FetchFailureExport(BaseModel):
+    """Why fetches inside one step failed, counted by cause - `partial` alone can't tell a
+    renamed repository apart from an exhausted quota, and the two call for different responses."""
+
+    reason: str = Field(
+        description="not_found | rate_limited | unavailable | rejected | empty_response | aborted | unknown"
+    )
+    count: int = Field(description="How many fetches in this step failed for this reason")
+
+
+class RateLimitBudgetExport(BaseModel):
+    """What an API's quota looked like for this scan, so a thin report can be attributed to it."""
+
+    resource: str = Field(description="The metered resource, as the API names it, e.g. 'core', 'graphql'")
+    limit: int | None = Field(default=None, description="Requests allowed per window")
+    remaining: int | None = Field(default=None, description="Requests left in the current window")
+    reset_at: float | None = Field(default=None, description="Epoch seconds at which the window rolls over")
+    needed: int | None = Field(
+        default=None, description="Requests this scan was forecast to need against this resource"
+    )
+
+
 class DataSourceStatusExport(BaseModel):
     """B4: whether one external data source actually delivered data for this scan step."""
 
     step: str = Field(description="Scan step this covers, e.g. 'repositories', 'vulnerabilities'")
     status: str = Field(description="ok | partial | unreachable | rate_limited")
+    failures: list[FetchFailureExport] = Field(
+        default_factory=list, description="Causes behind a degraded status, counted; empty when the step was ok"
+    )
 
 
 class DataCompletenessExport(BaseModel):
@@ -41,14 +66,35 @@ class DataCompletenessExport(BaseModel):
     sources: list[DataSourceStatusExport] = Field(
         default_factory=list, description="Per-source status, one entry per scan step that reports completeness"
     )
+    api_budgets: list[RateLimitBudgetExport] = Field(
+        default_factory=list,
+        description="Quota observed or forecast for each metered API this scan touched",
+    )
 
     @classmethod
     def from_domain(cls, completeness: DataCompleteness) -> "DataCompletenessExport":
         return cls(
             overall=completeness.overall.value,
             sources=[
-                DataSourceStatusExport(step=step, status=status.value)
+                DataSourceStatusExport(
+                    step=step,
+                    status=status.value,
+                    failures=[
+                        FetchFailureExport(reason=reason.value, count=count)
+                        for reason, count in completeness.diagnostics_for(step).failures
+                    ],
+                )
                 for step, status in sorted(completeness.by_step.items())
+            ],
+            api_budgets=[
+                RateLimitBudgetExport(
+                    resource=budget.resource,
+                    limit=budget.limit,
+                    remaining=budget.remaining,
+                    reset_at=budget.reset_at,
+                    needed=budget.needed,
+                )
+                for budget in completeness.budgets
             ],
         )
 

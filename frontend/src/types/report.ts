@@ -39,6 +39,40 @@ export interface OSSIQExportSchemaV15 {
       sources?: {
         step?: string;
         status?: "ok" | "partial" | "unreachable" | "rate_limited";
+        /**
+         * Causes behind a degraded status, counted by cause; empty when the step was ok
+         */
+        failures?: {
+          reason?: "not_found" | "rate_limited" | "unavailable" | "rejected" | "empty_response" | "aborted" | "unknown";
+          count?: number;
+          [k: string]: unknown;
+        }[];
+        [k: string]: unknown;
+      }[];
+      /**
+       * Quota observed or forecast for each metered API this scan touched
+       */
+      api_budgets?: {
+        /**
+         * The metered resource, as the API names it, e.g. 'core', 'graphql'
+         */
+        resource?: string;
+        /**
+         * Requests allowed per window
+         */
+        limit?: number | null;
+        /**
+         * Requests left in the current window
+         */
+        remaining?: number | null;
+        /**
+         * Epoch seconds at which the window rolls over
+         */
+        reset_at?: number | null;
+        /**
+         * Requests this scan was forecast to need against this resource
+         */
+        needed?: number | null;
         [k: string]: unknown;
       }[];
       [k: string]: unknown;

@@ -7,6 +7,7 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
+from typing import Protocol
 
 from ossiq.adapters.api_interfaces import AbstractPackageRegistryApi
 from ossiq.adapters.api_pypi import PackageRegistryApiPypi
@@ -16,9 +17,12 @@ from ossiq.domain.common import (
     DataCompleteness,
     DataSourceStatus,
     EngineContext,
+    FetchDiagnostics,
+    RateLimitBudget,
     RepositoryProvider,
     ScanStep,
     combine_statuses,
+    merge_diagnostics,
 )
 from ossiq.domain.exceptions import ProjectPathNotFoundError
 from ossiq.domain.package import Package
@@ -35,6 +39,7 @@ from ossiq.service.project.models import (
 from ossiq.service.project.prefetch import (
     build_ignored_packages,
     enrich_cves_with_epss_and_fix_age,
+    forecast_github_budget,
     partition_git_hosted,
     prefetch_packages_info,
     prefetch_repository_activity,
@@ -68,23 +73,43 @@ def ignore_step_start(step: ScanStep) -> None:
     """Default `ScanProgress.on_step_start`: a caller that wants no progress passes nothing."""
 
 
-def ignore_step_done(step: ScanStep, status: DataSourceStatus) -> None:
+class StepOutcome(Protocol):
+    """What a scan reports when a step finishes: the outcome, and why it is what it is.
+
+    A protocol rather than a plain `Callable` so `diagnostics` can stay optional - a caller that
+    only cares whether the step succeeded still writes a two-argument callback.
+    """
+
+    def __call__(
+        self, step: ScanStep, status: DataSourceStatus, diagnostics: FetchDiagnostics | None = None
+    ) -> None: ...
+
+
+def ignore_step_done(step: ScanStep, status: DataSourceStatus, diagnostics: FetchDiagnostics | None = None) -> None:
     """Default `ScanProgress.on_step_done`: a caller that wants no progress passes nothing."""
+
+
+def ignore_budget(budgets: tuple[RateLimitBudget, ...]) -> None:
+    """Default `ScanProgress.on_budget`: a caller that wants no progress passes nothing."""
 
 
 @dataclass(frozen=True)
 class ScanProgress:
-    """The two distinct events a scan emits, as two callbacks.
+    """The three distinct events a scan emits, as three callbacks.
 
-    These used to be one `on_step(key, status=None)` disambiguated by `status is None` - an
-    advance and an outcome report are different events, and every silent caller had to spell out
-    a two-argument no-op lambda to say it wanted neither.
+    The first two used to be one `on_step(key, status=None)` disambiguated by `status is None` -
+    an advance and an outcome report are different events, and every silent caller had to spell
+    out a two-argument no-op lambda to say it wanted neither.
 
     Not every step reports an outcome; see `ScanStep` for which ones can and why.
     """
 
     on_step_start: Callable[[ScanStep], None] = ignore_step_start
-    on_step_done: Callable[[ScanStep, DataSourceStatus], None] = ignore_step_done
+    on_step_done: StepOutcome = ignore_step_done
+    on_budget: Callable[[tuple[RateLimitBudget, ...]], None] = ignore_budget
+    """A quota reading, forecast against what the scan still needs. Emitted before the fetches
+    that spend it, so a doomed run can say so up front instead of after minutes of retries. The
+    scan reports the numbers; whether they are worth showing is the renderer's call."""
 
 
 @dataclass
@@ -233,8 +258,23 @@ def prefetch_scan_data(
     progress.on_step_start(ScanStep.REPOSITORIES)
     provider = sources.get_source_code_provider(RepositoryProvider.PROVIDER_GITHUB)
     repo_urls = {pkg.repo_url for pkg in packages_info.values() if pkg.repo_url is not None}
+    direct_packages = (packages_info[dep.canonical_name] for dep in all_deps if dep.dependency_path is None)
+    direct_repo_urls = {pkg.repo_url for pkg in direct_packages if pkg.repo_url is not None}
+
+    # Quota first: it costs nothing against the limit it reports, and it is the only way a scan
+    # that is about to run out can say so before it starts paying for it.
+    forecast = forecast_github_budget(
+        provider,
+        repo_urls,
+        direct_repo_urls,
+        stability=sources.settings.stability,
+        responsiveness=sources.settings.responsiveness_enabled(),
+    )
+    progress.on_budget(forecast)
+
     repositories_fetch = prefetch_source_code_repositories_info(provider, repo_urls)
     repository_statuses = [repositories_fetch.status]
+    repository_diagnostics = [FetchDiagnostics(budgets=forecast), repositories_fetch.diagnostics]
 
     # Stability signals for the direct-dependency repos only - one commit request and one README
     # request each, plus one GraphQL POST per repo per stream (ACTIVITY_CHUNK_SIZE = 1, PR streams
@@ -244,23 +284,24 @@ def prefetch_scan_data(
     activity: dict[str, dict] = {}
     readmes: dict[str, str] = {}
     if sources.settings.stability:
-        direct_packages = (packages_info[dep.canonical_name] for dep in all_deps if dep.dependency_path is None)
-        direct_repo_urls = {pkg.repo_url for pkg in direct_packages if pkg.repo_url is not None}
         commits_fetch = prefetch_repository_commits(provider, sources, direct_repo_urls)
         readmes_fetch = prefetch_repository_readmes(provider, direct_repo_urls)
         commits, readmes = commits_fetch.data, readmes_fetch.data
         repository_statuses += [commits_fetch.status, readmes_fetch.status]
+        repository_diagnostics += [commits_fetch.diagnostics, readmes_fetch.diagnostics]
         if sources.settings.responsiveness_enabled():
             activity_fetch = prefetch_repository_activity(provider, sources, direct_repo_urls)
             activity = activity_fetch.data
             repository_statuses.append(activity_fetch.status)
+            repository_diagnostics.append(activity_fetch.diagnostics)
 
     # B4: per-step completeness, so a firewalled host or exhausted quota never renders as a
     # silent success. All four GitHub fetches report under one step, combined explicitly here -
     # a step with nothing to fetch (no repo URLs at all) is legitimately ok, not a failure.
     repositories_status = combine_statuses(repository_statuses)
     completeness: dict[ScanStep, DataSourceStatus] = {ScanStep.REPOSITORIES: repositories_status}
-    progress.on_step_done(ScanStep.REPOSITORIES, repositories_status)
+    diagnostics: dict[ScanStep, FetchDiagnostics] = {ScanStep.REPOSITORIES: merge_diagnostics(repository_diagnostics)}
+    progress.on_step_done(ScanStep.REPOSITORIES, repositories_status, diagnostics[ScanStep.REPOSITORIES])
 
     # Batch CVE fetch for all unique packages
     # force unique pair package/version regardless position in the graph
@@ -269,7 +310,8 @@ def prefetch_scan_data(
     progress.on_step_start(ScanStep.VULNERABILITIES)
     cve_fetch = sources.cve_database.get_cves_batch(unique_packages)
     completeness[ScanStep.VULNERABILITIES] = cve_fetch.status
-    progress.on_step_done(ScanStep.VULNERABILITIES, cve_fetch.status)
+    diagnostics[ScanStep.VULNERABILITIES] = cve_fetch.diagnostics
+    progress.on_step_done(ScanStep.VULNERABILITIES, cve_fetch.status, cve_fetch.diagnostics)
 
     progress.on_step_start(ScanStep.EPSS)
     epss_fetch = enrich_cves_with_epss_and_fix_age(
@@ -280,7 +322,8 @@ def prefetch_scan_data(
     )
     cve_map = epss_fetch.data
     completeness[ScanStep.EPSS] = epss_fetch.status
-    progress.on_step_done(ScanStep.EPSS, epss_fetch.status)
+    diagnostics[ScanStep.EPSS] = epss_fetch.diagnostics
+    progress.on_step_done(ScanStep.EPSS, epss_fetch.status, epss_fetch.diagnostics)
 
     # Pre-compute versions-since-installed for all unique (package, version) pairs
     progress.on_step_start(ScanStep.VERSIONS)
@@ -301,7 +344,7 @@ def prefetch_scan_data(
         commits=commits,
         activity=activity,
         readmes=readmes,
-        data_completeness=DataCompleteness(by_step=completeness),
+        data_completeness=DataCompleteness(by_step=completeness, diagnostics=diagnostics),
     )
 
 

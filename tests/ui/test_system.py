@@ -2,15 +2,29 @@
 data source was actually degraded - see ossiq-defect-report.md, B4.
 """
 
+import time
 from io import StringIO
 from unittest.mock import MagicMock, patch
 
 import pytest
 from rich.console import Console
 
-from ossiq.domain.common import DataCompleteness, DataSourceStatus, ScanStep
+from ossiq.domain.common import (
+    DataCompleteness,
+    DataSourceStatus,
+    DegradeReason,
+    FetchDiagnostics,
+    RateLimitBudget,
+    ScanStep,
+)
 from ossiq.settings import Settings
-from ossiq.ui.system import STEP_INDEX, render_scan_steps, show_scan_progress, warn_about_degraded_steps
+from ossiq.ui.system import (
+    STEP_INDEX,
+    render_scan_steps,
+    show_scan_progress,
+    warn_about_budget,
+    warn_about_degraded_steps,
+)
 
 
 def render_to_text(idx: int, step_status: dict[ScanStep, DataSourceStatus]) -> str:
@@ -159,6 +173,62 @@ class TestWarnAboutDegradedSteps:
             warn_about_degraded_steps(DataCompleteness())
 
         warn.assert_not_called()
+
+    def test_warning_names_the_cause_behind_a_degraded_step(self):
+        """`partial` alone sent a user hunting for an exhausted quota when three repositories
+        had simply been renamed - the number and the cause are what distinguish the two."""
+        completeness = DataCompleteness(
+            by_step={ScanStep.REPOSITORIES: DataSourceStatus.PARTIAL},
+            diagnostics={ScanStep.REPOSITORIES: FetchDiagnostics(failures=((DegradeReason.NOT_FOUND, 3),))},
+        )
+        with patch("ossiq.ui.system.show_warning") as warn:
+            warn_about_degraded_steps(completeness)
+
+        message = warn.call_args.args[0]
+        assert "partial — 3 not found (renamed, deleted or private)" in message
+
+    def test_warning_reports_the_quota_the_scan_ended_on(self):
+        completeness = DataCompleteness(
+            by_step={ScanStep.REPOSITORIES: DataSourceStatus.RATE_LIMITED},
+            diagnostics={
+                ScanStep.REPOSITORIES: FetchDiagnostics(
+                    failures=((DegradeReason.RATE_LIMITED, 2),),
+                    budgets=(RateLimitBudget(resource="core", limit=5000, remaining=0),),
+                )
+            },
+        )
+        with patch("ossiq.ui.system.show_warning") as warn:
+            warn_about_degraded_steps(completeness)
+
+        message = warn.call_args.args[0]
+        assert "core: 0/5000 left" in message
+
+
+class TestBudgetWarning:
+    """The forecast is only worth interrupting for when it says the scan won't fit."""
+
+    def test_an_ample_quota_is_not_news(self):
+        with patch("ossiq.ui.system.show_warning") as warn:
+            warn_about_budget((RateLimitBudget(resource="core", limit=5000, remaining=4900, needed=90),))
+
+        warn.assert_not_called()
+
+    def test_a_short_quota_is_warned_about_with_what_the_scan_needs(self):
+        now = time.time()
+        with patch("ossiq.ui.system.show_warning") as warn:
+            warn_about_budget(
+                (RateLimitBudget(resource="core", limit=5000, remaining=12, reset_at=now + 43 * 60, needed=90),)
+            )
+
+        message = warn.call_args.args[0]
+        assert "core: 12/5000 left, this scan needs ~90, resets in 4" in message
+        assert "OSSIQ_GITHUB_TOKEN" not in message  # a 5000 limit means a token is already in play
+
+    def test_an_unauthenticated_limit_points_at_the_token_setting(self):
+        with patch("ossiq.ui.system.show_warning") as warn:
+            warn_about_budget((RateLimitBudget(resource="core", limit=60, remaining=5, needed=90),))
+
+        assert "OSSIQ_GITHUB_TOKEN" in warn.call_args.args[0]
 
 
 class TestDegradedWarningOnEverySurface:

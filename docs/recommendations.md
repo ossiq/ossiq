@@ -461,9 +461,10 @@ output:
 | Surface | Shown as | Present? |
 |---|---|---|
 | Console stepper | per-step icon and suffix — `⚠ … (partial — some data missing)`, `✗ … (unreachable — no data)`, `✗ … (rate limited — no data)`. A degraded step never draws the green `✓` | ✅ |
-| Console, after the scan | a stderr warning block: *"Some data sources did not fully respond, so this report may be based on incomplete data"*, listing each degraded step. Emitted on every path — including `--verbose` and a missing Rich, which skip the stepper but not the warning, and a scan that raises partway | ✅ |
-| `--format agent`, MCP | `data_completeness: {overall, sources[]}` inside the payload | ✅ |
-| `export` | `metadata.data_completeness` | ✅ |
+| Console, after the scan | a stderr warning block: *"Some data sources did not fully respond, so this report may be based on incomplete data"*, listing each degraded step **and what caused it** — `partial — 3 not found (renamed, deleted or private)` — plus the API quota the scan ended on. Emitted on every path — including `--verbose` and a missing Rich, which skip the stepper but not the warning, and a scan that raises partway | ✅ |
+| Console, before the scan | a stderr warning when GitHub's remaining quota does not cover what the scan is about to need: `core: 12/5000 left, this scan needs ~90, resets in 43m`. The check itself is free and never cached | ✅ |
+| `--format agent`, MCP | `data_completeness: {overall, sources[], api_budgets[]}` inside the payload; each degraded source carries `failures: [{reason, count}]` | ✅ |
+| `export` | `metadata.data_completeness`, including per-source `failures[]` and `api_budgets[]` | ✅ |
 | HTML report | an **Incomplete data** banner above the table, naming each degraded source and carrying `metadata.warnings` | ✅ |
 | Exit code | non-zero (MCP: a titled error) when `--update-strategy security`/`deprecation` ran without vulnerability data. Every other tier still exits 0 | ✅ opt out with `--allow-partial` |
 

@@ -10,6 +10,7 @@ from ossiq.domain.common import (
     CveDatabase,
     DataSourceStatus,
     ProjectPackagesRegistry,
+    RateLimitBudget,
     ScanStep,
     SourceFetch,
 )
@@ -19,7 +20,7 @@ from ossiq.domain.package import Package
 from ossiq.domain.project import ConstraintSource
 from ossiq.domain.version import PackageVersion
 from ossiq.service.project.models import DependencyDescriptor
-from ossiq.service.project.prefetch import enrich_cves_with_epss_and_fix_age
+from ossiq.service.project.prefetch import enrich_cves_with_epss_and_fix_age, forecast_github_budget
 from ossiq.service.project.scan import ScanProgress, prefetch_scan_data
 
 
@@ -246,10 +247,12 @@ def test_prefetch_scan_data_enriches_cves_after_osv_fetch():
         call(ScanStep.EPSS),
         call(ScanStep.VERSIONS),
     ]
-    assert on_step_done.call_args_list == [
-        call(ScanStep.REPOSITORIES, repo_status),
-        call(ScanStep.VULNERABILITIES, cve_status),
-        call(ScanStep.EPSS, DataSourceStatus.RATE_LIMITED),
+    # Every outcome now carries its diagnostics: the status says the step degraded, the
+    # diagnostics say why, and the renderer needs both to name a cause.
+    assert [(args[0], args[1]) for args, _ in on_step_done.call_args_list] == [
+        (ScanStep.REPOSITORIES, repo_status),
+        (ScanStep.VULNERABILITIES, cve_status),
+        (ScanStep.EPSS, DataSourceStatus.RATE_LIMITED),
     ]
     assert result.data_completeness.status_for(ScanStep.EPSS) == DataSourceStatus.RATE_LIMITED
 
@@ -333,6 +336,64 @@ def test_prefetch_scan_data_skips_activity_when_responsiveness_disabled():
 
     activity.assert_not_called()
     assert result.activity == {}
+
+
+class TestForecastGithubBudget:
+    """A quota that can't cover the scan is worth saying before the scan spends minutes finding
+    out - and a warm cache means the run may never touch the network to discover it at all."""
+
+    def provider(self, *budgets: RateLimitBudget) -> MagicMock:
+        provider = MagicMock()
+        provider.rate_limit_budgets.return_value = budgets
+        return provider
+
+    def test_forecast_counts_every_repo_for_rest_and_direct_repos_for_graphql(self):
+        provider = self.provider(
+            RateLimitBudget(resource="core", limit=5000, remaining=4000),
+            RateLimitBudget(resource="graphql", limit=5000, remaining=5000),
+        )
+        forecast = forecast_github_budget(
+            provider,
+            ["https://github.com/org/a", "https://github.com/org/b"],
+            ["https://github.com/org/a"],
+            stability=True,
+            responsiveness=True,
+        )
+
+        assert {budget.resource: budget.needed for budget in forecast} == {"core": 4, "graphql": 2}
+
+    def test_a_disabled_channel_is_not_forecast_for(self):
+        provider = self.provider(
+            RateLimitBudget(resource="core", remaining=100),
+            RateLimitBudget(resource="graphql", remaining=100),
+        )
+        forecast = forecast_github_budget(
+            provider,
+            ["https://github.com/org/a"],
+            ["https://github.com/org/a"],
+            stability=False,
+            responsiveness=False,
+        )
+
+        assert [budget.resource for budget in forecast] == ["core"]
+
+    def test_non_github_urls_are_not_counted(self):
+        provider = self.provider(RateLimitBudget(resource="core", remaining=100))
+        forecast = forecast_github_budget(
+            provider,
+            ["https://gitlab.com/org/a", "https://github.com/org/b"],
+            [],
+            stability=True,
+            responsiveness=True,
+        )
+
+        assert [budget.needed for budget in forecast] == [1]
+
+    def test_nothing_to_fetch_asks_github_nothing(self):
+        provider = self.provider(RateLimitBudget(resource="core", remaining=100))
+
+        assert forecast_github_budget(provider, [], [], stability=True, responsiveness=True) == ()
+        provider.rate_limit_budgets.assert_not_called()
 
 
 def test_prefetch_scan_data_records_data_completeness_per_step():

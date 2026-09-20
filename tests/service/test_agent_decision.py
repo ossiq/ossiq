@@ -12,10 +12,13 @@ from ossiq.domain.common import (
     CveDatabase,
     DataCompleteness,
     DataSourceStatus,
+    DegradeReason,
     EngineContext,
     EngineContextSource,
+    FetchDiagnostics,
     ModuleSystem,
     ProjectPackagesRegistry,
+    RateLimitBudget,
     RecommendationRung,
     RejectedCandidate,
     ScanStep,
@@ -543,7 +546,7 @@ def test_a_package_up_to_date_and_unaffected_gets_an_explicit_entry_not_an_omiss
 
 def test_update_decide_carries_ok_completeness_by_default():
     decision = build_update_decide(make_scan([make_record()]))
-    assert decision["data_completeness"] == {"overall": "ok", "sources": []}
+    assert decision["data_completeness"] == {"overall": "ok", "sources": [], "api_budgets": []}
 
 
 def test_update_decide_surfaces_degraded_sources_inline():
@@ -558,6 +561,28 @@ def test_update_decide_surfaces_degraded_sources_inline():
     assert decision["data_completeness"]["overall"] == "unreachable"
     assert {"step": "vulnerabilities", "status": "unreachable"} in decision["data_completeness"]["sources"]
     assert {"step": "repositories", "status": "ok"} in decision["data_completeness"]["sources"]
+
+
+def test_update_decide_names_the_cause_and_the_quota_behind_a_degraded_source():
+    """An agent that reads "3 repositories not found" retries nothing; one that reads a bare
+    `partial` may re-run the whole scan straight into an exhausted quota."""
+    completeness = DataCompleteness(
+        by_step={ScanStep.REPOSITORIES: DataSourceStatus.PARTIAL},
+        diagnostics={
+            ScanStep.REPOSITORIES: FetchDiagnostics(
+                failures=((DegradeReason.NOT_FOUND, 3),),
+                budgets=(RateLimitBudget(resource="core", limit=5000, remaining=120, needed=400),),
+            )
+        },
+    )
+    decision = build_update_decide(make_scan([make_record()], data_completeness=completeness))
+
+    assert decision["data_completeness"]["sources"] == [
+        {"step": "repositories", "status": "partial", "failures": [{"reason": "not_found", "count": 3}]}
+    ]
+    assert decision["data_completeness"]["api_budgets"] == [
+        {"resource": "core", "limit": 5000, "remaining": 120, "reset_at": None, "needed": 400}
+    ]
 
 
 def test_one_scan_reports_one_engine_context_source_for_every_entry():
