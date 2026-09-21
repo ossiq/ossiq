@@ -446,6 +446,7 @@ def build_update_context(
         releases,
         registry_enum,
         project_declares_esm,
+        node_version=engine_context.versions.get("node"),
     )
     target_release = next((pv for pv in releases if pv.version == to_version), None)
     engine_requirement = target_release.runtime_requirements if target_release else None
@@ -453,7 +454,9 @@ def build_update_context(
     latest_compatible_major = (
         record.compatibility.latest_compatible_major
         if record is not None
-        else compute_latest_compatible_major(package_name, releases, "0.0.0", registry, registry_enum)
+        else compute_latest_compatible_major(
+            package_name, releases, "0.0.0", registry, registry_enum, node_version=engine_context.versions.get("node")
+        )
     )
 
     rejected = record.rejected_candidates if record else []

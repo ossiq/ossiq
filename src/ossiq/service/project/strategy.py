@@ -299,7 +299,9 @@ def apply_update_strategy(
         strategy = plan.for_package(record.package_name)
         facts = facts_from_record(record)
         releases = versions_since.get((record.package_name, record.installed_version), [])
-        breaks = breaking_majors(record.package_name, releases, registry.package_registry)
+        breaks = breaking_majors(
+            record.package_name, releases, registry.package_registry, node_version=engine_context.versions.get("node")
+        )
         engine_gate = engine_mismatch_gate(engine_context)
         # npm installs an engines mismatch anyway (a warning, not a refusal), so there it stays
         # advisory and waivable. pip and uv refuse outright, so on PyPI the gate has to bind.
