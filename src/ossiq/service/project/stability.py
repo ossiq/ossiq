@@ -222,12 +222,18 @@ def populate_stability(
     commits: Mapping[str, list[dict]],
     now: datetime | None = None,
     activity: Mapping[str, dict] | None = None,
+    *,
+    cve_data_unavailable: bool = False,
 ) -> ProjectStability:
     """Assign `record.stability`, `record.maintenance` and `record.triage` on every record.
 
     `commits` and `activity` are keyed by repository URL, so packages sharing a monorepo are
     measured once and the result reused. `activity` is empty when the responsiveness channel is
     disabled (no token / --no-stability-responsiveness).
+
+    `cve_data_unavailable` (N1): this scan's vulnerabilities fetch was itself degraded, so an
+    empty `record.cve` cannot be read as "checked, found nothing" - forwarded to every triage()
+    call so its reason text does not claim a confidence the scan does not have.
     """
 
     by_url: dict[str, RepositoryStability | None] = {}
@@ -249,7 +255,7 @@ def populate_stability(
         unstable = None
         if record.maintenance is not None:
             unstable = record.maintenance.p_not_maintained >= MAINTENANCE_THRESHOLD
-        record.triage = triage(record.cve, unstable)
+        record.triage = triage(record.cve, unstable, cve_data_unavailable=cve_data_unavailable)
 
         if record.maintenance is not None or record.package_name not in by_package:
             by_package[record.package_name] = record.maintenance

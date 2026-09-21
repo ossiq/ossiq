@@ -596,7 +596,14 @@ def scan(sources: AbstractProjectSources, progress: ScanProgress | None = None) 
 
         all_records = production_packages + optional_packages + transitive_packages
         project_epss = populate_epss(all_records, descriptors.walker)
-        project_stability = populate_stability(all_records, prefetched.commits, now, prefetched.activity)
+        vulnerabilities_status = prefetched.data_completeness.status_for(ScanStep.VULNERABILITIES)
+        project_stability = populate_stability(
+            all_records,
+            prefetched.commits,
+            now,
+            prefetched.activity,
+            cve_data_unavailable=vulnerabilities_status != DataSourceStatus.OK,
+        )
 
         # Must run after populate_stability: record.maintenance/triage feed classify_motives's
         # END_OF_LIFE check. Ignored packages are excluded, mirroring solve_direct_phase's old

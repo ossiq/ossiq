@@ -47,19 +47,37 @@ class TriageResult:
     suppressed_cves: int
     """CVEs carrying an EPSS score below the noise threshold."""
 
+    cve_data_unavailable: bool = False
+    """True when this scan's CVE fetch was degraded (unreachable, rate-limited, or partial), so
+    an absence of evidence in `cves` means "couldn't check", not "confirmed clean". Reflects the
+    scan-level fetch status regardless of which action or reason was chosen."""
+
 
 def triage(
     cves: Iterable[CVE],
     unstable: bool | None,
     *,
+    cve_data_unavailable: bool = False,
     noise: float = EPSS_NOISE_THRESHOLD,
     exploit: float = EPSS_EXPLOIT_THRESHOLD,
 ) -> TriageResult:
     """Decide the action for one package from its CVEs and its repository's stability verdict.
 
-    `unstable` is None when the repository could not be measured. Unknown is not unstable: such a
-    package keeps its exploit-driven action and is never marked for refactoring on absent
-    evidence.
+    `unstable=None` (repository unmeasured) and `cve_data_unavailable=True` (CVE fetch degraded)
+    both mean "no evidence," never "clean": the package keeps its exploit-driven action rather
+    than being promoted to refactor, or retained with a reason that claims confirmed safety it
+    doesn't have.
+
+    Args:
+        cves: The package's known CVEs.
+        unstable: Whether the repository is winding down, or None if it couldn't be measured.
+        cve_data_unavailable: True when this scan's CVE fetch was degraded, so an empty `cves`
+            can't be read as "confirmed clean."
+        noise: EPSS floor below which a CVE is suppressed from `max_epss`.
+        exploit: EPSS floor at or above which exploitation counts as an active threat.
+
+    Returns:
+        The recommended action with its supporting evidence.
     """
 
     scored = [cve.epss for cve in cves if cve.epss is not None]
@@ -72,14 +90,18 @@ def triage(
 
     if under_threat and is_unstable:
         reason = "High exploit probability on a dormant repository; an upstream fix is unlikely."
-        return TriageResult(ACTION_EVICT, reason, max_epss, suppressed)
+        return TriageResult(ACTION_EVICT, reason, max_epss, suppressed, cve_data_unavailable)
 
     if under_threat:
         reason = "Active exploit probability, and the repository is active enough to ship a fix."
-        return TriageResult(ACTION_PATCH, reason, max_epss, suppressed)
+        return TriageResult(ACTION_PATCH, reason, max_epss, suppressed, cve_data_unavailable)
 
     if is_unstable:
         reason = "No exploit pressure, but the repository shows no development activity."
-        return TriageResult(ACTION_REFACTOR, reason, max_epss, suppressed)
+        return TriageResult(ACTION_REFACTOR, reason, max_epss, suppressed, cve_data_unavailable)
 
-    return TriageResult(ACTION_RETAIN, "No significant exploit or stability signal.", max_epss, suppressed)
+    if cve_data_unavailable:
+        reason = "CVE data could not be retrieved for this scan; exploit signal unknown, not confirmed clean."
+    else:
+        reason = "No significant exploit or stability signal."
+    return TriageResult(ACTION_RETAIN, reason, max_epss, suppressed, cve_data_unavailable)

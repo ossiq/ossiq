@@ -30,6 +30,7 @@ from ossiq.domain.cve import CVE, Severity
 from ossiq.domain.project import ConstraintSource
 from ossiq.domain.version import VERSION_DIFF_MAJOR, VERSION_DIFF_MINOR, VERSION_LATEST, VersionsDifference
 from ossiq.risk.maintenance import MaintenanceAssessment, MaintenanceState
+from ossiq.risk.triage import ACTION_RETAIN, TriageResult
 from ossiq.service.agent import build_add_decide, build_update_decide
 from ossiq.service.package import (
     RULE_SINGLE_MAINTAINER,
@@ -697,3 +698,40 @@ def test_a_genuinely_capping_range_is_still_reported():
     entry = build_update_decide(make_scan([record]))["updates"][0]
 
     assert any("declared range ~7.3.0 caps this below 7.5.0" == reason for reason in entry["reasons"])
+
+
+# --- N1: agent format must surface cve_data_unavailable, not just fix the wording -------------
+
+
+def test_triage_summary_surfaces_cve_data_unavailable_to_the_agent():
+    """The point of N1 is not just an honest reason string - a consuming agent needs a field it
+    can branch on without parsing prose. build_update_entry feeds both --format agent and MCP.
+    """
+    triage = TriageResult(
+        action=ACTION_RETAIN,
+        reason="CVE data could not be retrieved for this scan; exploit signal unknown, not confirmed clean.",
+        max_epss=None,
+        suppressed_cves=0,
+        cve_data_unavailable=True,
+    )
+    record = make_record(installed="1.0.0", latest="1.1.0", diff_index=VERSION_DIFF_MINOR, triage=triage)
+    decision = build_update_decide(make_scan([record]))
+    entry = decision["updates"][0]
+
+    assert entry["triage"]["cve_data_unavailable"] is True
+    assert "could not be retrieved" in entry["triage"]["reason"]
+
+
+def test_triage_summary_omits_cve_data_unavailable_when_false():
+    """Matches the sparse-field convention already used for suppressed_cves/deprecation_signals -
+    a confirmed-clean scan should not carry a redundant `cve_data_unavailable: false` on every
+    single entry.
+    """
+    triage = TriageResult(
+        action=ACTION_RETAIN, reason="No significant exploit or stability signal.", max_epss=None, suppressed_cves=0
+    )
+    record = make_record(installed="1.0.0", latest="1.1.0", diff_index=VERSION_DIFF_MINOR, triage=triage)
+    decision = build_update_decide(make_scan([record]))
+    entry = decision["updates"][0]
+
+    assert "cve_data_unavailable" not in entry["triage"]
