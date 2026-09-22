@@ -14,6 +14,7 @@ from ossiq.domain.common import (
     WIDENING_RUNGS,
     DataCompleteness,
     EngineContext,
+    SignalCoverage,
 )
 from ossiq.domain.compatibility import CompatibilityFacts
 from ossiq.domain.cve import CVE
@@ -132,6 +133,12 @@ def triage_summary(record: ScanRecord) -> dict[str, Any] | None:
     if record.maintenance is not None:
         summary["maintenance_state"] = record.maintenance.state
         summary["maintenance_risk"] = round(record.maintenance.p_not_maintained, 4)
+        if record.signal_coverage != SignalCoverage.FULL:
+            # The maintenance verdict is real, not fabricated - but it was assessed from
+            # whatever signals were actually reachable, not the full set. A console reader
+            # already sees this via the scan's "N unassessed" summary; an agent reading this one
+            # record in isolation over MCP/--format agent previously had no way to know at all.
+            summary["maintenance_signal_coverage"] = record.signal_coverage.value
     if record.deprecation is not None and record.deprecation.signals:
         summary["deprecation_signals"] = sorted(record.deprecation.signals)
         if record.deprecation.successor:

@@ -24,13 +24,14 @@ from ossiq.domain.common import (
     RecommendationRung,
     RejectedCandidate,
     ScanStep,
+    SignalCoverage,
 )
 from ossiq.domain.compatibility import CompatibilityFacts
 from ossiq.domain.cve import CVE, Severity
 from ossiq.domain.project import ConstraintSource
 from ossiq.domain.version import VERSION_DIFF_MAJOR, VERSION_DIFF_MINOR, VERSION_LATEST, VersionsDifference
 from ossiq.risk.maintenance import MaintenanceAssessment, MaintenanceState
-from ossiq.risk.triage import ACTION_RETAIN, TriageResult
+from ossiq.risk.triage import ACTION_REFACTOR, ACTION_RETAIN, TriageResult
 from ossiq.service.agent import build_add_decide, build_update_decide
 from ossiq.service.package import (
     RULE_SINGLE_MAINTAINER,
@@ -735,3 +736,74 @@ def test_triage_summary_omits_cve_data_unavailable_when_false():
     entry = decision["updates"][0]
 
     assert "cve_data_unavailable" not in entry["triage"]
+
+
+# --- maintenance verdicts at low signal coverage must say so -----------------------------------
+
+
+def make_maintenance(state: str, p_not_maintained: float, observations: dict | None = None) -> MaintenanceAssessment:
+    posterior = {s: 0.0 for s in MaintenanceState}
+    posterior[state] = 1.0
+    return MaintenanceAssessment(posterior, state, p_not_maintained, observations or {})
+
+
+def test_maintenance_verdict_surfaces_degraded_signal_coverage():
+    """The reported scenario: a strong verdict (abandoned) issued from partial data. An agent
+    reading this one record over MCP had no way to know the underlying signals were incomplete -
+    the SignalCoverage field already existed and was already correct, just never exposed here.
+    """
+    maintenance = make_maintenance(MaintenanceState.ABANDONED, 0.9, {"push_age": "stale"})
+    triage = TriageResult(action=ACTION_REFACTOR, reason="stale", max_epss=None, suppressed_cves=0)
+    record = make_record(
+        installed="1.0.0",
+        latest="1.1.0",
+        diff_index=VERSION_DIFF_MINOR,
+        maintenance=maintenance,
+        triage=triage,
+        signal_coverage=SignalCoverage.ACTIVITY_UNAVAILABLE,
+    )
+    decision = build_update_decide(make_scan([record]))
+    entry = decision["updates"][0]
+
+    assert entry["triage"]["maintenance_state"] == "abandoned"
+    assert entry["triage"]["maintenance_signal_coverage"] == "activity_unavailable"
+
+
+def test_maintenance_verdict_omits_coverage_field_when_full():
+    """Matches the sparse-field convention already used elsewhere in this summary - a fully
+    covered assessment should not carry a redundant 'coverage: full' on every single entry.
+    """
+    maintenance = make_maintenance(MaintenanceState.MAINTAINED, 0.05)
+    triage = TriageResult(action=ACTION_RETAIN, reason="fine", max_epss=None, suppressed_cves=0)
+    record = make_record(
+        installed="1.0.0",
+        latest="1.1.0",
+        diff_index=VERSION_DIFF_MINOR,
+        maintenance=maintenance,
+        triage=triage,
+        signal_coverage=SignalCoverage.FULL,
+    )
+    decision = build_update_decide(make_scan([record]))
+    entry = decision["updates"][0]
+
+    assert "maintenance_signal_coverage" not in entry["triage"]
+
+
+def test_maintenance_verdict_surfaces_coverage_gap_even_for_a_healthy_state():
+    """The honesty principle applies uniformly, not only to alarming verdicts - a 'maintained'
+    state assessed from partial data deserves the same transparency as an 'abandoned' one.
+    """
+    maintenance = make_maintenance(MaintenanceState.MAINTAINED, 0.05)
+    triage = TriageResult(action=ACTION_RETAIN, reason="fine", max_epss=None, suppressed_cves=0)
+    record = make_record(
+        installed="1.0.0",
+        latest="1.1.0",
+        diff_index=VERSION_DIFF_MINOR,
+        maintenance=maintenance,
+        triage=triage,
+        signal_coverage=SignalCoverage.REPOSITORY_UNAVAILABLE,
+    )
+    decision = build_update_decide(make_scan([record]))
+    entry = decision["updates"][0]
+
+    assert entry["triage"]["maintenance_signal_coverage"] == "repository_unavailable"
