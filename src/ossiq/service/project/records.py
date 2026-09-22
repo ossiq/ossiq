@@ -5,7 +5,7 @@ Building and sorting ScanRecord instances from dependency descriptors and pre-fe
 from datetime import UTC, datetime
 
 from ossiq.adapters.api_interfaces import VersionRules
-from ossiq.domain.common import build_purl, parse_spdx_expression
+from ossiq.domain.common import EngineContext, build_purl, parse_spdx_expression
 from ossiq.domain.compatibility import CompatibilityFacts
 from ossiq.domain.cve import CVE
 from ossiq.domain.package import Package
@@ -101,6 +101,7 @@ def scan_record(
     commits_expected: bool = False,
     has_commits: bool = False,
     now: datetime | None = None,
+    engine_context: EngineContext | None = None,
 ) -> ScanRecord:
     """
     Factory to generate ScanRecord instances
@@ -143,6 +144,7 @@ def scan_record(
         version_rules,
         version_rules.package_registry,
         now=now,
+        node_version=(engine_context.versions.get("node") if engine_context is not None else None),
     )
 
     deprecation = deprecation_evidence(
@@ -225,6 +227,7 @@ def build_records(
     prefetched: PrefetchedData,
     *,
     now: datetime | None = None,
+    engine_context: EngineContext | None = None,
 ) -> list[ScanRecord]:
     """Build ScanRecord instances from dependency descriptors and pre-fetched data."""
 
@@ -259,6 +262,7 @@ def build_records(
             commits_expected=commits_ran and dep.dependency_path is None,
             has_commits=bool(prefetched.commits.get(repo_url_of(dep))),
             now=now,
+            engine_context=engine_context,
         )
         for dep in descriptors
     ]

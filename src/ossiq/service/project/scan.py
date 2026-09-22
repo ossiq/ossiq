@@ -426,12 +426,16 @@ def solve_direct_phase(
     )
 
     production_packages = sorted(
-        build_records(descriptors.prod_deps, sources.packages_registry, prefetched, now=now),
+        build_records(
+            descriptors.prod_deps, sources.packages_registry, prefetched, now=now, engine_context=engine_context
+        ),
         key=scan_sort_key,
         reverse=True,
     )
     optional_packages = sorted(
-        build_records(descriptors.opt_deps, sources.packages_registry, prefetched, now=now),
+        build_records(
+            descriptors.opt_deps, sources.packages_registry, prefetched, now=now, engine_context=engine_context
+        ),
         key=scan_sort_key,
         reverse=True,
     )
@@ -559,9 +563,10 @@ def scan(sources: AbstractProjectSources, progress: ScanProgress | None = None) 
         ]
         warm_pypi_version_requires_cache(sources, solvable_direct_deps, now)
 
-        # Transitive records built first — the Phase 4c validator needs them to assess impacts.
-        transitive_packages = build_records(descriptors.trans_deps, sources.packages_registry, prefetched, now=now)
-
+        # N3: engine_context has to be known before any build_records call, not just before the
+        # solver phases - compute_latest_compatible_major (records.py) needs the detected Node
+        # floor to know whether an ESM-only major actually breaks a CommonJS consumer, and that
+        # applies to transitive records exactly as much as direct ones.
         engine_context, npm_cli_version = detect_engine_context(
             project_info,
             sources.project_path,
@@ -570,6 +575,11 @@ def scan(sources: AbstractProjectSources, progress: ScanProgress | None = None) 
         installed_version_by_name = {
             dep.canonical_name: dep.version for dep in descriptors.prod_deps + descriptors.opt_deps
         }
+
+        # Transitive records built first — the Phase 4c validator needs them to assess impacts.
+        transitive_packages = build_records(
+            descriptors.trans_deps, sources.packages_registry, prefetched, now=now, engine_context=engine_context
+        )
 
         progress.on_step_start(ScanStep.SOLVER)
         solver_output, production_packages, optional_packages, simulate_recommendation = solve_direct_phase(

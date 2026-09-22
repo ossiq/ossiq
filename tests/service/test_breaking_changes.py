@@ -12,9 +12,11 @@ from ossiq.adapters.api_pypi import PackageRegistryApiPypi
 from ossiq.domain.common import ModuleSystem, ProjectPackagesRegistry
 from ossiq.domain.version import PackageVersion
 from ossiq.service.project.breaking_changes import (
+    NODE_REQUIRE_ESM_MIN_STABLE,
     breaking_majors,
     compute_latest_compatible_major,
     module_system_label,
+    node_supports_require_esm,
 )
 from ossiq.settings import Settings
 
@@ -183,3 +185,143 @@ class TestModuleSystemLabel:
 
         assert module_system is None
         assert breaking_change is None
+
+
+# ============================================================================
+# N3: Node's require(esm) support was detected but never consulted
+# ============================================================================
+
+
+class TestNodeSupportsRequireEsm:
+    """Node landed require() of a synchronous ES module without a flag in 22.12.0, backported to
+    20.19.0 on the 20.x LTS line. Reference: https://nodejs.org/en/blog/release/v22.12.0
+    """
+
+    def test_above_threshold_on_22_x(self):
+        assert node_supports_require_esm("22.22.2") is True  # the report's own detected version
+        assert node_supports_require_esm("22.12.0") is True  # exactly at the threshold
+        assert node_supports_require_esm("23.0.0") is True
+
+    def test_below_threshold_on_22_x(self):
+        assert node_supports_require_esm("22.11.9") is False
+
+    def test_above_threshold_on_20_x_lts_backport(self):
+        assert node_supports_require_esm("20.19.0") is True
+        assert node_supports_require_esm("20.19.5") is True
+
+    def test_below_threshold_on_20_x(self):
+        assert node_supports_require_esm("20.18.9") is False
+
+    def test_21_x_conservatively_unsupported(self):
+        """Non-LTS, long EOL, backport status unconfirmed - treated as unsupported rather than
+        guessed at.
+        """
+        assert node_supports_require_esm("21.7.3") is False
+
+    def test_older_majors_unsupported(self):
+        assert node_supports_require_esm("18.20.0") is False
+        assert node_supports_require_esm("16.20.2") is False
+
+    def test_none_and_unparseable_are_unsupported(self):
+        assert node_supports_require_esm(None) is False
+        assert node_supports_require_esm("") is False
+        assert node_supports_require_esm("not-a-version") is False
+
+    def test_majors_above_the_table_survive_a_new_backport_entry(self, monkeypatch):
+        """The ceiling is NODE_REQUIRE_ESM_UNIVERSAL_FROM, not the table's highest key: a line added
+        later because it needed its own threshold must not unsupport the majors already above it.
+        """
+        monkeypatch.setitem(NODE_REQUIRE_ESM_MIN_STABLE, 26, "26.4.0")
+        assert node_supports_require_esm("23.0.0") is True
+        assert node_supports_require_esm("25.1.0") is True
+        assert node_supports_require_esm("26.3.0") is False  # the new line's own threshold applies
+        assert node_supports_require_esm("26.4.0") is True
+
+
+class TestBreakingMajorsNodeAwareness:
+    def test_esm_only_major_not_flagged_when_node_supports_require_esm(self):
+        releases = [_pv("5.0.0", module_system=ModuleSystem.ESM_ONLY)]
+        flagged = breaking_majors("chalk", releases, ProjectPackagesRegistry.NPM, node_version="22.22.2")
+        assert flagged == {}
+
+    def test_esm_only_major_still_flagged_on_old_node(self):
+        releases = [_pv("5.0.0", module_system=ModuleSystem.ESM_ONLY)]
+        flagged = breaking_majors("chalk", releases, ProjectPackagesRegistry.NPM, node_version="16.20.2")
+        assert flagged == {(0, 5): "ESM-only from 5.0.0"}
+
+    def test_esm_only_major_still_flagged_when_node_version_unknown(self):
+        """Unknown Node - the pre-fix default - must stay conservative, not assume support."""
+        releases = [_pv("5.0.0", module_system=ModuleSystem.ESM_ONLY)]
+        flagged = breaking_majors("chalk", releases, ProjectPackagesRegistry.NPM, node_version=None)
+        assert flagged == {(0, 5): "ESM-only from 5.0.0"}
+
+    def test_node_awareness_is_npm_only(self):
+        """PyPI has no module-system signal at all yet (see the module docstring) - a node_version
+        must not accidentally start flagging or unflagging anything there.
+        """
+        releases = [_pv("2.0.0")]
+        flagged = breaking_majors("pydantic", releases, ProjectPackagesRegistry.PYPI, node_version="22.22.2")
+        assert flagged == {}
+
+
+class TestComputeLatestCompatibleMajorNodeAwareness:
+    def test_uuid_shaped_regression(self):
+        """The report's own reproduction: uuid installed on a CJS major, with every release in
+        the next major ESM-only. Without Node awareness the ladder is stuck at installed; with a
+        modern Node detected it correctly reaches the newest release. v0.1.10 (pre-N3-fix)
+        recommended 11.1.1 here; this asserts the actually-correct 14.0.2.
+        """
+        releases = [
+            _pv("9.0.1", module_system=ModuleSystem.CJS),
+            _pv("11.0.0", module_system=ModuleSystem.ESM_ONLY),
+            _pv("11.1.1", module_system=ModuleSystem.ESM_ONLY),
+            _pv("14.0.2", module_system=ModuleSystem.ESM_ONLY),
+        ]
+
+        stuck = compute_latest_compatible_major("uuid", releases, "9.0.1", NPM, ProjectPackagesRegistry.NPM)
+        assert stuck == "9.0.1"
+
+        unlocked = compute_latest_compatible_major(
+            "uuid", releases, "9.0.1", NPM, ProjectPackagesRegistry.NPM, node_version="22.22.2"
+        )
+        assert unlocked == "14.0.2"
+
+    def test_old_node_stays_stuck(self):
+        releases = [
+            _pv("9.0.1", module_system=ModuleSystem.CJS),
+            _pv("14.0.2", module_system=ModuleSystem.ESM_ONLY),
+        ]
+        result = compute_latest_compatible_major(
+            "uuid", releases, "9.0.1", NPM, ProjectPackagesRegistry.NPM, node_version="18.20.0"
+        )
+        assert result == "9.0.1"
+
+
+class TestModuleSystemLabelNodeAwareness:
+    def test_breaking_change_suppressed_on_modern_node(self):
+        releases = [_pv("5.0.0", module_system=ModuleSystem.ESM_ONLY)]
+        module_system, breaking_change = module_system_label(
+            "chalk",
+            "4.1.2",
+            "5.0.0",
+            releases,
+            ProjectPackagesRegistry.NPM,
+            project_declares_esm=False,
+            node_version="22.22.2",
+        )
+        assert module_system == ModuleSystem.ESM_ONLY
+        assert breaking_change is None
+
+    def test_breaking_change_still_reported_on_old_node(self):
+        releases = [_pv("5.0.0", module_system=ModuleSystem.ESM_ONLY)]
+        module_system, breaking_change = module_system_label(
+            "chalk",
+            "4.1.2",
+            "5.0.0",
+            releases,
+            ProjectPackagesRegistry.NPM,
+            project_declares_esm=False,
+            node_version="16.20.2",
+        )
+        assert module_system == ModuleSystem.ESM_ONLY
+        assert breaking_change == "ESM-only from 5.0.0"
