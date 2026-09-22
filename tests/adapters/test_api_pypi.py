@@ -289,6 +289,119 @@ class TestPackageInfosBatch:
         mock_run.assert_called_once_with([])
         assert result["cached-pkg"].latest_version == "1.0.0"
 
+    def test_latest_version_corrected_away_from_a_prerelease(self, pypi_api):
+        """The reported issue: PyPI's own info.version is simply the most recent upload, with no
+        stability filtering - pydantic 2.14.0b2 as 'latest' even though pip install pydantic
+        (without --pre) would resolve to the last stable 2.13.x release.
+        """
+        raw = {
+            "pydantic": {
+                "info": {
+                    "name": "pydantic",
+                    "version": "2.14.0b2",
+                    "project_urls": {},
+                    "author": None,
+                    "home_page": None,
+                    "summary": None,
+                    "package_url": None,
+                    "license": None,
+                },
+                "releases": {
+                    "2.13.4": [{}],
+                    "2.13.5": [{}],
+                    "2.14.0b1": [{}],
+                    "2.14.0b2": [{}],
+                },
+            }
+        }
+        with patch.object(BatchClient, "run_batch", return_value=iter([raw])):
+            result = pypi_api.packages_info_batch(["pydantic"])
+
+        assert result["pydantic"].latest_version == "2.13.5"
+
+    def test_latest_version_unchanged_when_already_stable(self, pypi_api):
+        raw = {
+            "requests": {
+                "info": {
+                    "name": "requests",
+                    "version": "2.31.0",
+                    "project_urls": {},
+                    "author": None,
+                    "home_page": None,
+                    "summary": None,
+                    "package_url": None,
+                    "license": None,
+                },
+                "releases": {"2.30.0": [{}], "2.31.0": [{}]},
+            }
+        }
+        with patch.object(BatchClient, "run_batch", return_value=iter([raw])):
+            result = pypi_api.packages_info_batch(["requests"])
+
+        assert result["requests"].latest_version == "2.31.0"
+
+
+class TestLatestStableVersion:
+    """Unit tests for the pure helper behind the fix above."""
+
+    def test_falls_back_to_newest_stable_when_info_version_is_a_prerelease(self):
+        releases = {"2.13.4": [{}], "2.13.5": [{}], "2.14.0b1": [{}], "2.14.0b2": [{}]}
+        assert PackageRegistryApiPypi.latest_stable_version("2.14.0b2", releases) == "2.13.5"
+
+    def test_already_stable_is_returned_unchanged(self):
+        releases = {"2.13.4": [{}], "2.13.5": [{}]}
+        assert PackageRegistryApiPypi.latest_stable_version("2.13.5", releases) == "2.13.5"
+
+    def test_no_stable_release_exists_returns_the_prerelease_as_is(self):
+        """A package that has never had a stable release yet - showing the prerelease is more
+        informative than an empty/None result, and nothing safer exists to fall back to.
+        """
+        releases = {"0.1.0a1": [{}], "0.1.0a2": [{}]}
+        assert PackageRegistryApiPypi.latest_stable_version("0.1.0a2", releases) == "0.1.0a2"
+
+    def test_unparseable_info_version_is_returned_unchanged(self):
+        assert PackageRegistryApiPypi.latest_stable_version("not-a-version", {"1.0.0": [{}]}) == "not-a-version"
+
+    def test_unparseable_entries_in_releases_are_skipped_not_fatal(self):
+        releases = {"2.13.5": [{}], "not-a-version": [{}], "2.14.0b1": [{}]}
+        assert PackageRegistryApiPypi.latest_stable_version("2.14.0b1", releases) == "2.13.5"
+
+    def test_release_candidates_and_alphas_are_also_prereleases(self):
+        releases = {"1.0.0": [{}], "2.0.0rc1": [{}], "2.0.0a1": [{}]}
+        assert PackageRegistryApiPypi.latest_stable_version("2.0.0rc1", releases) == "1.0.0"
+
+    def test_empty_releases_dict_returns_the_prerelease_as_is(self):
+        assert PackageRegistryApiPypi.latest_stable_version("2.14.0b2", {}) == "2.14.0b2"
+
+    def test_returns_the_raw_release_key_not_a_packaging_normalized_rewrite(self):
+        """2.13.4-1 parses fine but str(Version(...)) rewrites it to "2.13.4.post1" - callers
+        match latest_version against raw release keys by string equality, so this must come back
+        exactly as PyPI published it, not the packaging library's normalized form.
+        """
+        releases = {"2.13.4-1": [{}]}
+        assert PackageRegistryApiPypi.latest_stable_version("2.14.0b1", releases) == "2.13.4-1"
+
+    def test_versions_with_no_files_are_not_candidates(self):
+        """An empty file list is a removed/traceless release - package_versions() skips these too,
+        so latest_stable_version must not pick one, or it'd return a version no other surface
+        can find.
+        """
+        releases = {"2.13.5": [], "2.13.4": [{}]}
+        assert PackageRegistryApiPypi.latest_stable_version("2.14.0b1", releases) == "2.13.4"
+
+    def test_fully_yanked_stable_release_is_not_a_candidate(self):
+        releases = {"2.13.5": [{"yanked": True}], "2.13.4": [{}]}
+        assert PackageRegistryApiPypi.latest_stable_version("2.14.0b1", releases) == "2.13.4"
+
+    def test_partially_yanked_release_is_still_a_candidate(self):
+        """Yanked is per-file; a release with at least one non-yanked file is still installable."""
+        releases = {"2.13.5": [{"yanked": True}, {"yanked": False}], "2.13.4": [{}]}
+        assert PackageRegistryApiPypi.latest_stable_version("2.14.0b1", releases) == "2.13.5"
+
+    def test_falls_back_to_prerelease_when_every_stable_release_is_yanked(self):
+        releases = {"2.13.5": [{"yanked": True}]}
+        assert PackageRegistryApiPypi.latest_stable_version("2.14.0b1", releases) == "2.14.0b1"
+
 
 # ============================================================================
 # Test package_versions (integration + yanked + legacy filtering)

@@ -112,9 +112,7 @@ def detect_pypi_install_execution(release_files: list[dict]) -> tuple[bool | Non
 
 
 class PackageRegistryApiPypi(AbstractPackageRegistryApi):
-    """
-    Implementation of Package Registry API client for PyPI
-    """
+    """Package registry API client for PyPI."""
 
     package_registry = ProjectPackagesRegistry.PYPI
     settings: Settings
@@ -152,14 +150,12 @@ class PackageRegistryApiPypi(AbstractPackageRegistryApi):
         return 0
 
     @staticmethod
-    def _calculate_pep440_diff_index(v1: PackagingVersion, v2: PackagingVersion) -> int:
+    def calculate_pep440_diff_index(v1: PackagingVersion, v2: PackagingVersion) -> int:
         """
         Calculate the most significant difference between two PEP 440 versions.
 
-        Compares version components in order of significance:
-        1. Release tuple (major, minor, patch, ...)
-        2. Pre-release (alpha, beta, rc)
-        3. Post-release and dev versions
+        Compares release, pre-release, then post/dev components in that order of
+        significance — see the inline comments below for the exact precedence.
 
         Args:
             v1: First parsed PEP 440 version
@@ -207,9 +203,6 @@ class PackageRegistryApiPypi(AbstractPackageRegistryApi):
         """
         Calculate version difference using PEP 440 (Python packaging) semantics.
 
-        PyPI packages follow PEP 440, which supports: epoch, release segments,
-        pre-release, post-release, dev, and local versions.
-
         Invalid versions should be filtered out by is_valid_pep440_version() before
         reaching this method. If invalid versions slip through other paths, this will
         raise InvalidVersion to be caught at the view layer.
@@ -239,7 +232,7 @@ class PackageRegistryApiPypi(AbstractPackageRegistryApi):
         v2 = PackagingVersion(v2_str)
 
         # Calculate the difference
-        diff_index = PackageRegistryApiPypi._calculate_pep440_diff_index(v1, v2)
+        diff_index = PackageRegistryApiPypi.calculate_pep440_diff_index(v1, v2)
 
         return VersionsDifference(str(v1), str(v2), diff_index, diff_name=VERSION_INVERSED_DIFF_TYPES_MAP[diff_index])
 
@@ -262,7 +255,43 @@ class PackageRegistryApiPypi(AbstractPackageRegistryApi):
         return bool(published) and all(all(file.get("yanked") for file in files) for files in published)
 
     @staticmethod
-    def _map_raw_to_package(name: str, data: dict) -> Package:
+    def latest_stable_version(info_version: str, releases: dict) -> str:
+        """Return the newest installable stable version, falling back from `info_version` when
+        it's a prerelease.
+
+        Args:
+            info_version: PyPI's `info.version` — the maintainer's most recent upload, which may
+                itself be a prerelease.
+            releases: The `releases` mapping from the same PyPI JSON payload.
+
+        Returns:
+            The newest non-prerelease, non-yanked version among `releases` (as the exact string
+            key PyPI published it under — never a `packaging.Version`-normalized rewrite, since
+            callers match this against raw release keys by string equality), or `info_version`
+            unchanged if it's already stable, unparseable, or no such stable release exists.
+        """
+        try:
+            if not PackagingVersion(info_version).is_prerelease:
+                return info_version
+        except InvalidVersion:
+            return info_version
+
+        stable: list[tuple[PackagingVersion, str]] = []
+        for raw, release_files in (releases or {}).items():
+            # Skip versions with no files (removed/traceless) and fully-yanked versions - pip
+            # won't silently install either, so neither is a usable "latest".
+            if not release_files or all(f.get("yanked") for f in release_files):
+                continue
+            try:
+                parsed = PackagingVersion(raw)
+            except InvalidVersion:
+                continue
+            if not parsed.is_prerelease:
+                stable.append((parsed, raw))
+        return max(stable)[1] if stable else info_version
+
+    @staticmethod
+    def map_raw_to_package(name: str, data: dict) -> Package:
         info = data["info"]
         return Package(
             registry=ProjectPackagesRegistry.PYPI,
@@ -270,7 +299,7 @@ class PackageRegistryApiPypi(AbstractPackageRegistryApi):
             name=name,
             # PyPI has no alias support, so canonical_name always equals name
             canonical_name=name,
-            latest_version=info["version"],
+            latest_version=PackageRegistryApiPypi.latest_stable_version(info["version"], data.get("releases") or {}),
             next_version=None,
             repo_url=get_repo_url(info.get("project_urls", {})),
             author=info.get("author"),
@@ -313,17 +342,15 @@ class PackageRegistryApiPypi(AbstractPackageRegistryApi):
             if name not in self._raw_cache:
                 raise UnableLoadPackage(name)
 
-        return {name: self._map_raw_to_package(name, self._raw_cache[name]) for name in names}
+        return {name: self.map_raw_to_package(name, self._raw_cache[name]) for name in names}
 
     def package_versions(self, package_name: str) -> Iterable[PackageVersion]:
         """
-        Fetch PyPI versions for a given package.
-        Uses _raw_cache populated by package_infos_batch; fetches if not cached.
+        Fetch PyPI versions for a given package, using `_raw_cache` (populated by
+        `packages_info_batch`) and fetching if not cached.
 
-        PyPI API gap: The main endpoint does not provide dependency information
-        for older versions. A separate request per version is needed to get
-        `requires_dist` for each, making it inefficient. This implementation
-        only fetches dependencies for the latest version.
+        PyPI's main endpoint omits dependency info for older versions, and fetching it
+        per-version is expensive — so only the latest version's dependencies are populated here.
         """
         if package_name not in self._raw_cache:
             self.packages_info_batch([package_name])
@@ -401,15 +428,16 @@ class PackageRegistryApiPypi(AbstractPackageRegistryApi):
     ) -> str | None:
         """Rewrite a PyPI version specifier for an updated package version.
 
-        Returns the rewritten specifier, or the original value if no manifest edit is needed.
-        When the return value equals the input specifier, callers should skip pyproject.toml
-        edits and pass the package to --upgrade-package on uv lock instead.
+        When the return value equals the input specifier, no manifest edit is needed — callers
+        should skip pyproject.toml edits and pass the package to --upgrade-package on uv lock
+        instead.
 
-        DECLARED (>=x): returned unchanged — lockfile-only update.
-        PINNED (==x.y.z): rewritten to ==new_version.
-        NARROWED with ~=: preserves the N-part format using parts of new_version.
-        NARROWED other (compound, ==x.*, !=, etc.): falls back to ==new_version.
-        OVERRIDE / ADDITIVE: returned unchanged — managed by external tooling.
+        Returns:
+            DECLARED (>=x): unchanged — lockfile-only update.
+            PINNED (==x.y.z): rewritten to ==new_version.
+            NARROWED with ~=: preserves the N-part format using parts of new_version.
+            NARROWED other (compound, ==x.*, !=, etc.): falls back to ==new_version.
+            OVERRIDE / ADDITIVE: unchanged — managed by external tooling.
         """
         if constraint_type in (ConstraintType.DECLARED, ConstraintType.OVERRIDE, ConstraintType.ADDITIVE):
             return specifier
