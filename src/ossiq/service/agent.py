@@ -127,6 +127,8 @@ def triage_summary(record: ScanRecord) -> dict[str, Any] | None:
         summary["max_epss"] = round(result.max_epss, 4)
     if result.suppressed_cves:
         summary["suppressed_cves"] = result.suppressed_cves
+    if result.cve_data_unavailable:
+        summary["cve_data_unavailable"] = True
     if record.maintenance is not None:
         summary["maintenance_state"] = record.maintenance.state
         summary["maintenance_risk"] = round(record.maintenance.p_not_maintained, 4)

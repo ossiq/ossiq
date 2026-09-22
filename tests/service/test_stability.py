@@ -265,6 +265,25 @@ class TestPopulateStability:
         assert project.scored_packages == 2
         assert project.unmaintained_packages == 0
 
+    def test_cve_data_unavailable_forwards_into_every_records_triage(self) -> None:
+        """N1: the report's own scenario, at the populate_stability level - a degraded
+        vulnerabilities fetch for the whole scan must reach every record's triage() call, not
+        just be known somewhere upstream and never actually used.
+        """
+        records = [make_record("alpha"), make_record("beta")]
+        populate_stability(records, {GITHUB_URL: active_commits()}, NOW, cve_data_unavailable=True)
+
+        for record in records:
+            assert record.triage is not None
+            assert record.triage.cve_data_unavailable is True
+            assert "could not be retrieved" in record.triage.reason
+
+    def test_cve_data_unavailable_defaults_to_false(self) -> None:
+        record = make_record("alpha")
+        populate_stability([record], {GITHUB_URL: active_commits()}, NOW)
+        assert record.triage is not None
+        assert record.triage.cve_data_unavailable is False
+
     def test_non_github_repository_stays_unknown_never_unstable(self) -> None:
         record = make_record("alpha", repo_url=GITLAB_URL)
         project = populate_stability([record], {GITHUB_URL: active_commits()}, NOW)
