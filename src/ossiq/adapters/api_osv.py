@@ -6,6 +6,7 @@ from ossiq.clients.common import get_user_agent
 from ossiq.domain.common import CveDatabase, SourceFetch, combine_statuses
 from ossiq.domain.cve import CVE, Severity
 from ossiq.domain.package import Package
+from ossiq.risk.cvss import parse_cvss_base_score
 from ossiq.settings import Settings
 
 
@@ -100,10 +101,19 @@ class CveApiOsv:
 
         scores = []
         for s in osv_severity:
+            raw = s.get("score", "")
             try:
-                scores.append(float(s.get("score", 0)))
+                # Some OSV severity types (e.g. a distro's own numeric rating) are already a
+                # bare number. Most are not: CVSS_V3/CVSS_V4 entries carry a full vector string
+                # ("CVSS:3.1/AV:N/AC:L/..."), which float() cannot parse - it has no numeric
+                # score in it at all; the score has to be computed from the vector (N2).
+                scores.append(float(raw))
+                continue
             except (ValueError, TypeError):
                 pass
+            parsed = parse_cvss_base_score(str(raw)) if raw else None
+            if parsed is not None:
+                scores.append(parsed)
 
         if not scores:
             return Severity.MEDIUM

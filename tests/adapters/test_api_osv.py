@@ -238,6 +238,70 @@ class TestGetCvesBatch:
         cve = next(iter(result[("pkg", "1.0.0")]))
         assert cve.severity == expected_severity
 
+    @pytest.mark.parametrize(
+        "vector,expected_severity",
+        [
+            # N2: OSV's real data shape for CVSS_V3/V4 severity entries is a full vector string,
+            # never a bare number - the test above never exercised this and is why the bug
+            # (float() on a vector string, silently swallowed, always falling back to MEDIUM)
+            # went unnoticed. Reference scores verified against known CVEs / the CVSS spec's own
+            # worked examples; see adapters/test_cvss.py for the full derivation.
+            ("CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:C/C:H/I:H/A:H", Severity.CRITICAL),  # Log4Shell, 10.0
+            ("CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H", Severity.CRITICAL),  # 9.8
+            ("CVSS:3.0/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H", Severity.HIGH),  # 7.5
+            ("CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:C/C:L/I:L/A:N", Severity.MEDIUM),  # 6.1
+            ("CVSS:3.1/AV:L/AC:H/PR:H/UI:R/S:U/C:N/I:N/A:L", Severity.LOW),  # 1.8
+        ],
+    )
+    def test_severity_mapping_from_a_real_cvss_vector_string(self, vector: str, expected_severity: Severity):
+        pkg = make_package("pkg")
+        vuln = {**make_osv_vuln(), "severity": [{"type": "CVSS_V3", "score": vector}]}
+        chunk_data = {("pkg", "1.0.0"): [vuln]}
+        api = CveApiOsv(MagicMock())
+
+        with patch.object(BatchClient, "run_batch", return_value=iter([chunk_data])):
+            result = api.get_cves_batch([(pkg, "1.0.0")]).data
+
+        cve = next(iter(result[("pkg", "1.0.0")]))
+        assert cve.severity == expected_severity
+
+    def test_a_cvss_v4_vector_falls_back_to_medium_rather_than_crashing(self):
+        """v4.0 scoring isn't implemented (see adapters/cvss.py) - must degrade to the same
+        MEDIUM fallback as any other unparseable severity, not raise or silently misclassify.
+        """
+        pkg = make_package("pkg")
+        v4_vector = "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N"
+        vuln = {**make_osv_vuln(), "severity": [{"type": "CVSS_V4", "score": v4_vector}]}
+        chunk_data = {("pkg", "1.0.0"): [vuln]}
+        api = CveApiOsv(MagicMock())
+
+        with patch.object(BatchClient, "run_batch", return_value=iter([chunk_data])):
+            result = api.get_cves_batch([(pkg, "1.0.0")]).data
+
+        cve = next(iter(result[("pkg", "1.0.0")]))
+        assert cve.severity == Severity.MEDIUM
+
+    def test_multiple_severity_entries_takes_the_highest(self):
+        """A CVSS_V3 vector alongside a bare-numeric entry from a different type - the max across
+        both parsing paths must win, not just whichever came first in the list.
+        """
+        pkg = make_package("pkg")
+        vuln = {
+            **make_osv_vuln(),
+            "severity": [
+                {"type": "CVSS_V3", "score": "CVSS:3.1/AV:L/AC:H/PR:H/UI:R/S:U/C:N/I:N/A:L"},  # 1.8
+                {"type": "Ubuntu", "score": "9.1"},  # a bare-numeric entry from a non-CVSS source
+            ],
+        }
+        chunk_data = {("pkg", "1.0.0"): [vuln]}
+        api = CveApiOsv(MagicMock())
+
+        with patch.object(BatchClient, "run_batch", return_value=iter([chunk_data])):
+            result = api.get_cves_batch([(pkg, "1.0.0")]).data
+
+        cve = next(iter(result[("pkg", "1.0.0")]))
+        assert cve.severity == Severity.CRITICAL
+
 
 class TestExtractFixVersions:
     def test_excludes_other_ecosystems_and_packages(self):
