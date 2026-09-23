@@ -416,3 +416,32 @@ class TestFetchStatus:
             fetch = api.get_cves_batch([(pkg, "4.17.20")])
 
         assert fetch.status == DataSourceStatus.OK
+
+
+class TestExtractSummary:
+    """B6: a CVE record must carry a description, not just an identifier."""
+
+    def test_uses_summary_when_present(self):
+        from ossiq.adapters.api_osv import CveApiOsv
+
+        assert CveApiOsv.extract_summary({"summary": "Header leak on redirect", "details": "prose"}) == (
+            "Header leak on redirect"
+        )
+
+    def test_falls_back_to_details_when_summary_absent(self):
+        """Many PYSEC records carry only 'details'; those came back blank before this fix."""
+        from ossiq.adapters.api_osv import CveApiOsv
+
+        raw = {"details": "Requests leaks the Proxy-Authorization header.\n\nFurther paragraphs."}
+        assert CveApiOsv.extract_summary(raw) == "Requests leaks the Proxy-Authorization header."
+
+    def test_truncates_a_very_long_first_line(self):
+        from ossiq.adapters.api_osv import CveApiOsv
+
+        out = CveApiOsv.extract_summary({"details": "x" * 500})
+        assert len(out) == 300 and out.endswith("...")
+
+    def test_empty_when_neither_field_is_present(self):
+        from ossiq.adapters.api_osv import CveApiOsv
+
+        assert CveApiOsv.extract_summary({}) == ""

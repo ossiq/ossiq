@@ -84,7 +84,7 @@ class CveApiOsv:
                     source=CveDatabase.OSV,
                     package_name=package.name,
                     package_registry=package.registry,
-                    summary=cve_raw.get("summary", ""),
+                    summary=self.extract_summary(cve_raw),
                     severity=self.map_cve_severity(cve_raw.get("severity", [])),
                     affected_versions=tuple(self.extract_affected_versions(cve_raw)),
                     published=cve_raw.get("published"),
@@ -94,6 +94,24 @@ class CveApiOsv:
                 )
             )
         return cves
+
+    @staticmethod
+    def extract_summary(osv_entry: dict) -> str:
+        """One-line description of a vulnerability.
+
+        OSV's "summary" is optional. GHSA records almost always carry one; many PYSEC records
+        carry only "details" (full prose, often several paragraphs). Reading "summary" alone left
+        those entries blank, so a consumer saw an identifier and a severity with nothing to judge
+        relevance by (B6). Fall back to the first sentence-ish line of "details".
+        """
+        summary = (osv_entry.get("summary") or "").strip()
+        if summary:
+            return summary
+        details = (osv_entry.get("details") or "").strip()
+        if not details:
+            return ""
+        first = next((line.strip() for line in details.splitlines() if line.strip()), "")
+        return first if len(first) <= 300 else first[:297].rstrip() + "..."
 
     def map_cve_severity(self, osv_severity: list[dict]) -> Severity:
         if not osv_severity:
