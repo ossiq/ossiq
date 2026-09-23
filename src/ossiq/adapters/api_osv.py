@@ -1,32 +1,25 @@
+import html
+import re
+import textwrap
+
 import requests
 
 from ossiq.clients.batch import BatchClient
 from ossiq.clients.client_osv import ECOSYSTEM_MAPPING, OsvBatchStrategy, OsvDetailsBatchStrategy
 from ossiq.clients.common import get_user_agent
 from ossiq.domain.common import CveDatabase, SourceFetch, combine_statuses
-from ossiq.domain.cve import CVE, AffectedRange, Severity
+from ossiq.domain.cve import CVE, Severity
 from ossiq.domain.package import Package
 from ossiq.risk.cvss import parse_cvss_base_score
 from ossiq.settings import Settings
-from ossiq.solver.version_matchers import comparable_package_name
 
 SUMMARY_MAX_CHARS = 200
 
-
-def advisory_summary(cve_raw: dict) -> str:
-    """Return the advisory's one-line summary, falling back to the first line of `details`.
-
-    PYSEC records routinely omit `summary` and carry the whole text in `details`, so reading only
-    `summary` left those CVEs with nothing to show.
-    """
-    summary = (cve_raw.get("summary") or "").strip()
-    if summary:
-        return summary
-    details = (cve_raw.get("details") or "").strip()
-    first_line = details.splitlines()[0].strip() if details else ""
-    if len(first_line) <= SUMMARY_MAX_CHARS:
-        return first_line
-    return f"{first_line[: SUMMARY_MAX_CHARS - 1].rstrip()}…"
+# Pre-compile regex for performance
+# A tag must open with a letter or "/": advisory prose is full of "<4.17.21" and "a > b" that
+# a bare <[^>]+> would swallow along with everything between them.
+TAG_RE = re.compile(r"</?[a-zA-Z][^>]*>")
+BREAK_TAG_RE = re.compile(r"<(?:br|/p|/div|/li)\s*/?>", re.IGNORECASE)
 
 
 class CveApiOsv:
@@ -95,9 +88,7 @@ class CveApiOsv:
     def parse_cve_response(self, raw_vulns: list[dict], package: Package, installed_version: str) -> set[CVE]:
         cves = set()
         for cve_raw in raw_vulns:
-            affected = self.matching_affected(cve_raw, package)
-            affected_ranges = self.extract_affected_ranges(affected)
-            fix_versions = tuple(dict.fromkeys(r.fixed for r in affected_ranges if r.fixed is not None))
+            fix_versions = self.extract_fix_versions(cve_raw, package)
             cves.add(
                 CVE(
                     id=cve_raw["id"],
@@ -105,17 +96,50 @@ class CveApiOsv:
                     source=CveDatabase.OSV,
                     package_name=package.name,
                     package_registry=package.registry,
-                    summary=advisory_summary(cve_raw),
+                    summary=self.extract_summary(cve_raw),
                     severity=self.map_cve_severity(cve_raw.get("severity", [])),
-                    affected_versions=self.extract_affected_versions(affected),
+                    affected_versions=tuple(self.extract_affected_versions(cve_raw)),
                     published=cve_raw.get("published"),
                     link=self.build_osv_link(cve_raw["id"]),
                     fix_versions=fix_versions,
                     fix_available=bool(fix_versions),
-                    affected_ranges=affected_ranges,
                 )
             )
         return cves
+
+    @staticmethod
+    def extract_summary(osv_entry: dict) -> str:
+        """One-line description of a vulnerability.
+
+        OSV's "summary" is optional. GHSA records almost always carry one; many PYSEC records
+        carry only "details" (full prose, often several paragraphs). Reading "summary" alone left
+        those entries blank, so a consumer saw an identifier and a severity with nothing to judge
+        relevance by (B6). Fall back to the first sentence-ish line of "details".
+        """
+
+        if summary := (osv_entry.get("summary") or "").strip():
+            return summary
+        details = osv_entry.get("details") or ""
+        if not details:
+            return ""
+
+        # 1. Convert block/line-break tags into actual newlines
+        clean_details = BREAK_TAG_RE.sub("\n", details)
+        # 2. Strip remaining HTML tags
+        clean_details = TAG_RE.sub("", clean_details)
+        # 3. Unescape entities (e.g., &amp; -> &, &lt; -> <)
+        clean_details = html.unescape(clean_details)
+
+        for line in clean_details.splitlines():
+            if clean_line := line.strip():
+                placeholder = "..."
+                shortened = textwrap.shorten(clean_line, width=SUMMARY_MAX_CHARS, placeholder=placeholder)
+                # shorten() drops a first word wider than the limit and returns only the placeholder.
+                if shortened == placeholder:
+                    return clean_line[: SUMMARY_MAX_CHARS - len(placeholder)] + placeholder
+                return shortened
+
+        return ""
 
     def map_cve_severity(self, osv_severity: list[dict]) -> Severity:
         if not osv_severity:
@@ -150,62 +174,44 @@ class CveApiOsv:
             return Severity.MEDIUM
         return Severity.LOW
 
-    def matching_affected(self, osv_entry: dict, package: Package) -> list[dict]:
-        """The advisory's `affected` entries that describe this package, in its own ecosystem.
-
-        One advisory often covers sibling packages - GHSA-35jh-r3h4-6jhm lists lodash, lodash-es,
-        lodash.template and a RubyGems port - and each entry's versions and ranges belong to that
-        package alone. Including canonical_name also accommodates npm aliases.
+    def extract_fix_versions(self, osv_entry: dict, package: Package) -> tuple[str, ...]:
         """
+        OSV advisory can contain several affected records from the same ecosystem,
+        potentially for sibling packages. Including
+        canonical_name also accommodates npm aliases
+        """
+
         ecosystem = ECOSYSTEM_MAPPING[package.registry]
-        package_names = {
-            comparable_package_name(name, package.registry) for name in (package.name, package.canonical_name) if name
-        }
-        # FIXME: alias could be actually potential vector
-        return [
-            affected
-            for affected in osv_entry.get("affected", [])
-            if affected.get("package", {}).get("ecosystem") == ecosystem
-            and comparable_package_name(affected.get("package", {}).get("name") or "", package.registry)
-            in package_names
-        ]
+        package_names = {package.name, package.canonical_name}
+        package_names.discard(None)
 
-    def extract_affected_versions(self, affected_entries: list[dict]) -> tuple[str, ...]:
-        """The versions OSV enumerates for these entries; npm advisories never enumerate any."""
-        return tuple(
-            dict.fromkeys(version for affected in affected_entries for version in affected.get("versions", []))
-        )
+        fix_versions = []
 
-    def extract_affected_ranges(self, affected_entries: list[dict]) -> tuple[AffectedRange, ...]:
-        """Pair each version range's events into intervals, in the order OSV lists them.
+        for affected in osv_entry.get("affected", []):
+            affected_package = affected.get("package", {})
 
-        `introduced` opens an interval and the next `fixed` or `last_affected` closes it; one still
-        open when the events run out has no fix yet. GIT ranges count commits rather than releases,
-        and `limit` events only bound GIT ranges, so neither says anything about a registry version.
-        """
-        ranges: list[AffectedRange] = []
-        for affected in affected_entries:
+            if affected_package.get("ecosystem") != ecosystem:
+                continue
+
+            # FIXME: alias could be actually potential vector
+            if affected_package.get("name") not in package_names:
+                continue
+
             for affected_range in affected.get("ranges", []):
-                if affected_range.get("type") == "GIT":
-                    continue
-                introduced: str | None = None
-                is_open = False
                 for event in affected_range.get("events", []):
-                    if "introduced" in event:
-                        # A second `introduced` while one is open adds nothing: exposure already
-                        # started at the first.
-                        if not is_open:
-                            introduced = None if event["introduced"] == "0" else event["introduced"]
-                            is_open = True
-                    elif "fixed" in event:
-                        ranges.append(AffectedRange(introduced=introduced, fixed=event["fixed"]))
-                        introduced, is_open = None, False
-                    elif "last_affected" in event:
-                        ranges.append(AffectedRange(introduced=introduced, last_affected=event["last_affected"]))
-                        introduced, is_open = None, False
-                if is_open:
-                    ranges.append(AffectedRange(introduced=introduced))
-        return tuple(dict.fromkeys(ranges))
+                    if "fixed" in event:
+                        fix_versions.append(event["fixed"])
+
+        return tuple(fix_versions)
+
+    def extract_affected_versions(self, osv_entry: dict) -> list[str]:
+        """
+        OSV provides ranges, but also `versions` which is easier: explicit versions.
+        """
+        versions = []
+        for aff in osv_entry.get("affected", []):
+            versions.extend(aff.get("versions", []))
+        return versions
 
     def build_osv_link(self, osv_id: str) -> str:
         return f"https://osv.dev/{osv_id}"

@@ -8,10 +8,10 @@ from unittest.mock import MagicMock, patch
 import pytest
 import requests
 
-from ossiq.adapters.api_osv import SUMMARY_MAX_CHARS, CveApiOsv, advisory_summary
+from ossiq.adapters.api_osv import SUMMARY_MAX_CHARS, CveApiOsv
 from ossiq.clients.batch import BatchClient
 from ossiq.domain.common import CveDatabase, DataSourceStatus, ProjectPackagesRegistry
-from ossiq.domain.cve import AffectedRange, Severity
+from ossiq.domain.cve import Severity
 from ossiq.domain.package import Package
 
 
@@ -303,13 +303,9 @@ class TestGetCvesBatch:
         assert cve.severity == Severity.CRITICAL
 
 
-class TestFixVersions:
-    @staticmethod
-    def fix_versions(osv_entry: dict, package: Package) -> tuple[str, ...]:
-        (cve,) = CveApiOsv(MagicMock()).parse_cve_response([{"id": "GHSA-fix", **osv_entry}], package, "1.0.0")
-        return cve.fix_versions
-
+class TestExtractFixVersions:
     def test_excludes_other_ecosystems_and_packages(self):
+        api = CveApiOsv(MagicMock())
         package = make_package("foo")
         osv_entry = {
             "affected": [
@@ -328,9 +324,10 @@ class TestFixVersions:
             ]
         }
 
-        assert self.fix_versions(osv_entry, package) == ("1.2.4",)
+        assert api.extract_fix_versions(osv_entry, package) == ("1.2.4",)
 
     def test_collects_fixed_events_across_ranges(self):
+        api = CveApiOsv(MagicMock())
         package = make_package("foo")
         osv_entry = {
             "affected": [
@@ -354,9 +351,10 @@ class TestFixVersions:
             ]
         }
 
-        assert self.fix_versions(osv_entry, package) == ("1.2.4", "2.0.3")
+        assert api.extract_fix_versions(osv_entry, package) == ("1.2.4", "2.0.3")
 
     def test_returns_empty_tuple_without_matching_fixed_event(self):
+        api = CveApiOsv(MagicMock())
         package = make_package("foo")
         osv_entry = {
             "affected": [
@@ -367,7 +365,7 @@ class TestFixVersions:
             ]
         }
 
-        assert self.fix_versions(osv_entry, package) == ()
+        assert api.extract_fix_versions(osv_entry, package) == ()
 
 
 class TestFetchStatus:
@@ -420,185 +418,91 @@ class TestFetchStatus:
         assert fetch.status == DataSourceStatus.OK
 
 
-class TestParseCveResponseSummary:
-    """D5 reproduction: PYSEC advisories carry `details` and no `summary`."""
+class TestExtractSummary:
+    """B6: a CVE record must carry a description, not just an identifier."""
 
-    def test_summary_falls_back_to_details(self):
-        pysec = {
-            "id": "PYSEC-2023-74",
-            "aliases": ["CVE-2023-32681", "GHSA-j8r2-6x86-q33q"],
-            "details": (
-                "Requests is a HTTP library. Since Requests 2.3.0, Requests has been leaking "
-                "Proxy-Authorization headers to destination servers when redirected to an HTTPS endpoint."
-            ),
-            "affected": [{"versions": ["2.28.1"]}],
-            "published": "2023-05-26T18:15:00Z",
-        }
-        api = CveApiOsv(MagicMock())
+    # PYSEC-2023-74 has no "summary"; its "details" is a single HTML paragraph with inline <code> tags.
+    PYSEC_2023_74_DETAILS = (
+        "<p>Requests is a HTTP library. Since Requests 2.3.0, Requests has been leaking Proxy-Authorization "
+        "headers to destination servers when redirected to an HTTPS endpoint. This is a product of how we use "
+        "<code>rebuild_proxies</code> to reattach the <code>Proxy-Authorization</code> header to requests. For "
+        "HTTP connections sent through the tunnel, the proxy will identify the header in the request itself and "
+        "remove it prior to forwarding to the destination server. However when sent over HTTPS, the "
+        "<code>Proxy-Authorization</code> header must be sent in the CONNECT request as the proxy has no "
+        "visibility into the tunneled request. This results in Requests forwarding proxy credentials to the "
+        "destination server unintentionally, allowing a malicious actor to potentially exfiltrate sensitive "
+        "information. This issue has been patched in version 2.31.0.</p>"
+    )
 
-        (cve,) = api.parse_cve_response([pysec], make_package("requests", ProjectPackagesRegistry.PYPI), "2.28.1")
+    def test_uses_summary_when_present(self):
+        raw = {"summary": "Header leak on redirect", "details": "prose"}
 
-        assert cve.summary.startswith("Requests is a HTTP library")
+        assert CveApiOsv.extract_summary(raw) == "Header leak on redirect"
 
-    def test_summary_wins_over_details(self):
-        assert advisory_summary({"summary": "Short", "details": "Long text"}) == "Short"
+    def test_falls_back_to_details_when_summary_absent(self):
+        """Many PYSEC records carry only 'details'; those came back blank before this fix."""
+        raw = {"details": "Requests leaks the Proxy-Authorization header.\n\nFurther paragraphs."}
 
-    def test_only_the_first_line_of_details_is_used(self):
-        assert advisory_summary({"details": "First line.\n\nSecond paragraph."}) == "First line."
+        assert CveApiOsv.extract_summary(raw) == "Requests leaks the Proxy-Authorization header."
 
-    def test_long_details_are_truncated(self):
-        summary = advisory_summary({"details": "x" * 500})
+    def test_strips_html_tags_from_details(self, monkeypatch):
+        # The cap would cut the paragraph before most of its <code> tags; lift it to check them all.
+        monkeypatch.setattr("ossiq.adapters.api_osv.SUMMARY_MAX_CHARS", 10_000)
 
-        assert len(summary) == SUMMARY_MAX_CHARS
-        assert summary.endswith("…")
+        out = CveApiOsv.extract_summary({"details": self.PYSEC_2023_74_DETAILS})
 
-    def test_no_text_at_all_stays_empty(self):
-        assert advisory_summary({"id": "PYSEC-0"}) == ""
+        assert out.startswith("Requests is a HTTP library. Since Requests 2.3.0, Requests has been leaking")
+        # The inline <code> tags sit between words; removing them must not glue or split the text.
+        assert "we use rebuild_proxies to reattach the Proxy-Authorization header to requests." in out
+        assert out.endswith("has been patched in version 2.31.0.")
+        assert "<" not in out and ">" not in out
 
+    def test_block_tags_end_the_first_line(self):
+        raw = {"details": "<p>First paragraph.</p><p>Second paragraph.</p>"}
 
-# Trimmed from api.osv.dev as of 2026-09-26. npm GHSA records carry SEMVER ranges and never
-# enumerate `versions`; GHSA-35jh also lists sibling packages, one of them from another ecosystem.
-UUID_GHSA = {
-    "id": "GHSA-w5hq-g745-h8pq",
-    "aliases": ["CVE-2026-41907"],
-    "summary": "uuid: Missing buffer bounds check in v3/v5/v6 when buf is provided",
-    "affected": [
-        {
-            "package": {"ecosystem": "npm", "name": "uuid"},
-            "ranges": [{"type": "SEMVER", "events": [{"introduced": "0"}, {"fixed": "11.1.1"}]}],
-        },
-        {
-            "package": {"ecosystem": "npm", "name": "uuid"},
-            "ranges": [{"type": "SEMVER", "events": [{"introduced": "12.0.0"}, {"fixed": "12.0.1"}]}],
-        },
-        {
-            "package": {"ecosystem": "npm", "name": "uuid"},
-            "ranges": [{"type": "SEMVER", "events": [{"introduced": "13.0.0"}, {"fixed": "13.0.1"}]}],
-        },
-    ],
-}
-LODASH_GHSA = {
-    "id": "GHSA-35jh-r3h4-6jhm",
-    "summary": "Command Injection in lodash",
-    "affected": [
-        {
-            "package": {"ecosystem": "npm", "name": "lodash"},
-            "ranges": [{"type": "SEMVER", "events": [{"introduced": "0"}, {"fixed": "4.17.21"}]}],
-        },
-        {
-            "package": {"ecosystem": "npm", "name": "lodash-es"},
-            "ranges": [{"type": "SEMVER", "events": [{"introduced": "0"}, {"fixed": "4.17.21"}]}],
-        },
-        {
-            "package": {"ecosystem": "npm", "name": "lodash.template"},
-            "ranges": [{"type": "SEMVER", "events": [{"introduced": "0"}, {"last_affected": "4.5.0"}]}],
-        },
-        {
-            "package": {"ecosystem": "RubyGems", "name": "lodash-rails"},
-            "ranges": [{"type": "ECOSYSTEM", "events": [{"introduced": "0"}, {"fixed": "4.17.21"}]}],
-            "versions": ["4.17.15", "4.17.16", "4.17.20"],
-        },
-    ],
-}
+        assert CveApiOsv.extract_summary(raw) == "First paragraph."
 
+    def test_html_entities_are_unescaped(self):
+        raw = {"details": "Use &lt;script&gt; &amp; escape"}
 
-class TestAffectedRanges:
-    """D7 reproduction: an npm advisory's exposure lives only in its ranges."""
+        assert CveApiOsv.extract_summary(raw) == "Use <script> & escape"
 
-    def test_npm_ranges_become_affected_ranges(self):
-        api = CveApiOsv(MagicMock())
+    @pytest.mark.parametrize(
+        "details",
+        [
+            "lodash <4.17.21 is vulnerable when a > b",
+            "Affects < 2.0 and fixed in >= 2.1",
+        ],
+    )
+    def test_comparison_operators_are_not_mistaken_for_tags(self, details):
+        assert CveApiOsv.extract_summary({"details": details}) == details
 
-        (cve,) = api.parse_cve_response([UUID_GHSA], make_package("uuid"), "8.3.2")
+    def test_skips_blank_leading_lines(self):
+        raw = {"details": "<p></p>\n  \n<p>After the blanks.</p>"}
 
-        assert cve.affected_ranges == (
-            AffectedRange(fixed="11.1.1"),
-            AffectedRange(introduced="12.0.0", fixed="12.0.1"),
-            AffectedRange(introduced="13.0.0", fixed="13.0.1"),
-        )
-        assert cve.affected_versions == ()
-        assert cve.fix_versions == ("11.1.1", "12.0.1", "13.0.1")
+        assert CveApiOsv.extract_summary(raw) == "After the blanks."
 
-    def test_sibling_packages_do_not_leak_into_this_package(self):
-        api = CveApiOsv(MagicMock())
+    def test_truncates_a_very_long_first_line(self):
+        out = CveApiOsv.extract_summary({"details": "word " * 200})
 
-        (cve,) = api.parse_cve_response([LODASH_GHSA], make_package("lodash"), "4.17.15")
+        assert len(out) <= SUMMARY_MAX_CHARS
+        assert out.startswith("word word") and out.endswith("...")
 
-        assert cve.affected_ranges == (AffectedRange(fixed="4.17.21"),)
-        assert cve.affected_versions == ()
+    def test_truncates_a_long_line_without_spaces(self):
+        """textwrap.shorten alone returns just '...' here; the cap must still keep the leading text."""
+        out = CveApiOsv.extract_summary({"details": "x" * 500})
 
-    def test_last_affected_is_an_inclusive_bound(self):
-        api = CveApiOsv(MagicMock())
+        assert len(out) == SUMMARY_MAX_CHARS
+        assert out.startswith("xxx") and out.endswith("...")
 
-        (cve,) = api.parse_cve_response([LODASH_GHSA], make_package("lodash.template"), "4.5.0")
+    def test_pysec_2023_74_is_truncated_after_stripping(self):
+        out = CveApiOsv.extract_summary({"details": self.PYSEC_2023_74_DETAILS})
 
-        assert cve.affected_ranges == (AffectedRange(last_affected="4.5.0"),)
-        assert cve.fix_versions == ()
+        assert len(out) <= SUMMARY_MAX_CHARS and out.endswith("...")
+        assert "<" not in out and ">" not in out
 
-    def test_several_intervals_in_one_range_are_paired_in_order(self):
-        api = CveApiOsv(MagicMock())
-        osv_entry = {
-            "id": "GHSA-pair",
-            "affected": [
-                {
-                    "package": {"ecosystem": "npm", "name": "foo"},
-                    "ranges": [
-                        {
-                            "type": "SEMVER",
-                            "events": [
-                                {"introduced": "0"},
-                                {"fixed": "1.2.4"},
-                                {"introduced": "2.0.0"},
-                                {"fixed": "2.0.3"},
-                                {"introduced": "3.0.0"},
-                            ],
-                        }
-                    ],
-                }
-            ],
-        }
+    def test_empty_when_details_are_only_markup(self):
+        assert CveApiOsv.extract_summary({"details": "<br><p></p>"}) == ""
 
-        (cve,) = api.parse_cve_response([osv_entry], make_package("foo"), "1.0.0")
-
-        assert cve.affected_ranges == (
-            AffectedRange(fixed="1.2.4"),
-            AffectedRange(introduced="2.0.0", fixed="2.0.3"),
-            AffectedRange(introduced="3.0.0"),
-        )
-
-    def test_git_ranges_are_skipped(self):
-        api = CveApiOsv(MagicMock())
-        osv_entry = {
-            "id": "GHSA-git",
-            "affected": [
-                {
-                    "package": {"ecosystem": "npm", "name": "foo"},
-                    "ranges": [
-                        {"type": "GIT", "repo": "https://x.test", "events": [{"introduced": "abc"}, {"fixed": "def"}]},
-                        {"type": "SEMVER", "events": [{"introduced": "0"}, {"fixed": "1.2.4"}]},
-                    ],
-                }
-            ],
-        }
-
-        (cve,) = api.parse_cve_response([osv_entry], make_package("foo"), "1.0.0")
-
-        assert cve.affected_ranges == (AffectedRange(fixed="1.2.4"),)
-        assert cve.fix_versions == ("1.2.4",)
-
-    def test_pypi_names_match_after_normalisation(self):
-        api = CveApiOsv(MagicMock())
-        osv_entry = {
-            "id": "PYSEC-yaml",
-            "affected": [
-                {
-                    "package": {"ecosystem": "PyPI", "name": "PyYAML"},
-                    "ranges": [{"type": "ECOSYSTEM", "events": [{"introduced": "0"}, {"fixed": "5.4"}]}],
-                    "versions": ["5.3", "5.3.1"],
-                }
-            ],
-        }
-
-        (cve,) = api.parse_cve_response([osv_entry], make_package("pyyaml", ProjectPackagesRegistry.PYPI), "5.3.1")
-
-        assert cve.affected_versions == ("5.3", "5.3.1")
-        assert cve.affected_ranges == (AffectedRange(fixed="5.4"),)
+    def test_empty_when_neither_field_is_present(self):
+        assert CveApiOsv.extract_summary({}) == ""
