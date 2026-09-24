@@ -6,6 +6,11 @@ on:
   pull_request:
     branches: [ "main" ]
 
+# Was absent, so this workflow ran at the repo-default token scope on runs
+# triggered by arbitrary pull requests.
+permissions:
+  contents: read
+
 jobs:
   ossiq-scan:
     name: OSS IQ Dependency Scan
@@ -13,10 +18,10 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: '3.11'
 
@@ -34,7 +39,7 @@ jobs:
             .
 
       - name: Upload scan results
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: ossiq-report
           path: ossiq-report.json
