@@ -19,11 +19,6 @@ name: Publish to PyPI
 on:
   release:
     types: [published]
-  # TEMPORARY: lets the TestPyPI rehearsal job (publish-testpypi, below) be dispatched
-  # manually. Remove this trigger together with that job once TODO.md #3 is checked off —
-  # the `publish` job below is explicitly gated to `release` events so this cannot cause
-  # a real PyPI publish in the meantime.
-  workflow_dispatch:
 
 permissions: {}
 
@@ -41,10 +36,6 @@ jobs:
 
   publish:
     needs: build
-    # Real PyPI is not gated by branch, only by event: a GitHub Release is the only
-    # thing that should ever reach this job. workflow_dispatch exists solely to drive
-    # publish-testpypi below.
-    if: github.event_name == 'release'
     environment:
       name: release
       url: https://pypi.org/project/ossiq
@@ -86,39 +77,3 @@ jobs:
         with:
           # No password or token needed: Trusted Publishing via OIDC.
           attestations: true
-
-  # TEMPORARY — TODO.md #3: proves the TestPyPI Trusted Publisher (ossiq/ossiq,
-  # release.yml, environment `release`) actually completes the OIDC exchange before a
-  # real release is cut, since a PyPI version can never be replaced if it doesn't.
-  # Delete this job (and the `workflow_dispatch` trigger above) once a manual run
-  # confirms no `invalid-publisher` error.
-  publish-testpypi:
-    needs: build
-    # Dispatched against a throwaway v0.0.0-* tag, not a branch: the `release`
-    # environment's deployment-branch-policy only admits refs matching `v*`.
-    if: github.event_name == 'workflow_dispatch' && startsWith(github.ref, 'refs/tags/v0.0.0-rehearsal')
-    environment:
-      name: release
-      url: https://test.pypi.org/project/ossiq
-    runs-on: ubuntu-24.04
-    permissions:
-      id-token: write
-      contents: read
-
-    steps:
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
-        with:
-          name: python-dist
-          path: dist
-
-      - name: Drop non-distribution files
-        # SHA256SUMS and the SBOM ride in the same artifact for the GitHub Release
-        # channel but are not sdist/wheel files; pypa/gh-action-pypi-publish rejects them.
-        run: rm -f dist/SHA256SUMS dist/ossiq-sbom.cdx.json
-
-      - name: Publish to TestPyPI (rehearsal)
-        uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2
-        with:
-          repository-url: https://test.pypi.org/legacy/
-          # TestPyPI does not accept PEP 740 attestations.
-          attestations: false
