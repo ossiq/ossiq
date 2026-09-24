@@ -117,16 +117,20 @@ frontend-dataset:
     cd frontend/datasets && gzip *.json
 
 # Build Vue.js SPA frontend and produce the SPA template for HTML reports
+# Regenerate src/ossiq/ui/html_templates/spa_app.html from frontend/.
+# Mutates the working tree — commit the regenerated template with the change.
 frontend-build:
     npm run --prefix frontend inject -- --default
     uv run python frontend_build.py
 
-# Build the project, useful for checking that packaging is correct
+# Build the project, useful for checking that packaging is correct.
+# Deliberately does not run frontend-build: packaging reads the committed
+# spa_app.html, so this leaves the working tree untouched and needs no Node.
+# --no-build-isolation takes hatchling from uv.lock instead of a fresh resolve.
 build:
-    uv run just frontend-build
     rm -rf build
     rm -rf dist
-    uv build
+    uv build --no-build-isolation
 
 VERSION := `grep -m1 '^version' pyproject.toml | sed -E 's/version = "(.*)"/\1/'`
 
