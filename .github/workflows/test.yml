@@ -46,6 +46,40 @@ jobs:
       run: |
         uv run just clean
 
+  frontend-template-freshness:
+    # spa_app.html is a committed source artifact that packaging only reads, so a
+    # frontend/ change without a regenerated template would ship a report that no
+    # longer matches the sources it claims to come from. Needs no Node: it compares
+    # which paths the PR touched, not what they build to.
+    name: spa_app.html tracks frontend/
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: A frontend/ change must regenerate the SPA template
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          changed="$(git diff --name-only "$BASE_SHA"...HEAD)"
+          sources="$(printf '%s\n' "$changed" \
+            | grep -E '^frontend/(src/|index\.html$|package-lock\.json$|package\.json$|vite\.config\.ts$)' || true)"
+          template="$(printf '%s\n' "$changed" \
+            | grep -E '^src/ossiq/ui/html_templates/spa_app\.html$' || true)"
+
+          if [ -n "$sources" ] && [ -z "$template" ]; then
+            echo "::error::frontend sources changed but src/ossiq/ui/html_templates/spa_app.html was not regenerated. Run \`just frontend-build\` and commit the result."
+            printf '%s\n' "$sources"
+            exit 1
+          fi
+          echo "SPA template is consistent with the frontend changes in this PR"
+
   cross-platform:
     # The package claims "Operating System :: OS Independent" and ships Windows and
     # macOS binaries, so the suite has to actually run there. pytest is invoked
