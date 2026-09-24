@@ -111,6 +111,11 @@ jobs:
           name: python-dist
           path: dist
 
+      - name: Drop non-distribution files
+        # SHA256SUMS and the SBOM ride in the same artifact for the GitHub Release
+        # channel but are not sdist/wheel files; pypa/gh-action-pypi-publish rejects them.
+        run: rm -f dist/SHA256SUMS dist/ossiq-sbom.cdx.json
+
       - name: Publish to TestPyPI (rehearsal)
         uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2
         with:
