@@ -742,7 +742,9 @@ def test_triage_summary_omits_cve_data_unavailable_when_false():
 
 
 def make_maintenance(state: str, p_not_maintained: float, observations: dict | None = None) -> MaintenanceAssessment:
-    posterior = {s: 0.0 for s in MaintenanceState}
+    # Keyed by .value, matching MaintenanceAssessment.posterior's dict[str, float]:
+    # StrEnum members are strs at runtime, but dict is invariant in its key type.
+    posterior: dict[str, float] = {s.value: 0.0 for s in MaintenanceState}
     posterior[state] = 1.0
     return MaintenanceAssessment(posterior, state, p_not_maintained, observations or {})
 
