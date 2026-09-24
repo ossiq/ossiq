@@ -1,3 +1,14 @@
+# DO NOT RENAME THIS FILE, and do not remove `environment: release` from publish-npm.
+# npm's Trusted Publisher is bound to (ossiq/ossiq, binaries.yml, release), and npm
+# validates the CALLING workflow's filename — so moving the publish step into a reusable
+# workflow does not disturb that binding, but renaming this file would break it.
+#
+# Builds happen in reusable workflows so their provenance is signed under identities this
+# file cannot assume (SLSA Build L3). Publishing stays here: it only transports
+# already-attested bytes, and each publish job re-verifies them first.
+#
+# The `if: github.event_name == 'release'` guards are the safety net that makes
+# workflow_dispatch runs build-and-attest only, never publish.
 name: Build standalone binaries
 
 on:
@@ -5,114 +16,67 @@ on:
   release:
     types: [published]
 
-permissions:
-  contents: read
-
-env:
-  # spa_app.html is committed, so no Node is needed to build the package.
-  OSSIQ_SKIP_FRONTEND_BUILD: '1'
-  PYTHON_VERSION: '3.13'
+permissions: {}
 
 jobs:
   build:
-    name: ${{ matrix.target }}
-    runs-on: ${{ matrix.runner }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - runner: macos-14
-            target: darwin-arm64
-          - runner: macos-13
-            target: darwin-x64
-          # Built on the oldest supported Ubuntu so the glibc floor stays low.
-          - runner: ubuntu-22.04
-            target: linux-x64
-          - runner: ubuntu-22.04-arm
-            target: linux-arm64
-          - runner: windows-latest
-            target: win32-x64
+    uses: ./.github/workflows/reusable-build-binaries.yml
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
 
-    steps:
-      - uses: actions/checkout@v6
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@v7
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
-
-      - name: Install dependencies
-        run: uv sync --locked --group dev
-
-      - name: Build binary
-        run: uv run pyinstaller packaging/pyinstaller/ossiq.spec --noconfirm --distpath dist --workpath build
-
-      - name: Smoke test
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [ "${{ runner.os }}" = "Windows" ]; then
-            BIN="dist/ossiq/ossiq.exe"
-          else
-            BIN="dist/ossiq/ossiq"
-          fi
-
-          "$BIN" --version
-          "$BIN" --help > /dev/null
-
-          # Exercises the native extensions (python-sat, CEL), the HTTP stack and
-          # the packaged data read through importlib.resources. The HTTP cache is
-          # left on so the second scan reuses the first one's responses.
-          "$BIN" status testdata/npm/project1
-          "$BIN" html testdata/npm/project1 --output "$RUNNER_TEMP/report.html"
-          test -s "$RUNNER_TEMP/report.html"
-
-          # The MCP server must answer initialize on stdout as clean JSON-RPC.
-          # Written to a file rather than piped, so the binary is never SIGPIPEd.
-          echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"ci","version":"1"}}}' \
-            | "$BIN" mcp > "$RUNNER_TEMP/mcp.jsonl"
-          grep -q '"serverInfo"' "$RUNNER_TEMP/mcp.jsonl"
-        env:
-          OSSIQ_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Package
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p artifacts
-          tar -czf "artifacts/ossiq-${{ matrix.target }}.tar.gz" -C dist ossiq
-          ls -la artifacts
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: ossiq-${{ matrix.target }}
-          path: artifacts/ossiq-${{ matrix.target }}.tar.gz
-          if-no-files-found: error
-          retention-days: 7
+  package-npm:
+    needs: build
+    if: github.event_name == 'release'
+    uses: ./.github/workflows/reusable-build-npm.yml
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
 
   attach-to-release:
     name: Attach binaries to release
     needs: build
     if: github.event_name == 'release'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: write
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           path: artifacts
           merge-multiple: true
 
+      - name: Verify provenance before attaching
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          for tarball in artifacts/*.tar.gz; do
+            echo "::group::verify $tarball"
+            gh attestation verify "$tarball" \
+              --repo "$GITHUB_REPOSITORY" \
+              --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/reusable-build-binaries.yml"
+            echo "::endgroup::"
+          done
+
       - name: Upload to release
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release upload "${{ github.event.release.tag_name }}" artifacts/*.tar.gz --repo "${{ github.repository }}" --clobber
+          GH_TOKEN: ${{ github.token }}
+          TAG_NAME: ${{ github.event.release.tag_name }}
+        run: |
+          set -euo pipefail
+          (cd artifacts && sha256sum ./*.tar.gz > SHA256SUMS)
+          gh release upload "$TAG_NAME" \
+            artifacts/*.tar.gz artifacts/SHA256SUMS \
+            --repo "$GITHUB_REPOSITORY" --clobber
 
   publish-npm:
     name: Publish to npm
-    needs: build
+    needs: package-npm
     if: github.event_name == 'release'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     environment:
       name: release
       url: https://www.npmjs.com/package/@ossiq/cli
@@ -121,9 +85,7 @@ jobs:
       id-token: write
       contents: read
     steps:
-      - uses: actions/checkout@v6
-
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: '22'
           registry-url: 'https://registry.npmjs.org'
@@ -131,43 +93,46 @@ jobs:
       - name: Use an npm that supports trusted publishing
         run: npm install -g npm@latest
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
-          path: artifacts
-          merge-multiple: true
+          name: npm-tarballs
+          path: .
 
-      - name: Version must match the release tag
-        shell: bash
-        run: |
-          set -eu
-          TAG_VERSION="${{ github.event.release.tag_name }}"
-          TAG_VERSION="${TAG_VERSION#v}"
-          # pyproject.toml is stored with CRLF line endings, so strip the \r.
-          PYPROJECT_VERSION="$(grep -m1 '^version' pyproject.toml | tr -d '\r' | sed -E 's/version = "(.*)"/\1/')"
-
-          # The npm packages take their version from pyproject.toml, which is the same
-          # source PyPI publishes from. If the tag and the file ever disagree, npm and
-          # PyPI would ship different versions of the same release.
-          if [ "$TAG_VERSION" != "$PYPROJECT_VERSION" ]; then
-            echo "::error::Release tag is $TAG_VERSION but pyproject.toml says $PYPROJECT_VERSION."
-            exit 1
-          fi
-          echo "npm will publish $PYPROJECT_VERSION, matching the release tag and PyPI"
-
-      - name: Generate npm packages
-        run: python3 packaging/npm/build_npm_packages.py --artifacts artifacts --output build/npm
-
-      - name: Publish platform packages
-        # Must land before the launcher: its optionalDependencies pin these exact
-        # versions, so publishing the launcher first would leave a window where
-        # `npm install @ossiq/cli` cannot resolve a binary.
+      - name: Verify the tarballs we are about to publish
+        # The attested bytes and the published bytes have to be the same object.
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          for dir in build/npm/cli-*; do
-            echo "::group::publish $dir"
-            npm publish "$dir" --provenance --access public
+          for tarball in npm/*.tgz; do
+            echo "::group::verify $tarball"
+            gh attestation verify "$tarball" \
+              --repo "$GITHUB_REPOSITORY" \
+              --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/reusable-build-npm.yml"
             echo "::endgroup::"
           done
 
-      - name: Publish launcher
-        run: npm publish build/npm/cli --provenance --access public
+      - name: Publish platform packages, then the launcher
+        # Order matters: the launcher's optionalDependencies pin these exact versions,
+        # so publishing it first would leave a window where `npm install @ossiq/cli`
+        # cannot resolve a binary. Filenames come from the manifest rather than a glob,
+        # which would match the launcher's own tarball alongside the platform ones.
+        run: |
+          set -euo pipefail
+          mapfile -t platform_tarballs < <(python3 -c '
+          import json
+          m = json.load(open("build/npm/manifest.json"))
+          for entry in m["platform_packages"]:
+              print(entry["tarball"])
+          ')
+
+          for tarball in "${platform_tarballs[@]}"; do
+            echo "::group::publish $tarball"
+            npm publish "npm/$tarball" --provenance --access public
+            echo "::endgroup::"
+          done
+
+          launcher="$(python3 -c 'import json;print(json.load(open("build/npm/manifest.json"))["launcher"]["tarball"])')"
+          echo "::group::publish $launcher"
+          npm publish "npm/$launcher" --provenance --access public
+          echo "::endgroup::"

@@ -2,7 +2,7 @@
 Build the Vue.js SPA frontend and prepare it as an HTML report template.
 
 This script:
-1. Runs `npm install` and `npm run build` in the frontend/ directory
+1. Runs `npm ci` and `npm run build` in the frontend/ directory
 2. Reads the built single-file HTML from frontend/dist/index.html
 3. Replaces the dummy JSON data in the <script type="json/oss-iq-report"> tag
    with a placeholder sentinel (__OSSIQ_REPORT_DATA__)

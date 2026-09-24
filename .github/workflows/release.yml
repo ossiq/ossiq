@@ -1,38 +1,79 @@
+# DO NOT RENAME THIS FILE, and do not remove `environment: release` from the publish
+# job. PyPI's Trusted Publisher is bound to (ossiq/ossiq, release.yml, release); either
+# change breaks publishing until the publisher is reconfigured on PyPI.
+#
+# The build is delegated to a reusable workflow so its provenance is signed under an
+# identity this file cannot assume (SLSA Build L3). The publish step, however, MUST stay
+# here as a `steps` job:
+#
+#   1. PyPI matches the OIDC `job_workflow_ref` claim, which for a `workflow_call` job
+#      points at the callee. "Reusable workflows cannot currently be used as the workflow
+#      in a Trusted Publisher." -- docs.pypi.org/trusted-publishers/troubleshooting/
+#   2. `environment:` is not a legal key on a `uses:` job.
+#
+# That split is sound: the Build track governs how artifacts are produced and how their
+# provenance is signed. This job only transports already-attested bytes, and the
+# pre-flight verify below proves it did not alter them.
 name: Publish to PyPI
 
 on:
   release:
     types: [published]
 
+permissions: {}
+
+concurrency:
+  group: pypi-${{ github.event.release.tag_name }}
+  cancel-in-progress: false
+
 jobs:
+  build:
+    uses: ./.github/workflows/reusable-build-dist.yml
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+
   publish:
+    needs: build
     environment:
       name: release
       url: https://pypi.org/project/ossiq
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
-      # Use OIDC for Trusted Publishing
+      # OIDC for PyPI Trusted Publishing and for PEP 740 attestations.
       id-token: write
-      # Required for GitHub Attestations
-      attestations: write
       contents: read
 
     steps:
-      - uses: actions/checkout@v6
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@v7
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
-          python-version: '3.12'
+          # Must match the upload name in reusable-build-dist.yml; asserted by
+          # tests/test_workflow_supply_chain.py.
+          name: python-dist
+          path: dist
 
-      - name: Install dependencies
-        run: uv sync --locked
+      - name: Verify the isolated build's provenance before publishing
+        # Proves the bytes about to reach PyPI are the bytes reusable-build-dist.yml
+        # signed. SLSA's Build track does not cover artifact substitution between build
+        # and publish; this closes that gap.
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # Not distributed to PyPI; they exist for the GitHub Release channel.
+          rm -f dist/SHA256SUMS dist/ossiq-sbom.cdx.json
 
-      - name: Build package
-        run: uv build
+          for artifact in dist/*; do
+            echo "::group::verify $artifact"
+            gh attestation verify "$artifact" \
+              --repo "$GITHUB_REPOSITORY" \
+              --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/reusable-build-dist.yml"
+            echo "::endgroup::"
+          done
 
-      - name: Generate and Publish Attestations to PyPI
-        uses: pypa/gh-action-pypi-publish@release/v1
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2
         with:
-          # No password or token needed!
+          # No password or token needed: Trusted Publishing via OIDC.
           attestations: true

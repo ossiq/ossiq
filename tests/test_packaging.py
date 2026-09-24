@@ -86,3 +86,51 @@ def test_hatch_is_not_a_runtime_dependency(pyproject):
     """`hatch` is a dev tool; as a runtime dep it pulled in ~25 packages including uv."""
     dependencies = pyproject["project"]["dependencies"]
     assert not [d for d in dependencies if d.split(">")[0].split("=")[0].strip() == "hatch"]
+
+
+# --- the SPA template as a committed source artifact -------------------------------------
+
+SPA_TEMPLATE = PROJECT_ROOT / "src" / "ossiq" / "ui" / "html_templates" / "spa_app.html"
+
+# Strings that would mean the template captured something about the machine that built it
+# rather than the sources it came from.
+BUILD_HOST_MARKERS = ("/Users/", "/home/runner", "localhost", "127.0.0.1", "sourceMappingURL")
+
+
+def test_build_backend_requirement_is_bounded(pyproject: dict):
+    """An unbounded build requirement is resolved fresh from PyPI at build time.
+
+    PEP 517 `requires` has no hash mechanism, so a range is the only constraint available
+    here; the release build additionally takes hatchling from uv.lock via
+    `uv build --no-build-isolation`.
+    """
+    requires = pyproject["build-system"]["requires"]
+
+    unbounded = [spec for spec in requires if not any(op in spec for op in ("==", ">=", "<", "~="))]
+    assert not unbounded, f"build-system.requires entries need a version specifier: {unbounded}"
+
+    hatchling = next(spec for spec in requires if spec.startswith("hatchling"))
+    assert "<" in hatchling, f"hatchling needs an upper bound so a major release cannot break the build: {hatchling}"
+
+
+def test_spa_template_is_committed_and_substantial():
+    """Packaging reads this file rather than rebuilding it, so it has to be real.
+
+    The build hook falls back to it whenever frontend/ is absent, which is every install
+    from an sdist -- an empty or truncated template would ship a blank HTML report.
+    """
+    assert SPA_TEMPLATE.is_file(), f"{SPA_TEMPLATE} must be committed; run `just frontend-build`"
+    assert SPA_TEMPLATE.stat().st_size > 100_000, "the built SPA is ~650 KB; anything this small is not a real build"
+
+    body = SPA_TEMPLATE.read_text(encoding="utf-8")
+    assert body.count("__OSSIQ_REPORT_DATA__") == 1, (
+        "the template needs exactly one data placeholder; a populated report would have none"
+    )
+
+
+def test_spa_template_carries_no_build_host_traces():
+    """The template is source, so it must not record where it happened to be built."""
+    body = SPA_TEMPLATE.read_text(encoding="utf-8")
+
+    found = [marker for marker in BUILD_HOST_MARKERS if marker in body]
+    assert not found, f"{SPA_TEMPLATE.name} leaks build-host details: {found}"

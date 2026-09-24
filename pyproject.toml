@@ -1,5 +1,10 @@
 [build-system]
-requires = ["hatchling"]
+# A range, not an exact pin: PEP 517 build requires are resolved fresh at build
+# time and have no hash mechanism, so `==` would buy nothing while making the
+# sdist unbuildable wherever a different hatchling is already resolved. The
+# release build gets its hatchling from uv.lock instead, via
+# `uv build --no-build-isolation`.
+requires = ["hatchling>=1.32.0,<2"]
 build-backend = "hatchling.build"
 
 [project]
@@ -67,7 +72,10 @@ dependencies = [
 
 [tool.uv]
 package = true
-exclude-newer = "5 days"
+# An absolute cutoff, bumped deliberately. A relative one ("5 days") made the
+# resolution depend on wall-clock time, so re-locking to pick up a security fix
+# produced a diff whose scope varied with the calendar.
+exclude-newer = "2026-09-18T00:00:00Z"
 
 [project.optional-dependencies]
 # Retained as an empty no-op so `pip install 'ossiq[cli]'` keeps resolving for
@@ -168,5 +176,9 @@ dev = [
     "pyinstaller>=6.11.0",  # standalone binaries for the npm channel
     "pylint>=4.0.4,<5",
     "pytest-httpserver>=1.1.5",  # real HTTP server for integration tests
+    "pyyaml>=6.0.3",  # tests/test_workflow_supply_chain.py parses .github/workflows/
+    # `just` from PyPI, so it lands in uv.lock's hashed world. Replaces
+    # extractions/setup-just, which had to be handed a PAT in CI.
+    "rust-just>=1.58.0",
     "snakeviz>=2.2.2",
 ]
