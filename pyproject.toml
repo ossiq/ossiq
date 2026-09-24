@@ -176,6 +176,7 @@ dev = [
     "pyinstaller>=6.11.0",  # standalone binaries for the npm channel
     "pylint>=4.0.4,<5",
     "pytest-httpserver>=1.1.5",  # real HTTP server for integration tests
+    "pyyaml>=6.0.3",  # tests/test_workflow_supply_chain.py parses .github/workflows/
     # `just` from PyPI, so it lands in uv.lock's hashed world. Replaces
     # extractions/setup-just, which had to be handed a PAT in CI.
     "rust-just>=1.58.0",
