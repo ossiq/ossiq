@@ -1,0 +1,112 @@
+# Packs the six npm packages and signs provenance over the exact .tgz files that will
+# be published.
+#
+# In its own `workflow_call` file so the provenance is signed under an identity the
+# caller cannot assume (SLSA Build L3). See reusable-build-dist.yml for the reasoning.
+#
+# `npm publish --provenance` in the caller is kept, but it does NOT reach L3 on its own:
+# npm validates the *calling* workflow's filename, so the identity it binds is a workflow
+# the maintainers edit. The L3 claim rests on the attestation made here.
+#
+# This workflow packs rather than publishes so the attested bytes and the published bytes
+# are the same object: `npm publish <file>.tgz` uploads the tarball verbatim, and
+# `npm pack @ossiq/cli@X.Y.Z` on a consumer's machine re-downloads it byte for byte.
+#
+# Consumers verify with:
+#   gh attestation verify ossiq-cli-X.Y.Z.tgz --repo ossiq/ossiq \
+#     --signer-workflow ossiq/ossiq/.github/workflows/reusable-build-npm.yml
+name: reusable / build npm packages
+
+on:
+  workflow_call:
+
+permissions: {}
+
+jobs:
+  pack:
+    name: pack six packages
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Version must match the release tag
+        # Checked here rather than in the publish job so a version mismatch can never
+        # produce an attested artifact in the first place.
+        shell: bash
+        env:
+          TAG_NAME: ${{ github.event.release.tag_name }}
+        run: |
+          set -eu
+          TAG_VERSION="${TAG_NAME#v}"
+          # pyproject.toml is stored with CRLF line endings, so strip the \r.
+          PYPROJECT_VERSION="$(grep -m1 '^version' pyproject.toml | tr -d '\r' | sed -E 's/version = "(.*)"/\1/')"
+
+          # The npm packages take their version from pyproject.toml, which is the same
+          # source PyPI publishes from. If the tag and the file ever disagree, npm and
+          # PyPI would ship different versions of the same release.
+          if [ "$TAG_VERSION" != "$PYPROJECT_VERSION" ]; then
+            echo "::error::Release tag is $TAG_VERSION but pyproject.toml says $PYPROJECT_VERSION."
+            exit 1
+          fi
+          echo "npm will publish $PYPROJECT_VERSION, matching the release tag and PyPI"
+
+      - name: Generate npm packages
+        run: python3 packaging/npm/build_npm_packages.py --artifacts artifacts --output build/npm
+
+      - name: Pack all six packages
+        # Driven by the manifest build_npm_packages.py emits, so the platform packages
+        # and the launcher stay distinguishable. A `cli-*` glob would match both.
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p npm
+          mapfile -t dirs < <(python3 -c '
+          import json
+          m = json.load(open("build/npm/manifest.json"))
+          for entry in [*m["platform_packages"], m["launcher"]]:
+              print(entry["directory"])
+          ')
+
+          for dir in "${dirs[@]}"; do
+            npm pack "build/npm/$dir" --pack-destination npm
+          done
+          ls -la npm
+
+          # The manifest promises these exact filenames to the publish job.
+          python3 -c '
+          import json, pathlib, sys
+          m = json.load(open("build/npm/manifest.json"))
+          missing = [e["tarball"] for e in [*m["platform_packages"], m["launcher"]]
+                     if not pathlib.Path("npm", e["tarball"]).is_file()]
+          sys.exit("npm pack did not produce: " + ", ".join(missing) if missing else 0)
+          '
+
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: 'npm/*.tgz'
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: npm-tarballs
+          # The manifest rides along so the publish job can preserve the ordering.
+          path: |
+            npm/
+            build/npm/manifest.json
+          if-no-files-found: error

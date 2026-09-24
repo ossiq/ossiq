@@ -1,0 +1,118 @@
+# Builds the five standalone PyInstaller binaries and signs provenance over each tarball.
+#
+# In its own `workflow_call` file so the provenance is signed under an identity the
+# caller cannot assume (SLSA Build L3). See reusable-build-dist.yml for the reasoning.
+#
+# Consumers verify with:
+#   gh attestation verify ossiq-<target>.tar.gz --repo ossiq/ossiq \
+#     --signer-workflow ossiq/ossiq/.github/workflows/reusable-build-binaries.yml
+#
+# The matrix is deliberately INTERNAL and this workflow takes no inputs. If the caller
+# matrixed over it, `runner` would become a workflow_call input, and a caller could then
+# point a build at an attacker-controlled self-hosted runner while this file's trusted
+# identity still signed the result. That is falsifiable provenance.
+name: reusable / build standalone binaries
+
+on:
+  workflow_call:
+
+permissions: {}
+
+env:
+  # spa_app.html is committed, so no Node is needed to build the package.
+  OSSIQ_SKIP_FRONTEND_BUILD: '1'
+  PYTHON_VERSION: '3.13'
+
+jobs:
+  build:
+    name: ${{ matrix.target }}
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-14
+            target: darwin-arm64
+          - runner: macos-13
+            target: darwin-x64
+          # Built on the oldest supported Ubuntu so the glibc floor stays low.
+          - runner: ubuntu-22.04
+            target: linux-x64
+          - runner: ubuntu-22.04-arm
+            target: linux-arm64
+          - runner: windows-latest
+            target: win32-x64
+
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install dependencies
+        run: uv sync --locked --group dev
+
+      - name: Build binary
+        run: uv run pyinstaller packaging/pyinstaller/ossiq.spec --noconfirm --distpath dist --workpath build
+
+      - name: Smoke test
+        # Runs before the attestation on purpose: an unexercised binary must not be
+        # something this workflow's identity vouches for.
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            BIN="dist/ossiq/ossiq.exe"
+          else
+            BIN="dist/ossiq/ossiq"
+          fi
+
+          "$BIN" --version
+          "$BIN" --help > /dev/null
+
+          # Exercises the native extensions (python-sat, CEL), the HTTP stack and
+          # the packaged data read through importlib.resources. The HTTP cache is
+          # left on so the second scan reuses the first one's responses.
+          "$BIN" status testdata/npm/project1
+          "$BIN" html testdata/npm/project1 --output "$RUNNER_TEMP/report.html"
+          test -s "$RUNNER_TEMP/report.html"
+
+          # The MCP server must answer initialize on stdout as clean JSON-RPC.
+          # Written to a file rather than piped, so the binary is never SIGPIPEd.
+          echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"ci","version":"1"}}}' \
+            | "$BIN" mcp > "$RUNNER_TEMP/mcp.jsonl"
+          grep -q '"serverInfo"' "$RUNNER_TEMP/mcp.jsonl"
+        env:
+          OSSIQ_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Package
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts
+          # gzip -n drops the mtime from the gzip header, so the tarball does not
+          # change just because CI ran at a different time. `tar --sort=name` is
+          # bsdtar-incompatible (macOS runners), so member order is left alone.
+          tar --numeric-owner --owner=0 --group=0 -cf - -C dist ossiq \
+            | gzip -n -9 > "artifacts/ossiq-${{ matrix.target }}.tar.gz"
+          ls -la artifacts
+
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: artifacts/ossiq-${{ matrix.target }}.tar.gz
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: ossiq-${{ matrix.target }}
+          path: artifacts/ossiq-${{ matrix.target }}.tar.gz
+          if-no-files-found: error
+          retention-days: 7
