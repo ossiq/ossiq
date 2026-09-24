@@ -1,15 +1,17 @@
-import os
 import re
 import shutil
 import subprocess
-import sys
 from pathlib import Path
 
 from hatchling.builders.hooks.plugin.interface import BuildHookInterface
 
 REPORT_DATA_PLACEHOLDER = "__OSSIQ_REPORT_DATA__"
+# The SPA template is a committed, reviewed source artifact that packaging only
+# ever reads. Regenerating it is a developer action (`just frontend-build`), so a
+# wheel built from the repo and one built from the sdist carry identical bytes.
+SPA_TEMPLATE_RELATIVE = Path("src") / "ossiq" / "ui" / "html_templates" / "spa_app.html"
 
-_SCRIPT_TAG_PATTERN = re.compile(
+SCRIPT_TAG_PATTERN = re.compile(
     r'(<script\s+type="json/oss-iq-report">)(.*?)(</script>)',
     re.DOTALL,
 )
@@ -31,7 +33,7 @@ def replace_report_data_with_placeholder(
     Raises:
         ValueError: If the script tag is not found in the HTML.
     """
-    result, count = _SCRIPT_TAG_PATTERN.subn(rf"\g<1>{placeholder}\g<3>", html)
+    result, count = SCRIPT_TAG_PATTERN.subn(rf"\g<1>{placeholder}\g<3>", html)
     if count == 0:
         raise ValueError(
             'No <script type="json/oss-iq-report"> tag found in the built HTML. '
@@ -40,35 +42,53 @@ def replace_report_data_with_placeholder(
     return result
 
 
-def build_frontend(project_root: Path) -> Path:
-    """Build the frontend and produce the SPA template with placeholder.
+def render_spa_template(project_root: Path) -> str:
+    """Build the frontend and return the SPA template as text.
+
+    Runs `npm ci` rather than `npm install`, so the build cannot resolve outside
+    frontend/package-lock.json. Writes nothing: the caller decides where the
+    result goes, which keeps this usable as a comparison as well as a write.
 
     Args:
         project_root: The root directory of the ossiq project.
 
     Returns:
-        Path to the generated spa_app.html template.
+        The built HTML with the report data replaced by the placeholder.
 
     Raises:
         RuntimeError: If npm is not available.
         FileNotFoundError: If the frontend build does not produce output.
     """
     frontend_dir = project_root / "frontend"
-    target_html = project_root / "src" / "ossiq" / "ui" / "html_templates" / "spa_app.html"
 
     npm = shutil.which("npm")
     if not npm:
         raise RuntimeError("npm is required to build frontend assets.")
 
-    subprocess.check_call([npm, "install"], cwd=str(frontend_dir))
+    subprocess.check_call([npm, "ci"], cwd=str(frontend_dir))
     subprocess.check_call([npm, "run", "build"], cwd=str(frontend_dir))
 
     built_html = frontend_dir / "dist" / "index.html"
     if not built_html.exists():
         raise FileNotFoundError(f"Frontend build did not produce {built_html}")
 
-    html_content = built_html.read_text(encoding="utf-8")
-    template_html = replace_report_data_with_placeholder(html_content)
+    return replace_report_data_with_placeholder(built_html.read_text(encoding="utf-8"))
+
+
+def build_frontend(project_root: Path) -> Path:
+    """Regenerate the committed SPA template from the frontend sources.
+
+    A developer action, not a packaging step: this mutates the source tree, so the
+    regenerated template must be committed alongside the frontend change.
+
+    Args:
+        project_root: The root directory of the ossiq project.
+
+    Returns:
+        Path to the generated spa_app.html template.
+    """
+    target_html = project_root / SPA_TEMPLATE_RELATIVE
+    template_html = render_spa_template(project_root)
 
     target_html.parent.mkdir(parents=True, exist_ok=True)
     target_html.write_text(template_html, encoding="utf-8")
@@ -79,28 +99,18 @@ def build_frontend(project_root: Path) -> Path:
 
 class CustomBuildHook(BuildHookInterface):
     def initialize(self, version, build_data):
-        """Build frontend assets before packaging.
+        """Verify the committed SPA template is present before packaging.
 
-        The generated SPA template is committed to the repository, so a build
-        without Node (installing from an sdist, a PyInstaller run, a CI job with
-        no npm) falls back to the committed copy instead of failing.
+        Deliberately never invokes npm: packaging does no network I/O and does not
+        write to the source tree. Regenerating the template is `just frontend-build`.
+        OSSIQ_SKIP_FRONTEND_BUILD is accepted and ignored, so the workflows and
+        Dockerfiles that still set it keep working.
+
+        Raises:
+            RuntimeError: If the committed template is missing or empty.
         """
-        if os.environ.get("OSSIQ_SKIP_FRONTEND_BUILD"):
-            return
-
-        root = Path(self.root)
-        prebuilt = root / "src" / "ossiq" / "ui" / "html_templates" / "spa_app.html"
-        frontend_dir = root / "frontend"
-
-        if not shutil.which("npm") or not frontend_dir.exists():
-            if prebuilt.exists():
-                reason = "npm not found" if not shutil.which("npm") else f"no frontend/ sources at {frontend_dir}"
-                print(f"{reason}; using prebuilt SPA template at {prebuilt}")
-                return
+        prebuilt = Path(self.root) / SPA_TEMPLATE_RELATIVE
+        if not prebuilt.is_file() or not prebuilt.stat().st_size:
             raise RuntimeError(
-                f"npm/frontend sources are required to build frontend assets and no prebuilt "
-                f"SPA template was found at {prebuilt}."
+                f"missing or empty SPA template at {prebuilt}; run `just frontend-build` and commit the result."
             )
-
-        sys.path.insert(0, str(root))
-        build_frontend(root)
