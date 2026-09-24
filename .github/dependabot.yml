@@ -1,0 +1,25 @@
+version: 2
+updates:
+  # Actions are SHA-pinned with a trailing `# vX.Y.Z` comment; Dependabot reads that
+  # comment to bump the pin and the comment together. Without this, pinning would
+  # mean the pins silently rot.
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]
+
+  - package-ecosystem: uv
+    directory: "/"
+    schedule:
+      interval: weekly
+
+  # frontend/package.json carries a large `overrides` block of exact transitive
+  # pins, which Dependabot will contend with — hence the low PR limit.
+  - package-ecosystem: npm
+    directory: "/frontend"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 3
