@@ -1,0 +1,103 @@
+# Builds the sdist + wheel and signs provenance over them.
+#
+# This lives in its own `workflow_call` file for one reason: SLSA Build L3 requires
+# provenance the caller cannot forge. An `actions/attest-build-provenance` step in a
+# workflow the maintainers edit is only Build L2, because the signing identity is the
+# same workflow they control. Called as a reusable workflow, the OIDC certificate's
+# identity is THIS file, so a caller cannot mint provenance claiming to be it.
+#
+# Consumers verify with:
+#   gh attestation verify <artifact> --repo ossiq/ossiq \
+#     --signer-workflow ossiq/ossiq/.github/workflows/reusable-build-dist.yml
+#
+# This filename is therefore public API — see docs/how-to/verifying-a-release.md.
+#
+# Deliberately takes NO inputs: anything a caller could pass is something a caller
+# could use to steer a build that this file's identity then vouches for.
+name: reusable / build python dist
+
+on:
+  workflow_call:
+
+permissions: {}
+
+jobs:
+  build:
+    name: sdist + wheel
+    # Pinned, not -latest: the runner image is a build input.
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    env:
+      # Accepted and ignored by hatch_build.py since the hook stopped invoking npm.
+      # Kept as a self-documenting signal that the release path needs no Node.
+      OSSIQ_SKIP_FRONTEND_BUILD: '1'
+
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: uv sync --locked --group dev
+
+      - name: Build sdist and wheel
+        # --no-build-isolation makes hatchling come from uv.lock, where it is
+        # hash-pinned. PEP 517 `requires` has no hash mechanism, so without this the
+        # build backend is the one unpinned, unverified input to the whole build.
+        #
+        # SOURCE_DATE_EPOCH is the commit time, so archive member timestamps depend
+        # on the source rather than on when CI happened to run.
+        run: |
+          set -euo pipefail
+          SOURCE_DATE_EPOCH="$(git log -1 --format=%ct)"
+          export SOURCE_DATE_EPOCH
+          echo "SOURCE_DATE_EPOCH=$SOURCE_DATE_EPOCH"
+          uv build --no-build-isolation
+
+      - name: The wheel must carry the committed SPA template
+        # The hook falls back to the committed template; this proves it actually did,
+        # so the attestation below covers reviewed bytes rather than a fresh npm build.
+        run: |
+          set -euo pipefail
+          committed="$(sha256sum src/ossiq/ui/html_templates/spa_app.html | cut -d' ' -f1)"
+          packaged="$(unzip -p dist/*.whl ossiq/ui/html_templates/spa_app.html | sha256sum | cut -d' ' -f1)"
+          if [ "$committed" != "$packaged" ]; then
+            echo "::error::wheel's spa_app.html ($packaged) differs from the committed one ($committed)"
+            exit 1
+          fi
+          echo "wheel ships the committed SPA template ($committed)"
+
+      - name: Checksums
+        run: |
+          set -euo pipefail
+          cd dist && sha256sum ./* | tee SHA256SUMS
+
+      - name: SBOM
+        # Derived from uv.lock, so it describes exactly the hash-pinned dependency
+        # set the artifact was built against.
+        run: uv export --format cyclonedx1.5 --no-dev --no-emit-project -o dist/ossiq-sbom.cdx.json
+
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: 'dist/*.whl,dist/*.tar.gz'
+
+      - name: Attest SBOM
+        uses: actions/attest-sbom@c604332985a26aa8cf1bdc465b92731239ec6b9e # v4.1.0
+        with:
+          subject-path: 'dist/*.whl,dist/*.tar.gz'
+          sbom-path: dist/ossiq-sbom.cdx.json
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: python-dist
+          path: dist/
+          if-no-files-found: error
