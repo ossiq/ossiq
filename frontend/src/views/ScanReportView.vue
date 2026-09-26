@@ -73,6 +73,8 @@ function handleSelectPackage(row: ReportRow) {
     latest_in_range: row.pkg.latest_in_range ?? null,
     latest_in_major: row.pkg.latest_in_major ?? null,
     latest_compatible_major: row.pkg.latest_compatible_major ?? null,
+    latest_preserving_module_system: row.pkg.latest_preserving_module_system ?? null,
+    module_system_note: row.pkg.module_system_note ?? null,
     version_constraint_declared: row.pkg.version_constraint_declared ?? null,
     epss: row.pkg.epss ?? null,
     maintenance_coverage: row.pkg.maintenance_coverage ?? null,
@@ -87,7 +89,7 @@ function handleSelectPackage(row: ReportRow) {
     commits_sampled: row.pkg.commits_sampled ?? null,
     archived: row.pkg.archived ?? null,
     days_since_push: row.pkg.days_since_push ?? null,
-    triage_action: row.pkg.triage_action ?? null,
+    dependency_health_action: row.pkg.dependency_health_action ?? null,
   }
 
   const transitives = store.report?.transitive_packages ?? []

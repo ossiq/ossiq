@@ -10,7 +10,7 @@ class CompatibilityFacts:
     """The ladder + module-system + engine cluster, lifted off ScanRecord.
 
     ScanRecord had grown to ~50 flat fields and become the bottleneck for every new surface. These
-    eight answer one question together - how far can this package move, and what breaks if it does -
+    answer one question together - how far can this package move, and what breaks if it does -
     so they travel as one value.
 
     Deliberately **not** frozen: `service.project.target_facts` rewrites the target half in place
@@ -38,9 +38,21 @@ class CompatibilityFacts:
     break (module-system or curated API break). Diverges from latest_in_major when a clean major
     sits between installed_version and a known break."""
 
+    latest_preserving_module_system: str | None = None
+    """Newest installable release that code on installed_version's module system can still load
+    (cjs/dual -> cjs/dual, esm -> anything; always latest_in_major's superset on PyPI). Unlike
+    latest_compatible_major it ignores the runtime, so it is where every tier below `latest` stops.
+    Computed in service.project.breaking_changes.compute_latest_preserving_module_system."""
+
     module_system: ModuleSystem | None = None
     """installed_version's own module format (npm only, from `type`/`exports`). Always None on
     PyPI."""
+
+    module_system_note: str | None = None
+    """What the scan's runtime means for loading this package's ESM-only releases from CommonJS
+    code, e.g. "works only if the package has named exports". None when no newer release crosses
+    to ESM-only. Qualifies whichever ESM-only version a surface shows - the recommendation or the
+    latest_compatible_major alternative."""
 
     recommended_module_system: ModuleSystem | None = None
     """recommended_version's own module format. None whenever recommended_version is None or the

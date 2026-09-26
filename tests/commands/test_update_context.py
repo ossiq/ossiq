@@ -175,7 +175,7 @@ def test_cli_and_mcp_produce_the_same_payload(capsys):
     sources_patch, scan_patch, detail_patch = patches()
     with sources_patch, scan_patch, detail_patch:
         mcp_payload = evaluate_update_context(
-            Settings(), {"package": "chalk", "project_path": ".", "target_version": "6.0.0"}
+            Settings(), {"package": "chalk", "project_path": ".", "target_version": "6.0.0", "runtime": "unknown"}
         )
 
     assert cli_payload == mcp_payload

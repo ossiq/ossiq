@@ -13,7 +13,11 @@ from ossiq.domain.project import ConstraintSource, PeerRequirement
 from ossiq.domain.repository import Repository
 from ossiq.risk.maintenance import deprecation_evidence
 from ossiq.service.common import package_versions
-from ossiq.service.project.breaking_changes import compute_latest_compatible_major
+from ossiq.service.project.breaking_changes import (
+    compute_latest_compatible_major,
+    compute_latest_preserving_module_system,
+    module_system_note,
+)
 from ossiq.service.project.coverage import classify_signal_coverage
 from ossiq.service.project.ladder import compute_version_ladder
 from ossiq.service.project.models import DependencyDescriptor, PrefetchedData, ScanRecord
@@ -102,6 +106,7 @@ def scan_record(
     has_commits: bool = False,
     now: datetime | None = None,
     engine_context: EngineContext | None = None,
+    project_declares_esm: bool = False,
 ) -> ScanRecord:
     """
     Factory to generate ScanRecord instances
@@ -137,6 +142,8 @@ def scan_record(
         now=now,
     )
 
+    node_version = engine_context.versions.get("node") if engine_context is not None else None
+    installed_module_system = installed_release.module_system if installed_release else None
     latest_compatible_major = compute_latest_compatible_major(
         canonical_name,
         releases_since_installed,
@@ -144,7 +151,24 @@ def scan_record(
         version_rules,
         version_rules.package_registry,
         now=now,
-        node_version=(engine_context.versions.get("node") if engine_context is not None else None),
+        node_version=node_version,
+    )
+    latest_preserving_module_system = compute_latest_preserving_module_system(
+        releases_since_installed,
+        package_version,
+        installed_module_system,
+        version_rules,
+        project_declares_esm,
+        now=now,
+    )
+    esm_note = module_system_note(
+        releases_since_installed,
+        package_version,
+        installed_module_system,
+        version_rules,
+        project_declares_esm,
+        now=now,
+        node_version=node_version,
     )
 
     deprecation = deprecation_evidence(
@@ -182,7 +206,9 @@ def scan_record(
             latest_in_range=ladder.latest_in_range,
             latest_in_major=ladder.latest_in_major,
             latest_compatible_major=latest_compatible_major,
-            module_system=installed_release.module_system if installed_release else None,
+            latest_preserving_module_system=latest_preserving_module_system,
+            module_system=installed_module_system,
+            module_system_note=esm_note,
         ),
         extras=extras,
         constraint_info=constraint_info,
@@ -228,6 +254,7 @@ def build_records(
     *,
     now: datetime | None = None,
     engine_context: EngineContext | None = None,
+    project_declares_esm: bool = False,
 ) -> list[ScanRecord]:
     """Build ScanRecord instances from dependency descriptors and pre-fetched data."""
 
@@ -263,6 +290,7 @@ def build_records(
             has_commits=bool(prefetched.commits.get(repo_url_of(dep))),
             now=now,
             engine_context=engine_context,
+            project_declares_esm=project_declares_esm,
         )
         for dep in descriptors
     ]

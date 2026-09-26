@@ -275,7 +275,7 @@ def stability_export_fields(record) -> dict:
         "deprecation_successor": deprecation.successor if deprecation else None,
         "days_since_push": record.days_since_push,
         "archived": record.repository.archived if record.repository else None,
-        "triage_action": record.triage.action if record.triage else None,
+        "dependency_health_action": record.triage.action if record.triage else None,
     }
 
 
@@ -325,6 +325,16 @@ class LadderFields(BaseModel):
             "between installed_version and a known break. Null only when undeterminable."
         ),
     )
+    latest_preserving_module_system: str | None = Field(
+        default=None,
+        description=(
+            "Newest installable version that code on installed_version's module system can still load "
+            "(cjs/dual -> cjs/dual; esm-only -> anything; every release on PyPI). Unlike "
+            "latest_compatible_major it ignores the runtime: it is where every update-strategy tier "
+            "below latest stops. Equals installed_version when nothing newer qualifies. Null only "
+            "when undeterminable."
+        ),
+    )
 
 
 class NextActionFields(BaseModel):
@@ -356,6 +366,15 @@ class CompatibilityFields(BaseModel):
     recommended_module_system: str | None = Field(
         default=None,
         description="recommended_version's own module format; null whenever recommended_version is null or PyPI",
+    )
+    module_system_note: str | None = Field(
+        default=None,
+        description=(
+            "What the scan's runtime means for loading this package's ESM-only releases from CommonJS "
+            "code (e.g. require() works only if the package has named exports); null when no newer "
+            "release is ESM-only for this project. Qualifies whichever ESM-only version is shown: "
+            "recommended_version or latest_compatible_major."
+        ),
     )
     engine_requirement: dict[str, str] | None = Field(
         default=None,
@@ -591,9 +610,13 @@ class PackageMetrics(LadderFields, CompatibilityFields, NextActionFields):
     )
     days_since_push: int | None = Field(default=None, description="Days since the last push to the repository")
     archived: bool | None = Field(default=None, description="Whether the upstream repository is archived")
-    triage_action: str | None = Field(
+    dependency_health_action: str | None = Field(
         default=None,
-        description="Recommended action from the EPSS x maintenance matrix: evict, patch, refactor or retain",
+        description=(
+            "Advisory dependency-health verdict from the EPSS x maintenance triage matrix: evict, patch, "
+            "refactor or retain. Answers 'is this dependency healthy long-term?' - next_action says what "
+            "to do now."
+        ),
     )
     strategy: StrategySelectionExport | None = Field(
         default=None,
@@ -647,7 +670,9 @@ class PackageMetrics(LadderFields, CompatibilityFields, NextActionFields):
             latest_in_range=facts.latest_in_range,
             latest_in_major=facts.latest_in_major,
             latest_compatible_major=facts.latest_compatible_major,
+            latest_preserving_module_system=facts.latest_preserving_module_system,
             module_system=facts.module_system.value if facts.module_system else None,
+            module_system_note=facts.module_system_note,
             recommended_module_system=(
                 facts.recommended_module_system.value if facts.recommended_module_system else None
             ),
@@ -842,9 +867,13 @@ class TransitivePackageMetrics(LadderFields, CompatibilityFields, NextActionFiel
     )
     days_since_push: int | None = Field(default=None, description="Days since the last push to the repository")
     archived: bool | None = Field(default=None, description="Whether the upstream repository is archived")
-    triage_action: str | None = Field(
+    dependency_health_action: str | None = Field(
         default=None,
-        description="Recommended action from the EPSS x maintenance matrix: evict, patch, refactor or retain",
+        description=(
+            "Advisory dependency-health verdict from the EPSS x maintenance triage matrix: evict, patch, "
+            "refactor or retain. Answers 'is this dependency healthy long-term?' - next_action says what "
+            "to do now."
+        ),
     )
 
     @field_serializer(
@@ -877,7 +906,9 @@ class TransitivePackageMetrics(LadderFields, CompatibilityFields, NextActionFiel
             latest_in_range=facts.latest_in_range,
             latest_in_major=facts.latest_in_major,
             latest_compatible_major=facts.latest_compatible_major,
+            latest_preserving_module_system=facts.latest_preserving_module_system,
             module_system=facts.module_system.value if facts.module_system else None,
+            module_system_note=facts.module_system_note,
             recommended_module_system=(
                 facts.recommended_module_system.value if facts.recommended_module_system else None
             ),

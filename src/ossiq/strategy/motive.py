@@ -60,6 +60,12 @@ class PackageFacts:
     """risk.maintenance.DeprecationEvidence.strength: "none", "weak", or "strong"."""
 
 
+def is_qualifying_score(score: float | None, noise: float = EPSS_NOISE_THRESHOLD) -> bool:
+    """Whether a CVE with this EPSS score counts toward EXPLOITABLE_CVE: at/above the floor, or
+    unscored - absent evidence must not read as absent risk when the output is a write."""
+    return score is None or score >= noise
+
+
 def classify_motives(facts: PackageFacts, *, noise: float = EPSS_NOISE_THRESHOLD) -> frozenset[UpdateMotive]:
     """Reduce a package's evidence to the motive set a strategy admits against.
 
@@ -69,7 +75,7 @@ def classify_motives(facts: PackageFacts, *, noise: float = EPSS_NOISE_THRESHOLD
     """
     motives: set[UpdateMotive] = {UpdateMotive.DRIFT}
 
-    if any(score is None or score >= noise for score in facts.cve_epss_scores):
+    if any(is_qualifying_score(score, noise) for score in facts.cve_epss_scores):
         motives.add(UpdateMotive.EXPLOITABLE_CVE)
     if any(score is not None and score < noise for score in facts.cve_epss_scores):
         motives.add(UpdateMotive.SUPPRESSED_CVE)

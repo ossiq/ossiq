@@ -564,9 +564,9 @@ The `export` command writes a single `.json` file conforming to [export schema v
 | `development_packages` | Array of `PackageMetrics` |
 | `transitive_packages` | Array of `PackageMetrics` with `dependency_path` set |
 
-Since v1.5, every `PackageMetrics` entry (production, development, and transitive) also carries `epss` (the highest EPSS among the package's CVEs), `runs_code_at_install` with `install_execution_reason`, and the maintenance-state fields: `maintenance_state`, `maintenance_risk` (P(abandoned) + P(deprecated), the value that feeds triage), `maintenance_coverage` (fraction of the five maintenance observations that were available), `gap_cv`, `median_gap_days`, `silence_days`, `silence_p`, `commits_sampled`, `span_days`, `flow_trend`, `deprecation_signals`, `deprecation_successor`, `days_since_push`, `archived`, and `triage_action`. Any of them may be `null` when the underlying signal could not be measured — that means "unknown," never "no risk." See [Repository stability](explanation/repository-stability.md) for what each field means.
+Since v1.5, every `PackageMetrics` entry (production, development, and transitive) also carries `epss` (the highest EPSS among the package's CVEs), `runs_code_at_install` with `install_execution_reason`, and the maintenance-state fields: `maintenance_state`, `maintenance_risk` (P(abandoned) + P(deprecated), the value that feeds triage), `maintenance_coverage` (fraction of the five maintenance observations that were available), `gap_cv`, `median_gap_days`, `silence_days`, `silence_p`, `commits_sampled`, `span_days`, `flow_trend`, `deprecation_signals`, `deprecation_successor`, `days_since_push`, `archived`, and `dependency_health_action` (the triage matrix's advisory verdict). Any of them may be `null` when the underlying signal could not be measured — that means "unknown," never "no risk." See [Repository stability](explanation/repository-stability.md) for what each field means.
 
-Every `PackageMetrics` entry also carries the [version ladder](#version-ladder): `latest_in_range` and `latest_in_major` (both `null` only when undeterminable, equal to `installed_version` when that rung has nothing newer), plus `recommended_from_rung` on production/development entries naming which rung `recommended_version` came from (`solver`, `in_range`, `in_major`, or `latest`). `TransitivePackageMetrics` carries `latest_in_range`/`latest_in_major` but not `recommended_from_rung`; on transitive entries the two rung fields are omitted entirely (rather than `null`) when undeterminable, per the schema's existing null-dropping convention for that array.
+Every `PackageMetrics` entry also carries the [version ladder](#version-ladder): `latest_in_range` and `latest_in_major` (both `null` only when undeterminable, equal to `installed_version` when that rung has nothing newer), `latest_preserving_module_system` (the newest release code on the installed module system can still load, whatever the runtime) with `module_system_note` (what the scan's runtime means for the package's ESM-only releases), plus `recommended_from_rung` on production/development entries naming which rung `recommended_version` came from (`solver`, `in_range`, `in_major`, or `latest`). `TransitivePackageMetrics` carries `latest_in_range`/`latest_in_major` but not `recommended_from_rung`; on transitive entries the two rung fields are omitted entirely (rather than `null`) when undeterminable, per the schema's existing null-dropping convention for that array.
 
 Every entry also carries `next_action`: the same label the status table's **What's Next** column and the HTML report show, so a consumer never has to re-derive it and cannot arrive at a different answer (`null`, and omitted on transitive entries, when nothing is due). Note that the `--format agent` payload's field of the same name applies two further escalations on top of this label — a CVE with no available fix, and an installed version gone from the registry — so the two can legitimately differ. Production and development entries additionally carry `requires_constraint_widening`: `true` when `recommended_from_rung` is `in_major` or `latest`, meaning the target lies outside the declared range and `ossiq apply` will not write it.
 
@@ -782,10 +782,16 @@ When the package is not installed in the project, `info` evaluates it as a candi
 
 Both commands accept `--format agent`, which replaces the human report with a compact JSON decision for AI coding agents and scripts. The same shape is returned by the MCP tools. See [Coding agents](getting-started.md#coding-agents).
 
+**Runtime.** The MCP tools `ossiq_evaluate_updates`, `ossiq_evaluate_dependency` and `ossiq_update_context` require a `runtime` argument keyed by the project's registry (`{"node": "22.12.0"}` or `{"python": "3.11"}`), or the literal `"unknown"`. A missing `runtime` is a titled error, and the MCP server never probes its own `PATH`. On the CLI the runtime is probed by default (`--probe-runtime`). `--engine node=20.11.0` (repeatable) states it instead. Either way it is held to the project's declared floor, and reported as `engine_context_source: "provided"` when it binds. A version pin the project keeps (`.nvmrc`, `.node-version`, `.tool-versions`, `mise.toml`, `volta.node`, `.python-version`, `.venv/pyvenv.cfg`) that disagrees with the runtime is reported as `runtime_context.runtime_mismatch`, and as a warning in `status`.
+
+**`update-context` comparison.** `ossiq update-context` / `ossiq_update_context` also return `comparison`: a `verdict` for the requested target against OSS IQ's own recommendation (`recommended`, `suboptimal`, `breaking`, `vulnerable`, `deprecated` or `beyond_recommendation`), the `reasons` behind it, and `better_available`.
+
 Every decision leads with a `next_action` string:
 
 - **add** (`info` / `add`): `install`, `install with caution`, or `do not install`.
 - **update** (`status`): per entry — `Check for the Fix`, `Find alternative`, `Consider alternative`, `Check Release Notes`, or `Update Immediately`. The top-level `next_action` is the most urgent of those, or `no action needed` when the `updates` list is empty.
+
+Each entry's `dependency_health` object (the triage matrix's advisory verdict: `retain`, `patch`, `refactor`, `evict`) carries a `question` stating what it answers: long-term health, not what to do now. Each CVE under `cves` carries its `epss` when scored.
 
 The `updates` list contains only packages that need attention (a CVE, a recommended upgrade, version drift, or an unmaintained upstream). Each entry carries the [version ladder](#version-ladder) (`latest_in_range`, `latest_in_major`) alongside `from`/`to`, and sets `requires_constraint_widening: true` when `to` is only reachable by widening the declared constraint — the same condition `plan` reports as *Requires constraint widening* rather than writing.
 
@@ -868,6 +874,11 @@ Within a schema version:
 
 - Existing fields are never renamed or removed.
 - New optional fields may be added — existing consumers are unaffected.
+
+One exception was made while v1.5 was still unreleased: `triage_action` was renamed to
+`dependency_health_action` in place, because agents read the old name as the answer to "should I
+update?". No released version carried the old name. Once a version ships, the rule above holds
+without exception.
 
 When a schema version is deprecated, the previous version remains fully supported for at least one major release cycle. Deprecation is announced in the changelog before the version is removed.
 

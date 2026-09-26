@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 import requests
 
-from ossiq.adapters.api_osv import CveApiOsv
+from ossiq.adapters.api_osv import SUMMARY_MAX_CHARS, CveApiOsv, advisory_summary
 from ossiq.clients.batch import BatchClient
 from ossiq.domain.common import CveDatabase, DataSourceStatus, ProjectPackagesRegistry
 from ossiq.domain.cve import Severity
@@ -416,3 +416,39 @@ class TestFetchStatus:
             fetch = api.get_cves_batch([(pkg, "4.17.20")])
 
         assert fetch.status == DataSourceStatus.OK
+
+
+class TestParseCveResponseSummary:
+    """D5 reproduction: PYSEC advisories carry `details` and no `summary`."""
+
+    def test_summary_falls_back_to_details(self):
+        pysec = {
+            "id": "PYSEC-2023-74",
+            "aliases": ["CVE-2023-32681", "GHSA-j8r2-6x86-q33q"],
+            "details": (
+                "Requests is a HTTP library. Since Requests 2.3.0, Requests has been leaking "
+                "Proxy-Authorization headers to destination servers when redirected to an HTTPS endpoint."
+            ),
+            "affected": [{"versions": ["2.28.1"]}],
+            "published": "2023-05-26T18:15:00Z",
+        }
+        api = CveApiOsv(MagicMock())
+
+        (cve,) = api.parse_cve_response([pysec], make_package("requests", ProjectPackagesRegistry.PYPI), "2.28.1")
+
+        assert cve.summary.startswith("Requests is a HTTP library")
+
+    def test_summary_wins_over_details(self):
+        assert advisory_summary({"summary": "Short", "details": "Long text"}) == "Short"
+
+    def test_only_the_first_line_of_details_is_used(self):
+        assert advisory_summary({"details": "First line.\n\nSecond paragraph."}) == "First line."
+
+    def test_long_details_are_truncated(self):
+        summary = advisory_summary({"details": "x" * 500})
+
+        assert len(summary) == SUMMARY_MAX_CHARS
+        assert summary.endswith("…")
+
+    def test_no_text_at_all_stays_empty(self):
+        assert advisory_summary({"id": "PYSEC-0"}) == ""

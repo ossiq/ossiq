@@ -1,12 +1,15 @@
 """Tests for service/project/strategy.py — the impure wiring around the pure selector."""
 
+import dataclasses
 from datetime import UTC, datetime
 from unittest.mock import MagicMock, patch
 
+import pytest
 from packaging.version import Version
 
 from ossiq.domain.common import (
     ConstraintType,
+    CveDatabase,
     EngineContext,
     EngineContextSource,
     ModuleSystem,
@@ -14,6 +17,7 @@ from ossiq.domain.common import (
     RecommendationRung,
     RejectionDetail,
 )
+from ossiq.domain.cve import CVE, Severity
 from ossiq.domain.project import ConstraintSource
 from ossiq.domain.version import PackageVersion, VersionsDifference
 from ossiq.service.project.ladder import compute_version_ladder
@@ -557,7 +561,7 @@ class TestBuildCandidatesStructuralGates:
 
 
 class TestApplyUpdateStrategyBreakingChange:
-    """End-to-end: apply_update_strategy wires breaking_change_gate + module_system_label."""
+    """End-to-end: apply_update_strategy wires module_system_gate + module_system_label."""
 
     def test_esm_only_candidate_rejected_when_a_compatible_alternative_exists(self) -> None:
         registry = make_npm_registry(
@@ -588,7 +592,9 @@ class TestApplyUpdateStrategyBreakingChange:
         assert [rc.version for rc in record.rejected_candidates] == ["5.0.0"]
         assert record.rejected_candidates[0].reason == "ESM-only from 5.0.0"
 
-    def test_recommends_newest_anyway_when_every_candidate_is_esm_only(self) -> None:
+    def test_stays_put_when_every_candidate_is_esm_only_and_the_motive_is_drift(self) -> None:
+        """chalk 4.1.2 is the top of its CommonJS line: drift alone is no reason to cross to ESM-only,
+        so the target stays blank and the rejected row says what was refused and why."""
         registry = make_npm_registry(
             {"chalk": [pv("4.1.2", module_system=ModuleSystem.CJS), pv("5.0.0", module_system=ModuleSystem.ESM_ONLY)]}
         )
@@ -606,10 +612,63 @@ class TestApplyUpdateStrategyBreakingChange:
             project_declares_esm=False,
         )
 
-        assert record.recommended_version == "5.0.0"
-        assert record.rejected_candidates == []
-        assert record.compatibility.breaking_change == "ESM-only from 5.0.0"
+        assert record.recommended_version is None
+        assert [(rc.version, rc.reason) for rc in record.rejected_candidates] == [("5.0.0", "ESM-only from 5.0.0")]
+        assert record.compatibility.breaking_change is None
+
+    @pytest.mark.parametrize("strategy", [UpdateStrategy.SECURITY, UpdateStrategy.STANDARD, UpdateStrategy.LATEST])
+    def test_crosses_when_the_only_cve_fix_is_esm_only(self, strategy: UpdateStrategy) -> None:
+        """Security beats build convenience: with no clean release left on the CommonJS line, the
+        ESM-only fix is recommended at every tier - flagged, never hidden."""
+        registry = make_npm_registry(
+            {
+                "uuid": [
+                    pv("11.0.0", module_system=ModuleSystem.DUAL),
+                    pv("11.0.5", module_system=ModuleSystem.DUAL),
+                    pv("12.0.0", module_system=ModuleSystem.ESM_ONLY),
+                    pv("13.0.0", module_system=ModuleSystem.ESM_ONLY),
+                ]
+            }
+        )
+        record = make_record("uuid", "11.0.0", version_constraint="11.0.0", version_constraint_declared="11.0.0")
+        record.cve = [dataclasses.replace(UUID_ADVISORY, affected_versions=("11.0.0", "11.0.5"))]
+
+        apply_update_strategy(
+            [record],
+            registry,
+            StrategyPlan(default=strategy),
+            versions_since={("uuid", "11.0.0"): list(registry.package_versions("uuid"))},
+            transitive_by_name={},
+            installed_names=set(),
+            allow_prerelease=False,
+            now=NOW,
+            project_declares_esm=False,
+        )
+
+        expected = "12.0.0" if strategy == UpdateStrategy.SECURITY else "13.0.0"
+        assert record.recommended_version == expected
+        assert record.compatibility.breaking_change == f"ESM-only from {expected}"
         assert record.compatibility.recommended_module_system == ModuleSystem.ESM_ONLY
+
+    def test_a_clean_release_on_the_module_line_beats_crossing_for_a_cve(self) -> None:
+        registry = make_npm_registry({"uuid": UUID_RELEASES})
+        record = make_record("uuid", "8.3.2", version_constraint="8.3.2", version_constraint_declared="8.3.2")
+        record.cve = [UUID_ADVISORY]
+
+        apply_update_strategy(
+            [record],
+            registry,
+            StrategyPlan(default=UpdateStrategy.STANDARD),
+            versions_since={("uuid", "8.3.2"): list(registry.package_versions("uuid"))},
+            transitive_by_name={},
+            installed_names=set(),
+            allow_prerelease=False,
+            now=NOW,
+            project_declares_esm=False,
+        )
+
+        assert record.recommended_version == "11.1.1"
+        assert record.compatibility.breaking_change is None
 
     def test_no_breaking_change_when_project_declares_esm(self) -> None:
         registry = make_npm_registry(
@@ -904,3 +963,159 @@ class TestApplyUpdateStrategyCooldown:
         assert record.recommended_version == "1.1.0"
         assert record.recommended_version_reason is not None
         assert record.recommended_version_reason.age_days == 12
+
+
+# Release shapes from the npm registry as of 2026-09-08 (see PLAN.md, Milestone 1 findings). chalk
+# 5+/6 export only a default, so `require("chalk").bold` fails on every Node; uuid 12+ exports
+# named functions, so require() works on Node >= 22.12 and fails below it.
+CHALK_RELEASES = [
+    pv("4.0.0", module_system=ModuleSystem.CJS),
+    pv("4.1.2", module_system=ModuleSystem.CJS),
+    pv("5.0.0", module_system=ModuleSystem.ESM_ONLY),
+    pv("5.6.2", module_system=ModuleSystem.ESM_ONLY),
+    pv("6.0.0", module_system=ModuleSystem.ESM_ONLY),
+]
+UUID_RELEASES = [
+    pv("8.3.2", module_system=ModuleSystem.DUAL),
+    pv("9.0.1", module_system=ModuleSystem.DUAL),
+    pv("10.0.0", module_system=ModuleSystem.DUAL),
+    pv("11.0.5", module_system=ModuleSystem.DUAL),
+    pv("11.1.1", module_system=ModuleSystem.DUAL),
+    pv("12.0.0", module_system=ModuleSystem.ESM_ONLY),
+    pv("13.0.2", module_system=ModuleSystem.ESM_ONLY),
+    pv("14.0.2", module_system=ModuleSystem.ESM_ONLY),
+]
+UUID_ADVISORY = CVE(
+    id="GHSA-w5hq-g745-h8pq",
+    cve_ids=("GHSA-w5hq-g745-h8pq",),
+    source=CveDatabase.OSV,
+    package_name="uuid",
+    package_registry=ProjectPackagesRegistry.NPM,
+    summary="uuid < 11.1.1",
+    severity=Severity.HIGH,
+    affected_versions=("8.3.2", "9.0.1", "10.0.0", "11.0.5"),
+    published=None,
+    link="https://osv.dev/vulnerability/GHSA-w5hq-g745-h8pq",
+)
+BENCH_NODE = "26.8.1"
+
+
+def recommend_for_cjs_project(
+    name: str,
+    releases: list[PackageVersion],
+    installed: str,
+    *,
+    node_version: str | None,
+    strategy: UpdateStrategy = UpdateStrategy.STANDARD,
+    cves: list[CVE] | None = None,
+) -> ScanRecord:
+    """Run apply_update_strategy for one exact-pinned dependency of a CommonJS npm project."""
+    registry = make_npm_registry({name: releases})
+    record = make_record(name, installed, version_constraint=installed, version_constraint_declared=installed)
+    record.cve = list(cves or [])
+    engine_context = (
+        EngineContext({"node": node_version}, EngineContextSource.DETECTED) if node_version else EngineContext()
+    )
+    apply_update_strategy(
+        [record],
+        registry,
+        StrategyPlan(default=strategy),
+        versions_since={(name, installed): [r for r in releases if Version(r.version) >= Version(installed)]},
+        transitive_by_name={},
+        installed_names=set(),
+        allow_prerelease=False,
+        now=NOW,
+        project_declares_esm=False,
+        engine_context=engine_context,
+    )
+    return record
+
+
+class TestModuleSystemEscalationD1:
+    """D1 reproduction: a CommonJS project is recommended an ESM-only release."""
+
+    def test_uuid_recommendation_does_not_depend_on_the_probed_node(self) -> None:
+        targets = {
+            node: recommend_for_cjs_project(
+                "uuid", UUID_RELEASES, "8.3.2", node_version=node, cves=[UUID_ADVISORY]
+            ).recommended_version
+            for node in (None, "18.20.8", "20.18.3", "22.12.0", BENCH_NODE)
+        }
+
+        assert set(targets.values()) == {"11.1.1"}, targets
+
+    def test_latest_strategy_crosses_to_esm_only_on_a_require_esm_node(self) -> None:
+        """The user's call (26 Sep 2026): `latest` may cross when the runtime can require() ESM,
+        flagged with breaking_change so `apply` asks, and qualified by the named-exports note."""
+        record = recommend_for_cjs_project(
+            "chalk", CHALK_RELEASES, "4.0.0", node_version=BENCH_NODE, strategy=UpdateStrategy.LATEST
+        )
+
+        assert record.recommended_version == "6.0.0"
+        assert record.compatibility.recommended_module_system == ModuleSystem.ESM_ONLY
+        assert record.compatibility.breaking_change == "ESM-only from 6.0.0"
+
+    @pytest.mark.parametrize("node_version", [None, "18.20.8", "20.18.3"])
+    def test_latest_strategy_keeps_chalk_on_the_cjs_line_without_require_esm(self, node_version: str | None) -> None:
+        record = recommend_for_cjs_project(
+            "chalk", CHALK_RELEASES, "4.0.0", node_version=node_version, strategy=UpdateStrategy.LATEST
+        )
+
+        assert record.recommended_version == "4.1.2"
+        assert record.compatibility.recommended_module_system == ModuleSystem.CJS
+
+    @pytest.mark.parametrize("node_version", [None, "20.18.3", BENCH_NODE])
+    def test_higher_tiers_never_recommend_lower(self, node_version: str | None) -> None:
+        """The pyramid invariant (targeting rule 6) survives the module-system gate."""
+        order = [UpdateStrategy.SECURITY, UpdateStrategy.DEPRECATION, UpdateStrategy.STANDARD, UpdateStrategy.LATEST]
+        for name, releases, installed, cves in (
+            ("chalk", CHALK_RELEASES, "4.0.0", None),
+            ("uuid", UUID_RELEASES, "8.3.2", [UUID_ADVISORY]),
+        ):
+            targets = [
+                recommend_for_cjs_project(
+                    name, releases, installed, node_version=node_version, strategy=tier, cves=cves
+                ).recommended_version
+                for tier in order
+            ]
+            moved = [Version(t) for t in targets if t is not None]
+            assert moved == sorted(moved), (name, node_version, targets)
+
+    def test_latest_strategy_without_node_ignores_the_unpublished_tombstone(self) -> None:
+        releases = [*CHALK_RELEASES, dataclasses.replace(pv("5.6.1"), is_unpublished=True)]
+
+        record = recommend_for_cjs_project(
+            "chalk", releases, "4.0.0", node_version=None, strategy=UpdateStrategy.LATEST
+        )
+
+        assert record.recommended_version == "4.1.2"
+
+    def test_standard_strategy_keeps_chalk_on_the_cjs_line(self) -> None:
+        # The benchmark's one "correct" run: same Node, default strategy. Passing today - the
+        # flip between s1 and s3 is the strategy argument, not iteration order.
+        record = recommend_for_cjs_project("chalk", CHALK_RELEASES, "4.0.0", node_version=BENCH_NODE)
+
+        assert record.recommended_version == "4.1.2"
+
+    @pytest.mark.parametrize("strategy", [UpdateStrategy.STANDARD, UpdateStrategy.LATEST])
+    def test_same_input_gives_the_same_answer_every_time(self, strategy: UpdateStrategy) -> None:
+        def snapshot() -> tuple[object, ...]:
+            chalk = recommend_for_cjs_project(
+                "chalk", CHALK_RELEASES, "4.0.0", node_version=BENCH_NODE, strategy=strategy
+            )
+            uuid = recommend_for_cjs_project(
+                "uuid", UUID_RELEASES, "8.3.2", node_version=BENCH_NODE, strategy=strategy, cves=[UUID_ADVISORY]
+            )
+            return tuple(
+                (
+                    record.recommended_version,
+                    record.recommended_from_rung,
+                    record.compatibility.recommended_module_system,
+                    tuple(record.rejected_candidates),
+                    record.strategy_selection,
+                )
+                for record in (chalk, uuid)
+            )
+
+        first = snapshot()
+        assert all(snapshot() == first for _ in range(20))

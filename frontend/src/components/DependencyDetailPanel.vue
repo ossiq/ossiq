@@ -38,6 +38,14 @@ const ladderRungs = computed<{ label: string; version: string; isPick: boolean }
   if (node.latest_compatible_major !== node.latest_in_major) {
     candidates.push({ label: 'Compatible major', version: node.latest_compatible_major, pickedBy: null })
   }
+  // Worth its own row only when the compatible major is reachable solely through require(esm):
+  // this is where every tier below `latest` stops, whatever the runtime.
+  if (
+    node.latest_preserving_module_system !== node.latest_compatible_major &&
+    node.latest_preserving_module_system !== node.latest_in_major
+  ) {
+    candidates.push({ label: 'Same module system', version: node.latest_preserving_module_system, pickedBy: null })
+  }
   candidates.push({ label: 'Latest', version: node.latest_version, pickedBy: 'latest' })
 
   return candidates
@@ -316,6 +324,7 @@ const transitiveCVEGroups = computed<TransitiveCVEGroup[]>(() => {
               >{{ rung.version }}</span>
               <span v-if="rung.isPick" class="text-[10px] font-semibold text-violet-700">← recommended</span>
             </div>
+            <p v-if="node.module_system_note" class="text-[10px] text-slate-500">{{ node.module_system_note }}</p>
           </div>
         </section>
 
@@ -362,10 +371,10 @@ const transitiveCVEGroups = computed<TransitiveCVEGroup[]>(() => {
                 <span class="font-mono text-[10px] text-slate-600">{{ t.value }}</span>
               </div>
             </div>
-            <div v-if="node.triage_action" class="pt-3 border-t border-slate-100">
+            <div v-if="node.dependency_health_action" class="pt-3 border-t border-slate-100">
               <span class="text-[10px] text-slate-400 uppercase font-bold">Recommended action</span>
               <p class="text-[11px] mt-0.5">
-                <span class="font-mono font-bold" :class="triageStyle(node.triage_action).text">{{ triageStyle(node.triage_action).label }}</span>
+                <span class="font-mono font-bold" :class="triageStyle(node.dependency_health_action).text">{{ triageStyle(node.dependency_health_action).label }}</span>
               </p>
             </div>
           </div>

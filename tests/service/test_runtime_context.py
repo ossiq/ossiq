@@ -9,10 +9,17 @@ from unittest.mock import patch
 
 import pytest
 
-from ossiq.domain.common import EngineContextSource, ProjectPackagesRegistry
+from ossiq.domain.common import EngineContext, EngineContextSource, ProjectPackagesRegistry, ProvidedRuntime
+from ossiq.domain.exceptions import InvalidRuntime, RuntimeNotProvided
 from ossiq.domain.packages_manager import NPM, UV
 from ossiq.domain.project import Dependency, Project
-from ossiq.service.project.runtime_context import detect_engine_context
+from ossiq.service.project.runtime_context import (
+    detect_engine_context,
+    provided_runtime_from_settings,
+    runtime_pin_mismatch,
+    settings_with_stated_runtime,
+)
+from ossiq.settings import Settings
 
 
 def make_project(registry: ProjectPackagesRegistry, engine_constraints: dict[str, str] | None = None) -> Project:
@@ -192,3 +199,118 @@ class TestNpmEngineKey:
 
         assert context.versions == {"node": "20.11.0"}
         assert context.source == EngineContextSource.DETECTED
+
+
+class TestProvidedRuntime:
+    """D1-1: a caller-stated runtime replaces the probe, and is still held to the manifest floor."""
+
+    def test_a_provided_runtime_replaces_the_probe_entirely(self, probes):
+        python_probe, node_probe, npm_probe = probes
+
+        context, npm_cli_version = detect_engine_context(
+            make_project(ProjectPackagesRegistry.NPM),
+            ".",
+            probe_runtime=True,
+            provided=ProvidedRuntime({"node": "v22.12.0"}),
+        )
+
+        python_probe.assert_not_called()
+        node_probe.assert_not_called()
+        npm_probe.assert_not_called()
+        assert context == EngineContext({"node": "22.12.0"}, EngineContextSource.PROVIDED)
+        assert npm_cli_version is None
+
+    def test_the_declared_floor_still_binds_over_a_provided_runtime(self, probes):
+        project = make_project(ProjectPackagesRegistry.NPM, {"node": "18.0.0"})
+
+        context, _ = detect_engine_context(
+            project, ".", probe_runtime=False, provided=ProvidedRuntime({"node": "26.8.1"})
+        )
+
+        assert context == EngineContext({"node": "18.0.0"}, EngineContextSource.DECLARED)
+
+    def test_unknown_leaves_only_the_floor(self, probes):
+        _, node_probe, _ = probes
+        project = make_project(ProjectPackagesRegistry.NPM, {"node": "18.0.0"})
+
+        context, _ = detect_engine_context(project, ".", probe_runtime=True, provided=ProvidedRuntime(unknown=True))
+
+        node_probe.assert_not_called()
+        assert context == EngineContext({"node": "18.0.0"}, EngineContextSource.DECLARED)
+
+    def test_unknown_with_no_floor_is_no_context_at_all(self, probes):
+        context, _ = detect_engine_context(
+            make_project(ProjectPackagesRegistry.NPM), ".", probe_runtime=True, provided=ProvidedRuntime(unknown=True)
+        )
+
+        assert context == EngineContext()
+
+    def test_an_engine_the_registry_does_not_use_is_rejected(self, probes):
+        with pytest.raises(InvalidRuntime, match="python"):
+            detect_engine_context(
+                make_project(ProjectPackagesRegistry.NPM),
+                ".",
+                probe_runtime=False,
+                provided=ProvidedRuntime({"python": "3.11"}),
+            )
+
+
+class TestStatedRuntimeSettings:
+    def test_missing_runtime_raises(self):
+        with pytest.raises(RuntimeNotProvided):
+            settings_with_stated_runtime(Settings(), None)
+
+    def test_an_empty_object_is_as_good_as_missing(self):
+        with pytest.raises(RuntimeNotProvided):
+            settings_with_stated_runtime(Settings(), {})
+
+    def test_the_stated_runtime_round_trips_through_settings(self):
+        settings = settings_with_stated_runtime(Settings(), {"node": "22.12.0"})
+
+        assert settings.probe_runtime is False
+        assert provided_runtime_from_settings(settings) == ProvidedRuntime({"node": "22.12.0"})
+
+    def test_unknown_round_trips_through_settings(self):
+        settings = settings_with_stated_runtime(Settings(), "unknown")
+
+        assert provided_runtime_from_settings(settings) == ProvidedRuntime(unknown=True)
+
+    def test_plain_cli_settings_mean_probe(self):
+        assert provided_runtime_from_settings(Settings()) is None
+
+
+class TestRuntimePinMismatch:
+    def test_a_pin_that_disagrees_with_the_provided_runtime_is_reported(self, tmp_path):
+        (tmp_path / ".nvmrc").write_text("20\n")
+
+        mismatch = runtime_pin_mismatch(
+            str(tmp_path), ProjectPackagesRegistry.NPM, EngineContext({"node": "26.8.1"}, EngineContextSource.PROVIDED)
+        )
+
+        assert mismatch is not None
+        assert (mismatch.pinned, mismatch.pin_file, mismatch.runtime) == ("20", ".nvmrc", "26.8.1")
+
+    def test_a_pin_the_runtime_falls_inside_is_fine(self, tmp_path):
+        (tmp_path / ".nvmrc").write_text("v20.11\n")
+
+        assert (
+            runtime_pin_mismatch(
+                str(tmp_path),
+                ProjectPackagesRegistry.NPM,
+                EngineContext({"node": "20.11.1"}, EngineContextSource.DETECTED),
+            )
+            is None
+        )
+
+    def test_a_declared_floor_is_not_compared_against_the_pin(self, tmp_path):
+        """The floor is the oldest supported version; differing from the developers' pin is its job."""
+        (tmp_path / ".python-version").write_text("3.13\n")
+
+        assert (
+            runtime_pin_mismatch(
+                str(tmp_path),
+                ProjectPackagesRegistry.PYPI,
+                EngineContext({"python": "3.11"}, EngineContextSource.DECLARED),
+            )
+            is None
+        )

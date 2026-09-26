@@ -243,13 +243,15 @@ class ModuleSystem(StrEnum):
 class EngineContextSource(StrEnum):
     """Which source supplied the engine versions a record's compatibility was checked against.
 
-    Each engine is held to the stricter of the probed runtime and the project's own manifest floor,
-    so DECLARED means that floor (Project.engine_constraints) is what binds for at least one
-    engine, DETECTED that the probe (see adapters.runtime_environment) binds throughout, and NONE
-    that neither was available.
+    Each engine is held to the stricter of the runtime and the project's own manifest floor, so
+    DECLARED means that floor (Project.engine_constraints) is what binds for at least one engine,
+    DETECTED that the probe (see adapters.runtime_environment) binds throughout, PROVIDED that the
+    caller-stated runtime (MCP `runtime`, CLI `--engine`) binds throughout, and NONE that nothing
+    was available.
     """
 
     DETECTED = "detected"
+    PROVIDED = "provided"
     DECLARED = "declared"
     NONE = "none"
 
@@ -274,6 +276,34 @@ class EngineContext:
 
     versions: dict[str, str] = field(default_factory=dict)
     source: EngineContextSource = EngineContextSource.NONE
+
+
+@dataclass(frozen=True)
+class ProvidedRuntime:
+    """The runtime a caller states the project runs on, in place of probing for it.
+
+    An agent has already built and tested the project in its real environment, so it knows the
+    runtime better than a probe run from whatever PATH the MCP server inherited. `unknown` is an
+    explicit "I can't say": no probe, no stated version, only the manifest floor.
+    """
+
+    versions: dict[str, str] = field(default_factory=dict)
+    unknown: bool = False
+
+
+@dataclass(frozen=True)
+class RuntimeMismatch:
+    """A version pin in the project (`.nvmrc`, `.python-version`, ...) disagreeing with the runtime.
+
+    A value rather than a warning printed on the spot: the renderer decides how to show it. It's
+    how an agent that ran `node -v` in the wrong shell gets caught.
+    """
+
+    engine: str
+    pinned: str
+    pin_file: str
+    runtime: str
+    runtime_source: EngineContextSource
 
 
 class ScanStep(StrEnum):

@@ -37,6 +37,7 @@ from ossiq.domain.exceptions import DestinationDoesntExist
 from ossiq.domain.project import ConstraintSource
 from ossiq.domain.version import VersionsDifference
 from ossiq.risk.stability import EngagementBucket, EngagementSeries
+from ossiq.risk.triage import ACTION_REFACTOR, TriageResult
 from ossiq.service.project.models import ScanRecord, ScanResult
 from ossiq.service.project.stability import RepositoryStability
 from ossiq.settings import Settings
@@ -1261,6 +1262,30 @@ class TestJsonExportRendererV15:
         pkg = json.loads(output_file.read_text(encoding="utf-8"))["production_packages"][0]
         assert pkg["requires_constraint_widening"] is False
 
+    def test_v1_5_emits_dependency_health_action_and_validates(
+        self, output_file, settings, sample_project_metrics_record
+    ):
+        import dataclasses
+
+        record = dataclasses.replace(
+            sample_project_metrics_record,
+            triage=TriageResult(ACTION_REFACTOR, "No exploit pressure, but ...", None, 0, False),
+        )
+        metrics = ScanResult(
+            project_name="test-project",
+            project_path="/path/to/test-project",
+            packages_registry=ProjectPackagesRegistry.NPM.value,
+            production_packages=[record],
+            optional_packages=[],
+        )
+        JsonExportRenderer(settings).render(metrics, destination=str(output_file), schema_version="1.5")
+
+        data = json.loads(output_file.read_text(encoding="utf-8"))
+        pkg = data["production_packages"][0]
+        assert pkg["dependency_health_action"] == "refactor"
+        assert "triage_action" not in pkg
+        validate(instance=data, schema=json_schema_registry.load_schema(ExportJsonSchemaVersion.V1_5))
+
     def test_v1_5_emits_module_system_fields_and_validates(self, output_file, settings, sample_project_metrics_record):
         """latest_compatible_major/module_system/recommended_module_system/breaking_change
         round-trip on PackageMetrics and validate against the v1.5 schema."""
@@ -1269,8 +1294,10 @@ class TestJsonExportRendererV15:
         record = dataclasses.replace(
             sample_project_metrics_record,
             compatibility=CompatibilityFacts(
-                latest_compatible_major="4.1.2",
+                latest_compatible_major="6.0.0",
+                latest_preserving_module_system="4.1.2",
                 module_system=ModuleSystem.CJS,
+                module_system_note="ESM-only: won't load via require() on Node 18.20.8",
                 recommended_module_system=ModuleSystem.ESM_ONLY,
                 breaking_change="ESM-only from 5.0.0",
             ),
@@ -1288,7 +1315,9 @@ class TestJsonExportRendererV15:
 
         data = json.loads(output_file.read_text(encoding="utf-8"))
         pkg = data["production_packages"][0]
-        assert pkg["latest_compatible_major"] == "4.1.2"
+        assert pkg["latest_compatible_major"] == "6.0.0"
+        assert pkg["latest_preserving_module_system"] == "4.1.2"
+        assert pkg["module_system_note"] == "ESM-only: won't load via require() on Node 18.20.8"
         assert pkg["module_system"] == "cjs"  # plain string, not an enum repr
         assert pkg["recommended_module_system"] == "esm-only"
         assert pkg["breaking_change"] == "ESM-only from 5.0.0"
