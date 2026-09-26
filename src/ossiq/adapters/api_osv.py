@@ -9,6 +9,24 @@ from ossiq.domain.package import Package
 from ossiq.risk.cvss import parse_cvss_base_score
 from ossiq.settings import Settings
 
+SUMMARY_MAX_CHARS = 200
+
+
+def advisory_summary(cve_raw: dict) -> str:
+    """Return the advisory's one-line summary, falling back to the first line of `details`.
+
+    PYSEC records routinely omit `summary` and carry the whole text in `details`, so reading only
+    `summary` left those CVEs with nothing to show.
+    """
+    summary = (cve_raw.get("summary") or "").strip()
+    if summary:
+        return summary
+    details = (cve_raw.get("details") or "").strip()
+    first_line = details.splitlines()[0].strip() if details else ""
+    if len(first_line) <= SUMMARY_MAX_CHARS:
+        return first_line
+    return f"{first_line[: SUMMARY_MAX_CHARS - 1].rstrip()}…"
+
 
 class CveApiOsv:
     """
@@ -84,7 +102,7 @@ class CveApiOsv:
                     source=CveDatabase.OSV,
                     package_name=package.name,
                     package_registry=package.registry,
-                    summary=cve_raw.get("summary", ""),
+                    summary=advisory_summary(cve_raw),
                     severity=self.map_cve_severity(cve_raw.get("severity", [])),
                     affected_versions=tuple(self.extract_affected_versions(cve_raw)),
                     published=cve_raw.get("published"),
