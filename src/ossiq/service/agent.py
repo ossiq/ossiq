@@ -14,6 +14,7 @@ from ossiq.domain.common import (
     WIDENING_RUNGS,
     DataCompleteness,
     EngineContext,
+    ProjectPackagesRegistry,
     SignalCoverage,
 )
 from ossiq.domain.compatibility import CompatibilityFacts
@@ -21,7 +22,11 @@ from ossiq.domain.cve import CVE
 from ossiq.domain.version import VERSION_DIFF_MAJOR, VERSION_DIFF_MINOR, VERSION_DIFF_PATCH, PackageVersion
 from ossiq.risk.maintenance import NOT_MAINTAINED
 from ossiq.service.package import PackageDetailResult
-from ossiq.service.project.breaking_changes import compute_latest_compatible_major, module_system_label
+from ossiq.service.project.breaking_changes import (
+    compute_latest_compatible_major,
+    esm_interop_note,
+    module_system_label,
+)
 from ossiq.service.project.models import ScanRecord, ScanResult
 from ossiq.service.project.next_action import (
     CHECK_FOR_THE_FIX,
@@ -36,6 +41,8 @@ from ossiq.service.project.next_action import (
 )
 from ossiq.service.update_impact import TransitiveImpact
 from ossiq.solver.version_matchers import engine_compatibility
+from ossiq.strategy.compare import compare_target
+from ossiq.strategy.motive import is_qualifying_score
 
 # JSON-ready decision shape. The output is JSON, so a plain dict is the natural
 # (and lazy) carrier; the type alias documents intent without a dataclass.
@@ -49,9 +56,16 @@ NO_ACTION = "no action needed"
 BEHIND_DIFFS: frozenset[int] = frozenset({VERSION_DIFF_MAJOR, VERSION_DIFF_MINOR, VERSION_DIFF_PATCH})
 
 
-def cve_summary(cve: CVE) -> dict[str, str]:
-    """Reduce a CVE to the fields an agent needs to reason about risk."""
-    return {"id": cve.id, "severity": str(cve.severity), "summary": cve.summary}
+def cve_summary(cve: CVE) -> dict[str, Any]:
+    """Reduce a CVE to the fields an agent needs to reason about risk.
+
+    `epss` rides along when scored: without it, `dependency_health.suppressed_cves` counted a CVE
+    the entry showed no score for, which read as a contradiction. Absent means unscored.
+    """
+    summary: dict[str, Any] = {"id": cve.id, "severity": str(cve.severity), "summary": cve.summary}
+    if cve.epss is not None:
+        summary["epss"] = round(cve.epss, 4)
+    return summary
 
 
 def build_add_decide(detail: PackageDetailResult, requested_version: str | None = None) -> AgentDecision:
@@ -112,6 +126,11 @@ def build_add_decide(detail: PackageDetailResult, requested_version: str | None 
     return result
 
 
+DEPENDENCY_HEALTH_QUESTION = "Is this dependency healthy long-term? Advisory; next_action says what to do now."
+"""Stated on every `dependency_health` object: benchmark agents read a `retain` verdict as the answer
+to "should I update?" and shipped a HIGH CVE next to it."""
+
+
 def triage_summary(record: ScanRecord) -> dict[str, Any] | None:
     """Reduce a record's triage decision to the fields an agent needs, or None when it has none.
 
@@ -123,7 +142,11 @@ def triage_summary(record: ScanRecord) -> dict[str, Any] | None:
     if result is None:
         return None
 
-    summary: dict[str, Any] = {"action": result.action, "reason": result.reason}
+    summary: dict[str, Any] = {
+        "question": DEPENDENCY_HEALTH_QUESTION,
+        "action": result.action,
+        "reason": result.reason,
+    }
     if result.max_epss is not None:
         summary["max_epss"] = round(result.max_epss, 4)
     if result.suppressed_cves:
@@ -156,28 +179,40 @@ def impact_summary(impact: TransitiveImpact) -> dict[str, Any]:
     }
 
 
+def recommendation_clears_cves(record: ScanRecord) -> bool:
+    """Whether `recommended_version` moves off every advisory the installed version carries.
+
+    Each advisory lists every version it affects, so a target outside all of them is a fix — in
+    range or not. Widening is a separate question the entry answers with
+    `requires_constraint_widening`; it doesn't make the fix any less of one.
+    """
+    target = record.recommended_version
+    if target is None or target == record.installed_version:
+        return False
+    return all(target not in cve.affected_versions for cve in record.cve)
+
+
 def agent_next_action(record: ScanRecord) -> str:
     """The headline action for one update entry.
 
     `next_action_label` plus two escalations the console view carries as badges rather than
     ladder rules: a CVE with no available fix outranks plain version drift, and an installed
     version gone from the registry (when nothing else is due) means leave the package.
+
+    "No available fix" means `recommended_version` does not clear the CVEs, not merely that it
+    sits outside the declared range: judging it by the range made one entry say `to: 11.1.1` (a
+    fix) and "Check for the Fix" (no fix) at once. A fix that needs the range widened first reads
+    "Constrained. Check newer version" instead of "Update Immediately", since `apply` won't write it
+    as-is.
     """
     label = next_action_label(record)
     can_fix = has_in_range_upgrade(record)
 
-    if (
-        record.cve
-        and not can_fix
-        and label
-        in (
-            None,
-            UPDATE_IMMEDIATELY,
-            CHECK_RELEASE_NOTES,
-            CONSTRAINED_CHECK_NEWER,
-        )
-    ):
-        return CHECK_FOR_THE_FIX
+    if record.cve and label in (None, UPDATE_IMMEDIATELY, CHECK_RELEASE_NOTES, CONSTRAINED_CHECK_NEWER):
+        if not recommendation_clears_cves(record):
+            return CHECK_FOR_THE_FIX
+        if not can_fix and label in (None, UPDATE_IMMEDIATELY):
+            return CONSTRAINED_CHECK_NEWER
     gone = record.is_installed_package_unpublished or (
         (record.is_installed_deprecated or record.is_installed_yanked) and not can_fix
     )
@@ -235,6 +270,7 @@ def build_update_entry(record: ScanRecord, engine_context: EngineContext | None 
         "latest_in_range": facts.latest_in_range,
         "latest_in_major": facts.latest_in_major,
         "latest_compatible_major": facts.latest_compatible_major,
+        "latest_preserving_module_system": facts.latest_preserving_module_system,
         "module_system": record.compatibility.module_system.value if record.compatibility.module_system else None,
         "recommended_module_system": (
             record.compatibility.recommended_module_system.value
@@ -244,6 +280,9 @@ def build_update_entry(record: ScanRecord, engine_context: EngineContext | None 
         "breaking_change": record.compatibility.breaking_change,
         "engine_requirement": record.compatibility.engine_requirement,
         "engine_compatible": record.compatibility.engine_compatible,
+        # Omitted rather than null when no newer release is ESM-only for this project, so the
+        # common CommonJS-free entry carries no noise.
+        **({"module_system_note": facts.module_system_note} if facts.module_system_note else {}),
     }
 
     if not actionable:
@@ -286,6 +325,8 @@ def build_update_entry(record: ScanRecord, engine_context: EngineContext | None 
         reasons.append(f"{rc.version} rejected: {rc.full_reason}")
     if facts.breaking_change:
         reasons.append(facts.breaking_change)
+        if facts.module_system_note:
+            reasons.append(facts.module_system_note)
     if facts.engine_compatible is False:
         # engine_mismatch_reason's own sentence, not a raw dict interpolated into user-facing
         # text - the same string the console shows and the gate wrote into rejected_candidates.
@@ -314,16 +355,17 @@ def build_update_entry(record: ScanRecord, engine_context: EngineContext | None 
             )
         else:
             reasons.append(f"{recommended} is outside the declared range")
-    # A pick whose major line is a known break means every installable release was gated and
-    # build_candidates' escape hatch admitted the newest anyway. It can sit inside the declared
-    # range, so requires_constraint_widening above would not flag it - same second look the CLI
-    # asks a human for (commands.plan.confirm_acknowledged). The break itself is already in
-    # `reasons` and in `breaking_change`; this is the machine-readable gate.
+    # A pick that crosses to ESM-only got there one of two ways: a `latest`/`cutting-edge` tier on
+    # a require(esm)-capable runtime, or a CVE/end-of-life motive with no clean release left on the
+    # module line. It can sit inside the declared range, so requires_constraint_widening above
+    # would not flag it - same second look the CLI asks a human for
+    # (commands.plan.confirm_acknowledged). The break itself is already in `reasons` and in
+    # `breaking_change`; this is the machine-readable gate.
     if facts.breaking_change:
         entry["carries_known_break"] = True
     triage = triage_summary(record)
     if triage is not None:
-        entry["triage"] = triage
+        entry["dependency_health"] = triage
     if record.strategy_selection is not None:
         entry["motives"] = sorted(m.value for m in record.strategy_selection.motives)
         if record.strategy_selection.withheld_reason:
@@ -385,12 +427,21 @@ def runtime_context_summary(scan: ScanResult) -> dict[str, Any]:
     update entry - where it had already drifted, reporting "detected" on actionable entries and
     "none" on the rest of the same scan.
     """
-    return {
+    summary: dict[str, Any] = {
         "engine_versions": dict(scan.engine_context.versions),
         "engine_context_source": scan.engine_context.source.value,
         "npm_cli_version": scan.npm_cli_version,
         "project_declares_esm": scan.declares_esm,
     }
+    if (mismatch := scan.runtime_mismatch) is not None:
+        summary["runtime_mismatch"] = {
+            "engine": mismatch.engine,
+            "pinned": mismatch.pinned,
+            "pin_file": mismatch.pin_file,
+            "runtime": mismatch.runtime,
+            "runtime_source": mismatch.runtime_source.value,
+        }
+    return summary
 
 
 def build_update_decide(scan: ScanResult, update_strategy: str | None = None) -> AgentDecision:
@@ -414,6 +465,15 @@ def build_update_decide(scan: ScanResult, update_strategy: str | None = None) ->
     return result
 
 
+def target_has_qualifying_cve(record: ScanRecord, version: str) -> bool:
+    """Whether *version* is affected by one of the installed version's qualifying CVEs.
+
+    Only the installed version's advisories are known, and each lists every version it affects,
+    which is enough to tell whether a proposed target still carries the same exposure.
+    """
+    return any(is_qualifying_score(cve.epss) and version in cve.affected_versions for cve in record.cve)
+
+
 def build_update_context(
     detail: PackageDetailResult,
     target_version: str | None,
@@ -423,11 +483,13 @@ def build_update_context(
     project_declares_esm: bool,
     npm_cli_version: str | None = None,
 ) -> dict[str, Any]:
-    """Diff installed_version -> target_version for a single package.
+    """Diff installed_version -> target_version for a single package, and judge the target.
 
     Reuses the same pure helpers (module_system_label, engine_compatibility) that the
     recommendation pipeline uses for `recommended_version`, against an arbitrary target an agent is
     evaluating that may not be OSS IQ's own recommendation (e.g. "what changes if I go to 6.0.0").
+    `comparison` holds that target up against the recommendation (`strategy.compare`): a diff with
+    no break and no rejection used to read as approval, even for a deprecated, older release.
     """
     record = detail.records[0] if (not detail.is_prospective and detail.records) else None
     package_name = record.package_name if record else (detail.prospective_name or "")
@@ -446,7 +508,6 @@ def build_update_context(
         releases,
         registry_enum,
         project_declares_esm,
-        node_version=engine_context.versions.get("node"),
     )
     target_release = next((pv for pv in releases if pv.version == to_version), None)
     engine_requirement = target_release.runtime_requirements if target_release else None
@@ -465,6 +526,22 @@ def build_update_context(
     engine_key = ENGINE_CONTEXT_KEY_BY_REGISTRY.get(registry_enum)
     context_version = engine_context.versions.get(engine_key) if engine_key else None
 
+    comparison = compare_target(
+        to_version,
+        recommended,
+        is_deprecated=bool(target_release and target_release.is_deprecated),
+        is_yanked=bool(target_release and target_release.is_yanked),
+        has_qualifying_cve=bool(record) and target_has_qualifying_cve(record, to_version),
+        breaking_change=breaking_change,
+        compare=registry.compare_versions,
+    )
+    note = (
+        (record.compatibility.module_system_note if record else None)
+        or esm_interop_note(engine_context.versions.get("node"))
+        if breaking_change and registry_enum == ProjectPackagesRegistry.NPM
+        else None
+    )
+
     return {
         "package": package_name,
         "registry": registry_enum.value.lower(),
@@ -475,7 +552,14 @@ def build_update_context(
             "to": module_system.value if module_system else None,
             "project_declares_esm": project_declares_esm,
         },
+        "comparison": {
+            "verdict": comparison.verdict.value,
+            "reasons": list(comparison.reasons),
+            "recommended_version": recommended,
+            "better_available": comparison.better_available,
+        },
         "breaking_change": breaking_change,
+        **({"module_system_note": note} if note else {}),
         "latest_compatible_major": latest_compatible_major,
         "engine": {
             "requirement": engine_requirement,
