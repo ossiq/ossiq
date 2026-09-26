@@ -35,6 +35,7 @@ from ossiq.messages import (
     ARGS_HELP_COOLDOWN_PERIOD,
     ARGS_HELP_CUTOFF_DATE,
     ARGS_HELP_DEBUG,
+    ARGS_HELP_ENGINE,
     ARGS_HELP_GITHUB_TOKEN,
     ARGS_HELP_OUTPUT,
     ARGS_HELP_PROBE_RUNTIME,
@@ -150,6 +151,21 @@ def version_callback(value: bool):
         raise typer.Exit()
 
 
+def parse_engine_options(values: list[str]) -> dict[str, str]:
+    """Turn repeated `--engine node=20.11.0` options into `{"node": "20.11.0"}`.
+
+    Raises:
+        typer.BadParameter: A value that isn't ENGINE=VERSION.
+    """
+    versions: dict[str, str] = {}
+    for value in values:
+        engine_key, separator, version = value.partition("=")
+        if not separator or not engine_key.strip() or not version.strip():
+            raise typer.BadParameter(f"expected ENGINE=VERSION, got {value!r}", param_hint="--engine")
+        versions[engine_key.strip()] = version.strip()
+    return versions
+
+
 @app.callback(invoke_without_command=True)
 def main(
     context: typer.Context,
@@ -252,6 +268,10 @@ def main(
             help=ARGS_HELP_PROBE_RUNTIME,
         ),
     ] = None,
+    engine: Annotated[
+        list[str] | None,
+        typer.Option("--engine", metavar="ENGINE=VERSION", help=ARGS_HELP_ENGINE),
+    ] = None,
     version: Annotated[  # pylint: disable=unused-argument
         bool,
         typer.Option(
@@ -285,6 +305,7 @@ def main(
         "stability": stability,
         "stability_responsiveness": stability_responsiveness,
         "probe_runtime": probe_runtime,
+        "engine_versions": parse_engine_options(engine) if engine else None,
     }
     # Filter out None values so we only override with explicitly provided options
     update_data = {k: v for k, v in cli_overrides.items() if v is not None}
