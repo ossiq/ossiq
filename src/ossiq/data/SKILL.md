@@ -22,7 +22,26 @@ typosquat signals, and a solver-recommended version. Run it **before** you
 change a project's dependencies and do what the `next_action` says.
 
 Either call the CLI (below) or, if an MCP server named `ossiq` is connected, call
-the equivalent tools `ossiq_evaluate_dependency` / `ossiq_evaluate_updates`.
+the equivalent tools `ossiq_evaluate_dependency` / `ossiq_evaluate_updates`. Prefer these (or
+`--format agent`) over the `ossiq export` JSON: the export is a full report and several times larger.
+
+## Tell OSS IQ which runtime the project runs on
+
+Recommendations depend on the runtime (which Node can `require()` an ESM-only package, which
+Python a release supports). Don't let OSS IQ guess it:
+
+- **MCP:** every tool **requires** `runtime`, keyed by the project's registry:
+  `{"node": "22.12.0"}` for npm, `{"python": "3.11"}` for PyPI. Take the version from the same
+  shell that runs the project's own tests: `node -v` next to `npm test`, `python --version` inside
+  the project's environment. If you can't tell, pass `"unknown"`; OSS IQ then assumes no runtime
+  beyond the project's declared floor. **Never guess a version.**
+- **CLI:** OSS IQ probes the runtime on `PATH` by default. When that isn't the project's runtime
+  (nvm, fnm, volta, a different venv), pass `--engine node=<version>` / `--engine python=<version>`.
+
+The runtime you state is still held to the project's declared floor (`engines.node`,
+`requires-python`). If it disagrees with a version pin the project keeps (`.nvmrc`,
+`.node-version`, `.tool-versions`, `mise.toml`, `volta.node`, `.python-version`, `.venv`),
+`runtime_context.runtime_mismatch` says so. Re-check which shell you read the version from.
 
 ## When adding a new dependency
 
@@ -110,13 +129,15 @@ Example output:
 The top-level `next_action` is the most urgent one across the `updates` list, or
 `no action needed` when the list is empty. Each entry's `next_action` is one of:
 
-- **Check for the Fix** — a known CVE; check for a patched release.
+- **Check for the Fix** — a known CVE that `to` does not clear (or there is no `to`); check for a
+  patched release.
 - **Find alternative** — the package is gone or its upstream is abandoned/deprecated; migrate off it.
 - **Consider alternative** — the upstream is winding down; plan a migration.
 - **Check Release Notes** — a major version behind; review breaking changes before the bump.
 - **Update Immediately** — a minor/patch behind, or a recommended version exists; bump it.
 - **Constrained. Check newer version** — a minor/patch behind, but the declared range
-  (e.g. `~7.3.0`) admits no newer version; widening the range is the real next step.
+  (e.g. `~7.3.0`) admits no newer version, or the CVE fix in `to` needs it widened; widening the
+  range is the real next step.
 - **Withheld by strategy** — a minor/patch behind, and the range admits a bump, but the run's
   `--update-strategy` tier admitted no motive to take it. Nothing is wrong with the package;
   `strategy_withheld_reason` names the lowest tier that would move it.
@@ -125,6 +146,12 @@ The top-level `next_action` is the most urgent one across the `updates` list, or
 `latest_in_major` (newest version sharing the installed major line) are always
 present — equal to `from` when that step has nothing newer, never omitted.
 
+`dependency_health` (when present) is **advice, not the action**. It answers "is this dependency
+healthy long-term?" (`retain` / `patch` / `refactor` / `evict`, from exploit probability ×
+upstream maintenance). `next_action` is what to do now. A `retain` next to a CVE doesn't mean
+"don't update": `suppressed_cves` counts CVEs scored below the EPSS noise floor, and each CVE's
+own `epss` is listed under `cves`.
+
 `dependency_name` appears only when the manifest declares the package under a different key
 than its registry name — npm aliases (`"uuid-v7": "npm:uuid@^7.0.0"`) are the only case today.
 Two aliases of one package produce two entries sharing `"package"`, so `dependency_name` is what
@@ -132,38 +159,45 @@ tells you which declaration an entry answers for and which line to edit.
 
 ### Module-system and API breaks
 
-A recommended version is not always drop-in — semver alone can't see an npm package going
-ESM-only or a PyPI package relocating a top-level API across a major. `to` already routes around a
-known break when a compatible version exists; when every reachable version is affected, `to`
-still lands on the newest one and `breaking_change` explains why instead of leaving the pick a
-silent surprise:
+A recommended version is not always drop-in. Semver alone can't see an npm package going
+ESM-only. For a CommonJS project (no `"type": "module"`), OSS IQ keeps `to` on the installed
+module system:
+
+- `security`, `deprecation` and `standard` never recommend an ESM-only release. When every newer
+  release is ESM-only and the only reason to move is drift, `to` equals `from`, and
+  `rejected_candidates`/`reasons` say `"<version> rejected: ESM-only from 5.0.0"`.
+- `latest` and `cutting-edge` may recommend an ESM-only release, but only when the stated runtime
+  can `require()` ESM (Node ≥ 20.19 / ≥ 22.12 / ≥ 23). The pick then carries `breaking_change`
+  and `carries_known_break: true`.
+- **Exception:** when a CVE (or end-of-life) has no fix left on the CommonJS line, the ESM-only
+  fix is recommended at every tier, flagged the same way. Security beats build convenience.
 
 ```json
 {
   "package": "chalk",
   "next_action": "Check Release Notes",
-  "from": "4.1.2",
+  "from": "4.0.0",
   "to": "4.1.2",
-  "latest_in_range": "4.1.2",
   "latest_in_major": "4.1.2",
-  "latest_compatible_major": "4.1.2",
+  "latest_compatible_major": "6.0.0",
+  "latest_preserving_module_system": "4.1.2",
   "module_system": "cjs",
   "recommended_module_system": "cjs",
   "breaking_change": null,
-  "reasons": ["major version drift behind 5.2.0"],
-  "cves": [],
-  "transitive_impact": []
+  "module_system_note": "ESM-only: require() on Node 22.12.0 returns the module namespace, so it works only if the package has named exports; a default-export-only package still breaks",
+  "reasons": ["major version drift behind 6.0.0", "5.6.2 rejected: ESM-only from 5.0.0"]
 }
 ```
 
-Here `latest_compatible_major` (4.1.2) matches `to` because chalk 5+ is ESM-only
-(`require('chalk')` returns the module namespace object, not `.blue`) and this project's
-`package.json` is not itself `"type": "module"` — `5.0.0` was rejected as a candidate for exactly
-that reason (see its `rejected_candidates` entry on the full record). If every release past 4.x
-were ESM-only, `to` would still be the newest of them and `breaking_change` would read something
-like `"ESM-only from 5.0.0 — require('chalk') will fail; use dynamic import() or stay on 4.x"`.
-Never treat `to` as safe to `require()`/`import` without checking `module_system` first when
-`breaking_change` is non-null.
+- `latest_preserving_module_system` is the newest release your code can keep loading as it
+  does today, whatever the runtime.
+- `latest_compatible_major` is the newest release the stated runtime *might* load.
+- `module_system_note` explains the gap between the two. `require()` of an ESM-only package
+  returns its namespace, so `const { v4 } = require("uuid")` works on a capable Node, but
+  `require("chalk").bold` does not, because chalk only has a default export.
+
+Whenever `breaking_change` is non-null, don't treat `to` as safe to `require()` until the
+project's own tests pass on it.
 
 Pin to `recommended_version` (`to`) when it is set — it is the solver's safe
 choice (avoids known-CVE and too-fresh versions) — **unless the entry also carries
@@ -191,14 +225,13 @@ result for whichever version `to` ended up being:
 }
 ```
 
-`engine_compatible` is checked against the **lower** of two versions per engine: the runtime found
-on this machine (`.venv`, `.python-version`, or a `node --version` probe — disable with
-`--no-probe-runtime`) and the project's own manifest floor (`engines.node`/`requires-python`). The
+`engine_compatible` is checked against the **lower** of two versions per engine: the runtime (the
+one you stated, or, on the CLI, the one probed on this machine) and the project's own manifest floor (`engines.node`/`requires-python`). The
 floor counts even when a newer runtime is installed, because a release that outruns it breaks the
 project's own users and will fail resolution — `uv` resolves every Python version in the declared
 range, not just the one you are on. `engine_context_source` says which side is binding:
-`"detected"` (the probe, for every engine), `"declared"` (the manifest floor, for at least one),
-or `"none"` — neither was available, and `engine_compatible` is `null` in that case, absence of
+`"provided"` (the runtime you stated, for every engine), `"detected"` (the CLI probe, for every
+engine), `"declared"` (the manifest floor, for at least one), or `"none"` — neither was available, and `engine_compatible` is `null` in that case, absence of
 evidence rather than evidence of compatibility. When every reachable version conflicts, `to` still
 lands on the newest one and `engine_compatible: false` names the concrete requirement and the
 version it was checked against instead of leaving it a silent runtime failure.
@@ -213,7 +246,7 @@ discovering a break via test failure:
 uvx ossiq update-context <package> <project_path> --to <version>
 ```
 
-or, over MCP, `ossiq_update_context` with `{"package": ..., "target_version": ...}`. `target_version`
+or, over MCP, `ossiq_update_context` with `{"package": ..., "target_version": ..., "runtime": ...}`. `target_version`
 is optional and defaults to the recommended version, so the same call also works as "explain the
 recommendation in detail" with no `--to` at all.
 
@@ -226,18 +259,38 @@ Example — asking about `chalk 6.0.0` on a CommonJS project that's currently on
   "from_version": "4.1.2",
   "to_version": "6.0.0",
   "module_system": {"from": "cjs", "to": "esm-only", "project_declares_esm": false},
-  "breaking_change": "ESM-only from 5.0.0",
+  "comparison": {
+    "verdict": "breaking",
+    "reasons": ["6.0.0 crosses a known break: ESM-only from 6.0.0"],
+    "recommended_version": "4.1.2",
+    "better_available": "4.1.2"
+  },
+  "breaking_change": "ESM-only from 6.0.0",
+  "module_system_note": "ESM-only: won't load via require() on Node 20.11.0",
   "latest_compatible_major": "4.1.2",
   "engine": {
     "requirement": {"node": ">=20.19.0"},
     "context_version": "20.11.0",
-    "context_source": "detected",
+    "context_source": "provided",
     "compatible": false
   },
   "npm_cli_version": "10.2.4",
   "rejected_candidates": [{"version": "5.0.0", "reason": "ESM-only from 5.0.0"}]
 }
 ```
+
+**Read `comparison.verdict` first.** It holds the target up against OSS IQ's own recommendation:
+
+- `recommended`: it *is* the recommendation.
+- `suboptimal`: clean, but older than the recommendation.
+- `breaking`, `vulnerable`, `deprecated`: the target has that problem. `reasons` lists every
+  problem found.
+- `beyond_recommendation`: clean, but past what OSS IQ recommends; check what held the
+  recommendation back.
+
+Any verdict other than `recommended` means take `better_available` unless you have a reason not
+to. A diff with no `breaking_change` is **not** an approval on its own: a deprecated release older
+than the recommendation has none.
 
 This says: going to `6.0.0` hits the same ESM-only break as `5.0.0` (`module_system.to`), and
 separately its `engines.node` requirement (`>=20.19.0`) is newer than what's actually installed
