@@ -22,6 +22,7 @@ __all__ = [
     "ESCALATING_MOTIVES",
     "MAX_REACH",
     "MINIMAL_DIFF_TIERS",
+    "MODULE_BREAK_TIERS",
     "PRERELEASE_TIERS",
     "PYRAMID",
     "RUNG_ORDER",
@@ -83,6 +84,12 @@ MINIMAL_DIFF_TIERS: frozenset[UpdateStrategy] = frozenset({UpdateStrategy.SECURI
 PRERELEASE_TIERS: frozenset[UpdateStrategy] = frozenset({UpdateStrategy.CUTTING_EDGE})
 """Tiers that admit prereleases. Handled at prefetch time (allow_prerelease), not in the ladder or
 here — see strategy/README.md."""
+
+
+MODULE_BREAK_TIERS: frozenset[UpdateStrategy] = frozenset({UpdateStrategy.LATEST, UpdateStrategy.CUTTING_EDGE})
+"""Tiers that may recommend a release a CommonJS consumer can only load through `require(esm)` -
+and only when the scan's runtime supports it. Everything below stays on the installed module
+system; an escalating motive with no clean answer left there is the one exception, at every tier."""
 
 
 def tier_index(strategy: UpdateStrategy) -> int:

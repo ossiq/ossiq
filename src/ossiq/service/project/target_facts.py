@@ -50,7 +50,6 @@ def annotate_target_facts(
         releases,
         registry,
         project_declares_esm,
-        node_version=engine_context.versions.get("node"),
     )
     picked = next((pv for pv in releases if pv.version == target_version), None)
     facts.engine_requirement = picked.runtime_requirements if picked else None

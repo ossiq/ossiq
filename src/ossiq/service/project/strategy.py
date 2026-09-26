@@ -11,22 +11,26 @@ there, and `classify_motives` needs both to decide `END_OF_LIFE` correctly.
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import datetime
-from functools import cmp_to_key
+from functools import cmp_to_key, partial
 
 from ossiq.adapters.api_interfaces import AbstractPackageRegistryApi
 from ossiq.domain.common import (
     RUNG_ORDER,
     ConstraintType,
     EngineContext,
+    ModuleSystem,
     ProjectPackagesRegistry,
     RecommendationRung,
     RejectedCandidate,
     RejectionDetail,
 )
 from ossiq.risk.maintenance import DEPRECATION_NONE
-from ossiq.risk.triage import EPSS_NOISE_THRESHOLD
 from ossiq.service.common.package_versions import PackageVersion
-from ossiq.service.project.breaking_changes import breaking_majors
+from ossiq.service.project.breaking_changes import (
+    crosses_module_system,
+    module_break_reason,
+    node_supports_require_esm,
+)
 from ossiq.service.project.ladder import classify_rung as ladder_classify_rung
 from ossiq.service.project.ladder import installable_releases
 from ossiq.service.project.models import ScanRecord
@@ -37,9 +41,10 @@ from ossiq.solver.version_matchers import (
     engine_mismatch_reason,
     major_key,
 )
-from ossiq.strategy.motive import PackageFacts
+from ossiq.strategy.motive import PackageFacts, is_qualifying_score
 from ossiq.strategy.overrides import StrategyPlan
-from ossiq.strategy.targeting import Candidate, select_target
+from ossiq.strategy.pyramid import ESCALATING_MOTIVES, MODULE_BREAK_TIERS
+from ossiq.strategy.targeting import Candidate, StrategySelection, select_target
 from ossiq.timeutil import age_days_from_iso
 
 __all__ = ["PackageFacts", "StrategyPlan", "apply_update_strategy", "build_candidates", "facts_from_record"]
@@ -49,22 +54,23 @@ __all__ = ["PackageFacts", "StrategyPlan", "apply_update_strategy", "build_candi
 StructuralGate = Callable[[PackageVersion], str | None]
 
 
-def breaking_change_gate(
-    breaks: dict[tuple[int, int], str],
-    registry: AbstractPackageRegistryApi,
+def module_system_gate(
+    installed_module_system: ModuleSystem | None,
     project_declares_esm: bool,
+    releases: list[PackageVersion],
+    registry: AbstractPackageRegistryApi,
 ) -> StructuralGate:
-    """Reject a release whose major line is a known module-system/API break.
+    """Reject a release that code on the installed module system can no longer load.
 
-    Never fires when the project itself declares ESM (`project_declares_esm`) - an ESM-only
-    dependency is not a break for a project that is itself `"type": "module"`.
+    Per release, through `crosses_module_system` — the same predicate behind
+    `latest_preserving_module_system` — so the ladder fact and the gate cannot disagree. Never fires
+    for a `"type": "module"` project.
     """
 
     def gate(pv: PackageVersion) -> str | None:
-        if project_declares_esm:
+        if not crosses_module_system(installed_module_system, pv.module_system, project_declares_esm):
             return None
-        major = major_key(pv.version, registry.package_registry)
-        return breaks.get(major) if major is not None else None
+        return module_break_reason(pv, releases, registry.package_registry)
 
     return gate
 
@@ -100,6 +106,9 @@ class BuiltCandidates:
 
     candidates: tuple[Candidate, ...]
     rejected: tuple[RejectedCandidate, ...]
+    strictly_gated: bool = False
+    """Whether a `strict_gates` gate held any release back — the caller's cue that waiving it could
+    still find a target."""
 
 
 def classify_rung(
@@ -154,6 +163,7 @@ def build_candidates(
     transitive_by_name: dict[str, ScanRecord] | None = None,
     structural_gates: Sequence[StructuralGate] = (),
     binding_gates: Sequence[StructuralGate] = (),
+    strict_gates: Sequence[StructuralGate] = (),
 ) -> BuiltCandidates:
     """Build the ascending candidate ladder for one record.
 
@@ -168,6 +178,11 @@ def build_candidates(
     treated as gated for this call, so `select_target` can still pick the newest and the caller can
     explain the pick via the same evidence the gate would have used (e.g. ScanRecord.breaking_change) —
     mirrors the "every reachable version affected -> recommend the newest anyway" CVE rule.
+
+    `strict_gates` are structural gates this function never waives: the module-system break, which
+    a drift-only package should rather stay put for than cross. Whether an escalating motive (a CVE
+    or end-of-life) justifies crossing anyway is `apply_update_strategy`'s call, since only it
+    knows the motives; `strictly_gated` on the result tells it there was something to waive.
 
     `binding_gates` are the exception, for rejections the installer will enforce whatever OSS IQ
     says: a release excluded by `requires-python` is not "incompatible but still the best answer",
@@ -186,7 +201,7 @@ def build_candidates(
     """
     qualifying_versions: set[str] = set()
     for cve in record.cve:
-        if cve.epss is None or cve.epss >= EPSS_NOISE_THRESHOLD:
+        if is_qualifying_score(cve.epss):
             qualifying_versions.update(cve.affected_versions)
 
     installed_major = major_key(record.installed_version, registry.package_registry)
@@ -195,18 +210,30 @@ def build_candidates(
     installable = installable_releases(releases, registry, now=now, newer_than=record.installed_version)
     installable.sort(key=cmp_to_key(lambda a, b: registry.compare_versions(a.version, b.version)))
 
+    strict_reasons: dict[str, str] = {}
+    for pv in installable:
+        for gate in strict_gates:
+            reason = gate(pv)
+            if reason is not None:
+                strict_reasons[pv.version] = reason
+                break
+
     gate_reasons: dict[str, str] = {}
     if structural_gates:
-        for pv in installable:
+        waivable = [pv for pv in installable if pv.version not in strict_reasons]
+        for pv in waivable:
             for gate in structural_gates:
                 reason = gate(pv)
                 if reason is not None:
                     gate_reasons[pv.version] = reason
                     break
-        if gate_reasons and len(gate_reasons) == len(installable):
+        if gate_reasons and len(gate_reasons) == len(waivable):
             # Every installable release is flagged - never let a structural gate blank the whole
             # recommendation, so treat none of them as gated this pass.
             gate_reasons = {}
+    # Strict gates sit outside that waiver: the caller decides, from the package's motives,
+    # whether a ladder they empty should stay empty.
+    gate_reasons.update(strict_reasons)
 
     # Applied after the waiver, and overwriting it: these rejections are not advisory, so a ladder
     # they empty stays empty.
@@ -248,7 +275,20 @@ def build_candidates(
             rejected_by_rung[rung] = RejectedCandidate(version=pv.version, reason=headline, detail=detail)
 
     rejected = tuple(rejected_by_rung[rung] for rung in sorted(rejected_by_rung, key=RUNG_ORDER.__getitem__))
-    return BuiltCandidates(candidates=tuple(candidates), rejected=rejected)
+    return BuiltCandidates(candidates=tuple(candidates), rejected=rejected, strictly_gated=bool(strict_reasons))
+
+
+def clears_motive(selection: StrategySelection, built: BuiltCandidates) -> bool:
+    """Whether *selection* found a target that leaves no qualifying CVE behind.
+
+    For an end-of-life motive any target resolves it; for an exploitable CVE the target must not
+    carry one itself — `select_target`'s rule 7 picks a still-affected release when nothing clean is
+    in reach, and that is exactly the case a waived gate might improve on.
+    """
+    if selection.target_version is None:
+        return False
+    picked = next((c for c in built.candidates if c.version == selection.target_version), None)
+    return picked is None or not picked.has_cve
 
 
 def apply_update_strategy(
@@ -299,27 +339,42 @@ def apply_update_strategy(
         strategy = plan.for_package(record.package_name)
         facts = facts_from_record(record)
         releases = versions_since.get((record.package_name, record.installed_version), [])
-        breaks = breaking_majors(
-            record.package_name, releases, registry.package_registry, node_version=engine_context.versions.get("node")
-        )
         engine_gate = engine_mismatch_gate(engine_context)
         # npm installs an engines mismatch anyway (a warning, not a refusal), so there it stays
         # advisory and waivable. pip and uv refuse outright, so on PyPI the gate has to bind.
         engine_gate_binds = registry.package_registry == ProjectPackagesRegistry.PYPI
-        gates: tuple[StructuralGate, ...] = (breaking_change_gate(breaks, registry, project_declares_esm),)
-        if not engine_gate_binds:
-            gates += (engine_gate,)
-        built = build_candidates(
+        # Crossing to ESM-only is a freshness tier's call, and only on a runtime that can
+        # require() ESM at all. Even there it stays flagged (breaking_change), because require()
+        # returns the namespace and a default-export-only package still breaks.
+        may_cross = strategy in MODULE_BREAK_TIERS and node_supports_require_esm(engine_context.versions.get("node"))
+        module_gates: tuple[StructuralGate, ...] = (
+            ()
+            if may_cross
+            else (module_system_gate(record.compatibility.module_system, project_declares_esm, releases, registry),)
+        )
+
+        build = partial(
+            build_candidates,
             record,
             releases,
             registry,
             now=now,
             validator=validator,
             transitive_by_name=transitive_by_name,
-            structural_gates=gates,
+            structural_gates=() if engine_gate_binds else (engine_gate,),
             binding_gates=(engine_gate,) if engine_gate_binds else (),
         )
+
+        built = build(strict_gates=module_gates)
         selection = select_target(facts, strategy, built.candidates, cooldown_period=cooldown_period)
+        if built.strictly_gated and selection.motives & ESCALATING_MOTIVES and not clears_motive(selection, built):
+            # A CVE or end-of-life motive with no clean answer left on the module line: security
+            # beats build convenience, so the gated releases come back in. Drift alone never
+            # reaches here, which is what keeps a CommonJS project on its CommonJS line.
+            waived = build(strict_gates=())
+            waived_selection = select_target(facts, strategy, waived.candidates, cooldown_period=cooldown_period)
+            if clears_motive(waived_selection, waived):
+                built, selection = waived, waived_selection
         record.strategy_selection = selection
         record.rejected_candidates = list(built.rejected)
 

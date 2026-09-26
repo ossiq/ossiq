@@ -7,6 +7,8 @@ mocking of the registries themselves.
 
 from __future__ import annotations
 
+import pytest
+
 from ossiq.adapters.api_npm import PackageRegistryApiNpm
 from ossiq.adapters.api_pypi import PackageRegistryApiPypi
 from ossiq.domain.common import ModuleSystem, ProjectPackagesRegistry
@@ -15,7 +17,10 @@ from ossiq.service.project.breaking_changes import (
     NODE_REQUIRE_ESM_MIN_STABLE,
     breaking_majors,
     compute_latest_compatible_major,
+    compute_latest_preserving_module_system,
+    crosses_module_system,
     module_system_label,
+    module_system_note,
     node_supports_require_esm,
 )
 from ossiq.settings import Settings
@@ -297,31 +302,133 @@ class TestComputeLatestCompatibleMajorNodeAwareness:
         assert result == "9.0.1"
 
 
-class TestModuleSystemLabelNodeAwareness:
-    def test_breaking_change_suppressed_on_modern_node(self):
-        releases = [_pv("5.0.0", module_system=ModuleSystem.ESM_ONLY)]
-        module_system, breaking_change = module_system_label(
-            "chalk",
-            "4.1.2",
-            "5.0.0",
-            releases,
-            ProjectPackagesRegistry.NPM,
-            project_declares_esm=False,
-            node_version="22.22.2",
-        )
-        assert module_system == ModuleSystem.ESM_ONLY
-        assert breaking_change is None
+class TestModuleSystemLabelIgnoresTheRuntime:
+    """require(esm) returns the module namespace, so a default-export-only package (chalk) breaks a
+    CommonJS caller on every Node. The runtime qualifies the break; it never erases it."""
 
-    def test_breaking_change_still_reported_on_old_node(self):
-        releases = [_pv("5.0.0", module_system=ModuleSystem.ESM_ONLY)]
+    def test_breaking_change_is_reported_whatever_the_runtime(self):
+        releases = [_pv("4.1.2", module_system=ModuleSystem.CJS), _pv("5.0.0", module_system=ModuleSystem.ESM_ONLY)]
+
         module_system, breaking_change = module_system_label(
-            "chalk",
-            "4.1.2",
-            "5.0.0",
-            releases,
-            ProjectPackagesRegistry.NPM,
-            project_declares_esm=False,
-            node_version="16.20.2",
+            "chalk", "4.1.2", "5.0.0", releases, ProjectPackagesRegistry.NPM, project_declares_esm=False
         )
+
         assert module_system == ModuleSystem.ESM_ONLY
         assert breaking_change == "ESM-only from 5.0.0"
+
+    def test_an_esm_only_install_already_copes_with_esm(self):
+        releases = [
+            _pv("5.0.0", module_system=ModuleSystem.ESM_ONLY),
+            _pv("6.0.0", module_system=ModuleSystem.ESM_ONLY),
+        ]
+
+        _, breaking_change = module_system_label(
+            "chalk", "5.0.0", "6.0.0", releases, ProjectPackagesRegistry.NPM, project_declares_esm=False
+        )
+
+        assert breaking_change is None
+
+
+class TestCrossesModuleSystem:
+    @pytest.mark.parametrize(
+        ("installed", "candidate", "declares_esm", "crosses"),
+        [
+            (ModuleSystem.CJS, ModuleSystem.ESM_ONLY, False, True),
+            (ModuleSystem.DUAL, ModuleSystem.ESM_ONLY, False, True),
+            (None, ModuleSystem.ESM_ONLY, False, True),
+            (ModuleSystem.CJS, ModuleSystem.DUAL, False, False),
+            (ModuleSystem.DUAL, ModuleSystem.CJS, False, False),
+            (ModuleSystem.CJS, None, False, False),
+            (ModuleSystem.ESM_ONLY, ModuleSystem.ESM_ONLY, False, False),
+            (ModuleSystem.CJS, ModuleSystem.ESM_ONLY, True, False),
+        ],
+    )
+    def test_only_a_move_to_esm_only_crosses(self, installed, candidate, declares_esm, crosses):
+        assert crosses_module_system(installed, candidate, declares_esm) is crosses
+
+
+class TestLatestPreservingModuleSystem:
+    def test_stops_at_the_newest_release_the_installed_module_system_loads(self):
+        releases = [
+            _pv("8.3.2", module_system=ModuleSystem.DUAL),
+            _pv("11.1.1", module_system=ModuleSystem.DUAL),
+            _pv("12.0.0", module_system=ModuleSystem.ESM_ONLY),
+        ]
+
+        result = compute_latest_preserving_module_system(
+            releases, "8.3.2", ModuleSystem.DUAL, NPM, project_declares_esm=False
+        )
+
+        assert result == "11.1.1"
+
+    def test_equals_installed_when_nothing_newer_loads(self):
+        releases = [_pv("4.1.2", module_system=ModuleSystem.CJS), _pv("5.0.0", module_system=ModuleSystem.ESM_ONLY)]
+
+        assert (
+            compute_latest_preserving_module_system(
+                releases, "4.1.2", ModuleSystem.CJS, NPM, project_declares_esm=False
+            )
+            == "4.1.2"
+        )
+
+    def test_an_esm_project_reaches_the_newest(self):
+        releases = [_pv("4.1.2", module_system=ModuleSystem.CJS), _pv("5.0.0", module_system=ModuleSystem.ESM_ONLY)]
+
+        assert (
+            compute_latest_preserving_module_system(releases, "4.1.2", ModuleSystem.CJS, NPM, project_declares_esm=True)
+            == "5.0.0"
+        )
+
+
+class TestModuleSystemNote:
+    RELEASES = [_pv("4.1.2", module_system=ModuleSystem.CJS), _pv("5.0.0", module_system=ModuleSystem.ESM_ONLY)]
+
+    @pytest.mark.parametrize(
+        ("node_version", "fragment"),
+        [
+            ("26.8.1", "only if the package has named exports"),
+            ("20.18.3", "won't load via require() on Node 20.18.3"),
+            (None, "runtime unknown"),
+        ],
+    )
+    def test_the_note_follows_the_runtime(self, node_version, fragment):
+        note = module_system_note(
+            self.RELEASES, "4.1.2", ModuleSystem.CJS, NPM, project_declares_esm=False, node_version=node_version
+        )
+
+        assert note is not None
+        assert fragment in note
+
+    def test_no_note_when_nothing_newer_crosses(self):
+        releases = [_pv("4.1.2", module_system=ModuleSystem.CJS), _pv("4.2.0", module_system=ModuleSystem.CJS)]
+
+        assert module_system_note(releases, "4.1.2", ModuleSystem.CJS, NPM, project_declares_esm=False) is None
+
+
+# chalk as the npm registry serves it: 5.6.1 was the compromised September 2025 release, pulled
+# from `versions` but still listed in `time`, so PackageRegistryApiNpm keeps it as an unpublished
+# PackageVersion with no module_system.
+CHALK_WITH_TOMBSTONE = [
+    _pv("4.1.2", module_system=ModuleSystem.CJS),
+    _pv("5.0.0", module_system=ModuleSystem.ESM_ONLY),
+    _pv("5.6.0", module_system=ModuleSystem.ESM_ONLY),
+    _pv("5.6.1", unpublished=True),
+    _pv("5.6.2", module_system=ModuleSystem.ESM_ONLY),
+    _pv("6.0.0", module_system=ModuleSystem.ESM_ONLY),
+]
+
+
+class TestBreakingMajorsIgnoresUnpublished:
+    """D1 reproduction: one unpublished tombstone unflags a whole ESM-only major."""
+
+    def test_unpublished_release_does_not_unflag_esm_major(self):
+        flagged = breaking_majors("chalk", CHALK_WITH_TOMBSTONE, ProjectPackagesRegistry.NPM)
+
+        assert flagged == {(0, 5): "ESM-only from 5.0.0", (0, 6): "ESM-only from 6.0.0"}
+
+    def test_latest_compatible_major_stays_on_the_cjs_line(self):
+        result = compute_latest_compatible_major(
+            "chalk", CHALK_WITH_TOMBSTONE, "4.1.2", NPM, ProjectPackagesRegistry.NPM
+        )
+
+        assert result == "4.1.2"
