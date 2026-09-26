@@ -1,0 +1,17 @@
+{
+  "name": "small-cjs",
+  "version": "1.0.0",
+  "description": "CommonJS fixture mirroring the agent benchmark's small-npm project (D1-D6 reproduction)",
+  "main": "index.js",
+  "scripts": {
+    "test": "node test.js"
+  },
+  "dependencies": {
+    "chalk": "4.0.0",
+    "dayjs": "1.10.0",
+    "lodash": "4.17.15",
+    "qs": "6.10.1",
+    "semver": "7.3.5",
+    "uuid": "8.3.2"
+  }
+}
