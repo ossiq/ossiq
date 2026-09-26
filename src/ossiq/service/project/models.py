@@ -9,6 +9,7 @@ from ossiq.domain.common import (
     EngineContext,
     RecommendationRung,
     RejectedCandidate,
+    RuntimeMismatch,
     SignalCoverage,
     display_package_name,
 )
@@ -299,6 +300,10 @@ class ScanResult:
     and the two copies drifted."""
     npm_cli_version: str | None = None
     """Best-effort detected npm CLI version, display-only"""
+    runtime_mismatch: RuntimeMismatch | None = None
+    """The project's own runtime pin (`.nvmrc`, `.python-version`, ...) disagreeing with the runtime
+    the scan checked against - usually a version read from the wrong shell. None when they agree or
+    there is nothing to compare."""
     source_warnings: list[str] = field(default_factory=list)
     """Non-fatal problems found while assembling the project's sources, e.g. a tree containing more
     than one registry. Carried as a value so each surface decides how to show it - `sources/` used
