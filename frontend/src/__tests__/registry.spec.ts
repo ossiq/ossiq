@@ -36,7 +36,7 @@ const report = {
       silence_p: 0.41,
       commits_sampled: 98,
       archived: false,
-      triage_action: 'retain',
+      dependency_health_action: 'retain',
       maintenance_coverage: 0.6,
       maintenance_risk: 0.18,
       maintenance_state: 'maintained',

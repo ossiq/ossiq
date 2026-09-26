@@ -37,6 +37,8 @@ export interface DependencyNode {
   latest_in_range?: string | null
   latest_in_major?: string | null
   latest_compatible_major?: string | null
+  latest_preserving_module_system?: string | null
+  module_system_note?: string | null
   version_constraint_declared?: string | null
   epss?: number | null
   maintenance_coverage?: number | null
@@ -51,7 +53,7 @@ export interface DependencyNode {
   commits_sampled?: number | null
   archived?: boolean | null
   days_since_push?: number | null
-  triage_action?: string | null
+  dependency_health_action?: string | null
   dependencies?: Record<string, DependencyNode>
   optional_dependencies?: Record<string, DependencyNode>
 }
@@ -99,6 +101,8 @@ export interface SelectedNodeDetail {
   latest_in_range?: string | null
   latest_in_major?: string | null
   latest_compatible_major?: string | null
+  latest_preserving_module_system?: string | null
+  module_system_note?: string | null
   version_constraint_declared?: string | null
   epss?: number | null
   maintenance_coverage?: number | null
@@ -113,7 +117,7 @@ export interface SelectedNodeDetail {
   commits_sampled?: number | null
   archived?: boolean | null
   days_since_push?: number | null
-  triage_action?: string | null
+  dependency_health_action?: string | null
   dependencies?: Record<string, DependencyNode>
   optional_dependencies?: Record<string, DependencyNode>
 }
