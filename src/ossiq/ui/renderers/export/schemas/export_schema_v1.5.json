@@ -2,7 +2,7 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://ossiq.org/schemas/export/v1.5.json",
   "title": "OSS-IQ Export Schema v1.5",
-  "description": "Schema for OSS-IQ project metrics export data (v1.5 adds epss to PackageMetrics, TransitivePackageMetrics and CVEInfo, runs_code_at_install/install_execution_reason to PackageMetrics and TransitivePackageMetrics, fix_age_days to CVEInfo, project_epss/packages_with_epss/packages_with_unscored_cves to summary, declares update_transitive_impacts, and replaces the phi_i/phi_p/phi_a CSI channels with the maintenance-state model: maintenance_state, maintenance_risk, maintenance_coverage, flow_trend, engagement_buckets, deprecation_signals and deprecation_successor on PackageMetrics and TransitivePackageMetrics, and packages_unmaintained/packages_deprecated on summary; and adds latest_compatible_major, module_system, recommended_module_system to PackageMetrics and TransitivePackageMetrics, and breaking_change to PackageMetrics; and adds engine_requirement, engine_compatible, engine_context_source to PackageMetrics and TransitivePackageMetrics; and adds metadata.warnings and a scan-level runtime_context block, moving engine_context_source off the per-package models; and adds next_action to PackageMetrics and TransitivePackageMetrics and requires_constraint_widening to PackageMetrics, so every surface reads one next-action label instead of re-deriving it)",
+  "description": "Schema for OSS-IQ project metrics export data (v1.5 adds epss to PackageMetrics, TransitivePackageMetrics and CVEInfo, runs_code_at_install/install_execution_reason to PackageMetrics and TransitivePackageMetrics, fix_age_days to CVEInfo, project_epss/packages_with_epss/packages_with_unscored_cves to summary, declares update_transitive_impacts, and replaces the phi_i/phi_p/phi_a CSI channels with the maintenance-state model: maintenance_state, maintenance_risk, maintenance_coverage, flow_trend, engagement_buckets, deprecation_signals and deprecation_successor and dependency_health_action on PackageMetrics and TransitivePackageMetrics, and packages_unmaintained/packages_deprecated on summary; and adds latest_compatible_major, module_system, recommended_module_system to PackageMetrics and TransitivePackageMetrics, and breaking_change to PackageMetrics; and adds engine_requirement, engine_compatible, engine_context_source to PackageMetrics and TransitivePackageMetrics; and adds metadata.warnings and a scan-level runtime_context block, moving engine_context_source off the per-package models; and adds next_action to PackageMetrics and TransitivePackageMetrics and requires_constraint_widening to PackageMetrics, so every surface reads one next-action label instead of re-deriving it; and adds latest_preserving_module_system and module_system_note to PackageMetrics and TransitivePackageMetrics)",
   "type": "object",
   "required": [
     "metadata",
@@ -453,6 +453,13 @@
           ],
           "description": "Newest installable version among majors >= installed_version's major that carries no known module-system/API break; diverges from latest_in_major when a clean major sits between installed_version and a known break. Null only when undeterminable."
         },
+        "latest_preserving_module_system": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Newest installable version that code on installed_version's module system can still load (cjs/dual -> cjs/dual; esm-only -> anything; every release on PyPI). Unlike latest_compatible_major it ignores the runtime: it is where every update-strategy tier below latest stops. Equals installed_version when nothing newer qualifies. Null only when undeterminable."
+        },
         "module_system": {
           "type": [
             "string",
@@ -466,6 +473,13 @@
             "null"
           ],
           "description": "recommended_version's own module format; null whenever recommended_version is null or PyPI"
+        },
+        "module_system_note": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "What the scan's runtime means for loading this package's ESM-only releases from CommonJS code (e.g. require() works only if the package has named exports); null when no newer release is ESM-only for this project. Qualifies whichever ESM-only version is shown: recommended_version or latest_compatible_major."
         },
         "engine_requirement": {
           "type": [
@@ -756,7 +770,7 @@
           ],
           "description": "Whether the upstream repository is archived"
         },
-        "triage_action": {
+        "dependency_health_action": {
           "type": [
             "string",
             "null"
@@ -768,7 +782,7 @@
             "retain",
             null
           ],
-          "description": "Recommended action from the EPSS x maintenance matrix"
+          "description": "Advisory dependency-health verdict from the EPSS x maintenance triage matrix. Answers 'is this dependency healthy long-term?' - next_action says what to do now."
         }
       }
     },
@@ -969,6 +983,13 @@
           ],
           "description": "Newest installable version among majors >= installed_version's major that carries no known module-system/API break; diverges from latest_in_major when a clean major sits between installed_version and a known break. Null only when undeterminable."
         },
+        "latest_preserving_module_system": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Newest installable version that code on installed_version's module system can still load (cjs/dual -> cjs/dual; esm-only -> anything; every release on PyPI). Unlike latest_compatible_major it ignores the runtime: it is where every update-strategy tier below latest stops. Equals installed_version when nothing newer qualifies. Null only when undeterminable."
+        },
         "module_system": {
           "type": [
             "string",
@@ -982,6 +1003,13 @@
             "null"
           ],
           "description": "recommended_version's own module format; null whenever recommended_version is null or PyPI"
+        },
+        "module_system_note": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "What the scan's runtime means for loading this package's ESM-only releases from CommonJS code (e.g. require() works only if the package has named exports); null when no newer release is ESM-only for this project. Qualifies whichever ESM-only version is shown: recommended_version or latest_compatible_major."
         },
         "breaking_change": {
           "type": [
@@ -1231,7 +1259,7 @@
           ],
           "description": "Whether the upstream repository is archived"
         },
-        "triage_action": {
+        "dependency_health_action": {
           "type": [
             "string",
             "null"
@@ -1243,7 +1271,7 @@
             "retain",
             null
           ],
-          "description": "Recommended action from the EPSS x maintenance matrix"
+          "description": "Advisory dependency-health verdict from the EPSS x maintenance triage matrix. Answers 'is this dependency healthy long-term?' - next_action says what to do now."
         },
         "strategy": {
           "oneOf": [

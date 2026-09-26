@@ -46,7 +46,12 @@ class TestSchemaRegistryV15(SchemaRegistryBaseTest):
         """Both metrics models inherit the ladder rungs from one mixin, so their descriptions
         must be identical — they had already drifted ("Absent when" vs "Null only when")."""
         props = defs[definition_name]["properties"]
-        for field in ("latest_in_range", "latest_in_major", "latest_compatible_major"):
+        for field in (
+            "latest_in_range",
+            "latest_in_major",
+            "latest_compatible_major",
+            "latest_preserving_module_system",
+        ):
             assert props[field]["type"] == ["string", "null"]
             assert "Null only when undeterminable" in props[field]["description"]
 

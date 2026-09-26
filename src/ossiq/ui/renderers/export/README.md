@@ -22,10 +22,16 @@ v1.5 has not shipped in a release (the package is still `0.1.10`), so it has no 
 this repository and additive fields have been **amended into `export_schema_v1.5.json` in place**
 rather than bumped. Amended this way so far: the version-ladder fields (`latest_in_range`,
 `latest_in_major`, `latest_compatible_major`, `recommended_from_rung`), the module-system and
-engine fields, `next_action` / `requires_constraint_widening`, and the data-completeness
-diagnostics (`data_completeness.sources[].failures` and `data_completeness.api_budgets`). Each addition is optional, not
+engine fields, `next_action` / `requires_constraint_widening`, the data-completeness
+diagnostics (`data_completeness.sources[].failures` and `data_completeness.api_budgets`), and
+`latest_preserving_module_system` / `module_system_note`. Each addition is optional, not
 in `required`, and neither `$def` sets `additionalProperties: false`, so documents produced before
 the amendment still validate.
+
+One rename was also made in place: `triage_action` became `dependency_health_action`. Agents read
+the old name as the answer to "should I update?". With no released consumer, a rename cost nothing
+that a v1.6 bump would have saved. A pre-rename document still validates, since the old key is
+simply an unknown extra property, but it no longer populates the field.
 
 This exception ends the moment v1.5 ships. After that the policy above applies without
 qualification: additive changes bump the minor version. Amending in place still means running the
