@@ -101,6 +101,12 @@ ARGS_HELP_PROBE_RUNTIME = (
     "floor. Overrides OSSIQ_PROBE_RUNTIME env var."
 )
 
+ARGS_HELP_ENGINE = (
+    "The runtime version the project actually runs on, as ENGINE=VERSION (e.g. node=20.11.0 or "
+    "python=3.11); repeatable. Replaces the --probe-runtime probe for that engine, and is still "
+    "held to the project's declared floor (engines / requires-python)."
+)
+
 HELP_INFO_COMMAND = """
 Deep-dive into a single package: drift status, dependency tree trace, policy compliance,
 security advisories, and transitive dependency CVEs.
