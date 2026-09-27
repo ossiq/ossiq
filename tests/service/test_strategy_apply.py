@@ -17,7 +17,7 @@ from ossiq.domain.common import (
     RecommendationRung,
     RejectionDetail,
 )
-from ossiq.domain.cve import CVE, Severity
+from ossiq.domain.cve import CVE, AffectedRange, Severity
 from ossiq.domain.project import ConstraintSource
 from ossiq.domain.version import PackageVersion, VersionsDifference
 from ossiq.service.project.ladder import compute_version_ladder
@@ -1119,3 +1119,65 @@ class TestModuleSystemEscalationD1:
 
         first = snapshot()
         assert all(snapshot() == first for _ in range(20))
+
+
+# npm advisories as OSV actually publishes them: ranges only, `affected_versions` empty. The
+# fixtures above enumerate versions, which no npm record does - and is why D7 went unnoticed.
+QS_RELEASES = [pv(v, module_system=ModuleSystem.CJS) for v in ("6.10.1", "6.10.2", "6.10.3", "6.11.0")]
+QS_ADVISORY = CVE(
+    id="GHSA-hrpp-h998-j3pp",
+    cve_ids=("CVE-2022-24999",),
+    source=CveDatabase.OSV,
+    package_name="qs",
+    package_registry=ProjectPackagesRegistry.NPM,
+    summary="qs vulnerable to Prototype Pollution",
+    severity=Severity.HIGH,
+    affected_versions=(),
+    published=None,
+    link="https://osv.dev/GHSA-hrpp-h998-j3pp",
+    epss=0.1506,
+    affected_ranges=(AffectedRange(introduced="6.10.0", fixed="6.10.3"), AffectedRange(fixed="6.2.4")),
+)
+UUID_RANGE_ADVISORY = dataclasses.replace(
+    UUID_ADVISORY,
+    affected_versions=(),
+    epss=0.5,
+    affected_ranges=(
+        AffectedRange(fixed="11.1.1"),
+        AffectedRange(introduced="12.0.0", fixed="12.0.1"),
+        AffectedRange(introduced="13.0.0", fixed="13.0.1"),
+    ),
+)
+
+
+class TestNpmAdvisoryRangesD7:
+    """D7 reproduction: an npm advisory without enumerated versions read every release as clean."""
+
+    def test_candidate_inside_an_advisory_range_carries_the_cve(self) -> None:
+        registry = make_npm_registry({"qs": QS_RELEASES})
+        record = make_record("qs", "6.10.1")
+        record.cve = [QS_ADVISORY]
+
+        candidates = build_candidates(record, QS_RELEASES, registry, now=NOW).candidates
+        by_version = {c.version: c.has_cve for c in candidates}
+
+        assert by_version == {"6.10.2": True, "6.10.3": False, "6.11.0": False}
+
+    def test_security_tier_steps_over_a_release_still_inside_the_range(self) -> None:
+        record = recommend_for_cjs_project(
+            "qs", QS_RELEASES, "6.10.1", node_version=None, strategy=UpdateStrategy.SECURITY, cves=[QS_ADVISORY]
+        )
+
+        assert record.recommended_version == "6.10.3"
+
+    def test_security_tier_moves_uuid_to_the_first_release_outside_every_range(self) -> None:
+        record = recommend_for_cjs_project(
+            "uuid",
+            UUID_RELEASES,
+            "8.3.2",
+            node_version=None,
+            strategy=UpdateStrategy.SECURITY,
+            cves=[UUID_RANGE_ADVISORY],
+        )
+
+        assert record.recommended_version == "11.1.1"

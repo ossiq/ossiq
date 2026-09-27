@@ -38,6 +38,7 @@ from ossiq.service.project.target_facts import annotate_target_facts, clear_targ
 from ossiq.service.update_impact import DirectUpdateImpact, simulate_single
 from ossiq.solver.reason import RecommendationReason
 from ossiq.solver.version_matchers import (
+    cve_affects_version,
     engine_mismatch_reason,
     major_key,
 )
@@ -199,10 +200,7 @@ def build_candidates(
     would hide them from its escalation rules, which have to be able to see a fresh release to take
     it when a CVE leaves no other option.
     """
-    qualifying_versions: set[str] = set()
-    for cve in record.cve:
-        if is_qualifying_score(cve.epss):
-            qualifying_versions.update(cve.affected_versions)
+    qualifying_cves = [cve for cve in record.cve if is_qualifying_score(cve.epss)]
 
     installed_major = major_key(record.installed_version, registry.package_registry)
     transitive_by_name = transitive_by_name or {}
@@ -257,7 +255,7 @@ def build_candidates(
         candidate = Candidate(
             version=pv.version,
             rung=rung,
-            has_cve=pv.version in qualifying_versions,
+            has_cve=any(cve_affects_version(cve, pv.version) for cve in qualifying_cves),
             age_days=age_days_from_iso(pv.published_date_iso, now=now),
         )
 
