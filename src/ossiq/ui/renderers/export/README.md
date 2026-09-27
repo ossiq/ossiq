@@ -2,6 +2,31 @@
 
 This directory owns the versioned JSON export format. Follow this guide when introducing a new schema version (e.g. v1.6).
 
+---
+
+## Profiles: standard and full
+
+Every schema version has two profiles, each with its own schema file:
+
+| Profile | Produced by | Carries | Schema |
+|---------|-------------|---------|--------|
+| `standard` | `ossiq export` (default) | Every direct dependency, the transitives `needs_attention` selects, decision fields only; optional nulls and empty lists omitted from per-package records | `export_schema_v<N>_standard.json` |
+| `full` | `ossiq export --full`, `ossiq html` | Everything: every transitive, `dependency_tree`, provenance URLs, the raw upstream signals behind each verdict | `export_schema_v<N>.json` |
+
+`standard` is a **projection** of `full`: the same field names and meanings, fewer fields and fewer
+transitive entries, nothing renamed or added. `metadata.profile` says which one a document is.
+
+- **Which fields are full-only** is decided on the field itself, in `models.py`:
+  `Field(..., json_schema_extra=FULL_ONLY)`. `ProfiledExportModel` drops them at dump time, and
+  `export_json()` is the one place a document becomes JSON.
+- **Adding a field:** decide its profile where you declare it. An agent needs it to decide what to
+  do → leave it untagged. Only dashboards, archives or recalibration need it → tag it `FULL_ONLY`.
+  `test_standard_field_sets_are_a_deliberate_choice` fails until you make that call.
+- **The two schemas are kept in sync by a test**, not by hand-diffing:
+  `TestStandardSchemaIsAProjectionOfFull` requires the standard schema to equal the full one minus
+  exactly the `FULL_ONLY` fields, property by property. The standard schema sets
+  `additionalProperties: false`, so a leaked full-only field fails validation.
+
 
 ---
 
@@ -24,9 +49,14 @@ rather than bumped. Amended this way so far: the version-ladder fields (`latest_
 `latest_in_major`, `latest_compatible_major`, `recommended_from_rung`), the module-system and
 engine fields, `next_action` / `requires_constraint_widening`, the data-completeness
 diagnostics (`data_completeness.sources[].failures` and `data_completeness.api_budgets`), and
-`latest_preserving_module_system` / `module_system_note`. Each addition is optional, not
-in `required`, and neither `$def` sets `additionalProperties: false`, so documents produced before
-the amendment still validate.
+`latest_preserving_module_system` / `module_system_note`, and the profile split
+(`metadata.profile`, `summary.transitive_packages`, `runtime_context.runtime_mismatch`,
+`CVEInfo.affected_ranges` / `fixed_in`, `TransitivePackageMetrics.recommended_version` /
+`required_by`, and root `ignored_packages` / `upgrade_paths` / `manifest_lock_divergent`, plus the
+new `export_schema_v1.5_standard.json`). Each addition to the full schema is optional, not in
+`required`, and none of its `$defs` sets `additionalProperties: false`, so documents produced before
+the amendment still validate. `runtime_context.engine_context_source` also gained the `provided`
+value it was missing since the stated-runtime change.
 
 One rename was also made in place: `triage_action` became `dependency_health_action`. Agents read
 the old name as the answer to "should I update?". With no released consumer, a rename cost nothing
@@ -82,14 +112,20 @@ Edit `export_schema_v1.6.json`:
 - Update `metadata.properties.schema_version.const` → `"1.6"`
 - Apply the structural or additive changes to `$defs`
 
+Do the same for the standard profile (`export_schema_v1.6_standard.json`): copy the previous
+standard schema, bump its `$id` / `title`, and mirror every change that isn't `FULL_ONLY`. The
+projection test tells you exactly which properties are missing or extra.
+
 ---
 
 ### 4. Schema registry — `src/ossiq/ui/renderers/export/json_schema_registry.py`
 
 ```python
-_SCHEMA_FILES = {
-    ExportJsonSchemaVersion.V1_5: "export_schema_v1.5.json",
-    ExportJsonSchemaVersion.V1_6: "export_schema_v1.6.json",   # add
+SCHEMA_FILES = {
+    (ExportJsonSchemaVersion.V1_5, ExportProfile.FULL): "export_schema_v1.5.json",
+    (ExportJsonSchemaVersion.V1_5, ExportProfile.STANDARD): "export_schema_v1.5_standard.json",
+    (ExportJsonSchemaVersion.V1_6, ExportProfile.FULL): "export_schema_v1.6.json",                   # add
+    (ExportJsonSchemaVersion.V1_6, ExportProfile.STANDARD): "export_schema_v1.6_standard.json",      # add
 }
 
 def get_latest_version(self) -> ExportJsonSchemaVersion:
@@ -159,13 +195,13 @@ cd frontend && npm run build
 [ ] ExportJsonSchemaVersion.V1_6 added to domain/common.py
 [ ] New Pydantic fields / subclass added to models.py
 [ ] build_export_data() factory branch added (only if structural)
-[ ] export_schema_v1.6.json created
+[ ] export_schema_v1.6.json and export_schema_v1.6_standard.json created
 [ ] json_schema_registry.py updated + get_latest_version() bumped
 [ ] --schema-version Literal widened in cli.py + HELP_SCHEMA_VERSION updated
 [ ] frontend/package.json generate:types script updated to v1.6
 [ ] npm run generate:types run — src/types/report.ts regenerated
 [ ] npm run type-check passes — all Vue component access sites updated
 [ ] SPA rebuilt and spa_app.html regenerated
-[ ] Schema registry tests added
+[ ] Schema registry tests added (full and standard), projection test pointed at v1.6
 [ ] Renderer tests updated
 ```

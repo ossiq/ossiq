@@ -23,7 +23,10 @@ change a project's dependencies and do what the `next_action` says.
 
 Either call the CLI (below) or, if an MCP server named `ossiq` is connected, call
 the equivalent tools `ossiq_evaluate_dependency` / `ossiq_evaluate_updates`. Prefer these (or
-`--format agent`) over the `ossiq export` JSON: the export is a full report and several times larger.
+`--format agent`). If you need a file to hand over instead, `ossiq export` writes the standard
+profile - every direct dependency, the transitives that need attention, decision fields only.
+`ossiq export --full` adds every transitive, the dependency tree and raw upstream signals; it is for
+dashboards and archives and several times larger, so don't feed it to an agent.
 
 ## Tell OSS IQ which runtime the project runs on
 
@@ -104,7 +107,7 @@ Example output:
       "latest_in_range": "4.17.15",
       "latest_in_major": "4.17.21",
       "reasons": ["CVE-2021-23337 (HIGH)", "recommend updating 4.17.15 -> 4.17.21"],
-      "cves": [{"id": "CVE-2021-23337", "severity": "HIGH", "summary": "..."}],
+      "cves": [{"id": "CVE-2021-23337", "severity": "HIGH", "summary": "...", "epss": 0.2133, "fixed_in": ["4.17.21"]}],
       "transitive_impact": []
     },
     {
@@ -151,6 +154,11 @@ healthy long-term?" (`retain` / `patch` / `refactor` / `evict`, from exploit pro
 upstream maintenance). `next_action` is what to do now. A `retain` next to a CVE doesn't mean
 "don't update": `suppressed_cves` counts CVEs scored below the EPSS noise floor, and each CVE's
 own `epss` is listed under `cves`.
+
+Each CVE's `fixed_in` lists the releases that close it, one per fixed line (uuid's
+GHSA-w5hq-g745-h8pq: `["11.1.1", "12.0.1", "13.0.1"]` - so 12.0.0 is still affected). If you pick
+a target other than `to`, check it against `fixed_in`, or ask `update_context` for its verdict;
+don't bisect the release history one version at a time.
 
 `dependency_name` appears only when the manifest declares the package under a different key
 than its registry name — npm aliases (`"uuid-v7": "npm:uuid@^7.0.0"`) are the only case today.
