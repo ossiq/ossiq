@@ -35,9 +35,11 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - runner: macos-14
+          # Oldest macOS GitHub still hosts, for the same reason as Ubuntu below: a
+          # newer host can pull wheels tagged for a newer macOS and raise the floor.
+          - runner: macos-15
             target: darwin-arm64
-          - runner: macos-13
+          - runner: macos-15-intel
             target: darwin-x64
           # Built on the oldest supported Ubuntu so the glibc floor stays low.
           - runner: ubuntu-22.04
@@ -101,7 +103,13 @@ jobs:
           # gzip -n drops the mtime from the gzip header, so the tarball does not
           # change just because CI ran at a different time. `tar --sort=name` is
           # bsdtar-incompatible (macOS runners), so member order is left alone.
-          tar --numeric-owner --owner=0 --group=0 -cf - -C dist ossiq \
+          # bsdtar also rejects GNU's --owner/--group; --uid/--gid are its spelling.
+          if [[ "$(tar --version)" == *bsdtar* ]]; then
+            OWNER_FLAGS=(--uid 0 --gid 0)
+          else
+            OWNER_FLAGS=(--owner=0 --group=0)
+          fi
+          tar --numeric-owner "${OWNER_FLAGS[@]}" -cf - -C dist ossiq \
             | gzip -n -9 > "artifacts/ossiq-${{ matrix.target }}.tar.gz"
           ls -la artifacts
 
