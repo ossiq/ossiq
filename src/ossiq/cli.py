@@ -46,6 +46,7 @@ from ossiq.messages import (
     HELP_ADD_PACKAGE_NAME,
     HELP_ADD_VERSION,
     HELP_ALLOW_PARTIAL,
+    HELP_EXPORT_FULL,
     HELP_IGNORE_PACKAGE,
     HELP_LAG_THRESHOULD,
     HELP_OVERRIDE_PACKAGE,
@@ -483,6 +484,7 @@ def export(
         typer.Option("--ignore", "-i", help=HELP_IGNORE_PACKAGE),
     ] = None,
     allow_partial: Annotated[bool, typer.Option("--allow-partial", help=HELP_ALLOW_PARTIAL)] = False,
+    full: Annotated[bool, typer.Option("--full", is_flag=True, help=HELP_EXPORT_FULL)] = False,
 ):
     """
     Export project metrics to a file
@@ -507,6 +509,7 @@ def export(
                 update_strategy=default_strategy,
                 strategy_overrides=strategy_overrides,
                 ignore_packages=tuple(ignore or []),
+                full=full,
             ),
         )
 

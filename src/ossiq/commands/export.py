@@ -7,7 +7,13 @@ from typing import Literal
 
 import typer
 
-from ossiq.domain.common import Command, ProjectPackagesRegistry, UserInterfaceType
+from ossiq.domain.common import (
+    DEFAULT_EXPORT_PROFILE,
+    Command,
+    ExportProfile,
+    ProjectPackagesRegistry,
+    UserInterfaceType,
+)
 from ossiq.service.completeness import check_security_data_complete
 from ossiq.service.project.scan import scan
 from ossiq.settings import Settings
@@ -31,6 +37,7 @@ class CommandExportOptions:
     update_strategy: UpdateStrategy = DEFAULT_STRATEGY
     strategy_overrides: tuple[tuple[str, UpdateStrategy], ...] = ()
     allow_partial: bool = False
+    full: bool = False
 
 
 def command_export(ctx: typer.Context, options: CommandExportOptions):
@@ -38,6 +45,7 @@ def command_export(ctx: typer.Context, options: CommandExportOptions):
     Project data export command.
     """
     settings: Settings = ctx.obj
+    profile = ExportProfile.FULL if options.full else DEFAULT_EXPORT_PROFILE
     registry_type_map = {
         "npm": ProjectPackagesRegistry.NPM,
         "pypi": ProjectPackagesRegistry.PYPI,
@@ -49,6 +57,7 @@ def command_export(ctx: typer.Context, options: CommandExportOptions):
         {
             "project_path": options.project_path,
             "output_destination": options.output_destination,
+            "profile": profile.value,
             "narrow_registry_type": registry_type_map[options.registry_type] if options.registry_type else None,
         },
     )
@@ -84,4 +93,5 @@ def command_export(ctx: typer.Context, options: CommandExportOptions):
         destination=options.output_destination,
         schema_version=options.schema_version,
         update_strategy=options.update_strategy,
+        profile=profile,
     )
