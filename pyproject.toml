@@ -135,6 +135,10 @@ ossiq = ["hatch_build"]
 # Example override: relax a rule for the entire project (uncomment if needed).
 # rules.TY015 = "warn"  # For invalid-argument-type, warn instead of error.
 
+[tool.ty.src]
+# testdata/ holds fixture projects with their own, deliberately outdated dependencies.
+exclude = ["testdata"]
+
 [tool.ruff]
 line-length = 120
 

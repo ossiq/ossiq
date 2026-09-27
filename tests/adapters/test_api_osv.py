@@ -8,10 +8,10 @@ from unittest.mock import MagicMock, patch
 import pytest
 import requests
 
-from ossiq.adapters.api_osv import CveApiOsv
+from ossiq.adapters.api_osv import SUMMARY_MAX_CHARS, CveApiOsv, advisory_summary
 from ossiq.clients.batch import BatchClient
 from ossiq.domain.common import CveDatabase, DataSourceStatus, ProjectPackagesRegistry
-from ossiq.domain.cve import Severity
+from ossiq.domain.cve import AffectedRange, Severity
 from ossiq.domain.package import Package
 
 
@@ -303,9 +303,13 @@ class TestGetCvesBatch:
         assert cve.severity == Severity.CRITICAL
 
 
-class TestExtractFixVersions:
+class TestFixVersions:
+    @staticmethod
+    def fix_versions(osv_entry: dict, package: Package) -> tuple[str, ...]:
+        (cve,) = CveApiOsv(MagicMock()).parse_cve_response([{"id": "GHSA-fix", **osv_entry}], package, "1.0.0")
+        return cve.fix_versions
+
     def test_excludes_other_ecosystems_and_packages(self):
-        api = CveApiOsv(MagicMock())
         package = make_package("foo")
         osv_entry = {
             "affected": [
@@ -324,10 +328,9 @@ class TestExtractFixVersions:
             ]
         }
 
-        assert api.extract_fix_versions(osv_entry, package) == ("1.2.4",)
+        assert self.fix_versions(osv_entry, package) == ("1.2.4",)
 
     def test_collects_fixed_events_across_ranges(self):
-        api = CveApiOsv(MagicMock())
         package = make_package("foo")
         osv_entry = {
             "affected": [
@@ -351,10 +354,9 @@ class TestExtractFixVersions:
             ]
         }
 
-        assert api.extract_fix_versions(osv_entry, package) == ("1.2.4", "2.0.3")
+        assert self.fix_versions(osv_entry, package) == ("1.2.4", "2.0.3")
 
     def test_returns_empty_tuple_without_matching_fixed_event(self):
-        api = CveApiOsv(MagicMock())
         package = make_package("foo")
         osv_entry = {
             "affected": [
@@ -365,7 +367,7 @@ class TestExtractFixVersions:
             ]
         }
 
-        assert api.extract_fix_versions(osv_entry, package) == ()
+        assert self.fix_versions(osv_entry, package) == ()
 
 
 class TestFetchStatus:
@@ -416,3 +418,187 @@ class TestFetchStatus:
             fetch = api.get_cves_batch([(pkg, "4.17.20")])
 
         assert fetch.status == DataSourceStatus.OK
+
+
+class TestParseCveResponseSummary:
+    """D5 reproduction: PYSEC advisories carry `details` and no `summary`."""
+
+    def test_summary_falls_back_to_details(self):
+        pysec = {
+            "id": "PYSEC-2023-74",
+            "aliases": ["CVE-2023-32681", "GHSA-j8r2-6x86-q33q"],
+            "details": (
+                "Requests is a HTTP library. Since Requests 2.3.0, Requests has been leaking "
+                "Proxy-Authorization headers to destination servers when redirected to an HTTPS endpoint."
+            ),
+            "affected": [{"versions": ["2.28.1"]}],
+            "published": "2023-05-26T18:15:00Z",
+        }
+        api = CveApiOsv(MagicMock())
+
+        (cve,) = api.parse_cve_response([pysec], make_package("requests", ProjectPackagesRegistry.PYPI), "2.28.1")
+
+        assert cve.summary.startswith("Requests is a HTTP library")
+
+    def test_summary_wins_over_details(self):
+        assert advisory_summary({"summary": "Short", "details": "Long text"}) == "Short"
+
+    def test_only_the_first_line_of_details_is_used(self):
+        assert advisory_summary({"details": "First line.\n\nSecond paragraph."}) == "First line."
+
+    def test_long_details_are_truncated(self):
+        summary = advisory_summary({"details": "x" * 500})
+
+        assert len(summary) == SUMMARY_MAX_CHARS
+        assert summary.endswith("…")
+
+    def test_no_text_at_all_stays_empty(self):
+        assert advisory_summary({"id": "PYSEC-0"}) == ""
+
+
+# Trimmed from api.osv.dev as of 2026-09-26. npm GHSA records carry SEMVER ranges and never
+# enumerate `versions`; GHSA-35jh also lists sibling packages, one of them from another ecosystem.
+UUID_GHSA = {
+    "id": "GHSA-w5hq-g745-h8pq",
+    "aliases": ["CVE-2026-41907"],
+    "summary": "uuid: Missing buffer bounds check in v3/v5/v6 when buf is provided",
+    "affected": [
+        {
+            "package": {"ecosystem": "npm", "name": "uuid"},
+            "ranges": [{"type": "SEMVER", "events": [{"introduced": "0"}, {"fixed": "11.1.1"}]}],
+        },
+        {
+            "package": {"ecosystem": "npm", "name": "uuid"},
+            "ranges": [{"type": "SEMVER", "events": [{"introduced": "12.0.0"}, {"fixed": "12.0.1"}]}],
+        },
+        {
+            "package": {"ecosystem": "npm", "name": "uuid"},
+            "ranges": [{"type": "SEMVER", "events": [{"introduced": "13.0.0"}, {"fixed": "13.0.1"}]}],
+        },
+    ],
+}
+LODASH_GHSA = {
+    "id": "GHSA-35jh-r3h4-6jhm",
+    "summary": "Command Injection in lodash",
+    "affected": [
+        {
+            "package": {"ecosystem": "npm", "name": "lodash"},
+            "ranges": [{"type": "SEMVER", "events": [{"introduced": "0"}, {"fixed": "4.17.21"}]}],
+        },
+        {
+            "package": {"ecosystem": "npm", "name": "lodash-es"},
+            "ranges": [{"type": "SEMVER", "events": [{"introduced": "0"}, {"fixed": "4.17.21"}]}],
+        },
+        {
+            "package": {"ecosystem": "npm", "name": "lodash.template"},
+            "ranges": [{"type": "SEMVER", "events": [{"introduced": "0"}, {"last_affected": "4.5.0"}]}],
+        },
+        {
+            "package": {"ecosystem": "RubyGems", "name": "lodash-rails"},
+            "ranges": [{"type": "ECOSYSTEM", "events": [{"introduced": "0"}, {"fixed": "4.17.21"}]}],
+            "versions": ["4.17.15", "4.17.16", "4.17.20"],
+        },
+    ],
+}
+
+
+class TestAffectedRanges:
+    """D7 reproduction: an npm advisory's exposure lives only in its ranges."""
+
+    def test_npm_ranges_become_affected_ranges(self):
+        api = CveApiOsv(MagicMock())
+
+        (cve,) = api.parse_cve_response([UUID_GHSA], make_package("uuid"), "8.3.2")
+
+        assert cve.affected_ranges == (
+            AffectedRange(fixed="11.1.1"),
+            AffectedRange(introduced="12.0.0", fixed="12.0.1"),
+            AffectedRange(introduced="13.0.0", fixed="13.0.1"),
+        )
+        assert cve.affected_versions == ()
+        assert cve.fix_versions == ("11.1.1", "12.0.1", "13.0.1")
+
+    def test_sibling_packages_do_not_leak_into_this_package(self):
+        api = CveApiOsv(MagicMock())
+
+        (cve,) = api.parse_cve_response([LODASH_GHSA], make_package("lodash"), "4.17.15")
+
+        assert cve.affected_ranges == (AffectedRange(fixed="4.17.21"),)
+        assert cve.affected_versions == ()
+
+    def test_last_affected_is_an_inclusive_bound(self):
+        api = CveApiOsv(MagicMock())
+
+        (cve,) = api.parse_cve_response([LODASH_GHSA], make_package("lodash.template"), "4.5.0")
+
+        assert cve.affected_ranges == (AffectedRange(last_affected="4.5.0"),)
+        assert cve.fix_versions == ()
+
+    def test_several_intervals_in_one_range_are_paired_in_order(self):
+        api = CveApiOsv(MagicMock())
+        osv_entry = {
+            "id": "GHSA-pair",
+            "affected": [
+                {
+                    "package": {"ecosystem": "npm", "name": "foo"},
+                    "ranges": [
+                        {
+                            "type": "SEMVER",
+                            "events": [
+                                {"introduced": "0"},
+                                {"fixed": "1.2.4"},
+                                {"introduced": "2.0.0"},
+                                {"fixed": "2.0.3"},
+                                {"introduced": "3.0.0"},
+                            ],
+                        }
+                    ],
+                }
+            ],
+        }
+
+        (cve,) = api.parse_cve_response([osv_entry], make_package("foo"), "1.0.0")
+
+        assert cve.affected_ranges == (
+            AffectedRange(fixed="1.2.4"),
+            AffectedRange(introduced="2.0.0", fixed="2.0.3"),
+            AffectedRange(introduced="3.0.0"),
+        )
+
+    def test_git_ranges_are_skipped(self):
+        api = CveApiOsv(MagicMock())
+        osv_entry = {
+            "id": "GHSA-git",
+            "affected": [
+                {
+                    "package": {"ecosystem": "npm", "name": "foo"},
+                    "ranges": [
+                        {"type": "GIT", "repo": "https://x.test", "events": [{"introduced": "abc"}, {"fixed": "def"}]},
+                        {"type": "SEMVER", "events": [{"introduced": "0"}, {"fixed": "1.2.4"}]},
+                    ],
+                }
+            ],
+        }
+
+        (cve,) = api.parse_cve_response([osv_entry], make_package("foo"), "1.0.0")
+
+        assert cve.affected_ranges == (AffectedRange(fixed="1.2.4"),)
+        assert cve.fix_versions == ("1.2.4",)
+
+    def test_pypi_names_match_after_normalisation(self):
+        api = CveApiOsv(MagicMock())
+        osv_entry = {
+            "id": "PYSEC-yaml",
+            "affected": [
+                {
+                    "package": {"ecosystem": "PyPI", "name": "PyYAML"},
+                    "ranges": [{"type": "ECOSYSTEM", "events": [{"introduced": "0"}, {"fixed": "5.4"}]}],
+                    "versions": ["5.3", "5.3.1"],
+                }
+            ],
+        }
+
+        (cve,) = api.parse_cve_response([osv_entry], make_package("pyyaml", ProjectPackagesRegistry.PYPI), "5.3.1")
+
+        assert cve.affected_versions == ("5.3", "5.3.1")
+        assert cve.affected_ranges == (AffectedRange(fixed="5.4"),)

@@ -208,6 +208,8 @@ def add_detail_subrows(table: Table, pkg: ScanRecord, engine_context: EngineCont
 
     if pkg.compatibility.breaking_change:
         table.add_row(f"  [yellow]↳ {pkg.compatibility.breaking_change}[/]", *blanks)
+        if pkg.compatibility.module_system_note:
+            table.add_row(f"      [dim]{pkg.compatibility.module_system_note}[/]", *blanks)
 
     if pkg.compatibility.engine_compatible is False:
         # engine_compatible is denormalized onto the record; only draw the row when the check
@@ -282,6 +284,12 @@ class ConsoleStatusRenderer(AbstractUserInterfaceRenderer):
             )
         for warning in data.source_warnings:
             self.console.print(f"  [yellow]![/yellow] {warning}")
+        if (mismatch := data.runtime_mismatch) is not None:
+            self.console.print(
+                f"  [yellow]![/yellow] {mismatch.pin_file} pins {mismatch.engine} {mismatch.pinned}, but the scan "
+                f"checked against {mismatch.engine} {mismatch.runtime} ({mismatch.runtime_source}) - "
+                f"pass --engine {mismatch.engine}=<version> to match the runtime the project actually uses"
+            )
         self.console.print()
 
         main_table = self.build_main_table(

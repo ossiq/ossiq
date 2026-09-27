@@ -19,6 +19,7 @@ from ossiq.domain.exceptions import ApplicationError
 from ossiq.service.agent import AgentDecision, build_add_decide, build_update_decide
 from ossiq.service.completeness import check_security_data_complete
 from ossiq.service.package import build_installed_detail, fetch_prospective_detail, matches
+from ossiq.service.project.runtime_context import settings_with_stated_runtime
 from ossiq.service.project.scan import scan
 from ossiq.service.update_context import build_update_context_payload
 from ossiq.settings import Settings
@@ -28,6 +29,20 @@ from ossiq.strategy.pyramid import PYRAMID
 
 PROTOCOL_VERSION = "2025-06-18"
 SERVER_INFO = {"name": "ossiq", "version": importlib.metadata.version("ossiq")}
+
+RUNTIME_SCHEMA: dict[str, Any] = {
+    "description": (
+        "The runtime the project actually runs on, keyed by its registry: "
+        '{"node": "22.12.0"} for npm, {"python": "3.11"} for PyPI. Take it from the same shell '
+        "that runs the project's own tests (e.g. `node -v` next to `npm test`); never guess. "
+        'Pass "unknown" if you cannot tell - recommendations then assume no runtime beyond the '
+        "project's declared floor."
+    ),
+    "oneOf": [
+        {"type": "object", "additionalProperties": {"type": "string"}, "minProperties": 1},
+        {"type": "string", "enum": ["unknown"]},
+    ],
+}
 
 TOOLS: list[dict[str, Any]] = [
     {
@@ -44,8 +59,9 @@ TOOLS: list[dict[str, Any]] = [
                 "version": {"type": "string", "description": "Specific version the agent intends to add (optional)"},
                 "project_path": {"type": "string", "description": "Path to the project (default '.')"},
                 "registry_type": {"type": "string", "enum": ["npm", "pypi"], "description": "Force the registry"},
+                "runtime": RUNTIME_SCHEMA,
             },
-            "required": ["package"],
+            "required": ["package", "runtime"],
         },
     },
     {
@@ -86,8 +102,9 @@ TOOLS: list[dict[str, Any]] = [
                         "from a clean project. Check data_completeness in the payload either way."
                     ),
                 },
+                "runtime": RUNTIME_SCHEMA,
             },
-            "required": ["project_path"],
+            "required": ["project_path", "runtime"],
         },
     },
     {
@@ -95,8 +112,11 @@ TOOLS: list[dict[str, Any]] = [
         "description": (
             "Diff an installed (or not-yet-installed) package's version against an arbitrary target "
             "(default: OSS IQ's own recommendation) — module-system/API breaking changes, engine "
-            "(Node/Python) compatibility, and structural rejections along the way. Use before applying "
-            "an update to a specific version, especially one that isn't the recommended one."
+            "(Node/Python) compatibility, and structural rejections along the way. `comparison.verdict` "
+            "judges the target against OSS IQ's recommendation (recommended / suboptimal / breaking / "
+            "vulnerable / deprecated / beyond_recommendation) and `better_available` names the version "
+            "to take instead. Use before applying an update to a specific version, especially one that "
+            "isn't the recommended one."
         ),
         "inputSchema": {
             "type": "object",
@@ -108,8 +128,9 @@ TOOLS: list[dict[str, Any]] = [
                     "description": "Version to evaluate against (default: OSS IQ's recommended_version)",
                 },
                 "registry_type": {"type": "string", "enum": ["npm", "pypi"], "description": "Force the registry"},
+                "runtime": RUNTIME_SCHEMA,
             },
-            "required": ["package"],
+            "required": ["package", "runtime"],
         },
     },
 ]
@@ -117,6 +138,7 @@ TOOLS: list[dict[str, Any]] = [
 
 def evaluate_dependency(settings: Settings, args: dict[str, Any]) -> AgentDecision:
     """Build an add-decision for a single package (installed or prospective)."""
+    settings = settings_with_stated_runtime(settings, args.get("runtime"))
     package_name = args["package"]
     sources = project_sources.build_project_sources(
         settings,
@@ -140,6 +162,7 @@ def evaluate_dependency(settings: Settings, args: dict[str, Any]) -> AgentDecisi
 
 def evaluate_updates(settings: Settings, args: dict[str, Any]) -> AgentDecision:
     """Build an update-decision for a project's direct dependencies."""
+    settings = settings_with_stated_runtime(settings, args.get("runtime"))
     default_tier = parse_strategy(args.get("update_strategy", "standard"))
     overrides = {str(name): parse_strategy(str(tier)) for name, tier in (args.get("strategy_overrides") or {}).items()}
     strategy = StrategyPlan(default=default_tier, overrides=overrides)
@@ -168,6 +191,7 @@ def evaluate_updates(settings: Settings, args: dict[str, Any]) -> AgentDecision:
 
 def evaluate_update_context(settings: Settings, args: dict[str, Any]) -> dict[str, Any]:
     """Build an update-context diff for a single package against an arbitrary target version."""
+    settings = settings_with_stated_runtime(settings, args.get("runtime"))
     return build_update_context_payload(
         settings,
         project_path=args.get("project_path", "."),

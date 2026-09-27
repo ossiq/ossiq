@@ -14,6 +14,7 @@ from ossiq.messages import (
     ARGS_HELP_COOLDOWN_PERIOD,
     ARGS_HELP_CUTOFF_DATE,
     ARGS_HELP_DEBUG,
+    ARGS_HELP_ENGINE,
     ARGS_HELP_GITHUB_TOKEN,
     ARGS_HELP_PROBE_RUNTIME,
     ARGS_HELP_STABILITY,
@@ -64,6 +65,10 @@ class Settings(BaseSettings):
     stability: bool = Field(default=True, description=ARGS_HELP_STABILITY)
     stability_responsiveness: bool | None = Field(default=None, description=ARGS_HELP_STABILITY_RESPONSIVENESS)
     probe_runtime: bool = Field(default=True, description=ARGS_HELP_PROBE_RUNTIME)
+    engine_versions: dict[str, str] = Field(default_factory=dict, description=ARGS_HELP_ENGINE)
+    runtime_unknown: bool = Field(
+        default=False, description="Treat the runtime as unknown: no probe, no provided version, floor only"
+    )
 
     # Store the environment prefix for reference (not a setting itself)
     ENV_PREFIX: ClassVar[str] = ENV_PREFIX

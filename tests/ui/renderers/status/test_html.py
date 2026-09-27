@@ -200,6 +200,19 @@ class TestHtmlStatusRenderer:
         expected_keys = ["metadata", "project", "summary", "production_packages", "development_packages"]
         assert all(key in data for key in expected_keys)
 
+    def test_embedded_json_is_the_full_profile(self, output_file, sample_project_metrics, settings):
+        """D3: `ossiq export` defaults to the standard profile, but the SPA draws the dependency
+        tree and every transitive, so the report must keep embedding the full one."""
+        HtmlStatusRenderer(settings).render(sample_project_metrics, destination=str(output_file))
+
+        html_content = output_file.read_text(encoding="utf-8")
+        json_start = html_content.find('<script type="json/oss-iq-report">') + len('<script type="json/oss-iq-report">')
+        data = json.loads(html_content[json_start : html_content.find("</script>", json_start)])
+
+        assert data["metadata"]["profile"] == "full"
+        assert "dependency_tree" in data
+        assert "affected_versions" in data["production_packages"][0]["cve"][0]
+
     def test_project_name_placeholder_replaced_in_destination(self, tmp_path, sample_project_metrics, settings):
         """Test {project_name} placeholder is replaced with actual project name.
 

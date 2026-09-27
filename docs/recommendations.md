@@ -87,6 +87,27 @@ Freshness tiers get one more escape: if drift alone leaves nothing in reach — 
 only newer releases sit outside the declared range — reach widens one rung at a time until
 something is found. This is why a `pydantic==1.10.13` pin yields `1.10.26` instead of `None`.
 
+### The module-system line
+
+For a CommonJS npm project, a release that is ESM-only is a break however semver numbers it:
+`require()` of it fails outright on older Node, and on a Node that supports `require(esm)` it
+returns the module namespace, so a package with only a default export (chalk) still breaks. The
+manifest can't say which shape a package has. So the tier also decides whether a recommendation
+may cross from the installed module system to ESM-only:
+
+| Tier | May recommend an ESM-only release to a CommonJS project |
+|---|---|
+| `security`, `deprecation`, `standard` | no |
+| `latest`, `cutting-edge` | only when the runtime can `require()` ESM (Node ≥ 20.19, ≥ 22.12, ≥ 23), flagged with `breaking_change` |
+| any tier, CVE or end-of-life motive | yes, when no clean release is left on the CommonJS line — flagged the same way |
+
+The permission only grows up the pyramid, so a higher tier's target is still never lower. Drift
+alone never crosses on a lower tier. When every newer release is ESM-only, the target stays blank
+and the refused release is named in `rejected_candidates`, rather than being taken anyway. The
+record carries both answers: `latest_preserving_module_system` (where your code keeps working as
+it does today) and `latest_compatible_major` (what the runtime might load), with
+`module_system_note` saying which one the runtime qualifies for.
+
 ### A real run, two tiers
 
 Same project ([`testdata/pypi/version-constraint`](https://github.com/ossiq/ossiq/tree/main/testdata/pypi/version-constraint)),
@@ -217,11 +238,13 @@ package is left alone however much newer the registry has gone. The `↳` sub-ro
 its own cause, and the withheld one names the lowest tier that would move it — so a second run at
 a higher tier is a confirmation, never a cross-check you are obliged to perform.
 
-### 3.3 `triage.action` — the operational verdict
+### 3.3 `dependency_health` (triage) — the operational verdict
 
 From the EPSS × maintenance matrix (see [Repository stability](explanation/repository-stability.md#the-triage-matrix)):
 `retain`, `patch`, `refactor`, `evict`. **Advisory only** — it appears on every surface but changes
-no recommendation and gates no build.
+no recommendation and gates no build. The agent payload and MCP tools name it `dependency_health`,
+and the JSON export `dependency_health_action`. It answers "is this dependency healthy long-term?";
+`next_action` answers "what do I do now?".
 
 ### 3.4 The add decision — `install` / `install with caution` / `do not install`
 
@@ -243,11 +266,14 @@ These carry as much decision-making weight as the targets, and are easier to ski
 | *New transitive dependency* `⚠` | a package entering the tree for the first time, younger than the cooldown. Resolved by the native package manager, so the cooldown hold cannot apply to it | `plan` section |
 
 A blank *Recommended* cell with no accompanying `↳` row means OSS IQ found nothing newer. A blank
-cell **with** a `↳` row means it found something and refused it, and the row says why.
+cell **with** a `↳` row means it found something and refused it, and the row says why. The
+commonest case: a CommonJS project already at the top of its CommonJS line, whose only newer
+releases are ESM-only (`↳ 6.0.0 rejected: ESM-only from 6.0.0`). See
+[The module-system line](#the-module-system-line).
 
 ### What the recommendation catalogue risks
 
-- **Mistaking advice for a gate.** `triage_action` and `next_action` change no exit code. `ossiq
+- **Mistaking advice for a gate.** `dependency_health_action` and `next_action` change no exit code. `ossiq
   status` exits 0 on a project full of `evict` verdicts. Any CI gate is yours to write, over the
   JSON export. The single exception is not a gate but a refusal: a `security`/`deprecation` run
   whose vulnerability data never arrived exits non-zero rather than report an empty result it
@@ -269,8 +295,9 @@ PyPI. A release that cannot run on your runtime is not a candidate, however new 
 
 Two things can speak for an engine, and an engine requirement has to hold for **both**:
 
-- the **probe** — the actual interpreter, i.e. the project's virtualenv Python, or `node --version`
-  and `npm --version` from `PATH`;
+- the **runtime**: the version the caller states (MCP `runtime`, which is required there, or
+  `--engine node=<version>` on the CLI), or else, on the CLI only, the **probe**: the project's
+  virtualenv Python, or `node --version` and `npm --version` from `PATH`;
 - the **declared floor** — the lowest version the project's own manifest claims to support
   (`requires-python`, `engines.node`), reduced to a concrete version per engine key.
 
@@ -284,11 +311,20 @@ it runs fine here.
 
 | Source | Meaning |
 |---|---|
+| `provided` | the caller-stated runtime binds for every engine — no declared floor is lower |
 | `detected` | the probe binds for every engine — no declared floor is lower |
 | `declared` | the manifest floor binds for at least one engine |
 | `none` | neither was available; no engine checking happens at all |
 
-Probes are gated by registry: a pure-PyPI scan never spawns `node --version`.
+Probes are gated by registry: a pure-PyPI scan never spawns `node --version`. A stated runtime
+replaces the probe entirely. The MCP server never probes, because its `PATH` belongs to whatever
+process launched it, not to the shell the project's tests run in. That difference alone made two
+identical requests disagree.
+
+A stated or probed runtime is also checked against the version pins the project keeps for its
+own tooling (`.nvmrc`, `.node-version`, `.tool-versions`, `mise.toml`, `volta.node`,
+`.python-version`, `.venv/pyvenv.cfg`). A disagreement is reported as `runtime_mismatch`, never
+silently resolved: a pin says what developers run, not what the project supports.
 
 Both sides carry `npm` as well as `node`, so a release declaring `engines.npm` is checked too —
 the two share one semver grammar and one matcher. `pnpm` and `yarn` are deliberately **not**
@@ -325,7 +361,7 @@ the best available answer**; OSS IQ's obligation is to say so, not to hide it.
 
 | Risk | Detail |
 |---|---|
-| **The probed runtime may not be the deployed one** | On npm, the detected Node is whatever is on the `PATH` of the shell running `ossiq` — a developer laptop, not CI or production. Recommendations are gated against that. |
+| **The runtime may not be the deployed one** | A stated runtime is whatever the caller read. A probed one is whatever is on the `PATH` of the shell running `ossiq`: a developer laptop, not CI or production. Recommendations are gated against that. The pin cross-check catches the wrong shell, not the wrong environment. |
 | **The declared floor is a floor, not your runtime** | Whenever the floor is the lower of the two, checks run against the *lowest* version the manifest supports. A package requiring `node >=22` is reported incompatible for a project declaring `>=18`, even if every real deployment runs 24. Raising the floor is the fix; OSS IQ will not quietly assume you meant it. |
 | **The check fails open** | An engine key nothing can evaluate (`bun`, say) and an unparseable range both return "satisfied". A malformed `engines` field reads as compatible, not as unknown. |
 | **An engine absent from the context is never checked** | The check iterates the runtime versions it has, not the requirements a release declares. A `pnpm` requirement on a project that declares no `pnpm` floor is passed over in silence, exactly as an `npm` requirement was everywhere before it was probed. |
@@ -387,8 +423,9 @@ constraint (authorized by --update-strategy latest), or carry a known API/module
 ```
 
 The second prompt exists because two different things deserve a separate "yes": **rewriting a
-constraint someone chose deliberately**, and **taking a version whose major line is a known API or
-module-system break**. The second case used to pass silently whenever the break happened to sit
+constraint someone chose deliberately**, and **taking a version that crosses a known API or
+module-system break**. `breaking_change` ignores the runtime, so an ESM-only target in a CommonJS
+project always asks, including the ones `latest` picks on a `require(esm)`-capable Node. The second case used to pass silently whenever the break happened to sit
 *inside* the declared range — `uuid@>11.0.0` admits ESM-only `14.0.2` — so nothing asked. Both are
 now named per entry. `--yes` skips both prompts.
 

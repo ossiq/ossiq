@@ -260,7 +260,8 @@ unknown.
 "Not maintained" means $P(\text{abandoned}) + P(\text{deprecated}) \ge 0.5$ from the model, not a
 raw calendar rule. CVEs scoring below $0.005$ — a 0.5% chance of exploitation — don't count
 toward the exploit signal; they are reported as `suppressed_cves` rather than dropped, so the
-noise reduction stays visible.
+noise reduction stays visible. A `retain` with suppressed CVEs says so in its reason ("N CVE(s)
+scored below EPSS 0.005") rather than claiming no signal at all.
 
 ```{note}
 The action is **advisory.** It appears in `status`, `info`, the JSON export, the HTML
@@ -289,7 +290,7 @@ action.
 The `--schema-version=1.5` JSON export carries `maintenance_state`, `maintenance_risk`,
 `maintenance_coverage`, `gap_cv`, `median_gap_days`, `silence_days`, `silence_p`,
 `commits_sampled`, `span_days`, `flow_trend`, `engagement_buckets`, `deprecation_signals`,
-`deprecation_successor`, `days_since_push`, `archived` and `triage_action`.
+`deprecation_successor`, `days_since_push`, `archived` and `dependency_health_action` (the triage action).
 
 **Any field is `null` when it couldn't be measured. That means "unknown", never "no risk."**
 

@@ -302,6 +302,10 @@ def ladder_rows(record: ScanRecord) -> list[tuple[str, Text]]:
     # release in the major line; otherwise it restates the row above it.
     if facts.latest_compatible_major != facts.latest_in_major:
         candidates.append(("Compatible Major", facts.latest_compatible_major))
+    # Differs from the compatible major only when that one is reachable solely through require(esm)
+    # - which is exactly when the runtime-independent stop is worth its own row.
+    if facts.latest_preserving_module_system not in (facts.latest_compatible_major, facts.latest_in_major):
+        candidates.append(("Same Module System", facts.latest_preserving_module_system))
 
     rows: list[tuple[str, Text]] = []
     for label, version in candidates:
@@ -311,6 +315,8 @@ def ladder_rows(record: ScanRecord) -> list[tuple[str, Text]]:
         if is_the_recommended_version(record, version):
             value.append(RECOMMENDED_MARKER, style="dim")
         rows.append((label, value))
+    if facts.module_system_note:
+        rows.append(("ESM-only", Text(facts.module_system_note, style="dim")))
     return rows
 
 

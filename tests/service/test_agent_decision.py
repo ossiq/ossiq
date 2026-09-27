@@ -27,7 +27,7 @@ from ossiq.domain.common import (
     SignalCoverage,
 )
 from ossiq.domain.compatibility import CompatibilityFacts
-from ossiq.domain.cve import CVE, Severity
+from ossiq.domain.cve import CVE, AffectedRange, Severity
 from ossiq.domain.project import ConstraintSource
 from ossiq.domain.version import VERSION_DIFF_MAJOR, VERSION_DIFF_MINOR, VERSION_LATEST, VersionsDifference
 from ossiq.risk.maintenance import MaintenanceAssessment, MaintenanceState
@@ -719,8 +719,8 @@ def test_triage_summary_surfaces_cve_data_unavailable_to_the_agent():
     decision = build_update_decide(make_scan([record]))
     entry = decision["updates"][0]
 
-    assert entry["triage"]["cve_data_unavailable"] is True
-    assert "could not be retrieved" in entry["triage"]["reason"]
+    assert entry["dependency_health"]["cve_data_unavailable"] is True
+    assert "could not be retrieved" in entry["dependency_health"]["reason"]
 
 
 def test_triage_summary_omits_cve_data_unavailable_when_false():
@@ -735,14 +735,14 @@ def test_triage_summary_omits_cve_data_unavailable_when_false():
     decision = build_update_decide(make_scan([record]))
     entry = decision["updates"][0]
 
-    assert "cve_data_unavailable" not in entry["triage"]
+    assert "cve_data_unavailable" not in entry["dependency_health"]
 
 
 # --- maintenance verdicts at low signal coverage must say so -----------------------------------
 
 
 def make_maintenance(state: str, p_not_maintained: float, observations: dict | None = None) -> MaintenanceAssessment:
-    posterior = {s: 0.0 for s in MaintenanceState}
+    posterior: dict[str, float] = {s: 0.0 for s in MaintenanceState}
     posterior[state] = 1.0
     return MaintenanceAssessment(posterior, state, p_not_maintained, observations or {})
 
@@ -765,8 +765,8 @@ def test_maintenance_verdict_surfaces_degraded_signal_coverage():
     decision = build_update_decide(make_scan([record]))
     entry = decision["updates"][0]
 
-    assert entry["triage"]["maintenance_state"] == "abandoned"
-    assert entry["triage"]["maintenance_signal_coverage"] == "activity_unavailable"
+    assert entry["dependency_health"]["maintenance_state"] == "abandoned"
+    assert entry["dependency_health"]["maintenance_signal_coverage"] == "activity_unavailable"
 
 
 def test_maintenance_verdict_omits_coverage_field_when_full():
@@ -786,7 +786,7 @@ def test_maintenance_verdict_omits_coverage_field_when_full():
     decision = build_update_decide(make_scan([record]))
     entry = decision["updates"][0]
 
-    assert "maintenance_signal_coverage" not in entry["triage"]
+    assert "maintenance_signal_coverage" not in entry["dependency_health"]
 
 
 def test_maintenance_verdict_surfaces_coverage_gap_even_for_a_healthy_state():
@@ -806,4 +806,124 @@ def test_maintenance_verdict_surfaces_coverage_gap_even_for_a_healthy_state():
     decision = build_update_decide(make_scan([record]))
     entry = decision["updates"][0]
 
-    assert entry["triage"]["maintenance_signal_coverage"] == "repository_unavailable"
+    assert entry["dependency_health"]["maintenance_signal_coverage"] == "repository_unavailable"
+
+
+def test_update_next_action_agrees_with_a_recommendation_that_clears_the_cve():
+    """D4 reproduction: the uuid record from the benchmark said `to: 11.1.1/14.0.2` (a fix) and
+    `next_action: Check for the Fix` (no fix) at the same time, next to `triage.action: retain`."""
+    advisory = dataclasses.replace(make_cve("8.3.2"), id="GHSA-w5hq-g745-h8pq", epss=0.0001)
+    record = make_record(
+        name="uuid",
+        installed="8.3.2",
+        latest="14.0.2",
+        diff_index=VERSION_DIFF_MAJOR,
+        cves=[advisory],
+        recommended="11.1.1",
+        recommended_from_rung=RecommendationRung.LATEST,
+        triage=TriageResult(ACTION_RETAIN, "No significant exploit or stability signal.", None, 1, False),
+    )
+
+    entry = build_update_decide(make_scan([record]))["updates"][0]
+
+    assert entry["to"] == "11.1.1"
+    assert entry["next_action"] != "Check for the Fix"
+
+
+def test_update_next_action_checks_for_the_fix_when_the_recommendation_is_still_affected():
+    """select_target's rule 7: every reachable version still carries the CVE, so `to` is no fix."""
+    advisory = dataclasses.replace(make_cve("1.0.0"), affected_versions=("1.0.0", "1.1.0"), epss=0.2)
+    record = make_record(
+        installed="1.0.0",
+        latest="1.1.0",
+        diff_index=VERSION_DIFF_MINOR,
+        cves=[advisory],
+        recommended="1.1.0",
+        recommended_from_rung=RecommendationRung.IN_RANGE,
+    )
+
+    assert build_update_decide(make_scan([record]))["updates"][0]["next_action"] == "Check for the Fix"
+
+
+def test_update_next_action_is_constrained_when_the_cve_fix_needs_widening():
+    advisory = dataclasses.replace(make_cve("1.0.0"), epss=0.001)
+    record = make_record(
+        installed="1.0.0",
+        latest="1.1.0",
+        diff_index=VERSION_DIFF_MINOR,
+        cves=[advisory],
+        recommended="1.1.0",
+        recommended_from_rung=RecommendationRung.LATEST,
+        version_constraint="1.0.0",
+    )
+
+    entry = build_update_decide(make_scan([record]))["updates"][0]
+
+    assert entry["next_action"] == "Constrained. Check newer version"
+    assert entry["requires_constraint_widening"] is True
+
+
+def test_cve_summary_carries_the_epss_score_behind_suppression():
+    advisory = dataclasses.replace(make_cve("8.3.2"), epss=0.00012)
+    record = make_record(installed="8.3.2", latest="11.1.1", diff_index=VERSION_DIFF_MAJOR, cves=[advisory])
+
+    (cve,) = build_update_decide(make_scan([record]))["updates"][0]["cves"]
+
+    assert cve["epss"] == 0.0001
+
+
+def uuid_range_advisory() -> CVE:
+    """GHSA-w5hq-g745-h8pq as OSV publishes it for npm: ranges and fixes, no enumerated versions."""
+    return dataclasses.replace(
+        make_cve(),
+        package_name="uuid",
+        package_registry=ProjectPackagesRegistry.NPM,
+        affected_versions=(),
+        fix_versions=("11.1.1", "12.0.1", "13.0.1"),
+        affected_ranges=(
+            AffectedRange(fixed="11.1.1"),
+            AffectedRange(introduced="12.0.0", fixed="12.0.1"),
+            AffectedRange(introduced="13.0.0", fixed="13.0.1"),
+        ),
+    )
+
+
+def test_a_target_still_inside_an_npm_advisory_range_is_not_a_fix():
+    """D7: 12.0.0 is inside uuid's second range, so moving there fixes nothing."""
+    record = make_record(
+        name="uuid",
+        installed="8.3.2",
+        latest="14.0.2",
+        diff_index=VERSION_DIFF_MAJOR,
+        cves=[uuid_range_advisory()],
+        recommended="12.0.0",
+    )
+
+    entry = build_update_decide(make_scan([record]))["updates"][0]
+
+    assert entry["next_action"] == "Check for the Fix"
+
+
+def test_a_target_outside_every_npm_advisory_range_is_a_fix():
+    record = make_record(
+        name="uuid",
+        installed="8.3.2",
+        latest="14.0.2",
+        diff_index=VERSION_DIFF_MAJOR,
+        cves=[uuid_range_advisory()],
+        recommended="11.1.1",
+    )
+
+    entry = build_update_decide(make_scan([record]))["updates"][0]
+
+    assert entry["next_action"] == "Check Release Notes"
+
+
+def test_cve_summary_names_the_fixed_releases():
+    record = make_record(
+        name="uuid", installed="8.3.2", latest="14.0.2", diff_index=VERSION_DIFF_MAJOR, cves=[uuid_range_advisory()]
+    )
+
+    (cve,) = build_update_decide(make_scan([record]))["updates"][0]["cves"]
+
+    assert cve["fixed_in"] == ["11.1.1", "12.0.1", "13.0.1"]

@@ -1,7 +1,7 @@
 """
 Schema registry for export formats.
 
-Maps schema versions to their corresponding JSON schema files.
+Maps each (schema version, profile) pair to its JSON schema file.
 This allows for version-specific validation and evolution of the export format.
 """
 
@@ -9,37 +9,39 @@ import json
 from pathlib import Path
 from typing import ClassVar
 
-from ossiq.domain.common import ExportJsonSchemaVersion
+from ossiq.domain.common import ExportJsonSchemaVersion, ExportProfile
 
 
 class SchemaRegistry:
-    """Registry mapping schema versions to JSON schema files."""
+    """Registry mapping schema versions and export profiles to JSON schema files."""
 
-    # Map schema version to schema file name
-    _SCHEMA_FILES: ClassVar[dict[ExportJsonSchemaVersion, str]] = {
-        ExportJsonSchemaVersion.V1_5: "export_schema_v1.5.json",
+    # One file per (version, profile): the standard profile is a projection of the full one, with a
+    # schema of its own so a leaked full-only field fails validation instead of passing unnoticed.
+    SCHEMA_FILES: ClassVar[dict[tuple[ExportJsonSchemaVersion, ExportProfile], str]] = {
+        (ExportJsonSchemaVersion.V1_5, ExportProfile.FULL): "export_schema_v1.5.json",
+        (ExportJsonSchemaVersion.V1_5, ExportProfile.STANDARD): "export_schema_v1.5_standard.json",
     }
 
-    _schemas_dir: Path
+    schemas_dir: Path
 
     def __init__(self):
         """Initialize schema registry with path to schemas directory."""
-        self._schemas_dir = Path(__file__).parent / "schemas"
+        self.schemas_dir = Path(__file__).parent / "schemas"
 
-    def get_schema_path(self, version: ExportJsonSchemaVersion) -> Path:
+    def get_schema_path(self, version: ExportJsonSchemaVersion, profile: ExportProfile = ExportProfile.FULL) -> Path:
         """
-        Get the path to the JSON schema file for a given version.
+        Get the path to the JSON schema file for a given version and profile.
         """
-        if version not in self._SCHEMA_FILES:
-            raise ValueError(f"No schema file registered for version {version.value}")
+        if (version, profile) not in self.SCHEMA_FILES:
+            raise ValueError(f"No schema file registered for version {version.value}, profile {profile.value}")
 
-        return self._schemas_dir / self._SCHEMA_FILES[version]
+        return self.schemas_dir / self.SCHEMA_FILES[(version, profile)]
 
-    def load_schema(self, version: ExportJsonSchemaVersion) -> dict:
+    def load_schema(self, version: ExportJsonSchemaVersion, profile: ExportProfile = ExportProfile.FULL) -> dict:
         """
-        Load and parse the JSON schema for a given version.
+        Load and parse the JSON schema for a given version and profile.
         """
-        schema_path = self.get_schema_path(version)
+        schema_path = self.get_schema_path(version, profile)
 
         if not schema_path.exists():
             raise FileNotFoundError(f"Schema file not found: {schema_path}")
@@ -58,9 +60,9 @@ class SchemaRegistry:
         List all registered schema versions.
 
         Returns:
-            List of supported schema versions
+            List of supported schema versions, each once whatever its profiles
         """
-        return list(self._SCHEMA_FILES.keys())
+        return list(dict.fromkeys(version for version, _ in self.SCHEMA_FILES))
 
 
 # Global registry instance

@@ -159,6 +159,8 @@ export function useD3Tree(options: UseD3TreeOptions) {
       latest_in_range: d.data.latest_in_range,
       latest_in_major: d.data.latest_in_major,
       latest_compatible_major: d.data.latest_compatible_major,
+      latest_preserving_module_system: d.data.latest_preserving_module_system,
+      module_system_note: d.data.module_system_note,
       version_constraint_declared: d.data.version_constraint_declared,
       epss: d.data.epss,
       maintenance_coverage: d.data.maintenance_coverage,
@@ -173,7 +175,7 @@ export function useD3Tree(options: UseD3TreeOptions) {
       commits_sampled: d.data.commits_sampled,
       archived: d.data.archived,
       days_since_push: d.data.days_since_push,
-      triage_action: d.data.triage_action,
+      dependency_health_action: d.data.dependency_health_action,
       dependencies: d.data.dependencies,
       optional_dependencies: d.data.optional_dependencies,
     })

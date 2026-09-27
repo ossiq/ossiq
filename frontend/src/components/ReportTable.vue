@@ -204,11 +204,11 @@ function spdxUrl(spdxId: string): string {
                   @click="emit('selectPackage', row)"
                 >{{ row.pkg.package_name }}</button>
                 <span
-                  v-if="row.pkg.triage_action && row.pkg.triage_action !== 'retain'"
+                  v-if="row.pkg.dependency_health_action && row.pkg.dependency_health_action !== 'retain'"
                   class="px-1.5 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wide shrink-0"
-                  :class="triageClasses(row.pkg.triage_action)"
+                  :class="triageClasses(row.pkg.dependency_health_action)"
                   :title="`Recommended action from the EPSS x maintenance-state matrix`"
-                >{{ row.pkg.triage_action }}</span>
+                >{{ row.pkg.dependency_health_action }}</span>
                 <span
                   v-if="row.hasTransitiveCve"
                   class="text-orange-500 font-black leading-none text-xs"

@@ -102,6 +102,10 @@ def triage(
 
     if cve_data_unavailable:
         reason = "CVE data could not be retrieved for this scan; exploit signal unknown, not confirmed clean."
+    elif suppressed:
+        # "No significant exploit" next to a listed HIGH CVE read as a contradiction; the CVE is
+        # there, it is just scored below the floor this matrix treats as noise.
+        reason = f"No exploit signal above the EPSS noise floor; {suppressed} CVE(s) scored below EPSS {noise}."
     else:
         reason = "No significant exploit or stability signal."
     return TriageResult(ACTION_RETAIN, reason, max_epss, suppressed, cve_data_unavailable)

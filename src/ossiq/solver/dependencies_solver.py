@@ -263,7 +263,7 @@ def _run_solve(
     engine_context: dict[str, str],
     *,
     allow_prerelease: bool = False,
-    cve_affected: dict[str, set[str]] | None = None,
+    cves_by_package: dict[str, tuple[CVE, ...]] | None = None,
     now: datetime | None = None,
     cooldown_period: int = VERY_FRESH_THRESHOLD_DAYS,
     rewrite_pinned: bool = False,
@@ -278,7 +278,7 @@ def _run_solve(
         deps,
         registry,
         engine_context,
-        cve_affected=cve_affected or {},
+        cves_by_package=cves_by_package or {},
         allow_prerelease=allow_prerelease,
         _now=now,
         rewrite_pinned=rewrite_pinned,
@@ -402,11 +402,8 @@ def solve_transitive(
     # 1. Deduplicate by package_name — keep first occurrence (same as direct pass).
     unique_records = list({r.package_name: r for r in transitive_records}.values())
 
-    # 2. Build CVE-affected-versions map: {canonical_name: {version, ...}}.
-    cve_affected: dict[str, set[str]] = {}
-    for r in unique_records:
-        for cve in r.cve:
-            cve_affected.setdefault(r.package_name, set()).update(cve.affected_versions)
+    # 2. Each package's advisories; SolvablePool judges every candidate against them.
+    cves_by_package: dict[str, tuple[CVE, ...]] = {r.package_name: tuple(r.cve) for r in unique_records if r.cve}
 
     # 3. Convert to DepLike-compatible adapters.
     deps: list[TransitiveDependency] = [
@@ -427,7 +424,7 @@ def solve_transitive(
         registry,
         engine_context,
         allow_prerelease=allow_prerelease,
-        cve_affected=cve_affected,
+        cves_by_package=cves_by_package,
         now=now,
         cooldown_period=cooldown_period,
     )

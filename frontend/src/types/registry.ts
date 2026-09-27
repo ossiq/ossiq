@@ -35,6 +35,8 @@ export interface RegistryEntry {
   latest_in_range: string | null
   latest_in_major: string | null
   latest_compatible_major: string | null
+  latest_preserving_module_system: string | null
+  module_system_note: string | null
   epss: number | null
   maintenance_coverage: number | null
   maintenance_risk: number | null
@@ -48,7 +50,7 @@ export interface RegistryEntry {
   commits_sampled: number | null
   archived: boolean | null
   days_since_push: number | null
-  triage_action: string | null
+  dependency_health_action: string | null
   childEdges: Map<number, EdgeData>
 }
 
@@ -82,6 +84,8 @@ export interface DirectEntry {
   latest_in_range: string | null
   latest_in_major: string | null
   latest_compatible_major: string | null
+  latest_preserving_module_system: string | null
+  module_system_note: string | null
   version_constraint_declared: string | null
   epss: number | null
   maintenance_coverage: number | null
@@ -96,7 +100,7 @@ export interface DirectEntry {
   commits_sampled: number | null
   archived: boolean | null
   days_since_push: number | null
-  triage_action: string | null
+  dependency_health_action: string | null
   childRefs: Array<{ ref: number; edgeData: EdgeData }>
 }
 

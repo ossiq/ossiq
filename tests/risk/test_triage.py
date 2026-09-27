@@ -136,3 +136,20 @@ class TestCveDataUnavailable:
         result = triage([make_cve(0.42)], STABLE, cve_data_unavailable=True)
         assert result.action == ACTION_PATCH
         assert result.reason == "Active exploit probability, and the repository is active enough to ship a fix."
+
+
+class TestSuppressedCveReason:
+    """D4 reproduction: a HIGH CVE suppressed by EPSS is described as "no significant signal"."""
+
+    def test_reason_names_the_suppressed_cve(self) -> None:
+        result = triage([make_cve(epss=0.0001)], unstable=STABLE)
+
+        assert result.action == ACTION_RETAIN
+        assert result.suppressed_cves == 1
+        assert "No significant exploit" not in result.reason
+        assert "EPSS" in result.reason
+
+    def test_no_suppression_keeps_the_plain_reason(self) -> None:
+        result = triage([make_cve(epss=None)], unstable=STABLE)
+
+        assert result.reason == "No significant exploit or stability signal."

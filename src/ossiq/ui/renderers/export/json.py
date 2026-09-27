@@ -9,13 +9,19 @@ detailed package metrics.
 import os
 import sys
 
-from ossiq.domain.common import Command, ExportJsonSchemaVersion, UserInterfaceType
+from ossiq.domain.common import (
+    DEFAULT_EXPORT_PROFILE,
+    Command,
+    ExportJsonSchemaVersion,
+    ExportProfile,
+    UserInterfaceType,
+)
 from ossiq.domain.exceptions import DestinationDoesntExist
 from ossiq.domain.project import normalize_filename
 from ossiq.service.project.models import ScanResult
 from ossiq.ui.interfaces import AbstractUserInterfaceRenderer
 from ossiq.ui.renderers.export.json_schema_registry import json_schema_registry
-from ossiq.ui.renderers.export.models import build_export_data
+from ossiq.ui.renderers.export.models import build_export_data, export_json
 
 STDOUT_DESTINATION = "-"
 """B8: the conventional Unix "write to stdout" destination, so export can stream directly into
@@ -33,7 +39,14 @@ class JsonExportRenderer(AbstractUserInterfaceRenderer):
         """Check if this renderer handles export/json combination."""
         return command == Command.EXPORT and user_interface_type == UserInterfaceType.JSON
 
-    def render(self, data: ScanResult, destination: str = ".", schema_version: str | None = None, **kwargs) -> None:
+    def render(
+        self,
+        data: ScanResult,
+        destination: str = ".",
+        schema_version: str | None = None,
+        profile: ExportProfile = DEFAULT_EXPORT_PROFILE,
+        **kwargs,
+    ) -> None:
         """
         Export project metrics to JSON file with metadata wrapper.
 
@@ -45,6 +58,7 @@ class JsonExportRenderer(AbstractUserInterfaceRenderer):
             destination: Output file path (supports {project_name} placeholder), or "-" to
                 write to stdout instead of a file.
             schema_version: Schema version string (e.g. "1.0", "1.1"). Defaults to latest.
+            profile: `standard` (the default) or `full`; each validates against its own schema.
             **kwargs: Optional arguments:
                 - validate_schema (bool): Validate against JSON schema (default: True)
 
@@ -66,13 +80,14 @@ class JsonExportRenderer(AbstractUserInterfaceRenderer):
             data,
             schema_version=resolved_version,
             update_strategy=update_strategy.value if update_strategy is not None else None,
+            profile=profile,
         )
 
         if destination == STDOUT_DESTINATION:
             # B8: stdout carries only the requested payload - safe only because
             # show_settings/show_scan_progress (called earlier in command_export) already write
             # their diagnostic output to stderr, not this stream.
-            sys.stdout.write(export_data.model_dump_json())
+            sys.stdout.write(export_json(export_data))
             return
 
         destination = os.path.expanduser(destination)
@@ -95,4 +110,4 @@ class JsonExportRenderer(AbstractUserInterfaceRenderer):
 
         # Write JSON to file using Pydantic serialization
         with open(target_path, "w", encoding="utf-8") as f:
-            f.write(export_data.model_dump_json())
+            f.write(export_json(export_data))

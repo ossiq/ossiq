@@ -3,13 +3,13 @@
 import os
 from pathlib import Path
 
-from ossiq.domain.common import Command, UserInterfaceType
+from ossiq.domain.common import Command, ExportProfile, UserInterfaceType
 from ossiq.domain.exceptions import DestinationDoesntExist
 from ossiq.domain.project import normalize_filename
 from ossiq.service.project.models import ScanResult
 from ossiq.ui.interfaces import AbstractUserInterfaceRenderer
 from ossiq.ui.renderers.export.json_schema_registry import json_schema_registry
-from ossiq.ui.renderers.export.models import build_export_data
+from ossiq.ui.renderers.export.models import build_export_data, export_json
 
 
 class HtmlStatusRenderer(AbstractUserInterfaceRenderer):
@@ -45,14 +45,15 @@ class HtmlStatusRenderer(AbstractUserInterfaceRenderer):
         spa_template_path = Path(__file__).parent.parent.parent / "html_templates" / "spa_app.html"
         spa_template = spa_template_path.read_text(encoding="utf-8")
 
-        # Convert ProjectMetrics to ExportData (reuses JSON export logic)
+        # The SPA draws the dependency tree and every transitive, so it always gets the full profile.
         export_data = build_export_data(
             data,
             schema_version=json_schema_registry.get_latest_version(),
+            profile=ExportProfile.FULL,
         )
 
         # Serialize to JSON and inject into SPA template
-        json_data = export_data.model_dump_json()
+        json_data = export_json(export_data)
         rendered_html = spa_template.replace("__OSSIQ_REPORT_DATA__", json_data)
 
         # Resolve output path with project name placeholder

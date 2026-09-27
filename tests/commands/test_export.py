@@ -68,3 +68,17 @@ def test_stdout_carries_only_json_end_to_end(capsys, verbose):
     # no settings panel, no progress-bar remnants mixed in before or after it.
     data = json.loads(captured.out)
     assert data["project"]["registry"] == "pypi"
+
+
+@pytest.mark.parametrize(("full", "profile"), [(False, "standard"), (True, "full")])
+def test_full_flag_picks_the_profile(capsys, full, profile):
+    """D3: `ossiq export` writes the standard profile; `--full` writes everything."""
+    with (
+        patch("ossiq.commands.export.project_sources.ProjectSources"),
+        patch("ossiq.commands.export.scan", return_value=make_scan_result()),
+    ):
+        command_export(make_context(verbose=False), make_options(full=full))
+
+    data = json.loads(capsys.readouterr().out)
+    assert data["metadata"]["profile"] == profile
+    assert ("dependency_tree" in data) is full

@@ -35,6 +35,12 @@ HELP_SCHEMA_VERSION = """
 Export schema version. Default: latest. Possible options: 1.5
 """
 
+HELP_EXPORT_FULL = """
+Export the full report: every transitive package, the dependency tree, provenance URLs and the raw
+upstream signals. Default: the standard report - every direct dependency, the transitive packages
+that need attention, and the fields needed to decide what to do.
+"""
+
 WARNING_MULTIPLE_REGISTRY_TYPES = """
 `{project_path}` contains multiple registry types. Use `--registry-type` option to narrow it down
 """
@@ -99,6 +105,12 @@ ARGS_HELP_PROBE_RUNTIME = (
     "subprocess/file probes (timeout 3s each, never blocks a scan on failure); disable with "
     "--no-probe-runtime for CI/sandboxed environments or to compare only against the declared "
     "floor. Overrides OSSIQ_PROBE_RUNTIME env var."
+)
+
+ARGS_HELP_ENGINE = (
+    "The runtime version the project actually runs on, as ENGINE=VERSION (e.g. node=20.11.0 or "
+    "python=3.11); repeatable. Replaces the --probe-runtime probe for that engine, and is still "
+    "held to the project's declared floor (engines / requires-python)."
 )
 
 HELP_INFO_COMMAND = """

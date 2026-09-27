@@ -41,6 +41,8 @@ export function buildPackageRegistry(report: OSSIQExportSchemaV15): PackageRegis
       latest_in_range: pkg.latest_in_range ?? null,
       latest_in_major: pkg.latest_in_major ?? null,
       latest_compatible_major: pkg.latest_compatible_major ?? null,
+      latest_preserving_module_system: pkg.latest_preserving_module_system ?? null,
+      module_system_note: pkg.module_system_note ?? null,
       epss: pkg.epss ?? null,
       maintenance_coverage: pkg.maintenance_coverage ?? null,
       maintenance_risk: pkg.maintenance_risk ?? null,
@@ -54,7 +56,7 @@ export function buildPackageRegistry(report: OSSIQExportSchemaV15): PackageRegis
       commits_sampled: pkg.commits_sampled ?? null,
       archived: pkg.archived ?? null,
       days_since_push: pkg.days_since_push ?? null,
-      triage_action: pkg.triage_action ?? null,
+      dependency_health_action: pkg.dependency_health_action ?? null,
       childEdges: new Map(),
     })
   }
@@ -104,6 +106,8 @@ export function buildPackageRegistry(report: OSSIQExportSchemaV15): PackageRegis
       latest_in_range: pkg.latest_in_range ?? null,
       latest_in_major: pkg.latest_in_major ?? null,
       latest_compatible_major: pkg.latest_compatible_major ?? null,
+      latest_preserving_module_system: pkg.latest_preserving_module_system ?? null,
+      module_system_note: pkg.module_system_note ?? null,
       version_constraint_declared: pkg.version_constraint_declared ?? null,
       epss: pkg.epss ?? null,
       maintenance_coverage: pkg.maintenance_coverage ?? null,
@@ -118,7 +122,7 @@ export function buildPackageRegistry(report: OSSIQExportSchemaV15): PackageRegis
       commits_sampled: pkg.commits_sampled ?? null,
       archived: pkg.archived ?? null,
       days_since_push: pkg.days_since_push ?? null,
-      triage_action: pkg.triage_action ?? null,
+      dependency_health_action: pkg.dependency_health_action ?? null,
       childRefs: [],
     })
   }

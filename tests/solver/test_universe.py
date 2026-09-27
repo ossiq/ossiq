@@ -6,7 +6,8 @@ from unittest.mock import MagicMock
 from packaging.version import Version as PV
 
 from ossiq.adapters.api_interfaces import AbstractPackageRegistryApi
-from ossiq.domain.common import ConstraintType, ProjectPackagesRegistry
+from ossiq.domain.common import ConstraintType, CveDatabase, ProjectPackagesRegistry
+from ossiq.domain.cve import CVE, AffectedRange, Severity
 from ossiq.domain.project import ConstraintSource
 from ossiq.domain.version import PackageVersion
 from ossiq.solver.problem import CandidateVersion, PackageConstraint, SolverProblem
@@ -122,6 +123,31 @@ class TestCandidateVersionFiltering:
         versions = [cv.version for cv in problem.candidates["pkg"]]
         assert versions == ["3.0.0", "2.0.0"]
         assert "1.0.0" not in versions
+
+    def test_has_cve_comes_from_the_advisory_ranges(self) -> None:
+        """D7: an advisory with no enumerated versions still marks the releases inside its range."""
+        cve = CVE(
+            id="GHSA-range",
+            cve_ids=(),
+            source=CveDatabase.OSV,
+            package_name="pkg",
+            package_registry=ProjectPackagesRegistry.PYPI,
+            summary="",
+            severity=Severity.HIGH,
+            affected_versions=(),
+            published=None,
+            link="https://osv.dev/GHSA-range",
+            affected_ranges=(AffectedRange(fixed="2.1.0"),),
+        )
+        registry = _make_registry({"pkg": [_pv("1.0.0"), _pv("2.0.0"), _pv("3.0.0")]})
+
+        problem = SolvablePool.build([_FakeDep("pkg", "1.0.0")], registry, {}, cves_by_package={"pkg": (cve,)})
+
+        assert {cv.version: cv.has_cve for cv in problem.candidates["pkg"]} == {
+            "3.0.0": False,
+            "2.0.0": True,
+            "1.0.0": True,
+        }
 
 
 # ---------------------------------------------------------------------------

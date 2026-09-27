@@ -10,7 +10,8 @@ from unittest.mock import MagicMock
 from packaging.version import Version as PV
 
 from ossiq.adapters.api_interfaces import AbstractPackageRegistryApi
-from ossiq.domain.common import ConstraintType
+from ossiq.domain.common import ConstraintType, ProjectPackagesRegistry
+from ossiq.domain.cve import AffectedRange
 from ossiq.domain.project import ConstraintSource
 from ossiq.domain.version import PackageVersion
 from ossiq.solver.dependencies_solver import solve_transitive
@@ -24,9 +25,11 @@ _CONSTRAINT_SOURCE = ConstraintSource(type=ConstraintType.DECLARED, source_file=
 
 @dataclass
 class _FakeCVE:
-    """Minimal CVE stand-in carrying only affected_versions."""
+    """Minimal CVE stand-in: the fields cve_affects_version reads."""
 
     affected_versions: tuple[str, ...]
+    affected_ranges: tuple[AffectedRange, ...] = ()
+    package_registry: ProjectPackagesRegistry = ProjectPackagesRegistry.PYPI
 
 
 @dataclass
@@ -89,8 +92,6 @@ def _make_registry(
     versions_by_name: dict[str, list[PackageVersion]],
     requires: dict[tuple[str, str], dict[str, str]] | None = None,
 ) -> MagicMock:
-    from ossiq.domain.common import ProjectPackagesRegistry
-
     registry = MagicMock(spec=AbstractPackageRegistryApi)
     registry.package_registry = ProjectPackagesRegistry.PYPI
     registry.package_versions.side_effect = lambda name: versions_by_name.get(name, [])
@@ -154,6 +155,21 @@ class TestSolveTransitiveCVE:
             }
         )
         result = solve_transitive(records, registry, {})
+        assert result.recommendations == {}
+
+    def test_a_range_only_advisory_forbids_every_version_inside_it(self) -> None:
+        """D7: npm advisories enumerate nothing; the range alone must forbid the affected releases."""
+        record = _rec("bad-pkg", "1.0.0", age_days=100)
+        record.cve = [_FakeCVE(affected_versions=(), affected_ranges=(AffectedRange(fixed="3.0.0"),))]
+        registry = _make_registry(
+            {
+                "bad-pkg": [
+                    _pv("1.0.0", published="2023-06-01T00:00:00Z"),
+                    _pv("2.0.0", published="2024-01-01T00:00:00Z"),
+                ]
+            }
+        )
+        result = solve_transitive([record], registry, {})
         assert result.recommendations == {}
 
 

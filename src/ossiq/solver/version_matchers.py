@@ -30,9 +30,12 @@ Pipeline:
 
 from __future__ import annotations
 
+import functools
 import logging
 import operator
 import re
+from collections.abc import Callable
+from typing import TypeVar
 
 import semver
 from packaging.version import InvalidVersion
@@ -42,6 +45,7 @@ from univers.version_range import InvalidVersionRange, NpmVersionRange, PypiVers
 from univers.versions import PypiVersion, SemverVersion
 
 from ossiq.domain.common import ProjectPackagesRegistry
+from ossiq.domain.cve import CVE, AffectedRange
 from ossiq.domain.version import pad_npm_version
 from ossiq.solver.problem import CandidateVersion
 
@@ -267,6 +271,76 @@ def major_key(version: str, registry: ProjectPackagesRegistry) -> tuple[int, int
 def satisfies_all_constraints(version: str, constraints: list[str], registry: ProjectPackagesRegistry) -> bool:
     """Return True when version satisfies every non-empty constraint in the list."""
     return all(version_satisfies_constraint(version, c, registry) for c in constraints if c)
+
+
+# ── Advisory exposure
+
+# One ordering per registry; constrained so an interval's bounds and the candidate always compare
+# within the same type.
+VersionT = TypeVar("VersionT", semver.Version, PackagingVersion)
+
+
+@functools.cache
+def parse_npm_version(version: str) -> semver.Version:
+    """Parse an npm release with semver ordering; a partial version ("1.0") is zero-filled.
+
+    Unlike `pad_npm_version`, this keeps a dotted prerelease whole, so "1.0.0-rc.9" and
+    "1.0.0-rc.10" stay two different bounds. Raises ValueError when the string isn't semver.
+    """
+    return semver.Version.parse(version, optional_minor_and_patch=True)
+
+
+@functools.cache
+def parse_pypi_version(version: str) -> PackagingVersion:
+    """Parse a PyPI release with PEP 440 ordering; raises ValueError when it isn't PEP 440."""
+    return PackagingVersion(version)
+
+
+def interval_contains(affected_range: AffectedRange, version: str, parse: Callable[[str], VersionT]) -> bool:
+    """Whether *version* sits inside one advisory interval; raises ValueError on anything unparseable."""
+    candidate = parse(version)
+    if affected_range.introduced is not None and candidate < parse(affected_range.introduced):
+        return False
+    if affected_range.fixed is not None:
+        return candidate < parse(affected_range.fixed)
+    if affected_range.last_affected is not None:
+        return candidate <= parse(affected_range.last_affected)
+    return True
+
+
+def range_contains(affected_range: AffectedRange, version: str, registry: ProjectPackagesRegistry) -> bool:
+    """`interval_contains` with the version ordering *registry* uses."""
+    if registry == ProjectPackagesRegistry.PYPI:
+        return interval_contains(affected_range, version, parse_pypi_version)
+    return interval_contains(affected_range, version, parse_npm_version)
+
+
+def cve_affects_version(cve: CVE, version: str) -> bool:
+    """Whether *version* is exposed to *cve*: enumerated by OSV, or inside one of its ranges.
+
+    The only judge of "is this release affected" - npm advisories enumerate nothing, so testing
+    `version in cve.affected_versions` read every npm release as clean. Unlike
+    `version_satisfies_constraint`, this fails closed: an unparseable version or bound counts as
+    affected, because every caller uses a False to call a release safe - the solver stops
+    forbidding it, the ladder stops stepping over it, and the agent payload calls it a fix.
+
+    Args:
+        cve: The advisory; its `package_registry` picks the version ordering.
+        version: The release to judge.
+
+    Returns:
+        True when the release is listed or inside a range, or when a range can't be evaluated.
+    """
+    if version in cve.affected_versions:
+        return True
+    for affected_range in cve.affected_ranges:
+        try:
+            if range_contains(affected_range, version, cve.package_registry):
+                return True
+        except ValueError as exc:
+            logger.debug("cve_affects_version: %s %r vs %r unparseable (%s)", cve.id, version, affected_range, exc)
+            return True
+    return False
 
 
 # ── Engine requirement checks

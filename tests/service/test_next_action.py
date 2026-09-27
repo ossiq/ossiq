@@ -1,6 +1,6 @@
 """Tests for the shared next-action ladder (service.project.next_action)."""
 
-from ossiq.domain.common import ConstraintType, CooldownHold, CveDatabase, ProjectPackagesRegistry
+from ossiq.domain.common import ConstraintType, CooldownHold, CveDatabase, ProjectPackagesRegistry, RejectedCandidate
 from ossiq.domain.cve import CVE, Severity
 from ossiq.domain.project import ConstraintSource
 from ossiq.domain.version import VERSION_DIFF_MAJOR, VERSION_DIFF_MINOR, VERSION_LATEST, VersionsDifference
@@ -16,6 +16,7 @@ from ossiq.service.project.next_action import (
     UPDATE_IMMEDIATELY,
     WAIT_FOR_COOLDOWN,
     WITHHELD_BY_STRATEGY,
+    needs_attention,
     next_action_label,
 )
 from ossiq.strategy.pyramid import UpdateStrategy
@@ -248,3 +249,37 @@ class TestCooldownHold:
         order = list(NEXT_ACTION_PRIORITY)
         assert order.index(UPDATE_IMMEDIATELY) < order.index(WAIT_FOR_COOLDOWN)
         assert order.index(WAIT_FOR_COOLDOWN) < order.index(CONSTRAINED_CHECK_NEWER)
+
+
+class TestNeedsAttention:
+    """Which transitives the standard export keeps (D3)."""
+
+    def test_plain_drift_is_not_news(self):
+        assert needs_attention(make_record(versions_diff_index=MAJOR)) is False
+
+    def test_a_drift_only_recommendation_is_not_news_either(self):
+        assert needs_attention(make_record(versions_diff_index=MAJOR, recommended_version="2.0.0")) is False
+
+    def test_a_cve_is(self):
+        assert needs_attention(make_record(cve=[fake_cve(0.0001)])) is True
+
+    def test_a_rejected_candidate_is(self):
+        record = make_record(recommended_version="1.1.0")
+        record.rejected_candidates = [RejectedCandidate(version="2.0.0", reason="conflicts with a parent")]
+        assert needs_attention(record) is True
+
+    def test_a_constraint_conflict_is(self):
+        record = make_record()
+        record.constraint_conflict = ["peer requires <1.0.0"]
+        assert needs_attention(record) is True
+
+    def test_a_release_going_away_is(self):
+        for flag in ("is_installed_deprecated", "is_installed_yanked", "is_installed_package_unpublished"):
+            record = make_record()
+            setattr(record, flag, True)
+            assert needs_attention(record) is True, flag
+
+    def test_an_unmaintained_upstream_is_but_a_winding_down_one_is_not(self):
+        assert needs_attention(make_record(maintenance=assessment(MaintenanceState.ABANDONED))) is True
+        assert needs_attention(make_record(maintenance=assessment(MaintenanceState.DEPRECATED))) is True
+        assert needs_attention(make_record(maintenance=assessment(MaintenanceState.WINDING_DOWN))) is False

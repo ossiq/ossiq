@@ -25,7 +25,7 @@ def test_scan_is_called_without_a_progress_callback():
         patch.object(server, "project_sources"),
         patch.object(server, "build_update_decide"),
     ):
-        server.evaluate_updates(MagicMock(), {"project_path": "."})
+        server.evaluate_updates(MagicMock(), {"project_path": ".", "runtime": "unknown"})
 
     assert scan.call_args.kwargs == {}
     assert len(scan.call_args.args) == 1
@@ -168,7 +168,42 @@ def test_evaluate_updates_surfaces_degraded_data_sources(monkeypatch):
     monkeypatch.setattr(server, "project_sources", MagicMock())
     monkeypatch.setattr(server, "scan", lambda _sources: scan_result)
 
-    decision = server.evaluate_updates(Settings(), {"project_path": "."})
+    decision = server.evaluate_updates(Settings(), {"project_path": ".", "runtime": "unknown"})
 
     assert decision["data_completeness"]["overall"] == "unreachable"
     assert {"step": "vulnerabilities", "status": "unreachable"} in decision["data_completeness"]["sources"]
+
+
+def test_a_missing_runtime_is_a_titled_error_not_a_probe():
+    """D1-1: the MCP server never falls back to probing its own PATH - that probe answers for the
+    wrong shell, and it made identical requests disagree."""
+    params = {"name": "ossiq_evaluate_updates", "arguments": {"project_path": "."}}
+
+    response = server.handle_request(Settings(), {"jsonrpc": "2.0", "id": 9, "method": "tools/call", "params": params})
+
+    assert response is not None
+    assert response["result"]["isError"] is True
+    text = response["result"]["content"][0]["text"]
+    assert "Runtime Not Provided" in text
+    assert "node -v" in text
+
+
+def test_a_stated_runtime_replaces_the_probe(monkeypatch):
+    seen: list[Settings] = []
+    monkeypatch.setattr(server, "project_sources", MagicMock())
+    monkeypatch.setattr(server, "scan", MagicMock())
+    monkeypatch.setattr(server, "build_update_decide", MagicMock(return_value={}))
+    monkeypatch.setattr(
+        server.project_sources, "build_project_sources", lambda settings, *_a, **_k: seen.append(settings)
+    )
+
+    server.evaluate_updates(Settings(), {"project_path": ".", "runtime": {"node": "22.12.0"}})
+    server.evaluate_updates(Settings(), {"project_path": ".", "runtime": "unknown"})
+
+    stated, unknown = seen
+    assert (stated.probe_runtime, stated.engine_versions, stated.runtime_unknown) == (False, {"node": "22.12.0"}, False)
+    assert (unknown.probe_runtime, unknown.engine_versions, unknown.runtime_unknown) == (False, {}, True)
+
+
+def test_every_scanning_tool_requires_a_runtime():
+    assert all("runtime" in tool["inputSchema"]["required"] for tool in server.TOOLS)

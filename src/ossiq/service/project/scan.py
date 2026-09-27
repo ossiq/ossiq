@@ -56,7 +56,11 @@ from ossiq.service.project.recommendations import (
     clamp_recommendations,
 )
 from ossiq.service.project.records import build_records, scan_sort_key
-from ossiq.service.project.runtime_context import detect_engine_context
+from ossiq.service.project.runtime_context import (
+    detect_engine_context,
+    provided_runtime_from_settings,
+    runtime_pin_mismatch,
+)
 from ossiq.service.project.stability import populate_stability
 from ossiq.service.project.strategy import apply_update_strategy
 from ossiq.service.update_impact import DirectUpdateImpact, simulate_single, simulate_update_impacts
@@ -212,17 +216,29 @@ def direct_descriptor(dep: Dependency, *, is_optional: bool) -> DependencyDescri
 
 
 def apply_cutoff_date(
-    packages_info: dict[str, Package], registry: AbstractPackageRegistryApi, now: datetime | None
+    packages_info: dict[str, Package],
+    registry: AbstractPackageRegistryApi,
+    now: datetime | None,
+    *,
+    allow_prerelease: bool = False,
+    allow_prerelease_packages: tuple[str, ...] = (),
 ) -> None:
-    """Override latest_version in-place to the newest release published on/before `now`."""
+    """Override latest_version in-place to the newest release published on/before `now`.
+
+    Pre-releases only count for packages `update_latest_versions_for_prerelease` would also have
+    promoted one for — `latest_version` is the newest *stable* release everywhere else, and this
+    override replaced the registry's answer without that filter.
+    """
     if now is None:
         return
     for pkg in packages_info.values():
+        prerelease_ok = allow_prerelease or pkg.name in allow_prerelease_packages
         eligible = [
             v
             for v in registry.package_versions(pkg.name)
             if not v.is_yanked
             and not v.is_unpublished
+            and (prerelease_ok or not v.is_prerelease)
             and v.published_date_iso is not None
             and (pdt := parse_iso_datetime(v.published_date_iso)) is not None
             and pdt <= now
@@ -251,7 +267,13 @@ def prefetch_scan_data(
             allow_prerelease_packages=sources.allow_prerelease_packages,
         )
 
-    apply_cutoff_date(packages_info, sources.packages_registry, now)
+    apply_cutoff_date(
+        packages_info,
+        sources.packages_registry,
+        now,
+        allow_prerelease=sources.allow_prerelease,
+        allow_prerelease_packages=sources.allow_prerelease_packages,
+    )
 
     # Github repository info. One provider instance shared across all 4 fetches below (repo info,
     # commits, activity, readmes): reuses a single session instead of opening a fresh one per call.
@@ -383,6 +405,8 @@ def solve_direct_phase(
     engine_context: EngineContext,
     installed_version_by_name: dict[str, str],
     now: datetime | None,
+    *,
+    project_declares_esm: bool = False,
 ) -> tuple[
     dependencies_solver.SolverOutput, list[ScanRecord], list[ScanRecord], Callable[[str, str], DirectUpdateImpact]
 ]:
@@ -427,14 +451,24 @@ def solve_direct_phase(
 
     production_packages = sorted(
         build_records(
-            descriptors.prod_deps, sources.packages_registry, prefetched, now=now, engine_context=engine_context
+            descriptors.prod_deps,
+            sources.packages_registry,
+            prefetched,
+            now=now,
+            engine_context=engine_context,
+            project_declares_esm=project_declares_esm,
         ),
         key=scan_sort_key,
         reverse=True,
     )
     optional_packages = sorted(
         build_records(
-            descriptors.opt_deps, sources.packages_registry, prefetched, now=now, engine_context=engine_context
+            descriptors.opt_deps,
+            sources.packages_registry,
+            prefetched,
+            now=now,
+            engine_context=engine_context,
+            project_declares_esm=project_declares_esm,
         ),
         key=scan_sort_key,
         reverse=True,
@@ -571,6 +605,7 @@ def scan(sources: AbstractProjectSources, progress: ScanProgress | None = None) 
             project_info,
             sources.project_path,
             probe_runtime=sources.settings.probe_runtime,
+            provided=provided_runtime_from_settings(sources.settings),
         )
         installed_version_by_name = {
             dep.canonical_name: dep.version for dep in descriptors.prod_deps + descriptors.opt_deps
@@ -578,7 +613,12 @@ def scan(sources: AbstractProjectSources, progress: ScanProgress | None = None) 
 
         # Transitive records built first — the Phase 4c validator needs them to assess impacts.
         transitive_packages = build_records(
-            descriptors.trans_deps, sources.packages_registry, prefetched, now=now, engine_context=engine_context
+            descriptors.trans_deps,
+            sources.packages_registry,
+            prefetched,
+            now=now,
+            engine_context=engine_context,
+            project_declares_esm=project_info.declares_esm,
         )
 
         progress.on_step_start(ScanStep.SOLVER)
@@ -591,6 +631,7 @@ def scan(sources: AbstractProjectSources, progress: ScanProgress | None = None) 
             engine_context,
             installed_version_by_name,
             now,
+            project_declares_esm=project_info.declares_esm,
         )
 
         solve_transitive_phase(
@@ -654,5 +695,6 @@ def scan(sources: AbstractProjectSources, progress: ScanProgress | None = None) 
             declares_esm=project_info.declares_esm,
             engine_context=engine_context,
             npm_cli_version=npm_cli_version,
+            runtime_mismatch=runtime_pin_mismatch(sources.project_path, project_info.package_registry, engine_context),
             source_warnings=list(sources.warnings),
         )

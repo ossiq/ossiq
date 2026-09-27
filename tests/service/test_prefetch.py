@@ -5,6 +5,7 @@ from unittest.mock import MagicMock, call, patch
 
 from packaging.version import Version
 
+from ossiq.adapters.api_pypi import PackageRegistryApiPypi
 from ossiq.domain.common import (
     ConstraintType,
     CveDatabase,
@@ -21,7 +22,8 @@ from ossiq.domain.project import ConstraintSource
 from ossiq.domain.version import PackageVersion
 from ossiq.service.project.models import DependencyDescriptor
 from ossiq.service.project.prefetch import enrich_cves_with_epss_and_fix_age, forecast_github_budget
-from ossiq.service.project.scan import ScanProgress, prefetch_scan_data
+from ossiq.service.project.scan import ScanProgress, apply_cutoff_date, prefetch_scan_data
+from ossiq.settings import Settings
 
 
 def make_cve(
@@ -447,3 +449,62 @@ def test_prefetch_scan_data_completeness_is_ok_on_a_clean_run():
 
     assert result.data_completeness.overall == DataSourceStatus.OK
     assert result.data_completeness.degraded_steps == {}
+
+
+class TestApplyCutoffDatePrerelease:
+    """D6 reproduction: the cutoff-date override of latest_version picks pre-releases."""
+
+    @staticmethod
+    def release(version: str, published: str) -> PackageVersion:
+        return PackageVersion(
+            version=version,
+            license=None,
+            package_url=f"https://pypi.org/project/pydantic/{version}/",
+            declared_dependencies={},
+            published_date_iso=published,
+            is_prerelease=Version(version).is_prerelease,
+        )
+
+    def test_cutoff_keeps_latest_version_stable(self):
+        registry = PackageRegistryApiPypi(Settings())
+        releases = [
+            self.release("1.10.26", "2025-06-01T00:00:00Z"),
+            self.release("2.13.0", "2026-07-01T00:00:00Z"),
+            self.release("2.14.0b1", "2026-09-01T00:00:00Z"),
+        ]
+        package = Package(
+            registry=ProjectPackagesRegistry.PYPI,
+            name="pydantic",
+            latest_version="2.13.0",
+            next_version=None,
+            repo_url=None,
+        )
+
+        with patch.object(registry, "package_versions", return_value=releases):
+            apply_cutoff_date({"pydantic": package}, registry, datetime(2026, 9, 8, tzinfo=UTC))
+
+        assert package.latest_version == "2.13.0"
+
+    def test_cutoff_keeps_the_prerelease_when_prereleases_are_allowed(self):
+        registry = PackageRegistryApiPypi(Settings())
+        releases = [
+            self.release("2.13.0", "2026-07-01T00:00:00Z"),
+            self.release("2.14.0b1", "2026-09-01T00:00:00Z"),
+        ]
+        package = Package(
+            registry=ProjectPackagesRegistry.PYPI,
+            name="pydantic",
+            latest_version="2.13.0",
+            next_version=None,
+            repo_url=None,
+        )
+
+        with patch.object(registry, "package_versions", return_value=releases):
+            apply_cutoff_date(
+                {"pydantic": package},
+                registry,
+                datetime(2026, 9, 8, tzinfo=UTC),
+                allow_prerelease_packages=("pydantic",),
+            )
+
+        assert package.latest_version == "2.14.0b1"

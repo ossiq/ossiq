@@ -105,3 +105,21 @@ class SecurityDataIncomplete(ApplicationError):
         "identically to a clean project. Re-run when the source is reachable, or pass "
         "--allow-partial to accept the result as incomplete."
     )
+
+
+class RuntimeNotProvided(ApplicationError):
+    """Raised when an MCP caller omits the runtime its project runs on."""
+
+    title = "Runtime Not Provided"
+    hint = (
+        'Pass `runtime`, keyed by the project\'s registry: {"node": "<node -v>"} for npm or '
+        '{"python": "<python --version>"} for PyPI, taken from the same shell that runs the '
+        "project's tests. Pass \"unknown\" if you can't tell; never guess."
+    )
+
+
+class InvalidRuntime(ApplicationError):
+    """Raised when a provided runtime doesn't fit the scanned project."""
+
+    title = "Invalid Runtime"
+    hint = 'An npm project takes {"node": ...}; a PyPI project takes {"python": ...}.'

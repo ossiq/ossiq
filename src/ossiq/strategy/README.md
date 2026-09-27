@@ -29,9 +29,11 @@ prereleases included.
 
 ```
 strategy/
-├── pyramid.py       UpdateStrategy + the two tables (ADMITTED_MOTIVES, MAX_REACH) that define the pyramid
+├── pyramid.py       UpdateStrategy + the two tables (ADMITTED_MOTIVES, MAX_REACH) that define the pyramid,
+│                    plus the tier sets (MINIMAL_DIFF_TIERS, PRERELEASE_TIERS, MODULE_BREAK_TIERS)
 ├── motive.py        UpdateMotive + PackageFacts + classify_motives() — why a package may move
 ├── targeting.py      Candidate, StrategySelection, select_target() — the selector itself
+├── compare.py        compare_target() — judges a caller's chosen target against the recommendation
 └── overrides.py      StrategyPlan + parse_strategy / parse_overrides — per-run, per-package tiers
 ```
 
@@ -154,6 +156,25 @@ while `apply` refused it — with a settled release sitting between the two, rec
 Filtering fresh candidates out of the ladder here makes one decision serve every surface, which is
 the whole point of rule 5 in the root `CLAUDE.md`. The downstream hold survives as a backstop for
 transitive recommendations, which come from the solver's *soft* freshness penalty.
+
+**Why may only `latest`/`cutting-edge` cross to ESM-only, and only on a `require(esm)` Node?**
+For a CommonJS project an ESM-only release is a break whatever its version number:
+`require()` of it fails outright below Node 20.19/22.12, and above that it returns the module
+namespace, so a default-export-only package (chalk) still breaks. `MODULE_BREAK_TIERS` makes
+crossing a freshness decision the top of the pyramid may take, flagged with `breaking_change` so
+`apply` asks for it separately. Everything below stays on the installed module system. The
+permission only grows with the tier, so rule 6 ("a higher tier's target is never lower") still
+holds by construction. The gate itself (`service.project.strategy.module_system_gate`) is a
+*strict* gate: `build_candidates` never waives it just because it empties the ladder, because a
+drift-only package should stay put rather than cross. `apply_update_strategy` waives it in one
+case, when an `exploitable_cve` or `end_of_life` motive has no clean candidate left without it.
+It re-runs `select_target` over the full ladder and keeps that answer only if it resolves the
+motive. The selector stays pure; the re-run is wiring.
+
+**Why does `compare_target` never pick a version?** `recommended_version` has one writer. A
+second target-picker for `update_context` would be a second answer to the same question, and the
+two would drift. `compare_target` only turns facts about a proposed target into a verdict relative
+to that one answer.
 
 **Why `--strategy-override` and not `--override-strategy`?** `--override pkg==version` already
 exists and means "force this exact version". `--override-strategy` reads as a variant of the same

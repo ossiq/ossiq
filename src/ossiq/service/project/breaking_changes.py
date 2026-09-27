@@ -50,6 +50,59 @@ def node_supports_require_esm(node_version: str | None) -> bool:
     return parsed >= semver.Version.parse(minimum)
 
 
+def crosses_module_system(
+    installed: ModuleSystem | None, candidate: ModuleSystem | None, project_declares_esm: bool
+) -> bool:
+    """Whether code that loads the installed release could stop loading the candidate.
+
+    The one definition of a module-system break, shared by the strategy's gate and the ladder's
+    `latest_preserving_module_system`, so the two can never disagree. Only a move *to* ESM-only
+    breaks: CJS and dual releases load from either side. An installed release with no known module
+    system is treated as CommonJS, npm's default without `"type": "module"`, while an ESM-only
+    installed release means the project already copes with ESM for this package.
+    """
+    if project_declares_esm or installed == ModuleSystem.ESM_ONLY:
+        return False
+    return candidate == ModuleSystem.ESM_ONLY
+
+
+def module_break_reason(
+    release: PackageVersion, releases: list[PackageVersion], registry: ProjectPackagesRegistry
+) -> str:
+    """Name the break as "ESM-only from <first ESM-only release of that major>".
+
+    Anchored on the major's first ESM-only release so every gated release of one major carries the
+    same reason, the text `rejected_candidates` and `breaking_change` have always used.
+    """
+    major = major_key(release.version, registry)
+    same_major_esm = [
+        pv
+        for pv in releases
+        if pv.module_system == ModuleSystem.ESM_ONLY
+        and not pv.is_unpublished
+        and not pv.is_yanked
+        and major_key(pv.version, registry) == major
+    ]
+    since = min(same_major_esm, key=lambda pv: npm_sort_key(pv.version), default=release)
+    return f"ESM-only from {since.version}"
+
+
+def esm_interop_note(node_version: str | None) -> str:
+    """Say what the runtime means for loading an ESM-only release from CommonJS code.
+
+    Pass the Node the scan checked against: the provided or probed runtime, held to the project's
+    declared floor.
+    """
+    if not node_version:
+        return "ESM-only: runtime unknown, so whether require() can load it is unverified"
+    if node_supports_require_esm(node_version):
+        return (
+            f"ESM-only: require() on Node {node_version} returns the module namespace, so it works "
+            "only if the package has named exports; a default-export-only package still breaks"
+        )
+    return f"ESM-only: won't load via require() on Node {node_version}"
+
+
 def breaking_majors(
     package_name: str,
     releases: list[PackageVersion],
@@ -59,8 +112,12 @@ def breaking_majors(
 ) -> dict[tuple[int, int], str]:
     """Return {major_key: note} for every major line flagged as a known break.
 
-    A major is flagged only when *every* release in it is ESM_ONLY, so one that later dual-published
-    a patch, or has any release with no module_system, stays unflagged.
+    A major is flagged only when *every* published release in it is ESM_ONLY, so one that later
+    dual-published a patch, or has any release with no module_system, stays unflagged.
+
+    Runtime-aware on purpose: this backs `latest_compatible_major`, the alternative a
+    `require(esm)`-capable runtime could reach. The recommendation's own gate is
+    `crosses_module_system`, which ignores the runtime.
 
     Args:
         package_name: Reserved for a future API-break registry lookup; unused.
@@ -69,6 +126,11 @@ def breaking_majors(
     """
     buckets: dict[tuple[int, int], list[PackageVersion]] = defaultdict(list)
     for pv in releases:
+        # A pulled release (chalk@5.6.1, unpublished after the September 2025 compromise) survives
+        # only as a `time`-map tombstone with no module_system; counting it unflagged its whole
+        # ESM-only major, so nobody could install the one release that made the major "mixed".
+        if pv.is_unpublished or pv.is_yanked:
+            continue
         key = major_key(pv.version, registry)
         if key is not None:
             buckets[key].append(pv)
@@ -120,6 +182,60 @@ def compute_latest_compatible_major(
         return None
 
 
+def compute_latest_preserving_module_system(
+    releases_since_installed: list[PackageVersion],
+    installed_version: str,
+    installed_module_system: ModuleSystem | None,
+    version_rules: VersionRules,
+    project_declares_esm: bool,
+    *,
+    now: datetime | None = None,
+) -> str | None:
+    """Newest installable release that code on the installed module system can still load.
+
+    Runtime-independent, unlike `latest_compatible_major`: it is where every tier below `latest`
+    stops, and where `latest` stops too unless the runtime can `require()` ESM. Equals
+    `installed_version` when nothing newer qualifies; None when the release data will not parse.
+    """
+    try:
+        loadable = [
+            pv
+            for pv in installable_releases(releases_since_installed, version_rules, now=now)
+            if not crosses_module_system(installed_module_system, pv.module_system, project_declares_esm)
+        ]
+        newest = version_rules.newest_version(loadable)
+        if newest is None or version_rules.compare_versions(newest.version, installed_version) < 0:
+            return installed_version
+        return newest.version
+    except (ValueError, TypeError):
+        # Mirrors compute_latest_compatible_major: unparseable release data means undeterminable.
+        return None
+
+
+def module_system_note(
+    releases_since_installed: list[PackageVersion],
+    installed_version: str,
+    installed_module_system: ModuleSystem | None,
+    version_rules: VersionRules,
+    project_declares_esm: bool,
+    *,
+    now: datetime | None = None,
+    node_version: str | None = None,
+) -> str | None:
+    """`esm_interop_note` when some newer installable release crosses to ESM-only, else None.
+
+    One note per package rather than per version: it qualifies whichever ESM-only release a surface
+    shows, whether that is the recommendation itself or the `latest_compatible_major` alternative.
+    """
+    try:
+        newer = installable_releases(releases_since_installed, version_rules, now=now, newer_than=installed_version)
+    except (ValueError, TypeError):
+        return None
+    if any(crosses_module_system(installed_module_system, pv.module_system, project_declares_esm) for pv in newer):
+        return esm_interop_note(node_version)
+    return None
+
+
 def module_system_label(
     package_name: str,
     installed_version: str,
@@ -127,24 +243,31 @@ def module_system_label(
     releases: list[PackageVersion],
     registry: ProjectPackagesRegistry,
     project_declares_esm: bool,
-    *,
-    node_version: str | None = None,
 ) -> tuple[ModuleSystem | None, str | None]:
     """Return the target version's module system and a breaking-change note, if any.
 
-    The note is None whenever the project itself is `"type": "module"` — an ESM-only dependency is
-    not a break for an ESM project — or when `node_version` can require() the target directly.
+    The note is None whenever the target loads from code on the installed module system — always
+    the case for a `"type": "module"` project. It deliberately ignores the runtime: `require(esm)`
+    returns the module namespace, so a default-export-only package (chalk) still breaks a CommonJS
+    caller on every Node, and no manifest field says which shape a package has. The runtime
+    qualifies the break (`esm_interop_note`); it never erases it.
+
+    Args:
+        package_name: Forwarded to `breaking_majors` for a target that was never published.
     """
     target_release = next((pv for pv in releases if pv.version == target_version), None)
     target_module_system = target_release.module_system if target_release else None
+    installed_release = next((pv for pv in releases if pv.version == installed_version), None)
+    installed_module_system = installed_release.module_system if installed_release else None
 
-    if project_declares_esm:
+    if target_release is None:
+        # An agent can ask about a version that was never published; its major's verdict is the
+        # best evidence there is.
+        if project_declares_esm or installed_module_system == ModuleSystem.ESM_ONLY:
+            return None, None
+        target_major = major_key(target_version, registry)
+        flagged = breaking_majors(package_name, releases, registry) if target_major is not None else {}
+        return None, flagged.get(target_major) if target_major is not None else None
+    if not crosses_module_system(installed_module_system, target_module_system, project_declares_esm):
         return target_module_system, None
-
-    target_major = major_key(target_version, registry)
-    breaking_change = (
-        breaking_majors(package_name, releases, registry, node_version=node_version).get(target_major)
-        if target_major is not None
-        else None
-    )
-    return target_module_system, breaking_change
+    return target_module_system, module_break_reason(target_release, releases, registry)
