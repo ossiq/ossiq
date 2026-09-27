@@ -53,7 +53,8 @@ deps / transitive_records
     – fetches candidates from warm registry cache
     – filters yanked, unpublished, prerelease (unless allowed)
     – sorts candidates descending (newest first)
-    – stamps has_cve=True on affected versions from cve_affected map
+    – stamps has_cve=True on versions any of the package's CVEs affects (cves_by_package;
+      judged by version_matchers.cve_affects_version, ranges included)
         │
         ▼ SolverProblem
   ConstraintEncoder.encode()    encoder.py

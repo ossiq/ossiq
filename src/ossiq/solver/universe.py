@@ -10,10 +10,11 @@ from packaging.utils import canonicalize_name
 
 from ossiq.adapters.api_interfaces import AbstractPackageRegistryApi
 from ossiq.domain.common import ConstraintType
+from ossiq.domain.cve import CVE
 from ossiq.domain.project import ConstraintSource
 from ossiq.domain.version import PackageVersion
 from ossiq.solver.problem import CandidateVersion, PackageConstraint, SolverProblem
-from ossiq.solver.version_matchers import version_satisfies_constraint
+from ossiq.solver.version_matchers import cve_affects_version, version_satisfies_constraint
 from ossiq.timeutil import age_days_from_iso, parse_iso_datetime
 
 CANDIDATE_CAP: int = 30
@@ -175,10 +176,14 @@ def filter_eligible_versions(
 
 def make_candidate_versions(
     pvs: list[PackageVersion],
-    affected_versions: set[str],
+    cves: tuple[CVE, ...],
     now: datetime | None,
 ) -> tuple[CandidateVersion, ...]:
-    """Assemble CandidateVersion tuples from filtered PackageVersion objects."""
+    """Assemble CandidateVersion tuples from filtered PackageVersion objects.
+
+    A candidate carries `has_cve` when any of *cves* affects it - by range as well as by
+    enumerated version, since npm advisories publish only ranges.
+    """
     return tuple(
         CandidateVersion(
             version=pv.version,
@@ -187,7 +192,7 @@ def make_candidate_versions(
             is_prerelease=pv.is_prerelease,
             is_yanked=pv.is_yanked,
             runtime_requirements=pv.runtime_requirements,
-            has_cve=pv.version in affected_versions,
+            has_cve=any(cve_affects_version(cve, pv.version) for cve in cves),
             requires=parse_requires(pv.declared_dependencies) or None,
         )
         for pv in pvs
@@ -204,7 +209,7 @@ class SolvablePool:
         registry: AbstractPackageRegistryApi,
         engine_context: dict[str, str],
         *,
-        cve_affected: dict[str, set[str]] | None = None,
+        cves_by_package: dict[str, tuple[CVE, ...]] | None = None,
         allow_prerelease: bool = False,
         _now: datetime | None = None,
         rewrite_pinned: bool = False,
@@ -218,8 +223,8 @@ class SolvablePool:
             deps: Flat sequence of dependency descriptors (direct + transitive).
             registry: Registry instance with warm cache from the scan pass.
             engine_context: Project engine versions, e.g. {"python": "3.11.9"}.
-            cve_affected: Optional mapping of {canonical_name: {affected_version, ...}}.
-                          Versions present here get has_cve=True on their CandidateVersion.
+            cves_by_package: Optional mapping of {canonical_name: (CVE, ...)}. A candidate any of
+                             its package's CVEs affects gets has_cve=True.
             allow_prerelease: When True, include pre-release candidates.
             _now: Injectable reference time for deterministic age computation in tests.
             rewrite_pinned: When True, PINNED (==x.y.z) constraints are dropped so the
@@ -243,7 +248,7 @@ class SolvablePool:
                 filter_eligible_versions(
                     list(registry.package_versions(name)), dep.version, allow_prerelease, registry, _now
                 ),
-                (cve_affected or {}).get(name, set()),
+                (cves_by_package or {}).get(name, ()),
                 _now,
             )
             for name, dep in best.items()

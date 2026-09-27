@@ -12,9 +12,11 @@ from __future__ import annotations
 import pytest
 from univers.versions import SemverVersion
 
-from ossiq.domain.common import ProjectPackagesRegistry
+from ossiq.domain.common import CveDatabase, ProjectPackagesRegistry
+from ossiq.domain.cve import CVE, AffectedRange, Severity
 from ossiq.solver.problem import CandidateVersion
 from ossiq.solver.version_matchers import (
+    cve_affects_version,
     engine_mismatch_reason,
     engine_version_satisfies_requirement,
     fallback_evaluate_bounds,
@@ -322,3 +324,118 @@ def test_stricter_engine_floor_falls_back_to_the_declared_floor() -> None:
     """A probe result nothing can parse resolves to the bound that does not depend on this machine."""
     assert stricter_engine_floor("node", "garbage", "18.0.0") == "18.0.0"
     assert stricter_engine_floor("python", "garbage", "3.11") == "3.11"
+
+
+# ── cve_affects_version ────────────────────────────────────────────────────
+
+
+def advisory(
+    registry: ProjectPackagesRegistry = ProjectPackagesRegistry.NPM,
+    affected_versions: tuple[str, ...] = (),
+    affected_ranges: tuple[AffectedRange, ...] = (),
+) -> CVE:
+    return CVE(
+        id="GHSA-test",
+        cve_ids=(),
+        source=CveDatabase.OSV,
+        package_name="pkg",
+        package_registry=registry,
+        summary="",
+        severity=Severity.HIGH,
+        affected_versions=affected_versions,
+        published=None,
+        link="https://osv.dev/GHSA-test",
+        affected_ranges=affected_ranges,
+    )
+
+
+# uuid's GHSA-w5hq-g745-h8pq exactly as OSV publishes it: three ranges, no enumerated versions.
+UUID_ADVISORY = advisory(
+    affected_ranges=(
+        AffectedRange(fixed="11.1.1"),
+        AffectedRange(introduced="12.0.0", fixed="12.0.1"),
+        AffectedRange(introduced="13.0.0", fixed="13.0.1"),
+    )
+)
+
+
+@pytest.mark.parametrize(
+    ("version", "expected"),
+    [
+        ("8.3.2", True),
+        ("11.0.5", True),
+        ("11.1.1-beta.1", True),
+        ("11.1.1", False),
+        ("12.0.0", True),
+        ("12.0.1", False),
+        ("13.0.0", True),
+        ("13.0.2", False),
+        ("14.0.2", False),
+    ],
+)
+def test_cve_affects_version_reads_npm_ranges(version: str, expected: bool) -> None:
+    assert cve_affects_version(UUID_ADVISORY, version) is expected
+
+
+def test_cve_affects_version_last_affected_is_inclusive() -> None:
+    cve = advisory(affected_ranges=(AffectedRange(introduced="4.0.0", last_affected="4.5.0"),))
+
+    assert cve_affects_version(cve, "4.5.0") is True
+    assert cve_affects_version(cve, "4.5.1") is False
+    assert cve_affects_version(cve, "3.9.9") is False
+
+
+def test_cve_affects_version_prerelease_introduced_bound() -> None:
+    # semver's GHSA-c2qf-rxjj-qqgw opens its oldest range at "2.0.0-alpha".
+    cve = advisory(affected_ranges=(AffectedRange(introduced="2.0.0-alpha", fixed="5.7.2"),))
+
+    assert cve_affects_version(cve, "2.0.0") is True
+    assert cve_affects_version(cve, "1.9.9") is False
+
+
+def test_cve_affects_version_open_interval_has_no_fix() -> None:
+    cve = advisory(affected_ranges=(AffectedRange(introduced="3.0.0"),))
+
+    assert cve_affects_version(cve, "99.0.0") is True
+    assert cve_affects_version(cve, "2.9.9") is False
+
+
+def test_cve_affects_version_pypi_range() -> None:
+    cve = advisory(ProjectPackagesRegistry.PYPI, affected_ranges=(AffectedRange(introduced="2.3.0", fixed="2.31.0"),))
+
+    assert cve_affects_version(cve, "2.28.1") is True
+    assert cve_affects_version(cve, "2.31.0rc1") is True
+    assert cve_affects_version(cve, "2.31.0") is False
+
+
+def test_cve_affects_version_enumerated_only_behaves_as_before() -> None:
+    cve = advisory(ProjectPackagesRegistry.PYPI, affected_versions=("1.0.0", "1.1.0"))
+
+    assert cve_affects_version(cve, "1.1.0") is True
+    assert cve_affects_version(cve, "1.2.0") is False
+
+
+@pytest.mark.parametrize("version", ["1.0.0", "1.1.0", "2.0.0rc1"])
+def test_cve_affects_version_every_enumerated_version_is_affected(version: str) -> None:
+    """Ranges only ever add exposure: a version OSV enumerates stays affected whatever they say."""
+    cve = advisory(
+        ProjectPackagesRegistry.PYPI,
+        affected_versions=("1.0.0", "1.1.0", "2.0.0rc1"),
+        affected_ranges=(AffectedRange(introduced="5.0.0", fixed="5.1.0"),),
+    )
+
+    assert cve_affects_version(cve, version) is True
+
+
+def test_cve_affects_version_fails_closed_on_an_unparseable_version() -> None:
+    assert cve_affects_version(UUID_ADVISORY, "not-a-version") is True
+
+
+def test_cve_affects_version_fails_closed_on_an_unparseable_bound() -> None:
+    cve = advisory(affected_ranges=(AffectedRange(introduced="garbage", fixed="1.0.0"),))
+
+    assert cve_affects_version(cve, "5.0.0") is True
+
+
+def test_cve_affects_version_without_any_evidence_is_clean() -> None:
+    assert cve_affects_version(advisory(), "1.0.0") is False
