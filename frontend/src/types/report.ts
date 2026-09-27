@@ -6,7 +6,7 @@
  */
 
 /**
- * Schema for OSS-IQ project metrics export data (v1.5 adds epss to PackageMetrics, TransitivePackageMetrics and CVEInfo, runs_code_at_install/install_execution_reason to PackageMetrics and TransitivePackageMetrics, fix_age_days to CVEInfo, project_epss/packages_with_epss/packages_with_unscored_cves to summary, declares update_transitive_impacts, and replaces the phi_i/phi_p/phi_a CSI channels with the maintenance-state model: maintenance_state, maintenance_risk, maintenance_coverage, flow_trend, engagement_buckets, deprecation_signals and deprecation_successor and dependency_health_action on PackageMetrics and TransitivePackageMetrics, and packages_unmaintained/packages_deprecated on summary; and adds latest_compatible_major, module_system, recommended_module_system to PackageMetrics and TransitivePackageMetrics, and breaking_change to PackageMetrics; and adds engine_requirement, engine_compatible, engine_context_source to PackageMetrics and TransitivePackageMetrics; and adds metadata.warnings and a scan-level runtime_context block, moving engine_context_source off the per-package models; and adds next_action to PackageMetrics and TransitivePackageMetrics and requires_constraint_widening to PackageMetrics, so every surface reads one next-action label instead of re-deriving it; and adds latest_preserving_module_system and module_system_note to PackageMetrics and TransitivePackageMetrics)
+ * Schema for OSS-IQ project metrics export data (v1.5 adds epss to PackageMetrics, TransitivePackageMetrics and CVEInfo, runs_code_at_install/install_execution_reason to PackageMetrics and TransitivePackageMetrics, fix_age_days to CVEInfo, project_epss/packages_with_epss/packages_with_unscored_cves to summary, declares update_transitive_impacts, and replaces the phi_i/phi_p/phi_a CSI channels with the maintenance-state model: maintenance_state, maintenance_risk, maintenance_coverage, flow_trend, engagement_buckets, deprecation_signals and deprecation_successor and dependency_health_action on PackageMetrics and TransitivePackageMetrics, and packages_unmaintained/packages_deprecated on summary; and adds latest_compatible_major, module_system, recommended_module_system to PackageMetrics and TransitivePackageMetrics, and breaking_change to PackageMetrics; and adds engine_requirement, engine_compatible, engine_context_source to PackageMetrics and TransitivePackageMetrics; and adds metadata.warnings and a scan-level runtime_context block, moving engine_context_source off the per-package models; and adds next_action to PackageMetrics and TransitivePackageMetrics and requires_constraint_widening to PackageMetrics, so every surface reads one next-action label instead of re-deriving it; and adds latest_preserving_module_system and module_system_note to PackageMetrics and TransitivePackageMetrics; and adds the standard/full profile split: metadata.profile, summary.transitive_packages, runtime_context.runtime_mismatch, affected_ranges/fixed_in on CVEInfo, recommended_version/required_by on TransitivePackageMetrics, and ignored_packages/upgrade_paths/manifest_lock_divergent at the root - the standard profile validates against export_schema_v1.5_standard.json)
  */
 export interface OSSIQExportSchemaV15 {
   /**
@@ -17,6 +17,10 @@ export interface OSSIQExportSchemaV15 {
      * Version of the export schema format
      */
     schema_version: "1.5";
+    /**
+     * How much of the scan this document carries. Absent means full, the only profile this schema describes; a standard document validates against export_schema_v1.5_standard.json
+     */
+    profile?: "full";
     /**
      * UTC timestamp when the export was generated
      */
@@ -94,9 +98,9 @@ export interface OSSIQExportSchemaV15 {
       [k: string]: string;
     };
     /**
-     * Which source populated engine_versions: 'detected' (actually-installed runtime), 'declared' (manifest floor), or 'none'
+     * Which source populated engine_versions: 'provided' (the caller stated it: MCP runtime, CLI --engine), 'detected' (actually-installed runtime), 'declared' (manifest floor), or 'none'
      */
-    engine_context_source?: "detected" | "declared" | "none";
+    engine_context_source?: "provided" | "detected" | "declared" | "none";
     /**
      * Detected npm CLI version; display-only, null on PyPI or when not probed
      */
@@ -105,6 +109,32 @@ export interface OSSIQExportSchemaV15 {
      * Whether the project's own manifest declares `"type": "module"` (npm only)
      */
     project_declares_esm?: boolean;
+    /**
+     * Set when the project's own runtime pin (.nvmrc, .python-version, ...) disagrees with engine_versions - usually a version read from the wrong shell; null when they agree
+     */
+    runtime_mismatch?: {
+      /**
+       * Runtime the pin is for, e.g. 'node' or 'python'
+       */
+      engine: string;
+      /**
+       * Version the project pins
+       */
+      pinned: string;
+      /**
+       * File that pins it, e.g. '.nvmrc' or '.python-version'
+       */
+      pin_file: string;
+      /**
+       * Version the scan checked engine requirements against
+       */
+      runtime: string;
+      /**
+       * Where that version came from
+       */
+      runtime_source: "provided" | "detected" | "declared" | "none";
+      [k: string]: unknown;
+    } | null;
     [k: string]: unknown;
   };
   /**
@@ -141,6 +171,10 @@ export interface OSSIQExportSchemaV15 {
      * Number of development dependencies
      */
     development_packages: number;
+    /**
+     * Number of distinct transitive packages the scan covered - in the standard profile, more than the transitive_packages array lists
+     */
+    transitive_packages?: number;
     /**
      * Number of packages with known CVEs
      */
@@ -192,7 +226,7 @@ export interface OSSIQExportSchemaV15 {
    */
   development_packages: PackageMetrics[];
   /**
-   * Transitive dependency metrics, one entry per unique (package_name, installed_version); path and constraint data lives in dependency_tree
+   * Transitive dependency metrics, one entry per unique (package_name, installed_version); path and constraint data lives in dependency_tree (full profile only). The standard profile keeps only the entries that need attention
    */
   transitive_packages: TransitivePackageMetrics[];
   /**
@@ -206,6 +240,18 @@ export interface OSSIQExportSchemaV15 {
    * @maxItems 5
    */
   constraint_type_map: [string, string, string, string, string];
+  /**
+   * Declared dependencies the scan left out, and why - they are absent from every package list
+   */
+  ignored_packages?: IgnoredPackageExport[];
+  /**
+   * Constraint-widening opportunities for direct dependencies of a project without a lockfile
+   */
+  upgrade_paths?: UpgradePathExport[];
+  /**
+   * Packages whose manifest declaration and lockfile entry are out of sync; regenerate the lockfile (e.g. `uv lock`) before acting on their recommendations
+   */
+  manifest_lock_divergent?: string[];
   [k: string]: unknown;
 }
 /**
@@ -497,9 +543,17 @@ export interface CVEInfo {
    */
   severity: "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
   /**
-   * List of affected versions
+   * Versions the advisory enumerates. Always empty for npm, whose advisories publish only ranges - read affected_ranges for the exposure
    */
   affected_versions: string[];
+  /**
+   * Affected intervals in the registry's own constraint syntax, e.g. '>=12.0.0 <12.0.1' on npm or '>=2.3.0,<2.31.0' on PyPI; a release inside any of them is affected
+   */
+  affected_ranges?: string[];
+  /**
+   * Releases that close an affected interval, one per fixed line; empty when no fix is published
+   */
+  fixed_in?: string[];
   /**
    * Publication date
    */
@@ -612,6 +666,14 @@ export interface TransitivePackageMetrics {
    * Latest available version
    */
   latest_version?: string | null;
+  /**
+   * The version OSS IQ would move this transitive to; the version recommended_module_system describes. Null when it should stay where it is
+   */
+  recommended_version?: string | null;
+  /**
+   * Direct dependencies whose subtree installs this package - the manifest entries to change to move it. The dependency_tree (full profile) holds the complete paths
+   */
+  required_by?: string[];
   /**
    * Newest installable version satisfying version_constraint; equals installed_version when the declared range admits nothing newer. Null only when undeterminable — e.g. the range is satisfiable only below installed_version (manifest/lockfile divergence).
    */
@@ -842,5 +904,49 @@ export interface DependencyTreeNode {
    * Transitive packages directly required by this package
    */
   children?: DependencyTreeNode[];
+  [k: string]: unknown;
+}
+/**
+ * A declared dependency the scan left out - its absence from the package lists is deliberate
+ */
+export interface IgnoredPackageExport {
+  /**
+   * Dependency name as declared
+   */
+  name: string;
+  /**
+   * The declaration as written, e.g. a git URL
+   */
+  spec: string;
+  /**
+   * Why it was left out: unresolvable source, or excluded with --ignore
+   */
+  reason: string;
+  [k: string]: unknown;
+}
+/**
+ * A constraint-widening opportunity for a direct dependency of a project without a lockfile
+ */
+export interface UpgradePathExport {
+  /**
+   * Direct dependency the opportunity is for
+   */
+  package_name: string;
+  /**
+   * Constraint the manifest declares today
+   */
+  current_constraint: string;
+  /**
+   * Newest release the current constraint admits
+   */
+  latest_in_range: string;
+  /**
+   * Newest release overall
+   */
+  latest_available: string;
+  /**
+   * Constraint that would admit latest_available
+   */
+  suggested_constraint: string;
   [k: string]: unknown;
 }
