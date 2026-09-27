@@ -105,6 +105,26 @@ def next_action_label(record: ScanRecord) -> str | None:
     return None
 
 
+def needs_attention(record: ScanRecord) -> bool:
+    """Whether a transitive package holds something a consumer has to act on or know about.
+
+    Decides which transitives the standard export keeps. Drift doesn't count, and neither does a
+    recommendation with nothing behind it but drift: nobody manages a transitive's version directly,
+    so being behind is only news alongside a CVE, a conflict, or a release or upstream that is going
+    away - and each of those keeps the entry, recommendation included, on its own.
+    """
+    state = record.maintenance.state if record.maintenance is not None else None
+    return (
+        bool(record.cve)
+        or bool(record.rejected_candidates)
+        or bool(record.constraint_conflict)
+        or record.is_installed_deprecated
+        or record.is_installed_yanked
+        or record.is_installed_package_unpublished
+        or state in NOT_MAINTAINED
+    )
+
+
 def engine_mismatch_summary(record: ScanRecord, engine_context: dict[str, str] | None) -> str | None:
     """Explain why record.compatibility.engine_compatible is False, or None when nothing conflicts.
 

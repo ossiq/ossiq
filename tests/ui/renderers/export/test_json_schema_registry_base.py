@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-from ossiq.domain.common import ExportJsonSchemaVersion
+from ossiq.domain.common import ExportJsonSchemaVersion, ExportProfile
 from ossiq.ui.renderers.export.json_schema_registry import SchemaRegistry, json_schema_registry
 
 
@@ -19,6 +19,7 @@ class SchemaRegistryBaseTest:
     """Shared tests for all schema versions. Not collected directly by pytest."""
 
     version: ExportJsonSchemaVersion
+    profile: ExportProfile = ExportProfile.FULL
     schema_path_name: str
     schema_title: str
     required_top_level_properties: list
@@ -31,10 +32,10 @@ class SchemaRegistryBaseTest:
 
     @pytest.fixture
     def schema(self, registry):
-        return registry.load_schema(self.version)
+        return registry.load_schema(self.version, self.profile)
 
     def test_get_schema_path_returns_valid_path(self, registry):
-        path = registry.get_schema_path(self.version)
+        path = registry.get_schema_path(self.version, self.profile)
         assert isinstance(path, Path)
         assert path.name == self.schema_path_name
         assert path.exists()
@@ -67,12 +68,12 @@ class SchemaRegistryBaseTest:
             assert v in versions, f"Missing version in registry: {v}"
 
     def test_schema_file_contains_valid_json(self, registry):
-        schema_path = registry.get_schema_path(self.version)
+        schema_path = registry.get_schema_path(self.version, self.profile)
         with open(schema_path, encoding="utf-8") as f:
             data = json.load(f)
         assert isinstance(data, dict)
 
     def test_global_registry_instance_accessible(self):
-        path = json_schema_registry.get_schema_path(self.version)
+        path = json_schema_registry.get_schema_path(self.version, self.profile)
         assert isinstance(json_schema_registry, SchemaRegistry)
         assert path.exists()

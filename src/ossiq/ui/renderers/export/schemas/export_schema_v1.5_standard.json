@@ -1,8 +1,8 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "$id": "https://ossiq.org/schemas/export/v1.5.json",
-  "title": "OSS-IQ Export Schema v1.5",
-  "description": "Schema for OSS-IQ project metrics export data (v1.5 adds epss to PackageMetrics, TransitivePackageMetrics and CVEInfo, runs_code_at_install/install_execution_reason to PackageMetrics and TransitivePackageMetrics, fix_age_days to CVEInfo, project_epss/packages_with_epss/packages_with_unscored_cves to summary, declares update_transitive_impacts, and replaces the phi_i/phi_p/phi_a CSI channels with the maintenance-state model: maintenance_state, maintenance_risk, maintenance_coverage, flow_trend, engagement_buckets, deprecation_signals and deprecation_successor and dependency_health_action on PackageMetrics and TransitivePackageMetrics, and packages_unmaintained/packages_deprecated on summary; and adds latest_compatible_major, module_system, recommended_module_system to PackageMetrics and TransitivePackageMetrics, and breaking_change to PackageMetrics; and adds engine_requirement, engine_compatible, engine_context_source to PackageMetrics and TransitivePackageMetrics; and adds metadata.warnings and a scan-level runtime_context block, moving engine_context_source off the per-package models; and adds next_action to PackageMetrics and TransitivePackageMetrics and requires_constraint_widening to PackageMetrics, so every surface reads one next-action label instead of re-deriving it; and adds latest_preserving_module_system and module_system_note to PackageMetrics and TransitivePackageMetrics; and adds the standard/full profile split: metadata.profile, summary.transitive_packages, runtime_context.runtime_mismatch, affected_ranges/fixed_in on CVEInfo, recommended_version/required_by on TransitivePackageMetrics, and ignored_packages/upgrade_paths/manifest_lock_divergent at the root - the standard profile validates against export_schema_v1.5_standard.json)",
+  "$id": "https://ossiq.org/schemas/export/v1.5-standard.json",
+  "title": "OSS-IQ Export Schema v1.5 (standard profile)",
+  "description": "Schema for the standard profile of the OSS-IQ v1.5 export: every direct dependency, the transitive packages that need attention, and the fields needed to decide what to do. A projection of export_schema_v1.5.json - same field names and meanings, fewer fields - where optional fields that are null or empty are omitted from per-package records. The full profile validates against export_schema_v1.5.json.",
   "type": "object",
   "required": [
     "metadata",
@@ -10,9 +10,7 @@
     "summary",
     "production_packages",
     "development_packages",
-    "transitive_packages",
-    "dependency_tree",
-    "constraint_type_map"
+    "transitive_packages"
   ],
   "properties": {
     "metadata": {
@@ -20,7 +18,8 @@
       "description": "Metadata about the export itself",
       "required": [
         "schema_version",
-        "export_timestamp"
+        "export_timestamp",
+        "profile"
       ],
       "properties": {
         "schema_version": {
@@ -29,11 +28,8 @@
           "description": "Version of the export schema format"
         },
         "profile": {
-          "type": "string",
-          "enum": [
-            "full"
-          ],
-          "description": "How much of the scan this document carries. Absent means full, the only profile this schema describes; a standard document validates against export_schema_v1.5_standard.json"
+          "const": "standard",
+          "description": "How much of the scan this document carries; always 'standard' here"
         },
         "export_timestamp": {
           "type": "string",
@@ -105,49 +101,9 @@
                   }
                 }
               }
-            },
-            "api_budgets": {
-              "type": "array",
-              "description": "Quota observed or forecast for each metered API this scan touched",
-              "items": {
-                "type": "object",
-                "properties": {
-                  "resource": {
-                    "type": "string",
-                    "description": "The metered resource, as the API names it, e.g. 'core', 'graphql'"
-                  },
-                  "limit": {
-                    "type": [
-                      "integer",
-                      "null"
-                    ],
-                    "description": "Requests allowed per window"
-                  },
-                  "remaining": {
-                    "type": [
-                      "integer",
-                      "null"
-                    ],
-                    "description": "Requests left in the current window"
-                  },
-                  "reset_at": {
-                    "type": [
-                      "number",
-                      "null"
-                    ],
-                    "description": "Epoch seconds at which the window rolls over"
-                  },
-                  "needed": {
-                    "type": [
-                      "integer",
-                      "null"
-                    ],
-                    "description": "Requests this scan was forecast to need against this resource"
-                  }
-                }
-              }
             }
-          }
+          },
+          "additionalProperties": false
         },
         "warnings": {
           "type": "array",
@@ -156,7 +112,8 @@
           },
           "description": "Non-fatal problems found while assembling the project's sources, e.g. a tree containing more than one package registry"
         }
-      }
+      },
+      "additionalProperties": false
     },
     "runtime_context": {
       "type": "object",
@@ -368,22 +325,6 @@
         "$ref": "#/$defs/TransitivePackageMetrics"
       }
     },
-    "dependency_tree": {
-      "type": "array",
-      "description": "Dependency tree rooted at each direct production dependency; nodes carry edge-specific constraint data and reference transitive_packages by id",
-      "items": {
-        "$ref": "#/$defs/DependencyTreeRoot"
-      }
-    },
-    "constraint_type_map": {
-      "type": "array",
-      "description": "Lookup table for ct integer field in DependencyTreeNode; index 0=DECLARED, 1=NARROWED, 2=PINNED, 3=ADDITIVE, 4=OVERRIDE",
-      "items": {
-        "type": "string"
-      },
-      "minItems": 5,
-      "maxItems": 5
-    },
     "ignored_packages": {
       "type": "array",
       "description": "Declared dependencies the scan left out, and why - they are absent from every package list",
@@ -407,76 +348,11 @@
     }
   },
   "$defs": {
-    "DependencyTreeRoot": {
-      "type": "object",
-      "description": "Root entry in the dependency tree, anchored at a direct production dependency",
-      "required": [
-        "package_name"
-      ],
-      "properties": {
-        "package_name": {
-          "type": "string",
-          "description": "Name of the direct production dependency"
-        },
-        "children": {
-          "type": "array",
-          "items": {
-            "$ref": "#/$defs/DependencyTreeNode"
-          },
-          "description": "Transitive packages directly required by this production dependency"
-        }
-      }
-    },
-    "DependencyTreeNode": {
-      "type": "object",
-      "description": "One node in the dependency tree; ref matches id in transitive_packages, ct indexes into constraint_type_map",
-      "required": [
-        "ref",
-        "ct"
-      ],
-      "properties": {
-        "ref": {
-          "type": "integer",
-          "minimum": 0,
-          "description": "Matches the id field of a TransitivePackageMetrics entry"
-        },
-        "ct": {
-          "type": "integer",
-          "minimum": 0,
-          "maximum": 4,
-          "description": "Index into the top-level constraint_type_map array"
-        },
-        "version_constraint": {
-          "type": "string",
-          "description": "Version constraint declared by the immediate parent"
-        },
-        "dependency_name": {
-          "type": "string",
-          "description": "Alias name declared by the immediate parent (absent when same as package_name)"
-        },
-        "extras": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          },
-          "description": "PyPI extras for this dependency (absent for non-PyPI or when unused)"
-        },
-        "children": {
-          "type": "array",
-          "items": {
-            "$ref": "#/$defs/DependencyTreeNode"
-          },
-          "description": "Transitive packages directly required by this package"
-        }
-      }
-    },
     "TransitivePackageMetrics": {
       "type": "object",
       "description": "Metrics for a transitive package, deduplicated by (package_name, installed_version); path and constraint data lives in dependency_tree",
       "required": [
-        "id",
         "package_name",
-        "is_optional_dependency",
         "installed_version",
         "is_prerelease",
         "is_yanked",
@@ -484,18 +360,9 @@
         "is_package_unpublished"
       ],
       "properties": {
-        "id": {
-          "type": "integer",
-          "minimum": 0,
-          "description": "Zero-based index into the transitive_packages array; matched by DependencyTreeNode.ref"
-        },
         "package_name": {
           "type": "string",
           "description": "Package name (canonical registry name)"
-        },
-        "is_optional_dependency": {
-          "type": "boolean",
-          "description": "Whether this is a development/optional dependency; always false for transitive deps"
         },
         "installed_version": {
           "type": "string",
@@ -619,13 +486,6 @@
           ],
           "description": "Days between installed and latest version"
         },
-        "version_age_days": {
-          "type": [
-            "integer",
-            "null"
-          ],
-          "description": "Days since the installed version was published to the registry"
-        },
         "releases_lag": {
           "type": [
             "integer",
@@ -639,51 +499,6 @@
           "items": {
             "$ref": "#/$defs/CVEInfo"
           }
-        },
-        "constraint_source_file": {
-          "type": "string",
-          "description": "File that introduced a non-DECLARED constraint for this package (absent when DECLARED)"
-        },
-        "repo_url": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "format": "uri",
-          "description": "Source code repository URL"
-        },
-        "homepage_url": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "format": "uri",
-          "description": "Package homepage URL"
-        },
-        "package_url": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "format": "uri",
-          "description": "Package registry page URL"
-        },
-        "license": {
-          "type": [
-            "array",
-            "null"
-          ],
-          "items": {
-            "type": "string"
-          },
-          "description": "SPDX license identifiers parsed from the package license expression"
-        },
-        "purl": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "description": "Package URL (PURL) per ECMA-386, e.g. pkg:pypi/requests@2.25.1 or pkg:npm/lodash@4.17.21"
         },
         "is_prerelease": {
           "type": "boolean",
@@ -722,15 +537,6 @@
           ],
           "description": "Human-readable reason for runs_code_at_install; null when unknown or not detected"
         },
-        "maintenance_coverage": {
-          "type": [
-            "number",
-            "null"
-          ],
-          "minimum": 0,
-          "maximum": 1,
-          "description": "Fraction of the maintenance observations that were available"
-        },
         "maintenance_risk": {
           "type": [
             "number",
@@ -754,34 +560,6 @@
           ],
           "description": "Most probable maintenance state"
         },
-        "flow_trend": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "enum": [
-            "improving",
-            "stable",
-            "declining",
-            null
-          ],
-          "description": "Direction of the issue/PR flow ratio over the engagement window"
-        },
-        "engagement_buckets": {
-          "type": [
-            "array",
-            "null"
-          ],
-          "items": {
-            "type": "array",
-            "items": {
-              "type": "integer"
-            },
-            "minItems": 4,
-            "maxItems": 4
-          },
-          "description": "Raw flow buckets behind flow_trend, oldest ~30-day bucket first: one [issues_opened, issues_closed, prs_opened, prs_closed] row per bucket"
-        },
         "deprecation_signals": {
           "type": "array",
           "items": {
@@ -795,63 +573,6 @@
             "null"
           ],
           "description": "Replacement package named in the metadata / deprecation message / README"
-        },
-        "gap_cv": {
-          "type": [
-            "number",
-            "null"
-          ],
-          "minimum": 0,
-          "description": "Coefficient of variation of inter-commit gaps from the last 100 commits; volume-free, unlike a weekly-bucket CV. Null below 20 sampled gaps"
-        },
-        "median_gap_days": {
-          "type": [
-            "number",
-            "null"
-          ],
-          "minimum": 0,
-          "description": "Median inter-commit gap, in days, from the sampled commits"
-        },
-        "silence_days": {
-          "type": [
-            "number",
-            "null"
-          ],
-          "minimum": 0,
-          "description": "Days since the most recent sampled commit"
-        },
-        "silence_p": {
-          "type": [
-            "number",
-            "null"
-          ],
-          "minimum": 0,
-          "maximum": 1,
-          "description": "Empirical probability, from this repository's own gap history, of a silence this long"
-        },
-        "commits_sampled": {
-          "type": [
-            "integer",
-            "null"
-          ],
-          "minimum": 0,
-          "description": "Non-bot commits that entered the gap measurement"
-        },
-        "span_days": {
-          "type": [
-            "number",
-            "null"
-          ],
-          "minimum": 0,
-          "description": "Time span, in days, covered by the sampled commits"
-        },
-        "days_since_push": {
-          "type": [
-            "integer",
-            "null"
-          ],
-          "minimum": 0,
-          "description": "Days since the last push to the upstream repository"
         },
         "archived": {
           "type": [
@@ -874,7 +595,8 @@
           ],
           "description": "Advisory dependency-health verdict from the EPSS x maintenance triage matrix. Answers 'is this dependency healthy long-term?' - next_action says what to do now."
         }
-      }
+      },
+      "additionalProperties": false
     },
     "PackageMetrics": {
       "type": "object",
@@ -885,7 +607,6 @@
         "installed_version",
         "latest_version",
         "time_lag_days",
-        "version_age_days",
         "releases_lag",
         "cve",
         "is_prerelease",
@@ -927,13 +648,6 @@
           ],
           "description": "Days between installed and latest version"
         },
-        "version_age_days": {
-          "type": [
-            "integer",
-            "null"
-          ],
-          "description": "Days since the installed version was published to the registry"
-        },
         "releases_lag": {
           "type": [
             "integer",
@@ -948,70 +662,12 @@
             "$ref": "#/$defs/CVEInfo"
           }
         },
-        "dependency_path": {
-          "type": [
-            "array",
-            "null"
-          ],
-          "items": {
-            "type": "string"
-          },
-          "description": "Ancestor chain from root to this package (null for direct dependencies)"
-        },
-        "version_constraint": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "description": "Effective version specifier used internally for solver/ladder computation (e.g. '^1.2.3', '>=1.0,<2.0'). Last-writer-wins across every parent that declares a spec for this package - not guaranteed to equal the manifest's own declaration. Use version_constraint_declared for the manifest's declared value."
-        },
         "version_constraint_declared": {
           "type": [
             "string",
             "null"
           ],
           "description": "Version constraint declared by the project manifest itself (e.g. '^1.2.3', '>=1.0,<2.0'). None when this dependency has no direct manifest entry or is unconstrained. This is the value to show as \"the declared constraint\"."
-        },
-        "repo_url": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "format": "uri",
-          "description": "Source code repository URL"
-        },
-        "homepage_url": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "format": "uri",
-          "description": "Package homepage URL"
-        },
-        "package_url": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "format": "uri",
-          "description": "Package registry page URL"
-        },
-        "license": {
-          "type": [
-            "array",
-            "null"
-          ],
-          "items": {
-            "type": "string"
-          },
-          "description": "SPDX license identifiers parsed from the package license expression"
-        },
-        "purl": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "description": "Package URL (PURL) per ECMA-386, e.g. pkg:pypi/requests@2.25.1 or pkg:npm/lodash@4.17.21"
         },
         "constraint_type": {
           "type": [
@@ -1027,13 +683,6 @@
             null
           ],
           "description": "How the version constraint was applied: DECLARED (loose/default spec), NARROWED (explicit range with bounds), PINNED (exact version), ADDITIVE (narrows via constraints file), or OVERRIDE (forces a version regardless of other requirements)"
-        },
-        "constraint_source_file": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "description": "File that introduced a non-DECLARED constraint (e.g. 'package.json' for npm overrides, 'pyproject.toml' for uv, 'requirements.txt' for pip classic)"
         },
         "extras": {
           "type": [
@@ -1211,15 +860,6 @@
           ],
           "description": "Human-readable reason for runs_code_at_install; null when unknown or not detected"
         },
-        "maintenance_coverage": {
-          "type": [
-            "number",
-            "null"
-          ],
-          "minimum": 0,
-          "maximum": 1,
-          "description": "Fraction of the maintenance observations that were available"
-        },
         "maintenance_risk": {
           "type": [
             "number",
@@ -1243,34 +883,6 @@
           ],
           "description": "Most probable maintenance state"
         },
-        "flow_trend": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "enum": [
-            "improving",
-            "stable",
-            "declining",
-            null
-          ],
-          "description": "Direction of the issue/PR flow ratio over the engagement window"
-        },
-        "engagement_buckets": {
-          "type": [
-            "array",
-            "null"
-          ],
-          "items": {
-            "type": "array",
-            "items": {
-              "type": "integer"
-            },
-            "minItems": 4,
-            "maxItems": 4
-          },
-          "description": "Raw flow buckets behind flow_trend, oldest ~30-day bucket first: one [issues_opened, issues_closed, prs_opened, prs_closed] row per bucket"
-        },
         "deprecation_signals": {
           "type": "array",
           "items": {
@@ -1284,63 +896,6 @@
             "null"
           ],
           "description": "Replacement package named in the metadata / deprecation message / README"
-        },
-        "gap_cv": {
-          "type": [
-            "number",
-            "null"
-          ],
-          "minimum": 0,
-          "description": "Coefficient of variation of inter-commit gaps from the last 100 commits; volume-free, unlike a weekly-bucket CV. Null below 20 sampled gaps"
-        },
-        "median_gap_days": {
-          "type": [
-            "number",
-            "null"
-          ],
-          "minimum": 0,
-          "description": "Median inter-commit gap, in days, from the sampled commits"
-        },
-        "silence_days": {
-          "type": [
-            "number",
-            "null"
-          ],
-          "minimum": 0,
-          "description": "Days since the most recent sampled commit"
-        },
-        "silence_p": {
-          "type": [
-            "number",
-            "null"
-          ],
-          "minimum": 0,
-          "maximum": 1,
-          "description": "Empirical probability, from this repository's own gap history, of a silence this long"
-        },
-        "commits_sampled": {
-          "type": [
-            "integer",
-            "null"
-          ],
-          "minimum": 0,
-          "description": "Non-bot commits that entered the gap measurement"
-        },
-        "span_days": {
-          "type": [
-            "number",
-            "null"
-          ],
-          "minimum": 0,
-          "description": "Time span, in days, covered by the sampled commits"
-        },
-        "days_since_push": {
-          "type": [
-            "integer",
-            "null"
-          ],
-          "minimum": 0,
-          "description": "Days since the last push to the upstream repository"
         },
         "archived": {
           "type": [
@@ -1374,7 +929,8 @@
           ],
           "description": "The update-strategy selector's verdict for this package; null when it never ran"
         }
-      }
+      },
+      "additionalProperties": false
     },
     "StrategySelectionExport": {
       "type": "object",
@@ -1405,7 +961,8 @@
           ],
           "description": "Set when the strategy reached past its tier's base ceiling, or every reachable version still carries a qualifying CVE"
         }
-      }
+      },
+      "additionalProperties": false
     },
     "TransitiveImpactExport": {
       "type": "object",
@@ -1480,13 +1037,8 @@
       "required": [
         "id",
         "cve_ids",
-        "source",
-        "package_name",
-        "package_registry",
         "summary",
         "severity",
-        "affected_versions",
-        "published",
         "link"
       ],
       "properties": {
@@ -1500,18 +1052,6 @@
             "type": "string"
           },
           "description": "All aliases (CVE, GHSA, OSV)"
-        },
-        "source": {
-          "type": "string",
-          "description": "CVE database source"
-        },
-        "package_name": {
-          "type": "string",
-          "description": "Affected package name"
-        },
-        "package_registry": {
-          "type": "string",
-          "description": "Package registry (npm, pypi, etc.)"
         },
         "summary": {
           "type": "string",
@@ -1527,13 +1067,6 @@
           ],
           "description": "Severity level"
         },
-        "affected_versions": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          },
-          "description": "Versions the advisory enumerates. Always empty for npm, whose advisories publish only ranges - read affected_ranges for the exposure"
-        },
         "affected_ranges": {
           "type": "array",
           "items": {
@@ -1547,14 +1080,6 @@
             "type": "string"
           },
           "description": "Releases that close an affected interval, one per fixed line; empty when no fix is published"
-        },
-        "published": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "format": "date-time",
-          "description": "Publication date"
         },
         "link": {
           "type": "string",
@@ -1575,7 +1100,8 @@
           ],
           "description": "Days a fix has been available; null when no fix is known"
         }
-      }
+      },
+      "additionalProperties": false
     },
     "IgnoredPackageExport": {
       "type": "object",
@@ -1633,5 +1159,6 @@
         }
       }
     }
-  }
+  },
+  "additionalProperties": false
 }

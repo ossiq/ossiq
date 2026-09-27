@@ -9,10 +9,12 @@ This test suite follows pytest best practices:
 - Mocking external dependencies where appropriate
 """
 
+import dataclasses
 import json
+from typing import Any
 
 import pytest
-from jsonschema import validate
+from jsonschema import ValidationError, validate
 
 from ossiq.domain.common import (
     Command,
@@ -23,27 +25,31 @@ from ossiq.domain.common import (
     EngineContext,
     EngineContextSource,
     ExportJsonSchemaVersion,
+    ExportProfile,
     FetchDiagnostics,
     ModuleSystem,
     ProjectPackagesRegistry,
     RateLimitBudget,
     RecommendationRung,
+    RuntimeMismatch,
     ScanStep,
     UserInterfaceType,
 )
 from ossiq.domain.compatibility import CompatibilityFacts
-from ossiq.domain.cve import CVE, CveDatabase, Severity
+from ossiq.domain.cve import CVE, AffectedRange, CveDatabase, Severity
 from ossiq.domain.exceptions import DestinationDoesntExist
 from ossiq.domain.project import ConstraintSource
 from ossiq.domain.version import VersionsDifference
 from ossiq.risk.stability import EngagementBucket, EngagementSeries
 from ossiq.risk.triage import ACTION_REFACTOR, TriageResult
-from ossiq.service.project.models import ScanRecord, ScanResult
+from ossiq.service.library_scan import UpgradePath
+from ossiq.service.project.models import IgnoredDependency, ScanRecord, ScanResult
 from ossiq.service.project.stability import RepositoryStability
 from ossiq.settings import Settings
 from ossiq.strategy.motive import UpdateMotive
 from ossiq.strategy.pyramid import UpdateStrategy
 from ossiq.strategy.targeting import StrategySelection
+from ossiq.ui.renderers.export import models as export_models
 from ossiq.ui.renderers.export.json import JsonExportRenderer
 from ossiq.ui.renderers.export.json_schema_registry import json_schema_registry
 
@@ -141,7 +147,7 @@ class TestJsonExportRenderer:
         rejected as) a file literally named '-'.
         """
         renderer = JsonExportRenderer(settings)
-        renderer.render(sample_project_metrics, destination="-")
+        renderer.render(sample_project_metrics, destination="-", profile=ExportProfile.FULL)
 
         captured = capsys.readouterr()
         assert captured.err == ""
@@ -153,7 +159,7 @@ class TestJsonExportRenderer:
     ):
         monkeypatch.chdir(tmp_path)
         renderer = JsonExportRenderer(settings)
-        renderer.render(sample_project_metrics, destination="-")
+        renderer.render(sample_project_metrics, destination="-", profile=ExportProfile.FULL)
 
         assert not (tmp_path / "-").exists()
 
@@ -169,7 +175,7 @@ class TestJsonExportRenderer:
         renderer = JsonExportRenderer(settings)
 
         # Act
-        renderer.render(sample_project_metrics, destination=str(output_file))
+        renderer.render(sample_project_metrics, destination=str(output_file), profile=ExportProfile.FULL)
 
         # Assert
         assert output_file.exists()
@@ -187,7 +193,7 @@ class TestJsonExportRenderer:
         """
         # Arrange
         renderer = JsonExportRenderer(settings)
-        renderer.render(sample_project_metrics, destination=str(output_file))
+        renderer.render(sample_project_metrics, destination=str(output_file), profile=ExportProfile.FULL)
 
         # Act
         data = json.loads(output_file.read_text(encoding="utf-8"))
@@ -205,7 +211,7 @@ class TestJsonExportRenderer:
         must not be mistaken for a scan with degraded sources.
         """
         renderer = JsonExportRenderer(settings)
-        renderer.render(sample_project_metrics, destination=str(output_file))
+        renderer.render(sample_project_metrics, destination=str(output_file), profile=ExportProfile.FULL)
 
         data = json.loads(output_file.read_text(encoding="utf-8"))
         completeness = data["metadata"]["data_completeness"]
@@ -234,7 +240,7 @@ class TestJsonExportRenderer:
             ),
         )
         renderer = JsonExportRenderer(settings)
-        renderer.render(scan, destination=str(output_file))
+        renderer.render(scan, destination=str(output_file), profile=ExportProfile.FULL)
 
         data = json.loads(output_file.read_text(encoding="utf-8"))
         completeness = data["metadata"]["data_completeness"]
@@ -265,7 +271,7 @@ class TestJsonExportRenderer:
             ),
         )
         renderer = JsonExportRenderer(settings)
-        renderer.render(scan, destination=str(output_file))
+        renderer.render(scan, destination=str(output_file), profile=ExportProfile.FULL)
 
         completeness = json.loads(output_file.read_text(encoding="utf-8"))["metadata"]["data_completeness"]
 
@@ -286,7 +292,7 @@ class TestJsonExportRenderer:
         """
         # Arrange
         renderer = JsonExportRenderer(settings)
-        renderer.render(sample_project_metrics, destination=str(output_file))
+        renderer.render(sample_project_metrics, destination=str(output_file), profile=ExportProfile.FULL)
 
         # Act
         data = json.loads(output_file.read_text(encoding="utf-8"))
@@ -307,7 +313,7 @@ class TestJsonExportRenderer:
         """
         # Arrange
         renderer = JsonExportRenderer(settings)
-        renderer.render(sample_project_metrics, destination=str(output_file))
+        renderer.render(sample_project_metrics, destination=str(output_file), profile=ExportProfile.FULL)
 
         # Act
         data = json.loads(output_file.read_text(encoding="utf-8"))
@@ -340,7 +346,7 @@ class TestJsonExportRenderer:
         """
         # Arrange
         renderer = JsonExportRenderer(settings)
-        renderer.render(sample_project_metrics, destination=str(output_file))
+        renderer.render(sample_project_metrics, destination=str(output_file), profile=ExportProfile.FULL)
 
         # Act
         data = json.loads(output_file.read_text(encoding="utf-8"))
@@ -363,7 +369,7 @@ class TestJsonExportRenderer:
         output_template = tmp_path / "export_{project_name}.json"
 
         # Act
-        renderer.render(sample_project_metrics, destination=str(output_template))
+        renderer.render(sample_project_metrics, destination=str(output_template), profile=ExportProfile.FULL)
 
         # Assert
         expected_file = tmp_path / "export_test-project.json"
@@ -381,7 +387,9 @@ class TestJsonExportRenderer:
 
         # Act & Assert
         with pytest.raises(DestinationDoesntExist):
-            renderer.render(sample_project_metrics, destination="/nonexistent/dir/export.json")
+            renderer.render(
+                sample_project_metrics, destination="/nonexistent/dir/export.json", profile=ExportProfile.FULL
+            )
 
     def test_unicode_characters_handled_correctly(self, output_file, settings):
         """Test JSON export handles Unicode characters correctly.
@@ -402,7 +410,7 @@ class TestJsonExportRenderer:
         renderer = JsonExportRenderer(settings)
 
         # Act
-        renderer.render(metrics, destination=str(output_file))
+        renderer.render(metrics, destination=str(output_file), profile=ExportProfile.FULL)
         data = json.loads(output_file.read_text(encoding="utf-8"))
 
         # Assert
@@ -420,7 +428,7 @@ class TestJsonExportRenderer:
         renderer = JsonExportRenderer(settings)
 
         # Act
-        renderer.render(sample_project_metrics, destination=str(output_file))
+        renderer.render(sample_project_metrics, destination=str(output_file), profile=ExportProfile.FULL)
         data = json.loads(output_file.read_text(encoding="utf-8"))
 
         # Assert
@@ -440,7 +448,7 @@ class TestJsonExportRenderer:
         """
         # Arrange
         renderer = JsonExportRenderer(settings)
-        renderer.render(sample_project_metrics, destination=str(output_file))
+        renderer.render(sample_project_metrics, destination=str(output_file), profile=ExportProfile.FULL)
 
         # Act
         exported_data = json.loads(output_file.read_text(encoding="utf-8"))
@@ -461,7 +469,9 @@ class TestJsonExportRenderer:
         renderer = JsonExportRenderer(settings)
 
         # Act
-        renderer.render(sample_project_metrics, destination=str(output_file), schema_version="1.5")
+        renderer.render(
+            sample_project_metrics, destination=str(output_file), schema_version="1.5", profile=ExportProfile.FULL
+        )
 
         # Assert
         data = json.loads(output_file.read_text(encoding="utf-8"))
@@ -482,7 +492,7 @@ class TestJsonExportRenderer:
         renderer = JsonExportRenderer(settings)
 
         # Act
-        renderer.render(sample_project_metrics, destination=str(output_file))
+        renderer.render(sample_project_metrics, destination=str(output_file), profile=ExportProfile.FULL)
 
         # Assert
         data = json.loads(output_file.read_text(encoding="utf-8"))
@@ -546,7 +556,12 @@ class TestJsonExportRendererV13:
     def test_v1_3_transitive_packages_are_deduplicated(self, output_file, sample_project_with_transitives, settings):
         """Two ScanRecords with same (package_name, installed_version) produce one transitive entry."""
         renderer = JsonExportRenderer(settings)
-        renderer.render(sample_project_with_transitives, destination=str(output_file), schema_version="1.5")
+        renderer.render(
+            sample_project_with_transitives,
+            destination=str(output_file),
+            schema_version="1.5",
+            profile=ExportProfile.FULL,
+        )
 
         data = json.loads(output_file.read_text(encoding="utf-8"))
         assert len(data["transitive_packages"]) == 1
@@ -554,7 +569,12 @@ class TestJsonExportRendererV13:
     def test_v1_3_output_has_dependency_tree(self, output_file, sample_project_with_transitives, settings):
         """v1.3 output must contain a top-level dependency_tree array."""
         renderer = JsonExportRenderer(settings)
-        renderer.render(sample_project_with_transitives, destination=str(output_file), schema_version="1.5")
+        renderer.render(
+            sample_project_with_transitives,
+            destination=str(output_file),
+            schema_version="1.5",
+            profile=ExportProfile.FULL,
+        )
 
         data = json.loads(output_file.read_text(encoding="utf-8"))
         assert "dependency_tree" in data
@@ -565,7 +585,12 @@ class TestJsonExportRendererV13:
     ):
         """Tree must have roots for react-dom and react (the two direct parents from the test fixtures)."""
         renderer = JsonExportRenderer(settings)
-        renderer.render(sample_project_with_transitives, destination=str(output_file), schema_version="1.5")
+        renderer.render(
+            sample_project_with_transitives,
+            destination=str(output_file),
+            schema_version="1.5",
+            profile=ExportProfile.FULL,
+        )
 
         data = json.loads(output_file.read_text(encoding="utf-8"))
         root_names = {r["package_name"] for r in data["dependency_tree"]}
@@ -575,7 +600,12 @@ class TestJsonExportRendererV13:
     def test_v1_3_tree_nodes_carry_constraint_fields(self, output_file, sample_project_with_transitives, settings):
         """Each tree node must carry ref, ct, and version_constraint."""
         renderer = JsonExportRenderer(settings)
-        renderer.render(sample_project_with_transitives, destination=str(output_file), schema_version="1.5")
+        renderer.render(
+            sample_project_with_transitives,
+            destination=str(output_file),
+            schema_version="1.5",
+            profile=ExportProfile.FULL,
+        )
 
         data = json.loads(output_file.read_text(encoding="utf-8"))
         for root in data["dependency_tree"]:
@@ -589,7 +619,12 @@ class TestJsonExportRendererV13:
     ):
         """The same package (scheduler ref=0) appears under two roots with different ct values."""
         renderer = JsonExportRenderer(settings)
-        renderer.render(sample_project_with_transitives, destination=str(output_file), schema_version="1.5")
+        renderer.render(
+            sample_project_with_transitives,
+            destination=str(output_file),
+            schema_version="1.5",
+            profile=ExportProfile.FULL,
+        )
 
         data = json.loads(output_file.read_text(encoding="utf-8"))
         # Both roots point to scheduler (ref=0) but with different constraints
@@ -605,7 +640,12 @@ class TestJsonExportRendererV13:
     ):
         """Every ref value in the tree must be a valid index into transitive_packages."""
         renderer = JsonExportRenderer(settings)
-        renderer.render(sample_project_with_transitives, destination=str(output_file), schema_version="1.5")
+        renderer.render(
+            sample_project_with_transitives,
+            destination=str(output_file),
+            schema_version="1.5",
+            profile=ExportProfile.FULL,
+        )
 
         data = json.loads(output_file.read_text(encoding="utf-8"))
         n = len(data["transitive_packages"])
@@ -621,7 +661,12 @@ class TestJsonExportRendererV13:
     def test_v1_3_transitive_entry_has_no_path_fields(self, output_file, sample_project_with_transitives, settings):
         """transitive_packages entries must not contain dependency_paths or dependency_path."""
         renderer = JsonExportRenderer(settings)
-        renderer.render(sample_project_with_transitives, destination=str(output_file), schema_version="1.5")
+        renderer.render(
+            sample_project_with_transitives,
+            destination=str(output_file),
+            schema_version="1.5",
+            profile=ExportProfile.FULL,
+        )
 
         data = json.loads(output_file.read_text(encoding="utf-8"))
         entry = data["transitive_packages"][0]
@@ -631,7 +676,12 @@ class TestJsonExportRendererV13:
     def test_v1_3_invariant_fields_on_transitive_entry(self, output_file, sample_project_with_transitives, settings):
         """Invariant fields (id, package_name, installed_version, cve) must be on transitive entries."""
         renderer = JsonExportRenderer(settings)
-        renderer.render(sample_project_with_transitives, destination=str(output_file), schema_version="1.5")
+        renderer.render(
+            sample_project_with_transitives,
+            destination=str(output_file),
+            schema_version="1.5",
+            profile=ExportProfile.FULL,
+        )
 
         data = json.loads(output_file.read_text(encoding="utf-8"))
         entry = data["transitive_packages"][0]
@@ -644,7 +694,12 @@ class TestJsonExportRendererV13:
     def test_v1_3_output_has_constraint_type_map(self, output_file, sample_project_with_transitives, settings):
         """v1.3 output must contain a top-level constraint_type_map with 5 entries."""
         renderer = JsonExportRenderer(settings)
-        renderer.render(sample_project_with_transitives, destination=str(output_file), schema_version="1.5")
+        renderer.render(
+            sample_project_with_transitives,
+            destination=str(output_file),
+            schema_version="1.5",
+            profile=ExportProfile.FULL,
+        )
 
         data = json.loads(output_file.read_text(encoding="utf-8"))
         assert "constraint_type_map" in data
@@ -653,7 +708,12 @@ class TestJsonExportRendererV13:
     def test_v1_3_tree_node_has_no_null_fields(self, output_file, sample_project_with_transitives, settings):
         """Tree nodes must not contain null or empty-list fields."""
         renderer = JsonExportRenderer(settings)
-        renderer.render(sample_project_with_transitives, destination=str(output_file), schema_version="1.5")
+        renderer.render(
+            sample_project_with_transitives,
+            destination=str(output_file),
+            schema_version="1.5",
+            profile=ExportProfile.FULL,
+        )
 
         data = json.loads(output_file.read_text(encoding="utf-8"))
         for root in data["dependency_tree"]:
@@ -669,7 +729,12 @@ class TestJsonExportRendererV13:
     ):
         """constraint_source_file from NARROWED record must appear on the transitive package entry."""
         renderer = JsonExportRenderer(settings)
-        renderer.render(sample_project_with_transitives, destination=str(output_file), schema_version="1.5")
+        renderer.render(
+            sample_project_with_transitives,
+            destination=str(output_file),
+            schema_version="1.5",
+            profile=ExportProfile.FULL,
+        )
 
         data = json.loads(output_file.read_text(encoding="utf-8"))
         # transitive_record_b has NARROWED constraint with source_file="package.json"
@@ -679,7 +744,12 @@ class TestJsonExportRendererV13:
     def test_v1_3_cve_taken_from_first_record(self, output_file, sample_project_with_transitives, settings):
         """CVE data is read from the first record in the group (invariant field)."""
         renderer = JsonExportRenderer(settings)
-        renderer.render(sample_project_with_transitives, destination=str(output_file), schema_version="1.5")
+        renderer.render(
+            sample_project_with_transitives,
+            destination=str(output_file),
+            schema_version="1.5",
+            profile=ExportProfile.FULL,
+        )
 
         data = json.loads(output_file.read_text(encoding="utf-8"))
         # transitive_record_a (first) has 1 CVE; transitive_record_b has 0
@@ -690,7 +760,12 @@ class TestJsonExportRendererV13:
         from jsonschema import validate
 
         renderer = JsonExportRenderer(settings)
-        renderer.render(sample_project_with_transitives, destination=str(output_file), schema_version="1.5")
+        renderer.render(
+            sample_project_with_transitives,
+            destination=str(output_file),
+            schema_version="1.5",
+            profile=ExportProfile.FULL,
+        )
 
         data = json.loads(output_file.read_text(encoding="utf-8"))
         schema = json_schema_registry.load_schema(ExportJsonSchemaVersion.V1_5)
@@ -737,7 +812,7 @@ class TestJsonExportRendererV13:
             transitive_packages=[other_record, scheduler_record],
         )
         renderer = JsonExportRenderer(settings)
-        renderer.render(metrics, destination=str(output_file), schema_version="1.5")
+        renderer.render(metrics, destination=str(output_file), schema_version="1.5", profile=ExportProfile.FULL)
 
         data = json.loads(output_file.read_text(encoding="utf-8"))
         assert len(data["transitive_packages"]) == 2
@@ -784,7 +859,7 @@ class TestJsonExportRendererV13:
             transitive_packages=[scheduler_record, loose_envify_record],
         )
         renderer = JsonExportRenderer(settings)
-        renderer.render(metrics, destination=str(output_file), schema_version="1.5")
+        renderer.render(metrics, destination=str(output_file), schema_version="1.5", profile=ExportProfile.FULL)
 
         data = json.loads(output_file.read_text(encoding="utf-8"))
         # transitive_packages: scheduler=0, loose-envify=1
@@ -857,7 +932,7 @@ class TestJsonExportRendererV14:
             optional_packages=[],
         )
         renderer = JsonExportRenderer(settings)
-        renderer.render(metrics, destination=str(output_file), schema_version="1.5")
+        renderer.render(metrics, destination=str(output_file), schema_version="1.5", profile=ExportProfile.FULL)
 
         data = json.loads(output_file.read_text(encoding="utf-8"))
         pkg = data["production_packages"][0]
@@ -874,7 +949,7 @@ class TestJsonExportRendererV14:
             optional_packages=[],
         )
         renderer = JsonExportRenderer(settings)
-        renderer.render(metrics, destination=str(output_file), schema_version="1.5")
+        renderer.render(metrics, destination=str(output_file), schema_version="1.5", profile=ExportProfile.FULL)
 
         data = json.loads(output_file.read_text(encoding="utf-8"))
         pkg = data["production_packages"][0]
@@ -891,7 +966,7 @@ class TestJsonExportRendererV14:
             optional_packages=[],
         )
         renderer = JsonExportRenderer(settings)
-        renderer.render(metrics, destination=str(output_file), schema_version="1.5")
+        renderer.render(metrics, destination=str(output_file), schema_version="1.5", profile=ExportProfile.FULL)
 
         data = json.loads(output_file.read_text(encoding="utf-8"))
         pkg = data["production_packages"][0]
@@ -908,7 +983,7 @@ class TestJsonExportRendererV14:
             optional_packages=[],
         )
         renderer = JsonExportRenderer(settings)
-        renderer.render(metrics, destination=str(output_file), schema_version="1.5")
+        renderer.render(metrics, destination=str(output_file), schema_version="1.5", profile=ExportProfile.FULL)
 
         data = json.loads(output_file.read_text(encoding="utf-8"))
         pkg = data["production_packages"][0]
@@ -946,7 +1021,7 @@ class TestJsonExportRendererV14:
             engine_context=EngineContext({"node": ">=18.0.0"}, EngineContextSource.DECLARED),
         )
         renderer = JsonExportRenderer(settings)
-        renderer.render(metrics, destination=str(output_file), schema_version="1.5")
+        renderer.render(metrics, destination=str(output_file), schema_version="1.5", profile=ExportProfile.FULL)
 
         data = json.loads(output_file.read_text(encoding="utf-8"))
         entry = data["transitive_packages"][0]
@@ -958,7 +1033,12 @@ class TestJsonExportRendererV14:
         from jsonschema import validate
 
         renderer = JsonExportRenderer(settings)
-        renderer.render(sample_project_with_transitives, destination=str(output_file), schema_version="1.5")
+        renderer.render(
+            sample_project_with_transitives,
+            destination=str(output_file),
+            schema_version="1.5",
+            profile=ExportProfile.FULL,
+        )
 
         data = json.loads(output_file.read_text(encoding="utf-8"))
         schema = json_schema_registry.load_schema(ExportJsonSchemaVersion.V1_5)
@@ -979,7 +1059,7 @@ class TestJsonExportRendererV14:
             optional_packages=[],
         )
         renderer = JsonExportRenderer(settings)
-        renderer.render(metrics, destination=str(output_file), schema_version="1.5")
+        renderer.render(metrics, destination=str(output_file), schema_version="1.5", profile=ExportProfile.FULL)
 
         data = json.loads(output_file.read_text(encoding="utf-8"))
         pkg = data["production_packages"][0]
@@ -1000,7 +1080,7 @@ class TestJsonExportRendererV14:
             optional_packages=[],
         )
         renderer = JsonExportRenderer(settings)
-        renderer.render(metrics, destination=str(output_file), schema_version="1.5")
+        renderer.render(metrics, destination=str(output_file), schema_version="1.5", profile=ExportProfile.FULL)
 
         data = json.loads(output_file.read_text(encoding="utf-8"))
         pkg = data["production_packages"][0]
@@ -1042,7 +1122,7 @@ class TestJsonExportRendererV15:
             optional_packages=[],
         )
         renderer = JsonExportRenderer(settings)
-        renderer.render(metrics, destination=str(output_file), schema_version="1.5")
+        renderer.render(metrics, destination=str(output_file), schema_version="1.5", profile=ExportProfile.FULL)
 
         data = json.loads(output_file.read_text(encoding="utf-8"))
         schema = json_schema_registry.load_schema(ExportJsonSchemaVersion.V1_5)
@@ -1058,7 +1138,7 @@ class TestJsonExportRendererV15:
             optional_packages=[],
         )
         renderer = JsonExportRenderer(settings)
-        renderer.render(metrics, destination=str(output_file), schema_version="1.5")
+        renderer.render(metrics, destination=str(output_file), schema_version="1.5", profile=ExportProfile.FULL)
 
         data = json.loads(output_file.read_text(encoding="utf-8"))
         pkg = data["production_packages"][0]
@@ -1096,7 +1176,7 @@ class TestJsonExportRendererV15:
             engine_context=EngineContext({"node": ">=18.0.0"}, EngineContextSource.DECLARED),
         )
         renderer = JsonExportRenderer(settings)
-        renderer.render(metrics, destination=str(output_file), schema_version="1.5")
+        renderer.render(metrics, destination=str(output_file), schema_version="1.5", profile=ExportProfile.FULL)
 
         data = json.loads(output_file.read_text(encoding="utf-8"))
         pkg = data["production_packages"][0]
@@ -1136,7 +1216,9 @@ class TestJsonExportRendererV15:
             transitive_packages=[transitive],
             engine_context=EngineContext({"node": ">=18.0.0"}, EngineContextSource.DECLARED),
         )
-        JsonExportRenderer(settings).render(metrics, destination=str(output_file), schema_version="1.5")
+        JsonExportRenderer(settings).render(
+            metrics, destination=str(output_file), schema_version="1.5", profile=ExportProfile.FULL
+        )
 
         data = json.loads(output_file.read_text(encoding="utf-8"))
         entry = data["transitive_packages"][0]
@@ -1163,7 +1245,7 @@ class TestJsonExportRendererV15:
             optional_packages=[],
         )
         renderer = JsonExportRenderer(settings)
-        renderer.render(metrics, destination=str(output_file), schema_version="1.5")
+        renderer.render(metrics, destination=str(output_file), schema_version="1.5", profile=ExportProfile.FULL)
 
         data = json.loads(output_file.read_text(encoding="utf-8"))
         pkg = data["production_packages"][0]
@@ -1194,7 +1276,7 @@ class TestJsonExportRendererV15:
             optional_packages=[],
         )
         renderer = JsonExportRenderer(settings)
-        renderer.render(metrics, destination=str(output_file), schema_version="1.5")
+        renderer.render(metrics, destination=str(output_file), schema_version="1.5", profile=ExportProfile.FULL)
 
         data = json.loads(output_file.read_text(encoding="utf-8"))
         pkg = data["production_packages"][0]
@@ -1233,7 +1315,7 @@ class TestJsonExportRendererV15:
             optional_packages=[],
         )
         renderer = JsonExportRenderer(settings)
-        renderer.render(metrics, destination=str(output_file), schema_version="1.5")
+        renderer.render(metrics, destination=str(output_file), schema_version="1.5", profile=ExportProfile.FULL)
 
         pkg = json.loads(output_file.read_text(encoding="utf-8"))["production_packages"][0]
         assert pkg["next_action"] == "Constrained. Check newer version"
@@ -1257,7 +1339,7 @@ class TestJsonExportRendererV15:
             optional_packages=[],
         )
         renderer = JsonExportRenderer(settings)
-        renderer.render(metrics, destination=str(output_file), schema_version="1.5")
+        renderer.render(metrics, destination=str(output_file), schema_version="1.5", profile=ExportProfile.FULL)
 
         pkg = json.loads(output_file.read_text(encoding="utf-8"))["production_packages"][0]
         assert pkg["requires_constraint_widening"] is False
@@ -1278,7 +1360,9 @@ class TestJsonExportRendererV15:
             production_packages=[record],
             optional_packages=[],
         )
-        JsonExportRenderer(settings).render(metrics, destination=str(output_file), schema_version="1.5")
+        JsonExportRenderer(settings).render(
+            metrics, destination=str(output_file), schema_version="1.5", profile=ExportProfile.FULL
+        )
 
         data = json.loads(output_file.read_text(encoding="utf-8"))
         pkg = data["production_packages"][0]
@@ -1311,7 +1395,7 @@ class TestJsonExportRendererV15:
             optional_packages=[],
         )
         renderer = JsonExportRenderer(settings)
-        renderer.render(metrics, destination=str(output_file), schema_version="1.5")
+        renderer.render(metrics, destination=str(output_file), schema_version="1.5", profile=ExportProfile.FULL)
 
         data = json.loads(output_file.read_text(encoding="utf-8"))
         pkg = data["production_packages"][0]
@@ -1357,7 +1441,7 @@ class TestJsonExportRendererV15:
             engine_context=EngineContext({"node": ">=18.0.0"}, EngineContextSource.DECLARED),
         )
         renderer = JsonExportRenderer(settings)
-        renderer.render(metrics, destination=str(output_file), schema_version="1.5")
+        renderer.render(metrics, destination=str(output_file), schema_version="1.5", profile=ExportProfile.FULL)
 
         data = json.loads(output_file.read_text(encoding="utf-8"))
         entry = data["transitive_packages"][0]
@@ -1396,7 +1480,7 @@ class TestJsonExportRendererV15:
             optional_packages=[],
         )
         renderer = JsonExportRenderer(settings)
-        renderer.render(metrics, destination=str(output_file), schema_version="1.5")
+        renderer.render(metrics, destination=str(output_file), schema_version="1.5", profile=ExportProfile.FULL)
 
         data = json.loads(output_file.read_text(encoding="utf-8"))
         assert data["production_packages"][0]["strategy"] == {
@@ -1418,7 +1502,7 @@ class TestJsonExportRendererV15:
             optional_packages=[],
         )
         renderer = JsonExportRenderer(settings)
-        renderer.render(metrics, destination=str(output_file), schema_version="1.5")
+        renderer.render(metrics, destination=str(output_file), schema_version="1.5", profile=ExportProfile.FULL)
 
         data = json.loads(output_file.read_text(encoding="utf-8"))
         assert data["production_packages"][0]["strategy"] is None
@@ -1444,7 +1528,7 @@ class TestJsonExportRendererV15:
             npm_cli_version="10.2.4",
         )
         renderer = JsonExportRenderer(settings)
-        renderer.render(metrics, destination=str(output_file), schema_version="1.5")
+        renderer.render(metrics, destination=str(output_file), schema_version="1.5", profile=ExportProfile.FULL)
 
         data = json.loads(output_file.read_text(encoding="utf-8"))
         pkg = data["production_packages"][0]
@@ -1458,6 +1542,7 @@ class TestJsonExportRendererV15:
             "engine_context_source": "detected",  # plain string, not an enum repr
             "npm_cli_version": "10.2.4",
             "project_declares_esm": False,
+            "runtime_mismatch": None,
         }
         validate(instance=data, schema=json_schema_registry.load_schema(ExportJsonSchemaVersion.V1_5))
 
@@ -1492,7 +1577,7 @@ class TestJsonExportRendererV15:
             engine_context=EngineContext({"node": ">=18.0.0"}, EngineContextSource.DECLARED),
         )
         renderer = JsonExportRenderer(settings)
-        renderer.render(metrics, destination=str(output_file), schema_version="1.5")
+        renderer.render(metrics, destination=str(output_file), schema_version="1.5", profile=ExportProfile.FULL)
 
         data = json.loads(output_file.read_text(encoding="utf-8"))
         entry = data["transitive_packages"][0]
@@ -1522,7 +1607,7 @@ class TestJsonExportRendererV15:
             optional_packages=[],
         )
         renderer = JsonExportRenderer(settings)
-        renderer.render(metrics, destination=str(output_file), schema_version="1.5")
+        renderer.render(metrics, destination=str(output_file), schema_version="1.5", profile=ExportProfile.FULL)
 
         data = json.loads(output_file.read_text(encoding="utf-8"))
         pkg = data["production_packages"][0]
@@ -1565,7 +1650,7 @@ class TestJsonExportRendererV15:
             engine_context=EngineContext({"node": ">=18.0.0"}, EngineContextSource.DECLARED),
         )
         renderer = JsonExportRenderer(settings)
-        renderer.render(metrics, destination=str(output_file), schema_version="1.5")
+        renderer.render(metrics, destination=str(output_file), schema_version="1.5", profile=ExportProfile.FULL)
 
         data = json.loads(output_file.read_text(encoding="utf-8"))
         pkg = data["production_packages"][0]
@@ -1606,7 +1691,7 @@ class TestJsonExportRendererV15:
             engine_context=EngineContext({"node": ">=18.0.0"}, EngineContextSource.DECLARED),
         )
         renderer = JsonExportRenderer(settings)
-        renderer.render(metrics, destination=str(output_file), schema_version="1.5")
+        renderer.render(metrics, destination=str(output_file), schema_version="1.5", profile=ExportProfile.FULL)
 
         data = json.loads(output_file.read_text(encoding="utf-8"))
         entry = data["transitive_packages"][0]
@@ -1651,7 +1736,9 @@ class TestJsonExportRendererEngagementBuckets:
             production_packages=[record],
             optional_packages=[],
         )
-        JsonExportRenderer(settings).render(metrics, destination=str(output_file), schema_version="1.5")
+        JsonExportRenderer(settings).render(
+            metrics, destination=str(output_file), schema_version="1.5", profile=ExportProfile.FULL
+        )
         return json.loads(output_file.read_text(encoding="utf-8"))
 
     def test_buckets_exported_as_fixed_order_rows(self, output_file, settings, engagement_record):
@@ -1702,7 +1789,9 @@ def test_compatibility_cluster_stays_flat_on_the_wire(output_file, settings, sam
         production_packages=[record],
         optional_packages=[],
     )
-    JsonExportRenderer(settings).render(metrics, destination=str(output_file), schema_version="1.5")
+    JsonExportRenderer(settings).render(
+        metrics, destination=str(output_file), schema_version="1.5", profile=ExportProfile.FULL
+    )
 
     pkg = json.loads(output_file.read_text(encoding="utf-8"))["production_packages"][0]
 
@@ -1715,3 +1804,299 @@ def test_compatibility_cluster_stays_flat_on_the_wire(output_file, settings, sam
     assert pkg["breaking_change"] == "ESM-only from 5.0.0"
     assert pkg["engine_requirement"] == {"node": ">=22.0.0"}
     assert pkg["engine_compatible"] is False
+
+
+# ── Export profiles ────────────────────────────────────────────────────────────
+
+
+def profile_record(name: str, installed: str = "1.0.0", **fields: Any) -> ScanRecord:
+    """A ScanRecord with the full-only fields populated, so a profile test can watch them go."""
+    record = ScanRecord(
+        package_name=name,
+        dependency_name=name,
+        is_optional_dependency=False,
+        installed_version=installed,
+        latest_version="2.0.0",
+        versions_diff_index=VersionsDifference(installed, "2.0.0", 5, "DIFF_MAJOR"),
+        time_lag_days=100,
+        releases_lag=3,
+        cve=[],
+        constraint_info=ConstraintSource(type=ConstraintType.DECLARED, source_file="package.json"),
+        version_constraint=f"^{installed}",
+        version_constraint_declared=f"^{installed}",
+        version_age_days=400,
+        license=["MIT"],
+        repo_url=f"https://github.com/example/{name}",
+        homepage_url=f"https://example.com/{name}",
+        package_url=f"https://www.npmjs.com/package/{name}",
+        purl=f"pkg:npm/{name}@{installed}",
+        days_since_push=30,
+    )
+    return dataclasses.replace(record, **fields)
+
+
+def enumerated_advisory(name: str) -> CVE:
+    """An advisory that enumerates sixty affected versions - D3's single largest field."""
+    return CVE(
+        id=f"GHSA-{name}",
+        cve_ids=(f"CVE-2024-{name}",),
+        source=CveDatabase.OSV,
+        package_name=name,
+        package_registry=ProjectPackagesRegistry.NPM,
+        summary=f"{name} is vulnerable",
+        severity=Severity.HIGH,
+        affected_versions=tuple(f"0.{minor}.0" for minor in range(60)),
+        published="2024-01-01T00:00:00Z",
+        link=f"https://osv.dev/GHSA-{name}",
+        epss=0.2,
+        fix_versions=("1.0.1",),
+        affected_ranges=(AffectedRange(fixed="1.0.1"),),
+    )
+
+
+@pytest.fixture
+def profile_scan() -> ScanResult:
+    """Two direct dependencies (one vulnerable, one with nothing to do) and five transitives, only
+    one of which needs attention - the other four merely drift."""
+    vulnerable = profile_record("vulnerable", cve=[enumerated_advisory("vulnerable")], recommended_version="1.0.1")
+    quiet = profile_record(
+        "quiet",
+        latest_version="1.0.0",
+        versions_diff_index=VersionsDifference("1.0.0", "1.0.0", 0, "LATEST"),
+        time_lag_days=0,
+        releases_lag=0,
+    )
+    transitives = [
+        profile_record(
+            "risky-dep",
+            dependency_path=["vulnerable"],
+            cve=[enumerated_advisory("risky-dep")],
+            recommended_version="1.0.1",
+        ),
+        *(profile_record(f"drift-{i}", dependency_path=["quiet"], recommended_version="2.0.0") for i in range(4)),
+    ]
+    return ScanResult(
+        project_name="profiles",
+        project_path="/path/to/profiles",
+        packages_registry=ProjectPackagesRegistry.NPM.value,
+        production_packages=[vulnerable, quiet],
+        optional_packages=[],
+        transitive_packages=transitives,
+        ignored_packages=[
+            IgnoredDependency(name="private-lib", spec="git+https://example.com/private-lib.git", reason="git source")
+        ],
+        upgrade_paths=[
+            UpgradePath(
+                package_name="quiet",
+                current_constraint="^1.0.0",
+                latest_in_range="1.0.0",
+                latest_available="2.0.0",
+                suggested_constraint="^2.0.0",
+            )
+        ],
+        manifest_lock_divergent=["quiet"],
+        engine_context=EngineContext({"node": "20.11.0"}, EngineContextSource.PROVIDED),
+        runtime_mismatch=RuntimeMismatch(
+            engine="node",
+            pinned="22.12.0",
+            pin_file=".nvmrc",
+            runtime="20.11.0",
+            runtime_source=EngineContextSource.PROVIDED,
+        ),
+    )
+
+
+def render_profile(settings: Settings, scan: ScanResult, output_file, profile: ExportProfile | None = None) -> dict:
+    """Render *scan* the way `ossiq export` does - the renderer's own default when *profile* is None."""
+    renderer = JsonExportRenderer(settings)
+    if profile is None:
+        renderer.render(scan, destination=str(output_file))
+    else:
+        renderer.render(scan, destination=str(output_file), profile=profile)
+    return json.loads(output_file.read_text(encoding="utf-8"))
+
+
+class TestExportProfiles:
+    """D3: `ossiq export` emits the standard profile; `--full` keeps today's document."""
+
+    def test_default_is_standard_and_validates_against_its_own_schema(self, settings, profile_scan, output_file):
+        data = render_profile(settings, profile_scan, output_file)
+
+        assert data["metadata"]["profile"] == "standard"
+        validate(
+            instance=data, schema=json_schema_registry.load_schema(ExportJsonSchemaVersion.V1_5, ExportProfile.STANDARD)
+        )
+
+    def test_full_validates_against_the_full_schema_and_not_the_standard_one(self, settings, profile_scan, output_file):
+        data = render_profile(settings, profile_scan, output_file, ExportProfile.FULL)
+
+        assert data["metadata"]["profile"] == "full"
+        validate(
+            instance=data, schema=json_schema_registry.load_schema(ExportJsonSchemaVersion.V1_5, ExportProfile.FULL)
+        )
+        with pytest.raises(ValidationError):
+            validate(
+                instance=data,
+                schema=json_schema_registry.load_schema(ExportJsonSchemaVersion.V1_5, ExportProfile.STANDARD),
+            )
+
+    def test_standard_carries_no_full_only_field(self, settings, profile_scan, output_file):
+        data = render_profile(settings, profile_scan, output_file)
+
+        assert not data.keys() & export_models.full_only_fields(export_models.ExportData)
+        assert not data["metadata"]["data_completeness"].keys() & export_models.full_only_fields(
+            export_models.DataCompletenessExport
+        )
+        for entry in data["production_packages"]:
+            assert not entry.keys() & export_models.full_only_fields(export_models.PackageMetrics)
+        for entry in data["transitive_packages"]:
+            assert not entry.keys() & export_models.full_only_fields(export_models.TransitivePackageMetrics)
+        for entry in data["production_packages"] + data["transitive_packages"]:
+            for cve in entry.get("cve", []):
+                assert not cve.keys() & export_models.full_only_fields(export_models.CVEInfo)
+
+    def test_standard_keeps_every_direct_dependency(self, settings, profile_scan, output_file):
+        """B7: an omitted entry can't be told apart from one that was never analysed."""
+        data = render_profile(settings, profile_scan, output_file)
+
+        assert [entry["package_name"] for entry in data["production_packages"]] == ["vulnerable", "quiet"]
+
+    def test_standard_keeps_only_the_transitives_that_need_attention(self, settings, profile_scan, output_file):
+        data = render_profile(settings, profile_scan, output_file)
+
+        assert [entry["package_name"] for entry in data["transitive_packages"]] == ["risky-dep"]
+        assert data["summary"]["transitive_packages"] == 5
+
+    def test_full_keeps_every_transitive_and_the_tree(self, settings, profile_scan, output_file):
+        data = render_profile(settings, profile_scan, output_file, ExportProfile.FULL)
+
+        assert len(data["transitive_packages"]) == data["summary"]["transitive_packages"] == 5
+        assert {root["package_name"] for root in data["dependency_tree"]} == {"vulnerable", "quiet"}
+        assert data["constraint_type_map"] == export_models.CONSTRAINT_TYPE_MAP
+
+    def test_standard_emits_required_fields_even_when_null(self, settings, profile_scan, output_file):
+        profile_scan.production_packages[1].latest_version = None
+
+        (_, quiet) = render_profile(settings, profile_scan, output_file)["production_packages"]
+
+        assert quiet["latest_version"] is None
+        assert quiet["cve"] == []
+        assert "recommended_version" not in quiet
+
+    def test_standard_is_a_fraction_of_full(self, settings, profile_scan, tmp_path):
+        standard = render_profile(settings, profile_scan, tmp_path / "standard.json")
+        full = render_profile(settings, profile_scan, tmp_path / "full.json", ExportProfile.FULL)
+
+        standard_bytes = len(json.dumps(standard, separators=(",", ":")))
+        full_bytes = len(json.dumps(full, separators=(",", ":")))
+        assert standard_bytes <= 0.4 * full_bytes, (standard_bytes, full_bytes)
+
+    def test_standard_field_sets_are_a_deliberate_choice(self):
+        """Guards against the payload creeping back: a new field fails here until someone decides
+        whether an agent needs it (leave it) or only dashboards and archives do (tag it FULL_ONLY)."""
+
+        def standard_fields(model) -> set[str]:
+            return set(model.model_fields) - export_models.full_only_fields(model)
+
+        assert standard_fields(export_models.CVEInfo) == {
+            "id",
+            "cve_ids",
+            "severity",
+            "summary",
+            "epss",
+            "fix_age_days",
+            "link",
+            "affected_ranges",
+            "fixed_in",
+        }
+        shared = {
+            "package_name",
+            "installed_version",
+            "latest_version",
+            "time_lag_days",
+            "releases_lag",
+            "cve",
+            "latest_in_range",
+            "latest_in_major",
+            "latest_compatible_major",
+            "latest_preserving_module_system",
+            "recommended_version",
+            "rejected_candidates",
+            "next_action",
+            "module_system",
+            "recommended_module_system",
+            "module_system_note",
+            "engine_requirement",
+            "engine_compatible",
+            "is_prerelease",
+            "is_yanked",
+            "is_deprecated",
+            "is_package_unpublished",
+            "epss",
+            "runs_code_at_install",
+            "install_execution_reason",
+            "maintenance_risk",
+            "maintenance_state",
+            "deprecation_signals",
+            "deprecation_successor",
+            "archived",
+            "dependency_health_action",
+        }
+        assert standard_fields(export_models.PackageMetrics) == shared | {
+            "dependency_name",
+            "is_optional_dependency",
+            "version_constraint_declared",
+            "constraint_type",
+            "extras",
+            "breaking_change",
+            "recommended_from_rung",
+            "requires_constraint_widening",
+            "update_transitive_impacts",
+            "strategy",
+        }
+        assert standard_fields(export_models.TransitivePackageMetrics) == shared | {"required_by"}
+
+    @pytest.mark.parametrize("profile", [ExportProfile.STANDARD, ExportProfile.FULL])
+    def test_cve_carries_its_ranges_and_fixes(self, settings, profile_scan, output_file, profile):
+        data = render_profile(settings, profile_scan, output_file, profile)
+
+        (cve,) = data["production_packages"][0]["cve"]
+        assert cve["affected_ranges"] == ["<1.0.1"]
+        assert cve["fixed_in"] == ["1.0.1"]
+        assert ("affected_versions" in cve) is (profile == ExportProfile.FULL)
+
+    @pytest.mark.parametrize("profile", [ExportProfile.STANDARD, ExportProfile.FULL])
+    def test_transitive_carries_its_recommendation_and_direct_roots(self, settings, profile_scan, output_file, profile):
+        data = render_profile(settings, profile_scan, output_file, profile)
+
+        risky = next(entry for entry in data["transitive_packages"] if entry["package_name"] == "risky-dep")
+        assert risky["recommended_version"] == "1.0.1"
+        assert risky["required_by"] == ["vulnerable"]
+
+    @pytest.mark.parametrize("profile", [ExportProfile.STANDARD, ExportProfile.FULL])
+    def test_scan_level_facts_reach_both_profiles(self, settings, profile_scan, output_file, profile):
+        data = render_profile(settings, profile_scan, output_file, profile)
+
+        assert data["ignored_packages"] == [
+            {"name": "private-lib", "spec": "git+https://example.com/private-lib.git", "reason": "git source"}
+        ]
+        assert data["upgrade_paths"][0]["suggested_constraint"] == "^2.0.0"
+        assert data["manifest_lock_divergent"] == ["quiet"]
+        assert data["runtime_context"]["engine_context_source"] == "provided"
+        assert data["runtime_context"]["runtime_mismatch"] == {
+            "engine": "node",
+            "pinned": "22.12.0",
+            "pin_file": ".nvmrc",
+            "runtime": "20.11.0",
+            "runtime_source": "provided",
+        }
+
+    def test_dependency_name_is_null_unless_aliased(self, settings, profile_scan, output_file):
+        profile_scan.production_packages[0].dependency_name = "vulnerable-alias"
+
+        vulnerable, quiet = render_profile(settings, profile_scan, output_file, ExportProfile.FULL)[
+            "production_packages"
+        ]
+
+        assert vulnerable["dependency_name"] == "vulnerable-alias"
+        assert quiet["dependency_name"] is None

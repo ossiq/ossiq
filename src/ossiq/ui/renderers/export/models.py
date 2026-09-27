@@ -4,22 +4,84 @@ Pydantic models for JSON export schema.
 These models define the structure of exported project metrics data.
 """
 
+import functools
 from datetime import UTC, datetime
+from typing import Any, ClassVar
 
-from pydantic import BaseModel, Field, field_serializer, model_serializer
+from pydantic import (
+    BaseModel,
+    Field,
+    SerializationInfo,
+    SerializerFunctionWrapHandler,
+    field_serializer,
+    model_serializer,
+)
 
 from ossiq.domain.common import (
     WIDENING_RUNGS,
     ConstraintType,
     DataCompleteness,
     ExportJsonSchemaVersion,
+    ExportProfile,
     ExportUnknownSchemaVersion,
+    RuntimeMismatch,
 )
 from ossiq.domain.cve import CVE, Severity
 from ossiq.risk.maintenance import OBSERVATION_COUNT
-from ossiq.service.project.models import ScanResult
-from ossiq.service.project.next_action import next_action_label
+from ossiq.service.library_scan import UpgradePath
+from ossiq.service.project.models import IgnoredDependency, ScanRecord, ScanResult
+from ossiq.service.project.next_action import needs_attention, next_action_label
 from ossiq.service.project.stability import RepositoryStability
+
+FULL_ONLY: dict[str, Any] = {"profile": ExportProfile.FULL.value}
+"""`json_schema_extra` marker for a field only the full profile carries. It sits on the field
+itself, so deciding a new field's profile happens where the field is declared."""
+
+
+@functools.cache
+def full_only_fields(model: type[BaseModel]) -> frozenset[str]:
+    """Names of *model*'s fields tagged FULL_ONLY, inherited ones included."""
+    return frozenset(
+        name
+        for name, field in model.model_fields.items()
+        if isinstance(field.json_schema_extra, dict) and field.json_schema_extra.get("profile") == ExportProfile.FULL
+    )
+
+
+def serialization_profile(info: SerializationInfo) -> ExportProfile:
+    """The profile a dump was asked for; a dump without one is full, the pre-profile output."""
+    context = info.context if isinstance(info.context, dict) else {}
+    return ExportProfile(context.get("profile", ExportProfile.FULL))
+
+
+class ProfiledExportModel(BaseModel):
+    """An export model whose standard dump leaves out its FULL_ONLY fields.
+
+    `omit_empty_in_standard` also drops optional fields that are null or empty there - on the
+    per-package records they are most of the noise. Required fields always stay, so the standard
+    schema can require exactly what the full one does, and so do booleans: `false` and absent mean
+    different things for engine_compatible and runs_code_at_install. `omit_empty_always` is the
+    older, blunter rule some models were always emitted with: every null or empty field goes, in
+    both profiles, required or not.
+    """
+
+    omit_empty_in_standard: ClassVar[bool] = False
+    omit_empty_always: ClassVar[bool] = False
+
+    @model_serializer(mode="wrap")
+    def serialize_for_profile(self, handler: SerializerFunctionWrapHandler, info: SerializationInfo) -> Any:
+        data = handler(self)
+        cls = type(self)
+        standard = serialization_profile(info) == ExportProfile.STANDARD
+        full_only = full_only_fields(cls) if standard else frozenset()
+        omit_empty_in_profile = standard and cls.omit_empty_in_standard
+
+        def omitted(key: str, value: Any) -> bool:
+            if value is not None and value != []:
+                return False
+            return cls.omit_empty_always or (omit_empty_in_profile and not cls.model_fields[key].is_required())
+
+        return {key: value for key, value in data.items() if key not in full_only and not omitted(key, value)}
 
 
 class FetchFailureExport(BaseModel):
@@ -54,7 +116,7 @@ class DataSourceStatusExport(BaseModel):
     )
 
 
-class DataCompletenessExport(BaseModel):
+class DataCompletenessExport(ProfiledExportModel):
     """B4: per-source completeness for this scan, so a report built on missing or degraded data
     (a firewalled host, an exhausted API quota) is never indistinguishable from a genuinely clean
     result — every consumer of the export, not just the CLI's own progress display, can see it.
@@ -69,6 +131,7 @@ class DataCompletenessExport(BaseModel):
     api_budgets: list[RateLimitBudgetExport] = Field(
         default_factory=list,
         description="Quota observed or forecast for each metered API this scan touched",
+        json_schema_extra=FULL_ONLY,
     )
 
     @classmethod
@@ -105,6 +168,15 @@ class ExportMetadata(BaseModel):
     schema_version: ExportUnknownSchemaVersion | ExportJsonSchemaVersion = Field(
         default=ExportUnknownSchemaVersion.UNKNOWN,
         description="Version of the export schema format",
+    )
+    profile: ExportProfile = Field(
+        default=ExportProfile.FULL,
+        description=(
+            "How much of the scan this document carries: 'standard' (every direct dependency, the "
+            "transitives that need attention, decision fields only; optional fields that are null "
+            "or empty are omitted) or 'full' (everything, including the dependency tree and raw "
+            "upstream signals). Each profile has its own schema; absent means full."
+        ),
     )
     export_timestamp: datetime = Field(
         default_factory=lambda: datetime.now(UTC),
@@ -154,6 +226,13 @@ class ProjectSummary(BaseModel):
     total_packages: int = Field(description="Total number of packages (production + development)")
     production_packages: int = Field(description="Number of production dependencies")
     development_packages: int = Field(description="Number of development dependencies")
+    transitive_packages: int = Field(
+        default=0,
+        description=(
+            "Number of distinct transitive packages the scan covered - in the standard profile, more "
+            "than the transitive_packages array lists"
+        ),
+    )
     packages_with_cves: int = Field(description="Number of packages with known CVEs")
     total_cves: int = Field(description="Total number of CVEs across all packages")
     packages_outdated: int = Field(description="Number of packages behind the latest version")
@@ -183,18 +262,37 @@ class ProjectSummary(BaseModel):
         return None if value is None else round(value, 4)
 
 
-class CVEInfo(BaseModel):
+class CVEInfo(ProfiledExportModel):
     """CVE information for a package."""
+
+    omit_empty_in_standard: ClassVar[bool] = True
 
     id: str = Field(description="Primary CVE identifier")
     cve_ids: list[str] = Field(description="All aliases (CVE, GHSA, OSV)")
-    source: str = Field(description="CVE database source")
-    package_name: str = Field(description="Affected package name")
-    package_registry: str = Field(description="Package registry (npm, pypi, etc.)")
+    source: str = Field(description="CVE database source", json_schema_extra=FULL_ONLY)
+    package_name: str = Field(description="Affected package name", json_schema_extra=FULL_ONLY)
+    package_registry: str = Field(description="Package registry (npm, pypi, etc.)", json_schema_extra=FULL_ONLY)
     summary: str = Field(description="Vulnerability description")
     severity: Severity = Field(description="Severity level")
-    affected_versions: list[str] = Field(description="List of affected versions")
-    published: str | None = Field(description="Publication date")
+    affected_versions: list[str] = Field(
+        description=(
+            "Versions the advisory enumerates. Always empty for npm, whose advisories publish only "
+            "ranges - read affected_ranges for the exposure"
+        ),
+        json_schema_extra=FULL_ONLY,
+    )
+    affected_ranges: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Affected intervals in the registry's own constraint syntax, e.g. '>=12.0.0 <12.0.1' on npm "
+            "or '>=2.3.0,<2.31.0' on PyPI; a release inside any of them is affected"
+        ),
+    )
+    fixed_in: list[str] = Field(
+        default_factory=list,
+        description="Releases that close an affected interval, one per fixed line; empty when no fix is published",
+    )
+    published: str | None = Field(description="Publication date", json_schema_extra=FULL_ONLY)
     link: str = Field(description="URL to upstream advisory")
     epss: float | None = Field(default=None, description="EPSS exploitation probability score, 0-1")
     fix_age_days: int | None = Field(
@@ -218,6 +316,8 @@ class CVEInfo(BaseModel):
             summary=cve.summary,
             severity=cve.severity,
             affected_versions=list(cve.affected_versions),
+            affected_ranges=[affected_range.constraint(cve.package_registry) for affected_range in cve.affected_ranges],
+            fixed_in=list(cve.fix_versions),
             published=cve.published,
             link=cve.link,
             epss=cve.epss,
@@ -237,9 +337,8 @@ class TransitiveImpactExport(BaseModel):
     conflict_detail: str | None = None
 
     @model_serializer(mode="wrap")
-    def _compact(self, handler):
-        d = handler(self)
-        return {k: v for k, v in d.items() if v is not None}
+    def drop_nulls(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
+        return {k: v for k, v in handler(self).items() if v is not None}
 
 
 class RejectedCandidateExport(BaseModel):
@@ -392,13 +491,15 @@ class CompatibilityFields(BaseModel):
     )
 
 
-class StrategySelectionExport(BaseModel):
+class StrategySelectionExport(ProfiledExportModel):
     """The update-strategy selector's verdict for one package.
 
     Nested rather than four flattened `strategy_*` fields, each of which needed its own
     `if record.strategy_selection else <default>` guard at the call site — same shape
     DataCompletenessExport already uses.
     """
+
+    omit_empty_in_standard: ClassVar[bool] = True
 
     motives: list[str] = Field(
         default_factory=list,
@@ -439,8 +540,10 @@ class StrategySelectionExport(BaseModel):
         )
 
 
-class PackageMetrics(LadderFields, CompatibilityFields, NextActionFields):
-    """Metrics for a single package (schema v1.0–1.2)."""
+class PackageMetrics(ProfiledExportModel, LadderFields, CompatibilityFields, NextActionFields):
+    """Metrics for one direct dependency."""
+
+    omit_empty_in_standard: ClassVar[bool] = True
 
     package_name: str = Field(description="Package name (canonical registry name)")
     dependency_name: str | None = Field(
@@ -452,13 +555,16 @@ class PackageMetrics(LadderFields, CompatibilityFields, NextActionFields):
     latest_version: str | None = Field(description="Latest available version")
     time_lag_days: int | None = Field(description="Days between installed and latest version")
     version_age_days: int | None = Field(
-        default=None, description="Days since the installed version was published to the registry"
+        default=None,
+        description="Days since the installed version was published to the registry",
+        json_schema_extra=FULL_ONLY,
     )
     releases_lag: int | None = Field(description="Number of releases between installed and latest")
-    cve: list[CVEInfo] = Field(default_factory=list, description="Known CVEs for this package")
+    cve: list[CVEInfo] = Field(description="Known CVEs for this package")
     dependency_path: list[str] | None = Field(
         default=None,
         description="Ancestor chain leading to this package (None for direct dependencies)",
+        json_schema_extra=FULL_ONLY,
     )
     version_constraint: str | None = Field(
         default=None,
@@ -468,6 +574,7 @@ class PackageMetrics(LadderFields, CompatibilityFields, NextActionFields):
             "spec for this package - not guaranteed to equal the manifest's own declaration. "
             "Use version_constraint_declared for the manifest's declared value."
         ),
+        json_schema_extra=FULL_ONLY,
     )
     version_constraint_declared: str | None = Field(
         default=None,
@@ -477,13 +584,19 @@ class PackageMetrics(LadderFields, CompatibilityFields, NextActionFields):
             'unconstrained. This is the value to show as "the declared constraint".'
         ),
     )
-    repo_url: str | None = Field(default=None, description="Source code repository URL")
-    homepage_url: str | None = Field(default=None, description="Package homepage URL")
-    package_url: str | None = Field(default=None, description="Package registry page URL")
+    repo_url: str | None = Field(default=None, description="Source code repository URL", json_schema_extra=FULL_ONLY)
+    homepage_url: str | None = Field(default=None, description="Package homepage URL", json_schema_extra=FULL_ONLY)
+    package_url: str | None = Field(default=None, description="Package registry page URL", json_schema_extra=FULL_ONLY)
     license: list[str] | None = Field(
-        default=None, description="SPDX license identifiers parsed from the package license expression"
+        default=None,
+        description="SPDX license identifiers parsed from the package license expression",
+        json_schema_extra=FULL_ONLY,
     )
-    purl: str | None = Field(default=None, description="Package URL (PURL) per ECMA-386, e.g. pkg:pypi/requests@2.25.1")
+    purl: str | None = Field(
+        default=None,
+        description="Package URL (PURL) per ECMA-386, e.g. pkg:pypi/requests@2.25.1",
+        json_schema_extra=FULL_ONLY,
+    )
     constraint_type: str = Field(
         default=ConstraintType.DECLARED,
         description=(
@@ -496,6 +609,7 @@ class PackageMetrics(LadderFields, CompatibilityFields, NextActionFields):
     constraint_source_file: str | None = Field(
         default=None,
         description="File that introduced a non-DECLARED constraint (e.g. 'package.json', 'pyproject.toml')",
+        json_schema_extra=FULL_ONLY,
     )
     extras: list[str] | None = Field(
         default=None,
@@ -564,6 +678,7 @@ class PackageMetrics(LadderFields, CompatibilityFields, NextActionFields):
     maintenance_coverage: float | None = Field(
         default=None,
         description="Fraction of the maintenance observations that were available (0.0-1.0)",
+        json_schema_extra=FULL_ONLY,
     )
     maintenance_risk: float | None = Field(
         default=None,
@@ -578,27 +693,39 @@ class PackageMetrics(LadderFields, CompatibilityFields, NextActionFields):
         default=None,
         description="Coefficient of variation of inter-commit gaps from the last 100 commits; volume-free, "
         "unlike a weekly-bucket CV. Null below 20 sampled gaps",
+        json_schema_extra=FULL_ONLY,
     )
     median_gap_days: float | None = Field(
-        default=None, description="Median inter-commit gap, in days, from the sampled commits"
+        default=None,
+        description="Median inter-commit gap, in days, from the sampled commits",
+        json_schema_extra=FULL_ONLY,
     )
-    silence_days: float | None = Field(default=None, description="Days since the most recent sampled commit")
+    silence_days: float | None = Field(
+        default=None, description="Days since the most recent sampled commit", json_schema_extra=FULL_ONLY
+    )
     silence_p: float | None = Field(
         default=None,
         description="Empirical probability, from this repository's own gap history, of a silence this long",
+        json_schema_extra=FULL_ONLY,
     )
-    commits_sampled: int | None = Field(default=None, description="Non-bot commits that entered the gap measurement")
-    span_days: float | None = Field(default=None, description="Time span, in days, covered by the sampled commits")
+    commits_sampled: int | None = Field(
+        default=None, description="Non-bot commits that entered the gap measurement", json_schema_extra=FULL_ONLY
+    )
+    span_days: float | None = Field(
+        default=None, description="Time span, in days, covered by the sampled commits", json_schema_extra=FULL_ONLY
+    )
     flow_trend: str | None = Field(
         default=None,
         description="Direction of the issue/PR flow ratio over the engagement window: improving, stable "
         "or declining. Null without the GraphQL activity sample",
+        json_schema_extra=FULL_ONLY,
     )
     engagement_buckets: list[list[int]] | None = Field(
         default=None,
         description="Raw flow buckets behind flow_trend, oldest ~30-day bucket first: one "
         "[issues_opened, issues_closed, prs_opened, prs_closed] row per bucket, kept for offline "
         "recalibration. Null without the GraphQL activity sample",
+        json_schema_extra=FULL_ONLY,
     )
     deprecation_signals: list[str] = Field(
         default_factory=list,
@@ -608,7 +735,9 @@ class PackageMetrics(LadderFields, CompatibilityFields, NextActionFields):
     deprecation_successor: str | None = Field(
         default=None, description="Replacement package named in the metadata / deprecation message / README"
     )
-    days_since_push: int | None = Field(default=None, description="Days since the last push to the repository")
+    days_since_push: int | None = Field(
+        default=None, description="Days since the last push to the repository", json_schema_extra=FULL_ONLY
+    )
     archived: bool | None = Field(default=None, description="Whether the upstream repository is archived")
     dependency_health_action: str | None = Field(
         default=None,
@@ -643,7 +772,8 @@ class PackageMetrics(LadderFields, CompatibilityFields, NextActionFields):
         facts = record.compatibility
         return cls(
             package_name=record.package_name,
-            dependency_name=record.dependency_name,
+            # The field promises None when no alias is used; echoing package_name said otherwise.
+            dependency_name=record.dependency_name if record.dependency_name != record.package_name else None,
             is_optional_dependency=record.is_optional_dependency,
             installed_version=record.installed_version,
             latest_version=record.latest_version,
@@ -712,7 +842,7 @@ class PackageMetrics(LadderFields, CompatibilityFields, NextActionFields):
 # ── v1.3 models ──────────────────────────────────────────────────────────────
 
 CONSTRAINT_TYPE_MAP: list[str] = ["DECLARED", "NARROWED", "PINNED", "ADDITIVE", "OVERRIDE"]
-_CT_INDEX: dict[str, int] = {v: i for i, v in enumerate(CONSTRAINT_TYPE_MAP)}
+CONSTRAINT_TYPE_INDEX: dict[str, int] = {v: i for i, v in enumerate(CONSTRAINT_TYPE_MAP)}
 
 
 class DependencyTreeNode(BaseModel):
@@ -738,9 +868,8 @@ class DependencyTreeNode(BaseModel):
     )
 
     @model_serializer(mode="wrap")
-    def _compact(self, handler):
-        d = handler(self)
-        return {k: v for k, v in d.items() if not (v is None or (isinstance(v, list) and len(v) == 0))}
+    def drop_empty(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
+        return {k: v for k, v in handler(self).items() if not (v is None or v == [])}
 
 
 DependencyTreeNode.model_rebuild()
@@ -756,12 +885,11 @@ class DependencyTreeRoot(BaseModel):
     )
 
     @model_serializer(mode="wrap")
-    def _compact(self, handler):
-        d = handler(self)
-        return {k: v for k, v in d.items() if not (v is None or (isinstance(v, list) and len(v) == 0))}
+    def drop_empty(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
+        return {k: v for k, v in handler(self).items() if not (v is None or v == [])}
 
 
-class TransitivePackageMetrics(LadderFields, CompatibilityFields, NextActionFields):
+class TransitivePackageMetrics(ProfiledExportModel, LadderFields, CompatibilityFields, NextActionFields):
     """
     Metrics for a transitive package (schema v1.3+).
 
@@ -770,13 +898,35 @@ class TransitivePackageMetrics(LadderFields, CompatibilityFields, NextActionFiel
     top-level field; this model holds only package metrics.
     """
 
-    id: int = Field(description="Zero-based index into the transitive_packages array (used for ref cross-reference)")
+    # Nulls and empty lists were dropped from transitive entries before profiles existed; the SPA
+    # reads absence as "nothing here", so the full profile keeps doing it.
+    omit_empty_always: ClassVar[bool] = True
+
+    id: int = Field(
+        description="Zero-based index into the transitive_packages array (used for ref cross-reference)",
+        json_schema_extra=FULL_ONLY,
+    )
     package_name: str = Field(description="Package name (canonical registry name)")
     is_optional_dependency: bool = Field(
-        description="Whether this is a development/optional dependency; always False for transitive deps"
+        description="Whether this is a development/optional dependency; always False for transitive deps",
+        json_schema_extra=FULL_ONLY,
     )
     installed_version: str = Field(description="Currently installed version")
     latest_version: str | None = Field(description="Latest available version")
+    recommended_version: str | None = Field(
+        default=None,
+        description=(
+            "The version OSS IQ would move this transitive to; the version recommended_module_system "
+            "describes. Null when it should stay where it is"
+        ),
+    )
+    required_by: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Direct dependencies whose subtree installs this package - the manifest entries to change "
+            "to move it. The dependency_tree (full profile) holds the complete paths"
+        ),
+    )
     rejected_candidates: list[RejectedCandidateExport] = Field(
         default_factory=list,
         description=(
@@ -786,21 +936,26 @@ class TransitivePackageMetrics(LadderFields, CompatibilityFields, NextActionFiel
     )
     time_lag_days: int | None = Field(description="Days between installed and latest version")
     version_age_days: int | None = Field(
-        default=None, description="Days since the installed version was published to the registry"
+        default=None,
+        description="Days since the installed version was published to the registry",
+        json_schema_extra=FULL_ONLY,
     )
     releases_lag: int | None = Field(description="Number of releases between installed and latest")
     cve: list[CVEInfo] = Field(default_factory=list, description="Known CVEs for this package")
     constraint_source_file: str | None = Field(
         default=None,
         description="File that introduced a non-DECLARED constraint for this package",
+        json_schema_extra=FULL_ONLY,
     )
-    repo_url: str | None = Field(default=None, description="Source code repository URL")
-    homepage_url: str | None = Field(default=None, description="Package homepage URL")
-    package_url: str | None = Field(default=None, description="Package registry page URL")
+    repo_url: str | None = Field(default=None, description="Source code repository URL", json_schema_extra=FULL_ONLY)
+    homepage_url: str | None = Field(default=None, description="Package homepage URL", json_schema_extra=FULL_ONLY)
+    package_url: str | None = Field(default=None, description="Package registry page URL", json_schema_extra=FULL_ONLY)
     license: list[str] | None = Field(
-        default=None, description="SPDX license identifiers parsed from the package license expression"
+        default=None,
+        description="SPDX license identifiers parsed from the package license expression",
+        json_schema_extra=FULL_ONLY,
     )
-    purl: str | None = Field(default=None, description="Package URL (PURL) per ECMA-386")
+    purl: str | None = Field(default=None, description="Package URL (PURL) per ECMA-386", json_schema_extra=FULL_ONLY)
     is_prerelease: bool = Field(default=False, description="Whether the installed version is a pre-release")
     is_yanked: bool = Field(default=False, description="Whether the installed version is yanked or unpublished")
     is_deprecated: bool = Field(
@@ -821,6 +976,7 @@ class TransitivePackageMetrics(LadderFields, CompatibilityFields, NextActionFiel
     maintenance_coverage: float | None = Field(
         default=None,
         description="Fraction of the maintenance observations that were available (0.0-1.0)",
+        json_schema_extra=FULL_ONLY,
     )
     maintenance_risk: float | None = Field(
         default=None,
@@ -835,27 +991,39 @@ class TransitivePackageMetrics(LadderFields, CompatibilityFields, NextActionFiel
         default=None,
         description="Coefficient of variation of inter-commit gaps from the last 100 commits; volume-free, "
         "unlike a weekly-bucket CV. Null below 20 sampled gaps",
+        json_schema_extra=FULL_ONLY,
     )
     median_gap_days: float | None = Field(
-        default=None, description="Median inter-commit gap, in days, from the sampled commits"
+        default=None,
+        description="Median inter-commit gap, in days, from the sampled commits",
+        json_schema_extra=FULL_ONLY,
     )
-    silence_days: float | None = Field(default=None, description="Days since the most recent sampled commit")
+    silence_days: float | None = Field(
+        default=None, description="Days since the most recent sampled commit", json_schema_extra=FULL_ONLY
+    )
     silence_p: float | None = Field(
         default=None,
         description="Empirical probability, from this repository's own gap history, of a silence this long",
+        json_schema_extra=FULL_ONLY,
     )
-    commits_sampled: int | None = Field(default=None, description="Non-bot commits that entered the gap measurement")
-    span_days: float | None = Field(default=None, description="Time span, in days, covered by the sampled commits")
+    commits_sampled: int | None = Field(
+        default=None, description="Non-bot commits that entered the gap measurement", json_schema_extra=FULL_ONLY
+    )
+    span_days: float | None = Field(
+        default=None, description="Time span, in days, covered by the sampled commits", json_schema_extra=FULL_ONLY
+    )
     flow_trend: str | None = Field(
         default=None,
         description="Direction of the issue/PR flow ratio over the engagement window: improving, stable "
         "or declining. Null without the GraphQL activity sample",
+        json_schema_extra=FULL_ONLY,
     )
     engagement_buckets: list[list[int]] | None = Field(
         default=None,
         description="Raw flow buckets behind flow_trend, oldest ~30-day bucket first: one "
         "[issues_opened, issues_closed, prs_opened, prs_closed] row per bucket, kept for offline "
         "recalibration. Null without the GraphQL activity sample",
+        json_schema_extra=FULL_ONLY,
     )
     deprecation_signals: list[str] = Field(
         default_factory=list,
@@ -865,7 +1033,9 @@ class TransitivePackageMetrics(LadderFields, CompatibilityFields, NextActionFiel
     deprecation_successor: str | None = Field(
         default=None, description="Replacement package named in the metadata / deprecation message / README"
     )
-    days_since_push: int | None = Field(default=None, description="Days since the last push to the repository")
+    days_since_push: int | None = Field(
+        default=None, description="Days since the last push to the repository", json_schema_extra=FULL_ONLY
+    )
     archived: bool | None = Field(default=None, description="Whether the upstream repository is archived")
     dependency_health_action: str | None = Field(
         default=None,
@@ -892,7 +1062,7 @@ class TransitivePackageMetrics(LadderFields, CompatibilityFields, NextActionFiel
 
     @classmethod
     def from_domain_group(
-        cls, idx: int, records: list, constraint_source_file: str | None
+        cls, idx: int, records: list[ScanRecord], constraint_source_file: str | None
     ) -> "TransitivePackageMetrics":
         """Build one TransitivePackageMetrics from a group of ScanRecords sharing (package_name, installed_version)."""
         first = records[0]
@@ -914,9 +1084,11 @@ class TransitivePackageMetrics(LadderFields, CompatibilityFields, NextActionFiel
             ),
             engine_requirement=facts.engine_requirement,
             engine_compatible=facts.engine_compatible,
-            # _compact drops nulls, so an absent next_action on a transitive means "nothing due",
-            # matching whats_next rendering an empty cell for a None label.
+            # Nulls are dropped (omit_empty_always), so an absent next_action on a transitive means
+            # "nothing due", matching whats_next rendering an empty cell for a None label.
             next_action=next_action_label(first),
+            recommended_version=first.recommended_version,
+            required_by=sorted({record.dependency_path[0] for record in records if record.dependency_path}),
             rejected_candidates=[
                 RejectedCandidateExport(version=rc.version, reason=rc.full_reason) for rc in first.rejected_candidates
             ],
@@ -940,13 +1112,31 @@ class TransitivePackageMetrics(LadderFields, CompatibilityFields, NextActionFiel
             **stability_export_fields(first),
         )
 
-    @model_serializer(mode="wrap")
-    def _compact(self, handler):
-        d = handler(self)
-        return {k: v for k, v in d.items() if not (v is None or (isinstance(v, list) and len(v) == 0))}
-
 
 # ── Export data containers ────────────────────────────────────────────────────
+
+
+class RuntimeMismatchExport(BaseModel):
+    """The project's own runtime pin disagreeing with the runtime the scan checked against."""
+
+    engine: str = Field(description="Runtime the pin is for, e.g. 'node' or 'python'")
+    pinned: str = Field(description="Version the project pins")
+    pin_file: str = Field(description="File that pins it, e.g. '.nvmrc' or '.python-version'")
+    runtime: str = Field(description="Version the scan checked engine requirements against")
+    runtime_source: str = Field(description="Where that version came from: provided, detected, declared or none")
+
+    @classmethod
+    def from_domain(cls, mismatch: RuntimeMismatch | None) -> "RuntimeMismatchExport | None":
+        """Build from the scan's RuntimeMismatch, or None when the pin and the runtime agree."""
+        if mismatch is None:
+            return None
+        return cls(
+            engine=mismatch.engine,
+            pinned=mismatch.pinned,
+            pin_file=mismatch.pin_file,
+            runtime=mismatch.runtime,
+            runtime_source=mismatch.runtime_source.value,
+        )
 
 
 class RuntimeContextExport(BaseModel):
@@ -964,8 +1154,8 @@ class RuntimeContextExport(BaseModel):
     engine_context_source: str = Field(
         default="none",
         description=(
-            "Which source populated engine_versions: 'detected' (actually-installed runtime), "
-            "'declared' (manifest floor), or 'none'"
+            "Which source populated engine_versions: 'provided' (the caller stated it: MCP runtime, "
+            "CLI --engine), 'detected' (actually-installed runtime), 'declared' (manifest floor), or 'none'"
         ),
     )
     npm_cli_version: str | None = Field(
@@ -976,6 +1166,13 @@ class RuntimeContextExport(BaseModel):
         default=False,
         description='Whether the project\'s own manifest declares `"type": "module"` (npm only)',
     )
+    runtime_mismatch: RuntimeMismatchExport | None = Field(
+        default=None,
+        description=(
+            "Set when the project's own runtime pin (.nvmrc, .python-version, ...) disagrees with "
+            "engine_versions - usually a version read from the wrong shell; null when they agree"
+        ),
+    )
 
     @classmethod
     def from_domain(cls, data: "ScanResult") -> "RuntimeContextExport":
@@ -985,10 +1182,43 @@ class RuntimeContextExport(BaseModel):
             engine_context_source=data.engine_context.source.value,
             npm_cli_version=data.npm_cli_version,
             project_declares_esm=data.declares_esm,
+            runtime_mismatch=RuntimeMismatchExport.from_domain(data.runtime_mismatch),
         )
 
 
-class ExportDataBase(BaseModel):
+class IgnoredPackageExport(BaseModel):
+    """A declared dependency the scan left out - its absence from the package lists is deliberate."""
+
+    name: str = Field(description="Dependency name as declared")
+    spec: str = Field(description="The declaration as written, e.g. a git URL")
+    reason: str = Field(description="Why it was left out: unresolvable source, or excluded with --ignore")
+
+    @classmethod
+    def from_domain(cls, dependency: IgnoredDependency) -> "IgnoredPackageExport":
+        return cls(name=dependency.name, spec=dependency.spec, reason=dependency.reason)
+
+
+class UpgradePathExport(BaseModel):
+    """A constraint-widening opportunity for a direct dependency of a project without a lockfile."""
+
+    package_name: str = Field(description="Direct dependency the opportunity is for")
+    current_constraint: str = Field(description="Constraint the manifest declares today")
+    latest_in_range: str = Field(description="Newest release the current constraint admits")
+    latest_available: str = Field(description="Newest release overall")
+    suggested_constraint: str = Field(description="Constraint that would admit latest_available")
+
+    @classmethod
+    def from_domain(cls, path: UpgradePath) -> "UpgradePathExport":
+        return cls(
+            package_name=path.package_name,
+            current_constraint=path.current_constraint,
+            latest_in_range=path.latest_in_range,
+            latest_available=path.latest_available,
+            suggested_constraint=path.suggested_constraint,
+        )
+
+
+class ExportDataBase(ProfiledExportModel):
     """Common fields shared across all export schema versions."""
 
     metadata: ExportMetadata = Field(description="Export metadata")
@@ -1014,25 +1244,51 @@ class ExportData(ExportDataBase):
     constraint_type_map: list[str] = Field(
         default_factory=lambda: list(CONSTRAINT_TYPE_MAP),
         description="Lookup table for ct integer field in dependency_tree nodes",
+        json_schema_extra=FULL_ONLY,
     )
     transitive_packages: list[TransitivePackageMetrics] = Field(
         default_factory=list,
-        description="Transitive dependency metrics, one entry per unique (package_name, installed_version)",
+        description=(
+            "Transitive dependency metrics, one entry per unique (package_name, installed_version); path and "
+            "constraint data lives in dependency_tree (full profile only). The standard profile keeps only the "
+            "entries that need attention"
+        ),
     )
     dependency_tree: list[DependencyTreeRoot] = Field(
         default_factory=list,
         description="Dependency tree rooted at direct production dependencies; nodes carry edge constraint data",
+        json_schema_extra=FULL_ONLY,
+    )
+    ignored_packages: list[IgnoredPackageExport] = Field(
+        default_factory=list,
+        description="Declared dependencies the scan left out, and why - they are absent from every package list",
+    )
+    upgrade_paths: list[UpgradePathExport] = Field(
+        default_factory=list,
+        description="Constraint-widening opportunities for direct dependencies of a project without a lockfile",
+    )
+    manifest_lock_divergent: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Packages whose manifest declaration and lockfile entry are out of sync; regenerate the "
+            "lockfile (e.g. `uv lock`) before acting on their recommendations"
+        ),
     )
 
 
 # ── Factory ───────────────────────────────────────────────────────────────────
 
 
-def _build_v1_3_data(
-    records: list,
-) -> tuple[list[TransitivePackageMetrics], list[DependencyTreeRoot]]:
-    """Build the deduplicated transitive list and the dependency tree from raw ScanRecords."""
-    groups: dict[tuple[str, str], list] = {}
+def build_transitive_data(
+    records: list[ScanRecord],
+    profile: ExportProfile,
+) -> tuple[list[TransitivePackageMetrics], list[DependencyTreeRoot], int]:
+    """Build the deduplicated transitive list, the dependency tree and the count of distinct transitives.
+
+    The standard profile keeps only the entries `needs_attention` selects and builds no tree - it
+    has nowhere to put one - so its `id`s (full-only) never have to index anything.
+    """
+    groups: dict[tuple[str, str], list[ScanRecord]] = {}
     first_csf: dict[tuple[str, str], str | None] = {}
     for r in records:
         key = (r.package_name, r.installed_version)
@@ -1042,16 +1298,23 @@ def _build_v1_3_data(
         if first_csf[key] is None and r.constraint_info and r.constraint_info.type != ConstraintType.DECLARED:
             first_csf[key] = r.constraint_info.source_file
 
+    if profile == ExportProfile.STANDARD:
+        kept = [(key, group) for key, group in groups.items() if needs_attention(group[0])]
+        transitive = [
+            TransitivePackageMetrics.from_domain_group(i, group, first_csf[key]) for i, (key, group) in enumerate(kept)
+        ]
+        return transitive, [], len(groups)
+
     pkg_to_idx = {key: i for i, key in enumerate(groups.keys())}
     transitive = [
         TransitivePackageMetrics.from_domain_group(i, g, first_csf[key]) for i, (key, g) in enumerate(groups.items())
     ]
-    tree = _build_dependency_tree(records, pkg_to_idx)
-    return transitive, tree
+    tree = build_dependency_tree(records, pkg_to_idx)
+    return transitive, tree, len(groups)
 
 
-def _build_dependency_tree(
-    records: list,
+def build_dependency_tree(
+    records: list[ScanRecord],
     pkg_to_idx: dict[tuple[str, str], int],
 ) -> list[DependencyTreeRoot]:
     """Build a tree of DependencyTreeRoot from flat ScanRecords sorted by path length."""
@@ -1078,7 +1341,7 @@ def _build_dependency_tree(
         dep_name = rec.dependency_name if rec.dependency_name != rec.package_name else None
         leaf_node = DependencyTreeNode(
             ref=idx,
-            ct=_CT_INDEX[rec.constraint_info.type.value],
+            ct=CONSTRAINT_TYPE_INDEX[rec.constraint_info.type.value],
             version_constraint=rec.version_constraint,
             dependency_name=dep_name,
             extras=rec.extras,
@@ -1102,9 +1365,19 @@ def build_export_data(
     data: ScanResult,
     schema_version: ExportJsonSchemaVersion,
     update_strategy: str | None = None,
+    profile: ExportProfile = ExportProfile.FULL,
 ) -> ExportData:
-    """
-    Create export data from ScanResult domain model.
+    """Create export data from a ScanResult.
+
+    Args:
+        data: The finished scan.
+        schema_version: The schema the document declares.
+        update_strategy: The tier the run targeted, echoed in the metadata.
+        profile: Which transitives to keep and whether to build the tree. Fields are dropped at
+            dump time, by `export_json`, from the profile recorded in `metadata.profile`.
+
+    Returns:
+        The export document, ready for `export_json`.
     """
     all_direct = data.production_packages + data.optional_packages
     total_cves = sum(len(pkg.cve) for pkg in all_direct)
@@ -1113,6 +1386,7 @@ def build_export_data(
 
     metadata = ExportMetadata(
         schema_version=schema_version,
+        profile=profile,
         update_strategy=update_strategy,
         data_completeness=DataCompletenessExport.from_domain(data.data_completeness),
         warnings=list(data.source_warnings),
@@ -1123,10 +1397,12 @@ def build_export_data(
         registry=data.packages_registry,
     )
     runtime_context = RuntimeContextExport.from_domain(data)
+    transitive, tree, transitive_total = build_transitive_data(data.transitive_packages, profile)
     summary = ProjectSummary(
         total_packages=len(all_direct),
         production_packages=len(data.production_packages),
         development_packages=len(data.optional_packages),
+        transitive_packages=transitive_total,
         packages_with_cves=packages_with_cves,
         total_cves=total_cves,
         packages_outdated=packages_outdated,
@@ -1143,7 +1419,6 @@ def build_export_data(
     production = [PackageMetrics.from_domain(pkg) for pkg in data.production_packages]
     development = [PackageMetrics.from_domain(pkg) for pkg in data.optional_packages]
 
-    transitive, tree = _build_v1_3_data(data.transitive_packages)
     return ExportData(
         metadata=metadata,
         project=project,
@@ -1153,4 +1428,16 @@ def build_export_data(
         development_packages=development,
         transitive_packages=transitive,
         dependency_tree=tree,
+        ignored_packages=[IgnoredPackageExport.from_domain(dependency) for dependency in data.ignored_packages],
+        upgrade_paths=[UpgradePathExport.from_domain(path) for path in data.upgrade_paths],
+        manifest_lock_divergent=list(data.manifest_lock_divergent),
     )
+
+
+def export_json(export_data: ExportData) -> str:
+    """Serialise an export document for the profile its metadata names.
+
+    The single place a document becomes JSON, so the file export, stdout and the HTML report can't
+    disagree about which fields a profile carries.
+    """
+    return export_data.model_dump_json(context={"profile": export_data.metadata.profile})

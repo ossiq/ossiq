@@ -101,6 +101,24 @@ class ExportJsonSchemaVersion(StrEnum):
     V1_5 = "1.5"
 
 
+class ExportProfile(StrEnum):
+    """How much of the scan an export carries; each profile has its own JSON schema.
+
+    `standard` is a projection of `full` - same field names and meanings, fewer fields and fewer
+    transitive entries - so a consumer written for `full` still reads it.
+    """
+
+    STANDARD = "standard"
+    """Every direct dependency and the transitives that need attention, decision fields only."""
+
+    FULL = "full"
+    """Everything the scan produced: every transitive, the dependency tree, provenance URLs and the
+    raw upstream signals behind each verdict. What the HTML report embeds."""
+
+
+DEFAULT_EXPORT_PROFILE = ExportProfile.STANDARD
+
+
 class ConstraintType(StrEnum):
     """How a version constraint was applied for a dependency.
 
