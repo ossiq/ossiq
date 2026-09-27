@@ -1,9 +1,9 @@
-"""Measure D3: where the bytes in `ossiq export` go, next to the `--format agent` payload.
+"""Measure D3: where the bytes in `ossiq export` go, per profile, next to the `--format agent` payload.
 
-Runs `ossiq export` (and `ossiq status --format agent` for comparison) on each fixture and prints
-the size of every top-level field, then the per-field total across all `production_packages` /
-`transitive_packages` entries, largest first. The numbers are the baseline for PLAN.md
-Milestone 2's D3 options.
+Runs `ossiq export` (the standard profile), `ossiq export --full` and `ossiq status --format agent`
+on each fixture, prints the three sizes, then - for each profile - the size of every top-level field
+and the per-field total across all `production_packages` / `transitive_packages` entries, largest
+first. The full-profile numbers are the D3 baseline in PLAN.md; the standard ones are what agents get.
 
 Run from the repository root:
 
@@ -21,7 +21,7 @@ from typing import Any
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_FIXTURES = ("testdata/npm/small-cjs", "testdata/pypi/small-py", "testdata/pypi/uv")
-PACKAGE_LISTS = ("production_packages", "optional_packages", "transitive_packages")
+PACKAGE_LISTS = ("production_packages", "development_packages", "transitive_packages")
 TOP_FIELDS_SHOWN = 12
 
 
@@ -46,27 +46,46 @@ def field_totals(entries: list[dict[str, Any]]) -> Counter[str]:
     return totals
 
 
-def report(fixture: str, cutoff: str, schema_version: str | None) -> None:
+def export_document(fixture: str, cutoff: str, schema_version: str | None, full: bool) -> dict[str, Any] | None:
     with tempfile.TemporaryDirectory() as tmp:
         output = Path(tmp) / "export.json"
         export_args = ["export", f"--output={output}", fixture]
         if schema_version:
             export_args.insert(1, f"--schema-version={schema_version}")
+        if full:
+            export_args.insert(1, "--full")
         completed = run_ossiq(export_args, cutoff)
         if not output.exists():
             print(f"\n## {fixture}: export failed (exit {completed.returncode})\n{completed.stderr[-400:]}")
-            return
-        on_disk = output.stat().st_size
-        export = json.loads(output.read_text())
+            return None
+        return json.loads(output.read_text())
 
+
+def report(fixture: str, cutoff: str, schema_version: str | None) -> None:
+    documents = {
+        "standard": export_document(fixture, cutoff, schema_version, full=False),
+        "full": export_document(fixture, cutoff, schema_version, full=True),
+    }
     agent = run_ossiq(["status", fixture, "--format", "agent"], cutoff)
     agent_size = len(agent.stdout.encode()) if agent.returncode == 0 else None
 
     print(f"\n## {fixture}")
-    schema = export.get("metadata", {}).get("schema_version", "?")
-    print(f"export: {json_size(export):>9,} B compact, {on_disk:,} B as written to disk (schema {schema})")
-    print(f"agent:  {agent_size:>9,} B" if agent_size is not None else "agent:  failed")
+    full_size = json_size(documents["full"]) if documents["full"] else None
+    for profile, export in documents.items():
+        if export is None:
+            continue
+        share = f" ({json_size(export) / full_size:.0%} of full)" if full_size else ""
+        schema = export.get("metadata", {}).get("schema_version", "?")
+        print(f"export {profile:<8}: {json_size(export):>9,} B{share} (schema {schema})")
+    print(f"agent          : {agent_size:>9,} B" if agent_size is not None else "agent: failed")
+    for profile, export in documents.items():
+        if export is not None:
+            print(f"\n### {profile}")
+            breakdown(export)
 
+
+def breakdown(export: dict[str, Any]) -> None:
+    """Print one document's top-level field sizes, then per-field totals across each package list."""
     print("top-level fields:")
     for key, value in sorted(export.items(), key=lambda item: -json_size(item[1])):
         count = f" ({len(value)} entries)" if isinstance(value, list) else ""
