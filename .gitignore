@@ -54,6 +54,8 @@ MANIFEST
 #  before PyInstaller builds the exe, so as to inject date/other infos into it.
 *.manifest
 *.spec
+# Hand-written and required by reusable-build-binaries.yml, unlike generated specs.
+!packaging/pyinstaller/ossiq.spec
 
 # Installer logs
 pip-log.txt
