@@ -66,15 +66,15 @@ def load_skill_content() -> str:
 def write_skill_file(skills_dir: Path, content: str) -> None:
     """Write SKILL.md into a tool's skills directory."""
     skills_dir.mkdir(parents=True, exist_ok=True)
-    (skills_dir / "SKILL.md").write_text(content)
+    (skills_dir / "SKILL.md").write_text(content, encoding="utf-8")
 
 
 def merge_mcp_config(path: Path, github_token: str | None, dev_path: str | None = None) -> None:
     """Upsert the ossiq stdio MCP server into a tool's mcp.json, preserving other entries."""
-    config = json.loads(path.read_text()) if path.exists() else {}
+    config = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
     config.setdefault("mcpServers", {})["ossiq"] = build_mcp_entry(github_token, dev_path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(config, indent=2) + "\n")
+    path.write_text(json.dumps(config, indent=2) + "\n", encoding="utf-8")
 
 
 def install_claude(home: Path, content: str, github_token: str | None, dev_path: str | None = None) -> None:
@@ -97,13 +97,13 @@ def install_copilot(home: Path, content: str, github_token: str | None, dev_path
     path = home / ".copilot" / "copilot-instructions.md"
     path.parent.mkdir(parents=True, exist_ok=True)
     block = f"{COPILOT_START}\n{content}\n{COPILOT_END}"
-    existing = path.read_text() if path.exists() else ""
+    existing = path.read_text(encoding="utf-8") if path.exists() else ""
     if COPILOT_START in existing:
         pattern = re.compile(re.escape(COPILOT_START) + r".*?" + re.escape(COPILOT_END), re.DOTALL)
-        path.write_text(pattern.sub(block, existing))
+        path.write_text(pattern.sub(block, existing), encoding="utf-8")
         return
     separator = "\n\n" if existing.strip() else ""
-    path.write_text(existing + separator + block + "\n")
+    path.write_text(existing + separator + block + "\n", encoding="utf-8")
 
 
 INSTALLERS = {"claude": install_claude, "codex": install_codex, "copilot": install_copilot}
