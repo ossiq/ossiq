@@ -40,7 +40,7 @@ from ossiq.service.project.next_action import (
     next_action_label,
 )
 from ossiq.service.update_impact import TransitiveImpact
-from ossiq.solver.version_matchers import engine_compatibility
+from ossiq.solver.version_matchers import cve_affects_version, engine_compatibility
 from ossiq.strategy.compare import compare_target
 from ossiq.strategy.motive import is_qualifying_score
 
@@ -61,10 +61,14 @@ def cve_summary(cve: CVE) -> dict[str, Any]:
 
     `epss` rides along when scored: without it, `dependency_health.suppressed_cves` counted a CVE
     the entry showed no score for, which read as a contradiction. Absent means unscored.
+    `fixed_in` names the releases that close each affected line, so an agent picking its own target
+    doesn't have to bisect the release history through `update_context` to find one.
     """
     summary: dict[str, Any] = {"id": cve.id, "severity": str(cve.severity), "summary": cve.summary}
     if cve.epss is not None:
         summary["epss"] = round(cve.epss, 4)
+    if cve.fix_versions:
+        summary["fixed_in"] = list(cve.fix_versions)
     return summary
 
 
@@ -182,14 +186,13 @@ def impact_summary(impact: TransitiveImpact) -> dict[str, Any]:
 def recommendation_clears_cves(record: ScanRecord) -> bool:
     """Whether `recommended_version` moves off every advisory the installed version carries.
 
-    Each advisory lists every version it affects, so a target outside all of them is a fix — in
-    range or not. Widening is a separate question the entry answers with
-    `requires_constraint_widening`; it doesn't make the fix any less of one.
+    A target no advisory affects is a fix - in range or not. Widening is a separate question the
+    entry answers with `requires_constraint_widening`; it doesn't make the fix any less of one.
     """
     target = record.recommended_version
     if target is None or target == record.installed_version:
         return False
-    return all(target not in cve.affected_versions for cve in record.cve)
+    return not any(cve_affects_version(cve, target) for cve in record.cve)
 
 
 def agent_next_action(record: ScanRecord) -> str:
@@ -468,10 +471,10 @@ def build_update_decide(scan: ScanResult, update_strategy: str | None = None) ->
 def target_has_qualifying_cve(record: ScanRecord, version: str) -> bool:
     """Whether *version* is affected by one of the installed version's qualifying CVEs.
 
-    Only the installed version's advisories are known, and each lists every version it affects,
-    which is enough to tell whether a proposed target still carries the same exposure.
+    Only the installed version's advisories are known, which is enough to tell whether a proposed
+    target still carries the same exposure.
     """
-    return any(is_qualifying_score(cve.epss) and version in cve.affected_versions for cve in record.cve)
+    return any(is_qualifying_score(cve.epss) and cve_affects_version(cve, version) for cve in record.cve)
 
 
 def build_update_context(

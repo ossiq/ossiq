@@ -27,7 +27,7 @@ from ossiq.domain.common import (
     SignalCoverage,
 )
 from ossiq.domain.compatibility import CompatibilityFacts
-from ossiq.domain.cve import CVE, Severity
+from ossiq.domain.cve import CVE, AffectedRange, Severity
 from ossiq.domain.project import ConstraintSource
 from ossiq.domain.version import VERSION_DIFF_MAJOR, VERSION_DIFF_MINOR, VERSION_LATEST, VersionsDifference
 from ossiq.risk.maintenance import MaintenanceAssessment, MaintenanceState
@@ -870,3 +870,60 @@ def test_cve_summary_carries_the_epss_score_behind_suppression():
     (cve,) = build_update_decide(make_scan([record]))["updates"][0]["cves"]
 
     assert cve["epss"] == 0.0001
+
+
+def uuid_range_advisory() -> CVE:
+    """GHSA-w5hq-g745-h8pq as OSV publishes it for npm: ranges and fixes, no enumerated versions."""
+    return dataclasses.replace(
+        make_cve(),
+        package_name="uuid",
+        package_registry=ProjectPackagesRegistry.NPM,
+        affected_versions=(),
+        fix_versions=("11.1.1", "12.0.1", "13.0.1"),
+        affected_ranges=(
+            AffectedRange(fixed="11.1.1"),
+            AffectedRange(introduced="12.0.0", fixed="12.0.1"),
+            AffectedRange(introduced="13.0.0", fixed="13.0.1"),
+        ),
+    )
+
+
+def test_a_target_still_inside_an_npm_advisory_range_is_not_a_fix():
+    """D7: 12.0.0 is inside uuid's second range, so moving there fixes nothing."""
+    record = make_record(
+        name="uuid",
+        installed="8.3.2",
+        latest="14.0.2",
+        diff_index=VERSION_DIFF_MAJOR,
+        cves=[uuid_range_advisory()],
+        recommended="12.0.0",
+    )
+
+    entry = build_update_decide(make_scan([record]))["updates"][0]
+
+    assert entry["next_action"] == "Check for the Fix"
+
+
+def test_a_target_outside_every_npm_advisory_range_is_a_fix():
+    record = make_record(
+        name="uuid",
+        installed="8.3.2",
+        latest="14.0.2",
+        diff_index=VERSION_DIFF_MAJOR,
+        cves=[uuid_range_advisory()],
+        recommended="11.1.1",
+    )
+
+    entry = build_update_decide(make_scan([record]))["updates"][0]
+
+    assert entry["next_action"] == "Check Release Notes"
+
+
+def test_cve_summary_names_the_fixed_releases():
+    record = make_record(
+        name="uuid", installed="8.3.2", latest="14.0.2", diff_index=VERSION_DIFF_MAJOR, cves=[uuid_range_advisory()]
+    )
+
+    (cve,) = build_update_decide(make_scan([record]))["updates"][0]["cves"]
+
+    assert cve["fixed_in"] == ["11.1.1", "12.0.1", "13.0.1"]

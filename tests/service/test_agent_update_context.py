@@ -14,12 +14,14 @@ from ossiq.adapters.api_npm import PackageRegistryApiNpm
 from ossiq.adapters.api_pypi import PackageRegistryApiPypi
 from ossiq.domain.common import (
     ConstraintType,
+    CveDatabase,
     EngineContext,
     EngineContextSource,
     ModuleSystem,
     RejectedCandidate,
 )
 from ossiq.domain.compatibility import CompatibilityFacts
+from ossiq.domain.cve import CVE, AffectedRange, Severity
 from ossiq.domain.project import ConstraintSource
 from ossiq.domain.version import PackageVersion, VersionsDifference
 from ossiq.service.agent import build_update_context
@@ -368,3 +370,36 @@ def test_an_esm_only_target_carries_the_runtime_note():
     assert payload["comparison"]["verdict"] == "breaking"
     assert payload["breaking_change"] == "ESM-only from 6.0.0"
     assert "named exports" in payload["module_system_note"]
+
+
+def test_a_target_inside_an_npm_advisory_range_is_judged_vulnerable():
+    """D7: lodash 4.17.16 is still inside GHSA-35jh-r3h4-6jhm (<4.17.21), which OSV publishes as a
+    range with no enumerated versions - the verdict used to read it as clean."""
+    advisory = CVE(
+        id="GHSA-35jh-r3h4-6jhm",
+        cve_ids=("CVE-2021-23337",),
+        source=CveDatabase.OSV,
+        package_name="lodash",
+        package_registry=NPM.package_registry,
+        summary="Command Injection in lodash",
+        severity=Severity.HIGH,
+        affected_versions=(),
+        published=None,
+        link="https://osv.dev/GHSA-35jh-r3h4-6jhm",
+        epss=0.2133,
+        affected_ranges=(AffectedRange(fixed="4.17.21"),),
+    )
+    record = make_record(name="lodash", installed="4.17.15", recommended_version="4.17.21")
+    record.cve = [advisory]
+
+    payload = build_update_context(
+        make_installed_detail(record),
+        target_version="4.17.16",
+        releases=[pv("4.17.15"), pv("4.17.16"), pv("4.17.21")],
+        registry=NPM,
+        engine_context=EngineContext({}, EngineContextSource.NONE),
+        project_declares_esm=False,
+    )
+
+    assert payload["comparison"]["verdict"] == "vulnerable"
+    assert payload["comparison"]["better_available"] == "4.17.21"
