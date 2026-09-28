@@ -7,6 +7,7 @@ Usage:
     uv run python release.py --minor [--dry-run]
     uv run python release.py --major [--dry-run]
     uv run python release.py --override-version=X.Y.Z [--dry-run]
+    uv run python release.py --patch --since-tag=vX.Y.Z [--dry-run]
 """
 
 from __future__ import annotations
@@ -82,6 +83,7 @@ class ReleaseConfig:
     bump_type: BumpType | None
     override_version: str | None
     project_root: Path
+    since_tag: str | None = None  # Changelog base; found from the current version if not provided
     github_repo_url: str | None = None  # Read from pyproject.toml if not provided
     github_api_url: str | None = None  # Derived from github_repo_url
 
@@ -197,8 +199,16 @@ class GitService:
     COMMIT_SEPARATOR = "<<<COMMIT>>>"
 
     @staticmethod
-    def get_latest_tag() -> str | None:
-        """Find latest git tag with 'v' prefix."""
+    def get_latest_tag(current_version: str) -> str | None:
+        """Find the highest `v*` tag that is not newer than the current version.
+
+        Args:
+            current_version: Version in pyproject.toml, which the previous
+                release tagged.
+
+        Returns:
+            The tag name, or None if no semver tag qualifies.
+        """
         result = subprocess.run(
             ["git", "tag", "-l", "v*", "--sort=-v:refname"],
             capture_output=True,
@@ -206,8 +216,16 @@ class GitService:
             check=True,
             shell=False,
         )
-        tags = result.stdout.strip().split("\n")
-        return tags[0] if tags and tags[0] else None
+        # A stray tag above the current version (e.g. v1.0.0 on an old commit)
+        # would otherwise win the sort and pull in history already released.
+        ceiling = semver.Version.parse(current_version)
+        for tag in result.stdout.split():
+            try:
+                if semver.Version.parse(tag.removeprefix("v")) <= ceiling:
+                    return tag
+            except ValueError:
+                continue
+        return None
 
     @staticmethod
     def get_commits_since_tag(tag: str | None) -> list[CommitInfo]:
@@ -545,8 +563,16 @@ class GitHubService:
         if response.status_code == 201:
             return response.json().get("html_url")
         else:
-            # Avoid logging response.text as it may contain sensitive information
-            raise RuntimeError(f"Failed to create GitHub release: HTTP {response.status_code}")
+            # Avoid logging response.text as it may contain sensitive information;
+            # the validation messages alone say which field GitHub rejected.
+            detail = ""
+            try:
+                errors = response.json().get("errors") or []
+                detail = "; ".join(str(e.get("message") or e.get("code")) for e in errors if isinstance(e, dict))
+            except (ValueError, AttributeError):
+                pass
+            suffix = f" ({detail})" if detail else ""
+            raise RuntimeError(f"Failed to create GitHub release: HTTP {response.status_code}{suffix}")
 
 
 # ============================================================================
@@ -597,7 +623,7 @@ class ReleaseOrchestrator:
             self.console.print(f"  New version: [green]{new_version}[/]")
 
             self.console.print("[bold blue]Step 3:[/] Finding latest git tag...")
-            latest_tag = self.git_svc.get_latest_tag()
+            latest_tag = self.config.since_tag or self.git_svc.get_latest_tag(current_version)
             self.console.print(f"  Latest tag: [green]{latest_tag or 'None'}[/]")
 
             self.console.print("[bold blue]Step 4:[/] Getting commits since last tag...")
@@ -717,6 +743,13 @@ def release(
         str | None,
         typer.Option("--override-version", help="Override version directly (X.Y.Z format)"),
     ] = None,
+    since_tag: Annotated[
+        str | None,
+        typer.Option(
+            "--since-tag",
+            help="Tag to build the changelog from, e.g. when the previous tag was never released",
+        ),
+    ] = None,
 ) -> None:
     """
     Create a new release for ossiq.
@@ -725,7 +758,8 @@ def release(
     """
     bump_count = sum([major, minor, patch])
 
-    if not dry_run and not override_version and not os.environ.get("OSSIQ_GITHUB_TOKEN"):
+    # Checked up front: step 11 needs the token, and by then the tag is already pushed.
+    if not dry_run and not os.environ.get("OSSIQ_GITHUB_TOKEN"):
         console.print("[red]Error: OSSIQ_GITHUB_TOKEN environment variable is required for actual releases.[/]")
         console.print("[red]       Please set it or use --dry-run.[/]")
         raise typer.Exit(1)
@@ -751,6 +785,7 @@ def release(
         bump_type=bump_type,
         override_version=override_version,
         project_root=Path.cwd(),
+        since_tag=since_tag,
     )
 
     orchestrator = ReleaseOrchestrator(config, console)
