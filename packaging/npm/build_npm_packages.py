@@ -77,6 +77,40 @@ def extract_binary(tarball: Path, destination: Path) -> None:
         archive.extractall(destination, filter="tar")
 
 
+def materialize_symlinks(root: Path) -> None:
+    """Replace every symlink under root with a real copy of what it points to.
+
+    `npm pack` silently drops symlinks, and the macOS PyInstaller tree needs them:
+    the bootloader dlopens `_internal/Python`, a link into `Python.framework`.
+    Copying every link, rather than just that one, keeps each path in the tree valid.
+
+    Args:
+        root: Directory to rewrite in place.
+
+    Raises:
+        SystemExit: If a link is dangling, cyclic, or points outside root.
+    """
+    resolved_root = root.resolve()
+    targets: dict[Path, Path] = {}
+    # Every link is checked before any is rewritten: copytree dereferences links nested in
+    # the directory it copies, so a late check could run after outside bytes were copied.
+    for link in (path for path in root.rglob("*") if path.is_symlink()):
+        try:
+            target = link.resolve(strict=True)
+        except (OSError, RuntimeError) as error:
+            raise SystemExit(f"Cannot resolve symlink {link}: {error}") from error
+        if not target.is_relative_to(resolved_root):
+            raise SystemExit(f"Refusing to copy {link} -> {target}: it points outside {root}")
+        targets[link] = target
+
+    for link, target in targets.items():
+        link.unlink()
+        if target.is_dir():
+            shutil.copytree(target, link, symlinks=False)
+        else:
+            shutil.copy2(target, link)
+
+
 def pack_filename(package_name: str, version: str) -> str:
     """Return the tarball name `npm pack` produces for a package.
 
@@ -102,6 +136,7 @@ def build_platform_package(target: str, version: str, tarball: Path, output_root
         shutil.rmtree(package_dir)
 
     extract_binary(tarball, package_dir / "bin")
+    materialize_symlinks(package_dir / "bin")
 
     executable = package_dir / "bin" / "ossiq" / ("ossiq.exe" if target.startswith("win32") else "ossiq")
     if not executable.exists():
