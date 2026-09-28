@@ -2,6 +2,26 @@
 
 
 
+## v0.1.12 (2026-09-28)
+
+
+### Fix
+
+* fix: fixed binary name for the OSS IQ quality gate (GH-122) ([`85b9f88`](https://github.com/ossiq/ossiq/commit/85b9f8827a2e2235aa75a352ff67f4afd27f6514))
+
+* fix(release): draft the release so binaries attach before it locks (GH-122) ([`6f2e598`](https://github.com/ossiq/ossiq/commit/6f2e598ac6dad9810a647361b048a32e9c30ee68))
+Release immutability refused the v0.1.11 binaries because the
+release was created already published, so release.py now drafts it,
+publishing hangs off the version tag push, and binaries.yml
+publishes the draft once the assets are attached. npm publish also
+gets ./-prefixed paths, since npm read npm/<file>.tgz as a GitHub
+shorthand and refused it with EALLOWGIT.
+
+
+### Chore
+
+* chore: fixed line endings ([`80b2eef`](https://github.com/ossiq/ossiq/commit/80b2eef29e626c53182f8b3a62c46c59bcf6a219))
+
 ## v0.1.11 (2026-09-28)
 
 
