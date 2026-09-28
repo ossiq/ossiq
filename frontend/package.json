@@ -45,7 +45,7 @@
     "json-schema-to-typescript": "~15.0.4",
     "oxfmt": "~0.44.0",
     "oxlint": "~1.59.0",
-    "typescript": "~6.0.3",
+    "typescript": "~7.0.2",
     "vite": "~8.2.2",
     "vite-plugin-singlefile": "~2.3.3",
     "vite-plugin-vue-devtools": "~8.1.1",
