@@ -811,7 +811,7 @@ wheels = [
 
 [[package]]
 name = "ossiq"
-version = "0.1.10"
+version = "0.1.11"
 source = { editable = "." }
 dependencies = [
     { name = "common-expression-language" },
@@ -1621,7 +1621,6 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/2f/56/3cc19726dec58831872bbedfac31f57e68db1c0bedbb4102714f0a45ef66/rust_just-1.58.0-py3-none-win32.whl", hash = "sha256:0e9baefc1464ab81a337f559e25a5c0c7f3d5c993d2fcd9ba1bc2585ab4bbac2", size = 2137004, upload-time = "2026-08-04T02:59:18.417Z" },
     { url = "https://files.pythonhosted.org/packages/fa/31/234039ddfd4fc10dc16679063d10848423fee6ab13aac3f5d8ce5d1d8b27/rust_just-1.58.0-py3-none-win_amd64.whl", hash = "sha256:145cea724b6d981422ad5357ac6fec53be62b8146ac67a3921c89a0db152887d", size = 2358021, upload-time = "2026-08-04T02:59:19.817Z" },
 ]
-
 
 [[package]]
 name = "semantic-version"
