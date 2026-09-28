@@ -32,9 +32,7 @@ jobs:
         env:
           OSSIQ_GITHUB_TOKEN: ${{ github.token }}
         run: |
-          # TODO(GH-122): switch back to the `ossiq` binary once a release with
-          # the renamed console script (ossiq-cli -> ossiq) is published to PyPI.
-          ossiq-cli export \
+          ossiq export \
             --output=ossiq-report.json \
             .
 
