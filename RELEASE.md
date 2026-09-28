@@ -13,26 +13,31 @@ You control the version manually with `release.py`. Everything else derives from
    pyproject.toml  version = "X.Y.Z"      <- you set this, via release.py
           │
           ▼
-     git tag vX.Y.Z
-          │
-          ▼
-     GitHub Release "Release vX.Y.Z"
+     git tag vX.Y.Z  +  draft GitHub Release "Release vX.Y.Z"
           │
           ├───────────────┬───────────────────────┐
           ▼               ▼                       ╎ (manual, once PyPI is live)
      release.yml     binaries.yml                 ▼
           │               │                  docker.yml
           ▼               ▼                       │
-      PyPI ossiq     5 binaries as                ▼
-        X.Y.Z        Release assets           Docker Hub
+      PyPI ossiq     5 binaries attached,         ▼
+        X.Y.Z        then draft published     Docker Hub
                      + npm packages         ossiq/ossiq-cli
                      @ossiq/cli                  X.Y.Z
                         X.Y.Z
 ```
 
-There is **one** GitHub Release per version, not one per package. Publishing it triggers
+There is **one** GitHub Release per version, not one per package. Pushing the tag triggers
 PyPI and npm automatically; **Docker stays a deliberate manual step**, because the image
 installs `ossiq==X.Y.Z` *from PyPI* and so cannot be built until that upload has landed.
+
+The repository has **release immutability** on: once a GitHub Release is published, no
+asset can be added, replaced or removed, and its tag is locked. So `release.py` creates
+the release as a *draft*, `binaries.yml` attaches the binaries to it, and only then
+publishes it. The workflows therefore trigger on the tag push, not on
+`release: published` — a draft never fires that event, and a publish made with
+`GITHUB_TOKEN` starts no other workflow. v0.1.11 was cut before this flow existed and its
+release carries no binaries.
 
 All three publish the identical version string: PyPI and npm read it from the tagged
 commit's `pyproject.toml`, and you pass the same version to the Docker workflow by hand.
@@ -83,8 +88,10 @@ Follow these steps to create and publish a new release:
 
     This performs 11 steps locally and remotely: bumps `pyproject.toml`, regenerates
     `CHANGELOG.md`, commits `uv.lock` + `pyproject.toml` + `CHANGELOG.md` as
-    `chore(release): X.Y.Z`, creates and pushes tag `vX.Y.Z`, then creates the GitHub
-    Release — which is what starts the PyPI and npm workflows.
+    `chore(release): X.Y.Z`, creates and pushes tag `vX.Y.Z` — which is what starts the
+    PyPI and npm workflows — then creates the GitHub Release as a draft. `binaries.yml`
+    publishes that draft once the binaries are attached; don't publish it by hand, or it
+    becomes immutable without them.
 
     Note that only the *tag* is pushed at this point, not the `production` branch. That is
     enough for CI: both workflows check out the tag.
@@ -122,8 +129,8 @@ Follow these steps to create and publish a new release:
 
 | Workflow | Trigger | Duration | Depends on |
 | --- | --- | --- | --- |
-| `release.yml` → PyPI | `release: published` | ~2 min | nothing |
-| `binaries.yml` → binaries, then npm | `release: published` | ~15 min | nothing (builds from source) |
+| `release.yml` → PyPI | push of tag `vX.Y.Z` | ~2 min | nothing |
+| `binaries.yml` → binaries, publish the draft release, then npm | push of tag `vX.Y.Z` | ~15 min | the draft release existing (created seconds after the tag push) |
 | `docker.yml` → Docker Hub | **manual** `workflow_dispatch` | ~20 min | the version being live on PyPI |
 
 The first two start together and run concurrently; neither needs the other.
@@ -161,7 +168,7 @@ Each channel is recoverable on its own; you do **not** re-cut the release.
 | Failed | Recovery |
 | --- | --- |
 | PyPI (`release.yml`) | Re-run the failed job: `gh run rerun <id> --failed`. A version already on PyPI cannot be replaced — if the artifact itself is wrong, cut a new patch version. |
-| Binaries (`binaries.yml`) | Re-run the failed job. Re-running is safe: assets upload with `--clobber`. |
+| Binaries (`binaries.yml`) | Re-run the failed job. The release stays a draft until the binaries are attached, so re-running is safe (assets upload with `--clobber`). Once it is published it is immutable — missing binaries then mean a new patch version. |
 | npm only (binaries built, publish failed) | Download the artifacts and publish by hand — see [Publishing npm manually](#publishing-npm-manually). |
 | Docker (`docker.yml`) | Just run it again: `gh workflow run docker.yml -f tag=vX.Y.Z`. Nothing depends on it, so it can be published hours or days later. |
 
@@ -197,8 +204,8 @@ If an issue is discovered immediately after a release, you can revert the change
 
 | Workflow | Publishes | Trigger | Auth |
 | --- | --- | --- | --- |
-| `release.yml` | PyPI (`ossiq`) | on release | Trusted Publishing (OIDC) |
-| `binaries.yml` | Standalone binaries → GitHub Release assets, then npm (`@ossiq/cli` + 5 platform packages) | on release | npm Trusted Publishing (OIDC) |
+| `release.yml` | PyPI (`ossiq`) | tag push `vX.Y.Z` | Trusted Publishing (OIDC) |
+| `binaries.yml` | Standalone binaries → GitHub Release assets (then publishes the draft), then npm (`@ossiq/cli` + 5 platform packages) | tag push `vX.Y.Z` | npm Trusted Publishing (OIDC) |
 | `docker.yml` | Docker Hub (`ossiq/ossiq-cli`) | manual | `DOCKER_USERNAME` / `DOCKER_PASSWORD` |
 
 Each top-level workflow above is a thin caller. The builds happen in reusable workflows
@@ -324,7 +331,7 @@ gh workflow run binaries.yml
 gh run watch
 ```
 
-The npm publish and release-asset steps are gated on the release event, so a
+The npm publish and release-asset steps are gated on the tag push, so a
 `workflow_dispatch` run just builds and uploads the five artifacts for inspection.
 
 #### Step 1 — Confirm your npm access (publishes nothing)
@@ -345,27 +352,18 @@ command, and `binaries.yml` builds the five binaries and attaches them to the re
 
 **The `publish-npm` job will fail on this release, and that is expected** — the packages do
 not exist yet and no trusted publisher is configured. It is a separate job from
-`attach-to-release`, so the binaries still land on the GitHub Release regardless.
+`attach-to-release`, so the binaries still land on the GitHub Release, and the release is
+still published, regardless.
 
 #### Step 3 — Publish the six npm packages by hand, once
 
 ```bash
 npm login                     # supply the 2FA OTP if your org enforces it
-
-gh run download <binaries-run-id> --dir artifacts
-python packaging/npm/build_npm_packages.py --artifacts artifacts --output build/npm
-
-# Platform packages FIRST - the launcher pins their exact versions
-for dir in build/npm/cli-*; do
-  npm publish "$dir" --access public
-done
-
-# Launcher LAST
-npm publish build/npm/cli --access public
 ```
 
-Do **not** pass `--provenance` here — provenance requires CI OIDC and will fail locally.
-Then verify:
+Then follow [Publishing npm manually](#publishing-npm-manually) with this release's
+`binaries.yml` run id. Do **not** pass `--provenance` — provenance requires CI OIDC and
+will fail locally. Then verify:
 
 ```bash
 npx --yes @ossiq/cli@X.Y.Z --version
@@ -398,7 +396,7 @@ section never applies again.
 ### Rehearsing without publishing
 
 `binaries.yml` can be run at any time without cutting a release; only the npm publish and
-release-asset steps are gated on the release event.
+release-asset steps are gated on the tag push.
 
 ```bash
 gh workflow run binaries.yml
@@ -419,23 +417,29 @@ first-ever publish uses the same commands — see
 surrounding order.)
 
 ```bash
-# 1. Grab the binaries built for the release
-gh run download <run-id> --dir artifacts
+# 1. The six tarballs CI packed and attested for this release
+cd "$(mktemp -d)"               # outside the repo, so nothing lands in the work tree
+gh run download <binaries-run-id> --repo ossiq/ossiq -n npm-tarballs
 
-# 2. Generate all six packages at the released version
-python packaging/npm/build_npm_packages.py --artifacts artifacts --output build/npm
-
-# 3. Platform packages FIRST - the launcher pins their exact versions
-for dir in build/npm/cli-*; do
-  npm publish "$dir" --access public
+# 2. Prove they are the bytes reusable-build-npm.yml signed; the manual path skips
+#    publish-npm's own verify step, so this is the only check there is
+for f in npm/*.tgz; do
+  gh attestation verify "$f" --repo ossiq/ossiq \
+    --signer-workflow ossiq/ossiq/.github/workflows/reusable-build-npm.yml
 done
 
+# 3. Platform packages FIRST - the launcher pins their exact versions. The `./` matters:
+#    npm reads a bare `npm/<file>.tgz` as a GitHub shorthand and refuses it.
+python3 -c 'import json; print(*(e["tarball"] for e in json.load(open("build/npm/manifest.json"))["platform_packages"]), sep="\n")' |
+  while read -r tarball; do npm publish "./npm/$tarball" --access public; done
+
 # 4. Launcher LAST
-npm publish build/npm/cli --access public
+npm publish "./npm/$(python3 -c 'import json; print(json.load(open("build/npm/manifest.json"))["launcher"]["tarball"])')" --access public
 ```
 
-The generator refuses to run unless all five binaries are present, so a partial set cannot
-produce a launcher pointing at packages that were never published.
+Publishing CI's tarballs rather than regenerating them locally puts on npm exactly the
+bytes that were attested. `package-npm` only runs once all five binaries have built, so the
+set is never partial.
 
 ---
 

@@ -532,7 +532,11 @@ class GitHubService:
         release_notes: str,
         dry_run: bool,
     ) -> str | None:
-        """Create GitHub release via API. Returns release URL."""
+        """Create the GitHub release as a draft via API. Returns release URL.
+
+        The repo has release immutability on, so a published release accepts no more
+        assets. binaries.yml attaches the binaries to this draft and then publishes it.
+        """
         if dry_run:
             return None
 
@@ -549,7 +553,7 @@ class GitHubService:
             "tag_name": tag_name,
             "name": f"Release {tag_name}",
             "body": release_notes,
-            "draft": False,
+            "draft": True,
             "prerelease": False,
         }
 
@@ -680,6 +684,7 @@ class ReleaseOrchestrator:
         self.console.print(f"  7. POST {self.github_api_url}/releases")
         self.console.print(f"     - tag_name: v{new_version}")
         self.console.print(f"     - name: Release v{new_version}")
+        self.console.print("     - draft: true (binaries.yml publishes it once the binaries are attached)")
 
     def _execute_release(self, new_version: str, changelog_entry: str) -> None:
         """Execute the actual release."""
@@ -697,7 +702,7 @@ class ReleaseOrchestrator:
         self.console.print("[bold blue]Step 10:[/] Pushing git tag...")
         self.git_svc.push_tag(new_version, dry_run=False)
 
-        self.console.print("[bold blue]Step 11:[/] Creating GitHub release...")
+        self.console.print("[bold blue]Step 11:[/] Creating draft GitHub release...")
         assert self.github_svc is not None, "GitHub service not initialized"
         release_url = self.github_svc.create_release(
             f"v{new_version}",
@@ -705,9 +710,11 @@ class ReleaseOrchestrator:
             dry_run=False,
         )
 
-        self.console.print(f"\n[bold green]Release v{new_version} created successfully![/]")
+        self.console.print(f"\n[bold green]Release v{new_version} drafted successfully![/]")
         if release_url:
-            self.console.print(f"  GitHub release: {release_url}")
+            self.console.print(f"  GitHub release (draft): {release_url}")
+        self.console.print("  binaries.yml publishes the draft once the binaries are attached:")
+        self.console.print("  gh run list --workflow binaries.yml --limit 1")
         self.console.print("\n[bold yellow]Don't forget to push & backmerge:[/]")
         self.console.print("  git push origin production")
         self.console.print("  git checkout main && git merge production")

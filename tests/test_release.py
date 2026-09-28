@@ -640,5 +640,5 @@ class TestGitHubService:
         assert call_kwargs["json"]["tag_name"] == "v1.0.0"
         assert call_kwargs["json"]["name"] == "Release v1.0.0"
         assert call_kwargs["json"]["body"] == "Release notes here"
-        assert call_kwargs["json"]["draft"] is False
+        assert call_kwargs["json"]["draft"] is True
         assert call_kwargs["json"]["prerelease"] is False

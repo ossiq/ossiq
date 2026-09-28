@@ -7,14 +7,20 @@
 # file cannot assume (SLSA Build L3). Publishing stays here: it only transports
 # already-attested bytes, and each publish job re-verifies them first.
 #
-# The `if: github.event_name == 'release'` guards are the safety net that makes
+# The `if: github.event_name == 'push'` guards are the safety net that makes
 # workflow_dispatch runs build-and-attest only, never publish.
+#
+# Triggered by the release tag, not `release: published`. The repo has release
+# immutability on, so release.py creates the GitHub Release as a draft; attach-to-release
+# uploads the binaries and only then publishes it. A draft never fires `published`, and a
+# publish made with GITHUB_TOKEN starts no other workflow, so nothing can wait for it.
 name: Build standalone binaries
 
 on:
   workflow_dispatch:
-  release:
-    types: [published]
+  push:
+    # Whole-name match: rehearsal tags such as `v0.0.0-rehearsal-testpypi` do not fire.
+    tags: ['v[0-9]+.[0-9]+.[0-9]+']
 
 permissions: {}
 
@@ -28,7 +34,7 @@ jobs:
 
   package-npm:
     needs: build
-    if: github.event_name == 'release'
+    if: github.event_name == 'push'
     uses: ./.github/workflows/reusable-build-npm.yml
     permissions:
       contents: read
@@ -36,9 +42,9 @@ jobs:
       attestations: write
 
   attach-to-release:
-    name: Attach binaries to release
+    name: Attach binaries and publish release
     needs: build
-    if: github.event_name == 'release'
+    if: github.event_name == 'push'
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -64,7 +70,7 @@ jobs:
       - name: Upload to release
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG_NAME: ${{ github.event.release.tag_name }}
+          TAG_NAME: ${{ github.ref_name }}
         run: |
           set -euo pipefail
           (cd artifacts && sha256sum ./*.tar.gz > SHA256SUMS)
@@ -72,10 +78,19 @@ jobs:
             artifacts/*.tar.gz artifacts/SHA256SUMS \
             --repo "$GITHUB_REPOSITORY" --clobber
 
+      - name: Publish the release
+        # Must stay last: publishing makes the release immutable, and GitHub then refuses
+        # any further asset upload. Until this step the release is a draft, so a failed
+        # build or upload can simply be re-run.
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG_NAME: ${{ github.ref_name }}
+        run: gh release edit "$TAG_NAME" --repo "$GITHUB_REPOSITORY" --draft=false
+
   publish-npm:
     name: Publish to npm
     needs: package-npm
-    if: github.event_name == 'release'
+    if: github.event_name == 'push'
     runs-on: ubuntu-24.04
     environment:
       name: release
@@ -117,6 +132,8 @@ jobs:
         # so publishing it first would leave a window where `npm install @ossiq/cli`
         # cannot resolve a binary. Filenames come from the manifest rather than a glob,
         # which would match the launcher's own tarball alongside the platform ones.
+        # The `./` is load-bearing: npm reads a bare `npm/<file>.tgz` as the GitHub
+        # shorthand `github:npm/<file>.tgz` and refuses it with EALLOWGIT.
         run: |
           set -euo pipefail
           mapfile -t platform_tarballs < <(python3 -c '
@@ -128,11 +145,11 @@ jobs:
 
           for tarball in "${platform_tarballs[@]}"; do
             echo "::group::publish $tarball"
-            npm publish "npm/$tarball" --provenance --access public
+            npm publish "./npm/$tarball" --provenance --access public
             echo "::endgroup::"
           done
 
           launcher="$(python3 -c 'import json;print(json.load(open("build/npm/manifest.json"))["launcher"]["tarball"])')"
           echo "::group::publish $launcher"
-          npm publish "npm/$launcher" --provenance --access public
+          npm publish "./npm/$launcher" --provenance --access public
           echo "::endgroup::"
