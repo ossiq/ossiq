@@ -233,6 +233,23 @@ class TestGitService:
     """Tests for GitService."""
 
     @pytest.mark.parametrize(
+        "tags,current,expected",
+        [
+            (["v1.0.0", "v0.1.11", "v0.1.10", "v0.1.9"], "0.1.10", "v0.1.10"),
+            (["v0.1.10", "v0.1.9"], "0.1.10", "v0.1.10"),
+            (["v0.1.9", "v0.1.8"], "0.1.10", "v0.1.9"),
+            (["vnext", "v0.1.9"], "0.1.10", "v0.1.9"),
+            (["v2.0.0"], "0.1.10", None),
+            ([], "0.1.10", None),
+        ],
+    )
+    def test_get_latest_tag_ignores_tags_above_current_version(self, tags, current, expected):
+        """Test that a stray higher tag cannot become the changelog base."""
+        completed = MagicMock(stdout="\n".join(tags) + "\n")
+        with patch("release.subprocess.run", return_value=completed):
+            assert GitService.get_latest_tag(current) == expected
+
+    @pytest.mark.parametrize(
         "subject,expected_type,expected_scope,expected_breaking,expected_desc",
         [
             ("feat: add feature", CommitType.FEAT, None, False, "add feature"),
@@ -565,6 +582,20 @@ class TestGitHubService:
         # Act & Assert
         with patch.object(service.session, "post", return_value=mock_response):
             with pytest.raises(RuntimeError, match="Failed to create GitHub release"):
+                service.create_release("v1.0.0", "Release notes", dry_run=False)
+
+    def test_create_release_failure_names_rejected_field(self):
+        """Test that GitHub's validation message reaches the error."""
+        service = GitHubService(api_url=self.API_URL, github_token="test-token")
+        mock_response = MagicMock()
+        mock_response.status_code = 422
+        mock_response.json.return_value = {
+            "message": "Validation Failed",
+            "errors": [{"resource": "Release", "field": "body", "message": "body is too long"}],
+        }
+
+        with patch.object(service.session, "post", return_value=mock_response):
+            with pytest.raises(RuntimeError, match=r"HTTP 422 \(body is too long\)"):
                 service.create_release("v1.0.0", "Release notes", dry_run=False)
 
     def test_create_release_no_token(self):
