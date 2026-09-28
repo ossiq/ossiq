@@ -40,6 +40,12 @@ TRUSTED_ACTION_OWNERS = ("actions", "pypa", "docker", "astral-sh")
 ALLOWED_SECRET_NAMES = ("GITHUB_TOKEN", "DOCKER_USERNAME", "DOCKER_PASSWORD")
 SECRET_REFERENCE_PATTERN = re.compile(r"secrets\.([A-Za-z_][A-Za-z0-9_]*)")
 
+# The repo has release immutability on, so release.py creates a draft and binaries.yml
+# publishes it after attaching the binaries. Drafts never fire `release: published`, and a
+# publish made with GITHUB_TOKEN starts no other workflow, so publishing hangs off the tag.
+RELEASE_TAG_GLOB = "v[0-9]+.[0-9]+.[0-9]+"
+NPM_PUBLISH_ARGUMENT_PATTERN = re.compile(r"npm publish\s+\"?(?P<path>[^\s\"]+)")
+
 # The artifact the isolated dist build hands to the publish job. Hardcoded in both files
 # rather than plumbed through a workflow output, so it needs an assertion.
 DIST_ARTIFACT_NAME = "python-dist"
@@ -307,3 +313,36 @@ def test_no_secret_other_than_github_token_reaches_a_third_party_action() -> Non
                         violations.append(f"{path.name}:{job_id} -> {action} gets secrets.{name}")
 
     assert not violations, "secrets passed to third-party actions:\n  " + "\n  ".join(violations)
+
+
+@pytest.mark.parametrize("filename", [PYPI_PUBLISH_WORKFLOW, NPM_PUBLISH_WORKFLOW])
+def test_publish_workflows_trigger_on_the_release_tag(filename: str) -> None:
+    """v0.1.11 was published before binaries.yml ran, so its immutable release refused them.
+
+    A `release: published` trigger cannot coexist with the draft-first flow: nothing ever
+    fires it.
+    """
+    trigger = load_workflow(WORKFLOWS_ROOT / filename).get("on") or {}
+
+    assert "release" not in trigger, (
+        f"{filename} must not trigger on `release`; the release is a draft until binaries.yml publishes it"
+    )
+    assert (trigger.get("push") or {}).get("tags") == [RELEASE_TAG_GLOB], (
+        f"{filename} must trigger on pushing a {RELEASE_TAG_GLOB} tag"
+    )
+
+
+def test_no_workflow_reads_the_release_event_payload() -> None:
+    """Under a tag-push trigger `github.event.release` is empty, so the tag comes from `github.ref_name`."""
+    readers = [path.name for path in workflow_files() if "github.event.release" in path.read_text(encoding="utf-8")]
+
+    assert not readers, f"workflows reading github.event.release, which no longer exists: {readers}"
+
+
+def test_npm_publish_paths_are_explicitly_relative() -> None:
+    """npm reads a bare `npm/<file>.tgz` as `github:npm/<file>.tgz` and refuses it (EALLOWGIT)."""
+    arguments = NPM_PUBLISH_ARGUMENT_PATTERN.findall(executable_text(WORKFLOWS_ROOT / NPM_PUBLISH_WORKFLOW))
+
+    assert arguments, f"no `npm publish` found in {NPM_PUBLISH_WORKFLOW}"
+    bare = [argument for argument in arguments if not argument.startswith(("./", "/"))]
+    assert not bare, f"`npm publish` paths must start with ./ or npm treats them as git specs: {bare}"
