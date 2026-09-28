@@ -6,8 +6,11 @@ Vue.js SPA into a reusable template by replacing the dummy JSON data
 with a placeholder sentinel.
 """
 
+import shutil
+import subprocess
 import sys
 from pathlib import Path
+from typing import Any, cast
 
 import pytest
 
@@ -16,8 +19,43 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 # pylint: disable=wrong-import-position
 from hatch_build import (
     REPORT_DATA_PLACEHOLDER,
+    SPA_TEMPLATE_RELATIVE,
+    CustomBuildHook,
     replace_report_data_with_placeholder,
 )
+
+
+def make_hook(root: Path) -> CustomBuildHook:
+    """Build a CustomBuildHook rooted at `root`.
+
+    `initialize` reads nothing but `self.root`, so the build config and project
+    metadata hatchling would normally supply are cast away rather than faked.
+
+    Args:
+        root: Directory the hook treats as the project root.
+
+    Returns:
+        A hook instance whose `initialize` can be called directly.
+    """
+    return CustomBuildHook(str(root), {}, cast(Any, None), cast(Any, None), str(root), "wheel")
+
+
+def write_template(
+    root: Path, content: str = f'<script type="json/oss-iq-report">{REPORT_DATA_PLACEHOLDER}</script>'
+) -> Path:
+    """Place a SPA template at the canonical path under `root`.
+
+    Args:
+        root: Directory the hook treats as the project root.
+        content: Text to write into the template.
+
+    Returns:
+        Path to the template that was written.
+    """
+    target = root / SPA_TEMPLATE_RELATIVE
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(content, encoding="utf-8")
+    return target
 
 
 class TestReplaceReportDataWithPlaceholder:
@@ -141,3 +179,43 @@ class TestReplaceReportDataWithPlaceholder:
         """Test that the default placeholder constant has the expected value."""
         # Assert
         assert REPORT_DATA_PLACEHOLDER == "__OSSIQ_REPORT_DATA__"
+
+
+class TestCustomBuildHook:
+    """Packaging must read the committed SPA template, never rebuild it.
+
+    Before this, the hook shelled out to `npm install` whenever npm happened to be
+    on PATH, which made `uv build --wheel` network-dependent and left a regenerated
+    650 KB template behind in src/.
+    """
+
+    def test_accepts_a_committed_template(self, tmp_path: Path) -> None:
+        """A present, non-empty template is all packaging requires."""
+        write_template(tmp_path)
+
+        make_hook(tmp_path).initialize("standard", {})
+
+    def test_never_invokes_npm(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The hook must not shell out, even with npm available and frontend/ present."""
+        write_template(tmp_path)
+        (tmp_path / "frontend").mkdir()
+        monkeypatch.setattr(shutil, "which", lambda _name: "/usr/bin/npm")
+
+        def fail(*args: object, **kwargs: object) -> None:
+            raise AssertionError(f"packaging shelled out: {args!r}")
+
+        monkeypatch.setattr(subprocess, "check_call", fail)
+
+        make_hook(tmp_path).initialize("standard", {})
+
+    def test_rejects_a_missing_template(self, tmp_path: Path) -> None:
+        """A missing template must fail the build rather than silently ship nothing."""
+        with pytest.raises(RuntimeError, match="just frontend-build"):
+            make_hook(tmp_path).initialize("standard", {})
+
+    def test_rejects_an_empty_template(self, tmp_path: Path) -> None:
+        """An empty template would produce a blank HTML report."""
+        write_template(tmp_path, content="")
+
+        with pytest.raises(RuntimeError, match="just frontend-build"):
+            make_hook(tmp_path).initialize("standard", {})

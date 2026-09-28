@@ -64,7 +64,7 @@ def test_install_copilot_writes_instructions(tmp_path):
 def test_install_copilot_is_idempotent_and_updates_block(tmp_path):
     install.install_copilot(tmp_path, SKILL_CONTENT, None)
     install.install_copilot(tmp_path, "# ossiq skill\nupdated body\n", None)
-    text = (tmp_path / ".copilot" / "copilot-instructions.md").read_text(encoding="utf-8")
+    text = (tmp_path / ".copilot" / "copilot-instructions.md").read_text()
     assert text.count(install.COPILOT_START) == 1
     assert "updated body" in text
     assert "body\n" not in text.replace("updated body\n", "")

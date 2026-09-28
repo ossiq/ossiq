@@ -77,6 +77,22 @@ def extract_binary(tarball: Path, destination: Path) -> None:
         archive.extractall(destination, filter="tar")
 
 
+def pack_filename(package_name: str, version: str) -> str:
+    """Return the tarball name `npm pack` produces for a package.
+
+    npm strips the leading `@` from a scoped name and replaces the `/` with a `-`, so
+    `@ossiq/cli-darwin-arm64` packs to `ossiq-cli-darwin-arm64-<version>.tgz`.
+
+    Args:
+        package_name: The npm package name, scoped or not.
+        version: The package version.
+
+    Returns:
+        The .tgz filename npm will write.
+    """
+    return f"{package_name.lstrip('@').replace('/', '-')}-{version}.tgz"
+
+
 def build_platform_package(target: str, version: str, tarball: Path, output_root: Path) -> str:
     """Write one platform package; returns its npm package name."""
     package_name = f"{LAUNCHER_PACKAGE}-{target}"
@@ -164,6 +180,7 @@ def main(argv: list[str] | None = None) -> int:
     args.output.mkdir(parents=True, exist_ok=True)
 
     platform_packages: list[str] = []
+    platform_dirs: list[str] = []
     missing: list[str] = []
 
     for target in TARGETS:
@@ -172,6 +189,7 @@ def main(argv: list[str] | None = None) -> int:
             missing.append(target)
             continue
         platform_packages.append(build_platform_package(target, version, tarball, args.output))
+        platform_dirs.append(f"cli-{target}")
         print(f"built {LAUNCHER_PACKAGE}-{target}")
 
     if missing:
@@ -181,6 +199,29 @@ def main(argv: list[str] | None = None) -> int:
 
     launcher = build_launcher_package(version, platform_packages, args.output)
     print(f"built {LAUNCHER_PACKAGE} at {launcher}")
+
+    # CI drives `npm pack` and the ordered `npm publish` from this rather than from a
+    # glob: `npm pack` names tarballs after package.json, so @ossiq/cli packs to
+    # ossiq-cli-<version>.tgz and a `ossiq-cli-*.tgz` glob would also match the
+    # launcher — publishing it before the platform packages its optionalDependencies
+    # pin, which is the exact breakage the ordering exists to prevent. Tarball names
+    # are recorded here rather than reconstructed by the caller.
+    write_json(
+        args.output / "manifest.json",
+        {
+            "version": version,
+            "platform_packages": [
+                {"directory": directory, "package": name, "tarball": pack_filename(name, version)}
+                for directory, name in zip(platform_dirs, platform_packages, strict=True)
+            ],
+            "launcher": {
+                "directory": "cli",
+                "package": LAUNCHER_PACKAGE,
+                "tarball": pack_filename(LAUNCHER_PACKAGE, version),
+            },
+        },
+    )
+
     print(f"\nVersion: {version}")
     print("Publish platform packages BEFORE the launcher.")
     return 0

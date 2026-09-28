@@ -201,6 +201,72 @@ If an issue is discovered immediately after a release, you can revert the change
 | `binaries.yml` | Standalone binaries → GitHub Release assets, then npm (`@ossiq/cli` + 5 platform packages) | on release | npm Trusted Publishing (OIDC) |
 | `docker.yml` | Docker Hub (`ossiq/ossiq-cli`) | manual | `DOCKER_USERNAME` / `DOCKER_PASSWORD` |
 
+Each top-level workflow above is a thin caller. The builds happen in reusable workflows
+that sign [SLSA Build L3](https://slsa.dev/spec/v1.2/build-track-basics) provenance:
+
+| Reusable workflow | Builds and attests |
+| --- | --- |
+| `reusable-build-dist.yml` | sdist + wheel, plus the CycloneDX SBOM |
+| `reusable-build-binaries.yml` | the five platform `.tar.gz` binaries |
+| `reusable-build-npm.yml` | the six npm `.tgz` tarballs |
+
+## Provenance and verification
+
+### Two filenames must never change
+
+**`release.yml` and `binaries.yml` are registry-bound.** PyPI and npm match a Trusted
+Publisher on `(repository, workflow filename, environment)`. Renaming either file, or
+removing `environment: release` from a publish job, breaks publishing until the publisher
+is reconfigured registry-side — and the failure only surfaces mid-release, after the tag
+is already pushed.
+
+Two further constraints follow from how the registries validate OIDC:
+
+- **The PyPI publish step cannot move into a reusable workflow.** PyPI matches the
+  `job_workflow_ref` claim, which for a `workflow_call` job names the callee:
+  *"Reusable workflows cannot currently be used as the workflow in a Trusted Publisher."*
+  So `release.yml` keeps a `steps` job that downloads the attested artifact and uploads it.
+- **npm validates the *calling* workflow's filename**, which is why moving `npm publish`
+  into a reusable workflow would not have helped, and why `--provenance` alone does not
+  reach L3.
+
+`tests/test_workflow_supply_chain.py` asserts all of this, so a well-meaning tidy-up fails
+in CI rather than during a release.
+
+### The reusable workflow filenames are public API
+
+Consumers verify with
+`gh attestation verify ... --signer-workflow ossiq/ossiq/.github/workflows/reusable-build-*.yml`.
+Renaming one silently breaks every published verification command. If you must rename,
+update `docs/how-to/verifying-a-release.md` in the same change — a test asserts the two
+agree — and note the change in the release notes.
+
+### After publishing
+
+Run the consumer-facing commands from
+[docs/how-to/verifying-a-release.md](docs/how-to/verifying-a-release.md) against the
+*published registries*, not against CI artifacts. That is the only check of what is
+actually being claimed:
+
+```bash
+# PyPI
+pip download --no-deps --only-binary :all: ossiq==X.Y.Z
+gh attestation verify ossiq-X.Y.Z-py3-none-any.whl --repo ossiq/ossiq \
+  --signer-workflow ossiq/ossiq/.github/workflows/reusable-build-dist.yml
+
+# Binaries
+gh release download vX.Y.Z --repo ossiq/ossiq --pattern 'ossiq-*.tar.gz' --pattern SHA256SUMS
+sha256sum -c SHA256SUMS
+gh attestation verify ossiq-linux-x64.tar.gz --repo ossiq/ossiq \
+  --signer-workflow ossiq/ossiq/.github/workflows/reusable-build-binaries.yml
+
+# npm
+npm audit signatures
+npm pack @ossiq/cli@X.Y.Z
+gh attestation verify ossiq-cli-X.Y.Z.tgz --repo ossiq/ossiq \
+  --signer-workflow ossiq/ossiq/.github/workflows/reusable-build-npm.yml
+```
+
 ## npm Channel
 
 `@ossiq/cli` ships prebuilt, self-contained binaries so Node users need no Python. The
