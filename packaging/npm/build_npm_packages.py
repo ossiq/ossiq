@@ -235,12 +235,13 @@ def main(argv: list[str] | None = None) -> int:
     launcher = build_launcher_package(version, platform_packages, args.output)
     print(f"built {LAUNCHER_PACKAGE} at {launcher}")
 
-    # CI drives `npm pack` and the ordered `npm publish` from this rather than from a
-    # glob: `npm pack` names tarballs after package.json, so @ossiq/cli packs to
+    # CI drives `npm pack` and the ordered `npm stage publish` from this rather than from
+    # a glob: `npm pack` names tarballs after package.json, so @ossiq/cli packs to
     # ossiq-cli-<version>.tgz and a `ossiq-cli-*.tgz` glob would also match the
-    # launcher — publishing it before the platform packages its optionalDependencies
+    # launcher — approving it before the platform packages its optionalDependencies
     # pin, which is the exact breakage the ordering exists to prevent. Tarball names
-    # are recorded here rather than reconstructed by the caller.
+    # are recorded here rather than reconstructed by the caller, and
+    # approve_staged_release.py reads the same file to order the approvals.
     write_json(
         args.output / "manifest.json",
         {

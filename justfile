@@ -146,6 +146,11 @@ release *ARGS:
 release-preview:
     uv run python release.py --patch --dry-run
 
+# Verify a staged npm release and print its approvals in order. Approves nothing.
+# Append --approve to make them live; npm asks for your OTP once per package.
+npm-approve RUN_ID *ARGS:
+    uv run python packaging/npm/approve_staged_release.py --run-id {{RUN_ID}} {{ARGS}}
+
 # remove all build, test, coverage and Python artifacts
 clean: 
 	uv run just clean-build
