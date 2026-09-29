@@ -46,16 +46,21 @@ You never bump an npm version by hand. `packaging/npm/build_npm_packages.py` rea
 `pyproject.toml`, and `binaries.yml` refuses to publish if that file and the release tag
 disagree.
 
-### First release after the distribution rework
+### npm channel status
 
-The next release renames the console script from `ossiq-cli` to `ossiq` and lights up the
-npm channel. It needs a one-time bootstrap — see
-[Bootstrapping the npm channel](#bootstrapping-the-npm-channel-first-time-only), which is
-the full ordered runbook. Every release after it follows the standard procedure below.
+The npm channel was bootstrapped at **0.1.12**: published by hand, with trusted publishers
+attached afterwards (see
+[Bootstrapping the npm channel](#bootstrapping-the-npm-channel-first-time-only)). **0.1.13**
+is the first release that `binaries.yml` publishes to npm with no manual step. From then
+on, every release follows the standard procedure below.
 
-One extra caution during that window: **do not build the Docker image against a pre-rename
-version.** `docker-entrypoint.sh` now execs `ossiq`, which only exists from this release
-onward, so `TAG_VERSION=0.1.10` or earlier produces an image that fails at startup.
+0.1.12's macOS packages are broken. `npm pack` dropped the symlinks the binary needs to
+load libpython, so `npx @ossiq/cli@0.1.12` fails on every Mac. The fix ships from 0.1.13.
+Once 0.1.13 is verified, deprecate 0.1.12 on npm.
+
+**Do not build the Docker image against a pre-rename version.** `docker-entrypoint.sh`
+execs `ossiq`, which only exists from 0.1.11 onward, so `TAG_VERSION=0.1.10` or earlier
+produces an image that fails at startup.
 
 ### Standard Release Procedure
 
@@ -151,7 +156,9 @@ at a missing platform package would leave that platform permanently broken.
 # 1. PyPI
 uvx ossiq@X.Y.Z --version
 
-# 2. npm - resolves the platform package and runs the bundled binary
+# 2. npm - resolves the platform package and runs the bundled binary. This only
+#    exercises this machine's platform, so run it on a Mac: the darwin trees are the
+#    only ones with symlinks, and npm pack dropping them broke 0.1.12.
 npx --yes @ossiq/cli@X.Y.Z --version
 
 # 3. Docker
@@ -169,11 +176,20 @@ Each channel is recoverable on its own; you do **not** re-cut the release.
 | --- | --- |
 | PyPI (`release.yml`) | Re-run the failed job: `gh run rerun <id> --failed`. A version already on PyPI cannot be replaced — if the artifact itself is wrong, cut a new patch version. |
 | Binaries (`binaries.yml`) | Re-run the failed job. The release stays a draft until the binaries are attached, so re-running is safe (assets upload with `--clobber`). Once it is published it is immutable — missing binaries then mean a new patch version. |
-| npm only (binaries built, publish failed) | Download the artifacts and publish by hand — see [Publishing npm manually](#publishing-npm-manually). |
+| npm only (binaries built, publish failed) | If the first `PUT` failed with `E404` and nothing landed, the trusted publisher doesn't match. Fix it on npmjs.com, then `gh run rerun <id> --failed`. If some packages already landed, a rerun stops at the first of them (a version can't be published twice), so publish the rest by hand, launcher last. See [Publishing npm manually](#publishing-npm-manually). |
 | Docker (`docker.yml`) | Just run it again: `gh workflow run docker.yml -f tag=vX.Y.Z`. Nothing depends on it, so it can be published hours or days later. |
 
 A version that is live on one registry but not another is not an emergency — the channels
 are independent. Fix the failed one and the release is complete.
+
+A version that was published but is **broken** gets fixed by the next patch release. Then
+deprecate the bad one; never unpublish it. The version number can't be reused anyway, and
+unpublishing every version of a package frees the name and drops its trusted-publisher
+config:
+
+```bash
+npm deprecate "@ossiq/cli@X.Y.Z" "<what is broken>; use X.Y.Z+1 or later"
+```
 
 ### How to Revert a Release (If Something Goes Wrong)
 
@@ -308,6 +324,9 @@ outright.
 
 ### Bootstrapping the npm channel (first time only)
 
+**Done at 0.1.12; step 6 is pending on 0.1.13.** Kept for reference, because adding a
+platform package later (a new name) means repeating steps 3–4 for that one package.
+
 Do these in order. Steps 0–1 publish nothing and can be done at any time.
 
 #### Why the Python release comes first
@@ -399,15 +418,27 @@ section never applies again.
 release-asset steps are gated on the tag push.
 
 ```bash
-gh workflow run binaries.yml
+gh workflow run binaries.yml --ref <branch>
 gh run watch
 
-# then, locally:
-gh run download <run-id> --dir artifacts
-python packaging/npm/build_npm_packages.py --artifacts artifacts --output build/npm
-npm publish build/npm/cli-darwin-arm64 --dry-run
-npm publish build/npm/cli --dry-run
+# then, locally, from the repo root. `gh run download` puts each artifact in its own
+# directory, and the packer wants the five tarballs side by side.
+W="$(mktemp -d)"
+gh run download <run-id> --repo ossiq/ossiq --pattern 'ossiq-*' --dir "$W/runs"
+mkdir "$W/artifacts" && mv "$W"/runs/*/ossiq-*.tar.gz "$W/artifacts/"
+uv run python packaging/npm/build_npm_packages.py --artifacts "$W/artifacts" --output "$W/build/npm"
+npm publish "$W/build/npm/cli-darwin-arm64" --dry-run
+npm publish "$W/build/npm/cli" --dry-run
+
+# On a Mac, run the binary out of the *packed* tarball. CI's smoke test runs before
+# packing, so this is the only check that npm pack kept everything the binary needs.
+npm pack "$W/build/npm/cli-darwin-arm64" --pack-destination "$W"
+mkdir "$W/x" && tar xzf "$W"/ossiq-cli-darwin-arm64-*.tgz -C "$W/x"
+"$W/x/package/bin/ossiq/ossiq" --version
 ```
+
+To test a packaging change without a CI run, pass the last release's binaries instead:
+`gh release download vX.Y.Z --repo ossiq/ossiq --pattern 'ossiq-*.tar.gz' --dir "$W/artifacts"`.
 
 ### Publishing npm manually
 
