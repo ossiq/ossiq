@@ -22,14 +22,22 @@ You control the version manually with `release.py`. Everything else derives from
           ▼               ▼                       │
       PyPI ossiq     5 binaries attached,         ▼
         X.Y.Z        then draft published     Docker Hub
-                     + npm packages         ossiq/ossiq-cli
-                     @ossiq/cli                  X.Y.Z
+                     + 6 npm packages        ossiq/ossiq-cli
+                       STAGED                    X.Y.Z
+                          │
+                          ╎ (manual: you approve each package with 2FA)
+                          ▼
+                     npm @ossiq/cli
                         X.Y.Z
 ```
 
-There is **one** GitHub Release per version, not one per package. Pushing the tag triggers
-PyPI and npm automatically; **Docker stays a deliberate manual step**, because the image
-installs `ossiq==X.Y.Z` *from PyPI* and so cannot be built until that upload has landed.
+There is **one** GitHub Release per version, not one per package. Pushing the tag publishes
+PyPI and the binaries on its own. **Two steps are deliberately manual:**
+
+- **npm.** CI only *stages* the six packages; nothing is installable until you approve each
+  one with 2FA. See [Approving a staged npm release](#approving-a-staged-npm-release).
+- **Docker**, because the image installs `ossiq==X.Y.Z` *from PyPI* and so cannot be built
+  until that upload has landed.
 
 The repository has **release immutability** on: once a GitHub Release is published, no
 asset can be added, replaced or removed, and its tag is locked. So `release.py` creates
@@ -48,15 +56,35 @@ disagree.
 
 ### npm channel status
 
-The npm channel was bootstrapped at **0.1.12**: published by hand, with trusted publishers
-attached afterwards (see
-[Bootstrapping the npm channel](#bootstrapping-the-npm-channel-first-time-only)). **0.1.13**
-is the first release that `binaries.yml` publishes to npm with no manual step. From then
-on, every release follows the standard procedure below.
+| Version | PyPI | Binaries | npm |
+| --- | --- | --- | --- |
+| 0.1.12 | ✅ | ✅ | ✅ published **by hand** (the bootstrap) |
+| 0.1.13 | ✅ | ✅ | ✅ published by CI, with provenance, on the third attempt |
 
-0.1.12's macOS packages are broken. `npm pack` dropped the symlinks the binary needs to
-load libpython, so `npx @ossiq/cli@0.1.12` fails on every Mac. The fix ships from 0.1.13.
-Once 0.1.13 is verified, deprecate 0.1.12 on npm.
+0.1.13's two failed attempts are worth remembering, because both were registry-side
+settings that nothing in this repo can see:
+
+- **`E404` on the first `PUT`** — the Trusted Publisher did not match.
+- **`403 OIDC permission denied`** — the publisher granted `npm stage publish` only, which
+  is how publishers created after 2026-09-03 default. The workflow was running a direct
+  `npm publish`.
+
+**0.1.13 is what fixed npm on macOS.** `@ossiq/cli@0.1.12` could not load libpython on any
+Mac: `npm pack` silently dropped the symlinks the binary needs, fixed in #154. Verified on
+darwin-arm64 — `npx --yes @ossiq/cli@0.1.13 --version` runs, and the tarball carries
+`_internal/Python` again at 136 files rather than 131. Deprecate 0.1.12 when convenient
+(see [If one channel fails](#if-one-channel-fails)).
+
+**Docker Hub is still at 0.1.10**, because `docker.yml` was never run for 0.1.11–0.1.13.
+
+From 0.1.14 the flow is **stage, then approve**: `binaries.yml` runs `npm stage publish`,
+and nothing is installable until you approve each package with 2FA.
+
+**One setting to change before 0.1.14.** On npmjs.com, for each of the six packages →
+*Settings* → *Trusted Publisher* → *Allowed actions*: untick direct **`npm publish`** and
+leave **`npm stage publish`** ticked. Direct publish was switched on to get 0.1.13 out;
+leaving it on keeps an ungated path to the registry open, which is exactly what staging
+exists to close.
 
 **Do not build the Docker image against a pre-rename version.** `docker-entrypoint.sh`
 execs `ossiq`, which only exists from 0.1.11 onward, so `TAG_VERSION=0.1.10` or earlier
@@ -101,20 +129,30 @@ Follow these steps to create and publish a new release:
     Note that only the *tag* is pushed at this point, not the `production` branch. That is
     enough for CI: both workflows check out the tag.
 
-3.  **Watch PyPI and npm publish** (see [Release timeline](#release-timeline) below):
+3.  **Watch the workflows** (see [Release timeline](#release-timeline) below):
     ```bash
     gh run list --limit 5
     gh run watch
     ```
+    `release.yml` must be green, and in `binaries.yml` every job including
+    **Stage npm packages for approval**. That job's summary page prints the approval
+    commands for this release.
 
-4.  **Publish the Docker image** — manual, and only once PyPI has the version:
+4.  **Approve the staged npm packages** — manual, and nothing is installable until you do.
+    Full runbook: [Approving a staged npm release](#approving-a-staged-npm-release).
+    ```bash
+    just npm-approve <binaries.yml run id>            # verify, approve nothing
+    just npm-approve <binaries.yml run id> --approve  # approve, in order, 2FA each
+    ```
+
+5.  **Publish the Docker image** — manual, and only once PyPI has the version:
     ```bash
     gh workflow run docker.yml -f tag=vX.Y.Z
     ```
     `latest` defaults to on; untick it (`-f latest=false`) when rebuilding an older
     version. The workflow refuses to start if `ossiq==X.Y.Z` is not yet on PyPI.
 
-5.  **Synchronize `main` with `production`**:
+6.  **Synchronize `main` with `production`**:
     After a successful release, ensure your `main` branch reflects the changes from `production`.
     ```bash
     git push origin production
@@ -123,7 +161,7 @@ Follow these steps to create and publish a new release:
     git push origin main
     ```
 
-6.  **Verify all three channels landed** ([details](#post-release-verification)):
+7.  **Verify all three channels landed** ([details](#post-release-verification)):
     ```bash
     uvx ossiq@X.Y.Z --version
     npx --yes @ossiq/cli@X.Y.Z --version
@@ -132,13 +170,15 @@ Follow these steps to create and publish a new release:
 
 ### Release timeline
 
-| Workflow | Trigger | Duration | Depends on |
+| Step | Trigger | Duration | Depends on |
 | --- | --- | --- | --- |
 | `release.yml` → PyPI | push of tag `vX.Y.Z` | ~2 min | nothing |
-| `binaries.yml` → binaries, publish the draft release, then npm | push of tag `vX.Y.Z` | ~15 min | the draft release existing (created seconds after the tag push) |
+| `binaries.yml` → binaries, publish the draft release, then **stage** npm | push of tag `vX.Y.Z` | ~15 min | the draft release existing (created seconds after the tag push) |
+| **npm approval** → npm | **manual**, `just npm-approve … --approve` | ~2 min + 2FA | `binaries.yml` having staged |
 | `docker.yml` → Docker Hub | **manual** `workflow_dispatch` | ~20 min | the version being live on PyPI |
 
-The first two start together and run concurrently; neither needs the other.
+The two workflows start together and run concurrently; neither needs the other. The two
+manual steps are independent of each other, so the order between them does not matter.
 
 `docker.yml` is manual on purpose. Its image does `uv pip install ossiq==X.Y.Z` *from
 PyPI*, so triggering it off the release event would race the PyPI upload. Releases are
@@ -146,9 +186,9 @@ infrequent and deliberate, so you run it yourself once `release.yml` is green �
 fails fast (one API call) if the version is not on PyPI yet.
 
 `binaries.yml` runs in two stages: a 5-way build matrix, then — only after all five
-succeed — the npm publish. A single platform failing means **no** npm packages are
-published, which is deliberate: publishing a launcher whose `optionalDependencies` point
-at a missing platform package would leave that platform permanently broken.
+succeed — the npm packing and staging. A single platform failing means **no** npm packages
+are staged, which is deliberate: a launcher whose `optionalDependencies` point at a missing
+platform package would leave that platform permanently broken.
 
 ### Post-release verification
 
@@ -156,9 +196,10 @@ at a missing platform package would leave that platform permanently broken.
 # 1. PyPI
 uvx ossiq@X.Y.Z --version
 
-# 2. npm - resolves the platform package and runs the bundled binary. This only
-#    exercises this machine's platform, so run it on a Mac: the darwin trees are the
-#    only ones with symlinks, and npm pack dropping them broke 0.1.12.
+# 2. npm - only works once you have approved the staged packages. It resolves the
+#    platform package and runs the bundled binary, so it exercises just this machine's
+#    platform: run it on a Mac, since the darwin trees are the only ones with symlinks
+#    and npm pack dropping them is what broke 0.1.12.
 npx --yes @ossiq/cli@X.Y.Z --version
 
 # 3. Docker
@@ -176,7 +217,8 @@ Each channel is recoverable on its own; you do **not** re-cut the release.
 | --- | --- |
 | PyPI (`release.yml`) | Re-run the failed job: `gh run rerun <id> --failed`. A version already on PyPI cannot be replaced — if the artifact itself is wrong, cut a new patch version. |
 | Binaries (`binaries.yml`) | Re-run the failed job. The release stays a draft until the binaries are attached, so re-running is safe (assets upload with `--clobber`). Once it is published it is immutable — missing binaries then mean a new patch version. |
-| npm only (binaries built, publish failed) | If the first `PUT` failed with `E404` and nothing landed, the trusted publisher doesn't match. Fix it on npmjs.com, then `gh run rerun <id> --failed`. If some packages already landed, a rerun stops at the first of them (a version can't be published twice), so publish the rest by hand, launcher last. See [Publishing npm manually](#publishing-npm-manually). |
+| npm staging (`binaries.yml`) | `403 OIDC permission denied` means a direct `npm publish` was attempted against a stage-only publisher — the workflow must use `npm stage publish`. `E404` on the first `PUT` means the trusted publisher does not match: fix it on npmjs.com, then `gh run rerun <id> --failed`. Nothing has landed in either case, so a rerun is safe. |
+| npm approval | Staged-but-unapproved is **not** a failed release — the packages simply wait. Re-run `just npm-approve <run-id>`; it reports what is already live and what is still pending. If an approval failed part-way, the launcher may be live before its platform packages: the tool says so, and the fix is to approve the rest immediately. |
 | Docker (`docker.yml`) | Just run it again: `gh workflow run docker.yml -f tag=vX.Y.Z`. Nothing depends on it, so it can be published hours or days later. |
 
 A version that is live on one registry but not another is not an emergency — the channels
@@ -221,7 +263,8 @@ If an issue is discovered immediately after a release, you can revert the change
 | Workflow | Publishes | Trigger | Auth |
 | --- | --- | --- | --- |
 | `release.yml` | PyPI (`ossiq`) | tag push `vX.Y.Z` | Trusted Publishing (OIDC) |
-| `binaries.yml` | Standalone binaries → GitHub Release assets (then publishes the draft), then npm (`@ossiq/cli` + 5 platform packages) | tag push `vX.Y.Z` | npm Trusted Publishing (OIDC) |
+| `binaries.yml` | Standalone binaries → GitHub Release assets (then publishes the draft), then **stages** npm (`@ossiq/cli` + 5 platform packages) | tag push `vX.Y.Z` | npm Trusted Publishing (OIDC), stage-only |
+| *you* | approving the staged npm packages, which is what makes them installable | manual | your npm login + 2FA |
 | `docker.yml` | Docker Hub (`ossiq/ossiq-cli`) | manual | `DOCKER_USERNAME` / `DOCKER_PASSWORD` |
 
 Each top-level workflow above is a thin caller. The builds happen in reusable workflows
@@ -249,12 +292,18 @@ Two further constraints follow from how the registries validate OIDC:
   `job_workflow_ref` claim, which for a `workflow_call` job names the callee:
   *"Reusable workflows cannot currently be used as the workflow in a Trusted Publisher."*
   So `release.yml` keeps a `steps` job that downloads the attested artifact and uploads it.
-- **npm validates the *calling* workflow's filename**, which is why moving `npm publish`
-  into a reusable workflow would not have helped, and why `--provenance` alone does not
-  reach L3.
+- **npm validates the *calling* workflow's filename**, which is why moving
+  `npm stage publish` into a reusable workflow would not have helped, and why
+  `--provenance` alone does not reach L3.
 
 `tests/test_workflow_supply_chain.py` asserts all of this, so a well-meaning tidy-up fails
 in CI rather than during a release.
+
+One part of the contract has **no representation in this repo**: each package's *Allowed
+actions* on npmjs.com, which permit `npm stage publish` and not direct publishing. A test
+asserts that `binaries.yml` stages rather than publishes, but nothing here can see the
+registry side — so if a release fails with `403 OIDC permission denied`, that setting is
+where to look.
 
 ### The reusable workflow filenames are public API
 
@@ -311,8 +360,9 @@ There is no separate npm version to maintain. On a release, `binaries.yml`:
 3. Runs `packaging/npm/build_npm_packages.py`, which reads the version from
    `pyproject.toml` and stamps it into all six generated `package.json` files, pinning the
    launcher's `optionalDependencies` to that exact version.
-4. Publishes the five platform packages **first**, then the launcher — in that order,
-   because the launcher pins exact versions of packages that must already exist.
+4. **Stages** all six. Nothing is installable yet: you approve each one with 2FA, the five
+   platform packages first and the launcher last, because the launcher pins exact versions
+   of packages that must already exist.
 
 So `ossiq X.Y.Z` on PyPI and `@ossiq/cli X.Y.Z` on npm are always the same commit.
 
@@ -322,10 +372,49 @@ but not on prereleases: PyPI normalises `0.2.0-rc.1` to `0.2.0rc1`, while npm ke
 like `0.2.0rc1` or `0.1.10.post1` are not valid semver at all and npm will reject them
 outright.
 
+### Approving a staged npm release
+
+CI stages, you approve. Until you do, `npm install @ossiq/cli@X.Y.Z` cannot see the version
+at all. The trusted publisher grants `npm stage publish` only, so the gate cannot be
+skipped — which is the point: a compromised workflow can stage a version but never ship
+one.
+
+**Order is the whole risk.** The launcher's `optionalDependencies` pin the five platform
+packages at that exact version, and npm *silently skips* an optional dependency it cannot
+resolve. Approve the launcher first and `npm install @ossiq/cli` still succeeds — with no
+binary inside, printing the PyPI fallback hint instead of running. So: the five platform
+packages, then `@ossiq/cli`.
+
+```bash
+npm login                                          # 2FA is required to approve
+just npm-approve <binaries.yml run id>             # verify; approves nothing
+just npm-approve <binaries.yml run id> --approve   # approve, in order
+```
+
+The run id is on `binaries.yml`'s summary page, which prints these commands for you.
+
+What the first command checks before you commit to anything:
+
+- all six are staged, at this release's version, exactly once;
+- each tarball CI attested still verifies against `reusable-build-npm.yml`;
+- what npm holds staged matches the bytes CI attested — where npm's CLI allows that
+  comparison; it reports "staged bytes not compared" rather than quietly assuming;
+- nothing else is staged that would be swept up in the approval.
+
+It refuses to approve if a check fails, and `--approve` re-runs every check first, so the
+two commands differ only in what happens at the end. Re-running after a half-finished
+approval is safe: it reports what is already live and approves only what is left.
+
+To discard a staged version rather than approve it, `npm stage reject <stage-id>`. Do
+either reasonably promptly — npm does not document how long a staged version lives.
+
+npmjs.com → **Staged Packages** does the same by hand and is the fallback if the CLI
+misbehaves. The order still applies.
+
 ### Bootstrapping the npm channel (first time only)
 
-**Done at 0.1.12; step 6 is pending on 0.1.13.** Kept for reference, because adding a
-platform package later (a new name) means repeating steps 3–4 for that one package.
+**Done at 0.1.12.** Kept for reference: adding a platform package later means a new package
+name, and repeating steps 3–4 for that one package.
 
 Do these in order. Steps 0–1 publish nothing and can be done at any time.
 
@@ -350,7 +439,7 @@ gh workflow run binaries.yml
 gh run watch
 ```
 
-The npm publish and release-asset steps are gated on the tag push, so a
+The npm staging and release-asset steps are gated on the tag push, so a
 `workflow_dispatch` run just builds and uploads the five artifacts for inspection.
 
 #### Step 1 — Confirm your npm access (publishes nothing)
@@ -369,10 +458,10 @@ Follow the [Standard Release Procedure](#standard-release-procedure) — e.g.
 `uv run release.py --minor`. That publishes `ossiq X.Y.Z` to PyPI with the renamed `ossiq`
 command, and `binaries.yml` builds the five binaries and attaches them to the release.
 
-**The `publish-npm` job will fail on this release, and that is expected** — the packages do
-not exist yet and no trusted publisher is configured. It is a separate job from
-`attach-to-release`, so the binaries still land on the GitHub Release, and the release is
-still published, regardless.
+**The npm job fails on this release, and that is expected** — the packages do not exist yet
+and no trusted publisher is configured. It is a separate job from `attach-to-release`, so
+the binaries still land on the GitHub Release, and the release is still published,
+regardless.
 
 #### Step 3 — Publish the six npm packages by hand, once
 
@@ -399,6 +488,9 @@ Trusted Publishing**, so there is no `NPM_TOKEN` secret to create.
    - Repository: `ossiq/ossiq`
    - Workflow: `binaries.yml`
    - Environment: `release`
+   - Allowed actions: **leave direct `npm publish` unchecked** (the default). CI stages and
+     a human approves; ticking it would remove the 2FA gate, and `binaries.yml` does not
+     use it.
 
 #### Step 5 — Publish the Docker image
 
@@ -408,13 +500,15 @@ gh workflow run docker.yml -f tag=vX.Y.Z
 
 #### Step 6 — Confirm the automation on the next release
 
-The following release should publish npm with no manual step: `publish-npm` goes green and
-`npx @ossiq/cli@<next version>` works. If it does, the bootstrap is complete and this
-section never applies again.
+0.1.13 was meant to be that release and did not reach npm at all (see
+[npm channel status](#npm-channel-status)). **0.1.14** is now the one: `Stage npm packages
+for approval` goes green with no manual step, and `npx @ossiq/cli@0.1.14` works once you
+have approved. When it does, the bootstrap is complete and this section never applies
+again.
 
 ### Rehearsing without publishing
 
-`binaries.yml` can be run at any time without cutting a release; only the npm publish and
+`binaries.yml` can be run at any time without cutting a release; only the npm staging and
 release-asset steps are gated on the tag push.
 
 ```bash
@@ -427,6 +521,8 @@ W="$(mktemp -d)"
 gh run download <run-id> --repo ossiq/ossiq --pattern 'ossiq-*' --dir "$W/runs"
 mkdir "$W/artifacts" && mv "$W"/runs/*/ossiq-*.tar.gz "$W/artifacts/"
 uv run python packaging/npm/build_npm_packages.py --artifacts "$W/artifacts" --output "$W/build/npm"
+# `npm publish --dry-run` is deliberate here, not a leftover from before staging: it only
+# packs and prints, never contacts the registry, so it needs no publisher and no approval.
 npm publish "$W/build/npm/cli-darwin-arm64" --dry-run
 npm publish "$W/build/npm/cli" --dry-run
 
@@ -442,10 +538,13 @@ To test a packaging change without a CI run, pass the last release's binaries in
 
 ### Publishing npm manually
 
-For recovering when the build matrix succeeded but the publish step failed. (The
-first-ever publish uses the same commands — see
-[Bootstrapping the npm channel](#bootstrapping-the-npm-channel-first-time-only) for the
-surrounding order.)
+Break-glass only. The normal path is
+[Approving a staged npm release](#approving-a-staged-npm-release); reach for this when
+staging itself cannot be made to work and a version has to get to npm anyway. It is also
+what the 0.1.12 bootstrap used.
+
+This publishes under **your** npm credentials and your own 2FA. The stage-only setting
+governs CI's OIDC identity, not yours, so it does not block you here.
 
 ```bash
 # 1. The six tarballs CI packed and attested for this release
@@ -453,7 +552,7 @@ cd "$(mktemp -d)"               # outside the repo, so nothing lands in the work
 gh run download <binaries-run-id> --repo ossiq/ossiq -n npm-tarballs
 
 # 2. Prove they are the bytes reusable-build-npm.yml signed; the manual path skips
-#    publish-npm's own verify step, so this is the only check there is
+#    the staging job's own verify step, so this is the only check there is
 for f in npm/*.tgz; do
   gh attestation verify "$f" --repo ossiq/ossiq \
     --signer-workflow ossiq/ossiq/.github/workflows/reusable-build-npm.yml
