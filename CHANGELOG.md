@@ -2,6 +2,22 @@
 
 
 
+## v0.1.13 (2026-09-29)
+
+
+### Fix
+
+* fix(npm): copy symlinks into the platform packages (GH-122) ([`4127aa7`](https://github.com/ossiq/ossiq/commit/4127aa797bdae22c3714aa9c922b1eeebd4f1b33))
+npm pack silently drops symlinks, so the macOS packages in 0.1.12
+shipped without _internal/Python and the binary could not load
+libpython. build_npm_packages.py now replaces every link with a real
+copy, refusing links that dangle or point outside the tree.
+
+
+### Documentation
+
+* docs: updated RELEASE.md ([`2e6ddf7`](https://github.com/ossiq/ossiq/commit/2e6ddf74cb51b8ccad4fb1766bb18cd9f83466e0))
+
 ## v0.1.12 (2026-09-28)
 
 
