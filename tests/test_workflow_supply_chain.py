@@ -32,7 +32,7 @@ USES_LINE_PATTERN = re.compile(r"^\s*-?\s*uses:\s*(?P<ref>\S+)(?P<rest>.*)$", re
 PYPI_PUBLISH_WORKFLOW = "release.yml"
 NPM_PUBLISH_WORKFLOW = "binaries.yml"
 RELEASE_ENVIRONMENT = "release"
-PUBLISH_MARKERS = ("pypa/gh-action-pypi-publish", "npm publish")
+PUBLISH_MARKERS = ("pypa/gh-action-pypi-publish", "npm stage publish")
 
 # Owners whose actions may receive a secret in a `with:` block. Anything else getting one
 # is a credential handed to third-party code.
@@ -44,7 +44,9 @@ SECRET_REFERENCE_PATTERN = re.compile(r"secrets\.([A-Za-z_][A-Za-z0-9_]*)")
 # publishes it after attaching the binaries. Drafts never fire `release: published`, and a
 # publish made with GITHUB_TOKEN starts no other workflow, so publishing hangs off the tag.
 RELEASE_TAG_GLOB = "v[0-9]+.[0-9]+.[0-9]+"
-NPM_PUBLISH_ARGUMENT_PATTERN = re.compile(r"npm publish\s+\"?(?P<path>[^\s\"]+)")
+# Matches either spelling: a tarball path means the same to `npm publish` and to
+# `npm stage publish`, and the EALLOWGIT trap below catches both.
+NPM_PUBLISH_ARGUMENT_PATTERN = re.compile(r"npm (?:stage )?publish\s+\"?(?P<path>[^\s\"]+)")
 
 # The artifact the isolated dist build hands to the publish job. Hardcoded in both files
 # rather than plumbed through a workflow output, so it needs an assertion.
@@ -102,8 +104,8 @@ def jobs_of(path: Path) -> dict[str, dict[str, Any]]:
 def executable_text(path: Path) -> str:
     """Every command and action reference a workflow actually runs.
 
-    Excludes comments and prose, so a marker like "npm publish" is not matched by a
-    comment explaining where `npm publish` lives.
+    Excludes comments and prose, so a marker like "npm stage publish" is not matched by a
+    comment explaining where the staging call lives.
 
     Args:
         path: The workflow file to parse.
@@ -183,7 +185,7 @@ def test_jobs_declare_permissions_when_the_workflow_grants_none() -> None:
 
 @pytest.mark.parametrize(
     ("filename", "marker"),
-    [(PYPI_PUBLISH_WORKFLOW, "pypa/gh-action-pypi-publish"), (NPM_PUBLISH_WORKFLOW, "npm publish")],
+    [(PYPI_PUBLISH_WORKFLOW, "pypa/gh-action-pypi-publish"), (NPM_PUBLISH_WORKFLOW, "npm stage publish")],
 )
 def test_publishing_stays_in_its_registry_bound_workflow(filename: str, marker: str) -> None:
     """Trusted publishers match (repo, workflow filename, environment).
@@ -339,10 +341,21 @@ def test_no_workflow_reads_the_release_event_payload() -> None:
     assert not readers, f"workflows reading github.event.release, which no longer exists: {readers}"
 
 
-def test_npm_publish_paths_are_explicitly_relative() -> None:
+def test_npm_tarball_paths_are_explicitly_relative() -> None:
     """npm reads a bare `npm/<file>.tgz` as `github:npm/<file>.tgz` and refuses it (EALLOWGIT)."""
     arguments = NPM_PUBLISH_ARGUMENT_PATTERN.findall(executable_text(WORKFLOWS_ROOT / NPM_PUBLISH_WORKFLOW))
 
-    assert arguments, f"no `npm publish` found in {NPM_PUBLISH_WORKFLOW}"
+    assert arguments, f"no `npm stage publish` found in {NPM_PUBLISH_WORKFLOW}"
     bare = [argument for argument in arguments if not argument.startswith(("./", "/"))]
-    assert not bare, f"`npm publish` paths must start with ./ or npm treats them as git specs: {bare}"
+    assert not bare, f"npm tarball paths must start with ./ or npm treats them as git specs: {bare}"
+
+
+def test_npm_packages_are_staged_rather_than_published() -> None:
+    """The npm Trusted Publisher grants `npm stage publish` only; a direct publish gets a 403.
+
+    Enabling npm's "direct npm publish" to make a red release green would also remove the
+    2FA approval gate, so this guards a security property and not just a working release.
+    """
+    assert "npm publish" not in executable_text(WORKFLOWS_ROOT / NPM_PUBLISH_WORKFLOW), (
+        f"{NPM_PUBLISH_WORKFLOW} must stage; npm refuses a direct publish from a stage-only publisher"
+    )
