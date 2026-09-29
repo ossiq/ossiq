@@ -1,11 +1,18 @@
-# DO NOT RENAME THIS FILE, and do not remove `environment: release` from publish-npm.
+# DO NOT RENAME THIS FILE, and do not remove `environment: release` from stage-npm.
 # npm's Trusted Publisher is bound to (ossiq/ossiq, binaries.yml, release), and npm
-# validates the CALLING workflow's filename — so moving the publish step into a reusable
+# validates the CALLING workflow's filename — so moving the staging step into a reusable
 # workflow does not disturb that binding, but renaming this file would break it.
 #
 # Builds happen in reusable workflows so their provenance is signed under identities this
-# file cannot assume (SLSA Build L3). Publishing stays here: it only transports
-# already-attested bytes, and each publish job re-verifies them first.
+# file cannot assume (SLSA Build L3). Staging stays here: it only transports
+# already-attested bytes, and re-verifies them before handing them to npm.
+#
+# npm packages are STAGED, never published directly. The Trusted Publisher grants
+# `npm stage publish` only, so a compromised workflow can stage a version but can never
+# make it installable; a maintainer then approves each one with 2FA. Switching this back
+# to `npm publish` earns a 403 `OIDC permission denied` from the registry, and a test
+# asserts the staging call stays. See RELEASE.md, "Approving a staged npm release" — the
+# launcher is approved LAST.
 #
 # The `if: github.event_name == 'push'` guards are the safety net that makes
 # workflow_dispatch runs build-and-attest only, never publish.
@@ -87,8 +94,8 @@ jobs:
           TAG_NAME: ${{ github.ref_name }}
         run: gh release edit "$TAG_NAME" --repo "$GITHUB_REPOSITORY" --draft=false
 
-  publish-npm:
-    name: Publish to npm
+  stage-npm:
+    name: Stage npm packages for approval
     needs: package-npm
     if: github.event_name == 'push'
     runs-on: ubuntu-24.04
@@ -105,15 +112,27 @@ jobs:
           node-version: '22'
           registry-url: 'https://registry.npmjs.org'
 
-      - name: Use an npm that supports trusted publishing
-        run: npm install -g npm@latest
+      - name: Use an npm that supports staged trusted publishing
+        # `npm stage` landed in 11.15.0, trusted publishing in 11.5.1. Asserted rather
+        # than assumed: a regression in npm@latest should fail here, not half-way through
+        # staging six packages.
+        run: |
+          set -euo pipefail
+          npm install -g npm@latest
+          required=11.15.0
+          actual="$(npm --version)"
+          if [ "$(printf '%s\n%s\n' "$required" "$actual" | sort -V | head -1)" != "$required" ]; then
+            echo "::error::npm $actual cannot run \`npm stage\`; need >= $required"
+            exit 1
+          fi
+          echo "npm $actual"
 
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: npm-tarballs
           path: .
 
-      - name: Verify the tarballs we are about to publish
+      - name: Verify the tarballs we are about to stage
         # The attested bytes and the published bytes have to be the same object.
         env:
           GH_TOKEN: ${{ github.token }}
@@ -127,13 +146,19 @@ jobs:
             echo "::endgroup::"
           done
 
-      - name: Publish platform packages, then the launcher
-        # Order matters: the launcher's optionalDependencies pin these exact versions,
-        # so publishing it first would leave a window where `npm install @ossiq/cli`
-        # cannot resolve a binary. Filenames come from the manifest rather than a glob,
-        # which would match the launcher's own tarball alongside the platform ones.
-        # The `./` is load-bearing: npm reads a bare `npm/<file>.tgz` as the GitHub
-        # shorthand `github:npm/<file>.tgz` and refuses it with EALLOWGIT.
+      - name: Stage platform packages, then the launcher
+        # Nothing here becomes installable. Each call uploads a staged version that a
+        # maintainer has to approve with 2FA.
+        #
+        # The order below is for readability only: APPROVAL order is what protects users.
+        # The launcher's optionalDependencies pin the exact platform versions, and npm
+        # silently skips an optional dependency it cannot resolve — so a launcher approved
+        # before its platform packages installs with no binary at all.
+        #
+        # Filenames come from the manifest rather than a glob, which would match the
+        # launcher's own tarball alongside the platform ones. The `./` is load-bearing:
+        # npm reads a bare `npm/<file>.tgz` as the GitHub shorthand `github:npm/<file>.tgz`
+        # and refuses it with EALLOWGIT.
         run: |
           set -euo pipefail
           mapfile -t platform_tarballs < <(python3 -c '
@@ -144,12 +169,46 @@ jobs:
           ')
 
           for tarball in "${platform_tarballs[@]}"; do
-            echo "::group::publish $tarball"
-            npm publish "./npm/$tarball" --provenance --access public
+            echo "::group::stage $tarball"
+            npm stage publish "./npm/$tarball" --provenance --access public
             echo "::endgroup::"
           done
 
           launcher="$(python3 -c 'import json;print(json.load(open("build/npm/manifest.json"))["launcher"]["tarball"])')"
-          echo "::group::publish $launcher"
-          npm publish "./npm/$launcher" --provenance --access public
+          echo "::group::stage $launcher"
+          npm stage publish "./npm/$launcher" --provenance --access public
           echo "::endgroup::"
+
+      - name: Say how to approve
+        # The run page is the first thing a maintainer opens after a release, so it carries
+        # the next action and this run's id rather than making them reconstruct it.
+        env:
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          version="$(python3 -c 'import json;print(json.load(open("build/npm/manifest.json"))["version"])')"
+          mapfile -t packages < <(python3 -c '
+          import json
+          m = json.load(open("build/npm/manifest.json"))
+          for entry in [*m["platform_packages"], m["launcher"]]:
+              print(entry["package"])
+          ')
+
+          {
+            echo "## Staged $version — nothing is installable yet"
+            echo
+            echo "All six packages are staged. Each needs approving with 2FA before anyone can install it."
+            echo
+            echo '```bash'
+            echo "just npm-approve $RUN_ID            # verify, print the approvals"
+            echo "just npm-approve $RUN_ID --approve  # approve them, in order"
+            echo '```'
+            echo
+            echo "Order matters — the launcher pins the platform versions, so it goes last:"
+            echo
+            for package in "${packages[@]}"; do
+              echo "1. \`$package@$version\`"
+            done
+            echo
+            echo "See RELEASE.md → *Approving a staged npm release*."
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -4,12 +4,12 @@
 # In its own `workflow_call` file so the provenance is signed under an identity the
 # caller cannot assume (SLSA Build L3). See reusable-build-dist.yml for the reasoning.
 #
-# `npm publish --provenance` in the caller is kept, but it does NOT reach L3 on its own:
-# npm validates the *calling* workflow's filename, so the identity it binds is a workflow
-# the maintainers edit. The L3 claim rests on the attestation made here.
+# `npm stage publish --provenance` in the caller is kept, but it does NOT reach L3 on its
+# own: npm validates the *calling* workflow's filename, so the identity it binds is a
+# workflow the maintainers edit. The L3 claim rests on the attestation made here.
 #
 # This workflow packs rather than publishes so the attested bytes and the published bytes
-# are the same object: `npm publish <file>.tgz` uploads the tarball verbatim, and
+# are the same object: `npm stage publish <file>.tgz` uploads the tarball verbatim, and
 # `npm pack @ossiq/cli@X.Y.Z` on a consumer's machine re-downloads it byte for byte.
 #
 # Consumers verify with:
