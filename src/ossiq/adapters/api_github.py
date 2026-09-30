@@ -5,7 +5,6 @@ Implementation of SourceCodeApiClient for Github
 import datetime
 import itertools
 import logging
-import os
 import re
 from collections.abc import Callable, Iterable
 
@@ -52,7 +51,7 @@ class SourceCodeProviderApiGithub(AbstractSourceCodeProviderApi):
     session: requests.Session
 
     def __init__(self, settings: Settings):
-        self.github_token = settings.github_token or os.getenv("GITHUB_TOKEN")
+        self.github_token = settings.github_token
 
         session = requests.Session()
         # Essential GitHub Headers
