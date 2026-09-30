@@ -2,6 +2,8 @@
 Domain-specific exceptions.
 """
 
+from ossiq.domain.github_auth import DeviceChallenge
+
 
 class ApplicationError(Exception):
     """Base class for application-specific errors."""
@@ -32,7 +34,10 @@ class GithubRateLimitError(ApplicationError):
     """Raised when the GitHub API rate limit is exceeded."""
 
     title = "GitHub Rate Limit"
-    hint = "Set OSSIQ_GITHUB_TOKEN (or --github-token) to raise the limit to 5,000 requests/hour."
+    hint = (
+        "Run `ossiq auth login` to raise the limit to 5,000 requests/hour. "
+        "In CI or a container, set OSSIQ_GITHUB_TOKEN instead."
+    )
 
     def __init__(self, remaining: str, total: str, reset_time: str):
         self.remaining = remaining
@@ -40,6 +45,38 @@ class GithubRateLimitError(ApplicationError):
         self.reset_time = reset_time
         message = f"GitHub API rate limit exceeded. Limit: {remaining} of {total} remaining. Resets at: {reset_time}."
         super().__init__(message)
+
+
+class GithubAuthRequired(ApplicationError):
+    """Raised when a scan needs a GitHub login the user has not approved yet."""
+
+    title = "GitHub Login Required"
+    hint = "Approve the login on GitHub, then run the command again."
+
+    def __init__(self, challenge: DeviceChallenge):
+        self.challenge = challenge
+        super().__init__(f"Open {challenge.verification_uri} and enter the code {challenge.user_code}.")
+
+
+class GithubAuthDenied(ApplicationError):
+    """Raised when the user cancels the login on GitHub's authorization page."""
+
+    title = "GitHub Login Denied"
+    hint = "Run `ossiq auth login` to try again, or set OSSIQ_GITHUB_TOKEN."
+
+
+class GithubAuthTimeout(ApplicationError):
+    """Raised when the login code expires before the user approves it."""
+
+    title = "GitHub Login Expired"
+    hint = "Run `ossiq auth login` to get a new code."
+
+
+class CredentialStoreUnavailable(ApplicationError):
+    """Raised when the system keyring cannot be used: absent, locked, refused or unresponsive."""
+
+    title = "Credential Store Unavailable"
+    hint = "Set OSSIQ_GITHUB_TOKEN to use a token without the system keyring."
 
 
 class UnableLoadPackage(ApplicationError):

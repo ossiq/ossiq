@@ -5,6 +5,11 @@ Module to handle HTTP layer and caching
 import requests
 import requests_cache
 
+GITHUB_USER_URL = "https://api.github.com/user"
+"""`GET /user` answers per token, but the cache key leaves `Authorization` out, so a second account
+would be handed the first one's login. requests-cache matches a pattern without a wildcard as a
+prefix, which here covers only GitHub's own `/user...` paths."""
+
 VARY_NOISE = frozenset({"authorization", "cookie", "x-github-otp", "x-requested-with"})
 """`Vary` entries that stop requests-cache reusing a stored response. GitHub answers every
 authenticated call with `Vary: Authorization, Cookie, ...`; `Authorization` is redacted into
@@ -37,7 +42,7 @@ def install_requests_cache(cache_destination: str, cache_ttl_hours: int, stabili
     rhythm, issue/PR responsiveness and maintenance status don't change day to day. Subsequent
     scans of the same project skip network calls entirely when data is still fresh. POST is cached
     (GraphQL) and requests-cache keys it by request body, so each unique aliased query caches
-    independently.
+    independently. The GitHub login endpoints, `GET /user` and the quota check are never cached.
     """
     requests_cache.install_cache(
         cache_name=cache_destination,
@@ -47,6 +52,9 @@ def install_requests_cache(cache_destination: str, cache_ttl_hours: int, stabili
             # The quota pre-flight check reports a number that only means anything live - a
             # replayed reading would claim yesterday's budget and is worse than no reading.
             "*/rate_limit*": requests_cache.DO_NOT_CACHE,
+            # A replayed poll never completes a login, and the token response holds the secrets.
+            "*/login/*": requests_cache.DO_NOT_CACHE,
+            GITHUB_USER_URL: requests_cache.DO_NOT_CACHE,
             "*/commits*": stability_cache_ttl_hours * 3600,
             "*/graphql*": stability_cache_ttl_hours * 3600,
             "*/readme*": stability_cache_ttl_hours * 3600,
