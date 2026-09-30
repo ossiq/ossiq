@@ -105,6 +105,24 @@ class TestInitialization:
         assert api.github_token is None
         assert api.repository_provider == RepositoryProvider.PROVIDER_GITHUB
 
+    def test_initialization_takes_a_bare_github_token_through_settings(self, monkeypatch):
+        """GITHUB_TOKEN is resolved by Settings, so the adapter reads exactly one field."""
+        monkeypatch.setenv("GITHUB_TOKEN", "ghp_bare")
+
+        api = SourceCodeProviderApiGithub(settings=Settings())
+
+        assert api.github_token == "ghp_bare"
+        assert api.session.headers["Authorization"] == "Bearer ghp_bare"
+
+    def test_adapter_does_not_read_the_environment_itself(self, monkeypatch):
+        """A token that Settings was built without stays absent, whatever the environment holds."""
+        monkeypatch.setenv("GITHUB_TOKEN", "ghp_bare")
+
+        api = SourceCodeProviderApiGithub(settings=Settings(github_token=None))
+
+        assert api.github_token is None
+        assert "Authorization" not in api.session.headers
+
     def test_repr(self, github_api_with_token):
         """Test string representation."""
         assert repr(github_api_with_token) == "<SourceCodeProviderApiGithub instance>"
