@@ -15,7 +15,7 @@ from ossiq.domain.common import (
     RateLimitBudget,
     ScanStep,
 )
-from ossiq.domain.github_auth import TokenSource
+from ossiq.domain.github_auth import RAISE_LIMIT_ADVICE, TokenSource
 from ossiq.messages import HELP_WARNING_COUNTS_ARE_REQUESTS
 from ossiq.service.project.scan import ScanProgress
 from ossiq.settings import Settings
@@ -201,7 +201,7 @@ def warn_about_budget(budgets: tuple[RateLimitBudget, ...]) -> None:
     lines = [f"  - {format_budget(budget)}" for budget in short]
     unauthenticated = any(budget.limit is not None and budget.limit <= UNAUTHENTICATED_LIMIT for budget in short)
     hint = (
-        "\n  Run `ossiq auth login` to raise the limit (in CI, set OSSIQ_GITHUB_TOKEN instead)."
+        f"\n  {RAISE_LIMIT_ADVICE}"
         if unauthenticated
         else "\n  Repository and maintenance signals will be thin until the quota resets."
     )

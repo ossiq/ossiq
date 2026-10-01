@@ -13,12 +13,15 @@ from ossiq.domain.github_auth import AuthStatus, DeviceChallenge, TokenSource
 from ossiq.service.github_auth import AuthSkipReason
 from ossiq.ui.system import RICH_AVAILABLE, console, describe_token_source, error_console, show_warning
 
+NO_KEYRING_BACKEND = "keyring.backends.fail.Keyring"
+"""What keyring selects when nothing on the machine can hold a secret, as in a container."""
+
 BACKEND_LABELS = {
     "keyring.backends.macOS.Keyring": "macOS Keychain",
     "keyring.backends.Windows.WinVaultKeyring": "Windows Credential Manager",
     "keyring.backends.SecretService.Keyring": "Secret Service (the desktop keyring)",
     "keyring.backends.kwallet.DBusKeyring": "KWallet",
-    "keyring.backends.fail.Keyring": "none available",
+    NO_KEYRING_BACKEND: "none available",
 }
 
 SKIP_MESSAGES = {
@@ -129,7 +132,12 @@ def show_auth_skipped(reason: AuthSkipReason, detail: str) -> None:
 def show_auth_status(status: AuthStatus, *, now: float) -> None:
     """Print which GitHub token is in use and what is known about it."""
     lines = ["GitHub token"]
-    if status.source is None:
+    if status.source is None and status.backend == NO_KEYRING_BACKEND:
+        lines.append(
+            "  Not logged in, and there is no system keyring here to hold a login. "
+            "Set OSSIQ_GITHUB_TOKEN to raise the API limit from 60 to 5,000 requests/hour."
+        )
+    elif status.source is None:
         lines.append("  Not logged in. Run `ossiq auth login` to raise the API limit from 60 to 5,000 requests/hour.")
     else:
         lines.append(f"  Source:   {describe_token_source(status.source)}")
