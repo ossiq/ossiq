@@ -95,6 +95,48 @@ jobs:
         env:
           OSSIQ_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Keyring smoke test
+        # `CI` and a token each switch the keyring probe off, and a runner has both, so they are
+        # cleared below: otherwise `auth status` says "unavailable" without ever loading a backend.
+        # A Linux runner has no desktop keyring, so keyring falls back to its `fail` backend and
+        # `auth status` can only say "none available", bundled or not. (Naming the Secret Service
+        # backend does not help: keyring probes its priority over D-Bus and raises.) Linux
+        # therefore lists the bundle for the modules that backend imports. Runs before the
+        # attestation, like the step above. A macOS keychain that asks a question can hold the
+        # credential read for the app's own 180 s timeout without changing the backend named,
+        # hence the bounded step.
+        shell: bash
+        timeout-minutes: 5
+        run: |
+          set -euo pipefail
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            BIN="dist/ossiq/ossiq.exe"
+          else
+            BIN="dist/ossiq/ossiq"
+          fi
+
+          case "${{ runner.os }}" in
+            macOS) EXPECT="macOS Keychain" ;;
+            Windows) EXPECT="Windows Credential Manager" ;;
+            Linux)
+              uv run pyi-archive_viewer --list --recursive "$BIN" > "$RUNNER_TEMP/bundle.txt"
+              for module in keyring.backends.SecretService secretstorage jeepney cryptography; do
+                if ! grep -qF "'$module'" "$RUNNER_TEMP/bundle.txt"; then
+                  echo "$module is missing from the bundle" >&2
+                  exit 1
+                fi
+              done
+              EXPECT="none available|Secret Service"
+              ;;
+            *)
+              echo "unexpected runner OS: ${{ runner.os }}" >&2
+              exit 1
+              ;;
+          esac
+
+          env -u CI -u OSSIQ_GITHUB_TOKEN -u GITHUB_TOKEN "$BIN" auth status | tee "$RUNNER_TEMP/auth-status.txt"
+          grep -Eq "Storage:.*(${EXPECT})" "$RUNNER_TEMP/auth-status.txt"
+
       - name: Package
         shell: bash
         run: |

@@ -41,7 +41,10 @@ show_usage() {
 OSS IQ CLI - Docker Usage
 
 REQUIRED ENVIRONMENT VARIABLES:
-  OSSIQ_GITHUB_TOKEN    GitHub Personal Access Token (required for API access)
+  OSSIQ_GITHUB_TOKEN    GitHub token (required for API access). A container has no
+                        system keyring, so `ossiq auth login` cannot store a login
+                        here; pass a token instead. One with no scopes is enough
+                        for public data.
                         Generate at: https://github.com/settings/tokens
 
 OPTIONAL ENVIRONMENT VARIABLES:
@@ -55,14 +58,14 @@ USAGE EXAMPLES:
   docker run --rm \
     -e OSSIQ_GITHUB_TOKEN=$OSSIQ_GITHUB_TOKEN \
     -v /path/to/project:/project:ro \
-    ossiq/ossiq-cli scan /project
+    ossiq/ossiq-cli status /project
 
   # Generate HTML report
   docker run --rm \
     -e OSSIQ_GITHUB_TOKEN=$OSSIQ_GITHUB_TOKEN \
     -v /path/to/project:/project:ro \
     -v /path/to/output:/output \
-    ossiq/ossiq-cli scan -p html -o /output/report.html /project
+    ossiq/ossiq-cli status -p html -o /output/report.html /project
 
   # Export to JSON
   docker run --rm \
@@ -73,7 +76,7 @@ USAGE EXAMPLES:
 
   # Show help
   docker run --rm ossiq/ossiq-cli --help
-  docker run --rm ossiq/ossiq-cli scan --help
+  docker run --rm ossiq/ossiq-cli status --help
 
 For more information: https://github.com/ossiq/ossiq
 
@@ -93,6 +96,7 @@ validate_environment() {
         # (not --help, --version, etc.)
         if [[ "${1:-}" == "scan" || "${1:-}" == "export" ]]; then
             print_error "OSSIQ_GITHUB_TOKEN is required but not set."
+            print_info "A container has no system keyring, so 'ossiq auth login' cannot store a login here."
             print_info "Set it with: -e OSSIQ_GITHUB_TOKEN=your_token"
             print_info "Generate a token at: https://github.com/settings/tokens"
             has_errors=1
