@@ -85,6 +85,7 @@ def show_login_challenge(challenge: DeviceChallenge, *, now: float, waiting: boo
         "GitHub login needed to raise the API limit from 60 to 5,000 requests/hour.",
         f"  1. Open:  {challenge.verification_uri}",
         f"  2. Enter the code:  {challenge.user_code}",
+        "",
         f"  The code expires in {expires}.",
     ]
     if waiting:
