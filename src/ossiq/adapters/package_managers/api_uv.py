@@ -4,14 +4,16 @@ Support of UV package manager
 
 from __future__ import annotations
 
+import logging
 import os
 import re
 import subprocess
 import tomllib
 from collections import defaultdict, namedtuple
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Mapping
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from packaging.requirements import InvalidRequirement, Requirement
 
@@ -19,11 +21,16 @@ from ossiq.adapters.api_interfaces import AbstractPackageManagerApi
 from ossiq.adapters.api_pypi import PackageRegistryApiPypi
 from ossiq.adapters.package_managers.api_pypi import enrich_registry_constraints
 from ossiq.adapters.package_managers.dependency_tree import BaseDependencyResolver
-from ossiq.adapters.package_managers.utils import extract_min_python_version, find_lockfile_parser
+from ossiq.adapters.package_managers.utils import (
+    extract_min_python_version,
+    find_lockfile_parser,
+    parse_exclude_newer,
+)
 from ossiq.domain.common import ConstraintType, normalize_dist_name
 from ossiq.domain.exceptions import PackageManagerExecutionError, PackageManagerLockfileParsingError
 from ossiq.domain.packages_manager import UV, PackageManagerType
 from ossiq.domain.project import ConstraintSource, Dependency, Project
+from ossiq.domain.release_cutoff import ReleaseCutoff
 from ossiq.domain.version import classify_pypi_specifier
 from ossiq.settings import Settings
 
@@ -31,7 +38,11 @@ if TYPE_CHECKING:
     from ossiq.service.update import UpdateEntry, UpdatePlan
 
 
+logger = logging.getLogger(__name__)
+
 UvProject = namedtuple("UvProject", ["manifest", "lockfile"])
+
+UV_EXCLUDE_NEWER_ENV = "UV_EXCLUDE_NEWER"
 
 
 def parse_pyproject_direct_specifiers(pyproject_data: dict) -> dict[str, str | None]:
@@ -288,6 +299,67 @@ class UVResolverV1R3(BaseDependencyResolver):
         return dep_data["name"], dep_data.get("specifier")
 
 
+def resolve_exclude_newer(raw: object, locked_span: object, *, now: datetime) -> datetime | None:
+    """Resolve one `exclude-newer` value, falling back to the span uv normalized into `uv.lock`.
+
+    uv accepts friendly spans ("7 days") that `parse_exclude_newer` doesn't parse, but it writes
+    every span to the lockfile in ISO form (`P7D`), so the lockfile's copy covers that case.
+    """
+    cutoff = parse_exclude_newer(raw, now=now)
+    if cutoff is None:
+        cutoff = parse_exclude_newer(locked_span, now=now)
+    if cutoff is None:
+        logger.debug("Ignoring uv exclude-newer value %r: not an instant, date or span OSS IQ can read", raw)
+    return cutoff
+
+
+def release_cutoff_from_uv_settings(
+    uv_settings: Mapping[str, Any],
+    lock_options: Mapping[str, Any],
+    *,
+    env_exclude_newer: str | None,
+    now: datetime,
+) -> ReleaseCutoff | None:
+    """Build the cutoff `uv lock` will apply from the project's uv settings.
+
+    The settings decide whether a cutoff applies. `lock_options` is only consulted to read a
+    relative span, because a lockfile can outlive the setting it was locked with.
+
+    Args:
+        uv_settings: `uv.toml`, or `[tool.uv]` when the project has no `uv.toml`.
+        lock_options: The `[options]` table of `uv.lock`.
+        env_exclude_newer: `UV_EXCLUDE_NEWER`, which overrides the global setting.
+        now: The instant relative spans count back from.
+
+    Returns:
+        The cutoff, or None when uv applies none.
+    """
+    raw_default = env_exclude_newer or uv_settings.get("exclude-newer")
+    default = (
+        resolve_exclude_newer(raw_default, lock_options.get("exclude-newer-span"), now=now)
+        if raw_default is not None
+        else None
+    )
+
+    locked_per_package = {
+        normalize_dist_name(name): value for name, value in lock_options.get("exclude-newer-package", {}).items()
+    }
+    per_package: dict[str, datetime | None] = {}
+    for name, raw in uv_settings.get("exclude-newer-package", {}).items():
+        key = normalize_dist_name(name)
+        if raw is False:
+            per_package[key] = None
+            continue
+        locked = locked_per_package.get(key)
+        locked_span = locked.get("span") if isinstance(locked, dict) else None
+        if (cutoff := resolve_exclude_newer(raw, locked_span, now=now)) is not None:
+            per_package[key] = cutoff
+
+    if default is None and not any(per_package.values()):
+        return None
+    return ReleaseCutoff(default=default, per_package=per_package)
+
+
 class PackageManagerPythonUv(AbstractPackageManagerApi):
     """
     Abstract Package Manager to extract installed versions
@@ -409,6 +481,29 @@ class PackageManagerPythonUv(AbstractPackageManagerApi):
             raise PackageManagerLockfileParsingError("Failed to read UV project files") from e
 
         return pyproject_data, uv_lock_data
+
+    def release_cutoff(self) -> ReleaseCutoff | None:
+        """Return the `exclude-newer` cutoff `uv lock` will resolve against for this project.
+
+        A project-level `uv.toml` replaces `[tool.uv]` entirely, as it does for uv itself, and
+        `UV_EXCLUDE_NEWER` overrides either one; `apply` runs uv with this process's environment.
+        """
+        pyproject_data, uv_lock_data = self.load_pyproject_data()
+        uv_toml = Path(self.project_path) / "uv.toml"
+        if uv_toml.exists():
+            try:
+                uv_settings = tomllib.loads(uv_toml.read_text(encoding="utf-8"))
+            except tomllib.TOMLDecodeError as e:
+                raise PackageManagerLockfileParsingError("Failed to read uv.toml") from e
+        else:
+            uv_settings = pyproject_data.get("tool", {}).get("uv", {})
+
+        return release_cutoff_from_uv_settings(
+            uv_settings,
+            uv_lock_data.get("options", {}),
+            env_exclude_newer=os.environ.get(UV_EXCLUDE_NEWER_ENV),
+            now=datetime.now(UTC),
+        )
 
     def project_info(self) -> Project:
         """
