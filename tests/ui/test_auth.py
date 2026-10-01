@@ -152,11 +152,20 @@ class TestStatus:
         assert "macOS Keychain" in out
 
     def test_no_token_points_at_the_login(self, capsys):
-        show_auth_status(AuthStatus(source=None, backend="keyring.backends.fail.Keyring"), now=NOW)
+        show_auth_status(AuthStatus(source=None, backend="keyring.backends.macOS.Keyring"), now=NOW)
 
         out = capsys.readouterr().out
         assert "Not logged in" in out
         assert "ossiq auth login" in out
+        assert "macOS Keychain" in out
+
+    def test_no_token_and_no_keyring_points_at_the_token_not_the_login(self, capsys):
+        """A container cannot hold a login, so telling it to log in sends the user nowhere."""
+        show_auth_status(AuthStatus(source=None, backend="keyring.backends.fail.Keyring"), now=NOW)
+
+        out = capsys.readouterr().out
+        assert "OSSIQ_GITHUB_TOKEN" in out
+        assert "ossiq auth login" not in out
         assert "none available" in out
 
     def test_an_unconfirmed_login_is_not_passed_off_as_known(self, capsys):

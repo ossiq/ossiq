@@ -271,13 +271,14 @@ class TestBudgetWarning:
         assert "OSSIQ_GITHUB_TOKEN" not in message  # a 5000 limit means a token is already in play
         assert "ossiq auth login" not in message
 
-    def test_an_unauthenticated_limit_points_at_the_login_and_keeps_the_ci_route(self):
+    def test_an_unauthenticated_limit_leads_with_the_token_and_offers_the_login_only_with_a_keyring(self):
         with patch("ossiq.ui.system.show_warning") as warn:
             warn_about_budget((RateLimitBudget(resource="core", limit=60, remaining=5, needed=90),))
 
         message = warn.call_args.args[0]
-        assert "ossiq auth login" in message
-        assert "OSSIQ_GITHUB_TOKEN" in message
+        assert "containers" in message
+        assert "where a system keyring is available" in message
+        assert message.index("OSSIQ_GITHUB_TOKEN") < message.index("ossiq auth login")
 
 
 class TestShowSettingsToken:

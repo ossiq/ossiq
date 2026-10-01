@@ -2,7 +2,7 @@
 Domain-specific exceptions.
 """
 
-from ossiq.domain.github_auth import DeviceChallenge
+from ossiq.domain.github_auth import RAISE_LIMIT_ADVICE, DeviceChallenge
 
 
 class ApplicationError(Exception):
@@ -34,10 +34,7 @@ class GithubRateLimitError(ApplicationError):
     """Raised when the GitHub API rate limit is exceeded."""
 
     title = "GitHub Rate Limit"
-    hint = (
-        "Run `ossiq auth login` to raise the limit to 5,000 requests/hour. "
-        "In CI or a container, set OSSIQ_GITHUB_TOKEN instead."
-    )
+    hint = RAISE_LIMIT_ADVICE
 
     def __init__(self, remaining: str, total: str, reset_time: str):
         self.remaining = remaining

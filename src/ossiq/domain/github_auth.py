@@ -11,6 +11,12 @@ from enum import StrEnum
 REFRESH_MARGIN_SECONDS = 300
 """How long before `expires_at` an access token counts as due for a refresh."""
 
+RAISE_LIMIT_ADVICE = (
+    "To raise the limit to 5,000 requests/hour, set OSSIQ_GITHUB_TOKEN to a GitHub token (the only option in CI "
+    "and containers), or run `ossiq auth login` where a system keyring is available."
+)
+"""How to lift the unauthenticated limit, worded for any machine: a container cannot hold a login."""
+
 
 class TokenSource(StrEnum):
     """Where the GitHub token in use came from, highest precedence first."""

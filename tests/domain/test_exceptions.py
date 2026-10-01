@@ -76,8 +76,9 @@ class TestGithubLoginErrors:
         assert lines[0].startswith(f"{title}: ")
         assert len(lines) == 2
 
-    def test_rate_limit_hint_points_at_login_and_keeps_the_ci_route(self):
+    def test_rate_limit_hint_leads_with_the_token_and_offers_the_login_only_with_a_keyring(self):
         rendered = GithubRateLimitError(remaining="0", total="60", reset_time="noon").render()
 
-        assert "ossiq auth login" in rendered
-        assert "OSSIQ_GITHUB_TOKEN" in rendered
+        assert "containers" in rendered
+        assert "where a system keyring is available" in rendered
+        assert rendered.index("OSSIQ_GITHUB_TOKEN") < rendered.index("ossiq auth login")

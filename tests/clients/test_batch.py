@@ -27,6 +27,7 @@ from ossiq.clients.batch import (
     is_rate_limit_response,
 )
 from ossiq.domain.common import DataSourceStatus, DegradeReason, RateLimitBudget
+from ossiq.domain.github_auth import RAISE_LIMIT_ADVICE
 
 # Capture the real time.sleep before any test patches it on the shared module object.
 # patch("ossiq.clients.batch.time.sleep") replaces sleep on the same module object
@@ -544,6 +545,17 @@ class TestBatchClient429:
         assert client._abort.is_set(), "_abort must be set on quota exhaustion"
         assert client._gate.is_set(), "_gate must be open (not left closed)"
         mock_sleep.assert_not_called()
+
+    def test_zero_remaining_logs_how_to_raise_the_limit_for_any_machine(self, caplog):
+        """A container cannot hold a login, so the advice leads with the token and offers `auth login` only
+        where a keyring exists."""
+        client = make_client()
+        resp = make_response(429, {}, headers={"x-ratelimit-remaining": "0"})
+
+        with patch("ossiq.clients.batch.time.sleep"), caplog.at_level("WARNING", logger="ossiq.clients.batch"):
+            client._handle_rate_limit(resp)
+
+        assert RAISE_LIMIT_ADVICE in caplog.text
 
     def test_zero_remaining_via_run_batch_yields_nothing(self):
         """429 with x-ratelimit-remaining: 0 during run_batch → empty results.
