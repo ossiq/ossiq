@@ -487,6 +487,22 @@ class TestAwaitLogin:
 
         assert deps.store.read_pending() is None
 
+    def test_a_caller_that_just_polled_waits_one_interval_before_the_first_poll(self, deps, httpserver, clock):
+        challenge = self.challenge(deps, httpserver)
+        httpserver.expect_request(TOKEN_PATH, method="POST").respond_with_json(GRANTED)
+
+        await_login(challenge, deps, polled_just_now=True)
+
+        assert clock.sleeps == [5]
+
+    def test_by_default_the_first_poll_is_immediate(self, deps, httpserver, clock):
+        challenge = self.challenge(deps, httpserver)
+        httpserver.expect_request(TOKEN_PATH, method="POST").respond_with_json(GRANTED)
+
+        await_login(challenge, deps)
+
+        assert clock.sleeps == []
+
     def test_a_hiccup_does_not_end_the_wait(self, deps, httpserver, clock):
         challenge = self.challenge(deps, httpserver)
         httpserver.expect_ordered_request(TOKEN_PATH, method="POST").respond_with_data(
@@ -618,6 +634,23 @@ class TestLoginThroughAuthenticate:
         assert result.source is TokenSource.KEYRING
         assert result.settings.github_token == "gho_login"
         assert clock.sleeps == [5]
+
+    def test_interactive_resuming_a_pending_login_waits_an_interval_between_its_two_polls(
+        self, deps, httpserver, clock
+    ):
+        httpserver.expect_request(DEVICE_PATH, method="POST").respond_with_json(DEVICE_BODY)
+        with pytest.raises(GithubAuthRequired):
+            scan_auth(deps)  # no terminal: the login is started and left pending
+        httpserver.expect_oneshot_request(TOKEN_PATH, method="POST").respond_with_json(
+            {"error": "authorization_pending"}
+        )
+        httpserver.expect_oneshot_request(TOKEN_PATH, method="POST").respond_with_json(GRANTED)
+
+        result = scan_auth(deps, interactive=True)
+
+        assert result.source is TokenSource.KEYRING
+        assert clock.sleeps == [5]  # back-to-back polls would be answered with slow_down
+        assert hits(httpserver, TOKEN_PATH) == 2
 
     def test_interactive_denial_runs_unauthenticated_with_a_reason(self, deps, httpserver):
         httpserver.expect_request(DEVICE_PATH, method="POST").respond_with_json(DEVICE_BODY)
