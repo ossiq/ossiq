@@ -300,6 +300,7 @@ def offer_login(
     poll_pending: bool,
 ) -> GithubAuthResult:
     """Finish a pending login, or start one and wait for it or hand it to the caller."""
+    polled_just_now = False
     try:
         if poll_pending:
             try:
@@ -310,6 +311,7 @@ def offer_login(
                 return GithubAuthResult(settings, None, AuthSkipReason.LOGIN_DENIED)
             if isinstance(resumed, GithubCredentials):
                 return GithubAuthResult(with_github_token(settings, resumed.access_token), TokenSource.KEYRING)
+            polled_just_now = resumed is not None
         challenge = begin_login(deps)
     except CredentialStoreUnavailable as error:
         return GithubAuthResult(settings, None, AuthSkipReason.STORE_UNAVAILABLE, str(error))
@@ -321,7 +323,7 @@ def offer_login(
     if on_challenge is not None:
         on_challenge(challenge)
     try:
-        credentials = await_login(challenge, deps)
+        credentials = await_login(challenge, deps, polled_just_now=polled_just_now)
     except GithubAuthDenied:
         return GithubAuthResult(settings, None, AuthSkipReason.LOGIN_DENIED)
     except GithubAuthTimeout as error:
@@ -375,8 +377,14 @@ def resume_login(deps: AuthDeps) -> GithubCredentials | DeviceChallenge | None:
     return credentials if credentials is not None else pending
 
 
-def await_login(challenge: DeviceChallenge, deps: AuthDeps) -> GithubCredentials:
+def await_login(challenge: DeviceChallenge, deps: AuthDeps, *, polled_just_now: bool = False) -> GithubCredentials:
     """Poll until the user approves the login, then save the credentials.
+
+    Args:
+        challenge: The login being waited on.
+        deps: Store, client and clock.
+        polled_just_now: Whether the caller already polled, so one interval must pass first:
+            GitHub answers back-to-back polls with `slow_down`.
 
     Raises:
         GithubAuthDenied: The user cancelled the login.
@@ -384,6 +392,8 @@ def await_login(challenge: DeviceChallenge, deps: AuthDeps) -> GithubCredentials
         CredentialStoreUnavailable: The approved token could not be saved.
     """
     interval = challenge.interval
+    if polled_just_now:
+        deps.sleep(interval)
     while True:
         if challenge.seconds_left(deps.now()) == 0:
             deps.store.delete_pending()
