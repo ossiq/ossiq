@@ -204,6 +204,50 @@ class TestUnavailableKeyring:
         assert fake_keyring.calls == ["get"]
 
 
+@pytest.mark.parametrize(
+    "name",
+    [
+        pytest.param("tests.adapters.keyring_fakes.UnstartableKeyring", id="cannot-start"),
+        pytest.param("no_such_module_for_ossiq.Keyring", id="module-missing"),
+        pytest.param("tests.adapters.keyring_fakes.NoSuchBackend", id="class-missing"),
+        pytest.param("NoModuleInTheName", id="no-module-in-the-name"),
+    ],
+)
+class TestNamedBackendThatCannotStart:
+    """`PYTHON_KEYRING_BACKEND` or `keyringrc.cfg` can name a backend that cannot start.
+
+    keyring reports that with errors that are not KeyringErrors, so it has to read as an unavailable
+    keyring, not a crash.
+    """
+
+    @pytest.fixture
+    def store(self, name, named_backend) -> KeyringCredentialStore:
+        named_backend(name)
+        return KeyringCredentialStore(timeout=2.0, health=KeyringHealth())
+
+    def test_every_keyring_call_reads_as_unavailable(self, store):
+        calls = [
+            store.read_credentials,
+            lambda: store.write_credentials(CREDENTIALS),
+            store.delete_credentials,
+            store.read_pending,
+            lambda: store.write_pending(CHALLENGE),
+            store.delete_pending,
+        ]
+
+        for call in calls:
+            with pytest.raises(CredentialStoreUnavailable):
+                call()
+
+    def test_the_store_is_unavailable_and_has_no_backend_name(self, store):
+        assert store.available() is False
+        assert store.backend_name() is None
+
+    def test_the_message_says_the_configured_backend_cannot_start(self, store):
+        with pytest.raises(CredentialStoreUnavailable, match="cannot start the configured backend"):
+            store.read_credentials()
+
+
 class TestSilentKeyring:
     def blocked_store(self, fake_keyring, health: KeyringHealth) -> KeyringCredentialStore:
         fake_keyring.block = threading.Event()

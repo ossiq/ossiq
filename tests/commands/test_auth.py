@@ -308,6 +308,15 @@ class TestStatus:
 
         assert result.exit_code == 0
 
+    def test_exits_zero_when_the_configured_keyring_backend_cannot_start(self, deps, named_backend):
+        named_backend("tests.adapters.keyring_fakes.UnstartableKeyring")
+
+        result = cli("auth", "status")
+
+        assert result.exit_code == 0
+        assert "Unexpected" not in result.output
+        assert "Storage:  unavailable" in result.stdout
+
     def test_flags_a_token_left_in_the_legacy_config(self, deps):
         legacy = ossiq.settings.LEGACY_CONFIG_PATH
         legacy.parent.mkdir(parents=True, exist_ok=True)
@@ -493,6 +502,17 @@ class TestLoginAheadOfAScan:
         assert result.exit_code == 0
         assert scan["calls"] == 1 and scan["token"] is None
         assert "No system keyring" in result.stderr
+
+    def test_a_configured_backend_that_cannot_start_warns_and_the_scan_runs_without_a_token(
+        self, deps, terminal, scan, named_backend
+    ):
+        named_backend("tests.adapters.keyring_fakes.UnstartableKeyring")
+
+        result = cli("status")
+
+        assert result.exit_code == 0
+        assert scan["calls"] == 1 and scan["token"] is None
+        assert "cannot start the configured backend" in " ".join(result.stderr.split())  # Rich may wrap the line
 
     def test_an_explicit_token_needs_no_login_and_never_touches_the_keyring(
         self, deps, terminal, scan, fake_keyring, monkeypatch

@@ -54,6 +54,22 @@ def describe_keyring_error(error: keyring.errors.KeyringError) -> str:
     return f"The system keyring failed: {error}"
 
 
+def select_backend() -> None:
+    """Make keyring choose its backend now, so one that cannot start reads as an unavailable keyring.
+
+    keyring chooses on first use. A backend named through `PYTHON_KEYRING_BACKEND` or `keyringrc.cfg` that
+    cannot start raises a RuntimeError (its viability probe), or an ImportError, AttributeError or
+    ValueError (a name that does not resolve), none of them a KeyringError.
+
+    Raises:
+        keyring.errors.InitError: The configured backend cannot start.
+    """
+    try:
+        keyring.get_keyring()
+    except (RuntimeError, ImportError, AttributeError, ValueError) as error:
+        raise keyring.errors.InitError(f"cannot start the configured backend ({error})") from error
+
+
 def encode_credentials(credentials: GithubCredentials) -> str:
     """Serialize credentials for storage."""
     return json.dumps(
@@ -223,6 +239,7 @@ class KeyringCredentialStore:
 
         def run() -> None:
             try:
+                select_backend()  # inside the timeout: probing a backend can wait on a prompt too
                 outcome.put((operation(), None))
             except Exception as error:  # handed to the calling thread, which decides what it means
                 outcome.put((None, error))
