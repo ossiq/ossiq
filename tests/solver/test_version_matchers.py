@@ -92,6 +92,15 @@ from ossiq.solver.version_matchers import (
         ("1.5.0", "^1.0.0 || ^2.0.0", True),
         ("2.5.0", "^1.0.0 || ^2.0.0", True),
         ("3.0.0", "^1.0.0 || ^2.0.0", False),
+        # comparator X-ranges — univers raised UnboundLocalError on these (engines.node ">=14.x")
+        ("14.0.0", ">=14.x", True),
+        ("13.9.0", ">=14.x", False),
+        ("16.0.0", ">= 14.x", True),
+        ("1.9.9", "<=1.x", True),
+        ("2.0.0", "<=1.x", False),
+        ("1.5.0", ">1.x", False),
+        ("2.0.0", ">1.x", True),
+        ("2.5.0", ">=1.x <3", True),
     ],
 )
 def test_npm_version_satisfies_range(version: str, range_constraint: str, expected: bool) -> None:
@@ -211,6 +220,8 @@ def test_version_satisfies_constraint_npm(version: str, constraint: str, expecte
         ("node", "14.0.0", ">=16", False),
         ("nodejs", "18.0.0", "^18", True),
         ("nodejs", "20.0.0", "^18", False),
+        ("node", "20.0.0", ">=14.x", True),
+        ("node", "12.22.0", ">=14.x", False),
         # package managers → npm semver. These returned True for everything, so an engines.npm
         # requirement was silently unenforced however far the installed CLI was from it.
         ("npm", "10.2.4", ">=9.0.0", True),

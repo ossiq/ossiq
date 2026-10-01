@@ -21,7 +21,7 @@ from ossiq.domain.common import ConstraintType
 from ossiq.domain.exceptions import PackageManagerExecutionError, PackageManagerLockfileParsingError
 from ossiq.domain.packages_manager import NPM, PackageManagerType
 from ossiq.domain.project import ConstraintSource, Dependency, Project
-from ossiq.domain.version import classify_npm_specifier, normalize_version
+from ossiq.domain.version import classify_npm_specifier, desugar_npm_comparator_xranges, normalize_version
 from ossiq.settings import Settings
 
 if TYPE_CHECKING:
@@ -227,7 +227,8 @@ def extract_min_node_version(node_range: str) -> str | None:
     """Return the lowest concrete version admitted by an engines.node range.
 
     ">=18.0.0" -> "18.0.0", "^18" -> "18.0.0", "~18.4" -> "18.4.0", "18 || 20" -> "18.0.0",
-    ">=18.0.0 <20.0.0" -> "18.0.0", "16.0.0 - 18.0.0" -> "16.0.0", "18.x" -> "18.0.0".
+    ">=18.0.0 <20.0.0" -> "18.0.0", "16.0.0 - 18.0.0" -> "16.0.0", "18.x" -> "18.0.0",
+    ">=18.x" -> "18.0.0", ">17.x" -> "18.0.0".
     None for ranges with no lower bound this can name exactly ("<20", "*", ">18.0.0") or that fail
     to parse ("!=19") — mirrors utils.extract_min_python_version's contract, which accepts only
     >=, ~= and == for the same reason: an exclusive ">" names a bound the range itself excludes.
@@ -237,7 +238,7 @@ def extract_min_node_version(node_range: str) -> str | None:
     versions, and flattens `||` branches so the result is the lowest bound anywhere in the range.
     """
     try:
-        constraints = NpmVersionRange.from_native(node_range).constraints
+        constraints = NpmVersionRange.from_native(desugar_npm_comparator_xranges(node_range)).constraints
     except (ValueError, InvalidVersionRange, InvalidConstraintsError):
         return None
 
