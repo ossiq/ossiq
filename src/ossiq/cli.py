@@ -1,17 +1,26 @@
 """Console script for ossiq."""
 
+import functools
 import importlib.metadata
 import logging
-from collections.abc import Generator
+import os
+from collections.abc import Callable, Generator
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Annotated, Literal
+from typing import Annotated, Literal, ParamSpec, TypeVar, cast
 
 import typer
 from rich.console import Console
 
 from ossiq.clients import install_requests_cache
 from ossiq.commands.add import CommandAddOptions, command_add
+from ossiq.commands.auth import (
+    CommandAuthLoginOptions,
+    command_auth_login,
+    command_auth_logout,
+    command_auth_status,
+    resolve_github_login,
+)
 from ossiq.commands.export import CommandExportOptions, command_export
 from ossiq.commands.html import CommandHtmlOptions, command_html
 from ossiq.commands.info import CommandInfoOptions, command_info
@@ -62,6 +71,7 @@ from ossiq.messages import (
     HELP_UPDATE_CONTEXT_TO,
     HELP_UPDATE_STRATEGY,
 )
+from ossiq.service.github_auth import find_token_source
 from ossiq.settings import Settings
 from ossiq.strategy.overrides import parse_overrides, parse_strategy
 from ossiq.strategy.pyramid import UpdateStrategy
@@ -138,7 +148,66 @@ def error_boundary(settings: Settings) -> Generator[None, None, None]:
         raise typer.Exit(1) from None
 
 
+P = ParamSpec("P")
+R = TypeVar("R")
+
+
+def requires_github_login(command: Callable[P, R]) -> Callable[P, R]:
+    """Resolve the GitHub token before a scan command's body runs, logging in first when needed.
+
+    Runs once typer has parsed the arguments, so `--help` or a mistyped flag never starts a login.
+    The command must take its context as a parameter named `context`, as every command here does.
+    """
+
+    @functools.wraps(command)
+    def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
+        # Not an isinstance check: typer hands commands its base Context, not the `typer.Context` subclass.
+        context = cast(typer.Context, kwargs["context"])
+        with error_boundary(context.obj):
+            resolve_github_login(context)
+        return command(*args, **kwargs)
+
+    return wrapper
+
+
 app.add_typer(install_app, name="install")
+
+auth_app = typer.Typer(name="auth", help="Log in to GitHub to raise the API rate limit.")
+app.add_typer(auth_app, name="auth")
+
+
+@auth_app.command("login")
+def auth_login(
+    context: typer.Context,
+    no_wait: Annotated[
+        bool,
+        typer.Option("--no-wait", help="Print the code and exit (status 75) instead of waiting for the approval."),
+    ] = False,
+    resume: Annotated[
+        bool,
+        typer.Option("--resume", help="Finish a login that was started earlier, e.g. by a command with no terminal."),
+    ] = False,
+):
+    """Log in to GitHub with a one-time code: raises the API limit from 60 to 5,000 requests/hour.
+
+    Exits with status 75 when the code still has to be approved and this command is not waiting for it.
+    """
+    with error_boundary(context.obj):
+        command_auth_login(ctx=context, options=CommandAuthLoginOptions(no_wait=no_wait, resume=resume))
+
+
+@auth_app.command("status")
+def auth_status(context: typer.Context):
+    """Show which GitHub token is in use, where it came from and who it belongs to."""
+    with error_boundary(context.obj):
+        command_auth_status(ctx=context)
+
+
+@auth_app.command("logout")
+def auth_logout(context: typer.Context):
+    """Remove the stored GitHub login from this machine (it stays listed on GitHub until revoked there)."""
+    with error_boundary(context.obj):
+        command_auth_logout(ctx=context)
 
 
 def version_callback(value: bool):
@@ -322,12 +391,14 @@ def main(
         )
 
     if settings.verbose:
-        show_settings(context, "Settings", settings.model_dump())
+        show_settings(context, "Settings", settings.model_dump(), token_source=find_token_source(settings, os.environ))
 
     if not no_cache:
         install_requests_cache(settings.cache_destination, settings.cache_ttl, settings.stability_cache_ttl)
 
     if context.invoked_subcommand is None:
+        with error_boundary(settings):
+            resolve_github_login(context)
         command_status(ctx=context, options=CommandStatusOptions(project_path="."))
 
 
@@ -344,6 +415,7 @@ def mcp(context: typer.Context):
 
 
 @app.command()
+@requires_github_login
 def status(
     context: typer.Context,
     project_path: Annotated[str, typer.Argument()] = ".",
@@ -402,6 +474,7 @@ def status(
 
 
 @app.command()
+@requires_github_login
 def html(
     context: typer.Context,
     project_path: Annotated[str, typer.Argument()] = ".",
@@ -456,6 +529,7 @@ def html(
 
 
 @app.command()
+@requires_github_login
 def export(
     context: typer.Context,
     project_path: Annotated[str, typer.Argument()] = ".",
@@ -515,6 +589,7 @@ def export(
 
 
 @app.command()
+@requires_github_login
 def info(
     context: typer.Context,
     package_name: Annotated[str, typer.Argument(help=HELP_PACKAGE_NAME)],
@@ -567,6 +642,7 @@ def info(
 
 
 @app.command()
+@requires_github_login
 def add(
     context: typer.Context,
     package_name: Annotated[str, typer.Argument(help=HELP_ADD_PACKAGE_NAME)],
@@ -607,6 +683,7 @@ def add(
 
 
 @app.command(name="update-context")
+@requires_github_login
 def update_context(
     context: typer.Context,
     package_name: Annotated[str, typer.Argument(help=HELP_PACKAGE_NAME)],
@@ -644,6 +721,7 @@ def update_context(
 
 
 @app.command()
+@requires_github_login
 def plan(
     context: typer.Context,
     project_path: Annotated[str, typer.Argument()] = ".",
@@ -705,6 +783,7 @@ def plan(
 
 
 @app.command()
+@requires_github_login
 def apply(
     context: typer.Context,
     project_path: Annotated[str, typer.Argument()] = ".",

@@ -526,7 +526,7 @@ class BatchClient:
                 if ratelimit_remaining_requests and int(ratelimit_remaining_requests) == 0:
                     logger.warning(
                         "Rate limit quota exhausted for %s, shutting down. "
-                        "Set OSSIQ_GITHUB_TOKEN (or --github-token) to raise the GitHub limit.",
+                        "Run `ossiq auth login` (or set OSSIQ_GITHUB_TOKEN in CI) to raise the GitHub limit.",
                         str(self.strategy),
                     )
                     self._rate_limited = True

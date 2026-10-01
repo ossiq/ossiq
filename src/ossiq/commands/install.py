@@ -9,15 +9,12 @@ from pathlib import Path
 from typing import Annotated
 
 import typer
-from dotenv import set_key
-
-from ossiq.settings import CONFIG_PATH
 
 install_app = typer.Typer(name="install", help="Install ossiq integrations for AI coding tools.")
 
 COPILOT_START = "<!-- ossiq-skill:start -->"
 COPILOT_END = "<!-- ossiq-skill:end -->"
-GITHUB_TOKEN_URL = "https://ossiq.dev/getting-started.html#github-personal-access-token"
+TOKEN_ENV_KEY = "OSSIQ_GITHUB_TOKEN"
 
 
 SKILL_UVX_PROD = "uvx ossiq"
@@ -41,16 +38,11 @@ def resolve_ossiq_binary() -> str:
     return "ossiq"
 
 
-def build_mcp_entry(github_token: str | None, dev_path: str | None = None) -> dict:
-    """Build the MCP server entry, optionally injecting a GitHub token or dev path."""
-    entry: dict[str, object]
+def build_mcp_entry(dev_path: str | None = None) -> dict:
+    """Build the MCP server entry, optionally pointing at a local dev checkout."""
     if dev_path:
-        entry = {"command": "uv", "args": ["run", "--directory", dev_path, "ossiq", "mcp"]}
-    else:
-        entry = {"command": resolve_ossiq_binary(), "args": ["mcp"]}
-    if github_token:
-        entry["env"] = {"OSSIQ_GITHUB_TOKEN": github_token}
-    return entry
+        return {"command": "uv", "args": ["run", "--directory", dev_path, "ossiq", "mcp"]}
+    return {"command": resolve_ossiq_binary(), "args": ["mcp"]}
 
 
 def apply_dev_settings(content: str, dev_path: str) -> str:
@@ -69,30 +61,51 @@ def write_skill_file(skills_dir: Path, content: str) -> None:
     (skills_dir / "SKILL.md").write_text(content, encoding="utf-8")
 
 
-def merge_mcp_config(path: Path, github_token: str | None, dev_path: str | None = None) -> None:
-    """Upsert the ossiq stdio MCP server into a tool's mcp.json, preserving other entries."""
+def merge_mcp_config(path: Path, dev_path: str | None = None) -> bool:
+    """Upsert the ossiq stdio MCP server into a tool's mcp.json, preserving other entries.
+
+    The entry is rewritten whole, so a GitHub token that an earlier version stored under its `env`
+    does not survive.
+
+    Returns:
+        Whether such a stored token was removed.
+    """
     config = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
-    config.setdefault("mcpServers", {})["ossiq"] = build_mcp_entry(github_token, dev_path)
+    servers = config.setdefault("mcpServers", {})
+    scrubbed = TOKEN_ENV_KEY in (servers.get("ossiq", {}).get("env") or {})
+    servers["ossiq"] = build_mcp_entry(dev_path)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(config, indent=2) + "\n", encoding="utf-8")
+    return scrubbed
 
 
-def install_claude(home: Path, content: str, github_token: str | None, dev_path: str | None = None) -> None:
-    """Install the skill and MCP server for Claude Code."""
+def install_claude(home: Path, content: str, dev_path: str | None = None) -> Path | None:
+    """Install the skill and MCP server for Claude Code.
+
+    Returns:
+        The mcp.json that had a stored GitHub token removed, if any.
+    """
     write_skill_file(home / ".claude" / "skills" / "ossiq", content)
-    merge_mcp_config(home / ".claude" / "mcp.json", github_token, dev_path)
+    path = home / ".claude" / "mcp.json"
+    return path if merge_mcp_config(path, dev_path) else None
 
 
-def install_codex(home: Path, content: str, github_token: str | None, dev_path: str | None = None) -> None:
-    """Install the skill and MCP server for OpenAI Codex."""
+def install_codex(home: Path, content: str, dev_path: str | None = None) -> Path | None:
+    """Install the skill and MCP server for OpenAI Codex.
+
+    Returns:
+        The mcp.json that had a stored GitHub token removed, if any.
+    """
     write_skill_file(home / ".codex" / "skills" / "ossiq", content)
-    merge_mcp_config(home / ".codex" / "mcp.json", github_token, dev_path)
+    path = home / ".codex" / "mcp.json"
+    return path if merge_mcp_config(path, dev_path) else None
 
 
-def install_copilot(home: Path, content: str, github_token: str | None, dev_path: str | None = None) -> None:
+def install_copilot(home: Path, content: str, dev_path: str | None = None) -> Path | None:
     """Install the skill into GitHub Copilot's global instructions file.
 
-    Copilot has no stdio MCP registry of its own, so only instructions are written.
+    Copilot has no stdio MCP registry of its own, so only instructions are written, and there is
+    never a token to remove.
     """
     path = home / ".copilot" / "copilot-instructions.md"
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -101,24 +114,13 @@ def install_copilot(home: Path, content: str, github_token: str | None, dev_path
     if COPILOT_START in existing:
         pattern = re.compile(re.escape(COPILOT_START) + r".*?" + re.escape(COPILOT_END), re.DOTALL)
         path.write_text(pattern.sub(block, existing), encoding="utf-8")
-        return
+        return None
     separator = "\n\n" if existing.strip() else ""
     path.write_text(existing + separator + block + "\n", encoding="utf-8")
+    return None
 
 
 INSTALLERS = {"claude": install_claude, "codex": install_codex, "copilot": install_copilot}
-
-
-def resolve_github_token(provided: str | None) -> str | None:
-    """Return token from CLI flag or interactive prompt; None if skipped."""
-    if provided:
-        return provided
-    typer.echo(
-        f"\nTo raise GitHub API limits from 60 to 5 000 req/hr, create a token (no scopes needed):\n"
-        f"  {GITHUB_TOKEN_URL}\n"
-    )
-    token = typer.prompt("GitHub token (leave blank to skip)", default="")
-    return token.strip() or None
 
 
 @install_app.command("skills")
@@ -126,16 +128,17 @@ def skills(
     tool: Annotated[str, typer.Argument(help="Tool to install for: claude|codex|copilot|all")] = "all",
     github_token: Annotated[
         str | None,
-        typer.Option(
-            "--github-token", "-T", help="GitHub token (no scopes needed) to raise API rate limit to 5 000 req/hr"
-        ),
+        typer.Option("--github-token", "-T", hidden=True, help="Deprecated: a token is no longer stored."),
     ] = None,
     dev: Annotated[
         str | None,
         typer.Option("--dev", help="Path to local ossiq source for development (skips PyPI)"),
     ] = None,
 ) -> None:
-    """Install the ossiq SKILL.md and local MCP server for AI coding tools."""
+    """Install the ossiq SKILL.md and local MCP server for AI coding tools.
+
+    No GitHub token is asked for or stored; `ossiq auth login` logs in separately.
+    """
     if tool != "all" and tool not in INSTALLERS:
         typer.echo(f"Unknown tool '{tool}'. Choose from: claude, codex, copilot, all", err=True)
         raise typer.Exit(1)
@@ -145,11 +148,16 @@ def skills(
         content = apply_dev_settings(content, dev)
     home = Path.home()
     targets = list(INSTALLERS) if tool == "all" else [tool]
-    token = resolve_github_token(github_token)
-    if token:
-        CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
-        set_key(CONFIG_PATH, "OSSIQ_GITHUB_TOKEN", token, quote_mode="never")
+    if github_token:
+        typer.echo(
+            "--github-token is no longer stored anywhere. Run `ossiq auth login`, "
+            "or set OSSIQ_GITHUB_TOKEN in the environment of the tool that starts the MCP server.",
+            err=True,
+        )
 
     for name in targets:
-        INSTALLERS[name](home, content, token, dev)
+        scrubbed = INSTALLERS[name](home, content, dev)
         typer.echo(f"installed ossiq skill for {name}")
+        if scrubbed is not None:
+            typer.echo(f"removed the GitHub token an earlier install stored in {scrubbed}")
+    typer.echo("\nTo raise the GitHub API limit from 60 to 5,000 requests/hour, log in once with:\n  ossiq auth login")

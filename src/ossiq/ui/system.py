@@ -15,6 +15,7 @@ from ossiq.domain.common import (
     RateLimitBudget,
     ScanStep,
 )
+from ossiq.domain.github_auth import TokenSource
 from ossiq.messages import HELP_WARNING_COUNTS_ARE_REQUESTS
 from ossiq.service.project.scan import ScanProgress
 from ossiq.settings import Settings
@@ -200,7 +201,7 @@ def warn_about_budget(budgets: tuple[RateLimitBudget, ...]) -> None:
     lines = [f"  - {format_budget(budget)}" for budget in short]
     unauthenticated = any(budget.limit is not None and budget.limit <= UNAUTHENTICATED_LIMIT for budget in short)
     hint = (
-        "\n  Set OSSIQ_GITHUB_TOKEN (or --github-token) to raise the limit."
+        "\n  Run `ossiq auth login` to raise the limit (in CI, set OSSIQ_GITHUB_TOKEN instead)."
         if unauthenticated
         else "\n  Repository and maintenance signals will be thin until the quota resets."
     )
@@ -273,12 +274,37 @@ def show_operation_progress(settings: Settings, message: str):
         pass
 
 
-def show_settings(ctx, label: str, settings: dict):
+TOKEN_SOURCE_LABELS = {
+    TokenSource.CLI_FLAG: "--github-token",
+    TokenSource.ENV_OSSIQ: "OSSIQ_GITHUB_TOKEN environment variable",
+    TokenSource.ENV_GITHUB_TOKEN: "GITHUB_TOKEN environment variable",
+    TokenSource.KEYRING: "GitHub login (system keyring)",
+    TokenSource.CONFIG_FILE: "config file (~/.config/ossiq/config)",
+    TokenSource.LEGACY_CONFIG_FILE: "legacy config file (~/.ossiq/config)",
+}
+
+
+def describe_token_source(source: TokenSource) -> str:
+    """Name a token source the way a person would."""
+    return TOKEN_SOURCE_LABELS[source]
+
+
+def is_interactive() -> bool:
+    """Whether a person can be asked to approve a login here: stdin and stderr are both terminals.
+
+    Stderr, not stdout, because that is where a scan prints the challenge; `ossiq export > file`
+    still has someone at the keyboard.
+    """
+    return sys.stdin.isatty() and sys.stderr.isatty()
+
+
+def show_settings(ctx, label: str, settings: dict, token_source: TokenSource | None = None):
     """
     Show a panel with key/value pairs with settings
 
     B8: diagnostic output, not the requested payload - goes to stderr like everything else in
     this module, so it never lands in a piped/redirected stdout regardless of command or format.
+    The token itself is never shown, only whether one is set and where it came from.
     """
     if not RICH_AVAILABLE:
         return
@@ -293,7 +319,8 @@ def show_settings(ctx, label: str, settings: dict):
 
     for setting, value in settings.model_dump().items():
         if setting == "github_token":
-            value = "set from environment" if value else None
+            source = f" ({describe_token_source(token_source)})" if token_source is not None else ""
+            value = f"set{source}" if value else None
         header_text.append(f"{setting}: ", style="bold white")
         header_text.append(f"{value}\n", style="green")
 
