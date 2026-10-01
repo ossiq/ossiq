@@ -46,7 +46,7 @@ from univers.versions import PypiVersion, SemverVersion
 
 from ossiq.domain.common import ProjectPackagesRegistry
 from ossiq.domain.cve import CVE, AffectedRange
-from ossiq.domain.version import pad_npm_version
+from ossiq.domain.version import desugar_npm_comparator_xranges, pad_npm_version
 from ossiq.solver.problem import CandidateVersion
 
 logger = logging.getLogger(__name__)
@@ -196,7 +196,7 @@ def npm_version_satisfies_range(version: str, range_constraint: str, allow_beta:
         if PARTIAL_BARE_VERSION_RE.match(branch):
             branch = f"^{branch}"
         try:
-            if candidate in NpmVersionRange.from_native(branch):
+            if candidate in NpmVersionRange.from_native(desugar_npm_comparator_xranges(branch)):
                 return True
         except InvalidConstraintsError:
             if fallback_evaluate_bounds(candidate, branch):
