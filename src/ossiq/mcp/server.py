@@ -11,13 +11,30 @@ no-new-deps rule; swap in `mcp.server` if the SDK is ever vendored.
 
 import importlib.metadata
 import json
+import logging
 import sys
+import threading
 from collections.abc import Callable
 from typing import Any
 
-from ossiq.domain.exceptions import ApplicationError
+from ossiq.domain.exceptions import (
+    ApplicationError,
+    CredentialStoreUnavailable,
+    GithubAuthDenied,
+    GithubAuthRequired,
+    GithubAuthTimeout,
+)
+from ossiq.domain.github_auth import DeviceChallenge
 from ossiq.service.agent import AgentDecision, build_add_decide, build_update_decide
 from ossiq.service.completeness import check_security_data_complete
+from ossiq.service.github_auth import (
+    AuthDeps,
+    AuthSkipReason,
+    GithubAuthResult,
+    authenticate_github,
+    await_login,
+    default_deps,
+)
 from ossiq.service.package import build_installed_detail, fetch_prospective_detail, matches
 from ossiq.service.project.runtime_context import settings_with_stated_runtime
 from ossiq.service.project.scan import scan
@@ -27,8 +44,20 @@ from ossiq.sources import project_sources
 from ossiq.strategy.overrides import StrategyPlan, parse_strategy
 from ossiq.strategy.pyramid import PYRAMID
 
+logger = logging.getLogger(__name__)
+
 PROTOCOL_VERSION = "2025-06-18"
 SERVER_INFO = {"name": "ossiq", "version": importlib.metadata.version("ossiq")}
+
+LOGIN_PENDING_STATUS = "PENDING_USER_ACTION"
+WATCHER_GRACE_SECONDS = 7.0
+"""How long a call waits for a running login watcher: GitHub's default poll interval plus a margin."""
+SILENT_SKIPS = (AuthSkipReason.DISABLED, AuthSkipReason.CI)
+"""Skips that are the user's own choice; the CLI says nothing about them either."""
+LOGIN_NOTE = (
+    " The first call may return a GitHub login challenge (a URL and a code) instead of a result: "
+    "show it to the user verbatim, wait for them to approve it, then call this tool again."
+)
 
 RUNTIME_SCHEMA: dict[str, Any] = {
     "description": (
@@ -50,7 +79,7 @@ TOOLS: list[dict[str, Any]] = [
         "description": (
             "Evaluate a package an agent is about to ADD to a project. Returns a `next_action` "
             "(install / install with caution / do not install), the recommended version, CVEs, and "
-            "supply-chain warnings. Use before introducing a new dependency."
+            "supply-chain warnings. Use before introducing a new dependency." + LOGIN_NOTE
         ),
         "inputSchema": {
             "type": "object",
@@ -72,7 +101,7 @@ TOOLS: list[dict[str, Any]] = [
             "alternative / Find alternative / Constrained. Check newer version / Withheld by "
             "strategy) with recommended "
             "versions, CVEs, and transitive impact. "
-            "Use before bumping dependency versions."
+            "Use before bumping dependency versions." + LOGIN_NOTE
         ),
         "inputSchema": {
             "type": "object",
@@ -116,7 +145,7 @@ TOOLS: list[dict[str, Any]] = [
             "judges the target against OSS IQ's recommendation (recommended / suboptimal / breaking / "
             "vulnerable / deprecated / beyond_recommendation) and `better_available` names the version "
             "to take instead. Use before applying an update to a specific version, especially one that "
-            "isn't the recommended one."
+            "isn't the recommended one." + LOGIN_NOTE
         ),
         "inputSchema": {
             "type": "object",
@@ -208,15 +237,132 @@ TOOL_HANDLERS: dict[str, Callable[[Settings, dict[str, Any]], AgentDecision]] = 
 }
 
 
-def handle_tools_call(settings: Settings, params: dict[str, Any]) -> dict[str, Any]:
-    """Dispatch a tools/call request to the matching handler."""
+class GithubLogin:
+    """The server process's GitHub login state: its auth dependencies and the thread awaiting an approval.
+
+    A challenge cannot resume the call that raised it, so approval is awaited on a daemon thread that
+    saves the credentials, and the agent calls the tool again. The keyring's pending login is the source
+    of truth: without a live thread, the next call checks it once itself.
+    """
+
+    def __init__(self, deps: AuthDeps, *, grace_seconds: float = WATCHER_GRACE_SECONDS) -> None:
+        """Create the login state.
+
+        Args:
+            deps: Store, client and clock, built once so the keyring timeout flag and the token
+                validation memo last for the process.
+            grace_seconds: How long a call waits for a running watcher before deciding.
+        """
+        self.deps = deps
+        self.grace_seconds = grace_seconds
+        self.watcher: threading.Thread | None = None
+        self.finished = threading.Event()
+        self.outcome: AuthSkipReason | None = None
+        """Set once the watcher saw the login denied or expired; later calls then stop asking."""
+
+    def watching(self) -> bool:
+        """Return whether a watcher is still waiting for the user."""
+        # The event, not Thread.is_alive: it is set after `outcome`, so a call that sees it set sees the outcome.
+        return self.watcher is not None and not self.finished.is_set()
+
+    def authenticate(self, settings: Settings) -> GithubAuthResult:
+        """Resolve the token for one tool call.
+
+        Args:
+            settings: Settings as loaded.
+
+        Returns:
+            The settings to scan with, and where their token came from.
+
+        Raises:
+            GithubAuthRequired: A login has to be approved first; the caller shows the challenge.
+        """
+        if self.watching():
+            # An approval a moment ago may not be polled yet; without the wait the agent is told to wait again.
+            self.finished.wait(self.grace_seconds)
+        watching = self.watching()
+        result = authenticate_github(
+            settings,
+            self.deps,
+            interactive=False,
+            poll_pending=not watching,  # back-to-back polls get `slow_down`
+            skip_login=None if watching else self.outcome,
+        )
+        if result.skipped is not None and result.skipped not in SILENT_SKIPS:
+            logger.warning("GitHub login skipped (%s): %s", result.skipped.value, result.detail or "no detail")
+        return result
+
+    def watch(self, challenge: DeviceChallenge) -> None:
+        """Start waiting for the challenge to be approved, unless a watcher already is."""
+        if self.watching():
+            return
+        self.finished.clear()
+        self.watcher = threading.Thread(
+            target=self.run_watcher, args=(challenge,), name="ossiq-github-login", daemon=True
+        )
+        self.watcher.start()
+
+    def run_watcher(self, challenge: DeviceChallenge) -> None:
+        """Poll until the login ends, saving the credentials on approval; the thread body.
+
+        Never writes to stdout, which carries only JSON-RPC.
+        """
+        try:
+            # The first poll can only say "pending", and the caller may have just polled itself.
+            await_login(challenge, self.deps, polled_just_now=True)
+        except GithubAuthDenied:
+            self.outcome = AuthSkipReason.LOGIN_DENIED
+        except GithubAuthTimeout:
+            self.outcome = AuthSkipReason.LOGIN_EXPIRED
+        except CredentialStoreUnavailable as error:
+            logger.warning("The approved GitHub login could not be saved: %s", error)
+        finally:
+            self.finished.set()
+
+    def challenge_result(self, challenge: DeviceChallenge) -> dict[str, Any]:
+        """Build the tool result that asks the agent to relay the login to the user and retry.
+
+        The device code is a secret until the login is approved, so it is not part of the result.
+        """
+        seconds = challenge.seconds_left(self.deps.now())
+        minutes = seconds // 60
+        expires = f"{minutes} minute{'s' if minutes != 1 else ''}" if minutes >= 1 else "less than a minute"
+        text = "\n".join(
+            [
+                "GitHub login needed to raise OSS IQ's API limit from 60 to 5,000 requests/hour.",
+                f"  1. Open:  {challenge.verification_uri}",
+                f"  2. Enter the code:  {challenge.user_code}",
+                f"The code expires in {expires}.",
+                "Show the URL and code to the user exactly as written, wait until they confirm they approved "
+                "it on GitHub, then call this tool again with the same arguments. Do not ask for a token.",
+            ]
+        )
+        return {
+            "content": [{"type": "text", "text": text}],
+            "isError": False,
+            "_meta": {
+                "auth_status": LOGIN_PENDING_STATUS,
+                "verification_uri": challenge.verification_uri,
+                "user_code": challenge.user_code,
+                "expires_in": seconds,
+                "interval": challenge.interval,
+            },
+        }
+
+
+def handle_tools_call(settings: Settings, params: dict[str, Any], login: GithubLogin) -> dict[str, Any]:
+    """Dispatch a tools/call request to the matching handler, logging in to GitHub first when needed."""
     name = params.get("name", "")
     handler = TOOL_HANDLERS.get(name)
     if handler is None:
         return {"content": [{"type": "text", "text": f"Unknown tool: {name}"}], "isError": True}
 
     try:
-        decision = handler(settings, params.get("arguments") or {})
+        auth = login.authenticate(settings)
+        decision = handler(auth.settings, params.get("arguments") or {})
+    except GithubAuthRequired as required:  # before ApplicationError, which it subclasses
+        login.watch(required.challenge)
+        return login.challenge_result(required.challenge)
     except ApplicationError as error:
         return {"content": [{"type": "text", "text": error.render()}], "isError": True}
     except Exception as error:  # noqa: BLE001 — surface any failure to the agent, keep the loop alive
@@ -225,7 +371,7 @@ def handle_tools_call(settings: Settings, params: dict[str, Any]) -> dict[str, A
     return {"content": [{"type": "text", "text": json.dumps(decision)}]}
 
 
-def handle_request(settings: Settings, message: dict[str, Any]) -> dict[str, Any] | None:
+def handle_request(settings: Settings, message: dict[str, Any], login: GithubLogin) -> dict[str, Any] | None:
     """Route a single JSON-RPC request; return a response, or None for notifications."""
     method = message.get("method", "")
     message_id = message.get("id")
@@ -243,7 +389,7 @@ def handle_request(settings: Settings, message: dict[str, Any]) -> dict[str, Any
     elif method == "tools/list":
         result = {"tools": TOOLS}
     elif method == "tools/call":
-        result = handle_tools_call(settings, message.get("params", {}))
+        result = handle_tools_call(settings, message.get("params", {}), login)
     elif method == "ping":
         result = {}
     else:
@@ -254,6 +400,7 @@ def handle_request(settings: Settings, message: dict[str, Any]) -> dict[str, Any
 
 def serve(settings: Settings) -> None:
     """Run the stdio JSON-RPC loop until stdin closes."""
+    login = GithubLogin(default_deps(settings))
     for line in sys.stdin:
         line = line.strip()
         if not line:
@@ -262,7 +409,7 @@ def serve(settings: Settings) -> None:
             message = json.loads(line)
         except json.JSONDecodeError:
             continue
-        response = handle_request(settings, message)
+        response = handle_request(settings, message, login)
         if response is not None:
             sys.stdout.write(json.dumps(response) + "\n")
             sys.stdout.flush()
