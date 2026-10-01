@@ -8,13 +8,21 @@ here predicts a broken standalone binary.
 """
 
 import importlib.metadata
+import os
+import re
+import subprocess
+import sys
 import tomllib
 from importlib.resources import files
 from pathlib import Path
 
 import pytest
 
+from ossiq.ui.auth import BACKEND_LABELS
+
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
+DOCKER_ENTRYPOINT = PROJECT_ROOT / "docker-entrypoint.sh"
+BINARY_BUILD_WORKFLOW = PROJECT_ROOT / ".github" / "workflows" / "reusable-build-binaries.yml"
 
 # Every non-Python file the package reads at runtime through importlib.resources.
 PACKAGED_DATA = [
@@ -63,9 +71,9 @@ def test_packaged_data_is_readable(package: str, name: str):
 
 
 def test_cli_dependencies_are_not_optional(pyproject):
-    """typer/rich/termcolor are imported unconditionally by ossiq.cli."""
+    """typer/rich/termcolor/keyring are imported unconditionally by ossiq.cli."""
     dependencies = " ".join(pyproject["project"]["dependencies"])
-    for package in ("typer", "rich", "termcolor"):
+    for package in ("typer", "rich", "termcolor", "keyring"):
         assert package in dependencies, f"{package} must be a core dependency, not an extra"
 
 
@@ -134,3 +142,87 @@ def test_spa_template_carries_no_build_host_traces():
 
     found = [marker for marker in BUILD_HOST_MARKERS if marker in body]
     assert not found, f"{SPA_TEMPLATE.name} leaks build-host details: {found}"
+
+
+# --- the keyring in the standalone binaries and the Docker image ------------------------
+
+
+def test_pyinstaller_ships_a_keyring_hook():
+    """The spec adds no keyring hints because PyInstaller's own hook collects the backends.
+
+    If a release drops the hook, the frozen binary loses its keyring backends and the spec needs them.
+    """
+    pytest.importorskip("PyInstaller")  # a dev-group tool, absent from a runtime-only install
+
+    hook = files("PyInstaller").joinpath("hooks", "hook-keyring.py")
+
+    assert hook.is_file(), "PyInstaller no longer ships hook-keyring.py; hand-list the keyring backends in the spec"
+
+
+def test_binary_keyring_smoke_test_expects_labels_the_cli_prints():
+    """The workflow greps `auth status` output for these labels, so a rename must fail here, not a release build."""
+    per_os = re.findall(r'EXPECT="([^"]+)"', BINARY_BUILD_WORKFLOW.read_text(encoding="utf-8"))
+
+    assert len(per_os) == 3, f"expected one entry per OS (macOS, Windows, Linux) in the keyring smoke test: {per_os}"
+    expected = [label for entry in per_os for label in entry.split("|")]  # Linux accepts several
+    unknown = [label for label in expected if not any(known.startswith(label) for known in BACKEND_LABELS.values())]
+    assert not unknown, f"the smoke test expects labels `auth status` never prints: {unknown}"
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="the entrypoint is a bash script for the Linux image")
+class TestDockerEntrypoint:
+    @pytest.fixture
+    def run(self, tmp_path: Path):
+        """Run the entrypoint with a stand-in `ossiq` first on PATH that reports its arguments."""
+        stand_in = tmp_path / "ossiq"
+        stand_in.write_text('#!/bin/sh\necho "ossiq-ran: $*"\n')
+        stand_in.chmod(0o755)
+
+        def invoke(*args: str, token: str | None = None) -> subprocess.CompletedProcess[str]:
+            # A minimal environment, so a token in the developer's shell cannot leak into the case.
+            env = {"PATH": f"{tmp_path}{os.pathsep}{os.environ['PATH']}", "HOME": str(tmp_path)}
+            if token is not None:
+                env["OSSIQ_GITHUB_TOKEN"] = token
+            return subprocess.run(
+                ["bash", str(DOCKER_ENTRYPOINT), *args], env=env, capture_output=True, text=True, timeout=30
+            )
+
+        return invoke
+
+    def test_export_without_a_token_says_why_login_is_not_offered(self, run):
+        result = run("export", "/project")
+
+        output = result.stdout + result.stderr
+        assert result.returncode == 1
+        assert "ossiq-ran" not in output
+        assert "OSSIQ_GITHUB_TOKEN" in output
+        assert "keyring" in output
+        assert "ossiq auth login" in output
+
+    def test_export_with_a_token_runs_the_cli(self, run):
+        result = run("export", "/project", token="ghp_" + "x" * 36)
+
+        assert result.returncode == 0
+        assert "ossiq-ran: export /project" in result.stdout
+
+    @pytest.mark.parametrize("args", [("--help",), ("status", "/project")])
+    def test_other_commands_run_without_a_token(self, run, args):
+        """The README's `status` example keeps working tokenless: the CLI itself warns about the limit."""
+        result = run(*args)
+
+        assert result.returncode == 0
+        assert f"ossiq-ran: {' '.join(args)}" in result.stdout
+
+    def test_a_token_that_is_too_short_is_warned_about(self, run):
+        result = run("--help", token="short")
+
+        assert result.returncode == 0
+        assert "too short" in result.stderr
+
+    def test_the_usage_text_names_the_keyring_and_commands_that_exist(self, run):
+        result = run("help")
+
+        assert result.returncode == 0
+        assert "keyring" in result.stdout
+        assert "ossiq-cli status" in result.stdout
+        assert "ossiq-cli scan" not in result.stdout
