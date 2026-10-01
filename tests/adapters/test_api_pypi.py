@@ -8,15 +8,22 @@ Tests focus on:
 3. Yanked packages handling
 """
 
+from datetime import UTC, datetime
 from unittest.mock import patch
 
 import pytest
 from packaging.version import InvalidVersion
 
-from ossiq.adapters.api_pypi import PackageRegistryApiPypi, get_repo_url, is_valid_pep440_version
+from ossiq.adapters.api_pypi import (
+    PackageRegistryApiPypi,
+    earliest_upload,
+    get_repo_url,
+    is_valid_pep440_version,
+)
 from ossiq.clients.batch import BatchClient
 from ossiq.domain.common import ConstraintType, ProjectPackagesRegistry
 from ossiq.domain.exceptions import UnableLoadPackage
+from ossiq.domain.release_cutoff import ReleaseCutoff
 from ossiq.domain.version import (
     VERSION_DIFF_BUILD,
     VERSION_DIFF_MAJOR,
@@ -611,6 +618,57 @@ class TestPackageVersions:
 # ============================================================================
 # Test install execution detection (runs_code_at_install / install_execution_reason)
 # ============================================================================
+
+
+def cutoff_registry(release_cutoff: ReleaseCutoff) -> PackageRegistryApiPypi:
+    """A registry holding one package whose releases straddle 2026-09-18."""
+    api = PackageRegistryApiPypi(Settings(), release_cutoff)
+    api._raw_cache["Plat_Dirs"] = {
+        "info": {"name": "plat-dirs", "version": "3.0.0", "requires_dist": [], "license": None, "summary": None},
+        "releases": {
+            "1.0.0": [{"upload_time_iso_8601": "2026-09-01T00:00:00Z", "yanked": False}],
+            # Listed newest-first: the wheel was added after the cutoff, the sdist before it.
+            "2.0.0": [
+                {"upload_time_iso_8601": "2026-09-20T00:00:00Z", "yanked": False},
+                {"upload_time_iso_8601": "2026-09-10T00:00:00Z", "yanked": False},
+            ],
+            "3.0.0": [{"upload_time_iso_8601": "2026-09-22T01:02:35Z", "yanked": False}],
+        },
+    }
+    return api
+
+
+class TestPackageVersionsReleaseCutoff:
+    """package_versions drops releases the package manager's cutoff would refuse."""
+
+    SEPT_18 = datetime(2026, 9, 18, tzinfo=UTC)
+
+    def versions(self, release_cutoff: ReleaseCutoff) -> list[str]:
+        return sorted(pv.version for pv in cutoff_registry(release_cutoff).package_versions("Plat_Dirs"))
+
+    def test_no_cutoff_keeps_every_release(self):
+        assert self.versions(ReleaseCutoff()) == ["1.0.0", "2.0.0", "3.0.0"]
+
+    def test_release_with_any_file_before_cutoff_is_kept(self):
+        assert self.versions(ReleaseCutoff(default=self.SEPT_18)) == ["1.0.0", "2.0.0"]
+
+    def test_per_package_override_is_matched_on_normalized_name(self):
+        lifted = ReleaseCutoff(default=self.SEPT_18, per_package={"plat-dirs": None})
+        assert self.versions(lifted) == ["1.0.0", "2.0.0", "3.0.0"]
+
+    def test_published_date_still_reports_first_listed_file(self):
+        api = cutoff_registry(ReleaseCutoff(default=self.SEPT_18))
+        by_version = {pv.version: pv for pv in api.package_versions("Plat_Dirs")}
+        assert by_version["2.0.0"].published_date_iso == "2026-09-20T00:00:00Z"
+
+
+class TestEarliestUpload:
+    def test_picks_minimum_regardless_of_order(self):
+        files = [{"upload_time_iso_8601": "2026-09-20T00:00:00Z"}, {"upload_time_iso_8601": "2026-09-10T00:00:00Z"}]
+        assert earliest_upload(files) == datetime(2026, 9, 10, tzinfo=UTC)
+
+    def test_undated_release_falls_back_to_epoch(self):
+        assert earliest_upload([{}]) == datetime.fromtimestamp(0, UTC)
 
 
 class TestInstallExecutionDetection:

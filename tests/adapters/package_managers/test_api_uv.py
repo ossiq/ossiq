@@ -14,6 +14,7 @@ import os
 import subprocess
 import tempfile
 import tomllib
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -21,8 +22,10 @@ import pytest
 from packaging.requirements import Requirement
 
 from ossiq.adapters.package_managers.api_uv import (
+    UV_EXCLUDE_NEWER_ENV,
     PackageManagerPythonUv,
     find_pyproject_direct_specifiers,
+    release_cutoff_from_uv_settings,
     upsert_uv_override_dependencies,
 )
 from ossiq.domain.common import ConstraintType, ProjectPackagesRegistry
@@ -1346,3 +1349,118 @@ class TestOssiqMetadataOwnershipUv:
 
         data = tomllib.loads(pyproject_path.read_text())
         assert data["tool"]["uv"]["override-dependencies"] == ["urllib3==2.0.9"]
+
+
+# ============================================================================
+# Release cutoff (exclude-newer)
+# ============================================================================
+
+CUTOFF_NOW = datetime(2026, 10, 1, tzinfo=UTC)
+SEPT_18 = datetime(2026, 9, 18, tzinfo=UTC)
+
+
+class TestReleaseCutoffFromUvSettings:
+    """Pure merge of uv settings + lockfile options into a ReleaseCutoff."""
+
+    def test_no_setting_means_no_cutoff(self):
+        assert release_cutoff_from_uv_settings({}, {}, env_exclude_newer=None, now=CUTOFF_NOW) is None
+
+    def test_absolute_global_cutoff(self):
+        cutoff = release_cutoff_from_uv_settings(
+            {"exclude-newer": "2026-09-18T00:00:00Z"}, {}, env_exclude_newer=None, now=CUTOFF_NOW
+        )
+        assert cutoff is not None
+        assert cutoff.cutoff_for("idna") == SEPT_18
+
+    def test_env_overrides_file_setting(self):
+        cutoff = release_cutoff_from_uv_settings(
+            {"exclude-newer": "2026-09-01T00:00:00Z"},
+            {},
+            env_exclude_newer="2026-09-18T00:00:00Z",
+            now=CUTOFF_NOW,
+        )
+        assert cutoff is not None
+        assert cutoff.default == SEPT_18
+
+    def test_friendly_span_resolved_from_lockfile_span(self):
+        # uv writes a placeholder exclude-newer next to the span; only the span carries meaning.
+        lock_options = {"exclude-newer": "0001-01-01T00:00:00Z", "exclude-newer-span": "P7D"}
+        cutoff = release_cutoff_from_uv_settings(
+            {"exclude-newer": "7 days"}, lock_options, env_exclude_newer=None, now=CUTOFF_NOW
+        )
+        assert cutoff is not None
+        assert cutoff.default == CUTOFF_NOW - timedelta(days=7)
+
+    def test_unresolvable_span_is_ignored(self):
+        cutoff = release_cutoff_from_uv_settings(
+            {"exclude-newer": "7 days"}, {}, env_exclude_newer=None, now=CUTOFF_NOW
+        )
+        assert cutoff is None
+
+    def test_lockfile_alone_does_not_impose_a_cutoff(self):
+        # The setting was removed since the last lock; uv lock would no longer apply it.
+        cutoff = release_cutoff_from_uv_settings(
+            {}, {"exclude-newer": "2026-09-18T00:00:00Z"}, env_exclude_newer=None, now=CUTOFF_NOW
+        )
+        assert cutoff is None
+
+    def test_per_package_entries(self):
+        uv_settings = {
+            "exclude-newer": "2026-09-18T00:00:00Z",
+            "exclude-newer-package": {"Six": False, "IDNA": "3 days", "Typing_Extensions": "2026-09-01T00:00:00Z"},
+        }
+        lock_options = {
+            "exclude-newer-package": {"idna": {"timestamp": "0001-01-01T00:00:00Z", "span": "P3D"}, "six": False}
+        }
+        cutoff = release_cutoff_from_uv_settings(uv_settings, lock_options, env_exclude_newer=None, now=CUTOFF_NOW)
+        assert cutoff is not None
+        assert cutoff.cutoff_for("six") is None
+        assert cutoff.cutoff_for("idna") == CUTOFF_NOW - timedelta(days=3)
+        assert cutoff.cutoff_for("typing-extensions") == datetime(2026, 9, 1, tzinfo=UTC)
+        assert cutoff.cutoff_for("requests") == SEPT_18
+
+    def test_only_lifting_overrides_is_no_cutoff(self):
+        cutoff = release_cutoff_from_uv_settings(
+            {"exclude-newer-package": {"six": False}}, {}, env_exclude_newer=None, now=CUTOFF_NOW
+        )
+        assert cutoff is None
+
+
+class TestPackageManagerReleaseCutoff:
+    """Reading the cutoff from a real project tree."""
+
+    def append_pyproject(self, project_dir: str, text: str) -> None:
+        pyproject = Path(project_dir) / "pyproject.toml"
+        pyproject.write_text(pyproject.read_text() + text)
+
+    def test_no_config_means_no_cutoff(self, uv_project_with_lockfile, settings, monkeypatch):
+        monkeypatch.delenv(UV_EXCLUDE_NEWER_ENV, raising=False)
+        assert PackageManagerPythonUv(uv_project_with_lockfile, settings).release_cutoff() is None
+
+    def test_reads_tool_uv_section(self, uv_project_with_lockfile, settings, monkeypatch):
+        monkeypatch.delenv(UV_EXCLUDE_NEWER_ENV, raising=False)
+        self.append_pyproject(uv_project_with_lockfile, '\n[tool.uv]\nexclude-newer = "2026-09-18T00:00:00Z"\n')
+        cutoff = PackageManagerPythonUv(uv_project_with_lockfile, settings).release_cutoff()
+        assert cutoff is not None
+        assert cutoff.default == SEPT_18
+
+    def test_uv_toml_replaces_tool_uv(self, uv_project_with_lockfile, settings, monkeypatch):
+        monkeypatch.delenv(UV_EXCLUDE_NEWER_ENV, raising=False)
+        self.append_pyproject(uv_project_with_lockfile, '\n[tool.uv]\nexclude-newer = "2026-09-01T00:00:00Z"\n')
+        (Path(uv_project_with_lockfile) / "uv.toml").write_text('exclude-newer = "2026-09-18T00:00:00Z"\n')
+        cutoff = PackageManagerPythonUv(uv_project_with_lockfile, settings).release_cutoff()
+        assert cutoff is not None
+        assert cutoff.default == SEPT_18
+
+    def test_env_var_wins(self, uv_project_with_lockfile, settings, monkeypatch):
+        monkeypatch.setenv(UV_EXCLUDE_NEWER_ENV, "2026-09-18T00:00:00Z")
+        self.append_pyproject(uv_project_with_lockfile, '\n[tool.uv]\nexclude-newer = "2026-09-01T00:00:00Z"\n')
+        cutoff = PackageManagerPythonUv(uv_project_with_lockfile, settings).release_cutoff()
+        assert cutoff is not None
+        assert cutoff.default == SEPT_18
+
+    def test_malformed_uv_toml_raises(self, uv_project_with_lockfile, settings, monkeypatch):
+        monkeypatch.delenv(UV_EXCLUDE_NEWER_ENV, raising=False)
+        (Path(uv_project_with_lockfile) / "uv.toml").write_text("exclude-newer = \n")
+        with pytest.raises(PackageManagerLockfileParsingError):
+            PackageManagerPythonUv(uv_project_with_lockfile, settings).release_cutoff()

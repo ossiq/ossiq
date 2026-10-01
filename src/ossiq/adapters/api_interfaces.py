@@ -13,6 +13,7 @@ from ossiq.domain.common import ConstraintType, ProjectPackagesRegistry, RateLim
 from ossiq.domain.package import Package
 from ossiq.domain.packages_manager import PackageManagerType
 from ossiq.domain.project import Project
+from ossiq.domain.release_cutoff import ReleaseCutoff
 from ossiq.settings import Settings
 
 from ..domain.repository import Repository
@@ -192,6 +193,14 @@ class AbstractPackageManagerApi(abc.ABC):
         package manager.
         """
         pass
+
+    def release_cutoff(self) -> ReleaseCutoff | None:
+        """Return the newest publish instant this package manager will resolve to, if it has one.
+
+        A release past it is one `apply` cannot install whatever OSS IQ recommends, so the
+        registry drops it before anything picks a target. Defaults to None (no cutoff).
+        """
+        return None
 
     def execute_update(self, plan: UpdatePlan) -> None:
         """Execute the update plan in-process.

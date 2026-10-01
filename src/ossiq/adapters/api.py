@@ -7,6 +7,7 @@ from ossiq.adapters.api_npm import PackageRegistryApiNpm
 from ossiq.adapters.api_osv import CveApiOsv
 from ossiq.adapters.api_pypi import PackageRegistryApiPypi
 from ossiq.domain.common import ProjectPackagesRegistry, RepositoryProvider
+from ossiq.domain.release_cutoff import ReleaseCutoff
 from ossiq.settings import Settings
 
 from .api_github import SourceCodeProviderApiGithub
@@ -24,16 +25,21 @@ def create_source_code_provider(provider_type: RepositoryProvider, settings: Set
 
 
 def create_package_registry_api(
-    package_registry: ProjectPackagesRegistry, settings: Settings
+    package_registry: ProjectPackagesRegistry,
+    settings: Settings,
+    release_cutoff: ReleaseCutoff | None = None,
 ) -> AbstractPackageRegistryApi:
     """
-    Create instance of a specific ecosystem's package registry API
+    Create instance of a specific ecosystem's package registry API.
+
+    `release_cutoff` is the package manager's own limit on release age; only PyPI applies it
+    so far, since no npm-side adapter reports one yet.
     """
 
     if package_registry == ProjectPackagesRegistry.NPM:
         return PackageRegistryApiNpm(settings)
     elif package_registry == ProjectPackagesRegistry.PYPI:
-        return PackageRegistryApiPypi(settings)
+        return PackageRegistryApiPypi(settings, release_cutoff)
     else:
         raise ValueError(f"Unknown package registry: {package_registry}")
 
