@@ -27,6 +27,8 @@ PENDING_ACCOUNT = "device_pending"
 KEYRING_TIMEOUT_SECONDS = 180.0
 """Long enough for a person to answer an OS dialog: a Keychain prompt after an upgrade, or a
 Secret Service unlock."""
+KEYRING_SLOW_NOTICE_SECONDS = 2.0
+"""How long a keyring call may stay silent before the store says why, when it has someone to tell."""
 
 T = TypeVar("T")
 
@@ -149,15 +151,27 @@ class KeyringCredentialStore:
     for the rest of the process. A write replaces the entry in a single call, never delete-then-set.
     """
 
-    def __init__(self, *, timeout: float = KEYRING_TIMEOUT_SECONDS, health: KeyringHealth = PROCESS_HEALTH):
+    def __init__(
+        self,
+        *,
+        timeout: float = KEYRING_TIMEOUT_SECONDS,
+        health: KeyringHealth = PROCESS_HEALTH,
+        on_slow: Callable[[float], None] | None = None,
+        slow_after: float = KEYRING_SLOW_NOTICE_SECONDS,
+    ):
         """Create a store.
 
         Args:
             timeout: Seconds to wait for one keyring call.
             health: Where a timeout is remembered; tests pass their own.
+            on_slow: Called with `timeout` when a call has been silent for `slow_after` seconds, so the
+                front door can say a dialog may be waiting. It runs on the calling thread, once per slow call.
+            slow_after: Seconds of silence before `on_slow` is called.
         """
         self.timeout = timeout
         self.health = health
+        self.on_slow = on_slow
+        self.slow_after = slow_after
 
     def read_credentials(self) -> GithubCredentials | None:
         """Return the stored credentials, or None when absent or unreadable."""
@@ -247,7 +261,7 @@ class KeyringCredentialStore:
         # A daemon thread, so a call stuck on a dialog cannot keep the process from exiting.
         threading.Thread(target=run, daemon=True, name="ossiq-keyring").start()
         try:
-            value, error = outcome.get(timeout=self.timeout)
+            value, error = self.wait_for(outcome)
         except queue.Empty:
             self.health.blocked = True
             raise CredentialStoreUnavailable(
@@ -258,3 +272,18 @@ class KeyringCredentialStore:
         if error is not None:
             raise error
         return cast(T, value)
+
+    def wait_for(self, outcome: queue.Queue[tuple[T | None, Exception | None]]) -> tuple[T | None, Exception | None]:
+        """Wait for a keyring call's answer, saying why it is slow once `slow_after` has passed.
+
+        Raises:
+            queue.Empty: Nothing arrived within the timeout.
+        """
+        on_slow = self.on_slow
+        if on_slow is None or self.slow_after >= self.timeout:
+            return outcome.get(timeout=self.timeout)
+        try:
+            return outcome.get(timeout=self.slow_after)
+        except queue.Empty:
+            on_slow(self.timeout)
+        return outcome.get(timeout=self.timeout - self.slow_after)

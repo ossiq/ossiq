@@ -312,6 +312,48 @@ class TestBackendName:
         assert store.backend_name() == "tests.adapters.keyring_fakes.FakeKeyring"
 
 
+class TestSlowKeyring:
+    def test_a_keyring_that_answers_late_is_explained_and_still_answers(self, fake_keyring):
+        told: list[float] = []
+        store = KeyringCredentialStore(timeout=2.0, health=KeyringHealth(), on_slow=told.append, slow_after=0.02)
+        fake_keyring.block = threading.Event()
+        threading.Timer(0.2, fake_keyring.block.set).start()  # the person answers the dialog
+
+        assert store.read_credentials() is None
+        assert told == [2.0]
+
+    def test_a_keyring_that_answers_quickly_is_not_explained(self, fake_keyring):
+        told: list[float] = []
+        store = KeyringCredentialStore(timeout=2.0, health=KeyringHealth(), on_slow=told.append, slow_after=1.0)
+
+        store.write_credentials(CREDENTIALS)
+        assert store.read_credentials() == CREDENTIALS
+
+        assert told == []
+
+    def test_a_keyring_that_never_answers_is_explained_and_then_given_up_on(self, fake_keyring):
+        told: list[float] = []
+        store = KeyringCredentialStore(timeout=0.1, health=KeyringHealth(), on_slow=told.append, slow_after=0.02)
+        fake_keyring.block = threading.Event()
+
+        with pytest.raises(CredentialStoreUnavailable, match="did not answer within 0.1 seconds"):
+            store.read_credentials()
+
+        assert told == [0.1]
+        fake_keyring.block.set()
+
+    def test_a_timeout_that_comes_first_leaves_nothing_to_explain(self, fake_keyring):
+        told: list[float] = []
+        store = KeyringCredentialStore(timeout=0.05, health=KeyringHealth(), on_slow=told.append, slow_after=1.0)
+        fake_keyring.block = threading.Event()
+
+        with pytest.raises(CredentialStoreUnavailable):
+            store.read_credentials()
+
+        assert told == []
+        fake_keyring.block.set()
+
+
 def test_nothing_secret_is_logged(store, fake_keyring, caplog):
     caplog.set_level(logging.DEBUG)
     store.write_credentials(CREDENTIALS)
