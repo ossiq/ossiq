@@ -5,6 +5,7 @@ The clock and the sleep are injected, so nothing here really waits, the 15-minut
 
 import dataclasses
 import json
+import logging
 
 import keyring.errors
 import pytest
@@ -19,19 +20,24 @@ from ossiq.domain.exceptions import (
     GithubAuthDenied,
     GithubAuthRequired,
     GithubAuthTimeout,
+    GithubLoginUnavailable,
 )
 from ossiq.domain.github_auth import DeviceChallenge, GithubCredentials, TokenSource
 from ossiq.service.github_auth import (
     AuthDeps,
     AuthSkipReason,
     CredentialStore,
+    LoginSummary,
     authenticate_github,
     await_login,
     begin_login,
     find_token_source,
     github_auth_status,
+    legacy_token_in_use,
     logout_github,
     resume_login,
+    stored_login,
+    summarize_login,
 )
 from ossiq.settings import GithubAuthMode, Settings
 
@@ -352,6 +358,18 @@ class TestStoredLogin:
 
         assert deps.store.read_credentials() is None
 
+    def test_a_discarded_login_leaves_the_refusal_in_the_log_but_no_token(self, deps, httpserver, caplog):
+        deps.store.write_credentials(DUE)
+        httpserver.expect_request(TOKEN_PATH, method="POST").respond_with_json(SPENT_REFRESH)
+        httpserver.expect_request(DEVICE_PATH, method="POST").respond_with_json(DEVICE_BODY)
+
+        with caplog.at_level(logging.WARNING, logger="ossiq.service.github_auth"), pytest.raises(GithubAuthRequired):
+            scan_auth(deps)
+
+        assert "incorrect_client_credentials" in caplog.text
+        assert "ghr_due" not in caplog.text
+        assert "gho_due" not in caplog.text
+
     def test_a_token_is_checked_with_github_only_once_per_window(self, deps, httpserver, clock):
         deps.store.write_credentials(STORED)
         serve_user(httpserver)
@@ -372,6 +390,80 @@ class TestStoredLogin:
         offline = dataclasses.replace(deps, client=offline_client)
 
         assert scan_auth(offline).settings.github_token == "gho_stored"
+
+
+class TestStoredLoginName:
+    def test_nothing_stored_is_no_login_and_asks_nobody(self, deps, httpserver):
+        assert stored_login(deps) is None
+        assert httpserver.log == []
+
+    def test_a_working_login_names_its_owner(self, deps, httpserver):
+        deps.store.write_credentials(STORED)
+        serve_user(httpserver)
+
+        assert stored_login(deps) == "octocat"
+
+    def test_an_expired_access_token_is_refreshed_before_the_owner_is_asked(self, deps, httpserver):
+        deps.store.write_credentials(DUE)
+        httpserver.expect_request(TOKEN_PATH, method="POST").respond_with_json(
+            {**GRANTED, "access_token": "gho_new", "refresh_token": "ghr_new"}
+        )
+        httpserver.expect_request("/user", headers={"Authorization": "Bearer gho_new"}).respond_with_json(
+            {"login": "octocat"}
+        )
+
+        assert stored_login(deps) == "octocat"
+        saved = deps.store.read_credentials()
+        assert saved is not None
+        assert saved.access_token == "gho_new"
+
+    def test_a_login_github_no_longer_accepts_is_no_login_and_is_discarded(self, deps, httpserver):
+        deps.store.write_credentials(STORED)
+        httpserver.expect_request("/user").respond_with_json({"message": "Bad credentials"}, status=401)
+        httpserver.expect_request(TOKEN_PATH, method="POST").respond_with_json(SPENT_REFRESH)
+
+        assert stored_login(deps) is None
+        assert deps.store.read_credentials() is None
+
+    def test_an_unreachable_github_leaves_the_owner_unknown(self, deps):
+        deps.store.write_credentials(STORED)
+        offline_client = GithubOAuthClient(
+            "test-client", oauth_url="http://127.0.0.1:1", api_url="http://127.0.0.1:1", timeout=1
+        )
+
+        assert stored_login(dataclasses.replace(deps, client=offline_client)) is None
+
+
+class TestSummarizeLogin:
+    def test_names_the_owner_and_the_backend(self, deps, httpserver):
+        serve_user(httpserver)
+
+        summary = summarize_login("gho_login", deps)
+
+        assert summary == LoginSummary(login="octocat", backend="tests.adapters.keyring_fakes.FakeKeyring")
+
+    def test_an_owner_github_cannot_name_leaves_only_the_backend(self, deps, httpserver):
+        httpserver.expect_request("/user").respond_with_json({"message": "Bad credentials"}, status=401)
+
+        summary = summarize_login("gho_login", deps)
+
+        assert summary.login is None
+        assert summary.backend == "tests.adapters.keyring_fakes.FakeKeyring"
+
+
+class TestLegacyTokenInUse:
+    def test_false_without_a_legacy_file(self):
+        assert legacy_token_in_use() is False
+
+    def test_true_when_the_legacy_file_holds_a_token(self):
+        write_config(ossiq.settings.LEGACY_CONFIG_PATH, "ghp_legacy")
+
+        assert legacy_token_in_use() is True
+
+    def test_a_token_in_the_current_config_is_not_a_legacy_one(self):
+        write_config(ossiq.settings.CONFIG_PATH, "ghp_current")
+
+        assert legacy_token_in_use() is False
 
 
 class TestBeginLogin:
@@ -405,14 +497,14 @@ class TestBeginLogin:
         assert isinstance(first, DeviceChallenge) and isinstance(second, DeviceChallenge)
         assert second.user_code == "ABCD-1234"
 
-    def test_a_refusal_comes_back_as_a_value_and_stores_nothing(self, deps, httpserver):
+    def test_a_refusal_raises_with_the_reason_and_stores_nothing(self, deps, httpserver):
         httpserver.expect_request(DEVICE_PATH, method="POST").respond_with_json(
             {"error": "device_flow_disabled", "error_description": "Device Flow must be enabled"}
         )
 
-        result = begin_login(deps)
+        with pytest.raises(GithubLoginUnavailable, match="Device Flow must be enabled"):
+            begin_login(deps)
 
-        assert not isinstance(result, DeviceChallenge)
         assert deps.store.read_pending() is None
 
     def test_an_unusable_keyring_is_found_out_before_a_code_is_requested(self, deps, fake_keyring, httpserver):
@@ -581,6 +673,7 @@ class TestLoginThroughAuthenticate:
 
         assert result.source is TokenSource.KEYRING
         assert result.settings.github_token == "gho_login"
+        assert result.completed_login is False  # approved between runs, so no wait was shown in this one
         assert deps.store.read_pending() is None
 
     def test_a_process_that_polls_elsewhere_does_not_poll_here(self, deps, httpserver):
@@ -633,6 +726,7 @@ class TestLoginThroughAuthenticate:
         assert [challenge.user_code for challenge in shown] == ["WDJB-4729"]
         assert result.source is TokenSource.KEYRING
         assert result.settings.github_token == "gho_login"
+        assert result.completed_login is True
         assert clock.sleeps == [5]
 
     def test_interactive_resuming_a_pending_login_waits_an_interval_between_its_two_polls(

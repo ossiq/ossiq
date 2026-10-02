@@ -8,7 +8,9 @@ from ossiq.domain.exceptions import (
     GithubAuthDenied,
     GithubAuthRequired,
     GithubAuthTimeout,
+    GithubLoginUnavailable,
     GithubRateLimitError,
+    NoLoginInProgress,
     UnknownProjectPackageManager,
 )
 from ossiq.domain.github_auth import DeviceChallenge
@@ -67,6 +69,8 @@ class TestGithubLoginErrors:
         [
             (GithubAuthDenied("cancelled"), "GitHub Login Denied"),
             (GithubAuthTimeout("expired"), "GitHub Login Expired"),
+            (GithubLoginUnavailable("Device Flow must be enabled"), "GitHub Login Unavailable"),
+            (NoLoginInProgress(), "Nothing To Resume"),
             (CredentialStoreUnavailable("locked"), "Credential Store Unavailable"),
         ],
     )

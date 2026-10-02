@@ -6,6 +6,7 @@ touches the real keychain, the network or the wall clock.
 
 import dataclasses
 import inspect
+import json
 import threading
 import time
 from typing import Any, cast
@@ -14,14 +15,16 @@ import keyring.errors
 import pytest
 from pytest_httpserver import HTTPServer
 from typer.testing import CliRunner
+from werkzeug.wrappers import Response
 
 import ossiq.settings
 from ossiq.adapters.credential_store import KeyringCredentialStore, KeyringHealth
 from ossiq.cli import app
 from ossiq.clients.client_github_oauth import GithubOAuthClient
-from ossiq.commands.auth import EXIT_LOGIN_PENDING, keychain_wait_notice
+from ossiq.commands.auth import EXIT_LOGIN_PENDING, login_deps
 from ossiq.domain.github_auth import GithubCredentials
 from ossiq.service.github_auth import AuthDeps
+from ossiq.ui import auth as auth_ui
 
 pytest_plugins = ["tests.adapters.keyring_fakes"]
 
@@ -77,7 +80,7 @@ def deps(httpserver: HTTPServer, fake_keyring, clock: FakeClock, monkeypatch) ->
 
 
 def use_deps(monkeypatch, built: AuthDeps) -> None:
-    monkeypatch.setattr("ossiq.commands.auth.default_deps", lambda settings: built)
+    monkeypatch.setattr("ossiq.commands.auth.default_deps", lambda settings, on_keyring_slow=None: built)
 
 
 @pytest.fixture
@@ -170,6 +173,32 @@ class TestLogin:
         assert result.exit_code == 0
         assert "Already logged in to GitHub as @octocat" in result.stdout
         assert hits(httpserver, DEVICE_PATH) == 0
+
+    def test_a_login_with_an_expired_token_is_refreshed_not_started_again(self, deps, terminal, httpserver):
+        deps.store.write_credentials(dataclasses.replace(STORED, expires_at=int(NOW) - 1))
+        httpserver.expect_request(TOKEN_PATH, method="POST").respond_with_json(GRANTED)
+        serve_user(httpserver)
+
+        result = cli("auth", "login")
+
+        assert result.exit_code == 0
+        assert "Already logged in to GitHub as @octocat" in result.stdout
+        assert hits(httpserver, DEVICE_PATH) == 0
+        saved = deps.store.read_credentials()
+        assert saved is not None
+        assert saved.access_token == "gho_login"
+
+    def test_a_login_page_outside_github_is_refused_and_no_code_is_shown(self, deps, terminal, httpserver):
+        httpserver.expect_request(DEVICE_PATH, method="POST").respond_with_json(
+            {**DEVICE_BODY, "verification_uri": "https://github.example/login/device"}
+        )
+
+        result = cli("auth", "login")
+
+        assert result.exit_code == 1
+        assert "GitHub Login Unavailable" in result.output
+        assert DEVICE_BODY["user_code"] not in result.output
+        assert deps.store.read_pending() is None
 
     def test_a_cancelled_login_is_reported_as_an_error(self, deps, terminal, httpserver):
         terminal(True)
@@ -366,30 +395,22 @@ class TestLogout:
         assert "Nothing to remove" in result.stdout
 
 
-class TestKeychainWaitNotice:
-    def test_says_why_after_a_silence(self, capsys):
-        with keychain_wait_notice(delay=0.02):
-            time.sleep(0.3)
+class TestKeyringSlowNotice:
+    def with_notice(self, deps: AuthDeps, monkeypatch, slow_after: float) -> None:
+        """Swap in a store that speaks up after `slow_after` seconds, as `login_deps` builds it."""
+        store = KeyringCredentialStore(
+            timeout=2.0, health=KeyringHealth(), on_slow=auth_ui.show_keychain_wait, slow_after=slow_after
+        )
+        use_deps(monkeypatch, dataclasses.replace(deps, store=store))
 
-        err = capsys.readouterr().err
-        assert "Waiting for the system keyring" in err
-        assert "3 minutes" in err
+    def test_the_commands_hand_the_store_the_ui_notice(self):
+        store = login_deps(ossiq.settings.Settings()).store
 
-    def test_stays_quiet_when_the_keyring_answers_quickly(self, capsys):
-        with keychain_wait_notice(delay=5):
-            pass
-
-        assert capsys.readouterr().err == ""
-
-    def test_can_be_cancelled(self, capsys):
-        with keychain_wait_notice(delay=0.05) as notice:
-            notice.cancel()
-            time.sleep(0.3)
-
-        assert capsys.readouterr().err == ""
+        assert isinstance(store, KeyringCredentialStore)
+        assert store.on_slow is auth_ui.show_keychain_wait
 
     def test_a_scan_held_up_by_the_keyring_says_so(self, deps, terminal, scan, fake_keyring, httpserver, monkeypatch):
-        monkeypatch.setattr("ossiq.commands.auth.KEYCHAIN_NOTICE_DELAY_SECONDS", 0.02)
+        self.with_notice(deps, monkeypatch, slow_after=0.02)
         serve_device_code(httpserver)
         fake_keyring.block = threading.Event()  # an unanswered dialog
         threading.Timer(0.4, fake_keyring.block.set).start()  # the person answers it
@@ -399,12 +420,25 @@ class TestKeychainWaitNotice:
         assert "Waiting for the system keyring" in result.stderr
         assert result.exit_code == EXIT_LOGIN_PENDING
 
-    def test_the_notice_stops_once_the_wait_is_for_the_persons_approval(
+    def test_a_slow_network_is_not_blamed_on_the_keyring(self, deps, terminal, httpserver, monkeypatch):
+        self.with_notice(deps, monkeypatch, slow_after=0.05)
+
+        def slow_device_code(request):
+            time.sleep(0.3)  # outlasts the notice delay, and none of the keyring's doing
+            return Response(json.dumps(DEVICE_BODY), content_type="application/json")
+
+        httpserver.expect_request(DEVICE_PATH, method="POST").respond_with_handler(slow_device_code)
+
+        result = cli("auth", "login")
+
+        assert result.exit_code == EXIT_LOGIN_PENDING
+        assert "Waiting for the system keyring" not in result.stderr
+
+    def test_a_long_wait_for_the_persons_approval_is_not_blamed_on_the_keyring(
         self, deps, terminal, scan, httpserver, monkeypatch
     ):
         terminal(True)
-        monkeypatch.setattr("ossiq.commands.auth.KEYCHAIN_NOTICE_DELAY_SECONDS", 0.4)
-        use_deps(monkeypatch, dataclasses.replace(deps, sleep=lambda seconds: time.sleep(0.8)))
+        self.with_notice(dataclasses.replace(deps, sleep=lambda seconds: time.sleep(0.4)), monkeypatch, slow_after=0.1)
         serve_device_code(httpserver)
         serve_user(httpserver)
         httpserver.expect_oneshot_request(TOKEN_PATH, method="POST").respond_with_json(
