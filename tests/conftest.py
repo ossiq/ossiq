@@ -7,6 +7,16 @@ import pytest
 import ossiq.settings
 
 
+@pytest.fixture(scope="session")
+def httpserver_listen_address() -> tuple[str, None]:
+    """Bind the shared test HTTP server by IP so no test pays for resolving `localhost`.
+
+    The server listens on IPv4 only, but on Windows `localhost` is tried as ::1 first and the refused
+    attempt costs ~2s per connection, enough to outlast the timers that timing-sensitive tests set.
+    """
+    return "127.0.0.1", None
+
+
 @pytest.fixture(autouse=True)
 def clean_ossiq_env(monkeypatch):
     """Strip OSSIQ_* and GITHUB_TOKEN so Settings() never picks up the host environment.
