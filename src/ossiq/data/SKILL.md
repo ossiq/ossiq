@@ -15,7 +15,13 @@ send any project data to external services. All analysis is performed locally.
 
 Run via `uvx ossiq` (no install needed, works from any directory) or bare `ossiq` if already installed.
 
-**GitHub rate limits:** Without a token, GitHub's API allows 60 req/hr. If you hit rate limits, the user should run `ossiq install skills <tool> --github-token <token>` once to store the token in `~/.ossiq/config` (classic PAT, no scopes needed for public repos raises the limit to 5 000 req/hr). Do not ask the user to pass it manually on every command.
+**GitHub rate limits:** Without a login, GitHub's API allows 60 req/hr; logged in it allows 5 000. If you hit rate limits, or `ossiq` prints a GitHub login code, log in with a one-time code. Never ask the user for a token or put one on a command line.
+
+1. Run `ossiq auth login --no-wait`. It prints a URL and a code and exits with status 75, which means "waiting for approval", not failure.
+2. Show the URL and code to the user exactly as printed, and wait until they say they approved it on GitHub.
+3. Run `ossiq auth login --resume`. Exit 0 means logged in; 75 again means it is not approved yet. A code expires after about 15 minutes: go back to step 1 for a new one.
+
+Through the MCP server, a tool result with `auth_status: PENDING_USER_ACTION` carries the same URL and code. Relay them, wait for the user, then call the same tool again. The login is kept in the system keyring (`ossiq auth status` shows it, `ossiq auth logout` removes it). Without a keyring, or in CI, set `OSSIQ_GITHUB_TOKEN` in the environment instead.
 
 OSS IQ scores dependency health: drift, CVEs, maintainer/bus-factor risk,
 typosquat signals, and a solver-recommended version. Run it **before** you
