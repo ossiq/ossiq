@@ -86,6 +86,57 @@ class TestRequestDeviceCode:
         assert isinstance(result, OAuthFailure)
         assert result.code is OAuthErrorCode.INVALID_RESPONSE
 
+    @pytest.mark.parametrize(
+        "uri",
+        [
+            "http://github.com/login/device",
+            "https://github.example/login/device",
+            "https://github.com.evil.example/login/device",
+            "https://github.com@evil.example/login/device",
+            "https://evil.example@github.com/login/device",
+            "https://github.com:8443/login/device",
+            "https://github.com:notaport/login/device",
+            "javascript:alert(1)",
+            "",
+        ],
+    )
+    def test_refuses_a_verification_page_outside_github_without_echoing_it(self, client, httpserver, uri):
+        httpserver.expect_request("/login/device/code", method="POST").respond_with_json(
+            {
+                "device_code": "DC",
+                "user_code": "WDJB-4729",
+                "verification_uri": uri,
+                "expires_in": 900,
+                "interval": 5,
+            }
+        )
+
+        result = client.request_device_code()
+
+        assert result == OAuthFailure(
+            OAuthErrorCode.INVALID_RESPONSE, description="device code response names a page outside github.com"
+        )
+
+    @pytest.mark.parametrize(
+        "uri",
+        ["https://GitHub.com/login/device", "https://github.com:443/login/device"],
+    )
+    def test_accepts_github_in_any_case_and_with_the_default_port(self, client, httpserver, uri):
+        httpserver.expect_request("/login/device/code", method="POST").respond_with_json(
+            {
+                "device_code": "DC",
+                "user_code": "WDJB-4729",
+                "verification_uri": uri,
+                "expires_in": 900,
+                "interval": 5,
+            }
+        )
+
+        result = client.request_device_code()
+
+        assert isinstance(result, DeviceChallenge)
+        assert result.verification_uri == uri
+
 
 class TestPollOnce:
     def test_walks_pending_then_slow_down_then_granted(self, client, httpserver):

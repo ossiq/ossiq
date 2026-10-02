@@ -10,6 +10,7 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from enum import StrEnum
+from urllib.parse import urlsplit
 
 import requests
 
@@ -20,6 +21,7 @@ from ossiq.domain.github_auth import DeviceChallenge, GithubCredentials
 logger = logging.getLogger(__name__)
 
 GITHUB_OAUTH_URL = "https://github.com"
+GITHUB_HOST = "github.com"
 DEVICE_GRANT_TYPE = "urn:ietf:params:oauth:grant-type:device_code"
 SLOW_DOWN_STEP_SECONDS = 5
 """How much longer to wait after a `slow_down` that names no interval of its own."""
@@ -87,6 +89,20 @@ def failure_from_body(body: dict, interval: int) -> OAuthFailure | None:
     return OAuthFailure(code, error, description, next_interval)
 
 
+def is_github_page(uri: str) -> bool:
+    """Report whether a URI is an https page on github.com itself, with no credentials or custom port in it.
+
+    The user is told to type a login code at this address, so an answer that names any other host is
+    refused rather than shown.
+    """
+    parts = urlsplit(uri)
+    try:
+        port = parts.port
+    except ValueError:
+        return False
+    return parts.scheme == "https" and parts.hostname == GITHUB_HOST and port in (None, 443) and parts.username is None
+
+
 class GithubOAuthClient:
     """Talks to GitHub's device-flow endpoints with an app's public `client_id`.
 
@@ -133,7 +149,7 @@ class GithubOAuthClient:
         if failure is not None:
             return failure
         try:
-            return DeviceChallenge(
+            challenge = DeviceChallenge(
                 user_code=str(body["user_code"]),
                 verification_uri=str(body["verification_uri"]),
                 expires_at=int(self.clock() + float(body["expires_in"])),
@@ -142,6 +158,12 @@ class GithubOAuthClient:
             )
         except (KeyError, TypeError, ValueError):
             return OAuthFailure(OAuthErrorCode.INVALID_RESPONSE, description="device code response is incomplete")
+        if not is_github_page(challenge.verification_uri):
+            # The address itself is left out: it is whatever the answer claimed, not something to echo.
+            return OAuthFailure(
+                OAuthErrorCode.INVALID_RESPONSE, description="device code response names a page outside github.com"
+            )
+        return challenge
 
     def poll_once(self, challenge: DeviceChallenge, interval: int) -> GithubCredentials | OAuthFailure:
         """Ask GitHub once whether the user has approved the login.
