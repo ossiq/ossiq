@@ -69,6 +69,23 @@ class GithubAuthTimeout(ApplicationError):
     hint = "Run `ossiq auth login` to get a new code."
 
 
+class GithubLoginUnavailable(ApplicationError):
+    """Raised when GitHub will not issue a login code: unreachable, refused, or an unusable answer."""
+
+    title = "GitHub Login Unavailable"
+    hint = "Check your connection and run `ossiq auth login` again."
+
+
+class NoLoginInProgress(ApplicationError):
+    """Raised when a login is to be resumed but none was started."""
+
+    title = "Nothing To Resume"
+    hint = "Run `ossiq auth login`."
+
+    def __init__(self) -> None:
+        super().__init__("No GitHub login is in progress.")
+
+
 class CredentialStoreUnavailable(ApplicationError):
     """Raised when the system keyring cannot be used: absent, locked, refused or unresponsive."""
 

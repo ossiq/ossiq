@@ -16,6 +16,7 @@ from typing import Protocol
 
 from dotenv import dotenv_values
 
+# A module import beside the name import below: tests redirect CONFIG_PATH and LEGACY_CONFIG_PATH at runtime.
 import ossiq.settings as settings_module
 from ossiq.adapters.credential_store import KeyringCredentialStore
 from ossiq.clients.client_github_oauth import GithubOAuthClient, OAuthErrorCode, OAuthFailure
@@ -24,6 +25,7 @@ from ossiq.domain.exceptions import (
     GithubAuthDenied,
     GithubAuthRequired,
     GithubAuthTimeout,
+    GithubLoginUnavailable,
 )
 from ossiq.domain.github_auth import AuthStatus, DeviceChallenge, GithubCredentials, TokenSource
 from ossiq.settings import GithubAuthMode, Settings
@@ -81,6 +83,8 @@ class GithubAuthResult:
     skipped: AuthSkipReason | None = None
     """Set only when no token resolved; the front door shows it as a diagnostic."""
     detail: str = ""
+    completed_login: bool = False
+    """True when this call waited for a login to be approved and got its token, so the front door can say so."""
 
 
 VALIDATED_TOKENS: dict[str, float] = {}
@@ -99,9 +103,17 @@ class AuthDeps:
     validated: dict[str, float] = field(default_factory=lambda: VALIDATED_TOKENS)
 
 
-def default_deps(settings: Settings) -> AuthDeps:
-    """Build the real store and client for these settings."""
-    return AuthDeps(store=KeyringCredentialStore(), client=GithubOAuthClient(settings.github_client_id))
+def default_deps(settings: Settings, on_keyring_slow: Callable[[float], None] | None = None) -> AuthDeps:
+    """Build the real store and client for these settings.
+
+    Args:
+        settings: Settings as loaded.
+        on_keyring_slow: Called with the keyring's timeout when it is slow to answer, so a front door can
+            explain the silence. A process with no one to tell, such as the MCP server, leaves it out.
+    """
+    return AuthDeps(
+        store=KeyringCredentialStore(on_slow=on_keyring_slow), client=GithubOAuthClient(settings.github_client_id)
+    )
 
 
 def with_github_token(settings: Settings, token: str) -> Settings:
@@ -113,6 +125,11 @@ def file_token(path: Path) -> str | None:
     """Return the token a dotenv-style config file sets, if any."""
     values = dotenv_values(path)
     return values.get("OSSIQ_GITHUB_TOKEN") or values.get("GITHUB_TOKEN") or None
+
+
+def legacy_token_in_use() -> bool:
+    """Report whether the legacy config file still holds a plaintext GitHub token."""
+    return file_token(settings_module.LEGACY_CONFIG_PATH) is not None
 
 
 def find_token_source(settings: Settings, environ: Mapping[str, str]) -> TokenSource | None:
@@ -229,6 +246,27 @@ def ensure_usable(credentials: GithubCredentials, deps: AuthDeps) -> GithubCrede
     return validate_credentials(credentials, deps)
 
 
+def login_name(access_token: str, deps: AuthDeps) -> str | None:
+    """Look up the GitHub login behind a token, or None when GitHub cannot say."""
+    outcome = deps.client.fetch_login(access_token)
+    return outcome if isinstance(outcome, str) else None
+
+
+def stored_login(deps: AuthDeps) -> str | None:
+    """Return the GitHub login the stored credentials belong to, refreshing them first when they are due.
+
+    Returns:
+        The login, or None when nothing is stored, GitHub no longer accepts the credentials, or it
+        cannot be asked.
+
+    Raises:
+        CredentialStoreUnavailable: The keyring cannot be used.
+    """
+    credentials = deps.store.read_credentials()
+    usable = ensure_usable(credentials, deps) if credentials is not None else None
+    return login_name(usable.access_token, deps) if usable is not None else None
+
+
 def validate_credentials(credentials: GithubCredentials, deps: AuthDeps) -> GithubCredentials | None:
     """Ask GitHub whether it still accepts the token, at most once per VALIDATION_TTL_SECONDS.
 
@@ -279,6 +317,8 @@ def refresh_credentials(credentials: GithubCredentials, deps: AuthDeps, *, rejec
     current = deps.store.read_credentials()
     if current is not None and current != credentials:
         return current
+    # GitHub does not document what a refused refresh looks like, so the code is kept for whoever reads the log.
+    logger.warning("GitHub refused the refresh token (%s); discarding the stored login", result.error or result.code)
     deps.store.delete_credentials()
     return None
 
@@ -315,9 +355,8 @@ def offer_login(
         challenge = begin_login(deps)
     except CredentialStoreUnavailable as error:
         return GithubAuthResult(settings, None, AuthSkipReason.STORE_UNAVAILABLE, str(error))
-    if isinstance(challenge, OAuthFailure):
-        detail = challenge.description or challenge.error or challenge.code.value
-        return GithubAuthResult(settings, None, AuthSkipReason.LOGIN_UNAVAILABLE, detail)
+    except GithubLoginUnavailable as error:
+        return GithubAuthResult(settings, None, AuthSkipReason.LOGIN_UNAVAILABLE, str(error))
     if not interactive:
         raise GithubAuthRequired(challenge)
     if on_challenge is not None:
@@ -330,19 +369,22 @@ def offer_login(
         return GithubAuthResult(settings, None, AuthSkipReason.LOGIN_EXPIRED, str(error))
     except CredentialStoreUnavailable as error:
         return GithubAuthResult(settings, None, AuthSkipReason.STORE_UNAVAILABLE, str(error))
-    return GithubAuthResult(with_github_token(settings, credentials.access_token), TokenSource.KEYRING)
+    return GithubAuthResult(
+        with_github_token(settings, credentials.access_token), TokenSource.KEYRING, completed_login=True
+    )
 
 
-def begin_login(deps: AuthDeps) -> DeviceChallenge | OAuthFailure:
+def begin_login(deps: AuthDeps) -> DeviceChallenge:
     """Start a login, or return the one already pending so no second code is requested.
 
     The store is checked first: a login approved while its token cannot be saved is wasted.
 
     Returns:
-        The challenge to show the user, or why GitHub would not issue one.
+        The challenge to show the user.
 
     Raises:
         CredentialStoreUnavailable: The keyring cannot hold the login.
+        GithubLoginUnavailable: GitHub would not issue a code.
     """
     if not deps.store.available():
         raise CredentialStoreUnavailable("The system keyring cannot hold a GitHub login on this machine.")
@@ -351,7 +393,7 @@ def begin_login(deps: AuthDeps) -> DeviceChallenge | OAuthFailure:
         return pending
     challenge = deps.client.request_device_code()
     if isinstance(challenge, OAuthFailure):
-        return challenge
+        raise GithubLoginUnavailable(challenge.description or challenge.error or challenge.code.value)
     deps.store.write_pending(challenge)
     return challenge
 
@@ -430,6 +472,21 @@ def settle_poll(result: GithubCredentials | OAuthFailure, deps: AuthDeps) -> Git
     raise GithubAuthTimeout(f"GitHub rejected the login code: {result.description or result.error}")
 
 
+@dataclass(frozen=True)
+class LoginSummary:
+    """Who a fresh login belongs to and where it is kept, for the front door to report."""
+
+    login: str | None
+    """`None` when GitHub could not say."""
+    backend: str | None
+    """The keyring backend holding the login; `None` when it cannot be named."""
+
+
+def summarize_login(access_token: str, deps: AuthDeps) -> LoginSummary:
+    """Look up the login behind a token that was just issued, and the backend that stores it."""
+    return LoginSummary(login=login_name(access_token, deps), backend=deps.store.backend_name())
+
+
 def github_auth_status(settings: Settings, deps: AuthDeps | None = None) -> AuthStatus:
     """Describe the token in use and what is known about it, changing nothing.
 
@@ -437,7 +494,7 @@ def github_auth_status(settings: Settings, deps: AuthDeps | None = None) -> Auth
     """
     deps = deps or default_deps(settings)
     source = find_token_source(settings, deps.environ)
-    legacy = file_token(settings_module.LEGACY_CONFIG_PATH) is not None
+    legacy = legacy_token_in_use()
     token = settings.github_token
     credentials = None
     backend = None
@@ -449,10 +506,9 @@ def github_auth_status(settings: Settings, deps: AuthDeps | None = None) -> Auth
             credentials = None
         if credentials is not None:
             source, token = TokenSource.KEYRING, credentials.access_token
-    login = deps.client.fetch_login(token) if token else None
     return AuthStatus(
         source=source,
-        login=login if isinstance(login, str) else None,
+        login=login_name(token, deps) if token else None,
         scope=credentials.scope if credentials is not None else None,
         expires_at=credentials.expires_at if credentials is not None else None,
         backend=backend,
