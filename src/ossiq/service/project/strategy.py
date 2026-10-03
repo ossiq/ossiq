@@ -24,6 +24,7 @@ from ossiq.domain.common import (
     RejectedCandidate,
     RejectionDetail,
 )
+from ossiq.domain.release_cutoff import ReleaseCutoff
 from ossiq.risk.maintenance import DEPRECATION_NONE
 from ossiq.service.common.package_versions import PackageVersion
 from ossiq.service.project.breaking_changes import (
@@ -46,7 +47,7 @@ from ossiq.strategy.motive import PackageFacts, is_qualifying_score
 from ossiq.strategy.overrides import StrategyPlan
 from ossiq.strategy.pyramid import ESCALATING_MOTIVES, MODULE_BREAK_TIERS
 from ossiq.strategy.targeting import Candidate, StrategySelection, select_target
-from ossiq.timeutil import age_days_from_iso
+from ossiq.timeutil import age_days_from_iso, parse_iso_datetime
 
 __all__ = ["PackageFacts", "StrategyPlan", "apply_update_strategy", "build_candidates", "facts_from_record"]
 
@@ -257,6 +258,7 @@ def build_candidates(
             rung=rung,
             has_cve=any(cve_affects_version(cve, pv.version) for cve in qualifying_cves),
             age_days=age_days_from_iso(pv.published_date_iso, now=now),
+            published_at=parse_iso_datetime(pv.published_date_iso),
         )
 
         if validator is None:
@@ -303,6 +305,7 @@ def apply_update_strategy(
     project_declares_esm: bool = False,
     engine_context: EngineContext | None = None,
     cooldown_period: int = 0,
+    release_cutoff: ReleaseCutoff | None = None,
 ) -> None:
     """Run the selector for each record and write its verdict, replacing `apply_ladder_fallback`.
 
@@ -326,7 +329,8 @@ def apply_update_strategy(
     recommended a release `apply` then refused. `cooldown_period` is forwarded to `select_target`,
     which prefers an aged release, blanks the target when only fresh ones are reachable (recording
     `strategy_selection.cooldown_hold`), and sets `cooldown_bypassed` when a CVE or end-of-life
-    motive justified taking a fresh one anyway.
+    motive justified taking a fresh one anyway. `release_cutoff`, the package manager's own limit,
+    goes to `select_target` too and binds whatever the motive, since the installer enforces it.
 
     Re-simulates transitive impacts for any record whose target changed, since a stale
     `update_transitive_impacts` (computed against the old target) would otherwise mislead the
@@ -364,13 +368,17 @@ def apply_update_strategy(
         )
 
         built = build(strict_gates=module_gates)
-        selection = select_target(facts, strategy, built.candidates, cooldown_period=cooldown_period)
+        selection = select_target(
+            facts, strategy, built.candidates, cooldown_period=cooldown_period, release_cutoff=release_cutoff
+        )
         if built.strictly_gated and selection.motives & ESCALATING_MOTIVES and not clears_motive(selection, built):
             # A CVE or end-of-life motive with no clean answer left on the module line: security
             # beats build convenience, so the gated releases come back in. Drift alone never
             # reaches here, which is what keeps a CommonJS project on its CommonJS line.
             waived = build(strict_gates=())
-            waived_selection = select_target(facts, strategy, waived.candidates, cooldown_period=cooldown_period)
+            waived_selection = select_target(
+                facts, strategy, waived.candidates, cooldown_period=cooldown_period, release_cutoff=release_cutoff
+            )
             if clears_motive(waived_selection, waived):
                 built, selection = waived, waived_selection
         record.strategy_selection = selection
@@ -418,5 +426,6 @@ def apply_update_strategy(
                 installed_names=installed_names,
                 now=now,
                 installed_version=record.installed_version,
+                release_cutoff=release_cutoff,
             )
             record.update_transitive_impacts = impact.transitive_impacts if impact.is_actionable else []

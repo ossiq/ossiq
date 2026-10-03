@@ -11,9 +11,6 @@ from collections import defaultdict, namedtuple
 from collections.abc import Callable, Iterable
 from typing import TYPE_CHECKING
 
-from univers.version_constraint import InvalidConstraintsError
-from univers.version_range import InvalidVersionRange, NpmVersionRange
-
 from ossiq.adapters.api_interfaces import AbstractPackageManagerApi
 from ossiq.adapters.package_managers.dependency_tree import BaseDependencyResolver
 from ossiq.adapters.package_managers.utils import find_lockfile_parser
@@ -23,6 +20,7 @@ from ossiq.domain.packages_manager import NPM, PackageManagerType
 from ossiq.domain.project import ConstraintSource, Dependency, Project
 from ossiq.domain.version import classify_npm_specifier, normalize_version
 from ossiq.settings import Settings
+from ossiq.solver.npm_range import Operator, parse_npm_range
 
 if TYPE_CHECKING:
     from ossiq.service.update import UpdatePlan
@@ -220,29 +218,36 @@ def parse_node_engine(engines: dict | list | None) -> str | None:
     return None
 
 
-NODE_FLOOR_COMPARATORS = frozenset({">=", "=", "=="})
+# Operators whose version the range itself admits, so a minimum equal to it is a named bound.
+NODE_FLOOR_OPERATORS = frozenset({Operator.GTE, Operator.EQ})
 
 
 def extract_min_node_version(node_range: str) -> str | None:
     """Return the lowest concrete version admitted by an engines.node range.
 
     ">=18.0.0" -> "18.0.0", "^18" -> "18.0.0", "~18.4" -> "18.4.0", "18 || 20" -> "18.0.0",
-    ">=18.0.0 <20.0.0" -> "18.0.0", "16.0.0 - 18.0.0" -> "16.0.0", "18.x" -> "18.0.0".
-    None for ranges with no lower bound this can name exactly ("<20", "*", ">18.0.0") or that fail
-    to parse ("!=19") — mirrors utils.extract_min_python_version's contract, which accepts only
-    >=, ~= and == for the same reason: an exclusive ">" names a bound the range itself excludes.
+    ">=18.0.0 <20.0.0" -> "18.0.0", "16.0.0 - 18.0.0" -> "16.0.0", "18.x" -> "18.0.0",
+    ">=18.x" -> "18.0.0", ">17" -> "18.0.0".
+    None for ranges with no lower bound this can name exactly ("<20", "*", "<16 || >=18",
+    ">18.0.0") or that fail to parse ("!=19") — mirrors utils.extract_min_python_version's
+    contract, which accepts only >=, ~= and == for the same reason: an exclusive ">18.0.0" names a
+    bound the range itself excludes. ">17" is not exclusive in that sense: npm reads it as ">=18.0.0".
 
-    Range parsing is univers's NpmVersionRange (the same parser solver.version_matchers matches
-    against), not hand-rolled: it already normalizes caret/tilde/x/hyphen forms and pads partial
-    versions, and flattens `||` branches so the result is the lowest bound anywhere in the range.
+    The minimum is node-semver's own `minVersion`, via `solver.npm_range` — the same parser
+    `solver.version_matchers` matches against — kept only when an inclusive bound names it.
     """
     try:
-        constraints = NpmVersionRange.from_native(node_range).constraints
-    except (ValueError, InvalidVersionRange, InvalidConstraintsError):
+        npm_range = parse_npm_range(node_range)
+    except ValueError:
         return None
-
-    floors = [c.version for c in constraints if c.comparator in NODE_FLOOR_COMPARATORS and c.version is not None]
-    return str(min(floors)) if floors else None
+    floor = npm_range.min_version()
+    named = {
+        comparator.version
+        for comparators in npm_range.comparator_sets
+        for comparator in comparators
+        if comparator.operator in NODE_FLOOR_OPERATORS
+    }
+    return str(floor) if floor is not None and floor in named else None
 
 
 # The engine keys a project's own `engines` block can declare a floor for. Kept in step with

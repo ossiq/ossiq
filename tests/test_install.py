@@ -1,69 +1,84 @@
 """Tests for the `install skills` command."""
 
 import json
-from pathlib import Path
 
-import pytest
 from typer.testing import CliRunner
 
 from ossiq.cli import app
 from ossiq.commands import install
 
 SKILL_CONTENT = "# ossiq skill\nbody\n"
+OLD_TOKEN_ENTRY = {"command": "ossiq", "args": ["mcp"], "env": {"OSSIQ_GITHUB_TOKEN": "ghp_old_secret"}}
 
 
-@pytest.fixture(autouse=True)
-def patch_config_path(tmp_path, monkeypatch):
-    """Keep token writes out of the developer's real ~/.ossiq/config."""
-    monkeypatch.setattr(install, "CONFIG_PATH", tmp_path / ".ossiq" / "config")
+def use_home(tmp_path, monkeypatch):
+    monkeypatch.setattr(install.Path, "home", classmethod(lambda cls: tmp_path))
 
 
 def test_merge_mcp_config_creates_new_file(tmp_path):
     path = tmp_path / "mcp.json"
-    install.merge_mcp_config(path, None)
+    assert install.merge_mcp_config(path) is False
     config = json.loads(path.read_text(encoding="utf-8"))
-    assert config["mcpServers"]["ossiq"] == install.build_mcp_entry(None)
+    assert config["mcpServers"]["ossiq"] == install.build_mcp_entry()
 
 
 def test_merge_mcp_config_preserves_existing_entries(tmp_path):
     path = tmp_path / "mcp.json"
     path.write_text(json.dumps({"mcpServers": {"other": {"command": "other"}}}), encoding="utf-8")
-    install.merge_mcp_config(path, None)
+    install.merge_mcp_config(path)
     config = json.loads(path.read_text(encoding="utf-8"))
     assert config["mcpServers"]["other"] == {"command": "other"}
-    assert config["mcpServers"]["ossiq"] == install.build_mcp_entry(None)
+    assert config["mcpServers"]["ossiq"] == install.build_mcp_entry()
 
 
-def test_merge_mcp_config_injects_github_token(tmp_path):
+def test_the_mcp_entry_never_carries_a_token():
+    assert "env" not in install.build_mcp_entry()
+    assert "env" not in install.build_mcp_entry("/dev/checkout")
+
+
+def test_merge_mcp_config_scrubs_a_token_an_earlier_install_stored(tmp_path):
     path = tmp_path / "mcp.json"
-    install.merge_mcp_config(path, "ghp_test123")
-    config = json.loads(path.read_text(encoding="utf-8"))
-    assert config["mcpServers"]["ossiq"]["env"] == {"OSSIQ_GITHUB_TOKEN": "ghp_test123"}
+    path.write_text(json.dumps({"mcpServers": {"ossiq": OLD_TOKEN_ENTRY}}), encoding="utf-8")
+
+    assert install.merge_mcp_config(path) is True
+
+    text = path.read_text(encoding="utf-8")
+    assert "ghp_old_secret" not in text
+    assert "env" not in json.loads(text)["mcpServers"]["ossiq"]
 
 
 def test_install_claude_writes_skill_and_mcp(tmp_path):
-    install.install_claude(tmp_path, SKILL_CONTENT, None)
+    assert install.install_claude(tmp_path, SKILL_CONTENT) is None
     assert (tmp_path / ".claude" / "skills" / "ossiq" / "SKILL.md").read_text(encoding="utf-8") == SKILL_CONTENT
     config = json.loads((tmp_path / ".claude" / "mcp.json").read_text(encoding="utf-8"))
-    assert config["mcpServers"]["ossiq"] == install.build_mcp_entry(None)
+    assert config["mcpServers"]["ossiq"] == install.build_mcp_entry()
 
 
 def test_install_codex_writes_skill_and_mcp(tmp_path):
-    install.install_codex(tmp_path, SKILL_CONTENT, None)
+    assert install.install_codex(tmp_path, SKILL_CONTENT) is None
     assert (tmp_path / ".codex" / "skills" / "ossiq" / "SKILL.md").read_text(encoding="utf-8") == SKILL_CONTENT
     config = json.loads((tmp_path / ".codex" / "mcp.json").read_text(encoding="utf-8"))
-    assert config["mcpServers"]["ossiq"] == install.build_mcp_entry(None)
+    assert config["mcpServers"]["ossiq"] == install.build_mcp_entry()
+
+
+def test_installers_report_which_file_they_scrubbed(tmp_path):
+    for tool, relative in (("claude", ".claude/mcp.json"), ("codex", ".codex/mcp.json")):
+        path = tmp_path / relative
+        path.parent.mkdir(parents=True)
+        path.write_text(json.dumps({"mcpServers": {"ossiq": OLD_TOKEN_ENTRY}}), encoding="utf-8")
+
+        assert install.INSTALLERS[tool](tmp_path, SKILL_CONTENT) == path
 
 
 def test_install_copilot_writes_instructions(tmp_path):
-    install.install_copilot(tmp_path, SKILL_CONTENT, None)
+    assert install.install_copilot(tmp_path, SKILL_CONTENT) is None
     text = (tmp_path / ".copilot" / "copilot-instructions.md").read_text(encoding="utf-8")
     assert SKILL_CONTENT in text
 
 
 def test_install_copilot_is_idempotent_and_updates_block(tmp_path):
-    install.install_copilot(tmp_path, SKILL_CONTENT, None)
-    install.install_copilot(tmp_path, "# ossiq skill\nupdated body\n", None)
+    install.install_copilot(tmp_path, SKILL_CONTENT)
+    install.install_copilot(tmp_path, "# ossiq skill\nupdated body\n")
     text = (tmp_path / ".copilot" / "copilot-instructions.md").read_text()
     assert text.count(install.COPILOT_START) == 1
     assert "updated body" in text
@@ -74,7 +89,7 @@ def test_install_copilot_preserves_unrelated_content(tmp_path):
     path = tmp_path / ".copilot" / "copilot-instructions.md"
     path.parent.mkdir(parents=True)
     path.write_text("# My custom instructions\n", encoding="utf-8")
-    install.install_copilot(tmp_path, SKILL_CONTENT, None)
+    install.install_copilot(tmp_path, SKILL_CONTENT)
     text = path.read_text(encoding="utf-8")
     assert "# My custom instructions" in text
     assert SKILL_CONTENT in text
@@ -87,50 +102,81 @@ def test_skills_command_unknown_tool_exits_nonzero():
 
 
 def test_skills_command_installs_single_tool(tmp_path, monkeypatch):
-    monkeypatch.setattr(install.Path, "home", classmethod(lambda cls: tmp_path))
+    use_home(tmp_path, monkeypatch)
     runner = CliRunner()
-    result = runner.invoke(app, ["install", "skills", "claude"], input="\n")
+    result = runner.invoke(app, ["install", "skills", "claude"])
     assert result.exit_code == 0
     assert (tmp_path / ".claude" / "skills" / "ossiq" / "SKILL.md").exists()
     assert not (tmp_path / ".codex").exists()
 
 
-def test_skills_command_stores_token_in_mcp(tmp_path, monkeypatch):
-    monkeypatch.setattr(install.Path, "home", classmethod(lambda cls: tmp_path))
-    runner = CliRunner()
-    result = runner.invoke(app, ["install", "skills", "claude", "--github-token", "ghp_abc"])
-    assert result.exit_code == 0
-    config = json.loads((tmp_path / ".claude" / "mcp.json").read_text(encoding="utf-8"))
-    assert config["mcpServers"]["ossiq"]["env"] == {"OSSIQ_GITHUB_TOKEN": "ghp_abc"}
-
-
-def test_skills_command_writes_config_file(tmp_path, monkeypatch):
-    monkeypatch.setattr(install.Path, "home", classmethod(lambda cls: tmp_path))
-    runner = CliRunner()
-    result = runner.invoke(app, ["install", "skills", "claude", "--github-token", "ghp_stored"])
-    assert result.exit_code == 0
-    config_text = (tmp_path / ".ossiq" / "config").read_text(encoding="utf-8")
-    assert "OSSIQ_GITHUB_TOKEN=ghp_stored" in config_text
-
-
 def test_skills_command_default_installs_all_tools(tmp_path, monkeypatch):
-    monkeypatch.setattr(install.Path, "home", classmethod(lambda cls: tmp_path))
+    use_home(tmp_path, monkeypatch)
     runner = CliRunner()
-    result = runner.invoke(app, ["install", "skills"], input="\n")
+    result = runner.invoke(app, ["install", "skills"])
     assert result.exit_code == 0
     assert (tmp_path / ".claude" / "skills" / "ossiq" / "SKILL.md").exists()
     assert (tmp_path / ".codex" / "skills" / "ossiq" / "SKILL.md").exists()
     assert (tmp_path / ".copilot" / "copilot-instructions.md").exists()
 
 
-def test_skills_command_blank_token_prompt_skips_storage(tmp_path, monkeypatch):
-    monkeypatch.setattr(install.Path, "home", classmethod(lambda cls: tmp_path))
+def test_skills_command_does_not_ask_for_a_token(tmp_path, monkeypatch):
+    use_home(tmp_path, monkeypatch)
     runner = CliRunner()
-    result = runner.invoke(app, ["install", "skills", "claude"], input="\n")
+
+    result = runner.invoke(app, ["install", "skills", "claude"])  # no input: a prompt would abort
+
     assert result.exit_code == 0
-    assert not (tmp_path / ".ossiq" / "config").exists()
+    assert "GitHub token (leave blank" not in result.output
     config = json.loads((tmp_path / ".claude" / "mcp.json").read_text(encoding="utf-8"))
     assert "env" not in config["mcpServers"]["ossiq"]
+
+
+def test_skills_command_points_at_the_login(tmp_path, monkeypatch):
+    use_home(tmp_path, monkeypatch)
+    runner = CliRunner()
+
+    result = runner.invoke(app, ["install", "skills", "claude"])
+
+    assert "ossiq auth login" in result.stdout
+
+
+def test_skills_command_no_longer_stores_a_token_passed_on_the_command_line(tmp_path, monkeypatch):
+    use_home(tmp_path, monkeypatch)
+    runner = CliRunner()
+
+    result = runner.invoke(app, ["install", "skills", "claude", "--github-token", "ghp_abc"])
+
+    assert result.exit_code == 0
+    assert "no longer stored" in result.stderr
+    config_text = (tmp_path / ".claude" / "mcp.json").read_text(encoding="utf-8")
+    assert "ghp_abc" not in config_text
+    assert not list(tmp_path.rglob("config"))  # no config file written anywhere under home
+
+
+def test_skills_command_scrubs_an_old_token_and_says_so(tmp_path, monkeypatch):
+    use_home(tmp_path, monkeypatch)
+    path = tmp_path / ".claude" / "mcp.json"
+    path.parent.mkdir(parents=True)
+    path.write_text(json.dumps({"mcpServers": {"ossiq": OLD_TOKEN_ENTRY}}), encoding="utf-8")
+    runner = CliRunner()
+
+    result = runner.invoke(app, ["install", "skills", "claude"])
+
+    assert "ghp_old_secret" not in path.read_text(encoding="utf-8")
+    assert f"removed the GitHub token an earlier install stored in {path}" in result.stdout
+
+
+def test_skills_command_never_edits_the_legacy_config_file(tmp_path, monkeypatch):
+    use_home(tmp_path, monkeypatch)
+    legacy = tmp_path / ".ossiq" / "config"
+    legacy.parent.mkdir(parents=True)
+    legacy.write_text("OSSIQ_GITHUB_TOKEN=ghp_legacy\n", encoding="utf-8")
+    runner = CliRunner()
+
+    runner.invoke(app, ["install", "skills", "claude", "--github-token", "ghp_abc"])
+
+    assert legacy.read_text(encoding="utf-8") == "OSSIQ_GITHUB_TOKEN=ghp_legacy\n"
 
 
 def test_load_skill_content_bundles_agent_contract():
@@ -138,66 +184,3 @@ def test_load_skill_content_bundles_agent_contract():
     assert "name: ossiq-dependency-check" in content
     assert install.SKILL_UVX_PROD in content
     assert "ossiq_evaluate_dependency" in content
-    assert "ossiq_evaluate_updates" in content
-    assert "next_action" in content
-
-
-def test_build_mcp_entry_dev_path():
-    entry = install.build_mcp_entry(None, dev_path="/path/to/ossiq")
-    assert entry["command"] == "uv"
-    assert "--directory" in entry["args"]
-    assert "/path/to/ossiq" in entry["args"]
-
-
-def test_resolve_ossiq_binary_prefers_absolute_path_from_which(tmp_path, monkeypatch):
-    binary = tmp_path / "bin" / "ossiq"
-    binary.parent.mkdir(parents=True)
-    binary.touch()
-    monkeypatch.setattr(install.shutil, "which", lambda name: str(binary))
-    assert install.resolve_ossiq_binary() == str(binary.resolve())
-
-
-def test_resolve_ossiq_binary_falls_back_to_argv0(tmp_path, monkeypatch):
-    binary = tmp_path / "ossiq"
-    binary.touch()
-    monkeypatch.setattr(install.shutil, "which", lambda name: None)
-    monkeypatch.setattr(install.sys, "argv", [str(binary)])
-    assert install.resolve_ossiq_binary() == str(binary.resolve())
-
-
-def test_resolve_ossiq_binary_falls_back_to_bare_name(monkeypatch):
-    monkeypatch.setattr(install.shutil, "which", lambda name: None)
-    monkeypatch.setattr(install.sys, "argv", ["/usr/bin/pytest"])
-    assert install.resolve_ossiq_binary() == "ossiq"
-
-
-def test_build_mcp_entry_uses_absolute_path(tmp_path, monkeypatch):
-    """Agent harnesses sanitise PATH in subshells, so the entry must not rely on it."""
-    binary = tmp_path / "bin" / "ossiq"
-    binary.parent.mkdir(parents=True)
-    binary.touch()
-    monkeypatch.setattr(install.shutil, "which", lambda name: str(binary))
-    entry = install.build_mcp_entry(None)
-    assert entry["command"] == str(binary.resolve())
-    assert Path(entry["command"]).is_absolute()
-    assert entry["args"] == ["mcp"]
-
-
-def test_apply_dev_path_substitutes_invocation():
-    content = f"run {install.SKILL_UVX_PROD} info pkg ."
-    result = install.apply_dev_settings(content, "/path/to/ossiq")
-    assert "uvx --from /path/to/ossiq --no-cache ossiq" in result
-    assert install.SKILL_UVX_PROD not in result
-
-
-def test_skills_command_dev_flag_patches_skill_and_mcp(tmp_path, monkeypatch):
-    monkeypatch.setattr(install.Path, "home", classmethod(lambda cls: tmp_path))
-    runner = CliRunner()
-    result = runner.invoke(app, ["install", "skills", "claude", "--dev", "/path/to/ossiq"], input="\n")
-    assert result.exit_code == 0
-    skill = (tmp_path / ".claude" / "skills" / "ossiq" / "SKILL.md").read_text(encoding="utf-8")
-    assert "uvx --from /path/to/ossiq --no-cache ossiq" in skill
-    assert install.SKILL_UVX_PROD not in skill
-    config = json.loads((tmp_path / ".claude" / "mcp.json").read_text(encoding="utf-8"))
-    assert config["mcpServers"]["ossiq"]["command"] == "uv"
-    assert "/path/to/ossiq" in config["mcpServers"]["ossiq"]["args"]

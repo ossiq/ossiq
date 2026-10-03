@@ -2,6 +2,8 @@
 Domain-specific exceptions.
 """
 
+from ossiq.domain.github_auth import RAISE_LIMIT_ADVICE, DeviceChallenge
+
 
 class ApplicationError(Exception):
     """Base class for application-specific errors."""
@@ -32,7 +34,7 @@ class GithubRateLimitError(ApplicationError):
     """Raised when the GitHub API rate limit is exceeded."""
 
     title = "GitHub Rate Limit"
-    hint = "Set OSSIQ_GITHUB_TOKEN (or --github-token) to raise the limit to 5,000 requests/hour."
+    hint = RAISE_LIMIT_ADVICE
 
     def __init__(self, remaining: str, total: str, reset_time: str):
         self.remaining = remaining
@@ -40,6 +42,55 @@ class GithubRateLimitError(ApplicationError):
         self.reset_time = reset_time
         message = f"GitHub API rate limit exceeded. Limit: {remaining} of {total} remaining. Resets at: {reset_time}."
         super().__init__(message)
+
+
+class GithubAuthRequired(ApplicationError):
+    """Raised when a scan needs a GitHub login the user has not approved yet."""
+
+    title = "GitHub Login Required"
+    hint = "Approve the login on GitHub, then run the command again."
+
+    def __init__(self, challenge: DeviceChallenge):
+        self.challenge = challenge
+        super().__init__(f"Open {challenge.verification_uri} and enter the code {challenge.user_code}.")
+
+
+class GithubAuthDenied(ApplicationError):
+    """Raised when the user cancels the login on GitHub's authorization page."""
+
+    title = "GitHub Login Denied"
+    hint = "Run `ossiq auth login` to try again, or set OSSIQ_GITHUB_TOKEN."
+
+
+class GithubAuthTimeout(ApplicationError):
+    """Raised when the login code expires before the user approves it."""
+
+    title = "GitHub Login Expired"
+    hint = "Run `ossiq auth login` to get a new code."
+
+
+class GithubLoginUnavailable(ApplicationError):
+    """Raised when GitHub will not issue a login code: unreachable, refused, or an unusable answer."""
+
+    title = "GitHub Login Unavailable"
+    hint = "Check your connection and run `ossiq auth login` again."
+
+
+class NoLoginInProgress(ApplicationError):
+    """Raised when a login is to be resumed but none was started."""
+
+    title = "Nothing To Resume"
+    hint = "Run `ossiq auth login`."
+
+    def __init__(self) -> None:
+        super().__init__("No GitHub login is in progress.")
+
+
+class CredentialStoreUnavailable(ApplicationError):
+    """Raised when the system keyring cannot be used: absent, locked, refused or unresponsive."""
+
+    title = "Credential Store Unavailable"
+    hint = "Set OSSIQ_GITHUB_TOKEN to use a token without the system keyring."
 
 
 class UnableLoadPackage(ApplicationError):

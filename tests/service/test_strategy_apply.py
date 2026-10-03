@@ -19,9 +19,11 @@ from ossiq.domain.common import (
 )
 from ossiq.domain.cve import CVE, AffectedRange, Severity
 from ossiq.domain.project import ConstraintSource
+from ossiq.domain.release_cutoff import ReleaseCutoff
 from ossiq.domain.version import PackageVersion, VersionsDifference
 from ossiq.service.project.ladder import compute_version_ladder
 from ossiq.service.project.models import ScanRecord
+from ossiq.service.project.next_action import WAIT_FOR_COOLDOWN, next_action_label
 from ossiq.service.project.strategy import apply_update_strategy, build_candidates
 from ossiq.service.update_impact import DirectUpdateImpact, TransitiveImpact
 from ossiq.strategy.overrides import StrategyPlan
@@ -963,6 +965,95 @@ class TestApplyUpdateStrategyCooldown:
         assert record.recommended_version == "1.1.0"
         assert record.recommended_version_reason is not None
         assert record.recommended_version_reason.age_days == 12
+
+
+# uv's `exclude-newer = "14 days"`, resolved at NOW.
+UV_CUTOFF = ReleaseCutoff("uv exclude-newer", default=datetime(2024, 5, 18, tzinfo=UTC))
+
+
+class TestApplyUpdateStrategyReleaseCutoff:
+    """The package manager's own cutoff binds the selector, and the hold names the package manager."""
+
+    def run(self, record: ScanRecord, registry: MagicMock, **kwargs) -> None:
+        apply_update_strategy(
+            [record],
+            registry,
+            STANDARD_PLAN,
+            versions_since={
+                (record.package_name, record.installed_version): list(registry.package_versions(record.package_name))
+            },
+            transitive_by_name={},
+            installed_names=set(),
+            allow_prerelease=False,
+            now=NOW,
+            release_cutoff=UV_CUTOFF,
+            **kwargs,
+        )
+
+    def test_prefers_the_newest_release_the_package_manager_accepts(self) -> None:
+        registry = make_registry(
+            {
+                "cel": [
+                    pv("0.9.0", published="2024-05-10T00:00:00Z"),
+                    pv("0.10.0", published="2024-05-20T00:00:00Z"),
+                ]
+            }
+        )
+        record = make_record("cel", "0.8.0")
+
+        self.run(record, registry, cooldown_period=7)
+
+        # 0.10.0 is 12 days old - past OSS IQ's 7-day cooldown, but not uv's 14 days.
+        assert record.recommended_version == "0.9.0"
+
+    def test_hold_is_attributed_to_the_package_manager(self) -> None:
+        registry = make_registry({"cel": [pv("0.10.0", published="2024-05-20T00:00:00Z")]})
+        record = make_record("cel", "0.8.0")
+
+        self.run(record, registry, cooldown_period=7)
+
+        assert record.recommended_version is None
+        assert record.strategy_selection is not None
+        hold = record.strategy_selection.cooldown_hold
+        assert hold is not None
+        assert (hold.version, hold.enforced_by, hold.cutoff) == ("0.10.0", "uv exclude-newer", UV_CUTOFF.default)
+        assert next_action_label(record) == WAIT_FOR_COOLDOWN
+
+    def test_a_cve_does_not_lift_the_package_manager_hold(self) -> None:
+        registry = make_registry({"cel": [pv("0.10.0", published="2024-05-20T00:00:00Z")]})
+        record = make_record("cel", "0.8.0")
+        record.cve = [
+            CVE(
+                id="GHSA-cel",
+                cve_ids=("GHSA-cel",),
+                source=CveDatabase.OSV,
+                package_name="cel",
+                package_registry=ProjectPackagesRegistry.PYPI,
+                summary="cel < 0.10.0",
+                severity=Severity.HIGH,
+                affected_versions=("0.8.0",),
+                published=None,
+                link="https://osv.dev/vulnerability/GHSA-cel",
+            )
+        ]
+
+        self.run(record, registry, cooldown_period=7)
+
+        assert record.recommended_version is None
+        assert record.strategy_selection is not None
+        assert record.strategy_selection.cooldown_hold is not None
+        assert record.strategy_selection.cooldown_hold.enforced_by == "uv exclude-newer"
+
+    def test_an_installed_version_past_the_cutoff_is_left_alone(self) -> None:
+        """uv keeps a locked release past its cutoff, so there is nothing to recommend - or hold."""
+        registry = make_registry({"cel": [pv("0.10.0", published="2024-05-20T00:00:00Z")]})
+        record = make_record("cel", "0.10.0")
+
+        self.run(record, registry)
+
+        assert record.recommended_version is None
+        assert record.strategy_selection is not None
+        assert record.strategy_selection.cooldown_hold is None
 
 
 # Release shapes from the npm registry as of 2026-09-08 (see PLAN.md, Milestone 1 findings). chalk

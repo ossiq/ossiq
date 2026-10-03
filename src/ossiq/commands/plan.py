@@ -24,6 +24,7 @@ from ossiq.messages import (
     HELP_PLAN_NO_RECOMMENDATIONS,
     HELP_PLAN_NO_RECOMMENDATIONS_FOR_TIER,
     WARNING_OVERRIDE_AMBIGUOUS_ALIAS,
+    WARNING_OVERRIDE_PAST_RELEASE_CUTOFF,
     WARNING_OVERRIDE_VERSION_UNKNOWN,
     WARNING_STRATEGY_OVERRIDE_SHADOWED_BY_OVERRIDE,
     WARNING_STRATEGY_OVERRIDE_UNKNOWN_PACKAGE,
@@ -42,6 +43,7 @@ from ossiq.sources import project_sources
 from ossiq.sources.project_sources import ProjectSources
 from ossiq.strategy.overrides import StrategyPlan
 from ossiq.strategy.pyramid import DEFAULT_STRATEGY, PYRAMID, UpdateStrategy, tier_index
+from ossiq.timeutil import parse_iso_datetime
 from ossiq.ui.registry import get_renderer
 from ossiq.ui.system import show_error, show_scan_progress
 
@@ -115,12 +117,15 @@ def check_strategy_override_ignore_conflict(
         raise typer.BadParameter(ERROR_STRATEGY_OVERRIDE_IGNORE_CONFLICT.format(packages=", ".join(conflicted)))
 
 
-def warn_unknown_override_versions(
+def warn_uninstallable_override_versions(
     sources: ProjectSources,
     scan_result: ScanResult,
     overrides: tuple[tuple[str, str], ...],
 ) -> None:
-    """Warn when a forced version is absent from the registry (cache is warm after the scan).
+    """Warn when a forced version is one `apply` cannot install (cache is warm after the scan).
+
+    Either the registry has no such version, or the package manager's own release cutoff refuses
+    it: `--override` bypasses OSS IQ's cooldown, but nothing OSS IQ does bypasses uv's.
 
     The registry is asked for the *canonical* name. `--override uuid-v11==14.0.2` names a manifest
     key, and asking npm for a package called `uuid-v11` raised instead of warning. A name that
@@ -131,9 +136,19 @@ def warn_unknown_override_versions(
         record = find_override_record(scan_result, name)
         if record is None:
             continue
-        known_versions = {pv.version for pv in sources.packages_registry.package_versions(record.package_name)}
-        if known_versions and version not in known_versions:
+        releases = {pv.version: pv for pv in sources.packages_registry.package_versions(record.package_name)}
+        if releases and version not in releases:
             typer.echo(WARNING_OVERRIDE_VERSION_UNKNOWN.format(package=name, version=version), err=True)
+            continue
+        cutoff = sources.release_cutoff
+        forced = releases.get(version)
+        if (
+            cutoff is not None
+            and forced is not None
+            and not cutoff.admits(record.package_name, parse_iso_datetime(forced.published_date_iso))
+        ):
+            message = WARNING_OVERRIDE_PAST_RELEASE_CUTOFF.format(package=name, version=version, setting=cutoff.source)
+            typer.echo(message, err=True)
 
 
 def warn_ambiguous_override_targets(scan_result: ScanResult, overrides: tuple[tuple[str, str], ...]) -> None:
@@ -160,7 +175,7 @@ def warn_strategy_overrides(
     """Warn on stderr for a --strategy-override naming an unknown package, or shadowed by --override.
 
     Not an error — a monorepo may share one flag set across projects (mirrors
-    warn_unknown_override_versions), and --override winning over --strategy-override is documented
+    warn_uninstallable_override_versions), and --override winning over --strategy-override is documented
     policy, not a mistake worth failing the run over.
     """
     forced_names = {name for name, _ in forced_overrides}
@@ -216,7 +231,7 @@ def prepare_plan(ctx: typer.Context, options: CommandPlanOptions) -> tuple[Proje
         raise typer.Exit(2)
 
     if options.overrides:
-        warn_unknown_override_versions(sources, scan_result, options.overrides)
+        warn_uninstallable_override_versions(sources, scan_result, options.overrides)
         warn_ambiguous_override_targets(scan_result, options.overrides)
     if options.strategy_overrides:
         warn_strategy_overrides(plan, options.strategy_overrides, options.overrides)

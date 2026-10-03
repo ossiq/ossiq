@@ -108,6 +108,7 @@ class ProjectSources(AbstractProjectSources):
         self.packages_registry = create_package_registry_api(
             packages_manager.package_manager_type.package_registry, self.settings
         )
+        self.release_cutoff = packages_manager.release_cutoff()
 
     def __exit__(self, *args):
         pass

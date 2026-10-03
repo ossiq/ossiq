@@ -10,7 +10,6 @@ Pipeline under test:
 from __future__ import annotations
 
 import pytest
-from univers.versions import SemverVersion
 
 from ossiq.domain.common import CveDatabase, ProjectPackagesRegistry
 from ossiq.domain.cve import CVE, AffectedRange, Severity
@@ -19,7 +18,6 @@ from ossiq.solver.version_matchers import (
     cve_affects_version,
     engine_mismatch_reason,
     engine_version_satisfies_requirement,
-    fallback_evaluate_bounds,
     has_engine_mismatch,
     npm_version_satisfies_range,
     pypi_version_satisfies_specifier,
@@ -40,7 +38,7 @@ from ossiq.solver.version_matchers import (
         # tilde: compatible with same minor
         ("1.2.5", "~1.2.3", True),
         ("1.3.0", "~1.2.3", False),
-        # bare version treated as caret range
+        # a partial version is an X-range: "14" is 14.x.x, "1.2" is 1.2.x
         ("14.1.0", "14", True),
         ("15.0.0", "14", False),
         ("14.0.0", "14", True),
@@ -49,14 +47,20 @@ from ossiq.solver.version_matchers import (
         ("0.9.0", ">=1.0.0", False),
         ("0.9.0", "<1.0.0", True),
         ("1.0.0", "<1.0.0", False),
+        ("1.2.9", "1.2", True),
+        ("1.3.0", "1.2", False),
         ("1.0.0", "<=1.0.0", True),
-        ("1.0.1", "!=1.0.0", True),
-        ("1.0.0", "!=1.0.0", False),
+        # a partial version after an operator is an X-range too: ">1" is >=2.0.0
+        ("1.0.1", ">1", False),
+        ("2.0.0", ">1", True),
+        ("1.9.9", "<=1", True),
+        # npm has no != operator: an invalid range passes through rather than blocking
+        ("1.0.0", "!=1.0.0", True),
         # || union — bare versions
         ("14.1.0", "12 || 14", True),
         ("16.0.0", "12 || 14", False),
         ("12.5.0", "12 || 14", True),
-        # || union — mixed caret + tilde (delegated to univers)
+        # || union — mixed caret + tilde
         ("1.3.0", "^1.2 || ~2.3", True),
         ("2.3.5", "^1.2 || ~2.3", True),
         ("3.0.0", "^1.2 || ~2.3", False),
@@ -72,18 +76,19 @@ from ossiq.solver.version_matchers import (
         # unparseable version/constraint → pass through (True)
         ("not.a.version", "^1.0.0", True),
         ("1.0.0", "???", True),
-        # prerelease version rejected by default (allow_beta=False)
+        # a prerelease satisfies only a range naming a prerelease of the same major.minor.patch
         ("1.3.0-rc.1", "^1.2.0", False),
-        # prerelease suffixes stripped before matching — real match, not pass-through
+        ("2.0.0-beta.3", "^2.0.0-beta.1", True),
+        ("2.1.0-beta.1", "^2.0.0-beta.1", False),
+        # prerelease floors are real bounds, not pass-throughs
         ("3.5.0", ">=2.9.0 || >=3.0.0-0 <3.0.0", True),
         ("3.5.0", ">=3.0.0-0", True),
         ("2.0.0", ">=3.0.0-0", False),
         ("6.5.0", ">=2.9.0 || >=3.0.0-0 <3.0.0 || >=6.0.1 <8.0.0", True),
-        # hyphen range untouched by prerelease stripping (spaces around the dash)
+        # hyphen range
         ("1.5.0", "1.2.3 - 2.0.0", True),
-        # || union — two tildes sharing an upper bound. univers flattens the union to
-        # ['>=5.5.8', '>=5.5.10', '<5.6.0', '<5.6.0'], which 6.1.13 satisfies under no branch;
-        # only per-branch evaluation rejects it (@pdfme/common on testdata/npm/version-constrained).
+        # || union — two tildes sharing an upper bound; each branch must hold on its own, or
+        # 6.1.13 slips through (@pdfme/common on testdata/npm/version-constrained)
         ("6.1.13", "~5.5.8 || ~5.5.10", False),
         ("5.5.9", "~5.5.8 || ~5.5.10", True),
         ("5.5.11", "~5.5.8 || ~5.5.10", True),
@@ -92,49 +97,29 @@ from ossiq.solver.version_matchers import (
         ("1.5.0", "^1.0.0 || ^2.0.0", True),
         ("2.5.0", "^1.0.0 || ^2.0.0", True),
         ("3.0.0", "^1.0.0 || ^2.0.0", False),
+        # comparator X-ranges (engines.node ">=14.x")
+        ("14.0.0", ">=14.x", True),
+        ("13.9.0", ">=14.x", False),
+        ("16.0.0", ">= 14.x", True),
+        ("1.9.9", "<=1.x", True),
+        ("2.0.0", "<=1.x", False),
+        ("1.5.0", ">1.x", False),
+        ("2.0.0", ">1.x", True),
+        ("2.5.0", ">=1.x <3", True),
+        # X-ranges under a caret, and wildcard components
+        ("0.5.0", "^0.x", True),
+        ("1.0.0", "^1.x", True),
+        ("1.5.0", "1.*.*", True),
+        # an empty range is "*"
+        ("1.5.0", "", True),
     ],
 )
 def test_npm_version_satisfies_range(version: str, range_constraint: str, expected: bool) -> None:
     assert npm_version_satisfies_range(version, range_constraint) == expected
 
 
-def test_npm_version_satisfies_range_allow_beta() -> None:
-    assert npm_version_satisfies_range("1.3.0-rc.1", ">=1.2.0", allow_beta=True) is True
-
-
-# ── fallback_evaluate_bounds ──────────────────────────────────────────────
-
-
-@pytest.mark.parametrize(
-    "version, constraint, expected",
-    [
-        # single comparator clauses
-        ("1.5.0", ">=1.0.0", True),
-        ("0.9.0", ">=1.0.0", False),
-        ("0.9.0", "<1.0.0", True),
-        ("1.0.0", "=1.0.0", True),
-        ("1.0.1", "!=1.0.0", True),
-        ("1.0.0", "!=1.0.0", False),
-        # bare version → implicit "="
-        ("1.0.0", "1.0.0", True),
-        ("1.0.1", "1.0.0", False),
-        # AND within a branch (space-separated clauses)
-        ("3.5.0", ">=3.0.0 <4.0.0", True),
-        ("4.5.0", ">=3.0.0 <4.0.0", False),
-        # OR branches
-        ("5.5.0", ">=3.0.0 <4.0.0 || >=5.0.0 <6.0.0", True),
-        ("4.5.0", ">=3.0.0 <4.0.0 || >=5.0.0 <6.0.0", False),
-        # overlapping prerelease boundaries that crash strict parsers
-        ("3.5.0", ">=2.9.0 || >=3.0.0-0 <3.0.0", True),
-        ("2.0.0", ">=3.0.0-0 <3.0.0", False),
-        # whitespace between operator and version is tolerated
-        ("1.5.0", ">= 1.0.0", True),
-        # unparseable clause value is skipped, not fatal
-        ("1.5.0", ">=not-a-version >=1.0.0", True),
-    ],
-)
-def test_fallback_evaluate_bounds(version: str, constraint: str, expected: bool) -> None:
-    assert fallback_evaluate_bounds(SemverVersion(version), constraint) == expected  # type: ignore
+def test_npm_version_satisfies_range_include_prerelease() -> None:
+    assert npm_version_satisfies_range("1.3.0-rc.1", ">=1.2.0", include_prerelease=True) is True
 
 
 # ── _pypi_version_satisfies_specifier ─────────────────────────────────────
@@ -211,6 +196,8 @@ def test_version_satisfies_constraint_npm(version: str, constraint: str, expecte
         ("node", "14.0.0", ">=16", False),
         ("nodejs", "18.0.0", "^18", True),
         ("nodejs", "20.0.0", "^18", False),
+        ("node", "20.0.0", ">=14.x", True),
+        ("node", "12.22.0", ">=14.x", False),
         # package managers → npm semver. These returned True for everything, so an engines.npm
         # requirement was silently unenforced however far the installed CLI was from it.
         ("npm", "10.2.4", ">=9.0.0", True),

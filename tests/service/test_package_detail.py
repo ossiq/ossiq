@@ -65,6 +65,7 @@ def make_record(
 def make_sources(releases: list[PackageVersion]) -> MagicMock:
     sources = MagicMock()
     sources.allow_prerelease = False
+    sources.release_cutoff = None
     registry = sources.packages_registry
     registry.package_registry = ProjectPackagesRegistry.NPM
     registry.package_versions.return_value = releases

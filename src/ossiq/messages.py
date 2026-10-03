@@ -13,8 +13,12 @@ Supported units: y/m/w/d/h, default: d (days).
 ARGS_HELP_DEBUG = "Enable debug logging output (logging module). Overrides OSSIQ_DEBUG env var."
 
 ARGS_HELP_GITHUB_TOKEN = """Github Token to increase requests limits"""
-ARGS_HELP_CONFIG = """Path to a config file with OSSIQ_* values (default: ~/.ossiq/config)"""
-ARGS_HELP_CACHE_DESTINATION = """Directory where cache will be stored (default: ~/.ossiq/cache.sqlite3)"""
+ARGS_HELP_GITHUB_AUTH = """GitHub login: 'auto' offers a device-flow login when no token is found, 'off' never does"""
+ARGS_HELP_GITHUB_CLIENT_ID = """Client ID of the GitHub OAuth app used for login (public, not a secret)"""
+ARGS_HELP_CONFIG = (
+    """Path to a config file with OSSIQ_* values (default: ~/.config/ossiq/config; ~/.ossiq/config is also read)"""
+)
+ARGS_HELP_CACHE_DESTINATION = """Directory where cache will be stored (default: ~/.config/ossiq/cache.sqlite3)"""
 ARGS_HELP_CACHE_TTL = """For how long cache is stored"""
 ARGS_HELP_OUTPUT = """Destination where to generate output"""
 
@@ -192,6 +196,11 @@ WARNING_OVERRIDE_VERSION_UNKNOWN = (
     "--override {package}=={version}: version not found in the registry — install may fail."
 )
 
+WARNING_OVERRIDE_PAST_RELEASE_CUTOFF = (
+    "--override {package}=={version}: published after the {setting} cutoff — the package manager will refuse "
+    "to install it until the cutoff passes or the package is exempted."
+)
+
 WARNING_OVERRIDE_AMBIGUOUS_ALIAS = (
     "--override {package}: the project declares it under several manifest keys ({aliases}), which "
     "npm installs as separate copies. Only one can be forced — name the key instead to pick it."
@@ -220,6 +229,14 @@ HELP_PLAN_HELD_FOR_WIDENING_HEADER = "Requires constraint widening — a newer v
 
 HELP_STATUS_COOLDOWN_HOLD = (
     "↳ {version} is {age_days} days old; nothing older to move to before the {days}-day cooldown"
+)
+
+HELP_PLAN_HELD_BY_PACKAGE_MANAGER_HEADER = (
+    "Held by {setting} — newer versions exist, but the package manager refuses releases published after its cutoff:"
+)
+
+HELP_STATUS_PACKAGE_MANAGER_HOLD = (
+    "↳ {version} was published after the {setting} cutoff ({cutoff}); nothing older to move to"
 )
 
 HELP_WARNING_COUNTS_ARE_REQUESTS = (

@@ -18,6 +18,7 @@ from typing import Any
 import requests
 
 from ossiq.domain.common import DataSourceStatus, DegradeReason, FetchDiagnostics, RateLimitBudget
+from ossiq.domain.github_auth import RAISE_LIMIT_ADVICE
 
 
 def _chunked(items: Iterable, n: int) -> Generator:
@@ -525,9 +526,9 @@ class BatchClient:
 
                 if ratelimit_remaining_requests and int(ratelimit_remaining_requests) == 0:
                     logger.warning(
-                        "Rate limit quota exhausted for %s, shutting down. "
-                        "Set OSSIQ_GITHUB_TOKEN (or --github-token) to raise the GitHub limit.",
+                        "Rate limit quota exhausted for %s, shutting down. %s",
                         str(self.strategy),
+                        RAISE_LIMIT_ADVICE,
                     )
                     self._rate_limited = True
                     self._gate.set()

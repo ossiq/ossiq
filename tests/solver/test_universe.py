@@ -9,6 +9,7 @@ from ossiq.adapters.api_interfaces import AbstractPackageRegistryApi
 from ossiq.domain.common import ConstraintType, CveDatabase, ProjectPackagesRegistry
 from ossiq.domain.cve import CVE, AffectedRange, Severity
 from ossiq.domain.project import ConstraintSource
+from ossiq.domain.release_cutoff import ReleaseCutoff
 from ossiq.domain.version import PackageVersion
 from ossiq.solver.problem import CandidateVersion, PackageConstraint, SolverProblem
 from ossiq.solver.universe import SolvablePool, parse_requires, relevant_constraints
@@ -257,6 +258,45 @@ class TestCutoffDateFiltering:
         registry = _make_registry({"pkg": [_pv("1.0.0", published=None)]})
         problem = SolvablePool.build([_FakeDep("pkg", "1.0.0")], registry, {}, _now=_FIXED_NOW)
         assert problem.candidates["pkg"][0].age_days is None
+
+
+# ---------------------------------------------------------------------------
+# TestReleaseCutoffFiltering — the package manager's own limit (uv exclude-newer)
+# ---------------------------------------------------------------------------
+
+_UV_CUTOFF = ReleaseCutoff("uv exclude-newer", default=datetime(2024, 1, 15, tzinfo=UTC))
+
+
+class TestReleaseCutoffFiltering:
+    def test_releases_past_the_cutoff_are_not_candidates(self) -> None:
+        registry = _make_registry(
+            {"pkg": [_pv("1.0.0", published="2024-01-01T00:00:00Z"), _pv("2.0.0", published="2024-01-20T00:00:00Z")]}
+        )
+        problem = SolvablePool.build([_FakeDep("pkg", "1.0.0")], registry, {}, release_cutoff=_UV_CUTOFF)
+        assert [cv.version for cv in problem.candidates["pkg"]] == ["1.0.0"]
+
+    def test_installed_version_past_the_cutoff_stays_a_candidate(self) -> None:
+        """uv keeps a locked release past its cutoff; without it the solver had no candidate at all."""
+        registry = _make_registry(
+            {"pkg": [_pv("2.0.0", published="2024-01-20T00:00:00Z"), _pv("2.1.0", published="2024-01-25T00:00:00Z")]}
+        )
+        problem = SolvablePool.build([_FakeDep("pkg", "2.0.0")], registry, {}, release_cutoff=_UV_CUTOFF)
+        assert [cv.version for cv in problem.candidates["pkg"]] == ["2.0.0"]
+
+    def test_exempt_package_keeps_every_release(self) -> None:
+        exempting = ReleaseCutoff("uv exclude-newer", default=_UV_CUTOFF.default, per_package={"pkg": None})
+        registry = _make_registry(
+            {"pkg": [_pv("1.0.0", published="2024-01-01T00:00:00Z"), _pv("2.0.0", published="2024-01-20T00:00:00Z")]}
+        )
+        problem = SolvablePool.build([_FakeDep("pkg", "1.0.0")], registry, {}, release_cutoff=exempting)
+        assert [cv.version for cv in problem.candidates["pkg"]] == ["2.0.0", "1.0.0"]
+
+    def test_ages_still_count_from_now_not_the_cutoff(self) -> None:
+        registry = _make_registry({"pkg": [_pv("1.0.0", published="2024-01-01T00:00:00Z")]})
+        problem = SolvablePool.build(
+            [_FakeDep("pkg", "1.0.0")], registry, {}, _now=_FIXED_NOW, release_cutoff=_UV_CUTOFF
+        )
+        assert problem.candidates["pkg"][0].age_days == 30
 
 
 # ---------------------------------------------------------------------------

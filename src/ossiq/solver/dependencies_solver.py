@@ -12,6 +12,7 @@ from ossiq.adapters.api_interfaces import AbstractPackageRegistryApi
 from ossiq.domain.common import RejectedCandidate
 from ossiq.domain.cve import CVE
 from ossiq.domain.project import ConstraintSource
+from ossiq.domain.release_cutoff import ReleaseCutoff
 from ossiq.solver.driver import ConflictSet
 from ossiq.solver.driver_glucose import GlucoseDriver
 from ossiq.solver.encoder import ConstraintEncoder
@@ -267,6 +268,7 @@ def _run_solve(
     now: datetime | None = None,
     cooldown_period: int = VERY_FRESH_THRESHOLD_DAYS,
     rewrite_pinned: bool = False,
+    release_cutoff: ReleaseCutoff | None = None,
 ) -> tuple[SolverOutput, SolverProblem]:
     """Run the SolvablePool → ConstraintEncoder → HPDRKernel pipeline.
 
@@ -282,6 +284,7 @@ def _run_solve(
         allow_prerelease=allow_prerelease,
         _now=now,
         rewrite_pinned=rewrite_pinned,
+        release_cutoff=release_cutoff,
     )
     logger.debug("%s: pool built — packages=%d", label, len(problem.constraints))
     encoded = ConstraintEncoder(penalize_fresh_days=cooldown_period).encode(problem)
@@ -312,6 +315,7 @@ def solve_direct(
     _now: datetime | None = None,
     cooldown_period: int = VERY_FRESH_THRESHOLD_DAYS,
     rewrite_pinned: bool = False,
+    release_cutoff: ReleaseCutoff | None = None,
 ) -> SolverOutput:
     """Run HPDR solver over direct dependencies.
 
@@ -324,6 +328,8 @@ def solve_direct(
         allow_prerelease: When True, include pre-release candidates.
         rewrite_pinned: When True, PINNED (==x.y.z) deps become solver-eligible
                         so their pinned version can be rewritten.
+        release_cutoff: The package manager's own limit on release age; nothing past it is
+                        recommended.
 
     Returns:
         SolverOutput with recommendations and per-package rationales.
@@ -343,6 +349,7 @@ def solve_direct(
         now=_now,
         cooldown_period=cooldown_period,
         rewrite_pinned=rewrite_pinned,
+        release_cutoff=release_cutoff,
     )
     if not output.recommendations:
         return output
@@ -375,6 +382,7 @@ def solve_transitive(
     now: datetime | None = None,
     cooldown_period: int = VERY_FRESH_THRESHOLD_DAYS,
     external_targets: dict[str, str] | None = None,
+    release_cutoff: ReleaseCutoff | None = None,
 ) -> SolverOutput:
     """Run HPDR solver over transitive dependencies.
 
@@ -390,6 +398,8 @@ def solve_transitive(
         external_targets: {package: version} pins outside this solve (direct-dep installed
                           versions and recommendations). A transitive pick whose requirements
                           conflict with these is demoted or dropped.
+        release_cutoff: The package manager's own limit on release age; nothing past it is
+                        recommended.
 
     Returns:
         SolverOutput with recommendations and per-package rationales.
@@ -427,6 +437,7 @@ def solve_transitive(
         cves_by_package=cves_by_package,
         now=now,
         cooldown_period=cooldown_period,
+        release_cutoff=release_cutoff,
     )
     if not output.recommendations:
         return output

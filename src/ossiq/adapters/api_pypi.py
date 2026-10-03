@@ -31,6 +31,7 @@ from ossiq.domain.version import (
     create_version_difference_no_diff,
 )
 from ossiq.settings import Settings
+from ossiq.timeutil import parse_iso_datetime
 
 PYPI_REGISTRY_FRONT = "https://pypi.org"
 
@@ -109,6 +110,21 @@ def detect_pypi_install_execution(release_files: list[dict]) -> tuple[bool | Non
         return False, None
 
     return None, None
+
+
+def earliest_upload_iso(release_files: list[dict]) -> str | None:
+    """Return the upload time of the release's earliest file, as PyPI wrote it.
+
+    The earliest file is when the version first became installable, and it is what an installer's
+    release-age gate checks: uv's `exclude-newer` keeps a version while any one of its files
+    predates the cutoff. PyPI usually lists files in upload order, but not always.
+    """
+    dated = [
+        (parsed, raw)
+        for f in release_files
+        if (parsed := parse_iso_datetime(raw := f.get("upload_time_iso_8601"))) is not None
+    ]
+    return min(dated)[1] if dated else None
 
 
 class PackageRegistryApiPypi(AbstractPackageRegistryApi):
@@ -370,8 +386,7 @@ class PackageRegistryApiPypi(AbstractPackageRegistryApi):
             if not is_valid_pep440_version(version):
                 continue
 
-            # Take the upload time of the first file as the published date for the version.
-            published_date_iso = release_files[0]["upload_time_iso_8601"]
+            published_date_iso = earliest_upload_iso(release_files)
 
             # A version is considered yanked if all its files are yanked.
             is_yanked = all(f.get("yanked") for f in release_files)

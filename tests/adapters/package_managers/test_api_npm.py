@@ -772,6 +772,9 @@ class TestExtractMinNodeVersion:
             ("18 || 20", "18.0.0"),
             (">=18.0.0 <20.0.0", "18.0.0"),
             ("18.x", "18.0.0"),
+            (">=14.x", "14.0.0"),
+            (">= 18.x", "18.0.0"),
+            (">14.x", "15.0.0"),
             ("16.0.0 - 18.0.0", "16.0.0"),
             (">= 18", "18.0.0"),
             (">=14.17", "14.17.0"),
@@ -783,7 +786,11 @@ class TestExtractMinNodeVersion:
             # concrete minimum to report — extract_min_python_version refuses ">" for the
             # same reason. Returning "18.0.0" here made 18.0.0 look admitted when it isn't.
             (">18.0.0", None),
-            (">18", None),
+            # ">18" is an X-range, not an exclusive bound: npm reads it as ">=19.0.0".
+            (">18", "19.0.0"),
+            # A branch with no floor means the range has none.
+            ("<16 || >=18", None),
+            ("^14.x", "14.0.0"),
             (">=18.0.0 || >19.0.0", "18.0.0"),
             ("14.17.1", "14.17.1"),
             ("14", "14.0.0"),

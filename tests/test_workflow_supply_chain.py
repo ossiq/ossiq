@@ -51,6 +51,7 @@ NPM_PUBLISH_ARGUMENT_PATTERN = re.compile(r"npm (?:stage )?publish\s+\"?(?P<path
 # The artifact the isolated dist build hands to the publish job. Hardcoded in both files
 # rather than plumbed through a workflow output, so it needs an assertion.
 DIST_ARTIFACT_NAME = "python-dist"
+BINARY_BUILD_WORKFLOW = "reusable-build-binaries.yml"
 
 
 def workflow_files() -> list[Path]:
@@ -359,3 +360,39 @@ def test_npm_packages_are_staged_rather_than_published() -> None:
     assert "npm publish" not in executable_text(WORKFLOWS_ROOT / NPM_PUBLISH_WORKFLOW), (
         f"{NPM_PUBLISH_WORKFLOW} must stage; npm refuses a direct publish from a stage-only publisher"
     )
+
+
+def test_the_binary_keyring_smoke_test_clears_ci_and_runs_before_the_attestation() -> None:
+    """`CI` and a token each switch the keyring probe off, and a runner has both.
+
+    Left in place, `ossiq auth status` reports "unavailable" without loading a backend, so the
+    step would pass on a binary that bundles none.
+    """
+    steps = jobs_of(WORKFLOWS_ROOT / BINARY_BUILD_WORKFLOW)["build"]["steps"]
+    probes = [index for index, step in enumerate(steps) if "auth status" in str(step.get("run", ""))]
+    assert len(probes) == 1, "exactly one step should run `ossiq auth status` against the binary"
+    probe = steps[probes[0]]
+
+    for variable in ("CI", "OSSIQ_GITHUB_TOKEN", "GITHUB_TOKEN"):
+        assert f"-u {variable} " in probe["run"], f"the probe must run with {variable} cleared"
+    assert "OSSIQ_GITHUB_TOKEN" not in (probe.get("env") or {}), "a step-level token would bypass the keyring"
+    assert "timeout-minutes" in probe, "a keychain that asks a question must not stall the build unbounded"
+    attest = next(index for index, step in enumerate(steps) if "attest-build-provenance" in str(step.get("uses", "")))
+    assert probes[0] < attest, "an unexercised binary must not be something this workflow's identity vouches for"
+
+
+def test_the_linux_binary_is_checked_for_the_secret_service_modules() -> None:
+    """A headless runner can only report "none available", so only the bundle listing shows a gap.
+
+    Naming the backend through PYTHON_KEYRING_BACKEND is not a substitute: keyring probes its priority
+    over D-Bus and raises, so the step would fail on a correctly built binary.
+    """
+    steps = jobs_of(WORKFLOWS_ROOT / BINARY_BUILD_WORKFLOW)["build"]["steps"]
+    (probe,) = [step for step in steps if "auth status" in str(step.get("run", ""))]
+
+    assert "pyi-archive_viewer" in probe["run"], (
+        "list the bundle: a runner's `auth status` cannot show a missing backend"
+    )
+    for module in ("keyring.backends.SecretService", "secretstorage", "jeepney", "cryptography"):
+        assert module in probe["run"], f"the Linux binary must be checked for {module}"
+    assert "PYTHON_KEYRING_BACKEND" not in probe["run"], "keyring raises at selection when D-Bus is missing"

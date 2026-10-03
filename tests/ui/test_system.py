@@ -17,11 +17,16 @@ from ossiq.domain.common import (
     RateLimitBudget,
     ScanStep,
 )
+from ossiq.domain.github_auth import TokenSource
 from ossiq.settings import Settings
 from ossiq.ui.system import (
     STEP_INDEX,
+    TOKEN_SOURCE_LABELS,
+    describe_token_source,
+    is_interactive,
     render_scan_steps,
     show_scan_progress,
+    show_settings,
     warn_about_budget,
     warn_about_degraded_steps,
 )
@@ -264,12 +269,72 @@ class TestBudgetWarning:
         message = warn.call_args.args[0]
         assert "core: 12/5000 left, this scan needs ~90, resets in 4" in message
         assert "OSSIQ_GITHUB_TOKEN" not in message  # a 5000 limit means a token is already in play
+        assert "ossiq auth login" not in message
 
-    def test_an_unauthenticated_limit_points_at_the_token_setting(self):
+    def test_an_unauthenticated_limit_leads_with_the_token_and_offers_the_login_only_with_a_keyring(self):
         with patch("ossiq.ui.system.show_warning") as warn:
             warn_about_budget((RateLimitBudget(resource="core", limit=60, remaining=5, needed=90),))
 
-        assert "OSSIQ_GITHUB_TOKEN" in warn.call_args.args[0]
+        message = warn.call_args.args[0]
+        assert "containers" in message
+        assert "where a system keyring is available" in message
+        assert message.index("OSSIQ_GITHUB_TOKEN") < message.index("ossiq auth login")
+
+
+class TestShowSettingsToken:
+    """The token is never printed; the panel says whether one is set and where it came from."""
+
+    def render(self, settings: Settings, token_source: TokenSource | None) -> str:
+        buf = StringIO()
+        with (
+            patch("ossiq.ui.system.RICH_AVAILABLE", True),
+            patch("ossiq.ui.system.error_console", Console(file=buf, width=200, no_color=True)),
+        ):
+            show_settings(MagicMock(obj=settings), "Settings", settings.model_dump(), token_source=token_source)
+        return buf.getvalue()
+
+    def test_names_the_source_of_a_token_and_hides_the_token(self):
+        text = self.render(Settings(verbose=True, github_token="ghp_SECRET"), TokenSource.ENV_OSSIQ)
+
+        assert "github_token: set (OSSIQ_GITHUB_TOKEN environment variable)" in text
+        assert "ghp_SECRET" not in text
+
+    def test_does_not_claim_the_environment_for_a_keyring_login(self):
+        text = self.render(Settings(verbose=True, github_token="gho_SECRET"), TokenSource.KEYRING)
+
+        assert "set from environment" not in text
+        assert "GitHub login (system keyring)" in text
+
+    def test_without_a_known_source_it_still_says_a_token_is_set(self):
+        text = self.render(Settings(verbose=True, github_token="ghp_SECRET"), None)
+
+        assert "github_token: set" in text
+        assert "ghp_SECRET" not in text
+
+    def test_no_token_is_shown_as_none(self):
+        assert "github_token: None" in self.render(Settings(verbose=True, github_token=None), None)
+
+
+class TestTokenSourceLabels:
+    def test_every_source_has_a_label(self):
+        assert set(TOKEN_SOURCE_LABELS) == set(TokenSource)
+
+    def test_labels_name_the_thing_the_user_can_act_on(self):
+        assert "OSSIQ_GITHUB_TOKEN" in describe_token_source(TokenSource.ENV_OSSIQ)
+        assert "--github-token" == describe_token_source(TokenSource.CLI_FLAG)
+        assert "~/.ossiq/config" in describe_token_source(TokenSource.LEGACY_CONFIG_FILE)
+
+
+class TestIsInteractive:
+    @pytest.mark.parametrize(
+        ("stdin_tty", "stderr_tty", "expected"),
+        [(True, True, True), (True, False, False), (False, True, False), (False, False, False)],
+    )
+    def test_needs_both_stdin_and_stderr_to_be_terminals(self, monkeypatch, stdin_tty, stderr_tty, expected):
+        monkeypatch.setattr("sys.stdin", MagicMock(isatty=lambda: stdin_tty))
+        monkeypatch.setattr("sys.stderr", MagicMock(isatty=lambda: stderr_tty))
+
+        assert is_interactive() is expected
 
 
 class TestDegradedWarningOnEverySurface:

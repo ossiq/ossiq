@@ -14,6 +14,7 @@ import os
 import subprocess
 import tempfile
 import tomllib
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -21,9 +22,17 @@ import pytest
 from packaging.requirements import Requirement
 
 from ossiq.adapters.package_managers.api_uv import (
+    UV_CONFIG_FILE_ENV,
+    UV_EXCLUDE_NEWER_ENV,
+    UV_NO_CONFIG_ENV,
     PackageManagerPythonUv,
     find_pyproject_direct_specifiers,
+    locked_uv_settings,
+    merge_uv_settings,
+    project_uv_settings,
+    release_cutoff_from_uv_settings,
     upsert_uv_override_dependencies,
+    uv_settings_layers,
 )
 from ossiq.domain.common import ConstraintType, ProjectPackagesRegistry
 from ossiq.domain.exceptions import PackageManagerExecutionError, PackageManagerLockfileParsingError
@@ -1346,3 +1355,228 @@ class TestOssiqMetadataOwnershipUv:
 
         data = tomllib.loads(pyproject_path.read_text())
         assert data["tool"]["uv"]["override-dependencies"] == ["urllib3==2.0.9"]
+
+
+# ============================================================================
+# Release cutoff (exclude-newer)
+# ============================================================================
+
+CUTOFF_NOW = datetime(2026, 10, 1, tzinfo=UTC)
+SEPT_18 = datetime(2026, 9, 18, tzinfo=UTC)
+# What uv 0.12 writes to uv.lock for `exclude-newer = "7 days"`: the timestamp is a placeholder.
+LOCKED_SPAN = {"exclude-newer": "0001-01-01T00:00:00Z", "exclude-newer-span": "P7D"}
+
+
+class TestReleaseCutoffFromUvSettings:
+    """Pure merge of uv settings + lockfile options into a ReleaseCutoff."""
+
+    def test_no_setting_means_no_cutoff(self):
+        assert release_cutoff_from_uv_settings({}, {}, env_exclude_newer=None, now=CUTOFF_NOW) is None
+
+    def test_absolute_global_cutoff(self):
+        cutoff = release_cutoff_from_uv_settings(
+            {"exclude-newer": "2026-09-18T00:00:00Z"}, {}, env_exclude_newer=None, now=CUTOFF_NOW
+        )
+        assert cutoff is not None
+        assert cutoff.source == "uv exclude-newer"
+        assert cutoff.cutoff_for("idna") == SEPT_18
+
+    def test_env_overrides_file_setting(self):
+        cutoff = release_cutoff_from_uv_settings(
+            {"exclude-newer": "2026-09-01T00:00:00Z"},
+            {},
+            env_exclude_newer="2026-09-18T00:00:00Z",
+            now=CUTOFF_NOW,
+        )
+        assert cutoff is not None
+        assert cutoff.default == SEPT_18
+
+    def test_friendly_span_is_read_from_the_setting_not_the_lockfile(self):
+        # The lockfile still carries the span the project was last locked with.
+        cutoff = release_cutoff_from_uv_settings(
+            {"exclude-newer": "10 days"}, LOCKED_SPAN, env_exclude_newer=None, now=CUTOFF_NOW
+        )
+        assert cutoff is not None
+        assert cutoff.default == CUTOFF_NOW - timedelta(days=10)
+
+    def test_value_uv_rejects_is_no_cutoff(self):
+        cutoff = release_cutoff_from_uv_settings(
+            {"exclude-newer": "1 month"}, LOCKED_SPAN, env_exclude_newer=None, now=CUTOFF_NOW
+        )
+        assert cutoff is None
+
+    def test_false_switches_the_cutoff_off_despite_the_lockfile(self):
+        cutoff = release_cutoff_from_uv_settings(
+            {"exclude-newer": False}, LOCKED_SPAN, env_exclude_newer=None, now=CUTOFF_NOW
+        )
+        assert cutoff is None
+
+    def test_lockfile_stands_in_when_no_setting_mentions_a_cutoff(self):
+        # Config OSS IQ cannot see (e.g. `uv lock --config-file`) still lands in the lockfile.
+        cutoff = release_cutoff_from_uv_settings({}, LOCKED_SPAN, env_exclude_newer=None, now=CUTOFF_NOW)
+        assert cutoff is not None
+        assert cutoff.default == CUTOFF_NOW - timedelta(days=7)
+
+    def test_lockfile_absolute_cutoff_stands_in(self):
+        cutoff = release_cutoff_from_uv_settings(
+            {}, {"exclude-newer": "2026-09-18T00:00:00Z"}, env_exclude_newer=None, now=CUTOFF_NOW
+        )
+        assert cutoff is not None
+        assert cutoff.default == SEPT_18
+
+    def test_per_package_entries(self):
+        uv_settings = {
+            "exclude-newer": "2026-09-18T00:00:00Z",
+            "exclude-newer-package": {"Six": False, "IDNA": "3 days", "Typing_Extensions": "2026-09-01T00:00:00Z"},
+        }
+        cutoff = release_cutoff_from_uv_settings(uv_settings, {}, env_exclude_newer=None, now=CUTOFF_NOW)
+        assert cutoff is not None
+        assert cutoff.cutoff_for("six") is None
+        assert cutoff.cutoff_for("idna") == CUTOFF_NOW - timedelta(days=3)
+        assert cutoff.cutoff_for("typing-extensions") == datetime(2026, 9, 1, tzinfo=UTC)
+        assert cutoff.cutoff_for("requests") == SEPT_18
+
+    def test_locked_per_package_entries_stand_in(self):
+        lock_options = {
+            "exclude-newer-package": {
+                "idna": {"timestamp": "0001-01-01T00:00:00Z", "span": "P3D"},
+                "requests": "2026-09-01T00:00:00Z",
+                "six": False,
+            }
+        }
+        cutoff = release_cutoff_from_uv_settings(
+            {"exclude-newer": "2026-09-18T00:00:00Z"}, lock_options, env_exclude_newer=None, now=CUTOFF_NOW
+        )
+        assert cutoff is not None
+        assert cutoff.cutoff_for("idna") == CUTOFF_NOW - timedelta(days=3)
+        assert cutoff.cutoff_for("requests") == datetime(2026, 9, 1, tzinfo=UTC)
+        assert cutoff.cutoff_for("six") is None
+
+    def test_only_lifting_overrides_is_no_cutoff(self):
+        cutoff = release_cutoff_from_uv_settings(
+            {"exclude-newer-package": {"six": False}}, {}, env_exclude_newer=None, now=CUTOFF_NOW
+        )
+        assert cutoff is None
+
+
+class TestMergeUvSettings:
+    def test_highest_layer_setting_the_key_wins(self):
+        merged = merge_uv_settings([{}, {"exclude-newer": "9 days"}, {"exclude-newer": "30 days"}])
+        assert merged["exclude-newer"] == "9 days"
+
+    def test_false_in_a_higher_layer_wins(self):
+        merged = merge_uv_settings([{"exclude-newer": False}, {"exclude-newer": "9 days"}])
+        assert merged["exclude-newer"] is False
+
+    def test_per_package_tables_merge_with_the_higher_layer_winning(self):
+        # Matches uv 0.12: project { bbb, shared=6 } over user { aaa, shared=4 }.
+        merged = merge_uv_settings(
+            [
+                {"exclude-newer-package": {"bbb": "3 days", "Shared": "6 days"}},
+                {"exclude-newer-package": {"aaa": "2 days", "shared": "4 days"}},
+            ]
+        )
+        assert merged["exclude-newer-package"] == {"aaa": "2 days", "bbb": "3 days", "shared": "6 days"}
+
+    def test_no_layers_is_no_settings(self):
+        assert merge_uv_settings([]) == {}
+
+
+class TestLockedUvSettings:
+    def test_span_replaces_the_placeholder_timestamp(self):
+        assert locked_uv_settings(LOCKED_SPAN) == {"exclude-newer": "P7D"}
+
+    def test_absolute_timestamp_is_kept(self):
+        assert locked_uv_settings({"exclude-newer": "2026-09-18T00:00:00Z"}) == {
+            "exclude-newer": "2026-09-18T00:00:00Z"
+        }
+
+
+class TestUvSettingsLayers:
+    """Discovery of the settings files uv reads, against real directory trees."""
+
+    def write(self, path: Path, text: str) -> Path:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text)
+        return path
+
+    def environ(self, tmp_path: Path, **extra: str) -> dict[str, str]:
+        return {"XDG_CONFIG_HOME": str(tmp_path / "home"), "XDG_CONFIG_DIRS": str(tmp_path / "etc"), **extra}
+
+    def test_project_user_and_system_layers_in_precedence_order(self, tmp_path: Path):
+        project = tmp_path / "project"
+        self.write(project / "pyproject.toml", '[tool.uv]\nexclude-newer = "3 days"\n')
+        self.write(tmp_path / "home" / "uv" / "uv.toml", 'exclude-newer = "9 days"\n')
+        self.write(tmp_path / "etc" / "uv" / "uv.toml", 'exclude-newer = "30 days"\n')
+        layers = uv_settings_layers(project, self.environ(tmp_path))
+        assert [layer["exclude-newer"] for layer in layers] == ["3 days", "9 days", "30 days"]
+
+    def test_uv_toml_replaces_tool_uv_in_the_same_directory(self, tmp_path: Path):
+        project = tmp_path / "project"
+        self.write(project / "pyproject.toml", '[tool.uv]\nexclude-newer = "3 days"\n')
+        self.write(project / "uv.toml", 'exclude-newer = "5 days"\n')
+        assert uv_settings_layers(project, self.environ(tmp_path)) == [{"exclude-newer": "5 days"}]
+
+    def test_walks_up_past_a_pyproject_without_tool_uv(self, tmp_path: Path):
+        project = tmp_path / "parent" / "child"
+        self.write(project / "pyproject.toml", '[project]\nname = "child"\n')
+        self.write(tmp_path / "parent" / "uv.toml", 'exclude-newer = "5 days"\n')
+        assert project_uv_settings(project) == {"exclude-newer": "5 days"}
+
+    def test_config_file_env_replaces_discovery(self, tmp_path: Path):
+        project = tmp_path / "project"
+        self.write(project / "pyproject.toml", '[tool.uv]\nexclude-newer = "3 days"\n')
+        self.write(tmp_path / "home" / "uv" / "uv.toml", 'exclude-newer = "9 days"\n')
+        custom = self.write(tmp_path / "custom.toml", 'exclude-newer = "11 days"\n')
+        environ = self.environ(tmp_path, **{UV_CONFIG_FILE_ENV: str(custom)})
+        assert uv_settings_layers(project, environ) == [{"exclude-newer": "11 days"}]
+
+    def test_no_config_env_switches_discovery_off(self, tmp_path: Path):
+        project = tmp_path / "project"
+        self.write(project / "pyproject.toml", '[tool.uv]\nexclude-newer = "3 days"\n')
+        assert uv_settings_layers(project, self.environ(tmp_path, **{UV_NO_CONFIG_ENV: "1"})) == []
+
+
+class TestPackageManagerReleaseCutoff:
+    """Reading the cutoff from a real project tree."""
+
+    def append_pyproject(self, project_dir: str, text: str) -> None:
+        pyproject = Path(project_dir) / "pyproject.toml"
+        pyproject.write_text(pyproject.read_text() + text)
+
+    def test_no_config_means_no_cutoff(self, uv_project_with_lockfile, settings):
+        assert PackageManagerPythonUv(uv_project_with_lockfile, settings).release_cutoff() is None
+
+    def test_reads_tool_uv_section(self, uv_project_with_lockfile, settings):
+        self.append_pyproject(uv_project_with_lockfile, '\n[tool.uv]\nexclude-newer = "2026-09-18T00:00:00Z"\n')
+        cutoff = PackageManagerPythonUv(uv_project_with_lockfile, settings).release_cutoff()
+        assert cutoff is not None
+        assert cutoff.default == SEPT_18
+
+    def test_uv_toml_replaces_tool_uv(self, uv_project_with_lockfile, settings):
+        self.append_pyproject(uv_project_with_lockfile, '\n[tool.uv]\nexclude-newer = "2026-09-01T00:00:00Z"\n')
+        (Path(uv_project_with_lockfile) / "uv.toml").write_text('exclude-newer = "2026-09-18T00:00:00Z"\n')
+        cutoff = PackageManagerPythonUv(uv_project_with_lockfile, settings).release_cutoff()
+        assert cutoff is not None
+        assert cutoff.default == SEPT_18
+
+    def test_user_level_config_applies(self, uv_project_with_lockfile, settings, monkeypatch, tmp_path):
+        # The case that broke `apply`: a cooldown set once, globally, for every project.
+        (tmp_path / "uv").mkdir()
+        (tmp_path / "uv" / "uv.toml").write_text('exclude-newer = "2026-09-18T00:00:00Z"\n')
+        monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+        cutoff = PackageManagerPythonUv(uv_project_with_lockfile, settings).release_cutoff()
+        assert cutoff is not None
+        assert cutoff.default == SEPT_18
+
+    def test_env_var_wins(self, uv_project_with_lockfile, settings, monkeypatch):
+        monkeypatch.setenv(UV_EXCLUDE_NEWER_ENV, "2026-09-18T00:00:00Z")
+        self.append_pyproject(uv_project_with_lockfile, '\n[tool.uv]\nexclude-newer = "2026-09-01T00:00:00Z"\n')
+        cutoff = PackageManagerPythonUv(uv_project_with_lockfile, settings).release_cutoff()
+        assert cutoff is not None
+        assert cutoff.default == SEPT_18
+
+    def test_malformed_uv_toml_raises(self, uv_project_with_lockfile, settings):
+        (Path(uv_project_with_lockfile) / "uv.toml").write_text("exclude-newer = \n")
+        with pytest.raises(PackageManagerLockfileParsingError):
+            PackageManagerPythonUv(uv_project_with_lockfile, settings).release_cutoff()

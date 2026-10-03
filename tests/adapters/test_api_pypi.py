@@ -13,7 +13,12 @@ from unittest.mock import patch
 import pytest
 from packaging.version import InvalidVersion
 
-from ossiq.adapters.api_pypi import PackageRegistryApiPypi, get_repo_url, is_valid_pep440_version
+from ossiq.adapters.api_pypi import (
+    PackageRegistryApiPypi,
+    earliest_upload_iso,
+    get_repo_url,
+    is_valid_pep440_version,
+)
 from ossiq.clients.batch import BatchClient
 from ossiq.domain.common import ConstraintType, ProjectPackagesRegistry
 from ossiq.domain.exceptions import UnableLoadPackage
@@ -611,6 +616,48 @@ class TestPackageVersions:
 # ============================================================================
 # Test install execution detection (runs_code_at_install / install_execution_reason)
 # ============================================================================
+
+
+def straddling_registry() -> PackageRegistryApiPypi:
+    """A registry holding one package whose 2.0.0 files were uploaded on different days."""
+    api = PackageRegistryApiPypi(Settings())
+    api._raw_cache["Plat_Dirs"] = {
+        "info": {"name": "plat-dirs", "version": "3.0.0", "requires_dist": [], "license": None, "summary": None},
+        "releases": {
+            "1.0.0": [{"upload_time_iso_8601": "2026-09-01T00:00:00Z", "yanked": False}],
+            # Listed newest-first: the wheel was added after the sdist.
+            "2.0.0": [
+                {"upload_time_iso_8601": "2026-09-20T00:00:00Z", "yanked": False},
+                {"upload_time_iso_8601": "2026-09-10T00:00:00Z", "yanked": False},
+            ],
+            "3.0.0": [{"upload_time_iso_8601": "2026-09-22T01:02:35Z", "yanked": False}],
+        },
+    }
+    return api
+
+
+class TestPackageVersionsPublishedDate:
+    """package_versions reports every release, dated by its earliest file."""
+
+    def test_every_release_is_listed(self):
+        versions = sorted(pv.version for pv in straddling_registry().package_versions("Plat_Dirs"))
+        assert versions == ["1.0.0", "2.0.0", "3.0.0"]
+
+    def test_published_date_is_the_earliest_file(self):
+        by_version = {pv.version: pv for pv in straddling_registry().package_versions("Plat_Dirs")}
+        assert by_version["2.0.0"].published_date_iso == "2026-09-10T00:00:00Z"
+
+
+class TestEarliestUploadIso:
+    def test_picks_minimum_regardless_of_order(self):
+        files = [{"upload_time_iso_8601": "2026-09-20T00:00:00Z"}, {"upload_time_iso_8601": "2026-09-10T00:00:00Z"}]
+        assert earliest_upload_iso(files) == "2026-09-10T00:00:00Z"
+
+    def test_skips_undated_files(self):
+        assert earliest_upload_iso([{}, {"upload_time_iso_8601": "2026-09-10T00:00:00Z"}]) == "2026-09-10T00:00:00Z"
+
+    def test_undated_release_has_no_date(self):
+        assert earliest_upload_iso([{}]) is None
 
 
 class TestInstallExecutionDetection:

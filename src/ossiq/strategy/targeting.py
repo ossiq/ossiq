@@ -8,8 +8,10 @@ live in `service.project.strategy.build_candidates`.
 
 from collections.abc import Sequence
 from dataclasses import dataclass
+from datetime import datetime
 
 from ossiq.domain.common import WIDENING_RUNGS, CooldownHold, RecommendationRung
+from ossiq.domain.release_cutoff import ReleaseCutoff
 from ossiq.strategy.motive import PackageFacts, UpdateMotive, classify_motives
 from ossiq.strategy.pyramid import (
     ADMITTED_MOTIVES,
@@ -37,6 +39,9 @@ class Candidate:
     floor, or unscored)."""
     age_days: int | None = None
     """Days since this release was published, or None when the registry gave no publish date."""
+    published_at: datetime | None = None
+    """When this release was published, or None when the registry gave no date. The package
+    manager's release cutoff is an instant, so it is checked against this rather than `age_days`."""
 
     def is_fresh(self, cooldown_period: int) -> bool:
         """True when this release is younger than the cooldown period.
@@ -66,9 +71,10 @@ class StrategySelection:
     """Set when reach was pushed past the tier's base MAX_REACH, or when every reachable
     candidate still carries a qualifying CVE."""
     cooldown_hold: CooldownHold | None = None
-    """Set only when the cooldown left no target at all: every reachable release is younger than
-    the cooldown period and no escalating motive justified taking one anyway. Names the release
-    being waited on, so a surface can say when to come back instead of claiming an update."""
+    """Set only when release age left no target at all: either the package manager's release
+    cutoff refuses every reachable release, or every reachable release is younger than the cooldown
+    period and no escalating motive justified taking one anyway. Names the release being waited
+    on, so a surface can say when to come back instead of claiming an update."""
     cooldown_bypassed: bool = False
     """Set when an escalating motive (exploitable CVE, end-of-life) took a release younger than the
     cooldown period. Read by `service.update.is_held_for_cooldown` so `apply` does not re-hold what
@@ -94,6 +100,7 @@ def select_target(
     candidates: Sequence[Candidate],
     *,
     cooldown_period: int = 0,
+    release_cutoff: ReleaseCutoff | None = None,
 ) -> StrategySelection:
     """Pick the target version for one package under one strategy tier.
 
@@ -102,8 +109,10 @@ def select_target(
          no target, `withheld_reason` names the lowest tier that would have moved it.
       2. Compute reach: the tier's MAX_REACH, escalated to LATEST when an ESCALATING_MOTIVES
          member was admitted (a CVE or end-of-life motive).
-      3. Drop candidates younger than `cooldown_period` days, unless an escalating motive was
-         admitted (see rule 8). Filter what remains to that reach.
+      3. Drop candidates the package manager's `release_cutoff` refuses, whatever the motive: the
+         installer will not move to them, so no escalation can make them an answer. Then drop
+         candidates younger than `cooldown_period` days, unless an escalating motive was admitted
+         (see rule 8). Filter what remains to that reach.
       4. Minimal-diff tiers (security, deprecation) take the *first* (nearest) candidate that
          resolves the admitted motive: CVE-clear when EXPLOITABLE_CVE is admitted, otherwise
          simply the nearest candidate in reach.
@@ -120,11 +129,12 @@ def select_target(
          escalates to the newest candidate overall, same as rule 7 — a package must never come
          back with no target solely because its only newer releases sit past this tier's base
          reach. Minimal-diff tiers are exempt: drift alone is not their motive to move at all.
-      9. Cooldown (rule 3) is the one filter that may legitimately leave a package with no target
-         while newer releases exist: `cooldown_hold` then names the release being waited on. An
-         escalating motive outranks it — waiting out a cooldown is not an option when the
+      9. Release age (rule 3) is the one filter that may legitimately leave a package with no
+         target while newer releases exist: `cooldown_hold` then names the release being waited
+         on. An escalating motive outranks the cooldown — waiting it out is not an option when the
          installed version is exploitable or end-of-life — and a pick that ends up fresh anyway
-         sets `cooldown_bypassed`.
+         sets `cooldown_bypassed`. Nothing outranks the release cutoff, so its hold carries
+         `enforced_by` and stands even with an escalating motive admitted.
     """
     detected = classify_motives(facts)
     admitted = ADMITTED_MOTIVES[strategy] & detected
@@ -144,6 +154,34 @@ def select_target(
 
     escalate = bool(admitted & ESCALATING_MOTIVES)
     reach = RecommendationRung.LATEST if escalate else MAX_REACH[strategy]
+
+    # Ahead of the cooldown and outside `escalate`: a recommendation past the installer's cutoff
+    # could only ever fail at `apply`, however urgent the motive behind it.
+    refused: list[Candidate] = []
+    if release_cutoff is not None:
+        resolvable = [c for c in candidates if release_cutoff.admits(facts.package_name, c.published_at)]
+        refused = [c for c in candidates if c not in resolvable]
+        if len(resolvable) != len(candidates):
+            if not resolvable:
+                newest = candidates[-1]
+                return StrategySelection(
+                    strategy=strategy,
+                    target_version=None,
+                    rung=None,
+                    motives=admitted,
+                    requires_widening=False,
+                    withheld_reason=None,
+                    available_at=None,
+                    escalation=None,
+                    cooldown_hold=CooldownHold(
+                        version=newest.version,
+                        age_days=newest.age_days,
+                        cooldown_period=cooldown_period,
+                        enforced_by=release_cutoff.source,
+                        cutoff=release_cutoff.cutoff_for(facts.package_name),
+                    ),
+                )
+            candidates = resolvable
 
     # A release too young to trust is not an answer the user can act on, so it leaves the ladder
     # here rather than being recommended and then refused by `apply`'s cooldown hold. Filtering
@@ -226,6 +264,9 @@ def select_target(
     escalation: str | None = None
     if not clear:
         escalation = f"every reachable version of {facts.package_name} still carries a qualifying CVE"
+        # Otherwise indistinguishable from "no fix exists" - the one difference the user can act on.
+        if release_cutoff is not None and (fix := next((c for c in refused if not c.has_cve), None)):
+            escalation += f"; {fix.version} clears it but {release_cutoff.source} refuses it until its cutoff passes"
     elif escalate and RUNG_ORDER[pick.rung] > RUNG_ORDER[MAX_REACH[strategy]]:
         motive_names = ", ".join(sorted(m.value for m in admitted & ESCALATING_MOTIVES))
         escalation = f"no version of {facts.package_name} within its declared range resolves: {motive_names}"
