@@ -15,6 +15,7 @@ solver/
 ├── problem.py             SolverProblem, CandidateVersion, PackageConstraint
 ├── universe.py            SolvablePool — builds SolverProblem from registry
 ├── version_matchers.py    npm semver + PEP 440 range matching — raw constraint → bool
+├── npm_range.py           npm range grammar (Lark) + node-semver's rewrite rules → comparator sets
 ├── encoder.py             ConstraintEncoder — produces EncodedProblem (WCNF)
 ├── weights.py             Constraint weight constants + semver_rank_weight()
 └── dependencies_solver.py       Public API: solve_direct(), solve_transitive()
@@ -116,7 +117,7 @@ Structural clauses per package (encoder):
 
 ### Version constraint dispatch (encoder.py)
 
-`version_satisfies_constraint(version, constraint, registry)` (in `version_matchers.py`) dispatches directly to PyPI (PEP 440) or npm (semver) based on the `ProjectPackagesRegistry` passed in — no exception-based fallback. Bare npm versions (e.g. `"14"`) are treated as caret ranges (`^14.0.0`). Unparseable constraints pass through (`True`) — unknown format is never a hard block.
+`version_satisfies_constraint(version, constraint, registry)` (in `version_matchers.py`) dispatches directly to PyPI (PEP 440) or npm (semver) based on the `ProjectPackagesRegistry` passed in — no exception-based fallback. npm ranges go through `npm_range.py` — a Lark grammar for the syntax plus node-semver's own rewrite rules, held to node-semver's verdicts by `tests/solver/node_semver_conformance.json`, so a partial version (`"14"`) is the X-range `14.x` exactly as npm reads it. Unparseable constraints pass through (`True`) — unknown format is never a hard block.
 
 ---
 

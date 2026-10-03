@@ -17,7 +17,7 @@ Pipeline:
     raw constraint string
         │
         ├── npm  ->  npm_version_satisfies_range(version, range_constraint)
-        │               └─ univers.NpmVersionRange / SemverVersion
+        │               └─ solver.npm_range (node-semver's range algorithm, ported)
         │
         ├── pypi ->  pypi_version_satisfies_specifier(version, specifier)
         │               └─ univers.PypiVersionRange / PypiVersion
@@ -32,8 +32,6 @@ from __future__ import annotations
 
 import functools
 import logging
-import operator
-import re
 from collections.abc import Callable
 from typing import TypeVar
 
@@ -41,12 +39,13 @@ import semver
 from packaging.version import InvalidVersion
 from packaging.version import Version as PackagingVersion
 from univers.version_constraint import InvalidConstraintsError
-from univers.version_range import InvalidVersionRange, NpmVersionRange, PypiVersionRange
-from univers.versions import PypiVersion, SemverVersion
+from univers.version_range import InvalidVersionRange, PypiVersionRange
+from univers.versions import PypiVersion
 
 from ossiq.domain.common import ProjectPackagesRegistry
 from ossiq.domain.cve import CVE, AffectedRange
-from ossiq.domain.version import desugar_npm_comparator_xranges, pad_npm_version
+from ossiq.domain.version import pad_npm_version
+from ossiq.solver.npm_range import parse_loose_semver, parse_npm_range
 from ossiq.solver.problem import CandidateVersion
 
 logger = logging.getLogger(__name__)
@@ -54,38 +53,6 @@ logger = logging.getLogger(__name__)
 
 # ── npm / Node.js semver
 # Spec: https://github.com/npm/node-semver#versions
-
-# Standard semver prerelease/build metadata regex
-# Matches `-` or `+` followed by alphanumeric chars, dots, or hyphens.
-SEMVER_METADATA_RE = re.compile(r"[-+][0-9A-Za-z-\.]+")
-
-NOT_EQUAL_RE = re.compile(r"^!=\s*(.+)$")
-# A *partial* bare version - "14" or "14.2" - needs manual caret-expansion below: univers's
-# NpmVersionRange resolves a partial bare version to that exact (zero-padded) version rather
-# than the whole major/minor line the node-semver spec calls for ("14" should match every
-# 14.x.y). A *full* bare version like "4.17.1" does NOT have this problem and must NOT be
-# caret-expanded: per the node-semver spec, a comparator with no operator means equality
-# ("If no operator is specified, then equality is assumed"), and univers already resolves a
-# bare full version to exactly that version on its own. Matching 3+ component bare versions
-# here as well was a real bug (OSS IQ defect report B3): a package.json exact pin such as
-# "express": "4.17.1" was silently treated as "^4.17.1" (anything below 5.0.0), which is why
-# npm's solver looked like it could move past a pin PyPI's exact-pin parsing correctly refused.
-PARTIAL_BARE_VERSION_RE = re.compile(r"^\d+(\.\d+)?([-+][0-9A-Za-z-\.]+)?$")
-
-# Mapping string operators to standard Python math operators
-OPS = {
-    ">": operator.gt,
-    ">=": operator.ge,
-    "<": operator.lt,
-    "<=": operator.le,
-    "=": operator.eq,
-    "==": operator.eq,
-    "!=": operator.ne,
-}
-# Matches a prerelease suffix on a full version: "3.0.0-0" / "3.0.0-rc.1" -> strip to "3.0.0".
-# univers rejects prerelease-floor constraints like ">=3.0.0-0"; we deliberately ignore
-# prerelease precision. Hyphen ranges ("1.2.3 - 2.0.0") are unaffected: they have spaces.
-PRERELEASE_SUFFIX_RE = re.compile(r"(\d+\.\d+\.\d+)-[0-9A-Za-z][0-9A-Za-z.-]*")
 
 
 def strip_npm_alias(constraint: str) -> str:
@@ -119,97 +86,32 @@ def preprocess_pypi_specifier(specifier: str) -> str:
     )
 
 
-def fallback_evaluate_bounds(version_obj: SemverVersion, constraint_string: str) -> bool:
+def npm_version_satisfies_range(version: str, range_constraint: str, include_prerelease: bool = False) -> bool:
+    """Return True if *version* satisfies an npm semver *range_constraint*, as npm would decide.
+
+    Matching is `solver.npm_range`, a port of node-semver's own range algorithm, so every form
+    npm accepts means here what it means to npm. An npm alias ("npm:pkg@^1.2.3") is matched
+    against its embedded range.
+
+    Args:
+        version: The version to test.
+        range_constraint: The range as written in a manifest or lockfile.
+        include_prerelease: node-semver's ``includePrerelease``. Without it a prerelease
+            satisfies only a range that names a prerelease of the same major.minor.patch.
+
+    Returns:
+        Whether *version* satisfies the range; True when either side cannot be parsed, so a
+        specifier npm resolves outside semver ("latest", a git URL) never hard-blocks.
     """
-    Manually evaluates constraint branches mathematically when strict semver
-    parsers (like univers) crash on overlapping or redundant prerelease boundaries.
-    """
-    # Split the constraint into OR branches (||)
-    for branch in (b.strip() for b in constraint_string.split("||")):
-        clauses = re.sub(r"([><=~^!]+)\s+", r"\1", branch).split()
-        branch_satisfied = True
-
-        for clause in clauses:
-            match = re.match(r"^([><=~^!]+)?(.*)$", clause)
-            if not match:
-                continue
-
-            op_str, constraint_val = match.groups()
-            op_str = op_str or "="
-
-            try:
-                if op_str in OPS and not OPS[op_str](version_obj, SemverVersion(constraint_val)):  # type: ignore
-                    branch_satisfied = False
-                    break
-            except ValueError:
-                continue
-
-        if branch_satisfied:
-            return True
-
-    return False
-
-
-def npm_version_satisfies_range(version: str, range_constraint: str, allow_beta: bool = False) -> bool:
-    """Return True if *version* satisfies an npm semver *range_constraint*.
-
-    Implements a subset of the node-semver range syntax:
-      - ``||`` union  — "14 || 16"
-      - ``^``  caret  — "^1.2.3"  compatible with the same major
-      - ``~``  tilde  — "~1.2.3"  compatible with the same minor
-      - bare partial version  — "14" or "14.2"  treated as a caret range (^14.0.0 / ^14.2.0)
-      - bare full version  — "4.17.1"  exact match only (no operator = equality, per spec)
-      - comparison operators  — ">", ">=", "<", "<=", "=", "!="
-      - npm alias  — "npm:pkg@^1.2.3"  matched against the embedded range
-
-    Each ``||`` branch is evaluated on its own rather than handed to univers as one string:
-    univers flattens a union into an ungrouped constraint list, so "~5.5.8 || ~5.5.10" became
-    ``['>=5.5.8', '>=5.5.10', '<5.6.0', '<5.6.0']`` and admitted 6.1.13. Branch adjacency survives
-    for "^1.0.0 || ^2.0.0" by luck of bound ordering; two tildes sharing an upper bound lose it.
-    An unparseable branch passes through as True, the same fail-open this function has always
-    applied to an unparseable constraint.
-    """
-    if not allow_beta and "-" in version:
-        return False
-
-    constraint = strip_npm_alias(range_constraint).strip()
-
-    m = NOT_EQUAL_RE.match(constraint)
-    if m:
-        try:
-            return SemverVersion(version) != SemverVersion(m.group(1))  # type: ignore
-        except ValueError:
-            return True
-
     try:
-        candidate = SemverVersion(version)  # type: ignore
+        npm_range = parse_npm_range(strip_npm_alias(range_constraint), include_prerelease)
+        candidate = parse_loose_semver(version)
     except ValueError as exc:
         logger.debug(
-            "npm_version_satisfies_range: unparseable version=%r constraint=%r error=%s", version, range_constraint, exc
+            "npm_version_satisfies_range: version=%r constraint=%r unparseable: %s", version, range_constraint, exc
         )
         return True
-
-    for raw_branch in constraint.split("||"):
-        branch = raw_branch.strip()
-        if not branch:
-            continue
-        if PARTIAL_BARE_VERSION_RE.match(branch):
-            branch = f"^{branch}"
-        try:
-            if candidate in NpmVersionRange.from_native(desugar_npm_comparator_xranges(branch)):
-                return True
-        except InvalidConstraintsError:
-            if fallback_evaluate_bounds(candidate, branch):
-                return True
-        except (ValueError, InvalidVersionRange) as exc:
-            logger.debug(
-                "npm_version_satisfies_range: unparseable branch=%r constraint=%r error=%s",
-                branch,
-                range_constraint,
-                exc,
-            )
-            return True
-    return False
+    return npm_range.satisfied_by(candidate)
 
 
 # ── PyPI / PEP 440
