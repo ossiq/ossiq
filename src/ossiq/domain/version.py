@@ -288,47 +288,6 @@ def pad_npm_version(version: str) -> str:
     return ".".join(parts[:3])
 
 
-# A comparator glued to an X-range: ">=14.x", "<= 1.2.*". univers mishandles every one of these:
-# NpmVersionRange crashes with UnboundLocalError when NpmSpec simplifies the term to a single
-# Range (">=14.x"), reads the spaced form ">= 14.x" as the whole 14 line, and turns "*"/"X" into
-# build metadata. Desugaring to a plain comparator first sidesteps all three.
-NPM_COMPARATOR_XRANGE_RE = re.compile(
-    r"(?P<op><=|>=|<|>)\s*v?(?P<major>\d+)(?:\.(?P<minor>\d+))?(?:\.[xX*]){1,2}(?=\s|\||$)"
-)
-
-
-def desugar_npm_comparator_xranges(range_constraint: str) -> str:
-    """Rewrite comparator X-ranges in an npm range as plain comparators, per node-semver.
-
-    ">=1.x" -> ">=1.0.0", ">1.x" -> ">=2.0.0", "<1.x" -> "<1.0.0", "<=1.x" -> "<2.0.0", and the
-    same one level down for "1.2.x". Bare X-ranges ("1.x"), tilde/caret forms and full versions
-    pass through unchanged.
-
-    Args:
-        range_constraint: An npm semver range, possibly with several space- or ``||``-separated
-            comparators.
-
-    Returns:
-        The range with every comparator X-range replaced by an equivalent plain comparator.
-    """
-
-    def desugar(match: re.Match[str]) -> str:
-        op = match["op"]
-        major = int(match["major"])
-        minor = match["minor"]
-        floor = f"{major}.{minor}.0" if minor is not None else f"{major}.0.0"
-        ceiling = f"{major}.{int(minor) + 1}.0" if minor is not None else f"{major + 1}.0.0"
-        if op == ">=":
-            return f">={floor}"
-        if op == ">":
-            return f">={ceiling}"
-        if op == "<":
-            return f"<{floor}"
-        return f"<{ceiling}"
-
-    return NPM_COMPARATOR_XRANGE_RE.sub(desugar, range_constraint)
-
-
 # ---------------------------------------------------------------------------
 # Version-specifier classification
 # ---------------------------------------------------------------------------
