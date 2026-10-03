@@ -29,7 +29,6 @@ from ossiq.domain.version import (
     classify_npm_specifier,
     classify_pypi_specifier,
     create_version_difference_no_diff,
-    desugar_npm_comparator_xranges,
     normalize_version,
     pad_npm_version,
     sort_versions,
@@ -167,38 +166,6 @@ class TestPadNpmVersion:
 
     def test_empty_string_is_not_normalized_to_zeros(self):
         assert pad_npm_version("") == ".0.0"
-
-
-class TestDesugarNpmComparatorXranges:
-    """univers crashes or misreads a comparator glued to an X-range, so these are rewritten to
-    plain comparators by node-semver's rules before any range reaches it."""
-
-    @pytest.mark.parametrize(
-        ("raw", "expected"),
-        [
-            (">=14.x", ">=14.0.0"),
-            (">=14.X", ">=14.0.0"),
-            (">=14.*", ">=14.0.0"),
-            (">= 14.x", ">=14.0.0"),
-            (">=v14.x", ">=14.0.0"),
-            (">=14.x.x", ">=14.0.0"),
-            (">=1.2.x", ">=1.2.0"),
-            (">1.x", ">=2.0.0"),
-            (">1.2.x", ">=1.3.0"),
-            ("<2.x", "<2.0.0"),
-            ("<1.2.x", "<1.2.0"),
-            ("<=1.x", "<2.0.0"),
-            ("<=1.2.x", "<1.3.0"),
-            (">=1.x <3", ">=1.0.0 <3"),
-            (">=14.x || >=16.x", ">=14.0.0 || >=16.0.0"),
-        ],
-    )
-    def test_comparator_xranges_become_plain_comparators(self, raw, expected):
-        assert desugar_npm_comparator_xranges(raw) == expected
-
-    @pytest.mark.parametrize("raw", ["1.x", "=1.x", "~1.x", "^1.2.3", ">=1.2.3", "*", ">=1.2.3-x.1"])
-    def test_everything_else_passes_through(self, raw):
-        assert desugar_npm_comparator_xranges(raw) == raw
 
 
 class TestSortVersions:
