@@ -2,9 +2,11 @@
 
 import dataclasses
 import random
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from ossiq.domain.common import RecommendationRung
+from ossiq.domain.release_cutoff import ReleaseCutoff
 from ossiq.strategy.motive import PackageFacts
 from ossiq.strategy.pyramid import PYRAMID, UpdateStrategy
 from ossiq.strategy.targeting import Candidate, select_target
@@ -249,3 +251,120 @@ def test_monotonic_across_tiers() -> None:
             indices.append(idx)
 
         assert indices == sorted(indices), (facts, candidates, indices)
+
+
+# The package manager's release cutoff (uv exclude-newer): enforced, per package, unlike the cooldown.
+
+UV_CUTOFF_AT = datetime(2026, 9, 24, tzinfo=UTC)
+UV_CUTOFF = ReleaseCutoff("uv exclude-newer", default=UV_CUTOFF_AT)
+
+
+def published(days_before_cutoff: int) -> datetime:
+    return UV_CUTOFF_AT - timedelta(days=days_before_cutoff)
+
+
+def test_release_cutoff_drops_what_the_installer_refuses() -> None:
+    facts = make_facts()
+    candidates = [
+        Candidate("1.1.0", IN_RANGE, has_cve=False, age_days=30, published_at=published(20)),
+        Candidate("1.2.0", IN_RANGE, has_cve=False, age_days=8, published_at=published(-2)),
+    ]
+
+    selection = select_target(facts, UpdateStrategy.STANDARD, candidates, release_cutoff=UV_CUTOFF)
+    assert selection.target_version == "1.1.0"
+    assert selection.cooldown_hold is None
+
+
+def test_release_cutoff_hold_names_the_package_manager() -> None:
+    facts = make_facts()
+    candidates = [
+        Candidate("1.1.0", IN_RANGE, has_cve=False, age_days=9, published_at=published(-1)),
+        Candidate("1.2.0", IN_RANGE, has_cve=False, age_days=8, published_at=published(-2)),
+    ]
+
+    selection = select_target(facts, UpdateStrategy.STANDARD, candidates, cooldown_period=7, release_cutoff=UV_CUTOFF)
+    assert selection.target_version is None
+    assert selection.cooldown_hold is not None
+    assert selection.cooldown_hold.version == "1.2.0"
+    assert selection.cooldown_hold.enforced_by == "uv exclude-newer"
+    assert selection.cooldown_hold.cutoff == UV_CUTOFF_AT
+
+
+def test_no_motive_outranks_the_release_cutoff() -> None:
+    """A CVE outranks OSS IQ's cooldown, but a fix the installer refuses is no answer at all."""
+    for facts in (make_facts(cve_epss_scores=(0.5,)), make_facts(maintenance_state="abandoned")):
+        candidates = [Candidate("1.2.0", IN_RANGE, has_cve=False, age_days=2, published_at=published(-5))]
+
+        selection = select_target(
+            facts, UpdateStrategy.STANDARD, candidates, cooldown_period=7, release_cutoff=UV_CUTOFF
+        )
+        assert selection.target_version is None
+        assert selection.cooldown_bypassed is False
+        assert selection.cooldown_hold is not None
+        assert selection.cooldown_hold.enforced_by == "uv exclude-newer"
+
+
+def test_a_fix_the_cutoff_refuses_is_named_in_the_escalation() -> None:
+    facts = make_facts(cve_epss_scores=(0.5,))
+    candidates = [
+        Candidate("1.1.0", IN_RANGE, has_cve=True, age_days=40, published_at=published(30)),
+        Candidate("1.2.0", IN_RANGE, has_cve=False, age_days=2, published_at=published(-5)),
+    ]
+
+    selection = select_target(facts, UpdateStrategy.SECURITY, candidates, release_cutoff=UV_CUTOFF)
+    assert selection.target_version == "1.1.0"
+    assert selection.escalation is not None
+    assert "1.2.0 clears it but uv exclude-newer refuses it" in selection.escalation
+
+
+def test_the_stricter_of_cooldown_and_release_cutoff_wins() -> None:
+    facts = make_facts()
+    # Admitted by uv (published before its cutoff) but younger than OSS IQ's 7-day cooldown.
+    young = Candidate("1.2.0", IN_RANGE, has_cve=False, age_days=3, published_at=published(1))
+    aged = Candidate("1.1.0", IN_RANGE, has_cve=False, age_days=30, published_at=published(25))
+
+    selection = select_target(
+        facts, UpdateStrategy.STANDARD, [aged, young], cooldown_period=7, release_cutoff=UV_CUTOFF
+    )
+    assert selection.target_version == "1.1.0"
+
+    held = select_target(facts, UpdateStrategy.STANDARD, [young], cooldown_period=7, release_cutoff=UV_CUTOFF)
+    assert held.cooldown_hold is not None
+    assert held.cooldown_hold.enforced_by is None  # OSS IQ's own cooldown, not uv's
+
+
+def test_a_package_exempt_from_the_cutoff_is_not_held() -> None:
+    facts = make_facts(package_name="six")
+    exempting = ReleaseCutoff("uv exclude-newer", default=UV_CUTOFF_AT, per_package={"six": None})
+    candidates = [Candidate("1.2.0", IN_RANGE, has_cve=False, age_days=30, published_at=published(-5))]
+
+    selection = select_target(facts, UpdateStrategy.STANDARD, candidates, release_cutoff=exempting)
+    assert selection.target_version == "1.2.0"
+
+
+def test_a_release_with_no_publish_instant_passes_the_cutoff() -> None:
+    facts = make_facts()
+    candidates = [Candidate("1.1.0", IN_RANGE, has_cve=False, age_days=None, published_at=None)]
+
+    selection = select_target(facts, UpdateStrategy.STANDARD, candidates, release_cutoff=UV_CUTOFF)
+    assert selection.target_version == "1.1.0"
+
+
+def test_no_tier_or_motive_ever_targets_past_the_release_cutoff() -> None:
+    rng = random.Random(4321)
+    for _ in range(300):
+        facts = make_facts(
+            cve_epss_scores=tuple(rng.choice([None, 0.001, 0.5]) for _ in range(rng.randint(0, 2))),
+            maintenance_state=rng.choice([None, "maintained", "winding_down", "abandoned", "deprecated"]),
+        )
+        candidates = [
+            dataclasses.replace(c, age_days=rng.randint(0, 60), published_at=published(rng.randint(-10, 10)))
+            for c in _random_candidates(rng, rng.randint(0, 6))
+        ]
+        refused = {c.version for c in candidates if c.published_at is not None and c.published_at > UV_CUTOFF_AT}
+
+        for tier in PYRAMID:
+            selection = select_target(
+                facts, tier, candidates, cooldown_period=rng.choice([0, 7]), release_cutoff=UV_CUTOFF
+            )
+            assert selection.target_version not in refused, (facts, candidates, tier)

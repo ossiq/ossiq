@@ -9,6 +9,7 @@ from ossiq.messages import (
     HELP_PLAN_CONVERGENCE_NOTICE,
     HELP_PLAN_CVE_BYPASS_NOTE,
     HELP_PLAN_FORCED_WARNING,
+    HELP_PLAN_HELD_BY_PACKAGE_MANAGER_HEADER,
     HELP_PLAN_HELD_FOR_COOLDOWN_HEADER,
     HELP_PLAN_HELD_FOR_WIDENING_HEADER,
     HELP_PLAN_KNOWN_BREAK_NOTE,
@@ -16,9 +17,19 @@ from ossiq.messages import (
 )
 from ossiq.service.update import UpdateEntry, UpdatePlan
 from ossiq.ui.interfaces import AbstractUserInterfaceRenderer
-from ossiq.ui.renderers.impact_utils import impact_sub_row_texts, is_fresh_new_dep, new_transitive_deps_table
+from ossiq.ui.renderers.impact_utils import (
+    format_cutoff,
+    impact_sub_row_texts,
+    is_fresh_new_dep,
+    new_transitive_deps_table,
+)
 
 console = Console()
+
+
+def age_cell(entry: UpdateEntry) -> str:
+    """Age of the entry's target in days, or a dash when the registry gave no publish date."""
+    return f"{entry.reason.age_days}d" if entry.reason and entry.reason.age_days is not None else "—"
 
 
 def package_cell_text(entry: UpdateEntry) -> str:
@@ -126,23 +137,44 @@ class ConsolePlanRenderer(AbstractUserInterfaceRenderer):
             console.print(Rule("End of Plan Script", style="dim"))
 
     def render_held_for_cooldown(self, data: UpdatePlan) -> None:
-        """List recommendations withheld because their target version is younger than the cooldown."""
-        if not data.held_for_cooldown:
-            return
+        """List recommendations withheld because their target version is too young to move to.
 
-        console.print(f"[yellow]{HELP_PLAN_HELD_FOR_COOLDOWN_HEADER.format(days=data.cooldown_period)}[/yellow]")
-        table = Table(show_header=True, header_style="bold dim", box=None, padding=(0, 2))
-        table.add_column("Package", style="bold")
-        table.add_column("Current", style="red")
-        table.add_column("Recommended", style="green")
-        table.add_column("Age", style="dim")
-        table.add_column("Type", style="dim")
-        for entry in data.held_for_cooldown:
-            age = f"{entry.reason.age_days}d" if entry.reason and entry.reason.age_days is not None else "—"
-            dep_type = "direct" if entry.is_direct else "transitive"
-            table.add_row(entry.display_name, entry.current_version, entry.recommended_version, age, dep_type)
-        console.print(table)
-        console.print()
+        OSS IQ's cooldown and the package manager's release cutoff get separate tables: only the
+        first is OSS IQ's call, and naming the wrong one sends the user to the wrong setting.
+        """
+        by_cooldown = [e for e in data.held_for_cooldown if e.held_by is None]
+        by_package_manager = [e for e in data.held_for_cooldown if e.held_by is not None]
+
+        if by_cooldown:
+            console.print(f"[yellow]{HELP_PLAN_HELD_FOR_COOLDOWN_HEADER.format(days=data.cooldown_period)}[/yellow]")
+            table = Table(show_header=True, header_style="bold dim", box=None, padding=(0, 2))
+            table.add_column("Package", style="bold")
+            table.add_column("Current", style="red")
+            table.add_column("Recommended", style="green")
+            table.add_column("Age", style="dim")
+            table.add_column("Type", style="dim")
+            for entry in by_cooldown:
+                dep_type = "direct" if entry.is_direct else "transitive"
+                versions = (entry.current_version, entry.recommended_version)
+                table.add_row(entry.display_name, *versions, age_cell(entry), dep_type)
+            console.print(table)
+            console.print()
+
+        if by_package_manager:
+            header = HELP_PLAN_HELD_BY_PACKAGE_MANAGER_HEADER.format(setting=by_package_manager[0].held_by)
+            console.print(f"[yellow]{header}[/yellow]")
+            table = Table(show_header=True, header_style="bold dim", box=None, padding=(0, 2))
+            table.add_column("Package", style="bold")
+            table.add_column("Current", style="red")
+            table.add_column("Waiting on", style="green")
+            table.add_column("Age", style="dim")
+            table.add_column("Cutoff", style="dim")
+            for entry in by_package_manager:
+                cutoff = format_cutoff(entry.held_cutoff) if entry.held_cutoff is not None else "—"
+                versions = (entry.current_version, entry.recommended_version)
+                table.add_row(entry.display_name, *versions, age_cell(entry), cutoff)
+            console.print(table)
+            console.print()
 
     def render_held_for_widening(self, data: UpdatePlan) -> None:
         """List recommendations withheld because reaching them requires widening the declared range."""

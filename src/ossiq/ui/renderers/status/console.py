@@ -15,6 +15,7 @@ from ossiq.messages import (
     HELP_STATUS_COVERAGE_NO_REPOSITORY,
     HELP_STATUS_COVERAGE_REPOSITORY_UNAVAILABLE,
     HELP_STATUS_COVERAGE_UNSUPPORTED_HOST,
+    HELP_STATUS_PACKAGE_MANAGER_HOLD,
 )
 from ossiq.risk.maintenance import NOT_MAINTAINED
 from ossiq.service.library_scan import UpgradePath
@@ -24,6 +25,7 @@ from ossiq.service.project.next_action import CONSTRAINED_CHECK_NEWER, engine_mi
 from ossiq.settings import Settings
 from ossiq.ui.interfaces import AbstractUserInterfaceRenderer
 from ossiq.ui.renderers.impact_utils import (
+    format_cutoff,
     format_lag_status,
     format_probability,
     format_rejection_detail,
@@ -133,11 +135,15 @@ def blocker_sub_row_texts(pkg: ScanRecord) -> list[str]:
     # below, since the range is not what is holding the package back here.
     if selection is not None and selection.cooldown_hold is not None:
         hold = selection.cooldown_hold
-        return [
-            "  [dim]"
-            + HELP_STATUS_COOLDOWN_HOLD.format(version=hold.version, age_days=hold.age_days, days=hold.cooldown_period)
-            + "[/]"
-        ]
+        if hold.enforced_by is not None and hold.cutoff is not None:
+            message = HELP_STATUS_PACKAGE_MANAGER_HOLD.format(
+                version=hold.version, setting=hold.enforced_by, cutoff=format_cutoff(hold.cutoff)
+            )
+        else:
+            message = HELP_STATUS_COOLDOWN_HOLD.format(
+                version=hold.version, age_days=hold.age_days, days=hold.cooldown_period
+            )
+        return [f"  [dim]{message}[/]"]
 
     if not pkg.version_constraint_declared or next_action_label(pkg) != CONSTRAINED_CHECK_NEWER:
         return []

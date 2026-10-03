@@ -6,6 +6,7 @@ from datetime import datetime
 
 from ossiq.adapters.api_interfaces import AbstractPackageRegistryApi
 from ossiq.domain.common import ConstraintType, EngineContext, RecommendationRung
+from ossiq.domain.release_cutoff import ReleaseCutoff
 from ossiq.service.project.models import ScanRecord
 from ossiq.service.project.target_facts import annotate_target_facts
 from ossiq.solver import dependencies_solver
@@ -90,6 +91,7 @@ def clamp_recommendations(
     now: datetime | None = None,
     rewrite_pinned: bool = False,
     cooldown_period: int = 0,
+    release_cutoff: ReleaseCutoff | None = None,
 ) -> None:
     """Re-fit recommendations that violate a record's own version constraint.
 
@@ -98,7 +100,8 @@ def clamp_recommendations(
     and never below the record's own installed version (a wide alias like ``npm:ms@*`` can
     inherit a sibling's downgrade that still satisfies its range).
     Mirrors the solver's soft cooldown: prefer versions older than cooldown_period,
-    fall back to a fresher one only when nothing aged satisfies the range.
+    fall back to a fresher one only when nothing aged satisfies the range. Never re-fits past the
+    package manager's `release_cutoff`, which the installer enforces rather than prefers.
     """
     for record in records:
         rec = record.recommended_version
@@ -117,6 +120,7 @@ def clamp_recommendations(
             allow_prerelease,
             registry,
             now,
+            release_cutoff.cutoff_for(record.package_name) if release_cutoff else None,
         )
         in_range = [
             pv

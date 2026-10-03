@@ -1,5 +1,7 @@
 """Shared Rich-rendering utilities for transitive impact display."""
 
+from datetime import UTC, datetime
+
 from rich.table import Table
 
 from ossiq.domain.common import RejectionDetail
@@ -64,6 +66,15 @@ def format_triage(result: TriageResult | None) -> str:
         return "[dim]—[/dim]"
     style = TRIAGE_STYLE.get(result.action, "default")
     return f"[{style}]{result.action}[/]"
+
+
+def format_cutoff(cutoff: datetime) -> str:
+    """Format a package manager's release cutoff to the minute, in UTC.
+
+    A relative cutoff ("7 days") resolves to an arbitrary instant mid-day, so a bare date would
+    misreport which side of it a same-day release falls on.
+    """
+    return cutoff.astimezone(UTC).strftime("%Y-%m-%d %H:%M UTC")
 
 
 def format_time_delta(days: int | None, lag_threshold_days: int) -> str:

@@ -1,6 +1,7 @@
 """Shared test fixtures."""
 
 import os
+from pathlib import Path
 
 import pytest
 
@@ -42,3 +43,21 @@ def isolated_config_dir(tmp_path_factory, monkeypatch):
     monkeypatch.setattr(ossiq.settings, "CONFIG_DIR", config_dir)
     monkeypatch.setattr(ossiq.settings, "CONFIG_PATH", config_dir / "config")
     monkeypatch.setattr(ossiq.settings, "LEGACY_CONFIG_PATH", home / ".ossiq" / "config")
+
+
+@pytest.fixture(scope="session")
+def empty_config_dir(tmp_path_factory) -> Path:
+    return tmp_path_factory.mktemp("empty-config")
+
+
+@pytest.fixture(autouse=True)
+def clean_uv_env(monkeypatch, empty_config_dir: Path):
+    """Keep the host's uv settings out of every scan.
+
+    Every uv project reads its release cutoff from the user's and the system's `uv.toml` too, so a
+    developer's own `exclude-newer` would otherwise hold back releases in unrelated tests.
+    """
+    for key in ("UV_EXCLUDE_NEWER", "UV_CONFIG_FILE", "UV_NO_CONFIG"):
+        monkeypatch.delenv(key, raising=False)
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(empty_config_dir))
+    monkeypatch.setenv("XDG_CONFIG_DIRS", str(empty_config_dir))

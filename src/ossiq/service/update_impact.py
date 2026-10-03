@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 
 from ossiq.adapters.api_interfaces import AbstractPackageRegistryApi
 from ossiq.domain.common import RejectionDetail
+from ossiq.domain.release_cutoff import ReleaseCutoff
 from ossiq.domain.version import PackageVersion
 from ossiq.solver.version_matchers import satisfies_all_constraints, version_satisfies_constraint
 from ossiq.timeutil import age_days_from_iso, parse_iso_datetime
@@ -75,13 +76,14 @@ def find_best_satisfying_package_version(
     registry: AbstractPackageRegistryApi,
     allow_prerelease: bool = False,
     now: datetime | None = None,
+    release_cutoff: ReleaseCutoff | None = None,
 ) -> PackageVersion | None:
     """Return the newest PackageVersion of package_name satisfying all constraints.
 
     Uses registry.package_versions() which is cache-warm after the scan pass for packages
     already in the tree — brand-new deps may cost one HTTP fetch each. Skips yanked,
-    unpublished, post-cutoff (when now is set), and (by default) prerelease versions,
-    matching the hard-filter behaviour of SolvablePool.build().
+    unpublished, post-cutoff (when now is set), past the package manager's `release_cutoff`, and
+    (by default) prerelease versions, matching the hard-filter behaviour of SolvablePool.build().
 
     Deliberately avoids the SAT solver: we only need hard constraint satisfaction
     (L1 logic), not weighted soft penalties.
@@ -93,6 +95,7 @@ def find_best_satisfying_package_version(
         and not pv.is_unpublished
         and (allow_prerelease or not pv.is_prerelease)
         and published_on_or_before(pv, now)
+        and (release_cutoff is None or release_cutoff.admits(package_name, parse_iso_datetime(pv.published_date_iso)))
         and satisfies_all_constraints(pv.version, constraints, registry.package_registry)
     )
     return registry.newest_version(filtered)
@@ -104,9 +107,12 @@ def find_best_satisfying_version(
     registry: AbstractPackageRegistryApi,
     allow_prerelease: bool = False,
     now: datetime | None = None,
+    release_cutoff: ReleaseCutoff | None = None,
 ) -> str | None:
     """Return the newest version string satisfying all constraints, or None."""
-    best = find_best_satisfying_package_version(package_name, constraints, registry, allow_prerelease, now=now)
+    best = find_best_satisfying_package_version(
+        package_name, constraints, registry, allow_prerelease, now=now, release_cutoff=release_cutoff
+    )
     if best is None:
         return None
     return best.version
@@ -122,6 +128,7 @@ def assess_transitive_impact(
     installed_names: set[str] | None = None,
     now: datetime | None = None,
     old_constraint_from_driven_by: str | None = None,
+    release_cutoff: ReleaseCutoff | None = None,
 ) -> TransitiveImpact | None:
     """Assess whether a new constraint on dep_name creates an impact.
 
@@ -138,7 +145,9 @@ def assess_transitive_impact(
     if record is None:
         if installed_names and dep_name in installed_names:
             return None
-        best = find_best_satisfying_package_version(dep_name, [new_constraint], registry, allow_prerelease, now=now)
+        best = find_best_satisfying_package_version(
+            dep_name, [new_constraint], registry, allow_prerelease, now=now, release_cutoff=release_cutoff
+        )
         return TransitiveImpact(
             package_name=dep_name,
             current_version=None,
@@ -159,7 +168,9 @@ def assess_transitive_impact(
     # a dozen times. Duplicates never changed what satisfies_all_constraints accepts; they only
     # ever reached a human, as an unreadable wall of identical specs.
     merged_constraints = list(dict.fromkeys(base_constraints + [new_constraint]))
-    best = find_best_satisfying_package_version(dep_name, merged_constraints, registry, allow_prerelease, now=now)
+    best = find_best_satisfying_package_version(
+        dep_name, merged_constraints, registry, allow_prerelease, now=now, release_cutoff=release_cutoff
+    )
 
     if best is None:
         return TransitiveImpact(
@@ -197,6 +208,7 @@ def simulate_single(
     installed_names: set[str] | None = None,
     now: datetime | None = None,
     installed_version: str | None = None,
+    release_cutoff: ReleaseCutoff | None = None,
 ) -> DirectUpdateImpact:
     """Simulate the transitive impact of updating package_name to candidate_version.
 
@@ -206,6 +218,9 @@ def simulate_single(
     installed_version: the currently installed version of package_name. When provided,
     the old requirements from that version are fetched so stale constraints it imposed
     on transitive deps are replaced rather than merged with the new requirements.
+
+    release_cutoff: the package manager's own limit on release age. A transitive dep is projected
+    at a version the installer would actually move it to, never one past that limit.
     """
     new_requires = registry.package_version_requires(package_name, candidate_version)
     old_requires: dict[str, str] = {}
@@ -224,6 +239,7 @@ def simulate_single(
             installed_names,
             now,
             old_constraint_from_driven_by=old_requires.get(dep_name),
+            release_cutoff=release_cutoff,
         )
         if impact is not None:
             impacts.append(impact)
@@ -249,6 +265,7 @@ def simulate_update_impacts(
     installed_names: set[str] | None = None,
     now: datetime | None = None,
     installed_versions: dict[str, str] | None = None,
+    release_cutoff: ReleaseCutoff | None = None,
 ) -> dict[str, DirectUpdateImpact]:
     """Simulate transitive impacts for all recommended direct dep updates.
 
@@ -262,6 +279,7 @@ def simulate_update_impacts(
         stripped before merging with the new candidate's constraints — same logic as the
         post-solve validator uses via simulate_single(installed_version=…).
     now: reference time (the cutoff date when set) for deterministic projections and ages.
+    release_cutoff: the package manager's own limit on release age, forwarded to simulate_single.
 
     Keys in the returned dict match the keys of recommendations.
     """
@@ -276,6 +294,7 @@ def simulate_update_impacts(
             installed_names,
             now,
             installed_version=installed_versions.get(pkg) if installed_versions else None,
+            release_cutoff=release_cutoff,
         )
         for pkg, ver in recommendations.items()
     }

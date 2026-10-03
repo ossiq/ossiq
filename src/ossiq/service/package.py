@@ -167,6 +167,7 @@ def fetch_prospective_detail(
         {},
         allow_prerelease=sources.allow_prerelease,
         cooldown_period=settings.cooldown_period,
+        release_cutoff=sources.release_cutoff,
     )
     recommended_version = solver_output.recommendations.get(pkg_canonical) or package.latest_version
     prospective_reason = solver_output.reasons.get(pkg_canonical)
@@ -279,6 +280,7 @@ def build_installed_detail(
             scan_result.engine_context.versions,
             allow_prerelease=sources.allow_prerelease,
             cooldown_period=settings.cooldown_period,
+            release_cutoff=sources.release_cutoff,
         )
         # registry/engine_context/project_declares_esm so the compatibility cluster is written by
         # the same single writer (target_facts.annotate_target_facts) the scan uses, on the same
@@ -296,6 +298,7 @@ def build_installed_detail(
             sources.packages_registry,
             allow_prerelease=sources.allow_prerelease,
             cooldown_period=settings.cooldown_period,
+            release_cutoff=sources.release_cutoff,
         )
 
     # These fetches hit the already-warm in-process cache — no extra HTTP round-trips.

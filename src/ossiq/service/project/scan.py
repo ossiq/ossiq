@@ -391,6 +391,7 @@ def warm_pypi_version_requires_cache(
             sources.allow_prerelease,
             sources.packages_registry,
             now,
+            sources.release_cutoff.cutoff_for(dep.canonical_name) if sources.release_cutoff else None,
         )[:10]  # FIXME: questionable solution for high-frequency released packages
     ]
     sources.packages_registry.warmup_version_requires(warmup_pairs)
@@ -427,6 +428,7 @@ def solve_direct_phase(
             sources.allow_prerelease,
             now=now,
             installed_version=installed_version_by_name.get(pkg_name),
+            release_cutoff=sources.release_cutoff,
         )
 
     def validate_recommendation(pkg_name: str, candidate_version: str) -> bool:
@@ -442,6 +444,7 @@ def solve_direct_phase(
         _now=now,
         cooldown_period=sources.settings.cooldown_period,
         rewrite_pinned=sources.rewrite_versions,
+        release_cutoff=sources.release_cutoff,
     )
     logger.debug(
         "Pass 1.5 solve_direct: %.2fs — %d recommendations",
@@ -484,6 +487,7 @@ def solve_direct_phase(
             now=now,
             rewrite_pinned=sources.rewrite_versions,
             cooldown_period=sources.settings.cooldown_period,
+            release_cutoff=sources.release_cutoff,
         )
 
         # Build a complete set of installed canonical names — includes transitive deps
@@ -502,6 +506,7 @@ def solve_direct_phase(
             installed_names=all_installed_names,
             now=now,
             installed_versions=installed_version_by_name,
+            release_cutoff=sources.release_cutoff,
         )
         logger.debug("Pass 1.5b simulate_impacts: %.2fs — %d packages", time.perf_counter() - t2, len(impacts))
         for record in production_packages + optional_packages:
@@ -547,6 +552,7 @@ def solve_transitive_phase(
         now=now,
         cooldown_period=sources.settings.cooldown_period,
         external_targets={**installed_version_by_name, **solver_output.recommendations},
+        release_cutoff=sources.release_cutoff,
     )
     logger.debug(
         "Pass 1.6 solve_transitive: %.2fs — %d records, %d recommendations",
@@ -676,6 +682,7 @@ def scan(sources: AbstractProjectSources, progress: ScanProgress | None = None) 
             project_declares_esm=project_info.declares_esm,
             engine_context=engine_context,
             cooldown_period=sources.settings.cooldown_period,
+            release_cutoff=sources.release_cutoff,
         )
 
         upgrade_paths = compute_upgrade_paths(project_info, sources.packages_registry)

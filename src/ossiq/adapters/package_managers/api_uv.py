@@ -10,7 +10,7 @@ import re
 import subprocess
 import tomllib
 from collections import defaultdict, namedtuple
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -43,6 +43,9 @@ logger = logging.getLogger(__name__)
 UvProject = namedtuple("UvProject", ["manifest", "lockfile"])
 
 UV_EXCLUDE_NEWER_ENV = "UV_EXCLUDE_NEWER"
+UV_CONFIG_FILE_ENV = "UV_CONFIG_FILE"
+UV_NO_CONFIG_ENV = "UV_NO_CONFIG"
+UV_EXCLUDE_NEWER_SOURCE = "uv exclude-newer"
 
 
 def parse_pyproject_direct_specifiers(pyproject_data: dict) -> dict[str, str | None]:
@@ -299,17 +302,115 @@ class UVResolverV1R3(BaseDependencyResolver):
         return dep_data["name"], dep_data.get("specifier")
 
 
-def resolve_exclude_newer(raw: object, locked_span: object, *, now: datetime) -> datetime | None:
-    """Resolve one `exclude-newer` value, falling back to the span uv normalized into `uv.lock`.
+def read_toml_settings(path: Path) -> dict[str, Any]:
+    """Read one TOML config file uv would read, failing the way uv does on a malformed one."""
+    try:
+        return tomllib.loads(path.read_text(encoding="utf-8"))
+    except (OSError, tomllib.TOMLDecodeError) as e:
+        raise PackageManagerLockfileParsingError(f"Failed to read uv settings from {path}") from e
 
-    uv accepts friendly spans ("7 days") that `parse_exclude_newer` doesn't parse, but it writes
-    every span to the lockfile in ISO form (`P7D`), so the lockfile's copy covers that case.
+
+def project_uv_settings(project_path: Path) -> dict[str, Any] | None:
+    """Return the project-level uv settings for `project_path`, or None when no directory sets any.
+
+    uv takes the nearest directory, walking up from the project, holding a `uv.toml` or a
+    `pyproject.toml` with a `[tool.uv]` table. A `uv.toml` beats `[tool.uv]` in the same
+    directory, and a `pyproject.toml` without `[tool.uv]` does not stop the walk.
     """
+    for directory in (project_path, *project_path.parents):
+        uv_toml = directory / "uv.toml"
+        if uv_toml.is_file():
+            return read_toml_settings(uv_toml)
+        pyproject = directory / "pyproject.toml"
+        if pyproject.is_file() and (tool_uv := read_toml_settings(pyproject).get("tool", {}).get("uv")) is not None:
+            return tool_uv
+    return None
+
+
+def user_uv_config_path(environ: Mapping[str, str]) -> Path:
+    """Return where uv looks for the user-level `uv.toml`."""
+    if os.name == "nt":
+        return Path(environ.get("APPDATA") or Path.home() / "AppData" / "Roaming") / "uv" / "uv.toml"
+    return Path(environ.get("XDG_CONFIG_HOME") or Path.home() / ".config") / "uv" / "uv.toml"
+
+
+def system_uv_config_paths(environ: Mapping[str, str]) -> list[Path]:
+    """Return where uv looks for the system-level `uv.toml`, in order; the first that exists wins."""
+    if os.name == "nt":
+        return [Path(environ.get("PROGRAMDATA") or r"C:\ProgramData") / "uv" / "uv.toml"]
+    xdg_dirs = [d for d in (environ.get("XDG_CONFIG_DIRS") or "/etc/xdg").split(":") if d]
+    return [Path(d) / "uv" / "uv.toml" for d in xdg_dirs] + [Path("/etc/uv/uv.toml")]
+
+
+def is_env_flag_set(value: str | None) -> bool:
+    """Read a boolean environment variable the way uv does."""
+    return value is not None and value.strip().lower() in {"1", "true", "t", "yes", "y", "on"}
+
+
+def uv_settings_layers(project_path: Path, environ: Mapping[str, str]) -> list[dict[str, Any]]:
+    """Return the settings tables `uv lock` reads for this project, highest precedence first.
+
+    Mirrors uv's discovery: `UV_CONFIG_FILE` replaces it outright and `UV_NO_CONFIG` switches it
+    off. Otherwise uv reads the project-level settings, then the user's `uv.toml`, then the
+    system's.
+    """
+    if config_file := environ.get(UV_CONFIG_FILE_ENV):
+        return [read_toml_settings(Path(config_file))]
+    if is_env_flag_set(environ.get(UV_NO_CONFIG_ENV)):
+        return []
+    layers: list[dict[str, Any]] = []
+    if (project := project_uv_settings(project_path)) is not None:
+        layers.append(project)
+    if (user := user_uv_config_path(environ)).is_file():
+        layers.append(read_toml_settings(user))
+    if (system := next((p for p in system_uv_config_paths(environ) if p.is_file()), None)) is not None:
+        layers.append(read_toml_settings(system))
+    return layers
+
+
+def merge_uv_settings(layers: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+    """Combine uv settings layers, highest precedence first, as uv does for the `exclude-newer` keys.
+
+    `exclude-newer` comes from the first layer that sets it, `false` included, so a project can
+    switch off a user-level cutoff. `exclude-newer-package` tables merge package by package, the
+    higher layer winning a clash.
+    """
+    merged: dict[str, Any] = {}
+    if (owner := next((layer for layer in layers if "exclude-newer" in layer), None)) is not None:
+        merged["exclude-newer"] = owner["exclude-newer"]
+    per_package: dict[str, Any] = {}
+    for layer in reversed(layers):
+        per_package.update({normalize_dist_name(k): v for k, v in layer.get("exclude-newer-package", {}).items()})
+    if per_package:
+        merged["exclude-newer-package"] = per_package
+    return merged
+
+
+def locked_uv_settings(lock_options: Mapping[str, Any]) -> dict[str, Any]:
+    """Read the `exclude-newer` settings uv recorded in `uv.lock`, in the shape uv settings take.
+
+    For a span, uv writes a placeholder `exclude-newer = "0001-01-01T00:00:00Z"` beside the span
+    itself (and a `{ timestamp, span }` table per package), so the span is what carries meaning.
+    """
+    locked: dict[str, Any] = {}
+    if "exclude-newer-span" in lock_options:
+        locked["exclude-newer"] = lock_options["exclude-newer-span"]
+    elif "exclude-newer" in lock_options:
+        locked["exclude-newer"] = lock_options["exclude-newer"]
+    per_package = {
+        name: value.get("span", value.get("timestamp")) if isinstance(value, dict) else value
+        for name, value in lock_options.get("exclude-newer-package", {}).items()
+    }
+    if per_package:
+        locked["exclude-newer-package"] = per_package
+    return locked
+
+
+def resolve_exclude_newer(raw: object, *, now: datetime) -> datetime | None:
+    """Resolve one `exclude-newer` value, logging a value uv would reject rather than failing."""
     cutoff = parse_exclude_newer(raw, now=now)
-    if cutoff is None:
-        cutoff = parse_exclude_newer(locked_span, now=now)
-    if cutoff is None:
-        logger.debug("Ignoring uv exclude-newer value %r: not an instant, date or span OSS IQ can read", raw)
+    if cutoff is None and raw is not False:
+        logger.debug("Ignoring uv exclude-newer value %r: not an instant, date or span uv accepts", raw)
     return cutoff
 
 
@@ -320,44 +421,45 @@ def release_cutoff_from_uv_settings(
     env_exclude_newer: str | None,
     now: datetime,
 ) -> ReleaseCutoff | None:
-    """Build the cutoff `uv lock` will apply from the project's uv settings.
+    """Build the cutoff `uv lock` will apply from the project's merged uv settings.
 
-    The settings decide whether a cutoff applies. `lock_options` is only consulted to read a
-    relative span, because a lockfile can outlive the setting it was locked with.
+    A key the settings never mention falls back to the lockfile's `[options]`. Those record what
+    uv applied last time, wherever it read it from, including config OSS IQ cannot see, such as a
+    `--config-file` flag. A stale cutoff there only holds back a release `uv lock` would now
+    accept, never the reverse.
 
     Args:
-        uv_settings: `uv.toml`, or `[tool.uv]` when the project has no `uv.toml`.
+        uv_settings: The merged settings layers (see `merge_uv_settings`).
         lock_options: The `[options]` table of `uv.lock`.
-        env_exclude_newer: `UV_EXCLUDE_NEWER`, which overrides the global setting.
+        env_exclude_newer: `UV_EXCLUDE_NEWER`, which overrides every settings layer.
         now: The instant relative spans count back from.
 
     Returns:
         The cutoff, or None when uv applies none.
     """
-    raw_default = env_exclude_newer or uv_settings.get("exclude-newer")
-    default = (
-        resolve_exclude_newer(raw_default, lock_options.get("exclude-newer-span"), now=now)
-        if raw_default is not None
-        else None
-    )
+    locked = locked_uv_settings(lock_options)
+    if env_exclude_newer is not None:
+        raw_default: object = env_exclude_newer
+    else:
+        raw_default = uv_settings["exclude-newer"] if "exclude-newer" in uv_settings else locked.get("exclude-newer")
+    default = resolve_exclude_newer(raw_default, now=now) if raw_default is not None else None
 
-    locked_per_package = {
-        normalize_dist_name(name): value for name, value in lock_options.get("exclude-newer-package", {}).items()
-    }
+    raw_per_package = (
+        uv_settings["exclude-newer-package"]
+        if "exclude-newer-package" in uv_settings
+        else locked.get("exclude-newer-package", {})
+    )
     per_package: dict[str, datetime | None] = {}
-    for name, raw in uv_settings.get("exclude-newer-package", {}).items():
+    for name, raw in raw_per_package.items():
         key = normalize_dist_name(name)
         if raw is False:
             per_package[key] = None
-            continue
-        locked = locked_per_package.get(key)
-        locked_span = locked.get("span") if isinstance(locked, dict) else None
-        if (cutoff := resolve_exclude_newer(raw, locked_span, now=now)) is not None:
+        elif (cutoff := resolve_exclude_newer(raw, now=now)) is not None:
             per_package[key] = cutoff
 
     if default is None and not any(per_package.values()):
         return None
-    return ReleaseCutoff(default=default, per_package=per_package)
+    return ReleaseCutoff(source=UV_EXCLUDE_NEWER_SOURCE, default=default, per_package=per_package)
 
 
 class PackageManagerPythonUv(AbstractPackageManagerApi):
@@ -485,23 +587,15 @@ class PackageManagerPythonUv(AbstractPackageManagerApi):
     def release_cutoff(self) -> ReleaseCutoff | None:
         """Return the `exclude-newer` cutoff `uv lock` will resolve against for this project.
 
-        A project-level `uv.toml` replaces `[tool.uv]` entirely, as it does for uv itself, and
-        `UV_EXCLUDE_NEWER` overrides either one; `apply` runs uv with this process's environment.
+        Reads what uv reads — `UV_EXCLUDE_NEWER`, then the project's, the user's and the system's
+        settings — since `apply` runs uv with this process's environment.
         """
-        pyproject_data, uv_lock_data = self.load_pyproject_data()
-        uv_toml = Path(self.project_path) / "uv.toml"
-        if uv_toml.exists():
-            try:
-                uv_settings = tomllib.loads(uv_toml.read_text(encoding="utf-8"))
-            except tomllib.TOMLDecodeError as e:
-                raise PackageManagerLockfileParsingError("Failed to read uv.toml") from e
-        else:
-            uv_settings = pyproject_data.get("tool", {}).get("uv", {})
-
+        _, uv_lock_data = self.load_pyproject_data()
+        layers = uv_settings_layers(Path(self.project_path), os.environ)
         return release_cutoff_from_uv_settings(
-            uv_settings,
+            merge_uv_settings(layers),
             uv_lock_data.get("options", {}),
-            env_exclude_newer=os.environ.get(UV_EXCLUDE_NEWER_ENV),
+            env_exclude_newer=os.environ.get(UV_EXCLUDE_NEWER_ENV) or None,
             now=datetime.now(UTC),
         )
 

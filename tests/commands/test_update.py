@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
+from unittest.mock import MagicMock
+
 import pytest
 import typer
 
@@ -10,7 +13,13 @@ from ossiq.commands.plan import (
     check_override_ignore_conflict,
     confirm_acknowledged,
     parse_override_specs,
+    warn_uninstallable_override_versions,
 )
+from ossiq.domain.common import ConstraintType
+from ossiq.domain.project import ConstraintSource
+from ossiq.domain.release_cutoff import ReleaseCutoff
+from ossiq.domain.version import PackageVersion, VersionsDifference
+from ossiq.service.project.models import ScanRecord, ScanResult
 from ossiq.service.update import UpdateEntry, UpdatePlan
 
 
@@ -151,3 +160,63 @@ class TestConfirmAcknowledged:
         monkeypatch.setattr(typer, "confirm", lambda *a, **k: False)
 
         assert confirm_acknowledged(self.plan_with(self.entry(carries_known_break=True))) is False
+
+
+class TestWarnUninstallableOverrideVersions:
+    """A forced version `apply` cannot install is named before `apply` hits it."""
+
+    CUTOFF = ReleaseCutoff("uv exclude-newer", default=datetime(2026, 9, 18, tzinfo=UTC))
+
+    def sources(self, release_cutoff: ReleaseCutoff | None) -> MagicMock:
+        sources = MagicMock()
+        sources.release_cutoff = release_cutoff
+        sources.packages_registry.package_versions.return_value = [
+            PackageVersion(
+                version=version,
+                license=None,
+                package_url=f"https://pypi.org/project/idna/{version}/",
+                declared_dependencies={},
+                published_date_iso=published,
+            )
+            for version, published in (("3.7", "2026-04-01T00:00:00Z"), ("3.10", "2026-09-25T00:00:00Z"))
+        ]
+        return sources
+
+    def scan_result(self) -> ScanResult:
+        record = ScanRecord(
+            package_name="idna",
+            dependency_name="idna",
+            is_optional_dependency=False,
+            installed_version="3.7",
+            latest_version=None,
+            versions_diff_index=VersionsDifference("3.7", "3.7", 0, diff_name="LATEST"),
+            time_lag_days=None,
+            releases_lag=None,
+            cve=[],
+            constraint_info=ConstraintSource(type=ConstraintType.DECLARED, source_file="pyproject.toml"),
+            version_constraint=None,
+        )
+        return ScanResult(
+            project_name="p",
+            packages_registry="PYPI",
+            project_path="/tmp/p",
+            production_packages=[record],
+            optional_packages=[],
+            transitive_packages=[],
+        )
+
+    def test_override_past_the_release_cutoff_is_named(self, capsys) -> None:
+        warn_uninstallable_override_versions(self.sources(self.CUTOFF), self.scan_result(), (("idna", "3.10"),))
+        assert "published after the uv exclude-newer cutoff" in capsys.readouterr().err
+
+    def test_override_inside_the_release_cutoff_is_quiet(self, capsys) -> None:
+        warn_uninstallable_override_versions(self.sources(self.CUTOFF), self.scan_result(), (("idna", "3.7"),))
+        assert capsys.readouterr().err == ""
+
+    def test_without_a_release_cutoff_a_recent_override_is_quiet(self, capsys) -> None:
+        warn_uninstallable_override_versions(self.sources(None), self.scan_result(), (("idna", "3.10"),))
+        assert capsys.readouterr().err == ""
+
+    def test_unknown_version_is_still_named(self, capsys) -> None:
+        warn_uninstallable_override_versions(self.sources(self.CUTOFF), self.scan_result(), (("idna", "9.9"),))
+        assert "version not found in the registry" in capsys.readouterr().err

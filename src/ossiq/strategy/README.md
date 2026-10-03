@@ -157,6 +157,20 @@ Filtering fresh candidates out of the ladder here makes one decision serve every
 the whole point of rule 5 in the root `CLAUDE.md`. The downstream hold survives as a backstop for
 transitive recommendations, which come from the solver's *soft* freshness penalty.
 
+**Why is the package manager's release cutoff a second filter rather than a longer cooldown?**
+uv's `exclude-newer` (and its npm-side counterparts) looks like a cooldown, but it is a different
+kind of rule. OSS IQ's cooldown is advice: one number per project, and an exploitable CVE or
+end-of-life outranks it. The package manager's cutoff is enforcement: it can differ per package
+or exempt one outright, it may be a fixed instant rather than a span, and the installer refuses a
+release past it whatever OSS IQ recommends. It also binds only on a *move*, since uv leaves an
+already-locked release past the cutoff alone. Folding the two into `max(days)` loses the
+per-package rules, and lets an escalating motive "bypass" a rule `apply` cannot bypass. So
+`select_target` takes the cutoff as its own parameter and applies it ahead of the cooldown and
+outside `escalate`. A hold it causes carries `enforced_by`, so surfaces name uv rather than OSS
+IQ. Both rules always apply, so the stricter one wins. The cutoff is not dropped from the registry
+either: facts like `latest_version` and drift stay true, and the installed version stays visible
+when it postdates the cutoff.
+
 **Why may only `latest`/`cutting-edge` cross to ESM-only, and only on a `require(esm)` Node?**
 For a CommonJS project an ESM-only release is a break whatever its version number:
 `require()` of it fails outright below Node 20.19/22.12, and above that it returns the module
