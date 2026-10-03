@@ -3,7 +3,6 @@ Implementation of Package Registry API client for PyPI
 """
 
 from collections.abc import Iterable
-from datetime import UTC, datetime
 
 import requests
 from packaging.version import InvalidVersion
@@ -15,10 +14,9 @@ from ossiq.adapters.package_managers.api_pypi import batch_fetch_requires_dist, 
 from ossiq.clients.batch import BatchClient
 from ossiq.clients.client_pypi import PypiBatchStrategy
 from ossiq.clients.common import get_user_agent
-from ossiq.domain.common import ConstraintType, ProjectPackagesRegistry, normalize_dist_name
+from ossiq.domain.common import ConstraintType, ProjectPackagesRegistry
 from ossiq.domain.exceptions import UnableLoadPackage
 from ossiq.domain.package import Package
-from ossiq.domain.release_cutoff import ReleaseCutoff
 from ossiq.domain.version import (
     VERSION_DIFF_BUILD,
     VERSION_DIFF_MAJOR,
@@ -114,15 +112,19 @@ def detect_pypi_install_execution(release_files: list[dict]) -> tuple[bool | Non
     return None, None
 
 
-def earliest_upload(release_files: list[dict]) -> datetime:
-    """Return the upload time of the release's earliest file, or the epoch when none carries one.
+def earliest_upload_iso(release_files: list[dict]) -> str | None:
+    """Return the upload time of the release's earliest file, as PyPI wrote it.
 
-    Falling back to the epoch keeps an undated release rather than hiding it on a missing field.
+    The earliest file is when the version first became installable, and it is what an installer's
+    release-age gate checks: uv's `exclude-newer` keeps a version while any one of its files
+    predates the cutoff. PyPI usually lists files in upload order, but not always.
     """
-    uploads = [
-        parsed for f in release_files if (parsed := parse_iso_datetime(f.get("upload_time_iso_8601"))) is not None
+    dated = [
+        (parsed, raw)
+        for f in release_files
+        if (parsed := parse_iso_datetime(raw := f.get("upload_time_iso_8601"))) is not None
     ]
-    return min(uploads, default=datetime.fromtimestamp(0, UTC))
+    return min(dated)[1] if dated else None
 
 
 class PackageRegistryApiPypi(AbstractPackageRegistryApi):
@@ -250,9 +252,8 @@ class PackageRegistryApiPypi(AbstractPackageRegistryApi):
 
         return VersionsDifference(str(v1), str(v2), diff_index, diff_name=VERSION_INVERSED_DIFF_TYPES_MAP[diff_index])
 
-    def __init__(self, settings: Settings, release_cutoff: ReleaseCutoff | None = None):
+    def __init__(self, settings: Settings):
         self.settings = settings
-        self.release_cutoff = release_cutoff
         self.session = requests.Session()
         self.session.headers.update({"User-Agent": get_user_agent()})
         self._raw_cache = {}
@@ -366,9 +367,6 @@ class PackageRegistryApiPypi(AbstractPackageRegistryApi):
 
         PyPI's main endpoint omits dependency info for older versions, and fetching it
         per-version is expensive — so only the latest version's dependencies are populated here.
-
-        Versions past the package manager's `release_cutoff` are left out: the installer will not
-        resolve to them, so nothing downstream may pick one.
         """
         if package_name not in self._raw_cache:
             self.packages_info_batch([package_name])
@@ -378,7 +376,6 @@ class PackageRegistryApiPypi(AbstractPackageRegistryApi):
         releases = data["releases"]
 
         latest_version_dependencies = info.get("requires_dist") or []
-        cutoff = self.release_cutoff.cutoff_for(normalize_dist_name(package_name)) if self.release_cutoff else None
 
         for version, release_files in releases.items():
             if not release_files:
@@ -389,13 +386,7 @@ class PackageRegistryApiPypi(AbstractPackageRegistryApi):
             if not is_valid_pep440_version(version):
                 continue
 
-            # uv applies its cutoff per file, so a version stays installable while any one of its
-            # files predates it — the earliest upload decides, not whichever file is listed first.
-            if cutoff is not None and earliest_upload(release_files) > cutoff:
-                continue
-
-            # Take the upload time of the first file as the published date for the version.
-            published_date_iso = release_files[0]["upload_time_iso_8601"]
+            published_date_iso = earliest_upload_iso(release_files)
 
             # A version is considered yanked if all its files are yanked.
             is_yanked = all(f.get("yanked") for f in release_files)

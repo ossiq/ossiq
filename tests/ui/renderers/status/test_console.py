@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import dataclasses
+from datetime import UTC, datetime
+
 from rich.console import Console
 
 from ossiq.domain.common import (
@@ -740,6 +743,26 @@ class TestCooldownHoldSubRow:
         output = render_table([record], full=True)
 
         assert "caps this below" not in output
+
+    def test_package_manager_hold_names_the_setting_not_the_cooldown(self):
+        record = self.held_record()
+        assert record.strategy_selection is not None
+        record.strategy_selection = dataclasses.replace(
+            record.strategy_selection,
+            cooldown_hold=CooldownHold(
+                version="0.10.0",
+                age_days=12,
+                cooldown_period=7,
+                enforced_by="uv exclude-newer",
+                cutoff=datetime(2024, 5, 18, 6, 30, tzinfo=UTC),
+            ),
+        )
+
+        output = render_table([record], full=True)
+
+        assert "Wait for cooldown" in output
+        assert "uv exclude-newer cutoff (2024-05-18 06:30 UTC)" in output
+        assert "7-day cooldown" not in output
 
 
 # --- upstream signal coverage panel -----------------------------------------------------------

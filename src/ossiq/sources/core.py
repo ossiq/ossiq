@@ -12,6 +12,7 @@ from ossiq.adapters.api_interfaces import (
 )
 from ossiq.adapters.api_osv import CveApiOsv
 from ossiq.domain.common import ProjectPackagesRegistry, RepositoryProvider
+from ossiq.domain.release_cutoff import ReleaseCutoff
 from ossiq.settings import Settings
 from ossiq.strategy.overrides import StrategyPlan
 
@@ -34,6 +35,9 @@ class AbstractProjectSources(abc.ABC):
     strategy: StrategyPlan
     ignore_packages: tuple[str, ...]
     rewrite_versions: bool
+    release_cutoff: ReleaseCutoff | None = None
+    """The package manager's own limit on how recent a release it will move to, or None when it
+    sets none. Read from the project's package-manager config once, when the sources open."""
     warnings: list[str]
     """Non-fatal problems found while assembling the sources, for the scan to carry onto
     ScanResult. A value, not a print: nothing below ui/ decides what the user sees."""

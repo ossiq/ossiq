@@ -12,6 +12,7 @@ from ossiq.adapters.api_interfaces import AbstractPackageRegistryApi
 from ossiq.domain.common import ConstraintType
 from ossiq.domain.cve import CVE
 from ossiq.domain.project import ConstraintSource
+from ossiq.domain.release_cutoff import ReleaseCutoff
 from ossiq.domain.version import PackageVersion
 from ossiq.solver.problem import CandidateVersion, PackageConstraint, SolverProblem
 from ossiq.solver.version_matchers import cve_affects_version, version_satisfies_constraint
@@ -153,11 +154,14 @@ def filter_eligible_versions(
     allow_prerelease: bool,
     registry: AbstractPackageRegistryApi,
     now: datetime | None,
+    release_cutoff: datetime | None = None,
 ) -> list[PackageVersion]:
     """Return candidates sorted newest-first, capped at CANDIDATE_CAP.
 
-    Drops yanked, unpublished, pre-release (when disallowed), downgrades, and
-    versions published after `now`.
+    Drops yanked, unpublished, pre-release (when disallowed), downgrades, versions published
+    after `now`, and versions published after `release_cutoff` — the package manager's own limit
+    for this package. The installed version survives that last filter: the package manager keeps a
+    locked version past its cutoff, it only refuses to move to one.
     """
     eligible = [
         pv
@@ -167,6 +171,10 @@ def filter_eligible_versions(
         and (allow_prerelease or not pv.is_prerelease)
         and (not installed_version or registry.compare_versions(pv.version, installed_version) >= 0)
         and is_published_before(pv.published_date_iso, now)
+        and (
+            is_published_before(pv.published_date_iso, release_cutoff)
+            or (bool(installed_version) and registry.compare_versions(pv.version, installed_version) == 0)
+        )
     ]
     return sorted(
         eligible,
@@ -213,6 +221,7 @@ class SolvablePool:
         allow_prerelease: bool = False,
         _now: datetime | None = None,
         rewrite_pinned: bool = False,
+        release_cutoff: ReleaseCutoff | None = None,
     ) -> SolverProblem:
         """Build a SolverProblem from the given dependencies and registry.
 
@@ -229,6 +238,8 @@ class SolvablePool:
             _now: Injectable reference time for deterministic age computation in tests.
             rewrite_pinned: When True, PINNED (==x.y.z) constraints are dropped so the
                             solver can recommend newer versions for deliberate re-pinning.
+            release_cutoff: The package manager's own limit on release age; a release past it
+                            never becomes a candidate, since the installer would refuse it.
         """
         best = deduplicate_deps(deps)
 
@@ -246,7 +257,12 @@ class SolvablePool:
         candidates: dict[str, tuple[CandidateVersion, ...]] = {
             name: make_candidate_versions(
                 filter_eligible_versions(
-                    list(registry.package_versions(name)), dep.version, allow_prerelease, registry, _now
+                    list(registry.package_versions(name)),
+                    dep.version,
+                    allow_prerelease,
+                    registry,
+                    _now,
+                    release_cutoff.cutoff_for(name) if release_cutoff else None,
                 ),
                 (cves_by_package or {}).get(name, ()),
                 _now,

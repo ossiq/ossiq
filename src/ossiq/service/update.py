@@ -5,6 +5,7 @@ from __future__ import annotations
 import dataclasses
 from collections import Counter
 from dataclasses import dataclass, field
+from datetime import datetime
 
 from ossiq.domain.common import (
     WIDENING_RUNGS,
@@ -62,6 +63,11 @@ class UpdateEntry:
     # the entry from the cooldown hold the same way is_security does, but covers the end-of-life
     # case that is_security alone misses.
     cooldown_bypassed: bool = False
+    # Set on a held entry when the package manager's own release cutoff holds it rather than
+    # OSS IQ's cooldown: the setting that refuses the release (e.g. "uv exclude-newer") and the
+    # newest publish instant it admits. Nothing OSS IQ decides lifts that hold.
+    held_by: str | None = None
+    held_cutoff: datetime | None = None
 
     @property
     def identity(self) -> str:
@@ -139,12 +145,13 @@ def entry_from_record(record: ScanRecord, is_direct: bool) -> UpdateEntry:
 
 
 def cooldown_entry_from_record(record: ScanRecord, hold: CooldownHold) -> UpdateEntry:
-    """Build a display-only entry for a record the cooldown left without a recommendation.
+    """Build a display-only entry for a record release age left without a recommendation.
 
     `apply_update_strategy` blanks `recommended_version` when every reachable release is younger
-    than the cooldown, so such a record can never become a real `UpdateEntry` — and would drop out
-    of the plan silently. This rebuilds just enough of one to keep it listed under "held for
-    cooldown". It never enters direct_entries/transitive_entries, so nothing writes it.
+    than the cooldown or past the package manager's release cutoff, so such a record can never
+    become a real `UpdateEntry` — and would drop out of the plan silently. This rebuilds just
+    enough of one to keep it listed under "held for cooldown". It never enters
+    direct_entries/transitive_entries, so nothing writes it.
     """
     return UpdateEntry(
         package_name=record.package_name,
@@ -164,6 +171,8 @@ def cooldown_entry_from_record(record: ScanRecord, hold: CooldownHold) -> Update
         version_defined=record.version_constraint_declared or record.version_constraint,
         constraint_type=record.constraint_info.type,
         is_security=bool(record.cve),
+        held_by=hold.enforced_by,
+        held_cutoff=hold.cutoff,
     )
 
 

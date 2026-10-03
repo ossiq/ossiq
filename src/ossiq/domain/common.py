@@ -7,6 +7,7 @@ import importlib.metadata
 import re
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field, replace
+from datetime import datetime
 from enum import Enum, StrEnum
 from typing import Generic, TypeVar
 from urllib.parse import quote
@@ -234,16 +235,25 @@ class RejectedCandidate:
 
 @dataclass(frozen=True)
 class CooldownHold:
-    """The newest reachable release, withheld because it is younger than the cooldown period.
+    """The newest reachable release, withheld because it is too young to move to yet.
 
     Carries the version rather than a rendered sentence so every surface can word it its own way;
     `age_days` is None when the registry gave no publish date, which is also the only case where a
     release is treated as aged rather than fresh (never hold on missing data).
+
+    Two rules produce a hold: OSS IQ's own cooldown, which an exploitable CVE or end-of-life can
+    override, and the package manager's release cutoff, which nothing OSS IQ decides can override
+    because the installer refuses the release outright. `enforced_by` tells them apart.
     """
 
     version: str
     age_days: int | None
     cooldown_period: int
+    enforced_by: str | None = None
+    """The package-manager setting that refuses the release (e.g. "uv exclude-newer"); None when
+    OSS IQ's own cooldown is what holds it."""
+    cutoff: datetime | None = None
+    """The newest publish instant `enforced_by` admits. Set exactly when `enforced_by` is."""
 
 
 class ModuleSystem(StrEnum):

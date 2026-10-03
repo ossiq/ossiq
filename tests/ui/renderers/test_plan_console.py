@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import dataclasses
+from datetime import UTC, datetime
+
 from rich.console import Console
 
 from ossiq.domain.common import ConstraintType, RecommendationRung
@@ -94,6 +97,34 @@ def test_held_for_cooldown_section_lists_package(monkeypatch):
     assert "7-day" in output
     assert "@vue/reactivity" in output
     assert "3.5.38" in output
+
+
+def test_package_manager_holds_get_their_own_section(monkeypatch):
+    by_uv = dataclasses.replace(
+        make_entry("idna", "3.7", "3.10", 3, is_direct=True),
+        held_by="uv exclude-newer",
+        held_cutoff=datetime(2026, 9, 24, 12, 0, tzinfo=UTC),
+    )
+    by_cooldown = make_entry("@vue/reactivity", "3.5.35", "3.5.38", 0, is_direct=False)
+    plan = make_plan(held_for_cooldown=[by_uv, by_cooldown], cooldown_period=7)
+
+    output = render(plan, monkeypatch)
+
+    cooldown_section, uv_section = output.split("Held by uv exclude-newer")
+    assert "@vue/reactivity" in cooldown_section and "idna" not in cooldown_section
+    assert "idna" in uv_section and "@vue/reactivity" not in uv_section
+    assert "2026-09-24 12:00 UTC" in uv_section
+
+
+def test_only_package_manager_holds_print_no_cooldown_header(monkeypatch):
+    by_uv = dataclasses.replace(
+        make_entry("idna", "3.7", "3.10", 3, is_direct=True),
+        held_by="uv exclude-newer",
+        held_cutoff=datetime(2026, 9, 24, 12, 0, tzinfo=UTC),
+    )
+    output = render(make_plan(held_for_cooldown=[by_uv], cooldown_period=7), monkeypatch)
+    assert "Held by uv exclude-newer" in output
+    assert "7-day cooldown" not in output
 
 
 def test_held_for_widening_section_lists_package_and_declared_range(monkeypatch):

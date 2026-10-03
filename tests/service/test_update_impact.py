@@ -7,6 +7,7 @@ from unittest.mock import MagicMock
 
 from ossiq.domain.common import ConstraintType, RejectionDetail
 from ossiq.domain.project import ConstraintSource
+from ossiq.domain.release_cutoff import ReleaseCutoff
 from ossiq.domain.version import PackageVersion, VersionsDifference
 from ossiq.service.project.models import ScanRecord
 from ossiq.service.update import entry_from_record
@@ -150,6 +151,16 @@ class TestFindBestSatisfyingVersion:
         registry = make_registry(versions_by_name={"pkg": [pv("3.0.0"), pv("2.5.0"), pv("1.9.0")]})
         result = find_best_satisfying_version("pkg", [">=2.0", "<3.0"], registry)
         assert result == "2.5.0"
+
+    def test_skips_versions_past_the_release_cutoff(self):
+        registry = make_registry(
+            versions_by_name={"urllib3": [pv("2.2.0", published="2024-01-20T00:00:00Z"), pv("2.1.0")]}
+        )
+        result = find_best_satisfying_version("urllib3", [">=2.0"], registry, release_cutoff=UV_CUTOFF)
+        assert result == "2.1.0"
+
+
+UV_CUTOFF = ReleaseCutoff("uv exclude-newer", default=datetime(2024, 1, 15, tzinfo=UTC))
 
 
 # ============================================================================
@@ -353,6 +364,18 @@ class TestSimulateSingle:
 
         assert result.is_actionable is True
         assert len(result.transitive_impacts) == 1
+        assert result.transitive_impacts[0].projected_version == "2.2.0"
+
+    def test_projects_transitive_deps_inside_the_release_cutoff(self):
+        """uv would never move urllib3 to 2.3.0, so neither may the projection."""
+        record = make_scan_record("urllib3", "1.26.18", all_constraints=[">=1.0"])
+        registry = make_registry(
+            versions_by_name={"urllib3": [pv("2.3.0", published="2024-01-20T00:00:00Z"), pv("2.2.0"), pv("1.26.18")]},
+            requires_by_pkg_ver={("requests", "2.32.0"): {"urllib3": ">=2.0"}},
+        )
+
+        result = simulate_single("requests", "2.32.0", {"urllib3": record}, registry, release_cutoff=UV_CUTOFF)
+
         assert result.transitive_impacts[0].projected_version == "2.2.0"
 
     def test_not_actionable_when_conflict(self):

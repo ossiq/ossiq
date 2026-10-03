@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
 from ossiq.domain.common import (
     ConstraintType,
     CooldownHold,
@@ -300,6 +302,20 @@ class TestCooldownBlankedRecords:
         assert entry.recommended_version == "0.10.0"
         assert entry.current_version == "0.8.0"
         assert entry.reason is not None and entry.reason.age_days == 5
+        assert entry.held_by is None
+
+    def test_a_package_manager_hold_keeps_its_attribution(self):
+        cutoff = datetime(2026, 9, 24, tzinfo=UTC)
+        record = make_record("cel", "0.8.0", recommended=None)
+        record.strategy_selection = selection_with(
+            cooldown_hold=CooldownHold(
+                version="0.10.0", age_days=12, cooldown_period=7, enforced_by="uv exclude-newer", cutoff=cutoff
+            )
+        )
+        plan = build_update_plan(make_scan_result(production=[record]), "uv", cooldown_period=7)
+
+        entry = plan.held_for_cooldown[0]
+        assert (entry.held_by, entry.held_cutoff) == ("uv exclude-newer", cutoff)
 
     def test_an_override_on_a_blanked_record_wins_over_the_hold(self):
         result = make_scan_result(production=[self.blanked_record("cel", "0.8.0", "0.10.0", age_days=5)])

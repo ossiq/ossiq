@@ -81,8 +81,10 @@ def next_action_label(record: ScanRecord) -> str | None:
     # Checked below the rules above and above the drift ladder: those describe the package, this
     # describes the bump. An update the user cannot take yet must not be labelled as one they can —
     # that mismatch is what made `status` say "Update Immediately" for a version `apply` refused.
-    # Never reached with a CVE or end-of-life motive: select_target escalates past the cooldown
-    # for those rather than setting a hold.
+    # OSS IQ's cooldown never holds a package with a CVE or end-of-life motive - select_target
+    # escalates past it - but the package manager's release cutoff does, since the installer
+    # refuses the release whatever the motive. Waiting is then the only move left besides lifting
+    # that cutoff; an exploitable CVE is still headlined by CHECK_FOR_THE_FIX above.
     if record.strategy_selection is not None and record.strategy_selection.cooldown_hold is not None:
         return WAIT_FOR_COOLDOWN
     if diff_index == VERSION_DIFF_MAJOR:

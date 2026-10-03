@@ -196,6 +196,11 @@ WARNING_OVERRIDE_VERSION_UNKNOWN = (
     "--override {package}=={version}: version not found in the registry — install may fail."
 )
 
+WARNING_OVERRIDE_PAST_RELEASE_CUTOFF = (
+    "--override {package}=={version}: published after the {setting} cutoff — the package manager will refuse "
+    "to install it until the cutoff passes or the package is exempted."
+)
+
 WARNING_OVERRIDE_AMBIGUOUS_ALIAS = (
     "--override {package}: the project declares it under several manifest keys ({aliases}), which "
     "npm installs as separate copies. Only one can be forced — name the key instead to pick it."
@@ -224,6 +229,14 @@ HELP_PLAN_HELD_FOR_WIDENING_HEADER = "Requires constraint widening — a newer v
 
 HELP_STATUS_COOLDOWN_HOLD = (
     "↳ {version} is {age_days} days old; nothing older to move to before the {days}-day cooldown"
+)
+
+HELP_PLAN_HELD_BY_PACKAGE_MANAGER_HEADER = (
+    "Held by {setting} — newer versions exist, but the package manager refuses releases published after its cutoff:"
+)
+
+HELP_STATUS_PACKAGE_MANAGER_HOLD = (
+    "↳ {version} was published after the {setting} cutoff ({cutoff}); nothing older to move to"
 )
 
 HELP_WARNING_COUNTS_ARE_REQUESTS = (
