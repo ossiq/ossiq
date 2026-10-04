@@ -10,13 +10,14 @@ from packaging.version import Version as PackagingVersion
 
 from ossiq.adapters.api_interfaces import AbstractPackageRegistryApi
 from ossiq.adapters.detectors import is_repository_root_url
-from ossiq.adapters.package_managers.api_pypi import batch_fetch_requires_dist, parse_requires_dist
+from ossiq.adapters.package_managers.api_pypi import batch_fetch_requires_dist
 from ossiq.clients.batch import BatchClient
 from ossiq.clients.client_pypi import PypiBatchStrategy
 from ossiq.clients.common import get_user_agent
 from ossiq.domain.common import ConstraintType, ProjectPackagesRegistry
 from ossiq.domain.exceptions import UnableLoadPackage
 from ossiq.domain.package import Package
+from ossiq.domain.requirement_scope import RequirementScope
 from ossiq.domain.version import (
     VERSION_DIFF_BUILD,
     VERSION_DIFF_MAJOR,
@@ -31,6 +32,7 @@ from ossiq.domain.version import (
     create_version_difference_no_diff,
 )
 from ossiq.settings import Settings
+from ossiq.solver.pep508 import applicable_requirements
 from ossiq.timeutil import parse_iso_datetime
 
 PYPI_REGISTRY_FRONT = "https://pypi.org"
@@ -257,6 +259,9 @@ class PackageRegistryApiPypi(AbstractPackageRegistryApi):
         self.session = requests.Session()
         self.session.headers.update({"User-Agent": get_user_agent()})
         self._raw_cache = {}
+        # Raw requires_dist per release, as published; what applies is decided per read, under the
+        # scope in force, so a scope set after a warm-up still takes effect.
+        self._version_requires_raw: dict[tuple[str, str], list[str]] = {}
         self._version_requires_cache: dict[tuple[str, str], dict[str, str]] = {}
         self._strategy = PypiBatchStrategy(self.session)
         self._batch_client = BatchClient(self._strategy)
@@ -403,10 +408,8 @@ class PackageRegistryApiPypi(AbstractPackageRegistryApi):
             if version == info["version"]:
                 # This is a list of strings, convert it to the dict format like npm's.
                 dependencies = {dep: "" for dep in latest_version_dependencies}
-                # Zero-cost cache warmup: populate _version_requires_cache from data we already have.
-                key = (package_name, version)
-                if key not in self._version_requires_cache:
-                    self._version_requires_cache[key] = parse_requires_dist(latest_version_dependencies)
+                # Zero-cost cache warmup: populate _version_requires_raw from data we already have.
+                self._version_requires_raw.setdefault((package_name, version), list(latest_version_dependencies))
 
             # PyPI API gap: No equivalent for 'unpublished_date_iso'.
             yield PackageVersion(
@@ -427,12 +430,15 @@ class PackageRegistryApiPypi(AbstractPackageRegistryApi):
     def package_version_requires(self, package_name: str, version: str) -> dict[str, str]:
         """Return {normalized_dep_name: version_specifier} for a specific published version.
 
+        Only requirements that apply to this project are returned: those gated on an extra the
+        package does not enable, or on a marker no supported environment reaches, are left out.
         Returns empty dict if the version is not found or has no runtime dependencies.
         """
         key = (package_name, version)
         if key not in self._version_requires_cache:
-            raw = batch_fetch_requires_dist([key], self.session)
-            self._version_requires_cache[key] = parse_requires_dist(raw.get(key, []))
+            if key not in self._version_requires_raw:
+                self._version_requires_raw[key] = batch_fetch_requires_dist([key], self.session).get(key, [])
+            self._version_requires_cache[key] = self.applicable_requires(key)
         return self._version_requires_cache[key]
 
     @staticmethod
@@ -478,9 +484,19 @@ class PackageRegistryApiPypi(AbstractPackageRegistryApi):
         Uses the existing parallel batch client — replaces N sequential HTTP calls
         (one per simulate_single invocation) with a single parallel prefetch.
         """
-        missing = [p for p in pairs if p not in self._version_requires_cache]
+        missing = [p for p in pairs if p not in self._version_requires_raw]
         if not missing:
             return
         raw = batch_fetch_requires_dist(missing, self.session)
         for key in missing:
-            self._version_requires_cache[key] = parse_requires_dist(raw.get(key, []))
+            self._version_requires_raw[key] = raw.get(key, [])
+
+    def use_requirement_scope(self, scope: RequirementScope) -> None:
+        """Read declared requirements under *scope*; what was parsed under the previous one is dropped."""
+        super().use_requirement_scope(scope)
+        self._version_requires_cache.clear()
+
+    def applicable_requires(self, key: tuple[str, str]) -> dict[str, str]:
+        """Filter the raw requires_dist of a (package, version) pair through the scope in force."""
+        scope = self.requirement_scope
+        return applicable_requirements(self._version_requires_raw[key], scope.extras_for(key[0]), scope.python_floor)

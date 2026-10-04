@@ -273,15 +273,19 @@ class PackageManagerPythonPip(AbstractPackageManagerApi):
 
         dependency_tree, registry = lockfile_parser(project_package_name, enriched_pylock_data)
 
-        if not self.settings.skip_pypi_enrichment:
-            enrich_registry_constraints(registry)
-
         requires_python = project_section.get("requires-python")
         engine_constraints = None
         if requires_python:
             min_py = extract_min_python_version(requires_python)
             if min_py:
                 engine_constraints = {"python": min_py}
+
+        if not self.settings.skip_pypi_enrichment:
+            enrich_registry_constraints(
+                registry,
+                python_floor=engine_constraints["python"] if engine_constraints else None,
+                root=dependency_tree,
+            )
 
         return Project(
             package_manager_type=self.package_manager_type,

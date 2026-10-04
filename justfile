@@ -36,6 +36,7 @@ qa-integration:
     uv run ossiq status testdata/pypi/uv
     uv run ossiq status testdata/pypi/pylock
     uv run ossiq status testdata/pypi/pip-classic
+    uv run ossiq status testdata/pypi/conditional-constraint
     uv run ossiq status testdata/mixed
     uv run ossiq status testdata/mixed --registry-type=npm
     uv run ossiq status testdata/mixed --registry-type=pypi

@@ -16,6 +16,7 @@ import os
 import tempfile
 import tomllib
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -822,6 +823,19 @@ class TestProjectInfo:
         # Check optional dependencies
         assert "pytest" in project.optional_dependencies
         assert "black" in project.optional_dependencies
+
+    def test_enrichment_is_told_the_python_floor_and_which_node_is_the_root(self, pylock_project_basic):
+        pyproject = Path(pylock_project_basic) / "pyproject.toml"
+        pyproject.write_text(
+            pyproject.read_text().replace('version = "1.0.0"', 'version = "1.0.0"\nrequires-python = ">=3.12"', 1)
+        )
+        pylock_manager = PackageManagerPythonPip(pylock_project_basic, Settings(skip_pypi_enrichment=False))
+
+        with patch("ossiq.adapters.package_managers.api_pip.enrich_registry_constraints") as enrich:
+            project = pylock_manager.project_info()
+
+        assert enrich.call_args.kwargs["python_floor"] == "3.12"
+        assert enrich.call_args.kwargs["root"] is project.dependency_tree
 
     def test_project_info_with_dual_category_deps(self, pylock_project_with_dual_category_deps, settings):
         """Test project with dependencies in multiple categories."""

@@ -3,22 +3,33 @@ Tests for the service/project package — ScanRecord factory and version_constra
 """
 
 from datetime import UTC, datetime
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
 from ossiq.adapters.api_pypi import PackageRegistryApiPypi
+from ossiq.adapters.package_managers.dependency_tree import GraphExporter
 from ossiq.domain.common import ConstraintType, CveDatabase, ProjectPackagesRegistry
 from ossiq.domain.cve import CVE, Severity
 from ossiq.domain.package import Package
-from ossiq.domain.project import ConstraintSource, Dependency, PeerRequirement
+from ossiq.domain.packages_manager import UV
+from ossiq.domain.project import ConstraintSource, Dependency, PeerRequirement, Project
 from ossiq.domain.version import PackageVersion, VersionsDifference
 from ossiq.messages import IGNORE_REASON_IGNORE_FLAG, IGNORE_REASON_NON_REGISTRY
 from ossiq.service.project.models import DependencyDescriptor, ScanRecord
 from ossiq.service.project.prefetch import build_ignored_packages, get_package_versions_since, partition_git_hosted
 from ossiq.service.project.records import calculate_version_age_days, scan_record, scan_sort_key
-from ossiq.service.project.scan import direct_descriptor
+from ossiq.service.project.scan import (
+    ScanDescriptors,
+    build_scan_descriptors,
+    direct_descriptor,
+    installed_package_names,
+    requirement_scope_for,
+    scan,
+    solve_transitive_phase,
+)
 from ossiq.settings import Settings
+from ossiq.solver.dependencies_solver import EMPTY_OUTPUT, SolverOutput
 
 # ============================================================================
 # Module-level constants
@@ -587,3 +598,173 @@ class TestDirectDescriptorPeerConstraints:
         dep = Dependency(name="requests", canonical_name="requests", version_installed="2.31.0")
         descriptor = direct_descriptor(dep, is_optional=False)
         assert descriptor.all_constraints == []
+
+
+def pypi_project(root: Dependency, python_floor: str | None = "3.12") -> Project:
+    return Project(
+        package_manager_type=UV,
+        name="app",
+        project_path="/tmp/app",
+        dependency_tree=root,
+        engine_constraints={"python": python_floor} if python_floor else None,
+    )
+
+
+def pypi_node(name: str, version: str = "1.0.0", **fields) -> Dependency:
+    return Dependency(name=name, canonical_name=name, version_installed=version, **fields)
+
+
+class TestRequirementScopeFor:
+    """The scope carries what the project installs with: enabled extras per package, and the floor."""
+
+    def test_extras_are_collected_per_package_at_any_depth(self):
+        allauth = pypi_node("django-allauth", extras=["socialaccount"])
+        uvicorn = pypi_node("uvicorn", extras=["standard"], dependencies={"click": pypi_node("click")})
+        nested = pypi_node("pyjwt", extras=["crypto"])
+        wagtail = pypi_node("wagtail", dependencies={"pyjwt": nested})
+        root = pypi_node("app", dependencies={"django-allauth": allauth, "uvicorn": uvicorn, "wagtail": wagtail})
+
+        scope = requirement_scope_for(pypi_project(root))
+
+        assert scope.extras_for("django-allauth") == frozenset({"socialaccount"})
+        assert scope.extras_for("uvicorn") == frozenset({"standard"})
+        assert scope.extras_for("pyjwt") == frozenset({"crypto"})
+        assert scope.extras_for("click") == frozenset()
+
+    def test_optional_dependencies_are_visited_too(self):
+        dev_tool = pypi_node("pylint", extras=["spelling"])
+        root = pypi_node("app", optional_dependencies={"pylint": dev_tool})
+
+        assert requirement_scope_for(pypi_project(root)).extras_for("pylint") == frozenset({"spelling"})
+
+    def test_a_dependency_cycle_terminates(self):
+        a = pypi_node("pkg-a", extras=["x"])
+        b = pypi_node("pkg-b", dependencies={"pkg-a": a})
+        a.dependencies["pkg-b"] = b
+
+        scope = requirement_scope_for(pypi_project(pypi_node("app", dependencies={"pkg-a": a})))
+
+        assert scope.extras_for("pkg-a") == frozenset({"x"})
+
+    def test_the_python_floor_comes_from_the_projects_engine_constraints(self):
+        assert requirement_scope_for(pypi_project(pypi_node("app"), python_floor="3.12")).python_floor == "3.12"
+
+    def test_a_project_without_a_python_floor_has_none(self):
+        assert requirement_scope_for(pypi_project(pypi_node("app"), python_floor=None)).python_floor is None
+
+
+class TestInstalledPackageNames:
+    @staticmethod
+    def descriptors(root: Dependency) -> ScanDescriptors:
+        return ScanDescriptors(
+            prod_deps=[_make_dep(name) for name in root.dependencies],
+            opt_deps=[_make_dep(name, is_optional=True) for name in root.optional_dependencies],
+            trans_deps=[],
+            ignored_packages=[],
+            ignore_set=frozenset(),
+            walker=GraphExporter(root),
+        )
+
+    def test_what_an_enabled_extra_installs_counts_as_installed(self):
+        """Regression: uvicorn[standard]'s httptools was reported as a new dependency of uvicorn 0.54."""
+        httptools = pypi_node("httptools", categories=["standard"])
+        uvicorn = pypi_node("uvicorn", extras=["standard"], optional_dependencies={"httptools": httptools})
+        root = pypi_node("app", dependencies={"uvicorn": uvicorn})
+
+        assert "httptools" in installed_package_names(self.descriptors(root))
+
+    def test_an_extra_nobody_enabled_is_not_installed(self):
+        pytest_pkg = pypi_node("pytest", categories=["test"])
+        uvicorn = pypi_node("uvicorn", extras=["standard"], optional_dependencies={"pytest": pytest_pkg})
+        root = pypi_node("app", dependencies={"uvicorn": uvicorn})
+
+        assert "pytest" not in installed_package_names(self.descriptors(root))
+
+    def test_direct_optional_and_transitive_packages_are_all_installed(self):
+        click = pypi_node("click")
+        root = pypi_node(
+            "app",
+            dependencies={"uvicorn": pypi_node("uvicorn", dependencies={"click": click})},
+            optional_dependencies={"ruff": pypi_node("ruff")},
+        )
+
+        assert installed_package_names(self.descriptors(root)) == {"uvicorn", "ruff", "click"}
+
+
+class TestScanSetsTheRequirementScope:
+    class StopScan(Exception):
+        pass
+
+    def test_the_registry_reads_requirements_under_the_projects_scope_before_anything_else(self):
+        """Regression: allauth[socialaccount]'s `oauthlib<4` was invisible, so oauthlib 4.0.0 was recommended."""
+        root = pypi_node("app", dependencies={"django-allauth": pypi_node("django-allauth", extras=["socialaccount"])})
+        sources = MagicMock()
+        sources.packages_manager.project_info.return_value = pypi_project(root, python_floor="3.12")
+
+        with (
+            patch("ossiq.service.project.scan.resolve_library_constraints", side_effect=lambda project, _: project),
+            patch("ossiq.service.project.scan.build_scan_descriptors", side_effect=self.StopScan),
+            pytest.raises(self.StopScan),
+        ):
+            scan(sources)
+
+        scope = sources.packages_registry.use_requirement_scope.call_args.args[0]
+        assert scope.extras_for("django-allauth") == frozenset({"socialaccount"})
+        assert scope.python_floor == "3.12"
+
+
+class TestTransitivePhaseWarmsTheDirectRequirements:
+    def test_the_direct_deps_requirements_are_fetched_in_one_batch_before_the_solve(self):
+        """The solver reads what each direct dep requires of a pick; a fetch per unchanged dep is serial."""
+        calls: list[str] = []
+        registry = MagicMock(spec=PackageRegistryApiPypi)
+        registry.warmup_version_requires.side_effect = lambda pairs: calls.append(f"warm {pairs}")
+        sources = MagicMock()
+        sources.packages_registry = registry
+
+        def solve(*args, **kwargs):
+            calls.append("solve")
+            return EMPTY_OUTPUT
+
+        with patch("ossiq.service.project.scan.dependencies_solver.solve_transitive", side_effect=solve):
+            solve_transitive_phase(
+                [_make_scan_record("oauthlib")],
+                frozenset(),
+                sources,
+                MagicMock(versions={}),
+                {"django": "6.0.7", "wagtail": "7.4.2"},
+                SolverOutput(recommendations={"wagtail": "8.0"}, reasons={}),
+                None,
+            )
+
+        assert calls == ["warm [('django', '6.0.7'), ('wagtail', '8.0')]", "solve"]
+
+
+class TestDirectPackagesAreListedOnce:
+    @staticmethod
+    def sources() -> MagicMock:
+        sources = MagicMock()
+        sources.ignore_packages = []
+        sources.packages_registry = MagicMock(spec=PackageRegistryApiPypi)
+        sources.production = False
+        return sources
+
+    def test_a_package_in_both_dependencies_and_an_extra_has_one_descriptor(self):
+        """Regression: `ty` is in [project].dependencies and the dev extra, and got two rows."""
+        root = pypi_node(
+            "app",
+            dependencies={"ty": pypi_node("ty", "0.0.63")},
+            optional_dependencies={"ty": pypi_node("ty", "0.0.63"), "pylint": pypi_node("pylint")},
+        )
+
+        descriptors = build_scan_descriptors(pypi_project(root), self.sources())
+
+        assert [d.canonical_name for d in descriptors.prod_deps] == ["ty"]
+        assert [d.canonical_name for d in descriptors.opt_deps] == ["pylint"]
+
+    def test_an_extra_only_package_stays_optional(self):
+        root = pypi_node("app", optional_dependencies={"pylint": pypi_node("pylint")})
+
+        descriptors = build_scan_descriptors(pypi_project(root), self.sources())
+
+        assert [(d.canonical_name, d.is_optional) for d in descriptors.opt_deps] == [("pylint", True)]

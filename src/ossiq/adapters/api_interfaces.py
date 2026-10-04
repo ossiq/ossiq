@@ -14,6 +14,7 @@ from ossiq.domain.package import Package
 from ossiq.domain.packages_manager import PackageManagerType
 from ossiq.domain.project import Project
 from ossiq.domain.release_cutoff import ReleaseCutoff
+from ossiq.domain.requirement_scope import RequirementScope
 from ossiq.settings import Settings
 
 from ..domain.repository import Repository
@@ -133,6 +134,16 @@ class AbstractPackageRegistryApi(VersionRules, abc.ABC):
     """I/O client for fetching package data from a registry (PyPI, NPM, etc.)."""
 
     settings: Settings
+    # Shared default is safe: RequirementScope is frozen, and use_requirement_scope rebinds the attribute.
+    requirement_scope: RequirementScope = RequirementScope()
+
+    def use_requirement_scope(self, scope: RequirementScope) -> None:
+        """Read declared requirements under *scope* from now on.
+
+        PyPI gates requirements on extras and environment markers, so which ones apply depends on
+        the project asking. Registries with no such gating (npm) ignore it.
+        """
+        self.requirement_scope = scope
 
     @abc.abstractmethod
     def packages_info_batch(self, names: list[str]) -> dict[str, Package]:

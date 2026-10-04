@@ -15,13 +15,14 @@ from collections import namedtuple
 from typing import TYPE_CHECKING
 
 from ossiq.adapters.api_interfaces import AbstractPackageManagerApi
-from ossiq.adapters.package_managers.api_pypi import batch_fetch_requires_dist, make_session, parse_requires_dist
+from ossiq.adapters.package_managers.api_pypi import batch_fetch_requires_dist, make_session
 from ossiq.domain.common import ConstraintType, normalize_dist_name
 from ossiq.domain.exceptions import PackageManagerLockfileParsingError
 from ossiq.domain.packages_manager import PIP_CLASSIC, PackageManagerType
 from ossiq.domain.project import ConstraintSource, Dependency, Project
 from ossiq.domain.version import classify_pypi_specifier, normalize_version
 from ossiq.settings import Settings
+from ossiq.solver.pep508 import applicable_requirements
 
 if TYPE_CHECKING:
     from ossiq.service.update import UpdatePlan
@@ -270,7 +271,7 @@ class PackageManagerPythonPipClassic(AbstractPackageManagerApi):
 
         for dep in dependencies.values():
             raw = requires_dist_map.get((dep.canonical_name, dep.version_installed), [])
-            spec_map = parse_requires_dist(raw)
+            spec_map = applicable_requirements(raw, dep.extras or ())
             for norm_name, specifier in spec_map.items():
                 child = pkg_lookup.get(norm_name)
                 if child is None or child.canonical_name == dep.canonical_name:
