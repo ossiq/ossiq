@@ -133,6 +133,11 @@ def build_requires_reason(
     external target (e.g. direct-dep versions when solving transitives). Dependencies outside
     the solution are skipped — the package manager resolves them freely.
 
+    The check also runs the other way, against the external targets: a candidate must satisfy what
+    each of them requires of it at the version it is held at. An external target is never a
+    candidate here, so without this a direct dep upgraded to a release that caps this package
+    would go unnoticed until the package manager refused the plan.
+
     Args:
         problem: The solve in progress, for its registry's version semantics.
         registry: Registry client, for each candidate's declared requirements.
@@ -155,6 +160,15 @@ def build_requires_reason(
             if not version_satisfies_constraint(target, spec, problem.registry):
                 logger.debug("requires check: %s==%s needs %s%s, held at %s", pkg, version, dep, spec, target)
                 return f"{dep} needs {spec}, held at {target}"
+        for parent, parent_version in external_targets.items():
+            if parent == pkg:
+                continue
+            spec = registry.package_version_requires(parent, parent_version).get(pkg)
+            if spec and not version_satisfies_constraint(version, spec, problem.registry):
+                logger.debug(
+                    "requires check: %s==%s needed by %s==%s as %s", pkg, version, parent, parent_version, spec
+                )
+                return f"{parent} {parent_version} needs {pkg}{spec}"
         return None
 
     return reason_for
