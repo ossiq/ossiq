@@ -5,7 +5,6 @@ PyPI-based constraint enrichment for Python package manager parsers.
 import logging
 
 import requests
-from packaging.requirements import InvalidRequirement, Requirement
 
 from ossiq.clients.batch import BatchClient
 from ossiq.clients.client_pypi import PypiVersionBatchStrategy
@@ -13,26 +12,9 @@ from ossiq.clients.common import get_user_agent
 from ossiq.domain.common import ConstraintType, normalize_dist_name
 from ossiq.domain.project import ConstraintSource, Dependency
 from ossiq.domain.version import classify_pypi_specifier
+from ossiq.solver.pep508 import applicable_requirements
 
 logger = logging.getLogger(__name__)
-
-
-def parse_requires_dist(requires_dist: list[str]) -> dict[str, str]:
-    """Parse PyPI requires_dist strings into {normalized_name: specifier_str} map.
-
-    Skips extras-conditional entries (marker contains 'extra').
-    Returns an empty string for unconstrained dependencies.
-    """
-    result: dict[str, str] = {}
-    for req_str in requires_dist:
-        try:
-            req = Requirement(req_str)
-            if req.marker and "extra" in str(req.marker):
-                continue
-            result[normalize_dist_name(req.name)] = str(req.specifier)
-        except InvalidRequirement:
-            continue
-    return result
 
 
 def make_session() -> requests.Session:
@@ -63,11 +45,21 @@ def batch_fetch_requires_dist(
 def enrich_registry_constraints(
     registry: dict[frozenset, Dependency],
     session: requests.Session | None = None,
+    *,
+    python_floor: str | None = None,
+    root: Dependency | None = None,
 ) -> None:
-    """Walk all registry nodes and fill in missing child constraints from PyPI.
+    """Walk all registry nodes and record what each one's PyPI metadata asks of its children.
 
-    For each node whose children lack version_defined, fetches the node's
-    requires_dist from PyPI at its pinned version and updates child nodes.
+    A lockfile says which version was picked, not what each parent asked of it, so every parent's
+    requires_dist is fetched at its pinned version. Each parent's specifier for a child is appended
+    to the child's `parent_constraints` (the solver's multi-parent L1), and the first one seen also
+    fills a missing `version_defined`. Requirements gated on an extra count only when the parent
+    enables that extra, and those gated on an environment marker only when some environment at or
+    above *python_floor* reaches them.
+
+    The project's own *root* node is never fetched: its dependencies come from the manifest, and
+    PyPI may hold an unrelated package of the same name.
 
     Safe to call when PyPI is unreachable — enrichment is silently skipped.
     ADDITIVE and OVERRIDE constraint types are never downgraded.
@@ -75,28 +67,30 @@ def enrich_registry_constraints(
     if session is None:
         session = make_session()
 
-    packages_to_fetch: list[tuple[str, str]] = [
-        (node.canonical_name, node.version_installed)
-        for node in registry.values()
-        if {**node.dependencies, **node.optional_dependencies}
-        and any(c.version_defined is None for c in {**node.dependencies, **node.optional_dependencies}.values())
+    parents = [
+        node for node in registry.values() if node is not root and {**node.dependencies, **node.optional_dependencies}
     ]
-
-    if not packages_to_fetch:
+    if not parents:
         return
 
-    requires_dist_map = batch_fetch_requires_dist(packages_to_fetch, session)
+    requires_dist_map = batch_fetch_requires_dist(
+        [(node.canonical_name, node.version_installed) for node in parents], session
+    )
 
-    for node in registry.values():
+    for node in parents:
         raw = requires_dist_map.get((node.canonical_name, node.version_installed))
         if not raw:
             continue
-        spec_map = parse_requires_dist(raw)
+        spec_map = applicable_requirements(raw, node.extras or (), python_floor)
         for child in {**node.dependencies, **node.optional_dependencies}.values():
-            if child.version_defined is not None:
-                continue
             specifier = spec_map.get(normalize_dist_name(child.canonical_name))
             if specifier is None:
+                continue
+            # One entry per parent, duplicates kept: update_impact removes a single occurrence
+            # when it replaces the spec that one parent imposed.
+            if specifier:
+                child.parent_constraints.append(specifier)
+            if child.version_defined is not None:
                 continue
             child.version_defined = specifier or None
             if child.constraint_info.type not in (ConstraintType.ADDITIVE, ConstraintType.OVERRIDE):

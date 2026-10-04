@@ -7,7 +7,7 @@ from collections import Counter
 from collections.abc import Iterable, Iterator
 from typing import Any
 
-from ossiq.domain.common import ConstraintType
+from ossiq.domain.common import ConstraintType, normalize_dist_name
 from ossiq.domain.project import ConstraintSource, Dependency, PeerRequirement
 from ossiq.domain.version import normalize_version
 
@@ -48,6 +48,10 @@ class BaseDependencyResolver(ABC):
     def extract_dependency_identity(self, dep_data: dict) -> tuple[str, str | None]:
         """Returns (name, version_constraint) from a dependency entry."""
         pass
+
+    def extract_dependency_extras(self, dep_data: dict) -> list[str]:
+        """Returns the extras a dependency entry asks of its target; none unless the lockfile records them."""
+        return []
 
     def extract_canonical_name(self, pkg_data: dict) -> str | None:
         """Returns the canonical registry name when it differs from the identity name (e.g. npm aliases).
@@ -112,6 +116,11 @@ class BaseDependencyResolver(ABC):
 
                     child = self.match_child(d_name, d_ver)
                     if child:
+                        # Extras gate the target's own requirements, so every edge that turns one
+                        # on counts: the union is what the target installs with.
+                        edge_extras = self.extract_dependency_extras(d_data)
+                        if edge_extras:
+                            child.extras = sorted({*(child.extras or ()), *edge_extras})
                         # Guard against None so that absent specifiers (e.g. UV entries without
                         # a 'specifier' key) don't overwrite values already set in Pass 1.
                         if d_ver is not None:
@@ -233,7 +242,9 @@ class GraphExporter:
         self.visited.clear()
         return self._to_dict(self.root)
 
-    def walk_all_paths(self, *, include_optional_roots: bool = False) -> Iterator[tuple[Dependency, list[str]]]:
+    def walk_all_paths(
+        self, *, include_optional_roots: bool = False, include_enabled_extras: bool = False
+    ) -> Iterator[tuple[Dependency, list[str]]]:
         """
         Yields (node, path) for every transitive dependency reachable from root,
         following all distinct paths without cross-path deduplication.
@@ -253,24 +264,38 @@ class GraphExporter:
         optional_dependencies (dev/peer/optional direct deps), enabling callers
         to build a complete "installed packages" set without changing the core
         transitive scan output.
+
+        When include_enabled_extras=True, a package's optional edges are followed too when they
+        belong to an extra the project enables on that package (PyPI `pkg[extra]`): the lockfile
+        installs those, so a caller after the full installed set must see them. Off by default,
+        which keeps them out of the transitive scan.
         """
         for direct_dep in self.root.dependencies.values():
-            yield from self._walk_node(direct_dep, [direct_dep.name], {id(direct_dep)})
+            yield from self._walk_node(direct_dep, [direct_dep.name], {id(direct_dep)}, include_enabled_extras)
         if include_optional_roots:
             for direct_dep in self.root.optional_dependencies.values():
-                yield from self._walk_node(direct_dep, [direct_dep.name], {id(direct_dep)})
+                yield from self._walk_node(direct_dep, [direct_dep.name], {id(direct_dep)}, include_enabled_extras)
 
     def _walk_node(
         self,
         node: Dependency,
         path: list[str],
         in_path: set[int],
+        include_enabled_extras: bool = False,
     ) -> Iterator[tuple[Dependency, list[str]]]:
-        for child in node.dependencies.values():
+        children = list(node.dependencies.values())
+        if include_enabled_extras and node.extras:
+            enabled = {normalize_dist_name(extra) for extra in node.extras}
+            children += [
+                child
+                for child in node.optional_dependencies.values()
+                if enabled & {normalize_dist_name(category) for category in child.categories}
+            ]
+        for child in children:
             if id(child) in in_path:
                 continue  # skip back-edge (circular dep)
             yield child, path
-            yield from self._walk_node(child, path + [child.name], in_path | {id(child)})
+            yield from self._walk_node(child, path + [child.name], in_path | {id(child)}, include_enabled_extras)
 
     def descendant_counts(self, *, include_optional_roots: bool = False) -> Counter[str]:
         """

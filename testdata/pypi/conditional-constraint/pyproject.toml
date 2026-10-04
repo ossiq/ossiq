@@ -1,0 +1,122 @@
+[project]
+name = "ossiq-pro"
+version = "0.1.5"
+
+description = "Pro version of OSS IQ"
+readme = "README.md"
+authors = [
+  {name = "Maksym Klymyshyn", email = "klymyshyn@gmail.com"}
+]
+maintainers = [
+  {name = "Maksym Klymyshyn", email = "klymyshyn@gmail.com"}
+]
+classifiers = [
+    "Intended Audience :: Developers",
+    "Intended Audience :: Information Technology",
+    "Development Status :: 3 - Alpha",
+
+    "Topic :: Software Development :: Build Tools",
+    "Topic :: Scientific/Engineering :: Information Analysis",
+    "Topic :: Software Development :: Version Control",
+    "Topic :: Security",
+    "Topic :: Software Development",
+
+    "Programming Language :: Python :: 3",
+    "Topic :: Utilities",
+    "Topic :: Software Development :: Quality Assurance",
+    "Topic :: System :: Monitoring",
+    "Topic :: System :: Software Distribution",
+
+    # Environment/OS
+    "Operating System :: OS Independent",
+
+    # Specific Python Versions (Adjust these to what you actually support)
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Programming Language :: Python :: 3 :: Only",
+]
+keywords = ["techdebt", "tech debt", "maintenance", "toc", "engineering"]
+
+requires-python = ">= 3.12"
+
+dependencies = [ # specify that newer patch or minor versions allowed
+  "ty~=0.0.63",
+  "pydantic~=2.12.5",
+  "rich~=14.3.4",
+  "termcolor~=3.3.0",
+  "requests>=2.32",
+  "jinja2~=3.1.6",
+  "hatch>=1.16.5",
+  "petl~=1.7.20",
+  "django>=6.0.3",
+  "django-allauth[socialaccount]>=65.15.0",
+  "django-oauth-toolkit>=3.2.0",
+  "djangorestframework>=3.17.1",
+  "django-mcp-server>=0.5.7",
+  "uvicorn[standard]>=0.42.0",
+  "psycopg[binary]>=3.3.3",
+  "django-cookie-consent>=1.0.0",
+  "gunicorn>=25.2.0",
+  "whitenoise>=6.12.0",
+  "celery[redis]>=5.6.2",
+  "dotenv>=0.9.9",
+  "django-oauth-toolkit-dcr>=0.1.0",
+  "django-cors-headers>=4.9.0",
+  "ossiq==0.1.10",
+  "wagtail>=7.3.1",
+  "tiktoken>=0.12.0",
+]
+
+[tool.uv]
+package = true
+
+[project.optional-dependencies]
+dev = [
+    "coverage~=7.13.5",  # testing
+    "pytest~=9.0.3",  # testing
+    "ruff~=0.15.22",  # linting
+    "ty~=0.0.63", # checking types
+    "ipdb~=0.13.13", # debugging,
+    "pylint~=4.0.6",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["ossiq_pro*"]
+
+[tool.ty]
+# All rules are enabled as "error" by default; no need to specify unless overriding.
+# Example override: relax a rule for the entire project (uncomment if needed).
+# rules.TY015 = "warn"  # For invalid-argument-type, warn instead of error.
+
+[tool.ruff]
+line-length = 120
+
+[tool.ruff.format]
+# These settings ensure Ruff behaves like Black (but with your 120 limit)
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false  # Respects trailing commas to keep multi-line formatting
+line-ending = "auto"
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # Pyflakes
+    "I",   # isort
+    "B",   # flake8-bugbear
+    "UP",  # pyupgrade
+]
+
+[dependency-groups]
+dev = [
+    "coverage~=7.13.5",  # testing
+    "pytest~=9.0.3",  # testing
+    "ruff~=0.15.22",  # linting
+    "ty~=0.0.63", # checking types
+    "ipdb~=0.13.13", # debugging,
+    "pylint~=4.0.6",
+    "django-stubs>=5.2.9",
+]

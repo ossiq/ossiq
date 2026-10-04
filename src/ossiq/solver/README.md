@@ -16,6 +16,7 @@ solver/
 ├── universe.py            SolvablePool — builds SolverProblem from registry
 ├── version_matchers.py    npm semver + PEP 440 range matching — raw constraint → bool
 ├── npm_range.py           npm range grammar (Lark) + node-semver's rewrite rules → comparator sets
+├── pep508.py              Which declared PyPI requirements apply to a project (extras + environment markers)
 ├── encoder.py             ConstraintEncoder — produces EncodedProblem (WCNF)
 ├── weights.py             Constraint weight constants + semver_rank_weight()
 └── dependencies_solver.py       Public API: solve_direct(), solve_transitive()
@@ -117,7 +118,11 @@ Structural clauses per package (encoder):
 
 ### Version constraint dispatch (encoder.py)
 
-`version_satisfies_constraint(version, constraint, registry)` (in `version_matchers.py`) dispatches directly to PyPI (PEP 440) or npm (semver) based on the `ProjectPackagesRegistry` passed in — no exception-based fallback. npm ranges go through `npm_range.py` — a Lark grammar for the syntax plus node-semver's own rewrite rules, held to node-semver's verdicts by `tests/solver/node_semver_conformance.json`, so a partial version (`"14"`) is the X-range `14.x` exactly as npm reads it. Unparseable constraints pass through (`True`) — unknown format is never a hard block.
+`version_satisfies_constraint(version, constraint, registry)` (in `version_matchers.py`) dispatches directly to PyPI (PEP 440) or npm (semver) based on the `ProjectPackagesRegistry` passed in — no exception-based fallback. npm ranges go through `npm_range.py` — a Lark grammar for the syntax plus node-semver's own rewrite rules, held to node-semver's verdicts by `tests/solver/node_semver_conformance.json`, so a partial version (`"14"`) is the X-range `14.x` exactly as npm reads it. Unparseable constraints pass through (`True`) — unknown format is never a hard block — and so does a blank one: PyPI publishes an unconstrained requirement as an empty specifier.
+
+### Which requirements apply (pep508.py)
+
+A PyPI release declares requirements gated on extras (`oauthlib<4; extra == "socialaccount"`) and on environment markers (`tomli; python_version < "3.11"`). Whether one applies depends on the project, so `RequirementScope` (`domain/`) carries the extras the project enables per package and its Python floor, and `applicable_requirements()` keeps a requirement when its marker holds in at least one environment the project can be installed into — the same stance uv's universal resolution takes. The registry (`package_version_requires`), the candidate `requires` built in `universe.py`, and the enrichment of lockfile edges all read requirements through it; the scan sets the scope once, from the lockfile's `extra = [...]` edges and `requires-python`.
 
 ---
 

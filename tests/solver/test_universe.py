@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import dataclasses
 from datetime import UTC, datetime
 from unittest.mock import MagicMock
 
@@ -10,6 +11,7 @@ from ossiq.domain.common import ConstraintType, CveDatabase, ProjectPackagesRegi
 from ossiq.domain.cve import CVE, AffectedRange, Severity
 from ossiq.domain.project import ConstraintSource
 from ossiq.domain.release_cutoff import ReleaseCutoff
+from ossiq.domain.requirement_scope import RequirementScope
 from ossiq.domain.version import PackageVersion
 from ossiq.solver.problem import CandidateVersion, PackageConstraint, SolverProblem
 from ossiq.solver.universe import SolvablePool, parse_requires, relevant_constraints
@@ -477,3 +479,48 @@ class TestParseRequires:
         # PyPI canonicalization: underscores/dashes normalized
         result = parse_requires({"Pillow": ">=9.0"})
         assert "pillow" in result
+
+    def test_pypi_format_extras_marker_included_when_the_scope_enables_it(self) -> None:
+        scope = RequirementScope({"uvicorn": frozenset({"standard"})})
+
+        result = parse_requires({"httptools>=0.6.3; extra == 'standard'": ""}, scope, "uvicorn")
+
+        assert result == {"httptools": ">=0.6.3"}
+
+    def test_pypi_format_extras_of_another_package_do_not_apply(self) -> None:
+        scope = RequirementScope({"uvicorn": frozenset({"standard"})})
+
+        assert parse_requires({"httptools>=0.6.3; extra == 'standard'": ""}, scope, "gunicorn") == {}
+
+    def test_pypi_format_python_marker_dropped_below_the_scope_floor(self) -> None:
+        scope = RequirementScope(python_floor="3.12")
+
+        assert parse_requires({"tomli>=1.1; python_version < '3.11'": ""}, scope, "pylint") == {}
+
+    def test_pypi_format_unconstrained_requirement_under_a_scope_is_none(self) -> None:
+        assert parse_requires({"regex": ""}, RequirementScope(), "tiktoken") == {"regex": None}
+
+
+class TestCandidateRequirementsUnderScope:
+    def test_candidates_carry_the_requirements_that_hold_under_the_registry_scope(self) -> None:
+        version = dataclasses.replace(
+            _pv("65.19.4"),
+            declared_dependencies={"oauthlib<4,>=3.3.0; extra == 'socialaccount'": "", "asgiref>=3.8.1": ""},
+        )
+        registry = _make_registry({"django-allauth": [version]})
+        registry.requirement_scope = RequirementScope({"django-allauth": frozenset({"socialaccount"})})
+
+        problem = SolvablePool.build([_FakeDep("django-allauth", "65.19.4")], registry, {})
+
+        assert problem.candidates["django-allauth"][0].requires == {"oauthlib": "<4,>=3.3.0", "asgiref": ">=3.8.1"}
+
+    def test_a_package_without_the_extra_does_not_inherit_its_requirements(self) -> None:
+        version = dataclasses.replace(
+            _pv("65.19.4"), declared_dependencies={"oauthlib<4; extra == 'socialaccount'": ""}
+        )
+        registry = _make_registry({"django-allauth": [version]})
+        registry.requirement_scope = RequirementScope()
+
+        problem = SolvablePool.build([_FakeDep("django-allauth", "65.19.4")], registry, {})
+
+        assert problem.candidates["django-allauth"][0].requires is None

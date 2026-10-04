@@ -22,6 +22,7 @@ from ossiq.adapters.api_pypi import (
 from ossiq.clients.batch import BatchClient
 from ossiq.domain.common import ConstraintType, ProjectPackagesRegistry
 from ossiq.domain.exceptions import UnableLoadPackage
+from ossiq.domain.requirement_scope import RequirementScope
 from ossiq.domain.version import (
     VERSION_DIFF_BUILD,
     VERSION_DIFF_MAJOR,
@@ -803,6 +804,78 @@ class TestPackageVersionRequiresPypi:
         ):
             result = pypi_api.package_version_requires("requests", "0.0.0")
         assert result == {}
+
+    ALLAUTH = [
+        "asgiref>=3.8.1",
+        'oauthlib<4,>=3.3.0; extra == "socialaccount"',
+        'requests<3,>=2.0.0; extra == "socialaccount"',
+        'tomli>=1.1; python_version < "3.11"',
+    ]
+
+    def test_a_requirement_gated_on_an_extra_the_package_enables_is_returned(self, pypi_api):
+        pypi_api.use_requirement_scope(RequirementScope({"django-allauth": frozenset({"socialaccount"})}))
+        with patch(
+            "ossiq.adapters.api_pypi.batch_fetch_requires_dist",
+            return_value={("django-allauth", "65.19.4"): self.ALLAUTH},
+        ):
+            result = pypi_api.package_version_requires("django-allauth", "65.19.4")
+
+        assert result["oauthlib"] == "<4,>=3.3.0"
+        assert "requests" in result
+
+    def test_a_requirement_gated_on_an_extra_that_is_off_is_left_out(self, pypi_api):
+        with patch(
+            "ossiq.adapters.api_pypi.batch_fetch_requires_dist",
+            return_value={("django-allauth", "65.19.4"): self.ALLAUTH},
+        ):
+            result = pypi_api.package_version_requires("django-allauth", "65.19.4")
+
+        assert "oauthlib" not in result
+
+    def test_the_python_floor_drops_a_requirement_for_older_pythons(self, pypi_api):
+        pypi_api.use_requirement_scope(RequirementScope(python_floor="3.12"))
+        with patch(
+            "ossiq.adapters.api_pypi.batch_fetch_requires_dist",
+            return_value={("pylint", "4.0.9"): self.ALLAUTH},
+        ):
+            result = pypi_api.package_version_requires("pylint", "4.0.9")
+
+        assert "tomli" not in result
+
+    def test_a_scope_set_after_the_fetch_re_filters_without_fetching_again(self, pypi_api):
+        with patch(
+            "ossiq.adapters.api_pypi.batch_fetch_requires_dist",
+            return_value={("django-allauth", "65.19.4"): self.ALLAUTH},
+        ) as mock_fetch:
+            before = pypi_api.package_version_requires("django-allauth", "65.19.4")
+            pypi_api.use_requirement_scope(RequirementScope({"django-allauth": frozenset({"socialaccount"})}))
+            after = pypi_api.package_version_requires("django-allauth", "65.19.4")
+
+        assert "oauthlib" not in before
+        assert "oauthlib" in after
+        assert mock_fetch.call_count == 1
+
+    def test_a_warm_up_stores_the_raw_requirements_for_the_scope_to_judge_later(self, pypi_api):
+        with patch(
+            "ossiq.adapters.api_pypi.batch_fetch_requires_dist",
+            return_value={("django-allauth", "65.19.4"): self.ALLAUTH},
+        ) as mock_fetch:
+            pypi_api.warmup_version_requires([("django-allauth", "65.19.4")])
+            pypi_api.use_requirement_scope(RequirementScope({"django-allauth": frozenset({"socialaccount"})}))
+            result = pypi_api.package_version_requires("django-allauth", "65.19.4")
+
+        assert "oauthlib" in result
+        assert mock_fetch.call_count == 1
+
+    def test_a_warm_up_skips_pairs_already_fetched(self, pypi_api):
+        with patch(
+            "ossiq.adapters.api_pypi.batch_fetch_requires_dist",
+            return_value={("requests", "2.32.3"): ["certifi>=2017.4.17"]},
+        ) as mock_fetch:
+            pypi_api.package_version_requires("requests", "2.32.3")
+            pypi_api.warmup_version_requires([("requests", "2.32.3")])
+
+        assert mock_fetch.call_count == 1
 
 
 class TestRewriteSpecifier:

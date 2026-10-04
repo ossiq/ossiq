@@ -424,6 +424,34 @@ class TestParseLockfileV1R3:
         assert "dev" in dependency_tree.optional_dependencies["pytest"].categories
         assert "dev" in dependency_tree.optional_dependencies["black"].categories
 
+    def test_an_edge_that_enables_an_extra_records_it_on_the_target(self, uv_project_with_lockfile, settings):
+        """uv.lock writes `{ name = "uvicorn", extra = ["standard"] }`; the target installs with that extra."""
+        uv_manager = PackageManagerPythonUv(uv_project_with_lockfile, settings)
+        uv_lock_data = {
+            "package": [
+                {
+                    "name": "test-project",
+                    "version": "0.1.0",
+                    "source": {"virtual": "."},
+                    "dependencies": [{"name": "uvicorn", "extra": ["standard"]}, {"name": "click"}],
+                },
+                {
+                    "name": "uvicorn",
+                    "version": "0.54.0",
+                    "source": {"registry": "https://pypi.org/simple"},
+                    "optional-dependencies": {"standard": [{"name": "httptools"}]},
+                },
+                {"name": "click", "version": "8.1.7", "source": {"registry": "https://pypi.org/simple"}},
+                {"name": "httptools", "version": "0.8.0", "source": {"registry": "https://pypi.org/simple"}},
+            ]
+        }
+
+        dependency_tree, _ = uv_manager.parse_lockfile_v1_r3("test-project", uv_lock_data)
+
+        assert dependency_tree.dependencies["uvicorn"].extras == ["standard"]
+        assert dependency_tree.dependencies["click"].extras is None
+        assert "httptools" in dependency_tree.dependencies["uvicorn"].optional_dependencies
+
     def test_parse_transitive_dependencies_ignored(self, uv_project_with_lockfile, settings):
         """
         Test that transitive dependencies are not included.
@@ -654,6 +682,26 @@ class TestProjectInfo:
         # Check optional dependencies
         assert "pytest" in dependency_tree.optional_dependencies
         assert "black" in dependency_tree.optional_dependencies
+
+    @pytest.mark.parametrize(("requires_python", "floor"), [(">=3.12", "3.12"), (None, None)])
+    def test_enrichment_is_told_the_python_floor_and_which_node_is_the_root(
+        self, uv_project_with_lockfile, requires_python, floor
+    ):
+        """The floor decides which marker-gated requirements count; the root must never be fetched from PyPI."""
+        pyproject = Path(uv_project_with_lockfile) / "pyproject.toml"
+        if requires_python:
+            pyproject.write_text(
+                pyproject.read_text().replace(
+                    'version = "1.0.0"', f'version = "1.0.0"\nrequires-python = "{requires_python}"', 1
+                )
+            )
+        uv_manager = PackageManagerPythonUv(uv_project_with_lockfile, Settings(skip_pypi_enrichment=False))
+
+        with patch("ossiq.adapters.package_managers.api_uv.enrich_registry_constraints") as enrich:
+            project = uv_manager.project_info()
+
+        assert enrich.call_args.kwargs["python_floor"] == floor
+        assert enrich.call_args.kwargs["root"] is project.dependency_tree
 
     def test_project_info_exposes_version_constraint_from_specifier(self, uv_project_with_lockfile, settings):
         """Test that project_info exposes version constraints via version_constraint_declared on Dependency.

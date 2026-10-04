@@ -5,7 +5,6 @@ from datetime import datetime
 from functools import cmp_to_key
 from typing import Protocol
 
-from packaging.requirements import InvalidRequirement, Requirement
 from packaging.utils import canonicalize_name
 
 from ossiq.adapters.api_interfaces import AbstractPackageRegistryApi
@@ -13,7 +12,9 @@ from ossiq.domain.common import ConstraintType
 from ossiq.domain.cve import CVE
 from ossiq.domain.project import ConstraintSource
 from ossiq.domain.release_cutoff import ReleaseCutoff
+from ossiq.domain.requirement_scope import RequirementScope
 from ossiq.domain.version import PackageVersion
+from ossiq.solver.pep508 import applicable_requirements
 from ossiq.solver.problem import CandidateVersion, PackageConstraint, SolverProblem
 from ossiq.solver.version_matchers import cve_affects_version, version_satisfies_constraint
 from ossiq.timeutil import age_days_from_iso, parse_iso_datetime
@@ -55,7 +56,11 @@ def relevant_constraints(
     return satisfied or deduped
 
 
-def parse_requires(declared: dict[str, str]) -> dict[str, str | None]:
+def parse_requires(
+    declared: dict[str, str],
+    scope: RequirementScope | None = None,
+    package: str = "",
+) -> dict[str, str | None]:
     """Parse declared_dependencies into a {canonical_pkg_name: constraint_or_None} mapping.
 
     Handles two formats used by registry adapters:
@@ -67,17 +72,21 @@ def parse_requires(declared: dict[str, str]) -> dict[str, str | None]:
         e.g. {"thinc>=8.1.8,<8.4.0": "", "numpy>=1.19.0; python_version>='3.9'": ""}
 
     Discriminator: non-empty value -> npm format; empty value -> PyPI format.
-    Optional extras dependencies (marker contains 'extra') are silently skipped.
+    PyPI requirements are filtered through `scope`: one gated on an extra the package does not
+    enable, or on a marker no supported environment reaches, is skipped.
     Invalid dependency strings are silently skipped.
 
     Args:
         declared: Raw declared_dependencies dict from PackageVersion.
+        scope: The project's extras and Python floor; None means no extras and no floor.
+        package: Name of the package that declares *declared*, to look its extras up.
 
     Returns:
         Mapping of canonical package name (PEP 503) to version constraint string,
         or None when the dependency is unconstrained (* / latest / no specifier).
     """
     result: dict[str, str | None] = {}
+    pypi_lines: list[str] = []
     for dep_key, dep_val in declared.items():
         if dep_val:  # npm: key=name, val=constraint
             try:
@@ -87,13 +96,10 @@ def parse_requires(declared: dict[str, str]) -> dict[str, str | None]:
             except (TypeError, AttributeError):
                 pass
         else:  # PyPI: key=PEP 508 dependency string, val=""
-            try:
-                req = Requirement(dep_key)
-                if req.marker and "extra" in str(req.marker):
-                    continue
-                result[canonicalize_name(req.name)] = str(req.specifier) if req.specifier else None
-            except InvalidRequirement:
-                pass
+            pypi_lines.append(dep_key)
+    scope = scope or RequirementScope()
+    for name, specifier in applicable_requirements(pypi_lines, scope.extras_for(package), scope.python_floor).items():
+        result[name] = specifier or None
     return result
 
 
@@ -186,11 +192,14 @@ def make_candidate_versions(
     pvs: list[PackageVersion],
     cves: tuple[CVE, ...],
     now: datetime | None,
+    scope: RequirementScope | None = None,
+    package: str = "",
 ) -> tuple[CandidateVersion, ...]:
     """Assemble CandidateVersion tuples from filtered PackageVersion objects.
 
     A candidate carries `has_cve` when any of *cves* affects it - by range as well as by
-    enumerated version, since npm advisories publish only ranges.
+    enumerated version, since npm advisories publish only ranges. Its `requires` are those that
+    hold under *scope* for *package*.
     """
     return tuple(
         CandidateVersion(
@@ -201,7 +210,7 @@ def make_candidate_versions(
             is_yanked=pv.is_yanked,
             runtime_requirements=pv.runtime_requirements,
             has_cve=any(cve_affects_version(cve, pv.version) for cve in cves),
-            requires=parse_requires(pv.declared_dependencies) or None,
+            requires=parse_requires(pv.declared_dependencies, scope, package) or None,
         )
         for pv in pvs
     )
@@ -266,6 +275,8 @@ class SolvablePool:
                 ),
                 (cves_by_package or {}).get(name, ()),
                 _now,
+                registry.requirement_scope,
+                name,
             )
             for name, dep in best.items()
         }

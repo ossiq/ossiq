@@ -301,6 +301,10 @@ class UVResolverV1R3(BaseDependencyResolver):
         # The 'specifier' key carries the version constraint; not all entries have it.
         return dep_data["name"], dep_data.get("specifier")
 
+    def extract_dependency_extras(self, dep_data: dict) -> list[str]:
+        # UV records the extras an edge enables: {name = "django-allauth", extra = ["socialaccount"]}
+        return list(dep_data.get("extra", []))
+
 
 def read_toml_settings(path: Path) -> dict[str, Any]:
     """Read one TOML config file uv would read, failing the way uv does on a malformed one."""
@@ -620,8 +624,19 @@ class PackageManagerPythonUv(AbstractPackageManagerApi):
         pyproject_specs = parse_pyproject_direct_specifiers(pyproject_data)
         divergent = apply_pyproject_constraints(dependency_tree, pyproject_specs)
 
+        requires_python = pyproject_data.get("project", {}).get("requires-python")
+        engine_constraints = None
+        if requires_python:
+            min_py = extract_min_python_version(requires_python)
+            if min_py:
+                engine_constraints = {"python": min_py}
+
         if not self.settings.skip_pypi_enrichment:
-            enrich_registry_constraints(registry)
+            enrich_registry_constraints(
+                registry,
+                python_floor=engine_constraints["python"] if engine_constraints else None,
+                root=dependency_tree,
+            )
 
         # Constraint/Override settings from [tool.uv] section
         uv_section = pyproject_data.get("tool", {}).get("uv", {})
@@ -635,13 +650,6 @@ class PackageManagerPythonUv(AbstractPackageManagerApi):
             self.constraint_dependencies_setting(
                 dependency_tree, constraint_names, override_specs_by_name, ossiq_overrides_by_name
             )
-
-        requires_python = pyproject_data.get("project", {}).get("requires-python")
-        engine_constraints = None
-        if requires_python:
-            min_py = extract_min_python_version(requires_python)
-            if min_py:
-                engine_constraints = {"python": min_py}
 
         return Project(
             package_manager_type=self.package_manager_type,

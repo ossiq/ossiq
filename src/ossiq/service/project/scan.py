@@ -23,10 +23,12 @@ from ossiq.domain.common import (
     ScanStep,
     combine_statuses,
     merge_diagnostics,
+    normalize_dist_name,
 )
 from ossiq.domain.exceptions import ProjectPathNotFoundError
 from ossiq.domain.package import Package
-from ossiq.domain.project import Dependency
+from ossiq.domain.project import Dependency, Project
+from ossiq.domain.requirement_scope import RequirementScope
 from ossiq.service.library_scan import compute_upgrade_paths, resolve_library_constraints
 from ossiq.service.project.epss import populate_epss
 from ossiq.service.project.models import (
@@ -129,6 +131,43 @@ class ScanDescriptors:
     walker: GraphExporter
 
 
+def requirement_scope_for(project_info: Project) -> RequirementScope:
+    """Collect what the project installs with: the extras enabled on each package and its Python floor.
+
+    A package's declared requirements are gated on both, and only the project knows them. Extras
+    are the union over every lockfile edge that enables one.
+    """
+    extras_by_package: dict[str, set[str]] = {}
+    seen: set[int] = set()
+    pending = [project_info.dependency_tree]
+    while pending:
+        node = pending.pop()
+        if id(node) in seen:
+            continue
+        seen.add(id(node))
+        if node.extras:
+            extras_by_package.setdefault(normalize_dist_name(node.canonical_name), set()).update(node.extras)
+        pending.extend(node.dependencies.values())
+        pending.extend(node.optional_dependencies.values())
+    return RequirementScope(
+        extras_by_package={name: frozenset(extras) for name, extras in extras_by_package.items()},
+        python_floor=(project_info.engine_constraints or {}).get("python"),
+    )
+
+
+def installed_package_names(descriptors: ScanDescriptors) -> set[str]:
+    """Canonical names of every package the lockfile installs, scanned or not.
+
+    Wider than the transitive scan on purpose: it also holds the dependencies of dev/optional
+    packages and what an enabled extra pulls in, which the scan skips. Used to tell a truly new
+    package from one already present in the lockfile.
+    """
+    return {dep.canonical_name for dep in descriptors.prod_deps + descriptors.opt_deps} | {
+        node.canonical_name
+        for node, _ in descriptors.walker.walk_all_paths(include_optional_roots=True, include_enabled_extras=True)
+    }
+
+
 def build_scan_descriptors(project_info, sources: AbstractProjectSources) -> ScanDescriptors:
     """Partition git/URL-hosted deps out, build direct/optional/transitive descriptors, and the
     ignored-dependencies report."""
@@ -149,7 +188,12 @@ def build_scan_descriptors(project_info, sources: AbstractProjectSources) -> Sca
     if not sources.production:
         opt_source, opt_git = partition_git_hosted(project_info.optional_dependencies.values(), detect_git_hosted)
         git_hosted_deps += opt_git
-        opt_deps = [direct_descriptor(dep, is_optional=True) for dep in opt_source]
+        # A package listed under both [project].dependencies and an extra is one package: the
+        # production row stands for it, so it is solved, counted and shown once.
+        prod_names = {dep.canonical_name for dep in prod_deps}
+        opt_deps = [
+            direct_descriptor(dep, is_optional=True) for dep in opt_source if dep.canonical_name not in prod_names
+        ]
 
     direct_canonical_names = {dep.canonical_name for dep in prod_deps + opt_deps}
     walker = GraphExporter(project_info.dependency_tree)
@@ -490,12 +534,7 @@ def solve_direct_phase(
             release_cutoff=sources.release_cutoff,
         )
 
-        # Build a complete set of installed canonical names — includes transitive deps
-        # of dev/optional packages that walk_all_paths() skips by default. Used to
-        # distinguish truly new packages from ones already present in the lock file.
-        all_installed_names: set[str] = {dep.canonical_name for dep in descriptors.prod_deps + descriptors.opt_deps} | {
-            node.canonical_name for node, _ in descriptors.walker.walk_all_paths(include_optional_roots=True)
-        }
+        all_installed_names = installed_package_names(descriptors)
 
         t2 = time.perf_counter()
         impacts = simulate_update_impacts(
@@ -543,6 +582,11 @@ def solve_transitive_phase(
     records_to_solve = [
         r for r in transitive_packages if r.package_name not in ignore_set and (not minimal_diff_run or r.cve)
     ]
+    external_targets = {**installed_version_by_name, **solver_output.recommendations}
+    if isinstance(sources.packages_registry, PackageRegistryApiPypi):
+        # The solver reads what each direct dep requires of a transitive pick; one parallel batch
+        # instead of a sequential fetch per direct dep that is not being updated.
+        sources.packages_registry.warmup_version_requires(list(external_targets.items()))
     t3 = time.perf_counter()
     transitive_output = dependencies_solver.solve_transitive(
         records_to_solve,
@@ -551,7 +595,7 @@ def solve_transitive_phase(
         allow_prerelease=sources.allow_prerelease,
         now=now,
         cooldown_period=sources.settings.cooldown_period,
-        external_targets={**installed_version_by_name, **solver_output.recommendations},
+        external_targets=external_targets,
         release_cutoff=sources.release_cutoff,
     )
     logger.debug(
@@ -589,6 +633,8 @@ def scan(sources: AbstractProjectSources, progress: ScanProgress | None = None) 
         # FIXME: catch this issue way before as part of command validation
         if not project_info.project_path:
             raise ProjectPathNotFoundError("Project Path is not Specified")
+
+        sources.packages_registry.use_requirement_scope(requirement_scope_for(project_info))
 
         descriptors = build_scan_descriptors(project_info, sources)
         all_deps = descriptors.prod_deps + descriptors.opt_deps + descriptors.trans_deps
@@ -666,9 +712,7 @@ def scan(sources: AbstractProjectSources, progress: ScanProgress | None = None) 
         # END_OF_LIFE check. Ignored packages are excluded, mirroring solve_direct_phase's old
         # apply_ladder_fallback filter — a package the user asked to leave alone never gets a
         # recommendation from any source.
-        all_installed_names: set[str] = {dep.canonical_name for dep in descriptors.prod_deps + descriptors.opt_deps} | {
-            node.canonical_name for node, _ in descriptors.walker.walk_all_paths(include_optional_roots=True)
-        }
+        all_installed_names = installed_package_names(descriptors)
         apply_update_strategy(
             [r for r in production_packages + optional_packages if r.package_name not in descriptors.ignore_set],
             sources.packages_registry,

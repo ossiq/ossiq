@@ -862,3 +862,102 @@ class TestDescendantCounts:
         # Assert
         assert counts["p0"] == depth - 1
         assert counts[f"p{depth - 1}"] == 0
+
+
+# ============================================================================
+# Extras recorded on lockfile edges
+# ============================================================================
+
+
+class ExtrasResolver(DummyResolver):
+    """DummyResolver that, like uv.lock, reads the extras an edge enables from its `extra` key."""
+
+    def extract_dependency_extras(self, dep_data):
+        return list(dep_data.get("extra", []))
+
+
+def _edge(name, version, *extras):
+    return {"name": name, "version": version, "extra": list(extras)}
+
+
+def graph_of(lockfile, resolver=ExtrasResolver) -> Dependency:
+    root = resolver(lockfile).build_graph("my-app")
+    assert root is not None
+    return root
+
+
+@pytest.fixture
+def extras_lockfile():
+    """The project enables uvicorn[standard]; uvicorn's lock entry lists what that extra installs."""
+    return _make_lockfile(
+        _pkg("my-app", "1.0.0", deps=[_edge("uvicorn", "0.54.0", "standard"), _dep("gunicorn", "26.2.0")]),
+        _pkg(
+            "uvicorn",
+            "0.54.0",
+            deps=[_dep("click", "8.5.0")],
+            optional_deps={"standard": [_dep("httptools", "0.8.0")], "unused": [_dep("pytest", "9.0.3")]},
+        ),
+        _pkg("gunicorn", "26.2.0"),
+        _pkg("click", "8.5.0"),
+        _pkg("httptools", "0.8.0"),
+        _pkg("pytest", "9.0.3"),
+    )
+
+
+class TestEdgeExtras:
+    def test_an_edge_that_enables_an_extra_records_it_on_the_target(self, extras_lockfile):
+        root = graph_of(extras_lockfile)
+
+        assert root.dependencies["uvicorn"].extras == ["standard"]
+
+    def test_a_target_no_edge_enables_an_extra_on_has_none(self, extras_lockfile):
+        root = graph_of(extras_lockfile)
+
+        assert root.dependencies["gunicorn"].extras is None
+
+    def test_extras_from_every_edge_are_merged(self):
+        lockfile = _make_lockfile(
+            _pkg("my-app", "1.0.0", deps=[_edge("allauth", "65.19.4", "socialaccount"), _dep("other", "1.0.0")]),
+            _pkg("other", "1.0.0", deps=[_edge("allauth", "65.19.4", "headless")]),
+            _pkg("allauth", "65.19.4"),
+        )
+
+        root = graph_of(lockfile)
+
+        assert root.dependencies["allauth"].extras == ["headless", "socialaccount"]
+
+    def test_a_resolver_that_does_not_read_extras_leaves_them_unset(self, extras_lockfile):
+        root = graph_of(extras_lockfile, DummyResolver)
+
+        assert root.dependencies["uvicorn"].extras is None
+
+
+class TestWalkEnabledExtras:
+    @staticmethod
+    def walked_names(lockfile, **walk_options):
+        root = graph_of(lockfile)
+        return {node.name for node, _ in GraphExporter(root).walk_all_paths(**walk_options)}
+
+    def test_what_an_extra_installs_is_not_walked_by_default(self, extras_lockfile):
+        assert "httptools" not in self.walked_names(extras_lockfile)
+
+    def test_what_an_enabled_extra_installs_is_walked_on_request(self, extras_lockfile):
+        assert "httptools" in self.walked_names(extras_lockfile, include_enabled_extras=True)
+
+    def test_an_extra_nobody_enabled_stays_out(self, extras_lockfile):
+        names = self.walked_names(extras_lockfile, include_enabled_extras=True)
+
+        assert "pytest" not in names
+
+    @pytest.mark.parametrize("include_enabled_extras", [False, True])
+    def test_regular_transitive_dependencies_are_walked_either_way(self, extras_lockfile, include_enabled_extras):
+        assert "click" in self.walked_names(extras_lockfile, include_enabled_extras=include_enabled_extras)
+
+    def test_extra_names_match_across_spellings(self):
+        lockfile = _make_lockfile(
+            _pkg("my-app", "1.0.0", deps=[_edge("allauth", "65.19.4", "Social_Account")]),
+            _pkg("allauth", "65.19.4", optional_deps={"social-account": [_dep("oauthlib", "3.3.1")]}),
+            _pkg("oauthlib", "3.3.1"),
+        )
+
+        assert "oauthlib" in self.walked_names(lockfile, include_enabled_extras=True)
