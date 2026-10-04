@@ -134,9 +134,11 @@ def version_satisfies_constraint(version: str, constraint: str | None, registry:
     """Return True if *version* satisfies *constraint* for the given *registry*.
 
     Dispatches directly to the correct parser - no fallback, no exception-based routing.
-    An unparseable constraint passes through as True so unknown formats never hard-block.
+    An unparseable constraint passes through as True so unknown formats never hard-block. So does a
+    blank one: PyPI publishes an unconstrained requirement as an empty specifier, and "no
+    constraint" is satisfied by everything, as `satisfies_all_constraints` already treats it.
     """
-    if constraint is None:
+    if constraint is None or not constraint.strip():
         return True
     try:
         if registry == ProjectPackagesRegistry.PYPI:

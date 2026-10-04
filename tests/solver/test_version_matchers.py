@@ -152,6 +152,13 @@ def test_version_satisfies_constraint_none_always_true() -> None:
     assert version_satisfies_constraint("1.2.3", None, ProjectPackagesRegistry.PYPI) is True
 
 
+@pytest.mark.parametrize("blank", ["", "   "])
+@pytest.mark.parametrize("registry", [ProjectPackagesRegistry.PYPI, ProjectPackagesRegistry.NPM])
+def test_version_satisfies_constraint_blank_means_unconstrained(blank: str, registry: ProjectPackagesRegistry) -> None:
+    # PyPI publishes an unconstrained requirement as an empty specifier
+    assert version_satisfies_constraint("2.34.2", blank, registry) is True
+
+
 @pytest.mark.parametrize(
     "version, constraint, expected",
     [
