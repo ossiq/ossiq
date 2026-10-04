@@ -178,6 +178,15 @@ class TestAssessTransitiveImpact:
 
         assert result is None
 
+    def test_an_unconstrained_requirement_never_cascades(self):
+        """Regression: tiktoken -> `requests` (no specifier) showed up as `requests 2.34.2 -> 2.34.2`."""
+        record = make_scan_record("requests", "2.34.2", all_constraints=[">=2.0"])
+        registry = make_registry(versions_by_name={"requests": [pv("2.34.3"), pv("2.34.2")]})
+
+        result = assess_transitive_impact("requests", "", "tiktoken", {"requests": record}, registry)
+
+        assert result is None
+
     def test_new_dep_not_in_tree(self):
         registry = make_registry()
 
@@ -351,6 +360,19 @@ class TestSimulateSingle:
         assert result.transitive_impacts == []
         assert result.is_actionable is True
         assert result.fallback_version is None
+
+    def test_unconstrained_requirements_add_no_impact(self):
+        """tiktoken 0.14.0 needs `requests` and `regex` with no specifier: nothing to cascade."""
+        record = make_scan_record("requests", "2.34.2", all_constraints=[">=2.0"])
+        registry = make_registry(
+            versions_by_name={"requests": [pv("2.34.3"), pv("2.34.2")]},
+            requires_by_pkg_ver={("tiktoken", "0.14.0"): {"requests": "", "regex": ""}},
+        )
+
+        result = simulate_single("tiktoken", "0.14.0", {"requests": record}, registry, installed_names={"regex"})
+
+        assert result.transitive_impacts == []
+        assert result.is_actionable is True
 
     def test_is_actionable_when_no_conflicts(self):
         record = make_scan_record("urllib3", "1.26.18", all_constraints=[">=1.0"])
