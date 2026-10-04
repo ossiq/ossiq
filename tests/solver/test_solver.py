@@ -454,3 +454,37 @@ class TestBuildRequiresReason:
         validate = build_requires_validator(problem, registry, {}, targets)
 
         assert validate("flask", "3.1.0") is (reason_for("flask", "3.1.0") is None) is False
+
+    def test_names_an_external_target_that_caps_the_candidate(self) -> None:
+        """A direct dep held at a release that caps this package rejects a pick past the cap."""
+        registry = _make_registry({}, requires={("django-allauth", "65.19.4"): {"oauthlib": "<4,>=3.3.0"}})
+        problem = SolverProblem(constraints=(), candidates={}, engine_context={})
+
+        reason_for = build_requires_reason(problem, registry, {}, {"django-allauth": "65.19.4"})
+
+        assert reason_for("oauthlib", "4.0.0") == "django-allauth 65.19.4 needs oauthlib<4,>=3.3.0"
+        assert reason_for("oauthlib", "3.3.1") is None
+
+    def test_an_external_target_that_does_not_mention_the_candidate_is_no_obstacle(self) -> None:
+        registry = _make_registry({}, requires={("django", "6.1.1"): {"asgiref": ">=3.9.1"}})
+        problem = SolverProblem(constraints=(), candidates={}, engine_context={})
+
+        reason_for = build_requires_reason(problem, registry, {}, {"django": "6.1.1"})
+
+        assert reason_for("oauthlib", "4.0.0") is None
+
+    def test_an_external_target_that_leaves_the_candidate_unconstrained_is_no_obstacle(self) -> None:
+        registry = _make_registry({}, requires={("tiktoken", "0.14.0"): {"requests": ""}})
+        problem = SolverProblem(constraints=(), candidates={}, engine_context={})
+
+        reason_for = build_requires_reason(problem, registry, {}, {"tiktoken": "0.14.0"})
+
+        assert reason_for("requests", "2.34.2") is None
+
+    def test_a_package_is_not_held_to_its_own_target_entry(self) -> None:
+        registry = _make_registry({}, requires={("oauthlib", "3.3.1"): {"oauthlib": "<3"}})
+        problem = SolverProblem(constraints=(), candidates={}, engine_context={})
+
+        reason_for = build_requires_reason(problem, registry, {}, {"oauthlib": "3.3.1"})
+
+        assert reason_for("oauthlib", "4.0.0") is None

@@ -284,3 +284,54 @@ class TestSolveTransitiveExternalTargets:
         )
         result = solve_transitive(records, registry, {})
         assert result.recommendations.get("scipy") == "1.18.0"
+
+    def test_a_direct_dep_that_caps_the_package_demotes_the_pick(self) -> None:
+        """Regression: django-allauth 65.19.4 needs oauthlib<4, yet oauthlib 4.0.0 was recommended with it."""
+        records = [_rec("oauthlib", "3.3.1", constraint=">=3.3.0")]
+        registry = _make_registry(
+            {
+                "oauthlib": [
+                    _pv("3.3.1", published="2025-06-01T00:00:00Z"),
+                    _pv("4.0.0", published="2026-01-01T00:00:00Z"),
+                ]
+            },
+            requires={("django-allauth", "65.19.4"): {"oauthlib": "<4,>=3.3.0"}},
+        )
+
+        result = solve_transitive(records, registry, {}, external_targets={"django-allauth": "65.19.4"})
+
+        assert result.recommendations.get("oauthlib") == "3.3.1"
+
+    def test_a_cap_with_no_acceptable_version_left_drops_the_pick_and_says_why(self) -> None:
+        """The CVE's only fix is past the cap: nothing is recommended, and the reason names the capping parent."""
+        records = [_rec("oauthlib", "3.3.1", constraint=">=3.3.0", cve_affected=["3.3.1"])]
+        registry = _make_registry(
+            {
+                "oauthlib": [
+                    _pv("3.3.1", published="2025-06-01T00:00:00Z"),
+                    _pv("4.0.0", published="2026-01-01T00:00:00Z"),
+                ]
+            },
+            requires={("django-allauth", "65.19.4"): {"oauthlib": "<4,>=3.3.0"}},
+        )
+
+        result = solve_transitive(records, registry, {}, external_targets={"django-allauth": "65.19.4"})
+
+        assert "oauthlib" not in result.recommendations
+        assert result.rejected["oauthlib"].reason == "django-allauth 65.19.4 needs oauthlib<4,>=3.3.0"
+
+    def test_a_parent_held_at_its_installed_version_still_binds_the_pick(self) -> None:
+        records = [_rec("oauthlib", "3.3.1", constraint=">=3.3.0")]
+        registry = _make_registry(
+            {
+                "oauthlib": [
+                    _pv("3.3.1", published="2025-06-01T00:00:00Z"),
+                    _pv("4.0.0", published="2026-01-01T00:00:00Z"),
+                ]
+            },
+            requires={("django-allauth", "65.18.0"): {"oauthlib": "<4,>=3.3.0"}},
+        )
+
+        result = solve_transitive(records, registry, {}, external_targets={"django-allauth": "65.18.0"})
+
+        assert result.recommendations.get("oauthlib") == "3.3.1"
