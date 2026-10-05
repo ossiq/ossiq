@@ -3,6 +3,7 @@
 ```{toctree}
 :maxdepth: 1
 
+github-login
 verifying-a-release
 ```
 

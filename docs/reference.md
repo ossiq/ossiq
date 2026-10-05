@@ -91,8 +91,10 @@ Pydantic model holding runtime configuration. Load from the config file and envi
 
 | Field | Default | Description |
 |---|---|---|
-| `github_token` | `None` | GitHub personal access token for repository enrichment |
-| `cache_destination` | `~/.ossiq/cache.sqlite3` | Path to the SQLite HTTP cache |
+| `github_token` | `None` | GitHub token for repository enrichment. Set it with `OSSIQ_GITHUB_TOKEN`, or leave it unset and log in with [`ossiq auth login`](#auth) |
+| `github_auth` | `auto` | `auto` offers a GitHub login when no token is found; `off` never does |
+| `github_client_id` | OSS IQ's OAuth app | Client ID of the GitHub OAuth app used for login (public, not a secret) |
+| `cache_destination` | `~/.config/ossiq/cache.sqlite3` | Path to the SQLite HTTP cache |
 | `cache_ttl` | `24` | Cache time-to-live in hours |
 | `verbose` | `False` | Emit detailed progress output |
 | `debug` | `False` | Enable debug logging |
@@ -101,7 +103,8 @@ Pydantic model holding runtime configuration. Load from the config file and envi
 | `cutoff_date` | `None` | Treat versions published after this date as invisible |
 | `cooldown_period` | `7` | Days a new version must age before the solver recommends it |
 
-All fields can be set via environment variables prefixed with `OSSIQ_` (e.g. `OSSIQ_GITHUB_TOKEN`).
+Every field can also come from an environment variable prefixed with `OSSIQ_` (for example
+`OSSIQ_COOLDOWN_PERIOD`), or from the [config file](#configuration).
 
 ### `CVE`
 
@@ -391,6 +394,43 @@ the usual "proceed with N updates?" prompt. `--yes` skips both.
 Full design, the two-axis (motive × reach) model, and a worked example across all five tiers live
 in `src/ossiq/strategy/README.md`.
 
+### Plan and apply options
+
+`plan` and `apply` accept the same options, so a `plan` previews the matching `apply` exactly.
+Both take an optional project path (default: `.`).
+
+| Option | Description |
+|---|---|
+| `--registry-type npm\|pypi`, `-r` | Analyze one ecosystem of a polyglot repository |
+| `--production` | Leave out development dependencies |
+| `--update-strategy TIER` | Target one tier of the update pyramid: `security`, `deprecation`, `standard` (default), `latest` or `cutting-edge`. See [Update Strategy](#update-strategy) |
+| `--strategy-override PKG=TIER` | Run one package at a different tier (repeatable) |
+| `--allow-prerelease` | Include pre-release versions for every package |
+| `--allow-prerelease-package NAME` | Include pre-release versions for one package (repeatable) |
+| `--ignore NAME`, `-i` | Leave a package out of the plan (repeatable) |
+| `--override PKG==VERSION` | Force an exact version, bypassing the solver and the cooldown (repeatable) |
+| `--pin-all` | Write an exact `==version` for every updated direct dependency |
+| `--rewrite-versions` | Include dependencies already pinned with `==x.y.z`, and rewrite their pin |
+| `--allow-partial` | `plan` only. Accept a result built on incomplete data (see [Update Strategy](#update-strategy)) |
+| `--yes`, `-y` | `apply` only. Skip the confirmation prompts |
+
+An exact pin (`==x.y.z`) is frozen by default, so an update never moves an intentional pin.
+`--pin-all` and `--rewrite-versions` change how each kind of specifier is written:
+
+| Flags | `>=x` (declared) | `~=x` (narrowed) | `==x` (pinned) |
+|---|---|---|---|
+| *(none)* | lockfile-only update | rewrite to `~=new` | skipped |
+| `--pin-all` | rewrite to `==new` | rewrite to `==new` | skipped |
+| `--rewrite-versions` | lockfile-only update | rewrite to `~=new` | rewrite to `==new` |
+| `--pin-all --rewrite-versions` | rewrite to `==new` | rewrite to `==new` | rewrite to `==new` |
+
+To keep every direct dependency pinned, pin once, then upgrade and re-pin in one pass:
+
+```bash
+ossiq apply --pin-all
+ossiq apply --pin-all --rewrite-versions --ignore django
+```
+
 (version-ladder)=
 ### Version ladder
 
@@ -644,7 +684,7 @@ Columns: **Package**, **CVEs**, **Installed**, **Recommended**, **What's Next**;
 
 #### New transitive dependencies
 
-Packages that are not in the tree today but would be pulled in by the recommended updates. Their versions are resolved by the native package manager at apply time, outside the solver's cooldown hold, so fresh entries are flagged rather than withheld: a `⚠` before the package name means the projected version is younger than the cooldown period and deserves a look before you apply (see [Cooldown as Supply-Chain Quarantine](explanation.md#cooldown-as-supply-chain-quarantine) for why).
+Packages that are not in the tree today but would be pulled in by the recommended updates. Their versions are resolved by the native package manager at apply time, outside the solver's cooldown hold, so fresh entries are flagged rather than withheld: a `⚠` before the package name means the projected version is younger than the cooldown period and deserves a look before you apply (see [Cooldown as Supply-Chain Quarantine](explanation/index.md#cooldown-as-supply-chain-quarantine) for why).
 
 | Column | Meaning |
 |---|---|
@@ -720,7 +760,7 @@ A deep-dive into one package. When the package is installed in the project, the 
 
 **Warnings.** A panel of package health findings: `✗` marks critical findings (these block `ossiq add` unless `--force` is passed), `!` marks notices. Examples: a package with a single published version (typosquatting risk), a single maintainer (bus-factor risk).
 
-**Health Metrics.** Registry-level signals: downloads over the last month, number of published versions, maintainer count, age of the latest version, age of the recommended version (when it differs from the latest), and cooldown remaining — days until the latest release is old enough to clear the [cooldown period](explanation.md#cooldown-as-supply-chain-quarantine).
+**Health Metrics.** Registry-level signals: downloads over the last month, number of published versions, maintainer count, age of the latest version, age of the recommended version (when it differs from the latest), and cooldown remaining — days until the latest release is old enough to clear the [cooldown period](explanation/index.md#cooldown-as-supply-chain-quarantine).
 
 For an installed package, this block also shows the two risk pipelines:
 
@@ -799,7 +839,7 @@ The `updates` list contains only packages that need attention (a CVE, a recommen
 ## Install Skills
 
 ```bash
-ossiq install skills [TOOL] [--github-token TOKEN] [--dev PATH]
+ossiq install skills [TOOL] [--dev PATH]
 ```
 
 Installs the OSS IQ skill and a local MCP server so AI coding agents check dependency health before they add or update a package. For the task-oriented walkthrough, see [Coding agents](getting-started.md#coding-agents).
@@ -807,7 +847,6 @@ Installs the OSS IQ skill and a local MCP server so AI coding agents check depen
 | Argument / option | Default | Description |
 |---|---|---|
 | `TOOL` | `all` | Which tool to install for: `claude`, `codex`, `copilot`, or `all`. |
-| `--github-token`, `-T` | — | GitHub token to store during installation (see [GitHub token handling](#install-skills-token)). When omitted, the command prompts for one interactively; leave the prompt blank to skip. |
 | `--dev` | — | Path to a local ossiq source checkout. Switches the installed skill and MCP server to run from that checkout instead of the PyPI release (see [Development mode](#install-skills-dev)). |
 
 ### What the command writes
@@ -822,29 +861,19 @@ All changes are made under your home directory; the command never touches the cu
 
 The MCP entry registers a **local stdio server** — the tool launches `ossiq mcp` as a subprocess on your machine. No remote service is involved, and nothing is sent anywhere beyond the registry and GitHub API calls a normal scan makes.
 
-The command is **idempotent** — safe to re-run at any time (for example after changing the token or switching development mode on or off):
+The command is **idempotent** — safe to re-run at any time (for example after switching development mode on or off):
 
 - `mcp.json` is merged: only the `ossiq` entry under `mcpServers` is replaced; every other server entry is preserved.
 - The Copilot instructions block is delimited by `<!-- ossiq-skill:start -->` / `<!-- ossiq-skill:end -->` markers. On re-run the block between the markers is replaced; the rest of the file — including your own instructions — is untouched.
 
-(install-skills-token)=
-### GitHub token handling
+(install-skills-login)=
+### GitHub login
 
-OSS IQ uses the token only to raise the GitHub API rate limit from 60 to 5 000 requests per hour; **no scopes or permissions are needed**. See [GitHub Personal Access Token](getting-started.md#github-personal-access-token) for how to create a read-only one.
-
-The token is resolved in this order:
-
-1. The `--github-token` / `-T` option.
-2. An interactive prompt. Leaving it blank skips token setup entirely — everything else still installs, and you can re-run the command later to add a token.
-
-When a token is provided, it is written to **two places**, in plain text:
-
-| Location | Purpose |
-|---|---|
-| `~/.ossiq/config` — as an `OSSIQ_GITHUB_TOKEN=…` line (dotenv format) | Used by every `ossiq` invocation, including ones you run yourself. |
-| The `env` block of the `ossiq` entry in each tool's `mcp.json` | Passed to the MCP server subprocess, which does not read your shell environment. |
-
-Because both files store the token unencrypted, prefer a fine-grained token restricted to public repositories with no additional permissions. To rotate or remove a token, re-run `install skills` with the new value, or edit the two files directly.
+The command writes no GitHub token, either to `mcp.json` or to a config file. The MCP server uses
+your [GitHub login](#auth) from the system secret store. Without a login, the first tool call
+returns a login code for the agent to show you; see
+[Log in through an MCP client](how-to/github-login.md#log-in-through-an-mcp-client). The command
+prints `ossiq auth login` as the next step.
 
 (install-skills-dev)=
 ### Development mode (`--dev`)
@@ -861,6 +890,151 @@ Two substitutions are made:
 - **SKILL.md** — every `uvx ossiq` invocation in the skill text is rewritten to `uvx --from <path> --no-cache ossiq`. The `--no-cache` flag makes `uvx` rebuild from source on each call, so the agent picks up your edits without a reinstall.
 
 To switch back to the released package, re-run the command without `--dev`.
+
+(auth)=
+## Auth
+
+```bash
+ossiq auth login [--no-wait | --resume]
+ossiq auth status
+ossiq auth logout
+```
+
+Logs in to GitHub with a one-time code, through the
+[OAuth device flow](https://docs.github.com/en/apps/oauth-apps/building-oauth-apps/authorizing-oauth-apps#device-flow).
+Scans can then make 5,000 GitHub API requests an hour instead of 60. For step-by-step instructions,
+see [Log in to GitHub](how-to/github-login.md).
+
+| Command | What it does |
+|---|---|
+| `auth login` | Prints a URL and a one-time code. With a terminal, waits for approval and stores the login; without one, exits with status 75. Does nothing when a working login exists |
+| `auth login --no-wait` | Prints the code and exits with status 75, even with a terminal |
+| `auth login --resume` | Checks a login started earlier, by `auth login` or by a scan, and stores it once approved |
+| `auth status` | Shows which token scans use, its source, GitHub account, scope, expiry and secret store. Always exits 0 |
+| `auth logout` | Deletes the stored login from this machine. GitHub lists the authorization until you revoke it at [github.com/settings/applications](https://github.com/settings/applications) |
+
+### Exit codes
+
+| Status | Meaning |
+|---|---|
+| `0` | Done: logged in, already logged in, logged out, or nothing to remove |
+| `1` | Failed: no login to resume, login cancelled or expired, GitHub unreachable, or no secret store. The message names the cause and the next step |
+| `75` | Waiting for approval. Approve the code on GitHub, then run `ossiq auth login --resume` or the next scan |
+
+A scan that shows a login code without a terminal also exits with status 75.
+
+### Token precedence
+
+Scans use the first token found, in this order:
+
+1. The global `--github-token` (`-T`) flag. Avoid it: a token on the command line shows up in
+   shell history and process listings.
+2. The `OSSIQ_GITHUB_TOKEN` environment variable.
+3. The `GITHUB_TOKEN` environment variable.
+4. The stored GitHub login.
+5. `OSSIQ_GITHUB_TOKEN` in the [config file](#configuration). The file is plaintext, so prefer the
+   login.
+
+A token from the flag or the environment never touches the secret store. `ossiq auth status` shows
+which source won.
+
+### When a scan logs in
+
+A scan that finds no token starts the login itself and shows the code on stderr. With a terminal
+it waits for approval; without one it exits with status 75. Only scanning commands log in:
+`status`, `html`, `export`, `info`, `add`, `update-context`, `plan` and `apply`.
+
+A scan skips the login, and runs at 60 requests an hour, when:
+
+- `OSSIQ_GITHUB_AUTH` is `off`, in the environment or the config file;
+- the `CI` environment variable is set to anything but `0` or `false`;
+- the machine has no usable secret store.
+
+In the first two cases the scan ignores the stored login as well. The MCP server offers the login
+once per session; after a cancelled or expired code, its scans run without a token.
+
+### Storage
+
+The login lives in the operating system's secret store, through the
+[keyring](https://pypi.org/project/keyring/) library:
+
+| Item | Value |
+|---|---|
+| Secret store | macOS Keychain, Windows Credential Manager, or Secret Service or KWallet on Linux |
+| Service name | `dev.ossiq.github` |
+| Entries | `oauth_tokens` (the login) and `device_pending` (a login waiting for approval) |
+| Timeout | A call with no answer after 3 minutes, such as an unanswered dialog, marks the store unavailable for the rest of the run |
+
+The pending entry holds GitHub's device code, which stays secret until the login is approved.
+
+### Tokens
+
+- **Scope:** none. The token can read public data only.
+- **Lifetime:** the access token lasts 8 hours, and OSS IQ refreshes it before it expires. The
+  refresh token lasts about 6 months. GitHub replaces both on every refresh.
+- **Validation:** OSS IQ checks a stored token with one `GET /user` request, at most once every
+  10 minutes per process. A revoked token is discarded, and the next scan offers a new login.
+- **Never written or printed:** no token, and no device code, appears in config files, `mcp.json`,
+  the HTTP cache, logs, `--verbose` output, exports or HTML reports.
+
+(configuration)=
+## Configuration
+
+OSS IQ reads settings from command-line flags, environment variables and a config file. For each
+setting, the first source that sets it wins:
+
+1. Command-line flags
+2. Environment variables
+3. The config file
+4. Built-in defaults
+
+### Configuration directory
+
+OSS IQ keeps its files in `~/.config/ossiq/`, or in `$XDG_CONFIG_HOME/ossiq/` when
+`XDG_CONFIG_HOME` is set:
+
+| File | Contents |
+|---|---|
+| `config` | Optional settings, one `OSSIQ_*=value` per line |
+| `cache.sqlite3` | HTTP cache for registry and GitHub responses. Move it with `--cache-destination`; skip it for one run with `--no-cache` |
+
+The GitHub login is not in this directory; it lives in the [system secret store](#auth).
+
+### Config file
+
+The config file uses dotenv format: `KEY=value` lines and `#` comments. Any `OSSIQ_*` variable
+from the following table can go in it:
+
+```bash
+# ~/.config/ossiq/config
+OSSIQ_COOLDOWN_PERIOD=14
+OSSIQ_CACHE_TTL=48
+```
+
+To read a different file, pass it before the command: `ossiq --config ./ossiq.conf status`. That
+file then replaces the default one.
+
+### Environment variables
+
+Global flags go before the command, for example
+`ossiq --cutoff-date 2025-01-01 --cooldown-period 14 status`.
+
+| Variable | Flag | Default | Effect |
+|---|---|---|---|
+| `OSSIQ_GITHUB_TOKEN` | `--github-token`, `-T` | — | GitHub token, for CI and containers. See [Auth](#auth) |
+| `GITHUB_TOKEN` | — | — | Used when `OSSIQ_GITHUB_TOKEN` is unset |
+| `OSSIQ_GITHUB_AUTH` | — | `auto` | `off` stops scans from offering a GitHub login |
+| `OSSIQ_GITHUB_CLIENT_ID` | — | OSS IQ's app | Client ID of the GitHub OAuth app used for login. Set it only to log in through your own OAuth app, with device flow enabled |
+| `OSSIQ_CACHE_DESTINATION` | `--cache-destination` | `~/.config/ossiq/cache.sqlite3` | HTTP cache file |
+| `OSSIQ_CACHE_TTL` | `--cache-ttl` | `24` | Hours to keep cached responses |
+| `OSSIQ_STABILITY_CACHE_TTL` | `--stability-cache-ttl` | `168` | Hours to keep GitHub stability data (commits, activity, README) |
+| `OSSIQ_CUTOFF_DATE` | `--cutoff-date`, `-C` | today | Hide versions published after this date (23:59:59 UTC), to reproduce a past state |
+| `OSSIQ_COOLDOWN_PERIOD` | `--cooldown-period` | `7` | Days a new version must age before the solver recommends it. `0` turns the cooldown off |
+| `OSSIQ_STABILITY` | `--stability` / `--no-stability` | on | Measure upstream repository stability |
+| `OSSIQ_STABILITY_RESPONSIVENESS` | `--stability-responsiveness` / `--no-stability-responsiveness` | on with a token | The GraphQL engagement-flow channel |
+| `OSSIQ_PROBE_RUNTIME` | `--probe-runtime` / `--no-probe-runtime` | on | Detect the installed Python, Node and npm versions |
+| `OSSIQ_VERBOSE` | `--verbose`, `-v` | off | Detailed progress output |
+| `OSSIQ_DEBUG` | `--debug`, `-d` | off | Debug logging |
 
 ## Versioning & Stability Guarantees
 
