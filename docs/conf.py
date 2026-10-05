@@ -1,6 +1,6 @@
 project = "OSS IQ"
 author = "Maksym Klymyshyn"
-copyright = "2026, Maksym Klymyshyn"
+copyright = "2026, OSS IQ DEV SL"
 html_baseurl = "https://ossiq.dev/"
 
 extensions = [

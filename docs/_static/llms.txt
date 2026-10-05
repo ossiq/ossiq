@@ -6,17 +6,24 @@
 
 OSS IQ is a Software Composition Analysis (SCA) tool for platform engineers and development teams. It goes beyond vulnerability scanning to evaluate dependencies as long-term engineering assets.
 
-- Scans project manifest files (package.json, yarn.lock, pnpm-lock.yaml, uv.lock, pyproject.toml, requirements.txt, etc.)
+- Scans project manifest files (package.json with package-lock.json; pyproject.toml with uv.lock; pylock.toml; requirements.txt)
 - Cross-references against public package registries (npm, PyPI), CVE databases, and GitHub repository signals
 - Produces a dependency health score with sub-scores per package (version lag, security, maintenance)
-- Supports JavaScript (npm/yarn/pnpm) and Python (uv/poetry/pip) ecosystems
-- Outputs reports as HTML, JSON, SBOM (CycloneDX), or terminal console
+- Supports JavaScript (npm) and Python (uv, pip lock, pip) ecosystems
+- Outputs reports as terminal console, HTML, JSON, or a compact agent format
+- Exposes the same decisions to coding agents through a SKILL.md and a local MCP server (`ossiq install skills`)
 - Suitable for use in CI/CD quality gates
+
+## Install and log in
+
+- Run without installing: `uvx ossiq status` (PyPI) or `npx @ossiq/cli status` (npm: a native binary for macOS, Linux glibc and Windows x64; no Python needed)
+- Log in to GitHub once with `ossiq auth login` (one-time code; the token stays in the OS secret store) to raise the API limit from 60 to 5,000 requests per hour. In CI and containers, set `OSSIQ_GITHUB_TOKEN` instead
 
 ## Documentation
 
 - [Getting Started](https://ossiq.dev/getting-started.html): Installation, first scan, and basic usage
-- [Explanation](https://ossiq.dev/explanation.html): How scores are calculated, methodology, and concepts
+- [Log in to GitHub](https://ossiq.dev/how-to/github-login.html): Device-flow login, CI tokens, and troubleshooting
+- [Explanation](https://ossiq.dev/explanation/index.html): How scores are calculated, methodology, and concepts
 - [Reference](https://ossiq.dev/reference.html): Full CLI reference and configuration options
 - [Tutorials](https://ossiq.dev/tutorials/): Step-by-step guides for common use cases
 

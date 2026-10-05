@@ -517,14 +517,14 @@
                         <span class="squared-bullet mt-1.5 shrink-0"></span>
                         <div>
                             <p class="font-medium text-sm mb-1">No install required</p>
-                            <p class="text-zinc-500 text-sm font-light"><code class="bg-zinc-100 px-1.5 py-0.5 rounded text-xs">uvx</code> runs OSS IQ directly from PyPI &mdash; no global install needed.</p>
+                            <p class="text-zinc-500 text-sm font-light"><code class="bg-zinc-100 px-1.5 py-0.5 rounded text-xs">uvx ossiq</code> runs it from PyPI; <code class="bg-zinc-100 px-1.5 py-0.5 rounded text-xs">npx @ossiq/cli</code> runs a native binary with no Python needed.</p>
                         </div>
                     </div>
                     <div class="flex gap-4">
                         <span class="squared-bullet mt-1.5 shrink-0"></span>
                         <div>
-                            <p class="font-medium text-sm mb-1">Set a GitHub token for full results</p>
-                            <p class="text-zinc-500 text-sm font-light">GitHub limits unauthenticated requests to 60/hour. Export a token: <code class="bg-zinc-100 px-1.5 py-0.5 rounded text-xs">export OSSIQ_GITHUB_TOKEN=$(gh auth token)</code></p>
+                            <p class="font-medium text-sm mb-1">Log in to GitHub for full results</p>
+                            <p class="text-zinc-500 text-sm font-light">GitHub allows 60 requests an hour without a login. Run <code class="bg-zinc-100 px-1.5 py-0.5 rounded text-xs">ossiq auth login</code> for 5,000; the token stays in your OS keychain.</p>
                         </div>
                     </div>
                     <div class="flex gap-4">
@@ -778,7 +778,7 @@
 
                 <div class="col-span-12 md:col-span-6 flex flex-col justify-end md:items-end mt-8 md:mt-0">
                     <p class="text-[9px] font-mono text-zinc-400 uppercase tracking-[0.2em] mb-1">
-                        &copy; 2026 Maksym Klymyshyn, Oleksandr Shulika
+                        &copy; 2026 OSS IQ DEV SL
                     </p>
                 </div>
             </div>
