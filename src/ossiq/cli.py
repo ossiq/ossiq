@@ -12,7 +12,9 @@ from typing import Annotated, Literal, ParamSpec, TypeVar, cast
 import typer
 from rich.console import Console
 
-from ossiq.clients import install_requests_cache
+# A module import beside the name import below: tests redirect LEGACY_CONFIG_PATH at runtime.
+import ossiq.settings as settings_module
+from ossiq.clients import install_requests_cache, remove_legacy_cache
 from ossiq.commands.add import CommandAddOptions, command_add
 from ossiq.commands.auth import (
     CommandAuthLoginOptions,
@@ -394,7 +396,18 @@ def main(
         show_settings(context, "Settings", settings.model_dump(), token_source=find_token_source(settings, os.environ))
 
     if not no_cache:
-        install_requests_cache(settings.cache_destination, settings.cache_ttl, settings.stability_cache_ttl)
+        cache_file = install_requests_cache(
+            settings.cache_destination, settings.cache_ttl, settings.stability_cache_ttl
+        )
+        legacy_cache = settings_module.LEGACY_CONFIG_PATH.parent / "cache.sqlite3"
+        freed = remove_legacy_cache(legacy_cache, cache_file)
+        if freed:
+            # stderr: stdout carries the MCP protocol and the agent/JSON output.
+            typer.echo(
+                f"Removed the old HTTP cache {legacy_cache} ({freed / 1_000_000:,.0f} MB); "
+                f"ossiq now caches in {cache_file}.",
+                err=True,
+            )
 
     if context.invoked_subcommand is None:
         with error_boundary(settings):
