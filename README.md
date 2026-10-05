@@ -122,5 +122,3 @@ Issues and pull requests are welcome; start with the
 ## License
 
 Licensed under the [GNU Affero General Public License v3.0](https://github.com/ossiq/ossiq/blob/main/LICENSE).
-
-© 2026 OSS IQ DEV SL
