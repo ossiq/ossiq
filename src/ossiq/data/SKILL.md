@@ -13,15 +13,15 @@ description: >-
 OSS IQ is a **local CLI tool** — it runs entirely on your machine and does not
 send any project data to external services. All analysis is performed locally.
 
-Run via `uvx ossiq` (no install needed, works from any directory) or bare `ossiq` if already installed.
+Run OSS IQ as `{{ossiq}}`, exactly as the commands below spell it; it works from any directory.
 
-**GitHub rate limits:** Without a login, GitHub's API allows 60 req/hr; logged in it allows 5 000. If you hit rate limits, or `ossiq` prints a GitHub login code, log in with a one-time code. Never ask the user for a token or put one on a command line.
+**GitHub rate limits:** Without a login, GitHub's API allows 60 req/hr; logged in it allows 5 000. If you hit rate limits, or OSS IQ prints a GitHub login code, log in with a one-time code. Never ask the user for a token or put one on a command line.
 
-1. Run `ossiq auth login --no-wait`. It prints a URL and a code and exits with status 75, which means "waiting for approval", not failure.
+1. Run `{{ossiq}} auth login --no-wait`. It prints a URL and a code and exits with status 75, which means "waiting for approval", not failure.
 2. Show the URL and code to the user exactly as printed, and wait until they say they approved it on GitHub.
-3. Run `ossiq auth login --resume`. Exit 0 means logged in; 75 again means it is not approved yet. A code expires after about 15 minutes: go back to step 1 for a new one.
+3. Run `{{ossiq}} auth login --resume`. Exit 0 means logged in; 75 again means it is not approved yet. A code expires after about 15 minutes: go back to step 1 for a new one.
 
-Through the MCP server, a tool result with `auth_status: PENDING_USER_ACTION` carries the same URL and code. Relay them, wait for the user, then call the same tool again. The login is kept in the system keyring (`ossiq auth status` shows it, `ossiq auth logout` removes it). Without a keyring, or in CI, set `OSSIQ_GITHUB_TOKEN` in the environment instead.
+Through the MCP server, a tool result with `auth_status: PENDING_USER_ACTION` carries the same URL and code. Relay them, wait for the user, then call the same tool again. The login is kept in the system keyring (`{{ossiq}} auth status` shows it, `{{ossiq}} auth logout` removes it). Without a keyring, or in CI, set `OSSIQ_GITHUB_TOKEN` in the environment instead.
 
 OSS IQ scores dependency health: drift, CVEs, maintainer/bus-factor risk,
 typosquat signals, and a solver-recommended version. Run it **before** you
@@ -29,9 +29,9 @@ change a project's dependencies and do what the `next_action` says.
 
 Either call the CLI (below) or, if an MCP server named `ossiq` is connected, call
 the equivalent tools `ossiq_evaluate_dependency` / `ossiq_evaluate_updates`. Prefer these (or
-`--format agent`). If you need a file to hand over instead, `ossiq export` writes the standard
+`--format agent`). If you need a file to hand over instead, `{{ossiq}} export` writes the standard
 profile - every direct dependency, the transitives that need attention, decision fields only.
-`ossiq export --full` adds every transitive, the dependency tree and raw upstream signals; it is for
+`{{ossiq}} export --full` adds every transitive, the dependency tree and raw upstream signals; it is for
 dashboards and archives and several times larger, so don't feed it to an agent.
 
 ## Tell OSS IQ which runtime the project runs on
@@ -57,7 +57,7 @@ The runtime you state is still held to the project's declared floor (`engines.no
 Before introducing a package, run:
 
 ```bash
-uvx ossiq info <package> <project_path> --format agent
+{{ossiq}} info <package> <project_path> --format agent
 ```
 
 Example output:
@@ -87,13 +87,13 @@ installed in the project (not a prospective add) — see the version ladder belo
 Before bumping versions, run:
 
 ```bash
-uvx ossiq status <project_path> --format agent
+{{ossiq}} status <project_path> --format agent
 ```
 
 By default this targets the `standard` tier of the update pyramid (plain drift, inside each
 package's declared range). Pass `--update-strategy security` for the smallest diff that clears
 known CVEs, or `latest`/`cutting-edge` to also widen constraints / admit prereleases — see
-`ossiq status --help`. The MCP tool `ossiq_evaluate_updates` takes the same `update_strategy`
+`{{ossiq}} status --help`. The MCP tool `ossiq_evaluate_updates` takes the same `update_strategy`
 argument.
 
 Example output:
@@ -218,7 +218,7 @@ choice (avoids known-CVE and too-fresh versions) — **unless the entry also car
 `"requires_constraint_widening": true`**. That flag means `to` is only reachable by
 widening the manifest's declared range first (`==1.10.13` admits nothing past
 1.10.13, so `1.10.26` needs a wider specifier, not just a straight rewrite of the
-pin). `ossiq update`/`ossiq apply` will not write such an entry on their own —
+pin). `{{ossiq}} update`/`{{ossiq}} apply` will not write such an entry on their own —
 widen the constraint by hand, then re-run the command.
 
 ### Engine/runtime compatibility
@@ -253,11 +253,11 @@ version it was checked against instead of leaving it a silent runtime failure.
 ## Before applying an update to a specific version
 
 `to` above is OSS IQ's own recommendation. If you (or the user) want to go to a *different*
-version — one `ossiq status`/`ossiq_evaluate_updates` didn't propose — check it first instead of
+version — one `{{ossiq}} status`/`ossiq_evaluate_updates` didn't propose — check it first instead of
 discovering a break via test failure:
 
 ```bash
-uvx ossiq update-context <package> <project_path> --to <version>
+{{ossiq}} update-context <package> <project_path> --to <version>
 ```
 
 or, over MCP, `ossiq_update_context` with `{"package": ..., "target_version": ..., "runtime": ...}`. `target_version`

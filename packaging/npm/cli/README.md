@@ -36,6 +36,18 @@ Open the URL it prints and enter the code. The token goes to your operating syst
 secret store (macOS Keychain, Windows Credential Manager or Secret Service on Linux),
 never to a file. In CI and containers, set `OSSIQ_GITHUB_TOKEN` instead.
 
+## Coding agents
+
+Give Claude Code, OpenAI Codex or GitHub Copilot the same check before they add or update a
+dependency:
+
+```bash
+npx @ossiq/cli install skills
+```
+
+The installed skill and MCP server run OSS IQ through `npx --yes @ossiq/cli`, so they need
+Node.js but no Python.
+
 ## Supported platforms
 
 | OS | Architecture |

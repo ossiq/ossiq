@@ -83,9 +83,9 @@
 
 ## 10 — LLM Integration: `install skills` & MCP Server ([details](10-llm-integration.md))
 
-- [ ] TC-L01: `install skills --help` lists `--dev` (no `--github-token`); unknown tool shows clean error, non-zero exit
+- [ ] TC-L01: `install skills --help` lists `--dev` and `--via` (no `--github-token`); unknown tool shows clean error, non-zero exit
 - [ ] TC-L02: `install skills claude --dev $(pwd)` writes `~/.claude/skills/ossiq/SKILL.md` (dev path substituted) and upserts `ossiq` into `~/.claude/mcp.json` preserving other server entries; re-run is idempotent
-- [ ] TC-L03: `install skills` asks for no token, writes none to `mcp.json` or `~/.config/ossiq/config`, and prints `ossiq auth login` as the next step
+- [ ] TC-L03: `install skills` asks for no token, writes none to `mcp.json` or `~/.config/ossiq/config`, and prints `<runner> auth login` as the next step
 - [ ] TC-L04: copilot install idempotent — two runs leave one `ossiq-skill:start` block; user content preserved
 - [ ] TC-L05: MCP stdio handshake — `initialize` + `tools/list` return valid JSON-RPC listing `ossiq_evaluate_dependency` and `ossiq_evaluate_updates`; notifications get no reply; stdout is JSON-only
 - [ ] TC-L06: MCP `tools/call ossiq_evaluate_dependency` returns add-decision JSON; unknown package → `isError`, server stays alive
@@ -93,6 +93,8 @@
 - [ ] TC-L08: `info <pkg> <path> --format agent` and `status <path> --format agent` emit pure valid JSON matching the SKILL.md contract
 - [ ] TC-L09: (optional, live) after install, Claude Code `/mcp` shows ossiq connected; skill triggers on an "is it safe to add X" prompt
 - [ ] TC-L10: logged out, the first MCP `tools/call` returns the login challenge (`isError: false`, `_meta.auth_status: PENDING_USER_ACTION`, no `device_code`); a second call returns the same code; after approval the call scans
+- [ ] TC-L11: `install skills` writes `uvx ossiq` commands and a uvx MCP entry by default; `--via npx` / `--via ossiq` switch both; `--via` with `--dev` exits 1
+- [ ] TC-L12: `npx --yes @ossiq/cli@X.Y.Z install skills claude` writes `npx --yes @ossiq/cli` commands, no `uvx`, and an npx MCP entry (not an `_npx` cache path)
 
 ## 11 — GitHub Login ([details](11-github-login.md))
 

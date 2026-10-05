@@ -121,6 +121,11 @@ ossiq install skills copilot
 | OpenAI Codex | `~/.codex/skills/ossiq/SKILL.md` | registered in `~/.codex/mcp.json` |
 | GitHub Copilot | appended to `~/.copilot/copilot-instructions.md` | - |
 
+The skill and the MCP server run OSS IQ the way you ran `install skills`:
+`npx @ossiq/cli install skills` gives `npx` commands, and `uvx ossiq install skills` gives `uvx`
+ones. To choose yourself, pass `--via uvx`, `--via npx` or `--via ossiq`; see
+[How the skill runs OSS IQ](reference.md#install-skills-runner).
+
 The command stores no GitHub token. The MCP server uses your [GitHub login](#log-in-to-github);
 without one, the agent shows you a login code and retries after you approve. Re-running
 `install skills` is safe: it merges into existing config rather than overwriting it.
