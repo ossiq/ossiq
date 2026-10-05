@@ -19,7 +19,6 @@ A CI workflow that:
 
 - A GitHub repository with a JavaScript (npm) or Python (uv/pip) project
 - Basic familiarity with GitHub Actions
-- A GitHub personal access token (for the OSS IQ API calls)
 
 **Time to complete:** 15-20 minutes
 
@@ -53,24 +52,7 @@ Run `npm install` to generate the lockfile.
 
 ---
 
-## Step 2: Add a GitHub Token as a Repository Secret
-
-OSS IQ queries the GitHub API to gather repository health data for each dependency. Without authentication, GitHub limits requests to 60 per hour—not enough for most projects.
-
-1. Go to your repository on GitHub
-2. Navigate to **Settings** → **Secrets and variables** → **Actions**
-3. Click **New repository secret**
-4. Name it `OSSIQ_GITHUB_TOKEN`
-5. Paste your GitHub personal access token as the value
-
-:::{tip}
-If you don't have a token, create one at [github.com/settings/tokens](https://github.com/settings/tokens).
-The token needs **no special scopes**—public repository access is sufficient.
-:::
-
----
-
-## Step 3: Create the Workflow File
+## Step 2: Create the Workflow File
 
 Now let's create the GitHub Actions workflow that will run OSS IQ on every pull request.
 
@@ -102,7 +84,7 @@ jobs:
 
       - name: Run OSS IQ scan
         env:
-          OSSIQ_GITHUB_TOKEN: ${{ secrets.OSSIQ_GITHUB_TOKEN }}
+          OSSIQ_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           ossiq export \
             --output=ossiq-report.json \
@@ -159,14 +141,17 @@ This workflow:
 
 1. **Triggers on pull requests** to the main branch
 2. **Installs OSS IQ** using pip
-3. **Exports a JSON report** containing all dependency metrics
-4. **Uploads the report** as a build artifact for later review
-5. **Checks for CVEs** and fails the build if any are found
-6. **Blocks severely outdated packages** that are more than a year old
+3. **Passes the workflow's built-in token** as `OSSIQ_GITHUB_TOKEN`, so there is no secret to
+   create. GitHub allows this token 1,000 API requests an hour per repository, and OSS IQ never
+   starts a GitHub login in CI
+4. **Exports a JSON report** containing all dependency metrics
+5. **Uploads the report** as a build artifact for later review
+6. **Checks for CVEs** and fails the build if any are found
+7. **Blocks severely outdated packages** that are more than a year old
 
 ---
 
-## Step 4: Test Your Quality Gate
+## Step 3: Test Your Quality Gate
 
 Commit and push the workflow file:
 
@@ -191,7 +176,7 @@ Open a pull request on GitHub. You should see the "Dependency Quality Gate" chec
 
 ---
 
-## Step 5: See It Fail
+## Step 4: See It Fail
 
 Let's intentionally add a vulnerable or outdated dependency to verify the quality gate blocks it.
 
@@ -295,4 +280,4 @@ Now that you have a basic quality gate working, you might want to:
 - **Generate reports**: Use `ossiq html` for detailed HTML reports
 - **Scan on schedule**: Add a `schedule` trigger to catch new CVEs in existing dependencies
 
-For more details on OSS IQ's metrics and what they mean, see the [Explanation](/explanation/) documentation.
+For more details on OSS IQ's metrics and what they mean, see the [Explanation](../explanation/index.md) documentation.

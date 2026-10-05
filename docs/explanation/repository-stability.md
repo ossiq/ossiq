@@ -208,8 +208,8 @@ Like `has_stopped`, this measures a repository against its own recent history: a
 always closed 30% of its issues and still does is stable; one that closed 90% and now closes 10%
 is not.
 
-GraphQL needs a token, so the channel **defaults on when `OSSIQ_GITHUB_TOKEN` is set, off
-otherwise**; force it with `--stability-responsiveness` / `--no-stability-responsiveness`. Direct
+GraphQL needs a token, so the channel **defaults on when a GitHub token is available (a login or
+`OSSIQ_GITHUB_TOKEN`), off otherwise**; force it with `--stability-responsiveness` / `--no-stability-responsiveness`. Direct
 dependencies only, cached 7 days. The raw buckets are persisted in the JSON export as
 `engagement_buckets` — one `[issues_opened, issues_closed, prs_opened, prs_closed]` row per
 bucket, oldest first — so the trend can be re-fitted offline.

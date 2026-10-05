@@ -19,40 +19,68 @@ This page takes you from nothing to a first scan, then through each way of worki
 [coding agents](#coding-agents), [the CLI](#the-cli-workflow), and
 [reports and exports](#reports-and-exports).
 
-## GitHub Personal Access Token
+## Install OSS IQ
 
-OSS IQ mines repository history to judge maintenance health, which can take hundreds of GitHub
-API requests per run. Unauthenticated requests are capped at 60 per hour, so a full scan needs a
-[Personal Access Token (PAT)](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens#about-personal-access-tokens).
-The token only raises the rate limit - **no scopes or permissions are needed**.
-
-The quickest option is to reuse your existing session:
+Run OSS IQ without installing it, from PyPI or from npm:
 
 ```bash
-export OSSIQ_GITHUB_TOKEN=$(gh auth token);
+uvx ossiq --version          # PyPI, through uv
+npx @ossiq/cli --version     # npm: a native binary, no Python needed
 ```
 
-The safer option is a separate **read-only** token: create a fine-grained token in
-[GitHub Settings → Developer Settings → Fine-grained tokens](https://github.com/settings/personal-access-tokens/new)
-with **Repository access** set to **Public repositories** and no additional permissions.
+To install it permanently, pick one channel:
 
-```bash
-export OSSIQ_GITHUB_TOKEN=replace-with-generated-token;
-```
+| Channel | Install | Needs |
+|---|---|---|
+| PyPI | `uv tool install ossiq` or `pipx install ossiq` | Python 3.11+ |
+| npm | `npm install -g @ossiq/cli` | Node.js only |
+| Docker | `docker pull ossiq/ossiq-cli` | Docker |
 
-To keep it, store it in `~/.ossiq/config` instead, where every `OSSIQ_*` variable can live:
+The npm package ships a self-contained binary for these platforms:
 
-```bash
-echo "OSSIQ_GITHUB_TOKEN=$(gh auth token)" >> ~/.ossiq/config
-```
+| OS | Architecture |
+|---|---|
+| macOS | arm64, x64 |
+| Linux (glibc) | arm64, x64 |
+| Windows | x64 |
+
+On Windows on Arm and on musl-based Linux such as Alpine, install from PyPI.
+
+The rest of this page writes `ossiq`. Without an install, type `uvx ossiq` or `npx @ossiq/cli`
+instead.
+
+## Log in to GitHub
+
+OSS IQ reads repository activity from GitHub to judge maintenance health. A full scan needs
+hundreds of API requests, and GitHub allows 60 an hour without a login and 5,000 with one.
+
+1. Start the login:
+
+   ```bash
+   ossiq auth login
+   ```
+
+2. Open <https://github.com/login/device>, enter the code that the command prints, and approve
+   **OSS IQ**.
+
+The command confirms the login and exits. It keeps the token in your operating system's secret
+store: macOS Keychain, Windows Credential Manager, or Secret Service on Linux. The token has no
+scopes, expires after 8 hours, and refreshes by itself.
+
+:::{note}
+On macOS, the first run after each upgrade asks for Keychain access. Click **Always Allow**.
+:::
+
+CI runners and containers have no secret store, so set `OSSIQ_GITHUB_TOKEN` there instead.
+[Log in to GitHub](how-to/github-login.md) covers CI, coding agents, logging out and
+troubleshooting.
 
 ## Your first scan
 
-Point `ossiq` at an existing Python or JavaScript project and OSS IQ detects the manifest
-for you. No install required:
+Point `ossiq` at an existing Python or JavaScript project, and OSS IQ detects the manifest:
 
 ```bash
-uvx ossiq status testdata/npm/project1/
+ossiq status path/to/your/project
 ```
 
 Supported manifests are the ones your package manager already writes: for **npm**,
@@ -61,14 +89,6 @@ Supported manifests are the ones your package manager already writes: for **npm*
 **Python**, [pylock.toml](https://packaging.python.org/en/latest/specifications/pylock-toml/#pylock-toml-spec),
 [uv.lock](https://docs.astral.sh/uv/concepts/projects/layout/#the-lockfile), or classic
 [requirements.txt](https://pip.pypa.io/en/stable/reference/requirements-file-format/).
-
-You can also install [ossiq](https://pypi.org/project/ossiq/) permanently with
-`uv tool install ossiq` or `pipx install ossiq`, then call `ossiq` directly.
-
-If your toolchain is Node rather than Python, `npx @ossiq/cli status` works the same way
-and needs no Python at all — the npm package ships a self-contained binary for macOS,
-Linux (glibc) and Windows on x64 and arm64. On musl-based Linux (Alpine) or Windows on
-ARM, use the PyPI install above.
 
 The report gives you a project-level risk score, then breaks it down per package into security
 signals (vulnerabilities) and maintenance signals (activity, overhead, health):
@@ -87,12 +107,12 @@ MCP server (`ossiq mcp`):
 
 ```bash
 # Install for all three tools
-uvx ossiq install skills
+ossiq install skills
 
 # Or target a single tool
-uvx ossiq install skills claude
-uvx ossiq install skills codex
-uvx ossiq install skills copilot
+ossiq install skills claude
+ossiq install skills codex
+ossiq install skills copilot
 ```
 
 | Tool | Skill location | MCP server |
@@ -101,11 +121,9 @@ uvx ossiq install skills copilot
 | OpenAI Codex | `~/.codex/skills/ossiq/SKILL.md` | registered in `~/.codex/mcp.json` |
 | GitHub Copilot | appended to `~/.copilot/copilot-instructions.md` | - |
 
-The command asks for a [GitHub token](#github-personal-access-token) (or takes it via
-`--github-token`; leave the prompt blank to skip). The token is stored in `~/.ossiq/config` and
-in each tool's MCP server entry where one exists, so your own runs and the agent's runs both get
-the higher rate limit. Re-running `install skills` is safe: it merges into existing config rather
-than overwriting it.
+The command stores no GitHub token. The MCP server uses your [GitHub login](#log-in-to-github);
+without one, the agent shows you a login code and retries after you approve. Re-running
+`install skills` is safe: it merges into existing config rather than overwriting it.
 
 Once installed, the agent has two read-only tools:
 
@@ -120,11 +138,11 @@ package (`install`, `install with caution`, `do not install` when adding; `Updat
 updating), the recommended version, CVEs, and supply-chain warnings.
 
 ```bash
-uvx ossiq info requests --format agent
+ossiq info requests --format agent
 ```
 
-For exactly which files are written, how the token is stored, and how to run the integration from
-a local checkout with `--dev`, see [Reference → install skills](reference.md#install-skills).
+For exactly which files are written, and how to run the integration from a local checkout with
+`--dev`, see [Reference → install skills](reference.md#install-skills).
 
 ## The CLI workflow
 
@@ -144,7 +162,7 @@ disambiguate a polyglot repo.
 ### Package details
 
 ```bash
-uvx ossiq info sphinx
+ossiq info sphinx
 ```
 
 ![OSS IQ Terminal/CLI Package Details](/_static/images/ossiq-cli-package-2026-07-13.png)
@@ -163,13 +181,13 @@ flagged as critically unhealthy unless you pass `--force`.
 
 ```bash
 # Check health signals and install the recommended version
-uvx ossiq add requests
+ossiq add requests
 
 # Pin an exact version yourself (bypasses the solver recommendation)
-uvx ossiq add requests --version 2.31.0
+ossiq add requests --version 2.31.0
 
 # Override critical-warning blocks (use with care)
-uvx ossiq add requests --force
+ossiq add requests --force
 ```
 
 ### Plan and apply updates
@@ -189,7 +207,8 @@ next-best candidate when the top one would conflict, and holds back releases you
 `--cooldown-period` (default: 7 days) unless they fix a CVE in an installed version. The solver
 resolves in a single pass against your current lockfile, so re-running `plan` after `apply` can
 surface further updates; repeat until it reports none. Full rules are in
-[Reference → Update Solver](#update-solver).
+[Reference → Update Solver](reference.md#update-solver-plan--apply), and every flag is in
+[Reference → Plan and apply options](reference.md#plan-and-apply-options).
 
 ## Reports and exports
 
@@ -197,7 +216,7 @@ surface further updates; repeat until it reports none. Full rules are in
 
  1. Generate a single self-contained HTML file:
     ```bash
-    uvx ossiq html --output report.html
+    ossiq html --output report.html
     ```
 
  2. Open `report.html` for the table view of your dependencies:
@@ -219,7 +238,7 @@ drill into any dependency, and decide what to read release notes for before it e
 
 ```bash
 # One JSON document
-uvx ossiq export --output=./scan_export.json .
+ossiq export --output=./scan_export.json .
 ```
 
 The export carries a `schema_version`, which you can pin with `--schema-version`: within a

@@ -8,7 +8,8 @@ By the end, you'll have performed a full dependency analysis and know how to use
 
 **Prerequisites:**
 
-- Python 3.11+
+- Python 3.11+ or Node.js
+- A GitHub account
 - Basic familiarity with the command line
 
 **Time to complete:** 10-15 minutes
@@ -17,13 +18,14 @@ By the end, you'll have performed a full dependency analysis and know how to use
 
 ## Step 1: Install OSS IQ
 
-First, install the `ossiq` package using `pip`.
+Install `ossiq` with the toolchain you already have:
 
 ```bash
-pip install ossiq
+uv tool install ossiq           # Python
+npm install -g @ossiq/cli       # Node.js: a native binary, no Python needed
 ```
 
-After installation, verify that it was successful by checking the version:
+Check the installation:
 
 ```bash
 ossiq --version
@@ -33,25 +35,23 @@ You should see output similar to `ossiq version: 0.1.x`.
 
 ---
 
-## Step 2: Add a GitHub Token
+## Step 2: Log In to GitHub
 
-OSS IQ queries the GitHub API to gather repository health data for each dependency. Without authentication, GitHub limits requests to 60 per hour, which is not enough for most projects.
+OSS IQ queries the GitHub API to gather repository health data for each dependency. Without a
+login, GitHub allows 60 requests an hour, which is not enough for most projects.
 
-1.  Create a GitHub Personal Access Token (PAT). You can follow the [official GitHub documentation](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens#creating-a-personal-access-token-classic). The token needs **no special scopes**—public repository access is sufficient. [More details on GitHub Token](http://127.0.0.1:8000/getting-started.html#github-personal-access-token)
-
-2.  Set the token as an environment variable named `OSSIQ_GITHUB_TOKEN`. This is the recommended way to provide the token to OSS IQ.
+1.  Start the login:
 
     ```bash
-    export OSSIQ_GITHUB_TOKEN="your_github_pat_here"
-    ```
-    :::{tip}
-    If you use the official [GitHub CLI](https://cli.github.com/), you can easily get a token and set the variable in one command:
-    
-    ```bash
-    export OSSIQ_GITHUB_TOKEN=$(gh auth token)
+    ossiq auth login
     ```
 
-    :::
+2.  Open <https://github.com/login/device> and enter the code that the command prints.
+
+3.  Approve **OSS IQ** on GitHub. The command prints `✓ Logged in as @your-name` and exits.
+
+OSS IQ keeps the token in your operating system's secret store, such as macOS Keychain. For
+details, see [Log in to GitHub](../how-to/github-login.md).
 
 ---
 
@@ -79,7 +79,7 @@ We are using older versions of these popular packages to demonstrate how OSS IQ 
 
 ## Step 4: Run Your First Analysis
 
-With your sample project ready, you can now run the `scan` command. `ossiq` will automatically detect the `requirements.txt` file in the current directory.
+With your sample project ready, you can now run the `status` command. `ossiq` will automatically detect the `requirements.txt` file in the current directory.
 
 Run the scan from within the `ossiq-sample-project` directory:
 
@@ -159,7 +159,7 @@ You'll see a detailed, interactive report where you can:
 
 Congratulations! You've successfully performed your first dependency analysis with OSS IQ. You now know how to:
 
-<span class="material-symbols-outlined marker-check">check</span> Install and configure `ossiq`.
+<span class="material-symbols-outlined marker-check">check</span> Install `ossiq` and log in to GitHub.
 
 <span class="material-symbols-outlined marker-check">check</span> Run a dependency scan on a local project.
 
@@ -172,5 +172,5 @@ Congratulations! You've successfully performed your first dependency analysis wi
 Now that you've run your first scan, you can start integrating OSS IQ into your regular development workflow.
 
 -   **Automate with CI/CD**: Learn how to set up a [Quality Gate with GitHub Actions](./tutorial-github-actions.md) to automatically scan pull requests.
--   **Explore Metrics**: Dive deeper into the metrics OSS IQ provides in the [Explanation](/explanation/) section.
+-   **Explore Metrics**: Dive deeper into the metrics OSS IQ provides in the [Explanation](../explanation/index.md) section.
 
