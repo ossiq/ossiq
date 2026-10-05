@@ -15,7 +15,7 @@ uv run hatch run ossiq apply --help
 ```
 
 - [ ] `--version` prints a semver string
-- [ ] `--help` lists `status`, `html`, `export`, `info`, `add`, `plan`, `apply`, `install`, `mcp` subcommands (no `scan`, `package`, `update`, or `helpers`)
+- [ ] `--help` lists `status`, `html`, `export`, `info`, `add`, `plan`, `apply`, `install`, `mcp`, `auth` subcommands (no `scan`, `package`, `update`, or `helpers`)
 - [ ] `status --help` lists `--security`, `--production`, `--allow-prerelease`, `--registry-type`, `--ignore`, `--format`; `--presentation` and `--output` are absent (those belong to `html`)
 - [ ] `plan --help` lists `--pin-all`, `--rewrite-versions`, `--override`, `--ignore` / `-i` (NOT `--script`)
 - [ ] `apply --help` lists `--yes` / `-y`, `--pin-all`, `--rewrite-versions`, `--override`, `--ignore` / `-i`
@@ -90,9 +90,9 @@ uv run just qa
 ## TC-G09: Config file at default location
 
 ```bash
-echo "OSSIQ_COOLDOWN_PERIOD=14" >> ~/.ossiq/config
+echo "OSSIQ_COOLDOWN_PERIOD=14" >> ~/.config/ossiq/config
 uv run hatch run ossiq --verbose status testdata/pypi/uv
-# cleanup: remove the line from ~/.ossiq/config afterwards
+# cleanup: remove the line from ~/.config/ossiq/config afterwards
 ```
 
 - [ ] Settings panel shows `cooldown_period: 14` (value from the config file)

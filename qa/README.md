@@ -13,6 +13,8 @@ Pre-release validation process for ossiq. One person, under 45 minutes.
 | [05-export.md](manual/05-export.md) | JSON export | TC-E01–E06 |
 | [06-transitive-impacts.md](manual/06-transitive-impacts.md) | `--security`/`--full` flags, impact sub-rows, update command | TC-T01–T07 |
 | [07-update-command.md](manual/07-update-command.md) | `update plan`/`execute`, `--pin-all`, `--rewrite-versions`, `--ignore`, UV specifier rewrite, NPM helpers | TC-U01–U21 |
+| [10-llm-integration.md](manual/10-llm-integration.md) | `install skills`, the MCP server, the agent JSON contract, the MCP login challenge | TC-L01–L10 |
+| [11-github-login.md](manual/11-github-login.md) | `auth login`/`status`/`logout`, the scan's login prompt, opt-outs, no secret store | TC-O01–O11 |
 | [release-checklist.md](manual/release-checklist.md) | Abbreviated checklist for GitHub Issues | — |
 
 ## Release Process
