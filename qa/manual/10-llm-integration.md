@@ -6,9 +6,12 @@ JSON contract documented in `SKILL.md`.
 
 Run from repo root. MCP `tools/call` and agent-format tests require network (registry lookups).
 
-**Warning:** `install skills` writes to your real `~/.claude`, `~/.codex`, `~/.copilot`,
-and `~/.ossiq/config`. Back up `~/.claude/mcp.json` and `~/.ossiq/config` before testing,
-or point `HOME` at a scratch dir for TC-L02–TC-L04.
+**Warning:** `install skills` writes to your real `~/.claude`, `~/.codex` and `~/.copilot`.
+Back up `~/.claude/mcp.json` before testing, or point `HOME` at a scratch dir for TC-L02–TC-L04.
+
+**Log in first** (`uv run ossiq auth login`) or set `OSSIQ_GITHUB_AUTH=off` for TC-L05–TC-L09.
+Otherwise the first `tools/call` returns the login challenge (TC-L10), and the CLI cases stop to
+show a login code.
 
 **Precondition:**
 
@@ -18,7 +21,8 @@ uv run hatch run ossiq install skills --help
 ```
 
 - [ ] `install --help` lists the `skills` subcommand
-- [ ] `install skills --help` lists `--github-token` / `-T` and `--dev`
+- [ ] `install skills --help` lists `--dev` and says no GitHub token is asked for or stored; it does
+      not list `--github-token`
 
 ---
 
@@ -38,7 +42,6 @@ echo "exit: $?"
 
 ```bash
 uv run hatch run ossiq install skills claude --dev "$(pwd)"
-# press Enter at the token prompt to skip
 cat ~/.claude/skills/ossiq/SKILL.md | head -10
 cat ~/.claude/mcp.json
 ```
@@ -51,18 +54,16 @@ cat ~/.claude/mcp.json
 
 ---
 
-## TC-L03: GitHub token storage
+## TC-L03: `install skills` stores no token
 
 ```bash
-uv run hatch run ossiq install skills claude --github-token ghp_qa_test --dev "$(pwd)"
-grep OSSIQ_GITHUB_TOKEN ~/.ossiq/config
+uv run hatch run ossiq install skills claude --dev "$(pwd)"
 cat ~/.claude/mcp.json
 ```
 
-- [ ] `~/.ossiq/config` contains `OSSIQ_GITHUB_TOKEN=ghp_qa_test`
-- [ ] `mcpServers.ossiq.env.OSSIQ_GITHUB_TOKEN` is `ghp_qa_test`
-- [ ] Without `--github-token`, an interactive prompt appears; blank input skips both writes
-- [ ] Remove the test token from `~/.ossiq/config` afterwards
+- [ ] The command asks for no token and prints `ossiq auth login` as the next step
+- [ ] `mcpServers.ossiq` has no `env` block holding `OSSIQ_GITHUB_TOKEN`
+- [ ] `~/.config/ossiq/config` (if present) gained no `OSSIQ_GITHUB_TOKEN` line
 
 ---
 
@@ -148,3 +149,33 @@ After TC-L02, in a fresh Claude Code session in any project:
 - [ ] `/mcp` shows the `ossiq` server connected; its two tools are listed
 - [ ] The `ossiq` skill appears in the skills list
 - [ ] Prompt "check if it's safe to add left-pad to this project" — the agent invokes the skill or MCP tool and reports a decision
+
+---
+
+## TC-L10: MCP login challenge (network, GitHub account)
+
+Start logged out, with no token in the environment:
+
+```bash
+unset CI OSSIQ_GITHUB_TOKEN GITHUB_TOKEN OSSIQ_GITHUB_AUTH
+uv run ossiq auth logout
+uv run hatch run ossiq mcp
+```
+
+The server reads stdin until it closes. Paste these lines one at a time, and read each response
+before the next:
+
+```text
+{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}
+{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"ossiq_evaluate_dependency","arguments":{"package":"requests","project_path":"testdata/pypi/uv"}}}
+{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"ossiq_evaluate_dependency","arguments":{"package":"requests","project_path":"testdata/pypi/uv"}}}
+```
+
+Approve the code on GitHub, then paste the `id` 3 line again with `"id":4`.
+
+- [ ] Response 2 has `isError: false`, `_meta.auth_status: "PENDING_USER_ACTION"`, `verification_uri`
+      and `user_code`; the text tells the agent to show the code, wait, and call the tool again
+- [ ] No response contains a `device_code`
+- [ ] Response 3 (before approval) carries the **same** `user_code`, with a smaller `expires_in`
+- [ ] Response 4 (after approval) is the normal add decision; `uv run ossiq auth status` shows the login
+- [ ] stdout holds one JSON object per line throughout

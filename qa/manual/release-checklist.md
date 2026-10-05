@@ -14,7 +14,7 @@
 - [ ] TC-G01: `--version`, `--help`, `status --help`, `html --help`, `plan --help`, `apply --help` all work; `status --help` lists `--security`, `--ignore` but NOT `--presentation`; `html --help` lists `--output`, `--security`, `--ignore` but NOT `--presentation`; `plan --help` lists `--pin-all`, `--rewrite-versions`, `--override`, `--ignore` (NOT `--script`); `apply --help` lists `--yes`, `--pin-all`, `--rewrite-versions`, `--override`, `--ignore`
 - [ ] TC-G03/G04: Ecosystem auto-detected (PyPI and npm)
 - [ ] TC-G02: `--verbose` shows settings panel; without it, panel is absent
-- [ ] TC-G09: values from `~/.ossiq/config` are picked up (visible in `--verbose` settings panel)
+- [ ] TC-G09: values from `~/.config/ossiq/config` are picked up (visible in `--verbose` settings panel)
 - [ ] TC-G10: `--config <custom-file>` loads a custom config file; nonexistent path shows clean error (no traceback)
 - [ ] TC-G11: precedence — env var overrides config file; CLI flag overrides env var
 
@@ -83,15 +83,30 @@
 
 ## 10 — LLM Integration: `install skills` & MCP Server ([details](10-llm-integration.md))
 
-- [ ] TC-L01: `install skills --help` lists `--github-token`, `--dev`; unknown tool shows clean error, non-zero exit
+- [ ] TC-L01: `install skills --help` lists `--dev` (no `--github-token`); unknown tool shows clean error, non-zero exit
 - [ ] TC-L02: `install skills claude --dev $(pwd)` writes `~/.claude/skills/ossiq/SKILL.md` (dev path substituted) and upserts `ossiq` into `~/.claude/mcp.json` preserving other server entries; re-run is idempotent
-- [ ] TC-L03: `--github-token` stored in `~/.ossiq/config` and as `env.OSSIQ_GITHUB_TOKEN` in mcp.json; blank interactive prompt skips both
+- [ ] TC-L03: `install skills` asks for no token, writes none to `mcp.json` or `~/.config/ossiq/config`, and prints `ossiq auth login` as the next step
 - [ ] TC-L04: copilot install idempotent — two runs leave one `ossiq-skill:start` block; user content preserved
 - [ ] TC-L05: MCP stdio handshake — `initialize` + `tools/list` return valid JSON-RPC listing `ossiq_evaluate_dependency` and `ossiq_evaluate_updates`; notifications get no reply; stdout is JSON-only
 - [ ] TC-L06: MCP `tools/call ossiq_evaluate_dependency` returns add-decision JSON; unknown package → `isError`, server stays alive
 - [ ] TC-L07: MCP `tools/call ossiq_evaluate_updates` returns `updates` list; unknown tool name → `isError`, no crash
 - [ ] TC-L08: `info <pkg> <path> --format agent` and `status <path> --format agent` emit pure valid JSON matching the SKILL.md contract
 - [ ] TC-L09: (optional, live) after install, Claude Code `/mcp` shows ossiq connected; skill triggers on an "is it safe to add X" prompt
+- [ ] TC-L10: logged out, the first MCP `tools/call` returns the login challenge (`isError: false`, `_meta.auth_status: PENDING_USER_ACTION`, no `device_code`); a second call returns the same code; after approval the call scans
+
+## 11 — GitHub Login ([details](11-github-login.md))
+
+- [ ] TC-O01: `--help` lists `auth`; `auth login --help` lists `--no-wait`, `--resume` and exit status 75
+- [ ] TC-O02: `auth login` in a terminal shows the URL and code, waits, and prints `✓ Logged in as @<you>` after approval; a second run says `Already logged in`
+- [ ] TC-O03: `auth status` shows `Source: GitHub login (system keyring)`, `Scope: none (public data only)`, an expiry ~8 h ahead, and the platform's store; no token in the output
+- [ ] TC-O04: `auth login --no-wait` exits 75; `--resume --no-wait` before approval exits 75 with the same code; `--resume` after approval exits 0; `--resume` with nothing pending prints `Nothing To Resume`, exit 1
+- [ ] TC-O05: logged out, a scan with stderr redirected writes the code to stderr and exits 75 with stdout empty; after approval the next scan runs authenticated
+- [ ] TC-O06: `OSSIQ_GITHUB_AUTH=off` and `CI=true` scans show no login code, run unauthenticated and exit 0
+- [ ] TC-O07: `OSSIQ_GITHUB_TOKEN` and `GITHUB_TOKEN` outrank the login in `auth status`
+- [ ] TC-O08: `auth logout` removes the login and prints the revoke hint; a second logout prints `Nothing to remove`, exit 0
+- [ ] TC-O09: after revoking OSS IQ on github.com, the next scan discards the login and shows a new code
+- [ ] TC-O10: in a container, `auth status` exits 0 with `Storage: none available`; `auth login` fails at once with `Credential Store Unavailable`, exit 1
+- [ ] TC-O11: (optional, macOS) a rebuilt binary raises one Keychain dialog and the `Waiting for the system keyring...` line; Always Allow makes later runs silent
 
 
 ## Notes

@@ -16,8 +16,8 @@
 ## Preconditions
 
 ```bash
-# A GitHub token with public-repo read (classic PAT or fine-grained, no scopes needed for public data)
-export OSSIQ_GITHUB_TOKEN=ghp_...
+# The harness reads OSSIQ_GITHUB_TOKEN only, not the `ossiq auth login` login. No scopes needed.
+export OSSIQ_GITHUB_TOKEN=$(gh auth token)
 
 # Working tree on feature/GH-60--health-score-calibration (or later), qa green
 uv run just qa
@@ -40,13 +40,13 @@ Runs the real scan path against every corpus repo:
 → `repository_stability` → `deprecation_evidence` → `assess_maintenance`.
 
 The harness prints its cache path on the first line. It uses a **dedicated cache file**
-(`~/.ossiq/calibrate-cache.sqlite3`, not the one `ossiq status` shares) with **every response
+(`~/.config/ossiq/calibrate-cache.sqlite3`, not the one `ossiq status` shares) with **every response
 on the 7-day stability TTL** — so a re-run inside the week is fully offline and deterministic
 (~0 network requests), and it can never serve stale registry data to a real scan. To force a
 fresh sample:
 
 ```bash
-rm ~/.ossiq/calibrate-cache.sqlite3       # exact path is printed at the top of each run
+rm ~/.config/ossiq/calibrate-cache.sqlite3   # exact path is printed at the top of each run
 ```
 
 First run on a cold cache is ~150 REST + ~80 GraphQL requests (well under the 5000/hr
@@ -268,5 +268,5 @@ Once the metrics in Step 4 hold across **3 runs (2 warm cache + 1 fresh)**:
 | `GraphQL activity: N resource-limit hit(s)` with `N > 0` | a query blew GitHub's per-query node ceiling. Lower issues/PRs `first: 100 → 50` in `build_activity_query`, or `RESPONSIVENESS_PAGE_CAP`. |
 | repos in `no activity payload for ...` | issues disabled on the repo (fine — `flow_trend` just stays null) OR the repo was renamed/deleted (fix the corpus key) OR under-sampling (see above). |
 | model is confidently wrong on popular-but-abandoned repos (`itsdangerous`, `moment`) | that's the hard case — these keep community comment volume after the maintainers leave. Lean on `has_stopped` + `push_age` + `deprecation_strength`, keep `flow_trend`'s weight modest. |
-| re-run gives different numbers | the 7-day cache rolled to a new grid cell (`since` moved a week) or was partially deleted mid-session. `rm ~/.ossiq/calibrate-cache.sqlite3` and run once clean. |
+| re-run gives different numbers | the 7-day cache rolled to a new grid cell (`since` moved a week) or was partially deleted mid-session. `rm ~/.config/ossiq/calibrate-cache.sqlite3` and run once clean. |
 | a re-run still costs ~100+ requests | you're on a working tree from before the `trim_vary_header` / `engagement_window_since` fixes (GitHub's `Vary: Authorization` made requests-cache treat every authenticated hit as a miss). Check the cache path printed on line 1 exists and is non-trivial in size after run 1. |
