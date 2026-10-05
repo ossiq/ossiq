@@ -24,6 +24,18 @@ This package ships a self-contained binary — **no Python installation is requi
 The correct binary for your platform is selected automatically through npm's
 optional dependencies.
 
+## Log in to GitHub
+
+Log in once to raise GitHub's API limit from 60 requests an hour to 5,000:
+
+```bash
+ossiq auth login
+```
+
+Open the URL it prints and enter the code. The token goes to your operating system's
+secret store (macOS Keychain, Windows Credential Manager or Secret Service on Linux),
+never to a file. In CI and containers, set `OSSIQ_GITHUB_TOKEN` instead.
+
 ## Supported platforms
 
 | OS | Architecture |
@@ -32,8 +44,7 @@ optional dependencies.
 | Linux (glibc) | arm64, x64 |
 | Windows | x64 |
 
-musl-based Linux (Alpine) and Windows on ARM are not covered by the prebuilt
-binaries. On those platforms install from PyPI instead:
+On Windows on Arm and on musl-based Linux such as Alpine, install from PyPI:
 
 ```bash
 uv tool install ossiq      # or: pipx install ossiq

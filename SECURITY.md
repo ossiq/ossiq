@@ -24,6 +24,24 @@ vulnerability; a normal issue is the right place for it.
 Expect an acknowledgement within a week. OSS IQ is maintained by a very small number of
 people, so please allow reasonable time for a fix before disclosing publicly.
 
+## Credential storage
+
+OSS IQ uses one credential: a GitHub token that raises the API limit from 60 to 5,000 requests
+an hour.
+
+- **The GitHub login lives only in the operating system's secret store**: macOS Keychain,
+  Windows Credential Manager, or Secret Service on Linux, under the service name
+  `dev.ossiq.github`. OSS IQ never writes it to a config file, an MCP configuration, the HTTP
+  cache or a log, and never prints it.
+- **The login requests no OAuth scopes.** The token can read public data only.
+- **Tokens are short-lived.** An access token expires after 8 hours. Each refresh replaces both
+  the access token and the refresh token, and a used refresh token stops working.
+- **`OSSIQ_GITHUB_TOKEN` is read, never written.** In CI and containers, which have no secret
+  store, the token comes from the environment and stays there.
+- **Logging out is local.** `ossiq auth logout` deletes the stored login. To revoke the
+  authorization itself, remove **OSS IQ** at
+  [github.com/settings/applications](https://github.com/settings/applications).
+
 ## Supply chain
 
 OSS IQ forecasts supply-chain risk in other people's dependencies, so its own build is
@@ -41,7 +59,7 @@ The signing key is held by GitHub and Sigstore and is never reachable from a bui
 | GitHub Release binaries | `.github/workflows/reusable-build-binaries.yml` |
 | npm (`@ossiq/cli` and platform packages) | `.github/workflows/reusable-build-npm.yml` |
 
-**[How to verify a release →](https://ossiq.github.io/ossiq/how-to/verifying-a-release.html)**
+**[How to verify a release →](https://ossiq.dev/how-to/verifying-a-release.html)**
 gives the exact `gh attestation verify` commands per channel, plus an honest account of
 what each attestation does and does not prove.
 
