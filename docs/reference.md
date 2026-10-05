@@ -839,7 +839,7 @@ The `updates` list contains only packages that need attention (a CVE, a recommen
 ## Install Skills
 
 ```bash
-ossiq install skills [TOOL] [--dev PATH]
+ossiq install skills [TOOL] [--via uvx|npx|ossiq] [--dev PATH]
 ```
 
 Installs the OSS IQ skill and a local MCP server so AI coding agents check dependency health before they add or update a package. For the task-oriented walkthrough, see [Coding agents](getting-started.md#coding-agents).
@@ -847,6 +847,7 @@ Installs the OSS IQ skill and a local MCP server so AI coding agents check depen
 | Argument / option | Default | Description |
 |---|---|---|
 | `TOOL` | `all` | Which tool to install for: `claude`, `codex`, `copilot`, or `all`. |
+| `--via` | detected | How the skill and MCP server run OSS IQ: `uvx`, `npx`, or a bare `ossiq` on `PATH`. By default this matches the channel you ran the command from (see [How the skill runs OSS IQ](#install-skills-runner)). Cannot be combined with `--dev`. |
 | `--dev` | — | Path to a local ossiq source checkout. Switches the installed skill and MCP server to run from that checkout instead of the PyPI release (see [Development mode](#install-skills-dev)). |
 
 ### What the command writes
@@ -859,12 +860,29 @@ All changes are made under your home directory; the command never touches the cu
 | `codex` | writes `~/.codex/skills/ossiq/SKILL.md` | adds an `ossiq` entry to `mcpServers` in `~/.codex/mcp.json` |
 | `copilot` | inserts a fenced block into `~/.copilot/copilot-instructions.md` | — (Copilot has no MCP server registry) |
 
-The MCP entry registers a **local stdio server** — the tool launches `ossiq mcp` as a subprocess on your machine. No remote service is involved, and nothing is sent anywhere beyond the registry and GitHub API calls a normal scan makes.
+The MCP entry registers a **local stdio server** — the tool launches OSS IQ's `mcp` command as a subprocess on your machine, through the same runner the skill uses. No remote service is involved, and nothing is sent anywhere beyond the registry and GitHub API calls a normal scan makes.
 
 The command is **idempotent** — safe to re-run at any time (for example after switching development mode on or off):
 
 - `mcp.json` is merged: only the `ossiq` entry under `mcpServers` is replaced; every other server entry is preserved.
 - The Copilot instructions block is delimited by `<!-- ossiq-skill:start -->` / `<!-- ossiq-skill:end -->` markers. On re-run the block between the markers is replaced; the rest of the file — including your own instructions — is untouched.
+
+(install-skills-runner)=
+### How the skill runs OSS IQ
+
+Every command in the installed skill, and the MCP entry, runs OSS IQ the way you ran
+`install skills`. The command prints the result, for example
+`the skill runs ossiq as: npx --yes @ossiq/cli`.
+
+| You ran | Skill commands | MCP server |
+|---|---|---|
+| `uvx ossiq install skills`, or any PyPI install with `uvx` on `PATH` | `uvx ossiq …` | `<path to uvx> ossiq mcp` |
+| `npx @ossiq/cli install skills`, or `ossiq` installed with `npm install -g` | `npx --yes @ossiq/cli …` | `<path to npx> --yes @ossiq/cli mcp`; on Windows `cmd /c npx --yes @ossiq/cli mcp` |
+| a PyPI install without `uv`, or a standalone binary | `ossiq …` | `<absolute path to ossiq> mcp` |
+
+A permanent install gets its channel's runner too: `uvx` uses a copy installed with
+`uv tool install`, and both runners work from any directory. To write a bare `ossiq` instead,
+pass `--via ossiq`. The `npx` entry needs `node` on the `PATH` your MCP client starts servers with.
 
 (install-skills-login)=
 ### GitHub login
@@ -873,7 +891,7 @@ The command writes no GitHub token, either to `mcp.json` or to a config file. Th
 your [GitHub login](#auth) from the system secret store. Without a login, the first tool call
 returns a login code for the agent to show you; see
 [Log in through an MCP client](how-to/github-login.md#log-in-through-an-mcp-client). The command
-prints `ossiq auth login` as the next step.
+prints `auth login`, through the same runner, as the next step.
 
 (install-skills-dev)=
 ### Development mode (`--dev`)
@@ -887,7 +905,7 @@ ossiq install skills claude --dev ~/Projects/ossiq
 Two substitutions are made:
 
 - **MCP server** — registered as `uv run --directory <path> ossiq mcp`, so the server always runs your current working tree.
-- **SKILL.md** — every `uvx ossiq` invocation in the skill text is rewritten to `uvx --from <path> --no-cache ossiq`. The `--no-cache` flag makes `uvx` rebuild from source on each call, so the agent picks up your edits without a reinstall.
+- **SKILL.md** — every command in the skill text runs `uvx --from <path> --no-cache ossiq`. The `--no-cache` flag makes `uvx` rebuild from source on each call, so the agent picks up your edits without a reinstall.
 
 To switch back to the released package, re-run the command without `--dev`.
 

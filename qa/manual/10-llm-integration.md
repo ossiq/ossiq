@@ -7,7 +7,7 @@ JSON contract documented in `SKILL.md`.
 Run from repo root. MCP `tools/call` and agent-format tests require network (registry lookups).
 
 **Warning:** `install skills` writes to your real `~/.claude`, `~/.codex` and `~/.copilot`.
-Back up `~/.claude/mcp.json` before testing, or point `HOME` at a scratch dir for TC-L02–TC-L04.
+Back up `~/.claude/mcp.json` before testing, or point `HOME` at a scratch dir for TC-L02–TC-L04 (TC-L11 and TC-L12 do this themselves).
 
 **Log in first** (`uv run ossiq auth login`) or set `OSSIQ_GITHUB_AUTH=off` for TC-L05–TC-L09.
 Otherwise the first `tools/call` returns the login challenge (TC-L10), and the CLI cases stop to
@@ -21,7 +21,7 @@ uv run hatch run ossiq install skills --help
 ```
 
 - [ ] `install --help` lists the `skills` subcommand
-- [ ] `install skills --help` lists `--dev` and says no GitHub token is asked for or stored; it does
+- [ ] `install skills --help` lists `--dev` and `--via` and says no GitHub token is asked for or stored; it does
       not list `--github-token`
 
 ---
@@ -47,7 +47,7 @@ cat ~/.claude/mcp.json
 ```
 
 - [ ] `~/.claude/skills/ossiq/SKILL.md` exists with the `ossiq-dependency-check` frontmatter
-- [ ] Skill body references `uvx --from <repo-path> --no-cache ossiq` (dev path substituted, no `uvx --from ossiq`)
+- [ ] Skill body references `uvx --from <repo-path> --no-cache ossiq` (dev path substituted, no `uvx --from ossiq`, no `{{ossiq}}` left)
 - [ ] `~/.claude/mcp.json` has `mcpServers.ossiq` with `command: "uv"` and the repo path in `args`
 - [ ] Pre-existing entries in `mcpServers` are preserved (add a dummy entry first to verify)
 - [ ] Re-running the command is idempotent — still exactly one `ossiq` entry
@@ -61,7 +61,7 @@ uv run hatch run ossiq install skills claude --dev "$(pwd)"
 cat ~/.claude/mcp.json
 ```
 
-- [ ] The command asks for no token and prints `ossiq auth login` as the next step
+- [ ] The command asks for no token and prints `uvx --from <repo-path> --no-cache ossiq auth login` as the next step
 - [ ] `mcpServers.ossiq` has no `env` block holding `OSSIQ_GITHUB_TOKEN`
 - [ ] `~/.config/ossiq/config` (if present) gained no `OSSIQ_GITHUB_TOKEN` line
 
@@ -179,3 +179,47 @@ Approve the code on GitHub, then paste the `id` 3 line again with `"id":4`.
 - [ ] Response 3 (before approval) carries the **same** `user_code`, with a smaller `expires_in`
 - [ ] Response 4 (after approval) is the normal add decision; `uv run ossiq auth status` shows the login
 - [ ] stdout holds one JSON object per line throughout
+
+---
+
+## TC-L11: The skill runs ossiq the way `install skills` ran
+
+```bash
+SCRATCH=$(mktemp -d)
+HOME=$SCRATCH uv run ossiq install skills claude
+grep -n "auth login\|--format agent" $SCRATCH/.claude/skills/ossiq/SKILL.md
+cat $SCRATCH/.claude/mcp.json
+HOME=$SCRATCH uv run ossiq install skills claude --via npx
+grep -n "auth login\|--format agent\|uvx" $SCRATCH/.claude/skills/ossiq/SKILL.md
+cat $SCRATCH/.claude/mcp.json
+HOME=$SCRATCH uv run ossiq install skills claude --via ossiq
+cat $SCRATCH/.claude/mcp.json
+HOME=$SCRATCH uv run ossiq install skills claude --via npx --dev "$(pwd)"; echo "exit: $?"
+```
+
+- [ ] Default run prints `the skill runs ossiq as: uvx ossiq`; every matched line reads `uvx ossiq …`;
+      `mcpServers.ossiq` is `<path to uvx>` with `args: ["ossiq", "mcp"]`
+- [ ] `--via npx` prints `the skill runs ossiq as: npx --yes @ossiq/cli`; every matched line reads
+      `npx --yes @ossiq/cli …` and no line mentions `uvx`; `mcpServers.ossiq` is `<path to npx>` with
+      `args: ["--yes", "@ossiq/cli", "mcp"]`
+- [ ] `--via ossiq` writes bare `ossiq …` commands and an absolute path to the `ossiq` binary in
+      `mcpServers.ossiq`
+- [ ] `--via` together with `--dev` exits 1 with "cannot be combined" and changes nothing
+
+---
+
+## TC-L12: An npm install writes npx commands (released package, network)
+
+Run after the release is approved on npm, on macOS, Linux and Windows if you can.
+
+```bash
+SCRATCH=$(mktemp -d)
+HOME=$SCRATCH npx --yes @ossiq/cli@X.Y.Z install skills claude
+grep -n "auth login\|--format agent\|uvx" $SCRATCH/.claude/skills/ossiq/SKILL.md
+cat $SCRATCH/.claude/mcp.json
+```
+
+- [ ] Prints `the skill runs ossiq as: npx --yes @ossiq/cli`
+- [ ] Every matched line reads `npx --yes @ossiq/cli …`; no line mentions `uvx`
+- [ ] `mcpServers.ossiq` is `<path to npx> --yes @ossiq/cli mcp` (Windows: `cmd /c npx --yes @ossiq/cli mcp`),
+      not a path inside the `_npx` cache
