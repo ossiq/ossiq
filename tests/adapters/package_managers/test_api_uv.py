@@ -1549,7 +1549,10 @@ class TestUvSettingsLayers:
         return path
 
     def environ(self, tmp_path: Path, **extra: str) -> dict[str, str]:
-        return {"XDG_CONFIG_HOME": str(tmp_path / "home"), "XDG_CONFIG_DIRS": str(tmp_path / "etc"), **extra}
+        # uv reads APPDATA and PROGRAMDATA on Windows and the XDG variables elsewhere; pointing both
+        # at the same directories keeps one tree valid on every platform.
+        home, etc = str(tmp_path / "home"), str(tmp_path / "etc")
+        return {"XDG_CONFIG_HOME": home, "APPDATA": home, "XDG_CONFIG_DIRS": etc, "PROGRAMDATA": etc, **extra}
 
     def test_project_user_and_system_layers_in_precedence_order(self, tmp_path: Path):
         project = tmp_path / "project"
@@ -1613,6 +1616,7 @@ class TestPackageManagerReleaseCutoff:
         (tmp_path / "uv").mkdir()
         (tmp_path / "uv" / "uv.toml").write_text('exclude-newer = "2026-09-18T00:00:00Z"\n')
         monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+        monkeypatch.setenv("APPDATA", str(tmp_path))  # where uv looks on Windows
         cutoff = PackageManagerPythonUv(uv_project_with_lockfile, settings).release_cutoff()
         assert cutoff is not None
         assert cutoff.default == SEPT_18
