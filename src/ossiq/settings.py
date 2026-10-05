@@ -83,10 +83,13 @@ class Settings(BaseSettings):
     # An explicit alias replaces the env prefix, so both names are spelled out: OSSIQ_GITHUB_TOKEN first,
     # then the bare GITHUB_TOKEN CI convention. Env names match case-insensitively, so the field name
     # `github_token` doubles as that bare name and keeps `Settings(github_token=...)` working.
+    # Left out of `repr`, so a Settings value in a log line, a traceback or a containing object's `repr`
+    # cannot leak the token.
     github_token: str | None = Field(
         default=None,
         validation_alias=AliasChoices("OSSIQ_GITHUB_TOKEN", "github_token"),
         description=ARGS_HELP_GITHUB_TOKEN,
+        repr=False,
     )
     github_auth: GithubAuthMode = Field(default=GithubAuthMode.AUTO, description=ARGS_HELP_GITHUB_AUTH)
     github_client_id: str = Field(default=GITHUB_CLIENT_ID, description=ARGS_HELP_GITHUB_CLIENT_ID)
