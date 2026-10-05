@@ -95,8 +95,7 @@ def test_responsiveness_off_when_stability_disabled():
 def test_cli_config_option_reaches_settings(config_file):
     result = runner.invoke(app, ["--no-cache", "--config", str(config_file), "--verbose", "help"])
     assert result.exit_code == 0
-    assert "cooldown_period" in result.output
-    assert "14" in result.output
+    assert "cooldown_period: 14" in result.output
 
 
 def test_cli_config_value_not_clobbered_by_typer_defaults(tmp_path):
@@ -105,7 +104,7 @@ def test_cli_config_value_not_clobbered_by_typer_defaults(tmp_path):
     path.write_text("OSSIQ_CACHE_TTL=48\n")
     result = runner.invoke(app, ["--no-cache", "--config", str(path), "--verbose", "help"])
     assert result.exit_code == 0
-    assert "48" in result.output
+    assert "cache_ttl: 48" in result.output
 
 
 def test_cli_flag_overrides_config_file(config_file):
@@ -113,7 +112,9 @@ def test_cli_flag_overrides_config_file(config_file):
         app, ["--no-cache", "--config", str(config_file), "--cooldown-period", "1", "--verbose", "help"]
     )
     assert result.exit_code == 0
-    assert "14" not in result.output
+    # Anchored on the setting: the output also holds a temp path, whose digits can contain "14".
+    assert "cooldown_period: 1" in result.output
+    assert "cooldown_period: 14" not in result.output
 
 
 def test_cli_rejects_missing_config_file():
@@ -213,6 +214,22 @@ def test_bare_github_token_env_beats_a_config_file_token(new_config, monkeypatch
 def test_responsiveness_follows_bare_github_token_env(monkeypatch):
     monkeypatch.setenv("GITHUB_TOKEN", "ghp_bare")
     assert Settings().responsiveness_enabled() is True
+
+
+def test_repr_and_str_leave_out_the_github_token():
+    settings = Settings(github_token="ghp_SECRETVALUE")
+
+    assert "ghp_SECRETVALUE" not in repr(settings)
+    assert "ghp_SECRETVALUE" not in str(settings)
+    assert settings.github_token == "ghp_SECRETVALUE"
+
+
+def test_a_token_set_through_model_copy_stays_out_of_repr():
+    # authenticate_github hands the keyring token on this way.
+    settings = Settings().model_copy(update={"github_token": "gho_SECRETVALUE"})
+
+    assert "gho_SECRETVALUE" not in repr(settings)
+    assert settings.github_token == "gho_SECRETVALUE"
 
 
 def test_github_auth_defaults_to_auto(monkeypatch):
