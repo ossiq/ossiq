@@ -3,20 +3,19 @@
 [![PyPI version](https://img.shields.io/pypi/v/ossiq.svg)](https://pypi.org/project/ossiq)
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL%20v3-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
 
-> Quantify Maintenance Health. Control Your Drift.
+> Make better dependency decisions — before and after installation.
 
-**OSS IQ** is a free & open-source CLI tool that analyzes dependency drift at scale. Track version lag and transitive risk directly from your dependency files. It helps to move from reactive CVE-chasing to a planned, predictable maintenance rhythm.
+**OSS IQ** checks every package your project depends on: version drift, CVEs, maintenance health,
+and what an update would pull in transitively. It then recommends what to add, what to update,
+and what to replace. Free and open source.
 
-In a typical project with hundreds of dependencies, OSS IQ answers:
-- How many dependencies have critical vulnerabilities?
-- How far behind the latest versions are we?
-- Which packages are unmaintained or abandoned?
-- Which newer versions of dependencies would work best for my project?
+This image runs the `ossiq` CLI. A container has no system keyring, so `ossiq auth login` can't
+store a GitHub login here: pass a GitHub token in `OSSIQ_GITHUB_TOKEN` instead.
 
 ## Quick Start
 
 ```bash
-# Set your GitHub token (required for deep analysis)
+# Pass a GitHub token: 5,000 API requests an hour instead of 60
 export OSSIQ_GITHUB_TOKEN=$(gh auth token)
 
 # Show dependency status
@@ -34,7 +33,7 @@ docker run --rm \
   -e OSSIQ_GITHUB_TOKEN \
   -v /path/to/your/project:/project:ro \
   -v $(pwd)/reports:/output \
-  ossiq/ossiq-cli status -p html -o /output/report.html /project
+  ossiq/ossiq-cli html -o /output/report.html /project
 
 # Show all packages, including up-to-date ones
 docker run --rm \
@@ -46,14 +45,14 @@ docker run --rm \
 docker run --rm \
   -e OSSIQ_GITHUB_TOKEN \
   -v /path/to/your/project:/project:ro \
-  ossiq/ossiq-cli status --security /project
+  ossiq/ossiq-cli status --update-strategy security /project
 
 # Export metrics to JSON for CI/CD pipelines
 docker run --rm \
   -e OSSIQ_GITHUB_TOKEN \
   -v /path/to/your/project:/project:ro \
   -v $(pwd)/reports:/output \
-  ossiq/ossiq-cli export -f json -o /output/metrics.json /project
+  ossiq/ossiq-cli export -o /output/metrics.json /project
 
 # Show help
 docker run --rm ossiq/ossiq-cli --help
@@ -63,7 +62,7 @@ docker run --rm ossiq/ossiq-cli --help
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `OSSIQ_GITHUB_TOKEN` | Yes | GitHub Personal Access Token for API access |
+| `OSSIQ_GITHUB_TOKEN` | For `export`; recommended for every command | GitHub token. Without one, GitHub allows 60 API requests an hour |
 | `OSSIQ_CUTOFF_DATE` | No | Treat versions after this date as invisible (`YYYY-MM-DD`). Enables time-travel QA. |
 | `OSSIQ_COOLDOWN_PERIOD` | No | Versions younger than N days receive a freshness penalty (default: `7`) |
 | `OSSIQ_VERBOSE` | No | Enable verbose output (`true`/`false`) |
@@ -100,7 +99,7 @@ jobs:
 # Preview recommended updates (read-only)
 docker run --rm \
   -e OSSIQ_GITHUB_TOKEN \
-  -v /path/to/your/project:/project \
+  -v /path/to/your/project:/project:ro \
   ossiq/ossiq-cli plan /project
 
 # Apply updates non-interactively (for CI)
@@ -110,7 +109,7 @@ docker run --rm \
   ossiq/ossiq-cli apply --yes /project
 ```
 
-Note: mount the project directory **without** `:ro` when running `apply` or `plan --script`, since those commands write to your files.
+Mount the project directory **without** `:ro` for `apply`, because it writes to your files.
 
 ## Supported Ecosystems
 
@@ -127,7 +126,8 @@ OSS IQ aggregates data from [OSV](https://osv.dev/), [npm Registry](https://www.
 
 ## Documentation
 
-Full documentation and source code: https://github.com/ossiq/ossiq
+- Documentation: <https://ossiq.dev>
+- Source code: <https://github.com/ossiq/ossiq>
 
 ## License
 
