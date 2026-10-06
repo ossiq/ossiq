@@ -335,3 +335,69 @@ class TestSolveTransitiveExternalTargets:
         result = solve_transitive(records, registry, {}, external_targets={"django-allauth": "65.18.0"})
 
         assert result.recommendations.get("oauthlib") == "3.3.1"
+
+
+def _make_nesting_registry(
+    versions_by_name: dict[str, list[PackageVersion]],
+    requires: dict[tuple[str, str], dict[str, str]] | None = None,
+) -> MagicMock:
+    """A registry for a package manager that nests copies, with npm's version semantics."""
+    registry = _make_registry(versions_by_name, requires)
+    registry.package_registry = ProjectPackagesRegistry.NPM
+    registry.one_copy_per_name = False
+    return registry
+
+
+class TestSolveTransitiveWhereCopiesNest:
+    """A fix for a vulnerable copy must not be dropped because some other copy sits at another version."""
+
+    def test_a_cve_fix_survives_a_dependent_that_can_take_its_own_copy(self) -> None:
+        """cross-spawn 7.0.6 fixes the advisory but needs which ^2; the hoisted which is 5, so npm nests one."""
+        records = [_rec("cross-spawn", "7.0.5", cve_affected=["7.0.5"], age_days=100)]
+        versions = {
+            "cross-spawn": [
+                _pv("7.0.5", published="2023-06-01T00:00:00Z"),
+                _pv("7.0.6", published="2024-01-01T00:00:00Z"),
+            ]
+        }
+        requires = {("cross-spawn", "7.0.6"): {"which": "^2.0.1"}}
+
+        result = solve_transitive(
+            records, _make_nesting_registry(versions, requires), {}, external_targets={"which": "5.0.0"}
+        )
+
+        assert result.recommendations.get("cross-spawn") == "7.0.6"
+        assert result.rejected == {}
+
+    def test_the_same_fix_is_dropped_where_one_copy_is_installed(self) -> None:
+        """The contrast: with a single copy per name the unmet requirement really does block the fix."""
+        records = [_rec("cross-spawn", "7.0.5", cve_affected=["7.0.5"], age_days=100)]
+        registry = _make_registry(
+            {
+                "cross-spawn": [
+                    _pv("7.0.5", published="2023-06-01T00:00:00Z"),
+                    _pv("7.0.6", published="2024-01-01T00:00:00Z"),
+                ]
+            },
+            requires={("cross-spawn", "7.0.6"): {"which": ">=2.0.1,<3"}},
+        )
+
+        result = solve_transitive(records, registry, {}, external_targets={"which": "5.0.0"})
+
+        assert "cross-spawn" not in result.recommendations
+
+    def test_another_copys_requirements_do_not_make_the_fix_unsatisfiable(self) -> None:
+        """semver 7.8.4 is vulnerable; the ^6.3.1 edges belong to the 6.x copy and must not forbid 7.8.5."""
+        record = _rec("semver", "7.8.4", cve_affected=["7.8.4"], age_days=100)
+        record.all_constraints = ["^7.5.3", "^7.6.3", "^6.3.1"]
+        versions = {
+            "semver": [
+                _pv("6.3.1", published="2022-01-01T00:00:00Z"),
+                _pv("7.8.4", published="2023-06-01T00:00:00Z"),
+                _pv("7.8.5", published="2024-01-01T00:00:00Z"),
+            ]
+        }
+
+        result = solve_transitive([record], _make_nesting_registry(versions), {})
+
+        assert result.recommendations.get("semver") == "7.8.5"

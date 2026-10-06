@@ -40,12 +40,13 @@ def relevant_constraints(
 ) -> tuple[str, ...]:
     """Keep only specifiers the installed version satisfies.
 
-    A package can be installed at several versions in one tree (nested node_modules). The graph
-    walker aggregates every consumer's specifier onto a single node, mixing constraints that
-    belong to different physical copies (e.g. ^2.0.2 and ^5.0.5). Those a copy's installed version
-    cannot satisfy belong to a different copy, so they are dropped — scoping the solve to the copy
-    we are actually looking at. Falls back to the full set when none match (genuine drift), so a
-    real constraint is never silently lost.
+    A package can be installed at several versions in one tree (nested node_modules), and the
+    caller hands over every consumer's specifier across all of them (e.g. ^2.0.2 and ^5.0.5).
+    Those the installed version cannot satisfy belong to a different copy, so they are dropped —
+    scoping the solve to the copy we are actually looking at. What remains is exactly the edges
+    an npm override keyed to this version (`name@<installed>`) would rewrite, which is how a
+    recommendation for a nested copy is written back. Falls back to the full set when none match
+    (genuine drift), so a real constraint is never silently lost.
     """
     deduped = tuple(dict.fromkeys(raw_constraints))
     if not deduped:
