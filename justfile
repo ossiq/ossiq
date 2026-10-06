@@ -43,6 +43,7 @@ qa-integration:
     uv run ossiq html --output=./reports/scan_npm.html --registry-type=npm testdata/mixed
     uv run ossiq html --output=./reports/scan_pypi.html --registry-type=pypi testdata/mixed
     uv run ossiq status testdata/npm/project3
+    uv run ossiq plan testdata/npm/nested-copies
     uv run ossiq export --output=./reports/scan_export_pypi0.json --registry-type=pypi testdata/mixed
     uv run ossiq export --schema-version=1.5 --output=./reports/scan_export_npm_15.json --registry-type=npm testdata/mixed
     uv run ossiq info scipy testdata/pypi/version-constraint
@@ -51,6 +52,12 @@ qa-integration:
     uv run ossiq export --output=./reports/scan_export_pypi_version_uv.json testdata/pypi/uv
     uv run ossiq export --output=./reports/scan_export_pypi_version_pylock.json testdata/pypi/pylock
     cat ./reports/scan_export_pypi_version_uv.json | jq | grep '"constraint_type": "ADDITIVE"'
+
+# Check every --update-strategy tier (export, plan, agent JSON, apply) against the pinned projects
+# in testdata/regression/update-strategies. Needs network, npm and uv; see qa/README.md.
+# e.g. just qa-strategies --fixture npm --tier security --skip-apply
+qa-strategies *ARGS:
+    uv run python qa/update_strategies_regression.py {{ARGS}}
 
 # Build the QA Docker image (run once, or after qa/Dockerfile changes)
 qa-build:
