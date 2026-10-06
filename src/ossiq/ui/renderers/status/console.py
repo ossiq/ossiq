@@ -6,6 +6,7 @@ from rich.rule import Rule
 from rich.table import Table
 
 from ossiq.domain.common import Command, ConstraintType, EngineContext, SignalCoverage, UserInterfaceType
+from ossiq.domain.project import InstalledCopy
 from ossiq.domain.version import VERSION_DIFF_MAJOR, VERSION_DIFF_MINOR, VERSION_DIFF_PATCH
 from ossiq.messages import (
     HELP_STATUS_COOLDOWN_HOLD,
@@ -111,6 +112,51 @@ def recommended_cell(pkg: ScanRecord) -> str:
     return pkg.recommended_version
 
 
+def forced_by_override(copy: InstalledCopy) -> bool:
+    """Whether an override rule governs this copy, which only a package manager that reads one's value reports."""
+    info = copy.constraint_info
+    return info.type == ConstraintType.OVERRIDE and info.override_value is not None
+
+
+def installed_cell(pkg: ScanRecord) -> str:
+    """Installed-column cell: the version the record stands for, plus any other copy installed.
+
+    npm can install a package at several versions at once; showing only one would hide the others,
+    and a CVE or a stale pin may sit on the one that isn't shown.
+    """
+    text = pkg.installed_version
+    others = [copy.version for copy in pkg.installed_copies if copy.version != pkg.installed_version]
+    if others:
+        text += f" [dim](+{', '.join(others)})[/]"
+    if any(forced_by_override(copy) for copy in pkg.installed_copies):
+        text += " [yellow]⚑ override[/]"
+    return text
+
+
+def copy_sub_row_texts(pkg: ScanRecord, limit: int = 2) -> list[str]:
+    """One row per installed copy of a package that has several, naming who requires it.
+
+    The list is short on purpose: every sub-row lives in the first column, so a long one wraps
+    there and a copy with a dozen requirers would stretch the whole table.
+
+    Args:
+        pkg: The record being explained.
+        limit: How many requirers a row names before it starts counting.
+
+    Returns:
+        Rich-markup strings, or an empty list when the package is installed once.
+    """
+    if len(pkg.installed_copies) < 2:
+        return []
+    rows = []
+    for copy in pkg.installed_copies:
+        edges = [f"{edge.requirer_name} {edge.spec}" for edge in copy.edges]
+        shown = ", ".join(edges[:limit]) + (f" (+{len(edges) - limit} more)" if len(edges) > limit else "")
+        forced = f" [yellow]⚑ forced to {copy.constraint_info.override_value}[/]" if forced_by_override(copy) else ""
+        rows.append(f"  [dim]↳ {copy.version} ← {shown or 'no requirer'}[/]{forced}")
+    return rows
+
+
 def blocker_sub_row_texts(pkg: ScanRecord) -> list[str]:
     """Explain why a package behind the registry's latest has no target, or return nothing.
 
@@ -204,6 +250,9 @@ def add_detail_subrows(table: Table, pkg: ScanRecord, engine_context: EngineCont
         engine_context: The runtime versions this scan checked against, and their provenance.
     """
     blanks = [""] * (len(table.columns) - 1)
+
+    for text in copy_sub_row_texts(pkg):
+        table.add_row(text, *blanks)
 
     for rc in pkg.rejected_candidates:
         table.add_row(f"  [dim]↳ {rc.version} rejected: {rc.reason}[/]", *blanks)
@@ -460,7 +509,7 @@ class ConsoleStatusRenderer(AbstractUserInterfaceRenderer):
                     "CVEs": f"[bold red]{len(pkg.cve)}" if pkg.cve else "",
                     "EPSS": format_probability(pkg.epss),
                     "Update Mode": format_lag_status(pkg.versions_diff_index),
-                    "Installed": pkg.installed_version + format_status_badge(pkg),
+                    "Installed": installed_cell(pkg) + format_status_badge(pkg),
                     "Latest": pkg.latest_version or "[dim]—[/dim]",
                     "Recommended": recommended_cell(pkg),
                     "Lag": format_time_delta(pkg.time_lag_days, lag_threshold_days),
@@ -521,7 +570,7 @@ class ConsoleStatusRenderer(AbstractUserInterfaceRenderer):
             row = [pkg.display_name, f"[bold red]{len(pkg.cve)}" if pkg.cve else ""]
             if full:
                 row.append(format_probability(pkg.epss))
-            row += [pkg.installed_version, pkg.recommended_version or "", whats_next(pkg, short=short_labels)]
+            row += [installed_cell(pkg), pkg.recommended_version or "", whats_next(pkg, short=short_labels)]
             table.add_row(*row)
 
             if full:

@@ -28,7 +28,7 @@ from ossiq.service.project.next_action import (
     WITHHELD_BY_STRATEGY,
     next_action_label,
 )
-from ossiq.service.update_impact import TransitiveImpact
+from ossiq.service.update_impact import ImpactKind, TransitiveImpact
 from ossiq.timeutil import format_time_days
 
 
@@ -185,10 +185,14 @@ def impact_sub_row_texts(impacts: list[TransitiveImpact]) -> list[str]:
         rows.append("[red]  ✗ no actionable update found[/red]")
 
     conflicts = [i for i in impacts if i.has_conflict]
-    normal = [i for i in impacts if not i.has_conflict and i.current_version is not None]
     new_deps = [i for i in impacts if i.current_version is None]
+    # npm installs these beside the copy it already has, so "moves from X to Y" would be wrong.
+    new_copies = [i for i in impacts if i.kind == ImpactKind.NEW_COPY and not i.has_conflict]
+    normal = [
+        i for i in impacts if not i.has_conflict and i.current_version is not None and i.kind != ImpactKind.NEW_COPY
+    ]
 
-    show_detail = (len(impacts) - len(new_deps)) <= 3
+    show_detail = (len(impacts) - len(new_deps) - len(new_copies)) <= 3
 
     for impact in conflicts:
         summary = format_rejection_detail(impact.conflict) if impact.conflict else "conflict"
@@ -196,9 +200,18 @@ def impact_sub_row_texts(impacts: list[TransitiveImpact]) -> list[str]:
 
     if show_detail:
         for impact in normal:
-            rows.append(f"[dim]  ↳ {impact.package_name} {impact.current_version} → {impact.projected_version}[/dim]")
+            suffix = " (override)" if impact.kind == ImpactKind.OVERRIDE_BUMP else ""
+            rows.append(
+                f"[dim]  ↳ {impact.package_name} {impact.current_version} → {impact.projected_version}{suffix}[/dim]"
+            )
     elif normal:
         rows.append(f"[dim]  ↳ {len(normal)} transitive dep(s) also updated[/dim]")
+
+    if len(new_copies) <= 3:
+        for impact in new_copies:
+            rows.append(f"[dim blue]  + {impact.package_name} {impact.projected_version} (new copy)[/dim blue]")
+    elif new_copies:
+        rows.append(f"[dim blue]  + {len(new_copies)} transitive dep(s) gain a new copy[/dim blue]")
 
     for impact in new_deps:
         version_info = impact.projected_version or impact.new_constraint

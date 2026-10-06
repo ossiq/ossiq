@@ -20,7 +20,7 @@ from ossiq.domain.common import (
 )
 from ossiq.domain.compatibility import CompatibilityFacts
 from ossiq.domain.cve import CVE, Severity
-from ossiq.domain.project import ConstraintSource
+from ossiq.domain.project import ConstraintSource, IncomingEdge, InstalledCopy
 from ossiq.domain.version import VersionsDifference
 from ossiq.risk.maintenance import MaintenanceAssessment, MaintenanceState
 from ossiq.service.project.models import ScanRecord, ScanResult
@@ -33,6 +33,8 @@ from ossiq.ui.renderers.status.console import (
     MIN_WIDTH_DEFAULT,
     MIN_WIDTH_FULL,
     ConsoleStatusRenderer,
+    copy_sub_row_texts,
+    installed_cell,
 )
 
 LATEST = VersionsDifference("1.0.0", "1.0.0", 0, "LATEST")
@@ -368,6 +370,75 @@ def test_rejected_candidate_sub_row_absent_without_full():
     record.rejected_candidates = [RejectedCandidate(version="1.2.0", reason="dep-x requires >=2.0.0")]
     output = render_table([record])
     assert "rejected:" not in output
+
+
+def nested_record(*copies: InstalledCopy) -> ScanRecord:
+    record = make_record("minimatch", versions_diff_index=MINOR, recommended_version="1.0.1")
+    record.installed_version = copies[0].version
+    record.installed_copies = list(copies)
+    return record
+
+
+def plain_copy(version: str, *edges: IncomingEdge) -> InstalledCopy:
+    return InstalledCopy(version, tuple(edges), ConstraintSource(type=ConstraintType.DECLARED, source_file=None))
+
+
+def forced_copy(version: str, value: str) -> InstalledCopy:
+    info = ConstraintSource(
+        type=ConstraintType.OVERRIDE, source_file="package.json", override_value=value, is_ossiq_authored=False
+    )
+    return InstalledCopy(version, (), info)
+
+
+def test_installed_cell_is_the_plain_version_for_a_package_installed_once():
+    assert installed_cell(nested_record(plain_copy("10.2.5"))) == "10.2.5"
+    assert installed_cell(make_record()) == "1.0.0"
+
+
+def test_installed_cell_lists_the_other_copies():
+    record = nested_record(plain_copy("10.2.5"), plain_copy("9.0.9"), plain_copy("8.0.1"))
+    assert installed_cell(record) == "10.2.5 [dim](+9.0.9, 8.0.1)[/]"
+
+
+def test_installed_cell_marks_an_override_that_forces_a_copy():
+    assert installed_cell(nested_record(forced_copy("3.5.42", "3.5.42"))) == "3.5.42 [yellow]⚑ override[/]"
+
+
+def test_status_table_shows_every_installed_copy():
+    record = nested_record(plain_copy("10.2.5"), plain_copy("9.0.9"))
+    assert "10.2.5 (+9.0.9)" in render_table([record])
+
+
+def test_copy_sub_rows_name_who_requires_each_copy():
+    record = nested_record(
+        plain_copy("10.2.5", IncomingEdge("eslint", "10.2.0", "^10.2.4")),
+        plain_copy("9.0.9", IncomingEdge("editorconfig", "1.0.7", "^9.0.1"), IncomingEdge("glob", "10.5.0", "^9.0.4")),
+    )
+    assert copy_sub_row_texts(record) == [
+        "  [dim]↳ 10.2.5 ← eslint ^10.2.4[/]",
+        "  [dim]↳ 9.0.9 ← editorconfig ^9.0.1, glob ^9.0.4[/]",
+    ]
+
+
+def test_copy_sub_rows_count_requirers_past_the_limit():
+    edges = [IncomingEdge(f"p{i}", "1.0.0", "^9") for i in range(5)]
+    rows = copy_sub_row_texts(nested_record(plain_copy("10.2.5"), plain_copy("9.0.9", *edges)))
+    assert rows[1] == "  [dim]↳ 9.0.9 ← p0 ^9, p1 ^9 (+3 more)[/]"
+
+
+def test_copy_sub_rows_say_when_an_override_forces_a_copy():
+    rows = copy_sub_row_texts(nested_record(plain_copy("10.2.5"), forced_copy("9.0.9", "9.0.9")))
+    assert rows[1] == "  [dim]↳ 9.0.9 ← no requirer[/] [yellow]⚑ forced to 9.0.9[/]"
+
+
+def test_copy_sub_rows_are_empty_for_a_package_installed_once():
+    assert copy_sub_row_texts(nested_record(plain_copy("10.2.5"))) == []
+
+
+def test_copy_sub_rows_are_full_mode_only():
+    record = nested_record(plain_copy("10.2.5", IncomingEdge("eslint", "10.2.0", "^10.2.4")), plain_copy("9.0.9"))
+    assert "↳ 10.2.5 ← eslint ^10.2.4" in render_table([record], full=True)
+    assert "↳ 10.2.5 ←" not in render_table([record])
 
 
 def test_rejection_detail_moves_to_its_own_indented_row():

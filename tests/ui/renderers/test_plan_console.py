@@ -7,7 +7,7 @@ from datetime import UTC, datetime
 
 from rich.console import Console
 
-from ossiq.domain.common import ConstraintType, RecommendationRung
+from ossiq.domain.common import ConstraintType, OverrideHold, RecommendationRung
 from ossiq.service.update import UpdateEntry, UpdatePlan
 from ossiq.settings import Settings
 from ossiq.solver.reason import RecommendationReason
@@ -146,6 +146,34 @@ def test_held_for_widening_section_lists_package_and_declared_range(monkeypatch)
     assert "==1.10.13" in output
     assert "1.10.26" in output
     assert "same major" in output
+
+
+def test_user_override_holds_get_their_own_section(monkeypatch):
+    plan = dataclasses.replace(
+        make_plan(),
+        held_by_user_overrides=[
+            OverrideHold(
+                package="@vue/shared",
+                value="3.5.42",
+                source_file="package.json",
+                blocked=("vue@3.5.43", "vue-router@5.0.5"),
+            ),
+            OverrideHold(package="minimatch", key="^9.0.0", value="9.0.9", blocked=("minimatch@9.0.10",)),
+        ],
+    )
+
+    output = render(plan, monkeypatch)
+
+    assert "Held by overrides you wrote" in output
+    assert "@vue/shared" in output and "3.5.42" in output
+    assert "vue@3.5.43, vue-router@5.0.5" in output
+    assert "minimatch@^9.0.0" in output
+
+
+def test_no_user_override_section_without_holds(monkeypatch):
+    output = render(make_plan(direct_entries=[make_entry("vue", "3.5.42", "3.5.43", 20, is_direct=True)]), monkeypatch)
+
+    assert "Held by overrides you wrote" not in output
 
 
 def make_forced_entry(name: str, current: str, recommended: str, is_direct: bool) -> UpdateEntry:

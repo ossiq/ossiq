@@ -10,6 +10,7 @@ from ossiq.messages import (
     HELP_PLAN_CVE_BYPASS_NOTE,
     HELP_PLAN_FORCED_WARNING,
     HELP_PLAN_HELD_BY_PACKAGE_MANAGER_HEADER,
+    HELP_PLAN_HELD_BY_USER_OVERRIDES_HEADER,
     HELP_PLAN_HELD_FOR_COOLDOWN_HEADER,
     HELP_PLAN_HELD_FOR_WIDENING_HEADER,
     HELP_PLAN_KNOWN_BREAK_NOTE,
@@ -128,6 +129,7 @@ class ConsolePlanRenderer(AbstractUserInterfaceRenderer):
 
         self.render_held_for_cooldown(data)
         self.render_held_for_widening(data)
+        self.render_held_by_user_overrides(data)
 
         if script:
             console.print(Rule("Plan Script — review before running", style="dim"))
@@ -200,5 +202,22 @@ class ConsolePlanRenderer(AbstractUserInterfaceRenderer):
                 scope,
                 dep_type,
             )
+        console.print(table)
+        console.print()
+
+    def render_held_by_user_overrides(self, data: UpdatePlan) -> None:
+        """List the overrides the user wrote that kept an update out of the plan."""
+        if not data.held_by_user_overrides:
+            return
+
+        console.print(f"[yellow]{HELP_PLAN_HELD_BY_USER_OVERRIDES_HEADER}[/yellow]")
+        table = Table(show_header=True, header_style="bold dim", box=None, padding=(0, 2))
+        table.add_column("Override", style="bold")
+        table.add_column("Forces", style="green")
+        table.add_column("Declared in", style="dim")
+        table.add_column("Keeps back", style="dim")
+        for hold in data.held_by_user_overrides:
+            name = f"{hold.package}@{hold.key}" if hold.key else hold.package
+            table.add_row(name, hold.value, hold.source_file or "—", ", ".join(hold.blocked))
         console.print(table)
         console.print()
