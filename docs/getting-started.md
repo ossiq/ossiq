@@ -184,6 +184,10 @@ installs the **recommended** one. It runs the same analysis as `info`, shows dri
 transitive vulnerabilities, and maintainer signals before touching a file, and blocks packages
 flagged as critically unhealthy unless you pass `--force`.
 
+On npm projects the install runs with `--ignore-scripts`, the same as `ossiq apply`, so the new
+package cannot run code during the install. A package that needs a postinstall step (a native
+build or a downloaded binary, as with esbuild, sharp or prisma) needs `npm rebuild <name>` afterwards.
+
 ```bash
 # Check health signals and install the recommended version
 ossiq add requests
