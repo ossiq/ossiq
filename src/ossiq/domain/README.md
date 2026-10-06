@@ -126,6 +126,9 @@ Priority ordering for display: **OVERRIDE** > **ADDITIVE** > **PINNED** > **NARR
 | `type` | `ConstraintType` | Classification of the constraint (see above). |
 | `source_file` | `str \| None` | The file that declared it (e.g. `"package.json"`, `"pyproject.toml"`). |
 | `scope_path` | `list[str] \| None` | For npm nested overrides, the path through the dependency tree; `None` for flat constraints. |
+| `is_ossiq_authored` | `bool` | An `OVERRIDE` whose value is still what OSS IQ last wrote (`ossiq:metadata`); `False` for the user's own. |
+| `override_key` | `str \| None` | npm only: the range a version-keyed rule (`foo@^1`) applies to; `None` when it applies to every version. |
+| `override_value` | `str \| None` | npm only: what the matching rule forces — a version, a range or a `$name` reference. |
 
 ### `PeerRequirement` — peer constraint tracking
 
@@ -137,6 +140,16 @@ Priority ordering for display: **OVERRIDE** > **ADDITIVE** > **PINNED** > **NARR
 | `spec` | `str` | The version specifier it requires (e.g. `">=18.0.0"`). |
 
 Violations (installed version not satisfying `spec`) are surfaced in `ScanRecord.peer_violations`.
+
+### `IncomingEdge` and `InstalledCopy` — who asked for which copy
+
+npm installs the same name at several versions (nested `node_modules`), so a package is not one node with a pile of constraints but several copies, each with its own requirers.
+
+`IncomingEdge` (in `project.py`) is one parent's requirement on an installed package: `requirer_name`, `requirer_version`, `spec` and `is_peer`. `Dependency.parent_edges` holds them next to `parent_constraints`, which remains the flat spec list the solver reads.
+
+`InstalledCopy` (in `project.py`) is one physical copy: its `version`, the `edges` that resolve to it, and its own `constraint_info`. `ScanRecord.installed_copies` lists every copy newest first; `installed_version` is the first. Under pip and uv there is always exactly one.
+
+The npm lockfile graph attaches each edge to the copy Node would resolve for that parent — the parent's own `node_modules`, then each ancestor's, up to the top level — which is how `package-lock.json` v2/v3 lays the tree out.
 
 ---
 

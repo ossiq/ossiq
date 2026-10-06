@@ -20,6 +20,11 @@ class ConstraintSource:
     """True when this OVERRIDE-type constraint's current value matches what OSS IQ itself last wrote
     (ossiq:metadata.overrides in package.json / [tool.ossiq.metadata] in pyproject.toml). False for a
     user-authored override, or when the user has since edited it away from our last-written value."""
+    override_key: str | None = None
+    """npm only: the version range an override rule is keyed to (`foo@^1` -> `^1`). None when the rule
+    applies to every version of the package."""
+    override_value: str | None = None
+    """npm only: what the matching override rule forces. May be a `$name` reference to a root dependency."""
 
 
 @dataclass(frozen=True)
@@ -28,6 +33,34 @@ class PeerRequirement:
 
     requirer_name: str
     spec: str
+
+
+@dataclass(frozen=True)
+class IncomingEdge:
+    """One parent's requirement on an installed package: who asked, and for what range.
+
+    Kept per edge, not just as a spec list, because a package manager that nests copies needs to
+    know which parent a spec came from to tell a sibling that moves with the candidate from one that
+    stays behind.
+    """
+
+    requirer_name: str
+    requirer_version: str
+    spec: str
+    is_peer: bool = False
+
+
+@dataclass(frozen=True)
+class InstalledCopy:
+    """One physical copy of a package in the tree, with the edges that resolve to it.
+
+    npm can install the same name at several versions (nested node_modules); every other supported
+    package manager installs exactly one.
+    """
+
+    version: str
+    edges: tuple[IncomingEdge, ...]
+    constraint_info: ConstraintSource
 
 
 @dataclass(order=True)
@@ -76,6 +109,10 @@ class Dependency:
     # Peer requirements placed on this package by other installed packages.
     # Populated during graph construction alongside parent_constraints.
     peer_requirements: list[PeerRequirement] = field(default_factory=list, compare=False)
+
+    # The same edges as parent_constraints, with the requirer attached. Populated alongside it in
+    # graph construction; parent_constraints stays the flat view the solver and PyPI read.
+    parent_edges: list[IncomingEdge] = field(default_factory=list, compare=False)
 
 
 class Project:
