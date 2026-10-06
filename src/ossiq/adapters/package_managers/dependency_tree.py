@@ -8,7 +8,7 @@ from collections.abc import Iterable, Iterator
 from typing import Any
 
 from ossiq.domain.common import ConstraintType, normalize_dist_name
-from ossiq.domain.project import ConstraintSource, Dependency, PeerRequirement
+from ossiq.domain.project import ConstraintSource, Dependency, IncomingEdge, PeerRequirement
 from ossiq.domain.version import normalize_version
 
 CATEGORY_PEER = "peer"
@@ -114,7 +114,7 @@ class BaseDependencyResolver(ABC):
                 for d_data in dependencies:
                     d_name, d_ver = self.extract_dependency_identity(d_data)
 
-                    child = self.match_child(d_name, d_ver)
+                    child = self.match_child(d_name, d_ver, pkg_data)
                     if child:
                         # Extras gate the target's own requirements, so every edge that turns one
                         # on counts: the union is what the target installs with.
@@ -128,6 +128,14 @@ class BaseDependencyResolver(ABC):
                             # in the solver (diamond-dependency correctness). Done before the
                             # version_defined overwrite so every occurrence is captured.
                             child.parent_constraints.append(d_ver)
+                            child.parent_edges.append(
+                                IncomingEdge(
+                                    requirer_name=name,
+                                    requirer_version=version,
+                                    spec=d_ver,
+                                    is_peer=category == CATEGORY_PEER,
+                                )
+                            )
                             if category == CATEGORY_PEER:
                                 child.peer_requirements.append(PeerRequirement(requirer_name=name, spec=d_ver))
 
@@ -171,10 +179,21 @@ class BaseDependencyResolver(ABC):
 
         return self.find_root(root_name)
 
-    def match_child(self, name: str, version_constraint: str | None = None) -> Dependency | None:
+    def match_child(
+        self,
+        name: str,
+        version_constraint: str | None = None,
+        parent_data: dict | None = None,
+    ) -> Dependency | None:
         """
         Finds a dependency in the registry.
         In lockfiles, we prioritize finding the package that was actually resolved.
+
+        Args:
+            name: Dependency name as the parent declares it.
+            version_constraint: The parent's specifier for it.
+            parent_data: The parent's own lockfile entry. Formats that record where each copy
+                sits (npm) use it to resolve the copy the parent actually sees; others ignore it.
         """
         # 1. Try exact match first (standard)
         exact_match = self.registry.get(frozenset((name, version_constraint)), None)
@@ -195,11 +214,9 @@ class BaseDependencyResolver(ABC):
                 if normalized_match:
                     return normalized_match
 
-        # 3. Fallback: Search registry for this package name
-        # TODO: name-only lookup returns the first registry entry, which may be a nested copy
-        #       rather than the one the parent actually resolved to (e.g. micromatch's nested
-        #       picomatch 2.3.2 instead of the hoisted 4.0.4). The parent's specifier is then
-        #       recorded against the wrong node, producing bogus peer violations and constraints.
+        # 3. Fallback: the first registry entry with this name. Formats without per-copy
+        # placement have one version per name, so this is exact for them; npm resolves by
+        # location before it gets here (NPMResolverV3.match_child).
         return self.find_root(name)
 
     def find_root(self, name: str) -> Dependency | None:

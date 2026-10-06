@@ -179,6 +179,10 @@ class PackageRegistryApiNpm(AbstractPackageRegistryApi):
     """
 
     package_registry = ProjectPackagesRegistry.NPM
+    # npm nests a further copy rather than make dependents share one, and installs past an engines
+    # mismatch with only a warning.
+    one_copy_per_name = False
+    refuses_engine_mismatch = False
     settings: Settings
     session: requests.Session
 

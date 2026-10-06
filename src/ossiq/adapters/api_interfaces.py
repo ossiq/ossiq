@@ -137,6 +137,14 @@ class AbstractPackageRegistryApi(VersionRules, abc.ABC):
     # Shared default is safe: RequirementScope is frozen, and use_requirement_scope rebinds the attribute.
     requirement_scope: RequirementScope = RequirementScope()
 
+    # pip and uv install one version of a package per environment, so every dependent's range has to
+    # hold for it at once. npm instead nests a further copy when a dependent's range cannot share the
+    # one already installed; only a peer or an `overrides` rule forces a single instance there.
+    one_copy_per_name: bool = True
+    # pip and uv refuse a version whose engine requirement the runtime cannot meet. npm installs it
+    # with a warning, so there a mismatch stays advisory.
+    refuses_engine_mismatch: bool = True
+
     def use_requirement_scope(self, scope: RequirementScope) -> None:
         """Read declared requirements under *scope* from now on.
 

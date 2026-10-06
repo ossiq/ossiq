@@ -1,115 +1,28 @@
 # pylint: disable=redefined-outer-name,unused-variable,protected-access,unused-argument
 """
-Tests for PackageManagerJsNpm adapter.
-
-Tests focus on:
-1. API sanity checks (static methods, initialization)
-2. Package.json parsing (dependencies, devDependencies, etc.)
-3. Lockfile parsing for NPM versions 2 and 3
-4. Parser selection logic
-5. Project info extraction with and without lockfile
-6. Error handling
-7. npm alias packages (npm:pkg@version) and overrides
+Tests for PackageManagerJsNpm: project detection, lockfile version selection, project_info()
+with and without a lockfile, execute_update() and install_package().
 """
 
 import json
 import os
 import subprocess
-import tempfile
 from pathlib import Path
 from unittest.mock import patch
 
 import pytest
 
-from ossiq.adapters.package_managers.api_npm import (
-    CATEGORIES_DEV,
-    CATEGORIES_OPTIONAL,
-    CATEGORIES_OVERRIDDEN,
-    CATEGORIES_PEER,
-    NPMResolverV3,
-    PackageManagerJsNpm,
-    apply_direct_specs,
-    declared_engine_floors,
-    extract_min_node_version,
-)
-from ossiq.adapters.package_managers.dependency_tree import GraphExporter
-from ossiq.domain.common import ConstraintType, ProjectPackagesRegistry
+from ossiq.adapters.package_managers.api_npm import PackageManagerJsNpm
+from ossiq.adapters.package_managers.npm.constants import CATEGORIES_DEV, CATEGORIES_PEER
+from ossiq.domain.common import ProjectPackagesRegistry
 from ossiq.domain.exceptions import PackageManagerExecutionError, PackageManagerLockfileParsingError
 from ossiq.domain.packages_manager import NPM
-from ossiq.service.update import UpdateEntry, UpdatePlan
-from ossiq.settings import Settings
-
-TESTDATA_NPM = Path(__file__).parents[3] / "testdata" / "npm"
-
-# ============================================================================
-# Fixtures
-# ============================================================================
-
-
-@pytest.fixture
-def settings():
-    """Create Settings instance for testing."""
-    return Settings()
-
-
-@pytest.fixture
-def temp_project_dir():
-    """Create a temporary directory for test projects."""
-    with tempfile.TemporaryDirectory() as tmpdir:
-        yield tmpdir
-
-
-@pytest.fixture
-def npm_project_with_lockfile(temp_project_dir):
-    """
-    Create a temporary NPM project with package.json and package-lock.json files.
-
-    Returns a project with:
-    - Main dependencies: express, lodash
-    - Dev dependencies: jest, eslint
-    - Optional dependencies: fsevents
-    - Peer dependencies: react
-    """
-    package_json_path = Path(temp_project_dir) / "package.json"
-    lockfile_path = Path(temp_project_dir) / "package-lock.json"
-
-    # Create package.json
-    package_json_content = {
-        "name": "test-npm-project",
-        "version": "1.0.0",
-        "dependencies": {"express": "^4.18.0", "lodash": "~4.17.21"},
-        "devDependencies": {"jest": ">=29.0.0", "eslint": "^8.0.0"},
-        "optionalDependencies": {"fsevents": "^2.3.2"},
-        "peerDependencies": {"react": "^18.0.0"},
-    }
-    package_json_path.write_text(json.dumps(package_json_content, indent=2))
-
-    # Create package-lock.json (lockfile version 3)
-    lockfile_content = {
-        "name": "test-npm-project",
-        "version": "1.0.0",
-        "lockfileVersion": 3,
-        "requires": True,
-        "packages": {
-            "": {
-                "name": "test-npm-project",
-                "version": "1.0.0",
-                "dependencies": {"express": "^4.18.0", "lodash": "~4.17.21"},
-                "devDependencies": {"jest": ">=29.0.0", "eslint": "^8.0.0"},
-                "optionalDependencies": {"fsevents": "^2.3.2"},
-                "peerDependencies": {"react": "^18.0.0"},
-            },
-            "node_modules/express": {"version": "4.18.2"},
-            "node_modules/lodash": {"version": "4.17.21"},
-            "node_modules/jest": {"version": "29.7.0", "dev": True},
-            "node_modules/eslint": {"version": "8.56.0", "dev": True},
-            "node_modules/fsevents": {"version": "2.3.3", "optional": True},
-            "node_modules/react": {"version": "18.2.0", "peer": True},
-        },
-    }
-    lockfile_path.write_text(json.dumps(lockfile_content, indent=2))
-
-    return temp_project_dir
+from tests.adapters.package_managers.npm.helpers import (
+    make_npm_update_entry,
+    make_npm_update_plan,
+    read_package_json,
+    write_package_json,
+)
 
 
 @pytest.fixture
@@ -124,48 +37,6 @@ def npm_project_without_lockfile(temp_project_dir):
         "devDependencies": {"jest": "^29.0.0"},
     }
     package_json_path.write_text(json.dumps(package_json_content, indent=2))
-
-    return temp_project_dir
-
-
-@pytest.fixture
-def npm_project_dual_category_deps(temp_project_dir):
-    """
-    Create NPM project where a dependency appears in multiple categories.
-
-    This tests the edge case where one package is both a main dependency
-    and in optional/dev/peer dependencies.
-    """
-    package_json_path = Path(temp_project_dir) / "package.json"
-    lockfile_path = Path(temp_project_dir) / "package-lock.json"
-
-    package_json_content = {
-        "name": "dual-category-project",
-        "version": "1.0.0",
-        "dependencies": {"lodash": "^4.17.21"},
-        "devDependencies": {"lodash": "^4.17.21", "jest": "^29.0.0"},
-        "optionalDependencies": {"fsevents": "^2.3.2"},
-        "peerDependencies": {"jest": "^29.0.0"},
-    }
-    package_json_path.write_text(json.dumps(package_json_content, indent=2))
-
-    lockfile_content = {
-        "name": "dual-category-project",
-        "version": "1.0.0",
-        "lockfileVersion": 3,
-        "packages": {
-            "": {
-                "name": "dual-category-project",
-                "version": "1.0.0",
-                "dependencies": {"lodash": "^4.17.21"},
-                "devDependencies": {"lodash": "^4.17.21", "jest": "^29.0.0"},
-            },
-            "node_modules/lodash": {"version": "4.17.21"},
-            "node_modules/jest": {"version": "29.7.0"},
-            "node_modules/fsevents": {"version": "2.3.3"},
-        },
-    }
-    lockfile_path.write_text(json.dumps(lockfile_content, indent=2))
 
     return temp_project_dir
 
@@ -306,8 +177,6 @@ def npm_project_with_v2_lockfile_missing_packages(temp_project_dir):
 # ============================================================================
 # Test Static Methods
 # ============================================================================
-
-
 class TestProjectFiles:
     """Test suite for project_files() static method."""
 
@@ -346,93 +215,8 @@ class TestHasPackageManager:
 
 
 # ============================================================================
-# Test parse_package_json
-# ============================================================================
-
-
-class TestParsePackageJson:
-    """Test suite for parse_package_json() method."""
-
-    def test_parse_basic_dependencies(self, npm_project_with_lockfile, settings):
-        """Test parsing main dependencies from package.json."""
-        npm_manager = PackageManagerJsNpm(npm_project_with_lockfile, settings)
-
-        with open(Path(npm_project_with_lockfile) / "package.json", encoding="utf-8") as f:
-            project_data = json.load(f)
-
-        dependency_tree = npm_manager.parse_package_json(project_data)
-
-        # Main dependencies should contain express and lodash
-        express = dependency_tree.dependencies["express"]
-        lodash = dependency_tree.dependencies["lodash"]
-        assert express is not None
-        assert lodash is not None
-        assert express.version_defined == "^4.18.0"
-        assert lodash.version_defined == "~4.17.21"
-
-        # Version normalization should strip modifiers
-        assert express.version_installed == "4.18.0"
-        assert lodash.version_installed == "4.17.21"
-
-    def test_parses_all_non_production_categories(self, npm_project_with_lockfile, settings):
-        """All non-production category sections land in optional_dependencies with the right category tag."""
-        npm_manager = PackageManagerJsNpm(npm_project_with_lockfile, settings)
-        with open(Path(npm_project_with_lockfile) / "package.json", encoding="utf-8") as f:
-            project_data = json.load(f)
-
-        opt = npm_manager.parse_package_json(project_data).optional_dependencies
-        assert CATEGORIES_DEV in opt["jest"].categories
-        assert CATEGORIES_DEV in opt["eslint"].categories
-        assert CATEGORIES_OPTIONAL in opt["fsevents"].categories
-        assert CATEGORIES_PEER in opt["react"].categories
-
-    def test_parse_dual_category_dependencies(self, npm_project_dual_category_deps, settings):
-        """
-        Test dependencies that appear in multiple categories.
-
-        lodash is both in dependencies and devDependencies.
-        jest is both in devDependencies and peerDependencies.
-        """
-        npm_manager = PackageManagerJsNpm(npm_project_dual_category_deps, settings)
-
-        with open(Path(npm_project_dual_category_deps) / "package.json", encoding="utf-8") as f:
-            project_data = json.load(f)
-
-        dependency_tree = npm_manager.parse_package_json(project_data)
-        lodash_package = dependency_tree.dependencies["lodash"]
-        jest_package = dependency_tree.optional_dependencies["jest"]
-
-        assert "jest" not in dependency_tree.dependencies
-        # lodash should be in main dependencies (takes precedence)
-        assert lodash_package is not None
-        # lodash should also have dev category
-        assert CATEGORIES_DEV in lodash_package.categories
-
-        # jest should have both dev and peer categories
-        assert CATEGORIES_DEV in jest_package.categories
-        assert CATEGORIES_PEER in jest_package.categories
-
-    def test_parse_empty_dependencies(self, temp_project_dir, settings):
-        """Test parsing when project has no dependencies."""
-        package_json_path = Path(temp_project_dir) / "package.json"
-        package_json_path.write_text('{"name": "empty-project", "version": "1.0.0"}')
-
-        npm_manager = PackageManagerJsNpm(temp_project_dir, settings)
-
-        with open(package_json_path, encoding="utf-8") as f:
-            project_data = json.load(f)
-
-        dependency_tree = npm_manager.parse_package_json(project_data)
-
-        assert len(dependency_tree.dependencies) == 0
-        assert len(dependency_tree.optional_dependencies) == 0
-
-
-# ============================================================================
 # Test parse_lockfile_v3
 # ============================================================================
-
-
 class TestParseLockfileV3:
     """Test suite for parse_lockfile_v3() method."""
 
@@ -468,8 +252,6 @@ class TestParseLockfileV3:
 # ============================================================================
 # Test parse_lockfile_v2
 # ============================================================================
-
-
 class TestParseLockfileV2:
     """Test suite for parse_lockfile_v2() method."""
 
@@ -502,8 +284,6 @@ class TestParseLockfileV2:
 # ============================================================================
 # Test get_lockfile_parser
 # ============================================================================
-
-
 class TestGetLockfileParser:
     """Test suite for get_lockfile_parser() method."""
 
@@ -529,8 +309,6 @@ class TestGetLockfileParser:
 # ============================================================================
 # Test project_info
 # ============================================================================
-
-
 class TestProjectInfo:
     """Test suite for project_info() method."""
 
@@ -661,420 +439,8 @@ class TestProjectInfo:
 
 
 # ============================================================================
-# Fixtures: aliases and overrides
-# ============================================================================
-
-
-@pytest.fixture
-def npm_project_with_aliases(temp_project_dir):
-    """
-    Create a project whose lockfile contains npm alias packages.
-
-    The lockfile intentionally has 'name' fields that differ from the path
-    component (e.g. node_modules/lodash-tilde has name="lodash"), verifying
-    that the adapter uses the path component as identity.
-    """
-    package_json_path = Path(temp_project_dir) / "package.json"
-    lockfile_path = Path(temp_project_dir) / "package-lock.json"
-
-    package_json_content = {
-        "name": "alias-test-project",
-        "version": "1.0.0",
-        "dependencies": {
-            "lodash-tilde": "npm:lodash@~4.17.0",
-            "lodash-caret": "npm:lodash@^4.17.0",
-            "chalk-legacy": "npm:chalk@4.1.2",
-        },
-    }
-    package_json_path.write_text(json.dumps(package_json_content, indent=2))
-
-    lockfile_content = {
-        "name": "alias-test-project",
-        "version": "1.0.0",
-        "lockfileVersion": 3,
-        "packages": {
-            "": {
-                "name": "alias-test-project",
-                "version": "1.0.0",
-                "dependencies": {
-                    "lodash-tilde": "npm:lodash@~4.17.0",
-                    "lodash-caret": "npm:lodash@^4.17.0",
-                    "chalk-legacy": "npm:chalk@4.1.2",
-                },
-            },
-            # Aliases: 'name' differs from path component
-            "node_modules/lodash-tilde": {"name": "lodash", "version": "4.17.23"},
-            "node_modules/lodash-caret": {"name": "lodash", "version": "4.17.23"},
-            "node_modules/chalk-legacy": {"name": "chalk", "version": "4.1.2"},
-        },
-    }
-    lockfile_path.write_text(json.dumps(lockfile_content, indent=2))
-
-    return temp_project_dir
-
-
-@pytest.fixture
-def npm_project_with_overrides(temp_project_dir):
-    """
-    Create a project whose lockfile root entry declares overrides.
-
-    lodash is a transitive dependency of express that is forced to 4.0.0
-    via overrides.
-    """
-    package_json_path = Path(temp_project_dir) / "package.json"
-    lockfile_path = Path(temp_project_dir) / "package-lock.json"
-
-    package_json_content = {
-        "name": "overrides-test-project",
-        "version": "1.0.0",
-        "dependencies": {"express": "^4.18.0"},
-        "overrides": {"lodash": "4.0.0"},
-    }
-    package_json_path.write_text(json.dumps(package_json_content, indent=2))
-
-    lockfile_content = {
-        "name": "overrides-test-project",
-        "version": "1.0.0",
-        "lockfileVersion": 3,
-        "packages": {
-            "": {
-                "name": "overrides-test-project",
-                "version": "1.0.0",
-                "dependencies": {"express": "^4.18.0"},
-                "overrides": {"lodash": "4.0.0"},
-            },
-            "node_modules/express": {
-                "version": "4.18.2",
-                "dependencies": {"lodash": "^4.17.0"},
-            },
-            "node_modules/lodash": {"version": "4.0.0"},
-        },
-    }
-    lockfile_path.write_text(json.dumps(lockfile_content, indent=2))
-
-    return temp_project_dir
-
-
-# ============================================================================
-# Test extract_min_node_version helper
-# ============================================================================
-
-
-class TestExtractMinNodeVersion:
-    """Test suite for the extract_min_node_version module-level helper."""
-
-    @pytest.mark.parametrize(
-        "node_range,expected",
-        [
-            (">=18.0.0", "18.0.0"),
-            ("^18", "18.0.0"),
-            ("~18.4", "18.4.0"),
-            ("18 || 20", "18.0.0"),
-            (">=18.0.0 <20.0.0", "18.0.0"),
-            ("18.x", "18.0.0"),
-            (">=14.x", "14.0.0"),
-            (">= 18.x", "18.0.0"),
-            (">14.x", "15.0.0"),
-            ("16.0.0 - 18.0.0", "16.0.0"),
-            (">= 18", "18.0.0"),
-            (">=14.17", "14.17.0"),
-            ("v18.0.0", "18.0.0"),
-            ("<20", None),
-            ("*", None),
-            ("!=19", None),
-            # An exclusive floor names a version the range itself excludes, so there is no
-            # concrete minimum to report — extract_min_python_version refuses ">" for the
-            # same reason. Returning "18.0.0" here made 18.0.0 look admitted when it isn't.
-            (">18.0.0", None),
-            # ">18" is an X-range, not an exclusive bound: npm reads it as ">=19.0.0".
-            (">18", "19.0.0"),
-            # A branch with no floor means the range has none.
-            ("<16 || >=18", None),
-            ("^14.x", "14.0.0"),
-            (">=18.0.0 || >19.0.0", "18.0.0"),
-            ("14.17.1", "14.17.1"),
-            ("14", "14.0.0"),
-            ("not-a-version", None),
-            ("", None),
-        ],
-    )
-    def test_extract_min_node_version(self, node_range: str, expected: str | None) -> None:
-        assert extract_min_node_version(node_range) == expected
-
-
-# ============================================================================
-# Test PackageManagerJsNpm.parse_npm_alias helper
-# ============================================================================
-
-
-class TestParseNpmAlias:
-    """Test suite for the _parse_npm_alias module-level helper."""
-
-    @pytest.mark.parametrize(
-        "version,expected_name,expected_constraint",
-        [
-            ("npm:lodash@~4.17.0", "lodash", "~4.17.0"),
-            ("npm:chalk@4.1.2", "chalk", "4.1.2"),
-            ("npm:@scope/pkg@^1.0.0", "@scope/pkg", "^1.0.0"),
-            ("^4.18.0", None, "^4.18.0"),
-        ],
-    )
-    def test_parses_alias(self, version, expected_name, expected_constraint):
-        """Test that alias specifiers are parsed and plain versions pass through."""
-        canonical_name, constraint = PackageManagerJsNpm.parse_npm_alias(version)
-        assert canonical_name == expected_name
-        assert constraint == expected_constraint
-
-
-# ============================================================================
-# Test NPM alias packages (lockfile path)
-# ============================================================================
-
-
-class TestNpmAliases:
-    """Test suite for npm alias packages (npm:pkg@version specifiers in lockfile)."""
-
-    def test_alias_packages_resolved_in_tree(self, npm_project_with_aliases, settings):
-        """Alias packages appear as direct deps with correct version_installed, version_defined, and canonical_name."""
-        npm_manager = PackageManagerJsNpm(npm_project_with_aliases, settings)
-        project = npm_manager.project_info()
-        deps = project.dependency_tree.dependencies
-
-        assert "lodash-tilde" in deps
-        assert "lodash-caret" in deps
-        assert "chalk-legacy" in deps
-
-        assert deps["lodash-tilde"].version_installed == "4.17.23"
-        assert deps["lodash-caret"].version_installed == "4.17.23"
-        assert deps["chalk-legacy"].version_installed == "4.1.2"
-
-        assert deps["lodash-tilde"].version_defined == "npm:lodash@~4.17.0"
-        assert deps["lodash-caret"].version_defined == "npm:lodash@^4.17.0"
-        assert deps["chalk-legacy"].version_defined == "npm:chalk@4.1.2"
-
-        assert deps["lodash-tilde"].canonical_name == "lodash"
-        assert deps["lodash-caret"].canonical_name == "lodash"
-        assert deps["chalk-legacy"].canonical_name == "chalk"
-
-    def test_two_aliases_for_same_package_are_separate_entries(self, npm_project_with_aliases, settings):
-        """Two aliases pointing to the same package resolve as distinct Dependency objects."""
-        npm_manager = PackageManagerJsNpm(npm_project_with_aliases, settings)
-        project = npm_manager.project_info()
-        tilde = project.dependency_tree.dependencies["lodash-tilde"]
-        caret = project.dependency_tree.dependencies["lodash-caret"]
-
-        assert tilde is not caret
-        assert tilde.version_defined != caret.version_defined
-
-
-# ============================================================================
-# Test overrides
-# ============================================================================
-
-
-class TestNpmOverrides:
-    """Test suite for npm overrides support."""
-
-    def test_overridden_package_gets_category(self, npm_project_with_overrides, settings):
-        """Test that packages listed in overrides receive the 'overridden' category."""
-        # Arrange
-        npm_manager = PackageManagerJsNpm(npm_project_with_overrides, settings)
-
-        # Act
-        project = npm_manager.project_info()
-
-        # Find lodash (transitive dep of express, overridden to 4.0.0)
-        lodash = project.dependency_tree.dependencies["express"].dependencies.get("lodash")
-        assert lodash is not None
-        assert CATEGORIES_OVERRIDDEN in lodash.categories
-
-    def test_non_overridden_packages_have_no_override_category(self, npm_project_with_overrides, settings):
-        """Test that packages not in overrides do not get the 'overridden' category."""
-        # Arrange
-        npm_manager = PackageManagerJsNpm(npm_project_with_overrides, settings)
-
-        # Act
-        project = npm_manager.project_info()
-
-        # Assert
-        express = project.dependency_tree.dependencies["express"]
-        assert CATEGORIES_OVERRIDDEN not in express.categories
-
-    @pytest.mark.parametrize(
-        "overrides_input,expected_flat,expected_scope",
-        [
-            ({"foo": "1.0.0", "bar": "2.0.0"}, {"foo": "1.0.0", "bar": "2.0.0"}, {}),
-            ({"foo": {".": "1.0.0", "bar": "2.0.0"}}, {"foo": "1.0.0", "bar": "2.0.0"}, {"bar": ["foo"]}),
-            ({}, {}, {}),
-        ],
-    )
-    def test_flatten_overrides(self, overrides_input, expected_flat, expected_scope):
-        """_flatten_overrides correctly handles flat, nested-dot, and empty override maps."""
-        flat, scope_paths = NPMResolverV3._flatten_overrides(overrides_input)
-        assert flat == expected_flat
-        assert scope_paths == expected_scope
-
-
-# ============================================================================
-# Integration test against testdata/npm/project3 (real lockfile with aliases)
-# ============================================================================
-
-
-class TestNpmProject3Integration:
-    """Integration tests using the real project3 lockfile (alias-heavy project)."""
-
-    @pytest.fixture
-    def project3_path(self):
-        """Return path to testdata/npm/project3."""
-        path = TESTDATA_NPM / "project3"
-        if not path.exists():
-            pytest.skip("testdata/npm/project3 not found")
-        return str(path)
-
-    def test_alias_packages_present_in_tree(self, project3_path, settings):
-        """Test that all npm alias dependencies appear in the dependency tree."""
-        # Arrange
-        npm_manager = PackageManagerJsNpm(project3_path, settings)
-
-        # Act
-        project = npm_manager.project_info()
-        deps = project.dependency_tree.dependencies
-
-        # Assert — all aliases declared in package.json must be linked
-        for alias in ["lodash-range-tilde", "lodash-range-caret", "ms-zero-caret", "ms-zero-tilde"]:
-            assert alias in deps, f"Expected alias '{alias}' in dependency tree"
-
-    def test_chalk_and_chalk_legacy_are_separate_entries(self, project3_path, settings):
-        """Test that chalk and chalk-legacy coexist as separate dependencies."""
-        # Arrange
-        npm_manager = PackageManagerJsNpm(project3_path, settings)
-
-        # Act
-        project = npm_manager.project_info()
-        deps = project.dependency_tree.dependencies
-
-        # Assert — both the alias and the non-alias version must be present
-        assert "chalk" in deps, "Expected 'chalk' (v5) in dependency tree"
-        assert "chalk-legacy" in deps, "Expected 'chalk-legacy' alias in dependency tree"
-        assert deps["chalk"] is not deps["chalk-legacy"]
-
-
-# ============================================================================
-# Test constraint classification for npm specifiers
-# ============================================================================
-
-
-class TestConstraintClassification:
-    """Test that constraint_info.type is set correctly based on version specifiers."""
-
-    @pytest.mark.parametrize(
-        "dep_key,dep_section,expected_type",
-        [
-            ("express", "dependencies", ConstraintType.DECLARED),  # "^4.18.0"
-            ("lodash", "dependencies", ConstraintType.DECLARED),  # "~4.17.21"
-            ("jest", "optional_dependencies", ConstraintType.NARROWED),  # ">=29.0.0"
-        ],
-    )
-    def test_constraint_type_from_specifier(
-        self, dep_key, dep_section, expected_type, npm_project_with_lockfile, settings
-    ):
-        """Caret/tilde → DECLARED; comparison operator → NARROWED."""
-        project = PackageManagerJsNpm(npm_project_with_lockfile, settings).project_info()
-        dep = getattr(project.dependency_tree, dep_section)[dep_key]
-        assert dep.constraint_info.type == expected_type
-
-    def test_bare_exact_version_is_pinned(self, temp_project_dir, settings):
-        """Bare x.y.z (no operator) should be PINNED."""
-        pkg_json = Path(temp_project_dir) / "package.json"
-        lockfile = Path(temp_project_dir) / "package-lock.json"
-        pkg_json.write_text(
-            json.dumps(
-                {
-                    "name": "pin-test",
-                    "version": "1.0.0",
-                    "dependencies": {"lodash": "4.17.21"},
-                }
-            )
-        )
-        lockfile.write_text(
-            json.dumps(
-                {
-                    "name": "pin-test",
-                    "version": "1.0.0",
-                    "lockfileVersion": 3,
-                    "packages": {
-                        "": {"name": "pin-test", "version": "1.0.0", "dependencies": {"lodash": "4.17.21"}},
-                        "node_modules/lodash": {"version": "4.17.21"},
-                    },
-                }
-            )
-        )
-        project = PackageManagerJsNpm(temp_project_dir, settings).project_info()
-        lodash = project.dependency_tree.dependencies["lodash"]
-        assert lodash.constraint_info.type == ConstraintType.PINNED
-
-
-# ============================================================================
-# Helpers for update-command tests
-# ============================================================================
-
-
-def make_npm_update_entry(
-    name: str,
-    current: str,
-    recommended: str,
-    version_defined: str | None = None,
-    is_direct: bool = True,
-    is_forced: bool = False,
-    dependency_name: str | None = None,
-) -> UpdateEntry:
-    return UpdateEntry(
-        package_name=name,
-        dependency_name=dependency_name,
-        current_version=current,
-        recommended_version=recommended,
-        is_direct=is_direct,
-        reason=None,
-        version_defined=version_defined,
-        is_forced=is_forced,
-    )
-
-
-def make_npm_update_plan(
-    direct: list[UpdateEntry] | None = None,
-    transitive: list[UpdateEntry] | None = None,
-    project_path: str = "/tmp/test-npm",
-    installed_versions: dict[str, str] | None = None,
-    pin_all: bool = False,
-) -> UpdatePlan:
-    return UpdatePlan(
-        project_name="test-npm-project",
-        project_path=project_path,
-        registry_type="NPM",
-        package_manager_name="npm",
-        direct_entries=direct or [],
-        transitive_entries=transitive or [],
-        installed_versions=installed_versions or {},
-        pin_all=pin_all,
-    )
-
-
-def write_package_json(project_dir: str, pkg: dict) -> None:
-    path = os.path.join(project_dir, "package.json")
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(pkg, f)
-
-
-def read_package_json(project_dir: str) -> dict:
-    with open(os.path.join(project_dir, "package.json"), encoding="utf-8") as f:
-        return json.load(f)
-
-
-# ============================================================================
 # Test execute_update
 # ============================================================================
-
-
 class TestExecuteUpdate:
     """Tests for execute_update() — writes final package.json then runs npm install."""
 
@@ -1146,7 +512,7 @@ class TestExecuteUpdate:
         with patch("ossiq.adapters.package_managers.api_npm.subprocess.run"):
             npm.execute_update(plan)
         pkg = read_package_json(temp_project_dir)
-        assert pkg["overrides"]["ms"] == "2.1.3"
+        assert pkg["overrides"] == {"ms@2.1.2": "2.1.3"}
 
     def test_existing_overrides_merged_not_replaced(self, npm, temp_project_dir):
         write_package_json(
@@ -1165,7 +531,92 @@ class TestExecuteUpdate:
         with patch("ossiq.adapters.package_managers.api_npm.subprocess.run"):
             npm.execute_update(plan)
         pkg = read_package_json(temp_project_dir)
-        assert pkg["overrides"] == {"lodash": "4.17.0", "ms": "2.1.3"}
+        assert pkg["overrides"] == {"lodash": "4.17.0", "ms@2.1.2": "2.1.3"}
+
+    def test_bump_replaces_the_rule_that_produced_the_current_version(self, npm, temp_project_dir):
+        """A second bump of the same copy leaves one rule, not a trail of stale ones."""
+        write_package_json(
+            temp_project_dir,
+            {
+                "name": "app",
+                "version": "1.0.0",
+                "dependencies": {"express": "^4.18.0"},
+                "overrides": {"ms@2.1.2": "2.1.3"},
+                "ossiq:metadata": {"overrides": {"ms@2.1.2": "2.1.3"}},
+            },
+        )
+        plan = make_npm_update_plan(
+            transitive=[make_npm_update_entry("ms", "2.1.3", "2.1.5", is_direct=False)],
+            project_path=temp_project_dir,
+        )
+        with patch("ossiq.adapters.package_managers.api_npm.subprocess.run"):
+            npm.execute_update(plan)
+        pkg = read_package_json(temp_project_dir)
+        assert pkg["overrides"] == {"ms@2.1.3": "2.1.5"}
+        assert pkg["ossiq:metadata"]["overrides"] == {"ms@2.1.3": "2.1.5"}
+
+    def test_bump_replaces_a_plain_override_oss_iq_wrote_earlier(self, npm, temp_project_dir):
+        """The pre-keyed format forced every copy; the keyed rule takes over from it."""
+        write_package_json(
+            temp_project_dir,
+            {
+                "name": "app",
+                "version": "1.0.0",
+                "dependencies": {"express": "^4.18.0"},
+                "overrides": {"ms": "2.1.3"},
+                "ossiq:metadata": {"overrides": {"ms": "2.1.3"}},
+            },
+        )
+        plan = make_npm_update_plan(
+            transitive=[make_npm_update_entry("ms", "2.1.3", "2.1.5", is_direct=False)],
+            project_path=temp_project_dir,
+        )
+        with patch("ossiq.adapters.package_managers.api_npm.subprocess.run"):
+            npm.execute_update(plan)
+        pkg = read_package_json(temp_project_dir)
+        assert pkg["overrides"] == {"ms@2.1.3": "2.1.5"}
+
+    def test_rules_for_other_copies_of_the_name_are_left_alone(self, npm, temp_project_dir):
+        """Bumping one copy must not rewrite the rule that governs another copy of the same name."""
+        write_package_json(
+            temp_project_dir,
+            {
+                "name": "app",
+                "version": "1.0.0",
+                "dependencies": {"express": "^4.18.0"},
+                "overrides": {"ms@1.0.0": "1.0.1"},
+                "ossiq:metadata": {"overrides": {"ms@1.0.0": "1.0.1"}},
+            },
+        )
+        plan = make_npm_update_plan(
+            transitive=[make_npm_update_entry("ms", "2.1.2", "2.1.3", is_direct=False)],
+            project_path=temp_project_dir,
+        )
+        with patch("ossiq.adapters.package_managers.api_npm.subprocess.run"):
+            npm.execute_update(plan)
+        pkg = read_package_json(temp_project_dir)
+        assert pkg["overrides"] == {"ms@1.0.0": "1.0.1", "ms@2.1.2": "2.1.3"}
+
+    def test_user_rule_governing_the_copy_blocks_the_write(self, npm, temp_project_dir):
+        """A rule the user wrote for this copy wins; OSS IQ adds nothing beside it."""
+        write_package_json(
+            temp_project_dir,
+            {
+                "name": "app",
+                "version": "1.0.0",
+                "dependencies": {"express": "^4.18.0"},
+                "overrides": {"ms": "2.1.2"},
+            },
+        )
+        plan = make_npm_update_plan(
+            transitive=[make_npm_update_entry("ms", "2.1.2", "2.1.3", is_direct=False)],
+            project_path=temp_project_dir,
+        )
+        with patch("ossiq.adapters.package_managers.api_npm.subprocess.run"):
+            npm.execute_update(plan)
+        pkg = read_package_json(temp_project_dir)
+        assert pkg["overrides"] == {"ms": "2.1.2"}
+        assert "ossiq:metadata" not in pkg
 
     def test_no_overrides_key_when_no_transitive_updates(self, npm, temp_project_dir):
         write_package_json(
@@ -1243,7 +694,13 @@ class TestInstallPackage:
             mock_run.return_value.returncode = 0
             result = npm.install_package("express", "4.19.0")
         assert result == 0
-        assert mock_run.call_args[0][0] == ["npm", "install", "express@4.19.0"]
+
+    def test_install_scripts_are_not_run(self, npm, temp_project_dir):
+        """Same posture as execute_update: lifecycle scripts of what gets installed stay off."""
+        write_package_json(temp_project_dir, {"name": "app", "version": "1.0.0", "dependencies": {}})
+        with patch("ossiq.adapters.package_managers.api_npm.subprocess.run") as mock_run:
+            npm.install_package("express", "4.19.0")
+        assert mock_run.call_args[0][0] == ["npm", "install", "--ignore-scripts", "express@4.19.0"]
 
     def test_restores_original_on_install_failure(self, npm, temp_project_dir):
         write_package_json(temp_project_dir, {"name": "app", "version": "1.0.0", "dependencies": {}})
@@ -1255,262 +712,3 @@ class TestInstallPackage:
             with pytest.raises(PackageManagerExecutionError):
                 npm.install_package("express", "4.19.0")
         assert manifest_path.read_text(encoding="utf-8") == original_content
-
-
-def write_lockfile_with_override(project_dir: str, name: str, version: str) -> None:
-    lockfile_path = Path(project_dir) / "package-lock.json"
-    lockfile_content = {
-        "name": "app",
-        "version": "1.0.0",
-        "lockfileVersion": 3,
-        "packages": {
-            "": {
-                "name": "app",
-                "version": "1.0.0",
-                "dependencies": {"express": "^4.18.0"},
-                "overrides": {name: version},
-            },
-            "node_modules/express": {"version": "4.18.2", "dependencies": {name: "^2.1.0"}},
-            f"node_modules/{name}": {"version": version},
-        },
-    }
-    lockfile_path.write_text(json.dumps(lockfile_content))
-
-
-class TestOssiqMetadataOwnership:
-    """Tests for ossiq:metadata override ownership (item #14): execute_update records what it
-    wrote, project_info() compares against it to tell OSS IQ-authored overrides apart from
-    user-authored ones, and a later execute_update never clobbers a user's hand-edit."""
-
-    @pytest.fixture
-    def npm(self, settings, temp_project_dir):
-        return PackageManagerJsNpm(temp_project_dir, settings)
-
-    def test_write_then_read_reports_ossiq_authored(self, npm, temp_project_dir):
-        write_package_json(
-            temp_project_dir, {"name": "app", "version": "1.0.0", "dependencies": {"express": "^4.18.0"}}
-        )
-        plan = make_npm_update_plan(
-            transitive=[make_npm_update_entry("ms", "2.1.2", "2.1.3", is_direct=False)],
-            project_path=temp_project_dir,
-        )
-        with patch("ossiq.adapters.package_managers.api_npm.subprocess.run"):
-            npm.execute_update(plan)
-
-        pkg = read_package_json(temp_project_dir)
-        assert pkg["overrides"]["ms"] == "2.1.3"
-        assert pkg["ossiq:metadata"]["overrides"]["ms"] == "2.1.3"
-
-        # execute_update never touches the lockfile — provide one with the matching override so
-        # project_info's read side has something to compare against.
-        write_lockfile_with_override(temp_project_dir, "ms", "2.1.3")
-
-        project = npm.project_info()
-        ms = project.dependency_tree.dependencies["express"].dependencies.get("ms")
-        assert ms is not None
-        assert ms.constraint_info.is_ossiq_authored is True
-
-    def test_hand_edited_override_is_not_ossiq_authored(self, npm, temp_project_dir):
-        write_package_json(
-            temp_project_dir, {"name": "app", "version": "1.0.0", "dependencies": {"express": "^4.18.0"}}
-        )
-        plan = make_npm_update_plan(
-            transitive=[make_npm_update_entry("ms", "2.1.2", "2.1.3", is_direct=False)],
-            project_path=temp_project_dir,
-        )
-        with patch("ossiq.adapters.package_managers.api_npm.subprocess.run"):
-            npm.execute_update(plan)
-
-        # Simulate the user hand-editing the override value (ossiq:metadata is left untouched).
-        pkg = read_package_json(temp_project_dir)
-        pkg["overrides"]["ms"] = "2.1.9"
-        write_package_json(temp_project_dir, pkg)
-        write_lockfile_with_override(temp_project_dir, "ms", "2.1.9")
-
-        project = npm.project_info()
-        ms = project.dependency_tree.dependencies["express"].dependencies.get("ms")
-        assert ms is not None
-        assert ms.constraint_info.is_ossiq_authored is False
-
-    def test_second_update_never_clobbers_hand_edited_override(self, npm, temp_project_dir):
-        write_package_json(
-            temp_project_dir, {"name": "app", "version": "1.0.0", "dependencies": {"express": "^4.18.0"}}
-        )
-        plan = make_npm_update_plan(
-            transitive=[make_npm_update_entry("ms", "2.1.2", "2.1.3", is_direct=False)],
-            project_path=temp_project_dir,
-        )
-        with patch("ossiq.adapters.package_managers.api_npm.subprocess.run"):
-            npm.execute_update(plan)
-
-        # User hand-edits the override to a value OSS IQ never wrote.
-        pkg = read_package_json(temp_project_dir)
-        pkg["overrides"]["ms"] = "2.1.9"
-        write_package_json(temp_project_dir, pkg)
-
-        # A second run recommends yet another version for the same package.
-        plan2 = make_npm_update_plan(
-            transitive=[make_npm_update_entry("ms", "2.1.2", "2.1.5", is_direct=False)],
-            project_path=temp_project_dir,
-        )
-        with patch("ossiq.adapters.package_managers.api_npm.subprocess.run"):
-            npm.execute_update(plan2)
-
-        pkg = read_package_json(temp_project_dir)
-        assert pkg["overrides"]["ms"] == "2.1.9"
-
-
-# ============================================================================
-# Test dev-chain transitive dependency visibility (js-cookie / CVE scenario)
-# ============================================================================
-
-
-@pytest.fixture
-def npm_project_with_dev_transitive_deps(temp_project_dir):
-    """
-    Project where a devDependency (test-utils) has a production dep (js-helper)
-    which in turn has a production dep (js-cookie).
-
-    This mirrors the real-world scenario:
-      root (devDependencies) → @vue/test-utils
-      @vue/test-utils (dependencies) → js-beautify
-      js-beautify (dependencies) → js-cookie  ← has CVE, must not be invisible
-    """
-    package_json_path = Path(temp_project_dir) / "package.json"
-    lockfile_path = Path(temp_project_dir) / "package-lock.json"
-
-    package_json_content = {
-        "name": "test-project",
-        "version": "1.0.0",
-        "devDependencies": {"test-utils": "^1.0.0"},
-    }
-    package_json_path.write_text(json.dumps(package_json_content, indent=2))
-
-    lockfile_content = {
-        "name": "test-project",
-        "lockfileVersion": 3,
-        "requires": True,
-        "packages": {
-            "": {"name": "test-project", "devDependencies": {"test-utils": "^1.0.0"}},
-            "node_modules/test-utils": {
-                "version": "1.0.0",
-                "dev": True,
-                "dependencies": {"js-helper": "^2.0.0"},
-            },
-            "node_modules/js-helper": {
-                "version": "2.0.0",
-                "dev": True,
-                "dependencies": {"js-cookie": "^3.0.5"},
-            },
-            "node_modules/js-cookie": {"version": "3.0.5", "dev": True},
-        },
-    }
-    lockfile_path.write_text(json.dumps(lockfile_content, indent=2))
-
-    return temp_project_dir
-
-
-class TestDevTransitiveDeps:
-    """Test that transitive deps of devDependencies are reachable in the graph."""
-
-    def test_graph_links_dev_transitive_chain(self, npm_project_with_dev_transitive_deps, settings):
-        """The graph must correctly wire dev dep → js-helper → js-cookie via production edges."""
-        npm_manager = PackageManagerJsNpm(npm_project_with_dev_transitive_deps, settings)
-        project = npm_manager.project_info()
-        tree = project.dependency_tree
-
-        test_utils = tree.optional_dependencies["test-utils"]
-        assert "js-helper" in test_utils.dependencies, "js-helper must be a production edge of test-utils"
-        js_helper = test_utils.dependencies["js-helper"]
-        assert "js-cookie" in js_helper.dependencies, "js-cookie must be a production edge of js-helper"
-
-    def test_walk_with_optional_roots_discovers_dev_transitive(self, npm_project_with_dev_transitive_deps, settings):
-        """walk_all_paths(include_optional_roots=True) must yield js-cookie."""
-        npm_manager = PackageManagerJsNpm(npm_project_with_dev_transitive_deps, settings)
-        project = npm_manager.project_info()
-        walker = GraphExporter(project.dependency_tree)
-
-        discovered = {node.name for node, _ in walker.walk_all_paths(include_optional_roots=True)}
-        assert "js-cookie" in discovered
-        assert "js-helper" in discovered
-
-    def test_walk_without_optional_roots_misses_dev_transitive(self, npm_project_with_dev_transitive_deps, settings):
-        """walk_all_paths(include_optional_roots=False) must NOT yield js-cookie (no prod chain)."""
-        npm_manager = PackageManagerJsNpm(npm_project_with_dev_transitive_deps, settings)
-        project = npm_manager.project_info()
-        walker = GraphExporter(project.dependency_tree)
-
-        discovered = {node.name for node, _ in walker.walk_all_paths(include_optional_roots=False)}
-        assert "js-cookie" not in discovered
-        assert "js-helper" not in discovered
-
-
-class TestApplyDirectSpecsWithAliases:
-    """The manifest rewrite iterates manifest keys, so it has to be keyed on them.
-
-    An npm alias declares `uuid-v7: "npm:uuid@^7.0.0"`; the entry's registry name is `uuid`, which
-    matches no key in any DEP_SECTIONS map. Keying on package_name meant apply silently wrote
-    nothing for every aliased dependency, and a plain `uuid` declared alongside an aliased
-    `uuid-*` could pick up the wrong entry's version.
-    """
-
-    def test_aliased_dep_is_matched_and_left_untouched(self):
-        pkg = {"dependencies": {"uuid-v7": "npm:uuid@^7.0.0"}}
-        entry = make_npm_update_entry("uuid", "7.0.3", "7.1.0", dependency_name="uuid-v7")
-
-        apply_direct_specs(pkg, make_npm_update_plan(direct=[entry]))
-
-        # relax_spec deliberately returns npm: specs unchanged — but it is now reached at all.
-        assert pkg["dependencies"]["uuid-v7"] == "npm:uuid@^7.0.0"
-
-    def test_plain_dep_alongside_an_alias_gets_its_own_entry(self):
-        pkg = {"dependencies": {"uuid": "^7.0.0", "uuid-v11": "npm:uuid@>11.0.0"}}
-        plan = make_npm_update_plan(
-            direct=[
-                make_npm_update_entry("uuid", "7.0.3", "7.1.0"),
-                make_npm_update_entry("uuid", "13.0.0", "14.0.2", dependency_name="uuid-v11"),
-            ]
-        )
-
-        apply_direct_specs(pkg, plan)
-
-        assert pkg["dependencies"]["uuid"] == "^7.1.0"
-        assert pkg["dependencies"]["uuid-v11"] == "npm:uuid@>11.0.0"
-
-    def test_unaliased_dep_is_unaffected(self):
-        pkg = {"dependencies": {"lodash": "^4.17.0"}}
-        entry = make_npm_update_entry("lodash", "4.17.21", "4.18.1")
-
-        apply_direct_specs(pkg, make_npm_update_plan(direct=[entry]))
-
-        assert pkg["dependencies"]["lodash"] == "^4.18.1"
-
-
-class TestDeclaredEngineFloors:
-    """The declared fallback carried only `node`, so the --no-probe-runtime path had no npm floor
-    to check an `engines.npm` requirement against even once the matcher could evaluate one."""
-
-    def test_node_and_npm_floors_are_both_carried(self):
-        floors = declared_engine_floors({"node": ">=18.0.0", "npm": ">=9.0.0"})
-
-        assert floors == {"node": "18.0.0", "npm": "9.0.0"}
-
-    def test_the_npm_floor_is_parsed_as_an_npm_range(self):
-        assert declared_engine_floors({"npm": "^8.6.0"}) == {"npm": "8.6.0"}
-
-    def test_unevaluable_package_managers_are_not_carried(self):
-        """pnpm/yarn have no adapter and no probe, so a declared floor for one would be checked
-        only on the declared path — worse than not checking it at all."""
-        assert declared_engine_floors({"pnpm": "^8.6.0", "yarn": "~4.1"}) is None
-
-    def test_a_range_with_no_nameable_floor_is_dropped_not_guessed(self):
-        assert declared_engine_floors({"node": ">=18.0.0", "npm": "*"}) == {"node": "18.0.0"}
-
-    def test_non_string_and_absent_engines_are_ignored(self):
-        assert declared_engine_floors({"node": {"nested": "junk"}}) is None
-        assert declared_engine_floors({}) is None
-        assert declared_engine_floors(None) is None
-
-    def test_unknown_engine_keys_are_not_carried(self):
-        """Only keys the matcher can actually evaluate; a floor nothing checks is noise."""
-        assert declared_engine_floors({"bun": ">=1.0.0", "node": ">=18.0.0"}) == {"node": "18.0.0"}
