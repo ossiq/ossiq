@@ -5,7 +5,7 @@ Project scan orchestration: fetch from external sources, run the solver, compute
 import logging
 import time
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime
 from typing import Protocol
 
@@ -30,6 +30,7 @@ from ossiq.domain.package import Package
 from ossiq.domain.project import Dependency, Project
 from ossiq.domain.requirement_scope import RequirementScope
 from ossiq.service.library_scan import compute_upgrade_paths, resolve_library_constraints
+from ossiq.service.project.copies import group_nodes_by_copy, installed_copies_by_name
 from ossiq.service.project.epss import populate_epss
 from ossiq.service.project.models import (
     DependencyDescriptor,
@@ -185,6 +186,7 @@ def build_scan_descriptors(project_info, sources: AbstractProjectSources) -> Sca
     prod_deps = [direct_descriptor(dep, is_optional=False) for dep in prod_source]
 
     opt_deps: list[DependencyDescriptor] = []
+    opt_source: list[Dependency] = []
     if not sources.production:
         opt_source, opt_git = partition_git_hosted(project_info.optional_dependencies.values(), detect_git_hosted)
         git_hosted_deps += opt_git
@@ -197,14 +199,47 @@ def build_scan_descriptors(project_info, sources: AbstractProjectSources) -> Sca
 
     direct_canonical_names = {dep.canonical_name for dep in prod_deps + opt_deps}
     walker = GraphExporter(project_info.dependency_tree)
-    trans_descriptors: dict[str, DependencyDescriptor] = {}
+    # canonical name -> version -> the node and path the walk last reached it by. Kept per version
+    # because npm can install several; a one-copy-per-name manager only ever fills one.
+    trans_nodes: dict[str, dict[str, tuple[Dependency, list[str]]]] = {}
+    last_reached: dict[str, str] = {}
+    # Every node the walk reaches, once however many paths lead to it.
+    pool: dict[int, Dependency] = {id(node): node for node in [*prod_source, *opt_source]}
     for node, path in walker.walk_all_paths(include_optional_roots=not sources.production):
+        pool[id(node)] = node
         if node.canonical_name in direct_canonical_names:
             continue
         if detect_git_hosted and is_git_hosted_source(node.version_defined, node.source):
             git_hosted_deps.append(node)
             continue
-        trans_descriptors[node.canonical_name] = DependencyDescriptor(
+        trans_nodes.setdefault(node.canonical_name, {})[node.version_installed] = (node, path)
+        last_reached[node.canonical_name] = node.version_installed
+
+    grouped = group_nodes_by_copy(pool.values())
+    copies_by_name = installed_copies_by_name(grouped, sources.packages_registry.compare_versions)
+    nests_copies = not sources.packages_registry.one_copy_per_name
+
+    trans_descriptors: dict[str, DependencyDescriptor] = {}
+    for canonical_name, by_version in trans_nodes.items():
+        copies = copies_by_name[canonical_name]
+        if nests_copies:
+            # Newest copy stands for the name: deterministic, unlike whichever the walk reached last.
+            primary_version = next(copy.version for copy in copies if copy.version in by_version)
+        else:
+            primary_version = last_reached[canonical_name]
+        node, path = by_version[primary_version]
+        if nests_copies:
+            # A copy's edges are the requirements on that install; the name's constraint set is the
+            # union, which is what an override keyed to the primary copy would actually rewrite.
+            constraints = [
+                spec
+                for copy in copies
+                for member in grouped[(canonical_name, copy.version)]
+                for spec in member.parent_constraints
+            ]
+        else:
+            constraints = list(node.parent_constraints)
+        trans_descriptors[canonical_name] = DependencyDescriptor(
             name=node.name,
             canonical_name=node.canonical_name,
             version=node.version_installed,
@@ -213,11 +248,16 @@ def build_scan_descriptors(project_info, sources: AbstractProjectSources) -> Sca
             version_constraint=node.version_defined,
             constraint_info=node.constraint_info,
             extras=node.extras,
-            all_constraints=list(node.parent_constraints),
+            all_constraints=constraints,
             peer_requirements=list(node.peer_requirements),
+            installed_copies=copies,
             version_constraint_declared=node.version_constraint_declared,
         )
     trans_deps = list(trans_descriptors.values())
+
+    # A direct dependency can also be installed nested elsewhere, so it needs the copies too.
+    prod_deps = [replace(dep, installed_copies=copies_by_name.get(dep.canonical_name, [])) for dep in prod_deps]
+    opt_deps = [replace(dep, installed_copies=copies_by_name.get(dep.canonical_name, [])) for dep in opt_deps]
 
     ignored_packages = build_ignored_packages(git_hosted_deps, prod_deps + opt_deps, ignore_set)
 

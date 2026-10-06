@@ -8,8 +8,10 @@ from ossiq.domain.common import (
     ConstraintType,
     CooldownHold,
     CveDatabase,
+    OverrideHold,
     ProjectPackagesRegistry,
     RecommendationRung,
+    RejectedCandidate,
     RejectionDetail,
 )
 from ossiq.domain.cve import CVE, Severity
@@ -17,7 +19,7 @@ from ossiq.domain.project import ConstraintSource
 from ossiq.domain.version import VersionsDifference
 from ossiq.service.project.models import ScanRecord, ScanResult
 from ossiq.service.update import build_update_plan, find_override_record, override_alias_siblings
-from ossiq.service.update_impact import TransitiveImpact
+from ossiq.service.update_impact import ImpactKind, TransitiveImpact
 from ossiq.solver.reason import RecommendationReason
 from ossiq.strategy.overrides import StrategyPlan
 from ossiq.strategy.pyramid import UpdateStrategy
@@ -572,6 +574,126 @@ class TestHeldForWideningUnderRewriteVersions:
         plan = build_update_plan(make_scan_result(production=[record]), "uv", rewrite_versions=True)
         assert not plan.direct_entries
         assert [e.package_name for e in plan.held_for_widening] == ["requests"]
+
+
+def npm_override(value: str, *, ossiq: bool, key: str | None = None) -> ConstraintSource:
+    return ConstraintSource(
+        type=ConstraintType.OVERRIDE,
+        source_file="package.json",
+        is_ossiq_authored=ossiq,
+        override_key=key,
+        override_value=value,
+    )
+
+
+def impact_of(kind: ImpactKind, name: str, current: str, projected: str) -> TransitiveImpact:
+    return TransitiveImpact(
+        package_name=name,
+        current_version=current,
+        projected_version=projected,
+        new_constraint=projected,
+        driven_by="vue",
+        has_conflict=False,
+        kind=kind,
+    )
+
+
+class TestNestedCopiesInThePlan:
+    """What a candidate's impact on an npm tree does to the entries the writers see."""
+
+    def test_a_new_copy_does_not_retarget_the_solvers_pick(self):
+        vue = make_record("vue", "3.5.42", "3.5.43")
+        vue.update_transitive_impacts = [impact_of(ImpactKind.NEW_COPY, "minimatch", "10.2.5", "11.0.0")]
+        minimatch = make_record("minimatch", "10.2.5", "10.2.6")
+
+        plan = build_update_plan(make_scan_result(production=[vue], transitive=[minimatch]), "npm")
+
+        assert [(e.package_name, e.recommended_version) for e in plan.transitive_entries] == [("minimatch", "10.2.6")]
+
+    def test_an_upgrade_still_retargets_the_solvers_pick(self):
+        vue = make_record("vue", "3.5.42", "3.5.43")
+        vue.update_transitive_impacts = [impact_of(ImpactKind.UPGRADE, "minimatch", "10.2.5", "10.3.0")]
+        minimatch = make_record("minimatch", "10.2.5", "10.2.6")
+
+        plan = build_update_plan(make_scan_result(production=[vue], transitive=[minimatch]), "npm")
+
+        assert [(e.package_name, e.recommended_version) for e in plan.transitive_entries] == [("minimatch", "10.3.0")]
+
+    def test_an_override_bump_becomes_a_transitive_entry_without_a_solver_pick(self):
+        vue = make_record("vue", "3.5.42", "3.5.43")
+        vue.update_transitive_impacts = [impact_of(ImpactKind.OVERRIDE_BUMP, "@vue/shared", "3.5.42", "3.5.43")]
+        shared = make_record("@vue/shared", "3.5.42")
+        shared.constraint_info = npm_override("3.5.42", ossiq=True)
+
+        plan = build_update_plan(make_scan_result(production=[vue], transitive=[shared]), "npm")
+
+        (entry,) = plan.transitive_entries
+        assert (entry.package_name, entry.current_version, entry.recommended_version) == (
+            "@vue/shared",
+            "3.5.42",
+            "3.5.43",
+        )
+        assert entry.constraint_type == ConstraintType.OVERRIDE
+        assert entry.is_direct is False
+        assert plan.held_by_user_overrides == []
+
+    def test_a_transitive_pick_on_a_package_the_user_overrode_is_held_and_named(self):
+        minimatch = make_record("minimatch", "9.0.9", "9.0.10")
+        minimatch.constraint_info = npm_override("9.0.9", ossiq=False, key="^9.0.0")
+
+        plan = build_update_plan(make_scan_result(transitive=[minimatch]), "npm")
+
+        assert plan.transitive_entries == []
+        assert [(h.package, h.key, h.value, h.blocked) for h in plan.held_by_user_overrides] == [
+            ("minimatch", "^9.0.0", "9.0.9", ("minimatch@9.0.10",))
+        ]
+
+    def test_an_override_ossiq_wrote_is_not_a_hold(self):
+        minimatch = make_record("minimatch", "9.0.9", "9.0.10")
+        minimatch.constraint_info = npm_override("9.0.9", ossiq=True)
+
+        plan = build_update_plan(make_scan_result(transitive=[minimatch]), "npm")
+
+        assert [e.package_name for e in plan.transitive_entries] == ["minimatch"]
+        assert plan.held_by_user_overrides == []
+
+    def test_an_override_without_a_value_of_its_own_is_never_held(self):
+        """uv overrides carry no value in the scan, so uv plans are unchanged."""
+        urllib3 = make_record("urllib3", "1.26.18", "2.2.0")
+        urllib3.constraint_info = ConstraintSource(type=ConstraintType.OVERRIDE, source_file="pyproject.toml")
+
+        plan = build_update_plan(make_scan_result(transitive=[urllib3]), "uv")
+
+        assert [e.package_name for e in plan.transitive_entries] == ["urllib3"]
+        assert plan.held_by_user_overrides == []
+
+    def test_rejected_candidates_name_the_user_override_that_blocked_them(self):
+        vue = make_record("vue", "3.5.42")
+        vue.rejected_candidates = [
+            RejectedCandidate(
+                "3.5.43",
+                "@vue/shared is held by an override in package.json",
+                held_by_override=OverrideHold(
+                    package="@vue/shared", value="3.5.42", source_file="package.json", blocked=("vue@3.5.43",)
+                ),
+            ),
+        ]
+        runtime = make_record("vue-router", "5.0.4")
+        runtime.rejected_candidates = [
+            RejectedCandidate(
+                "5.0.5",
+                "@vue/shared is held by an override in package.json",
+                held_by_override=OverrideHold(
+                    package="@vue/shared", value="3.5.42", source_file="package.json", blocked=("vue-router@5.0.5",)
+                ),
+            ),
+        ]
+
+        plan = build_update_plan(make_scan_result(production=[vue, runtime]), "npm")
+
+        (hold,) = plan.held_by_user_overrides
+        assert (hold.package, hold.value) == ("@vue/shared", "3.5.42")
+        assert hold.blocked == ("vue@3.5.43", "vue-router@5.0.5")
 
 
 class TestCarriesKnownBreak:

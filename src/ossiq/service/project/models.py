@@ -16,7 +16,7 @@ from ossiq.domain.common import (
 from ossiq.domain.compatibility import CompatibilityFacts
 from ossiq.domain.cve import CVE
 from ossiq.domain.package import Package
-from ossiq.domain.project import ConstraintSource, PeerRequirement
+from ossiq.domain.project import ConstraintSource, InstalledCopy, PeerRequirement
 from ossiq.domain.repository import Repository
 from ossiq.domain.version import VersionsDifference
 from ossiq.risk.maintenance import DeprecationEvidence, MaintenanceAssessment
@@ -44,6 +44,8 @@ class DependencyDescriptor:
     # Direct deps: the peer requirements other installed packages place on them.
     all_constraints: list[str] = field(default_factory=list)
     peer_requirements: list[PeerRequirement] = field(default_factory=list)
+    # Every physical copy of this package in the tree, newest first; `version` is the first one.
+    installed_copies: list[InstalledCopy] = field(default_factory=list)
     # The root manifest's own declared specifier for this package, mirroring
     # Dependency.version_constraint_declared. None for transitive-only deps with no
     # root-manifest entry. This, not version_constraint, is what user-facing surfaces
@@ -174,6 +176,12 @@ class ScanRecord:
     all_constraints: list[str] = field(default_factory=list)
     """All version specifiers from every direct parent; mirrors DependencyDescriptor.all_constraints.
     Passed to the transitive solver so each parent constraint is enforced as a separate L1 clause."""
+
+    installed_copies: list[InstalledCopy] = field(default_factory=list)
+    """Every physical copy of this package in the tree, newest first, each with the edges that resolve to
+    it; `installed_version` is the first. A single entry except under a package manager that nests
+    copies (npm). Empty on a record built without graph data, which readers treat as one copy at
+    `installed_version`."""
 
     update_transitive_impacts: list[TransitiveImpact] = field(default_factory=list)
     """Populated by Phase 4c after solve_direct: transitive impacts of the final recommendation."""
