@@ -216,6 +216,29 @@ class RejectionDetail:
 
 
 @dataclass(frozen=True)
+class OverrideHold:
+    """An override the user wrote that kept an update from happening.
+
+    Named so a surface can point at the line of the manifest to look at: OSS IQ never rewrites an
+    override it did not write, so only the user can release one.
+    """
+
+    package: str
+    """The package the override forces."""
+
+    value: str
+    """What it forces it to (a version, a range, or a `$name` reference)."""
+
+    key: str | None = None
+    """The range the override is keyed to (`foo@^1`); None when it applies to every version."""
+
+    source_file: str | None = None
+
+    blocked: tuple[str, ...] = ()
+    """What it kept from moving, as `name@version`."""
+
+
+@dataclass(frozen=True)
 class RejectedCandidate:
     """A release that would otherwise have been a candidate, held back by a transitive conflict."""
 
@@ -226,6 +249,9 @@ class RejectedCandidate:
 
     detail: RejectionDetail | None = None
     """The specs behind `reason`, when the producer had them. None from producers that don't."""
+
+    held_by_override: OverrideHold | None = None
+    """The user's own override that rules this release out; None when nothing of theirs is involved."""
 
     @property
     def full_reason(self) -> str:
