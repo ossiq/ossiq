@@ -260,7 +260,8 @@ These carry as much decision-making weight as the targets, and are easier to ski
 | `withheld_reason` | no motive admitted at this tier; names the lowest tier that would move it | `plan` footer, the `status --full` `↳` row under `Withheld by strategy`, agent `strategy_withheld_reason`, export `strategy` |
 | *Held for cooldown* | target is younger than `--cooldown-period` (default 7 days). CVE-carrying packages are exempt | `plan` section |
 | *Requires constraint widening* | target sits outside the declared range and the tier does not authorize rewriting it | `plan` section, export `requires_constraint_widening` |
-| `rejected_candidates` | a newer release was found and held back — by a transitive conflict, a known module-system break, or an engine mismatch — one per rung, with the reason | `status --full` `↳` rows, export, agent `reasons` |
+| `rejected_candidates` | a newer release was found and held back — by a transitive conflict, a known module-system break, or an engine mismatch — one per rung, with the reason. On npm a transitive conflict means an `overrides` rule: a dependent whose range cannot share the installed copy simply gets its own | `status --full` `↳` rows, export, agent `reasons` |
+| *Held by overrides you wrote* | an `overrides` rule of yours kept a release or a transitive update out of the plan. OSS IQ never rewrites a rule it did not write | `plan` and `apply` section |
 | `constraint_conflict` | no version satisfies all constraints (`[NO RESOLUTION]`) | `status`, `info` |
 | `escalation` | reach was pushed past the tier's base, or every reachable version still carries a CVE | export `strategy`, agent |
 | *New transitive dependency* `⚠` | a package entering the tree for the first time, younger than the cooldown. Resolved by the native package manager, so the cooldown hold cannot apply to it | `plan` section |
@@ -400,9 +401,11 @@ Per ecosystem, in this order:
    whole update loudly, before anything is rewritten, rather than degrading package by package.
 2. **Rewrite direct specifiers** in the manifest text. `--pin-all` writes exact `==`/exact pins.
 3. **Persist transitive picks as overrides** — npm `overrides`, uv `[tool.uv] override-dependencies`
-   — and record what was written under an `ossiq:metadata` key. On the next run, an override whose
-   value no longer matches what OSS IQ last wrote is left alone: you have taken ownership of it, and
-   it is never silently overwritten.
+   — and record what was written under an `ossiq:metadata` key. On npm each pick is keyed to the copy
+   it replaces (`"minimatch@10.2.5": "10.2.6"`), so a nested copy of the same name that npm installed
+   for a different range is not dragged along. On the next run, an override whose value no longer
+   matches what OSS IQ last wrote is left alone: you have taken ownership of it, and it is never
+   silently overwritten.
 4. **Hand resolution to the native package manager** — `npm install --ignore-scripts`, or
    `uv lock --upgrade-package … && uv sync`. OSS IQ does not resolve trees itself, and
    `--ignore-scripts` keeps install-time code out of the update path.

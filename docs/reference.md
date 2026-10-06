@@ -279,13 +279,15 @@ npm's [`overrides`](https://docs.npmjs.com/cli/v9/configuring-npm/package-json#o
 }
 ```
 
-OSS IQ reads the `overrides` block from `package-lock.json` (where npm records the resolved overrides) and tags matching packages with `ConstraintType.OVERRIDE`, adding an `overridden` category to their `categories` list.
+OSS IQ reads the `overrides` block from `package.json` (npm does not copy it into `package-lock.json`) and tags every installed copy of a matching package with `ConstraintType.OVERRIDE`, adding an `overridden` category to its `categories` list.
 
 For *scoped* overrides — where a version is forced only when a package appears as a dependency of a specific parent — the `scope_path` field on `ConstraintSource` records the ancestor chain. In the example above, `dot-prop` would carry `scope_path: ["lodash"]`, meaning the override applies only when `dot-prop` is pulled in by `lodash`. A flat override like `semver` has `scope_path: null`.
 
 The `scope_path` matters for remediation: a scoped override targeting `dot-prop` inside `lodash` does not affect `dot-prop` when pulled in by other packages. Removing it may leave `dot-prop` under `lodash` unprotected, or free it to resolve a patched version — depending on which direction the version was being forced.
 
-**Overrides are a marker, not a version source.** OSS IQ only reads the *keys* of the `overrides` block to decide which packages to tag `OVERRIDE`; the forced version string is never parsed or fed into the solver. The installed version already reflects the override's effect, because npm applied it before writing the lockfile — OSS IQ just labels the result.
+**A rule may be keyed to a version range.** `"minimatch@^9.0.0": "9.0.9"` forces only the edges whose range overlaps `^9.0.0`; a nested `minimatch` 10 elsewhere in the tree is left alone. OSS IQ marks each installed copy the rule governs — one the version sits inside the key of, or already at the value of — and records the rule's key and value on `ConstraintSource` (`override_key`, `override_value`). A `$name` value follows the root dependency of that name.
+
+**Overrides decide whether an update is possible.** npm nests a further copy of a package when a dependent's range cannot share the installed one, so an ordinary requirement never stops an update. An override does: it forces one version whatever the dependent declares. When a candidate needs a version an override *you* wrote rules out, the release is rejected and the override is named (`@vue/shared is held by an override in package.json`), and `plan` lists it under *Held by overrides you wrote*. OSS IQ never rewrites those; update or remove them to let the release through. An override OSS IQ wrote itself (recorded under `ossiq:metadata`) moves with the candidate instead, together with every other override that candidate's packages pin to each other.
 
 **Matching is by exact tree name.** An override entry is matched against packages by the literal name npm registered them under in the lockfile — not the package's canonical registry name. This matters for [package aliases](#npm-package-aliases): an override keyed `"chalk": "4.1.2"` tags a plain `chalk` dependency, but does nothing to `"chalk-legacy": "npm:chalk@4.1.2"`, because that alias is registered as `chalk-legacy`, not `chalk`. To override an aliased package, key the `overrides` entry with the alias name.
 

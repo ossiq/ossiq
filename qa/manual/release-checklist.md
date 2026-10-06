@@ -76,10 +76,12 @@
 - [ ] TC-A03: `ossiq add <critically-unhealthy-package>` blocks install and shows warning; exit code non-zero
 - [ ] TC-A04: `ossiq add <critically-unhealthy-package> --force` proceeds past warning to confirmation prompt
 - [ ] TC-A05: `ossiq add requests --version 2.28.0 testdata/pypi/uv` shows the fixed version in the install spec, not the solver recommendation
+- [ ] TC-A06: `ossiq add <package>` on an npm project (e.g. `testdata/npm/project1`) runs `npm install --ignore-scripts <package>@<version>` (visible in terminal output)
 
 ## 09 — Automated Matrix ([details](../README.md#automated-matrix))
 
 - [ ] TC-M01: `just qa-matrix` exits 0; `qa_logs/summary.log` final `Results:` line shows `0 failed` (SKIPs acceptable)
+- [ ] TC-M02: `just qa-strategies --fresh` exits 0 ([details](../README.md#update-strategy-regression)); copy any XFAIL/XPASS/WARN lines into Notes
 
 ## 10 — LLM Integration: `install skills` & MCP Server ([details](10-llm-integration.md))
 
