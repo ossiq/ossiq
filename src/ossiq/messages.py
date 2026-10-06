@@ -227,6 +227,10 @@ HELP_PLAN_HELD_FOR_COOLDOWN_HEADER = (
 
 HELP_PLAN_HELD_FOR_WIDENING_HEADER = "Requires constraint widening — a newer version exists outside the declared range:"
 
+HELP_PLAN_HELD_BY_USER_OVERRIDES_HEADER = (
+    "Held by overrides you wrote — OSS IQ never rewrites those; update or remove them to let these through:"
+)
+
 HELP_STATUS_COOLDOWN_HOLD = (
     "↳ {version} is {age_days} days old; nothing older to move to before the {days}-day cooldown"
 )

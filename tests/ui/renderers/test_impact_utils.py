@@ -4,7 +4,7 @@ from rich.console import Console
 from rich.table import Table
 
 from ossiq.domain.common import RejectionDetail
-from ossiq.service.update_impact import TransitiveImpact
+from ossiq.service.update_impact import ImpactKind, TransitiveImpact
 from ossiq.ui.renderers.impact_utils import (
     REJECTION_DETAIL_LIMIT,
     format_probability,
@@ -25,6 +25,7 @@ def make_impact(
     has_conflict: bool = False,
     conflict: RejectionDetail | None = None,
     projected_age_days: int | None = None,
+    kind: ImpactKind = ImpactKind.UPGRADE,
 ) -> TransitiveImpact:
     return TransitiveImpact(
         package_name=package_name,
@@ -35,6 +36,7 @@ def make_impact(
         has_conflict=has_conflict,
         conflict=conflict,
         projected_age_days=projected_age_days,
+        kind=kind,
     )
 
 
@@ -161,6 +163,34 @@ def test_impact_sub_row_texts_count_mode_for_many_deps():
     impacts = [make_impact(f"pkg{i}") for i in range(5)]
     rows = impact_sub_row_texts(impacts)
     assert any("transitive dep(s) also updated" in r for r in rows)
+
+
+def test_impact_sub_row_texts_new_copy_is_shown_beside_the_installed_one_not_as_a_move():
+    impacts = [make_impact("minimatch", current_version="10.2.5", projected_version="11.0.0", kind=ImpactKind.NEW_COPY)]
+    rows = impact_sub_row_texts(impacts)
+    assert rows == ["[dim blue]  + minimatch 11.0.0 (new copy)[/dim blue]"]
+
+
+def test_impact_sub_row_texts_new_copies_are_counted_when_there_are_many():
+    impacts = [make_impact(f"pkg{i}", projected_version="3.5.43", kind=ImpactKind.NEW_COPY) for i in range(9)]
+    rows = impact_sub_row_texts(impacts)
+    assert rows == ["[dim blue]  + 9 transitive dep(s) gain a new copy[/dim blue]"]
+
+
+def test_impact_sub_row_texts_new_copies_do_not_crowd_out_the_detail_of_real_moves():
+    impacts = [make_impact(f"copy{i}", kind=ImpactKind.NEW_COPY) for i in range(5)] + [
+        make_impact("certifi", current_version="2022.1.1", projected_version="2024.1.1")
+    ]
+    rows = impact_sub_row_texts(impacts)
+    assert any("certifi 2022.1.1 → 2024.1.1" in r for r in rows)
+
+
+def test_impact_sub_row_texts_override_bump_says_so():
+    impacts = [
+        make_impact("@vue/shared", current_version="3.5.42", projected_version="3.5.43", kind=ImpactKind.OVERRIDE_BUMP)
+    ]
+    rows = impact_sub_row_texts(impacts)
+    assert rows == ["[dim]  ↳ @vue/shared 3.5.42 → 3.5.43 (override)[/dim]"]
 
 
 def test_format_probability():
