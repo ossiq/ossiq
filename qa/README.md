@@ -36,6 +36,135 @@ uv run just qa
 # Then work through each SOP file in order
 ```
 
+## Update-Strategy Regression
+
+### What it is and why it exists
+
+`qa/update_strategies_regression.py` checks that each `--update-strategy` tier does what it
+promises, on real registry data, through the real CLI:
+
+| Tier | Promise checked |
+|------|-----------------|
+| `security` | Moves only packages with an exploitable CVE, by the smallest diff that clears it |
+| `standard` | Moves on any drift, and `apply` writes nothing outside the declared constraint |
+| `latest` | Widens constraints to reach the newest stable release, and `apply` writes the widening |
+| `cutting-edge` | As `latest`, with prereleases admitted |
+
+The projects live in `testdata/regression/update-strategies/<name>/`: a real manifest and lockfile
+with deliberately old dependencies, plus an `expectations.toml` that records, per package and per
+tier, what OSS IQ should recommend and why that package is in the fixture. Each project pins
+`--cutoff-date`, so releases published later are invisible and the expected versions hold for
+good. The script also pins the cooldown, passes an empty `--config`, `--no-stability` (GitHub
+maintenance state can't be frozen) and `--no-probe-runtime` (the manifest's `engines` /
+`requires-python` floor decides), and strips other `OSSIQ_*` variables from the environment. That
+leaves two things that can move a result: OSS IQ's code, and the advisory databases.
+
+### Running it
+
+```bash
+just qa-strategies                                   # every fixture, every tier, apply included
+just qa-strategies --fixture npm --tier security     # narrow it down while debugging
+just qa-strategies --skip-apply                      # no npm/uv needed
+just qa-strategies --fresh                           # --no-cache: live registry + advisory data
+just qa-strategies --ossiq-cmd "uvx --from dist/ossiq-X.Y.Z-py3-none-any.whl ossiq"   # a built wheel
+```
+
+It needs network, a GitHub login (`uv run ossiq auth login`, or `OSSIQ_GITHUB_TOKEN`), and `npm` /
+`uv` on `PATH` unless you pass `--skip-apply`. A full run takes about a minute with a warm cache.
+For a release, run it with `--fresh` against the built artifact.
+
+For every fixture and tier it runs `export`, `status --format agent` and `plan` against a pristine
+copy, then `apply --yes` against a throwaway copy, and checks:
+
+- **Expectations**: each export verdict (recommended version, withheld, needs widening, escalated)
+  matches `expectations.toml`.
+- **Invariants** that hold for any project: `security` moves only on `exploitable_cve`; a withheld
+  package has no target and isn't labelled "Update Immediately"; no tier recommends or applies a
+  lower version than the tier below it; no prerelease below `cutting-edge`; no downgrade; the
+  widening flag agrees with a reference range check (`packaging` for PEP 440, `univers` plus npm's
+  prerelease rule).
+- **Surfaces agree**: plan's update and widening tables, the agent JSON and the lockfile `apply`
+  left behind all match the export, and `export`/`status`/`plan` don't touch the project.
+
+### Reading the result
+
+The console ends with one matrix per fixture: the target per tier, `^` when it needs widening, `!`
+when the selector escalated past the tier's reach, and the cell's worst status. Every non-passing
+check is listed below the matrix.
+
+| Status | Meaning | Fails the run |
+|--------|---------|---------------|
+| `PASS` | As expected | no |
+| `FAIL` | A regression, or an expectation that needs updating | **yes** (exit 1) |
+| `XFAIL` | A failure in a cell marked `known_issue` | no |
+| `XPASS` | A `known_issue` cell no longer fails: remove the marker | no |
+| `WARN` | Advisory IDs for an installed version changed since the expectations were written | no |
+
+Exit status 2 means the run couldn't start: invalid `expectations.toml`, `npm`/`uv` missing, or
+a GitHub login still pending.
+
+Logs go to `qa_logs/update_strategies/<timestamp>/`: `summary.log`, `report.json` (every
+observation and check, for diffing two runs), and `<fixture>/<tier>/` with each command's
+transcript plus the raw `export.json`.
+
+**When something FAILs**, check for a WARN on the same package first. A new advisory against an
+old release can legitimately change what `security` picks, and the summary calls that out. If
+the advisories didn't change, it's the code. Either way, if the new behaviour is correct, update
+`expectations.toml` (including `advisories`) in the same change.
+
+### `expectations.toml`
+
+```toml
+ecosystem = "npm"            # npm | pypi
+cutoff_date = "2024-12-20"   # --cutoff-date: releases after this are invisible
+cooldown_period = 7          # --cooldown-period
+
+# Why this package is in the fixture: the tier behaviour it exercises.
+[packages.semver]
+installed = "5.7.1"          # must match the lockfile
+declared = "^5.7.1"          # must match the manifest
+advisories = ["GHSA-c2qf-rxjj-qqgw"]   # CVE IDs export reports for `installed`
+security = { recommended = "5.7.2" }
+standard = { recommended = "5.7.2", known_issue = "why it currently fails" }
+latest = { recommended = "7.6.3", widening = true }
+cutting-edge = { recommended = "7.6.3", widening = true }
+```
+
+Each tier cell takes `recommended` (version string) or `withheld = true` (the tier admits no motive
+for this package), plus `widening`, `escalation` (both default `false`) and an optional
+`known_issue`. Unknown keys are an error, so a typo can't silently skip a check. Write the cell as
+the behaviour *should* be. When it doesn't yet, add `known_issue` instead of recording the bug as
+expected. `tests/test_update_strategies_regression.py` loads every fixture offline as part of
+`just qa`, so a fixture edited without its expectations fails CI before anyone runs the
+regression.
+
+### Adding a package or a fixture
+
+Prefer packages without dependencies of their own, so a difference between tiers comes from the
+strategy alone. Pick a `cutoff_date` that makes the case you need visible. A prerelease must be
+older than `cooldown_period` at the cutoff, or the cooldown holds it back.
+
+To get a lockfile with old versions installed under a range: declare exact versions, lock, then
+relax the manifest to the ranges you want and lock again. Both npm and uv keep a locked version
+that still satisfies the new range:
+
+```bash
+npm install --package-lock-only --ignore-scripts   # package.json with exact versions
+# edit package.json to ranges
+npm install --package-lock-only --ignore-scripts
+
+uv lock                                            # pyproject.toml with == pins
+# edit pyproject.toml to ranges
+uv lock
+```
+
+Don't use uv's `--exclude-newer` for this: it ends up in `uv.lock`, where OSS IQ treats it as a
+release cutoff the installer enforces. Then run `just qa-strategies --fixture <name> --keep-workdirs`
+and write the expectations from the matrix, after checking each value against the registry
+yourself. The matrix shows what OSS IQ does, not what it should do.
+
+---
+
 ## Automated Matrix
 
 ### What it is and why it exists

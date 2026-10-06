@@ -1,0 +1,69 @@
+# Expected `--update-strategy` outcomes for this project, checked by
+# qa/update_strategies_regression.py. Schema and workflow: qa/README.md.
+#
+# CommonJS project, Node floor >=18 (package.json `engines`), lockfile v3. Every
+# dependency is dependency-free, so a difference between tiers is the strategy
+# alone and not a transitive conflict.
+
+ecosystem = "npm"
+# Releases after this date are invisible, so registry growth cannot move a result.
+# Chosen so commander 13.0.0-0 is out (14 days old) and 13.0.0 is not yet published.
+cutoff_date = "2024-12-20"
+cooldown_period = 7
+
+# CVE (GHSA-c2qf-rxjj-qqgw, < 5.7.2) with a fix inside the declared range, while
+# the newest release sits two majors away. The tier that stays in range must
+# patch inside it; only latest/cutting-edge may cross to 7.x.
+[packages.semver]
+installed = "5.7.1"
+declared = "^5.7.1"
+advisories = ["GHSA-c2qf-rxjj-qqgw"]
+security = { recommended = "5.7.2" }
+standard = { recommended = "5.7.2", known_issue = "a CVE motive widens reach to LATEST even when 5.7.2 clears it in range: standard proposes 7.6.3, apply holds it for widening and leaves the CVE unpatched" }
+latest = { recommended = "7.6.3", widening = true }
+cutting-edge = { recommended = "7.6.3", widening = true }
+
+# CVE with no fix inside `~0.0.8`: every tier must escalate past the range.
+# security takes the nearest clean release (0.2.4 backport), the freshness
+# tiers the newest; only latest/cutting-edge write the widened range.
+[packages.minimist]
+installed = "0.0.8"
+declared = "~0.0.8"
+advisories = ["GHSA-vh95-rmgr-6w4m", "GHSA-xvch-5gv4-984h"]
+security = { recommended = "0.2.4", widening = true, escalation = true }
+standard = { recommended = "1.2.8", widening = true, escalation = true }
+latest = { recommended = "1.2.8", widening = true }
+cutting-edge = { recommended = "1.2.8", widening = true }
+
+# Drift only, the newest stable (2.1.3) in range. Its 3.x prereleases ship a
+# `require` export (dual), so cutting-edge may take one without a module break.
+[packages.ms]
+installed = "2.0.0"
+declared = "^2.0.0"
+advisories = []
+security = { withheld = true }
+standard = { recommended = "2.1.3" }
+latest = { recommended = "2.1.3" }
+cutting-edge = { recommended = "3.0.0-canary.1", widening = true }
+
+# Drift only, with a CommonJS prerelease of the next major at the cutoff:
+# cutting-edge is the only tier that sees it.
+[packages.commander]
+installed = "12.0.0"
+declared = "^12.0.0"
+advisories = []
+security = { withheld = true }
+standard = { recommended = "12.1.0" }
+latest = { recommended = "12.1.0" }
+cutting-edge = { recommended = "13.0.0-0", widening = true }
+
+# Exact pin, drift only. standard reports the same-major release behind the
+# pin (select_target rule 8) but must not write it; latest does.
+[packages.picocolors]
+installed = "1.0.0"
+declared = "1.0.0"
+advisories = []
+security = { withheld = true, known_issue = "next_action reads 'Update Immediately' for a pin the tier withheld: next_action_label checks 'no constraint' before withheld_reason" }
+standard = { recommended = "1.1.1", widening = true, escalation = true }
+latest = { recommended = "1.1.1", widening = true }
+cutting-edge = { recommended = "1.1.1", widening = true }

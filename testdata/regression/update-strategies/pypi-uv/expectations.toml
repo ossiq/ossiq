@@ -1,0 +1,73 @@
+# Expected `--update-strategy` outcomes for this project, checked by
+# qa/update_strategies_regression.py. Schema and workflow: qa/README.md.
+#
+# uv project, requires-python >=3.9. Every dependency is pure Python with no
+# dependencies of its own, so `apply` syncs in seconds and a difference between
+# tiers is the strategy alone.
+
+ecosystem = "pypi"
+# Releases after this date are invisible. Chosen so docutils 0.22rc5 is visible
+# (21 days old) while 0.22 final is not yet published.
+cutoff_date = "2025-07-15"
+cooldown_period = 7
+
+# CVEs fixed inside the declared range (3.7). security takes the nearest fix,
+# the freshness tiers the newest 3.x.
+[packages.idna]
+installed = "3.4"
+declared = ">=3.0,<4"
+advisories = ["GHSA-65pc-fj4g-8rjx", "GHSA-jjg7-2v4v-x38h", "PYSEC-2024-60", "PYSEC-2026-215"]
+security = { recommended = "3.7" }
+standard = { recommended = "3.10" }
+latest = { recommended = "3.10" }
+cutting-edge = { recommended = "3.10" }
+
+# Advisories published after the cutoff affect every release visible at it, so
+# no tier has a clean target: each takes the newest visible release and says
+# so (select_target rule 7). Stable while no fix lands before the cutoff.
+[packages.sqlparse]
+installed = "0.4.3"
+declared = ">=0.4,<0.5"
+advisories = [
+  "GHSA-27jp-wm6q-gp25", "GHSA-2m57-hf25-phgg", "GHSA-3496-9g83-7v6x", "GHSA-cfqr-cjx5-5jcm",
+  "GHSA-f2ff-p2ww-7p4p", "GHSA-prg7-hcfm-mfcr", "GHSA-pwgv-4x5q-6m9f", "GHSA-rrm6-wvj7-cwh2",
+  "PYSEC-2023-87", "PYSEC-2026-1940", "PYSEC-2026-3696", "PYSEC-2026-3697", "PYSEC-2026-3698",
+  "PYSEC-2026-3699", "PYSEC-2026-3923",
+]
+security = { recommended = "0.5.3", widening = true, escalation = true }
+standard = { recommended = "0.5.3", widening = true, escalation = true }
+latest = { recommended = "0.5.3", widening = true, escalation = true }
+cutting-edge = { recommended = "0.5.3", widening = true, escalation = true }
+
+# Exact pin, drift only. standard reports the newest same-major release (rule 8
+# walks one rung at a time) but must not write it; latest takes the newest major.
+[packages.attrs]
+installed = "23.1.0"
+declared = "==23.1.0"
+advisories = []
+security = { withheld = true }
+standard = { recommended = "23.2.0", widening = true, escalation = true }
+latest = { recommended = "25.3.0", widening = true }
+cutting-edge = { recommended = "25.3.0", widening = true }
+
+# Drift only, with the declared range already at its newest release (2.4.7):
+# nothing to write in range, a new major only by widening.
+[packages.pyparsing]
+installed = "2.4.7"
+declared = ">=2.4,<3"
+advisories = []
+security = { withheld = true }
+standard = { recommended = "3.2.3", widening = true, escalation = true }
+latest = { recommended = "3.2.3", widening = true }
+cutting-edge = { recommended = "3.2.3", widening = true }
+
+# Drift only, with a release candidate of the excluded upper bound. PEP 440:
+# `<0.22` does not admit 0.22rc5, so taking it widens the range.
+[packages.docutils]
+installed = "0.20.1"
+declared = ">=0.20,<0.22"
+advisories = []
+security = { withheld = true }
+standard = { recommended = "0.21.2" }
+latest = { recommended = "0.21.2" }
+cutting-edge = { recommended = "0.22rc5", widening = true, known_issue = "the PEP 440 matcher (univers) admits 0.22rc5 under `<0.22`, so it is classed in_range: no widening flag, and apply skips the widening confirmation" }
