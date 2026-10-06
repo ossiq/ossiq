@@ -18,14 +18,14 @@ from ossiq.domain.common import (
     RejectionDetail,
 )
 from ossiq.domain.cve import CVE, AffectedRange, Severity
-from ossiq.domain.project import ConstraintSource
+from ossiq.domain.project import ConstraintSource, IncomingEdge, InstalledCopy
 from ossiq.domain.release_cutoff import ReleaseCutoff
 from ossiq.domain.version import PackageVersion, VersionsDifference
 from ossiq.service.project.ladder import compute_version_ladder
 from ossiq.service.project.models import ScanRecord
 from ossiq.service.project.next_action import WAIT_FOR_COOLDOWN, next_action_label
 from ossiq.service.project.strategy import apply_update_strategy, build_candidates
-from ossiq.service.update_impact import DirectUpdateImpact, TransitiveImpact
+from ossiq.service.update_impact import DirectUpdateImpact, ImpactKind, TransitiveImpact, simulate_single
 from ossiq.strategy.overrides import StrategyPlan
 from ossiq.strategy.pyramid import UpdateStrategy
 
@@ -55,6 +55,8 @@ def pv(
 def make_registry(versions_by_name: dict[str, list[PackageVersion]]) -> MagicMock:
     registry = MagicMock()
     registry.package_registry = ProjectPackagesRegistry.PYPI
+    registry.one_copy_per_name = True
+    registry.refuses_engine_mismatch = True
     registry.package_versions.side_effect = lambda name: versions_by_name.get(name, [])
     registry.difference_versions.return_value = NO_DIFF
 
@@ -74,6 +76,8 @@ def make_registry(versions_by_name: dict[str, list[PackageVersion]]) -> MagicMoc
 def make_npm_registry(versions_by_name: dict[str, list[PackageVersion]]) -> MagicMock:
     registry = make_registry(versions_by_name)
     registry.package_registry = ProjectPackagesRegistry.NPM
+    registry.one_copy_per_name = False
+    registry.refuses_engine_mismatch = False
     return registry
 
 
@@ -526,6 +530,75 @@ class TestApplyUpdateStrategyRejectedCandidates:
         assert record.recommended_version == "1.1.0"
         assert len(record.rejected_candidates) == 1
         assert record.rejected_candidates[0].version == "2.0.0"
+
+
+class TestNestedCopiesAreNotRejected:
+    """npm nests a further copy for an ordinary dependency, so only an override can reject a candidate."""
+
+    @staticmethod
+    def update(
+        registry: MagicMock, record: ScanRecord, dependency: ScanRecord, requires: dict[tuple[str, str], dict[str, str]]
+    ) -> None:
+        registry.package_version_requires.side_effect = lambda name, version: requires.get((name, version), {})
+
+        def validator(pkg: str, ver: str) -> DirectUpdateImpact:
+            return simulate_single(
+                pkg, ver, {dependency.package_name: dependency}, registry, now=NOW, installed_version="1.0.0"
+            )
+
+        apply_update_strategy(
+            [record],
+            registry,
+            STANDARD_PLAN,
+            versions_since={(record.package_name, "1.0.0"): list(registry.package_versions(record.package_name))},
+            transitive_by_name={dependency.package_name: dependency},
+            installed_names=set(),
+            allow_prerelease=False,
+            now=NOW,
+            validator=validator,
+        )
+
+    def test_a_candidate_needing_a_range_another_copy_satisfies_is_recommended(self) -> None:
+        registry = make_npm_registry({"pkg": [pv("1.0.0"), pv("1.0.1")], "dep": [pv("10.2.5"), pv("9.0.9")]})
+        record = make_record("pkg", "1.0.0", version_constraint="~1.0.0")
+        dep = make_record("dep", "9.0.9")
+        dep.installed_copies = [
+            InstalledCopy("9.0.9", (IncomingEdge("other", "1.0.0", "^9.0.1"),), CONSTRAINT_SOURCE),
+            InstalledCopy("10.2.5", (IncomingEdge("pkg", "1.0.0", "^10.2.4"),), CONSTRAINT_SOURCE),
+        ]
+
+        self.update(registry, record, dep, {("pkg", "1.0.1"): {"dep": "^10.2.4"}})
+
+        assert record.recommended_version == "1.0.1"
+        assert record.rejected_candidates == []
+
+    def test_a_candidate_needing_a_version_no_copy_has_is_recommended_with_a_new_copy(self) -> None:
+        registry = make_npm_registry({"pkg": [pv("1.0.0"), pv("1.0.1")], "dep": [pv("11.0.0"), pv("10.2.5")]})
+        record = make_record("pkg", "1.0.0", version_constraint="~1.0.0")
+        dep = make_record("dep", "10.2.5")
+
+        self.update(registry, record, dep, {("pkg", "1.0.1"): {"dep": "^11.0.0"}})
+
+        assert record.recommended_version == "1.0.1"
+        assert record.rejected_candidates == []
+        assert [(i.package_name, i.kind) for i in record.update_transitive_impacts] == [("dep", ImpactKind.NEW_COPY)]
+
+    def test_an_override_the_user_wrote_still_rejects_and_is_named(self) -> None:
+        registry = make_npm_registry({"pkg": [pv("1.0.0"), pv("1.0.1")], "dep": [pv("2.0.0"), pv("1.0.0")]})
+        record = make_record("pkg", "1.0.0", version_constraint="~1.0.0")
+        forced = ConstraintSource(
+            type=ConstraintType.OVERRIDE, source_file="package.json", override_value="1.0.0", is_ossiq_authored=False
+        )
+        dep = make_record("dep", "1.0.0")
+        dep.constraint_info = forced
+        dep.installed_copies = [InstalledCopy("1.0.0", (), forced)]
+
+        self.update(registry, record, dep, {("pkg", "1.0.1"): {"dep": "2.0.0"}})
+
+        assert record.recommended_version is None
+        assert [rc.version for rc in record.rejected_candidates] == ["1.0.1"]
+        assert record.rejected_candidates[0].reason == "dep is held by an override in package.json"
+        assert record.rejected_candidates[0].detail == RejectionDetail("forced to 1.0.0, wanted", ("2.0.0",))
 
 
 class TestBuildCandidatesStructuralGates:

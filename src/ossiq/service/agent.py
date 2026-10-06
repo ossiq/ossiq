@@ -174,12 +174,18 @@ def triage_summary(record: ScanRecord) -> dict[str, Any] | None:
 
 
 def impact_summary(impact: TransitiveImpact) -> dict[str, Any]:
-    """Reduce a transitive impact to from/to plus a conflict flag."""
+    """Reduce a transitive impact to from/to plus a conflict flag.
+
+    `kind` says what "from/to" means: a further copy of the package is installed beside the current
+    one (`new_copy`), or an override has to move to match (`override_bump`), rather than the
+    installed copy being replaced.
+    """
     return {
         "package": impact.package_name,
         "from": impact.current_version,
         "to": impact.projected_version,
         "conflict": impact.has_conflict,
+        "kind": impact.kind.value,
     }
 
 

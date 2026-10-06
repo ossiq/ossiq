@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import dataclasses
 from collections import Counter
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from datetime import datetime
 
@@ -11,11 +12,12 @@ from ossiq.domain.common import (
     WIDENING_RUNGS,
     ConstraintType,
     CooldownHold,
+    OverrideHold,
     RecommendationRung,
     display_package_name,
 )
 from ossiq.service.project.models import ScanRecord, ScanResult
-from ossiq.service.update_impact import TransitiveImpact
+from ossiq.service.update_impact import ImpactKind, TransitiveImpact
 from ossiq.solver.reason import RecommendationReason
 from ossiq.strategy.overrides import StrategyPlan
 from ossiq.strategy.pyramid import DEFAULT_STRATEGY, MAX_REACH, RUNG_ORDER, UpdateStrategy
@@ -113,6 +115,9 @@ class UpdatePlan:
     # Packages withheld at the run's tier, counted by the lowest higher tier that would move
     # them — powers the "N more updates available under --update-strategy X" footer.
     available_at_higher_tier: dict[UpdateStrategy, int] = field(default_factory=dict)
+    # Overrides the user wrote that kept an update out of this plan. OSS IQ never rewrites one, so
+    # these are the ones only the user can release.
+    held_by_user_overrides: list[OverrideHold] = field(default_factory=list)
 
     @property
     def all_entries(self) -> list[UpdateEntry]:
@@ -242,6 +247,57 @@ def forced_entry_from_record(record: ScanRecord, forced_version: str, is_direct:
     )
 
 
+def override_bump_entry(impact: TransitiveImpact) -> UpdateEntry:
+    """Build a transitive entry for an OSS IQ-authored override that has to move with a candidate.
+
+    Marked OVERRIDE so the writers persist it as an override, like a forced transitive version, but
+    not forced: it was derived from the candidate, so it carries no exemption from anything.
+    """
+    assert impact.current_version is not None and impact.projected_version is not None
+    return UpdateEntry(
+        package_name=impact.package_name,
+        current_version=impact.current_version,
+        recommended_version=impact.projected_version,
+        is_direct=False,
+        reason=None,
+        constraint_type=ConstraintType.OVERRIDE,
+    )
+
+
+def user_override_hold(record: ScanRecord | None, entry: UpdateEntry) -> OverrideHold | None:
+    """The user's override standing in the way of a transitive entry, or None when none does.
+
+    Only a rule with a value of its own counts, which today means npm's: that is the one place the
+    scan knows what an override forces, so it is the one place the plan can say it is blocked.
+    """
+    if record is None:
+        return None
+    info = record.constraint_info
+    if info.type != ConstraintType.OVERRIDE or info.override_value is None or info.is_ossiq_authored:
+        return None
+    return OverrideHold(
+        package=entry.package_name,
+        value=info.override_value,
+        key=info.override_key,
+        source_file=info.source_file,
+        blocked=(f"{entry.package_name}@{entry.recommended_version}",),
+    )
+
+
+def merge_override_holds(holds: Iterable[OverrideHold]) -> list[OverrideHold]:
+    """One hold per override, however many updates it kept back, in a stable order."""
+    merged: dict[tuple[str, str | None, str], OverrideHold] = {}
+    for hold in holds:
+        key = (hold.package, hold.key, hold.value)
+        known = merged.get(key)
+        merged[key] = (
+            hold
+            if known is None
+            else dataclasses.replace(known, blocked=tuple(dict.fromkeys((*known.blocked, *hold.blocked))))
+        )
+    return sorted(merged.values(), key=lambda h: (h.package, h.key or "", h.value))
+
+
 def find_override_record(scan_result: ScanResult, name: str) -> ScanRecord | None:
     """Resolve a `--override` target to the record it names, or None when nothing matches.
 
@@ -336,10 +392,16 @@ def build_update_plan(
     # (Pass 1.5b) computes the correct post-upgrade version for each affected transitive dep.
     # Example: solver says modelsearch 1.2.2, but wagtail 7.4 requires >=1.3,<1.4 → use 1.3.1.
     impact_versions: dict[str, str] = {}
+    override_bumps: dict[str, TransitiveImpact] = {}
     for record in direct_records:
         for impact in record.update_transitive_impacts:
+            # A further copy leaves the version the solver picked for the installed one alone.
+            if impact.kind == ImpactKind.NEW_COPY:
+                continue
             if impact.projected_version and not impact.has_conflict:
                 impact_versions[impact.package_name] = impact.projected_version
+                if impact.kind == ImpactKind.OVERRIDE_BUMP:
+                    override_bumps[impact.package_name] = impact
 
     def with_impact_version(entry: UpdateEntry) -> UpdateEntry:
         impact = impact_versions.get(entry.package_name)
@@ -357,6 +419,34 @@ def build_update_plan(
         }.values(),
         key=lambda e: e.package_name,
     )
+
+    # An override OSS IQ wrote has to move with the family the candidate drags along, even when the
+    # transitive solver had nothing to say about it.
+    solved_names = {e.package_name for e in transitive}
+    transitive = sorted(
+        [
+            *transitive,
+            *(
+                override_bump_entry(impact)
+                for name, impact in override_bumps.items()
+                if name not in solved_names and name not in all_direct_names
+            ),
+        ],
+        key=lambda e: e.package_name,
+    )
+
+    # An override the user wrote is theirs to release: the writers would skip its package, so name it
+    # here rather than let the plan promise a bump that never lands.
+    user_holds = [rc.held_by_override for r in direct_records for rc in r.rejected_candidates if rc.held_by_override]
+    records_by_name = {r.package_name: r for r in scan_result.transitive_packages}
+    unheld: list[UpdateEntry] = []
+    for entry in transitive:
+        hold = user_override_hold(records_by_name.get(entry.package_name), entry)
+        if hold is None:
+            unheld.append(entry)
+        else:
+            user_holds.append(hold)
+    transitive = unheld
 
     unknown_overrides: list[str] = []
     forced_names = set(forced_overrides or {})
@@ -434,4 +524,5 @@ def build_update_plan(
         strategy=plan.default,
         strategy_overrides=dict(plan.overrides),
         available_at_higher_tier=dict(available_at_higher_tier),
+        held_by_user_overrides=merge_override_holds(user_holds),
     )

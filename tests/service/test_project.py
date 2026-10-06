@@ -3,17 +3,19 @@ Tests for the service/project package — ScanRecord factory and version_constra
 """
 
 from datetime import UTC, datetime
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from ossiq.adapters.api_pypi import PackageRegistryApiPypi
+from ossiq.adapters.package_managers.api_npm import PackageManagerJsNpm
 from ossiq.adapters.package_managers.dependency_tree import GraphExporter
 from ossiq.domain.common import ConstraintType, CveDatabase, ProjectPackagesRegistry
 from ossiq.domain.cve import CVE, Severity
 from ossiq.domain.package import Package
 from ossiq.domain.packages_manager import UV
-from ossiq.domain.project import ConstraintSource, Dependency, PeerRequirement, Project
+from ossiq.domain.project import ConstraintSource, Dependency, IncomingEdge, PeerRequirement, Project
 from ossiq.domain.version import PackageVersion, VersionsDifference
 from ossiq.messages import IGNORE_REASON_IGNORE_FLAG, IGNORE_REASON_NON_REGISTRY
 from ossiq.service.project.models import DependencyDescriptor, ScanRecord
@@ -34,6 +36,8 @@ from ossiq.solver.dependencies_solver import EMPTY_OUTPUT, SolverOutput
 # ============================================================================
 # Module-level constants
 # ============================================================================
+
+TESTDATA_NPM = Path(__file__).parents[2] / "testdata" / "npm"
 
 _PRERELEASE_VERSION = "1.0.0b1"
 _STABLE_VERSION = "1.0.0"
@@ -768,3 +772,120 @@ class TestDirectPackagesAreListedOnce:
         descriptors = build_scan_descriptors(pypi_project(root), self.sources())
 
         assert [(d.canonical_name, d.is_optional) for d in descriptors.opt_deps] == [("pylint", True)]
+
+
+class TestInstalledCopies:
+    """A package npm nests is installed more than once; the scan keeps every copy, and one stands for the name."""
+
+    @staticmethod
+    def sources(*, one_copy_per_name: bool) -> MagicMock:
+        sources = MagicMock()
+        sources.ignore_packages = []
+        sources.production = False
+        sources.packages_registry = MagicMock(spec=PackageRegistryApiPypi)
+        sources.packages_registry.one_copy_per_name = one_copy_per_name
+        sources.packages_registry.compare_versions.side_effect = lambda a, b: (
+            (tuple(map(int, a.split("."))) > tuple(map(int, b.split("."))))
+            - (tuple(map(int, a.split("."))) < tuple(map(int, b.split("."))))
+        )
+        return sources
+
+    @staticmethod
+    def minimatch_copies() -> Dependency:
+        """eslint resolves minimatch ^10 to 10.2.5, editorconfig resolves ^9 to its own nested 9.0.9."""
+        hoisted = pypi_node(
+            "minimatch",
+            "10.2.5",
+            parent_constraints=["^10.2.4"],
+            parent_edges=[IncomingEdge("eslint", "10.2.0", "^10.2.4")],
+        )
+        nested = pypi_node(
+            "minimatch",
+            "9.0.9",
+            parent_constraints=["^9.0.1"],
+            parent_edges=[IncomingEdge("editorconfig", "1.0.7", "^9.0.1")],
+        )
+        return pypi_node(
+            "app",
+            dependencies={
+                "eslint": pypi_node("eslint", "10.2.0", dependencies={"minimatch": hoisted}),
+                "editorconfig": pypi_node("editorconfig", "1.0.7", dependencies={"minimatch": nested}),
+            },
+        )
+
+    def test_the_newest_copy_stands_for_the_name_and_every_copy_is_kept(self):
+        descriptors = build_scan_descriptors(
+            pypi_project(self.minimatch_copies()), self.sources(one_copy_per_name=False)
+        )
+
+        (minimatch,) = [d for d in descriptors.trans_deps if d.canonical_name == "minimatch"]
+        assert minimatch.version == "10.2.5"
+        assert [(c.version, [e.requirer_name for e in c.edges]) for c in minimatch.installed_copies] == [
+            ("10.2.5", ["eslint"]),
+            ("9.0.9", ["editorconfig"]),
+        ]
+
+    def test_the_name_carries_every_copys_constraints(self):
+        """What a version-keyed override on the newest copy would rewrite is found among them."""
+        descriptors = build_scan_descriptors(
+            pypi_project(self.minimatch_copies()), self.sources(one_copy_per_name=False)
+        )
+
+        (minimatch,) = [d for d in descriptors.trans_deps if d.canonical_name == "minimatch"]
+        assert minimatch.all_constraints == ["^10.2.4", "^9.0.1"]
+
+    def test_a_one_copy_manager_keeps_the_copy_the_walk_reached_last(self):
+        """pip and uv behave as before: no copy is promoted, only that node's own constraints."""
+        descriptors = build_scan_descriptors(
+            pypi_project(self.minimatch_copies()), self.sources(one_copy_per_name=True)
+        )
+
+        (minimatch,) = [d for d in descriptors.trans_deps if d.canonical_name == "minimatch"]
+        assert minimatch.version == "9.0.9"
+        assert minimatch.all_constraints == ["^9.0.1"]
+
+    def test_a_direct_dependency_also_nested_elsewhere_carries_both_copies(self):
+        nested_ms = pypi_node("ms", "2.0.0", parent_edges=[IncomingEdge("debug", "4.0.0", "2.0.0")])
+        root = pypi_node(
+            "app",
+            dependencies={
+                "ms": pypi_node("ms", "2.1.3", parent_edges=[IncomingEdge("app", "1.0.0", "^2.1.0")]),
+                "debug": pypi_node("debug", "4.0.0", dependencies={"ms": nested_ms}),
+            },
+        )
+
+        descriptors = build_scan_descriptors(pypi_project(root), self.sources(one_copy_per_name=False))
+
+        (ms,) = [d for d in descriptors.prod_deps if d.canonical_name == "ms"]
+        assert [c.version for c in ms.installed_copies] == ["2.1.3", "2.0.0"]
+        assert not [d for d in descriptors.trans_deps if d.canonical_name == "ms"]
+
+    def test_aliases_of_one_package_at_one_version_are_one_copy(self):
+        lodash_a = Dependency(name="lodash-a", canonical_name="lodash", version_installed="4.17.21")
+        lodash_b = Dependency(name="lodash-b", canonical_name="lodash", version_installed="4.17.21")
+        root = pypi_node(
+            "app", dependencies={"host": pypi_node("host", dependencies={"lodash-a": lodash_a, "lodash-b": lodash_b})}
+        )
+
+        descriptors = build_scan_descriptors(pypi_project(root), self.sources(one_copy_per_name=False))
+
+        (lodash,) = [d for d in descriptors.trans_deps if d.canonical_name == "lodash"]
+        assert [c.version for c in lodash.installed_copies] == ["4.17.21"]
+
+    def test_a_real_lockfile_keeps_the_nested_copy_a_vulnerable_dependent_needs(self):
+        """cross-spawn 7.0.3 (advisory GHSA-3xgq-45jj-v275) needs which ^2 while the hoisted which is 5.
+
+        npm installed a second which under cross-spawn, so the fix to 7.0.6 is not blocked by
+        the hoisted copy: both copies, and who asked for each, have to reach the solver.
+        """
+        project = PackageManagerJsNpm(str(TESTDATA_NPM / "nested-copies"), Settings()).project_info()
+
+        descriptors = build_scan_descriptors(project, self.sources(one_copy_per_name=False))
+
+        (which,) = [d for d in descriptors.prod_deps if d.canonical_name == "which"]
+        (cross_spawn,) = [d for d in descriptors.trans_deps if d.canonical_name == "cross-spawn"]
+        assert [(c.version, [e.requirer_name for e in c.edges]) for c in which.installed_copies] == [
+            ("5.0.0", ["nested-copies"]),
+            ("2.0.2", ["cross-spawn"]),
+        ]
+        assert (cross_spawn.version, cross_spawn.all_constraints) == ("7.0.3", ["^7.0.0"])

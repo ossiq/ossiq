@@ -19,7 +19,7 @@ from ossiq.domain.common import (
     ConstraintType,
     EngineContext,
     ModuleSystem,
-    ProjectPackagesRegistry,
+    OverrideHold,
     RecommendationRung,
     RejectedCandidate,
     RejectionDetail,
@@ -135,7 +135,8 @@ def describe_rejection(
 
     Attributes the block to an OSS IQ-authored override only when constraint_info says so —
     ConstraintSource.is_ossiq_authored (item #14) is what makes that claim verifiable rather than
-    a guess.
+    a guess. The override an impact itself names wins over the record's: with several copies of a
+    package installed, the record stands for one and the rule that blocked may be on another.
 
     Returns the headline and its spec list separately rather than one joined sentence: the list
     can run to a dozen specs, and a table needs to elide what a log line prints in full.
@@ -145,14 +146,36 @@ def describe_rejection(
         return "blocked by a transitive dependency conflict", None
     ti = blockers[0]
     blocking = transitive_by_name.get(ti.package_name)
-    if blocking and blocking.constraint_info.type == ConstraintType.OVERRIDE:
-        if blocking.constraint_info.is_ossiq_authored:
+    held = ti.held_by_override
+    if held is None and blocking and blocking.constraint_info.type == ConstraintType.OVERRIDE:
+        held = blocking.constraint_info
+    if held is not None:
+        if held.is_ossiq_authored:
             prefix = f"{ti.package_name} is held by an OSS IQ-authored override"
         else:
-            prefix = f"{ti.package_name} is held by an override in {blocking.constraint_info.source_file}"
+            prefix = f"{ti.package_name} is held by an override in {held.source_file}"
     else:
         prefix = f"{ti.package_name} requires {ti.new_constraint}"
     return prefix, ti.conflict
+
+
+def user_override_hold(impact: DirectUpdateImpact) -> OverrideHold | None:
+    """The user's own override behind a rejected candidate, or None when the block is anything else.
+
+    An override OSS IQ wrote is not a hold: it is OSS IQ's to move, and a candidate it blocks is
+    rejected on the strength of what that override would need, not on the user's say-so.
+    """
+    for ti in impact.transitive_impacts:
+        held = ti.held_by_override
+        if ti.has_conflict and held is not None and not held.is_ossiq_authored and held.override_value is not None:
+            return OverrideHold(
+                package=ti.package_name,
+                value=held.override_value,
+                key=held.override_key,
+                source_file=held.source_file,
+                blocked=(f"{impact.package_name}@{impact.recommended_version}",),
+            )
+    return None
 
 
 def build_candidates(
@@ -272,7 +295,12 @@ def build_candidates(
             # Overwriting on each hit keeps the newest rejected release per rung, since
             # installable is sorted ascending.
             headline, detail = describe_rejection(impact, transitive_by_name)
-            rejected_by_rung[rung] = RejectedCandidate(version=pv.version, reason=headline, detail=detail)
+            rejected_by_rung[rung] = RejectedCandidate(
+                version=pv.version,
+                reason=headline,
+                detail=detail,
+                held_by_override=user_override_hold(impact),
+            )
 
     rejected = tuple(rejected_by_rung[rung] for rung in sorted(rejected_by_rung, key=RUNG_ORDER.__getitem__))
     return BuiltCandidates(candidates=tuple(candidates), rejected=rejected, strictly_gated=bool(strict_reasons))
@@ -344,7 +372,7 @@ def apply_update_strategy(
         engine_gate = engine_mismatch_gate(engine_context)
         # npm installs an engines mismatch anyway (a warning, not a refusal), so there it stays
         # advisory and waivable. pip and uv refuse outright, so on PyPI the gate has to bind.
-        engine_gate_binds = registry.package_registry == ProjectPackagesRegistry.PYPI
+        engine_gate_binds = registry.refuses_engine_mismatch
         # Crossing to ESM-only is a freshness tier's call, and only on a runtime that can
         # require() ESM at all. Even there it stays flagged (breaking_change), because require()
         # returns the namespace and a default-export-only package still breaks.

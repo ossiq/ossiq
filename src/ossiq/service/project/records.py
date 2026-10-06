@@ -9,7 +9,7 @@ from ossiq.domain.common import EngineContext, build_purl, parse_spdx_expression
 from ossiq.domain.compatibility import CompatibilityFacts
 from ossiq.domain.cve import CVE
 from ossiq.domain.package import Package
-from ossiq.domain.project import ConstraintSource, PeerRequirement
+from ossiq.domain.project import ConstraintSource, InstalledCopy, PeerRequirement
 from ossiq.domain.repository import Repository
 from ossiq.risk.maintenance import deprecation_evidence
 from ossiq.service.common import package_versions
@@ -107,6 +107,7 @@ def scan_record(
     now: datetime | None = None,
     engine_context: EngineContext | None = None,
     project_declares_esm: bool = False,
+    installed_copies: list[InstalledCopy] | None = None,
 ) -> ScanRecord:
     """
     Factory to generate ScanRecord instances
@@ -228,6 +229,7 @@ def scan_record(
         ),
         purl=build_purl(version_rules.package_registry, canonical_name, package_version),
         all_constraints=all_constraints or [],
+        installed_copies=list(installed_copies or []),
         peer_requirements=list(peer_requirements or []),
         peer_violations=[
             req
@@ -291,6 +293,7 @@ def build_records(
             now=now,
             engine_context=engine_context,
             project_declares_esm=project_declares_esm,
+            installed_copies=dep.installed_copies,
         )
         for dep in descriptors
     ]
