@@ -7,7 +7,7 @@ import sys
 import pytest
 
 from ossiq.adapters.package_managers.dependency_tree import BaseDependencyResolver, GraphExporter
-from ossiq.domain.project import Dependency
+from ossiq.domain.project import Dependency, IncomingEdge
 
 # ============================================================================
 # Dummy Resolver (based on UVResolverV1R3 structure)
@@ -216,6 +216,20 @@ class TestBuildGraph:
         assert requests is not None
         assert "urllib3" in requests.dependencies
         assert "certifi" in requests.dependencies
+
+    def test_edges_record_which_parent_asked_for_each_spec(self, transitive_lockfile):
+        """Every incoming edge keeps its requirer next to the spec, in parent order."""
+        # Arrange
+        resolver = DummyResolver(transitive_lockfile)
+
+        # Act
+        root = resolver.build_graph("my-app")
+
+        # Assert
+        assert root is not None
+        urllib3 = root.dependencies["requests"].dependencies["urllib3"]
+        assert urllib3.parent_edges == [IncomingEdge("requests", "2.31.0", "2.1.0")]
+        assert urllib3.parent_constraints == ["2.1.0"]
 
     def test_transitive_deps_not_on_root(self, transitive_lockfile):
         """Test that transitive dependencies are not direct children of root."""
@@ -487,6 +501,18 @@ class TestMatchChild:
 
         # Assert
         assert result is None
+
+    def test_parent_data_does_not_change_a_name_based_lookup(self):
+        """Formats with no recorded placement ignore the parent entry they are handed."""
+        # Arrange
+        resolver = DummyResolver(_make_lockfile(_pkg("lib", "1.0.0")))
+        resolver.build_graph("lib")
+
+        # Act
+        result = resolver.match_child("lib", ">=1.0", {"name": "someone-else", "version": "9.9.9"})
+
+        # Assert
+        assert result is resolver.match_child("lib", ">=1.0")
 
 
 # ============================================================================
