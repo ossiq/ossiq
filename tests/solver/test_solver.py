@@ -7,11 +7,11 @@ from unittest.mock import MagicMock
 from packaging.version import Version as PV
 
 from ossiq.adapters.api_interfaces import AbstractPackageRegistryApi
-from ossiq.domain.common import ConstraintType
+from ossiq.domain.common import ConstraintType, ProjectPackagesRegistry
 from ossiq.domain.project import ConstraintSource
 from ossiq.domain.version import PackageVersion
 from ossiq.solver.dependencies_solver import build_requires_reason, build_requires_validator, solve_direct
-from ossiq.solver.problem import SolverProblem
+from ossiq.solver.problem import PackageConstraint, SolverProblem
 
 # ---------------------------------------------------------------------------
 # Helpers (mirror test_universe.py style)
@@ -480,6 +480,65 @@ class TestBuildRequiresReason:
         reason_for = build_requires_reason(problem, registry, {}, {"tiktoken": "0.14.0"})
 
         assert reason_for("requests", "2.34.2") is None
+
+    @staticmethod
+    def nesting_registry(requires: dict[tuple[str, str], dict[str, str]]) -> MagicMock:
+        registry = _make_registry({}, requires=requires)
+        registry.package_registry = ProjectPackagesRegistry.NPM
+        registry.one_copy_per_name = False
+        return registry
+
+    @staticmethod
+    def npm_problem(installed: dict[str, str]) -> SolverProblem:
+        constraints = tuple(PackageConstraint(name, None, ConstraintType.DECLARED, v) for name, v in installed.items())
+        return SolverProblem(
+            constraints=constraints, candidates={}, engine_context={}, registry=ProjectPackagesRegistry.NPM
+        )
+
+    def test_a_dependent_the_target_cannot_satisfy_gets_its_own_copy_where_copies_nest(self) -> None:
+        """cross-spawn needs which ^2 while the hoisted which is 5: npm installs a second which."""
+        registry = self.nesting_registry({("cross-spawn", "7.0.6"): {"which": "^2.0.1"}})
+        problem = self.npm_problem({"cross-spawn": "7.0.5", "which": "2.0.2"})
+
+        reason_for = build_requires_reason(problem, registry, {}, {"which": "5.0.0"})
+
+        assert reason_for("cross-spawn", "7.0.6") is None
+
+    def test_the_same_requirement_still_blocks_where_one_copy_is_installed(self) -> None:
+        registry = _make_registry({}, requires={("cross-spawn", "7.0.6"): {"which": ">=2.0.1,<3"}})
+        problem = SolverProblem(constraints=(), candidates={}, engine_context={})
+
+        reason_for = build_requires_reason(problem, registry, {}, {"which": "5.0.0"})
+
+        assert reason_for("cross-spawn", "7.0.6") == "which needs >=2.0.1,<3, held at 5.0.0"
+
+    def test_a_keyed_override_binds_the_edges_the_installed_copy_satisfies(self) -> None:
+        """`b@2.0.0: 3.0.0` rewrites a's ^2.0.0 edge, so b 3.0.0 would break a 1.1.0's declared range."""
+        registry = self.nesting_registry({("a", "1.1.0"): {"b": "^2.0.0"}})
+        problem = self.npm_problem({"a": "1.0.0", "b": "2.0.0"})
+
+        reason_for = build_requires_reason(problem, registry, {"b": "3.0.0"}, {}, keyed_overrides=True)
+
+        assert reason_for("a", "1.1.0") == "b needs ^2.0.0, held at 3.0.0"
+
+    def test_a_requirement_only_another_copy_satisfies_does_not_bind(self) -> None:
+        """b is installed at 1.5.0, so a's ^2.0.0 is met by a different copy the override never touches."""
+        registry = self.nesting_registry({("a", "1.1.0"): {"b": "^2.0.0"}})
+        problem = self.npm_problem({"a": "1.0.0", "b": "1.5.0"})
+
+        reason_for = build_requires_reason(problem, registry, {"b": "3.0.0"}, {}, keyed_overrides=True)
+
+        assert reason_for("a", "1.1.0") is None
+
+    def test_an_external_target_capping_the_candidate_only_binds_through_a_keyed_override(self) -> None:
+        registry = self.nesting_registry({("parent", "1.0.0"): {"child": "<4"}})
+        problem = self.npm_problem({"child": "3.3.1"})
+
+        direct = build_requires_reason(problem, registry, {}, {"parent": "1.0.0"})
+        transitive = build_requires_reason(problem, registry, {}, {"parent": "1.0.0"}, keyed_overrides=True)
+
+        assert direct("child", "4.0.0") is None
+        assert transitive("child", "4.0.0") == "parent 1.0.0 needs child<4"
 
     def test_a_package_is_not_held_to_its_own_target_entry(self) -> None:
         registry = _make_registry({}, requires={("oauthlib", "3.3.1"): {"oauthlib": "<3"}})

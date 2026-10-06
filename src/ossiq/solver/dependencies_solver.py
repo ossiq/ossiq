@@ -120,6 +120,8 @@ def build_requires_reason(
     registry: AbstractPackageRegistryApi,
     recommendations: dict[str, str],
     external_targets: dict[str, str],
+    *,
+    keyed_overrides: bool = False,
 ) -> Callable[[str, str], str | None]:
     """Build the requires-consistency check, as a function returning why a candidate fails.
 
@@ -138,22 +140,39 @@ def build_requires_reason(
     candidate here, so without this a direct dep upgraded to a release that caps this package
     would go unnoticed until the package manager refused the plan.
 
+    Where the package manager nests copies (npm) a requirement binds far less: a dependent whose
+    range the target cannot satisfy gets a copy of its own. The one thing that still binds it is a
+    version-keyed override, which rewrites every edge whose range the installed copy satisfies and
+    so would force the target onto that edge. That is what `keyed_overrides` says the picks are
+    written as, and only requirements the installed copy satisfies are checked then.
+
     Args:
         problem: The solve in progress, for its registry's version semantics.
         registry: Registry client, for each candidate's declared requirements.
         recommendations: Versions picked so far in this solve.
         external_targets: Versions fixed outside this solve.
+        keyed_overrides: Whether the picks are persisted as version-keyed overrides, as a
+            transitive solve on npm does; irrelevant where one copy per name is installed.
 
     Returns:
         A (package, version) -> reason function; None means the candidate is consistent.
     """
+    nests = not registry.one_copy_per_name
+    installed = {constraint.package_name: constraint.installed_version for constraint in problem.constraints}
+
+    def binds(dep: str, spec: str) -> bool:
+        """Whether *spec* can constrain *dep*'s target at all under this package manager."""
+        if not nests:
+            return True
+        current = installed.get(dep) if keyed_overrides else None
+        return current is not None and version_satisfies_constraint(current, spec, problem.registry)
 
     def reason_for(pkg: str, version: str) -> str | None:
         for dep, spec in registry.package_version_requires(pkg, version).items():
             if not spec or dep == pkg:
                 continue
             target = recommendations.get(dep) or external_targets.get(dep)
-            if target is None:
+            if target is None or not binds(dep, spec):
                 continue
             # TODO: strict check is conservative — a dep whose recommendation equals its installed
             #       version is not pinned in the plan, so the resolver may still move it in-range.
@@ -164,7 +183,7 @@ def build_requires_reason(
             if parent == pkg:
                 continue
             spec = registry.package_version_requires(parent, parent_version).get(pkg)
-            if spec and not version_satisfies_constraint(version, spec, problem.registry):
+            if spec and binds(pkg, spec) and not version_satisfies_constraint(version, spec, problem.registry):
                 logger.debug(
                     "requires check: %s==%s needed by %s==%s as %s", pkg, version, parent, parent_version, spec
                 )
@@ -179,12 +198,16 @@ def build_requires_validator(
     registry: AbstractPackageRegistryApi,
     recommendations: dict[str, str],
     external_targets: dict[str, str],
+    *,
+    keyed_overrides: bool = False,
 ) -> Callable[[str, str], bool]:
     """Reject candidates whose requirements conflict with other pinned or held versions.
 
     Derived from `build_requires_reason` — see there for what makes a candidate acceptable.
     """
-    reason_for = build_requires_reason(problem, registry, recommendations, external_targets)
+    reason_for = build_requires_reason(
+        problem, registry, recommendations, external_targets, keyed_overrides=keyed_overrides
+    )
     return lambda pkg, version: reason_for(pkg, version) is None
 
 
@@ -196,6 +219,7 @@ def apply_requires_consistency(
     extra_validator: Callable[[str, str], bool] | None = None,
     external_targets: dict[str, str] | None = None,
     cooldown_period: int = VERY_FRESH_THRESHOLD_DAYS,
+    keyed_overrides: bool = False,
 ) -> SolverOutput:
     """Demote or drop recommendations until the joint set is requires-consistent.
 
@@ -217,7 +241,7 @@ def apply_requires_consistency(
         return lambda pkg, version: extra_validator(pkg, version) and requires_validator(pkg, version)
 
     def record_drops(before: dict[str, str], after: dict[str, str]) -> None:
-        reason_for = build_requires_reason(problem, registry, before, targets)
+        reason_for = build_requires_reason(problem, registry, before, targets, keyed_overrides=keyed_overrides)
         for pkg, version in before.items():
             if pkg not in after:
                 rejected[pkg] = RejectedCandidate(
@@ -226,7 +250,9 @@ def apply_requires_consistency(
                 )
 
     for _ in range(MAX_CONSISTENCY_ROUNDS):
-        requires_validator = build_requires_validator(problem, registry, output.recommendations, targets)
+        requires_validator = build_requires_validator(
+            problem, registry, output.recommendations, targets, keyed_overrides=keyed_overrides
+        )
         new_output = apply_fallback(output, problem, combine(requires_validator), cooldown_period=cooldown_period)
         record_drops(output.recommendations, new_output.recommendations)
         if new_output.recommendations == output.recommendations:
@@ -238,7 +264,9 @@ def apply_requires_consistency(
             )
         output = new_output
 
-    requires_validator = build_requires_validator(problem, registry, output.recommendations, targets)
+    requires_validator = build_requires_validator(
+        problem, registry, output.recommendations, targets, keyed_overrides=keyed_overrides
+    )
     consistent = {pkg: ver for pkg, ver in output.recommendations.items() if requires_validator(pkg, ver)}
     record_drops(output.recommendations, consistent)
     return SolverOutput(
@@ -461,4 +489,6 @@ def solve_transitive(
         registry,
         external_targets=external_targets,
         cooldown_period=cooldown_period,
+        # Where copies nest, a transitive pick is written as a version-keyed override.
+        keyed_overrides=True,
     )
