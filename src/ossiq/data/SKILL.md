@@ -82,6 +82,10 @@ installed in the project (not a prospective add) — see the version ladder belo
 
 `next_action` for an add is `install`, `install with caution`, or `do not install`.
 
+`do not install` includes a package its registry deprecated, archived or quarantined, and a
+deprecated release requested by `version`. `reasons` quotes the registry's own note, which
+usually names the replacement: look for that alternative instead of forcing the install.
+
 ## When updating existing dependencies
 
 Before bumping versions, run:
@@ -140,7 +144,9 @@ The top-level `next_action` is the most urgent one across the `updates` list, or
 
 - **Check for the Fix** — a known CVE that `to` does not clear (or there is no `to`); check for a
   patched release.
-- **Find alternative** — the package is gone or its upstream is abandoned/deprecated; migrate off it.
+- **Find alternative** — the package is gone, its registry deprecated, archived or quarantined it,
+  or its upstream is abandoned/deprecated; migrate off it. A newer release of such a package does
+  not help.
 - **Consider alternative** — the upstream is winding down; plan a migration.
 - **Check Release Notes** — a major version behind; review breaking changes before the bump.
 - **Update Immediately** — a minor/patch behind, or a recommended version exists; bump it.
