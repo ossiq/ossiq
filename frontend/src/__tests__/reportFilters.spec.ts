@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import { isActionable, useReportFilters, type ReportRow } from '../composables/useReportFilters'
 import { useOssiqStore } from '../stores/ossiq'
-import type { OSSIQExportSchemaV15, PackageMetrics } from '../types/report'
+import type { OSSIQExportSchemaV16, PackageMetrics } from '../types/report'
 
 function row(over: Partial<PackageMetrics>, rowOver: Partial<ReportRow> = {}): ReportRow {
   const pkg = {
@@ -36,7 +36,7 @@ function row(over: Partial<PackageMetrics>, rowOver: Partial<ReportRow> = {}): R
   }
 }
 
-function reportWith(pkg: Partial<PackageMetrics>): OSSIQExportSchemaV15 {
+function reportWith(pkg: Partial<PackageMetrics>): OSSIQExportSchemaV16 {
   return {
     project: { name: 'demo', registry: 'npm' },
     production_packages: [
@@ -56,7 +56,7 @@ function reportWith(pkg: Partial<PackageMetrics>): OSSIQExportSchemaV15 {
     development_packages: [],
     transitive_packages: [],
     dependency_tree: [],
-  } as unknown as OSSIQExportSchemaV15
+  } as unknown as OSSIQExportSchemaV16
 }
 
 describe("the report's What's Next column", () => {
@@ -112,5 +112,15 @@ describe('isActionable', () => {
 
   it('keeps a package with a pending recommendation', () => {
     expect(isActionable(row({ recommended_version: '1.0.1' }))).toBe(true)
+  })
+
+  it('keeps an otherwise clean package whose peer is installed out of its reach', () => {
+    const peer = { package_name: 'host', spec: '^1', optional: false, installed_elsewhere: [] }
+    expect(isActionable(row({ maintenance_state: 'maintained', unresolved_peers: [peer] }))).toBe(true)
+  })
+
+  it('does not keep a package for an empty or absent peer list', () => {
+    expect(isActionable(row({ maintenance_state: 'maintained', unresolved_peers: [] }))).toBe(false)
+    expect(isActionable(row({ maintenance_state: 'maintained' }))).toBe(false)
   })
 })

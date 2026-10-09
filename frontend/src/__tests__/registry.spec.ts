@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { buildPackageRegistry } from '../explorer/registry'
-import type { OSSIQExportSchemaV15, PackageMetrics, TransitivePackageMetrics } from '../types/report'
+import type { OSSIQExportSchemaV16, PackageMetrics, TransitivePackageMetrics } from '../types/report'
 
 // Only the fields buildPackageRegistry reads. The stability block is what this test guards:
 // gap_cv / silence_days / silence_p / commits_sampled / archived must survive the transform.
@@ -57,7 +57,7 @@ const report = {
     }),
   ],
   dependency_tree: [],
-} as unknown as OSSIQExportSchemaV15
+} as unknown as OSSIQExportSchemaV16
 
 describe('buildPackageRegistry', () => {
   it('carries the repository-stability fields onto direct entries', () => {
@@ -81,5 +81,33 @@ describe('buildPackageRegistry', () => {
     expect(six.commits_sampled).toBe(12)
     expect(six.silence_p).toBe(0.061)
     expect(six.archived).toBe(true)
+  })
+})
+
+describe('buildPackageRegistry and unresolved peers (schema 1.6)', () => {
+  const peer = { package_name: '@vue/server-renderer', spec: '3.x', optional: true, installed_elsewhere: ['3.5.43'] }
+
+  function reportWith(direct: Partial<PackageMetrics>, trans: Partial<TransitivePackageMetrics>) {
+    return {
+      constraint_type_map: ['DECLARED'],
+      production_packages: [pkg({ package_name: 'a', ...direct })],
+      development_packages: [],
+      transitive_packages: [transitive({ id: 3, ...trans })],
+      dependency_tree: [],
+    } as unknown as OSSIQExportSchemaV16
+  }
+
+  it('carries them onto direct and transitive entries', () => {
+    const { directEntries, byId } = buildPackageRegistry(
+      reportWith({ unresolved_peers: [peer] }, { unresolved_peers: [peer] }),
+    )
+    expect(directEntries.get('a')!.unresolved_peers).toEqual([peer])
+    expect(byId.get(3)!.unresolved_peers).toEqual([peer])
+  })
+
+  it('reads a report made before 1.6, which has no such field, as none', () => {
+    const { directEntries, byId } = buildPackageRegistry(reportWith({}, {}))
+    expect(directEntries.get('a')!.unresolved_peers).toEqual([])
+    expect(byId.get(3)!.unresolved_peers).toEqual([])
   })
 })

@@ -72,6 +72,9 @@ export function isActionable(row: ReportRow): boolean {
     row.cveCount > 0 ||
     p.maintenance_state === 'abandoned' ||
     p.maintenance_state === 'deprecated' ||
+    // A peer the package cannot reach breaks it at load time however current it is, so a
+    // package that is otherwise clean still belongs on the default table.
+    (p.unresolved_peers?.length ?? 0) > 0 ||
     (p.recommended_version != null && p.recommended_version !== p.installed_version)
   )
 }

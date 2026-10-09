@@ -176,6 +176,7 @@ export function useD3Tree(options: UseD3TreeOptions) {
       archived: d.data.archived,
       days_since_push: d.data.days_since_push,
       dependency_health_action: d.data.dependency_health_action,
+      unresolved_peers: d.data.unresolved_peers,
       dependencies: d.data.dependencies,
       optional_dependencies: d.data.optional_dependencies,
     })

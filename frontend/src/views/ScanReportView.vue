@@ -7,6 +7,7 @@ import ReportFilters from '@/components/ReportFilters.vue'
 import ReportTable from '@/components/ReportTable.vue'
 import ReportLegend from '@/components/ReportLegend.vue'
 import ReportBanner from '@/components/ReportBanner.vue'
+import PeerRepairs from '@/components/PeerRepairs.vue'
 import DependencyDetailPanel from '@/components/DependencyDetailPanel.vue'
 import type { SelectedNodeDetail } from '@/types/dependency-tree'
 import type { DependencyTreeRoot, TransitivePackageMetrics } from '@/types/report'
@@ -90,6 +91,7 @@ function handleSelectPackage(row: ReportRow) {
     archived: row.pkg.archived ?? null,
     days_since_push: row.pkg.days_since_push ?? null,
     dependency_health_action: row.pkg.dependency_health_action ?? null,
+    unresolved_peers: row.pkg.unresolved_peers ?? [],
   }
 
   const transitives = store.report?.transitive_packages ?? []
@@ -161,6 +163,9 @@ function handlePanelClose() {
 
         <!-- Degraded data sources — drawn only when something did not come back ok -->
         <ReportBanner />
+
+        <!-- Peers installed out of their requirers' reach, and how `ossiq apply` puts them back -->
+        <PeerRepairs />
 
         <!-- Help text -->
         <div v-if="showHelp" class="w-3/4">

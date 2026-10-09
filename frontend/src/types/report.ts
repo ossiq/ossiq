@@ -6,9 +6,9 @@
  */
 
 /**
- * Schema for OSS-IQ project metrics export data (v1.5 adds epss to PackageMetrics, TransitivePackageMetrics and CVEInfo, runs_code_at_install/install_execution_reason to PackageMetrics and TransitivePackageMetrics, fix_age_days to CVEInfo, project_epss/packages_with_epss/packages_with_unscored_cves to summary, declares update_transitive_impacts, and replaces the phi_i/phi_p/phi_a CSI channels with the maintenance-state model: maintenance_state, maintenance_risk, maintenance_coverage, flow_trend, engagement_buckets, deprecation_signals and deprecation_successor and dependency_health_action on PackageMetrics and TransitivePackageMetrics, and packages_unmaintained/packages_deprecated on summary; and adds latest_compatible_major, module_system, recommended_module_system to PackageMetrics and TransitivePackageMetrics, and breaking_change to PackageMetrics; and adds engine_requirement, engine_compatible, engine_context_source to PackageMetrics and TransitivePackageMetrics; and adds metadata.warnings and a scan-level runtime_context block, moving engine_context_source off the per-package models; and adds next_action to PackageMetrics and TransitivePackageMetrics and requires_constraint_widening to PackageMetrics, so every surface reads one next-action label instead of re-deriving it; and adds latest_preserving_module_system and module_system_note to PackageMetrics and TransitivePackageMetrics; and adds the standard/full profile split: metadata.profile, summary.transitive_packages, runtime_context.runtime_mismatch, affected_ranges/fixed_in on CVEInfo, recommended_version/required_by on TransitivePackageMetrics, and ignored_packages/upgrade_paths/manifest_lock_divergent at the root - the standard profile validates against export_schema_v1.5_standard.json)
+ * Schema for OSS-IQ project metrics export data (v1.5 adds epss to PackageMetrics, TransitivePackageMetrics and CVEInfo, runs_code_at_install/install_execution_reason to PackageMetrics and TransitivePackageMetrics, fix_age_days to CVEInfo, project_epss/packages_with_epss/packages_with_unscored_cves to summary, declares update_transitive_impacts, and replaces the phi_i/phi_p/phi_a CSI channels with the maintenance-state model: maintenance_state, maintenance_risk, maintenance_coverage, flow_trend, engagement_buckets, deprecation_signals and deprecation_successor and dependency_health_action on PackageMetrics and TransitivePackageMetrics, and packages_unmaintained/packages_deprecated on summary; and adds latest_compatible_major, module_system, recommended_module_system to PackageMetrics and TransitivePackageMetrics, and breaking_change to PackageMetrics; and adds engine_requirement, engine_compatible, engine_context_source to PackageMetrics and TransitivePackageMetrics; and adds metadata.warnings and a scan-level runtime_context block, moving engine_context_source off the per-package models; and adds next_action to PackageMetrics and TransitivePackageMetrics and requires_constraint_widening to PackageMetrics, so every surface reads one next-action label instead of re-deriving it; and adds latest_preserving_module_system and module_system_note to PackageMetrics and TransitivePackageMetrics; and adds the standard/full profile split: metadata.profile, summary.transitive_packages, runtime_context.runtime_mismatch, affected_ranges/fixed_in on CVEInfo, recommended_version/required_by on TransitivePackageMetrics, and ignored_packages/upgrade_paths/manifest_lock_divergent at the root - the standard profile validates against export_schema_v1.6_standard.json) v1.6 adds unresolved_peers to PackageMetrics and TransitivePackageMetrics (peers a package declares that nothing installed within its reach satisfies) and peer_repairs at the root (how `ossiq apply` puts them back); a document that declares an earlier version omits them.
  */
-export interface OSSIQExportSchemaV15 {
+export interface OSSIQExportSchemaV16 {
   /**
    * Metadata about the export itself
    */
@@ -16,9 +16,9 @@ export interface OSSIQExportSchemaV15 {
     /**
      * Version of the export schema format
      */
-    schema_version: "1.5";
+    schema_version: "1.6";
     /**
-     * How much of the scan this document carries. Absent means full, the only profile this schema describes; a standard document validates against export_schema_v1.5_standard.json
+     * How much of the scan this document carries. Absent means full, the only profile this schema describes; a standard document validates against export_schema_v1.6_standard.json
      */
     profile?: "full";
     /**
@@ -252,6 +252,10 @@ export interface OSSIQExportSchemaV15 {
    * Packages whose manifest declaration and lockfile entry are out of sync; regenerate the lockfile (e.g. `uv lock`) before acting on their recommendations
    */
   manifest_lock_divergent?: string[];
+  /**
+   * Peers installed only out of the reach of the packages that declare them, and how `ossiq apply` puts them back: add the package to the manifest and move its family's stale copies with it. Empty for PyPI projects and when every peer resolves
+   */
+  peer_repairs?: PeerRepairExport[];
   [k: string]: unknown;
 }
 /**
@@ -389,7 +393,7 @@ export interface PackageMetrics {
    */
   recommended_from_rung?: "solver" | "in_range" | "in_major" | "latest" | null;
   /**
-   * True when recommended_version is only reachable by widening version_constraint first - i.e. recommended_from_rung is 'in_major' or 'latest'. `ossiq apply` writes nothing for these; `ossiq plan` reports them under constraint widening instead.
+   * True when recommended_version is only reachable by widening version_constraint first - i.e. recommended_from_rung is 'in_major' or 'latest'. `ossiq plan` reports these under constraint widening and `ossiq apply` does not write them, unless the package's tier is latest or cutting-edge or strategy.widening_authorized is true.
    */
   requires_constraint_widening?: boolean;
   /**
@@ -401,6 +405,7 @@ export interface PackageMetrics {
     | "Consider alternative"
     | "Check Release Notes"
     | "Update Immediately"
+    | "Wait for cooldown"
     | "Constrained. Check newer version"
     | "Withheld by strategy"
     | null;
@@ -508,6 +513,10 @@ export interface PackageMetrics {
    * The update-strategy selector's verdict for this package; null when it never ran
    */
   strategy?: StrategySelectionExport | null;
+  /**
+   * Peers this package declares that nothing installed where it looks can satisfy: a required peer npm left missing, or an optional one installed only nested under another package. Empty for PyPI projects and when every peer resolves
+   */
+  unresolved_peers?: UnresolvedPeerExport[];
   [k: string]: unknown;
 }
 /**
@@ -640,6 +649,32 @@ export interface StrategySelectionExport {
    * Set when the strategy reached past its tier's base ceiling, or every reachable version still carries a qualifying CVE
    */
   escalation?: string | null;
+  /**
+   * Whether an escalating motive (exploitable_cve, end_of_life) carried recommended_version past the tier's base ceiling, so `ossiq apply` writes it after a widening confirmation instead of holding it
+   */
+  widening_authorized?: boolean;
+  [k: string]: unknown;
+}
+/**
+ * A peer a package declares that nothing installed within its reach satisfies (npm only).
+ */
+export interface UnresolvedPeerExport {
+  /**
+   * The peer package the declaring package looks for
+   */
+  package_name: string;
+  /**
+   * The range the declaring package asks of it, as declared
+   */
+  spec: string;
+  /**
+   * Whether the declaring package marks the peer optional (peerDependenciesMeta). npm leaves an optional peer out, but a package that imports it unguarded fails to load when the only copy sits out of reach
+   */
+  optional: boolean;
+  /**
+   * Versions of the peer installed out of the declaring package's reach (nested under some other package); empty when it is installed nowhere
+   */
+  installed_elsewhere?: string[];
   [k: string]: unknown;
 }
 /**
@@ -721,6 +756,7 @@ export interface TransitivePackageMetrics {
     | "Consider alternative"
     | "Check Release Notes"
     | "Update Immediately"
+    | "Wait for cooldown"
     | "Constrained. Check newer version"
     | "Withheld by strategy"
     | null;
@@ -860,6 +896,10 @@ export interface TransitivePackageMetrics {
    * Advisory dependency-health verdict from the EPSS x maintenance triage matrix. Answers 'is this dependency healthy long-term?' - next_action says what to do now.
    */
   dependency_health_action?: "evict" | "patch" | "refactor" | "retain" | null;
+  /**
+   * Peers this package declares that nothing installed where it looks can satisfy: a required peer npm left missing, or an optional one installed only nested under another package. Empty for PyPI projects and when every peer resolves
+   */
+  unresolved_peers?: UnresolvedPeerExport[];
   [k: string]: unknown;
 }
 /**
@@ -948,5 +988,49 @@ export interface UpgradePathExport {
    * Constraint that would admit latest_available
    */
   suggested_constraint: string;
+  [k: string]: unknown;
+}
+/**
+ * How the plan puts a peer back where the packages that declare it can load it (npm only).
+ */
+export interface PeerRepairExport {
+  /**
+   * The peer to add to the manifest, so npm installs it where its requirers load it
+   */
+  package_name: string;
+  /**
+   * The range to write for it, in the style of the family it belongs to
+   */
+  suggested_constraint: string;
+  /**
+   * Whether it goes in devDependencies: every package that needs it is a development one
+   */
+  is_dev_dependency: boolean;
+  /**
+   * Installed packages that declare the peer and cannot reach it today
+   */
+  requirers: string[];
+  /**
+   * Stale copies of the peer's exact-pinned family that move with it; empty when none need to
+   */
+  family_moves?: PeerRepairMoveExport[];
+  [k: string]: unknown;
+}
+/**
+ * A stale copy of a package a peer repair moves, so its family is one version again.
+ */
+export interface PeerRepairMoveExport {
+  /**
+   * Package whose stale copy moves
+   */
+  package_name: string;
+  /**
+   * Version of the stale copy
+   */
+  current_version: string;
+  /**
+   * Version it moves to, written as a keyed override
+   */
+  projected_version: string;
   [k: string]: unknown;
 }

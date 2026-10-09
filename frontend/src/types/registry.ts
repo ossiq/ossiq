@@ -1,4 +1,4 @@
-import type { CVEInfo } from './report'
+import type { CVEInfo, UnresolvedPeerExport } from './report'
 
 export type ConstraintType = 'DECLARED' | 'NARROWED' | 'PINNED' | 'ADDITIVE' | 'OVERRIDE'
 export type Severity = 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL'
@@ -51,6 +51,7 @@ export interface RegistryEntry {
   archived: boolean | null
   days_since_push: number | null
   dependency_health_action: string | null
+  unresolved_peers: UnresolvedPeerExport[]
   childEdges: Map<number, EdgeData>
 }
 
@@ -101,6 +102,7 @@ export interface DirectEntry {
   archived: boolean | null
   days_since_push: number | null
   dependency_health_action: string | null
+  unresolved_peers: UnresolvedPeerExport[]
   childRefs: Array<{ ref: number; edgeData: EdgeData }>
 }
 

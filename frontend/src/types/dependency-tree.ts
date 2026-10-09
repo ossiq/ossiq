@@ -1,5 +1,5 @@
 import type { HierarchyPointNode } from 'd3'
-import type { CVEInfo } from '@/types/report'
+import type { CVEInfo, UnresolvedPeerExport } from '@/types/report'
 
 export interface DependencyNode {
   name: string
@@ -54,6 +54,8 @@ export interface DependencyNode {
   archived?: boolean | null
   days_since_push?: number | null
   dependency_health_action?: string | null
+  // Peers this package declares that nothing within its reach satisfies (npm only, schema 1.6+).
+  unresolved_peers?: UnresolvedPeerExport[]
   dependencies?: Record<string, DependencyNode>
   optional_dependencies?: Record<string, DependencyNode>
 }
@@ -118,6 +120,8 @@ export interface SelectedNodeDetail {
   archived?: boolean | null
   days_since_push?: number | null
   dependency_health_action?: string | null
+  // Peers this package declares that nothing within its reach satisfies (npm only, schema 1.6+).
+  unresolved_peers?: UnresolvedPeerExport[]
   dependencies?: Record<string, DependencyNode>
   optional_dependencies?: Record<string, DependencyNode>
 }
