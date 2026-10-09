@@ -8,6 +8,7 @@ from collections import defaultdict
 from typing import Any
 
 from rich.console import Group, RenderableType
+from rich.markup import escape
 from rich.panel import Panel
 from rich.rule import Rule
 from rich.table import Table
@@ -25,6 +26,7 @@ from ossiq.ui.renderers.impact_utils import (
     format_status_badge,
     format_time_delta,
     format_triage,
+    registry_status_badge,
     whats_next,
 )
 
@@ -123,6 +125,11 @@ def prospective_header(data: PackageDetailResult) -> Group:
         title += f"  {data.insight.latest_version}"
 
     parts = ["[bold yellow]PROSPECTIVE[/bold yellow]"]
+    # Not installed, so there is no installed release to flag; the registry's verdict on the
+    # package is the only lifecycle signal this header can carry.
+    registry_badge = registry_status_badge(package.registry_status) if package else ""
+    if registry_badge:
+        parts.append(registry_badge.strip())
     if package and package.license:
         parts.append(package.license)
     else:
@@ -143,7 +150,8 @@ def warnings_panel(warnings: list[PackageWarning]) -> Panel:
     body = Text()
     for warning in warnings:
         icon = "[bold red]  ✗[/bold red]" if warning.severity == "critical" else "[bold yellow]  ![/bold yellow]"
-        body.append_text(Text.from_markup(f"{icon}  [{warning.rule_id}]  {warning.message}\n"))
+        # The message can quote a registry's free text, which may contain `[...]` that is not markup.
+        body.append_text(Text.from_markup(f"{icon}  [{warning.rule_id}]  {escape(warning.message)}\n"))
 
     title = "⚠  WARNINGS" if critical else "⚠  NOTICES"
     border_style = "bold red" if critical else "bold yellow"
@@ -228,6 +236,8 @@ def add_stability_rows(table: Table, record: ScanRecord, marker: str) -> None:
         signals = ", ".join(sorted(deprecation.signals))
         successor = f"  [dim]→ {deprecation.successor}[/dim]" if deprecation.successor else ""
         table.add_row("Deprecation", f"[bold red]{signals}[/bold red]{successor}")
+        if record.deprecation_message:
+            table.add_row("  message", f"[dim]{escape(record.deprecation_message)}[/dim]")
 
     maintenance = record.maintenance
     if maintenance is not None:

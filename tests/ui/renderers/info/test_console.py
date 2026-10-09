@@ -9,6 +9,7 @@ from ossiq.domain.common import (
     CveDatabase,
     ProjectPackagesRegistry,
     RecommendationRung,
+    RegistryStatus,
     RejectedCandidate,
 )
 from ossiq.domain.compatibility import CompatibilityFacts
@@ -16,6 +17,7 @@ from ossiq.domain.cve import CVE, Severity
 from ossiq.domain.package import Package
 from ossiq.domain.project import ConstraintSource, PeerRequirement, UnresolvedPeer
 from ossiq.domain.version import VERSION_DIFF_MAJOR, VERSION_LATEST, VersionsDifference
+from ossiq.risk.maintenance import DeprecationEvidence, DeprecationSignal
 from ossiq.service.package import PackageDetailResult, PackageInsight, PackageWarning, TransitiveCVEGroup
 from ossiq.service.project.models import ScanRecord
 from ossiq.settings import Settings
@@ -500,3 +502,103 @@ def test_policy_compliance_names_the_candidates_that_were_passed_over() -> None:
     output = render_policy_compliance(record)
 
     assert "14.0.2 rejected: ESM-only from 12.0.0" in output
+
+
+# --- the registry's verdict -------------------------------------------------------------------
+
+
+def test_registry_status_badges_name_what_the_registry_said() -> None:
+    record = make_record()
+    for status, badge in (
+        (RegistryStatus.DEPRECATED, " [bold yellow][DEPRECATED][/]"),
+        (RegistryStatus.ARCHIVED, " [bold yellow][ARCHIVED][/]"),
+        (RegistryStatus.QUARANTINED, " [bold red][QUARANTINED][/]"),
+    ):
+        record.registry_status = status
+        assert format_status_badge(record) == badge
+
+    for no_verdict in (RegistryStatus.ACTIVE, None):
+        record.registry_status = no_verdict
+        assert format_status_badge(record) == ""
+
+
+def test_registry_badge_outranks_a_deprecated_release_and_a_prerelease_but_not_a_yank() -> None:
+    record = make_record()
+    record.is_installed_prerelease = True
+    record.is_installed_deprecated = True
+    record.registry_status = RegistryStatus.ARCHIVED
+    assert format_status_badge(record) == " [bold yellow][ARCHIVED][/]"
+
+    record.is_installed_yanked = True
+    assert format_status_badge(record) == " [bold red][YANKED][/]"
+
+
+def prospective(status: RegistryStatus | None, warnings: list[PackageWarning] | None = None) -> PackageDetailResult:
+    package = Package(
+        registry=ProjectPackagesRegistry.NPM,
+        name="left-pad",
+        latest_version="1.3.0",
+        next_version=None,
+        repo_url=None,
+        license="WTFPL",
+        registry_status=status,
+    )
+    return PackageDetailResult(
+        records=[],
+        transitive_cve_groups=[],
+        project_name="demo",
+        packages_registry="npm",
+        insight=make_insight(),
+        warnings=warnings or [],
+        is_prospective=True,
+        prospective_name="left-pad",
+        prospective_package=package,
+        prospective_reason=make_reason("1.2.0"),
+    )
+
+
+def prospective_header_line(status: RegistryStatus | None) -> str:
+    return next(line for line in render(prospective(status)).splitlines() if "PROSPECTIVE" in line)
+
+
+def test_prospective_header_carries_the_registrys_verdict() -> None:
+    for status, badge in (
+        (RegistryStatus.DEPRECATED, "[DEPRECATED]"),
+        (RegistryStatus.ARCHIVED, "[ARCHIVED]"),
+        (RegistryStatus.QUARANTINED, "[QUARANTINED]"),
+    ):
+        assert badge in prospective_header_line(status)
+
+
+def test_prospective_header_of_an_active_or_unjudged_package_has_no_badge() -> None:
+    for status in (RegistryStatus.ACTIVE, None):
+        assert "[" not in prospective_header_line(status)
+
+
+def test_a_registry_message_that_looks_like_markup_is_shown_as_typed() -> None:
+    message = 'Deprecated on npm: "see [bold]docs[/bold] for [x]" — look for an alternative'
+    warning = PackageWarning(rule_id="PACKAGE_DEPRECATED", message=message, severity="critical")
+
+    output = render(prospective(RegistryStatus.DEPRECATED, [warning]))
+
+    assert "see [bold]docs[/bold] for [x]" in output
+
+
+def test_the_registrys_note_is_shown_under_the_deprecation_row() -> None:
+    record = make_record()
+    record.deprecation = DeprecationEvidence(frozenset({DeprecationSignal.REGISTRY_DEPRECATED}), None)
+    record.deprecation_message = "use String.prototype.padStart() [see docs]"
+    data = PackageDetailResult(
+        records=[record],
+        transitive_cve_groups=[],
+        project_name="demo",
+        packages_registry="npm",
+        insight=make_insight(),
+    )
+
+    lines = render(data).splitlines()
+
+    row = next(i for i, line in enumerate(lines) if line.lstrip().startswith("Deprecation"))
+    assert "registry_deprecated" in lines[row]
+    assert "message" in lines[row + 1]
+    assert "use String.prototype.padStart() [see docs]" in lines[row + 1]
