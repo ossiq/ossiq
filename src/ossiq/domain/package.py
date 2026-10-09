@@ -2,7 +2,7 @@
 Module to define abstract Package
 """
 
-from ossiq.domain.common import ProjectPackagesRegistry
+from ossiq.domain.common import END_OF_LIFE_STATUSES, ProjectPackagesRegistry, RegistryStatus
 
 from .repository import Repository
 from .version import Version
@@ -24,7 +24,7 @@ class Package:
     author: str | None
     package_url: str | None
     license: str | None
-    is_deprecated: bool
+    registry_status: RegistryStatus | None
     is_unpublished: bool
     maintainers_count: int | None
     downloads_recent: int | None
@@ -49,7 +49,7 @@ class Package:
         package_url: str | None = None,
         canonical_name: str | None = None,
         license: str | None = None,
-        is_deprecated: bool = False,
+        registry_status: RegistryStatus | None = None,
         is_unpublished: bool = False,
         maintainers_count: int | None = None,
         downloads_recent: int | None = None,
@@ -68,7 +68,7 @@ class Package:
         self.description = description
         self.package_url = package_url
         self.license = license
-        self.is_deprecated = is_deprecated
+        self.registry_status = registry_status
         self.is_unpublished = is_unpublished
         self.maintainers_count = maintainers_count
         self.downloads_recent = downloads_recent
@@ -87,6 +87,15 @@ class Package:
   author='{self.author}'
   url='{self.package_url}'
 )"""
+
+    @property
+    def is_deprecated(self) -> bool:
+        """Whether the registry reports the whole package as deprecated or archived.
+
+        Derived from `registry_status` so there is one writer. A version-only deprecation (npm
+        marks old releases and leaves `latest` alone) is on `PackageVersion`, not here.
+        """
+        return self.registry_status in END_OF_LIFE_STATUSES
 
     @property
     def versions(self):

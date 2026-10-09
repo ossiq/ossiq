@@ -204,6 +204,10 @@ def install_requests_cache(cache_destination: str, cache_ttl_hours: int, stabili
             "*/readme*": stability_cache_ttl_hours * 3600,
         },
         allowable_methods=("GET", "POST"),
+        # 206 is what PyPI answers the ranged PEP 792 status request with; unlisted, every warm scan
+        # would repeat it for every package. That request is the only one that sends `Range`, and the
+        # only one to `/simple/`, so nothing else is cached as a fragment.
+        allowable_codes=(200, 206),
         filter_fn=prepare_for_cache,
     )
     return Path(cache.db_path)
