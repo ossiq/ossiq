@@ -2,16 +2,19 @@
 Applying solver output (recommendations and conflicts) onto ScanRecord instances.
 """
 
+from collections.abc import Callable, Mapping
 from datetime import datetime
 
 from ossiq.adapters.api_interfaces import AbstractPackageRegistryApi
-from ossiq.domain.common import ConstraintType, EngineContext, RecommendationRung
+from ossiq.domain.common import ConstraintType, EngineContext, RecommendationRung, RejectedCandidate
 from ossiq.domain.release_cutoff import ReleaseCutoff
 from ossiq.service.project.models import ScanRecord
-from ossiq.service.project.target_facts import annotate_target_facts
+from ossiq.service.project.strategy import describe_rejection, peer_hold
+from ossiq.service.project.target_facts import annotate_target_facts, clear_target_facts
+from ossiq.service.update_impact import ImpactKind, incoming_peer_edges, simulate_single
 from ossiq.solver import dependencies_solver
 from ossiq.solver.universe import filter_eligible_versions
-from ossiq.solver.version_matchers import version_satisfies_constraint
+from ossiq.solver.version_matchers import satisfies_all_constraints, version_satisfies_constraint
 from ossiq.timeutil import age_days_from_iso
 
 
@@ -92,6 +95,7 @@ def clamp_recommendations(
     rewrite_pinned: bool = False,
     cooldown_period: int = 0,
     release_cutoff: ReleaseCutoff | None = None,
+    validator: Callable[[str, str], bool] | None = None,
 ) -> None:
     """Re-fit recommendations that violate a record's own version constraint.
 
@@ -102,6 +106,10 @@ def clamp_recommendations(
     Mirrors the solver's soft cooldown: prefer versions older than cooldown_period,
     fall back to a fresher one only when nothing aged satisfies the range. Never re-fits past the
     package manager's `release_cutoff`, which the installer enforces rather than prefers.
+
+    A re-fit holds to everything the original pick had to: the record's other hard constraints
+    (`all_constraints`), and `validator` (the impact check the solver's picks pass), so a pick moved
+    back into its range cannot land on a release that breaks a peer.
     """
     for record in records:
         rec = record.recommended_version
@@ -126,13 +134,88 @@ def clamp_recommendations(
             pv
             for pv in eligible
             if version_satisfies_constraint(pv.version, record.version_constraint, registry.package_registry)
+            and satisfies_all_constraints(pv.version, record.all_constraints, registry.package_registry)
         ]
         aged = [
             pv
             for pv in in_range
             if (age := age_days_from_iso(pv.published_date_iso, now=now)) is not None and age >= cooldown_period
         ]
-        fitted = aged[0] if aged else (in_range[0] if in_range else None)
+        # Newest-first order, aged before fresh; the validator is the costly check, so it runs
+        # lazily and only down to the first release that passes.
+        fitted = next(
+            (
+                pv
+                for pv in [*aged, *(pv for pv in in_range if pv not in aged)]
+                if validator is None or validator(record.package_name, pv.version)
+            ),
+            None,
+        )
         record.recommended_version = fitted.version if fitted else None
         record.recommended_version_reason = None  # reason described the unclamped pick
         record.recommended_from_rung = RecommendationRung.IN_RANGE if fitted else None
+
+
+def settle_transitive_picks(
+    records: list[ScanRecord],
+    registry: AbstractPackageRegistryApi,
+    *,
+    allow_prerelease: bool,
+    installed_names: set[str],
+    now: datetime | None = None,
+    release_cutoff: ReleaseCutoff | None = None,
+    direct_versions: Mapping[str, str] | None = None,
+) -> None:
+    """Walk each transitive pick's own requirements, keeping it only when what it drags along can follow.
+
+    The transitive solver picks versions name by name. Where copies nest (npm), a pick that pins its
+    family exactly (typescript-eslint and its @typescript-eslint/*) would otherwise move alone,
+    leaving the family split between stale hoisted copies and new nested ones. Each pick is
+    simulated like a direct update: the copies it has to move in place are kept as OVERRIDE_BUMP
+    impacts on the record for the plan, and a pick whose family or peers cannot follow is dropped,
+    with the reason recorded as a rejected candidate.
+
+    Args:
+        records: The transitive records, after the solver's picks were applied.
+        registry: Registry with the scan's warm cache.
+        allow_prerelease: Whether the walk may project prereleases.
+        installed_names: Every package installed anywhere in the tree.
+        now: Reference time for the projections.
+        release_cutoff: The package manager's own limit on release age.
+        direct_versions: {name: installed version} for direct dependencies, which peers may name.
+    """
+    if registry.one_copy_per_name:
+        return
+    by_name = {record.package_name: record for record in records}
+    for record in records:
+        pick = record.recommended_version
+        if not pick or pick == record.installed_version:
+            continue
+        impact = simulate_single(
+            record.package_name,
+            pick,
+            by_name,
+            registry,
+            allow_prerelease,
+            installed_names=installed_names,
+            now=now,
+            installed_version=record.installed_version,
+            release_cutoff=release_cutoff,
+            incoming_peers=incoming_peer_edges(record.installed_copies, record.installed_version),
+            direct_versions=direct_versions,
+        )
+        if impact.is_actionable:
+            record.update_transitive_impacts = [
+                i for i in impact.transitive_impacts if i.kind == ImpactKind.OVERRIDE_BUMP
+            ]
+            continue
+        headline, detail = describe_rejection(impact, by_name)
+        record.rejected_candidates = [
+            *record.rejected_candidates,
+            RejectedCandidate(version=pick, reason=headline, detail=detail, held_by_peer=peer_hold(impact)),
+        ]
+        record.recommended_version = None
+        record.recommended_version_reason = None
+        record.recommended_from_rung = None
+        record.update_transitive_impacts = []
+        clear_target_facts(record)

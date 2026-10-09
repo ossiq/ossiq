@@ -100,7 +100,13 @@ class TestConfirmAcknowledged:
     range, and a pick whose major line is a known break. The second case used to slip through
     whenever the pick happened to sit inside the declared range."""
 
-    def entry(self, *, widens_constraint: bool = False, carries_known_break: bool = False) -> UpdateEntry:
+    def entry(
+        self,
+        *,
+        widens_constraint: bool = False,
+        carries_known_break: bool = False,
+        widening_authorized: bool = False,
+    ) -> UpdateEntry:
         return UpdateEntry(
             package_name="uuid",
             current_version="11.1.0",
@@ -110,6 +116,7 @@ class TestConfirmAcknowledged:
             version_defined=">11.0.0",
             widens_constraint=widens_constraint,
             carries_known_break=carries_known_break,
+            widening_authorized=widening_authorized,
         )
 
     def plan_with(self, *entries: UpdateEntry) -> UpdatePlan:
@@ -147,6 +154,14 @@ class TestConfirmAcknowledged:
         out = capsys.readouterr().out
         assert "widens >11.0.0" in out
         assert "known break" not in out
+
+    def test_an_authorized_widening_still_asks_before_rewriting_the_range(self, monkeypatch, capsys) -> None:
+        """A CVE or end-of-life escalation lifts the plan's hold, not this confirmation."""
+        monkeypatch.setattr(typer, "confirm", lambda *a, **k: True)
+        plan = self.plan_with(self.entry(widens_constraint=True, widening_authorized=True))
+
+        assert confirm_acknowledged(plan) is True
+        assert "widens >11.0.0" in capsys.readouterr().out
 
     def test_both_reasons_are_named_for_one_entry(self, monkeypatch, capsys) -> None:
         monkeypatch.setattr(typer, "confirm", lambda *a, **k: True)

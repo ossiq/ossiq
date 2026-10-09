@@ -28,7 +28,7 @@ from ossiq.domain.common import (
 )
 from ossiq.domain.compatibility import CompatibilityFacts
 from ossiq.domain.cve import CVE, AffectedRange, Severity
-from ossiq.domain.project import ConstraintSource
+from ossiq.domain.project import ConstraintSource, UnresolvedPeer
 from ossiq.domain.version import VERSION_DIFF_MAJOR, VERSION_DIFF_MINOR, VERSION_LATEST, VersionsDifference
 from ossiq.risk.maintenance import MaintenanceAssessment, MaintenanceState
 from ossiq.risk.triage import ACTION_REFACTOR, ACTION_RETAIN, TriageResult
@@ -40,7 +40,9 @@ from ossiq.service.package import (
     PackageInsight,
     PackageWarning,
 )
-from ossiq.service.project.models import ScanRecord, ScanResult
+from ossiq.service.project.models import PeerRepair, ScanRecord, ScanResult
+from ossiq.service.update_impact import ImpactKind, TransitiveImpact
+from ossiq.strategy.motive import UpdateMotive
 from ossiq.strategy.pyramid import UpdateStrategy
 from ossiq.strategy.targeting import StrategySelection
 
@@ -929,3 +931,113 @@ def test_cve_summary_names_the_fixed_releases():
     (cve,) = build_update_decide(make_scan([record]))["updates"][0]["cves"]
 
     assert cve["fixed_in"] == ["11.1.1", "12.0.1", "13.0.1"]
+
+
+def test_unresolved_peers_ride_on_the_entry():
+    peer = UnresolvedPeer("@vue/server-renderer", "3.x", optional=True, installed_elsewhere=("3.5.43",))
+
+    entry = build_update_decide(make_scan([make_record(unresolved_peers=[peer])]))["updates"][0]
+
+    assert entry["unresolved_peers"] == [
+        {"package": "@vue/server-renderer", "spec": "3.x", "optional": True, "installed_elsewhere": ["3.5.43"]}
+    ]
+
+
+def test_a_package_with_nothing_else_due_still_carries_its_unresolved_peer():
+    """The not-actionable entry used to be the whole answer: no action needed, and no sign of the peer."""
+    record = make_record(unresolved_peers=[UnresolvedPeer("host", "^1")])
+
+    entry = build_update_decide(make_scan([record]))["updates"][0]
+
+    assert entry["next_action"] == "no action needed"
+    assert entry["unresolved_peers"] == [
+        {"package": "host", "spec": "^1", "optional": False, "installed_elsewhere": []}
+    ]
+
+
+def test_an_entry_without_unresolved_peers_has_no_such_key():
+    entry = build_update_decide(make_scan([make_record()]))["updates"][0]
+
+    assert "unresolved_peers" not in entry
+
+
+def test_peer_repairs_ride_on_the_decision_with_their_family_moves():
+    family_move = TransitiveImpact(
+        package_name="@vue/shared",
+        current_version="3.5.42",
+        projected_version="3.5.43",
+        new_constraint="3.5.43",
+        driven_by="@vue/server-renderer",
+        has_conflict=False,
+        kind=ImpactKind.OVERRIDE_BUMP,
+    )
+    repair = PeerRepair(
+        package="@vue/server-renderer",
+        spec="~3.5.43",
+        is_dev=True,
+        requirers=("quiet",),
+        family_moves=(family_move,),
+    )
+    scan = dataclasses.replace(make_scan([make_record()]), peer_repairs=[repair])
+
+    decision = build_update_decide(scan)
+
+    assert decision["peer_repairs"] == [
+        {
+            "package": "@vue/server-renderer",
+            "suggested_constraint": "~3.5.43",
+            "is_dev_dependency": True,
+            "requirers": ["quiet"],
+            "family_moves": [
+                {
+                    "package": "@vue/shared",
+                    "from": "3.5.42",
+                    "to": "3.5.43",
+                    "conflict": False,
+                    "kind": "override_bump",
+                }
+            ],
+        }
+    ]
+
+
+def test_a_decision_without_repairs_has_no_peer_repairs_key():
+    assert "peer_repairs" not in build_update_decide(make_scan([make_record()]))
+
+
+def widening_record(*, authorized: bool) -> ScanRecord:
+    return make_record(
+        installed="1.0.0",
+        latest="1.1.0",
+        diff_index=VERSION_DIFF_MINOR,
+        cves=[make_cve("1.0.0")],
+        recommended="1.1.0",
+        recommended_from_rung=RecommendationRung.LATEST,
+        version_constraint="1.0.0",
+        version_constraint_declared="1.0.0",
+        strategy_selection=StrategySelection(
+            strategy=UpdateStrategy.SECURITY,
+            target_version="1.1.0",
+            rung=RecommendationRung.LATEST,
+            motives=frozenset({UpdateMotive.EXPLOITABLE_CVE}),
+            requires_widening=True,
+            withheld_reason=None,
+            available_at=None,
+            escalation=None,
+            widening_authorized=authorized,
+        ),
+    )
+
+
+def test_an_escalated_widening_pick_says_apply_will_write_it():
+    entry = build_update_decide(make_scan([widening_record(authorized=True)]))["updates"][0]
+
+    assert entry["requires_constraint_widening"] is True
+    assert entry["widening_authorized"] is True
+
+
+def test_a_widening_pick_the_tier_did_not_authorize_has_no_such_key():
+    entry = build_update_decide(make_scan([widening_record(authorized=False)]))["updates"][0]
+
+    assert entry["requires_constraint_widening"] is True
+    assert "widening_authorized" not in entry

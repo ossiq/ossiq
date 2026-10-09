@@ -1,0 +1,1282 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://ossiq.org/schemas/export/v1.6-standard.json",
+  "title": "OSS-IQ Export Schema v1.6 (standard profile)",
+  "description": "Schema for the standard profile of the OSS-IQ v1.6 export: every direct dependency, the transitive packages that need attention, and the fields needed to decide what to do. A projection of export_schema_v1.6.json - same field names and meanings, fewer fields - where optional fields that are null or empty are omitted from per-package records. The full profile validates against export_schema_v1.6.json. v1.6 adds unresolved_peers to PackageMetrics and TransitivePackageMetrics (peers a package declares that nothing installed within its reach satisfies) and peer_repairs at the root (how `ossiq apply` puts them back); a document that declares an earlier version omits them.",
+  "type": "object",
+  "required": [
+    "metadata",
+    "project",
+    "summary",
+    "production_packages",
+    "development_packages",
+    "transitive_packages"
+  ],
+  "properties": {
+    "metadata": {
+      "type": "object",
+      "description": "Metadata about the export itself",
+      "required": [
+        "schema_version",
+        "export_timestamp",
+        "profile"
+      ],
+      "properties": {
+        "schema_version": {
+          "type": "string",
+          "const": "1.6",
+          "description": "Version of the export schema format"
+        },
+        "profile": {
+          "const": "standard",
+          "description": "How much of the scan this document carries; always 'standard' here"
+        },
+        "export_timestamp": {
+          "type": "string",
+          "format": "date-time",
+          "description": "UTC timestamp when the export was generated"
+        },
+        "update_strategy": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The update-strategy tier this run targeted: security, deprecation, standard, latest, or cutting-edge."
+        },
+        "data_completeness": {
+          "type": "object",
+          "description": "B4: per-source data-source status for this scan",
+          "properties": {
+            "overall": {
+              "type": "string",
+              "enum": [
+                "ok",
+                "partial",
+                "unreachable",
+                "rate_limited"
+              ],
+              "description": "Worst status across every tracked source"
+            },
+            "sources": {
+              "type": "array",
+              "description": "Per-source status, one entry per scan step that reports completeness",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "step": {
+                    "type": "string"
+                  },
+                  "status": {
+                    "type": "string",
+                    "enum": [
+                      "ok",
+                      "partial",
+                      "unreachable",
+                      "rate_limited"
+                    ]
+                  },
+                  "failures": {
+                    "type": "array",
+                    "description": "Causes behind a degraded status, counted by cause; empty when the step was ok",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "reason": {
+                          "type": "string",
+                          "enum": [
+                            "not_found",
+                            "rate_limited",
+                            "unavailable",
+                            "rejected",
+                            "empty_response",
+                            "aborted",
+                            "unknown"
+                          ]
+                        },
+                        "count": {
+                          "type": "integer"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        "warnings": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Non-fatal problems found while assembling the project's sources, e.g. a tree containing more than one package registry"
+        }
+      },
+      "additionalProperties": false
+    },
+    "runtime_context": {
+      "type": "object",
+      "description": "The runtime this scan checked engine requirements against, stated once for the whole scan",
+      "properties": {
+        "engine_versions": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Runtime versions every record's engine_compatible was checked against, e.g. {'node': '20.11.0'}"
+        },
+        "engine_context_source": {
+          "type": "string",
+          "enum": [
+            "provided",
+            "detected",
+            "declared",
+            "none"
+          ],
+          "description": "Which source populated engine_versions: 'provided' (the caller stated it: MCP runtime, CLI --engine), 'detected' (actually-installed runtime), 'declared' (manifest floor), or 'none'"
+        },
+        "npm_cli_version": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Detected npm CLI version; display-only, null on PyPI or when not probed"
+        },
+        "project_declares_esm": {
+          "type": "boolean",
+          "description": "Whether the project's own manifest declares `\"type\": \"module\"` (npm only)"
+        },
+        "runtime_mismatch": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "description": "Set when the project's own runtime pin (.nvmrc, .python-version, ...) disagrees with engine_versions - usually a version read from the wrong shell; null when they agree",
+          "required": [
+            "engine",
+            "pinned",
+            "pin_file",
+            "runtime",
+            "runtime_source"
+          ],
+          "properties": {
+            "engine": {
+              "type": "string",
+              "description": "Runtime the pin is for, e.g. 'node' or 'python'"
+            },
+            "pinned": {
+              "type": "string",
+              "description": "Version the project pins"
+            },
+            "pin_file": {
+              "type": "string",
+              "description": "File that pins it, e.g. '.nvmrc' or '.python-version'"
+            },
+            "runtime": {
+              "type": "string",
+              "description": "Version the scan checked engine requirements against"
+            },
+            "runtime_source": {
+              "type": "string",
+              "enum": [
+                "provided",
+                "detected",
+                "declared",
+                "none"
+              ],
+              "description": "Where that version came from"
+            }
+          }
+        }
+      }
+    },
+    "project": {
+      "type": "object",
+      "description": "Basic project information",
+      "required": [
+        "name",
+        "path",
+        "registry"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Project name"
+        },
+        "path": {
+          "type": "string",
+          "description": "Absolute path to the project"
+        },
+        "registry": {
+          "type": "string",
+          "description": "Package registry type (npm, pypi, etc.)",
+          "enum": [
+            "npm",
+            "pypi"
+          ]
+        }
+      }
+    },
+    "summary": {
+      "type": "object",
+      "description": "Summary statistics for the scanned project",
+      "required": [
+        "total_packages",
+        "production_packages",
+        "development_packages",
+        "packages_with_cves",
+        "total_cves",
+        "packages_outdated"
+      ],
+      "properties": {
+        "total_packages": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Total number of packages (production + development)"
+        },
+        "production_packages": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of production dependencies"
+        },
+        "development_packages": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of development dependencies"
+        },
+        "transitive_packages": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of distinct transitive packages the scan covered - in the standard profile, more than the transitive_packages array lists"
+        },
+        "packages_with_cves": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of packages with known CVEs"
+        },
+        "total_cves": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Total number of CVEs across all packages"
+        },
+        "packages_outdated": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of packages behind the latest version"
+        },
+        "project_epss": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "description": "EPSSg over every distinct scored package in the project, direct and transitive"
+        },
+        "packages_with_epss": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of distinct packages contributing to project_epss"
+        },
+        "packages_with_unscored_cves": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of packages with a CVE where no CVE carries an EPSS score"
+        },
+        "packages_with_stability": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Distinct packages whose upstream repository was measured"
+        },
+        "packages_unmaintained": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Assessed packages whose most probable state is abandoned or deprecated"
+        },
+        "packages_deprecated": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Assessed packages whose most probable state is deprecated"
+        },
+        "packages_stability_unknown": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Packages with no measurement: no repository URL, a non-GitHub host, or statistics unavailable"
+        }
+      }
+    },
+    "production_packages": {
+      "type": "array",
+      "description": "Production dependency metrics",
+      "items": {
+        "$ref": "#/$defs/PackageMetrics"
+      }
+    },
+    "development_packages": {
+      "type": "array",
+      "description": "Development dependency metrics",
+      "items": {
+        "$ref": "#/$defs/PackageMetrics"
+      }
+    },
+    "transitive_packages": {
+      "type": "array",
+      "description": "Transitive dependency metrics, one entry per unique (package_name, installed_version); path and constraint data lives in dependency_tree (full profile only). The standard profile keeps only the entries that need attention",
+      "items": {
+        "$ref": "#/$defs/TransitivePackageMetrics"
+      }
+    },
+    "ignored_packages": {
+      "type": "array",
+      "description": "Declared dependencies the scan left out, and why - they are absent from every package list",
+      "items": {
+        "$ref": "#/$defs/IgnoredPackageExport"
+      }
+    },
+    "upgrade_paths": {
+      "type": "array",
+      "description": "Constraint-widening opportunities for direct dependencies of a project without a lockfile",
+      "items": {
+        "$ref": "#/$defs/UpgradePathExport"
+      }
+    },
+    "manifest_lock_divergent": {
+      "type": "array",
+      "description": "Packages whose manifest declaration and lockfile entry are out of sync; regenerate the lockfile (e.g. `uv lock`) before acting on their recommendations",
+      "items": {
+        "type": "string"
+      }
+    },
+    "peer_repairs": {
+      "type": "array",
+      "description": "Peers installed only out of the reach of the packages that declare them, and how `ossiq apply` puts them back: add the package to the manifest and move its family's stale copies with it. Empty for PyPI projects and when every peer resolves",
+      "items": {
+        "$ref": "#/$defs/PeerRepairExport"
+      }
+    }
+  },
+  "$defs": {
+    "TransitivePackageMetrics": {
+      "type": "object",
+      "description": "Metrics for a transitive package, deduplicated by (package_name, installed_version); path and constraint data lives in dependency_tree",
+      "required": [
+        "package_name",
+        "installed_version",
+        "is_prerelease",
+        "is_yanked",
+        "is_deprecated",
+        "is_package_unpublished"
+      ],
+      "properties": {
+        "package_name": {
+          "type": "string",
+          "description": "Package name (canonical registry name)"
+        },
+        "installed_version": {
+          "type": "string",
+          "description": "Currently installed version"
+        },
+        "latest_version": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Latest available version"
+        },
+        "recommended_version": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The version OSS IQ would move this transitive to; the version recommended_module_system describes. Null when it should stay where it is"
+        },
+        "required_by": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Direct dependencies whose subtree installs this package - the manifest entries to change to move it. The dependency_tree (full profile) holds the complete paths"
+        },
+        "latest_in_range": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Newest installable version satisfying version_constraint; equals installed_version when the declared range admits nothing newer. Null only when undeterminable \u2014 e.g. the range is satisfiable only below installed_version (manifest/lockfile divergence)."
+        },
+        "latest_in_major": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Newest installable version sharing installed_version's major line (PEP 440 epoch + first release segment on PyPI; semver major on npm); equals installed_version when the major line is exhausted. Null only when undeterminable."
+        },
+        "latest_compatible_major": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Newest installable version among majors >= installed_version's major that carries no known module-system/API break; diverges from latest_in_major when a clean major sits between installed_version and a known break. Null only when undeterminable."
+        },
+        "latest_preserving_module_system": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Newest installable version that code on installed_version's module system can still load (cjs/dual -> cjs/dual; esm-only -> anything; every release on PyPI). Unlike latest_compatible_major it ignores the runtime: it is where every update-strategy tier below latest stops. Equals installed_version when nothing newer qualifies. Null only when undeterminable."
+        },
+        "module_system": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "installed_version's own module format: 'esm-only', 'cjs' or 'dual' (npm only; always null on PyPI)"
+        },
+        "recommended_module_system": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "recommended_version's own module format; null whenever recommended_version is null or PyPI"
+        },
+        "module_system_note": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "What the scan's runtime means for loading this package's ESM-only releases from CommonJS code (e.g. require() works only if the package has named exports); null when no newer release is ESM-only for this project. Qualifies whichever ESM-only version is shown: recommended_version or latest_compatible_major."
+        },
+        "engine_requirement": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "recommended_version's own runtime requirement, e.g. {'node': '>=20.19.0'}; null when recommended_version is null or declares no engine requirement"
+        },
+        "engine_compatible": {
+          "type": [
+            "boolean",
+            "null"
+          ],
+          "description": "False when engine_requirement conflicts with the scan's engine_context; null = no evidence either way (no requirement, or no engine_context to compare against)"
+        },
+        "next_action": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "Check for the Fix",
+            "Find alternative",
+            "Consider alternative",
+            "Check Release Notes",
+            "Update Immediately",
+            "Wait for cooldown",
+            "Constrained. Check newer version",
+            "Withheld by strategy",
+            null
+          ],
+          "description": "The single next action for this package, exactly as the CLI's What's Next column and the HTML report show it; absent when nothing is due. The agent payload's next_action applies two further escalations on top of this label and can therefore differ."
+        },
+        "rejected_candidates": {
+          "type": "array",
+          "description": "Releases that would have been the recommendation but were held back by a requires-consistency conflict; capped at one per ladder rung",
+          "items": {
+            "$ref": "#/$defs/RejectedCandidateExport"
+          }
+        },
+        "time_lag_days": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "description": "Days between installed and latest version"
+        },
+        "releases_lag": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "description": "Number of releases between installed and latest"
+        },
+        "cve": {
+          "type": "array",
+          "description": "Known CVEs for this package (absent when empty)",
+          "items": {
+            "$ref": "#/$defs/CVEInfo"
+          }
+        },
+        "is_prerelease": {
+          "type": "boolean",
+          "description": "Whether the installed version is a pre-release (alpha/beta/rc/dev)"
+        },
+        "is_yanked": {
+          "type": "boolean",
+          "description": "Whether the installed version has been yanked or unpublished from the registry"
+        },
+        "is_deprecated": {
+          "type": "boolean",
+          "description": "Whether the installed package or version is deprecated (npm-only; false otherwise)"
+        },
+        "is_package_unpublished": {
+          "type": "boolean",
+          "description": "Whether the entire package has been removed from the registry (npm-only; false otherwise)"
+        },
+        "epss": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "description": "Highest EPSS score among this package's CVEs"
+        },
+        "runs_code_at_install": {
+          "type": [
+            "boolean",
+            "null"
+          ],
+          "description": "Whether the installed version executes arbitrary code during install"
+        },
+        "install_execution_reason": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Human-readable reason for runs_code_at_install; null when unknown or not detected"
+        },
+        "maintenance_risk": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 1,
+          "description": "P(abandoned) + P(deprecated) from the maintenance-state model; the value that feeds triage"
+        },
+        "maintenance_state": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "maintained",
+            "winding_down",
+            "abandoned",
+            "deprecated",
+            null
+          ],
+          "description": "Most probable maintenance state"
+        },
+        "deprecation_signals": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Explicit end-of-life markers found for the package"
+        },
+        "deprecation_successor": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Replacement package named in the metadata / deprecation message / README"
+        },
+        "archived": {
+          "type": [
+            "boolean",
+            "null"
+          ],
+          "description": "Whether the upstream repository is archived"
+        },
+        "dependency_health_action": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "evict",
+            "patch",
+            "refactor",
+            "retain",
+            null
+          ],
+          "description": "Advisory dependency-health verdict from the EPSS x maintenance triage matrix. Answers 'is this dependency healthy long-term?' - next_action says what to do now."
+        },
+        "unresolved_peers": {
+          "type": "array",
+          "description": "Peers this package declares that nothing installed where it looks can satisfy: a required peer npm left missing, or an optional one installed only nested under another package. Empty for PyPI projects and when every peer resolves",
+          "items": {
+            "$ref": "#/$defs/UnresolvedPeerExport"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "PackageMetrics": {
+      "type": "object",
+      "description": "Metrics for a single package (used for production and development dependencies)",
+      "required": [
+        "package_name",
+        "is_optional_dependency",
+        "installed_version",
+        "latest_version",
+        "time_lag_days",
+        "releases_lag",
+        "cve",
+        "is_prerelease",
+        "is_yanked",
+        "is_deprecated",
+        "is_package_unpublished"
+      ],
+      "properties": {
+        "package_name": {
+          "type": "string",
+          "description": "Package name (canonical registry name)"
+        },
+        "dependency_name": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Alias name as declared in the project manifest (null or same as package_name when no alias is used)"
+        },
+        "is_optional_dependency": {
+          "type": "boolean",
+          "description": "Whether this is a development/optional dependency"
+        },
+        "installed_version": {
+          "type": "string",
+          "description": "Currently installed version"
+        },
+        "latest_version": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Latest available version"
+        },
+        "time_lag_days": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "description": "Days between installed and latest version"
+        },
+        "releases_lag": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "description": "Number of releases between installed and latest"
+        },
+        "cve": {
+          "type": "array",
+          "description": "Known CVEs for this package",
+          "items": {
+            "$ref": "#/$defs/CVEInfo"
+          }
+        },
+        "version_constraint_declared": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Version constraint declared by the project manifest itself (e.g. '^1.2.3', '>=1.0,<2.0'). None when this dependency has no direct manifest entry or is unconstrained. This is the value to show as \"the declared constraint\"."
+        },
+        "constraint_type": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "DECLARED",
+            "NARROWED",
+            "PINNED",
+            "ADDITIVE",
+            "OVERRIDE",
+            null
+          ],
+          "description": "How the version constraint was applied: DECLARED (loose/default spec), NARROWED (explicit range with bounds), PINNED (exact version), ADDITIVE (narrows via constraints file), or OVERRIDE (forces a version regardless of other requirements)"
+        },
+        "extras": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          },
+          "description": "PyPI extras requested for this dependency (e.g. [\"security\", \"tests\"] from requests[security,tests]); null for non-PyPI or when no extras are used"
+        },
+        "recommended_version": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Solver-recommended version; null when the package is already at the optimal version"
+        },
+        "latest_in_range": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Newest installable version satisfying version_constraint; equals installed_version when the declared range admits nothing newer. Null only when undeterminable \u2014 e.g. the range is satisfiable only below installed_version (manifest/lockfile divergence)."
+        },
+        "latest_in_major": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Newest installable version sharing installed_version's major line (PEP 440 epoch + first release segment on PyPI; semver major on npm); equals installed_version when the major line is exhausted. Null only when undeterminable."
+        },
+        "latest_compatible_major": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Newest installable version among majors >= installed_version's major that carries no known module-system/API break; diverges from latest_in_major when a clean major sits between installed_version and a known break. Null only when undeterminable."
+        },
+        "latest_preserving_module_system": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Newest installable version that code on installed_version's module system can still load (cjs/dual -> cjs/dual; esm-only -> anything; every release on PyPI). Unlike latest_compatible_major it ignores the runtime: it is where every update-strategy tier below latest stops. Equals installed_version when nothing newer qualifies. Null only when undeterminable."
+        },
+        "module_system": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "installed_version's own module format: 'esm-only', 'cjs' or 'dual' (npm only; always null on PyPI)"
+        },
+        "recommended_module_system": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "recommended_version's own module format; null whenever recommended_version is null or PyPI"
+        },
+        "module_system_note": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "What the scan's runtime means for loading this package's ESM-only releases from CommonJS code (e.g. require() works only if the package has named exports); null when no newer release is ESM-only for this project. Qualifies whichever ESM-only version is shown: recommended_version or latest_compatible_major."
+        },
+        "breaking_change": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Reason recommended_version is flagged as a known module-system/API break, e.g. 'ESM-only from 5.0.0'; null when no known break applies"
+        },
+        "engine_requirement": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "recommended_version's own runtime requirement, e.g. {'node': '>=20.19.0'}; null when recommended_version is null or declares no engine requirement"
+        },
+        "engine_compatible": {
+          "type": [
+            "boolean",
+            "null"
+          ],
+          "description": "False when engine_requirement conflicts with the scan's engine_context; null = no evidence either way (no requirement, or no engine_context to compare against)"
+        },
+        "recommended_from_rung": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "solver",
+            "in_range",
+            "in_major",
+            "latest",
+            null
+          ],
+          "description": "Which version-ladder rung recommended_version came from: 'solver' or 'in_range' sit inside version_constraint and are safe to write as-is; 'in_major' or 'latest' require widening version_constraint first. Null only when recommended_version is null."
+        },
+        "requires_constraint_widening": {
+          "type": "boolean",
+          "description": "True when recommended_version is only reachable by widening version_constraint first - i.e. recommended_from_rung is 'in_major' or 'latest'. `ossiq plan` reports these under constraint widening and `ossiq apply` does not write them, unless the package's tier is latest or cutting-edge or strategy.widening_authorized is true."
+        },
+        "next_action": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "Check for the Fix",
+            "Find alternative",
+            "Consider alternative",
+            "Check Release Notes",
+            "Update Immediately",
+            "Wait for cooldown",
+            "Constrained. Check newer version",
+            "Withheld by strategy",
+            null
+          ],
+          "description": "The single next action for this package, exactly as the CLI's What's Next column and the HTML report show it; null when nothing is due. The agent payload's next_action applies two further escalations on top of this label and can therefore differ."
+        },
+        "is_prerelease": {
+          "type": "boolean",
+          "description": "Whether the installed version is a pre-release (alpha/beta/rc/dev)"
+        },
+        "is_yanked": {
+          "type": "boolean",
+          "description": "Whether the installed version has been yanked or unpublished from the registry"
+        },
+        "is_deprecated": {
+          "type": "boolean",
+          "description": "Whether the installed package or version is deprecated (npm-only; false otherwise)"
+        },
+        "is_package_unpublished": {
+          "type": "boolean",
+          "description": "Whether the entire package has been removed from the registry (npm-only; false otherwise)"
+        },
+        "update_transitive_impacts": {
+          "type": "array",
+          "description": "Transitive dependency impacts projected from the recommended update",
+          "items": {
+            "$ref": "#/$defs/TransitiveImpactExport"
+          }
+        },
+        "rejected_candidates": {
+          "type": "array",
+          "description": "Releases that would have been the recommendation but were held back by a transitive-dependency conflict; capped at one per ladder rung (newest rejected at in_range/in_major/latest)",
+          "items": {
+            "$ref": "#/$defs/RejectedCandidateExport"
+          }
+        },
+        "epss": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "description": "Highest EPSS score among this package's CVEs"
+        },
+        "runs_code_at_install": {
+          "type": [
+            "boolean",
+            "null"
+          ],
+          "description": "Whether the installed version executes arbitrary code during install"
+        },
+        "install_execution_reason": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Human-readable reason for runs_code_at_install; null when unknown or not detected"
+        },
+        "maintenance_risk": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 1,
+          "description": "P(abandoned) + P(deprecated) from the maintenance-state model; the value that feeds triage"
+        },
+        "maintenance_state": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "maintained",
+            "winding_down",
+            "abandoned",
+            "deprecated",
+            null
+          ],
+          "description": "Most probable maintenance state"
+        },
+        "deprecation_signals": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Explicit end-of-life markers found for the package"
+        },
+        "deprecation_successor": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Replacement package named in the metadata / deprecation message / README"
+        },
+        "archived": {
+          "type": [
+            "boolean",
+            "null"
+          ],
+          "description": "Whether the upstream repository is archived"
+        },
+        "dependency_health_action": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "evict",
+            "patch",
+            "refactor",
+            "retain",
+            null
+          ],
+          "description": "Advisory dependency-health verdict from the EPSS x maintenance triage matrix. Answers 'is this dependency healthy long-term?' - next_action says what to do now."
+        },
+        "strategy": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/StrategySelectionExport"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The update-strategy selector's verdict for this package; null when it never ran"
+        },
+        "unresolved_peers": {
+          "type": "array",
+          "description": "Peers this package declares that nothing installed where it looks can satisfy: a required peer npm left missing, or an optional one installed only nested under another package. Empty for PyPI projects and when every peer resolves",
+          "items": {
+            "$ref": "#/$defs/UnresolvedPeerExport"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "StrategySelectionExport": {
+      "type": "object",
+      "description": "The update-strategy selector's verdict for one package",
+      "properties": {
+        "motives": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Motives admitted at the run's update-strategy tier for this package: exploitable_cve, suppressed_cve, end_of_life, drift. Empty when nothing was admitted"
+        },
+        "withheld_reason": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Set only when no motive was admitted at the run's tier \u2014 names the lowest tier that would move this package"
+        },
+        "requires_widening": {
+          "type": "boolean",
+          "description": "Whether recommended_version sits outside version_constraint under the run's strategy"
+        },
+        "escalation": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Set when the strategy reached past its tier's base ceiling, or every reachable version still carries a qualifying CVE"
+        },
+        "widening_authorized": {
+          "type": "boolean",
+          "description": "Whether an escalating motive (exploitable_cve, end_of_life) carried recommended_version past the tier's base ceiling, so `ossiq apply` writes it after a widening confirmation instead of holding it"
+        }
+      },
+      "additionalProperties": false
+    },
+    "TransitiveImpactExport": {
+      "type": "object",
+      "description": "Transitive impact of a direct dependency update on a single transitive package",
+      "required": [
+        "package_name",
+        "new_constraint",
+        "driven_by",
+        "has_conflict"
+      ],
+      "properties": {
+        "package_name": {
+          "type": "string",
+          "description": "Canonical name of the affected transitive package"
+        },
+        "current_version": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Currently installed version; null for brand-new transitive deps not in the current tree"
+        },
+        "projected_version": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Best version satisfying all merged constraints; null when no version satisfies (hard conflict)"
+        },
+        "new_constraint": {
+          "type": "string",
+          "description": "Constraint the updated direct dependency imposes on this transitive dependency"
+        },
+        "driven_by": {
+          "type": "string",
+          "description": "Canonical name of the direct dependency recommendation driving this impact"
+        },
+        "has_conflict": {
+          "type": "boolean",
+          "description": "True when projected_version violates an existing parent constraint"
+        },
+        "conflict_detail": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Human-readable conflict description"
+        }
+      }
+    },
+    "RejectedCandidateExport": {
+      "type": "object",
+      "description": "A release that would otherwise have been the recommendation, held back by a conflict",
+      "required": [
+        "version",
+        "reason"
+      ],
+      "properties": {
+        "version": {
+          "type": "string",
+          "description": "The rejected release's version"
+        },
+        "reason": {
+          "type": "string",
+          "description": "Human-readable explanation of why this release was held back"
+        }
+      }
+    },
+    "CVEInfo": {
+      "type": "object",
+      "description": "CVE information for a package",
+      "required": [
+        "id",
+        "cve_ids",
+        "summary",
+        "severity",
+        "link"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Primary CVE identifier"
+        },
+        "cve_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "All aliases (CVE, GHSA, OSV)"
+        },
+        "summary": {
+          "type": "string",
+          "description": "Vulnerability description"
+        },
+        "severity": {
+          "type": "string",
+          "enum": [
+            "LOW",
+            "MEDIUM",
+            "HIGH",
+            "CRITICAL"
+          ],
+          "description": "Severity level"
+        },
+        "affected_ranges": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Affected intervals in the registry's own constraint syntax, e.g. '>=12.0.0 <12.0.1' on npm or '>=2.3.0,<2.31.0' on PyPI; a release inside any of them is affected"
+        },
+        "fixed_in": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Releases that close an affected interval, one per fixed line; empty when no fix is published"
+        },
+        "link": {
+          "type": "string",
+          "format": "uri",
+          "description": "URL to upstream advisory"
+        },
+        "epss": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "description": "EPSS exploitation probability score, 0-1"
+        },
+        "fix_age_days": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "description": "Days a fix has been available; null when no fix is known"
+        }
+      },
+      "additionalProperties": false
+    },
+    "IgnoredPackageExport": {
+      "type": "object",
+      "description": "A declared dependency the scan left out - its absence from the package lists is deliberate",
+      "required": [
+        "name",
+        "spec",
+        "reason"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Dependency name as declared"
+        },
+        "spec": {
+          "type": "string",
+          "description": "The declaration as written, e.g. a git URL"
+        },
+        "reason": {
+          "type": "string",
+          "description": "Why it was left out: unresolvable source, or excluded with --ignore"
+        }
+      }
+    },
+    "UpgradePathExport": {
+      "type": "object",
+      "description": "A constraint-widening opportunity for a direct dependency of a project without a lockfile",
+      "required": [
+        "package_name",
+        "current_constraint",
+        "latest_in_range",
+        "latest_available",
+        "suggested_constraint"
+      ],
+      "properties": {
+        "package_name": {
+          "type": "string",
+          "description": "Direct dependency the opportunity is for"
+        },
+        "current_constraint": {
+          "type": "string",
+          "description": "Constraint the manifest declares today"
+        },
+        "latest_in_range": {
+          "type": "string",
+          "description": "Newest release the current constraint admits"
+        },
+        "latest_available": {
+          "type": "string",
+          "description": "Newest release overall"
+        },
+        "suggested_constraint": {
+          "type": "string",
+          "description": "Constraint that would admit latest_available"
+        }
+      }
+    },
+    "UnresolvedPeerExport": {
+      "type": "object",
+      "description": "A peer a package declares that nothing installed within its reach satisfies (npm only).",
+      "required": [
+        "package_name",
+        "spec",
+        "optional"
+      ],
+      "properties": {
+        "package_name": {
+          "type": "string",
+          "description": "The peer package the declaring package looks for"
+        },
+        "spec": {
+          "type": "string",
+          "description": "The range the declaring package asks of it, as declared"
+        },
+        "optional": {
+          "type": "boolean",
+          "description": "Whether the declaring package marks the peer optional (peerDependenciesMeta). npm leaves an optional peer out, but a package that imports it unguarded fails to load when the only copy sits out of reach"
+        },
+        "installed_elsewhere": {
+          "type": "array",
+          "description": "Versions of the peer installed out of the declaring package's reach (nested under some other package); empty when it is installed nowhere",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "PeerRepairMoveExport": {
+      "type": "object",
+      "description": "A stale copy of a package a peer repair moves, so its family is one version again.",
+      "required": [
+        "package_name",
+        "current_version",
+        "projected_version"
+      ],
+      "properties": {
+        "package_name": {
+          "type": "string",
+          "description": "Package whose stale copy moves"
+        },
+        "current_version": {
+          "type": "string",
+          "description": "Version of the stale copy"
+        },
+        "projected_version": {
+          "type": "string",
+          "description": "Version it moves to, written as a keyed override"
+        }
+      }
+    },
+    "PeerRepairExport": {
+      "type": "object",
+      "description": "How the plan puts a peer back where the packages that declare it can load it (npm only).",
+      "required": [
+        "package_name",
+        "suggested_constraint",
+        "is_dev_dependency",
+        "requirers"
+      ],
+      "properties": {
+        "package_name": {
+          "type": "string",
+          "description": "The peer to add to the manifest, so npm installs it where its requirers load it"
+        },
+        "suggested_constraint": {
+          "type": "string",
+          "description": "The range to write for it, in the style of the family it belongs to"
+        },
+        "is_dev_dependency": {
+          "type": "boolean",
+          "description": "Whether it goes in devDependencies: every package that needs it is a development one"
+        },
+        "requirers": {
+          "type": "array",
+          "description": "Installed packages that declare the peer and cannot reach it today",
+          "items": {
+            "type": "string"
+          }
+        },
+        "family_moves": {
+          "type": "array",
+          "description": "Stale copies of the peer's exact-pinned family that move with it; empty when none need to",
+          "items": {
+            "$ref": "#/$defs/PeerRepairMoveExport"
+          }
+        }
+      }
+    }
+  },
+  "additionalProperties": false
+}

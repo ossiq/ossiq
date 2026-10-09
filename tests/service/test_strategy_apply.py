@@ -13,6 +13,7 @@ from ossiq.domain.common import (
     EngineContext,
     EngineContextSource,
     ModuleSystem,
+    PeerHold,
     ProjectPackagesRegistry,
     RecommendationRung,
     RejectionDetail,
@@ -20,11 +21,18 @@ from ossiq.domain.common import (
 from ossiq.domain.cve import CVE, AffectedRange, Severity
 from ossiq.domain.project import ConstraintSource, IncomingEdge, InstalledCopy
 from ossiq.domain.release_cutoff import ReleaseCutoff
-from ossiq.domain.version import PackageVersion, VersionsDifference
+from ossiq.domain.version import PackageVersion, PeerDependency, VersionsDifference
 from ossiq.service.project.ladder import compute_version_ladder
 from ossiq.service.project.models import ScanRecord
 from ossiq.service.project.next_action import WAIT_FOR_COOLDOWN, next_action_label
-from ossiq.service.project.strategy import apply_update_strategy, build_candidates
+from ossiq.service.project.strategy import (
+    PeerConflict,
+    apply_update_strategy,
+    build_candidates,
+    find_peer_conflict,
+    peer_hold,
+)
+from ossiq.service.update import entry_from_record, is_held_for_widening
 from ossiq.service.update_impact import DirectUpdateImpact, ImpactKind, TransitiveImpact, simulate_single
 from ossiq.strategy.overrides import StrategyPlan
 from ossiq.strategy.pyramid import UpdateStrategy
@@ -40,6 +48,7 @@ def pv(
     published: str = "2024-01-01T00:00:00Z",
     module_system: ModuleSystem | None = None,
     runtime_requirements: dict[str, str] | None = None,
+    peers: dict[str, PeerDependency] | None = None,
 ) -> PackageVersion:
     return PackageVersion(
         version=version,
@@ -49,6 +58,7 @@ def pv(
         published_date_iso=published,
         module_system=module_system,
         runtime_requirements=runtime_requirements,
+        declared_peer_dependencies=peers or {},
     )
 
 
@@ -58,6 +68,10 @@ def make_registry(versions_by_name: dict[str, list[PackageVersion]]) -> MagicMoc
     registry.one_copy_per_name = True
     registry.refuses_engine_mismatch = True
     registry.package_versions.side_effect = lambda name: versions_by_name.get(name, [])
+    # Same source as the real adapter: a release's peers are whatever its PackageVersion declares.
+    registry.package_version_peers.side_effect = lambda name, version: next(
+        (p.declared_peer_dependencies for p in versions_by_name.get(name, []) if p.version == version), {}
+    )
     registry.difference_versions.return_value = NO_DIFF
 
     def compare(v1: str, v2: str) -> int:
@@ -1345,3 +1359,245 @@ class TestNpmAdvisoryRangesD7:
         )
 
         assert record.recommended_version == "11.1.1"
+
+    def test_that_fix_past_the_declared_range_is_written_not_held_for_widening(self) -> None:
+        """uuid is pinned to 8.3.2, so 11.1.1 widens the range: the CVE motive is the authorization."""
+        record = recommend_for_cjs_project(
+            "uuid",
+            UUID_RELEASES,
+            "8.3.2",
+            node_version=None,
+            strategy=UpdateStrategy.SECURITY,
+            cves=[UUID_RANGE_ADVISORY],
+        )
+
+        assert record.strategy_selection is not None
+        assert record.strategy_selection.widening_authorized is True
+        entry = entry_from_record(record, is_direct=True)
+        assert entry.widens_constraint is True
+        assert not is_held_for_widening(entry, UpdateStrategy.SECURITY)
+
+
+class TestPeerReconciliation:
+    """Each pick is made alone, so a last pass sends back any that peer-require another pick out."""
+
+    @staticmethod
+    def apply(records: list[ScanRecord], registry: MagicMock, **kwargs) -> None:
+        apply_update_strategy(
+            records,
+            registry,
+            STANDARD_PLAN,
+            versions_since={
+                (r.package_name, r.installed_version): list(registry.package_versions(r.package_name)) for r in records
+            },
+            transitive_by_name={},
+            installed_names=set(),
+            allow_prerelease=False,
+            now=NOW,
+            **kwargs,
+        )
+
+    @staticmethod
+    def lockstep(*, renderer_follows: bool) -> tuple[MagicMock, ScanRecord, ScanRecord]:
+        """vue, and a direct @vue/server-renderer that peer-pins vue exactly."""
+        renderer = [pv("3.5.43", peers={"vue": PeerDependency("3.5.43")})]
+        if renderer_follows:
+            renderer.append(pv("3.5.44", peers={"vue": PeerDependency("3.5.44")}))
+        registry = make_npm_registry({"vue": [pv("3.5.43"), pv("3.5.44")], "@vue/server-renderer": renderer})
+        return registry, make_record("vue", "3.5.43"), make_record("@vue/server-renderer", "3.5.43")
+
+    def test_a_lockstep_pair_that_can_follow_moves_together(self) -> None:
+        registry, vue, renderer = self.lockstep(renderer_follows=True)
+
+        self.apply([vue, renderer], registry)
+
+        assert (vue.recommended_version, renderer.recommended_version) == ("3.5.44", "3.5.44")
+
+    def test_a_pair_where_one_half_cannot_follow_does_not_move_at_all(self) -> None:
+        """Never a mismatched pair: vue stays when no server-renderer exists for 3.5.44."""
+        registry, vue, renderer = self.lockstep(renderer_follows=False)
+
+        self.apply([vue, renderer], registry)
+
+        assert vue.recommended_version is None
+        assert renderer.recommended_version is None
+
+    def test_the_refusal_is_recorded_so_the_plan_can_say_why(self) -> None:
+        registry, vue, renderer = self.lockstep(renderer_follows=False)
+
+        self.apply([vue, renderer], registry)
+
+        (refused,) = vue.rejected_candidates
+        assert refused.version == "3.5.44"
+        assert refused.reason == "@vue/server-renderer peer-requires vue"
+        assert refused.detail == RejectionDetail("3.5.44 violates", ("3.5.43",))
+        assert refused.held_by_peer == PeerHold("vue", "3.5.44", "@vue/server-renderer", "3.5.43")
+
+    def test_a_refused_pick_falls_back_to_the_newest_release_that_fits(self) -> None:
+        registry = make_npm_registry(
+            {
+                "vue": [pv("3.5.43"), pv("3.5.44"), pv("3.5.45")],
+                "@vue/server-renderer": [
+                    pv("3.5.43", peers={"vue": PeerDependency("3.5.43")}),
+                    pv("3.5.44", peers={"vue": PeerDependency("3.5.44")}),
+                ],
+            }
+        )
+        vue, renderer = make_record("vue", "3.5.43"), make_record("@vue/server-renderer", "3.5.43")
+
+        self.apply([vue, renderer], registry)
+
+        assert (vue.recommended_version, renderer.recommended_version) == ("3.5.44", "3.5.44")
+
+    def test_a_package_the_plan_never_moves_is_held_in_place(self) -> None:
+        """An ignored package is not a record here, but its installed peers still bind."""
+        registry = make_npm_registry(
+            {"plugin": [pv("1.0.0"), pv("2.0.0", peers={"host": PeerDependency("^2")})], "host": [pv("1.0.0")]}
+        )
+        plugin = make_record("plugin", "1.0.0")
+
+        self.apply([plugin], registry, fixed_versions={"host": "1.0.0"})
+
+        assert plugin.recommended_version is None
+        (refused,) = plugin.rejected_candidates
+        assert refused.reason == "plugin 2.0.0 peer-requires host"
+        assert refused.detail == RejectionDetail("held at 1.0.0, wanted", ("^2",))
+        assert refused.held_by_peer is None
+
+    def test_a_range_the_installed_pair_already_missed_does_not_block_a_bump(self) -> None:
+        registry = make_npm_registry(
+            {
+                "plugin": [
+                    pv("1.0.0", peers={"host": PeerDependency("^1")}),
+                    pv("1.1.0", peers={"host": PeerDependency("^1")}),
+                ]
+            }
+        )
+        plugin = make_record("plugin", "1.0.0")
+
+        self.apply([plugin], registry, fixed_versions={"host": "2.0.0"})
+
+        assert plugin.recommended_version == "1.1.0"
+
+    def test_a_pick_is_held_to_where_a_transitive_package_ends_up(self):
+        """The transitive pass moved host to 2.0.0; plugin 1.1.0 still peer-requires ^1, so it can't follow."""
+        registry = make_npm_registry(
+            {
+                "plugin": [
+                    pv("1.0.0", peers={"host": PeerDependency("^1 || ^2")}),
+                    pv("1.1.0", peers={"host": PeerDependency("^1")}),
+                ]
+            }
+        )
+        plugin = make_record("plugin", "1.0.0")
+
+        self.apply([plugin], registry, fixed_versions={"host": "2.0.0"}, fixed_installed={"host": "1.0.0"})
+
+        assert plugin.recommended_version is None
+        (refused,) = plugin.rejected_candidates
+        assert refused.detail == RejectionDetail("held at 2.0.0, wanted", ("^1",))
+
+    def test_a_transitive_package_that_peer_requires_the_pick_holds_it(self):
+        registry = make_npm_registry(
+            {
+                "vue": [pv("3.5.43"), pv("3.5.44")],
+                "@vue/server-renderer": [pv("3.5.43", peers={"vue": PeerDependency("3.5.43")})],
+            }
+        )
+        vue = make_record("vue", "3.5.43")
+
+        self.apply([vue], registry, fixed_versions={"@vue/server-renderer": "3.5.43"})
+
+        assert vue.recommended_version is None
+        assert vue.rejected_candidates[0].held_by_peer == PeerHold("vue", "3.5.44", "@vue/server-renderer", "3.5.43")
+
+    def test_a_python_project_is_untouched(self) -> None:
+        registry = make_registry({"a": [pv("1.0.0"), pv("1.1.0")], "b": [pv("2.0.0"), pv("2.1.0")]})
+        a, b = make_record("a", "1.0.0"), make_record("b", "2.0.0")
+
+        self.apply([a, b], registry)
+
+        assert (a.recommended_version, b.recommended_version) == ("1.1.0", "2.1.0")
+        assert a.rejected_candidates == [] and b.rejected_candidates == []
+
+
+class TestFindPeerConflict:
+    @staticmethod
+    def registry() -> MagicMock:
+        return make_npm_registry(
+            {
+                "plugin": [
+                    pv("1.0.0", peers={"host": PeerDependency("^1")}),
+                    pv("2.0.0", peers={"host": PeerDependency("^2"), "absent": PeerDependency("^1")}),
+                    pv("3.0.0", peers={"host": PeerDependency("")}),
+                ],
+                "host": [pv("1.0.0"), pv("2.0.0")],
+            }
+        )
+
+    def test_the_picks_own_peer_against_where_the_other_ends_up(self) -> None:
+        conflict = find_peer_conflict(
+            "plugin",
+            "2.0.0",
+            {"plugin": "2.0.0", "host": "1.0.0"},
+            {"plugin": "1.0.0", "host": "1.0.0"},
+            self.registry(),
+        )
+
+        assert conflict == PeerConflict(requirer="plugin", package="host", spec="^2", held_at="1.0.0")
+
+    def test_the_others_peer_on_the_pick(self) -> None:
+        conflict = find_peer_conflict(
+            "host", "2.0.0", {"plugin": "1.0.0", "host": "2.0.0"}, {"plugin": "1.0.0", "host": "1.0.0"}, self.registry()
+        )
+
+        assert conflict == PeerConflict(requirer="plugin", package="host", spec="^1", held_at="2.0.0")
+
+    def test_a_peer_on_a_package_outside_the_plan_binds_nothing(self) -> None:
+        conflict = find_peer_conflict(
+            "plugin",
+            "2.0.0",
+            {"plugin": "2.0.0", "host": "2.0.0"},
+            {"plugin": "1.0.0", "host": "2.0.0"},
+            self.registry(),
+        )
+
+        assert conflict is None
+
+    def test_a_peer_with_no_range_binds_nothing(self) -> None:
+        conflict = find_peer_conflict(
+            "plugin",
+            "3.0.0",
+            {"plugin": "3.0.0", "host": "1.0.0"},
+            {"plugin": "1.0.0", "host": "1.0.0"},
+            self.registry(),
+        )
+
+        assert conflict is None
+
+
+class TestPeerHold:
+    @staticmethod
+    def impact(*blockers: TransitiveImpact) -> DirectUpdateImpact:
+        return DirectUpdateImpact("typescript", "7.0.2", list(blockers), is_actionable=False, fallback_version=None)
+
+    @staticmethod
+    def blocker(requirer: str, spec: str, kind: ImpactKind = ImpactKind.PEER) -> TransitiveImpact:
+        return TransitiveImpact(
+            package_name=requirer,
+            current_version="8.0.0",
+            projected_version=None,
+            new_constraint=spec,
+            driven_by="typescript",
+            has_conflict=True,
+            kind=kind,
+        )
+
+    def test_names_the_first_requirer_and_counts_the_rest(self) -> None:
+        hold = peer_hold(self.impact(self.blocker("utils", "<6.1.0"), self.blocker("parser", "<6.1.0")))
+
+        assert hold == PeerHold("typescript", "7.0.2", "utils", "<6.1.0", others=1)
+
+    def test_anything_that_is_not_a_peer_is_not_a_peer_hold(self) -> None:
+        assert peer_hold(self.impact(self.blocker("x", "^1", ImpactKind.UPGRADE))) is None
+        assert peer_hold(self.impact()) is None

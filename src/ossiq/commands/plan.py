@@ -242,6 +242,8 @@ def prepare_plan(ctx: typer.Context, options: CommandPlanOptions) -> tuple[Proje
         and not plan.held_for_cooldown
         and not plan.held_for_widening
         and not plan.held_by_user_overrides
+        and not plan.held_by_peers
+        and not plan.peer_repairs
     ):
         if options.update_strategy == DEFAULT_STRATEGY:
             typer.echo(HELP_PLAN_NO_RECOMMENDATIONS)

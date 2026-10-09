@@ -26,6 +26,7 @@ from ossiq.domain.version import (
     VERSION_LATEST,
     VERSION_NO_DIFF,
     PackageVersion,
+    PeerDependency,
     VersionsDifference,
     create_version_difference_no_diff,
 )
@@ -41,13 +42,6 @@ NPM_BARE_SEMVER = re.compile(r"^v?\d+(\.\d+){0,2}([.-][a-zA-Z0-9_]+)*$")
 # `exports` is untrusted registry JSON (anyone can publish a package.json), so the walk over it is
 # bounded rather than trusting the blob to be shallow and small.
 NPM_EXPORTS_MAX_NODES = 10_000
-
-NPM_DEPENDENCIES_SECTIONS = (
-    "dependencies",
-    "devDependencies",
-    "peerDependencies",
-    "optionalDependencies",
-)
 
 
 @functools.lru_cache(maxsize=4096)
@@ -98,6 +92,37 @@ def normalize_npm_engines(value: object) -> dict[str, str] | None:
                 entries[engine] = spec.strip()
         return entries or None
     return None
+
+
+def npm_peer_dependencies(details: dict) -> dict[str, PeerDependency]:
+    """Read a packument version's `peerDependencies` with `peerDependenciesMeta` applied.
+
+    npm (arborist) also treats a name that appears only in the meta with `optional: true` as an
+    optional peer on any version, so it is kept here as `*` rather than dropped. Both fields are
+    untrusted registry JSON, so anything not shaped like name -> string / name -> {optional: bool}
+    is skipped.
+
+    Args:
+        details: One version's entry from the packument.
+
+    Returns:
+        {package name: PeerDependency}; empty when the version declares no peers.
+    """
+    declared = details.get("peerDependencies")
+    meta = details.get("peerDependenciesMeta")
+    optional_names = {
+        name
+        for name, entry in (meta.items() if isinstance(meta, dict) else ())
+        if isinstance(name, str) and isinstance(entry, dict) and entry.get("optional") is True
+    }
+    peers: dict[str, PeerDependency] = {
+        name: PeerDependency(spec=spec, optional=name in optional_names)
+        for name, spec in (declared.items() if isinstance(declared, dict) else ())
+        if isinstance(name, str) and isinstance(spec, str)
+    }
+    for name in optional_names - peers.keys():
+        peers[name] = PeerDependency(spec="*", optional=True)
+    return peers
 
 
 def detect_npm_install_execution(details: dict) -> tuple[bool | None, str | None]:
@@ -420,6 +445,7 @@ class PackageRegistryApiNpm(AbstractPackageRegistryApi):
                     runs_code_at_install=runs_code_at_install,
                     install_execution_reason=install_exec_reason,
                     module_system=detect_npm_module_system(details),
+                    declared_peer_dependencies=npm_peer_dependencies(details),
                 )
             )
 
@@ -491,3 +517,14 @@ class PackageRegistryApiNpm(AbstractPackageRegistryApi):
             self.packages_info_batch([package_name])
         versions = self._raw_cache.get(package_name, {}).get("versions", {})
         return dict(versions.get(version, {}).get("dependencies", {}))
+
+    def package_version_peers(self, package_name: str, version: str) -> dict[str, PeerDependency]:
+        """Return {dep_name: PeerDependency} for a specific published version.
+
+        Read from the packument already in the cache, so it costs no further request. Empty when
+        the version is not found or declares no peers.
+        """
+        if package_name not in self._raw_cache:
+            self.packages_info_batch([package_name])
+        versions = self._raw_cache.get(package_name, {}).get("versions", {})
+        return npm_peer_dependencies(versions.get(version, {}))

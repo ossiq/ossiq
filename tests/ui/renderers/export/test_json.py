@@ -38,13 +38,14 @@ from ossiq.domain.common import (
 from ossiq.domain.compatibility import CompatibilityFacts
 from ossiq.domain.cve import CVE, AffectedRange, CveDatabase, Severity
 from ossiq.domain.exceptions import DestinationDoesntExist
-from ossiq.domain.project import ConstraintSource
+from ossiq.domain.project import ConstraintSource, UnresolvedPeer
 from ossiq.domain.version import VersionsDifference
 from ossiq.risk.stability import EngagementBucket, EngagementSeries
 from ossiq.risk.triage import ACTION_REFACTOR, TriageResult
 from ossiq.service.library_scan import UpgradePath
-from ossiq.service.project.models import IgnoredDependency, ScanRecord, ScanResult
+from ossiq.service.project.models import IgnoredDependency, PeerRepair, ScanRecord, ScanResult
 from ossiq.service.project.stability import RepositoryStability
+from ossiq.service.update_impact import ImpactKind, TransitiveImpact
 from ossiq.settings import Settings
 from ossiq.strategy.motive import UpdateMotive
 from ossiq.strategy.pyramid import UpdateStrategy
@@ -199,8 +200,8 @@ class TestJsonExportRenderer:
         data = json.loads(output_file.read_text(encoding="utf-8"))
         metadata = data["metadata"]
 
-        # Assert
-        assert metadata["schema_version"] == "1.5"
+        # Assert: with no version asked for, the latest is declared
+        assert metadata["schema_version"] == "1.6"
         assert "export_timestamp" in metadata
         assert "ossiq_version" not in metadata
 
@@ -1906,13 +1907,21 @@ def profile_scan() -> ScanResult:
     )
 
 
-def render_profile(settings: Settings, scan: ScanResult, output_file, profile: ExportProfile | None = None) -> dict:
-    """Render *scan* the way `ossiq export` does - the renderer's own default when *profile* is None."""
+def render_profile(
+    settings: Settings,
+    scan: ScanResult,
+    output_file,
+    profile: ExportProfile | None = None,
+    schema_version: str | None = None,
+) -> dict:
+    """Render *scan* the way `ossiq export` does - the renderer's own defaults when an argument is None."""
     renderer = JsonExportRenderer(settings)
-    if profile is None:
-        renderer.render(scan, destination=str(output_file))
-    else:
-        renderer.render(scan, destination=str(output_file), profile=profile)
+    options: dict[str, Any] = {}
+    if profile is not None:
+        options["profile"] = profile
+    if schema_version is not None:
+        options["schema_version"] = schema_version
+    renderer.render(scan, destination=str(output_file), **options)
     return json.loads(output_file.read_text(encoding="utf-8"))
 
 
@@ -1924,21 +1933,18 @@ class TestExportProfiles:
 
         assert data["metadata"]["profile"] == "standard"
         validate(
-            instance=data, schema=json_schema_registry.load_schema(ExportJsonSchemaVersion.V1_5, ExportProfile.STANDARD)
+            instance=data,
+            schema=json_schema_registry.load_schema(json_schema_registry.get_latest_version(), ExportProfile.STANDARD),
         )
 
     def test_full_validates_against_the_full_schema_and_not_the_standard_one(self, settings, profile_scan, output_file):
         data = render_profile(settings, profile_scan, output_file, ExportProfile.FULL)
 
         assert data["metadata"]["profile"] == "full"
-        validate(
-            instance=data, schema=json_schema_registry.load_schema(ExportJsonSchemaVersion.V1_5, ExportProfile.FULL)
-        )
+        latest = json_schema_registry.get_latest_version()
+        validate(instance=data, schema=json_schema_registry.load_schema(latest, ExportProfile.FULL))
         with pytest.raises(ValidationError):
-            validate(
-                instance=data,
-                schema=json_schema_registry.load_schema(ExportJsonSchemaVersion.V1_5, ExportProfile.STANDARD),
-            )
+            validate(instance=data, schema=json_schema_registry.load_schema(latest, ExportProfile.STANDARD))
 
     def test_standard_carries_no_full_only_field(self, settings, profile_scan, output_file):
         data = render_profile(settings, profile_scan, output_file)
@@ -2041,6 +2047,7 @@ class TestExportProfiles:
             "deprecation_successor",
             "archived",
             "dependency_health_action",
+            "unresolved_peers",
         }
         assert standard_fields(export_models.PackageMetrics) == shared | {
             "dependency_name",
@@ -2100,3 +2107,179 @@ class TestExportProfiles:
 
         assert vulnerable["dependency_name"] == "vulnerable-alias"
         assert quiet["dependency_name"] is None
+
+
+@pytest.fixture
+def peer_scan(profile_scan: ScanResult) -> ScanResult:
+    """profile_scan plus the frontend/ case: a package whose optional peer is installed out of its reach,
+    a transitive that needs nothing else but a missing required peer, and the repair for the first."""
+    quiet = profile_scan.production_packages[1]
+    quiet.unresolved_peers = [
+        UnresolvedPeer("@vue/server-renderer", "3.x", optional=True, installed_elsewhere=("3.5.43",))
+    ]
+    profile_scan.transitive_packages[1].unresolved_peers = [UnresolvedPeer("host", "^1")]
+    profile_scan.peer_repairs = [
+        PeerRepair(
+            package="@vue/server-renderer",
+            spec="~3.5.43",
+            is_dev=True,
+            requirers=("quiet",),
+            family_moves=(
+                TransitiveImpact(
+                    package_name="@vue/shared",
+                    current_version="3.5.42",
+                    projected_version="3.5.43",
+                    new_constraint="3.5.43",
+                    driven_by="@vue/server-renderer",
+                    has_conflict=False,
+                    kind=ImpactKind.OVERRIDE_BUMP,
+                ),
+            ),
+        )
+    ]
+    return profile_scan
+
+
+@pytest.fixture
+def widening_scan(sample_project_metrics_record: ScanRecord) -> ScanResult:
+    """One direct package whose CVE fix sits past its declared range, with the selector's authorization."""
+    record = dataclasses.replace(
+        sample_project_metrics_record,
+        recommended_version="1.2.0",
+        recommended_from_rung=RecommendationRung.IN_MAJOR,
+        strategy_selection=StrategySelection(
+            strategy=UpdateStrategy.SECURITY,
+            target_version="1.2.0",
+            rung=RecommendationRung.IN_MAJOR,
+            motives=frozenset({UpdateMotive.EXPLOITABLE_CVE}),
+            requires_widening=True,
+            withheld_reason=None,
+            available_at=None,
+            escalation="no version of example within its declared range resolves: exploitable_cve",
+            widening_authorized=True,
+        ),
+    )
+    return ScanResult(
+        project_name="test-project",
+        project_path="/path/to/test-project",
+        packages_registry=ProjectPackagesRegistry.NPM.value,
+        production_packages=[record],
+        optional_packages=[],
+    )
+
+
+class TestSchemaVersion17:
+    """v1.6 reports peers a package cannot reach and how apply repairs them; v1.5 stays as it was."""
+
+    @pytest.mark.parametrize("profile", [ExportProfile.STANDARD, ExportProfile.FULL])
+    def test_a_default_document_is_v1_6_and_validates_against_its_schema(
+        self, settings, peer_scan, output_file, profile
+    ):
+        data = render_profile(settings, peer_scan, output_file, profile)
+
+        assert data["metadata"]["schema_version"] == "1.6"
+        validate(instance=data, schema=json_schema_registry.load_schema(ExportJsonSchemaVersion.V1_6, profile))
+
+    @pytest.mark.parametrize("profile", [ExportProfile.STANDARD, ExportProfile.FULL])
+    def test_unresolved_peers_reach_the_direct_entry(self, settings, peer_scan, output_file, profile):
+        data = render_profile(settings, peer_scan, output_file, profile)
+
+        quiet = next(entry for entry in data["production_packages"] if entry["package_name"] == "quiet")
+        assert quiet["unresolved_peers"] == [
+            {
+                "package_name": "@vue/server-renderer",
+                "spec": "3.x",
+                "optional": True,
+                "installed_elsewhere": ["3.5.43"],
+            }
+        ]
+
+    @pytest.mark.parametrize("profile", [ExportProfile.STANDARD, ExportProfile.FULL])
+    def test_peer_repairs_reach_the_root(self, settings, peer_scan, output_file, profile):
+        data = render_profile(settings, peer_scan, output_file, profile)
+
+        assert data["peer_repairs"] == [
+            {
+                "package_name": "@vue/server-renderer",
+                "suggested_constraint": "~3.5.43",
+                "is_dev_dependency": True,
+                "requirers": ["quiet"],
+                "family_moves": [
+                    {"package_name": "@vue/shared", "current_version": "3.5.42", "projected_version": "3.5.43"}
+                ],
+            }
+        ]
+
+    @pytest.mark.parametrize("profile", [ExportProfile.STANDARD, ExportProfile.FULL])
+    def test_the_strategy_verdict_says_when_apply_may_write_a_widening_pick(
+        self, settings, widening_scan, output_file, profile
+    ):
+        data = render_profile(settings, widening_scan, output_file, profile)
+
+        entry = data["production_packages"][0]
+        assert entry["requires_constraint_widening"] is True
+        assert entry["strategy"]["widening_authorized"] is True
+        validate(instance=data, schema=json_schema_registry.load_schema(ExportJsonSchemaVersion.V1_6, profile))
+
+    def test_standard_keeps_a_transitive_that_only_has_an_unresolved_peer(self, settings, peer_scan, output_file):
+        data = render_profile(settings, peer_scan, output_file)
+
+        assert [entry["package_name"] for entry in data["transitive_packages"]] == ["risky-dep", "drift-0"]
+        drifting = data["transitive_packages"][1]
+        assert drifting["unresolved_peers"] == [
+            {"package_name": "host", "spec": "^1", "optional": False, "installed_elsewhere": []}
+        ]
+
+    def test_a_package_with_every_peer_resolved_says_so_by_saying_nothing(self, settings, profile_scan, output_file):
+        data = render_profile(settings, profile_scan, output_file)
+
+        assert all("unresolved_peers" not in entry for entry in data["production_packages"])
+        assert all("unresolved_peers" not in entry for entry in data["transitive_packages"])
+        assert data["peer_repairs"] == []
+
+    def test_the_full_profile_lists_an_empty_unresolved_peers_on_direct_entries(
+        self, settings, profile_scan, output_file
+    ):
+        data = render_profile(settings, profile_scan, output_file, ExportProfile.FULL)
+
+        assert all(entry["unresolved_peers"] == [] for entry in data["production_packages"])
+
+
+class TestSchemaVersion15StaysAsReleased:
+    """`--schema-version 1.5` is a promise to consumers who pinned it: nothing from 1.6 may leak in."""
+
+    @pytest.mark.parametrize("profile", [ExportProfile.STANDARD, ExportProfile.FULL])
+    def test_a_v1_5_document_carries_none_of_the_1_6_fields_and_still_validates(
+        self, settings, peer_scan, output_file, profile
+    ):
+        data = render_profile(settings, peer_scan, output_file, profile, schema_version="1.5")
+
+        assert data["metadata"]["schema_version"] == "1.5"
+        assert "peer_repairs" not in data
+        for entry in [*data["production_packages"], *data["transitive_packages"]]:
+            assert "unresolved_peers" not in entry
+        validate(instance=data, schema=json_schema_registry.load_schema(ExportJsonSchemaVersion.V1_5, profile))
+
+    def test_standard_v1_5_drops_the_peer_only_transitive_as_it_always_did(self, settings, peer_scan, output_file):
+        data = render_profile(settings, peer_scan, output_file, schema_version="1.5")
+
+        assert [entry["package_name"] for entry in data["transitive_packages"]] == ["risky-dep"]
+
+    @pytest.mark.parametrize("profile", [ExportProfile.STANDARD, ExportProfile.FULL])
+    def test_a_v1_5_strategy_verdict_has_no_widening_authorization(self, settings, widening_scan, output_file, profile):
+        data = render_profile(settings, widening_scan, output_file, profile, schema_version="1.5")
+
+        assert "widening_authorized" not in data["production_packages"][0]["strategy"]
+        validate(instance=data, schema=json_schema_registry.load_schema(ExportJsonSchemaVersion.V1_5, profile))
+
+    def test_a_v1_5_document_is_the_v1_6_one_minus_the_new_fields(self, settings, peer_scan, output_file, tmp_path):
+        old = render_profile(settings, peer_scan, output_file, ExportProfile.FULL, schema_version="1.5")
+        new = render_profile(settings, peer_scan, tmp_path / "new.json", ExportProfile.FULL)
+
+        for document in (old, new):
+            document["metadata"].pop("export_timestamp")
+            document["metadata"].pop("schema_version")
+        new.pop("peer_repairs")
+        for entry in [*new["production_packages"], *new["transitive_packages"]]:
+            entry.pop("unresolved_peers", None)
+        assert old == new

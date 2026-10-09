@@ -8,7 +8,7 @@ from collections.abc import Iterable, Iterator
 from typing import Any
 
 from ossiq.domain.common import ConstraintType, normalize_dist_name
-from ossiq.domain.project import ConstraintSource, Dependency, IncomingEdge, PeerRequirement
+from ossiq.domain.project import ConstraintSource, Dependency, IncomingEdge, PeerRequirement, UnresolvedPeer
 from ossiq.domain.version import normalize_version
 
 CATEGORY_PEER = "peer"
@@ -52,6 +52,22 @@ class BaseDependencyResolver(ABC):
     def extract_dependency_extras(self, dep_data: dict) -> list[str]:
         """Returns the extras a dependency entry asks of its target; none unless the lockfile records them."""
         return []
+
+    def extract_peer_optional(self, pkg_data: dict, name: str) -> bool:
+        """Whether the package in *pkg_data* marks its peer *name* optional; never, unless a format records it."""
+        return False
+
+    def unresolved_peer(self, name: str, spec: str | None, optional: bool) -> UnresolvedPeer | None:
+        """The record for a peer that resolved to nothing, or None when nothing needs saying.
+
+        A required peer is always worth a record: npm ought to have installed it. An optional one is
+        normal to leave out, so it is recorded only when some other copy is installed, out of reach:
+        a package that ships its optional peer's import unguarded breaks on exactly that layout.
+        """
+        elsewhere = tuple(sorted({node.version_installed for node in self.registry.values() if node.name == name}))
+        if optional and not elsewhere:
+            return None
+        return UnresolvedPeer(package=name, spec=spec or "*", optional=optional, installed_elsewhere=elsewhere)
 
     def extract_canonical_name(self, pkg_data: dict) -> str | None:
         """Returns the canonical registry name when it differs from the identity name (e.g. npm aliases).
@@ -113,8 +129,14 @@ class BaseDependencyResolver(ABC):
             for category, dependencies in self.get_raw_dependencies(pkg_data):
                 for d_data in dependencies:
                     d_name, d_ver = self.extract_dependency_identity(d_data)
+                    is_peer_edge = category == CATEGORY_PEER
+                    peer_optional = is_peer_edge and self.extract_peer_optional(pkg_data, d_name)
 
-                    child = self.match_child(d_name, d_ver, pkg_data)
+                    child = self.match_child(d_name, d_ver, pkg_data, is_peer=is_peer_edge)
+                    if child is None and is_peer_edge:
+                        unresolved = self.unresolved_peer(d_name, d_ver, peer_optional)
+                        if unresolved is not None:
+                            parent.unresolved_peers.append(unresolved)
                     if child:
                         # Extras gate the target's own requirements, so every edge that turns one
                         # on counts: the union is what the target installs with.
@@ -124,6 +146,13 @@ class BaseDependencyResolver(ABC):
                         # Guard against None so that absent specifiers (e.g. UV entries without
                         # a 'specifier' key) don't overwrite values already set in Pass 1.
                         if d_ver is not None:
+                            # A peer edge says what the requirer tolerates, not what to install, so
+                            # it must not overwrite what a real requirer (the root manifest above
+                            # all) declared. A node reached only through peers has nothing else to
+                            # go on, and keeps the peer spec as its fallback declaration.
+                            declared_by_real_edge = any(not edge.is_peer for edge in child.parent_edges)
+                            only_peers_so_far = bool(child.parent_edges) and not declared_by_real_edge
+
                             # Accumulate every parent's specifier for multi-parent L1 enforcement
                             # in the solver (diamond-dependency correctness). Done before the
                             # version_defined overwrite so every occurrence is captured.
@@ -133,11 +162,14 @@ class BaseDependencyResolver(ABC):
                                     requirer_name=name,
                                     requirer_version=version,
                                     spec=d_ver,
-                                    is_peer=category == CATEGORY_PEER,
+                                    is_peer=is_peer_edge,
+                                    optional=peer_optional,
                                 )
                             )
-                            if category == CATEGORY_PEER:
-                                child.peer_requirements.append(PeerRequirement(requirer_name=name, spec=d_ver))
+                            if is_peer_edge:
+                                child.peer_requirements.append(
+                                    PeerRequirement(requirer_name=name, spec=d_ver, optional=peer_optional)
+                                )
 
                             # The root manifest's own declaration is the only user-facing
                             # "declared constraint" — capture it once, from this specific edge,
@@ -153,12 +185,20 @@ class BaseDependencyResolver(ABC):
                             # surfaces must read version_constraint_declared instead (see
                             # domain/project.py).
                             if d_ver != child.version_installed:
-                                child.version_defined = d_ver
+                                if not (is_peer_edge and declared_by_real_edge):
+                                    child.version_defined = d_ver
+                            elif not is_peer_edge and only_peers_so_far:
+                                # A pin equal to the installed version adds nothing to record, but
+                                # must still displace the peer fallback an earlier edge left behind.
+                                child.version_defined = None
                             # Always reclassify specificity from the parent-declared specifier,
                             # even when the specifier equals the installed version (e.g. bare
                             # "4.17.21" pins — the specifier matches but it IS a pin).
                             # ADDITIVE/OVERRIDE take priority and must not be downgraded.
-                            if child.constraint_info.type not in (ConstraintType.ADDITIVE, ConstraintType.OVERRIDE):
+                            if not (is_peer_edge and declared_by_real_edge) and child.constraint_info.type not in (
+                                ConstraintType.ADDITIVE,
+                                ConstraintType.OVERRIDE,
+                            ):
                                 child.constraint_info = ConstraintSource(
                                     type=self.classify_constraint(d_ver),
                                     source_file=child.constraint_info.source_file,
@@ -184,6 +224,7 @@ class BaseDependencyResolver(ABC):
         name: str,
         version_constraint: str | None = None,
         parent_data: dict | None = None,
+        is_peer: bool = False,
     ) -> Dependency | None:
         """
         Finds a dependency in the registry.
@@ -194,6 +235,8 @@ class BaseDependencyResolver(ABC):
             version_constraint: The parent's specifier for it.
             parent_data: The parent's own lockfile entry. Formats that record where each copy
                 sits (npm) use it to resolve the copy the parent actually sees; others ignore it.
+            is_peer: Whether the edge is a peer. Formats that record placement resolve a peer by
+                location only; others, with one copy per name, ignore it.
         """
         # 1. Try exact match first (standard)
         exact_match = self.registry.get(frozenset((name, version_constraint)), None)

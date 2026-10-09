@@ -140,19 +140,24 @@ class NPMResolverV3(BaseDependencyResolver):
         name: str,
         version_constraint: str | None = None,
         parent_data: dict | None = None,
+        is_peer: bool = False,
     ) -> Dependency | None:
         """Link a dependency edge to the copy the parent actually resolves to.
 
         Falls back to matching by name and spec for entries the lookup cannot place (a `link: true`
         workspace entry, a hand-edited lockfile), which is also all that formats without a recorded
-        position can do.
+        position can do. A peer never falls back: npm resolves it from the requirer's location or not
+        at all, and a copy nested under some other package is one the requirer cannot load.
         """
         if parent_data is not None:
             resolved = self.resolve_from(parent_data.get("_path", ""), name)
             if resolved is not None:
                 return resolved
+            if is_peer:
+                logger.debug("npm: peer %s is out of reach of %r", name, parent_data.get("_path", ""))
+                return None
             logger.debug("npm: no placed copy of %s for %r, matching by name", name, parent_data.get("_path", ""))
-        return super().match_child(name, version_constraint, parent_data)
+        return super().match_child(name, version_constraint, parent_data, is_peer)
 
     def get_all_packages(self) -> Iterable[dict]:
         packages = self.raw_data.get("packages", {})
@@ -211,3 +216,9 @@ class NPMResolverV3(BaseDependencyResolver):
         In NPM's dependency list, 'version' is actually the constraint (e.g., ^1.2.3).
         """
         return dep_data["name"], dep_data.get("version")
+
+    def extract_peer_optional(self, pkg_data: dict, name: str) -> bool:
+        """npm records `peerDependenciesMeta` on the requirer's own lockfile entry."""
+        meta = pkg_data.get("peerDependenciesMeta")
+        entry = meta.get(name) if isinstance(meta, dict) else None
+        return isinstance(entry, dict) and entry.get("optional") is True

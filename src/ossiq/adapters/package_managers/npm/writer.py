@@ -61,6 +61,19 @@ def apply_direct_specs(pkg: dict[str, Any], plan: UpdatePlan) -> None:
                 pkg[section][name] = relax_spec(current_spec, entry.recommended_version, plan.pin_all)
 
 
+def add_peer_repairs(pkg: dict[str, Any], plan: UpdatePlan) -> None:
+    """Declare each repaired peer in *pkg*, so npm places it where its requirers resolve it.
+
+    Goes to devDependencies when every package that needs it is a development one, else to
+    dependencies. A package the project already declares anywhere is left as the user wrote it.
+    """
+    for repair in plan.peer_repairs:
+        if any(repair.package in pkg.get(section, {}) for section in DEP_SECTIONS):
+            continue
+        section = "devDependencies" if repair.is_dev else "dependencies"
+        pkg.setdefault(section, {})[repair.package] = repair.spec
+
+
 def write_transitive_overrides(pkg: dict[str, Any], plan: UpdatePlan) -> None:
     """Persist transitive recommendations as overrides in *pkg*, recording what OSS IQ wrote.
 
@@ -82,7 +95,7 @@ def write_transitive_overrides(pkg: dict[str, Any], plan: UpdatePlan) -> None:
 
     written: set[str] = set()
     for entry in entries:
-        key = f"{entry.package_name}@{entry.current_version}"
+        key = f"{entry.package_name}@{entry.override_key or entry.current_version}"
         # A key the user deleted is free to be written again; one they edited is theirs.
         if overrides.get(key) is not None and not holds_recorded_value(overrides, tool_overrides, key):
             continue

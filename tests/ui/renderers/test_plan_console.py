@@ -7,8 +7,10 @@ from datetime import UTC, datetime
 
 from rich.console import Console
 
-from ossiq.domain.common import ConstraintType, OverrideHold, RecommendationRung
+from ossiq.domain.common import ConstraintType, OverrideHold, PeerHold, RecommendationRung
+from ossiq.service.project.models import PeerRepair
 from ossiq.service.update import UpdateEntry, UpdatePlan
+from ossiq.service.update_impact import ImpactKind, TransitiveImpact
 from ossiq.settings import Settings
 from ossiq.solver.reason import RecommendationReason
 from ossiq.ui.renderers.plan import console as plan_console
@@ -174,6 +176,81 @@ def test_no_user_override_section_without_holds(monkeypatch):
     output = render(make_plan(direct_entries=[make_entry("vue", "3.5.42", "3.5.43", 20, is_direct=True)]), monkeypatch)
 
     assert "Held by overrides you wrote" not in output
+
+
+def test_peer_holds_get_their_own_section(monkeypatch):
+    plan = dataclasses.replace(
+        make_plan(),
+        held_by_peers=[
+            PeerHold("typescript", "7.0.2", "@typescript-eslint/utils", ">=4.8.4 <6.1.0", others=7),
+            PeerHold("vue", "3.5.44", "@vue/server-renderer", "3.5.43"),
+        ],
+    )
+
+    output = render(plan, monkeypatch)
+
+    assert "Held by peer dependencies" in output
+    assert "typescript" in output and "7.0.2" in output
+    assert "@typescript-eslint/utils (+7" in output and ">=4.8.4 <6.1.0" in output
+    assert "@vue/server-renderer" in output and "(+0 more)" not in output
+
+
+def test_no_peer_section_without_holds(monkeypatch):
+    output = render(make_plan(direct_entries=[make_entry("vue", "3.5.42", "3.5.43", 20, is_direct=True)]), monkeypatch)
+
+    assert "Held by peer dependencies" not in output
+
+
+def test_peer_repairs_get_their_own_section(monkeypatch):
+    move = TransitiveImpact(
+        package_name="@vue/shared",
+        current_version="3.5.42",
+        projected_version="3.5.43",
+        new_constraint="3.5.43",
+        driven_by="@vue/server-renderer",
+        has_conflict=False,
+        kind=ImpactKind.OVERRIDE_BUMP,
+    )
+    plan = dataclasses.replace(
+        make_plan(),
+        peer_repairs=[PeerRepair("@vue/server-renderer", "~3.5.43", True, ("@vue/test-utils",), (move,))],
+    )
+
+    output = render(plan, monkeypatch)
+
+    assert "Repairs unresolved peers" in output
+    assert "@vue/server-renderer ~3.5.43" in output
+    assert "devDependency" in output and "@vue/test-utils" in output and "1 stale copy" in output
+
+
+def test_peer_repair_counts_stale_copies_in_the_plural(monkeypatch):
+    moves = tuple(
+        TransitiveImpact(
+            package_name=name,
+            current_version="3.5.42",
+            projected_version="3.5.43",
+            new_constraint="3.5.43",
+            driven_by="@vue/server-renderer",
+            has_conflict=False,
+            kind=ImpactKind.OVERRIDE_BUMP,
+        )
+        for name in ("@vue/shared", "@vue/compiler-dom")
+    )
+    plan = dataclasses.replace(
+        make_plan(),
+        peer_repairs=[PeerRepair("@vue/server-renderer", "~3.5.43", True, ("@vue/test-utils",), moves)],
+    )
+
+    assert "2 stale copies" in render(plan, monkeypatch)
+
+
+def test_a_peer_repair_with_no_family_moves_says_so(monkeypatch):
+    plan = dataclasses.replace(make_plan(), peer_repairs=[PeerRepair("host", "~1.2.0", False, ("plugin",))])
+
+    output = render(plan, monkeypatch)
+
+    assert "stale cop" not in output
+    assert "dependency" in output and "devDependency" not in output
 
 
 def make_forced_entry(name: str, current: str, recommended: str, is_direct: bool) -> UpdateEntry:

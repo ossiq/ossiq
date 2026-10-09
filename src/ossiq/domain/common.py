@@ -100,6 +100,16 @@ class ExportJsonSchemaVersion(StrEnum):
     """Supported export schema versions."""
 
     V1_5 = "1.5"
+    V1_6 = "1.6"
+
+    @property
+    def numbers(self) -> tuple[int, ...]:
+        """The version as integers, so "1.10" orders after "1.6" where the strings would not."""
+        return tuple(int(part) for part in self.value.split("."))
+
+    def at_least(self, other: "ExportJsonSchemaVersion") -> bool:
+        """Whether this version is *other* or newer."""
+        return self.numbers >= other.numbers
 
 
 class ExportProfile(StrEnum):
@@ -138,7 +148,8 @@ class RecommendationRung(StrEnum):
 
     SOLVER and IN_RANGE sit inside the declared version_constraint and are safe for the writers
     to apply directly. IN_MAJOR and LATEST are only reachable by widening the constraint first —
-    build_update_plan holds those back into UpdatePlan.held_for_widening instead of writing them.
+    build_update_plan holds those back into UpdatePlan.held_for_widening instead of writing them,
+    unless the run's tier or an escalating CVE/end-of-life motive authorizes the widening.
     """
 
     SOLVER = "solver"  # the SAT solver's own pick (post apply_recommendations/clamp_recommendations)
@@ -149,9 +160,9 @@ class RecommendationRung(StrEnum):
 
 WIDENING_RUNGS: frozenset[RecommendationRung] = frozenset({RecommendationRung.IN_MAJOR, RecommendationRung.LATEST})
 """Rungs only reachable by widening the declared constraint first. The single definition — it
-decides whether `ossiq apply` may write, whether an entry lands in UpdatePlan.held_for_widening,
-whether an agent entry carries requires_constraint_widening, and whether "Constrained" is the
-right next action. Anything not in here is writable as-is."""
+decides whether an entry lands in UpdatePlan.held_for_widening (unless the tier or
+`widening_authorized` lifts the hold), whether an agent entry carries requires_constraint_widening,
+and whether "Constrained" is the right next action. Anything not in here is writable as-is."""
 
 RUNG_ORDER: Mapping[RecommendationRung, int] = {
     RecommendationRung.IN_RANGE: 0,
@@ -239,6 +250,30 @@ class OverrideHold:
 
 
 @dataclass(frozen=True)
+class PeerHold:
+    """A peer range an installed package places on another, which kept a newer release of it out.
+
+    Named so a surface can say whose range to look at: a peer range is its requirer's to widen,
+    which OSS IQ can neither rewrite nor move past.
+    """
+
+    package: str
+    """The package whose newer release was refused."""
+
+    blocked_version: str
+    """The release that was refused."""
+
+    requirer: str
+    """An installed package that peer-requires `package` outside that release."""
+
+    spec: str
+    """The range `requirer` asks of it."""
+
+    others: int = 0
+    """How many further requirers rule the same release out."""
+
+
+@dataclass(frozen=True)
 class RejectedCandidate:
     """A release that would otherwise have been a candidate, held back by a transitive conflict."""
 
@@ -252,6 +287,9 @@ class RejectedCandidate:
 
     held_by_override: OverrideHold | None = None
     """The user's own override that rules this release out; None when nothing of theirs is involved."""
+
+    held_by_peer: PeerHold | None = None
+    """The peer range that rules this release out; None when no installed package peer-requires around it."""
 
     @property
     def full_reason(self) -> str:

@@ -3,6 +3,7 @@
 Tests for npm/writer.py: specifiers and overrides written back into package.json.
 """
 
+import dataclasses
 import json
 from pathlib import Path
 from typing import Any
@@ -11,7 +12,12 @@ import pytest
 
 from ossiq.adapters.package_managers.api_npm import PackageManagerJsNpm
 from ossiq.adapters.package_managers.dependency_tree import GraphExporter
-from ossiq.adapters.package_managers.npm.writer import apply_direct_specs, write_transitive_overrides
+from ossiq.adapters.package_managers.npm.writer import (
+    add_peer_repairs,
+    apply_direct_specs,
+    write_transitive_overrides,
+)
+from ossiq.service.project.models import PeerRepair
 from tests.adapters.package_managers.npm.helpers import make_npm_update_entry, make_npm_update_plan
 
 
@@ -198,3 +204,61 @@ class TestWriteTransitiveOverridesChainedBump:
         expected = {"foo@1.0.0": "2.0.0", "foo@2.0.0": "3.0.0"}
         assert pkg["overrides"] == expected
         assert pkg["ossiq:metadata"]["overrides"] == expected
+
+
+class TestAddPeerRepairs:
+    """A peer installed out of reach is declared, so npm places it where its requirers load it."""
+
+    @staticmethod
+    def plan_with(*repairs: PeerRepair):
+        return dataclasses.replace(make_npm_update_plan(), peer_repairs=list(repairs))
+
+    def test_a_development_peer_goes_to_dev_dependencies(self):
+        pkg: dict[str, Any] = {"name": "app", "devDependencies": {"@vue/test-utils": "~2.5.1"}}
+
+        add_peer_repairs(pkg, self.plan_with(PeerRepair("@vue/server-renderer", "~3.5.43", True, ("@vue/test-utils",))))
+
+        assert pkg["devDependencies"] == {"@vue/test-utils": "~2.5.1", "@vue/server-renderer": "~3.5.43"}
+
+    def test_a_production_peer_goes_to_dependencies(self):
+        pkg: dict[str, Any] = {"name": "app"}
+
+        add_peer_repairs(pkg, self.plan_with(PeerRepair("host", "~1.2.0", False, ("plugin",))))
+
+        assert pkg["dependencies"] == {"host": "~1.2.0"}
+
+    def test_a_package_the_user_already_declares_is_left_as_written(self):
+        pkg: dict[str, Any] = {"name": "app", "dependencies": {"host": "^1"}}
+
+        add_peer_repairs(pkg, self.plan_with(PeerRepair("host", "~1.2.0", True, ("plugin",))))
+
+        assert pkg == {"name": "app", "dependencies": {"host": "^1"}}
+
+
+class TestWriteFamilyMoveOverride:
+    def test_a_family_move_is_written_under_its_range_key(self):
+        entry = dataclasses.replace(
+            make_npm_update_entry("@vue/reactivity", "3.5.42", "3.5.43", is_direct=False),
+            override_key="3.5.42 - 3.5.43",
+        )
+        pkg: dict[str, Any] = {"name": "app"}
+
+        write_transitive_overrides(pkg, make_npm_update_plan(transitive=[entry]))
+
+        assert pkg["overrides"] == {"@vue/reactivity@3.5.42 - 3.5.43": "3.5.43"}
+        assert pkg["ossiq:metadata"]["overrides"] == {"@vue/reactivity@3.5.42 - 3.5.43": "3.5.43"}
+
+    def test_it_supersedes_the_rule_oss_iq_wrote_for_the_same_copy(self):
+        entry = dataclasses.replace(
+            make_npm_update_entry("@vue/reactivity", "3.5.42", "3.5.43", is_direct=False),
+            override_key="3.5.42 - 3.5.43",
+        )
+        pkg: dict[str, Any] = {
+            "name": "app",
+            "overrides": {"@vue/reactivity@3.5.41": "3.5.42"},
+            "ossiq:metadata": {"overrides": {"@vue/reactivity@3.5.41": "3.5.42"}},
+        }
+
+        write_transitive_overrides(pkg, make_npm_update_plan(transitive=[entry]))
+
+        assert pkg["overrides"] == {"@vue/reactivity@3.5.42 - 3.5.43": "3.5.43"}

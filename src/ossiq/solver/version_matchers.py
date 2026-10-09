@@ -36,6 +36,7 @@ from collections.abc import Callable
 from typing import TypeVar
 
 import semver
+from packaging.utils import canonicalize_name
 from packaging.version import InvalidVersion
 from packaging.version import Version as PackagingVersion
 from univers.version_constraint import InvalidConstraintsError
@@ -53,6 +54,16 @@ logger = logging.getLogger(__name__)
 
 # ── npm / Node.js semver
 # Spec: https://github.com/npm/node-semver#versions
+
+
+def comparable_package_name(name: str, registry: ProjectPackagesRegistry) -> str:
+    """A package name in the form both sides of a comparison agree on.
+
+    PyPI names compare after PEP 503 normalisation - OSV may spell a project "PyYAML" where the
+    lockfile says "pyyaml". npm names are case-sensitive and compare as-is: PEP 503 would turn
+    `fuse.js` into `fuse-js`, a name nothing in the tree carries.
+    """
+    return canonicalize_name(name) if registry == ProjectPackagesRegistry.PYPI else name
 
 
 def strip_npm_alias(constraint: str) -> str:

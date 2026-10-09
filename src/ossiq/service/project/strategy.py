@@ -8,10 +8,10 @@ Must run after `populate_stability` — `record.maintenance` and `record.triage`
 there, and `classify_motives` needs both to decide `END_OF_LIFE` correctly.
 """
 
-from collections.abc import Callable, Sequence
-from dataclasses import dataclass
+from collections.abc import Callable, Mapping, Sequence
+from dataclasses import dataclass, field
 from datetime import datetime
-from functools import cmp_to_key, partial
+from functools import cache, cmp_to_key, partial
 
 from ossiq.adapters.api_interfaces import AbstractPackageRegistryApi
 from ossiq.domain.common import (
@@ -20,11 +20,13 @@ from ossiq.domain.common import (
     EngineContext,
     ModuleSystem,
     OverrideHold,
+    PeerHold,
     RecommendationRung,
     RejectedCandidate,
     RejectionDetail,
 )
 from ossiq.domain.release_cutoff import ReleaseCutoff
+from ossiq.domain.version import PeerDependency
 from ossiq.risk.maintenance import DEPRECATION_NONE
 from ossiq.service.common.package_versions import PackageVersion
 from ossiq.service.project.breaking_changes import (
@@ -36,16 +38,17 @@ from ossiq.service.project.ladder import classify_rung as ladder_classify_rung
 from ossiq.service.project.ladder import installable_releases
 from ossiq.service.project.models import ScanRecord
 from ossiq.service.project.target_facts import annotate_target_facts, clear_target_facts
-from ossiq.service.update_impact import DirectUpdateImpact, simulate_single
+from ossiq.service.update_impact import DirectUpdateImpact, ImpactKind, incoming_peer_edges, simulate_single
 from ossiq.solver.reason import RecommendationReason
 from ossiq.solver.version_matchers import (
     cve_affects_version,
     engine_mismatch_reason,
     major_key,
+    version_satisfies_constraint,
 )
 from ossiq.strategy.motive import PackageFacts, is_qualifying_score
 from ossiq.strategy.overrides import StrategyPlan
-from ossiq.strategy.pyramid import ESCALATING_MOTIVES, MODULE_BREAK_TIERS
+from ossiq.strategy.pyramid import ESCALATING_MOTIVES, MODULE_BREAK_TIERS, UpdateStrategy
 from ossiq.strategy.targeting import Candidate, StrategySelection, select_target
 from ossiq.timeutil import age_days_from_iso, parse_iso_datetime
 
@@ -154,6 +157,8 @@ def describe_rejection(
             prefix = f"{ti.package_name} is held by an OSS IQ-authored override"
         else:
             prefix = f"{ti.package_name} is held by an override in {held.source_file}"
+    elif ti.kind == ImpactKind.PEER:
+        prefix = f"{ti.package_name} peer-requires {ti.driven_by}"
     else:
         prefix = f"{ti.package_name} requires {ti.new_constraint}"
     return prefix, ti.conflict
@@ -176,6 +181,21 @@ def user_override_hold(impact: DirectUpdateImpact) -> OverrideHold | None:
                 blocked=(f"{impact.package_name}@{impact.recommended_version}",),
             )
     return None
+
+
+def peer_hold(impact: DirectUpdateImpact) -> PeerHold | None:
+    """The peer range behind a rejected candidate, or None when the block is anything else."""
+    blockers = [ti for ti in impact.transitive_impacts if ti.has_conflict and ti.kind == ImpactKind.PEER]
+    if not blockers:
+        return None
+    first = blockers[0]
+    return PeerHold(
+        package=impact.package_name,
+        blocked_version=impact.recommended_version,
+        requirer=first.package_name,
+        spec=first.new_constraint,
+        others=len(blockers) - 1,
+    )
 
 
 def build_candidates(
@@ -300,6 +320,7 @@ def build_candidates(
                 reason=headline,
                 detail=detail,
                 held_by_override=user_override_hold(impact),
+                held_by_peer=peer_hold(impact),
             )
 
     rejected = tuple(rejected_by_rung[rung] for rung in sorted(rejected_by_rung, key=RUNG_ORDER.__getitem__))
@@ -319,6 +340,183 @@ def clears_motive(selection: StrategySelection, built: BuiltCandidates) -> bool:
     return picked is None or not picked.has_cve
 
 
+MAX_PEER_ROUNDS = 10
+
+
+@dataclass(frozen=True)
+class PeerConflict:
+    """A peer range two direct packages cannot both meet at the versions the plan gives them."""
+
+    requirer: str
+    """The package that declares the range."""
+
+    package: str
+    """The package the range is on."""
+
+    spec: str
+
+    held_at: str
+    """The version `package` would be at."""
+
+
+@dataclass(frozen=True)
+class TargetDecision:
+    """One direct record's verdict, kept so a peer conflict can send it back for a lower pick."""
+
+    record: ScanRecord
+    facts: PackageFacts
+    strategy: UpdateStrategy
+    built: BuiltCandidates
+    releases: list[PackageVersion]
+    refused: dict[str, PeerConflict] = field(default_factory=dict)
+    """Versions this record may not take, with the conflict that ruled each out."""
+
+
+def find_peer_conflict(
+    name: str,
+    version: str,
+    finals: Mapping[str, str],
+    installed: Mapping[str, str],
+    registry: AbstractPackageRegistryApi,
+    peers_of: Callable[[str, str], Mapping[str, PeerDependency]] | None = None,
+) -> PeerConflict | None:
+    """The first peer range *name* at *version* breaks against every other package's final version.
+
+    Checked both ways: the peers *version* declares on the others, and the peers the others declare
+    on *name*. A peer binds the one hoisted instance, so unlike an ordinary requirement there is no
+    copy to nest. A range the installed pair already missed is existing drift, not something this
+    plan introduces, and does not count.
+
+    Args:
+        name: The package whose pick is being checked.
+        version: The version it would move to.
+        finals: Each package's version once the plan applies (its pick, or as installed).
+        installed: Each package's installed version, to tell drift from new breakage.
+        registry: Registry, for each release's declared peers.
+        peers_of: The peer lookup to use, when the caller memoizes it; the registry's otherwise.
+
+    Returns:
+        The conflict, or None when *version* fits everything the others will be at.
+    """
+    kind = registry.package_registry
+    peers = peers_of or registry.package_version_peers
+    current = installed.get(name)
+
+    def satisfies(candidate: str, spec: str) -> bool:
+        return version_satisfies_constraint(candidate, spec, kind)
+
+    for dep, peer in peers(name, version).items():
+        held = finals.get(dep)
+        if dep == name or held is None or not peer.spec or satisfies(held, peer.spec):
+            continue
+        earlier = peers(name, current).get(dep) if current else None
+        if earlier is not None and dep in installed and not satisfies(installed[dep], earlier.spec):
+            continue
+        return PeerConflict(requirer=name, package=dep, spec=peer.spec, held_at=held)
+
+    for other, other_version in finals.items():
+        if other == name:
+            continue
+        peer = peers(other, other_version).get(name)
+        if peer is None or not peer.spec or satisfies(version, peer.spec):
+            continue
+        earlier = peers(other, installed[other]).get(name) if other in installed else None
+        if earlier is not None and current and not satisfies(current, earlier.spec):
+            continue
+        return PeerConflict(requirer=other, package=name, spec=peer.spec, held_at=version)
+    return None
+
+
+def record_peer_refusal(
+    record: ScanRecord, version: str, conflict: PeerConflict, registry: AbstractPackageRegistryApi
+) -> None:
+    """Add a peer-refused release to the record's rejected candidates, one per rung as elsewhere."""
+    if conflict.requirer == record.package_name:
+        refused = RejectedCandidate(
+            version=version,
+            reason=f"{record.package_name} {version} peer-requires {conflict.package}",
+            detail=RejectionDetail(f"held at {conflict.held_at}, wanted", (conflict.spec,)),
+        )
+    else:
+        refused = RejectedCandidate(
+            version=version,
+            reason=f"{conflict.requirer} peer-requires {record.package_name}",
+            detail=RejectionDetail(f"{version} violates", (conflict.spec,)),
+            held_by_peer=PeerHold(
+                package=record.package_name,
+                blocked_version=version,
+                requirer=conflict.requirer,
+                spec=conflict.spec,
+            ),
+        )
+    installed_major = major_key(record.installed_version, registry.package_registry)
+    by_rung = {classify_rung(rc.version, record, installed_major, registry): rc for rc in record.rejected_candidates}
+    rung = classify_rung(version, record, installed_major, registry)
+    kept = by_rung.get(rung)
+    if kept is None or registry.compare_versions(version, kept.version) > 0:
+        by_rung[rung] = refused
+    record.rejected_candidates = [by_rung[r] for r in sorted(by_rung, key=RUNG_ORDER.__getitem__)]
+
+
+def reconcile_peer_targets(
+    decisions: Sequence[TargetDecision],
+    registry: AbstractPackageRegistryApi,
+    fixed_versions: Mapping[str, str],
+    reselect: Callable[[TargetDecision, tuple[Candidate, ...]], StrategySelection],
+    write: Callable[[TargetDecision, StrategySelection, str], None],
+    fixed_installed: Mapping[str, str] | None = None,
+) -> None:
+    """Send back every pick whose peers clash with another package's final version.
+
+    Each pick is chosen on its own, so two packages can end up on versions that peer-require each
+    other out (vue bumped while its lockstep partner stays), and the transitive picks were made
+    before this pass even ran. The mover is re-selected from the candidates it still has, until no
+    pick clashes; a record left with none keeps its installed version. Only direct picks are checked,
+    so a package this pass does not decide (an ignored one, a transitive one, a record with no
+    target) is never the one that gives way.
+
+    Args:
+        decisions: One per direct record the strategy pass decided on.
+        registry: Registry, for each release's declared peers.
+        fixed_versions: The final version of every package this pass does not move: ignored direct
+            ones as installed, transitive ones as the plan leaves them.
+        reselect: Runs the selector again over a reduced candidate list.
+        write: Writes a new verdict onto its record; the third argument is the pick it replaces.
+        fixed_installed: The installed version of each package in `fixed_versions`, to tell drift
+            from new breakage; `fixed_versions` itself when omitted.
+    """
+    installed = {
+        **(fixed_installed if fixed_installed is not None else fixed_versions),
+        **{d.record.package_name: d.record.installed_version for d in decisions},
+    }
+    finals = {
+        **fixed_versions,
+        **{d.record.package_name: d.record.recommended_version or d.record.installed_version for d in decisions},
+    }
+    peers_of = cache(registry.package_version_peers)
+
+    for _ in range(MAX_PEER_ROUNDS):
+        demoted = False
+        for decision in decisions:
+            record = decision.record
+            pick = record.recommended_version
+            if pick is None:
+                continue
+            conflict = find_peer_conflict(record.package_name, pick, finals, installed, registry, peers_of)
+            if conflict is None:
+                continue
+            decision.refused[pick] = conflict
+            remaining = tuple(c for c in decision.built.candidates if c.version not in decision.refused)
+            selection = reselect(decision, remaining)
+            record.strategy_selection = selection
+            record_peer_refusal(record, pick, conflict, registry)
+            write(decision, selection, pick)
+            finals[record.package_name] = record.recommended_version or record.installed_version
+            demoted = True
+        if not demoted:
+            return
+
+
 def apply_update_strategy(
     records: list[ScanRecord],
     registry: AbstractPackageRegistryApi,
@@ -334,6 +532,8 @@ def apply_update_strategy(
     engine_context: EngineContext | None = None,
     cooldown_period: int = 0,
     release_cutoff: ReleaseCutoff | None = None,
+    fixed_versions: Mapping[str, str] | None = None,
+    fixed_installed: Mapping[str, str] | None = None,
 ) -> None:
     """Run the selector for each record and write its verdict, replacing `apply_ladder_fallback`.
 
@@ -363,8 +563,74 @@ def apply_update_strategy(
     Re-simulates transitive impacts for any record whose target changed, since a stale
     `update_transitive_impacts` (computed against the old target) would otherwise mislead the
     writers; clears it when the re-simulation says the new target is not actionable.
+
+    Picks are made one record at a time, so a last pass (`reconcile_peer_targets`) sends back any
+    that peer-require another package out of its final version. `fixed_versions` holds the final
+    version of every package this pass does not move (ignored direct ones, transitive ones), and
+    `fixed_installed` their installed versions; that pass holds them in place.
     """
     engine_context = engine_context or EngineContext()
+    decisions: list[TargetDecision] = []
+    direct_versions = {**(fixed_versions or {}), **{r.package_name: r.installed_version for r in records}}
+
+    def write_verdict(decision: TargetDecision, selection: StrategySelection, previous_target: str | None) -> None:
+        record, releases = decision.record, decision.releases
+        if selection.target_version is None:
+            record.recommended_version = None
+            record.recommended_from_rung = None
+            record.recommended_version_reason = None
+            record.update_transitive_impacts = []
+            clear_target_facts(record)
+            return
+
+        record.recommended_version = selection.target_version
+        record.recommended_from_rung = selection.rung
+        annotate_target_facts(
+            record,
+            selection.target_version,
+            releases,
+            registry.package_registry,
+            engine_context=engine_context,
+            project_declares_esm=project_declares_esm,
+        )
+        picked = next((pv for pv in releases if pv.version == selection.target_version), None)
+        # `clamp_recommendations` blanks the reason for the pick it re-fitted, so an unchanged
+        # target can still arrive here with no reason at all - and a reason is where the cooldown
+        # hold and the plan's Age column read `age_days` from.
+        if selection.target_version != previous_target or record.recommended_version_reason is None:
+            record.recommended_version_reason = RecommendationReason(
+                selected_version=selection.target_version,
+                constraint=record.version_constraint,
+                hard_rejections=[],
+                soft_rejections=[],
+                lower_semver_alternatives=[],
+                age_days=age_days_from_iso(picked.published_date_iso, now=now) if picked else None,
+                is_latest=selection.target_version == record.latest_version,
+            )
+            impact = simulate_single(
+                record.package_name,
+                selection.target_version,
+                transitive_by_name,
+                registry,
+                allow_prerelease,
+                installed_names=installed_names,
+                now=now,
+                installed_version=record.installed_version,
+                release_cutoff=release_cutoff,
+                incoming_peers=incoming_peer_edges(record.installed_copies, record.installed_version),
+                direct_versions=direct_versions,
+            )
+            record.update_transitive_impacts = impact.transitive_impacts if impact.is_actionable else []
+
+    def reselect(decision: TargetDecision, candidates: tuple[Candidate, ...]) -> StrategySelection:
+        return select_target(
+            decision.facts,
+            decision.strategy,
+            candidates,
+            cooldown_period=cooldown_period,
+            release_cutoff=release_cutoff,
+        )
+
     for record in records:
         strategy = plan.for_package(record.package_name)
         facts = facts_from_record(record)
@@ -412,48 +678,8 @@ def apply_update_strategy(
         record.strategy_selection = selection
         record.rejected_candidates = list(built.rejected)
 
-        previous_target = record.recommended_version
-        if selection.target_version is None:
-            record.recommended_version = None
-            record.recommended_from_rung = None
-            record.recommended_version_reason = None
-            record.update_transitive_impacts = []
-            clear_target_facts(record)
-            continue
+        decision = TargetDecision(record, facts, strategy, built, releases)
+        decisions.append(decision)
+        write_verdict(decision, selection, record.recommended_version)
 
-        record.recommended_version = selection.target_version
-        record.recommended_from_rung = selection.rung
-        annotate_target_facts(
-            record,
-            selection.target_version,
-            releases,
-            registry.package_registry,
-            engine_context=engine_context,
-            project_declares_esm=project_declares_esm,
-        )
-        picked = next((pv for pv in releases if pv.version == selection.target_version), None)
-        # `clamp_recommendations` blanks the reason for the pick it re-fitted, so an unchanged
-        # target can still arrive here with no reason at all - and a reason is where the cooldown
-        # hold and the plan's Age column read `age_days` from.
-        if selection.target_version != previous_target or record.recommended_version_reason is None:
-            record.recommended_version_reason = RecommendationReason(
-                selected_version=selection.target_version,
-                constraint=record.version_constraint,
-                hard_rejections=[],
-                soft_rejections=[],
-                lower_semver_alternatives=[],
-                age_days=age_days_from_iso(picked.published_date_iso, now=now) if picked else None,
-                is_latest=selection.target_version == record.latest_version,
-            )
-            impact = simulate_single(
-                record.package_name,
-                selection.target_version,
-                transitive_by_name,
-                registry,
-                allow_prerelease,
-                installed_names=installed_names,
-                now=now,
-                installed_version=record.installed_version,
-                release_cutoff=release_cutoff,
-            )
-            record.update_transitive_impacts = impact.transitive_impacts if impact.is_actionable else []
+    reconcile_peer_targets(decisions, registry, fixed_versions or {}, reselect, write_verdict, fixed_installed)

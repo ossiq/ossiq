@@ -368,3 +368,83 @@ def test_no_tier_or_motive_ever_targets_past_the_release_cutoff() -> None:
                 facts, tier, candidates, cooldown_period=rng.choice([0, 7]), release_cutoff=UV_CUTOFF
             )
             assert selection.target_version not in refused, (facts, candidates, tier)
+
+
+def test_a_cve_fix_past_the_declared_range_authorizes_the_widening() -> None:
+    facts = make_facts(installed_version="2.31.0", cve_epss_scores=(0.5,))
+    candidates = [
+        Candidate("2.31.1", IN_RANGE, has_cve=True),
+        Candidate("2.32.4", IN_MAJOR, has_cve=False),
+    ]
+
+    selection = select_target(facts, UpdateStrategy.SECURITY, candidates)
+
+    assert selection.target_version == "2.32.4"
+    assert selection.requires_widening is True
+    assert selection.escalation is not None
+    assert selection.widening_authorized is True
+
+
+def test_end_of_life_authorizes_the_widening_at_the_deprecation_tier() -> None:
+    facts = make_facts(maintenance_state="abandoned")
+    candidates = [
+        Candidate("1.1.0", IN_MAJOR, has_cve=False),
+        Candidate("2.0.0", LATEST, has_cve=False),
+    ]
+
+    selection = select_target(facts, UpdateStrategy.DEPRECATION, candidates)
+
+    assert selection.rung == IN_MAJOR
+    assert selection.widening_authorized is True
+
+
+def test_a_fix_inside_the_declared_range_needs_no_authorization() -> None:
+    facts = make_facts(cve_epss_scores=(0.5,))
+    candidates = [
+        Candidate("1.1.0", IN_RANGE, has_cve=True),
+        Candidate("1.2.0", IN_RANGE, has_cve=False),
+    ]
+
+    selection = select_target(facts, UpdateStrategy.SECURITY, candidates)
+
+    assert selection.requires_widening is False
+    assert selection.widening_authorized is False
+
+
+def test_widening_for_drift_alone_is_not_authorized() -> None:
+    """Rule 8 reaches past the tier too, but only an escalating motive earns the authorization."""
+    candidates = [Candidate("1.10.26", IN_MAJOR, has_cve=False)]
+
+    selection = select_target(make_facts(), UpdateStrategy.STANDARD, candidates)
+
+    assert selection.target_version == "1.10.26"
+    assert selection.requires_widening is True
+    assert selection.escalation is not None
+    assert selection.widening_authorized is False
+
+
+def test_widening_is_not_authorized_when_every_reachable_version_has_a_cve() -> None:
+    facts = make_facts(cve_epss_scores=(0.5,))
+    candidates = [
+        Candidate("1.1.0", IN_RANGE, has_cve=True),
+        Candidate("2.0.0", LATEST, has_cve=True),
+    ]
+
+    selection = select_target(facts, UpdateStrategy.SECURITY, candidates)
+
+    assert selection.target_version == "2.0.0"
+    assert selection.requires_widening is True
+    assert selection.widening_authorized is False
+
+
+def test_the_latest_tier_needs_no_authorization_to_widen() -> None:
+    facts = make_facts(cve_epss_scores=(0.5,))
+    candidates = [
+        Candidate("1.1.0", IN_RANGE, has_cve=True),
+        Candidate("1.2.0", IN_MAJOR, has_cve=False),
+    ]
+
+    selection = select_target(facts, UpdateStrategy.LATEST, candidates)
+
+    assert selection.requires_widening is True
+    assert selection.widening_authorized is False

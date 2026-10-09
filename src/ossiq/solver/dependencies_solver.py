@@ -6,6 +6,7 @@ import logging
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
+from functools import cache
 from typing import Protocol
 
 from ossiq.adapters.api_interfaces import AbstractPackageRegistryApi
@@ -188,6 +189,50 @@ def build_requires_reason(
                     "requires check: %s==%s needed by %s==%s as %s", pkg, version, parent, parent_version, spec
                 )
                 return f"{parent} {parent_version} needs {pkg}{spec}"
+        return peer_reason(pkg, version)
+
+    peers_of = cache(registry.package_version_peers)
+    names = installed.keys() | external_targets.keys() | recommendations.keys()
+
+    def satisfies(version: str, spec: str) -> bool:
+        return version_satisfies_constraint(version, spec, problem.registry)
+
+    def held(name: str) -> str | None:
+        """The version *name* ends up at: its pick, an external target, or the one it already has."""
+        return recommendations.get(name) or external_targets.get(name) or installed.get(name)
+
+    def peer_reason(pkg: str, version: str) -> str | None:
+        """Why *version* of *pkg* breaks a peer range, in either direction.
+
+        Never nestable, so unlike `binds` there is no copy to escape to: a peer is held by the one
+        instance the requirer sees. A package left where it is and a range the installed release
+        already missed are how the project stands today, not something this plan breaks.
+        """
+        current = installed.get(pkg)
+        if version == current:
+            return None
+        for dep, peer in peers_of(pkg, version).items():
+            target = held(dep)
+            if dep == pkg or target is None or not peer.spec:
+                continue
+            if satisfies(target, peer.spec):
+                continue
+            earlier = peers_of(pkg, current).get(dep) if current else None
+            if earlier is not None and dep in installed and not satisfies(installed[dep], earlier.spec):
+                continue
+            logger.debug("peer check: %s==%s peer-requires %s%s, held at %s", pkg, version, dep, peer.spec, target)
+            return f"{pkg} {version} peer-requires {dep} {peer.spec}, held at {target}"
+        for other in names:
+            other_version = held(other)
+            if other == pkg or other_version is None:
+                continue
+            peer = peers_of(other, other_version).get(pkg)
+            if peer is None or not peer.spec or satisfies(version, peer.spec):
+                continue
+            if current is not None and not satisfies(current, peer.spec):
+                continue
+            logger.debug("peer check: %s==%s needed by %s==%s as %s", pkg, version, other, other_version, peer.spec)
+            return f"{other} {other_version} peer-requires {pkg} {peer.spec}"
         return None
 
     return reason_for

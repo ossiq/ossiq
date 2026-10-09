@@ -1,14 +1,14 @@
 import requests
-from packaging.utils import canonicalize_name
 
 from ossiq.clients.batch import BatchClient
 from ossiq.clients.client_osv import ECOSYSTEM_MAPPING, OsvBatchStrategy, OsvDetailsBatchStrategy
 from ossiq.clients.common import get_user_agent
-from ossiq.domain.common import CveDatabase, ProjectPackagesRegistry, SourceFetch, combine_statuses
+from ossiq.domain.common import CveDatabase, SourceFetch, combine_statuses
 from ossiq.domain.cve import CVE, AffectedRange, Severity
 from ossiq.domain.package import Package
 from ossiq.risk.cvss import parse_cvss_base_score
 from ossiq.settings import Settings
+from ossiq.solver.version_matchers import comparable_package_name
 
 SUMMARY_MAX_CHARS = 200
 
@@ -27,15 +27,6 @@ def advisory_summary(cve_raw: dict) -> str:
     if len(first_line) <= SUMMARY_MAX_CHARS:
         return first_line
     return f"{first_line[: SUMMARY_MAX_CHARS - 1].rstrip()}…"
-
-
-def comparable_package_name(name: str, registry: ProjectPackagesRegistry) -> str:
-    """A package name in the form OSV and the manifest agree on.
-
-    PyPI names compare after PEP 503 normalisation - OSV may spell a project "PyYAML" where the
-    lockfile says "pyyaml". npm names are case-sensitive and compare as-is.
-    """
-    return canonicalize_name(name) if registry == ProjectPackagesRegistry.PYPI else name
 
 
 class CveApiOsv:

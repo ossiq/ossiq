@@ -13,12 +13,14 @@ from ossiq.domain.common import (
     ConstraintType,
     CooldownHold,
     OverrideHold,
+    PeerHold,
     RecommendationRung,
     display_package_name,
 )
-from ossiq.service.project.models import ScanRecord, ScanResult
+from ossiq.service.project.models import PeerRepair, ScanRecord, ScanResult
 from ossiq.service.update_impact import ImpactKind, TransitiveImpact
 from ossiq.solver.reason import RecommendationReason
+from ossiq.solver.version_matchers import parse_npm_version
 from ossiq.strategy.overrides import StrategyPlan
 from ossiq.strategy.pyramid import DEFAULT_STRATEGY, MAX_REACH, RUNG_ORDER, UpdateStrategy
 
@@ -48,11 +50,13 @@ class UpdateEntry:
     is_forced: bool = False
     # Which version-ladder rung recommended_version came from. IN_MAJOR/LATEST require widening
     # version_defined first — is_held_for_widening holds those out of direct/transitive_entries
-    # unless the run's strategy tier authorizes reaching that far.
+    # unless the run's strategy tier, or an escalating motive (widening_authorized), authorizes
+    # reaching that far.
     from_rung: RecommendationRung | None = None
     # True when recommended_version sits outside version_defined (from_rung is IN_MAJOR/LATEST).
     # Distinct from is_held_for_widening: an entry can widen the constraint and still be written
-    # (a `latest`-tier pick) — command_apply uses this to gate a second confirmation regardless.
+    # (a `latest`-tier pick, or one with widening_authorized) — command_apply uses this to gate a
+    # second confirmation regardless.
     widens_constraint: bool = False
     # True when the target's major line is a known API/module-system break. For a direct record this
     # means build_candidates' escape hatch fired: every installable release was gated, so rather
@@ -65,11 +69,18 @@ class UpdateEntry:
     # the entry from the cooldown hold the same way is_security does, but covers the end-of-life
     # case that is_security alone misses.
     cooldown_bypassed: bool = False
+    # True when select_target carried the pick past the tier's base reach because of an escalating
+    # motive (exploitable CVE, end-of-life). Exempts the entry from the widening hold the way the
+    # `latest` tier does; widens_constraint stays true, so command_apply still asks before writing.
+    widening_authorized: bool = False
     # Set on a held entry when the package manager's own release cutoff holds it rather than
     # OSS IQ's cooldown: the setting that refuses the release (e.g. "uv exclude-newer") and the
     # newest publish instant it admits. Nothing OSS IQ decides lifts that hold.
     held_by: str | None = None
     held_cutoff: datetime | None = None
+    # npm only: the range an override for this entry is keyed to, when the installed version alone
+    # is not enough (see override_bump_entry). None keys it to current_version.
+    override_key: str | None = None
 
     @property
     def identity(self) -> str:
@@ -118,6 +129,13 @@ class UpdatePlan:
     # Overrides the user wrote that kept an update out of this plan. OSS IQ never rewrites one, so
     # these are the ones only the user can release.
     held_by_user_overrides: list[OverrideHold] = field(default_factory=list)
+    # Newer releases refused because an installed package peer-requires a range they fall outside
+    # of. One per package, the newest refused: without it such a package drops out of the plan
+    # with nothing to say why.
+    held_by_peers: list[PeerHold] = field(default_factory=list)
+    # Peers installed only out of their requirers' reach: each is added to the manifest, and its
+    # family's stale copies move with it (those moves are already among transitive_entries).
+    peer_repairs: list[PeerRepair] = field(default_factory=list)
 
     @property
     def all_entries(self) -> list[UpdateEntry]:
@@ -146,6 +164,7 @@ def entry_from_record(record: ScanRecord, is_direct: bool) -> UpdateEntry:
         widens_constraint=record.recommended_from_rung in WIDENING_RUNGS,
         carries_known_break=record.compatibility.breaking_change is not None,
         cooldown_bypassed=record.strategy_selection is not None and record.strategy_selection.cooldown_bypassed,
+        widening_authorized=record.strategy_selection is not None and record.strategy_selection.widening_authorized,
     )
 
 
@@ -201,15 +220,16 @@ def is_held_for_widening(entry: UpdateEntry, strategy: UpdateStrategy, *, rewrit
 
     Held only when the tier's own MAX_REACH sits below the entry's rung — picking `latest` (whose
     MAX_REACH is already LATEST) *is* the authorization to widen, so nothing from that tier is
-    ever held here. `--override` is explicit user intent (is_forced=True) and is never held here
-    either — the user asked for exactly this version.
+    ever held here. So is an entry whose escalating CVE/end-of-life motive reached past the tier
+    (`widening_authorized`). `--override` is explicit user intent (is_forced=True) and is never
+    held here either — the user asked for exactly this version.
 
     `rewrite_versions` (`--rewrite-versions`) exempts `==x.y.z` pins for the same reason
     `--override` is exempt: widening those pins is the whole point of the flag, and holding them
     here made it a no-op. Mirrors clamp_recommendations' own rewrite_pinned skip, npm aliases
     included — their inner constraint can't be rewritten.
     """
-    if entry.is_forced or not entry.widens_constraint or entry.from_rung is None:
+    if entry.is_forced or entry.widening_authorized or not entry.widens_constraint or entry.from_rung is None:
         return False
     if (
         rewrite_versions
@@ -248,12 +268,23 @@ def forced_entry_from_record(record: ScanRecord, forced_version: str, is_direct:
 
 
 def override_bump_entry(impact: TransitiveImpact) -> UpdateEntry:
-    """Build a transitive entry for an OSS IQ-authored override that has to move with a candidate.
+    """Build a transitive entry for a copy that has to move with a candidate, as an override.
 
     Marked OVERRIDE so the writers persist it as an override, like a forced transitive version, but
     not forced: it was derived from the candidate, so it carries no exemption from anything.
+
+    Keyed to the range from the copy's version to the target, not to the copy's version alone. npm
+    applies a keyed rule only to edges whose range overlaps the key, and in a family that moves
+    together every edge into the copy may come from a member that now asks for the new version.
+    Keyed to the old version alone the rule would then match nothing, and npm would nest new copies
+    beside the old one (twice for @vue/reactivity, under runtime-core and runtime-dom), which breaks
+    type identity across the family.
     """
     assert impact.current_version is not None and impact.projected_version is not None
+    try:
+        low, high = sorted((impact.current_version, impact.projected_version), key=parse_npm_version)
+    except ValueError:
+        low, high = impact.current_version, impact.projected_version
     return UpdateEntry(
         package_name=impact.package_name,
         current_version=impact.current_version,
@@ -261,6 +292,7 @@ def override_bump_entry(impact: TransitiveImpact) -> UpdateEntry:
         is_direct=False,
         reason=None,
         constraint_type=ConstraintType.OVERRIDE,
+        override_key=f"{low} - {high}" if low != high else None,
     )
 
 
@@ -282,6 +314,21 @@ def user_override_hold(record: ScanRecord | None, entry: UpdateEntry) -> Overrid
         source_file=info.source_file,
         blocked=(f"{entry.package_name}@{entry.recommended_version}",),
     )
+
+
+def peer_holds(records: Iterable[ScanRecord]) -> list[PeerHold]:
+    """The newest peer-refused release of each package, by package name.
+
+    `rejected_candidates` run from the lowest rung to the highest, so the last peer hold is the
+    furthest the package was kept from moving.
+    """
+    holds = [
+        hold
+        for record in records
+        for hold in [next((rc.held_by_peer for rc in reversed(record.rejected_candidates) if rc.held_by_peer), None)]
+        if hold is not None
+    ]
+    return sorted(holds, key=lambda hold: hold.package)
 
 
 def merge_override_holds(holds: Iterable[OverrideHold]) -> list[OverrideHold]:
@@ -391,20 +438,26 @@ def build_update_plan(
     # lower than what a recommended direct dep update will actually require. Impact simulation
     # (Pass 1.5b) computes the correct post-upgrade version for each affected transitive dep.
     # Example: solver says modelsearch 1.2.2, but wagtail 7.4 requires >=1.3,<1.4 → use 1.3.1.
-    impact_versions: dict[str, str] = {}
-    override_bumps: dict[str, TransitiveImpact] = {}
+    # Keyed by copy, not by name: in a tree with nested copies a name can need one override per copy.
+    impact_versions: dict[tuple[str, str | None], str] = {}
+    override_bumps: dict[tuple[str, str | None], TransitiveImpact] = {}
     for record in direct_records:
         for impact in record.update_transitive_impacts:
             # A further copy leaves the version the solver picked for the installed one alone.
             if impact.kind == ImpactKind.NEW_COPY:
                 continue
             if impact.projected_version and not impact.has_conflict:
-                impact_versions[impact.package_name] = impact.projected_version
+                impact_versions[(impact.package_name, impact.current_version)] = impact.projected_version
                 if impact.kind == ImpactKind.OVERRIDE_BUMP:
-                    override_bumps[impact.package_name] = impact
+                    override_bumps[(impact.package_name, impact.current_version)] = impact
+    # A transitive pick drags its own family along the same way a direct update does.
+    for record in scan_result.transitive_packages:
+        for impact in record.update_transitive_impacts:
+            if impact.kind == ImpactKind.OVERRIDE_BUMP and impact.projected_version and not impact.has_conflict:
+                override_bumps.setdefault((impact.package_name, impact.current_version), impact)
 
     def with_impact_version(entry: UpdateEntry) -> UpdateEntry:
-        impact = impact_versions.get(entry.package_name)
+        impact = impact_versions.get((entry.package_name, entry.current_version))
         if impact and impact != entry.recommended_version:
             return dataclasses.replace(entry, recommended_version=impact)
         return entry
@@ -422,17 +475,31 @@ def build_update_plan(
 
     # An override OSS IQ wrote has to move with the family the candidate drags along, even when the
     # transitive solver had nothing to say about it.
-    solved_names = {e.package_name for e in transitive}
+    solved_copies = {(e.package_name, e.current_version) for e in transitive}
     transitive = sorted(
         [
             *transitive,
             *(
                 override_bump_entry(impact)
-                for name, impact in override_bumps.items()
-                if name not in solved_names and name not in all_direct_names
+                for (name, version), impact in override_bumps.items()
+                if (name, version) not in solved_copies and name not in all_direct_names
             ),
         ],
-        key=lambda e: e.package_name,
+        key=lambda e: (e.package_name, e.current_version),
+    )
+
+    # A peer repair's family moves are keyed overrides like any other family move; the package it
+    # puts back in reach is added to the manifest by the writer, from plan.peer_repairs.
+    known_copies = {(e.package_name, e.current_version) for e in transitive}
+    repair_moves = {
+        (move.package_name, move.current_version): move
+        for repair in scan_result.peer_repairs
+        for move in repair.family_moves
+        if (move.package_name, move.current_version) not in known_copies and move.package_name not in all_direct_names
+    }
+    transitive = sorted(
+        [*transitive, *(override_bump_entry(move) for move in repair_moves.values())],
+        key=lambda e: (e.package_name, e.current_version),
     )
 
     # An override the user wrote is theirs to release: the writers would skip its package, so name it
@@ -525,4 +592,6 @@ def build_update_plan(
         strategy_overrides=dict(plan.overrides),
         available_at_higher_tier=dict(available_at_higher_tier),
         held_by_user_overrides=merge_override_holds(user_holds),
+        held_by_peers=peer_holds(direct_records),
+        peer_repairs=list(scan_result.peer_repairs),
     )

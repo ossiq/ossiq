@@ -446,6 +446,25 @@ def peer_requirements(record: ScanRecord) -> Group:
     return section("Peer Requirements", *lines)
 
 
+def unresolved_peers(record: ScanRecord) -> Group:
+    """Peers this package declares that nothing within its reach satisfies."""
+    lines: list[Text] = []
+    for peer in record.unresolved_peers:
+        line = Text()
+        line.append("  ✗ ", style="bold red")
+        line.append(peer.package, style="bold")
+        line.append(f"  {peer.spec}")
+        if peer.installed_elsewhere:
+            line.append(f"  installed only out of reach: {', '.join(peer.installed_elsewhere)}", style="red")
+        else:
+            line.append("  not installed", style="red")
+        if peer.optional:
+            line.append("  (optional)", style="dim")
+        lines.append(line)
+
+    return section("Unresolved Peers", *lines)
+
+
 def security_advisories(cves: list[CVE]) -> Group:
     """Advisories affecting the package itself, or an all-clear line."""
     if not cves:

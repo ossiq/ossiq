@@ -9,7 +9,7 @@ from ossiq.domain.common import EngineContext, build_purl, parse_spdx_expression
 from ossiq.domain.compatibility import CompatibilityFacts
 from ossiq.domain.cve import CVE
 from ossiq.domain.package import Package
-from ossiq.domain.project import ConstraintSource, InstalledCopy, PeerRequirement
+from ossiq.domain.project import ConstraintSource, InstalledCopy, PeerRequirement, UnresolvedPeer
 from ossiq.domain.repository import Repository
 from ossiq.risk.maintenance import deprecation_evidence
 from ossiq.service.common import package_versions
@@ -108,6 +108,7 @@ def scan_record(
     engine_context: EngineContext | None = None,
     project_declares_esm: bool = False,
     installed_copies: list[InstalledCopy] | None = None,
+    unresolved_peers: list[UnresolvedPeer] | None = None,
 ) -> ScanRecord:
     """
     Factory to generate ScanRecord instances
@@ -236,6 +237,7 @@ def scan_record(
             for req in (peer_requirements or [])
             if not version_satisfies_constraint(package_version, req.spec, version_rules.package_registry)
         ],
+        unresolved_peers=list(unresolved_peers or []),
         is_installed_prerelease=installed_release.is_prerelease if installed_release else False,
         is_installed_yanked=(
             installed_release is not None and (installed_release.is_yanked or installed_release.is_unpublished)
@@ -294,6 +296,7 @@ def build_records(
             engine_context=engine_context,
             project_declares_esm=project_declares_esm,
             installed_copies=dep.installed_copies,
+            unresolved_peers=dep.unresolved_peers,
         )
         for dep in descriptors
     ]

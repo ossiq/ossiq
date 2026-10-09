@@ -23,6 +23,7 @@ from ossiq.ui.renderers.info.blocks import (
     security_advisories,
     transitive_cves,
     unique_cves,
+    unresolved_peers,
     warnings_panel,
 )
 
@@ -47,6 +48,8 @@ def installed_blocks(data: PackageDetailResult) -> Iterator[RenderableType]:
             yield recommendation_rationale(record.recommended_version, reason, age_days)
         if record.peer_requirements:
             yield peer_requirements(record)
+        if record.unresolved_peers:
+            yield unresolved_peers(record)
 
     yield security_advisories(unique_cves(data.records))
     if data.transitive_cve_groups:

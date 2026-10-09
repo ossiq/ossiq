@@ -27,15 +27,36 @@ from ossiq.domain.common import (
     RuntimeMismatch,
 )
 from ossiq.domain.cve import CVE, Severity
+from ossiq.domain.project import UnresolvedPeer
 from ossiq.risk.maintenance import OBSERVATION_COUNT
 from ossiq.service.library_scan import UpgradePath
-from ossiq.service.project.models import IgnoredDependency, ScanRecord, ScanResult
+from ossiq.service.project.models import IgnoredDependency, PeerRepair, ScanRecord, ScanResult
 from ossiq.service.project.next_action import needs_attention, next_action_label
 from ossiq.service.project.stability import RepositoryStability
 
 FULL_ONLY: dict[str, Any] = {"profile": ExportProfile.FULL.value}
 """`json_schema_extra` marker for a field only the full profile carries. It sits on the field
 itself, so deciding a new field's profile happens where the field is declared."""
+
+
+SINCE_V1_6: dict[str, Any] = {"since": ExportJsonSchemaVersion.V1_6.value}
+"""`json_schema_extra` marker for a field schema 1.6 added. A document that declares an older version
+is dumped without it, so `--schema-version 1.5` keeps producing exactly the 1.5 shape - which matters
+most for the standard schema, since it rejects any property it doesn't list."""
+
+LATEST_SCHEMA_VERSION = max(ExportJsonSchemaVersion, key=lambda version: version.numbers)
+
+
+@functools.cache
+def fields_newer_than(model: type[BaseModel], version: ExportJsonSchemaVersion) -> frozenset[str]:
+    """Names of *model*'s fields added after *version*, inherited ones included."""
+    return frozenset(
+        name
+        for name, field in model.model_fields.items()
+        if isinstance(field.json_schema_extra, dict)
+        and field.json_schema_extra.get("since") is not None
+        and ExportJsonSchemaVersion(field.json_schema_extra["since"]).numbers > version.numbers
+    )
 
 
 @functools.cache
@@ -54,8 +75,17 @@ def serialization_profile(info: SerializationInfo) -> ExportProfile:
     return ExportProfile(context.get("profile", ExportProfile.FULL))
 
 
+def serialization_schema_version(info: SerializationInfo) -> ExportJsonSchemaVersion:
+    """The schema version a dump was asked for; a dump without one is the newest, every field in."""
+    context = info.context if isinstance(info.context, dict) else {}
+    return ExportJsonSchemaVersion(context.get("schema_version", LATEST_SCHEMA_VERSION))
+
+
 class ProfiledExportModel(BaseModel):
     """An export model whose standard dump leaves out its FULL_ONLY fields.
+
+    Fields newer than the schema version the dump declares (`SINCE_*`) are left out in every
+    profile, so an older version keeps its own shape.
 
     `omit_empty_in_standard` also drops optional fields that are null or empty there - on the
     per-package records they are most of the noise. Required fields always stay, so the standard
@@ -73,7 +103,9 @@ class ProfiledExportModel(BaseModel):
         data = handler(self)
         cls = type(self)
         standard = serialization_profile(info) == ExportProfile.STANDARD
-        full_only = full_only_fields(cls) if standard else frozenset()
+        left_out = (full_only_fields(cls) if standard else frozenset()) | fields_newer_than(
+            cls, serialization_schema_version(info)
+        )
         omit_empty_in_profile = standard and cls.omit_empty_in_standard
 
         def omitted(key: str, value: Any) -> bool:
@@ -81,7 +113,7 @@ class ProfiledExportModel(BaseModel):
                 return False
             return cls.omit_empty_always or (omit_empty_in_profile and not cls.model_fields[key].is_required())
 
-        return {key: value for key, value in data.items() if key not in full_only and not omitted(key, value)}
+        return {key: value for key, value in data.items() if key not in left_out and not omitted(key, value)}
 
 
 class FetchFailureExport(BaseModel):
@@ -449,6 +481,49 @@ class NextActionFields(BaseModel):
     )
 
 
+class UnresolvedPeerExport(BaseModel):
+    """A peer a package declares that nothing installed within its reach satisfies (npm only)."""
+
+    package_name: str = Field(description="The peer package the declaring package looks for")
+    spec: str = Field(description="The range the declaring package asks of it, as declared")
+    optional: bool = Field(
+        description=(
+            "Whether the declaring package marks the peer optional (peerDependenciesMeta). npm leaves an optional "
+            "peer out, but a package that imports it unguarded fails to load when the only copy sits out of reach"
+        )
+    )
+    installed_elsewhere: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Versions of the peer installed out of the declaring package's reach (nested under some other "
+            "package); empty when it is installed nowhere"
+        ),
+    )
+
+    @classmethod
+    def from_domain(cls, peer: UnresolvedPeer) -> "UnresolvedPeerExport":
+        return cls(
+            package_name=peer.package,
+            spec=peer.spec,
+            optional=peer.optional,
+            installed_elsewhere=list(peer.installed_elsewhere),
+        )
+
+
+class PeerFields(BaseModel):
+    """Peers a package cannot resolve, shared verbatim by direct and transitive metrics."""
+
+    unresolved_peers: list[UnresolvedPeerExport] = Field(
+        default_factory=list,
+        description=(
+            "Peers this package declares that nothing installed where it looks can satisfy: a required peer npm "
+            "left missing, or an optional one installed only nested under another package. Empty for PyPI "
+            "projects and when every peer resolves"
+        ),
+        json_schema_extra=SINCE_V1_6,
+    )
+
+
 class CompatibilityFields(BaseModel):
     """Module-system and engine facts about the installed and recommended versions.
 
@@ -526,6 +601,14 @@ class StrategySelectionExport(ProfiledExportModel):
             "version still carries a qualifying CVE"
         ),
     )
+    widening_authorized: bool = Field(
+        default=False,
+        description=(
+            "Whether an escalating motive (exploitable_cve, end_of_life) carried recommended_version past the "
+            "tier's base ceiling, so `ossiq apply` writes it after a widening confirmation instead of holding it"
+        ),
+        json_schema_extra=SINCE_V1_6,
+    )
 
     @classmethod
     def from_domain(cls, selection) -> "StrategySelectionExport | None":
@@ -537,10 +620,11 @@ class StrategySelectionExport(ProfiledExportModel):
             withheld_reason=selection.withheld_reason,
             requires_widening=selection.requires_widening,
             escalation=selection.escalation,
+            widening_authorized=selection.widening_authorized,
         )
 
 
-class PackageMetrics(ProfiledExportModel, LadderFields, CompatibilityFields, NextActionFields):
+class PackageMetrics(ProfiledExportModel, LadderFields, CompatibilityFields, NextActionFields, PeerFields):
     """Metrics for one direct dependency."""
 
     omit_empty_in_standard: ClassVar[bool] = True
@@ -642,8 +726,9 @@ class PackageMetrics(ProfiledExportModel, LadderFields, CompatibilityFields, Nex
         default=False,
         description=(
             "True when recommended_version is only reachable by widening version_constraint first "
-            "- i.e. recommended_from_rung is 'in_major' or 'latest'. `ossiq apply` writes nothing "
-            "for these; `ossiq plan` reports them under constraint widening instead."
+            "- i.e. recommended_from_rung is 'in_major' or 'latest'. `ossiq plan` reports these under constraint "
+            "widening and `ossiq apply` does not write them, unless the package's tier is latest or cutting-edge "
+            "or strategy.widening_authorized is true."
         ),
     )
     update_transitive_impacts: list[TransitiveImpactExport] = Field(
@@ -835,6 +920,7 @@ class PackageMetrics(ProfiledExportModel, LadderFields, CompatibilityFields, Nex
             runs_code_at_install=record.runs_code_at_install,
             install_execution_reason=record.install_execution_reason,
             strategy=StrategySelectionExport.from_domain(record.strategy_selection),
+            unresolved_peers=[UnresolvedPeerExport.from_domain(peer) for peer in record.unresolved_peers],
             **stability_export_fields(record),
         )
 
@@ -889,7 +975,7 @@ class DependencyTreeRoot(BaseModel):
         return {k: v for k, v in handler(self).items() if not (v is None or v == [])}
 
 
-class TransitivePackageMetrics(ProfiledExportModel, LadderFields, CompatibilityFields, NextActionFields):
+class TransitivePackageMetrics(ProfiledExportModel, LadderFields, CompatibilityFields, NextActionFields, PeerFields):
     """
     Metrics for a transitive package (schema v1.3+).
 
@@ -1109,6 +1195,7 @@ class TransitivePackageMetrics(ProfiledExportModel, LadderFields, CompatibilityF
             epss=first.epss,
             runs_code_at_install=first.runs_code_at_install,
             install_execution_reason=first.install_execution_reason,
+            unresolved_peers=[UnresolvedPeerExport.from_domain(peer) for peer in first.unresolved_peers],
             **stability_export_fields(first),
         )
 
@@ -1218,6 +1305,51 @@ class UpgradePathExport(BaseModel):
         )
 
 
+class PeerRepairMoveExport(BaseModel):
+    """A stale copy of a package a peer repair moves, so its family is one version again."""
+
+    package_name: str = Field(description="Package whose stale copy moves")
+    current_version: str = Field(description="Version of the stale copy")
+    projected_version: str = Field(description="Version it moves to, written as a keyed override")
+
+
+class PeerRepairExport(BaseModel):
+    """How the plan puts a peer back where the packages that declare it can load it (npm only)."""
+
+    package_name: str = Field(
+        description="The peer to add to the manifest, so npm installs it where its requirers load it"
+    )
+    suggested_constraint: str = Field(description="The range to write for it, in the style of the family it belongs to")
+    is_dev_dependency: bool = Field(
+        description="Whether it goes in devDependencies: every package that needs it is a development one"
+    )
+    requirers: list[str] = Field(description="Installed packages that declare the peer and cannot reach it today")
+    family_moves: list[PeerRepairMoveExport] = Field(
+        default_factory=list,
+        description="Stale copies of the peer's exact-pinned family that move with it; empty when none need to",
+    )
+
+    @classmethod
+    def from_domain(cls, repair: PeerRepair) -> "PeerRepairExport":
+        return cls(
+            package_name=repair.package,
+            suggested_constraint=repair.spec,
+            is_dev_dependency=repair.is_dev,
+            requirers=list(repair.requirers),
+            # A family move is an OVERRIDE_BUMP, which always has both versions; the filter only
+            # narrows the optional types.
+            family_moves=[
+                PeerRepairMoveExport(
+                    package_name=move.package_name,
+                    current_version=move.current_version,
+                    projected_version=move.projected_version,
+                )
+                for move in repair.family_moves
+                if move.current_version and move.projected_version
+            ],
+        )
+
+
 class ExportDataBase(ProfiledExportModel):
     """Common fields shared across all export schema versions."""
 
@@ -1239,7 +1371,7 @@ class ExportDataBase(ProfiledExportModel):
 
 
 class ExportData(ExportDataBase):
-    """Root export data structure (schema v1.5)."""
+    """Root export data structure (schema v1.5 and v1.6; fields newer than the declared version are left out)."""
 
     constraint_type_map: list[str] = Field(
         default_factory=lambda: list(CONSTRAINT_TYPE_MAP),
@@ -1274,6 +1406,15 @@ class ExportData(ExportDataBase):
             "lockfile (e.g. `uv lock`) before acting on their recommendations"
         ),
     )
+    peer_repairs: list[PeerRepairExport] = Field(
+        default_factory=list,
+        description=(
+            "Peers installed only out of the reach of the packages that declare them, and how `ossiq apply` "
+            "puts them back: add the package to the manifest and move its family's stale copies with it. "
+            "Empty for PyPI projects and when every peer resolves"
+        ),
+        json_schema_extra=SINCE_V1_6,
+    )
 
 
 # ── Factory ───────────────────────────────────────────────────────────────────
@@ -1282,11 +1423,13 @@ class ExportData(ExportDataBase):
 def build_transitive_data(
     records: list[ScanRecord],
     profile: ExportProfile,
+    schema_version: ExportJsonSchemaVersion = LATEST_SCHEMA_VERSION,
 ) -> tuple[list[TransitivePackageMetrics], list[DependencyTreeRoot], int]:
     """Build the deduplicated transitive list, the dependency tree and the count of distinct transitives.
 
-    The standard profile keeps only the entries `needs_attention` selects and builds no tree - it
-    has nowhere to put one - so its `id`s (full-only) never have to index anything.
+    The standard profile keeps only the entries `needs_attention` selects, plus (from schema 1.6,
+    which can say why) the ones with an unresolved peer, and builds no tree - it has nowhere to put
+    one - so its `id`s (full-only) never have to index anything.
     """
     groups: dict[tuple[str, str], list[ScanRecord]] = {}
     first_csf: dict[tuple[str, str], str | None] = {}
@@ -1299,7 +1442,12 @@ def build_transitive_data(
             first_csf[key] = r.constraint_info.source_file
 
     if profile == ExportProfile.STANDARD:
-        kept = [(key, group) for key, group in groups.items() if needs_attention(group[0])]
+        reports_peers = schema_version.at_least(ExportJsonSchemaVersion.V1_6)
+        kept = [
+            (key, group)
+            for key, group in groups.items()
+            if needs_attention(group[0]) or (reports_peers and group[0].unresolved_peers)
+        ]
         transitive = [
             TransitivePackageMetrics.from_domain_group(i, group, first_csf[key]) for i, (key, group) in enumerate(kept)
         ]
@@ -1397,7 +1545,7 @@ def build_export_data(
         registry=data.packages_registry,
     )
     runtime_context = RuntimeContextExport.from_domain(data)
-    transitive, tree, transitive_total = build_transitive_data(data.transitive_packages, profile)
+    transitive, tree, transitive_total = build_transitive_data(data.transitive_packages, profile, schema_version)
     summary = ProjectSummary(
         total_packages=len(all_direct),
         production_packages=len(data.production_packages),
@@ -1431,13 +1579,16 @@ def build_export_data(
         ignored_packages=[IgnoredPackageExport.from_domain(dependency) for dependency in data.ignored_packages],
         upgrade_paths=[UpgradePathExport.from_domain(path) for path in data.upgrade_paths],
         manifest_lock_divergent=list(data.manifest_lock_divergent),
+        peer_repairs=[PeerRepairExport.from_domain(repair) for repair in data.peer_repairs],
     )
 
 
 def export_json(export_data: ExportData) -> str:
-    """Serialise an export document for the profile its metadata names.
+    """Serialise an export document for the profile and schema version its metadata names.
 
     The single place a document becomes JSON, so the file export, stdout and the HTML report can't
-    disagree about which fields a profile carries.
+    disagree about which fields a profile or a version carries.
     """
-    return export_data.model_dump_json(context={"profile": export_data.metadata.profile})
+    return export_data.model_dump_json(
+        context={"profile": export_data.metadata.profile, "schema_version": export_data.metadata.schema_version}
+    )

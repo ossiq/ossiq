@@ -12,9 +12,9 @@ from ossiq.domain.cve import CVE, AffectedRange, Severity
 from ossiq.domain.project import ConstraintSource
 from ossiq.domain.release_cutoff import ReleaseCutoff
 from ossiq.domain.requirement_scope import RequirementScope
-from ossiq.domain.version import PackageVersion
+from ossiq.domain.version import PackageVersion, PeerDependency
 from ossiq.solver.problem import CandidateVersion, PackageConstraint, SolverProblem
-from ossiq.solver.universe import SolvablePool, parse_requires, relevant_constraints
+from ossiq.solver.universe import SolvablePool, parse_requires, relevant_constraints, requirements_with_peers
 
 # ---------------------------------------------------------------------------
 # Shared helpers
@@ -480,6 +480,14 @@ class TestParseRequires:
         result = parse_requires({"Pillow": ">=9.0"})
         assert "pillow" in result
 
+    def test_npm_names_are_kept_as_written(self) -> None:
+        result = parse_requires(
+            {"fuse.js": "~7.5.0", "@nodelib/fs.stat": "^2", "Lodash_Merge": "^4"},
+            registry=ProjectPackagesRegistry.NPM,
+        )
+
+        assert result == {"fuse.js": "~7.5.0", "@nodelib/fs.stat": "^2", "Lodash_Merge": "^4"}
+
     def test_pypi_format_extras_marker_included_when_the_scope_enables_it(self) -> None:
         scope = RequirementScope({"uvicorn": frozenset({"standard"})})
 
@@ -524,3 +532,58 @@ class TestCandidateRequirementsUnderScope:
         problem = SolvablePool.build([_FakeDep("django-allauth", "65.19.4")], registry, {})
 
         assert problem.candidates["django-allauth"][0].requires is None
+
+
+class TestCandidateRequirementsIncludePeers:
+    def candidate_requires(self, version: PackageVersion) -> dict[str, str | None] | None:
+        problem = SolvablePool.build([_FakeDep("plugin", "1.0.0")], _make_registry({"plugin": [version]}), {})
+        return problem.candidates["plugin"][0].requires
+
+    def test_peers_become_requirements_so_a_family_can_move_jointly(self) -> None:
+        version = dataclasses.replace(
+            _pv("2.0.0"),
+            declared_dependencies={"dep": "^1"},
+            declared_peer_dependencies={"host": PeerDependency("^2")},
+        )
+
+        assert self.candidate_requires(version) == {"dep": "^1", "host": "^2"}
+
+    def test_an_optional_peer_is_kept_for_the_encoder_to_skip_when_absent(self) -> None:
+        version = dataclasses.replace(
+            _pv("2.0.0"), declared_peer_dependencies={"host": PeerDependency("^2", optional=True)}
+        )
+
+        assert self.candidate_requires(version) == {"host": "^2"}
+
+    def test_a_peer_with_no_range_is_unconstrained(self) -> None:
+        version = dataclasses.replace(_pv("2.0.0"), declared_peer_dependencies={"host": PeerDependency("")})
+
+        assert self.candidate_requires(version) == {"host": None}
+
+    def test_a_dependency_wins_over_a_peer_of_the_same_name(self) -> None:
+        version = dataclasses.replace(
+            _pv("2.0.0"),
+            declared_dependencies={"host": "^1"},
+            declared_peer_dependencies={"host": PeerDependency("^2")},
+        )
+
+        assert self.candidate_requires(version) == {"host": "^1"}
+
+    def test_a_release_without_peers_is_read_exactly_as_before(self) -> None:
+        version = dataclasses.replace(_pv("2.0.0"), declared_dependencies={"dep": "^1"})
+
+        assert requirements_with_peers(version) is version.declared_dependencies
+        assert self.candidate_requires(version) == {"dep": "^1"}
+
+    def test_an_npm_pool_keys_requirements_by_their_npm_names(self) -> None:
+        version = dataclasses.replace(
+            _pv("2.0.0"),
+            declared_dependencies={"fuse.js": "^7"},
+            declared_peer_dependencies={"@nodelib/fs.stat": PeerDependency("^2")},
+        )
+        registry = _make_registry({"plugin": [version]})
+        registry.package_registry = ProjectPackagesRegistry.NPM
+
+        problem = SolvablePool.build([_FakeDep("plugin", "1.0.0")], registry, {})
+
+        assert problem.candidates["plugin"][0].requires == {"fuse.js": "^7", "@nodelib/fs.stat": "^2"}

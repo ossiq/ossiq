@@ -17,6 +17,8 @@ from ossiq.messages import (
     HELP_STATUS_COVERAGE_REPOSITORY_UNAVAILABLE,
     HELP_STATUS_COVERAGE_UNSUPPORTED_HOST,
     HELP_STATUS_PACKAGE_MANAGER_HOLD,
+    HELP_STATUS_PEER_MISSING,
+    HELP_STATUS_PEER_OUT_OF_REACH,
 )
 from ossiq.risk.maintenance import NOT_MAINTAINED
 from ossiq.service.library_scan import UpgradePath
@@ -238,6 +240,24 @@ def signal_coverage_table(records: list[ScanRecord]) -> Table | None:
         table.add_row(f"{label} ({len(names)})", f"[dim]{shown}[/dim]")
 
     return table
+
+
+def unresolved_peer_texts(pkg: ScanRecord) -> list[str]:
+    """One line per peer the package declares that nothing within its reach satisfies."""
+    texts: list[str] = []
+    for peer in pkg.unresolved_peers:
+        if peer.installed_elsewhere:
+            texts.append(
+                HELP_STATUS_PEER_OUT_OF_REACH.format(
+                    optional="optional " if peer.optional else "",
+                    package=peer.package,
+                    spec=peer.spec,
+                    versions=", ".join(peer.installed_elsewhere),
+                )
+            )
+        else:
+            texts.append(HELP_STATUS_PEER_MISSING.format(package=peer.package, spec=peer.spec))
+    return texts
 
 
 def add_detail_subrows(table: Table, pkg: ScanRecord, engine_context: EngineContext) -> None:
@@ -470,6 +490,7 @@ class ConsoleStatusRenderer(AbstractUserInterfaceRenderer):
                 or bool(pkg.cve)
                 or state in NOT_MAINTAINED
                 or bool(pkg.constraint_conflict)
+                or bool(pkg.unresolved_peers)
                 or pkg.recommended_version not in (None, pkg.installed_version)
             )
 
@@ -533,6 +554,10 @@ class ConsoleStatusRenderer(AbstractUserInterfaceRenderer):
                     specs = " + ".join(pkg.constraint_conflict)
                     table.add_row(f"  [bold red]↳ no version satisfies: {specs}[/]", *blanks)
 
+                # Shown in every mode, like a constraint conflict: either one means the tree is broken.
+                for text in unresolved_peer_texts(pkg):
+                    table.add_row(f"  [yellow]{text}[/]", *blanks)
+
         if filtered_prod:
             add_section_label("Production")
             add_pkg_rows(filtered_prod)
@@ -575,6 +600,8 @@ class ConsoleStatusRenderer(AbstractUserInterfaceRenderer):
 
             if full:
                 add_detail_subrows(table, pkg, engine_context or EngineContext())
+            for text in unresolved_peer_texts(pkg):
+                table.add_row(f"  [yellow]{text}[/]", *[""] * (len(table.columns) - 1))
         return table
 
     def upgrade_paths_table(self, paths: list[UpgradePath]) -> Table | None:

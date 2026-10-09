@@ -79,6 +79,10 @@ class StrategySelection:
     """Set when an escalating motive (exploitable CVE, end-of-life) took a release younger than the
     cooldown period. Read by `service.update.is_held_for_cooldown` so `apply` does not re-hold what
     the selector deliberately let through."""
+    widening_authorized: bool = False
+    """Set when an escalating motive (exploitable CVE, end-of-life) carried the pick past the tier's
+    base `MAX_REACH`. Read by `service.update.is_held_for_widening` so `apply` does not re-hold what
+    the selector deliberately reached for."""
 
 
 def _lowest_admitting_tier(facts: PackageFacts) -> UpdateStrategy:
@@ -108,7 +112,8 @@ def select_target(
       1. Intersect the tier's admitted motives with this package's detected motives. Empty ->
          no target, `withheld_reason` names the lowest tier that would have moved it.
       2. Compute reach: the tier's MAX_REACH, escalated to LATEST when an ESCALATING_MOTIVES
-         member was admitted (a CVE or end-of-life motive).
+         member was admitted (a CVE or end-of-life motive). A pick that lands past the base reach
+         this way sets `widening_authorized`, unless every reachable version still has a CVE (rule 7).
       3. Drop candidates the package manager's `release_cutoff` refuses, whatever the motive: the
          installer will not move to them, so no escalation can make them an answer. Then drop
          candidates younger than `cooldown_period` days, unless an escalating motive was admitted
@@ -262,6 +267,9 @@ def select_target(
         pick = clear[-1] if clear else in_reach[-1]
 
     escalation: str | None = None
+    # Withheld when no reachable version is CVE-clear: widening the range would then write a
+    # version that fixes nothing, so it stays a human decision.
+    widening_authorized = False
     if not clear:
         escalation = f"every reachable version of {facts.package_name} still carries a qualifying CVE"
         # Otherwise indistinguishable from "no fix exists" - the one difference the user can act on.
@@ -270,6 +278,7 @@ def select_target(
     elif escalate and RUNG_ORDER[pick.rung] > RUNG_ORDER[MAX_REACH[strategy]]:
         motive_names = ", ".join(sorted(m.value for m in admitted & ESCALATING_MOTIVES))
         escalation = f"no version of {facts.package_name} within its declared range resolves: {motive_names}"
+        widening_authorized = True
 
     return StrategySelection(
         strategy=strategy,
@@ -281,4 +290,5 @@ def select_target(
         available_at=None,
         escalation=escalation,
         cooldown_bypassed=pick.is_fresh(cooldown_period),
+        widening_authorized=widening_authorized,
     )

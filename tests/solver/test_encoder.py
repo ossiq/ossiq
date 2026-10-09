@@ -527,6 +527,31 @@ class TestConstraintEncoderInterPackage:
         implication_clauses = [c for c in enc.hard_clauses if -a_vid in c and len(c) > 1]
         assert implication_clauses == []
 
+    def test_npm_names_with_dots_and_underscores_are_matched_as_written(self) -> None:
+        """PEP 503 would turn fuse.js into fuse-js, a name nothing in an npm problem carries."""
+        for name in ("fuse.js", "@nodelib/fs.stat", "lodash_merge"):
+            problem = _sp(
+                [_pc("app"), _pc(name)],
+                {"app": [_cv("1.0.0", requires={name: "^7"})], name: [_cv("6.0.0"), _cv("7.0.0")]},
+                registry=ProjectPackagesRegistry.NPM,
+            )
+            enc = ConstraintEncoder().encode(problem)
+            app_vid = next(vid for vid, (p, _v) in enc.var_map.items() if p == "app")
+            dep7_vid = next(vid for vid, (p, v) in enc.var_map.items() if p == name and v == "7.0.0")
+
+            assert [-app_vid, dep7_vid] in enc.hard_clauses, name
+
+    def test_pypi_requirement_names_still_compare_after_pep503(self) -> None:
+        problem = _sp(
+            [_pc("app"), _pc("zope-interface")],
+            {"app": [_cv("1.0.0", requires={"Zope.Interface": ">=6"})], "zope-interface": [_cv("5.0"), _cv("6.0")]},
+        )
+        enc = ConstraintEncoder().encode(problem)
+        app_vid = next(vid for vid, (p, _v) in enc.var_map.items() if p == "app")
+        dep6_vid = next(vid for vid, (p, v) in enc.var_map.items() if p == "zope-interface" and v == "6.0")
+
+        assert [-app_vid, dep6_vid] in enc.hard_clauses
+
     def test_no_implication_when_no_compatible_dep_candidate(self) -> None:
         # a@1.0.0 requires b>=5.0, but b only has 2.0.0 — skip conservatively (no hard-forbid)
         problem = _sp(
