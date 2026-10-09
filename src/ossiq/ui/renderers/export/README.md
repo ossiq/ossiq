@@ -1,6 +1,8 @@
 # Export Format Versioning Guide
 
-This directory owns the versioned JSON export format. Follow this guide when introducing a new schema version (e.g. v1.6).
+This directory owns the versioned JSON export format. Follow this guide when introducing a new schema version (e.g. v1.7).
+
+The versions registered here are **1.5** and **1.6**; the next one is 1.7.
 
 ---
 
@@ -41,11 +43,30 @@ Two kinds of changes require a new version:
 
 Breaking changes (removing required fields, renaming) are **never** made to an existing version — always bump.
 
-### The standing exception: v1.5 while it is unreleased
+### Older versions stay selectable, and stay what they were
 
-v1.5 has not shipped in a release (the package is still `0.1.10`), so it has no consumers outside
-this repository and additive fields have been **amended into `export_schema_v1.5.json` in place**
-rather than bumped. Amended this way so far: the version-ladder fields (`latest_in_range`,
+`ossiq export --schema-version 1.5` keeps producing a v1.5 document that validates against
+`export_schema_v1.5.json` (and the standard one, which rejects any property it doesn't list). All
+versions share one set of Pydantic models, so a field a later version added is tagged with its
+version where it is declared:
+
+```python
+unresolved_peers: list[UnresolvedPeerExport] = Field(..., json_schema_extra=SINCE_V1_6)
+```
+
+`ProfiledExportModel` leaves such a field out of a document that declares an older version, in both
+profiles, and `export_json()` passes the declared version to it. A field that is both full-only and
+new carries both markers (`{**FULL_ONLY, **SINCE_V1_6}`). Anything that *selects* records by
+version-dependent data (the standard profile's transitive filter) takes the version too, so the old
+version selects exactly what it always did. `TestSchemaVersion15StaysAsReleased` pins all of this: a
+v1.5 document is the v1.6 one minus the new fields, and `TestV16IsAdditiveOverV15` fails if a newer
+schema removes, retypes or newly requires anything an older one had.
+
+### The former exception: v1.5 while it was unreleased
+
+v1.5 shipped in 0.1.12, so this no longer applies; it is kept as a record of what v1.5 contains.
+Until then it had no consumers outside this repository and additive fields were **amended into
+`export_schema_v1.5.json` in place** rather than bumped. Amended this way: the version-ladder fields (`latest_in_range`,
 `latest_in_major`, `latest_compatible_major`, `recommended_from_rung`), the module-system and
 engine fields, `next_action` / `requires_constraint_widening`, the data-completeness
 diagnostics (`data_completeness.sources[].failures` and `data_completeness.api_budgets`), and
@@ -60,16 +81,21 @@ value it was missing since the stated-runtime change.
 
 One rename was also made in place: `triage_action` became `dependency_health_action`. Agents read
 the old name as the answer to "should I update?". With no released consumer, a rename cost nothing
-that a v1.6 bump would have saved. A pre-rename document still validates, since the old key is
+that a version bump would have saved. A pre-rename document still validates, since the old key is
 simply an unknown extra property, but it no longer populates the field.
 
-This exception ends the moment v1.5 ships. After that the policy above applies without
-qualification: additive changes bump the minor version. Amending in place still means running the
-rest of the checklist below — regenerate the TS types, type-check the frontend, rebuild the SPA.
+That exception ended when v1.5 shipped. For a released version the policy above applies without
+qualification: additive changes bump the minor version, which is how v1.6 came about
+(`unresolved_peers`, `peer_repairs`).
+
+v1.6 itself has not shipped, so the exception applies to it in turn. Until it does, additive fields
+are amended into `export_schema_v1.6.json` and `export_schema_v1.6_standard.json` in place, tagged
+`SINCE_V1_6` so a `--schema-version 1.5` document stays as released. The next bump (1.7) waits for
+the v1.6 release.
 
 ---
 
-## Step-by-step: introducing v1.6
+## Step-by-step: introducing v1.7
 
 ### 1. Enum — `src/ossiq/domain/common.py`
 
@@ -78,7 +104,8 @@ Add the new version to `ExportJsonSchemaVersion`:
 ```python
 class ExportJsonSchemaVersion(StrEnum):
     V1_5 = "1.5"
-    V1_6 = "1.6"   # add
+    V1_6 = "1.6"
+    V1_7 = "1.7"   # add
 ```
 
 ---
@@ -89,8 +116,16 @@ There is a single `ExportData` root (the former v1.3 shape: `constraint_type_map
 `transitive_packages` as `TransitivePackageMetrics`, and `dependency_tree`).
 
 **Additive-only change (new optional fields on `PackageMetrics` / `TransitivePackageMetrics`):**
-add the field as optional with `default=None` and update the `from_domain` constructor. No new
-subclass, no factory branch — existing serialization picks it up automatically.
+add the field as optional with a default, tag it with the version that introduces it
+(`json_schema_extra=SINCE_V1_7`, defined next to `SINCE_V1_6`; add the marker, then use it), decide its
+profile (`FULL_ONLY` or not), and update the `from_domain` constructor. A field both
+`PackageMetrics` and `TransitivePackageMetrics` carry belongs on a shared mixin (`PeerFields`,
+`LadderFields`). No new subclass, no factory branch. Then update
+`test_standard_field_sets_are_a_deliberate_choice` for the profile decision.
+
+If a **record filter** depends on the new data (the standard profile's transitive selection does),
+gate it on `schema_version.at_least(...)` the way `build_transitive_data` does, so the older version
+keeps selecting what it always did.
 
 **Structural change** (a package-array item shape changes): add a new `ExportData` subclass and
 branch `build_export_data()` on `schema_version` to return it, keeping the old root for the
@@ -103,18 +138,27 @@ previous version.
 Copy the previous version as a starting point:
 
 ```
-cp export_schema_v1.5.json export_schema_v1.6.json
+cp export_schema_v1.6.json export_schema_v1.7.json
 ```
 
-Edit `export_schema_v1.6.json`:
-- Update `$id` → `https://ossiq.org/schemas/export/v1.6.json`
+Edit `export_schema_v1.7.json`:
+- Update `$id` → `https://ossiq.org/schemas/export/v1.7.json`
 - Update `title` and `description`
-- Update `metadata.properties.schema_version.const` → `"1.6"`
+- Update `metadata.properties.schema_version.const` → `"1.7"`
 - Apply the structural or additive changes to `$defs`
 
-Do the same for the standard profile (`export_schema_v1.6_standard.json`): copy the previous
+Take the new descriptions from the Pydantic `Field(description=...)` rather than retyping them, so the
+two cannot drift. (`json.dumps(schema, indent=2, ensure_ascii=True) + "\n"` reproduces the existing
+files byte for byte, which keeps a script-generated diff down to the real changes.)
+
+Do the same for the standard profile (`export_schema_v1.7_standard.json`): copy the previous
 standard schema, bump its `$id` / `title`, and mirror every change that isn't `FULL_ONLY`. The
 projection test tells you exactly which properties are missing or extra.
+
+**Check every enum you copied against the code that emits it.** They are hand-written and drift:
+`next_action` lacked `Wait for cooldown` from 0.1.11 on, so any document with a package inside its
+cooldown failed its own schema. `TestNextActionEnumMatchesTheEmitter` pins that one; export a real
+project and validate it (`jsonschema.validate`) against both profiles before calling a schema done.
 
 ---
 
@@ -124,25 +168,28 @@ projection test tells you exactly which properties are missing or extra.
 SCHEMA_FILES = {
     (ExportJsonSchemaVersion.V1_5, ExportProfile.FULL): "export_schema_v1.5.json",
     (ExportJsonSchemaVersion.V1_5, ExportProfile.STANDARD): "export_schema_v1.5_standard.json",
-    (ExportJsonSchemaVersion.V1_6, ExportProfile.FULL): "export_schema_v1.6.json",                   # add
-    (ExportJsonSchemaVersion.V1_6, ExportProfile.STANDARD): "export_schema_v1.6_standard.json",      # add
+    (ExportJsonSchemaVersion.V1_6, ExportProfile.FULL): "export_schema_v1.6.json",
+    (ExportJsonSchemaVersion.V1_6, ExportProfile.STANDARD): "export_schema_v1.6_standard.json",
+    (ExportJsonSchemaVersion.V1_7, ExportProfile.FULL): "export_schema_v1.7.json",                   # add
+    (ExportJsonSchemaVersion.V1_7, ExportProfile.STANDARD): "export_schema_v1.7_standard.json",      # add
 }
 
 def get_latest_version(self) -> ExportJsonSchemaVersion:
-    return ExportJsonSchemaVersion.V1_6   # bump
+    return ExportJsonSchemaVersion.V1_7   # bump
 ```
 
 Also widen the `--schema-version` `Literal` in `src/ossiq/cli.py` and update
-`HELP_SCHEMA_VERSION` in `src/ossiq/messages.py`.
+`HELP_SCHEMA_VERSION` in `src/ossiq/messages.py`, and add the new full schema to the two file lists in
+`.github/workflows/test.yml` (the wheel and sdist checks), which name the latest schema by hand.
 
 ---
 
 ### 5. Frontend types — `frontend/package.json`
 
-Update the `generate:types` script to point at the new JSON schema:
+Update the `generate:types` script to point at the new full JSON schema:
 
 ```json
-"generate:types": "json2ts -i ../src/ossiq/ui/renderers/export/schemas/export_schema_v1.6.json -o src/types/report.ts"
+"generate:types": "json2ts -i ../src/ossiq/ui/renderers/export/schemas/export_schema_v1.7.json -o src/types/report.ts"
 ```
 
 Then regenerate:
@@ -152,7 +199,10 @@ cd frontend
 npm run generate:types
 ```
 
-This overwrites `frontend/src/types/report.ts`. TypeScript compiler errors after regeneration are the authoritative list of breaking changes to fix in Vue components.
+This overwrites `frontend/src/types/report.ts`. The root interface is named from the schema's title, so
+it becomes `OSSIQExportSchemaV17`; rename the imports of the old name (`grep -rn OSSIQExportSchemaV16 src`).
+TypeScript compiler errors after regeneration are the authoritative list of breaking changes to fix in
+Vue components.
 
 ---
 
@@ -163,45 +213,58 @@ Run `npm run type-check` in `frontend/` to surface all type errors introduced by
 Common patterns to check in Vue components and stores:
 - New required fields need to be supplied in fixtures / mock data used in `vitest` tests
 - Removed or renamed fields need updating at every access site
+- A new per-package field has to be carried down the whole chain: `explorer/registry.ts` →
+  `types/registry.ts` → `explorer/transform.ts` → `composables/useD3Tree.ts` and, for the direct table,
+  `views/ScanReportView.vue` → `types/dependency-tree.ts`. Miss a link and the detail panel silently
+  shows nothing for that node type.
+- If the new data can make a package worth reading on its own, add it to `isActionable` in
+  `composables/useReportFilters.ts` (the table hides packages with nothing to do by default)
 - Structural changes (like v1.3's `dependency_path → dependency_paths`) require updating iteration logic, filter callbacks, and any `d3` graph-building code that expands the transitive package list
 
 After all type errors are resolved, rebuild the SPA and regenerate the embedded template:
 
 ```bash
-cd frontend && npm run build
-# then run whatever script bakes spa_app.html into the Python package
+uv run just frontend-build   # npm ci + type-check + vite build, then rewrites spa_app.html
 ```
+
+The HTML report always embeds the **latest** version's full profile, so the SPA must read the newest schema.
 
 ---
 
 ### 7. Tests
 
-**New schema registry test file** — copy `tests/ui/renderers/export/test_json_schema_registry_v1_5.py` and update version strings and structural assertions.
+**New schema registry test file** — copy `tests/ui/renderers/export/test_json_schema_registry_v1_6.py` and update version strings and structural assertions. Add the new version to `VERSIONS` in `test_json_schema_projection.py` (`test_every_registered_version_is_checked` fails until you do).
 
 **Update existing tests** — hardcoded version strings to update:
 - `test_metadata_contains_schema_version_and_timestamp` in `test_json.py`
-- `test_get_latest_version_returns_v1_X` and `included_versions` in the previous schema registry test file
+- `included_versions` in the previous schema registry test files
 
-**New renderer tests** — add a `TestJsonExportRendererV16` class in `test_json.py` covering:
-- Output validates against the new JSON schema
+**New renderer tests** — add a `TestSchemaVersion18` class in `test_json.py` covering:
+- Output validates against the new JSON schema, in both profiles
 - Any new structural invariants (e.g. deduplication counts, new field presence)
-- Backward compat: v1.5 still produces v1.5-shaped output (if the previous version is kept registered)
+- Backward compat: every older registered version still produces its own shape
+  (`TestSchemaVersion15StaysAsReleased` — extend it, or add the sibling for the version you just superseded)
+- `TestV16IsAdditiveOverV15`-style check that the new schema removes, retypes and newly requires nothing
 
 ---
 
 ## Checklist
 
 ```
-[ ] ExportJsonSchemaVersion.V1_6 added to domain/common.py
-[ ] New Pydantic fields / subclass added to models.py
+[ ] ExportJsonSchemaVersion.V1_7 added to domain/common.py
+[ ] New Pydantic fields tagged SINCE_V1_7 and given a profile decision in models.py
+[ ] Record filters that read the new data gated on the declared version
 [ ] build_export_data() factory branch added (only if structural)
-[ ] export_schema_v1.6.json and export_schema_v1.6_standard.json created
+[ ] export_schema_v1.7.json and export_schema_v1.7_standard.json created
+[ ] Every enum in them checked against its emitter; a real export validates against both profiles
 [ ] json_schema_registry.py updated + get_latest_version() bumped
 [ ] --schema-version Literal widened in cli.py + HELP_SCHEMA_VERSION updated
-[ ] frontend/package.json generate:types script updated to v1.6
-[ ] npm run generate:types run — src/types/report.ts regenerated
+[ ] .github/workflows/test.yml file lists name the new schema
+[ ] frontend/package.json generate:types script updated to v1.7
+[ ] npm run generate:types run — src/types/report.ts regenerated, root type renamed at its imports
 [ ] npm run type-check passes — all Vue component access sites updated
-[ ] SPA rebuilt and spa_app.html regenerated
-[ ] Schema registry tests added (full and standard), projection test pointed at v1.6
-[ ] Renderer tests updated
+[ ] New fields carried through the registry/transform/selection chain; isActionable considered
+[ ] uv run just frontend-build — SPA rebuilt and spa_app.html regenerated
+[ ] Schema registry tests added (full and standard), projection test covers the new version
+[ ] Renderer tests updated; older versions pinned by a compat test
 ```

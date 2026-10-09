@@ -95,8 +95,8 @@ signals (vulnerabilities) and maintenance signals (activity, overhead, health):
 
 ![OSS IQ Terminal/CLI Report](/_static/images/ossiq-cli-report-2026-07-13.png)
 
-Every table, column, and status marker in this report, including the *Transitive Recommendations*
-and *Peer Constraint Status* sections, is documented in
+Every table, column, and status marker in this report, including the *Transitive Recommendations*,
+*Peer Constraint Status* and the unresolved-peer rows, is documented in
 [Reference → Console Reports](reference.md#console-reports).
 
 ## Coding agents
@@ -124,7 +124,7 @@ ossiq install skills copilot
 The skill and the MCP server run OSS IQ the way you ran `install skills`:
 `npx @ossiq/cli install skills` gives `npx` commands, and `uvx ossiq install skills` gives `uvx`
 ones. To choose yourself, pass `--via uvx`, `--via npx` or `--via ossiq`; see
-[How the skill runs OSS IQ](reference.md#install-skills-runner).
+[How the skill runs OSS IQ](reference.md#how-the-skill-runs-oss-iq).
 
 The command stores no GitHub token. The MCP server uses your [GitHub login](#log-in-to-github);
 without one, the agent shows you a login code and retries after you approve. Re-running

@@ -136,7 +136,7 @@ Example output:
 ```
 
 The top-level `next_action` is the most urgent one across the `updates` list, or
-`no action needed` when the list is empty. Each entry's `next_action` is one of:
+`no action needed` when no entry has an action due. Each entry's `next_action` is one of:
 
 - **Check for the Fix** — a known CVE that `to` does not clear (or there is no `to`); check for a
   patched release.
@@ -170,6 +170,15 @@ don't bisect the release history one version at a time.
 than its registry name — npm aliases (`"uuid-v7": "npm:uuid@^7.0.0"`) are the only case today.
 Two aliases of one package produce two entries sharing `"package"`, so `dependency_name` is what
 tells you which declaration an entry answers for and which line to edit.
+
+`unresolved_peers` appears (npm only) when the package declares a peer that nothing within its
+reach can satisfy, so the package may fail to load. It appears whatever the entry's `next_action`
+says, `no action needed` included. Each item gives the peer's `package` and `spec`, whether it is
+`optional`, and `installed_elsewhere`: the versions installed out of reach, empty when the peer is
+installed nowhere. When a copy that satisfies `spec` is installed elsewhere, the top-level
+`peer_repairs` lists what `{{ossiq}} apply` adds to the manifest to fix it. Don't read
+`no action needed` as clean for such a package: run `{{ossiq}} plan` to review the repair, then
+`{{ossiq}} apply`.
 
 ### Module-system and API breaks
 
@@ -218,8 +227,11 @@ choice (avoids known-CVE and too-fresh versions) — **unless the entry also car
 `"requires_constraint_widening": true`**. That flag means `to` is only reachable by
 widening the manifest's declared range first (`==1.10.13` admits nothing past
 1.10.13, so `1.10.26` needs a wider specifier, not just a straight rewrite of the
-pin). `{{ossiq}} update`/`{{ossiq}} apply` will not write such an entry on their own —
-widen the constraint by hand, then re-run the command.
+pin). `latest` and `cutting-edge` write such picks after a confirmation prompt. At the other
+tiers `{{ossiq}} update`/`{{ossiq}} apply` will not write one on their own — widen the
+constraint by hand, then re-run the command — unless the entry also carries
+`"widening_authorized": true`. That means a CVE or end-of-life motive carried the pick past
+the tier, so they write it after the same prompt.
 
 ### Engine/runtime compatibility
 

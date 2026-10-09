@@ -264,9 +264,12 @@ noise reduction stays visible. A `retain` with suppressed CVEs says so in its re
 scored below EPSS 0.005") rather than claiming no signal at all.
 
 ```{note}
-The action is **advisory.** It appears in `status`, `info`, the JSON export, the HTML
-report and the agent/MCP verdict, but it does not change the `ok` / `warn` / `block` verdict that
-gates a build.
+The action is **advisory.** It changes no exit code. It appears in `status`, `info`, the
+JSON export (`dependency_health_action`), the HTML report and the agent/MCP output
+(`dependency_health`). To gate a build on it, write the check yourself over the
+`ossiq export` JSON. *Mistaking advice for a gate* in
+[What the recommendation catalogue risks](../recommendations/catalogue.md#what-the-recommendation-catalogue-risks)
+says why.
 ```
 
 ## Reading the output
@@ -287,7 +290,7 @@ the unmaintained count.
 the `Maintenance` state with its risk and the observations behind it, and the resulting triage
 action.
 
-The `--schema-version=1.5` JSON export carries `maintenance_state`, `maintenance_risk`,
+The JSON export (schema 1.5 and later) carries `maintenance_state`, `maintenance_risk`,
 `maintenance_coverage`, `gap_cv`, `median_gap_days`, `silence_days`, `silence_p`,
 `commits_sampled`, `span_days`, `flow_trend`, `engagement_buckets`, `deprecation_signals`,
 `deprecation_successor`, `days_since_push`, `archived` and `dependency_health_action` (the triage action).
