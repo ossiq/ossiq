@@ -28,7 +28,7 @@ def evidence(
     archived: bool | None = None,
     classifiers: list[str] | None = None,
     all_releases_yanked: bool = False,
-    npm_deprecated: bool = False,
+    registry_deprecated: bool = False,
     deprecation_message: str | None = None,
     repo_description: str | None = None,
     summary: str | None = None,
@@ -40,7 +40,7 @@ def evidence(
         archived=archived,
         classifiers=classifiers or [],
         all_releases_yanked=all_releases_yanked,
-        npm_deprecated=npm_deprecated,
+        registry_deprecated=registry_deprecated,
         deprecation_message=deprecation_message,
         repo_description=repo_description,
         summary=summary,
@@ -59,8 +59,8 @@ class TestDeprecationSignals:
     def test_archived_repo(self) -> None:
         assert DeprecationSignal.ARCHIVED in evidence(archived=True).signals
 
-    def test_npm_deprecated_and_all_yanked_are_registry_deprecated(self) -> None:
-        assert DeprecationSignal.REGISTRY_DEPRECATED in evidence(npm_deprecated=True).signals
+    def test_registry_deprecation_and_all_yanked_both_set_the_signal(self) -> None:
+        assert DeprecationSignal.REGISTRY_DEPRECATED in evidence(registry_deprecated=True).signals
         assert DeprecationSignal.REGISTRY_DEPRECATED in evidence(all_releases_yanked=True).signals
 
     def test_inactive_classifier(self) -> None:
@@ -83,9 +83,15 @@ class TestDeprecationSignals:
         assert DeprecationSignal.PINNED_NOTICE in result.signals
 
     def test_successor_named_from_deprecation_message(self) -> None:
-        result = evidence(npm_deprecated=True, deprecation_message="This package is deprecated. Use got instead.")
+        result = evidence(registry_deprecated=True, deprecation_message="This package is deprecated. Use got instead.")
         assert result.successor == "got"
         assert DeprecationSignal.SUCCESSOR_NAMED in result.signals
+
+    def test_a_call_expression_in_the_message_is_not_a_successor(self) -> None:
+        # left-pad's own message: the dot inside String.prototype.padStart() is not a sentence end.
+        result = evidence(registry_deprecated=True, deprecation_message="use String.prototype.padStart()")
+        assert result.successor is None
+        assert DeprecationSignal.SUCCESSOR_NAMED not in result.signals
 
 
 class TestDeprecationStrength:
@@ -107,6 +113,22 @@ class TestNamedSuccessor:
     def test_none_when_absent(self) -> None:
         assert named_successor("just a normal summary") is None
         assert named_successor(None) is None
+
+    @pytest.mark.parametrize(
+        ("message", "expected"),
+        [
+            ("Use got instead.", "got"),
+            ("deprecated, use lodash.", "lodash"),
+            ("Switch to `undici`", "undici"),
+            ("use @scope/pkg.", "@scope/pkg"),
+            ("Please use lodash.merge instead", "lodash.merge"),
+        ],
+    )
+    def test_survives_sentence_punctuation(self, message: str, expected: str) -> None:
+        assert named_successor(message) == expected
+
+    def test_call_expression_is_not_a_package(self) -> None:
+        assert named_successor("use String.prototype.padStart()") is None
 
 
 class TestPushAgeBucket:

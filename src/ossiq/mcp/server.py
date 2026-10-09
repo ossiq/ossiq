@@ -182,12 +182,15 @@ def evaluate_dependency(settings: Settings, args: dict[str, Any]) -> AgentDecisi
 
     all_records = scan_result.production_packages + scan_result.optional_packages + scan_result.transitive_packages
     matched = [record for record in all_records if matches(record, package_name)]
+    requested_version = args.get("version")
     if matched:
-        detail = build_installed_detail(matched, scan_result, package_name, sources, settings)
+        detail = build_installed_detail(
+            matched, scan_result, package_name, sources, settings, requested_version=requested_version
+        )
     else:
-        detail = fetch_prospective_detail(package_name, sources, settings)
+        detail = fetch_prospective_detail(package_name, sources, settings, requested_version=requested_version)
 
-    return build_add_decide(detail, requested_version=args.get("version"))
+    return build_add_decide(detail, requested_version=requested_version)
 
 
 def evaluate_updates(settings: Settings, args: dict[str, Any]) -> AgentDecision:

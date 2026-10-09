@@ -1,6 +1,15 @@
 """Tests for the shared next-action ladder (service.project.next_action)."""
 
-from ossiq.domain.common import ConstraintType, CooldownHold, CveDatabase, ProjectPackagesRegistry, RejectedCandidate
+import pytest
+
+from ossiq.domain.common import (
+    ConstraintType,
+    CooldownHold,
+    CveDatabase,
+    ProjectPackagesRegistry,
+    RegistryStatus,
+    RejectedCandidate,
+)
 from ossiq.domain.cve import CVE, Severity
 from ossiq.domain.project import ConstraintSource
 from ossiq.domain.version import VERSION_DIFF_MAJOR, VERSION_DIFF_MINOR, VERSION_LATEST, VersionsDifference
@@ -283,3 +292,42 @@ class TestNeedsAttention:
         assert needs_attention(make_record(maintenance=assessment(MaintenanceState.ABANDONED))) is True
         assert needs_attention(make_record(maintenance=assessment(MaintenanceState.DEPRECATED))) is True
         assert needs_attention(make_record(maintenance=assessment(MaintenanceState.WINDING_DOWN))) is False
+
+
+class TestRetiredByTheRegistry:
+    """The registry itself retired the package: no bump inside it helps, so the label is to leave."""
+
+    @staticmethod
+    def retired(status: RegistryStatus | None, diff: VersionsDifference, **kwargs) -> ScanRecord:
+        record = make_record(versions_diff_index=diff, **kwargs)
+        record.registry_status = status
+        return record
+
+    @pytest.mark.parametrize("status", [RegistryStatus.DEPRECATED, RegistryStatus.ARCHIVED, RegistryStatus.QUARANTINED])
+    @pytest.mark.parametrize("diff", [LATEST, MINOR, MAJOR])
+    def test_is_find_alternative_whatever_the_drift(self, status: RegistryStatus, diff: VersionsDifference):
+        # MINOR with a recommendation would otherwise read "Update Immediately", MAJOR "Check Release Notes".
+        record = self.retired(status, diff, recommended_version="1.1.0")
+
+        assert next_action_label(record) == FIND_ALTERNATIVE
+
+    def test_an_exploitable_cve_still_comes_first(self):
+        record = self.retired(RegistryStatus.DEPRECATED, MINOR, cve=[fake_cve(0.2)], epss=0.2)
+
+        assert next_action_label(record) == CHECK_FOR_THE_FIX
+
+    @pytest.mark.parametrize("status", [RegistryStatus.ACTIVE, None])
+    def test_an_active_or_unjudged_package_keeps_the_drift_ladder(self, status: RegistryStatus | None):
+        # A deprecated *release* of a live package (uuid@3) is the opposite case: updating is the fix.
+        record = self.retired(status, MINOR, recommended_version="1.1.0")
+        record.is_installed_deprecated = True
+
+        assert next_action_label(record) == UPDATE_IMMEDIATELY
+
+    @pytest.mark.parametrize("status", [RegistryStatus.DEPRECATED, RegistryStatus.ARCHIVED, RegistryStatus.QUARANTINED])
+    def test_a_retired_transitive_needs_attention(self, status: RegistryStatus):
+        assert needs_attention(self.retired(status, LATEST)) is True
+
+    @pytest.mark.parametrize("status", [RegistryStatus.ACTIVE, None])
+    def test_a_live_transitive_does_not(self, status: RegistryStatus | None):
+        assert needs_attention(self.retired(status, LATEST)) is False

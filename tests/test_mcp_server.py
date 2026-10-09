@@ -345,6 +345,61 @@ def test_evaluate_updates_surfaces_degraded_data_sources(monkeypatch):
     assert {"step": "vulnerabilities", "status": "unreachable"} in decision["data_completeness"]["sources"]
 
 
+def evaluate_dependency_with_stubs(monkeypatch, *, installed: bool, version: str | None) -> dict[str, MagicMock]:
+    """Run ossiq_evaluate_dependency with the scan and both detail builders stubbed.
+
+    Returns the stubs so a test can see what each was handed.
+    """
+    record = MagicMock()
+    scan_result = ScanResult(
+        project_name="proj",
+        packages_registry="NPM",
+        project_path=".",
+        production_packages=[record] if installed else [],
+        optional_packages=[],
+    )
+    stubs = {
+        "prospective": MagicMock(return_value="prospective-detail"),
+        "installed": MagicMock(return_value="installed-detail"),
+        "decide": MagicMock(return_value={}),
+    }
+    monkeypatch.setattr(server, "project_sources", MagicMock())
+    monkeypatch.setattr(server, "scan", lambda _sources: scan_result)
+    monkeypatch.setattr(server, "matches", lambda _record, _name: True)
+    monkeypatch.setattr(server, "fetch_prospective_detail", stubs["prospective"])
+    monkeypatch.setattr(server, "build_installed_detail", stubs["installed"])
+    monkeypatch.setattr(server, "build_add_decide", stubs["decide"])
+
+    arguments = {"package": "left-pad", "project_path": ".", "runtime": "unknown"}
+    if version:
+        arguments["version"] = version
+    server.evaluate_dependency(Settings(), arguments)
+    return stubs
+
+
+def test_evaluate_dependency_judges_the_requested_release_of_a_new_package(monkeypatch):
+    # The deprecated-release rule can only fire if the version the agent asked about reaches it.
+    stubs = evaluate_dependency_with_stubs(monkeypatch, installed=False, version="1.3.0")
+
+    assert stubs["prospective"].call_args.kwargs["requested_version"] == "1.3.0"
+    stubs["decide"].assert_called_once_with("prospective-detail", requested_version="1.3.0")
+
+
+def test_evaluate_dependency_judges_the_requested_release_of_an_installed_package(monkeypatch):
+    stubs = evaluate_dependency_with_stubs(monkeypatch, installed=True, version="1.3.0")
+
+    assert stubs["installed"].call_args.kwargs["requested_version"] == "1.3.0"
+    stubs["prospective"].assert_not_called()
+    stubs["decide"].assert_called_once_with("installed-detail", requested_version="1.3.0")
+
+
+def test_evaluate_dependency_without_a_version_asks_about_the_package_alone(monkeypatch):
+    stubs = evaluate_dependency_with_stubs(monkeypatch, installed=False, version=None)
+
+    assert stubs["prospective"].call_args.kwargs["requested_version"] is None
+    stubs["decide"].assert_called_once_with("prospective-detail", requested_version=None)
+
+
 def test_a_missing_runtime_is_a_titled_error_not_a_probe(idle_login):
     """D1-1: the MCP server never falls back to probing its own PATH - that probe answers for the
     wrong shell, and it made identical requests disagree."""

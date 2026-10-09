@@ -8,6 +8,7 @@ from ossiq.domain.common import (
     DataCompleteness,
     EngineContext,
     RecommendationRung,
+    RegistryStatus,
     RejectedCandidate,
     RuntimeMismatch,
     SignalCoverage,
@@ -155,6 +156,14 @@ class ScanRecord:
 
     is_installed_deprecated: bool = False
     """True if installed_version or the package itself is marked deprecated."""
+
+    registry_status: RegistryStatus | None = None
+    """The registry's verdict on the package as a whole; None when it gave none. Unlike
+    `is_installed_deprecated`, a deprecated *version* of an otherwise live package does not show here."""
+
+    deprecation_message: str | None = None
+    """The maintainer's note (npm) or the index's reason (PEP 792). The package's own, else the
+    installed release's."""
 
     is_installed_package_unpublished: bool = False
     """True if the package as a whole has been unpublished from the registry."""

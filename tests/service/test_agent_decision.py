@@ -22,26 +22,39 @@ from ossiq.domain.common import (
     ProjectPackagesRegistry,
     RateLimitBudget,
     RecommendationRung,
+    RegistryStatus,
     RejectedCandidate,
     ScanStep,
     SignalCoverage,
 )
 from ossiq.domain.compatibility import CompatibilityFacts
 from ossiq.domain.cve import CVE, AffectedRange, Severity
+from ossiq.domain.package import Package
 from ossiq.domain.project import ConstraintSource, UnresolvedPeer
-from ossiq.domain.version import VERSION_DIFF_MAJOR, VERSION_DIFF_MINOR, VERSION_LATEST, VersionsDifference
+from ossiq.domain.version import (
+    VERSION_DIFF_MAJOR,
+    VERSION_DIFF_MINOR,
+    VERSION_LATEST,
+    PackageVersion,
+    VersionsDifference,
+)
 from ossiq.risk.maintenance import MaintenanceAssessment, MaintenanceState
 from ossiq.risk.triage import ACTION_REFACTOR, ACTION_RETAIN, TriageResult
-from ossiq.service.agent import build_add_decide, build_update_decide
+from ossiq.service.agent import NO_ACTION, build_add_decide, build_update_decide
 from ossiq.service.package import (
+    RULE_PACKAGE_DEPRECATED,
     RULE_SINGLE_MAINTAINER,
     RULE_SINGLE_VERSION,
+    RULE_VERSION_DEPRECATED,
     PackageDetailResult,
     PackageInsight,
     PackageWarning,
+    build_package_insight,
+    evaluate_package_rules,
 )
 from ossiq.service.project.models import PeerRepair, ScanRecord, ScanResult
 from ossiq.service.update_impact import ImpactKind, TransitiveImpact
+from ossiq.settings import Settings
 from ossiq.strategy.motive import UpdateMotive
 from ossiq.strategy.pyramid import UpdateStrategy
 from ossiq.strategy.targeting import StrategySelection
@@ -1041,3 +1054,151 @@ def test_a_widening_pick_the_tier_did_not_authorize_has_no_such_key():
 
     assert entry["requires_constraint_widening"] is True
     assert "widening_authorized" not in entry
+
+
+# --- the registry retired the package ----------------------------------------
+
+
+def registry_package(status: RegistryStatus | None, *, message: str | None = None) -> Package:
+    return Package(
+        registry=ProjectPackagesRegistry.NPM,
+        name="left-pad",
+        latest_version="1.3.0",
+        next_version=None,
+        repo_url=None,
+        registry_status=status,
+        deprecation_message=message,
+    )
+
+
+def registry_release(version: str) -> PackageVersion:
+    return PackageVersion(
+        version=version,
+        license=None,
+        package_url=f"https://www.npmjs.com/package/left-pad/v/{version}",
+        declared_dependencies={},
+    )
+
+
+def test_add_do_not_install_when_the_registry_deprecated_the_package():
+    # The reported bug: left-pad, deprecated on npm in every release, came back as `install`.
+    package = registry_package(RegistryStatus.DEPRECATED, message="use String.prototype.padStart()")
+    insight = build_package_insight(
+        package, [registry_release("1.2.0"), registry_release("1.3.0")], Settings(), recommended_version="1.3.0"
+    )
+    detail = make_detail(insight, evaluate_package_rules(insight, Settings()), cves=[])
+
+    decision = build_add_decide(detail)
+
+    assert decision["next_action"] == "do not install"
+    assert decision["warnings"] == [RULE_PACKAGE_DEPRECATED]
+    assert any("use String.prototype.padStart()" in reason for reason in decision["reasons"])
+
+
+def test_add_do_not_install_when_the_registry_quarantined_the_package():
+    insight = build_package_insight(
+        registry_package(RegistryStatus.QUARANTINED), [registry_release("1.2.0"), registry_release("1.3.0")], Settings()
+    )
+    detail = make_detail(insight, evaluate_package_rules(insight, Settings()), cves=[])
+
+    assert build_add_decide(detail)["next_action"] == "do not install"
+
+
+def test_add_still_installs_an_active_package():
+    insight = build_package_insight(
+        registry_package(RegistryStatus.ACTIVE),
+        [registry_release("1.2.0"), registry_release("1.3.0")],
+        Settings(),
+        recommended_version="1.3.0",
+    )
+    insight.maintainers_count = 5
+    detail = make_detail(insight, evaluate_package_rules(insight, Settings()), cves=[])
+
+    assert build_add_decide(detail)["next_action"] == "install"
+
+
+def test_add_do_not_install_a_deprecated_release_asked_for_by_name():
+    releases = [
+        registry_release("1.2.0"),
+        dataclasses.replace(registry_release("1.3.0"), is_deprecated=True, deprecation_message="update to 2"),
+    ]
+    insight = build_package_insight(
+        registry_package(RegistryStatus.ACTIVE),
+        releases,
+        Settings(),
+        recommended_version="1.2.0",
+        requested_version="1.3.0",
+    )
+    insight.maintainers_count = 5
+    detail = make_detail(insight, evaluate_package_rules(insight, Settings()), cves=[])
+
+    decision = build_add_decide(detail, requested_version="1.3.0")
+
+    assert decision["next_action"] == "do not install"
+    assert decision["warnings"] == [RULE_VERSION_DEPRECATED]
+
+
+def test_update_find_alternative_when_the_registry_retired_a_package_that_is_behind():
+    # Behind latest with an in-range fix, which would otherwise read "Update Immediately": a bump
+    # inside a package its registry has retired fixes nothing.
+    record = make_record(
+        installed="1.0.0",
+        latest="1.1.0",
+        diff_index=VERSION_DIFF_MINOR,
+        recommended="1.1.0",
+        registry_status=RegistryStatus.DEPRECATED,
+        deprecation_message="use got instead",
+        is_installed_deprecated=True,
+    )
+
+    entry = build_update_decide(make_scan([record]))["updates"][0]
+
+    assert entry["next_action"] == "Find alternative"
+    assert 'package is deprecated: "use got instead"' in entry["reasons"]
+    assert "installed version is deprecated" not in " ".join(entry["reasons"])
+
+
+def test_update_names_an_archived_package_as_archived():
+    record = make_record(registry_status=RegistryStatus.ARCHIVED, is_installed_deprecated=True)
+
+    entry = build_update_decide(make_scan([record]))["updates"][0]
+
+    assert entry["next_action"] == "Find alternative"
+    assert "package is archived" in entry["reasons"]
+
+
+def test_update_a_quarantined_package_at_latest_is_still_an_entry():
+    record = make_record(registry_status=RegistryStatus.QUARANTINED)
+
+    entry = build_update_decide(make_scan([record]))["updates"][0]
+
+    assert entry["next_action"] == "Find alternative"
+    assert "package is quarantined" in entry["reasons"]
+
+
+def test_update_keeps_the_drift_label_for_a_deprecated_release_of_a_live_package():
+    # uuid@3 shape: the old release says "update to the latest" and the package itself is fine, so
+    # updating is the fix, not leaving.
+    record = make_record(
+        installed="3.0.0",
+        latest="3.1.0",
+        diff_index=VERSION_DIFF_MINOR,
+        recommended="3.1.0",
+        registry_status=RegistryStatus.ACTIVE,
+        deprecation_message="update to the latest",
+        is_installed_deprecated=True,
+    )
+
+    entry = build_update_decide(make_scan([record]))["updates"][0]
+
+    assert entry["next_action"] == "Update Immediately"
+    assert 'installed version is deprecated: "update to the latest"' in entry["reasons"]
+
+
+def test_update_an_active_package_with_no_verdict_to_state_says_nothing_about_one():
+    record = make_record(registry_status=RegistryStatus.ACTIVE)
+
+    entry = build_update_decide(make_scan([record]))["updates"][0]
+
+    assert entry["next_action"] == NO_ACTION
+    assert entry["reasons"] == []

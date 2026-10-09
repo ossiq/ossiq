@@ -5,7 +5,7 @@ Pure: takes a ScanRecord, returns a label or None. Styling (Rich markup for the 
 colour classes for the HTML report) lives in the renderers that consume this.
 """
 
-from ossiq.domain.common import WIDENING_RUNGS
+from ossiq.domain.common import INACTIVE_STATUSES, WIDENING_RUNGS
 from ossiq.domain.version import (
     VERSION_DIFF_BUILD,
     VERSION_DIFF_MAJOR,
@@ -74,6 +74,10 @@ def next_action_label(record: ScanRecord) -> str | None:
     has_active_cve = bool(record.cve) and record.epss is not None and record.epss >= EPSS_EXPLOIT_THRESHOLD
     if has_active_cve:
         return CHECK_FOR_THE_FIX
+    # The registry itself retired the package, so no bump inside it helps. A deprecated *version* of
+    # a live package (uuid@3) is the opposite - updating is the fix - and falls through to the ladder.
+    if record.registry_status in INACTIVE_STATUSES:
+        return FIND_ALTERNATIVE
     if diff_index in AT_LATEST_DIFFS and state in NOT_MAINTAINED:
         return FIND_ALTERNATIVE
     if state == MaintenanceState.WINDING_DOWN:
@@ -123,6 +127,7 @@ def needs_attention(record: ScanRecord) -> bool:
         or record.is_installed_deprecated
         or record.is_installed_yanked
         or record.is_installed_package_unpublished
+        or record.registry_status in INACTIVE_STATUSES
         or state in NOT_MAINTAINED
     )
 

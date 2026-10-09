@@ -2,6 +2,7 @@
 Tests for the service/project package — ScanRecord factory and version_constraint propagation.
 """
 
+import dataclasses
 from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -11,13 +12,14 @@ import pytest
 from ossiq.adapters.api_pypi import PackageRegistryApiPypi
 from ossiq.adapters.package_managers.api_npm import PackageManagerJsNpm
 from ossiq.adapters.package_managers.dependency_tree import GraphExporter
-from ossiq.domain.common import ConstraintType, CveDatabase, ProjectPackagesRegistry
+from ossiq.domain.common import ConstraintType, CveDatabase, ProjectPackagesRegistry, RegistryStatus
 from ossiq.domain.cve import CVE, Severity
 from ossiq.domain.package import Package
 from ossiq.domain.packages_manager import UV
 from ossiq.domain.project import ConstraintSource, Dependency, IncomingEdge, InstalledCopy, PeerRequirement, Project
 from ossiq.domain.version import PackageVersion, VersionsDifference
 from ossiq.messages import IGNORE_REASON_IGNORE_FLAG, IGNORE_REASON_NON_REGISTRY
+from ossiq.risk.maintenance import DeprecationSignal
 from ossiq.service.project.models import DependencyDescriptor, ScanRecord
 from ossiq.service.project.prefetch import build_ignored_packages, get_package_versions_since, partition_git_hosted
 from ossiq.service.project.records import calculate_version_age_days, scan_record, scan_sort_key
@@ -958,3 +960,91 @@ class TestInstalledCopies:
             ("2.0.2", ["cross-spawn"]),
         ]
         assert (cross_spawn.version, cross_spawn.all_constraints) == ("7.0.3", ["^7.0.0"])
+
+
+class TestScanRecordRegistryVerdict:
+    """scan_record is the one writer of the registry's verdict onto a ScanRecord."""
+
+    @staticmethod
+    def record(registry, package, versions):
+        return scan_record(
+            version_rules=registry,
+            package_info=package,
+            package_name="requests",
+            canonical_name="requests",
+            package_version="2.31.0",
+            is_optional_dependency=False,
+            prefetched_cves=set(),
+            prefetched_versions_since=versions,
+            constraint_info=ConstraintSource(type=ConstraintType.DECLARED, source_file="pyproject.toml"),
+        )
+
+    def test_carries_the_packages_status_and_message(self, mock_package_registry, mock_package, mock_versions):
+        mock_package.registry_status = RegistryStatus.DEPRECATED
+        mock_package.deprecation_message = "use httpx instead"
+
+        record = self.record(mock_package_registry, mock_package, mock_versions)
+
+        assert record.registry_status == RegistryStatus.DEPRECATED
+        assert record.deprecation_message == "use httpx instead"
+        assert record.is_installed_deprecated is True
+
+    def test_a_package_the_registry_has_no_verdict_on_carries_none(
+        self, mock_package_registry, mock_package, mock_versions
+    ):
+        record = self.record(mock_package_registry, mock_package, mock_versions)
+
+        assert record.registry_status is None
+        assert record.deprecation_message is None
+        assert record.is_installed_deprecated is False
+
+    def test_the_packages_own_message_outranks_the_releases(self, mock_package_registry, mock_package, mock_versions):
+        mock_package.registry_status = RegistryStatus.DEPRECATED
+        mock_package.deprecation_message = "package: use httpx"
+        installed = dataclasses.replace(mock_versions[0], is_deprecated=True, deprecation_message="release: update")
+
+        record = self.record(mock_package_registry, mock_package, [installed, mock_versions[1]])
+
+        assert record.deprecation_message == "package: use httpx"
+
+    def test_a_deprecated_release_of_a_live_package_is_not_a_retired_package(
+        self, mock_package_registry, mock_package, mock_versions
+    ):
+        mock_package.registry_status = RegistryStatus.ACTIVE
+        installed = dataclasses.replace(mock_versions[0], is_deprecated=True, deprecation_message="update to latest")
+
+        record = self.record(mock_package_registry, mock_package, [installed, mock_versions[1]])
+
+        assert record.is_installed_deprecated is True
+        assert record.registry_status == RegistryStatus.ACTIVE
+        # The release's note still explains the flag.
+        assert record.deprecation_message == "update to latest"
+        assert DeprecationSignal.REGISTRY_DEPRECATED not in record.deprecation.signals
+
+    def test_an_undeprecated_release_does_not_lend_its_message(
+        self, mock_package_registry, mock_package, mock_versions
+    ):
+        installed = dataclasses.replace(mock_versions[0], is_deprecated=False, deprecation_message="stale")
+
+        record = self.record(mock_package_registry, mock_package, [installed, mock_versions[1]])
+
+        assert record.deprecation_message is None
+
+    @pytest.mark.parametrize("status", [RegistryStatus.DEPRECATED, RegistryStatus.ARCHIVED])
+    def test_a_retired_package_is_strong_deprecation_evidence(
+        self, mock_package_registry, mock_package, mock_versions, status
+    ):
+        mock_package.registry_status = status
+
+        record = self.record(mock_package_registry, mock_package, mock_versions)
+
+        assert DeprecationSignal.REGISTRY_DEPRECATED in record.deprecation.signals
+
+    def test_quarantine_is_not_deprecation_evidence(self, mock_package_registry, mock_package, mock_versions):
+        mock_package.registry_status = RegistryStatus.QUARANTINED
+
+        record = self.record(mock_package_registry, mock_package, mock_versions)
+
+        assert record.registry_status == RegistryStatus.QUARANTINED
+        assert record.is_installed_deprecated is False
+        assert DeprecationSignal.REGISTRY_DEPRECATED not in record.deprecation.signals

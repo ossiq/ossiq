@@ -40,7 +40,9 @@ def command_add(ctx: typer.Context, options: CommandAddOptions) -> None:
     with show_operation_progress(settings, f"Fetching package info for {options.package_name}...") as progress:
         with progress():
             with sources:
-                detail = fetch_prospective_detail(options.package_name, sources, settings)
+                detail = fetch_prospective_detail(
+                    options.package_name, sources, settings, requested_version=options.version
+                )
 
     packages_manager = sources.packages_manager
 
