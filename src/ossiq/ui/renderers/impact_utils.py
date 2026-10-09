@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 
 from rich.table import Table
 
-from ossiq.domain.common import RejectionDetail
+from ossiq.domain.common import RegistryStatus, RejectionDetail
 from ossiq.domain.version import (
     VERSION_DIFF_BUILD,
     VERSION_DIFF_MAJOR,
@@ -31,13 +31,33 @@ from ossiq.service.project.next_action import (
 from ossiq.service.update_impact import ImpactKind, TransitiveImpact
 from ossiq.timeutil import format_time_days
 
+REGISTRY_STATUS_BADGES: dict[RegistryStatus, str] = {
+    RegistryStatus.QUARANTINED: " [bold red][QUARANTINED][/]",
+    RegistryStatus.ARCHIVED: " [bold yellow][ARCHIVED][/]",
+    RegistryStatus.DEPRECATED: " [bold yellow][DEPRECATED][/]",
+}
+
+
+def registry_status_badge(status: RegistryStatus | None) -> str:
+    """Inline badge for a registry verdict that retires or flags a package; empty when none does."""
+    if status is None:
+        return ""
+    return REGISTRY_STATUS_BADGES.get(status, "")
+
 
 def format_status_badge(record: ScanRecord) -> str:
-    """Inline lifecycle badge for the installed version; empty string when nothing is flagged."""
+    """Inline lifecycle badge for the installed version; empty string when nothing is flagged.
+
+    The registry's verdict on the whole package outranks a single deprecated release, which is
+    what `is_installed_deprecated` alone can mean.
+    """
     if record.is_installed_package_unpublished:
         return " [bold red][UNPUBLISHED][/]"
     if record.is_installed_yanked:
         return " [bold red][YANKED][/]"
+    registry_badge = registry_status_badge(record.registry_status)
+    if registry_badge:
+        return registry_badge
     if record.is_installed_deprecated:
         return " [bold yellow][DEPRECATED][/]"
     if record.is_installed_prerelease:

@@ -404,6 +404,8 @@ def stability_export_fields(record) -> dict:
         "engagement_buckets": engagement_buckets(stability),
         "deprecation_signals": sorted(deprecation.signals) if deprecation else [],
         "deprecation_successor": deprecation.successor if deprecation else None,
+        "registry_status": record.registry_status.value if record.registry_status else None,
+        "deprecation_message": record.deprecation_message,
         "days_since_push": record.days_since_push,
         "archived": record.repository.archived if record.repository else None,
         "dependency_health_action": record.triage.action if record.triage else None,
@@ -478,6 +480,29 @@ class NextActionFields(BaseModel):
             "the HTML report show it; null when nothing is due. The agent payload's next_action "
             "applies two further escalations on top of this label and can therefore differ."
         ),
+    )
+
+
+class RegistryStatusFields(BaseModel):
+    """The registry's own verdict on the package, shared verbatim by direct and transitive metrics."""
+
+    registry_status: str | None = Field(
+        default=None,
+        description=(
+            "The registry's verdict on the whole package: active, deprecated, archived or quarantined (PEP 792's "
+            "vocabulary; npm reports deprecated when its latest release is). Null when the registry gave none, "
+            "which is not the same as active. A deprecated release of an otherwise active package shows only in "
+            "is_deprecated"
+        ),
+        json_schema_extra=SINCE_V1_6,
+    )
+    deprecation_message: str | None = Field(
+        default=None,
+        description=(
+            "The maintainer's note on the deprecation (npm) or the index's stated reason (PEP 792), verbatim; "
+            "often names the replacement"
+        ),
+        json_schema_extra=SINCE_V1_6,
     )
 
 
@@ -624,7 +649,9 @@ class StrategySelectionExport(ProfiledExportModel):
         )
 
 
-class PackageMetrics(ProfiledExportModel, LadderFields, CompatibilityFields, NextActionFields, PeerFields):
+class PackageMetrics(
+    ProfiledExportModel, LadderFields, CompatibilityFields, NextActionFields, PeerFields, RegistryStatusFields
+):
     """Metrics for one direct dependency."""
 
     omit_empty_in_standard: ClassVar[bool] = True
@@ -746,7 +773,7 @@ class PackageMetrics(ProfiledExportModel, LadderFields, CompatibilityFields, Nex
     is_prerelease: bool = Field(default=False, description="Whether the installed version is a pre-release")
     is_yanked: bool = Field(default=False, description="Whether the installed version is yanked or unpublished")
     is_deprecated: bool = Field(
-        default=False, description="Whether the installed package or version is deprecated (npm-only)"
+        default=False, description="Whether the installed version, or the whole package, is deprecated or archived"
     )  # noqa: E501
     is_package_unpublished: bool = Field(
         default=False, description="Whether the entire package has been removed from the registry (npm-only)"
@@ -975,7 +1002,9 @@ class DependencyTreeRoot(BaseModel):
         return {k: v for k, v in handler(self).items() if not (v is None or v == [])}
 
 
-class TransitivePackageMetrics(ProfiledExportModel, LadderFields, CompatibilityFields, NextActionFields, PeerFields):
+class TransitivePackageMetrics(
+    ProfiledExportModel, LadderFields, CompatibilityFields, NextActionFields, PeerFields, RegistryStatusFields
+):
     """
     Metrics for a transitive package (schema v1.3+).
 
@@ -1045,7 +1074,7 @@ class TransitivePackageMetrics(ProfiledExportModel, LadderFields, CompatibilityF
     is_prerelease: bool = Field(default=False, description="Whether the installed version is a pre-release")
     is_yanked: bool = Field(default=False, description="Whether the installed version is yanked or unpublished")
     is_deprecated: bool = Field(
-        default=False, description="Whether the installed package or version is deprecated (npm-only)"
+        default=False, description="Whether the installed version, or the whole package, is deprecated or archived"
     )  # noqa: E501
     is_package_unpublished: bool = Field(
         default=False, description="Whether the entire package has been removed from the registry (npm-only)"

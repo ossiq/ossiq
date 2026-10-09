@@ -31,6 +31,7 @@ from ossiq.domain.common import (
     ProjectPackagesRegistry,
     RateLimitBudget,
     RecommendationRung,
+    RegistryStatus,
     RuntimeMismatch,
     ScanStep,
     UserInterfaceType,
@@ -2048,6 +2049,10 @@ class TestExportProfiles:
             "archived",
             "dependency_health_action",
             "unresolved_peers",
+            # An agent weighing an add or an update acts on a retired package, and the note usually
+            # names what replaces it, so neither is dashboard-only.
+            "registry_status",
+            "deprecation_message",
         }
         assert standard_fields(export_models.PackageMetrics) == shared | {
             "dependency_name",
@@ -2237,6 +2242,30 @@ class TestSchemaVersion17:
         assert all("unresolved_peers" not in entry for entry in data["transitive_packages"])
         assert data["peer_repairs"] == []
 
+    @pytest.mark.parametrize("profile", [ExportProfile.STANDARD, ExportProfile.FULL])
+    def test_the_registrys_verdict_and_its_note_reach_direct_and_transitive_entries(
+        self, settings, profile_scan, output_file, profile
+    ):
+        direct = profile_scan.production_packages[0]
+        direct.registry_status = RegistryStatus.DEPRECATED
+        direct.deprecation_message = "use String.prototype.padStart()"
+        transitive = profile_scan.transitive_packages[0]
+        transitive.registry_status = RegistryStatus.ARCHIVED
+
+        data = render_profile(settings, profile_scan, output_file, profile)
+
+        assert data["production_packages"][0]["registry_status"] == "deprecated"
+        assert data["production_packages"][0]["deprecation_message"] == "use String.prototype.padStart()"
+        assert data["transitive_packages"][0]["registry_status"] == "archived"
+        # Transitive entries leave a null out rather than spelling it.
+        assert "deprecation_message" not in data["transitive_packages"][0]
+        validate(instance=data, schema=json_schema_registry.load_schema(ExportJsonSchemaVersion.V1_6, profile))
+
+    def test_a_registry_that_gave_no_verdict_exports_null_not_active(self, settings, profile_scan, output_file):
+        data = render_profile(settings, profile_scan, output_file, ExportProfile.FULL)
+
+        assert data["production_packages"][0]["registry_status"] is None
+
     def test_the_full_profile_lists_an_empty_unresolved_peers_on_direct_entries(
         self, settings, profile_scan, output_file
     ):
@@ -2281,5 +2310,18 @@ class TestSchemaVersion15StaysAsReleased:
             document["metadata"].pop("schema_version")
         new.pop("peer_repairs")
         for entry in [*new["production_packages"], *new["transitive_packages"]]:
-            entry.pop("unresolved_peers", None)
+            for added_in_1_6 in ("unresolved_peers", "registry_status", "deprecation_message"):
+                entry.pop(added_in_1_6, None)
         assert old == new
+
+    @pytest.mark.parametrize("profile", [ExportProfile.STANDARD, ExportProfile.FULL])
+    def test_a_v1_5_document_has_no_registry_verdict(self, settings, profile_scan, output_file, profile):
+        profile_scan.production_packages[0].registry_status = RegistryStatus.DEPRECATED
+        profile_scan.production_packages[0].deprecation_message = "use something else"
+
+        data = render_profile(settings, profile_scan, output_file, profile, schema_version="1.5")
+
+        for entry in [*data["production_packages"], *data["transitive_packages"]]:
+            assert "registry_status" not in entry
+            assert "deprecation_message" not in entry
+        validate(instance=data, schema=json_schema_registry.load_schema(ExportJsonSchemaVersion.V1_5, profile))
