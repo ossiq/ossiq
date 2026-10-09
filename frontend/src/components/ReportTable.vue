@@ -258,6 +258,14 @@ function spdxUrl(spdxId: string): string {
                 class="ml-1 px-1 py-0.5 text-[8px] font-bold uppercase tracking-wide bg-red-100 text-red-700 border border-red-300 rounded"
               >yanked</span>
               <span
+                v-else-if="row.registryStatus === 'quarantined'"
+                class="ml-1 px-1 py-0.5 text-[8px] font-bold uppercase tracking-wide bg-red-100 text-red-700 border border-red-300 rounded"
+              >quarantined</span>
+              <span
+                v-else-if="row.registryStatus === 'archived'"
+                class="ml-1 px-1 py-0.5 text-[8px] font-bold uppercase tracking-wide bg-yellow-100 text-yellow-700 border border-yellow-300 rounded"
+              >archived</span>
+              <span
                 v-else-if="row.isDeprecated"
                 class="ml-1 px-1 py-0.5 text-[8px] font-bold uppercase tracking-wide bg-yellow-100 text-yellow-700 border border-yellow-300 rounded"
               >deprecated</span>

@@ -208,6 +208,14 @@ const transitiveCVEGroups = computed<TransitiveCVEGroup[]>(() => {
                 class="px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-widest text-red-700 bg-red-100 border border-red-300"
               >Yanked</span>
               <span
+                v-else-if="node.registry_status === 'quarantined'"
+                class="px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-widest text-red-700 bg-red-100 border border-red-300"
+              >Quarantined</span>
+              <span
+                v-else-if="node.registry_status === 'archived'"
+                class="px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-widest text-yellow-700 bg-yellow-100 border border-yellow-300"
+              >Archived</span>
+              <span
                 v-else-if="node.is_deprecated"
                 class="px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-widest text-yellow-700 bg-yellow-100 border border-yellow-300"
               >Deprecated</span>
@@ -359,6 +367,10 @@ const transitiveCVEGroups = computed<TransitiveCVEGroup[]>(() => {
                 class="px-1.5 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wide bg-red-100 text-red-700"
               >{{ sig.replace(/_/g, ' ') }}</span>
               <span v-if="node.deprecation_successor" class="text-slate-500">→ <span class="font-mono text-slate-700">{{ node.deprecation_successor }}</span></span>
+            </div>
+            <div v-if="node.deprecation_message" class="text-[11px] pt-1 text-slate-500">
+              <span class="text-[10px] text-slate-400 uppercase font-bold" title="What the registry says about the deprecation, verbatim">Registry note</span>
+              <span class="ml-1.5 italic text-slate-700">“{{ node.deprecation_message }}”</span>
             </div>
             <div v-if="maintenance" class="pt-3 border-t border-slate-100 space-y-1.5">
               <div class="flex items-baseline justify-between">

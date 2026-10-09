@@ -35,6 +35,9 @@ export interface ReportRow {
   isPrerelease: boolean
   isYanked: boolean
   isDeprecated: boolean
+  // The registry's verdict on the whole package. `isDeprecated` also holds for a single deprecated
+  // release, so the pill reads this first to say archived or quarantined rather than deprecated.
+  registryStatus: string | null
   isPackageUnpublished: boolean
 }
 
@@ -151,6 +154,7 @@ export function useReportFilters() {
         isPrerelease: pkg.is_prerelease ?? false,
         isYanked: pkg.is_yanked ?? false,
         isDeprecated: pkg.is_deprecated ?? false,
+        registryStatus: pkg.registry_status ?? null,
         isPackageUnpublished: pkg.is_package_unpublished ?? false,
       }
     }

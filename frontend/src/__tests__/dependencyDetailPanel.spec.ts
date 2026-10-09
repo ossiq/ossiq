@@ -54,3 +54,43 @@ describe('DependencyDetailPanel unresolved peers', () => {
     expect(section.text()).toContain('2')
   })
 })
+
+describe('DependencyDetailPanel registry verdict', () => {
+  it('says nothing for a package the registry did not retire', () => {
+    const text = mountNode({ registry_status: 'active' }).text()
+
+    expect(text).not.toContain('Archived')
+    expect(text).not.toContain('Deprecated')
+    expect(text).not.toContain('Registry note')
+  })
+
+  it('badges a deprecated package and quotes what the registry said about it', () => {
+    const wrapper = mountNode({
+      registry_status: 'deprecated',
+      is_deprecated: true,
+      deprecation_message: 'use String.prototype.padStart()',
+    })
+
+    expect(wrapper.text()).toContain('Deprecated')
+    expect(wrapper.text()).toContain('Registry note')
+    expect(wrapper.text()).toContain('use String.prototype.padStart()')
+  })
+
+  it('names an archived package as archived, not deprecated', () => {
+    const text = mountNode({ registry_status: 'archived', is_deprecated: true }).text()
+
+    expect(text).toContain('Archived')
+    expect(text).not.toContain('Deprecated')
+  })
+
+  it('flags a quarantined package as quarantined', () => {
+    expect(mountNode({ registry_status: 'quarantined' }).text()).toContain('Quarantined')
+  })
+
+  it('shows the registry note as text, never as markup', () => {
+    const wrapper = mountNode({ registry_status: 'deprecated', deprecation_message: '<b>use got</b>' })
+
+    expect(wrapper.find('b').exists()).toBe(false)
+    expect(wrapper.text()).toContain('<b>use got</b>')
+  })
+})

@@ -84,6 +84,8 @@ function handleSelectPackage(row: ReportRow) {
     flow_trend: row.pkg.flow_trend ?? null,
     deprecation_signals: row.pkg.deprecation_signals ?? [],
     deprecation_successor: row.pkg.deprecation_successor ?? null,
+    registry_status: row.pkg.registry_status ?? null,
+    deprecation_message: row.pkg.deprecation_message ?? null,
     gap_cv: row.pkg.gap_cv ?? null,
     silence_days: row.pkg.silence_days ?? null,
     silence_p: row.pkg.silence_p ?? null,
