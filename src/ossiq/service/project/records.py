@@ -177,7 +177,7 @@ def scan_record(
         archived=prefetched_repository.archived if prefetched_repository else None,
         classifiers=package_info.classifiers,
         all_releases_yanked=package_info.all_releases_yanked,
-        npm_deprecated=package_info.is_deprecated,
+        registry_deprecated=package_info.is_deprecated,
         deprecation_message=package_info.deprecation_message,
         repo_description=prefetched_repository.description if prefetched_repository else None,
         summary=package_info.description,
@@ -245,6 +245,9 @@ def scan_record(
         is_installed_deprecated=(
             (installed_release.is_deprecated if installed_release else False) or package_info.is_deprecated
         ),
+        registry_status=package_info.registry_status,
+        deprecation_message=package_info.deprecation_message
+        or (installed_release.deprecation_message if installed_release and installed_release.is_deprecated else None),
         is_installed_package_unpublished=package_info.is_unpublished,
         runs_code_at_install=installed_release.runs_code_at_install if installed_release else None,
         install_execution_reason=installed_release.install_execution_reason if installed_release else None,

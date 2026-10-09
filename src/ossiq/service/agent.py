@@ -11,6 +11,7 @@ from typing import Any
 from ossiq.adapters.api_interfaces import AbstractPackageRegistryApi
 from ossiq.domain.common import (
     ENGINE_CONTEXT_KEY_BY_REGISTRY,
+    INACTIVE_STATUSES,
     WIDENING_RUNGS,
     DataCompleteness,
     EngineContext,
@@ -22,7 +23,7 @@ from ossiq.domain.cve import CVE
 from ossiq.domain.project import UnresolvedPeer
 from ossiq.domain.version import VERSION_DIFF_MAJOR, VERSION_DIFF_MINOR, VERSION_DIFF_PATCH, PackageVersion
 from ossiq.risk.maintenance import NOT_MAINTAINED
-from ossiq.service.package import PackageDetailResult
+from ossiq.service.package import PackageDetailResult, registry_status_note
 from ossiq.service.project.breaking_changes import (
     compute_latest_compatible_major,
     esm_interop_note,
@@ -284,6 +285,7 @@ def build_update_entry(record: ScanRecord, engine_context: EngineContext | None 
         or record.is_installed_deprecated
         or record.is_installed_yanked
         or record.is_installed_package_unpublished
+        or record.registry_status in INACTIVE_STATUSES
     )
 
     # Every entry carries the full version picture regardless of actionability - installed,
@@ -342,8 +344,19 @@ def build_update_entry(record: ScanRecord, engine_context: EngineContext | None 
         reasons.append("installed version is yanked")
     if record.is_installed_package_unpublished:
         reasons.append("package is unpublished")
-    if record.is_installed_deprecated:
-        reasons.append("installed version is deprecated")
+    # The registry retiring the whole package says more than one deprecated release does, so it
+    # replaces that reason rather than joining it. A scan record does not know its registry, hence
+    # no "on npm" here; the add decision, which does, names it.
+    retired_note = (
+        registry_status_note(record.registry_status, None, record.deprecation_message)
+        if record.registry_status in INACTIVE_STATUSES
+        else None
+    )
+    if retired_note:
+        reasons.append(f"package is {retired_note}")
+    elif record.is_installed_deprecated:
+        reason_suffix = f': "{record.deprecation_message}"' if record.deprecation_message else ""
+        reasons.append(f"installed version is deprecated{reason_suffix}")
     if unmaintained:
         reasons.append(f"upstream looks {unmaintained_state}")
     if is_major_drift:

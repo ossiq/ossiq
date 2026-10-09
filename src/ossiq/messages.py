@@ -282,7 +282,8 @@ HELP_ADD_COMMAND = """
 Inspect a package's health metrics and warnings before adding it to your project.
 
 Fetches metadata, CVE data, download counts, and maintainer info, then runs
-the package health rules. Blocks on critical warnings unless --force is passed.
+the package health rules. Blocks on critical warnings unless --force is passed,
+such as a package its registry deprecated, archived or quarantined.
 Use --version to pin an exact version.
 """
 

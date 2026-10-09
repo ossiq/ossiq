@@ -4,7 +4,12 @@ Data models and service functions for the single-package deep-dive (info/add com
 
 from dataclasses import dataclass, field
 
-from ossiq.domain.common import ConstraintType
+from ossiq.domain.common import (
+    END_OF_LIFE_STATUSES,
+    ConstraintType,
+    ProjectPackagesRegistry,
+    RegistryStatus,
+)
 from ossiq.domain.cve import CVE
 from ossiq.domain.package import Package
 from ossiq.domain.project import ConstraintSource
@@ -20,6 +25,37 @@ from ossiq.sources.core import AbstractProjectSources
 RULE_SINGLE_VERSION = "SINGLE_VERSION"
 RULE_SINGLE_MAINTAINER = "SINGLE_MAINTAINER"
 RULE_COOLDOWN_PERIOD = "COOLDOWN_PERIOD"
+RULE_PACKAGE_DEPRECATED = "PACKAGE_DEPRECATED"
+RULE_PACKAGE_QUARANTINED = "PACKAGE_QUARANTINED"
+RULE_VERSION_DEPRECATED = "VERSION_DEPRECATED"
+
+REGISTRY_LABELS: dict[ProjectPackagesRegistry, str] = {
+    ProjectPackagesRegistry.NPM: "npm",
+    ProjectPackagesRegistry.PYPI: "PyPI",
+}
+
+
+def registry_status_note(
+    status: RegistryStatus | None,
+    registry: ProjectPackagesRegistry | None,
+    message: str | None,
+) -> str | None:
+    """One phrase for a registry's verdict on a package, shared by every surface that states it.
+
+    Args:
+        status: The registry's verdict, or None when it gave none.
+        registry: Which registry said it; named in the phrase.
+        message: The maintainer's note (npm) or the index's reason (PEP 792), quoted when present.
+
+    Returns:
+        E.g. `deprecated on npm: "use String.prototype.padStart()"` or `archived on PyPI`. None for
+        an active package or no verdict, where there is nothing to state.
+    """
+    if status is None or status == RegistryStatus.ACTIVE:
+        return None
+    where = f" on {REGISTRY_LABELS[registry]}" if registry in REGISTRY_LABELS else ""
+    note = f"{status.value}{where}"
+    return f'{note}: "{message}"' if message else note
 
 
 @dataclass
@@ -50,6 +86,12 @@ class PackageInsight:
     recommended_version: str | None
     recommended_version_age_days: int | None
     cooldown_days_remaining: int | None
+    # The registry's verdict on the whole package, kept here so the rules stay pure over the insight.
+    registry: ProjectPackagesRegistry | None = None
+    registry_status: RegistryStatus | None = None
+    deprecation_message: str | None = None
+    # The release the caller asked for, when it asked for one that exists.
+    requested_release: PackageVersion | None = None
 
 
 @dataclass
@@ -75,8 +117,13 @@ def build_package_insight(
     settings: Settings,
     recommended_version: str | None = None,
     recommended_version_age_days: int | None = None,
+    requested_version: str | None = None,
 ) -> PackageInsight:
-    """Compute health metrics from a package's metadata and full version list."""
+    """Compute health metrics from a package's metadata and full version list.
+
+    `requested_version` is the release the user named (`add pkg --version X`); it is looked up so
+    the rules can judge that release rather than only the package.
+    """
     non_prerelease = [v for v in versions if not v.is_prerelease]
     versions_count = len(non_prerelease)
 
@@ -97,12 +144,58 @@ def build_package_insight(
         recommended_version=recommended_version,
         recommended_version_age_days=recommended_version_age_days,
         cooldown_days_remaining=cooldown_days_remaining,
+        registry=package.registry,
+        registry_status=package.registry_status,
+        deprecation_message=package.deprecation_message,
+        requested_release=next((v for v in versions if v.version == requested_version), None)
+        if requested_version
+        else None,
     )
 
 
 def evaluate_package_rules(insight: PackageInsight, settings: Settings) -> list[PackageWarning]:
     """Evaluate package health rules and return a list of warnings."""
     warnings: list[PackageWarning] = []
+
+    # A registry retiring a package is an explicit signal to look elsewhere, so these are critical
+    # (they stop `add` unless forced) and come first. The note names which registry said it and why.
+    note = registry_status_note(insight.registry_status, insight.registry, insight.deprecation_message)
+    package_retired = False
+    if note and insight.registry_status in END_OF_LIFE_STATUSES:
+        package_retired = True
+        warnings.append(
+            PackageWarning(
+                rule_id=RULE_PACKAGE_DEPRECATED,
+                message=f"{note[:1].upper()}{note[1:]} — look for an alternative",
+                severity="critical",
+            )
+        )
+    elif note and insight.registry_status == RegistryStatus.QUARANTINED:
+        warnings.append(
+            PackageWarning(
+                rule_id=RULE_PACKAGE_QUARANTINED,
+                message=f"{note[:1].upper()}{note[1:]} — the registry flags it as unsafe, do not install it",
+                severity="critical",
+            )
+        )
+
+    # Redundant once the whole package is retired: every release of it is then covered already.
+    release = insight.requested_release
+    if release is not None and release.is_deprecated and not package_retired:
+        where = f" on {REGISTRY_LABELS[insight.registry]}" if insight.registry in REGISTRY_LABELS else ""
+        reason = f': "{release.deprecation_message}"' if release.deprecation_message else ""
+        use_instead = (
+            f" — use {insight.recommended_version} instead"
+            if insight.recommended_version and insight.recommended_version != release.version
+            else ""
+        )
+        warnings.append(
+            PackageWarning(
+                rule_id=RULE_VERSION_DEPRECATED,
+                message=f"Version {release.version} is deprecated{where}{reason}{use_instead}",
+                severity="critical",
+            )
+        )
 
     if insight.versions_count == 1:
         warnings.append(
@@ -134,8 +227,17 @@ def fetch_prospective_detail(
     package_name: str,
     sources: AbstractProjectSources,
     settings: Settings,
+    requested_version: str | None = None,
 ) -> PackageDetailResult:
-    """Fetch health insights for a package not yet installed in the project."""
+    """Fetch health insights for a package not yet installed in the project.
+
+    Args:
+        package_name: The package being considered.
+        sources: The project's registry, CVE database and resolution settings.
+        settings: Cooldown and other scan settings.
+        requested_version: A release the user named explicitly; judged by the rules alongside the
+            package itself.
+    """
     package = sources.packages_registry.package_info(package_name)
     versions = list(sources.packages_registry.package_versions(package_name))
 
@@ -166,6 +268,10 @@ def fetch_prospective_detail(
         sources.packages_registry,
         {},
         allow_prerelease=sources.allow_prerelease,
+        # Choosing from scratch, a deprecated release is never the answer - unless the registry has
+        # retired the whole package, where every release is deprecated and there is no clean one to
+        # prefer. The package-level rule stops the add then, and a forced add gets the usual pick.
+        allow_deprecated=package.is_deprecated,
         cooldown_period=settings.cooldown_period,
         release_cutoff=sources.release_cutoff,
     )
@@ -179,6 +285,7 @@ def fetch_prospective_detail(
         settings=settings,
         recommended_version=recommended_version,
         recommended_version_age_days=recommended_age,
+        requested_version=requested_version,
     )
     warnings = evaluate_package_rules(insight, settings)
 
@@ -242,6 +349,7 @@ def build_installed_detail(
     package_name: str,
     sources: AbstractProjectSources,
     settings: Settings,
+    requested_version: str | None = None,
 ) -> PackageDetailResult:
     """Build a PackageDetailResult for a package already installed in the project.
 
@@ -315,6 +423,7 @@ def build_installed_detail(
         settings=settings,
         recommended_version=rec_version,
         recommended_version_age_days=rec_age,
+        requested_version=requested_version,
     )
     warnings = evaluate_package_rules(insight, settings)
 

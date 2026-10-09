@@ -357,7 +357,7 @@ def build_rows() -> tuple[list[Row], ActivityCoverage]:
             archived=repository.archived if repository else None,
             classifiers=package.classifiers if package else [],
             all_releases_yanked=package.all_releases_yanked if package else False,
-            npm_deprecated=package.is_deprecated if package else False,
+            registry_deprecated=package.is_deprecated if package else False,
             deprecation_message=package.deprecation_message if package else None,
             repo_description=repository.description if repository else None,
             summary=package.description if package else None,
