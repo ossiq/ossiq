@@ -31,6 +31,7 @@ function row(over: Partial<PackageMetrics>, rowOver: Partial<ReportRow> = {}): R
     isPrerelease: false,
     isYanked: false,
     isDeprecated: false,
+    registryStatus: null,
     isPackageUnpublished: false,
     ...rowOver,
   }
