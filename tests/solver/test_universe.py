@@ -113,6 +113,25 @@ class TestCandidateVersionFiltering:
         versions = [cv.version for cv in problem.candidates["pkg"]]
         assert "2.0.0a1" in versions
 
+    def test_deprecated_versions_stay_candidates_by_default(self) -> None:
+        # A scan meets deprecated releases deep in a tree; the solver only penalises them there.
+        registry = _make_registry({"pkg": [_pv("1.0.0"), _pv("2.0.0", deprecated=True)]})
+        problem = SolvablePool.build([_FakeDep("pkg", "1.0.0")], registry, {})
+        assert [cv.version for cv in problem.candidates["pkg"]] == ["2.0.0", "1.0.0"]
+
+    def test_deprecated_versions_excluded_when_disallowed(self) -> None:
+        registry = _make_registry({"pkg": [_pv("1.0.0"), _pv("2.0.0", deprecated=True), _pv("3.0.0", deprecated=True)]})
+        problem = SolvablePool.build([_FakeDep("pkg", "0.0.0")], registry, {}, allow_deprecated=False)
+        assert [cv.version for cv in problem.candidates["pkg"]] == ["1.0.0"]
+
+    def test_the_cap_applies_after_deprecated_versions_are_dropped(self) -> None:
+        # Filtering must precede CANDIDATE_CAP, or a run of deprecated newest releases would
+        # fill the pool and leave nothing clean to choose.
+        deprecated_run = [_pv(f"2.{minor}.0", deprecated=True) for minor in range(60)]
+        registry = _make_registry({"pkg": [_pv("1.0.0"), *deprecated_run]})
+        problem = SolvablePool.build([_FakeDep("pkg", "0.0.0")], registry, {}, allow_deprecated=False)
+        assert [cv.version for cv in problem.candidates["pkg"]] == ["1.0.0"]
+
     def test_versions_sorted_descending(self) -> None:
         registry = _make_registry({"pkg": [_pv("1.0.0"), _pv("3.0.0"), _pv("2.0.0")]})
         problem = SolvablePool.build([_FakeDep("pkg", "1.0.0")], registry, {})
