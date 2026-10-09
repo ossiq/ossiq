@@ -14,7 +14,7 @@
     "lint:oxlint": "oxlint . --fix",
     "lint:eslint": "eslint . --fix --cache",
     "format": "oxfmt src/",
-    "generate:types": "json2ts -i ../src/ossiq/ui/renderers/export/schemas/export_schema_v1.5.json -o src/types/report.ts",
+    "generate:types": "json2ts -i ../src/ossiq/ui/renderers/export/schemas/export_schema_v1.6.json -o src/types/report.ts",
     "inject": "node scripts/inject-dataset.js"
   },
   "dependencies": {
@@ -51,14 +51,16 @@
     "vite-plugin-vue-devtools": "~8.2.1",
     "vitest": "~5.0.3",
     "vue-tsc": "~3.3.11",
-    "npm-run-all2": "~9.0.3"
+    "npm-run-all2": "~9.0.3",
+    "@typescript-eslint/eslint-plugin": "~8.71.0",
+    "@typescript-eslint/parser": "~8.71.0",
+    "@vue/server-renderer": "~3.5.43"
   },
   "engines": {
     "node": "^20.19.0 || >=22.12.0"
   },
   "overrides": {
     "vite": "$vite",
-    "typescript": "$typescript",
     "@babel/plugin-transform-typescript@7.29.7": "7.29.9",
     "@csstools/css-parser-algorithms@4.0.0": "4.0.1",
     "@csstools/css-tokenizer@4.0.0": "4.0.2",
@@ -88,7 +90,6 @@
     "@csstools/css-syntax-patches-for-csstree@1.1.10": "1.1.14",
     "@vue/devtools-api@8.1.1": "8.2.1",
     "@vue/devtools-core@8.1.3": "8.2.1",
-    "baseline-browser-mapping@2.11.20": "2.11.26",
     "brace-expansion@5.0.9": "5.0.12",
     "browserslist@4.28.8": "4.29.3",
     "caniuse-lite@1.0.30001810": "1.0.30001814",
@@ -109,7 +110,13 @@
     "undici@7.29.0": "7.30.0",
     "unplugin@3.3.0": "3.4.0",
     "update-browserslist-db@1.3.2": "1.3.3",
-    "enhanced-resolve@5.24.5": "5.26.0"
+    "enhanced-resolve@5.24.5": "5.26.0",
+    "@vue/compiler-core@3.5.42 - 3.5.43": "3.5.43",
+    "@vue/compiler-dom@3.5.42 - 3.5.43": "3.5.43",
+    "@vue/compiler-sfc@3.5.42 - 3.5.43": "3.5.43",
+    "@vue/compiler-ssr@3.5.42 - 3.5.43": "3.5.43",
+    "@vue/shared@3.5.42 - 3.5.43": "3.5.43",
+    "baseline-browser-mapping@2.11.26": "2.11.27"
   },
   "ossiq:metadata": {
     "overrides": {
@@ -142,7 +149,6 @@
       "@csstools/css-syntax-patches-for-csstree@1.1.10": "1.1.14",
       "@vue/devtools-api@8.1.1": "8.2.1",
       "@vue/devtools-core@8.1.3": "8.2.1",
-      "baseline-browser-mapping@2.11.20": "2.11.26",
       "brace-expansion@5.0.9": "5.0.12",
       "browserslist@4.28.8": "4.29.3",
       "caniuse-lite@1.0.30001810": "1.0.30001814",
@@ -163,7 +169,13 @@
       "undici@7.29.0": "7.30.0",
       "unplugin@3.3.0": "3.4.0",
       "update-browserslist-db@1.3.2": "1.3.3",
-      "enhanced-resolve@5.24.5": "5.26.0"
+      "enhanced-resolve@5.24.5": "5.26.0",
+      "@vue/compiler-core@3.5.42 - 3.5.43": "3.5.43",
+      "@vue/compiler-dom@3.5.42 - 3.5.43": "3.5.43",
+      "@vue/compiler-sfc@3.5.42 - 3.5.43": "3.5.43",
+      "@vue/compiler-ssr@3.5.42 - 3.5.43": "3.5.43",
+      "@vue/shared@3.5.42 - 3.5.43": "3.5.43",
+      "baseline-browser-mapping@2.11.26": "2.11.27"
     }
   }
 }
