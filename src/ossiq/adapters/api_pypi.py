@@ -2,6 +2,7 @@
 Implementation of Package Registry API client for PyPI
 """
 
+import logging
 from collections.abc import Iterable
 
 import requests
@@ -12,9 +13,9 @@ from ossiq.adapters.api_interfaces import AbstractPackageRegistryApi
 from ossiq.adapters.detectors import is_repository_root_url
 from ossiq.adapters.package_managers.api_pypi import batch_fetch_requires_dist
 from ossiq.clients.batch import BatchClient
-from ossiq.clients.client_pypi import PypiBatchStrategy
+from ossiq.clients.client_pypi import PypiBatchStrategy, PypiProjectStatusBatchStrategy
 from ossiq.clients.common import get_user_agent
-from ossiq.domain.common import ConstraintType, ProjectPackagesRegistry
+from ossiq.domain.common import ConstraintType, ProjectPackagesRegistry, RegistryStatus
 from ossiq.domain.exceptions import UnableLoadPackage
 from ossiq.domain.package import Package
 from ossiq.domain.requirement_scope import RequirementScope
@@ -35,7 +36,33 @@ from ossiq.settings import Settings
 from ossiq.solver.pep508 import applicable_requirements
 from ossiq.timeutil import parse_iso_datetime
 
+logger = logging.getLogger(__name__)
+
 PYPI_REGISTRY_FRONT = "https://pypi.org"
+
+
+def pypi_registry_status(project_status: dict[str, str] | None) -> RegistryStatus | None:
+    """Map a parsed PEP 792 project status onto `RegistryStatus`.
+
+    Args:
+        project_status: The `{"status": ..., "reason"?: ...}` object from the Simple API, or None
+            when that request failed.
+
+    Returns:
+        `ACTIVE` when the index declares no status (PEP 792 lets it omit one for an active
+        project), `None` when the request failed or the status is not one this code knows. Not
+        guessing `ACTIVE` for an unknown value keeps a future status from reading as healthy.
+    """
+    if project_status is None:
+        return None
+    declared = project_status.get("status")
+    if declared is None:
+        return RegistryStatus.ACTIVE
+    try:
+        return RegistryStatus(declared)
+    except ValueError:
+        logger.debug("Unrecognised PEP 792 project status %r", declared)
+        return None
 
 
 def is_valid_pep440_version(version_str: str) -> bool:
@@ -265,6 +292,10 @@ class PackageRegistryApiPypi(AbstractPackageRegistryApi):
         self._version_requires_cache: dict[tuple[str, str], dict[str, str]] = {}
         self._strategy = PypiBatchStrategy(self.session)
         self._batch_client = BatchClient(self._strategy)
+        # PEP 792 status per package, from the Simple API. A name missing here means the request
+        # failed, which is not the same as the index saying nothing (that is an empty dict).
+        self._project_status: dict[str, dict[str, str]] = {}
+        self._status_batch_client = BatchClient(PypiProjectStatusBatchStrategy(self.session))
 
     def __repr__(self):
         return "<PackageRegistryApiPypi instance>"
@@ -312,7 +343,7 @@ class PackageRegistryApiPypi(AbstractPackageRegistryApi):
         return max(stable)[1] if stable else info_version
 
     @staticmethod
-    def map_raw_to_package(name: str, data: dict) -> Package:
+    def map_raw_to_package(name: str, data: dict, project_status: dict[str, str] | None = None) -> Package:
         info = data["info"]
         return Package(
             registry=ProjectPackagesRegistry.PYPI,
@@ -329,6 +360,8 @@ class PackageRegistryApiPypi(AbstractPackageRegistryApi):
             package_url=info.get("package_url"),
             classifiers=info.get("classifiers") or [],
             all_releases_yanked=PackageRegistryApiPypi.all_releases_yanked(data.get("releases") or {}),
+            registry_status=pypi_registry_status(project_status),
+            deprecation_message=(project_status or {}).get("reason"),
             # license intentionally omitted — PyPI classifiers map is unreliable
             # (e.g. "BSD License" → BSD-2-Clause, wrong for BSD-3-Clause packages like Django).
             # ScanRecord falls back to prefetched_repository.license (GitHub) which is accurate.
@@ -363,7 +396,26 @@ class PackageRegistryApiPypi(AbstractPackageRegistryApi):
             if name not in self._raw_cache:
                 raise UnableLoadPackage(name)
 
-        return {name: self.map_raw_to_package(name, self._raw_cache[name]) for name in names}
+        self.fetch_project_statuses([n for n in names_to_fetch if n in self._raw_cache])
+
+        return {
+            name: self.map_raw_to_package(name, self._raw_cache[name], self._project_status.get(name)) for name in names
+        }
+
+    def fetch_project_statuses(self, names: list[str]) -> None:
+        """Fetch PEP 792 project status for packages whose JSON metadata was just loaded.
+
+        The legacy JSON API the rest of this adapter reads has no status, so it costs one more
+        small request per package. A failure is not fatal: the package keeps no status, which
+        reads as "the registry did not say" rather than "active".
+        """
+        if not names:
+            return
+        for chunk_data in self._status_batch_client.run_batch(names):
+            self._project_status.update(chunk_data)
+        unavailable = [name for name in names if name not in self._project_status]
+        if unavailable:
+            logger.debug("PEP 792 project status unavailable for %s", ", ".join(unavailable))
 
     def package_versions(self, package_name: str) -> Iterable[PackageVersion]:
         """

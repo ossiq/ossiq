@@ -18,9 +18,10 @@ from ossiq.adapters.api_pypi import (
     earliest_upload_iso,
     get_repo_url,
     is_valid_pep440_version,
+    pypi_registry_status,
 )
 from ossiq.clients.batch import BatchClient
-from ossiq.domain.common import ConstraintType, ProjectPackagesRegistry
+from ossiq.domain.common import ConstraintType, ProjectPackagesRegistry, RegistryStatus
 from ossiq.domain.exceptions import UnableLoadPackage
 from ossiq.domain.requirement_scope import RequirementScope
 from ossiq.domain.version import (
@@ -345,6 +346,108 @@ class TestPackageInfosBatch:
             result = pypi_api.packages_info_batch(["requests"])
 
         assert result["requests"].latest_version == "2.31.0"
+
+
+def raw_project(name: str = "demo") -> dict:
+    return {
+        "info": {"name": name, "version": "1.0.0", "project_urls": {}, "classifiers": []},
+        "releases": {"1.0.0": [{"yanked": False}]},
+    }
+
+
+class TestRegistryStatus:
+    """PEP 792 project status: the legacy JSON API has none, so it is a second request per package."""
+
+    @staticmethod
+    def load(pypi_api, name: str, status_chunks: list[dict]):
+        """Run packages_info_batch with the JSON and status batches patched on this instance."""
+        with (
+            patch.object(pypi_api._batch_client, "run_batch", return_value=iter([{name: raw_project(name)}])),
+            patch.object(pypi_api._status_batch_client, "run_batch", return_value=iter(status_chunks)) as status_batch,
+        ):
+            package = pypi_api.packages_info_batch([name])[name]
+        return package, status_batch
+
+    def test_an_archived_project_is_archived_and_counts_as_deprecated(self, pypi_api):
+        package, _ = self.load(pypi_api, "typed-ast", [{"typed-ast": {"status": "archived"}}])
+
+        assert package.registry_status == RegistryStatus.ARCHIVED
+        assert package.is_deprecated is True
+
+    def test_a_deprecated_project_carries_the_indexs_reason(self, pypi_api):
+        package, _ = self.load(
+            pypi_api, "old-lib", [{"old-lib": {"status": "deprecated", "reason": "Use new-lib instead"}}]
+        )
+
+        assert package.registry_status == RegistryStatus.DEPRECATED
+        assert package.deprecation_message == "Use new-lib instead"
+
+    def test_a_quarantined_project_is_not_deprecated(self, pypi_api):
+        package, _ = self.load(pypi_api, "evil", [{"evil": {"status": "quarantined"}}])
+
+        assert package.registry_status == RegistryStatus.QUARANTINED
+        assert package.is_deprecated is False
+
+    def test_a_page_with_no_status_means_active(self, pypi_api):
+        # PEP 792 lets the index omit the status for an active project.
+        package, _ = self.load(pypi_api, "demo", [{"demo": {}}])
+
+        assert package.registry_status == RegistryStatus.ACTIVE
+        assert package.deprecation_message is None
+
+    def test_a_status_this_code_does_not_know_is_unjudged_not_active(self, pypi_api):
+        package, _ = self.load(pypi_api, "demo", [{"demo": {"status": "frozen"}}])
+
+        assert package.registry_status is None
+
+    def test_a_failed_status_request_leaves_the_package_unjudged_not_active(self, pypi_api):
+        # The JSON metadata loaded fine; only the extra request was dropped.
+        package, _ = self.load(pypi_api, "demo", [])
+
+        assert package.registry_status is None
+        assert package.is_deprecated is False
+        assert package.latest_version == "1.0.0"
+
+    def test_only_newly_fetched_packages_are_asked_for_their_status(self, pypi_api):
+        _, status_batch = self.load(pypi_api, "demo", [{"demo": {"status": "active"}}])
+        status_batch.assert_called_once_with(["demo"])
+
+        with (
+            patch.object(pypi_api._batch_client, "run_batch", return_value=iter([])),
+            patch.object(pypi_api._status_batch_client, "run_batch") as again,
+        ):
+            package = pypi_api.packages_info_batch(["demo"])["demo"]
+
+        again.assert_not_called()
+        # The first answer is remembered, not asked for again.
+        assert package.registry_status == RegistryStatus.ACTIVE
+
+    def test_a_package_that_failed_to_load_is_never_asked_for_a_status(self, pypi_api):
+        with (
+            patch.object(pypi_api._batch_client, "run_batch", return_value=iter([])),
+            patch.object(pypi_api._status_batch_client, "run_batch") as status_batch,
+        ):
+            with pytest.raises(UnableLoadPackage):
+                pypi_api.packages_info_batch(["missing"])
+
+        status_batch.assert_not_called()
+
+
+class TestPypiRegistryStatus:
+    @pytest.mark.parametrize(
+        ("project_status", "expected"),
+        [
+            (None, None),
+            ({}, RegistryStatus.ACTIVE),
+            ({"status": "active"}, RegistryStatus.ACTIVE),
+            ({"status": "deprecated"}, RegistryStatus.DEPRECATED),
+            ({"status": "archived", "reason": "done"}, RegistryStatus.ARCHIVED),
+            ({"status": "quarantined"}, RegistryStatus.QUARANTINED),
+            ({"status": "something-new"}, None),
+        ],
+    )
+    def test_maps_the_parsed_status(self, project_status, expected):
+        assert pypi_registry_status(project_status) == expected
 
 
 class TestLatestStableVersion:

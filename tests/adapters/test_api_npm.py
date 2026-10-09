@@ -16,7 +16,7 @@ from ossiq.adapters.api_npm import (
     npm_peer_dependencies,
 )
 from ossiq.clients.batch import BatchClient
-from ossiq.domain.common import ModuleSystem, ProjectPackagesRegistry
+from ossiq.domain.common import ModuleSystem, ProjectPackagesRegistry, RegistryStatus
 from ossiq.domain.exceptions import UnableLoadPackage
 from ossiq.domain.version import (
     VERSION_DIFF_BUILD,
@@ -512,6 +512,63 @@ class TestPackageLicenseAndFlags:
         v090 = next(v for v in versions if v.version == "0.9.0")
         assert v100.is_deprecated is True
         assert v090.is_deprecated is False
+
+    def test_deprecated_version_keeps_the_maintainers_message(self, npm_api, mock_npm_response):
+        mock_npm_response.set_response(
+            "pkg",
+            {
+                "name": "pkg",
+                "dist-tags": {"latest": "1.0.0"},
+                "versions": {
+                    "1.0.0": {"deprecated": "Use new-pkg"},
+                    "0.9.0": {"deprecated": ""},
+                    "0.8.0": {},
+                },
+            },
+        )
+        by_version = {v.version: v for v in npm_api.package_versions("pkg")}
+
+        assert by_version["1.0.0"].deprecation_message == "Use new-pkg"
+        # npm clears a deprecation by publishing the empty string.
+        assert by_version["0.9.0"].is_deprecated is False
+        assert by_version["0.9.0"].deprecation_message is None
+        assert by_version["0.8.0"].deprecation_message is None
+
+
+class TestPackageRegistryStatus:
+    """npm deprecates releases, never packages; the package's status follows its `latest` release."""
+
+    @staticmethod
+    def package(npm_api, versions: dict, latest: str | None = "2.0.0"):
+        raw = {"pkg": {"name": "pkg", "dist-tags": {"latest": latest} if latest else {}, "versions": versions}}
+        with patch.object(BatchClient, "run_batch", return_value=iter([raw])):
+            return npm_api.packages_info_batch(["pkg"])["pkg"]
+
+    def test_a_deprecated_latest_release_makes_the_package_deprecated(self, npm_api):
+        package = self.package(npm_api, {"1.0.0": {}, "2.0.0": {"deprecated": "use String.prototype.padStart()"}})
+
+        assert package.registry_status == RegistryStatus.DEPRECATED
+        assert package.is_deprecated is True
+        assert package.deprecation_message == "use String.prototype.padStart()"
+
+    def test_an_active_latest_release_keeps_the_package_active_though_old_releases_are_deprecated(self, npm_api):
+        # uuid's shape: the old majors say "update to the latest", the latest is fine.
+        package = self.package(npm_api, {"1.0.0": {"deprecated": "update to the latest"}, "2.0.0": {}})
+
+        assert package.registry_status == RegistryStatus.ACTIVE
+        assert package.is_deprecated is False
+        assert package.deprecation_message is None
+
+    def test_an_emptied_deprecation_is_active(self, npm_api):
+        package = self.package(npm_api, {"2.0.0": {"deprecated": ""}})
+
+        assert package.registry_status == RegistryStatus.ACTIVE
+
+    def test_a_package_with_no_latest_release_is_unjudged_not_active(self, npm_api):
+        package = self.package(npm_api, {"2.0.0": {"deprecated": "gone"}}, latest=None)
+
+        assert package.registry_status is None
+        assert package.is_deprecated is False
 
     def test_package_is_unpublished_when_time_key_present(self, npm_api):
         raw = {

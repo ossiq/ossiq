@@ -900,6 +900,43 @@ class TestBatchClientResultMapping:
         assert process_called == []
 
 
+class TestBatchStrategyDecodeResponse:
+    """`decode_response` is how a strategy reads a body that is not JSON."""
+
+    def test_defaults_to_the_json_body(self):
+        resp = make_response(200, {"raw": True})
+
+        assert make_strategy().decode_response(resp) == {"raw": True}
+
+    def test_an_override_replaces_the_json_decode(self):
+        session = MagicMock()
+        resp = make_response(200, {"unused": True})
+        resp.content = b"<html>head</html>"
+        session.post.return_value = resp
+
+        class TextStrategy(FakeBatchStrategy):
+            def decode_response(self, resp: requests.Response) -> str:
+                return resp.content.decode()
+
+        results = collect(make_client(TextStrategy(session=session)).run_batch([1]))
+
+        assert results == ["<html>head</html>"]
+        resp.json.assert_not_called()
+
+    def test_an_override_that_raises_value_error_drops_the_chunk_as_an_empty_response(self):
+        session = MagicMock()
+        session.post.return_value = make_response(200, {})
+
+        class UnreadableStrategy(FakeBatchStrategy):
+            def decode_response(self, resp: requests.Response) -> str:
+                raise ValueError("not what was asked for")
+
+        client = make_client(UnreadableStrategy(session=session))
+
+        assert collect(client.run_batch([1])) == []
+        assert client.last_summary.failures == ((DegradeReason.EMPTY_RESPONSE, 1),)
+
+
 # ---------------------------------------------------------------------------
 # G. BatchRunSummary.status classification (B4)
 # ---------------------------------------------------------------------------
