@@ -1,6 +1,6 @@
 # OSS IQ
 
-> An open-source CLI tool that produces a single, actionable dependency health score for software projects. Analyzes version lag, CVEs, transitive dependencies, and maintainer activity across the entire dependency graph.
+> An open-source CLI tool that reads a Python or JavaScript project's dependencies and reports, for each package, a next action, version drift, known CVEs and maintenance state across the whole dependency graph. It proposes update plans and can apply them.
 
 ## What OSS IQ Does
 
@@ -8,11 +8,11 @@ OSS IQ is a Software Composition Analysis (SCA) tool for platform engineers and 
 
 - Scans project manifest files (package.json with package-lock.json; pyproject.toml with uv.lock; pylock.toml; requirements.txt)
 - Cross-references against public package registries (npm, PyPI), CVE databases, and GitHub repository signals
-- Produces a dependency health score with sub-scores per package (version lag, security, maintenance)
+- Reports a next action per package, plus a repository-stability verdict (`retain`, `patch`, `refactor` or `evict`) built from exploit probability and upstream maintenance
 - Supports JavaScript (npm) and Python (uv, pip lock, pip) ecosystems
 - Outputs reports as terminal console, HTML, JSON, or a compact agent format
 - Exposes the same decisions to coding agents through a SKILL.md and a local MCP server (`ossiq install skills`)
-- Suitable for use in CI/CD quality gates
+- Findings never change the exit code; gate CI with your own check over the `ossiq export` JSON
 
 ## Install and log in
 
@@ -23,7 +23,7 @@ OSS IQ is a Software Composition Analysis (SCA) tool for platform engineers and 
 
 - [Getting Started](https://ossiq.dev/getting-started.html): Installation, first scan, and basic usage
 - [Log in to GitHub](https://ossiq.dev/how-to/github-login.html): Device-flow login, CI tokens, and troubleshooting
-- [Explanation](https://ossiq.dev/explanation/index.html): How scores are calculated, methodology, and concepts
+- [Explanation](https://ossiq.dev/explanation/index.html): How recommendations are made, repository stability, and concepts
 - [Reference](https://ossiq.dev/reference.html): Full CLI reference and configuration options
 - [Tutorials](https://ossiq.dev/tutorials/): Step-by-step guides for common use cases
 

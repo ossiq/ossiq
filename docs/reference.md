@@ -43,6 +43,7 @@ Aggregated output of a single scan run. Returned by `scan()`.
 | `manifest_lock_divergent` | `list[str]` | Package names where the manifest and lockfile disagree |
 | `upgrade_paths` | `list[UpgradePath]` | Cross-constraint widening opportunities (library projects only) |
 | `ignored_packages` | `list[IgnoredDependency]` | Packages excluded from the scan (git/URL-hosted, or via `--ignore`) |
+| `peer_repairs` | `list[PeerRepair]` | Peers installed only out of their requirers' reach, and how `apply` puts them back (npm only; see [Unresolved peers](#unresolved-peers)) |
 
 ### `ScanRecord`
 
@@ -81,6 +82,7 @@ Per-package analysis record. Each entry in the `ScanResult` lists above is one `
 | `update_transitive_impacts` | `list[TransitiveImpact]` | How updating this package affects transitive deps |
 | `peer_requirements` | `list[PeerRequirement]` | All peer requirements other packages place on this one |
 | `peer_violations` | `list[PeerRequirement]` | Peer requirements the installed version fails to satisfy |
+| `unresolved_peers` | `list[UnresolvedPeer]` | Peers this package declares that nothing installed where it looks can satisfy (npm only; see [Unresolved peers](#unresolved-peers)) |
 | `constraint_conflict` | `list[str]` | Conflicting constraints that blocked the solver |
 | `purl` | `str \| None` | Package URL (PURL) identifier |
 | `license` | `list[str] \| None` | SPDX license identifiers |
@@ -263,6 +265,7 @@ The distinction matters: a `constraint-dependencies` entry cooperates with the n
 
 Both lists are read from `pyproject.toml` at scan time. Matched packages in the resolved dependency tree are tagged accordingly, with `source_file` set to `pyproject.toml`.
 
+(npm-overrides)=
 #### npm — `overrides`
 
 npm's [`overrides`](https://docs.npmjs.com/cli/v9/configuring-npm/package-json#overrides) field in `package.json` forces a specific version (or range) for a matching package anywhere in the dependency tree, regardless of what each package's own `dependencies` declaration says.
@@ -288,6 +291,10 @@ The `scope_path` matters for remediation: a scoped override targeting `dot-prop`
 **A rule may be keyed to a version range.** `"minimatch@^9.0.0": "9.0.9"` forces only the edges whose range overlaps `^9.0.0`; a nested `minimatch` 10 elsewhere in the tree is left alone. OSS IQ marks each installed copy the rule governs — one the version sits inside the key of, or already at the value of — and records the rule's key and value on `ConstraintSource` (`override_key`, `override_value`). A `$name` value follows the root dependency of that name.
 
 **Overrides decide whether an update is possible.** npm nests a further copy of a package when a dependent's range cannot share the installed one, so an ordinary requirement never stops an update. An override does: it forces one version whatever the dependent declares. When a candidate needs a version an override *you* wrote rules out, the release is rejected and the override is named (`@vue/shared is held by an override in package.json`), and `plan` lists it under *Held by overrides you wrote*. OSS IQ never rewrites those; update or remove them to let the release through. An override OSS IQ wrote itself (recorded under `ossiq:metadata`) moves with the candidate instead, together with every other override that candidate's packages pin to each other.
+
+**Peers are held to what the package declares, overrides or not.** npm applies `overrides` to peer edges too. With `"typescript": "$typescript"`, npm installs the version your manifest names beside `@typescript-eslint/*` even when their peer range stops below it, and reports no `ERESOLVE`: the override silences npm's check, it does not make the pair compatible. OSS IQ reads the ranges packages *declare*, not the ones an override leaves them with, so it keeps refusing that release (see *Held by peer dependencies* in the [recommendation catalogue](recommendations/catalogue.md#the-non-recommendations)). An override whose only job was to quiet that check can be removed.
+
+**Family moves are keyed to a range.** When OSS IQ moves a whole lockstep family it writes the key as the range from the old version to the new, `"@vue/shared@3.5.42 - 3.5.43": "3.5.43"`. A key naming only the old version would match nothing once every member of the family asks for the new one, and npm would nest further copies instead of moving the hoisted one.
 
 **Matching is by exact tree name.** An override entry is matched against packages by the literal name npm registered them under in the lockfile — not the package's canonical registry name. This matters for [package aliases](#npm-package-aliases): an override keyed `"chalk": "4.1.2"` tags a plain `chalk` dependency, but does nothing to `"chalk-legacy": "npm:chalk@4.1.2"`, because that alias is registered as `chalk-legacy`, not `chalk`. To override an aliased package, key the `overrides` entry with the alias name.
 
@@ -350,6 +357,35 @@ That per-alias fitting also applies to the solver's [cooldown](#update-solver): 
     the native package manager at apply time, outside the cooldown. The plan projects their version
     and age and flags entries younger than the cooldown with `⚠`. Under `--cutoff-date`, projections
     exclude versions published after the cutoff for deterministic time-travel runs.
+-   **Peer dependencies (npm).** Every release declares its own `peerDependencies`, and which of
+    them are optional; the solver reads them from the registry metadata the scan already fetched,
+    so there are no extra requests. A release is refused when:
+
+    - an installed package peer-requires this one outside the release's version, unless that
+      package moves in the same plan. `vue` pins `@vue/server-renderer` to its own version and
+      `@vue/server-renderer` peer-pins `vue` back, so the two move together or not at all;
+    - its own peers cannot be met by what the tree will hold. A peer already installed must be
+      in range; a *required* peer that is not installed is installed by npm, so it must exist,
+      and so must whatever *it* peer-requires (four levels deep). An *optional* peer that is not
+      installed binds nothing, and one that is installed is enforced, as npm enforces it;
+    - two direct picks would end on versions that peer-require each other out, or a pick would
+      contradict where a transitive or `--ignore`d package ends up. The pick that conflicts gives
+      way, to the newest release that does not.
+
+    A range the installed versions already violate is existing drift, not a reason to refuse a
+    bump. The refusal is named: `↳ 7.0.2 rejected: @typescript-eslint/utils peer-requires typescript`,
+    and the plan lists the package under *Held by peer dependencies*. PyPI has no peers, so none
+    of this applies there.
+-   **Lockstep families (npm).** When a package pins its dependencies exactly, bumping it moves
+    them too. If an older copy of one of them stays hoisted because something else still wants it,
+    npm nests the new family under the bumped package and leaves two copies of each side by side.
+    That is installable but wrong for anything that loads the hoisted copy: this is how
+    `@vue/test-utils` lost `@vue/server-renderer`. Where the pinned copy has to move, the plan moves
+    it in place with an `overrides` entry keyed to the copy instead of nesting a second one, and
+    refuses the bump, naming the specs, when another user of the shared copy cannot take the new
+    version.
+-   **Peer repairs (npm).** An already-split tree is repaired the same way; see
+    [Unresolved peers](#unresolved-peers).
 -   **Forced versions (`--override pkg==version`).** Bypass the solver and the cooldown for one
     package. Persistence per ecosystem:
 
@@ -375,8 +411,8 @@ pkg==version` still wins over both when given for the same package.
 
 Every surface echoes which tier answered: `status`/`plan`/`html` print it in the header, `export`
 writes it to `metadata.update_strategy` (plus a per-package `strategy` object on `PackageMetrics`
-carrying `motives` / `withheld_reason` / `requires_widening` / `escalation`, null when the selector
-never ran for that package), and `--format agent` / both MCP tools carry
+carrying `motives` / `withheld_reason` / `requires_widening` / `escalation` / `widening_authorized`,
+null when the selector never ran for that package), and `--format agent` / both MCP tools carry
 `update_strategy` and a per-entry `motives`. A withheld package's `plan`/`status` output names the
 lowest tier that would move it ("N more updates available under --update-strategy X").
 
@@ -595,7 +631,7 @@ For full Explorer interaction details, see [EXPLORER.md](https://github.com/ossi
 
 #### JSON Export
 
-The `export` command writes a single `.json` file conforming to [export schema v1.5](../src/ossiq/ui/renderers/export/schemas/export_schema_v1.5.json). The root object contains:
+The `export` command writes a single `.json` file conforming to [export schema v1.6](../src/ossiq/ui/renderers/export/schemas/export_schema_v1.6.json) (the latest; `--schema-version 1.5` still produces a [v1.5](../src/ossiq/ui/renderers/export/schemas/export_schema_v1.5.json) document). The root object contains:
 
 | Key | Contents |
 |---|---|
@@ -606,11 +642,13 @@ The `export` command writes a single `.json` file conforming to [export schema v
 | `development_packages` | Array of `PackageMetrics` |
 | `transitive_packages` | Array of `PackageMetrics` with `dependency_path` set |
 
+Since v1.6, npm projects also report peer dependencies that cannot be loaded: every `PackageMetrics` entry (production, development and transitive) may carry `unresolved_peers`, each with `package_name`, `spec`, `optional` and `installed_elsewhere`. A peer is unresolved when nothing installed *where the package looks for it* satisfies it: npm resolves a peer from the requirer's own location, so a copy nested under some other package does not count. The root object carries `peer_repairs`, which is how `ossiq apply` puts such peers back: `package_name` and `suggested_constraint` to add to the manifest, `is_dev_dependency`, the `requirers` that need it, and the `family_moves` (stale copies of its exact-pinned family that move with it, as keyed overrides). Both are empty for PyPI projects and absent from a document pinned to v1.5.
+
 Since v1.5, every `PackageMetrics` entry (production, development, and transitive) also carries `epss` (the highest EPSS among the package's CVEs), `runs_code_at_install` with `install_execution_reason`, and the maintenance-state fields: `maintenance_state`, `maintenance_risk` (P(abandoned) + P(deprecated), the value that feeds triage), `maintenance_coverage` (fraction of the five maintenance observations that were available), `gap_cv`, `median_gap_days`, `silence_days`, `silence_p`, `commits_sampled`, `span_days`, `flow_trend`, `deprecation_signals`, `deprecation_successor`, `days_since_push`, `archived`, and `dependency_health_action` (the triage matrix's advisory verdict). Any of them may be `null` when the underlying signal could not be measured — that means "unknown," never "no risk." See [Repository stability](explanation/repository-stability.md) for what each field means.
 
 Every `PackageMetrics` entry also carries the [version ladder](#version-ladder): `latest_in_range` and `latest_in_major` (both `null` only when undeterminable, equal to `installed_version` when that rung has nothing newer), `latest_preserving_module_system` (the newest release code on the installed module system can still load, whatever the runtime) with `module_system_note` (what the scan's runtime means for the package's ESM-only releases), plus `recommended_from_rung` on production/development entries naming which rung `recommended_version` came from (`solver`, `in_range`, `in_major`, or `latest`). `TransitivePackageMetrics` carries `latest_in_range`/`latest_in_major` but not `recommended_from_rung`; on transitive entries the two rung fields are omitted entirely (rather than `null`) when undeterminable, per the schema's existing null-dropping convention for that array.
 
-Every entry also carries `next_action`: the same label the status table's **What's Next** column and the HTML report show, so a consumer never has to re-derive it and cannot arrive at a different answer (`null`, and omitted on transitive entries, when nothing is due). Note that the `--format agent` payload's field of the same name applies two further escalations on top of this label — a CVE with no available fix, and an installed version gone from the registry — so the two can legitimately differ. Production and development entries additionally carry `requires_constraint_widening`: `true` when `recommended_from_rung` is `in_major` or `latest`, meaning the target lies outside the declared range and `ossiq apply` will not write it.
+Every entry also carries `next_action`: the same label the status table's **What's Next** column and the HTML report show, so a consumer never has to re-derive it and cannot arrive at a different answer (`null`, and omitted on transitive entries, when nothing is due). Note that the `--format agent` payload's field of the same name applies two further escalations on top of this label — a CVE with no available fix, and an installed version gone from the registry — so the two can legitimately differ. Production and development entries additionally carry `requires_constraint_widening`: `true` when `recommended_from_rung` is `in_major` or `latest`, meaning the target lies outside the declared range. `ossiq apply` does not write it unless the package's tier is `latest` or `cutting-edge`, or `strategy.widening_authorized` (v1.6 and later) is `true` because a CVE or end-of-life motive carried the pick past its tier.
 
 (console-reports)=
 ## Console Reports
@@ -635,7 +673,7 @@ The report has up to six parts, printed in this order. Parts with nothing to sho
 2. **Dependency table** — one row per direct dependency, grouped into *Production* and *Development* sections.
 3. **Transitive Recommendations** — transitive packages the solver recommends updating.
 4. **New transitive dependencies** — packages that would enter the tree if the recommended updates were applied.
-5. **Peer Constraint Status** — peer dependency requirements and whether the installed versions satisfy them (npm projects only; violations only unless `--full`).
+5. **Peer Constraint Status** — peer dependency requirements and whether the installed versions satisfy them (npm projects only; violations only unless `--full`). Peers that are installed but out of reach are not here: they appear as [unresolved-peer rows](#unresolved-peers) under the package that declares them.
 6. **Constraint Widening Opportunities** — for library projects, dependency ranges that could safely be widened.
 
 #### Dependency table
@@ -724,6 +762,30 @@ Recovery paths, from most to least preferred:
 3. **Remove or adjust the override** when one is the cause. See [Constraint Provenance](#constraint-provenance) for how overrides are tracked.
 4. **Accept it knowingly.** If you have verified the pair works together, you can leave it — the row keeps appearing on every scan as a standing reminder.
 
+(unresolved-peers)=
+#### Unresolved peers
+
+A peer requirement can be *satisfied* (the table above) and still be *unreachable*. npm resolves a peer from the requiring package's own location, looking in its own `node_modules` and then up the tree, so a copy nested under some other package does not count. When the only copy of a peer sits where its requirer cannot see it, the requirer fails when it loads, for example `Cannot find module '@vue/server-renderer'`, although no version range anywhere is violated. A lockfile does not show this as a conflict, which is why OSS IQ reports it separately.
+
+It usually comes from bumping a package that pins its dependencies exactly. After `vue` moved from 3.5.42 to 3.5.43, npm kept the 3.5.42 copies hoisted for other packages, nested the whole 3.5.43 family under `vue/node_modules/`, and pruned the hoisted `@vue/server-renderer`: `@vue/test-utils` only declares it as an *optional* peer, and an optional peer never keeps a package installed.
+
+An unresolved peer is shown as a `↳` row under the package that declares it, in every mode (not only `--full`), and a package that has one stays on the default table even when it is otherwise up to date:
+
+| Row | Meaning |
+|---|---|
+| `↳ missing peer host ^1: nothing installed where this package looks for it` | A required peer that npm should have installed is not installed where the package looks. |
+| `↳ optional peer @vue/server-renderer 3.x is installed only out of reach (3.5.43); this package cannot load it` | A copy exists, but only nested under another package. |
+
+The same entries are listed under **Unresolved Peers** in [`ossiq info`](#info-package-report) and exported as `unresolved_peers` (schema 1.6).
+
+An *optional* peer that is installed nowhere is normal and is **not** reported. It is reported only when a copy exists out of reach, because that is the layout in which a package that imports it unguarded breaks.
+
+**What `plan` and `apply` do about it.** When an out-of-reach copy satisfies the range the package declares, the plan proposes a repair and lists it under *Repairs unresolved peers*: the peer is added to `devDependencies` (or `dependencies`, when a production package needs it) at a range in the style of the family it belongs to, tilde by default, so that npm places it where its requirers resolve it. The stale hoisted copies of its exact-pinned family move with it, each as a keyed `overrides` entry (see [npm — `overrides`](#npm-overrides)); one that another package still pins to the old version is left alone. A peer already declared anywhere in your manifest is never rewritten. `ossiq apply` writes the repair; a second `ossiq plan` then reports nothing.
+
+By hand, the same repair is `npm install --save-dev @vue/server-renderer@~3.5.43`, plus an `overrides` entry for each stale copy that blocks the hoist.
+
+When no out-of-reach copy satisfies the declared range there is nothing OSS IQ can repair: the row stays, and the fix is to update the package that declares the peer, or the peer itself.
+
 #### Constraint Widening Opportunities
 
 Shown for library projects only: dependency ranges in your manifest whose upper bound excludes versions that already exist and resolve cleanly.
@@ -750,6 +812,7 @@ Your options, roughly in order:
 3. **Force the version:** `ossiq apply --override pkg==version` bypasses the solver for one package. You take on the compatibility risk the constraint was protecting against; the override persists in your manifest and is reported as `OVERRIDE` on every subsequent scan until removed (see [Update Solver](#update-solver)).
 4. **Stay put deliberately.** The current version keeps resolving. The report keeps showing the lag, so the debt stays visible instead of silent.
 
+(info-package-report)=
 ### `info` — package report
 
 ```bash
@@ -809,6 +872,8 @@ If the version you expected is not the recommendation, this section names the ex
 
 **Peer Requirements.** Every peer constraint other packages place on this one, with the same markers as the status report's [Peer Constraint Status](#peer-constraint-status) table: `✓` satisfied, `✓ … via override`, `✗` violated (the installed version is shown in red next to the violated range). The recovery paths are the same too.
 
+**Unresolved Peers.** Peers this package declares that nothing within its reach satisfies, each with its range, whether it is optional, and the versions installed out of reach (or `not installed`). Drawn only when there are any; see [Unresolved peers](#unresolved-peers).
+
 **Security Advisories.** Known vulnerabilities in the installed version of *this* package: severity, advisory ID, source database, and summary — or `✓ No known vulnerabilities`.
 
 **Transitive CVEs.** Vulnerabilities in packages *downstream* of this one — exposure you carry because this package pulls the affected ones in. Grouped per affected `package@version`, worst severity first. Updating this package may or may not resolve them; run `ossiq info <affected package>` to see what constrains each one.
@@ -831,11 +896,13 @@ Both commands accept `--format agent`, which replaces the human report with a co
 Every decision leads with a `next_action` string:
 
 - **add** (`info` / `add`): `install`, `install with caution`, or `do not install`.
-- **update** (`status`): per entry — `Check for the Fix`, `Find alternative`, `Consider alternative`, `Check Release Notes`, or `Update Immediately`. The top-level `next_action` is the most urgent of those, or `no action needed` when the `updates` list is empty.
+- **update** (`status`): per entry — `Check for the Fix`, `Find alternative`, `Consider alternative`, `Check Release Notes`, or `Update Immediately`. The top-level `next_action` is the most urgent of those, or `no action needed` when no entry has an action due.
 
 Each entry's `dependency_health` object (the triage matrix's advisory verdict: `retain`, `patch`, `refactor`, `evict`) carries a `question` stating what it answers: long-term health, not what to do now. Each CVE under `cves` carries its `epss` when scored.
 
-The `updates` list contains only packages that need attention (a CVE, a recommended upgrade, version drift, or an unmaintained upstream). Each entry carries the [version ladder](#version-ladder) (`latest_in_range`, `latest_in_major`) alongside `from`/`to`, and sets `requires_constraint_widening: true` when `to` is only reachable by widening the declared constraint — the same condition `plan` reports as *Requires constraint widening* rather than writing.
+The `updates` list has one entry per direct dependency; one with nothing due reads `no action needed`. Each entry carries the [version ladder](#version-ladder) (`latest_in_range`, `latest_in_major`) alongside `from`/`to`, and sets `requires_constraint_widening: true` when `to` is only reachable by widening the declared constraint. `plan` reports such a pick as *Requires constraint widening* rather than writing it, unless the package's tier is `latest` or `cutting-edge`, or a CVE or end-of-life motive carried the pick past its tier. In that last case the entry also sets `widening_authorized: true`, and `apply` writes the pick after its widening confirmation.
+
+On npm, an entry for a package that declares a peer nothing within its reach can satisfy carries `unresolved_peers`, whatever its `next_action`. Each item has `package`, `spec`, `optional` and `installed_elsewhere` (the versions installed out of reach; empty when the peer is installed nowhere). When a copy that satisfies the range is installed elsewhere, the decision also carries `peer_repairs`: the `package` and `suggested_constraint` that `apply` adds to the manifest, `is_dev_dependency`, the `requirers` that need it, and the `family_moves` that bring stale copies of its family to the same version, in the shape of `transitive_impact`. Both fields are omitted when empty, and never appear for PyPI projects. Run `ossiq plan` to review the repair and `ossiq apply` to make it.
 
 (install-skills)=
 ## Install Skills
@@ -1062,7 +1129,7 @@ OSS IQ makes four commitments to users who depend on its output in CI pipelines,
 
 ### Export Schema Stability
 
-Each export schema version is identified by `schema_version` in the `metadata` block (e.g. `"1.5"`). The `export --schema-version` flag pins output to a specific version.
+Each export schema version is identified by `schema_version` in the `metadata` block (e.g. `"1.6"`). The `export --schema-version` flag pins output to a specific version; the versions available are `1.5` and `1.6`, and the default is the latest. A pinned document never carries a field a later version added, so pinning `1.5` keeps producing exactly the v1.5 shape.
 
 Within a schema version:
 

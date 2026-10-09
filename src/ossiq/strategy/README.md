@@ -109,6 +109,10 @@ A strategy is not one dial, it is two, kept separate on purpose:
 - **`escalation`** — set when reach was pushed past the tier's base `MAX_REACH` (a CVE or
   end-of-life motive escalated it), or when every reachable candidate still carries a qualifying
   CVE and the newest was picked anyway. Never silently "stay put".
+- **`widening_authorized`** — an escalating motive carried the pick past the tier's base
+  `MAX_REACH` and some reachable version clears the CVE. `plan` lists the pick as an update instead
+  of holding it under *Requires constraint widening*; `apply` still confirms the widening, unless
+  `--yes` is given. Rule 8's drift-only widening never sets it.
 
 ---
 

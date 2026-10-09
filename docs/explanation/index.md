@@ -66,7 +66,7 @@ resolved by the native package manager — so the plan surfaces their age and fl
 
 When it's not about micro-managing individual package choices, but about managing a portfolio of risk you want to ensure your teams aren't just "fixing bugs" but building on sustainable foundations.
 
- - From Reactive to Proactive: Instead of responding to a "Zero Day," you are alerted when a critical dependency's health score dips below a defined threshold.
+ - From Reactive to Proactive: Instead of responding to a "Zero Day," you see which dependencies the [repository-stability triage](repository-stability.md) marks `refactor` (maintenance debt, no exploit pressure yet) or `evict` (exploited, no upstream fix coming).
  - Policy as Code: Define organizational "Fitness Gates" that prevent high-risk, low-activity dependencies from entering the codebase in the first place.
  - Resource Allocation: Gain visibility into which teams are carrying the most "Dependency Debt," allowing for better-informed architectural investments.
 
