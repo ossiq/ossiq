@@ -20,7 +20,7 @@ from ossiq.domain.common import (
 )
 from ossiq.domain.compatibility import CompatibilityFacts
 from ossiq.domain.cve import CVE, Severity
-from ossiq.domain.project import ConstraintSource, IncomingEdge, InstalledCopy
+from ossiq.domain.project import ConstraintSource, IncomingEdge, InstalledCopy, UnresolvedPeer
 from ossiq.domain.version import VersionsDifference
 from ossiq.risk.maintenance import MaintenanceAssessment, MaintenanceState
 from ossiq.service.project.models import ScanRecord, ScanResult
@@ -370,6 +370,36 @@ def test_rejected_candidate_sub_row_absent_without_full():
     record.rejected_candidates = [RejectedCandidate(version="1.2.0", reason="dep-x requires >=2.0.0")]
     output = render_table([record])
     assert "rejected:" not in output
+
+
+def test_an_unresolved_peer_puts_an_otherwise_quiet_package_on_the_table():
+    """Nothing to update, but the tree is broken for it: status must not filter it out."""
+    record = make_record("@vue/test-utils")
+    record.unresolved_peers = [
+        UnresolvedPeer("@vue/server-renderer", "3.x", optional=True, installed_elsewhere=("3.5.43",))
+    ]
+
+    output = render_table([record])
+
+    assert "@vue/test-utils" in output
+    assert "optional peer @vue/server-renderer 3.x is installed only out of reach (3.5.43)" in output
+
+
+def test_a_missing_required_peer_is_named():
+    record = make_record("plugin")
+    record.unresolved_peers = [UnresolvedPeer("host", "^1")]
+
+    assert "missing peer host ^1" in render_table([record])
+
+
+def test_a_required_peer_installed_out_of_reach_is_not_called_optional():
+    record = make_record("plugin")
+    record.unresolved_peers = [UnresolvedPeer("host", "^1", installed_elsewhere=("1.2.0",))]
+
+    output = render_table([record])
+
+    assert "peer host ^1 is installed only out of reach (1.2.0)" in output
+    assert "optional" not in output
 
 
 def nested_record(*copies: InstalledCopy) -> ScanRecord:

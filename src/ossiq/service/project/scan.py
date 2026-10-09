@@ -39,6 +39,7 @@ from ossiq.service.project.models import (
     ScanRecord,
     ScanResult,
 )
+from ossiq.service.project.peer_repairs import plan_peer_repairs
 from ossiq.service.project.prefetch import (
     build_ignored_packages,
     enrich_cves_with_epss_and_fix_age,
@@ -57,6 +58,7 @@ from ossiq.service.project.recommendations import (
     apply_recommendations,
     apply_solver_rejections,
     clamp_recommendations,
+    settle_transitive_picks,
 )
 from ossiq.service.project.records import build_records, scan_sort_key
 from ossiq.service.project.runtime_context import (
@@ -66,7 +68,13 @@ from ossiq.service.project.runtime_context import (
 )
 from ossiq.service.project.stability import populate_stability
 from ossiq.service.project.strategy import apply_update_strategy
-from ossiq.service.update_impact import DirectUpdateImpact, simulate_single, simulate_update_impacts
+from ossiq.service.update_impact import (
+    DirectUpdateImpact,
+    ImpactKind,
+    incoming_peer_edges,
+    simulate_single,
+    simulate_update_impacts,
+)
 from ossiq.solver import dependencies_solver
 from ossiq.solver.universe import filter_eligible_versions
 from ossiq.sources.core import AbstractProjectSources
@@ -169,6 +177,41 @@ def installed_package_names(descriptors: ScanDescriptors) -> set[str]:
     }
 
 
+def held_transitive_versions(
+    transitive: list[ScanRecord], direct_names: set[str]
+) -> tuple[dict[str, str], dict[str, str]]:
+    """Each transitive package's final and installed version, for the copy direct dependencies see.
+
+    A direct dependency sits at the root, so of a package installed at several versions it resolves
+    the copy one of them asks for, else the primary one. The plan moves that copy when the transitive
+    pick targets it, or when a family move (an OVERRIDE_BUMP the pick carries) does.
+
+    Returns:
+        ({name: final version}, {name: installed version}).
+    """
+    bumps = {
+        (impact.package_name, impact.current_version): impact.projected_version
+        for record in transitive
+        for impact in record.update_transitive_impacts
+        if impact.kind == ImpactKind.OVERRIDE_BUMP and impact.projected_version and not impact.has_conflict
+    }
+    finals: dict[str, str] = {}
+    installed: dict[str, str] = {}
+    for record in transitive:
+        seen = next(
+            (
+                copy.version
+                for copy in record.installed_copies
+                if any(edge.requirer_name in direct_names for edge in copy.edges)
+            ),
+            record.installed_version,
+        )
+        picked = record.recommended_version if seen == record.installed_version else None
+        finals[record.package_name] = bumps.get((record.package_name, seen)) or picked or seen
+        installed[record.package_name] = seen
+    return finals, installed
+
+
 def build_scan_descriptors(project_info, sources: AbstractProjectSources) -> ScanDescriptors:
     """Partition git/URL-hosted deps out, build direct/optional/transitive descriptors, and the
     ignored-dependencies report."""
@@ -250,6 +293,7 @@ def build_scan_descriptors(project_info, sources: AbstractProjectSources) -> Sca
             extras=node.extras,
             all_constraints=constraints,
             peer_requirements=list(node.peer_requirements),
+            unresolved_peers=list(node.unresolved_peers),
             installed_copies=copies,
             version_constraint_declared=node.version_constraint_declared,
         )
@@ -274,15 +318,12 @@ def build_scan_descriptors(project_info, sources: AbstractProjectSources) -> Sca
 def direct_descriptor(dep: Dependency, *, is_optional: bool) -> DependencyDescriptor:
     """Build a descriptor for a root-level dependency.
 
-    all_constraints carries the peer requirements other installed packages place on this package.
-    Deliberately not dep.parent_constraints: for a direct dep that list also holds the root
-    manifest's own specifier, which as a hard L1 clause would forbid every upgrade past the
-    declared range. Peers are what actually bind - npm can nest a duplicate copy to satisfy a
-    runtime range, but a peer must be satisfied by the single hoisted instance
-
-    Note, that peers are read from the installed lockfile, so a lockstep family (vue and
-    @vue/server-renderer, which peer-pins vue exactly) stays frozen until peerDependencies are
-    modelled per candidate version in the registry adapter.
+    all_constraints is empty: neither dep.parent_constraints nor the installed peer specs belong
+    there. The former also holds the root manifest's own specifier, which as a hard L1 clause would
+    forbid every upgrade past the declared range; the latter describe the installed release's
+    neighbours, not the candidate's. Peers bind each candidate at the version it would have, through
+    the candidate's own peers and the peers its requirers declare (see `simulate_single` and
+    `build_requires_reason`). peer_requirements and installed_copies carry what those read.
     """
     return DependencyDescriptor(
         name=dep.name,
@@ -293,8 +334,8 @@ def direct_descriptor(dep: Dependency, *, is_optional: bool) -> DependencyDescri
         version_constraint=dep.version_defined,
         constraint_info=dep.constraint_info,
         extras=dep.extras,
-        all_constraints=[req.spec for req in dep.peer_requirements],
         peer_requirements=list(dep.peer_requirements),
+        unresolved_peers=list(dep.unresolved_peers),
         version_constraint_declared=dep.version_constraint_declared,
     )
 
@@ -502,6 +543,9 @@ def solve_direct_phase(
     the full impact (not just its actionability) so a rejected candidate can be explained.
     """
     transitive_by_name = {r.package_name: r for r in transitive_packages}
+    peer_edges_by_name = {
+        dep.canonical_name: incoming_peer_edges(dep.installed_copies, dep.version) for dep in solvable_direct_deps
+    }
 
     def simulate_recommendation(pkg_name: str, candidate_version: str) -> DirectUpdateImpact:
         return simulate_single(
@@ -513,6 +557,8 @@ def solve_direct_phase(
             now=now,
             installed_version=installed_version_by_name.get(pkg_name),
             release_cutoff=sources.release_cutoff,
+            incoming_peers=peer_edges_by_name.get(pkg_name, ()),
+            direct_versions=installed_version_by_name,
         )
 
     def validate_recommendation(pkg_name: str, candidate_version: str) -> bool:
@@ -572,6 +618,7 @@ def solve_direct_phase(
             rewrite_pinned=sources.rewrite_versions,
             cooldown_period=sources.settings.cooldown_period,
             release_cutoff=sources.release_cutoff,
+            validator=validate_recommendation,
         )
 
         all_installed_names = installed_package_names(descriptors)
@@ -586,6 +633,7 @@ def solve_direct_phase(
             now=now,
             installed_versions=installed_version_by_name,
             release_cutoff=sources.release_cutoff,
+            incoming_peers_by_name=peer_edges_by_name,
         )
         logger.debug("Pass 1.5b simulate_impacts: %.2fs — %d packages", time.perf_counter() - t2, len(impacts))
         for record in production_packages + optional_packages:
@@ -736,6 +784,15 @@ def scan(sources: AbstractProjectSources, progress: ScanProgress | None = None) 
             now,
             project_declares_esm=project_info.declares_esm,
         )
+        settle_transitive_picks(
+            transitive_packages,
+            sources.packages_registry,
+            allow_prerelease=sources.allow_prerelease,
+            installed_names=installed_package_names(descriptors),
+            now=now,
+            release_cutoff=sources.release_cutoff,
+            direct_versions=installed_version_by_name,
+        )
 
         all_records = production_packages + optional_packages + transitive_packages
         project_epss = populate_epss(all_records, descriptors.walker)
@@ -753,6 +810,13 @@ def scan(sources: AbstractProjectSources, progress: ScanProgress | None = None) 
         # apply_ladder_fallback filter — a package the user asked to leave alone never gets a
         # recommendation from any source.
         all_installed_names = installed_package_names(descriptors)
+        direct_records = production_packages + optional_packages
+        transitive_finals, transitive_installed = held_transitive_versions(
+            transitive_packages, {r.package_name for r in direct_records}
+        )
+        ignored_versions = {
+            r.package_name: r.installed_version for r in direct_records if r.package_name in descriptors.ignore_set
+        }
         apply_update_strategy(
             [r for r in production_packages + optional_packages if r.package_name not in descriptors.ignore_set],
             sources.packages_registry,
@@ -766,6 +830,17 @@ def scan(sources: AbstractProjectSources, progress: ScanProgress | None = None) 
             project_declares_esm=project_info.declares_esm,
             engine_context=engine_context,
             cooldown_period=sources.settings.cooldown_period,
+            release_cutoff=sources.release_cutoff,
+            fixed_versions={**transitive_finals, **ignored_versions},
+            fixed_installed={**transitive_installed, **ignored_versions},
+        )
+
+        peer_repairs = plan_peer_repairs(
+            direct_records,
+            transitive_packages,
+            sources.packages_registry,
+            allow_prerelease=sources.allow_prerelease,
+            now=now,
             release_cutoff=sources.release_cutoff,
         )
 
@@ -788,4 +863,5 @@ def scan(sources: AbstractProjectSources, progress: ScanProgress | None = None) 
             npm_cli_version=npm_cli_version,
             runtime_mismatch=runtime_pin_mismatch(sources.project_path, project_info.package_registry, engine_context),
             source_warnings=list(sources.warnings),
+            peer_repairs=peer_repairs,
         )

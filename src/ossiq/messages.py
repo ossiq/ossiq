@@ -36,7 +36,7 @@ Specify which project registry type (ecosystem) to use. Default: None. Possible 
 """
 
 HELP_SCHEMA_VERSION = """
-Export schema version. Default: latest. Possible options: 1.5
+Export schema version. Default: latest. Possible options: 1.5, 1.6
 """
 
 HELP_EXPORT_FULL = """
@@ -229,6 +229,20 @@ HELP_PLAN_HELD_FOR_WIDENING_HEADER = "Requires constraint widening — a newer v
 
 HELP_PLAN_HELD_BY_USER_OVERRIDES_HEADER = (
     "Held by overrides you wrote — OSS IQ never rewrites those; update or remove them to let these through:"
+)
+
+HELP_PLAN_HELD_BY_PEERS_HEADER = (
+    "Held by peer dependencies — newer versions exist, but an installed package's peer range rules them out:"
+)
+
+HELP_PLAN_PEER_REPAIRS_HEADER = (
+    "Repairs unresolved peers — installed only out of their requirers' reach; added where npm resolves them:"
+)
+
+HELP_STATUS_PEER_MISSING = "↳ missing peer {package} {spec}: nothing installed where this package looks for it"
+
+HELP_STATUS_PEER_OUT_OF_REACH = (
+    "↳ {optional}peer {package} {spec} is installed only out of reach ({versions}); this package cannot load it"
 )
 
 HELP_STATUS_COOLDOWN_HOLD = (

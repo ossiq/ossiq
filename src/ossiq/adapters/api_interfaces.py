@@ -18,7 +18,7 @@ from ossiq.domain.requirement_scope import RequirementScope
 from ossiq.settings import Settings
 
 from ..domain.repository import Repository
-from ..domain.version import PackageVersion, RepositoryVersion, VersionsDifference
+from ..domain.version import PackageVersion, PeerDependency, RepositoryVersion, VersionsDifference
 
 if TYPE_CHECKING:
     from ossiq.service.update import UpdatePlan
@@ -177,6 +177,14 @@ class AbstractPackageRegistryApi(VersionRules, abc.ABC):
         Returns empty dict if the version is not found or has no runtime dependencies.
         """
         raise NotImplementedError
+
+    def package_version_peers(self, package_name: str, version: str) -> dict[str, PeerDependency]:
+        """Return {dep_name: PeerDependency} for a specific published version.
+
+        Only npm declares peers, so the default is none; an empty result is "no peer constraints",
+        not "unknown".
+        """
+        return {}
 
     @abc.abstractmethod
     def __repr__(self):

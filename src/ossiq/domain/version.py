@@ -4,7 +4,7 @@ Module to operate with package versions
 
 import re
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from functools import cmp_to_key
 from typing import TypeVar
 
@@ -89,6 +89,15 @@ class Commit:
 
 
 @dataclass(frozen=True)
+class PeerDependency:
+    """A peer requirement a published version declares on another package (npm only)."""
+
+    spec: str
+    optional: bool = False
+    """npm's `peerDependenciesMeta.<name>.optional`: the requirement binds only when the package is installed."""
+
+
+@dataclass(frozen=True)
 class PackageVersion:
     """
     Partial version information typically pulled from package registry.
@@ -114,6 +123,8 @@ class PackageVersion:
     install_execution_reason: str | None = None
     module_system: ModuleSystem | None = None
     """This release's own module format (npm only, from `type`/`exports`). Always None on PyPI."""
+    declared_peer_dependencies: dict[str, PeerDependency] = field(default_factory=dict)
+    """This release's peer requirements (npm only). Always empty on PyPI."""
 
 
 @dataclass

@@ -33,6 +33,23 @@ class PeerRequirement:
 
     requirer_name: str
     spec: str
+    optional: bool = False
+    """npm's `peerDependenciesMeta.<name>.optional`: npm neither installs it nor keeps it installed."""
+
+
+@dataclass(frozen=True)
+class UnresolvedPeer:
+    """A peer a package declares that nothing installed where it looks can satisfy.
+
+    npm resolves a peer from the requirer's own location, so a copy nested under some other package
+    does not count. Recorded on the requirer, since there is no target to put it on.
+    """
+
+    package: str
+    spec: str
+    optional: bool = False
+    installed_elsewhere: tuple[str, ...] = ()
+    """Versions of `package` installed out of the requirer's reach; empty when it is installed nowhere."""
 
 
 @dataclass(frozen=True)
@@ -48,6 +65,8 @@ class IncomingEdge:
     requirer_version: str
     spec: str
     is_peer: bool = False
+    optional: bool = False
+    """Only for a peer edge: npm does not keep a copy installed for an optional peer alone."""
 
 
 @dataclass(frozen=True)
@@ -113,6 +132,9 @@ class Dependency:
     # The same edges as parent_constraints, with the requirer attached. Populated alongside it in
     # graph construction; parent_constraints stays the flat view the solver and PyPI read.
     parent_edges: list[IncomingEdge] = field(default_factory=list, compare=False)
+
+    # Peers this package declares that resolve to nothing from where it sits (npm only).
+    unresolved_peers: list[UnresolvedPeer] = field(default_factory=list, compare=False)
 
 
 class Project:

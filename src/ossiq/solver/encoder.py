@@ -3,12 +3,10 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 
-from packaging.utils import canonicalize_name
-
 from ossiq.solver.driver import EncodedProblem
 from ossiq.solver.driver_pysat import VarAllocator
 from ossiq.solver.problem import CandidateVersion, SolverProblem
-from ossiq.solver.version_matchers import has_engine_mismatch, version_satisfies_constraint
+from ossiq.solver.version_matchers import comparable_package_name, has_engine_mismatch, version_satisfies_constraint
 from ossiq.solver.weights import W_DEPRECATED, W_ENGINE, W_VERY_FRESH, semver_rank_weight
 
 logger = logging.getLogger(__name__)
@@ -205,7 +203,7 @@ class ConstraintEncoder:
                 if vid not in state.eligible_set or cv.requires is None:
                     continue
                 for dep_pkg_raw, dep_constraint in cv.requires.items():
-                    dep_pkg = canonicalize_name(dep_pkg_raw)
+                    dep_pkg = comparable_package_name(dep_pkg_raw, problem.registry)
                     if dep_pkg not in pkg_state:
                         continue  # dependency not in this problem — skip
                     dep_state = pkg_state[dep_pkg]

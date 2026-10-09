@@ -8,7 +8,7 @@ from unittest.mock import MagicMock
 from ossiq.domain.common import ConstraintType, ProjectPackagesRegistry, RejectionDetail
 from ossiq.domain.project import ConstraintSource, IncomingEdge, InstalledCopy
 from ossiq.domain.release_cutoff import ReleaseCutoff
-from ossiq.domain.version import PackageVersion, VersionsDifference
+from ossiq.domain.version import PackageVersion, PeerDependency, VersionsDifference
 from ossiq.service.project.models import ScanRecord
 from ossiq.service.update import entry_from_record
 from ossiq.service.update_impact import (
@@ -16,7 +16,10 @@ from ossiq.service.update_impact import (
     ImpactKind,
     TransitiveImpact,
     assess_transitive_impact,
+    copy_to_move,
     find_best_satisfying_version,
+    incoming_peer_edges,
+    moves_with_candidate,
     simulate_single,
     simulate_update_impacts,
 )
@@ -74,6 +77,7 @@ def make_scan_record(
 def make_registry(
     versions_by_name: dict[str, list[PackageVersion]] | None = None,
     requires_by_pkg_ver: dict[tuple[str, str], dict[str, str]] | None = None,
+    peers_by_pkg_ver: dict[tuple[str, str], dict[str, PeerDependency]] | None = None,
 ) -> MagicMock:
     from functools import cmp_to_key
 
@@ -83,6 +87,7 @@ def make_registry(
     registry.package_registry = ProjectPackagesRegistry.PYPI
     registry.package_versions.side_effect = lambda name: (versions_by_name or {}).get(name, [])
     registry.package_version_requires.side_effect = lambda name, ver: (requires_by_pkg_ver or {}).get((name, ver), {})
+    registry.package_version_peers.side_effect = lambda name, ver: (peers_by_pkg_ver or {}).get((name, ver), {})
 
     def cmp(v1: str, v2: str) -> int:
         from packaging.version import Version as PV
@@ -578,8 +583,9 @@ class TestSimulateUpdateImpacts:
 def make_npm_registry(
     versions_by_name: dict[str, list[PackageVersion]] | None = None,
     requires_by_pkg_ver: dict[tuple[str, str], dict[str, str]] | None = None,
+    peers_by_pkg_ver: dict[tuple[str, str], dict[str, PeerDependency]] | None = None,
 ) -> MagicMock:
-    registry = make_registry(versions_by_name, requires_by_pkg_ver)
+    registry = make_registry(versions_by_name, requires_by_pkg_ver, peers_by_pkg_ver)
     registry.package_registry = ProjectPackagesRegistry.NPM
     registry.one_copy_per_name = False
     return registry
@@ -698,9 +704,12 @@ class TestNestedCopies:
             installed_version="3.5.42",
         )
 
-        assert {i.package_name: i.kind for i in result.transitive_impacts} == {
-            "@vue/shared": ImpactKind.NEW_COPY,
-            "@vue/compiler-dom": ImpactKind.NEW_COPY,
+        # The family moves in place: nesting 3.5.43 under vue would leave the 3.5.42 copies hoisted.
+        assert {
+            i.package_name: (i.kind, i.current_version, i.projected_version) for i in result.transitive_impacts
+        } == {
+            "@vue/shared": (ImpactKind.OVERRIDE_BUMP, "3.5.42", "3.5.43"),
+            "@vue/compiler-dom": (ImpactKind.OVERRIDE_BUMP, "3.5.42", "3.5.43"),
         }
         assert result.is_actionable is True
 
@@ -900,6 +909,440 @@ class TestNestedCopies:
 # ============================================================================
 # Tests: entry_from_record — Phase 4c UpdateEntry propagation
 # ============================================================================
+
+
+def peer_edge(requirer: str, version: str, spec: str) -> IncomingEdge:
+    return IncomingEdge(requirer_name=requirer, requirer_version=version, spec=spec, is_peer=True)
+
+
+TS_PEER_RANGE = ">=4.8.4 <6.1.0"
+
+
+class TestIncomingPeers:
+    """A peer binds the one instance its requirer resolves, so npm cannot nest around it."""
+
+    def typescript_registry(self) -> MagicMock:
+        return make_npm_registry(versions_by_name={"typescript": [pv("7.0.2"), pv("6.0.5"), pv("6.0.3")]})
+
+    def ts_eslint(self) -> dict[str, ScanRecord]:
+        record = make_nested_record("typescript-eslint", copy_of("8.0.0", edge("eslint-config", "1.0.0", "^8")))
+        return {"typescript-eslint": record}
+
+    def test_candidate_outside_a_transitive_requirers_peer_range_is_not_actionable(self):
+        """typescript 6.0.3 -> 7.0.2 is refused: typescript-eslint peer-requires <6.1.0."""
+        result = simulate_single(
+            "typescript",
+            "7.0.2",
+            self.ts_eslint(),
+            self.typescript_registry(),
+            installed_version="6.0.3",
+            incoming_peers=(peer_edge("typescript-eslint", "8.0.0", TS_PEER_RANGE),),
+        )
+
+        (impact,) = result.transitive_impacts
+        assert result.is_actionable is False
+        assert (impact.kind, impact.package_name, impact.driven_by) == (
+            ImpactKind.PEER,
+            "typescript-eslint",
+            "typescript",
+        )
+        assert impact.has_conflict is True
+        assert impact.conflict == RejectionDetail("7.0.2 violates", (TS_PEER_RANGE,))
+
+    def test_candidate_inside_the_peer_range_is_actionable(self):
+        result = simulate_single(
+            "typescript",
+            "6.0.5",
+            self.ts_eslint(),
+            self.typescript_registry(),
+            installed_version="6.0.3",
+            incoming_peers=(peer_edge("typescript-eslint", "8.0.0", TS_PEER_RANGE),),
+        )
+
+        assert result.transitive_impacts == []
+        assert result.is_actionable is True
+
+    def test_range_the_installed_version_already_violates_does_not_gate(self):
+        """Existing drift is reported elsewhere; it must not also block (or force) an upgrade."""
+        result = simulate_single(
+            "typescript",
+            "7.0.2",
+            self.ts_eslint(),
+            self.typescript_registry(),
+            installed_version="7.0.0",
+            incoming_peers=(peer_edge("typescript-eslint", "8.0.0", TS_PEER_RANGE),),
+        )
+
+        assert result.transitive_impacts == []
+        assert result.is_actionable is True
+
+    def test_one_conflict_per_requirer_carries_every_range_it_breaks(self):
+        result = simulate_single(
+            "typescript",
+            "7.0.2",
+            self.ts_eslint(),
+            self.typescript_registry(),
+            installed_version="6.0.3",
+            incoming_peers=(
+                peer_edge("typescript-eslint", "8.0.0", TS_PEER_RANGE),
+                peer_edge("typescript-eslint", "8.0.0", TS_PEER_RANGE),
+                peer_edge("typescript-eslint", "8.0.0", "^6"),
+            ),
+        )
+
+        (impact,) = result.transitive_impacts
+        assert impact.conflict == RejectionDetail("7.0.2 violates", (TS_PEER_RANGE, "^6"))
+
+    def test_a_direct_requirer_is_left_to_the_solver(self):
+        """Not in transitive_by_name means direct: whether it moves jointly is not a single-candidate question."""
+        result = simulate_single(
+            "typescript",
+            "7.0.2",
+            {},
+            self.typescript_registry(),
+            installed_version="6.0.3",
+            incoming_peers=(peer_edge("@vue/eslint-config-typescript", "14.0.0", TS_PEER_RANGE),),
+        )
+
+        assert result.is_actionable is True
+
+    def test_python_registry_without_peers_is_untouched(self):
+        registry = make_registry(versions_by_name={"typescript": [pv("7.0.2")]})
+
+        result = simulate_single("typescript", "7.0.2", {}, registry, installed_version="6.0.3")
+
+        assert result.transitive_impacts == []
+        assert result.is_actionable is True
+
+
+class TestLockstepFamily:
+    """vue peer-pins nothing, but @vue/server-renderer peer-pins vue exactly and vue pins it back."""
+
+    def family(self, *, server_renderer_peer: str = "3.5.44", other_requirer: str | None = None) -> tuple:
+        owners = [edge("vue", "3.5.43", "3.5.43")]
+        if other_requirer is not None:
+            owners.append(edge("other-host", "1.0.0", other_requirer))
+        renderer = make_nested_record("@vue/server-renderer", copy_of("3.5.43", *owners))
+        registry = make_npm_registry(
+            versions_by_name={
+                "@vue/server-renderer": [pv("3.5.44"), pv("3.5.43")],
+                "vue": [pv("3.5.44"), pv("3.5.43")],
+            },
+            requires_by_pkg_ver={("vue", "3.5.44"): {"@vue/server-renderer": "3.5.44"}},
+            peers_by_pkg_ver={
+                ("@vue/server-renderer", "3.5.43"): {"vue": PeerDependency("3.5.43")},
+                ("@vue/server-renderer", "3.5.44"): {"vue": PeerDependency(server_renderer_peer)},
+            },
+        )
+        return {"@vue/server-renderer": renderer}, registry
+
+    def bump_vue(self, transitive: dict[str, ScanRecord], registry: MagicMock):
+        return simulate_single(
+            "vue",
+            "3.5.44",
+            transitive,
+            registry,
+            installed_version="3.5.43",
+            incoming_peers=(peer_edge("@vue/server-renderer", "3.5.43", "3.5.43"),),
+        )
+
+    def test_the_requirer_that_moves_with_the_candidate_is_judged_at_its_new_peers(self):
+        transitive, registry = self.family()
+
+        result = self.bump_vue(transitive, registry)
+
+        assert result.is_actionable is True
+        assert [(i.kind, i.projected_version) for i in result.transitive_impacts] == [
+            (ImpactKind.OVERRIDE_BUMP, "3.5.44")
+        ]
+
+    def test_a_pair_that_would_still_mismatch_after_moving_is_refused(self):
+        """No mismatched pair, ever: the moved server-renderer would demand a vue nobody ships."""
+        transitive, registry = self.family(server_renderer_peer="3.5.45")
+
+        result = self.bump_vue(transitive, registry)
+
+        assert result.is_actionable is False
+        (conflict,) = [i for i in result.transitive_impacts if i.kind == ImpactKind.PEER]
+        assert conflict.conflict == RejectionDetail("3.5.44 violates", ("3.5.45",))
+
+    def test_another_user_that_accepts_the_new_version_moves_with_the_copy(self):
+        """The keyed override rewrites other-host's ^3 edge too, so the shared copy moves as one."""
+        transitive, registry = self.family(other_requirer="^3")
+
+        result = self.bump_vue(transitive, registry)
+
+        assert result.is_actionable is True
+        assert [(i.kind, i.projected_version) for i in result.transitive_impacts] == [
+            (ImpactKind.OVERRIDE_BUMP, "3.5.44")
+        ]
+
+    def test_another_user_that_cannot_follow_refuses_the_bump(self):
+        """Splitting the family is not the fallback: the candidate is refused, with the specs that hold it."""
+        transitive, registry = self.family(other_requirer="3.5.43")
+
+        result = self.bump_vue(transitive, registry)
+
+        assert result.is_actionable is False
+        (conflict,) = [i for i in result.transitive_impacts if i.has_conflict and i.kind == ImpactKind.OVERRIDE_BUMP]
+        assert conflict.conflict == RejectionDetail("no version satisfies", ("3.5.43", "3.5.44"))
+
+
+class TestCopyLeftHoldingOnlyPeers:
+    """vue 3.5.42 -> 3.5.43 strands the hoisted server-renderer that @vue/test-utils optionally peers on."""
+
+    def bump(self, *, peer_range: str = "3.x") -> DirectUpdateImpact:
+        renderer = make_nested_record(
+            "@vue/server-renderer",
+            copy_of(
+                "3.5.42",
+                edge("vue", "3.5.42", "^3.5.42"),
+                IncomingEdge("@vue/test-utils", "2.5.1", peer_range, is_peer=True, optional=True),
+            ),
+        )
+        registry = make_npm_registry(
+            versions_by_name={"@vue/server-renderer": [pv("3.5.43"), pv("3.5.42")]},
+            requires_by_pkg_ver={("vue", "3.5.43"): {"@vue/server-renderer": ">=3.5.43"}},
+        )
+        return simulate_single(
+            "vue", "3.5.43", {"@vue/server-renderer": renderer}, registry, installed_version="3.5.42"
+        )
+
+    def test_the_copy_moves_instead_of_nesting_out_of_the_peers_reach(self):
+        result = self.bump()
+
+        assert result.is_actionable is True
+        assert [(i.kind, i.current_version, i.projected_version) for i in result.transitive_impacts] == [
+            (ImpactKind.OVERRIDE_BUMP, "3.5.42", "3.5.43")
+        ]
+
+    def test_a_peer_range_the_new_version_misses_refuses_the_bump(self):
+        """The peer edge moves with the copy's other edges, so it has to accept the new version too."""
+        result = self.bump(peer_range="3.5.42")
+
+        assert result.is_actionable is False
+
+
+class TestCopyToMove:
+    def test_a_ranged_requirement_with_other_owners_still_nests(self):
+        """Ordinary npm nesting is left alone: nothing pinned, and someone else keeps the old copy."""
+        copies = [copy_of("1.0.0", edge("a", "1.0.0", "^1"), edge("b", "1.0.0", "^1"))]
+
+        assert copy_to_move(copies, "^2", "a", {"a"}) is None
+
+    def test_an_exact_pin_moving_to_another_exact_pin_moves(self):
+        copies = [copy_of("1.0.0", edge("a", "1.0.0", "1.0.0"), edge("b", "1.0.0", "^1"))]
+
+        assert copy_to_move(copies, "1.1.0", "a", {"a"}) is copies[0]
+
+    def test_only_the_copy_the_requirer_resolves_is_considered(self):
+        copies = [copy_of("2.0.0", edge("z", "1.0.0", "2.0.0")), copy_of("1.0.0", edge("a", "1.0.0", "1.0.0"))]
+
+        assert copy_to_move(copies, "1.1.0", "a", {"a"}) is copies[1]
+
+
+class TestMovesWithCandidate:
+    def test_every_requirer_of_the_copy_is_moving(self):
+        record = make_nested_record("b", copy_of("1.0.0", edge("a", "1.0.0", "1.0.0"), edge("c", "1.0.0", "^1")))
+        assert moves_with_candidate(record, "1.0.0", {"a", "c"}) is True
+
+    def test_one_requirer_staying_put_holds_the_copy(self):
+        record = make_nested_record("b", copy_of("1.0.0", edge("a", "1.0.0", "1.0.0"), edge("c", "1.0.0", "^1")))
+        assert moves_with_candidate(record, "1.0.0", {"a"}) is False
+
+    def test_peer_edges_onto_the_copy_do_not_hold_it(self):
+        record = make_nested_record("b", copy_of("1.0.0", edge("a", "1.0.0", "1.0.0"), peer_edge("z", "1.0.0", "^1")))
+        assert moves_with_candidate(record, "1.0.0", {"a"}) is True
+
+    def test_a_copy_nobody_is_known_to_ask_for_is_not_assumed_to_move(self):
+        assert moves_with_candidate(make_nested_record("b", copy_of("1.0.0")), "1.0.0", {"a"}) is False
+        assert moves_with_candidate(make_nested_record("b", copy_of("1.0.0")), "9.9.9", {"a"}) is False
+
+
+class TestIncomingPeerEdges:
+    def test_only_peer_edges_on_the_copy_being_replaced(self):
+        copies = [
+            copy_of("2.0.0", edge("a", "1.0.0", "^2"), peer_edge("p", "1.0.0", "^2")),
+            copy_of("1.0.0", peer_edge("q", "1.0.0", "^1")),
+        ]
+        assert incoming_peer_edges(copies, "2.0.0") == (peer_edge("p", "1.0.0", "^2"),)
+
+
+class TestCandidatePeers:
+    """The peers a candidate declares: an absent optional one binds nothing, a present one does."""
+
+    def registry(self, *, optional: bool, host_versions: list[PackageVersion]) -> MagicMock:
+        return make_npm_registry(
+            versions_by_name={"host": host_versions},
+            peers_by_pkg_ver={("plugin", "2.0.0"): {"host": PeerDependency("^9", optional=optional)}},
+        )
+
+    def test_optional_peer_absent_from_the_tree_does_not_constrain(self):
+        result = simulate_single(
+            "plugin", "2.0.0", {}, self.registry(optional=True, host_versions=[]), installed_names={"plugin"}
+        )
+
+        assert result.transitive_impacts == []
+        assert result.is_actionable is True
+
+    def test_optional_peer_present_in_the_tree_is_enforced(self):
+        host = make_nested_record("host", copy_of("1.0.0"))
+
+        result = simulate_single(
+            "plugin",
+            "2.0.0",
+            {"host": host},
+            self.registry(optional=True, host_versions=[pv("1.0.0")]),
+            installed_names={"plugin", "host"},
+        )
+
+        assert result.is_actionable is False
+        (impact,) = result.transitive_impacts
+        assert (impact.package_name, impact.has_conflict) == ("host", True)
+
+    def test_required_peer_absent_from_the_tree_is_installed_alongside(self):
+        registry = self.registry(optional=False, host_versions=[pv("9.1.0")])
+
+        result = simulate_single("plugin", "2.0.0", {}, registry, installed_names={"plugin"})
+
+        (impact,) = result.transitive_impacts
+        assert (impact.kind, impact.projected_version, impact.has_conflict) == (ImpactKind.NEW_DEP, "9.1.0", False)
+        assert result.is_actionable is True
+
+    def test_peer_range_the_installed_release_already_missed_is_not_new_breakage(self):
+        host = make_nested_record("host", copy_of("1.0.0"))
+        registry = make_npm_registry(
+            versions_by_name={"host": [pv("1.0.0")]},
+            peers_by_pkg_ver={
+                ("plugin", "1.0.0"): {"host": PeerDependency("^9")},
+                ("plugin", "2.0.0"): {"host": PeerDependency("^9")},
+            },
+        )
+
+        result = simulate_single(
+            "plugin", "2.0.0", {"host": host}, registry, installed_names={"plugin", "host"}, installed_version="1.0.0"
+        )
+
+        assert result.transitive_impacts == []
+        assert result.is_actionable is True
+
+
+class TestPeerSet:
+    """npm resolves a candidate's peers, and their peers, as one set; so does the simulation."""
+
+    def test_a_required_peer_nobody_publishes_blocks(self):
+        registry = make_npm_registry(
+            versions_by_name={"host": [pv("1.0.0")]},
+            peers_by_pkg_ver={("plugin", "2.0.0"): {"host": PeerDependency("^9")}},
+        )
+
+        result = simulate_single("plugin", "2.0.0", {}, registry, installed_names={"plugin"})
+
+        assert result.is_actionable is False
+        (impact,) = result.transitive_impacts
+        assert (impact.kind, impact.current_version, impact.has_conflict) == (ImpactKind.PEER, None, True)
+        assert impact.conflict == RejectionDetail("no version satisfies", ("^9",))
+
+    def test_the_peers_of_an_auto_installed_peer_are_checked_against_the_tree(self):
+        """plugin 2 newly needs eslint-ts-parser, which peer-requires typescript <6.1 while 7.0.2 is installed."""
+        typescript = make_nested_record("typescript", copy_of("7.0.2"))
+        registry = make_npm_registry(
+            versions_by_name={"ts-parser": [pv("8.71.0")], "typescript": [pv("7.0.2")]},
+            peers_by_pkg_ver={
+                ("plugin", "2.0.0"): {"ts-parser": PeerDependency("^8")},
+                ("ts-parser", "8.71.0"): {"typescript": PeerDependency(">=4.8.4 <6.1.0")},
+            },
+        )
+
+        result = simulate_single("plugin", "2.0.0", {"typescript": typescript}, registry, installed_names={"plugin"})
+
+        assert result.is_actionable is False
+        assert [(i.package_name, i.kind) for i in result.transitive_impacts] == [
+            ("ts-parser", ImpactKind.NEW_DEP),
+            ("typescript", ImpactKind.PEER),
+        ]
+
+    def test_an_auto_installed_peers_peer_on_a_direct_dependency_is_checked(self):
+        registry = make_npm_registry(
+            versions_by_name={"ts-parser": [pv("8.71.0")]},
+            peers_by_pkg_ver={
+                ("plugin", "2.0.0"): {"ts-parser": PeerDependency("^8")},
+                ("ts-parser", "8.71.0"): {"typescript": PeerDependency(">=4.8.4 <6.1.0")},
+            },
+        )
+
+        result = simulate_single(
+            "plugin", "2.0.0", {}, registry, installed_names={"plugin"}, direct_versions={"typescript": "7.0.2"}
+        )
+
+        assert result.is_actionable is False
+
+    def test_the_candidates_own_peer_on_a_direct_dependency_is_left_to_the_solver(self):
+        registry = make_npm_registry(peers_by_pkg_ver={("plugin", "2.0.0"): {"typescript": PeerDependency("<6.1.0")}})
+
+        result = simulate_single("plugin", "2.0.0", {}, registry, direct_versions={"typescript": "7.0.2"})
+
+        assert result.is_actionable is True
+
+    def test_a_peer_cycle_terminates(self):
+        registry = make_npm_registry(
+            versions_by_name={"a": [pv("1.0.0")], "b": [pv("1.0.0")]},
+            peers_by_pkg_ver={
+                ("plugin", "2.0.0"): {"a": PeerDependency("^1")},
+                ("a", "1.0.0"): {"b": PeerDependency("^1")},
+                ("b", "1.0.0"): {"a": PeerDependency("^1")},
+            },
+        )
+
+        result = simulate_single("plugin", "2.0.0", {}, registry, installed_names={"plugin"})
+
+        assert result.is_actionable is True
+        assert [i.package_name for i in result.transitive_impacts] == ["a", "b"]
+
+    def test_a_new_peer_that_peer_requires_the_candidate_is_held_to_the_candidates_version(self):
+        registry = make_npm_registry(
+            versions_by_name={"helper": [pv("1.0.0")]},
+            peers_by_pkg_ver={
+                ("plugin", "2.0.0"): {"helper": PeerDependency("^1")},
+                ("helper", "1.0.0"): {"plugin": PeerDependency("^1")},
+            },
+        )
+
+        result = simulate_single("plugin", "2.0.0", {}, registry, installed_names={"plugin"})
+
+        assert result.is_actionable is False
+        assert result.transitive_impacts[-1].conflict == RejectionDetail("2.0.0 violates", ("^1",))
+
+    def test_a_present_peer_out_of_range_moves_its_copy(self):
+        host = make_nested_record("host", copy_of("1.0.0", edge("other", "1.0.0", "^1 || ^2")))
+        registry = make_npm_registry(
+            versions_by_name={"host": [pv("1.0.0"), pv("2.1.0")]},
+            peers_by_pkg_ver={("plugin", "2.0.0"): {"host": PeerDependency("^2")}},
+        )
+
+        result = simulate_single("plugin", "2.0.0", {"host": host}, registry, installed_names={"plugin", "host"})
+
+        assert result.is_actionable is True
+        (impact,) = result.transitive_impacts
+        assert (impact.kind, impact.current_version, impact.projected_version) == (
+            ImpactKind.OVERRIDE_BUMP,
+            "1.0.0",
+            "2.1.0",
+        )
+
+    def test_an_override_the_user_wrote_holds_the_peer_target(self):
+        """The declared range binds: an override never stands in for satisfying it."""
+        host = make_nested_record("host", copy_of("1.0.0", governed_by=override("1.0.0", ossiq=False)))
+        registry = make_npm_registry(
+            versions_by_name={"host": [pv("1.0.0"), pv("2.1.0")]},
+            peers_by_pkg_ver={("plugin", "2.0.0"): {"host": PeerDependency("^2")}},
+        )
+
+        result = simulate_single("plugin", "2.0.0", {"host": host}, registry, installed_names={"plugin", "host"})
+
+        assert result.is_actionable is False
+        (impact,) = result.transitive_impacts
+        assert impact.held_by_override is not None and impact.held_by_override.is_ossiq_authored is False
 
 
 def make_scan_record_with_recommendation(

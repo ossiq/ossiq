@@ -14,7 +14,7 @@ from ossiq.domain.common import (
 from ossiq.domain.compatibility import CompatibilityFacts
 from ossiq.domain.cve import CVE, Severity
 from ossiq.domain.package import Package
-from ossiq.domain.project import ConstraintSource, PeerRequirement
+from ossiq.domain.project import ConstraintSource, PeerRequirement, UnresolvedPeer
 from ossiq.domain.version import VERSION_DIFF_MAJOR, VERSION_LATEST, VersionsDifference
 from ossiq.service.package import PackageDetailResult, PackageInsight, PackageWarning, TransitiveCVEGroup
 from ossiq.service.project.models import ScanRecord
@@ -389,6 +389,21 @@ def test_peer_requirements_flag_violations() -> None:
 
     assert "Peer Requirements" in output
     assert "✗ consumer  requires  >=2.0.0  (installed: 1.0.0)" in output
+
+
+def test_unresolved_peers_get_their_own_block() -> None:
+    record = make_record()
+    record.unresolved_peers = [
+        UnresolvedPeer("@vue/server-renderer", "3.x", optional=True, installed_elsewhere=("3.5.43",)),
+        UnresolvedPeer("host", "^1"),
+    ]
+    data = PackageDetailResult(records=[record], transitive_cve_groups=[], project_name="demo", packages_registry="npm")
+
+    output = render(data)
+
+    assert "Unresolved Peers" in output
+    assert "✗ @vue/server-renderer  3.x  installed only out of reach: 3.5.43  (optional)" in output
+    assert "✗ host  ^1  not installed" in output
 
 
 def test_collect_licenses_dedupes_preserving_first_seen_order() -> None:

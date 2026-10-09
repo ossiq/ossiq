@@ -5,10 +5,8 @@ from datetime import datetime
 from functools import cmp_to_key
 from typing import Protocol
 
-from packaging.utils import canonicalize_name
-
 from ossiq.adapters.api_interfaces import AbstractPackageRegistryApi
-from ossiq.domain.common import ConstraintType
+from ossiq.domain.common import ConstraintType, ProjectPackagesRegistry
 from ossiq.domain.cve import CVE
 from ossiq.domain.project import ConstraintSource
 from ossiq.domain.release_cutoff import ReleaseCutoff
@@ -16,7 +14,11 @@ from ossiq.domain.requirement_scope import RequirementScope
 from ossiq.domain.version import PackageVersion
 from ossiq.solver.pep508 import applicable_requirements
 from ossiq.solver.problem import CandidateVersion, PackageConstraint, SolverProblem
-from ossiq.solver.version_matchers import cve_affects_version, version_satisfies_constraint
+from ossiq.solver.version_matchers import (
+    comparable_package_name,
+    cve_affects_version,
+    version_satisfies_constraint,
+)
 from ossiq.timeutil import age_days_from_iso, parse_iso_datetime
 
 CANDIDATE_CAP: int = 30
@@ -61,6 +63,7 @@ def parse_requires(
     declared: dict[str, str],
     scope: RequirementScope | None = None,
     package: str = "",
+    registry: ProjectPackagesRegistry = ProjectPackagesRegistry.PYPI,
 ) -> dict[str, str | None]:
     """Parse declared_dependencies into a {canonical_pkg_name: constraint_or_None} mapping.
 
@@ -81,9 +84,11 @@ def parse_requires(
         declared: Raw declared_dependencies dict from PackageVersion.
         scope: The project's extras and Python floor; None means no extras and no floor.
         package: Name of the package that declares *declared*, to look its extras up.
+        registry: Whose naming rules key the result (`comparable_package_name`): PEP 503 for
+            PyPI, the name as written for npm.
 
     Returns:
-        Mapping of canonical package name (PEP 503) to version constraint string,
+        Mapping of comparable package name to version constraint string,
         or None when the dependency is unconstrained (* / latest / no specifier).
     """
     result: dict[str, str | None] = {}
@@ -91,7 +96,7 @@ def parse_requires(
     for dep_key, dep_val in declared.items():
         if dep_val:  # npm: key=name, val=constraint
             try:
-                canonical = canonicalize_name(dep_key)
+                canonical = comparable_package_name(dep_key, registry)
                 stripped = dep_val.strip()
                 result[canonical] = stripped if stripped not in _UNCONSTRAINED_VALUES else None
             except (TypeError, AttributeError):
@@ -189,12 +194,26 @@ def filter_eligible_versions(
     )[:CANDIDATE_CAP]
 
 
+def requirements_with_peers(pv: PackageVersion) -> dict[str, str]:
+    """A release's declared dependencies plus its peers, a dependency's spec winning on a shared name.
+
+    Optional peers stay in on purpose: the encoder skips any package that is not in the problem,
+    which is an absent optional peer binding nothing, while one that is present is held to its range
+    as npm holds it. A peer with no range is unconstrained, like an ordinary dependency's `*`.
+    """
+    if not pv.declared_peer_dependencies:
+        return pv.declared_dependencies
+    peers = {name: peer.spec or "*" for name, peer in pv.declared_peer_dependencies.items()}
+    return {**peers, **pv.declared_dependencies}
+
+
 def make_candidate_versions(
     pvs: list[PackageVersion],
     cves: tuple[CVE, ...],
     now: datetime | None,
     scope: RequirementScope | None = None,
     package: str = "",
+    registry: ProjectPackagesRegistry = ProjectPackagesRegistry.PYPI,
 ) -> tuple[CandidateVersion, ...]:
     """Assemble CandidateVersion tuples from filtered PackageVersion objects.
 
@@ -211,7 +230,7 @@ def make_candidate_versions(
             is_yanked=pv.is_yanked,
             runtime_requirements=pv.runtime_requirements,
             has_cve=any(cve_affects_version(cve, pv.version) for cve in cves),
-            requires=parse_requires(pv.declared_dependencies, scope, package) or None,
+            requires=parse_requires(requirements_with_peers(pv), scope, package, registry) or None,
         )
         for pv in pvs
     )
@@ -278,6 +297,7 @@ class SolvablePool:
                 _now,
                 registry.requirement_scope,
                 name,
+                registry.package_registry,
             )
             for name, dep in best.items()
         }

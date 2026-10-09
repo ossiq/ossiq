@@ -53,6 +53,7 @@ def _make_registry(versions_by_name: dict[str, list[PackageVersion]]) -> MagicMo
 
     registry.compare_versions.side_effect = _cmp
     registry.package_version_requires.return_value = {}
+    registry.package_version_peers.return_value = {}
     return registry
 
 

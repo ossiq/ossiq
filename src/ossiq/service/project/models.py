@@ -16,7 +16,7 @@ from ossiq.domain.common import (
 from ossiq.domain.compatibility import CompatibilityFacts
 from ossiq.domain.cve import CVE
 from ossiq.domain.package import Package
-from ossiq.domain.project import ConstraintSource, InstalledCopy, PeerRequirement
+from ossiq.domain.project import ConstraintSource, InstalledCopy, PeerRequirement, UnresolvedPeer
 from ossiq.domain.repository import Repository
 from ossiq.domain.version import VersionsDifference
 from ossiq.risk.maintenance import DeprecationEvidence, MaintenanceAssessment
@@ -44,6 +44,8 @@ class DependencyDescriptor:
     # Direct deps: the peer requirements other installed packages place on them.
     all_constraints: list[str] = field(default_factory=list)
     peer_requirements: list[PeerRequirement] = field(default_factory=list)
+    # Peers this package declares that resolve to nothing from where it is installed (npm only).
+    unresolved_peers: list[UnresolvedPeer] = field(default_factory=list)
     # Every physical copy of this package in the tree, newest first; `version` is the first one.
     installed_copies: list[InstalledCopy] = field(default_factory=list)
     # The root manifest's own declared specifier for this package, mirroring
@@ -192,6 +194,10 @@ class ScanRecord:
     peer_violations: list[PeerRequirement] = field(default_factory=list)
     """Subset of peer_requirements where installed_version doesn't satisfy the spec."""
 
+    unresolved_peers: list[UnresolvedPeer] = field(default_factory=list)
+    """Peers this package declares that nothing installed within its reach satisfies: a required
+    peer npm left missing, or an optional one installed only nested under some other package."""
+
     constraint_conflict: list[str] = field(default_factory=list)
     """Populated when the solver found no valid version satisfying all constraints."""
 
@@ -285,6 +291,32 @@ class IgnoredDependency:
     reason: str
 
 
+@dataclass(frozen=True)
+class PeerRepair:
+    """What it takes to put a peer back where the package that declares it can load it (npm only).
+
+    npm never re-hoists a copy that is valid where it sits, so a peer installed only nested under some
+    other package stays out of reach until the project asks for it directly. The family moves bring
+    the stale hoisted copies of its lockstep family to the same version, so the added package and
+    its family stop being split.
+    """
+
+    package: str
+    """The peer to install where its requirers resolve it."""
+
+    spec: str
+    """The range written for it, in the style of the family it belongs to."""
+
+    is_dev: bool
+    """Whether it belongs in devDependencies: every requirer that needs it is a development package."""
+
+    requirers: tuple[str, ...]
+    """The installed packages whose peer it resolves."""
+
+    family_moves: tuple[TransitiveImpact, ...] = ()
+    """OVERRIDE_BUMP impacts moving stale hoisted copies of its family to its version."""
+
+
 @dataclass
 class ScanResult:
     project_name: str
@@ -313,6 +345,8 @@ class ScanResult:
     the scan checked against - usually a version read from the wrong shell. None when they agree or
     there is nothing to compare."""
     source_warnings: list[str] = field(default_factory=list)
+    peer_repairs: list[PeerRepair] = field(default_factory=list)
+    """Peers installed only out of their requirers' reach, and how the plan puts them back (npm only)."""
     """Non-fatal problems found while assembling the project's sources, e.g. a tree containing more
     than one registry. Carried as a value so each surface decides how to show it - `sources/` used
     to print these itself, which reached stderr even for the JSON front doors."""

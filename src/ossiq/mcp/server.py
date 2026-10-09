@@ -100,7 +100,8 @@ TOOLS: list[dict[str, Any]] = [
             "`next_action` (Update Immediately / Check Release Notes / Check for the Fix / Consider "
             "alternative / Find alternative / Constrained. Check newer version / Withheld by "
             "strategy) with recommended "
-            "versions, CVEs, and transitive impact. "
+            "versions, CVEs, and transitive impact, plus (npm) the peers a package cannot load "
+            "(`unresolved_peers`) and the repairs `apply` would make (`peer_repairs`). "
             "Use before bumping dependency versions." + LOGIN_NOTE
         ),
         "inputSchema": {

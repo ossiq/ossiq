@@ -13,7 +13,7 @@ from packaging.version import Version
 from ossiq.domain.common import ConstraintType, CveDatabase, ProjectPackagesRegistry, SignalCoverage
 from ossiq.domain.cve import CVE, Severity
 from ossiq.domain.package import Package
-from ossiq.domain.project import ConstraintSource
+from ossiq.domain.project import ConstraintSource, IncomingEdge, InstalledCopy
 from ossiq.domain.repository import Repository
 from ossiq.domain.version import PackageVersion, VersionsDifference
 from ossiq.service.common.package_versions import filter_versions_between
@@ -22,6 +22,7 @@ from ossiq.service.project.recommendations import (
     apply_conflicts,
     apply_recommendations,
     clamp_recommendations,
+    settle_transitive_picks,
 )
 from ossiq.service.project.records import build_records
 from ossiq.solver.dependencies_solver import (
@@ -480,6 +481,134 @@ class TestClampRecommendations:
         self.clamp([record], registry, cooldown_period=7)
 
         assert record.recommended_version == "5.3.0"
+
+    def test_re_fit_holds_to_the_records_other_hard_constraints(self):
+        """5.3.0 is in the declared range but outside <5.2.0, which the original pick also had to meet."""
+        registry = make_npm_registry({"chalk": [make_dated_pv("5.0.0"), make_dated_pv("5.3.0")]})
+        record = make_clamp_record("chalk", "5.0.0", "npm:chalk@^5.0.0", "6.0.0")
+        record.all_constraints = ["<5.2.0"]
+
+        self.clamp([record], registry)
+
+        assert record.recommended_version == "5.0.0"
+
+    def test_re_fit_skips_a_release_the_validator_rejects(self):
+        """The same check the solver's picks pass: a peer-breaking release is not a fallback either."""
+        registry = make_npm_registry(
+            {"chalk": [make_dated_pv("5.0.0"), make_dated_pv("5.2.0"), make_dated_pv("5.3.0")]}
+        )
+        record = make_clamp_record("chalk", "5.0.0", "npm:chalk@^5.0.0", "6.0.0")
+        asked: list[tuple[str, str]] = []
+
+        def validator(name: str, version: str) -> bool:
+            asked.append((name, version))
+            return version == "5.0.0"
+
+        self.clamp([record], registry, validator=validator)
+
+        assert record.recommended_version == "5.0.0"
+        assert asked[0] == ("chalk", "5.3.0")
+
+    def test_every_release_in_range_rejected_drops_the_recommendation(self):
+        registry = make_npm_registry({"chalk": [make_dated_pv("5.0.0"), make_dated_pv("5.3.0")]})
+        record = make_clamp_record("chalk", "5.0.0", "npm:chalk@^5.0.0", "6.0.0")
+
+        self.clamp([record], registry, validator=lambda _name, _version: False)
+
+        assert record.recommended_version is None
+
+    def test_a_pick_that_needs_no_re_fit_is_not_validated_again(self):
+        registry = make_npm_registry({"chalk": [make_dated_pv("5.0.0"), make_dated_pv("5.3.0")]})
+        record = make_clamp_record("chalk", "5.0.0", "npm:chalk@^5.0.0", "5.3.0")
+        validator = MagicMock(return_value=False)
+
+        self.clamp([record], registry, validator=validator)
+
+        assert record.recommended_version == "5.3.0"
+        validator.assert_not_called()
+
+
+# ============================================================================
+# settle_transitive_picks
+# ============================================================================
+
+
+def nested_registry(
+    versions_by_name: dict[str, list[PackageVersion]],
+    requires: dict[tuple[str, str], dict[str, str]],
+) -> MagicMock:
+    registry = make_npm_registry(versions_by_name)
+    registry.one_copy_per_name = False
+    registry.package_version_requires.side_effect = lambda name, version: requires.get((name, version), {})
+    registry.package_version_peers.side_effect = lambda name, version: {}
+
+    def newest(candidates):
+        as_list = list(candidates)
+        return max(as_list, key=lambda p: Version(p.version)) if as_list else None
+
+    registry.newest_version.side_effect = newest
+    return registry
+
+
+def copy_record(name: str, version: str, *edges: IncomingEdge, pick: str | None = None) -> ScanRecord:
+    record = make_record(name, installed=version)
+    record.installed_copies = [InstalledCopy(version, tuple(edges), _CONSTRAINT)]
+    record.recommended_version = pick
+    return record
+
+
+class TestSettleTransitivePicks:
+    """typescript-eslint pins its @typescript-eslint/* siblings exactly: a pick drags the family or stays."""
+
+    def family(self, *, parser_held_by: str = "^8") -> tuple[MagicMock, ScanRecord, ScanRecord]:
+        ts_eslint = copy_record(
+            "typescript-eslint",
+            "8.68.0",
+            IncomingEdge("@vue/eslint-config-typescript", "14.9.0", "^8.68.0"),
+            pick="8.71.0",
+        )
+        parser = copy_record(
+            "@typescript-eslint/parser",
+            "8.68.0",
+            IncomingEdge("typescript-eslint", "8.68.0", "8.68.0"),
+            IncomingEdge("eslint-plugin-vue", "10.11.1", parser_held_by, is_peer=True, optional=True),
+        )
+        registry = nested_registry(
+            {"@typescript-eslint/parser": [make_dated_pv("8.68.0"), make_dated_pv("8.71.0")]},
+            {("typescript-eslint", "8.71.0"): {"@typescript-eslint/parser": "8.71.0"}},
+        )
+        return registry, ts_eslint, parser
+
+    def settle(self, registry: MagicMock, *records: ScanRecord) -> None:
+        settle_transitive_picks(list(records), registry, allow_prerelease=False, installed_names=set(), now=FIXED_NOW)
+
+    def test_a_pick_carries_the_family_moves_it_needs(self):
+        registry, ts_eslint, parser = self.family()
+
+        self.settle(registry, ts_eslint, parser)
+
+        assert ts_eslint.recommended_version == "8.71.0"
+        assert [
+            (i.package_name, i.current_version, i.projected_version) for i in ts_eslint.update_transitive_impacts
+        ] == [("@typescript-eslint/parser", "8.68.0", "8.71.0")]
+
+    def test_a_pick_whose_family_cannot_follow_is_dropped_with_the_reason(self):
+        registry, ts_eslint, parser = self.family(parser_held_by="8.68.0")
+
+        self.settle(registry, ts_eslint, parser)
+
+        assert ts_eslint.recommended_version is None
+        (refused,) = ts_eslint.rejected_candidates
+        assert refused.version == "8.71.0"
+
+    def test_python_picks_are_left_alone(self):
+        registry, ts_eslint, parser = self.family(parser_held_by="8.68.0")
+        registry.one_copy_per_name = True
+
+        self.settle(registry, ts_eslint, parser)
+
+        assert ts_eslint.recommended_version == "8.71.0"
+        registry.package_version_requires.assert_not_called()
 
 
 # ============================================================================

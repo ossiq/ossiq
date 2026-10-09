@@ -20,6 +20,8 @@ class SchemaRegistry:
     SCHEMA_FILES: ClassVar[dict[tuple[ExportJsonSchemaVersion, ExportProfile], str]] = {
         (ExportJsonSchemaVersion.V1_5, ExportProfile.FULL): "export_schema_v1.5.json",
         (ExportJsonSchemaVersion.V1_5, ExportProfile.STANDARD): "export_schema_v1.5_standard.json",
+        (ExportJsonSchemaVersion.V1_6, ExportProfile.FULL): "export_schema_v1.6.json",
+        (ExportJsonSchemaVersion.V1_6, ExportProfile.STANDARD): "export_schema_v1.6_standard.json",
     }
 
     schemas_dir: Path
@@ -53,7 +55,7 @@ class SchemaRegistry:
         """
         Get the latest supported schema version.
         """
-        return ExportJsonSchemaVersion.V1_5
+        return ExportJsonSchemaVersion.V1_6
 
     def list_versions(self) -> list[ExportJsonSchemaVersion]:
         """

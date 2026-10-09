@@ -10,11 +10,13 @@ from ossiq.messages import (
     HELP_PLAN_CVE_BYPASS_NOTE,
     HELP_PLAN_FORCED_WARNING,
     HELP_PLAN_HELD_BY_PACKAGE_MANAGER_HEADER,
+    HELP_PLAN_HELD_BY_PEERS_HEADER,
     HELP_PLAN_HELD_BY_USER_OVERRIDES_HEADER,
     HELP_PLAN_HELD_FOR_COOLDOWN_HEADER,
     HELP_PLAN_HELD_FOR_WIDENING_HEADER,
     HELP_PLAN_KNOWN_BREAK_NOTE,
     HELP_PLAN_NEW_DEP_FRESH_WARNING,
+    HELP_PLAN_PEER_REPAIRS_HEADER,
 )
 from ossiq.service.update import UpdateEntry, UpdatePlan
 from ossiq.ui.interfaces import AbstractUserInterfaceRenderer
@@ -130,6 +132,8 @@ class ConsolePlanRenderer(AbstractUserInterfaceRenderer):
         self.render_held_for_cooldown(data)
         self.render_held_for_widening(data)
         self.render_held_by_user_overrides(data)
+        self.render_held_by_peers(data)
+        self.render_peer_repairs(data)
 
         if script:
             console.print(Rule("Plan Script — review before running", style="dim"))
@@ -219,5 +223,41 @@ class ConsolePlanRenderer(AbstractUserInterfaceRenderer):
         for hold in data.held_by_user_overrides:
             name = f"{hold.package}@{hold.key}" if hold.key else hold.package
             table.add_row(name, hold.value, hold.source_file or "—", ", ".join(hold.blocked))
+        console.print(table)
+        console.print()
+
+    def render_held_by_peers(self, data: UpdatePlan) -> None:
+        """List the packages whose newer release an installed package's peer range rules out."""
+        if not data.held_by_peers:
+            return
+
+        console.print(f"[yellow]{HELP_PLAN_HELD_BY_PEERS_HEADER}[/yellow]")
+        table = Table(show_header=True, header_style="bold dim", box=None, padding=(0, 2))
+        table.add_column("Package", style="bold")
+        table.add_column("Refused", style="green")
+        table.add_column("Peer-required by", style="dim")
+        table.add_column("Range", style="dim")
+        for hold in data.held_by_peers:
+            requirer = f"{hold.requirer} (+{hold.others} more)" if hold.others else hold.requirer
+            table.add_row(hold.package, hold.blocked_version, requirer, hold.spec)
+        console.print(table)
+        console.print()
+
+    def render_peer_repairs(self, data: UpdatePlan) -> None:
+        """List the peers the plan puts back in reach, and the family copies that move with them."""
+        if not data.peer_repairs:
+            return
+
+        console.print(f"[yellow]{HELP_PLAN_PEER_REPAIRS_HEADER}[/yellow]")
+        table = Table(show_header=True, header_style="bold dim", box=None, padding=(0, 2))
+        table.add_column("Adds", style="bold")
+        table.add_column("As", style="green")
+        table.add_column("For", style="dim")
+        table.add_column("Family moved", style="dim")
+        for repair in data.peer_repairs:
+            section = "devDependency" if repair.is_dev else "dependency"
+            count = len(repair.family_moves)
+            moved = f"{count} stale cop{'y' if count == 1 else 'ies'}" if count else "—"
+            table.add_row(f"{repair.package} {repair.spec}", section, ", ".join(repair.requirers), moved)
         console.print(table)
         console.print()

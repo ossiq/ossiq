@@ -96,6 +96,9 @@ def _make_registry(
     registry.package_registry = ProjectPackagesRegistry.PYPI
     registry.package_versions.side_effect = lambda name: versions_by_name.get(name, [])
     registry.package_version_requires.side_effect = lambda name, version: (requires or {}).get((name, version), {})
+    registry.package_version_peers.side_effect = lambda name, version: next(
+        (pv.declared_peer_dependencies for pv in versions_by_name.get(name, []) if pv.version == version), {}
+    )
 
     def _cmp(v1: str, v2: str) -> int:
         p1, p2 = PV(v1), PV(v2)

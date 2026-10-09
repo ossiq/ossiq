@@ -15,7 +15,7 @@ from ossiq.domain.common import ConstraintType, CveDatabase, ProjectPackagesRegi
 from ossiq.domain.cve import CVE, Severity
 from ossiq.domain.package import Package
 from ossiq.domain.packages_manager import UV
-from ossiq.domain.project import ConstraintSource, Dependency, IncomingEdge, PeerRequirement, Project
+from ossiq.domain.project import ConstraintSource, Dependency, IncomingEdge, InstalledCopy, PeerRequirement, Project
 from ossiq.domain.version import PackageVersion, VersionsDifference
 from ossiq.messages import IGNORE_REASON_IGNORE_FLAG, IGNORE_REASON_NON_REGISTRY
 from ossiq.service.project.models import DependencyDescriptor, ScanRecord
@@ -25,11 +25,13 @@ from ossiq.service.project.scan import (
     ScanDescriptors,
     build_scan_descriptors,
     direct_descriptor,
+    held_transitive_versions,
     installed_package_names,
     requirement_scope_for,
     scan,
     solve_transitive_phase,
 )
+from ossiq.service.update_impact import ImpactKind, TransitiveImpact
 from ossiq.settings import Settings
 from ossiq.solver.dependencies_solver import EMPTY_OUTPUT, SolverOutput
 
@@ -567,10 +569,11 @@ class TestScanSortKey:
 
 
 class TestDirectDescriptorPeerConstraints:
-    """Direct deps must carry their peer requirements as hard constraints — and only those.
+    """Direct deps carry no hard constraints of their own: peers bind per candidate, not per snapshot.
 
-    Regression for the frontend/ ERESOLVE: peer specs were collected on the Dependency node but
-    dropped when building the descriptor, so nothing forbade typescript 7.x.
+    The installed lockfile's peer specs describe the installed release's neighbours. Held as L1
+    clauses they froze a lockstep family (vue and @vue/server-renderer), because the only version
+    that satisfied the old spec was the old one.
     """
 
     @staticmethod
@@ -579,7 +582,7 @@ class TestDirectDescriptorPeerConstraints:
             name="typescript",
             canonical_name="typescript",
             version_installed="6.0.3",
-            version_defined=">=5.0.0",
+            version_defined="~6.0.3",
             parent_constraints=["~6.0.3", ">=4.8.4 <6.1.0", ">=5.0.0"],
             peer_requirements=[
                 PeerRequirement(requirer_name="typescript-eslint", spec=">=4.8.4 <6.1.0"),
@@ -587,15 +590,23 @@ class TestDirectDescriptorPeerConstraints:
             ],
         )
 
-    def test_peer_specs_become_constraints(self):
+    def test_installed_peer_specs_are_not_hard_constraints(self):
         descriptor = direct_descriptor(self.typescript_dep(), is_optional=True)
-        assert descriptor.all_constraints == [">=4.8.4 <6.1.0", ">=4.5.0"]
+        assert descriptor.all_constraints == []
         assert descriptor.is_optional is True
 
     def test_root_manifest_specifier_is_not_a_constraint(self):
         """~6.0.3 sits in parent_constraints; promoting it would freeze every declared range."""
         descriptor = direct_descriptor(self.typescript_dep(), is_optional=False)
         assert "~6.0.3" not in descriptor.all_constraints
+
+    def test_peer_requirements_still_travel_with_the_descriptor(self):
+        """The record shows them, and peer_violations is computed from them."""
+        descriptor = direct_descriptor(self.typescript_dep(), is_optional=False)
+        assert [(r.requirer_name, r.spec) for r in descriptor.peer_requirements] == [
+            ("typescript-eslint", ">=4.8.4 <6.1.0"),
+            ("pinia", ">=4.5.0"),
+        ]
 
     def test_dep_without_peers_stays_unconstrained(self):
         """PyPI deps never carry peer requirements — behaviour must be unchanged for them."""
@@ -655,6 +666,64 @@ class TestRequirementScopeFor:
 
     def test_a_project_without_a_python_floor_has_none(self):
         assert requirement_scope_for(pypi_project(pypi_node("app"), python_floor=None)).python_floor is None
+
+
+class TestHeldTransitiveVersions:
+    """The version of each transitive package that direct dependencies see once the plan applies."""
+
+    @staticmethod
+    def record(name: str, *copies: InstalledCopy, pick: str | None = None) -> ScanRecord:
+        record = ScanRecord(
+            package_name=name,
+            dependency_name=name,
+            is_optional_dependency=False,
+            installed_version=copies[0].version,
+            latest_version=None,
+            versions_diff_index=VersionsDifference("1.0.0", "1.0.0", 0, diff_name="LATEST"),
+            time_lag_days=None,
+            releases_lag=None,
+            cve=[],
+            constraint_info=ConstraintSource(type=ConstraintType.DECLARED, source_file="package.json"),
+            recommended_version=pick,
+        )
+        record.installed_copies = list(copies)
+        return record
+
+    @staticmethod
+    def copy(version: str, *requirers: str) -> InstalledCopy:
+        edges = tuple(IncomingEdge(name, "1.0.0", "*") for name in requirers)
+        return InstalledCopy(version, edges, ConstraintSource(type=ConstraintType.DECLARED, source_file="package.json"))
+
+    def test_the_copy_a_direct_dependency_asks_for_stands_for_the_name(self):
+        shared = self.record("@vue/shared", self.copy("3.5.43", "vue"), self.copy("3.5.42", "@vue-macros/common"))
+
+        finals, installed = held_transitive_versions([shared], {"@vue-macros/common"})
+
+        assert (finals, installed) == ({"@vue/shared": "3.5.42"}, {"@vue/shared": "3.5.42"})
+
+    def test_a_pick_on_that_copy_is_its_final_version(self):
+        host = self.record("host", self.copy("1.0.0", "app-plugin"), pick="1.2.0")
+
+        assert held_transitive_versions([host], {"app-plugin"})[0] == {"host": "1.2.0"}
+
+    def test_a_family_move_on_that_copy_is_its_final_version(self):
+        shared = self.record("@vue/shared", self.copy("3.5.43", "vue"), self.copy("3.5.42", "@vue-macros/common"))
+        pick = self.record("vue-family-owner", self.copy("1.0.0", "x"))
+        pick.update_transitive_impacts = [
+            TransitiveImpact(
+                package_name="@vue/shared",
+                current_version="3.5.42",
+                projected_version="3.5.43",
+                new_constraint="3.5.43",
+                driven_by="vue-family-owner",
+                has_conflict=False,
+                kind=ImpactKind.OVERRIDE_BUMP,
+            )
+        ]
+
+        finals, _ = held_transitive_versions([shared, pick], {"@vue-macros/common"})
+
+        assert finals["@vue/shared"] == "3.5.43"
 
 
 class TestInstalledPackageNames:

@@ -9,7 +9,7 @@ from packaging.version import Version as PV
 from ossiq.adapters.api_interfaces import AbstractPackageRegistryApi
 from ossiq.domain.common import ConstraintType, ProjectPackagesRegistry
 from ossiq.domain.project import ConstraintSource
-from ossiq.domain.version import PackageVersion
+from ossiq.domain.version import PackageVersion, PeerDependency
 from ossiq.solver.dependencies_solver import build_requires_reason, build_requires_validator, solve_direct
 from ossiq.solver.problem import PackageConstraint, SolverProblem
 
@@ -27,6 +27,7 @@ def _pv(
     prerelease: bool = False,
     deprecated: bool = False,
     runtime_requirements: dict[str, str] | None = None,
+    peers: dict[str, PeerDependency] | None = None,
 ) -> PackageVersion:
     return PackageVersion(
         version=version,
@@ -39,6 +40,7 @@ def _pv(
         is_prerelease=prerelease,
         is_deprecated=deprecated,
         runtime_requirements=runtime_requirements,
+        declared_peer_dependencies=peers or {},
     )
 
 
@@ -71,6 +73,10 @@ def _make_registry(
     registry.package_registry = ProjectPackagesRegistry.PYPI
     registry.package_versions.side_effect = lambda name: versions_by_name.get(name, [])
     registry.package_version_requires.side_effect = lambda name, version: (requires or {}).get((name, version), {})
+    # Same source as the real adapter: a release's peers are whatever its PackageVersion declares.
+    registry.package_version_peers.side_effect = lambda name, version: next(
+        (pv.declared_peer_dependencies for pv in versions_by_name.get(name, []) if pv.version == version), {}
+    )
 
     def _cmp(v1: str, v2: str) -> int:
         p1, p2 = PV(v1), PV(v2)
@@ -421,6 +427,169 @@ class TestPeerConstraintBlocksUpgrade:
         result = solve_direct(deps, registry, {})
         assert "typescript" not in result.recommendations
         assert result.recommendations.get("other") == "2.0.0"
+
+
+class TestCandidatePeersAreSolved:
+    """Peers are read per candidate version, so a family can move together and nothing moves alone.
+
+    Replaces the static lockfile snapshot as the thing a direct dep is held to: the peers a
+    *candidate* declares are what npm will check, not the ones the installed release did.
+    """
+
+    @staticmethod
+    def npm_registry(versions_by_name: dict[str, list[PackageVersion]]) -> MagicMock:
+        registry = _make_registry(versions_by_name)
+        registry.package_registry = ProjectPackagesRegistry.NPM
+        registry.one_copy_per_name = False
+        return registry
+
+    @staticmethod
+    def npm_problem(installed: dict[str, str]) -> SolverProblem:
+        constraints = tuple(PackageConstraint(name, None, ConstraintType.DECLARED, v) for name, v in installed.items())
+        return SolverProblem(
+            constraints=constraints, candidates={}, engine_context={}, registry=ProjectPackagesRegistry.NPM
+        )
+
+    def lockstep_deps(self) -> list[_FakeDep]:
+        return [_FakeDep("vue", "3.5.43", constraint="^3.5.43"), _FakeDep("@vue/server-renderer", "3.5.43")]
+
+    def test_a_lockstep_family_moves_together(self) -> None:
+        """@vue/server-renderer peer-pins vue exactly: bumping one half drags the other."""
+        registry = self.npm_registry(
+            {
+                "vue": [_pv("3.5.43"), _pv("3.5.44")],
+                "@vue/server-renderer": [
+                    _pv("3.5.43", peers={"vue": PeerDependency("3.5.43")}),
+                    _pv("3.5.44", peers={"vue": PeerDependency("3.5.44")}),
+                ],
+            }
+        )
+
+        result = solve_direct(self.lockstep_deps(), registry, {})
+
+        assert result.recommendations.get("vue") == "3.5.44"
+        assert result.recommendations.get("@vue/server-renderer") == "3.5.44"
+
+    def test_a_lockstep_family_stays_put_when_one_half_has_no_matching_release(self) -> None:
+        """No mismatched pair, ever: with no server-renderer for 3.5.44, vue is not bumped alone."""
+        registry = self.npm_registry(
+            {
+                "vue": [_pv("3.5.43"), _pv("3.5.44")],
+                "@vue/server-renderer": [_pv("3.5.43", peers={"vue": PeerDependency("3.5.43")})],
+            }
+        )
+
+        result = solve_direct(self.lockstep_deps(), registry, {})
+
+        assert result.recommendations.get("vue") in (None, "3.5.43")
+        assert result.recommendations.get("@vue/server-renderer") in (None, "3.5.43")
+
+    def test_a_candidates_new_peer_that_conflicts_with_a_co_recommendation_is_demoted(self) -> None:
+        """a@2.0.0 newly peer-requires b>=2, but b has nowhere to go: a is held back, not emitted."""
+        deps = [_FakeDep("a", "1.0.0"), _FakeDep("b", "1.0.0")]
+        registry = self.npm_registry(
+            {
+                "a": [_pv("1.0.0"), _pv("2.0.0", peers={"b": PeerDependency(">=2")})],
+                "b": [_pv("1.0.0")],
+            }
+        )
+
+        result = solve_direct(deps, registry, {})
+
+        assert result.recommendations.get("a") in (None, "1.0.0")
+
+    def test_optional_peer_absent_from_the_tree_does_not_constrain(self) -> None:
+        deps = [_FakeDep("plugin", "1.0.0")]
+        registry = self.npm_registry(
+            {"plugin": [_pv("1.0.0"), _pv("2.0.0", peers={"host": PeerDependency("^9", optional=True)})]}
+        )
+
+        result = solve_direct(deps, registry, {})
+
+        assert result.recommendations.get("plugin") == "2.0.0"
+
+    def test_optional_peer_present_in_the_tree_does_constrain(self) -> None:
+        deps = [_FakeDep("plugin", "1.0.0"), _FakeDep("host", "1.0.0")]
+        registry = self.npm_registry(
+            {
+                "plugin": [_pv("1.0.0"), _pv("2.0.0", peers={"host": PeerDependency("^9", optional=True)})],
+                "host": [_pv("1.0.0")],
+            }
+        )
+
+        result = solve_direct(deps, registry, {})
+
+        assert result.recommendations.get("plugin") in (None, "1.0.0")
+
+    def test_a_required_peer_with_no_range_is_unconstrained(self) -> None:
+        deps = [_FakeDep("plugin", "1.0.0"), _FakeDep("host", "1.0.0")]
+        registry = self.npm_registry(
+            {
+                "plugin": [_pv("1.0.0"), _pv("2.0.0", peers={"host": PeerDependency("")})],
+                "host": [_pv("1.0.0")],
+            }
+        )
+
+        result = solve_direct(deps, registry, {})
+
+        assert result.recommendations.get("plugin") == "2.0.0"
+
+    def test_a_bare_peer_spec_is_an_exact_version(self) -> None:
+        """npm reads `3.5.38` as exactly that, not as ^3.5.38."""
+        registry = self.npm_registry({"@vue/server-renderer": [_pv("3.5.38", peers={"vue": PeerDependency("3.5.38")})]})
+        problem = self.npm_problem({"vue": "3.5.38", "@vue/server-renderer": "3.5.38"})
+
+        reason_for = build_requires_reason(problem, registry, {}, {})
+
+        assert reason_for("vue", "3.5.38") is None
+        assert reason_for("vue", "3.5.40") == "@vue/server-renderer 3.5.38 peer-requires vue 3.5.38"
+
+    def test_a_held_package_that_peer_requires_the_candidate_names_it(self) -> None:
+        registry = self.npm_registry({"a": [_pv("1.0.0", peers={"b": PeerDependency("^1")})]})
+        problem = self.npm_problem({"a": "1.0.0", "b": "1.0.0"})
+
+        reason_for = build_requires_reason(problem, registry, {}, {})
+
+        assert reason_for("b", "2.0.0") == "a 1.0.0 peer-requires b ^1"
+        assert reason_for("b", "1.2.0") is None
+
+    def test_the_candidates_own_peer_names_what_it_is_held_against(self) -> None:
+        registry = self.npm_registry({"a": [_pv("2.0.0", peers={"b": PeerDependency(">=2")})]})
+        problem = self.npm_problem({"a": "1.0.0", "b": "1.0.0"})
+
+        reason_for = build_requires_reason(problem, registry, {}, {})
+
+        assert reason_for("a", "2.0.0") == "a 2.0.0 peer-requires b >=2, held at 1.0.0"
+
+    def test_a_package_left_where_it_is_is_not_judged_by_its_peers(self) -> None:
+        registry = self.npm_registry({"a": [_pv("1.0.0", peers={"b": PeerDependency(">=2")})]})
+        problem = self.npm_problem({"a": "1.0.0", "b": "1.0.0"})
+
+        reason_for = build_requires_reason(problem, registry, {}, {})
+
+        assert reason_for("a", "1.0.0") is None
+
+    def test_a_range_the_installed_release_already_missed_is_not_new_breakage(self) -> None:
+        """a 1.0.0 wants b ^1 but b 2.0.0 is installed: b 2.1.0 is not what broke it."""
+        registry = self.npm_registry({"a": [_pv("1.0.0", peers={"b": PeerDependency("^1")})]})
+        problem = self.npm_problem({"a": "1.0.0", "b": "2.0.0"})
+
+        reason_for = build_requires_reason(problem, registry, {}, {})
+
+        assert reason_for("b", "2.1.0") is None
+
+    def test_peers_are_not_nestable_where_dependencies_are(self) -> None:
+        """The same range as a dependency would get its own copy under npm; as a peer it cannot."""
+        nested = self.npm_registry({})
+        nested.package_version_requires.side_effect = lambda name, version: {"b": "^1"} if name == "a" else {}
+        peered = self.npm_registry({"a": [_pv("1.0.0", peers={"b": PeerDependency("^1")})]})
+        problem = self.npm_problem({"a": "0.9.0", "b": "1.0.0"})
+
+        as_dependency = build_requires_reason(problem, nested, {}, {"b": "2.0.0"})
+        as_peer = build_requires_reason(problem, peered, {}, {"b": "2.0.0"})
+
+        assert as_dependency("a", "1.0.0") is None
+        assert as_peer("a", "1.0.0") == "a 1.0.0 peer-requires b ^1, held at 2.0.0"
 
 
 class TestBuildRequiresReason:

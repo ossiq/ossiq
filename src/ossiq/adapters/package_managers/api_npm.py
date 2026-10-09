@@ -16,7 +16,11 @@ from ossiq.adapters.package_managers.npm import manifest
 from ossiq.adapters.package_managers.npm.constants import MANIFEST_FILE
 from ossiq.adapters.package_managers.npm.engines import declared_engine_floors
 from ossiq.adapters.package_managers.npm.lockfile import NPMResolverV3
-from ossiq.adapters.package_managers.npm.writer import apply_direct_specs, write_transitive_overrides
+from ossiq.adapters.package_managers.npm.writer import (
+    add_peer_repairs,
+    apply_direct_specs,
+    write_transitive_overrides,
+)
 from ossiq.adapters.package_managers.utils import find_lockfile_parser
 from ossiq.domain.exceptions import PackageManagerExecutionError, PackageManagerLockfileParsingError
 from ossiq.domain.packages_manager import NPM, PackageManagerType
@@ -189,6 +193,7 @@ class PackageManagerJsNpm(AbstractPackageManagerApi):
         except json.JSONDecodeError as exc:
             raise PackageManagerExecutionError(f"package.json is not valid JSON: {exc}") from exc
         apply_direct_specs(pkg, plan)
+        add_peer_repairs(pkg, plan)
         write_transitive_overrides(pkg, plan)
 
         manifest_path.write_text(json.dumps(pkg, indent=2) + "\n", encoding="utf-8")

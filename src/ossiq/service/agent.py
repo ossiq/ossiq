@@ -19,6 +19,7 @@ from ossiq.domain.common import (
 )
 from ossiq.domain.compatibility import CompatibilityFacts
 from ossiq.domain.cve import CVE
+from ossiq.domain.project import UnresolvedPeer
 from ossiq.domain.version import VERSION_DIFF_MAJOR, VERSION_DIFF_MINOR, VERSION_DIFF_PATCH, PackageVersion
 from ossiq.risk.maintenance import NOT_MAINTAINED
 from ossiq.service.package import PackageDetailResult
@@ -27,7 +28,7 @@ from ossiq.service.project.breaking_changes import (
     esm_interop_note,
     module_system_label,
 )
-from ossiq.service.project.models import ScanRecord, ScanResult
+from ossiq.service.project.models import PeerRepair, ScanRecord, ScanResult
 from ossiq.service.project.next_action import (
     CHECK_FOR_THE_FIX,
     CHECK_RELEASE_NOTES,
@@ -189,6 +190,31 @@ def impact_summary(impact: TransitiveImpact) -> dict[str, Any]:
     }
 
 
+def peer_summary(peer: UnresolvedPeer) -> dict[str, Any]:
+    """Reduce an unresolved peer to what an agent needs to see why a package cannot load it.
+
+    An empty `installed_elsewhere` means the peer is installed nowhere; otherwise it lists the
+    versions sitting out of the declaring package's reach.
+    """
+    return {
+        "package": peer.package,
+        "spec": peer.spec,
+        "optional": peer.optional,
+        "installed_elsewhere": list(peer.installed_elsewhere),
+    }
+
+
+def peer_repair_summary(repair: PeerRepair) -> dict[str, Any]:
+    """Reduce a peer repair to the manifest entry `apply` adds and the family moves it carries."""
+    return {
+        "package": repair.package,
+        "suggested_constraint": repair.spec,
+        "is_dev_dependency": repair.is_dev,
+        "requirers": list(repair.requirers),
+        "family_moves": [impact_summary(move) for move in repair.family_moves],
+    }
+
+
 def recommendation_clears_cves(record: ScanRecord) -> bool:
     """Whether `recommended_version` moves off every advisory the installed version carries.
 
@@ -211,8 +237,8 @@ def agent_next_action(record: ScanRecord) -> str:
     "No available fix" means `recommended_version` does not clear the CVEs, not merely that it
     sits outside the declared range: judging it by the range made one entry say `to: 11.1.1` (a
     fix) and "Check for the Fix" (no fix) at once. A fix that needs the range widened first reads
-    "Constrained. Check newer version" instead of "Update Immediately", since `apply` won't write it
-    as-is.
+    "Constrained. Check newer version" instead of "Update Immediately", since a plain bump won't
+    reach it.
     """
     label = next_action_label(record)
     can_fix = has_in_range_upgrade(record)
@@ -292,6 +318,13 @@ def build_update_entry(record: ScanRecord, engine_context: EngineContext | None 
         # Omitted rather than null when no newer release is ESM-only for this project, so the
         # common CommonJS-free entry carries no noise.
         **({"module_system_note": facts.module_system_note} if facts.module_system_note else {}),
+        # Part of `base`, not of the actionable branch: a package whose peer cannot be loaded may
+        # have nothing else due, and its entry would otherwise read as "no action needed" alone.
+        **(
+            {"unresolved_peers": [peer_summary(peer) for peer in record.unresolved_peers]}
+            if record.unresolved_peers
+            else {}
+        ),
     }
 
     if not actionable:
@@ -352,10 +385,15 @@ def build_update_entry(record: ScanRecord, engine_context: EngineContext | None 
         "transitive_impact": [impact_summary(impact) for impact in record.update_transitive_impacts],
     }
     # A ladder pick that only exists by widening the declared constraint (IN_MAJOR/LATEST) is not
-    # something the writers will apply on their own — see build_update_plan's held_for_widening.
-    # Flag it explicitly so a consumer doesn't read "to" as a safe target to write as-is.
+    # something the writers apply unless the tier or an escalating motive authorizes it — see
+    # build_update_plan's held_for_widening. Flag it explicitly so a consumer doesn't read "to" as
+    # a safe target to write as-is.
     if record.recommended_from_rung in WIDENING_RUNGS:
         entry["requires_constraint_widening"] = True
+        # The one signal that tells an agent `apply` will write this pick (after its own widening
+        # confirmation) rather than leave the range to a human; the tier alone does not say.
+        if record.strategy_selection is not None and record.strategy_selection.widening_authorized:
+            entry["widening_authorized"] = True
         # A transitive-only dep has no declaration of its own; naming it would print "declared
         # range None must be widened".
         if record.version_constraint_declared:
@@ -467,6 +505,10 @@ def build_update_decide(scan: ScanResult, update_strategy: str | None = None) ->
     }
     if update_strategy is not None:
         result["update_strategy"] = update_strategy
+    # An agent never sees the plan's "Repairs unresolved peers" section, so what `apply` would add to
+    # the manifest has to ride in the document, as the per-entry `unresolved_peers` it answers do.
+    if scan.peer_repairs:
+        result["peer_repairs"] = [peer_repair_summary(repair) for repair in scan.peer_repairs]
     # Same reasoning as data_completeness: an agent reading this JSON never sees a console
     # warning, so anything worth warning a human about belongs inside the document too.
     if scan.source_warnings:

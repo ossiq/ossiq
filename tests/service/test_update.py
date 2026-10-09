@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 from datetime import UTC, datetime
 
 from ossiq.domain.common import (
@@ -9,6 +10,7 @@ from ossiq.domain.common import (
     CooldownHold,
     CveDatabase,
     OverrideHold,
+    PeerHold,
     ProjectPackagesRegistry,
     RecommendationRung,
     RejectedCandidate,
@@ -17,8 +19,13 @@ from ossiq.domain.common import (
 from ossiq.domain.cve import CVE, Severity
 from ossiq.domain.project import ConstraintSource
 from ossiq.domain.version import VersionsDifference
-from ossiq.service.project.models import ScanRecord, ScanResult
-from ossiq.service.update import build_update_plan, find_override_record, override_alias_siblings
+from ossiq.service.project.models import PeerRepair, ScanRecord, ScanResult
+from ossiq.service.update import (
+    build_update_plan,
+    find_override_record,
+    override_alias_siblings,
+    override_bump_entry,
+)
 from ossiq.service.update_impact import ImpactKind, TransitiveImpact
 from ossiq.solver.reason import RecommendationReason
 from ossiq.strategy.overrides import StrategyPlan
@@ -46,6 +53,7 @@ def selection_with(
     target_version: str | None = None,
     cooldown_hold: CooldownHold | None = None,
     cooldown_bypassed: bool = False,
+    widening_authorized: bool = False,
 ) -> StrategySelection:
     return StrategySelection(
         strategy=UpdateStrategy.STANDARD,
@@ -58,6 +66,7 @@ def selection_with(
         escalation=None,
         cooldown_hold=cooldown_hold,
         cooldown_bypassed=cooldown_bypassed,
+        widening_authorized=widening_authorized,
     )
 
 
@@ -527,6 +536,24 @@ class TestHeldForWidening:
         assert [e.package_name for e in plan.held_for_cooldown] == ["requests"]
         assert not plan.held_for_widening
 
+    def test_an_escalated_pick_is_written_not_held(self):
+        record = self.rung_record("requests", "2.31.0", "2.32.4", RecommendationRung.IN_MAJOR)
+        record.strategy_selection = selection_with(target_version="2.32.4", widening_authorized=True)
+        plan = build_update_plan(make_scan_result(production=[record]), "uv")
+        assert [e.package_name for e in plan.direct_entries] == ["requests"]
+        assert not plan.held_for_widening
+        entry = plan.direct_entries[0]
+        assert entry.widening_authorized is True
+        # apply's own widening confirmation reads this, so authorizing the write must not clear it.
+        assert entry.widens_constraint is True
+
+    def test_a_widening_pick_without_the_authorization_stays_held(self):
+        record = self.rung_record("requests", "2.31.0", "2.32.4", RecommendationRung.IN_MAJOR)
+        record.strategy_selection = selection_with(target_version="2.32.4")
+        plan = build_update_plan(make_scan_result(production=[record]), "uv")
+        assert not plan.direct_entries
+        assert [e.package_name for e in plan.held_for_widening] == ["requests"]
+
 
 class TestHeldForWideningUnderRewriteVersions:
     """--rewrite-versions exists to move `==x.y.z` pins past the range they declare.
@@ -694,6 +721,112 @@ class TestNestedCopiesInThePlan:
         (hold,) = plan.held_by_user_overrides
         assert (hold.package, hold.value) == ("@vue/shared", "3.5.42")
         assert hold.blocked == ("vue@3.5.43", "vue-router@5.0.5")
+
+    def test_a_transitive_pick_brings_the_family_moves_it_carries(self):
+        ts_eslint = make_record("typescript-eslint", "8.68.0", "8.71.0")
+        ts_eslint.update_transitive_impacts = [
+            impact_of(ImpactKind.OVERRIDE_BUMP, "@typescript-eslint/parser", "8.68.0", "8.71.0")
+        ]
+        parser = make_record("@typescript-eslint/parser", "8.68.0")
+
+        plan = build_update_plan(make_scan_result(transitive=[ts_eslint, parser]), "npm")
+
+        assert [(e.package_name, e.current_version, e.recommended_version) for e in plan.transitive_entries] == [
+            ("@typescript-eslint/parser", "8.68.0", "8.71.0"),
+            ("typescript-eslint", "8.68.0", "8.71.0"),
+        ]
+
+    def test_a_split_name_gets_one_entry_per_copy(self):
+        """The solver's pick targets the primary copy; the family move targets the stale hoisted one."""
+        vue = make_record("vue", "3.5.43", "3.5.44")
+        vue.update_transitive_impacts = [impact_of(ImpactKind.OVERRIDE_BUMP, "@vue/shared", "3.5.42", "3.5.44")]
+        shared = make_record("@vue/shared", "3.5.43", "3.5.44")
+
+        plan = build_update_plan(make_scan_result(production=[vue], transitive=[shared]), "npm")
+
+        assert [(e.package_name, e.current_version, e.recommended_version) for e in plan.transitive_entries] == [
+            ("@vue/shared", "3.5.42", "3.5.44"),
+            ("@vue/shared", "3.5.43", "3.5.44"),
+        ]
+
+
+class TestHeldByPeers:
+    """A package whose newer release an installed peer range rules out must not just vanish."""
+
+    @staticmethod
+    def refused(version: str, requirer: str, spec: str, others: int = 0) -> RejectedCandidate:
+        return RejectedCandidate(
+            version,
+            f"{requirer} peer-requires typescript",
+            held_by_peer=PeerHold("typescript", version, requirer, spec, others),
+        )
+
+    def test_the_newest_refused_release_stands_for_the_package(self):
+        """rejected_candidates run lowest rung first, so the last peer hold is the furthest reach."""
+        typescript = make_record("typescript", "6.0.3")
+        typescript.rejected_candidates = [
+            self.refused("6.1.0", "ts-eslint", "<6.1.0"),
+            self.refused("7.0.2", "ts-eslint", "<6.1.0", others=7),
+        ]
+
+        plan = build_update_plan(make_scan_result(production=[typescript]), "npm")
+
+        assert plan.held_by_peers == [PeerHold("typescript", "7.0.2", "ts-eslint", "<6.1.0", 7)]
+
+    def test_holds_are_listed_by_package_name(self):
+        zod = make_record("zod", "3.0.0")
+        zod.rejected_candidates = [
+            RejectedCandidate("4.0.0", "x", held_by_peer=PeerHold("zod", "4.0.0", "form-lib", "^3")),
+        ]
+        typescript = make_record("typescript", "6.0.3")
+        typescript.rejected_candidates = [self.refused("7.0.2", "ts-eslint", "<6.1.0")]
+
+        plan = build_update_plan(make_scan_result(production=[zod, typescript]), "npm")
+
+        assert [h.package for h in plan.held_by_peers] == ["typescript", "zod"]
+
+    def test_a_rejection_that_is_not_a_peer_is_not_listed(self):
+        vue = make_record("vue", "3.5.42")
+        vue.rejected_candidates = [RejectedCandidate("3.5.43", "@vue/shared is held by an override")]
+
+        plan = build_update_plan(make_scan_result(production=[vue]), "npm")
+
+        assert plan.held_by_peers == []
+
+
+class TestPeerRepairsInThePlan:
+    def test_a_repair_carries_into_the_plan_with_its_family_moves_as_override_entries(self):
+        move = impact_of(ImpactKind.OVERRIDE_BUMP, "@vue/shared", "3.5.42", "3.5.43")
+        repair = PeerRepair("@vue/server-renderer", "~3.5.43", True, ("@vue/test-utils",), (move,))
+        result = dataclasses.replace(
+            make_scan_result(transitive=[make_record("@vue/shared", "3.5.43")]), peer_repairs=[repair]
+        )
+
+        plan = build_update_plan(result, "npm")
+
+        assert plan.peer_repairs == [repair]
+        assert [
+            (e.package_name, e.current_version, e.recommended_version, e.constraint_type)
+            for e in plan.transitive_entries
+        ] == [("@vue/shared", "3.5.42", "3.5.43", ConstraintType.OVERRIDE)]
+
+
+class TestOverrideBumpEntryKey:
+    """A family move is keyed to the range from the old copy to the target, not the old copy alone."""
+
+    def test_the_key_spans_old_to_new_so_the_familys_new_edges_match_it(self):
+        entry = override_bump_entry(impact_of(ImpactKind.OVERRIDE_BUMP, "@vue/reactivity", "3.5.42", "3.5.43"))
+
+        assert (entry.current_version, entry.recommended_version, entry.override_key) == (
+            "3.5.42",
+            "3.5.43",
+            "3.5.42 - 3.5.43",
+        )
+
+    def test_the_range_is_ordered_whichever_way_the_copy_moves(self):
+        entry = override_bump_entry(impact_of(ImpactKind.OVERRIDE_BUMP, "x", "2.0.0", "1.9.0"))
+
+        assert entry.override_key == "1.9.0 - 2.0.0"
 
 
 class TestCarriesKnownBreak:

@@ -13,6 +13,7 @@ from ossiq.adapters.api_npm import (
     detect_npm_module_system,
     exports_conditions,
     is_npm_prerelease,
+    npm_peer_dependencies,
 )
 from ossiq.clients.batch import BatchClient
 from ossiq.domain.common import ModuleSystem, ProjectPackagesRegistry
@@ -25,6 +26,7 @@ from ossiq.domain.version import (
     VERSION_DIFF_PRERELEASE,
     VERSION_LATEST,
     VERSION_NO_DIFF,
+    PeerDependency,
 )
 from ossiq.settings import Settings
 
@@ -600,6 +602,68 @@ class TestPackageVersionRequires:
     def test_returns_empty_for_unknown_version(self, npm_api, mock_npm_response):
         mock_npm_response.set_response("lodash", {"versions": {}})
         assert npm_api.package_version_requires("lodash", "9.9.9") == {}
+
+
+class TestNpmPeerDependencies:
+    def test_reads_peers_with_optional_meta(self):
+        details = {
+            "peerDependencies": {"typescript": ">=4.8.4 <6.1.0", "vue": "3.5.38"},
+            "peerDependenciesMeta": {"vue": {"optional": True}},
+        }
+        assert npm_peer_dependencies(details) == {
+            "typescript": PeerDependency(">=4.8.4 <6.1.0"),
+            "vue": PeerDependency("3.5.38", optional=True),
+        }
+
+    def test_optional_meta_without_a_declared_peer_is_an_unconstrained_optional_peer(self):
+        details = {"peerDependenciesMeta": {"ghost": {"optional": True}, "listed": {"optional": False}}}
+        assert npm_peer_dependencies(details) == {"ghost": PeerDependency("*", optional=True)}
+
+    @pytest.mark.parametrize(
+        "details",
+        [
+            {},
+            {"peerDependencies": ["typescript"]},
+            {"peerDependencies": {"typescript": 5}},
+            {"peerDependenciesMeta": "optional"},
+            {"peerDependenciesMeta": {"vue": "optional"}},
+        ],
+    )
+    def test_malformed_registry_json_yields_no_peers(self, details):
+        assert npm_peer_dependencies(details) == {}
+
+    def test_build_package_versions_carries_each_versions_peers(self, npm_api, mock_npm_response):
+        mock_npm_response.set_response(
+            "plugin",
+            {
+                "versions": {
+                    "1.0.0": {"peerDependencies": {"host": "^1"}},
+                    "2.0.0": {"peerDependencies": {"host": "^2"}, "peerDependenciesMeta": {"host": {"optional": True}}},
+                    "3.0.0": {},
+                }
+            },
+        )
+        by_version = {pv.version: pv.declared_peer_dependencies for pv in npm_api.package_versions("plugin")}
+        assert by_version == {
+            "1.0.0": {"host": PeerDependency("^1")},
+            "2.0.0": {"host": PeerDependency("^2", optional=True)},
+            "3.0.0": {},
+        }
+
+    def test_package_version_peers_reads_the_cached_packument_only(self, npm_api, mock_npm_response):
+        mock_npm_response.set_response("plugin", {"versions": {"1.0.0": {"peerDependencies": {"host": "^1"}}}})
+        with patch.object(npm_api, "packages_info_batch") as fetch:
+            assert npm_api.package_version_peers("plugin", "1.0.0") == {"host": PeerDependency("^1")}
+            assert npm_api.package_version_peers("plugin", "9.9.9") == {}
+        fetch.assert_not_called()
+
+    def test_peers_stay_out_of_requires(self, npm_api, mock_npm_response):
+        # npm nests ordinary dependencies but not peers, so the two must not be mixed in one map
+        mock_npm_response.set_response(
+            "plugin",
+            {"versions": {"1.0.0": {"dependencies": {"dep": "^1"}, "peerDependencies": {"host": "^1"}}}},
+        )
+        assert npm_api.package_version_requires("plugin", "1.0.0") == {"dep": "^1"}
 
 
 class TestRewriteSpecifier:

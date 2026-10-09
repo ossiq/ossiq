@@ -12,7 +12,7 @@ import pytest
 from ossiq.adapters.package_managers.api_npm import PackageManagerJsNpm
 from ossiq.adapters.package_managers.npm.lockfile import NPMResolverV3
 from ossiq.domain.common import ConstraintType, ProjectPackagesRegistry
-from ossiq.domain.project import IncomingEdge
+from ossiq.domain.project import IncomingEdge, UnresolvedPeer
 from ossiq.solver.version_matchers import version_satisfies_constraint
 from tests.adapters.package_managers.npm.helpers import build_tree
 
@@ -198,6 +198,145 @@ class TestNpmEdgeResolution:
 
         # Assert
         assert "missing" not in root.dependencies["a"].optional_dependencies
+
+    def test_peer_edge_does_not_overwrite_what_the_root_declared(self):
+        """typescript stays at the manifest's ~6.0.3; a plugin's looser peer range is not its declaration."""
+        # Arrange: the peer-declaring package is listed after the root, the order npm writes
+        lock = npm_lock(
+            {
+                "": {"name": "p", "dependencies": {"typescript": "~6.0.3", "plugin": "^1"}},
+                "node_modules/plugin": {"version": "1.0.0", "peerDependencies": {"typescript": ">=5.0.0"}},
+                "node_modules/typescript": {"version": "6.0.3"},
+            }
+        )
+
+        # Act
+        typescript = build_tree(lock).dependencies["typescript"]
+
+        # Assert: the peer is still recorded as a requirement, just not as the declaration
+        assert typescript.version_defined == "~6.0.3"
+        assert typescript.version_constraint_declared == "~6.0.3"
+        assert [(r.requirer_name, r.spec) for r in typescript.peer_requirements] == [("plugin", ">=5.0.0")]
+        assert typescript.parent_constraints == ["~6.0.3", ">=5.0.0"]
+
+    def test_peer_edge_seen_first_does_not_outlive_a_pinned_root_declaration(self):
+        """A pin equal to the installed version records nothing, but must still displace an earlier peer spec."""
+        # Arrange: plugin precedes the root, so its peer edge is processed first
+        lock = npm_lock(
+            {
+                "node_modules/plugin": {"version": "1.0.0", "peerDependencies": {"typescript": ">=5.0.0"}},
+                "node_modules/typescript": {"version": "6.0.3"},
+                "": {"name": "p", "dependencies": {"typescript": "6.0.3", "plugin": "^1"}},
+            }
+        )
+
+        # Act
+        typescript = build_tree(lock).dependencies["typescript"]
+
+        # Assert
+        assert typescript.version_defined is None
+        assert typescript.constraint_info.type == ConstraintType.PINNED
+
+    def test_package_reached_only_through_peers_keeps_the_peer_spec(self):
+        """With no real requirer to go on, the peer spec remains the node's fallback declaration."""
+        # Arrange
+        lock = npm_lock(
+            {
+                "": {"name": "p", "dependencies": {"plugin": "^1"}},
+                "node_modules/plugin": {"version": "1.0.0", "peerDependencies": {"host": "^2"}},
+                "node_modules/host": {"version": "2.1.0"},
+            }
+        )
+
+        # Act
+        host = build_tree(lock).dependencies["plugin"].optional_dependencies["host"]
+
+        # Assert
+        assert host.version_defined == "^2"
+
+    def test_optional_peer_installed_only_out_of_reach_is_unresolved_not_linked(self):
+        """The frontend/ vitest break: test-utils can't load the server-renderer nested under vue."""
+        # Arrange: the only server-renderer sits under vue, where test-utils' lookup never goes
+        lock = npm_lock(
+            {
+                "": {"name": "p", "dependencies": {"vue": "~3.5.43"}, "devDependencies": {"@vue/test-utils": "^2"}},
+                "node_modules/vue": {"version": "3.5.43", "dependencies": {"@vue/server-renderer": "3.5.43"}},
+                "node_modules/vue/node_modules/@vue/server-renderer": {"version": "3.5.43"},
+                "node_modules/@vue/test-utils": {
+                    "version": "2.5.1",
+                    "peerDependencies": {"@vue/server-renderer": "3.x", "vue": "3.x"},
+                    "peerDependenciesMeta": {"@vue/server-renderer": {"optional": True}},
+                },
+            }
+        )
+
+        # Act
+        root = build_tree(lock)
+
+        # Assert
+        test_utils = root.optional_dependencies["@vue/test-utils"]
+        nested = root.dependencies["vue"].dependencies["@vue/server-renderer"]
+        assert "@vue/server-renderer" not in test_utils.optional_dependencies
+        assert nested.peer_requirements == []
+        assert test_utils.unresolved_peers == [
+            UnresolvedPeer("@vue/server-renderer", "3.x", optional=True, installed_elsewhere=("3.5.43",))
+        ]
+
+    def test_peer_optional_flag_comes_from_the_requirers_meta(self):
+        lock = npm_lock(
+            {
+                "": {"name": "p", "dependencies": {"host": "^1", "plugin": "^1"}},
+                "node_modules/host": {"version": "1.0.0"},
+                "node_modules/plugin": {
+                    "version": "1.0.0",
+                    "peerDependencies": {"host": "^1"},
+                    "peerDependenciesMeta": {"host": {"optional": True}},
+                },
+            }
+        )
+
+        host = build_tree(lock).dependencies["host"]
+
+        assert host.parent_edges[-1] == IncomingEdge("plugin", "1.0.0", "^1", is_peer=True, optional=True)
+        assert host.peer_requirements[-1].optional is True
+
+    def test_required_peer_installed_nowhere_is_recorded_missing(self):
+        lock = npm_lock(
+            {
+                "": {"name": "p", "dependencies": {"plugin": "^1"}},
+                "node_modules/plugin": {"version": "1.0.0", "peerDependencies": {"host": "^1"}},
+            }
+        )
+
+        plugin = build_tree(lock).dependencies["plugin"]
+
+        assert plugin.unresolved_peers == [UnresolvedPeer("host", "^1")]
+
+    def test_optional_peer_installed_nowhere_needs_no_record(self):
+        lock = npm_lock(
+            {
+                "": {"name": "p", "dependencies": {"plugin": "^1"}},
+                "node_modules/plugin": {
+                    "version": "1.0.0",
+                    "peerDependencies": {"host": "^1"},
+                    "peerDependenciesMeta": {"host": {"optional": True}},
+                },
+            }
+        )
+
+        assert build_tree(lock).dependencies["plugin"].unresolved_peers == []
+
+    def test_an_ordinary_edge_still_falls_back_to_matching_by_name(self):
+        """Only peers lose the fallback: a hand-edited or linked lockfile still links its dependencies."""
+        lock = npm_lock(
+            {
+                "": {"name": "p", "dependencies": {"a": "^1"}},
+                "node_modules/a": {"version": "1.0.0", "dependencies": {"x": "^1"}},
+                "node_modules/z/node_modules/x": {"version": "1.0.0"},
+            }
+        )
+
+        assert build_tree(lock).dependencies["a"].dependencies["x"].version_installed == "1.0.0"
 
     @pytest.mark.parametrize("fixture", ["project1", "project3", "version-constrained"])
     def test_every_edge_in_a_real_lockfile_lands_on_a_copy_that_satisfies_it(self, fixture):
