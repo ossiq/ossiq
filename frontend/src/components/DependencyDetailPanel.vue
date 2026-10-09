@@ -128,6 +128,8 @@ const maintenance = computed(() => {
 
 const deprecationSignals = computed(() => props.node?.deprecation_signals ?? [])
 
+const unresolvedPeers = computed(() => props.node?.unresolved_peers ?? [])
+
 const triageConfig: Record<string, { text: string; label: string }> = {
   evict: { text: 'text-red-700', label: 'EVICT' },
   patch: { text: 'text-amber-600', label: 'PATCH' },
@@ -524,6 +526,31 @@ const transitiveCVEGroups = computed<TransitiveCVEGroup[]>(() => {
                   class="text-[9px] font-mono font-bold px-1.5 py-0.5 bg-sky-50 text-sky-700 border border-sky-200"
                 >{{ extra }}</span>
               </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Unresolved peers — drawn only when the package declares a peer that nothing within its
+             reach satisfies. `ossiq status` and `ossiq info` show the same list. -->
+        <section v-if="unresolvedPeers.length > 0" data-testid="unresolved-peers">
+          <div class="flex items-center gap-2 mb-3">
+            <p class="text-[10px] font-bold uppercase tracking-widest text-slate-400 font-mono">Unresolved Peers</p>
+            <span class="px-2 py-0.5 bg-amber-100 text-amber-700 text-[9px] font-bold rounded-full">{{ unresolvedPeers.length }}</span>
+          </div>
+          <div class="border-t border-slate-100 divide-y divide-slate-100">
+            <div v-for="peer in unresolvedPeers" :key="peer.package_name" class="py-2 space-y-0.5">
+              <div class="flex items-baseline gap-2">
+                <span class="font-mono text-[11px] font-bold text-slate-700">{{ peer.package_name }}</span>
+                <span class="font-mono text-[10px] text-slate-500">{{ peer.spec }}</span>
+                <span
+                  v-if="peer.optional"
+                  class="px-1.5 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wide bg-slate-100 text-slate-500"
+                >optional</span>
+              </div>
+              <p v-if="peer.installed_elsewhere?.length" class="text-[10px] text-amber-700">
+                installed only out of reach: <span class="font-mono">{{ peer.installed_elsewhere.join(', ') }}</span>
+              </p>
+              <p v-else class="text-[10px] text-amber-700">not installed</p>
             </div>
           </div>
         </section>

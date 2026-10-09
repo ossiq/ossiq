@@ -1,5 +1,5 @@
 import { markRaw } from 'vue'
-import type { OSSIQExportSchemaV15, CVEInfo, DependencyTreeNode } from '@/types/report'
+import type { OSSIQExportSchemaV16, CVEInfo, DependencyTreeNode } from '@/types/report'
 import type { ConstraintType, DirectEntry, EdgeData, PackageRegistry, RegistryEntry, Severity } from '@/types/registry'
 
 const SEVERITY_RANK: Record<string, number> = { LOW: 1, MEDIUM: 2, HIGH: 3, CRITICAL: 4 }
@@ -11,7 +11,7 @@ function maxSeverity(cves: CVEInfo[]): Severity | null {
   ).severity as Severity
 }
 
-export function buildPackageRegistry(report: OSSIQExportSchemaV15): PackageRegistry {
+export function buildPackageRegistry(report: OSSIQExportSchemaV16): PackageRegistry {
   const constraintTypeMap = report.constraint_type_map
 
   // Step 1: Build transitive package lookup by id
@@ -57,6 +57,7 @@ export function buildPackageRegistry(report: OSSIQExportSchemaV15): PackageRegis
       archived: pkg.archived ?? null,
       days_since_push: pkg.days_since_push ?? null,
       dependency_health_action: pkg.dependency_health_action ?? null,
+      unresolved_peers: pkg.unresolved_peers ?? [],
       childEdges: new Map(),
     })
   }
@@ -123,6 +124,7 @@ export function buildPackageRegistry(report: OSSIQExportSchemaV15): PackageRegis
       archived: pkg.archived ?? null,
       days_since_push: pkg.days_since_push ?? null,
       dependency_health_action: pkg.dependency_health_action ?? null,
+      unresolved_peers: pkg.unresolved_peers ?? [],
       childRefs: [],
     })
   }
