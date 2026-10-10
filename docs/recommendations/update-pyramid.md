@@ -97,7 +97,7 @@ standard.` — the tier reports what it withheld and names the cheapest tier tha
 
 | Tier | The risk you accept | How it surfaces |
 |---|---|---|
-| `security` | Drift and maintenance debt accumulate invisibly; a package with only low-EPSS CVEs is never moved at all. At `security` and `deprecation` alike, the transitive solver also narrows itself to CVE-affected packages. | "N more updates available under…" footer; packages sit at `Withheld by strategy`, whose `↳` row names the lowest tier that would move them |
+| `security` | Drift and maintenance debt accumulate invisibly; a package with only low-EPSS CVEs is never moved at all. At `security` and `deprecation` alike, the transitive solver also skips transitive packages that have no CVE. A `--strategy-override` on a direct package doesn't change that, and one on a transitive package exempts only that package. | "N more updates available under…" footer; packages sit at `Withheld by strategy`, whose `↳` row names the lowest tier that would move them |
 | `deprecation` | The same minimal-diff risk, now resting on maintenance evidence that may never have been gathered — see [Partial data](partial-data.md). | Silent: an unassessed package simply carries no `end_of_life` motive | Silent: an unassessed package simply carries no `end_of_life` motive |
 | `standard` | Packages whose only newer releases sit outside the declared range are recommended but **not written** — the default tier proposes changes it will not apply. | *Requires constraint widening* block in `plan` |
 | `latest` | Authorizes rewriting declared ranges. That range was a decision someone made, possibly encoding an incompatibility OSS IQ cannot see. | Second confirmation prompt in `apply` |
