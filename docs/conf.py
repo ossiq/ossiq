@@ -1,3 +1,6 @@
+from sphinx.application import Sphinx
+from sphinx_immaterial.mermaid_diagrams import MermaidDirective
+
 project = "OSS IQ"
 author = "Maksym Klymyshyn"
 copyright = "2026, OSS IQ DEV SL"
@@ -8,7 +11,6 @@ extensions = [
     "sphinx.ext.mathjax",
     "sphinx_immaterial",
     "sphinxext.opengraph",
-    "sphinxcontrib.mermaid",
 ]
 
 templates_path = ["_templates"]
@@ -44,7 +46,8 @@ mathjax_path = "https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js"
 
 myst_heading_anchors = 3
 # Lets plain ```mermaid fences (the syntax GitHub/VS Code previewers recognize)
-# also trigger the sphinxcontrib-mermaid directive, instead of requiring ```{mermaid}.
+# also trigger the `mermaid` directive registered in setup() below, instead of requiring
+# ```{md-mermaid}.
 myst_fence_as_directive = ["mermaid"]
 
 pygments_style = "sphinx"
@@ -97,3 +100,13 @@ ogp_enable_meta_description = True
 ogp_custom_meta_tags = [
     '<meta name="twitter:card" content="summary_large_image">',
 ]
+
+
+def setup(app: Sphinx) -> None:
+    """Route plain `mermaid` fences to the theme's own diagram renderer.
+
+    sphinx_immaterial already finds every `pre.mermaid` on a page and draws it. A second
+    renderer (sphinxcontrib-mermaid) re-read each diagram after the theme replaced it, found no
+    text, and left a "Syntax error" SVG behind, which its fullscreen button then showed.
+    """
+    app.add_directive("mermaid", MermaidDirective)
