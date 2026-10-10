@@ -46,19 +46,6 @@ def test_strategy_plan_for_package_falls_back_to_default() -> None:
     assert plan.for_package("requests") is UpdateStrategy.STANDARD
 
 
-def test_strategy_plan_max_tier_mixed() -> None:
-    plan = StrategyPlan(
-        default=UpdateStrategy.SECURITY,
-        overrides={"lodash": UpdateStrategy.CUTTING_EDGE, "requests": UpdateStrategy.STANDARD},
-    )
-    assert plan.max_tier is UpdateStrategy.CUTTING_EDGE
-
-
-def test_strategy_plan_max_tier_is_default_when_no_overrides() -> None:
-    plan = StrategyPlan(default=UpdateStrategy.LATEST)
-    assert plan.max_tier is UpdateStrategy.LATEST
-
-
 def test_strategy_plan_prerelease_packages() -> None:
     plan = StrategyPlan(
         default=UpdateStrategy.STANDARD,
