@@ -51,6 +51,11 @@ happens, the selection carries an `escalation` string naming the reason. The sam
 *every* reachable version still carries a qualifying CVE: OSS IQ picks the newest anyway and says so
 rather than silently recommending nothing.
 
+Reach widens, but the pick does not always follow it. If the declared range holds a CVE-clear
+release, `standard` takes the newest of those. A CVE alone never rewrites a range that has a fix.
+`latest` and `cutting-edge` still take the newest overall, and an `end_of_life` motive keeps the
+newest in reach.
+
 Freshness tiers get one more escape: if drift alone leaves nothing in reach — an exact pin whose
 only newer releases sit outside the declared range — reach widens one rung at a time until
 something is found. This is why a `pydantic==1.10.13` pin yields `1.10.26` instead of `None`.
