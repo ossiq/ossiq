@@ -26,6 +26,15 @@ class ConstraintSource:
     override_value: str | None = None
     """npm only: what the matching override rule forces. May be a `$name` reference to a root dependency."""
 
+    @property
+    def is_user_override(self) -> bool:
+        """Whether an override the user is responsible for governs this constraint.
+
+        A rule OSS IQ wrote is OSS IQ's to move, so it is not one: surfaces that flag an override, and
+        the gates that hold an update behind one, read this rather than testing `type` themselves.
+        """
+        return self.type == ConstraintType.OVERRIDE and not self.is_ossiq_authored
+
 
 @dataclass(frozen=True)
 class PeerRequirement:

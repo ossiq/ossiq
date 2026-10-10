@@ -444,7 +444,7 @@ def test_in_range_recommendation_does_not_flag_constraint_widening():
 
 def test_next_action_unchanged_for_widening_pick_with_minor_drift():
     """A ladder pick reachable only by widening the constraint stays "Constrained" — pinning
-    build_update_entry.can_fix (via the rung-aware has_in_range_upgrade) at False."""
+    build_update_entry.can_fix (via the rung-aware has_writable_upgrade) at False."""
     record = make_record(
         installed="1.10.13",
         latest="1.10.26",
@@ -1018,7 +1018,7 @@ def test_a_decision_without_repairs_has_no_peer_repairs_key():
     assert "peer_repairs" not in build_update_decide(make_scan([make_record()]))
 
 
-def widening_record(*, authorized: bool) -> ScanRecord:
+def widening_record(*, authorized: bool, strategy: UpdateStrategy = UpdateStrategy.SECURITY) -> ScanRecord:
     return make_record(
         installed="1.0.0",
         latest="1.1.0",
@@ -1029,7 +1029,7 @@ def widening_record(*, authorized: bool) -> ScanRecord:
         version_constraint="1.0.0",
         version_constraint_declared="1.0.0",
         strategy_selection=StrategySelection(
-            strategy=UpdateStrategy.SECURITY,
+            strategy=strategy,
             target_version="1.1.0",
             rung=RecommendationRung.LATEST,
             motives=frozenset({UpdateMotive.EXPLOITABLE_CVE}),
@@ -1049,11 +1049,29 @@ def test_an_escalated_widening_pick_says_apply_will_write_it():
     assert entry["widening_authorized"] is True
 
 
+def test_an_escalated_widening_pick_reads_as_an_update_not_a_constraint():
+    """apply writes this pick, so the label cannot send the reader off to widen the range."""
+    entry = build_update_decide(make_scan([widening_record(authorized=True)]))["updates"][0]
+
+    assert entry["next_action"] == "Update Immediately"
+    assert "recommend updating 1.0.0 -> 1.1.0" in entry["reasons"]
+    assert not any("caps this below" in reason for reason in entry["reasons"])
+
+
 def test_a_widening_pick_the_tier_did_not_authorize_has_no_such_key():
     entry = build_update_decide(make_scan([widening_record(authorized=False)]))["updates"][0]
 
     assert entry["requires_constraint_widening"] is True
     assert "widening_authorized" not in entry
+    assert entry["next_action"] == "Constrained. Check newer version"
+
+
+def test_a_widening_pick_under_a_tier_that_reaches_it_reads_as_an_update():
+    record = widening_record(authorized=False, strategy=UpdateStrategy.LATEST)
+    entry = build_update_decide(make_scan([record]))["updates"][0]
+
+    assert entry["requires_constraint_widening"] is True
+    assert entry["next_action"] == "Update Immediately"
 
 
 # --- the registry retired the package ----------------------------------------

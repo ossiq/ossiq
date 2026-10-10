@@ -29,6 +29,7 @@ __all__ = [
     "UpdateStrategy",
     "includes",
     "tier_index",
+    "tier_reaches",
 ]
 
 
@@ -100,3 +101,13 @@ def tier_index(strategy: UpdateStrategy) -> int:
 def includes(strategy: UpdateStrategy, other: UpdateStrategy) -> bool:
     """True when `strategy` sits at or above `other` in the pyramid."""
     return tier_index(strategy) >= tier_index(other)
+
+
+def tier_reaches(strategy: UpdateStrategy, rung: RecommendationRung) -> bool:
+    """True when `strategy`'s own MAX_REACH covers `rung`, with no escalating motive's help.
+
+    Args:
+        strategy: The tier in force for the package.
+        rung: A ladder rung; SOLVER sits outside the ladder and raises KeyError.
+    """
+    return RUNG_ORDER[rung] <= RUNG_ORDER[MAX_REACH[strategy]]

@@ -38,7 +38,7 @@ from ossiq.service.project.next_action import (
     NEXT_ACTION_PRIORITY,
     UPDATE_IMMEDIATELY,
     engine_mismatch_summary,
-    has_in_range_upgrade,
+    has_writable_upgrade,
     next_action_label,
 )
 from ossiq.service.update_impact import TransitiveImpact
@@ -239,10 +239,10 @@ def agent_next_action(record: ScanRecord) -> str:
     sits outside the declared range: judging it by the range made one entry say `to: 11.1.1` (a
     fix) and "Check for the Fix" (no fix) at once. A fix that needs the range widened first reads
     "Constrained. Check newer version" instead of "Update Immediately", since a plain bump won't
-    reach it.
+    reach it, unless `apply` writes the widening itself (see `has_writable_upgrade`).
     """
     label = next_action_label(record)
-    can_fix = has_in_range_upgrade(record)
+    can_fix = has_writable_upgrade(record)
 
     if record.cve and label in (None, UPDATE_IMMEDIATELY, CHECK_RELEASE_NOTES, CONSTRAINED_CHECK_NEWER):
         if not recommendation_clears_cves(record):
@@ -273,7 +273,7 @@ def build_update_entry(record: ScanRecord, engine_context: EngineContext | None 
     cves = record.cve
     diff_index = record.versions_diff_index.diff_index
     is_major_drift = diff_index == VERSION_DIFF_MAJOR
-    can_fix = has_in_range_upgrade(record)
+    can_fix = has_writable_upgrade(record)
     unmaintained_state = record.maintenance.state if record.maintenance is not None else None
     unmaintained = unmaintained_state in NOT_MAINTAINED
 
