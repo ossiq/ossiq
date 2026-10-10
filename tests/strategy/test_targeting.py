@@ -411,6 +411,32 @@ def test_a_fix_inside_the_declared_range_needs_no_authorization() -> None:
     assert selection.widening_authorized is False
 
 
+def test_a_fix_inside_the_range_beats_a_newer_one_past_it_below_latest() -> None:
+    facts = make_facts(cve_epss_scores=(0.5,))
+    candidates = [
+        Candidate("1.0.1", IN_RANGE, has_cve=False),
+        Candidate("2.0.0", LATEST, has_cve=False),
+    ]
+
+    standard = select_target(facts, UpdateStrategy.STANDARD, candidates)
+    assert standard.target_version == "1.0.1"
+    assert standard.requires_widening is False
+    assert standard.escalation is None
+    assert standard.widening_authorized is False
+
+    assert select_target(facts, UpdateStrategy.LATEST, candidates).target_version == "2.0.0"
+
+
+def test_end_of_life_keeps_the_newest_even_when_the_range_holds_a_cve_fix() -> None:
+    facts = make_facts(cve_epss_scores=(0.5,), maintenance_state="abandoned")
+    candidates = [
+        Candidate("1.0.1", IN_RANGE, has_cve=False),
+        Candidate("2.0.0", LATEST, has_cve=False),
+    ]
+
+    assert select_target(facts, UpdateStrategy.STANDARD, candidates).target_version == "2.0.0"
+
+
 def test_widening_for_drift_alone_is_not_authorized() -> None:
     """Rule 8 reaches past the tier too, but only an escalating motive earns the authorization."""
     candidates = [Candidate("1.10.26", IN_MAJOR, has_cve=False)]

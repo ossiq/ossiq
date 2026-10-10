@@ -122,7 +122,9 @@ def select_target(
          resolves the admitted motive: CVE-clear when EXPLOITABLE_CVE is admitted, otherwise
          simply the nearest candidate in reach.
       5. Freshness tiers (standard, latest, cutting-edge) take the *newest* candidate in reach,
-         never a CVE-affected one while a clear candidate exists in reach.
+         never a CVE-affected one while a clear candidate exists in reach. A clear candidate
+         within the tier's base reach is preferred to a newer one past it, so a CVE alone never
+         widens the range while the range holds a fix; end-of-life keeps the newest.
       6. A higher tier's target is never lower than a lower tier's — this falls out of the
          construction (superset of motives, reach at least as far) rather than being special-cased
          here; minimal-diff tiers are the deliberate exception, since lowering the diff *is* the
@@ -264,7 +266,11 @@ def select_target(
         else:
             pick = in_reach[0]
     else:
-        pick = clear[-1] if clear else in_reach[-1]
+        # A CVE that a release inside the tier's own reach clears is no reason to leave it.
+        # End-of-life keeps the newest: a CVE-clear release says nothing about the dead upstream.
+        within_base = [c for c in clear if RUNG_ORDER[c.rung] <= RUNG_ORDER[MAX_REACH[strategy]]]
+        stay = [] if UpdateMotive.END_OF_LIFE in admitted else within_base
+        pick = (stay or clear or in_reach)[-1]
 
     escalation: str | None = None
     # Withheld when no reachable version is CVE-clear: widening the range would then write a
