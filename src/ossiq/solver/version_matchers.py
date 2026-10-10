@@ -20,7 +20,7 @@ Pipeline:
         │               └─ solver.npm_range (node-semver's range algorithm, ported)
         │
         ├── pypi ->  pypi_version_satisfies_specifier(version, specifier)
-        │               └─ univers.PypiVersionRange / PypiVersion
+        │               └─ packaging.SpecifierSet
         │
         └── unified -> version_satisfies_constraint(version, constraint | None, registry)
                           dispatches to npm or pypi based on ProjectPackagesRegistry
@@ -36,12 +36,10 @@ from collections.abc import Callable
 from typing import TypeVar
 
 import semver
+from packaging.specifiers import SpecifierSet
 from packaging.utils import canonicalize_name
 from packaging.version import InvalidVersion
 from packaging.version import Version as PackagingVersion
-from univers.version_constraint import InvalidConstraintsError
-from univers.version_range import InvalidVersionRange, PypiVersionRange
-from univers.versions import PypiVersion
 
 from ossiq.domain.common import ProjectPackagesRegistry
 from ossiq.domain.cve import CVE, AffectedRange
@@ -81,22 +79,6 @@ def strip_npm_alias(constraint: str) -> str:
     return constraint
 
 
-def expand_compatible_release(part: str) -> str:
-    """Expand ~=X.Y.Z -> >=X.Y.Z,<X.(Y+1).0 for univers compatibility."""
-    ver = part[2:].strip()
-    parts = ver.split(".")
-    upper = parts[:-1]
-    upper[-1] = str(int(upper[-1]) + 1)
-    return f">={ver},<{'.'.join(upper)}.0"
-
-
-def preprocess_pypi_specifier(specifier: str) -> str:
-    """Expand any ~= clauses in a comma-separated PEP 440 specifier string."""
-    return ",".join(
-        expand_compatible_release(p.strip()) if p.strip().startswith("~=") else p.strip() for p in specifier.split(",")
-    )
-
-
 def npm_version_satisfies_range(version: str, range_constraint: str, include_prerelease: bool = False) -> bool:
     """Return True if *version* satisfies an npm semver *range_constraint*, as npm would decide.
 
@@ -132,10 +114,16 @@ def npm_version_satisfies_range(version: str, range_constraint: str, include_pre
 def pypi_version_satisfies_specifier(version: str, specifier: str) -> bool:
     """Return True if *version* satisfies a PEP 440 dependency *specifier*.
 
-    Raises ``InvalidVersionRange`` for non-PEP-440 strings — callers should
-    catch it and fall back to npm semver matching.
+    A prerelease is a member only where PEP 440 says so: ``0.22rc5`` is outside ``<0.22``. Whether
+    prereleases may be offered at all is decided upstream, hence ``prereleases=True`` here.
+
+    Raises:
+        InvalidSpecifier: *specifier* is not PEP 440.
+        InvalidVersion: *version* is not PEP 440.
     """
-    return PypiVersion(version) in PypiVersionRange.from_native(preprocess_pypi_specifier(specifier))  # type: ignore
+    # Parsed here because SpecifierSet.contains answers False for a non-PEP-440 version, and
+    # callers read a raise as "unknown, let it pass".
+    return SpecifierSet(specifier).contains(parse_pypi_version(version), prereleases=True)
 
 
 # ── Unified (ecosystem-agnostic)
@@ -155,7 +143,7 @@ def version_satisfies_constraint(version: str, constraint: str | None, registry:
         if registry == ProjectPackagesRegistry.PYPI:
             return pypi_version_satisfies_specifier(version, constraint)
         return npm_version_satisfies_range(version, constraint)
-    except (ValueError, InvalidVersionRange, InvalidConstraintsError) as exc:
+    except ValueError as exc:
         logger.debug(
             "version_satisfies_constraint: parse failed version=%r constraint=%r registry=%s error=%s",
             version,
@@ -276,7 +264,7 @@ def engine_version_satisfies_requirement(
     """Return True if *context_version* satisfies a package's engine *requirement*.
 
     Dispatcher:
-      - ``"python"``                      -> PEP 440 ``PypiVersionRange``
+      - ``"python"``                      -> PEP 440 ``SpecifierSet``
       - ``"node"`` / ``"nodejs"``         -> npm semver range
       - ``"npm"`` / ``"pnpm"`` / ``"yarn"`` -> npm semver range
 
@@ -289,7 +277,7 @@ def engine_version_satisfies_requirement(
             return pypi_version_satisfies_specifier(context_version, requirement)
         if engine_key in NPM_SEMVER_ENGINES:
             return npm_version_satisfies_range(context_version, requirement)
-    except (ValueError, InvalidVersionRange, InvalidConstraintsError):
+    except ValueError:
         pass
     return True
 

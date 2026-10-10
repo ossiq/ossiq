@@ -139,6 +139,10 @@ def test_npm_version_satisfies_range_include_prerelease() -> None:
         ("1.5.0", "~=1.4.2", False),  # ~=1.4.2 → >=1.4.2,<1.5 (three-component specifier)
         ("1.2.3", "!=1.2.3", False),
         ("1.2.4", "!=1.2.3", True),
+        # PEP 440: an exclusive upper bound excludes that release's own prereleases, unless the bound names one
+        ("0.22rc5", "<0.22,>=0.20", False),
+        ("0.22rc5", "<0.22rc9,>=0.20", True),
+        ("1.5.0rc1", "~=1.4.2", False),
     ],
 )
 def test_pypi_version_satisfies_specifier(version: str, specifier: str, expected: bool) -> None:
