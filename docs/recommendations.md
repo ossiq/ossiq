@@ -37,6 +37,7 @@ Two invariants hold across all of it:
 | Page | What it answers |
 |---|---|
 | [The update pyramid](recommendations/update-pyramid.md) | How far up the version ladder a package may go, tier by tier, and what choosing a tier risks |
+| [How OSS IQ picks a target version](recommendations/target-selection.md) | When each tier withholds a package, bumps it in range, widens the range or crosses a major, as a table and a flowchart per tier |
 | [Motives](recommendations/motives.md) | Why a package is allowed to move at all, and what a missing source does to that |
 | [Every recommendation OSS IQ can make](recommendations/catalogue.md) | The target version, `next_action`, the triage verdict, the add decision and the non-recommendations |
 | [Engine constraints](recommendations/engine-constraints.md) | Which runtime a release is checked against, and where that check fails open |
@@ -48,6 +49,7 @@ Two invariants hold across all of it:
 :maxdepth: 1
 
 recommendations/update-pyramid
+recommendations/target-selection
 recommendations/motives
 recommendations/catalogue
 recommendations/engine-constraints

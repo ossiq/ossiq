@@ -435,8 +435,10 @@ grounds for refusing; it thins `deprecation`'s coverage rather than emptying its
 declared constraint — but asks for a second, separate confirmation before doing so, in addition to
 the usual "proceed with N updates?" prompt. `--yes` skips both.
 
-Full design, the two-axis (motive × reach) model, and a worked example across all five tiers live
-in `src/ossiq/strategy/README.md`.
+[How OSS IQ picks a target version](recommendations/target-selection.md) lists what each tier does
+with a package: when it withholds it, bumps it in range, widens the range or crosses a major. Full
+design, the two-axis (motive × reach) model, and a worked example across all five tiers live in
+`src/ossiq/strategy/README.md`.
 
 ### Plan and apply options
 
