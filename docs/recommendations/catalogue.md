@@ -35,8 +35,8 @@ One label per package, first match wins, most urgent first:
 | `Find alternative` | the registry retired the package, whatever the drift; or already at latest **and** upstream is not maintained | not a version problem: a newer release of a retired package fixes nothing |
 | `Consider alternative` | upstream is `winding_down` | not abandoned; not urgent |
 | `Check Release Notes` | major-version drift | not "this will break" |
-| `Update Immediately` | minor/patch drift with a writable in-range target | — |
-| `Constrained. Check newer version` | minor/patch drift and the declared range admits nothing newer | not "the package is broken" — the range is the thing to change |
+| `Update Immediately` | minor/patch drift with a target `plan` writes: inside the declared range, or past it when the tier reaches that far or a CVE or end-of-life motive carried the pick past it (`widening_authorized`) | not "inside the range": `requires_constraint_widening` can still be true, and `apply` confirms the widening first |
+| `Constrained. Check newer version` | minor/patch drift and the declared range admits nothing newer that `plan` will write | not "the package is broken" — the range is the thing to change |
 | `Withheld by strategy` | minor/patch drift, a bump is reachable, but the tier admitted no motive | **not** the constraint's fault — a higher `--update-strategy` moves it |
 | *(none)* | nothing is due | — |
 
