@@ -169,6 +169,8 @@ export function useD3Tree(options: UseD3TreeOptions) {
       flow_trend: d.data.flow_trend,
       deprecation_signals: d.data.deprecation_signals,
       deprecation_successor: d.data.deprecation_successor,
+      registry_status: d.data.registry_status,
+      deprecation_message: d.data.deprecation_message,
       gap_cv: d.data.gap_cv,
       silence_days: d.data.silence_days,
       silence_p: d.data.silence_p,

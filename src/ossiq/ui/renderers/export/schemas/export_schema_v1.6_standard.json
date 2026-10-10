@@ -2,7 +2,7 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://ossiq.org/schemas/export/v1.6-standard.json",
   "title": "OSS-IQ Export Schema v1.6 (standard profile)",
-  "description": "Schema for the standard profile of the OSS-IQ v1.6 export: every direct dependency, the transitive packages that need attention, and the fields needed to decide what to do. A projection of export_schema_v1.6.json - same field names and meanings, fewer fields - where optional fields that are null or empty are omitted from per-package records. The full profile validates against export_schema_v1.6.json. v1.6 adds unresolved_peers to PackageMetrics and TransitivePackageMetrics (peers a package declares that nothing installed within its reach satisfies) and peer_repairs at the root (how `ossiq apply` puts them back); a document that declares an earlier version omits them.",
+  "description": "Schema for the standard profile of the OSS-IQ v1.6 export: every direct dependency, the transitive packages that need attention, and the fields needed to decide what to do. A projection of export_schema_v1.6.json - same field names and meanings, fewer fields - where optional fields that are null or empty are omitted from per-package records. The full profile validates against export_schema_v1.6.json. v1.6 adds unresolved_peers to PackageMetrics and TransitivePackageMetrics (peers a package declares that nothing installed within its reach satisfies) and peer_repairs at the root (how `ossiq apply` puts them back), and registry_status and deprecation_message to PackageMetrics and TransitivePackageMetrics (the registry's own verdict on the whole package, and the note behind it); a document that declares an earlier version omits them.",
   "type": "object",
   "required": [
     "metadata",
@@ -518,7 +518,7 @@
         },
         "is_deprecated": {
           "type": "boolean",
-          "description": "Whether the installed package or version is deprecated (npm-only; false otherwise)"
+          "description": "Whether the installed version, or the whole package, is deprecated or archived"
         },
         "is_package_unpublished": {
           "type": "boolean",
@@ -581,6 +581,27 @@
             "null"
           ],
           "description": "Replacement package named in the metadata / deprecation message / README"
+        },
+        "registry_status": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "active",
+            "deprecated",
+            "archived",
+            "quarantined",
+            null
+          ],
+          "description": "The registry's verdict on the whole package (PEP 792's vocabulary; npm reports deprecated when its latest release is). Null when the registry gave none, which is not the same as active. A deprecated release of an otherwise active package shows only in is_deprecated"
+        },
+        "deprecation_message": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The maintainer's note on the deprecation (npm) or the index's stated reason (PEP 792), verbatim; often names the replacement"
         },
         "archived": {
           "type": [
@@ -698,6 +719,10 @@
             null
           ],
           "description": "How the version constraint was applied: DECLARED (loose/default spec), NARROWED (explicit range with bounds), PINNED (exact version), ADDITIVE (narrows via constraints file), or OVERRIDE (forces a version regardless of other requirements)"
+        },
+        "constraint_ossiq_authored": {
+          "type": "boolean",
+          "description": "Whether the OVERRIDE governing this package is one OSS IQ wrote itself (recorded in its own metadata block, still holding the value it wrote) rather than the user's. OSS IQ moves its own overrides with the next `ossiq apply`, so one is not a hold. False for any other constraint type"
         },
         "extras": {
           "type": [
@@ -835,7 +860,7 @@
         },
         "is_deprecated": {
           "type": "boolean",
-          "description": "Whether the installed package or version is deprecated (npm-only; false otherwise)"
+          "description": "Whether the installed version, or the whole package, is deprecated or archived"
         },
         "is_package_unpublished": {
           "type": "boolean",
@@ -912,6 +937,27 @@
             "null"
           ],
           "description": "Replacement package named in the metadata / deprecation message / README"
+        },
+        "registry_status": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "active",
+            "deprecated",
+            "archived",
+            "quarantined",
+            null
+          ],
+          "description": "The registry's verdict on the whole package (PEP 792's vocabulary; npm reports deprecated when its latest release is). Null when the registry gave none, which is not the same as active. A deprecated release of an otherwise active package shows only in is_deprecated"
+        },
+        "deprecation_message": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The maintainer's note on the deprecation (npm) or the index's stated reason (PEP 792), verbatim; often names the replacement"
         },
         "archived": {
           "type": [

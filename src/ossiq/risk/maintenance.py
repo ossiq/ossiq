@@ -45,7 +45,8 @@ class DeprecationSignal(StrEnum):
     ARCHIVED = "archived"
     """GitHub repository archived flag."""
     REGISTRY_DEPRECATED = "registry_deprecated"
-    """npm `deprecated` field set, or every PyPI release yanked."""
+    """The registry retired the package: npm deprecated its `latest` release, PyPI marked the project
+    deprecated or archived (PEP 792), or every PyPI release is yanked."""
     INACTIVE_CLASSIFIER = "inactive_classifier"
     """PyPI trove classifier `Development Status :: 7 - Inactive`."""
     TOPIC_TAGGED = "topic_tagged"
@@ -93,10 +94,12 @@ PINNED_NOTICE_RE = re.compile(
     re.IGNORECASE,
 )
 
+# The closing dot must end the sentence (`\.(?!\w)`): a bare `.` also matched the middle of an
+# identifier, so left-pad's "use String.prototype.padStart()" named a successor "String.prototype".
 SUCCESSOR_RE = re.compile(
     r"\b(?:use|switch to|migrate to|move to|moved to|replaced by|superseded by|successor is)\s+"
     r"[`'\"]?(@?[A-Za-z][A-Za-z0-9._/-]*[A-Za-z0-9])[`'\"]?"
-    r"(?=\s+(?:instead|rather than|going forward|for new|from now)|[`'\".,)]|$)",
+    r"(?=\s+(?:instead|rather than|going forward|for new|from now)|[`'\",)]|\.(?!\w)|$)",
     re.IGNORECASE,
 )
 
@@ -147,7 +150,7 @@ def deprecation_evidence(
     archived: bool | None,
     classifiers: Sequence[str],
     all_releases_yanked: bool,
-    npm_deprecated: bool,
+    registry_deprecated: bool,
     deprecation_message: str | None,
     repo_description: str | None,
     summary: str | None,
@@ -164,7 +167,7 @@ def deprecation_evidence(
     signals: set[DeprecationSignal] = set()
     if archived:
         signals.add(DeprecationSignal.ARCHIVED)
-    if npm_deprecated or all_releases_yanked:
+    if registry_deprecated or all_releases_yanked:
         signals.add(DeprecationSignal.REGISTRY_DEPRECATED)
     if any(classifier.strip() == INACTIVE_CLASSIFIER for classifier in classifiers):
         signals.add(DeprecationSignal.INACTIVE_CLASSIFIER)

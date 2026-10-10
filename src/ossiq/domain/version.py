@@ -115,6 +115,8 @@ class PackageVersion:
     is_yanked: bool = False
     is_unpublished: bool = False
     is_deprecated: bool = False
+    deprecation_message: str | None = None
+    """The maintainer's note on a deprecated release (npm only; PyPI has no per-release deprecation)."""
     is_prerelease: bool = False
     # Version constraint as declared in the project manifest (e.g. "^1.2.3", ">=1.0,<2.0").
     # Not populated by registry adapters — set at scan time from Dependency.version_defined.

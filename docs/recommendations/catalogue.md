@@ -32,11 +32,11 @@ One label per package, first match wins, most urgent first:
 | Label | Fires when | What it does **not** mean |
 |---|---|---|
 | `Check for the Fix` | a CVE with EPSS ≥ 0.10 | not "a fix exists" — only that exploitation is probable |
-| `Find alternative` | already at latest **and** upstream is not maintained | — |
+| `Find alternative` | the registry retired the package, whatever the drift; or already at latest **and** upstream is not maintained | not a version problem: a newer release of a retired package fixes nothing |
 | `Consider alternative` | upstream is `winding_down` | not abandoned; not urgent |
 | `Check Release Notes` | major-version drift | not "this will break" |
-| `Update Immediately` | minor/patch drift with a writable in-range target | — |
-| `Constrained. Check newer version` | minor/patch drift and the declared range admits nothing newer | not "the package is broken" — the range is the thing to change |
+| `Update Immediately` | minor/patch drift with a target `plan` writes: inside the declared range, or past it when the tier reaches that far or a CVE or end-of-life motive carried the pick past it (`widening_authorized`) | not "inside the range": `requires_constraint_widening` can still be true, and `apply` confirms the widening first |
+| `Constrained. Check newer version` | minor/patch drift and the declared range admits nothing newer that `plan` will write | not "the package is broken" — the range is the thing to change |
 | `Withheld by strategy` | minor/patch drift, a bump is reachable, but the tier admitted no motive | **not** the constraint's fault — a higher `--update-strategy` moves it |
 | *(none)* | nothing is due | — |
 
@@ -47,6 +47,13 @@ installed, so widening it is the next step. `Withheld by strategy` is a fact abo
 package is left alone however much newer the registry has gone. The `↳` sub-row under each names
 its own cause, and the withheld one names the lowest tier that would move it — so a second run at
 a higher tier is a confirmation, never a cross-check you are obliged to perform.
+
+`Find alternative` also fires when the registry itself retires a package: npm deprecated its
+`latest` release, or PyPI marked the project `deprecated`, `archived` or `quarantined`
+([PEP 792](https://peps.python.org/pep-0792/)). Drift does not matter, because moving within a
+retired package fixes nothing, so only an exploitable CVE (`Check for the Fix`) ranks above it. A
+deprecated *release* of a live package, such as `uuid@3`, keeps the drift labels: updating is the
+fix.
 
 ## `dependency_health` (triage) — the operational verdict
 
@@ -59,7 +66,23 @@ and the JSON export `dependency_health_action`. It answers "is this dependency h
 ## The add decision — `install` / `install with caution` / `do not install`
 
 Produced by `ossiq add` and the `ossiq_evaluate_dependency` MCP tool, for a package not yet in the
-tree. `do not install` on critical health warnings; `--force` overrides.
+tree. `do not install` on any critical warning; `--force` overrides it for `ossiq add`. A critical
+warning is one of:
+
+- `PACKAGE_DEPRECATED`: npm deprecated the package's `latest` release, or PyPI marked the project
+  `deprecated` or `archived`. The warning quotes the registry's note, which usually names the
+  replacement.
+- `PACKAGE_QUARANTINED`: PyPI flags the project as unsafe to use.
+- `VERSION_DEPRECATED`: the release you asked for with `--version` is deprecated, and the package
+  is otherwise live.
+- `SINGLE_VERSION`: only one version is published, a typosquatting signal.
+
+`install with caution` covers the other warnings (`SINGLE_MAINTAINER`, `COOLDOWN_PERIOD`), a CVE
+on the latest version, and a recommended version older than the latest.
+
+When it picks a version, `ossiq add` drops the deprecated releases of a live package. When the
+registry has retired the whole package, no release is clean, so a forced add installs the usual
+pick.
 
 ## The non-recommendations
 

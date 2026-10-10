@@ -11,6 +11,7 @@ from typing import Any
 from ossiq.adapters.api_interfaces import AbstractPackageRegistryApi
 from ossiq.domain.common import (
     ENGINE_CONTEXT_KEY_BY_REGISTRY,
+    INACTIVE_STATUSES,
     WIDENING_RUNGS,
     DataCompleteness,
     EngineContext,
@@ -22,7 +23,7 @@ from ossiq.domain.cve import CVE
 from ossiq.domain.project import UnresolvedPeer
 from ossiq.domain.version import VERSION_DIFF_MAJOR, VERSION_DIFF_MINOR, VERSION_DIFF_PATCH, PackageVersion
 from ossiq.risk.maintenance import NOT_MAINTAINED
-from ossiq.service.package import PackageDetailResult
+from ossiq.service.package import PackageDetailResult, registry_status_note
 from ossiq.service.project.breaking_changes import (
     compute_latest_compatible_major,
     esm_interop_note,
@@ -37,7 +38,7 @@ from ossiq.service.project.next_action import (
     NEXT_ACTION_PRIORITY,
     UPDATE_IMMEDIATELY,
     engine_mismatch_summary,
-    has_in_range_upgrade,
+    has_writable_upgrade,
     next_action_label,
 )
 from ossiq.service.update_impact import TransitiveImpact
@@ -238,10 +239,10 @@ def agent_next_action(record: ScanRecord) -> str:
     sits outside the declared range: judging it by the range made one entry say `to: 11.1.1` (a
     fix) and "Check for the Fix" (no fix) at once. A fix that needs the range widened first reads
     "Constrained. Check newer version" instead of "Update Immediately", since a plain bump won't
-    reach it.
+    reach it, unless `apply` writes the widening itself (see `has_writable_upgrade`).
     """
     label = next_action_label(record)
-    can_fix = has_in_range_upgrade(record)
+    can_fix = has_writable_upgrade(record)
 
     if record.cve and label in (None, UPDATE_IMMEDIATELY, CHECK_RELEASE_NOTES, CONSTRAINED_CHECK_NEWER):
         if not recommendation_clears_cves(record):
@@ -272,7 +273,7 @@ def build_update_entry(record: ScanRecord, engine_context: EngineContext | None 
     cves = record.cve
     diff_index = record.versions_diff_index.diff_index
     is_major_drift = diff_index == VERSION_DIFF_MAJOR
-    can_fix = has_in_range_upgrade(record)
+    can_fix = has_writable_upgrade(record)
     unmaintained_state = record.maintenance.state if record.maintenance is not None else None
     unmaintained = unmaintained_state in NOT_MAINTAINED
 
@@ -284,6 +285,7 @@ def build_update_entry(record: ScanRecord, engine_context: EngineContext | None 
         or record.is_installed_deprecated
         or record.is_installed_yanked
         or record.is_installed_package_unpublished
+        or record.registry_status in INACTIVE_STATUSES
     )
 
     # Every entry carries the full version picture regardless of actionability - installed,
@@ -342,8 +344,19 @@ def build_update_entry(record: ScanRecord, engine_context: EngineContext | None 
         reasons.append("installed version is yanked")
     if record.is_installed_package_unpublished:
         reasons.append("package is unpublished")
-    if record.is_installed_deprecated:
-        reasons.append("installed version is deprecated")
+    # The registry retiring the whole package says more than one deprecated release does, so it
+    # replaces that reason rather than joining it. A scan record does not know its registry, hence
+    # no "on npm" here; the add decision, which does, names it.
+    retired_note = (
+        registry_status_note(record.registry_status, None, record.deprecation_message)
+        if record.registry_status in INACTIVE_STATUSES
+        else None
+    )
+    if retired_note:
+        reasons.append(f"package is {retired_note}")
+    elif record.is_installed_deprecated:
+        reason_suffix = f': "{record.deprecation_message}"' if record.deprecation_message else ""
+        reasons.append(f"installed version is deprecated{reason_suffix}")
     if unmaintained:
         reasons.append(f"upstream looks {unmaintained_state}")
     if is_major_drift:

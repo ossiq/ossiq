@@ -351,6 +351,7 @@ def _run_solve(
     engine_context: dict[str, str],
     *,
     allow_prerelease: bool = False,
+    allow_deprecated: bool = True,
     cves_by_package: dict[str, tuple[CVE, ...]] | None = None,
     now: datetime | None = None,
     cooldown_period: int = VERY_FRESH_THRESHOLD_DAYS,
@@ -369,6 +370,7 @@ def _run_solve(
         engine_context,
         cves_by_package=cves_by_package or {},
         allow_prerelease=allow_prerelease,
+        allow_deprecated=allow_deprecated,
         _now=now,
         rewrite_pinned=rewrite_pinned,
         release_cutoff=release_cutoff,
@@ -398,6 +400,7 @@ def solve_direct(
     engine_context: dict[str, str],
     *,
     allow_prerelease: bool = False,
+    allow_deprecated: bool = True,
     post_solve_validator: Callable[[str, str], bool] | None = None,
     _now: datetime | None = None,
     cooldown_period: int = VERY_FRESH_THRESHOLD_DAYS,
@@ -413,6 +416,9 @@ def solve_direct(
         engine_context: Project engine versions for L2 clause generation.
                         Pass {} in Phase 4 — populating from project metadata is Phase 5+.
         allow_prerelease: When True, include pre-release candidates.
+        allow_deprecated: When False, deprecated releases are not candidates. Only for choosing a
+                          package from scratch: a deprecated release already in a tree is better
+                          penalised than made unresolvable.
         rewrite_pinned: When True, PINNED (==x.y.z) deps become solver-eligible
                         so their pinned version can be rewritten.
         release_cutoff: The package manager's own limit on release age; nothing past it is
@@ -433,6 +439,7 @@ def solve_direct(
         registry,
         engine_context,
         allow_prerelease=allow_prerelease,
+        allow_deprecated=allow_deprecated,
         now=_now,
         cooldown_period=cooldown_period,
         rewrite_pinned=rewrite_pinned,

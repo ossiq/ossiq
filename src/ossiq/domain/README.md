@@ -12,7 +12,9 @@ This document lists the external specifications that define or inform the domain
 
 | Field | Registry | Meaning |
 |-------|----------|---------|
-| `is_deprecated: bool` | npm | The package's latest version carries a `deprecated` field — the whole package is considered deprecated. Set via `npm deprecate <pkg>`. |
+| `registry_status: RegistryStatus \| None` | npm / PyPI | The registry's verdict on the whole package, in PEP 792's vocabulary: `active`, `deprecated`, `archived`, `quarantined`. npm: `deprecated` when `versions[latest].deprecated` is set (via `npm deprecate <pkg>`), else `active`. PyPI: the Simple API's project status. `None` when the registry gave none, which is not `active`. |
+| `is_deprecated: bool` | npm / PyPI | Read-only, derived from `registry_status`: true for `deprecated` and `archived`. `quarantined` is an administrator's safety verdict, not a maintainer's decision, so it does not count. |
+| `deprecation_message: str \| None` | npm / PyPI | npm's `deprecated` note on the latest version, or PyPI's PEP 792 reason. |
 | `is_unpublished: bool` | npm | `time.unpublished` is present in the packument — the entire package was removed from the registry. |
 | `canonical_name: str \| None` | npm | When a package is installed under an npm alias (e.g. `"chalk-legacy": "npm:chalk@4"`), `name` is the alias and `canonical_name` is the real registry name used for lookups. `None` when `name` already is the canonical registry name. |
 
@@ -20,7 +22,8 @@ This document lists the external specifications that define or inform the domain
 
 | Field | Registry | Meaning |
 |-------|----------|---------|
-| `is_deprecated: bool` | npm | This specific version's manifest has a truthy `deprecated` field. |
+| `is_deprecated: bool` | npm | This specific version's manifest has a truthy `deprecated` field. PyPI has no per-release deprecation; a yanked release is its equivalent. |
+| `deprecation_message: str \| None` | npm | The `deprecated` note on this version. |
 | `is_yanked: bool` | PyPI | The version exists on PyPI but is marked yanked — excluded from normal resolution. |
 | `is_unpublished: bool` | npm | The version was individually deleted after release (present in `time` but absent from `versions`), or the entire package was unpublished (all versions inherit this flag). |
 | `is_prerelease: bool` | npm / PyPI | Version string contains a pre-release segment (e.g. `alpha`, `beta`, `rc`, `dev`). Set by registry adapters during version list construction. |
@@ -34,9 +37,11 @@ This document lists the external specifications that define or inform the domain
 | `is_installed_prerelease` | `version.is_prerelease` | Installed version is a pre-release. |
 | `is_installed_yanked` | `version.is_yanked or version.is_unpublished` | Installed version was pulled from the registry (covers both PyPI yanked and npm unpublished). |
 | `is_installed_deprecated` | `version.is_deprecated or package.is_deprecated` | Installed version or its parent package is deprecated. |
+| `registry_status` | `package.registry_status` | The registry's verdict on the whole package. Unlike `is_installed_deprecated`, a deprecated release of an otherwise live package does not show here. |
+| `deprecation_message` | `package.deprecation_message`, else the installed version's | The note behind the deprecation. |
 | `is_installed_package_unpublished` | `package.is_unpublished` | The entire package has been removed from the registry. |
 
-Display priority in all renderers: **UNPUBLISHED** > **YANKED** > **DEPRECATED** > pre-release.
+Display priority in all renderers: **UNPUBLISHED** > **YANKED** > **QUARANTINED** > **ARCHIVED** > **DEPRECATED** > pre-release.
 
 ---
 
@@ -298,6 +303,14 @@ Key response fields used:
 
 `yanked` maps to `PackageVersion.is_yanked`. A yanked version still exists on PyPI but is excluded from normal resolution; pip will refuse to install it unless the version is pinned exactly.
 
+### PyPI Simple API (PEP 792 project status)
+**Spec**: https://packaging.python.org/en/latest/specifications/project-status-markers/
+**Applies to**: `Package.registry_status`, `Package.deprecation_message`
+
+The JSON API above carries no project status. The Simple API does, in the head of each project page: `<meta name="pypi:project-status" content="archived">` and an optional `pypi:project-status-reason`. The statuses are `active`, `deprecated`, `archived` and `quarantined`; an index may omit the tag for an active project, so an absent tag reads as `active`.
+
+Endpoint: `https://pypi.org/simple/{name}/` with `Accept: application/vnd.pypi.simple.v1+html`. A page lists every file of the project (numpy's is 2 MB), so the request asks for the first 2 KB with a `Range` header and `Accept-Encoding: identity`; PyPI answers `206`. A failed request leaves `registry_status` as `None`.
+
 ### npm Registry API
 **Spec**: https://github.com/npm/registry/blob/master/docs/REGISTRY.md
 **Applies to**: `Package`, `PackageVersion`, `ProjectPackagesRegistry.NPM`
@@ -308,7 +321,7 @@ Key response fields used:
 - `name`, `description`, `author`, `homepage`, `repository.url`
 - `versions.{ver}.dependencies`, `versions.{ver}.devDependencies`, `versions.{ver}.peerDependencies`
 - `versions.{ver}.deprecated` — non-empty string means this version is deprecated → `PackageVersion.is_deprecated`
-- `dist-tags.latest` — current latest version; if `versions[latest].deprecated` is set → `Package.is_deprecated`
+- `dist-tags.latest` — current latest version; if `versions[latest].deprecated` is set → `Package.registry_status = DEPRECATED` (else `ACTIVE`), with the note in `Package.deprecation_message`
 - `time.{ver}` — publish timestamp per version
 - `time.unpublished` — present when the entire package was unpublished → `Package.is_unpublished`; every version also gets `PackageVersion.is_unpublished=True`
 - `dist.integrity`, `dist.tarball` — download and verification

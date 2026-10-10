@@ -47,6 +47,8 @@ export interface DependencyNode {
   flow_trend?: string | null
   deprecation_signals?: string[]
   deprecation_successor?: string | null
+  registry_status?: string | null
+  deprecation_message?: string | null
   gap_cv?: number | null
   silence_days?: number | null
   silence_p?: number | null
@@ -113,6 +115,8 @@ export interface SelectedNodeDetail {
   flow_trend?: string | null
   deprecation_signals?: string[]
   deprecation_successor?: string | null
+  registry_status?: string | null
+  deprecation_message?: string | null
   gap_cv?: number | null
   silence_days?: number | null
   silence_p?: number | null

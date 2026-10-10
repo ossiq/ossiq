@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { buildPackageRegistry } from '../explorer/registry'
+import { effectiveConstraintType } from '../explorer/nodeStyle'
 import type { OSSIQExportSchemaV16, PackageMetrics, TransitivePackageMetrics } from '../types/report'
 
 // Only the fields buildPackageRegistry reads. The stability block is what this test guards:
@@ -109,5 +110,43 @@ describe('buildPackageRegistry and unresolved peers (schema 1.6)', () => {
     const { directEntries, byId } = buildPackageRegistry(reportWith({}, {}))
     expect(directEntries.get('a')!.unresolved_peers).toEqual([])
     expect(byId.get(3)!.unresolved_peers).toEqual([])
+  })
+})
+
+describe('an override OSS IQ wrote (schema 1.6)', () => {
+  function reportWith(direct: Partial<PackageMetrics>) {
+    return {
+      constraint_type_map: ['DECLARED'],
+      production_packages: [pkg({ package_name: 'a', ...direct })],
+      development_packages: [],
+      transitive_packages: [],
+      dependency_tree: [],
+    } as unknown as OSSIQExportSchemaV16
+  }
+
+  it('reads as declared on a direct entry, so it is not drawn as overridden', () => {
+    const { directEntries } = buildPackageRegistry(
+      reportWith({ constraint_type: 'OVERRIDE', constraint_ossiq_authored: true }),
+    )
+    expect(directEntries.get('a')!.constraint_type).toBe('DECLARED')
+  })
+
+  it('stays an override when the user wrote it', () => {
+    const { directEntries } = buildPackageRegistry(reportWith({ constraint_type: 'OVERRIDE' }))
+    expect(directEntries.get('a')!.constraint_type).toBe('OVERRIDE')
+  })
+})
+
+describe('effectiveConstraintType', () => {
+  it('turns only an OSS IQ-authored OVERRIDE into DECLARED', () => {
+    expect(effectiveConstraintType('OVERRIDE', true)).toBe('DECLARED')
+    expect(effectiveConstraintType('OVERRIDE', false)).toBe('OVERRIDE')
+    expect(effectiveConstraintType('OVERRIDE')).toBe('OVERRIDE')
+  })
+
+  it('leaves every other type alone, whatever the flag says', () => {
+    for (const type of ['DECLARED', 'NARROWED', 'PINNED', 'ADDITIVE', null, undefined] as const) {
+      expect(effectiveConstraintType(type, true)).toBe(type)
+    }
   })
 })

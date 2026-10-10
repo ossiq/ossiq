@@ -13,7 +13,7 @@ from ossiq.adapters.api_interfaces import AbstractPackageRegistryApi
 from ossiq.clients.batch import BatchClient
 from ossiq.clients.client_npm import NpmBatchStrategy
 from ossiq.clients.common import get_user_agent
-from ossiq.domain.common import ConstraintType, ModuleSystem, ProjectPackagesRegistry
+from ossiq.domain.common import ConstraintType, ModuleSystem, ProjectPackagesRegistry, RegistryStatus
 from ossiq.domain.exceptions import UnableLoadPackage, UnknownPackageVersion
 from ossiq.domain.package import Package
 from ossiq.domain.version import (
@@ -92,6 +92,22 @@ def normalize_npm_engines(value: object) -> dict[str, str] | None:
                 entries[engine] = spec.strip()
         return entries or None
     return None
+
+
+def npm_deprecation_message(details: dict) -> str | None:
+    """The maintainer's deprecation note on one release, if it carries one.
+
+    npm clears a deprecation by publishing the empty string, so an empty value is "not deprecated"
+    and has no message.
+
+    Args:
+        details: One entry of the packument's `versions` map.
+
+    Returns:
+        The message, or None when the release is not deprecated or the registry sent no text.
+    """
+    deprecated = details.get("deprecated")
+    return deprecated if isinstance(deprecated, str) and deprecated else None
 
 
 def npm_peer_dependencies(details: dict) -> dict[str, PeerDependency]:
@@ -329,6 +345,12 @@ class PackageRegistryApiNpm(AbstractPackageRegistryApi):
         latest_version_license = normalize_npm_license(latest_details.get("license"))
         maintainers = data.get("maintainers", [])
         deprecated = latest_details.get("deprecated")
+        # npm deprecates releases, never packages: the registry's own package page calls a package
+        # deprecated exactly when its `latest` release is. No `latest` (an unpublished package) means
+        # there is nothing to judge, which is not the same as active.
+        registry_status = None
+        if latest_version:
+            registry_status = RegistryStatus.DEPRECATED if deprecated else RegistryStatus.ACTIVE
         return Package(
             registry=ProjectPackagesRegistry.NPM,
             name=data["name"],
@@ -340,8 +362,8 @@ class PackageRegistryApiNpm(AbstractPackageRegistryApi):
             description=data.get("description"),
             package_url=f"{NPM_REGISTRY_FRONT}/package/{name}/",
             license=latest_version_license,
-            is_deprecated=bool(deprecated),
-            deprecation_message=deprecated if isinstance(deprecated, str) else None,
+            registry_status=registry_status,
+            deprecation_message=npm_deprecation_message(latest_details),
             is_unpublished="unpublished" in data.get("time", {}),
             maintainers_count=len(maintainers) or None,
         )
@@ -442,6 +464,7 @@ class PackageRegistryApiNpm(AbstractPackageRegistryApi):
                     package_url=f"{NPM_REGISTRY_FRONT}/package/{package_name}/v/{version}",
                     is_prerelease=is_npm_prerelease(version),
                     is_deprecated=bool(details.get("deprecated")),
+                    deprecation_message=npm_deprecation_message(details),
                     runs_code_at_install=runs_code_at_install,
                     install_execution_reason=install_exec_reason,
                     module_system=detect_npm_module_system(details),

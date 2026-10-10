@@ -1,6 +1,16 @@
 """Tests for the shared next-action ladder (service.project.next_action)."""
 
-from ossiq.domain.common import ConstraintType, CooldownHold, CveDatabase, ProjectPackagesRegistry, RejectedCandidate
+import pytest
+
+from ossiq.domain.common import (
+    ConstraintType,
+    CooldownHold,
+    CveDatabase,
+    ProjectPackagesRegistry,
+    RecommendationRung,
+    RegistryStatus,
+    RejectedCandidate,
+)
 from ossiq.domain.cve import CVE, Severity
 from ossiq.domain.project import ConstraintSource
 from ossiq.domain.version import VERSION_DIFF_MAJOR, VERSION_DIFF_MINOR, VERSION_LATEST, VersionsDifference
@@ -283,3 +293,109 @@ class TestNeedsAttention:
         assert needs_attention(make_record(maintenance=assessment(MaintenanceState.ABANDONED))) is True
         assert needs_attention(make_record(maintenance=assessment(MaintenanceState.DEPRECATED))) is True
         assert needs_attention(make_record(maintenance=assessment(MaintenanceState.WINDING_DOWN))) is False
+
+
+class TestRetiredByTheRegistry:
+    """The registry itself retired the package: no bump inside it helps, so the label is to leave."""
+
+    @staticmethod
+    def retired(status: RegistryStatus | None, diff: VersionsDifference, **kwargs) -> ScanRecord:
+        record = make_record(versions_diff_index=diff, **kwargs)
+        record.registry_status = status
+        return record
+
+    @pytest.mark.parametrize("status", [RegistryStatus.DEPRECATED, RegistryStatus.ARCHIVED, RegistryStatus.QUARANTINED])
+    @pytest.mark.parametrize("diff", [LATEST, MINOR, MAJOR])
+    def test_is_find_alternative_whatever_the_drift(self, status: RegistryStatus, diff: VersionsDifference):
+        # MINOR with a recommendation would otherwise read "Update Immediately", MAJOR "Check Release Notes".
+        record = self.retired(status, diff, recommended_version="1.1.0")
+
+        assert next_action_label(record) == FIND_ALTERNATIVE
+
+    def test_an_exploitable_cve_still_comes_first(self):
+        record = self.retired(RegistryStatus.DEPRECATED, MINOR, cve=[fake_cve(0.2)], epss=0.2)
+
+        assert next_action_label(record) == CHECK_FOR_THE_FIX
+
+    @pytest.mark.parametrize("status", [RegistryStatus.ACTIVE, None])
+    def test_an_active_or_unjudged_package_keeps_the_drift_ladder(self, status: RegistryStatus | None):
+        # A deprecated *release* of a live package (uuid@3) is the opposite case: updating is the fix.
+        record = self.retired(status, MINOR, recommended_version="1.1.0")
+        record.is_installed_deprecated = True
+
+        assert next_action_label(record) == UPDATE_IMMEDIATELY
+
+    @pytest.mark.parametrize("status", [RegistryStatus.DEPRECATED, RegistryStatus.ARCHIVED, RegistryStatus.QUARANTINED])
+    def test_a_retired_transitive_needs_attention(self, status: RegistryStatus):
+        assert needs_attention(self.retired(status, LATEST)) is True
+
+    @pytest.mark.parametrize("status", [RegistryStatus.ACTIVE, None])
+    def test_a_live_transitive_does_not(self, status: RegistryStatus | None):
+        assert needs_attention(self.retired(status, LATEST)) is False
+
+
+class TestWideningPick:
+    """A pick past the declared range reads "Update Immediately" exactly when `plan` writes it.
+
+    service.update.is_held_for_widening lets such a pick through when an escalating motive carried
+    it past the tier or the tier reaches that far on its own; every other one waits for a human to
+    widen the range, and that is what "Constrained" says.
+    """
+
+    def widening_record(
+        self,
+        strategy: UpdateStrategy | None,
+        *,
+        authorized: bool = False,
+        versions_diff_index: VersionsDifference = MINOR,
+        recommended_version: str = "1.1.0",
+    ) -> ScanRecord:
+        record = make_record(
+            versions_diff_index=versions_diff_index,
+            recommended_version=recommended_version,
+            version_constraint="1.0.0",
+        )
+        record.recommended_from_rung = RecommendationRung.LATEST
+        if strategy is not None:
+            record.strategy_selection = StrategySelection(
+                strategy=strategy,
+                target_version=recommended_version,
+                rung=RecommendationRung.LATEST,
+                motives=frozenset(),
+                requires_widening=True,
+                withheld_reason=None,
+                available_at=None,
+                escalation=None,
+                widening_authorized=authorized,
+            )
+        return record
+
+    def test_an_escalated_pick_is_an_update(self):
+        record = self.widening_record(UpdateStrategy.SECURITY, authorized=True)
+        assert next_action_label(record) == UPDATE_IMMEDIATELY
+
+    @pytest.mark.parametrize("strategy", [UpdateStrategy.SECURITY, UpdateStrategy.DEPRECATION, UpdateStrategy.STANDARD])
+    def test_an_unauthorized_pick_under_a_tier_that_cannot_reach_it_stays_constrained(self, strategy):
+        assert next_action_label(self.widening_record(strategy)) == CONSTRAINED_CHECK_NEWER
+
+    @pytest.mark.parametrize("strategy", [UpdateStrategy.LATEST, UpdateStrategy.CUTTING_EDGE])
+    def test_a_tier_that_reaches_the_rung_writes_it(self, strategy):
+        assert next_action_label(self.widening_record(strategy)) == UPDATE_IMMEDIATELY
+
+    def test_a_record_without_a_selection_has_no_tier_to_consult(self):
+        """Transitive and ignored records never get a selection — they must not change label."""
+        assert next_action_label(self.widening_record(None)) == CONSTRAINED_CHECK_NEWER
+
+    def test_an_authorized_pick_equal_to_the_installed_version_moves_nothing(self):
+        record = self.widening_record(UpdateStrategy.SECURITY, authorized=True, recommended_version="1.0.0")
+        assert next_action_label(record) == CONSTRAINED_CHECK_NEWER
+
+    def test_major_drift_still_reads_release_notes(self):
+        record = self.widening_record(UpdateStrategy.SECURITY, authorized=True, versions_diff_index=MAJOR)
+        assert next_action_label(record) == CHECK_RELEASE_NOTES
+
+    def test_an_active_cve_still_comes_first(self):
+        record = self.widening_record(UpdateStrategy.SECURITY, authorized=True)
+        record.cve = [fake_cve(0.2)]
+        record.epss = 0.2
+        assert next_action_label(record) == CHECK_FOR_THE_FIX

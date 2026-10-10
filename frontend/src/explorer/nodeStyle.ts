@@ -202,6 +202,15 @@ export function resolveNodeStyle(node: TreeNode, highlight: HighlightState): Nod
 export type ConstraintType = 'DECLARED' | 'NARROWED' | 'PINNED' | 'ADDITIVE' | 'OVERRIDE' | null | undefined
 
 /**
+ * The constraint type a report draws for a package. An OVERRIDE that OSS IQ wrote itself reads as
+ * DECLARED: it moves with the next `ossiq apply`, so there is nothing in it for the reader to review.
+ * The export keeps saying OVERRIDE; only what the report shows changes.
+ */
+export function effectiveConstraintType(type: ConstraintType, ossiqAuthored?: boolean): ConstraintType {
+  return type === 'OVERRIDE' && ossiqAuthored ? 'DECLARED' : type
+}
+
+/**
  * Returns a complete set of Tailwind class strings for a small CSS circle indicator
  * matching the given constraint type. Used in the table and legend components.
  *

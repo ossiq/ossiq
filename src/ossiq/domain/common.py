@@ -54,6 +54,29 @@ class ProjectPackagesRegistry(StrEnum):
     PYPI = "PYPI"
 
 
+class RegistryStatus(StrEnum):
+    """A registry's own verdict on a whole package, in PEP 792's vocabulary.
+
+    npm maps onto it too: a deprecated `latest` release is `DEPRECATED`, anything else is
+    `ACTIVE`. Absence of a verdict (failed fetch, unrecognised value) is `None` on the carrier,
+    never a member here, so "the registry did not say" cannot be mistaken for "active".
+    """
+
+    ACTIVE = "active"
+    DEPRECATED = "deprecated"
+    ARCHIVED = "archived"
+    QUARANTINED = "quarantined"
+
+
+END_OF_LIFE_STATUSES: frozenset[RegistryStatus] = frozenset({RegistryStatus.DEPRECATED, RegistryStatus.ARCHIVED})
+"""The maintainers are done with the package. These drive `Package.is_deprecated`."""
+
+INACTIVE_STATUSES: frozenset[RegistryStatus] = END_OF_LIFE_STATUSES | {RegistryStatus.QUARANTINED}
+"""The registry says stop using the package. Quarantine is an administrator's safety verdict, not a
+maintainer's decision, so it is here but not in `END_OF_LIFE_STATUSES`: counting it as deprecated
+would push the maintenance model and the end-of-life update motive onto a malware suspect."""
+
+
 class CveDatabase(StrEnum):
     OSV = "OSV"
     GHSA = "GHSA"
@@ -162,7 +185,8 @@ WIDENING_RUNGS: frozenset[RecommendationRung] = frozenset({RecommendationRung.IN
 """Rungs only reachable by widening the declared constraint first. The single definition — it
 decides whether an entry lands in UpdatePlan.held_for_widening (unless the tier or
 `widening_authorized` lifts the hold), whether an agent entry carries requires_constraint_widening,
-and whether "Constrained" is the right next action. Anything not in here is writable as-is."""
+and, unless the tier or `widening_authorized` lifts the hold, whether "Constrained" is the right next
+action. Anything not in here is writable as-is."""
 
 RUNG_ORDER: Mapping[RecommendationRung, int] = {
     RecommendationRung.IN_RANGE: 0,
@@ -450,7 +474,7 @@ class DegradeReason(StrEnum):
     RATE_LIMITED = "rate_limited"  # the source's quota ran out mid-fetch
     UNAVAILABLE = "unavailable"  # timeouts, connection errors, 5xx - retried and still failing
     REJECTED = "rejected"  # other 4xx: bad credentials, validation, blocked resource
-    EMPTY_RESPONSE = "empty_response"  # 2xx with no JSON body to map
+    EMPTY_RESPONSE = "empty_response"  # 2xx with no usable body to map
     ABORTED = "aborted"  # dropped with no attempt at all, after a global abort
     UNKNOWN = "unknown"  # the response arrived but mapping it raised
 

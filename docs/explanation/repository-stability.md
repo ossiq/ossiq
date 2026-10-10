@@ -224,7 +224,7 @@ arrives inside the GraphQL activity payload, so it is unavailable without a toke
 | Signal | Source | Strong on its own |
 |---|---|---|
 | `archived` | GitHub `archived: true` | ✅ |
-| `registry_deprecated` | npm `deprecated` field set, or every PyPI release yanked | ✅ |
+| `registry_deprecated` | npm deprecated the `latest` release, PyPI marked the project `deprecated` or `archived` ([PEP 792](https://peps.python.org/pep-0792/)), or every PyPI release is yanked | ✅ |
 | `inactive_classifier` | PyPI trove `Development Status :: 7 - Inactive` | ✅ |
 | `topic_tagged` | GitHub topic `deprecated` / `unmaintained` / `abandoned` / `obsolete` / `eol` | |
 | `description_marked` | deprecation phrase in the repo description or registry summary | |

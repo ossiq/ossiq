@@ -134,6 +134,8 @@ export function buildD3DataFromVisibleState(
         flow_trend: de?.flow_trend ?? null,
         deprecation_signals: de?.deprecation_signals ?? [],
         deprecation_successor: de?.deprecation_successor ?? null,
+        registry_status: de?.registry_status ?? null,
+        deprecation_message: de?.deprecation_message ?? null,
         gap_cv: de?.gap_cv ?? null,
         silence_days: de?.silence_days ?? null,
         silence_p: de?.silence_p ?? null,
@@ -154,7 +156,7 @@ export function buildD3DataFromVisibleState(
 
     // Transitive package node
     const re = vnode.registryId !== null ? registry.byId.get(vnode.registryId) : undefined
-    const packageName = re?.package_name ?? key.split('>').at(-1) ?? key
+    const packageName = re?.package_name ?? key.split('>').pop() ?? key
     return {
       name: packageName,
       version_installed: re?.installed_version ?? '',
@@ -185,6 +187,8 @@ export function buildD3DataFromVisibleState(
       flow_trend: re?.flow_trend ?? null,
       deprecation_signals: re?.deprecation_signals ?? [],
       deprecation_successor: re?.deprecation_successor ?? null,
+      registry_status: re?.registry_status ?? null,
+      deprecation_message: re?.deprecation_message ?? null,
       gap_cv: re?.gap_cv ?? null,
       silence_days: re?.silence_days ?? null,
       silence_p: re?.silence_p ?? null,

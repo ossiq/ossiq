@@ -53,7 +53,8 @@ deps / transitive_records
   SolvablePool.build()          universe.py
     – deduplicates by canonical_name (highest ConstraintType priority wins)
     – fetches candidates from warm registry cache
-    – filters yanked, unpublished, prerelease (unless allowed)
+    – filters yanked, unpublished, prerelease (unless allowed), and deprecated releases when
+      allow_deprecated=False (only `ossiq add` choosing a live package passes that)
     – sorts candidates descending (newest first)
     – stamps has_cve=True on versions any of the package's CVEs affects (cves_by_package;
       judged by version_matchers.cve_affects_version, ranges included)
@@ -87,7 +88,7 @@ greedily; the pluggable RC2 driver **minimises** total violated soft cost exactl
 | L1 | Hard | — | Version outside declared `version_constraint` (PEP 440 or npm semver) |
 | L2 | Soft-Hard | `W_ENGINE = 100_000` | Engine mismatch (`python`/`node` requirement vs `engine_context`) |
 | L3 | Soft | `max(80_000 − rank × 5_000, 1_000)` | Semver-rank preference — rank 0 = latest eligible semver |
-| L4 | Soft | `W_DEPRECATED = 10_000` | Deprecated flag — penalty on selection |
+| L4 | Soft | `W_DEPRECATED = 10_000` | Deprecated flag — penalty on selection. A deprecated release still wins over a clean one that ranks two or more places below it (2 × 5 000 = 10 000), and the penalty is the same for every candidate when all are deprecated. A caller that must never get a deprecated release passes `allow_deprecated=False`, which removes them before this level applies |
 | L5 | Hard | — | CVE-affected version |
 | L6 | Soft-Hard | `W_VERY_FRESH = 100_000` | Published < 7 days ago — both direct and transitive passes |
 | L7 | — | *(reserved)* | Health score — not implemented |

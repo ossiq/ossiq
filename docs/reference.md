@@ -77,6 +77,8 @@ Per-package analysis record. Each entry in the `ScanResult` lists above is one `
 | `is_installed_prerelease` | `bool` | Installed version is a pre-release |
 | `is_installed_yanked` | `bool` | Installed version was yanked by its maintainer |
 | `is_installed_deprecated` | `bool` | Installed version, or the package, is deprecated |
+| `registry_status` | `RegistryStatus \| None` | The registry's verdict on the whole package: `active`, `deprecated`, `archived` or `quarantined`. `None` when the registry gave none |
+| `deprecation_message` | `str \| None` | The maintainer's note (npm) or the index's stated reason (PyPI), verbatim |
 | `is_installed_package_unpublished` | `bool` | Installed version has been removed from the registry |
 | `all_constraints` | `list[str]` | Every version specifier from each direct parent (transitive packages only) |
 | `update_transitive_impacts` | `list[TransitiveImpact]` | How updating this package affects transitive deps |
@@ -142,7 +144,9 @@ Metadata about a package as returned by its registry.
 | `author` | `str \| None` | Package author |
 | `package_url` | `str \| None` | Registry page URL for the package |
 | `license` | `str \| None` | SPDX license string |
-| `is_deprecated` | `bool` | Package has been deprecated by its maintainer |
+| `registry_status` | `RegistryStatus \| None` | The registry's verdict on the package: `active`, `deprecated`, `archived` or `quarantined` (PyPI's [PEP 792](https://peps.python.org/pep-0792/) vocabulary). npm reports `deprecated` when the `latest` release is deprecated. `None` when the registry gave none, which is not the same as `active` |
+| `is_deprecated` | `bool` | The registry reports the package `deprecated` or `archived`. Derived from `registry_status`; `quarantined` does not count |
+| `deprecation_message` | `str \| None` | The maintainer's note (npm) or the index's stated reason (PyPI), verbatim |
 | `is_unpublished` | `bool` | Package has been removed from the registry |
 | `maintainers_count` | `int \| None` | Number of registered maintainers |
 | `downloads_recent` | `int \| None` | Downloads in the most recent reporting period |
@@ -291,6 +295,8 @@ The `scope_path` matters for remediation: a scoped override targeting `dot-prop`
 **A rule may be keyed to a version range.** `"minimatch@^9.0.0": "9.0.9"` forces only the edges whose range overlaps `^9.0.0`; a nested `minimatch` 10 elsewhere in the tree is left alone. OSS IQ marks each installed copy the rule governs — one the version sits inside the key of, or already at the value of — and records the rule's key and value on `ConstraintSource` (`override_key`, `override_value`). A `$name` value follows the root dependency of that name.
 
 **Overrides decide whether an update is possible.** npm nests a further copy of a package when a dependent's range cannot share the installed one, so an ordinary requirement never stops an update. An override does: it forces one version whatever the dependent declares. When a candidate needs a version an override *you* wrote rules out, the release is rejected and the override is named (`@vue/shared is held by an override in package.json`), and `plan` lists it under *Held by overrides you wrote*. OSS IQ never rewrites those; update or remove them to let the release through. An override OSS IQ wrote itself (recorded under `ossiq:metadata`) moves with the candidate instead, together with every other override that candidate's packages pin to each other.
+
+**An override OSS IQ wrote is not flagged.** OSS IQ records the rules it writes under `ossiq:metadata` (npm) or `[tool.ossiq.metadata]` (uv). While a rule still holds the recorded value, it is OSS IQ's to move: on npm, `ossiq apply` retires it and writes a fresh rule for the new version. So `status` shows no `⚑ override` marker for it, the Peer Constraint Status table reads `✓ satisfied` instead of `✓ via override`, and the HTML report draws the package as a plain dependency. `ossiq info` still names the rule, as `OVERRIDE (written by OSS IQ, from package.json)`. A rule you wrote, or edited since OSS IQ did, is yours and stays flagged. The JSON export keeps `constraint_type` at `OVERRIDE` and adds `constraint_ossiq_authored`.
 
 **Peers are held to what the package declares, overrides or not.** npm applies `overrides` to peer edges too. With `"typescript": "$typescript"`, npm installs the version your manifest names beside `@typescript-eslint/*` even when their peer range stops below it, and reports no `ERESOLVE`: the override silences npm's check, it does not make the pair compatible. OSS IQ reads the ranges packages *declare*, not the ones an override leaves them with, so it keeps refusing that release (see *Held by peer dependencies* in the [recommendation catalogue](recommendations/catalogue.md#the-non-recommendations)). An override whose only job was to quiet that check can be removed.
 
@@ -644,6 +650,10 @@ The `export` command writes a single `.json` file conforming to [export schema v
 
 Since v1.6, npm projects also report peer dependencies that cannot be loaded: every `PackageMetrics` entry (production, development and transitive) may carry `unresolved_peers`, each with `package_name`, `spec`, `optional` and `installed_elsewhere`. A peer is unresolved when nothing installed *where the package looks for it* satisfies it: npm resolves a peer from the requirer's own location, so a copy nested under some other package does not count. The root object carries `peer_repairs`, which is how `ossiq apply` puts such peers back: `package_name` and `suggested_constraint` to add to the manifest, `is_dev_dependency`, the `requirers` that need it, and the `family_moves` (stale copies of its exact-pinned family that move with it, as keyed overrides). Both are empty for PyPI projects and absent from a document pinned to v1.5.
 
+Since v1.6, every `PackageMetrics` entry also carries `registry_status`, the registry's verdict on the whole package: `active`, `deprecated`, `archived` or `quarantined`. It is `null` when the registry gave none, which is not the same as `active`. `deprecation_message` holds the maintainer's note (npm) or the index's stated reason (PyPI), verbatim, and often names the replacement. npm reports `deprecated` when the package's `latest` release is deprecated; PyPI reports its [PEP 792](https://peps.python.org/pep-0792/) project status. `is_deprecated` is `true` for a deprecated package, an archived one, or a deprecated installed release of an otherwise active package. A document pinned to v1.5 omits both new fields.
+
+Since v1.6, a `PackageMetrics` entry also carries `constraint_ossiq_authored`: `true` when the `OVERRIDE` that governs the package is one OSS IQ wrote itself rather than yours (see [npm — `overrides`](#npm-overrides)). `constraint_type` stays `OVERRIDE` either way. A transitive entry carries the field in the full profile only, and the `dependency_tree` node's `ct` says `OVERRIDE` for it too. A document pinned to v1.5 omits it.
+
 Since v1.5, every `PackageMetrics` entry (production, development, and transitive) also carries `epss` (the highest EPSS among the package's CVEs), `runs_code_at_install` with `install_execution_reason`, and the maintenance-state fields: `maintenance_state`, `maintenance_risk` (P(abandoned) + P(deprecated), the value that feeds triage), `maintenance_coverage` (fraction of the five maintenance observations that were available), `gap_cv`, `median_gap_days`, `silence_days`, `silence_p`, `commits_sampled`, `span_days`, `flow_trend`, `deprecation_signals`, `deprecation_successor`, `days_since_push`, `archived`, and `dependency_health_action` (the triage matrix's advisory verdict). Any of them may be `null` when the underlying signal could not be measured — that means "unknown," never "no risk." See [Repository stability](explanation/repository-stability.md) for what each field means.
 
 Every `PackageMetrics` entry also carries the [version ladder](#version-ladder): `latest_in_range` and `latest_in_major` (both `null` only when undeterminable, equal to `installed_version` when that rung has nothing newer), `latest_preserving_module_system` (the newest release code on the installed module system can still load, whatever the runtime) with `module_system_note` (what the scan's runtime means for the package's ESM-only releases), plus `recommended_from_rung` on production/development entries naming which rung `recommended_version` came from (`solver`, `in_range`, `in_major`, or `latest`). `TransitivePackageMetrics` carries `latest_in_range`/`latest_in_major` but not `recommended_from_rung`; on transitive entries the two rung fields are omitted entirely (rather than `null`) when undeterminable, per the schema's existing null-dropping convention for that array.
@@ -692,7 +702,7 @@ Next**. `--full` adds **EPSS**, **Update Mode**, **Lag**, and **State**.
 | Recommended | Solver-recommended update target — clamped into your declared range, so it is often *not* the Latest version. Yellow when the recommendation is older than the latest version — usually held back by the [cooldown](#update-solver) or by a constraint. `[NO RESOLUTION]` when no published version satisfies all constraints. Blank when no acceptable target was found at all — including when every newer version is still inside the [cooldown](#update-solver), in which case *What's Next* reads **Wait for cooldown**. |
 | Lag | *(`--full`)* Time between the installed and the latest version. Red when it exceeds `--lag-threshold-delta` (default `1y`). |
 | State | *(`--full`)* Maintenance-state verdict for the upstream repository: `maintained`, `winding_down`, `abandoned`, or `deprecated`. `—` when the package could not be assessed. See [Repository Stability](explanation/repository-stability.md). |
-| What's Next | The single next action for this package (first match wins): **Check for the Fix** (a CVE with EPSS ≥ 10%), **Find alternative** (at the latest version but abandoned/deprecated), **Consider alternative** (upstream winding down), **Check Release Notes** (a major version behind), **Update Immediately** (a minor or patch behind, with a newer version inside the declared range), **Wait for cooldown** (a newer version exists, but every version reachable from here is younger than the cooldown period — there is nothing settled enough to move to yet, so no version is recommended at all), **Constrained. Check newer version** (a minor or patch behind, but the declared range admits no bump — widening it is the real next step), **Withheld by strategy** (a bump is available and the range admits it, but the run's `--update-strategy` tier admitted no motive to take it — the sub-row names the lowest tier that would). Blank when nothing is due. On terminals too narrow to fit the widest label on one line — under 110 columns, or under 157 with `--full` — **Constrained. Check newer version** is shortened to **Constrained**; the `--full` sub-row below the package still names the range and what it caps. This is a display width only: the label in `--format agent`, the JSON export, the MCP tools and the HTML report is always the full one. |
+| What's Next | The single next action for this package (first match wins): **Check for the Fix** (a CVE with EPSS ≥ 10%), **Find alternative** (the registry deprecated, archived or quarantined the package, or it is at the latest version but upstream is abandoned/deprecated), **Consider alternative** (upstream winding down), **Check Release Notes** (a major version behind), **Update Immediately** (a minor or patch behind, with a newer version `plan` will write: inside the declared range, or past it when the run's tier reaches that far or a CVE or end-of-life motive carried the pick past it), **Wait for cooldown** (a newer version exists, but every version reachable from here is younger than the cooldown period — there is nothing settled enough to move to yet, so no version is recommended at all), **Constrained. Check newer version** (a minor or patch behind, but the declared range admits no bump `plan` will write — widening it is the real next step), **Withheld by strategy** (a bump is available and the range admits it, but the run's `--update-strategy` tier admitted no motive to take it — the sub-row names the lowest tier that would). Blank when nothing is due. On terminals too narrow to fit the widest label on one line — under 110 columns, or under 157 with `--full` — **Constrained. Check newer version** is shortened to **Constrained**; the `--full` sub-row below the package still names the range and what it caps. This is a display width only: the label in `--format agent`, the JSON export, the MCP tools and the HTML report is always the full one. |
 
 Lifecycle markers on the Installed column:
 
@@ -701,6 +711,8 @@ Lifecycle markers on the Installed column:
 | `[UNPUBLISHED]` | The installed version has been removed from the registry. |
 | `[YANKED]` | The installed version was yanked by its maintainer. |
 | `[DEPRECATED]` | The installed version, or the whole package, is deprecated. |
+| `[ARCHIVED]` | PyPI marks the whole package archived: no further releases are expected. |
+| `[QUARANTINED]` | PyPI flags the whole package as unsafe to use. |
 | `[pre]` | The installed version is a pre-release. |
 
 A row with a recommendation can carry indented sub-rows describing what applying that recommendation would do to the rest of the dependency tree:
@@ -750,7 +762,7 @@ npm packages can declare `peerDependencies`: versions of *other* packages they e
 | Status | Meaning |
 |---|---|
 | `✓ satisfied` | The installed version is inside the required range. |
-| `✓ via override` | The installed version satisfies the range, but it is forced by an `overrides` entry rather than resolved normally. The override — not the resolver — is what keeps this pair compatible; re-check this row whenever the override changes. |
+| `✓ via override` | The installed version satisfies the range, but it is forced by an `overrides` entry rather than resolved normally. The override — not the resolver — is what keeps this pair compatible; re-check this row whenever the override changes. An override OSS IQ wrote reads `✓ satisfied`. |
 | `✗ violation` | The installed version is outside the range the requirer declared. |
 
 **What `✗ violation` means.** Two packages you ship disagree about a third. The requirer was built and tested against the declared peer range; running it against a version outside that range can fail at runtime — missing exports, changed APIs — even though installation succeeded. Typical causes: an `overrides` entry forcing a version out of range, an install with `--legacy-peer-deps` or `--force`, or one package updated past what its peers allow.
@@ -821,9 +833,9 @@ ossiq info PACKAGE_NAME [PROJECT_PATH]
 
 A deep-dive into one package. When the package is installed in the project, the report has the sections below, in order; empty sections are omitted. When it is not installed, the report switches to [prospective mode](#info-prospective).
 
-**Header.** Package name and installed version; role tags `DIRECT` and/or `TRANSITIVE` (both, when the package appears in both roles); a lifecycle marker (`[UNPUBLISHED]`, `[YANKED]`, `[DEPRECATED]`, `[pre]` — same meanings as in the status table); license; registry URL.
+**Header.** Package name and installed version; role tags `DIRECT` and/or `TRANSITIVE` (both, when the package appears in both roles); a lifecycle marker (`[UNPUBLISHED]`, `[YANKED]`, `[QUARANTINED]`, `[ARCHIVED]`, `[DEPRECATED]`, `[pre]` — same meanings as in the status table); license; registry URL.
 
-**Warnings.** A panel of package health findings: `✗` marks critical findings (these block `ossiq add` unless `--force` is passed), `!` marks notices. Examples: a package with a single published version (typosquatting risk), a single maintainer (bus-factor risk).
+**Warnings.** A panel of package health findings: `✗` marks critical findings (these block `ossiq add` unless `--force` is passed), `!` marks notices. Examples: a package its registry deprecated, archived or quarantined (critical; the finding quotes the registry's note), a deprecated release you asked for with `--version` (critical), a package with a single published version (critical; typosquatting risk), a single maintainer (bus-factor risk).
 
 **Health Metrics.** Registry-level signals: downloads over the last month, number of published versions, maintainer count, age of the latest version, age of the recommended version (when it differs from the latest), and cooldown remaining — days until the latest release is old enough to clear the [cooldown period](explanation/index.md#cooldown-as-supply-chain-quarantine).
 
@@ -864,8 +876,8 @@ Any of these can render `—`: it means the signal could not be measured, never 
 
 **Recommendation Rationale.** Why the solver picked the recommended version — and, just as important, why it rejected the others:
 
-- *Eliminated (hard constraints)* — versions that can never be chosen: outside a parent's range, affected by a CVE, yanked, or pre-release without `--allow-prerelease`.
-- *Penalised (soft constraints)* — versions that remain eligible but are scored down, e.g. younger than the cooldown period.
+- *Eliminated (hard constraints)* — versions that can never be chosen: outside a parent's range, affected by a CVE, yanked, or pre-release without `--allow-prerelease`. When `ossiq add` picks a version for a package that is otherwise live, deprecated releases are eliminated too.
+- *Penalised (soft constraints)* — versions that remain eligible but are scored down, e.g. younger than the cooldown period, or deprecated (in a project scan).
 - The closing `✓` line states the selection: the latest eligible version, or the best stable candidate when the latest was eliminated or penalised.
 
 If the version you expected is not the recommendation, this section names the exact rule that removed it.
@@ -883,7 +895,7 @@ If the version you expected is not the recommendation, this section names the ex
 (info-prospective)=
 #### Prospective mode
 
-When the package is not installed in the project, `info` evaluates it as a candidate instead: the header carries a `PROSPECTIVE` tag and the registry description, followed by health metrics, the recommendation rationale, and security advisories. This is the same pre-installation check that `ossiq add` runs before installing.
+When the package is not installed in the project, `info` evaluates it as a candidate instead: the header carries a `PROSPECTIVE` tag, a lifecycle marker when the registry deprecated, archived or quarantined the package, and the registry description, followed by health metrics, the recommendation rationale, and security advisories. This is the same pre-installation check that `ossiq add` runs before installing.
 
 ### Agent format
 
@@ -895,7 +907,7 @@ Both commands accept `--format agent`, which replaces the human report with a co
 
 Every decision leads with a `next_action` string:
 
-- **add** (`info` / `add`): `install`, `install with caution`, or `do not install`.
+- **add** (`info` / `add`): `install`, `install with caution`, or `do not install`. `do not install` covers a package its registry deprecated, archived or quarantined, and a deprecated release you asked for by version; `reasons` quotes the registry's note.
 - **update** (`status`): per entry — `Check for the Fix`, `Find alternative`, `Consider alternative`, `Check Release Notes`, or `Update Immediately`. The top-level `next_action` is the most urgent of those, or `no action needed` when no entry has an action due.
 
 Each entry's `dependency_health` object (the triage matrix's advisory verdict: `retain`, `patch`, `refactor`, `evict`) carries a `question` stating what it answers: long-term health, not what to do now. Each CVE under `cves` carries its `epss` when scored.

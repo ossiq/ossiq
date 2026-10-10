@@ -167,19 +167,27 @@ def filter_eligible_versions(
     registry: AbstractPackageRegistryApi,
     now: datetime | None,
     release_cutoff: datetime | None = None,
+    *,
+    allow_deprecated: bool = True,
 ) -> list[PackageVersion]:
     """Return candidates sorted newest-first, capped at CANDIDATE_CAP.
 
-    Drops yanked, unpublished, pre-release (when disallowed), downgrades, versions published
-    after `now`, and versions published after `release_cutoff` — the package manager's own limit
-    for this package. The installed version survives that last filter: the package manager keeps a
-    locked version past its cutoff, it only refuses to move to one.
+    Drops yanked, unpublished, pre-release (when disallowed), deprecated (when disallowed),
+    downgrades, versions published after `now`, and versions published after `release_cutoff` —
+    the package manager's own limit for this package. The installed version survives that last
+    filter: the package manager keeps a locked version past its cutoff, it only refuses to move to
+    one.
+
+    Deprecated releases stay eligible by default, where the solver only penalises them: a scan
+    meets them deep in dependency trees, and dropping them there would leave packages with no
+    candidate. A caller choosing a package from scratch passes `allow_deprecated=False`.
     """
     eligible = [
         pv
         for pv in raw
         if not pv.is_yanked
         and not pv.is_unpublished
+        and (allow_deprecated or not pv.is_deprecated)
         and (allow_prerelease or not pv.is_prerelease)
         and (not installed_version or registry.compare_versions(pv.version, installed_version) >= 0)
         and is_published_before(pv.published_date_iso, now)
@@ -248,6 +256,7 @@ class SolvablePool:
         *,
         cves_by_package: dict[str, tuple[CVE, ...]] | None = None,
         allow_prerelease: bool = False,
+        allow_deprecated: bool = True,
         _now: datetime | None = None,
         rewrite_pinned: bool = False,
         release_cutoff: ReleaseCutoff | None = None,
@@ -264,6 +273,8 @@ class SolvablePool:
             cves_by_package: Optional mapping of {canonical_name: (CVE, ...)}. A candidate any of
                              its package's CVEs affects gets has_cve=True.
             allow_prerelease: When True, include pre-release candidates.
+            allow_deprecated: When False, deprecated releases are not candidates at all, rather
+                              than merely penalised.
             _now: Injectable reference time for deterministic age computation in tests.
             rewrite_pinned: When True, PINNED (==x.y.z) constraints are dropped so the
                             solver can recommend newer versions for deliberate re-pinning.
@@ -292,6 +303,7 @@ class SolvablePool:
                     registry,
                     _now,
                     release_cutoff.cutoff_for(name) if release_cutoff else None,
+                    allow_deprecated=allow_deprecated,
                 ),
                 (cves_by_package or {}).get(name, ()),
                 _now,

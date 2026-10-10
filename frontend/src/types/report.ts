@@ -6,7 +6,7 @@
  */
 
 /**
- * Schema for OSS-IQ project metrics export data (v1.5 adds epss to PackageMetrics, TransitivePackageMetrics and CVEInfo, runs_code_at_install/install_execution_reason to PackageMetrics and TransitivePackageMetrics, fix_age_days to CVEInfo, project_epss/packages_with_epss/packages_with_unscored_cves to summary, declares update_transitive_impacts, and replaces the phi_i/phi_p/phi_a CSI channels with the maintenance-state model: maintenance_state, maintenance_risk, maintenance_coverage, flow_trend, engagement_buckets, deprecation_signals and deprecation_successor and dependency_health_action on PackageMetrics and TransitivePackageMetrics, and packages_unmaintained/packages_deprecated on summary; and adds latest_compatible_major, module_system, recommended_module_system to PackageMetrics and TransitivePackageMetrics, and breaking_change to PackageMetrics; and adds engine_requirement, engine_compatible, engine_context_source to PackageMetrics and TransitivePackageMetrics; and adds metadata.warnings and a scan-level runtime_context block, moving engine_context_source off the per-package models; and adds next_action to PackageMetrics and TransitivePackageMetrics and requires_constraint_widening to PackageMetrics, so every surface reads one next-action label instead of re-deriving it; and adds latest_preserving_module_system and module_system_note to PackageMetrics and TransitivePackageMetrics; and adds the standard/full profile split: metadata.profile, summary.transitive_packages, runtime_context.runtime_mismatch, affected_ranges/fixed_in on CVEInfo, recommended_version/required_by on TransitivePackageMetrics, and ignored_packages/upgrade_paths/manifest_lock_divergent at the root - the standard profile validates against export_schema_v1.6_standard.json) v1.6 adds unresolved_peers to PackageMetrics and TransitivePackageMetrics (peers a package declares that nothing installed within its reach satisfies) and peer_repairs at the root (how `ossiq apply` puts them back); a document that declares an earlier version omits them.
+ * Schema for OSS-IQ project metrics export data (v1.5 adds epss to PackageMetrics, TransitivePackageMetrics and CVEInfo, runs_code_at_install/install_execution_reason to PackageMetrics and TransitivePackageMetrics, fix_age_days to CVEInfo, project_epss/packages_with_epss/packages_with_unscored_cves to summary, declares update_transitive_impacts, and replaces the phi_i/phi_p/phi_a CSI channels with the maintenance-state model: maintenance_state, maintenance_risk, maintenance_coverage, flow_trend, engagement_buckets, deprecation_signals and deprecation_successor and dependency_health_action on PackageMetrics and TransitivePackageMetrics, and packages_unmaintained/packages_deprecated on summary; and adds latest_compatible_major, module_system, recommended_module_system to PackageMetrics and TransitivePackageMetrics, and breaking_change to PackageMetrics; and adds engine_requirement, engine_compatible, engine_context_source to PackageMetrics and TransitivePackageMetrics; and adds metadata.warnings and a scan-level runtime_context block, moving engine_context_source off the per-package models; and adds next_action to PackageMetrics and TransitivePackageMetrics and requires_constraint_widening to PackageMetrics, so every surface reads one next-action label instead of re-deriving it; and adds latest_preserving_module_system and module_system_note to PackageMetrics and TransitivePackageMetrics; and adds the standard/full profile split: metadata.profile, summary.transitive_packages, runtime_context.runtime_mismatch, affected_ranges/fixed_in on CVEInfo, recommended_version/required_by on TransitivePackageMetrics, and ignored_packages/upgrade_paths/manifest_lock_divergent at the root - the standard profile validates against export_schema_v1.6_standard.json) v1.6 adds unresolved_peers to PackageMetrics and TransitivePackageMetrics (peers a package declares that nothing installed within its reach satisfies) and peer_repairs at the root (how `ossiq apply` puts them back), and registry_status and deprecation_message to PackageMetrics and TransitivePackageMetrics (the registry's own verdict on the whole package, and the note behind it); a document that declares an earlier version omits them.
  */
 export interface OSSIQExportSchemaV16 {
   /**
@@ -335,6 +335,10 @@ export interface PackageMetrics {
    */
   constraint_type?: "DECLARED" | "NARROWED" | "PINNED" | "ADDITIVE" | "OVERRIDE" | null;
   /**
+   * Whether the OVERRIDE governing this package is one OSS IQ wrote itself (recorded in its own metadata block, still holding the value it wrote) rather than the user's. OSS IQ moves its own overrides with the next `ossiq apply`, so one is not a hold. False for any other constraint type
+   */
+  constraint_ossiq_authored?: boolean;
+  /**
    * File that introduced a non-DECLARED constraint (e.g. 'package.json' for npm overrides, 'pyproject.toml' for uv, 'requirements.txt' for pip classic)
    */
   constraint_source_file?: string | null;
@@ -418,7 +422,7 @@ export interface PackageMetrics {
    */
   is_yanked: boolean;
   /**
-   * Whether the installed package or version is deprecated (npm-only; false otherwise)
+   * Whether the installed version, or the whole package, is deprecated or archived
    */
   is_deprecated: boolean;
   /**
@@ -473,6 +477,14 @@ export interface PackageMetrics {
    * Replacement package named in the metadata / deprecation message / README
    */
   deprecation_successor?: string | null;
+  /**
+   * The registry's verdict on the whole package (PEP 792's vocabulary; npm reports deprecated when its latest release is). Null when the registry gave none, which is not the same as active. A deprecated release of an otherwise active package shows only in is_deprecated
+   */
+  registry_status?: "active" | "deprecated" | "archived" | "quarantined" | null;
+  /**
+   * The maintainer's note on the deprecation (npm) or the index's stated reason (PEP 792), verbatim; often names the replacement
+   */
+  deprecation_message?: string | null;
   /**
    * Coefficient of variation of inter-commit gaps from the last 100 commits; volume-free, unlike a weekly-bucket CV. Null below 20 sampled gaps
    */
@@ -781,6 +793,10 @@ export interface TransitivePackageMetrics {
    */
   cve?: CVEInfo[];
   /**
+   * Whether the override governing this package is one OSS IQ wrote itself rather than the user's. The dependency_tree nodes (ct) say OVERRIDE either way
+   */
+  constraint_ossiq_authored?: boolean;
+  /**
    * File that introduced a non-DECLARED constraint for this package (absent when DECLARED)
    */
   constraint_source_file?: string;
@@ -813,7 +829,7 @@ export interface TransitivePackageMetrics {
    */
   is_yanked: boolean;
   /**
-   * Whether the installed package or version is deprecated (npm-only; false otherwise)
+   * Whether the installed version, or the whole package, is deprecated or archived
    */
   is_deprecated: boolean;
   /**
@@ -860,6 +876,14 @@ export interface TransitivePackageMetrics {
    * Replacement package named in the metadata / deprecation message / README
    */
   deprecation_successor?: string | null;
+  /**
+   * The registry's verdict on the whole package (PEP 792's vocabulary; npm reports deprecated when its latest release is). Null when the registry gave none, which is not the same as active. A deprecated release of an otherwise active package shows only in is_deprecated
+   */
+  registry_status?: "active" | "deprecated" | "archived" | "quarantined" | null;
+  /**
+   * The maintainer's note on the deprecation (npm) or the index's stated reason (PEP 792), verbatim; often names the replacement
+   */
+  deprecation_message?: string | null;
   /**
    * Coefficient of variation of inter-commit gaps from the last 100 commits; volume-free, unlike a weekly-bucket CV. Null below 20 sampled gaps
    */

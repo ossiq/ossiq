@@ -189,6 +189,15 @@ class BatchStrategy(ABC):
         Only called for successful chunks (response.success is True).
         """
 
+    def decode_response(self, resp: requests.Response) -> Any:
+        """
+        Turn a successful (2xx) response into the payload `process_response` receives.
+
+        JSON by default. A strategy that reads a non-JSON body overrides this and raises
+        ValueError when the body is unusable, which BatchClient reports as an empty response.
+        """
+        return resp.json()
+
     def next_items(self, source_items: list, response: ChunkResult) -> Iterable[Any]:  # noqa: ARG002
         """
         Return request-ready follow-up items to enqueue after a successful response.
@@ -446,7 +455,7 @@ class BatchClient:
 
                 if resp.status_code is not None and resp.status_code >= 200 and resp.status_code < 300:
                     try:
-                        return ChunkResult(data=[resp.json()], success=True)
+                        return ChunkResult(data=[strategy.decode_response(resp)], success=True)
                     except ValueError as exc:
                         # A bodyless 2xx: 204 No Content, or GitHub's 202 while it computes
                         # statistics in the background. Not an error and not retryable, but there
@@ -455,7 +464,7 @@ class BatchClient:
                         return ChunkResult(
                             data=[],
                             success=False,
-                            message=f"HTTP {resp.status_code} with no JSON body",
+                            message=f"HTTP {resp.status_code} with no usable body",
                             error=exc,
                             reason=DegradeReason.EMPTY_RESPONSE,
                         )

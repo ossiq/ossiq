@@ -82,6 +82,10 @@ installed in the project (not a prospective add) — see the version ladder belo
 
 `next_action` for an add is `install`, `install with caution`, or `do not install`.
 
+`do not install` includes a package its registry deprecated, archived or quarantined, and a
+deprecated release requested by `version`. `reasons` quotes the registry's own note, which
+usually names the replacement: look for that alternative instead of forcing the install.
+
 ## When updating existing dependencies
 
 Before bumping versions, run:
@@ -140,13 +144,17 @@ The top-level `next_action` is the most urgent one across the `updates` list, or
 
 - **Check for the Fix** — a known CVE that `to` does not clear (or there is no `to`); check for a
   patched release.
-- **Find alternative** — the package is gone or its upstream is abandoned/deprecated; migrate off it.
+- **Find alternative** — the package is gone, its registry deprecated, archived or quarantined it,
+  or its upstream is abandoned/deprecated; migrate off it. A newer release of such a package does
+  not help.
 - **Consider alternative** — the upstream is winding down; plan a migration.
 - **Check Release Notes** — a major version behind; review breaking changes before the bump.
-- **Update Immediately** — a minor/patch behind, or a recommended version exists; bump it.
+- **Update Immediately** — a minor/patch behind, or a recommended version exists; bump it. An
+  entry that also carries `requires_constraint_widening: true` reads this way when `apply` writes
+  the wider range itself, after a confirmation.
 - **Constrained. Check newer version** — a minor/patch behind, but the declared range
-  (e.g. `~7.3.0`) admits no newer version, or the CVE fix in `to` needs it widened; widening the
-  range is the real next step.
+  (e.g. `~7.3.0`) admits no newer version, or the CVE fix in `to` needs it widened and `apply`
+  would not widen it on its own; widening the range is the real next step.
 - **Withheld by strategy** — a minor/patch behind, and the range admits a bump, but the run's
   `--update-strategy` tier admitted no motive to take it. Nothing is wrong with the package;
   `strategy_withheld_reason` names the lowest tier that would move it.
