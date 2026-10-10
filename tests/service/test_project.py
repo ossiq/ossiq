@@ -36,6 +36,8 @@ from ossiq.service.project.scan import (
 from ossiq.service.update_impact import ImpactKind, TransitiveImpact
 from ossiq.settings import Settings
 from ossiq.solver.dependencies_solver import EMPTY_OUTPUT, SolverOutput
+from ossiq.strategy.overrides import StrategyPlan
+from ossiq.strategy.pyramid import UpdateStrategy
 
 # ============================================================================
 # Module-level constants
@@ -813,6 +815,56 @@ class TestTransitivePhaseWarmsTheDirectRequirements:
             )
 
         assert calls == ["warm [('django', '6.0.7'), ('wagtail', '8.0')]", "solve"]
+
+
+class TestTransitivePhaseFollowsEachPackagesTier:
+    @staticmethod
+    def tree() -> list[ScanRecord]:
+        return [_make_scan_record("diff", cve=True), _make_scan_record("acorn"), _make_scan_record("lodash")]
+
+    @staticmethod
+    def solved(strategy: StrategyPlan) -> list[str]:
+        sources = MagicMock()
+        sources.strategy = strategy
+        names: list[str] = []
+
+        def solve(records_to_solve, *args, **kwargs):
+            names.extend(r.package_name for r in records_to_solve)
+            return EMPTY_OUTPUT
+
+        with patch("ossiq.service.project.scan.dependencies_solver.solve_transitive", side_effect=solve):
+            solve_transitive_phase(
+                TestTransitivePhaseFollowsEachPackagesTier.tree(),
+                frozenset(),
+                sources,
+                MagicMock(versions={}),
+                {},
+                EMPTY_OUTPUT,
+                None,
+            )
+        return names
+
+    def test_an_override_on_a_direct_dep_leaves_the_tree_on_the_default_tier(self):
+        """Regression: `vue=latest` under `security` sent every drifted transitive dep to the solver."""
+        plan = StrategyPlan(default=UpdateStrategy.SECURITY, overrides={"vue": UpdateStrategy.LATEST})
+
+        assert self.solved(plan) == ["diff"]
+
+    def test_an_override_on_a_transitive_dep_lifts_only_that_package(self):
+        """`lodash=latest` under `security` solves lodash without a CVE, and no other CVE-free dep."""
+        plan = StrategyPlan(default=UpdateStrategy.SECURITY, overrides={"lodash": UpdateStrategy.LATEST})
+
+        assert self.solved(plan) == ["diff", "lodash"]
+
+    def test_a_minimal_diff_override_narrows_only_that_transitive_dep(self):
+        """`lodash=security` under `standard` keeps a CVE-free lodash out of the solve."""
+        plan = StrategyPlan(default=UpdateStrategy.STANDARD, overrides={"lodash": UpdateStrategy.SECURITY})
+
+        assert self.solved(plan) == ["diff", "acorn"]
+
+    def test_a_freshness_default_solves_every_transitive_dep(self):
+        """Under `standard` with no overrides, drift alone is reason enough to solve a transitive dep."""
+        assert self.solved(StrategyPlan(default=UpdateStrategy.STANDARD)) == ["diff", "acorn", "lodash"]
 
 
 class TestDirectPackagesAreListedOnce:

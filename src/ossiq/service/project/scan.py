@@ -660,15 +660,18 @@ def solve_transitive_phase(
 ) -> None:
     """Pass 1.6: run the HPDR solver over transitive deps and apply its output in place.
 
-    Restricted to CVE-affected packages when the run's tier never exceeds a minimal-diff tier
-    (security/deprecation) — the strategy applies only to direct deps (v1 scope), so this is the
-    one place a transitive-only run still narrows itself to match.
+    A transitive dep under a minimal-diff tier (security/deprecation) is solved only when it
+    carries a CVE. The tier is `for_package`'s: an override binds only the package it names, and
+    the run default governs the rest of the tree. The selector runs on direct deps alone (v1
+    scope), so this filter is the one place a transitive dep follows its tier.
     """
     if not transitive_packages:
         return
-    minimal_diff_run = sources.strategy.max_tier in MINIMAL_DIFF_TIERS
     records_to_solve = [
-        r for r in transitive_packages if r.package_name not in ignore_set and (not minimal_diff_run or r.cve)
+        r
+        for r in transitive_packages
+        if r.package_name not in ignore_set
+        and (r.cve or sources.strategy.for_package(r.package_name) not in MINIMAL_DIFF_TIERS)
     ]
     external_targets = {**installed_version_by_name, **solver_output.recommendations}
     if isinstance(sources.packages_registry, PackageRegistryApiPypi):

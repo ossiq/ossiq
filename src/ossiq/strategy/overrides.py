@@ -15,7 +15,7 @@ from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 
 from ossiq.domain.common import parse_name_value_specs
-from ossiq.strategy.pyramid import PRERELEASE_TIERS, PYRAMID, UpdateStrategy, tier_index
+from ossiq.strategy.pyramid import PRERELEASE_TIERS, PYRAMID, UpdateStrategy
 
 
 def parse_strategy(value: str) -> UpdateStrategy:
@@ -52,12 +52,6 @@ class StrategyPlan:
     def for_package(self, canonical_name: str) -> UpdateStrategy:
         """The tier in force for one package: its override, or the run default."""
         return self.overrides.get(canonical_name, self.default)
-
-    @property
-    def max_tier(self) -> UpdateStrategy:
-        """The highest tier anywhere in the run — the default, or any per-package override."""
-        tiers = [self.default, *self.overrides.values()]
-        return max(tiers, key=tier_index)
 
     @property
     def prerelease_packages(self) -> tuple[str, ...]:
