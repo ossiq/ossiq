@@ -393,6 +393,32 @@ def test_peer_requirements_flag_violations() -> None:
     assert "✗ consumer  requires  >=2.0.0  (installed: 1.0.0)" in output
 
 
+def peer_requirements_text(*, override_authored_by_ossiq: bool) -> str:
+    record = make_record(peer_requirements=[PeerRequirement(requirer_name="consumer", spec="^1.0.0")])
+    record.constraint_info = ConstraintSource(
+        type=ConstraintType.OVERRIDE, source_file="package.json", is_ossiq_authored=override_authored_by_ossiq
+    )
+    data = PackageDetailResult(records=[record], transitive_cve_groups=[], project_name="demo", packages_registry="npm")
+    return render(data)
+
+
+def test_peer_requirements_say_via_override_for_an_override_the_user_wrote() -> None:
+    assert "via override" in peer_requirements_text(override_authored_by_ossiq=False)
+
+
+def test_peer_requirements_do_not_blame_an_override_ossiq_wrote() -> None:
+    assert "via override" not in peer_requirements_text(override_authored_by_ossiq=True)
+
+
+def test_constraint_type_row_names_an_override_ossiq_wrote() -> None:
+    record = make_record()
+    record.constraint_info = ConstraintSource(
+        type=ConstraintType.OVERRIDE, source_file="package.json", is_ossiq_authored=True
+    )
+
+    assert "OVERRIDE  (written by OSS IQ, from package.json)" in render_policy_compliance(record)
+
+
 def test_unresolved_peers_get_their_own_block() -> None:
     record = make_record()
     record.unresolved_peers = [

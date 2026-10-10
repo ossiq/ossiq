@@ -2059,6 +2059,9 @@ class TestExportProfiles:
             "is_optional_dependency",
             "version_constraint_declared",
             "constraint_type",
+            # An agent reading OVERRIDE has to tell the user's rule, which holds an update, from the one
+            # OSS IQ wrote and moves itself.
+            "constraint_ossiq_authored",
             "extras",
             "breaking_change",
             "recommended_from_rung",
@@ -2226,6 +2229,26 @@ class TestSchemaVersion17:
         assert entry["strategy"]["widening_authorized"] is True
         validate(instance=data, schema=json_schema_registry.load_schema(ExportJsonSchemaVersion.V1_6, profile))
 
+    @pytest.mark.parametrize("profile", [ExportProfile.STANDARD, ExportProfile.FULL])
+    def test_an_escalated_widening_pick_is_labelled_an_update(self, settings, widening_scan, output_file, profile):
+        """The label agrees with `plan`, which writes the pick; the widening flags still say how."""
+        record = dataclasses.replace(
+            widening_scan.production_packages[0],
+            versions_diff_index=VersionsDifference(
+                version1="1.0.0", version2="1.2.0", diff_index=4, diff_name="DIFF_MINOR"
+            ),
+            epss=None,
+        )
+        scan = dataclasses.replace(widening_scan, production_packages=[record])
+
+        data = render_profile(settings, scan, output_file, profile)
+
+        entry = data["production_packages"][0]
+        assert entry["next_action"] == "Update Immediately"
+        assert entry["requires_constraint_widening"] is True
+        assert entry["strategy"]["widening_authorized"] is True
+        validate(instance=data, schema=json_schema_registry.load_schema(ExportJsonSchemaVersion.V1_6, profile))
+
     def test_standard_keeps_a_transitive_that_only_has_an_unresolved_peer(self, settings, peer_scan, output_file):
         data = render_profile(settings, peer_scan, output_file)
 
@@ -2274,6 +2297,56 @@ class TestSchemaVersion17:
         assert all(entry["unresolved_peers"] == [] for entry in data["production_packages"])
 
 
+class TestOssiqAuthoredOverrideExport:
+    """constraint_ossiq_authored tells an OVERRIDE the user holds from the one OSS IQ wrote and moves itself."""
+
+    @pytest.fixture
+    def override_scan(self, profile_scan: ScanResult) -> ScanResult:
+        authored = ConstraintSource(type=ConstraintType.OVERRIDE, source_file="package.json", is_ossiq_authored=True)
+        profile_scan.production_packages[0].constraint_info = authored
+        profile_scan.transitive_packages[0].constraint_info = authored
+        return profile_scan
+
+    def test_a_direct_package_says_whose_override_it_is(self, settings, override_scan, output_file):
+        data = render_profile(settings, override_scan, output_file)
+
+        vulnerable, quiet = data["production_packages"]
+        assert (vulnerable["constraint_type"], vulnerable["constraint_ossiq_authored"]) == ("OVERRIDE", True)
+        assert quiet["constraint_ossiq_authored"] is False
+        validate(
+            instance=data,
+            schema=json_schema_registry.load_schema(json_schema_registry.get_latest_version(), ExportProfile.STANDARD),
+        )
+
+    def test_a_transitive_package_says_it_in_the_full_profile_only(
+        self, settings, override_scan, output_file, tmp_path
+    ):
+        full = render_profile(settings, override_scan, output_file, ExportProfile.FULL)
+        standard = render_profile(settings, override_scan, tmp_path / "standard.json")
+
+        flagged = {e["package_name"] for e in full["transitive_packages"] if e["constraint_ossiq_authored"]}
+        assert flagged == {"risky-dep"}
+        assert all("constraint_ossiq_authored" not in e for e in standard["transitive_packages"])
+        validate(
+            instance=full,
+            schema=json_schema_registry.load_schema(json_schema_registry.get_latest_version(), ExportProfile.FULL),
+        )
+
+    def test_the_tree_still_reports_the_override_it_is(self, settings, override_scan, output_file):
+        data = render_profile(settings, override_scan, output_file, ExportProfile.FULL)
+
+        risky = next(i for i, e in enumerate(data["transitive_packages"]) if e["package_name"] == "risky-dep")
+        (vulnerable_root,) = (root for root in data["dependency_tree"] if root["package_name"] == "vulnerable")
+        (node,) = (child for child in vulnerable_root["children"] if child["ref"] == risky)
+        assert data["constraint_type_map"][node["ct"]] == "OVERRIDE"
+
+    def test_a_v1_5_document_does_not_carry_it(self, settings, override_scan, output_file):
+        data = render_profile(settings, override_scan, output_file, ExportProfile.FULL, schema_version="1.5")
+
+        assert all("constraint_ossiq_authored" not in e for e in data["production_packages"])
+        assert all("constraint_ossiq_authored" not in e for e in data["transitive_packages"])
+
+
 class TestSchemaVersion15StaysAsReleased:
     """`--schema-version 1.5` is a promise to consumers who pinned it: nothing from 1.6 may leak in."""
 
@@ -2310,7 +2383,12 @@ class TestSchemaVersion15StaysAsReleased:
             document["metadata"].pop("schema_version")
         new.pop("peer_repairs")
         for entry in [*new["production_packages"], *new["transitive_packages"]]:
-            for added_in_1_6 in ("unresolved_peers", "registry_status", "deprecation_message"):
+            for added_in_1_6 in (
+                "unresolved_peers",
+                "registry_status",
+                "deprecation_message",
+                "constraint_ossiq_authored",
+            ):
                 entry.pop(added_in_1_6, None)
         assert old == new
 

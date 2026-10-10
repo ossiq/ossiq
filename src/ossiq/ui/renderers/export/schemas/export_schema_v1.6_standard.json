@@ -720,6 +720,10 @@
           ],
           "description": "How the version constraint was applied: DECLARED (loose/default spec), NARROWED (explicit range with bounds), PINNED (exact version), ADDITIVE (narrows via constraints file), or OVERRIDE (forces a version regardless of other requirements)"
         },
+        "constraint_ossiq_authored": {
+          "type": "boolean",
+          "description": "Whether the OVERRIDE governing this package is one OSS IQ wrote itself (recorded in its own metadata block, still holding the value it wrote) rather than the user's. OSS IQ moves its own overrides with the next `ossiq apply`, so one is not a hold. False for any other constraint type"
+        },
         "extras": {
           "type": [
             "array",
