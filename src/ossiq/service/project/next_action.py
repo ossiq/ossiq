@@ -100,9 +100,6 @@ def next_action_label(record: ScanRecord) -> str | None:
     if diff_index in (VERSION_DIFF_MINOR, VERSION_DIFF_PATCH):
         if has_writable_upgrade(record):
             return UPDATE_IMMEDIATELY
-        # No recommendation and nothing constraining it: the solver simply had no opinion.
-        if record.recommended_version is None and not record.version_constraint:
-            return UPDATE_IMMEDIATELY
         # The tier refused to move this package, so the declared range is not what is holding it
         # back — scikit-learn 1.8.0 declared `<2.0.0` under `security` has no writable target, but
         # `<2.0.0` admits 1.9.1 perfectly well. Blaming the range there was the defect this label
@@ -110,6 +107,9 @@ def next_action_label(record: ScanRecord) -> str | None:
         # select_target, and is None when the tier admitted a motive but nothing was reachable.
         if record.strategy_selection is not None and record.strategy_selection.withheld_reason:
             return WITHHELD_BY_STRATEGY
+        # No recommendation and nothing constraining it: the solver simply had no opinion.
+        if record.recommended_version is None and not record.version_constraint:
+            return UPDATE_IMMEDIATELY
         # Behind the registry's latest, but the declared range admits no bump to make.
         return CONSTRAINED_CHECK_NEWER
     return None

@@ -185,6 +185,12 @@ class TestWithheldByStrategy:
         record = self.withheld_record("no motive admitted at security; available under --update-strategy standard")
         assert next_action_label(record) == WITHHELD_BY_STRATEGY
 
+    def test_a_pin_the_tier_withheld_is_not_an_update(self):
+        """An npm pin has no version_constraint, so "the solver had no opinion" must not claim it."""
+        record = self.withheld_record("no motive admitted at security; available under --update-strategy standard")
+        record.version_constraint = None
+        assert next_action_label(record) == WITHHELD_BY_STRATEGY
+
     def test_admitted_motive_with_nothing_reachable_stays_constrained(self):
         assert next_action_label(self.withheld_record(None)) == CONSTRAINED_CHECK_NEWER
 
