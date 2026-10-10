@@ -18,6 +18,7 @@ from ossiq.risk.maintenance import NOT_MAINTAINED, MaintenanceState
 from ossiq.risk.triage import EPSS_EXPLOIT_THRESHOLD
 from ossiq.service.project.models import ScanRecord
 from ossiq.solver.version_matchers import engine_mismatch_reason
+from ossiq.strategy.pyramid import tier_reaches
 
 CHECK_FOR_THE_FIX = "Check for the Fix"
 FIND_ALTERNATIVE = "Find alternative"
@@ -46,20 +47,23 @@ NEXT_ACTION_PRIORITY: tuple[str, ...] = (
 AT_LATEST_DIFFS: frozenset[int] = frozenset({VERSION_LATEST, VERSION_DIFF_BUILD, VERSION_DIFF_PRERELEASE})
 
 
-def has_in_range_upgrade(record: ScanRecord) -> bool:
-    """True when the solver found somewhere to move to, inside the declared range.
+def has_writable_upgrade(record: ScanRecord) -> bool:
+    """True when `plan` writes `recommended_version`, rather than leaving the range to a human.
 
-    A ladder pick that only exists by widening version_constraint (IN_MAJOR/LATEST) does not
-    count here — it needs the manifest constraint widened first, so it stays "Constrained" from
-    this function's point of view even though recommended_version is populated.
+    A pick inside the declared range always is. One that only exists by widening it (IN_MAJOR/LATEST)
+    is written only when the tier reaches that rung or an escalating motive authorized it; otherwise
+    it needs the manifest constraint widened first and stays "Constrained".
     """
-    return (
-        record.recommended_version is not None
-        and record.recommended_version != record.installed_version
-        # Anything not in WIDENING_RUNGS is writable as-is; the None/SOLVER rungs the old
-        # WRITABLE_RUNGS set enumerated are already implied by the two conditions above.
-        and record.recommended_from_rung not in WIDENING_RUNGS
-    )
+    if record.recommended_version is None or record.recommended_version == record.installed_version:
+        return False
+    rung = record.recommended_from_rung
+    # Anything not in WIDENING_RUNGS, None and SOLVER included, is writable as-is.
+    if rung is None or rung not in WIDENING_RUNGS:
+        return True
+    selection = record.strategy_selection
+    # Mirrors service.update.is_held_for_widening, which holds exactly the picks this rejects. A
+    # record with no selection (transitive, ignored) has no tier to consult, so it stays held.
+    return selection is not None and (selection.widening_authorized or tier_reaches(selection.strategy, rung))
 
 
 def next_action_label(record: ScanRecord) -> str | None:
@@ -94,7 +98,7 @@ def next_action_label(record: ScanRecord) -> str | None:
     if diff_index == VERSION_DIFF_MAJOR:
         return CHECK_RELEASE_NOTES
     if diff_index in (VERSION_DIFF_MINOR, VERSION_DIFF_PATCH):
-        if has_in_range_upgrade(record):
+        if has_writable_upgrade(record):
             return UPDATE_IMMEDIATELY
         # No recommendation and nothing constraining it: the solver simply had no opinion.
         if record.recommended_version is None and not record.version_constraint:

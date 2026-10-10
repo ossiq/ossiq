@@ -774,7 +774,7 @@ class PeerSetWalk:
             next((c for c in copies if c.version == record.installed_version), copies[0]),
         )
         info = copy.constraint_info
-        if info.type == ConstraintType.OVERRIDE and info.override_value is not None and not info.is_ossiq_authored:
+        if info.is_user_override and info.override_value is not None:
             return replace(
                 self.conflict(dep_name, copy.version, spec, f"forced to {info.override_value}, wanted"),
                 held_by_override=info,

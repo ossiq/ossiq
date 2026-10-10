@@ -185,7 +185,8 @@ WIDENING_RUNGS: frozenset[RecommendationRung] = frozenset({RecommendationRung.IN
 """Rungs only reachable by widening the declared constraint first. The single definition — it
 decides whether an entry lands in UpdatePlan.held_for_widening (unless the tier or
 `widening_authorized` lifts the hold), whether an agent entry carries requires_constraint_widening,
-and whether "Constrained" is the right next action. Anything not in here is writable as-is."""
+and, unless the tier or `widening_authorized` lifts the hold, whether "Constrained" is the right next
+action. Anything not in here is writable as-is."""
 
 RUNG_ORDER: Mapping[RecommendationRung, int] = {
     RecommendationRung.IN_RANGE: 0,

@@ -22,7 +22,7 @@ from ossiq.service.update_impact import ImpactKind, TransitiveImpact
 from ossiq.solver.reason import RecommendationReason
 from ossiq.solver.version_matchers import parse_npm_version
 from ossiq.strategy.overrides import StrategyPlan
-from ossiq.strategy.pyramid import DEFAULT_STRATEGY, MAX_REACH, RUNG_ORDER, UpdateStrategy
+from ossiq.strategy.pyramid import DEFAULT_STRATEGY, UpdateStrategy, tier_reaches
 
 
 @dataclass(frozen=True)
@@ -237,7 +237,7 @@ def is_held_for_widening(entry: UpdateEntry, strategy: UpdateStrategy, *, rewrit
         and not (entry.version_defined or "").startswith("npm:")
     ):
         return False
-    return RUNG_ORDER[entry.from_rung] > RUNG_ORDER[MAX_REACH[strategy]]
+    return not tier_reaches(strategy, entry.from_rung)
 
 
 def forced_entry_from_record(record: ScanRecord, forced_version: str, is_direct: bool) -> UpdateEntry:
@@ -305,7 +305,7 @@ def user_override_hold(record: ScanRecord | None, entry: UpdateEntry) -> Overrid
     if record is None:
         return None
     info = record.constraint_info
-    if info.type != ConstraintType.OVERRIDE or info.override_value is None or info.is_ossiq_authored:
+    if not info.is_user_override or info.override_value is None:
         return None
     return OverrideHold(
         package=entry.package_name,
