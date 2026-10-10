@@ -149,10 +149,12 @@ The top-level `next_action` is the most urgent one across the `updates` list, or
   not help.
 - **Consider alternative** — the upstream is winding down; plan a migration.
 - **Check Release Notes** — a major version behind; review breaking changes before the bump.
-- **Update Immediately** — a minor/patch behind, or a recommended version exists; bump it.
+- **Update Immediately** — a minor/patch behind, or a recommended version exists; bump it. An
+  entry that also carries `requires_constraint_widening: true` reads this way when `apply` writes
+  the wider range itself, after a confirmation.
 - **Constrained. Check newer version** — a minor/patch behind, but the declared range
-  (e.g. `~7.3.0`) admits no newer version, or the CVE fix in `to` needs it widened; widening the
-  range is the real next step.
+  (e.g. `~7.3.0`) admits no newer version, or the CVE fix in `to` needs it widened and `apply`
+  would not widen it on its own; widening the range is the real next step.
 - **Withheld by strategy** — a minor/patch behind, and the range admits a bump, but the run's
   `--update-strategy` tier admitted no motive to take it. Nothing is wrong with the package;
   `strategy_withheld_reason` names the lowest tier that would move it.
