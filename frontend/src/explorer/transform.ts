@@ -156,7 +156,7 @@ export function buildD3DataFromVisibleState(
 
     // Transitive package node
     const re = vnode.registryId !== null ? registry.byId.get(vnode.registryId) : undefined
-    const packageName = re?.package_name ?? key.split('>').at(-1) ?? key
+    const packageName = re?.package_name ?? key.split('>').pop() ?? key
     return {
       name: packageName,
       version_installed: re?.installed_version ?? '',

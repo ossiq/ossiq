@@ -9,6 +9,7 @@ import ReportLegend from '@/components/ReportLegend.vue'
 import ReportBanner from '@/components/ReportBanner.vue'
 import PeerRepairs from '@/components/PeerRepairs.vue'
 import DependencyDetailPanel from '@/components/DependencyDetailPanel.vue'
+import { effectiveConstraintType } from '@/explorer/nodeStyle'
 import type { SelectedNodeDetail } from '@/types/dependency-tree'
 import type { DependencyTreeRoot, TransitivePackageMetrics } from '@/types/report'
 
@@ -59,7 +60,7 @@ function handleSelectPackage(row: ReportRow) {
     package_url: row.pkg.package_url,
     license: row.pkg?.license ?? null,
     purl: row.pkg.purl ?? null,
-    constraint_type: row.pkg.constraint_type ?? null,
+    constraint_type: effectiveConstraintType(row.pkg.constraint_type ?? null, row.pkg.constraint_ossiq_authored),
     constraint_source_file: row.pkg.constraint_source_file ?? null,
     extras: row.pkg.extras ?? null,
     is_prerelease: row.pkg.is_prerelease ?? false,

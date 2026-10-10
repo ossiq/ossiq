@@ -3,7 +3,7 @@ import { ref } from 'vue'
 import type { ReportRow, SortColumn, SortDirection } from '@/composables/useReportFilters'
 import { WHATS_NEXT_CLASS } from '@/composables/useReportFilters'
 import type { PackageMetrics, TransitiveImpactExport } from '@/types/report'
-import { constraintCircleClasses } from '@/explorer/nodeStyle'
+import { constraintCircleClasses, effectiveConstraintType } from '@/explorer/nodeStyle'
 
 defineProps<{
   rows: ReportRow[]
@@ -22,6 +22,10 @@ const expandedImpacts = ref<Set<string>>(new Set())
 function toggleImpact(packageName: string): void {
   if (expandedImpacts.value.has(packageName)) expandedImpacts.value.delete(packageName)
   else expandedImpacts.value.add(packageName)
+}
+
+function shownConstraintType(pkg: PackageMetrics) {
+  return effectiveConstraintType(pkg.constraint_type, pkg.constraint_ossiq_authored)
 }
 
 function hasImpacts(row: ReportRow): boolean {
@@ -196,8 +200,8 @@ function spdxUrl(spdxId: string): string {
               <div class="flex items-center gap-1.5">
                 <span
                   class="inline-block w-4 h-4 rounded-full shrink-0"
-                  :class="constraintCircleClasses(row.pkg.constraint_type)"
-                  :title="row.pkg.constraint_type ?? 'DECLARED'"
+                  :class="constraintCircleClasses(shownConstraintType(row.pkg))"
+                  :title="shownConstraintType(row.pkg) ?? 'DECLARED'"
                 ></span>
                 <button
                   class="text-[#4800E2] hover:underline font-medium text-xs text-left cursor-pointer truncate max-w-45"

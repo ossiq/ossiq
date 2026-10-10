@@ -1,6 +1,7 @@
 import { markRaw } from 'vue'
 import type { OSSIQExportSchemaV16, CVEInfo, DependencyTreeNode } from '@/types/report'
 import type { ConstraintType, DirectEntry, EdgeData, PackageRegistry, RegistryEntry, Severity } from '@/types/registry'
+import { effectiveConstraintType } from '@/explorer/nodeStyle'
 
 const SEVERITY_RANK: Record<string, number> = { LOW: 1, MEDIUM: 2, HIGH: 3, CRITICAL: 4 }
 
@@ -89,7 +90,10 @@ export function buildPackageRegistry(report: OSSIQExportSchemaV16): PackageRegis
       releases_lag: pkg.releases_lag ?? null,
       cve: pkg.cve ?? [],
       severity: cveMap.get(pkg.package_name) ?? null,
-      constraint_type: (pkg.constraint_type ?? null) as ConstraintType | null,
+      constraint_type: effectiveConstraintType(
+        pkg.constraint_type ?? null,
+        pkg.constraint_ossiq_authored,
+      ) as ConstraintType | null,
       constraint_source_file: pkg.constraint_source_file ?? null,
       version_constraint: pkg.version_constraint ?? null,
       repo_url: pkg.repo_url ?? null,

@@ -8316,7 +8316,7 @@ function buildD3DataFromVisibleState(registry, state, ancestorNames = /* @__PURE
 			};
 		}
 		const re = vnode.registryId !== null ? registry.byId.get(vnode.registryId) : void 0;
-		const packageName = re?.package_name ?? key.split(">").at(-1) ?? key;
+		const packageName = re?.package_name ?? key.split(">").pop() ?? key;
 		return {
 			name: packageName,
 			version_installed: re?.installed_version ?? "",
@@ -8519,6 +8519,14 @@ function resolveNodeStyle(node, highlight) {
 	};
 }
 /**
+* The constraint type a report draws for a package. An OVERRIDE that OSS IQ wrote itself reads as
+* DECLARED: it moves with the next `ossiq apply`, so there is nothing in it for the reader to review.
+* The export keeps saying OVERRIDE; only what the report shows changes.
+*/
+function effectiveConstraintType(type, ossiqAuthored) {
+	return type === "OVERRIDE" && ossiqAuthored ? "DECLARED" : type;
+}
+/**
 * Returns a complete set of Tailwind class strings for a small CSS circle indicator
 * matching the given constraint type. Used in the table and legend components.
 *
@@ -8666,6 +8674,9 @@ var ReportTable_default = /* @__PURE__ */ defineComponent({
 		function toggleImpact(packageName) {
 			if (expandedImpacts.value.has(packageName)) expandedImpacts.value.delete(packageName);
 			else expandedImpacts.value.add(packageName);
+		}
+		function shownConstraintType(pkg) {
+			return effectiveConstraintType(pkg.constraint_type, pkg.constraint_ossiq_authored);
 		}
 		function hasImpacts(row) {
 			return (row.pkg.update_transitive_impacts?.length ?? 0) > 0;
@@ -8842,8 +8853,8 @@ var ReportTable_default = /* @__PURE__ */ defineComponent({
 				return openBlock(), createElementBlock(Fragment, { key: row.pkg.package_name }, [createBaseVNode("tr", _hoisted_9$4, [
 					createBaseVNode("td", _hoisted_10$4, [createBaseVNode("div", _hoisted_11$2, [
 						createBaseVNode("span", {
-							class: normalizeClass(["inline-block w-4 h-4 rounded-full shrink-0", unref(constraintCircleClasses)(row.pkg.constraint_type)]),
-							title: row.pkg.constraint_type ?? "DECLARED"
+							class: normalizeClass(["inline-block w-4 h-4 rounded-full shrink-0", unref(constraintCircleClasses)(shownConstraintType(row.pkg))]),
+							title: shownConstraintType(row.pkg) ?? "DECLARED"
 						}, null, 10, _hoisted_12$2),
 						createBaseVNode("button", {
 							class: "text-[#4800E2] hover:underline font-medium text-xs text-left cursor-pointer truncate max-w-45",
@@ -8963,13 +8974,7 @@ var ReportLegend_default = /* @__PURE__ */ defineComponent({
 					createBaseVNode("code", { class: "font-mono" }, "constraint-dependencies"),
 					createTextVNode(") without adding a direct dependency. ")
 				])], -1))]),
-				createBaseVNode("div", _hoisted_7$4, [createBaseVNode("span", { class: normalizeClass(["block w-5 h-5 mt-0.5 rounded-full shrink-0", unref(constraintCircleClasses)("OVERRIDE")]) }, null, 2), _cache[3] || (_cache[3] = createBaseVNode("div", null, [createBaseVNode("div", { class: "text-sm font-bold text-slate-900" }, "Constrained: OVERRIDE"), createBaseVNode("p", { class: "text-xs text-slate-500 leading-relaxed" }, [
-					createTextVNode(" Version forcibly replaced by an override directive (npm "),
-					createBaseVNode("code", { class: "font-mono" }, "overrides"),
-					createTextVNode(", uv "),
-					createBaseVNode("code", { class: "font-mono" }, "override-dependencies"),
-					createTextVNode("), bypassing normal resolution constraints. ")
-				])], -1))])
+				createBaseVNode("div", _hoisted_7$4, [createBaseVNode("span", { class: normalizeClass(["block w-5 h-5 mt-0.5 rounded-full shrink-0", unref(constraintCircleClasses)("OVERRIDE")]) }, null, 2), _cache[3] || (_cache[3] = createStaticVNode("<div><div class=\"text-sm font-bold text-slate-900\">Constrained: OVERRIDE</div><p class=\"text-xs text-slate-500 leading-relaxed\"> Version forcibly replaced by an override directive (npm <code class=\"font-mono\">overrides</code>, uv <code class=\"font-mono\">override-dependencies</code>), bypassing normal resolution constraints. An override OSS IQ wrote itself is not drawn this way: it moves with the next <code class=\"font-mono\">ossiq apply</code>. </p></div>", 1))])
 			])])]);
 		};
 	}
@@ -9855,7 +9860,7 @@ var ScanReportView_default = /* @__PURE__ */ defineComponent({
 				package_url: row.pkg.package_url,
 				license: row.pkg?.license ?? null,
 				purl: row.pkg.purl ?? null,
-				constraint_type: row.pkg.constraint_type ?? null,
+				constraint_type: effectiveConstraintType(row.pkg.constraint_type ?? null, row.pkg.constraint_ossiq_authored),
 				constraint_source_file: row.pkg.constraint_source_file ?? null,
 				extras: row.pkg.extras ?? null,
 				is_prerelease: row.pkg.is_prerelease ?? false,
@@ -15736,7 +15741,7 @@ function buildPackageRegistry(report) {
 		releases_lag: pkg.releases_lag ?? null,
 		cve: pkg.cve ?? [],
 		severity: cveMap.get(pkg.package_name) ?? null,
-		constraint_type: pkg.constraint_type ?? null,
+		constraint_type: effectiveConstraintType(pkg.constraint_type ?? null, pkg.constraint_ossiq_authored),
 		constraint_source_file: pkg.constraint_source_file ?? null,
 		version_constraint: pkg.version_constraint ?? null,
 		repo_url: pkg.repo_url ?? null,
@@ -15952,7 +15957,7 @@ var TransitiveDependenciesView_vue_vue_type_script_setup_true_lang_default = /*@
 				license: pkg.license,
 				purl: pkg.purl,
 				dependency_path: pkg.dependency_path,
-				constraint_type: pkg.constraint_type ?? null,
+				constraint_type: effectiveConstraintType(pkg.constraint_type ?? null, pkg.constraint_ossiq_authored),
 				constraint_source_file: pkg.constraint_source_file ?? null,
 				extras: pkg.extras ?? null,
 				is_prerelease: pkg.is_prerelease ?? false,
@@ -15984,7 +15989,7 @@ var TransitiveDependenciesView_vue_vue_type_script_setup_true_lang_default = /*@
 					license: pkg.license,
 					purl: pkg.purl,
 					dependency_path: parentPath,
-					constraint_type: report.constraint_type_map?.[treeNode.ct] ?? null,
+					constraint_type: effectiveConstraintType(report.constraint_type_map?.[treeNode.ct] ?? null, pkg.constraint_ossiq_authored),
 					constraint_source_file: pkg.constraint_source_file ?? null,
 					extras: treeNode.extras ?? null,
 					is_prerelease: pkg.is_prerelease ?? false,
@@ -16088,7 +16093,7 @@ var TransitiveDependenciesView_vue_vue_type_script_setup_true_lang_default = /*@
 					showLegend.value ? (openBlock(), createElementBlock("div", _hoisted_7, [createBaseVNode("div", _hoisted_8, [_cache[20] || (_cache[20] = createBaseVNode("span", { class: "font-semibold text-slate-900 uppercase tracking-wide text-[10px]" }, "Legend", -1)), createBaseVNode("button", {
 						class: "text-slate-400 hover:text-slate-700 leading-none",
 						onClick: _cache[6] || (_cache[6] = ($event) => showLegend.value = false)
-					}, [..._cache[19] || (_cache[19] = [createBaseVNode("span", { class: "material-symbols-rounded text-base leading-none" }, "close", -1)])])]), _cache[21] || (_cache[21] = createStaticVNode("<div data-v-721f3a69><p class=\"font-semibold text-[10px] uppercase tracking-wide text-slate-500 mb-1.5\" data-v-721f3a69>Node colors</p><div class=\"space-y-1.5\" data-v-721f3a69><div class=\"flex items-center gap-2\" data-v-721f3a69><span class=\"inline-flex items-center justify-center w-4 h-4 rounded-full shrink-0 text-[8px] font-bold\" style=\"background:#fecaca;outline:2px solid #dc2626;outline-offset:-1px;\" data-v-721f3a69>!</span><span data-v-721f3a69><strong class=\"text-slate-800\" data-v-721f3a69>CVE detected</strong> — known vulnerability</span></div><div class=\"flex items-center gap-2\" data-v-721f3a69><span class=\"inline-flex items-center justify-center w-4 h-4 rounded-full shrink-0 text-[8px] font-bold text-white\" style=\"background:#f3e8ff;outline:2px dashed #7e22ce;outline-offset:-1px;\" data-v-721f3a69>✕</span><span data-v-721f3a69><strong class=\"text-slate-800\" data-v-721f3a69>Yanked</strong> — version retracted by publisher</span></div><div class=\"flex items-center gap-2\" data-v-721f3a69><span class=\"inline-block w-4 h-4 rounded-full shrink-0\" style=\"background:#fef08a;outline:2px dashed #a16207;outline-offset:-1px;\" data-v-721f3a69></span><span data-v-721f3a69><strong class=\"text-slate-800\" data-v-721f3a69>Narrowed</strong> — bounded range (e.g. <code data-v-721f3a69>&lt;y</code>)</span></div><div class=\"flex items-center gap-2\" data-v-721f3a69><span class=\"inline-block w-4 h-4 rounded-full shrink-0\" style=\"background:#ffedd5;outline:3px solid #c2410c;outline-offset:-1px;\" data-v-721f3a69></span><span data-v-721f3a69><strong class=\"text-slate-800\" data-v-721f3a69>Pinned</strong> — exact version (e.g. <code data-v-721f3a69>1.2.3</code>)</span></div><div class=\"flex items-center gap-2\" data-v-721f3a69><span class=\"inline-block w-4 h-4 rounded-full shrink-0\" style=\"background:#fed7aa;outline:3px dashed #ea580c;outline-offset:-1px;\" data-v-721f3a69></span><span data-v-721f3a69><strong class=\"text-slate-800\" data-v-721f3a69>Override</strong> — forced version replacement</span></div><div class=\"flex items-center gap-2\" data-v-721f3a69><span class=\"inline-block w-4 h-4 rounded-full shrink-0\" style=\"background:#bbf7d0;outline:2px dotted #16a34a;outline-offset:-1px;\" data-v-721f3a69></span><span data-v-721f3a69><strong class=\"text-slate-800\" data-v-721f3a69>Additive</strong> — external constraint file</span></div><div class=\"flex items-center gap-2\" data-v-721f3a69><span class=\"inline-block w-4 h-4 rounded-full shrink-0\" style=\"background:#fef3c7;outline:2px dotted #b45309;outline-offset:-1px;\" data-v-721f3a69></span><span data-v-721f3a69><strong class=\"text-slate-800\" data-v-721f3a69>Pre-release</strong> — alpha/beta/rc version installed</span></div><div class=\"flex items-center gap-2\" data-v-721f3a69><span class=\"inline-block w-4 h-4 rounded-full shrink-0\" style=\"background:#bfdbfe;outline:2px solid #1d4ed8;outline-offset:-1px;\" data-v-721f3a69></span><span data-v-721f3a69><strong class=\"text-slate-800\" data-v-721f3a69>Default</strong> — no specific concern</span></div></div></div><div data-v-721f3a69><p class=\"font-semibold text-[10px] uppercase tracking-wide text-slate-500 mb-1.5\" data-v-721f3a69>Interactions</p><ul class=\"space-y-1 text-slate-600 leading-snug\" data-v-721f3a69><li data-v-721f3a69>Click a <strong data-v-721f3a69>tree edge</strong> → selects the child node</li><li data-v-721f3a69>Click a <strong data-v-721f3a69>dashed line</strong> → selects the connected duplicate</li><li data-v-721f3a69>Click a <strong data-v-721f3a69>folded node</strong> → navigate into its subtree</li><li data-v-721f3a69>Click <strong data-v-721f3a69>phantom root</strong> or back line → go back one step</li><li data-v-721f3a69>Click <strong data-v-721f3a69>background</strong> → exit focus mode</li></ul></div><div data-v-721f3a69><p class=\"font-semibold text-[10px] uppercase tracking-wide text-slate-500 mb-1.5\" data-v-721f3a69>Duplicate packages</p><p class=\"text-slate-600 leading-snug\" data-v-721f3a69> Dashed curved lines connect nodes sharing the same <em data-v-721f3a69>name@version</em> across different subtrees. Clicking any one highlights all occurrences. </p></div>", 3))])) : createCommentVNode("", true)
+					}, [..._cache[19] || (_cache[19] = [createBaseVNode("span", { class: "material-symbols-rounded text-base leading-none" }, "close", -1)])])]), _cache[21] || (_cache[21] = createStaticVNode("<div data-v-89a9f2b5><p class=\"font-semibold text-[10px] uppercase tracking-wide text-slate-500 mb-1.5\" data-v-89a9f2b5>Node colors</p><div class=\"space-y-1.5\" data-v-89a9f2b5><div class=\"flex items-center gap-2\" data-v-89a9f2b5><span class=\"inline-flex items-center justify-center w-4 h-4 rounded-full shrink-0 text-[8px] font-bold\" style=\"background:#fecaca;outline:2px solid #dc2626;outline-offset:-1px;\" data-v-89a9f2b5>!</span><span data-v-89a9f2b5><strong class=\"text-slate-800\" data-v-89a9f2b5>CVE detected</strong> — known vulnerability</span></div><div class=\"flex items-center gap-2\" data-v-89a9f2b5><span class=\"inline-flex items-center justify-center w-4 h-4 rounded-full shrink-0 text-[8px] font-bold text-white\" style=\"background:#f3e8ff;outline:2px dashed #7e22ce;outline-offset:-1px;\" data-v-89a9f2b5>✕</span><span data-v-89a9f2b5><strong class=\"text-slate-800\" data-v-89a9f2b5>Yanked</strong> — version retracted by publisher</span></div><div class=\"flex items-center gap-2\" data-v-89a9f2b5><span class=\"inline-block w-4 h-4 rounded-full shrink-0\" style=\"background:#fef08a;outline:2px dashed #a16207;outline-offset:-1px;\" data-v-89a9f2b5></span><span data-v-89a9f2b5><strong class=\"text-slate-800\" data-v-89a9f2b5>Narrowed</strong> — bounded range (e.g. <code data-v-89a9f2b5>&lt;y</code>)</span></div><div class=\"flex items-center gap-2\" data-v-89a9f2b5><span class=\"inline-block w-4 h-4 rounded-full shrink-0\" style=\"background:#ffedd5;outline:3px solid #c2410c;outline-offset:-1px;\" data-v-89a9f2b5></span><span data-v-89a9f2b5><strong class=\"text-slate-800\" data-v-89a9f2b5>Pinned</strong> — exact version (e.g. <code data-v-89a9f2b5>1.2.3</code>)</span></div><div class=\"flex items-center gap-2\" data-v-89a9f2b5><span class=\"inline-block w-4 h-4 rounded-full shrink-0\" style=\"background:#fed7aa;outline:3px dashed #ea580c;outline-offset:-1px;\" data-v-89a9f2b5></span><span data-v-89a9f2b5><strong class=\"text-slate-800\" data-v-89a9f2b5>Override</strong> — forced version replacement</span></div><div class=\"flex items-center gap-2\" data-v-89a9f2b5><span class=\"inline-block w-4 h-4 rounded-full shrink-0\" style=\"background:#bbf7d0;outline:2px dotted #16a34a;outline-offset:-1px;\" data-v-89a9f2b5></span><span data-v-89a9f2b5><strong class=\"text-slate-800\" data-v-89a9f2b5>Additive</strong> — external constraint file</span></div><div class=\"flex items-center gap-2\" data-v-89a9f2b5><span class=\"inline-block w-4 h-4 rounded-full shrink-0\" style=\"background:#fef3c7;outline:2px dotted #b45309;outline-offset:-1px;\" data-v-89a9f2b5></span><span data-v-89a9f2b5><strong class=\"text-slate-800\" data-v-89a9f2b5>Pre-release</strong> — alpha/beta/rc version installed</span></div><div class=\"flex items-center gap-2\" data-v-89a9f2b5><span class=\"inline-block w-4 h-4 rounded-full shrink-0\" style=\"background:#bfdbfe;outline:2px solid #1d4ed8;outline-offset:-1px;\" data-v-89a9f2b5></span><span data-v-89a9f2b5><strong class=\"text-slate-800\" data-v-89a9f2b5>Default</strong> — no specific concern</span></div></div></div><div data-v-89a9f2b5><p class=\"font-semibold text-[10px] uppercase tracking-wide text-slate-500 mb-1.5\" data-v-89a9f2b5>Interactions</p><ul class=\"space-y-1 text-slate-600 leading-snug\" data-v-89a9f2b5><li data-v-89a9f2b5>Click a <strong data-v-89a9f2b5>tree edge</strong> → selects the child node</li><li data-v-89a9f2b5>Click a <strong data-v-89a9f2b5>dashed line</strong> → selects the connected duplicate</li><li data-v-89a9f2b5>Click a <strong data-v-89a9f2b5>folded node</strong> → navigate into its subtree</li><li data-v-89a9f2b5>Click <strong data-v-89a9f2b5>phantom root</strong> or back line → go back one step</li><li data-v-89a9f2b5>Click <strong data-v-89a9f2b5>background</strong> → exit focus mode</li></ul></div><div data-v-89a9f2b5><p class=\"font-semibold text-[10px] uppercase tracking-wide text-slate-500 mb-1.5\" data-v-89a9f2b5>Duplicate packages</p><p class=\"text-slate-600 leading-snug\" data-v-89a9f2b5> Dashed curved lines connect nodes sharing the same <em data-v-89a9f2b5>name@version</em> across different subtrees. Clicking any one highlights all occurrences. </p></div>", 3))])) : createCommentVNode("", true)
 				]),
 				unref(canGoBack) ? (openBlock(), createBlock(NavigationBreadcrumb_default, {
 					key: 0,
@@ -16143,7 +16148,7 @@ var _plugin_vue_export_helper_default = (sfc, props) => {
 };
 //#endregion
 //#region src/views/TransitiveDependenciesView.vue
-var TransitiveDependenciesView_default = /*#__PURE__*/ _plugin_vue_export_helper_default(TransitiveDependenciesView_vue_vue_type_script_setup_true_lang_default, [["__scopeId", "data-v-721f3a69"]]);
+var TransitiveDependenciesView_default = /*#__PURE__*/ _plugin_vue_export_helper_default(TransitiveDependenciesView_vue_vue_type_script_setup_true_lang_default, [["__scopeId", "data-v-89a9f2b5"]]);
 //#endregion
 //#region src/router/index.ts
 var router = createRouter({
@@ -18381,39 +18386,39 @@ body {
   border-bottom-color: #4800E2;
 }
 
-[data-v-721f3a69] .node {
+[data-v-89a9f2b5] .node {
   cursor: pointer;
 }
-[data-v-721f3a69] .node circle {
+[data-v-89a9f2b5] .node circle {
   stroke-width: 2.5px;
   transition: all 0.2s;
 }
-[data-v-721f3a69] .node:hover circle {
+[data-v-89a9f2b5] .node:hover circle {
   r: 8px;
   filter: brightness(1.1);
 }
-[data-v-721f3a69] .node text {
+[data-v-89a9f2b5] .node text {
   font: 12px sans-serif;
   transition: opacity 0.2s;
 }
-[data-v-721f3a69] .node-label {
+[data-v-89a9f2b5] .node-label {
   font-size: 12px;
   font-weight: bold;
   fill: #1e293b;
 }
-[data-v-721f3a69] .version-label {
+[data-v-89a9f2b5] .version-label {
   font-size: 10px;
   fill: #64748b;
   font-weight: normal;
 }
-[data-v-721f3a69] .link {
+[data-v-89a9f2b5] .link {
   fill: none;
   stroke: #cbd5e1;
   stroke-width: 2.5px;
   opacity: 0.7;
   transition: all 0.3s;
 }
-[data-v-721f3a69] .link-same-version {
+[data-v-89a9f2b5] .link-same-version {
   fill: none;
   stroke: #94a3b8;
   stroke-width: 1px;
