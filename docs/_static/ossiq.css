@@ -12,22 +12,19 @@
     display: none;
 }
 
+/* The file names say which mode the logo is for, not which background it suits: "light" is the
+   dark-ink logo for the white header, "dark" is the white logo for the black one. The site's own
+   scheme picks the file, not the OS preference, because the palette in conf.py does not follow it. */
 .md-header__inner .md-logo::after {
     content: '';
     display: block;
     width: 120px;
     height: 22px;
-    background: url('/_static/images/oss-iq-logo-dark.svg') no-repeat left center / contain;
+    background: url('/_static/images/oss-iq-logo-light.svg') no-repeat left center / contain;
 }
 
 [data-md-color-scheme="slate"] .md-header__inner .md-logo::after {
     background-image: url('/_static/images/oss-iq-logo-dark.svg');
-}
-
-@media (prefers-color-scheme:dark) {
-    .md-header__inner .md-logo::after {
-        background-image: url('/_static/images/oss-iq-logo-light.svg');
-    }
 }
 /* Subtitle: inject "Dependencies Intelligence" after the logo text */
 
