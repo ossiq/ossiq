@@ -62,7 +62,7 @@ A strategy is not one dial, it is two, kept separate on purpose:
 
 | Tier | Base reach | Escalates to `LATEST` when... |
 |---|---|---|
-| `security` | in-range | an admitted motive is `exploitable_cve` (no in-range version clears the CVE) |
+| `security` | in-range | an admitted motive is `exploitable_cve`; the pick leaves the range only when no in-range version clears the CVE |
 | `deprecation` | in-range | an admitted motive is `exploitable_cve` or `end_of_life` |
 | `standard` | in-range | same as above |
 | `latest` | latest | already maximal |
@@ -77,7 +77,7 @@ A strategy is not one dial, it is two, kept separate on purpose:
 |---|---|---|
 | `security` | no target (no CVE) | `2.32.0` — nearest CVE-clear version |
 | `deprecation` | no target | `2.32.0` |
-| `standard` | `1.10.13` — pin admits no in-range move | `2.34.2` — newest, already CVE-clear |
+| `standard` | `1.10.26` — newest in the installed major, reported but not written (`requires_widening=True`) | `2.34.2` — newest, already CVE-clear |
 | `latest` | `2.13.5` — widens the pin, `requires_widening=True` | `2.34.2` |
 | `cutting-edge` | `2.13.5` (or newer, if a prerelease exists) | `2.34.2` |
 
