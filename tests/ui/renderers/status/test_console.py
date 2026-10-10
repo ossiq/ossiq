@@ -14,13 +14,14 @@ from ossiq.domain.common import (
     EngineContext,
     EngineContextSource,
     ProjectPackagesRegistry,
+    RecommendationRung,
     RejectedCandidate,
     RejectionDetail,
     SignalCoverage,
 )
 from ossiq.domain.compatibility import CompatibilityFacts
 from ossiq.domain.cve import CVE, Severity
-from ossiq.domain.project import ConstraintSource, IncomingEdge, InstalledCopy, UnresolvedPeer
+from ossiq.domain.project import ConstraintSource, IncomingEdge, InstalledCopy, PeerRequirement, UnresolvedPeer
 from ossiq.domain.version import VersionsDifference
 from ossiq.risk.maintenance import MaintenanceAssessment, MaintenanceState
 from ossiq.service.project.models import ScanRecord, ScanResult
@@ -358,6 +359,44 @@ def test_abbreviation_is_console_only():
     assert whats_next(constrained_record()) == "[yellow]Constrained. Check newer version[/]"
 
 
+def widening_pick_record(*, authorized: bool) -> ScanRecord:
+    """A minor-behind package whose pick, 1.5.0, sits past its `~1.0.0` range."""
+    record = make_record(
+        versions_diff_index=MINOR,
+        latest_version="1.5.0",
+        recommended_version="1.5.0",
+        version_constraint="~1.0.0",
+        version_constraint_declared="~1.0.0",
+    )
+    record.recommended_from_rung = RecommendationRung.LATEST
+    record.strategy_selection = StrategySelection(
+        strategy=UpdateStrategy.SECURITY,
+        target_version="1.5.0",
+        rung=RecommendationRung.LATEST,
+        motives=frozenset(),
+        requires_widening=True,
+        withheld_reason=None,
+        available_at=None,
+        escalation=None,
+        widening_authorized=authorized,
+    )
+    return record
+
+
+def test_an_escalated_pick_past_the_range_reads_as_an_update():
+    """`plan` writes an authorized widening pick, so the range is not what is holding it back."""
+    output = render_table([widening_pick_record(authorized=True)], full=True)
+    assert "Update Immediately" in output
+    assert "Constrained" not in output
+    assert "caps this below" not in output
+
+
+def test_an_unauthorized_pick_past_the_range_stays_constrained():
+    output = render_table([widening_pick_record(authorized=False)], full=True)
+    assert "Constrained. Check newer version" in output
+    assert "~1.0.0 caps this below 1.5.0" in output
+
+
 def test_rejected_candidate_sub_row_shown_in_full_mode():
     record = make_record(versions_diff_index=MINOR, recommended_version="1.0.0")
     record.rejected_candidates = [RejectedCandidate(version="1.2.0", reason="dep-x requires >=2.0.0")]
@@ -413,9 +452,9 @@ def plain_copy(version: str, *edges: IncomingEdge) -> InstalledCopy:
     return InstalledCopy(version, tuple(edges), ConstraintSource(type=ConstraintType.DECLARED, source_file=None))
 
 
-def forced_copy(version: str, value: str) -> InstalledCopy:
+def forced_copy(version: str, value: str, *, ossiq: bool = False) -> InstalledCopy:
     info = ConstraintSource(
-        type=ConstraintType.OVERRIDE, source_file="package.json", override_value=value, is_ossiq_authored=False
+        type=ConstraintType.OVERRIDE, source_file="package.json", override_value=value, is_ossiq_authored=ossiq
     )
     return InstalledCopy(version, (), info)
 
@@ -432,6 +471,10 @@ def test_installed_cell_lists_the_other_copies():
 
 def test_installed_cell_marks_an_override_that_forces_a_copy():
     assert installed_cell(nested_record(forced_copy("3.5.42", "3.5.42"))) == "3.5.42 [yellow]⚑ override[/]"
+
+
+def test_installed_cell_does_not_flag_an_override_ossiq_wrote():
+    assert installed_cell(nested_record(forced_copy("3.5.42", "3.5.42", ossiq=True))) == "3.5.42"
 
 
 def test_status_table_shows_every_installed_copy():
@@ -459,6 +502,34 @@ def test_copy_sub_rows_count_requirers_past_the_limit():
 def test_copy_sub_rows_say_when_an_override_forces_a_copy():
     rows = copy_sub_row_texts(nested_record(plain_copy("10.2.5"), forced_copy("9.0.9", "9.0.9")))
     assert rows[1] == "  [dim]↳ 9.0.9 ← no requirer[/] [yellow]⚑ forced to 9.0.9[/]"
+
+
+def test_copy_sub_rows_do_not_flag_an_override_ossiq_wrote():
+    rows = copy_sub_row_texts(nested_record(plain_copy("10.2.5"), forced_copy("9.0.9", "9.0.9", ossiq=True)))
+    assert rows[1] == "  [dim]↳ 9.0.9 ← no requirer[/]"
+
+
+def peer_table_text(override_authored_by_ossiq: bool) -> str:
+    record = make_record("typescript")
+    record.peer_requirements = [PeerRequirement(requirer_name="plugin", spec="^5")]
+    record.constraint_info = ConstraintSource(
+        type=ConstraintType.OVERRIDE, source_file="package.json", is_ossiq_authored=override_authored_by_ossiq
+    )
+    table = ConsoleStatusRenderer(Settings()).peer_status_table([record], full=True)
+    assert table is not None
+    console = Console(record=True, width=200)
+    console.print(table)
+    return console.export_text()
+
+
+def test_peer_table_says_via_override_for_an_override_the_user_wrote():
+    assert "via override" in peer_table_text(override_authored_by_ossiq=False)
+
+
+def test_peer_table_reads_an_override_ossiq_wrote_as_satisfied():
+    output = peer_table_text(override_authored_by_ossiq=True)
+    assert "via override" not in output
+    assert "✓ satisfied" in output
 
 
 def test_copy_sub_rows_are_empty_for_a_package_installed_once():

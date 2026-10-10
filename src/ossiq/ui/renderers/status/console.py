@@ -5,7 +5,7 @@ from rich.padding import Padding
 from rich.rule import Rule
 from rich.table import Table
 
-from ossiq.domain.common import Command, ConstraintType, EngineContext, SignalCoverage, UserInterfaceType
+from ossiq.domain.common import Command, EngineContext, SignalCoverage, UserInterfaceType
 from ossiq.domain.project import InstalledCopy
 from ossiq.domain.version import VERSION_DIFF_MAJOR, VERSION_DIFF_MINOR, VERSION_DIFF_PATCH
 from ossiq.messages import (
@@ -115,9 +115,12 @@ def recommended_cell(pkg: ScanRecord) -> str:
 
 
 def forced_by_override(copy: InstalledCopy) -> bool:
-    """Whether an override rule governs this copy, which only a package manager that reads one's value reports."""
+    """Whether an override rule of the user's governs this copy; only a package manager that reads values reports it.
+
+    A rule OSS IQ wrote is not flagged: it moves with the next `apply`, so it says nothing the user must act on.
+    """
     info = copy.constraint_info
-    return info.type == ConstraintType.OVERRIDE and info.override_value is not None
+    return info.is_user_override and info.override_value is not None
 
 
 def installed_cell(pkg: ScanRecord) -> str:
@@ -640,7 +643,7 @@ class ConsoleStatusRenderer(AbstractUserInterfaceRenderer):
             if not record.peer_requirements:
                 continue
             violated = violated_specs_by_pkg.get(record.package_name, set())
-            via_override = record.constraint_info.type == ConstraintType.OVERRIDE
+            via_override = record.constraint_info.is_user_override
             for req in record.peer_requirements:
                 if req.spec in violated:
                     status = "violation"

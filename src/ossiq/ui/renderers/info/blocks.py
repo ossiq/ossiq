@@ -383,9 +383,14 @@ def policy_compliance(record: ScanRecord) -> Group:
 
     constraint = record.constraint_info
     if constraint.type != ConstraintType.DECLARED:
-        style = "bold red" if constraint.type == ConstraintType.OVERRIDE else "bold yellow"
-        detail = f"{constraint.type.value}  (from {constraint.source_file})"
-        table.add_row("Constraint Type", Text(detail, style=style))
+        if constraint.is_ossiq_authored:
+            # OSS IQ's own rule: stated as a fact, not raised as something to review.
+            detail = f"{constraint.type.value}  (written by OSS IQ, from {constraint.source_file})"
+            table.add_row("Constraint Type", Text(detail, style="dim"))
+        else:
+            style = "bold red" if constraint.type == ConstraintType.OVERRIDE else "bold yellow"
+            detail = f"{constraint.type.value}  (from {constraint.source_file})"
+            table.add_row("Constraint Type", Text(detail, style=style))
 
     return section("Policy Compliance", table)
 
@@ -436,7 +441,7 @@ def recommendation_rationale(version: str, reason: Any, age_days: int | None) ->
 def peer_requirements(record: ScanRecord) -> Group:
     """Peer constraints other packages declare against this one, and whether they hold."""
     violated = {requirement.spec for requirement in record.peer_violations}
-    via_override = record.constraint_info.type == ConstraintType.OVERRIDE
+    via_override = record.constraint_info.is_user_override
 
     lines: list[Text] = []
     for requirement in record.peer_requirements:

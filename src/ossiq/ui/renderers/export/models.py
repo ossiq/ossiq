@@ -717,6 +717,15 @@ class PackageMetrics(
             "regardless of other requirements)"
         ),
     )
+    constraint_ossiq_authored: bool = Field(
+        default=False,
+        description=(
+            "Whether the OVERRIDE governing this package is one OSS IQ wrote itself (recorded in its own "
+            "metadata block, still holding the value it wrote) rather than the user's. OSS IQ moves its own "
+            "overrides with the next `ossiq apply`, so one is not a hold. False for any other constraint type"
+        ),
+        json_schema_extra=SINCE_V1_6,
+    )
     constraint_source_file: str | None = Field(
         default=None,
         description="File that introduced a non-DECLARED constraint (e.g. 'package.json', 'pyproject.toml')",
@@ -902,6 +911,7 @@ class PackageMetrics(
             license=record.license,
             purl=record.purl,
             constraint_type=record.constraint_info.type.value,
+            constraint_ossiq_authored=record.constraint_info.is_ossiq_authored,
             constraint_source_file=(
                 record.constraint_info.source_file
                 if record.constraint_info and record.constraint_info.type != ConstraintType.DECLARED
@@ -1057,6 +1067,14 @@ class TransitivePackageMetrics(
     )
     releases_lag: int | None = Field(description="Number of releases between installed and latest")
     cve: list[CVEInfo] = Field(default_factory=list, description="Known CVEs for this package")
+    constraint_ossiq_authored: bool = Field(
+        default=False,
+        description=(
+            "Whether the override governing this package is one OSS IQ wrote itself rather than the user's. "
+            "The dependency_tree nodes (ct) say OVERRIDE either way"
+        ),
+        json_schema_extra={**FULL_ONLY, **SINCE_V1_6},
+    )
     constraint_source_file: str | None = Field(
         default=None,
         description="File that introduced a non-DECLARED constraint for this package",
@@ -1211,6 +1229,7 @@ class TransitivePackageMetrics(
             version_age_days=first.version_age_days,
             releases_lag=first.releases_lag,
             cve=[CVEInfo.from_domain(cve) for cve in first.cve],
+            constraint_ossiq_authored=any(record.constraint_info.is_ossiq_authored for record in records),
             constraint_source_file=constraint_source_file,
             repo_url=first.repo_url,
             homepage_url=first.homepage_url,

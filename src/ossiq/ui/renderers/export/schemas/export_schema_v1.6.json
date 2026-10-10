@@ -648,6 +648,10 @@
             "$ref": "#/$defs/CVEInfo"
           }
         },
+        "constraint_ossiq_authored": {
+          "type": "boolean",
+          "description": "Whether the override governing this package is one OSS IQ wrote itself rather than the user's. The dependency_tree nodes (ct) say OVERRIDE either way"
+        },
         "constraint_source_file": {
           "type": "string",
           "description": "File that introduced a non-DECLARED constraint for this package (absent when DECLARED)"
@@ -1063,6 +1067,10 @@
             null
           ],
           "description": "How the version constraint was applied: DECLARED (loose/default spec), NARROWED (explicit range with bounds), PINNED (exact version), ADDITIVE (narrows via constraints file), or OVERRIDE (forces a version regardless of other requirements)"
+        },
+        "constraint_ossiq_authored": {
+          "type": "boolean",
+          "description": "Whether the OVERRIDE governing this package is one OSS IQ wrote itself (recorded in its own metadata block, still holding the value it wrote) rather than the user's. OSS IQ moves its own overrides with the next `ossiq apply`, so one is not a hold. False for any other constraint type"
         },
         "constraint_source_file": {
           "type": [
