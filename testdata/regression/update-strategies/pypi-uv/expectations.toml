@@ -70,4 +70,4 @@ advisories = []
 security = { withheld = true }
 standard = { recommended = "0.21.2" }
 latest = { recommended = "0.21.2" }
-cutting-edge = { recommended = "0.22rc5", widening = true, known_issue = "the PEP 440 matcher (univers) admits 0.22rc5 under `<0.22`, so it is classed in_range: no widening flag, and apply skips the widening confirmation" }
+cutting-edge = { recommended = "0.22rc5", widening = true }

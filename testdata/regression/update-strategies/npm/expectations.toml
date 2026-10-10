@@ -19,13 +19,14 @@ installed = "5.7.1"
 declared = "^5.7.1"
 advisories = ["GHSA-c2qf-rxjj-qqgw"]
 security = { recommended = "5.7.2" }
-standard = { recommended = "5.7.2", known_issue = "a CVE motive widens reach to LATEST even when 5.7.2 clears it in range: standard proposes 7.6.3, apply holds it for widening and leaves the CVE unpatched" }
+standard = { recommended = "5.7.2" }
 latest = { recommended = "7.6.3", widening = true }
 cutting-edge = { recommended = "7.6.3", widening = true }
 
 # CVE with no fix inside `~0.0.8`: every tier must escalate past the range.
 # security takes the nearest clean release (0.2.4 backport), the freshness
-# tiers the newest; only latest/cutting-edge write the widened range.
+# tiers the newest. The CVE authorizes the widening, so apply writes it at every
+# tier.
 [packages.minimist]
 installed = "0.0.8"
 declared = "~0.0.8"
@@ -63,7 +64,7 @@ cutting-edge = { recommended = "13.0.0-0", widening = true }
 installed = "1.0.0"
 declared = "1.0.0"
 advisories = []
-security = { withheld = true, known_issue = "next_action reads 'Update Immediately' for a pin the tier withheld: next_action_label checks 'no constraint' before withheld_reason" }
+security = { withheld = true }
 standard = { recommended = "1.1.1", widening = true, escalation = true }
 latest = { recommended = "1.1.1", widening = true }
 cutting-edge = { recommended = "1.1.1", widening = true }

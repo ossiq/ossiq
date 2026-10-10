@@ -175,12 +175,45 @@ def test_apply_monotonic_catches_a_higher_tier_that_writes_less() -> None:
     assert by_name == {"recommendation-monotonic": regression.Status.PASS, "apply-monotonic": regression.Status.FAIL}
 
 
+def test_an_authorized_widening_pick_is_written_below_latest() -> None:
+    pick = observed(installed="0.0.8", recommended="0.2.4", rung="in_major", widening=True)
+
+    assert not regression.writes(TIER["security"], pick)
+    assert regression.writes(TIER["security"], replace(pick, authorized=True))
+    assert regression.writes(TIER["latest"], pick)
+
+
+def test_an_authorization_needs_an_escalating_motive_and_a_widening_pick() -> None:
+    pick = observed(
+        installed="0.0.8",
+        declared="~0.0.8",
+        recommended="0.2.4",
+        rung="in_major",
+        widening=True,
+        strategy_widening=True,
+        authorized=True,
+        motives=frozenset({"exploitable_cve"}),
+    )
+
+    problems = dict(regression.package_rules(regression.NpmEcosystem(), TIER["standard"], pick))
+    assert problems["widening-flag-matches-range"] == []
+
+    unmotivated = replace(pick, motives=frozenset({"drift"}))
+    assert dict(regression.package_rules(regression.NpmEcosystem(), TIER["standard"], unmotivated))[
+        "widening-flag-matches-range"
+    ]
+
+
 def test_known_issue_turns_its_failures_into_xfail_and_flags_a_fix_as_xpass() -> None:
     fixture = regression.load_fixture(regression.FIXTURES_ROOT / "npm")
-    known = [
-        (key, tier) for key, exp in fixture.packages.items() for tier, out in exp.outcomes.items() if out.known_issue
-    ]
-    (failing_key, failing_tier), (fixed_key, fixed_tier) = known[0], known[1]
+    # The committed fixtures carry a known issue only while one is open, so mark two cells here.
+    (failing_key, failing_tier), (fixed_key, fixed_tier) = ("semver", "standard"), ("picocolors", "security")
+    for key, tier in ((failing_key, failing_tier), (fixed_key, fixed_tier)):
+        expected = fixture.packages[key]
+        marked = replace(expected.outcomes[tier], known_issue="synthetic")
+        fixture = replace(
+            fixture, packages={**fixture.packages, key: replace(expected, outcomes={**expected.outcomes, tier: marked})}
+        )
     checks = [
         regression.Check(fixture.name, failing_tier, failing_key, "expectation", regression.Status.FAIL, "boom"),
         regression.Check(fixture.name, fixed_tier, fixed_key, "expectation", regression.Status.PASS),

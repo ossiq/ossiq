@@ -105,7 +105,7 @@ class TierContract:
     moves_on_drift: bool
     """False when only an exploitable CVE is a reason to move."""
     writes_widening: bool
-    """Whether `apply` may write a target the declared range does not admit."""
+    """Whether `apply` may write a target the declared range does not admit, with no motive to authorize it."""
     admits_prereleases: bool
 
 
@@ -548,6 +548,8 @@ class Observed:
     escalation: str | None
     next_action: str | None
     advisories: frozenset[str]
+    authorized: bool = False
+    """Whether a CVE or end-of-life motive carried the pick past the tier's own reach."""
 
     @classmethod
     def from_export(cls, row: Mapping[str, Any]) -> "Observed":
@@ -566,6 +568,7 @@ class Observed:
             escalation=strategy.get("escalation") if strategy else None,
             next_action=row.get("next_action"),
             advisories=frozenset(cve["id"] for cve in row.get("cve") or ()),
+            authorized=bool(strategy.get("widening_authorized")) if strategy else False,
         )
 
     @property
@@ -674,8 +677,12 @@ def verdict(
 
 
 def writes(tier: TierContract, pkg: Observed) -> bool:
-    """Whether `apply` at *tier* should write *pkg*'s recommendation."""
-    return pkg.moves and (not pkg.widening or tier.writes_widening)
+    """Whether `apply` at *tier* should write *pkg*'s recommendation.
+
+    A widening pick is written where the tier reaches that far, or where a CVE or end-of-life
+    motive authorized it.
+    """
+    return pkg.moves and (not pkg.widening or tier.writes_widening or pkg.authorized)
 
 
 def applied_target(tier: TierContract, pkg: Observed) -> str:
@@ -811,6 +818,12 @@ def package_rules(eco: Ecosystem, tier: TierContract, pkg: Observed) -> list[tup
             widening.append(
                 f"{pkg.declared!r} {verb} {pkg.recommended}, yet requires_constraint_widening={pkg.widening}"
             )
+
+    if pkg.authorized:
+        if not pkg.widening:
+            widening.append("widening_authorized, yet the pick needs no widening")
+        if not pkg.motives & {"exploitable_cve", "end_of_life"}:
+            widening.append(f"widening_authorized without an escalating motive (motives: {sorted(pkg.motives)})")
 
     prerelease = []
     if (
@@ -1188,7 +1201,10 @@ def log_report(results: Sequence[FixtureResult], log_root: Path) -> None:
     for result in results:
         log_matrix(result)
     logger.info("")
-    logger.info("  ^ requires widening (written by apply only at latest/cutting-edge)  ! escalated  = no move")
+    logger.info(
+        "  ^ requires widening (written by apply at latest/cutting-edge, or when a CVE or end-of-life motive "
+        "authorized it)  ! escalated  = no move"
+    )
 
     checks = [check for result in results for check in result.checks]
     notable = sorted(
