@@ -206,6 +206,8 @@ import { constraintCircleClasses } from '@/explorer/nodeStyle'
             <p class="text-xs text-slate-500 leading-relaxed">
               Version forcibly replaced by an override directive (npm <code class="font-mono">overrides</code>,
               uv <code class="font-mono">override-dependencies</code>), bypassing normal resolution constraints.
+              An override OSS IQ wrote itself is not drawn this way: it moves with the next
+              <code class="font-mono">ossiq apply</code>.
             </p>
           </div>
         </div>

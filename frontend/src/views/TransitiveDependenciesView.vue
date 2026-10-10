@@ -6,6 +6,7 @@ import { useTreeFilters } from '@/composables/useTreeFilters'
 import { usePackageRegistry } from '@/composables/usePackageRegistry'
 import { useNavigationStack } from '@/composables/useNavigationStack'
 import { buildVisibleState } from '@/explorer/visibleState'
+import { effectiveConstraintType } from '@/explorer/nodeStyle'
 import DependencyDetailPanel from '@/components/DependencyDetailPanel.vue'
 import NavigationBreadcrumb from '@/components/NavigationBreadcrumb.vue'
 import type { DependencyNode, SelectedNodeDetail } from '@/types/dependency-tree'
@@ -54,7 +55,7 @@ function buildDependencyTree(report: OSSIQExportSchemaV16): DependencyNode {
     license: pkg.license,
     purl: pkg.purl,
     dependency_path: pkg.dependency_path,
-    constraint_type: pkg.constraint_type ?? null,
+    constraint_type: effectiveConstraintType(pkg.constraint_type ?? null, pkg.constraint_ossiq_authored),
     constraint_source_file: pkg.constraint_source_file ?? null,
     extras: pkg.extras ?? null,
     is_prerelease: pkg.is_prerelease ?? false,
@@ -92,7 +93,10 @@ function buildDependencyTree(report: OSSIQExportSchemaV16): DependencyNode {
       license: pkg.license,
       purl: pkg.purl,
       dependency_path: parentPath,
-      constraint_type: (report.constraint_type_map?.[treeNode.ct] ?? null) as DependencyNode['constraint_type'],
+      constraint_type: effectiveConstraintType(
+        (report.constraint_type_map?.[treeNode.ct] ?? null) as DependencyNode['constraint_type'],
+        pkg.constraint_ossiq_authored,
+      ),
       constraint_source_file: pkg.constraint_source_file ?? null,
       extras: treeNode.extras ?? null,
       is_prerelease: pkg.is_prerelease ?? false,

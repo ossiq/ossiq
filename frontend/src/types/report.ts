@@ -335,6 +335,10 @@ export interface PackageMetrics {
    */
   constraint_type?: "DECLARED" | "NARROWED" | "PINNED" | "ADDITIVE" | "OVERRIDE" | null;
   /**
+   * Whether the OVERRIDE governing this package is one OSS IQ wrote itself (recorded in its own metadata block, still holding the value it wrote) rather than the user's. OSS IQ moves its own overrides with the next `ossiq apply`, so one is not a hold. False for any other constraint type
+   */
+  constraint_ossiq_authored?: boolean;
+  /**
    * File that introduced a non-DECLARED constraint (e.g. 'package.json' for npm overrides, 'pyproject.toml' for uv, 'requirements.txt' for pip classic)
    */
   constraint_source_file?: string | null;
@@ -788,6 +792,10 @@ export interface TransitivePackageMetrics {
    * Known CVEs for this package (absent when empty)
    */
   cve?: CVEInfo[];
+  /**
+   * Whether the override governing this package is one OSS IQ wrote itself rather than the user's. The dependency_tree nodes (ct) say OVERRIDE either way
+   */
+  constraint_ossiq_authored?: boolean;
   /**
    * File that introduced a non-DECLARED constraint for this package (absent when DECLARED)
    */
