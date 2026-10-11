@@ -126,6 +126,8 @@
   --flag:#FF8A3D;
   --bone:#EAF2EF;
   --mute:#7C8B92;
+  --body:#C4D0CC;
+  --scrim-a:.92;
   --line:rgba(234,242,239,.14);
   --ink:#05070A;
   --scrim-rgb:5,7,10;
@@ -146,6 +148,7 @@
   --flag:#D2650F;
   --bone:#0D1417;
   --mute:#5A686E;
+  --body:#2F3D43;
   --line:rgba(13,20,23,.16);
   --ink:#F6F8F7;
   --scrim-rgb:243,245,244;
@@ -153,7 +156,7 @@
   --code-bg-b:#080D11;
   --faint:#8A979C;
   --swap-bg:rgba(13,20,23,.10);
-  --scrim-a:.88;
+  --scrim-a:.94;
 }
 /* terminals stay dark in both themes — a shell is a shell */
 :root[data-theme="light"] .term{border-color:rgba(13,20,23,.18)}
@@ -235,6 +238,24 @@ nav a:hover::after{right:0}
 }
 .begin:hover{transform:translateY(-1px);box-shadow:0 6px 30px -8px rgba(43,227,139,.75)}
 .menu-btn{display:none}
+/* repo link: same icon / name / latest-release stack as the docs header */
+.repo{
+  flex:0 0 auto;display:flex;align-items:center;gap:.6rem;
+  color:var(--bone);line-height:1.2;transition:opacity .25s;
+}
+.repo:hover{opacity:.7}
+.repo svg{height:22px;width:auto;display:block}
+.repo b{display:block;font-weight:500;font-size:.82rem}
+.repo small{
+  display:flex;align-items:center;gap:.25rem;margin-top:.1rem;
+  font-family:var(--mono);font-size:.68rem;color:var(--body);
+}
+.repo small[hidden]{display:none}
+.repo small::before{
+  content:"";width:.7rem;height:.7rem;background:currentColor;
+  -webkit-mask:var(--tag) center/contain no-repeat;mask:var(--tag) center/contain no-repeat;
+  --tag:url('data:image/svg+xml;charset=utf-8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path d="M1 7.775V2.75C1 1.784 1.784 1 2.75 1h5.025c.464 0 .91.184 1.238.513l6.25 6.25a1.75 1.75 0 0 1 0 2.474l-5.026 5.026a1.75 1.75 0 0 1-2.474 0l-6.25-6.25A1.75 1.75 0 0 1 1 7.775m1.5 0c0 .066.026.13.073.177l6.25 6.25a.25.25 0 0 0 .354 0l5.025-5.025a.25.25 0 0 0 0-.354l-6.25-6.25a.25.25 0 0 0-.177-.073H2.75a.25.25 0 0 0-.25.25ZM6 5a1 1 0 1 1 0 2 1 1 0 0 1 0-2"/></svg>');
+}
 
 /* ---------- cinematic acts ---------- */
 #acts{position:relative;z-index:5}
@@ -248,14 +269,16 @@ nav a:hover::after{right:0}
 .panel{
   position:relative;
   max-width:34rem;
-  opacity:var(--vis,0);
+  /* full opacity from --vis .67 so copy isn't left half-faded over the strand */
+  opacity:min(1,calc(var(--vis,0) * 1.5));
   transform:translateY(calc((1 - var(--vis,0)) * 26px));
   will-change:opacity,transform;
 }
-/* soft backing so copy stays readable wherever the strand happens to be */
+/* solid backing so copy stays readable wherever the strand happens to be; the blur only softens the
+   edge, the plateau still covers the whole text block at any panel size */
 .panel::before{
   content:"";position:absolute;inset:-4.5rem -7rem;z-index:-1;pointer-events:none;
-  background:radial-gradient(ellipse 48% 66% at 50% 50%,rgba(var(--scrim-rgb),var(--scrim-a,.96)) 0%,rgba(var(--scrim-rgb),calc(var(--scrim-a,.96) - .06)) 56%,rgba(var(--scrim-rgb),0) 100%);
+  background:rgba(var(--scrim-rgb),var(--scrim-a));border-radius:2rem;filter:blur(24px);
 }
 .act.mid .panel{max-width:44rem}
 
@@ -273,7 +296,7 @@ h2{
   letter-spacing:-.03em;font-weight:600;margin:0 0 1.1rem;
   text-wrap:balance;
 }
-.panel p{color:var(--mute);max-width:36ch;margin:0 0 1.5rem;font-size:1.04rem}
+.panel p{color:var(--body);max-width:36ch;margin:0 0 1.5rem;font-size:1.04rem}
 .act.mid .panel p{margin-left:auto;margin-right:auto;max-width:48ch}
 h1 + p{font-size:1.14rem;max-width:40ch}
 
@@ -295,7 +318,7 @@ h1 + p{font-size:1.14rem;max-width:40ch}
   display:block;font-size:2.6rem;line-height:1;font-weight:600;letter-spacing:-.04em;
   font-variant-numeric:tabular-nums;color:var(--strand);margin-bottom:.4rem;
 }
-.stats span{display:block;color:var(--mute);font-size:.85rem;line-height:1.45}
+.stats span{display:block;color:var(--body);font-size:.85rem;line-height:1.45}
 .actions{display:flex;flex-wrap:wrap;gap:.75rem;align-items:center}
 .act.mid .actions{justify-content:center}
 .btn-solid{
@@ -311,7 +334,7 @@ h1 + p{font-size:1.14rem;max-width:40ch}
 
 .meta{
   display:flex;gap:1.6rem;flex-wrap:wrap;margin-top:2rem;
-  font-family:var(--mono);font-size:.78rem;color:var(--mute);
+  font-family:var(--mono);font-size:.78rem;color:var(--body);
 }
 .meta span{display:flex;align-items:center;gap:.5rem}
 .dot{width:6px;height:6px;border-radius:50%;background:var(--strand)}
@@ -321,7 +344,7 @@ h1 + p{font-size:1.14rem;max-width:40ch}
   margin:0 0 1.6rem;font-family:var(--mono);font-size:.83rem;color:var(--bone);
   background:linear-gradient(90deg,rgba(255,138,61,.09),transparent 70%);
 }
-.gate small{display:block;color:var(--mute);font-family:var(--sans);font-size:.85rem;margin-top:.35rem}
+.gate small{display:block;color:var(--body);font-family:var(--sans);font-size:.85rem;margin-top:.35rem}
 
 /* ---------- solid page ---------- */
 #page{position:relative;z-index:6;background:linear-gradient(180deg,rgba(var(--scrim-rgb),.4),var(--void) 12%)}
@@ -398,7 +421,8 @@ footer nav{margin:0 0 0 auto;gap:1.6rem;font-size:.88rem}
   nav{display:none}
   header{padding:.9rem var(--gut)}
   .brand svg{height:19px}
-  .swap{margin-left:auto}
+  .repo{margin-left:auto}
+  .repo span{display:none}
   .swap button{padding:.3rem .6rem;font-size:.72rem}
   .begin{padding:.5rem 1.05rem;font-size:.84rem}
   .meta{gap:.9rem 1.2rem;font-size:.72rem}
@@ -406,6 +430,11 @@ footer nav{margin:0 0 0 auto;gap:1.6rem;font-size:.88rem}
   .act.right,.act.left{justify-content:flex-start}
   .panel{max-width:100%}
   footer nav{display:flex;margin-left:0;flex-wrap:wrap}
+}
+/* brand + repo + switch + CTA no longer fit on a phone; the docs theme drops its repo link there too */
+@media (max-width:560px){
+  .repo{display:none}
+  .swap{margin-left:auto}
 }
 @media (prefers-reduced-motion:reduce){
   html{scroll-behavior:auto}
@@ -441,6 +470,10 @@ footer nav{margin:0 0 0 auto;gap:1.6rem;font-size:.88rem}
     <a href="journal/">Blog</a>
     <a href="getting-started.html">Docs</a>
   </nav>
+  <a class="repo" href="https://github.com/ossiq/ossiq" title="Go to repository" aria-label="ossiq/ossiq on GitHub">
+    <svg viewBox="0 0 448 512" fill="currentColor" aria-hidden="true"><path d="M439.55 236.05 244 40.45a28.87 28.87 0 0 0-40.81 0l-40.66 40.63 51.52 51.52c27.06-9.14 52.68 16.77 43.39 43.68l49.66 49.66c34.23-11.8 61.18 31 35.47 56.69-26.49 26.49-70.21-2.87-56-37.34L240.22 199v121.85c25.3 12.54 22.26 41.85 9.08 55a34.34 34.34 0 0 1-48.55 0c-17.57-17.6-11.07-46.91 11.25-56v-123c-20.8-8.51-24.6-30.74-18.64-45L142.57 101 8.45 235.14a28.86 28.86 0 0 0 0 40.81l195.61 195.6a28.86 28.86 0 0 0 40.8 0l194.69-194.69a28.86 28.86 0 0 0 0-40.81"/></svg>
+    <span><b>ossiq/ossiq</b><small id="repoVersion" hidden></small></span>
+  </a>
   <div class="swap" role="group" aria-label="Colour theme">
     <button type="button" data-theme-set="dark" aria-pressed="true">Dark</button>
     <button type="button" data-theme-set="light" aria-pressed="false">Light</button>
@@ -668,6 +701,23 @@ footer nav{margin:0 0 0 auto;gap:1.6rem;font-size:.88rem}
 </div>
 </main>
 
+<script>
+/* Latest release tag for the header repo link — the same endpoint the docs theme calls. Failure
+   (offline, GitHub's unauthenticated rate limit) just leaves the version hidden. */
+(function(){
+  var el=document.getElementById('repoVersion');if(!el)return;
+  var show=function(v){el.textContent=v;el.hidden=false};
+  try{var c=sessionStorage.getItem('ossiq-latest');if(c){show(c);return}}catch(e){}
+  fetch('https://api.github.com/repos/ossiq/ossiq/releases/latest')
+    .then(function(r){return r.ok?r.json():null})
+    .then(function(j){
+      if(!j||!j.tag_name)return;
+      show(j.tag_name);
+      try{sessionStorage.setItem('ossiq-latest',j.tag_name)}catch(e){}
+    })
+    .catch(function(){});
+})();
+</script>
 {# Minified JS can contain Jinja's own delimiters; raw makes Sphinx copy the bundle through untouched. #}
 {% raw %}
 <script>
