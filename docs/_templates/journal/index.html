@@ -1,19 +1,11 @@
 <!DOCTYPE html>
 <html lang="en" class="scroll-smooth">
 <head>
-    <!-- Google tag (gtag.js) -->
-    <script async src="https://www.googletagmanager.com/gtag/js?id=G-6GG5NRKT0J"></script>
-    <script>
-    window.dataLayer = window.dataLayer || [];
-    function gtag(){dataLayer.push(arguments);}
-    gtag('js', new Date());
-
-    gtag('config', 'G-6GG5NRKT0J');
-    </script>
+    {% include "partials/analytics.html" %}
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>OSS IQ Journal &mdash; Research on Open-Source Dependency Health</title>
-    <link rel="icon" type="image/svg+xml" href="/_static/images/oss-iq-logo-dark.svg">
+    {% include "partials/favicons.html" %}
     <meta name="theme-color" content="#1E1E1E">
     <!-- Runs before CSS to avoid flash of wrong theme -->
     <script>
@@ -69,7 +61,7 @@
     <meta property="og:site_name"    content="OSS IQ">
     <meta property="og:title"        content="OSS IQ Journal &mdash; Research on Open-Source Dependency Health">
     <meta property="og:description"  content="In-depth research and analysis on open-source dependency health, software supply chain risk, and the hidden costs of modern development.">
-    <meta property="og:image"        content="https://ossiq.dev/img/ossiq-report-html-light.png"><!-- [ADAPT] create 1200×630 image -->
+    <meta property="og:image"        content="https://ossiq.dev/_static/images/og-landing.jpg"><!-- [ADAPT] create 1200×630 image -->
     <meta property="og:image:width"  content="1200">
     <meta property="og:image:height" content="630">
     <meta property="og:image:alt"    content="OSS IQ Journal — In-depth research on open-source dependency health and software supply chain risk">
@@ -84,7 +76,7 @@
     <meta name="twitter:site"        content="@ossiq_dev"><!-- [ADAPT] brand Twitter/X handle -->
     <meta name="twitter:title"       content="OSS IQ Journal — Open-Source Dependency Health Research">
     <meta name="twitter:description" content="In-depth research on open-source dependency health, software supply chain risk, and the hidden costs of modern development.">
-    <meta name="twitter:image"       content="https://ossiq.dev/img/ossiq-report-html-light.png"><!-- [ADAPT] same as og:image -->
+    <meta name="twitter:image"       content="https://ossiq.dev/_static/images/og-landing.jpg"><!-- [ADAPT] same as og:image -->
     <meta name="twitter:image:alt"   content="OSS IQ Journal — Research on open-source dependency health and software supply chain risk">
 
     <!-- ── LLMs & AI-search crawlers ─────────────────────────────────────
