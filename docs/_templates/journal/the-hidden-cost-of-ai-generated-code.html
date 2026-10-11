@@ -1,15 +1,8 @@
  <!DOCTYPE html>
 <html lang="en" class="scroll-smooth">
 <head>
-    <!-- Google tag (gtag.js) -->
-    <script async src="https://www.googletagmanager.com/gtag/js?id=G-6GG5NRKT0J"></script>
-    <script>
-    window.dataLayer = window.dataLayer || [];
-    function gtag(){dataLayer.push(arguments);}
-    gtag('js', new Date());
-
-    gtag('config', 'G-6GG5NRKT0J');
-    </script>
+    {% include "partials/analytics.html" %}
+    {% include "partials/favicons.html" %}
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>The Hidden Cost of AI-Generated Code | OSS IQ Journal</title>
@@ -56,7 +49,7 @@
     <meta property="og:site_name"         content="OSS IQ">
     <meta property="og:title"             content="The Hidden Cost of AI-Generated Code | OSS IQ Journal"><!-- [ADAPT] -->
     <meta property="og:description"       content="Why faster code writing is making software worse. AI tools accelerate output but the data reveals hidden costs in code quality, security, and delivery stability."><!-- [ADAPT] -->
-    <meta property="og:image"             content="https://ossiq.dev/assets/og-hidden-cost-ai-code.jpg"><!-- [ADAPT] create 1200×630 article image -->
+    <meta property="og:image"             content="https://ossiq.dev/_static/images/og-landing.jpg"><!-- [ADAPT] create 1200×630 article image -->
     <meta property="og:image:width"       content="1200">
     <meta property="og:image:height"      content="630">
     <meta property="og:image:alt"         content="The Hidden Cost of AI-Generated Code - OSS IQ Research Report"><!-- [ADAPT] -->
@@ -79,7 +72,7 @@
     <meta name="twitter:creator"     content="@mklymyshyn"><!-- [ADAPT] author handle, or remove -->
     <meta name="twitter:title"       content="The Hidden Cost of AI-Generated Code"><!-- [ADAPT] ≤70 chars -->
     <meta name="twitter:description" content="Why faster code writing is making software worse. New research on AI-generated code quality, vulnerability rates, and delivery stability."><!-- [ADAPT] -->
-    <meta name="twitter:image"       content="https://ossiq.dev/assets/og-hidden-cost-ai-code.jpg"><!-- [ADAPT] -->
+    <meta name="twitter:image"       content="https://ossiq.dev/_static/images/og-landing.jpg"><!-- [ADAPT] -->
     <meta name="twitter:image:alt"   content="The Hidden Cost of AI-Generated Code - OSS IQ Research Report"><!-- [ADAPT] -->
 
     <!-- ── LLMs & AI-search crawlers ─────────────────────────────────────
@@ -129,14 +122,14 @@
         "url": "https://ossiq.dev",
         "logo": {
           "@type": "ImageObject",
-          "url": "https://ossiq.dev/assets/logo.png",
-          "width": 112,
-          "height": 112
+          "url": "https://ossiq.dev/_static/images/oss-iq-logo-light.svg",
+          "width": 382,
+          "height": 70
         }
       },
       "image": {
         "@type": "ImageObject",
-        "url": "https://ossiq.dev/assets/og-hidden-cost-ai-code.jpg",
+        "url": "https://ossiq.dev/_static/images/og-landing.jpg",
         "width": 1200,
         "height": 630
       },

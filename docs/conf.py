@@ -15,7 +15,7 @@ extensions = [
 
 templates_path = ["_templates"]
 html_static_path = ["_static"]
-html_extra_path = ["_static/llms.txt", "_static/robots.txt"]
+html_extra_path = ["_static/llms.txt", "_static/robots.txt", "_static/images/favicon/favicon.ico"]
 
 # Custom landing page replaces index.html
 html_additional_pages = {
@@ -55,6 +55,7 @@ pygments_style = "sphinx"
 html_theme = "sphinx_immaterial"
 html_title = "OSS IQ"
 html_logo = "img/oss-iq-logo-light.svg"
+html_favicon = "_static/images/favicon/favicon.svg"
 
 html_theme_options = {
     "site_url": "https://ossiq.dev/",
@@ -93,7 +94,7 @@ html_theme_options = {
 
 # sphinxext-opengraph — applies to all regular doc pages
 ogp_site_url = "https://ossiq.dev/"
-ogp_image = "https://ossiq.dev/img/ossiq-report-html-light.png"
+ogp_image = "https://ossiq.dev/_static/images/og-landing.jpg"
 ogp_description_length = 200
 ogp_type = "website"
 ogp_enable_meta_description = True

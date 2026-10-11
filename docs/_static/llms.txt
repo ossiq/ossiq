@@ -12,6 +12,7 @@ OSS IQ is a Software Composition Analysis (SCA) tool for platform engineers and 
 - Supports JavaScript (npm) and Python (uv, pip lock, pip) ecosystems
 - Outputs reports as terminal console, HTML, JSON, or a compact agent format
 - Exposes the same decisions to coding agents through a SKILL.md and a local MCP server (`ossiq install skills`)
+- Checks a package before adding it: `ossiq add <package>` shows CVEs, maintainer information and health warnings, then adds the package after you confirm. Critical warnings block the add unless you pass `--force`
 - Findings never change the exit code; gate CI with your own check over the `ossiq export` JSON
 
 ## Install and log in
@@ -23,9 +24,28 @@ OSS IQ is a Software Composition Analysis (SCA) tool for platform engineers and 
 
 - [Getting Started](https://ossiq.dev/getting-started.html): Installation, first scan, and basic usage
 - [Log in to GitHub](https://ossiq.dev/how-to/github-login.html): Device-flow login, CI tokens, and troubleshooting
+- [Verifying a release](https://ossiq.dev/how-to/verifying-a-release.html): Check the signed SLSA build provenance of an installed artifact with `gh attestation verify`
+- [Recommendations and Risk](https://ossiq.dev/recommendations.html): What each recommendation means, the evidence behind it, and what it costs when that evidence is missing or wrong
 - [Explanation](https://ossiq.dev/explanation/index.html): How recommendations are made, repository stability, and concepts
 - [Reference](https://ossiq.dev/reference.html): Full CLI reference and configuration options
 - [Tutorials](https://ossiq.dev/tutorials/): Step-by-step guides for common use cases
+
+## Markdown sources
+
+Each documentation page is also published as plain Markdown. Replace `<page>.html` with `_sources/<page>.md.txt`:
+
+- [Getting Started](https://ossiq.dev/_sources/getting-started.md.txt)
+- [Reference](https://ossiq.dev/_sources/reference.md.txt)
+- [Recommendations and Risk](https://ossiq.dev/_sources/recommendations.md.txt)
+- [Recommendations: the update pyramid](https://ossiq.dev/_sources/recommendations/update-pyramid.md.txt)
+- [Recommendations: target selection](https://ossiq.dev/_sources/recommendations/target-selection.md.txt)
+- [Recommendations: partial data](https://ossiq.dev/_sources/recommendations/partial-data.md.txt)
+- [Explanation](https://ossiq.dev/_sources/explanation/index.md.txt)
+- [Repository stability](https://ossiq.dev/_sources/explanation/repository-stability.md.txt)
+- [Log in to GitHub](https://ossiq.dev/_sources/how-to/github-login.md.txt)
+- [Verifying a release](https://ossiq.dev/_sources/how-to/verifying-a-release.md.txt)
+- [Tutorial: first analysis](https://ossiq.dev/_sources/tutorials/tutorial-first-analysis.md.txt)
+- [Tutorial: GitHub Actions](https://ossiq.dev/_sources/tutorials/tutorial-github-actions.md.txt)
 
 ## Research & Analysis
 
@@ -35,8 +55,8 @@ OSS IQ is a Software Composition Analysis (SCA) tool for platform engineers and 
 
 ## Sample Reports
 
-- [NPM Scan Example](https://ossiq.dev/samples/scan_npm.html): Example output for a JavaScript project
-- [PyPI Scan Example](https://ossiq.dev/samples/scan_pypi.html): Example output for a Python project
+- [npm scan example](https://ossiq.dev/_static/samples/scan_npm.html): Example output for a JavaScript project
+- [PyPI scan example](https://ossiq.dev/_static/samples/scan_pypi.html): Example output for a Python project
 
 ## Project
 

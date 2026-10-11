@@ -2,12 +2,9 @@
 
 {% block extrahead %}
 {{ super() }}
-<!-- Google tag (gtag.js) -->
-<script async src="https://www.googletagmanager.com/gtag/js?id=G-6GG5NRKT0J"></script>
-<script>
-window.dataLayer = window.dataLayer || [];
-function gtag(){dataLayer.push(arguments);}
-gtag('js', new Date());
-gtag('config', 'G-6GG5NRKT0J');
-</script>
+{# sphinx_immaterial never prints `metatags`, which is where sphinxext-opengraph puts its tags. #}
+{{ metatags }}
+{% if pageurl %}<link rel="canonical" href="{{ pageurl }}">{% endif %}
+{% include "partials/favicons.html" %}
+{% include "partials/analytics.html" %}
 {% endblock %}
