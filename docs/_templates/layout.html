@@ -7,4 +7,21 @@
 {% if pageurl %}<link rel="canonical" href="{{ pageurl }}">{% endif %}
 {% include "partials/favicons.html" %}
 {% include "partials/analytics.html" %}
+{# The landing and the journal keep the visitor's theme in localStorage "ossiq-theme". The theme
+   reads only its own "__palette", so seed that from the shared key before the header's palette
+   script runs, and write the shared key back when the visitor uses the header toggle. #}
+<script>
+(function(){try{
+  var dark=(localStorage.getItem('ossiq-theme')
+    ||(matchMedia('(prefers-color-scheme: light)').matches?'light':'dark'))==='dark';
+  // Mirrors the two `palette` entries in conf.py: 0 is light, 1 is dark.
+  __md_set('__palette',dark
+    ?{index:1,color:{media:'',scheme:'slate',primary:'black',accent:'black'}}
+    :{index:0,color:{media:'',scheme:'default',primary:'white',accent:'indigo'}});
+  document.addEventListener('change',function(e){
+    if(e.target.name==='__palette')localStorage.setItem('ossiq-theme',
+      e.target.getAttribute('data-md-color-scheme')==='slate'?'dark':'light');
+  });
+}catch(e){}})();
+</script>
 {% endblock %}
