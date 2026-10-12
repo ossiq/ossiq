@@ -217,6 +217,10 @@ ossiq apply                   # prompts for confirmation
 ossiq apply --update-strategy security --yes  # patch CVE-affected packages only, unattended
 ```
 
+`--update-strategy` decides which packages may move and how far, from `security` (exploitable
+CVEs only) through the default `standard` up to `cutting-edge`.
+[The update pyramid](recommendations/update-pyramid.md) shows all five tiers in one diagram.
+
 Before recommending a version, the solver simulates its full transitive cascade, falls back to the
 next-best candidate when the top one would conflict, and holds back releases younger than
 `--cooldown-period` (default: 7 days) unless they fix a CVE in an installed version. The solver
