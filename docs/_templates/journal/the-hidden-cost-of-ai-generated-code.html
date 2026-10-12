@@ -170,7 +170,7 @@
     <!-- Runs before CSS to avoid flash of wrong theme -->
     <script>
     (function () {
-      const saved = localStorage.getItem('theme');
+      const saved = localStorage.getItem('ossiq-theme');
       const preferred = window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
       document.documentElement.setAttribute('data-theme', saved ?? preferred);
     })();
@@ -1318,7 +1318,7 @@ function syncThemeUI(theme) {
 /* Called from inline onclick=”setTheme('dark'|'light')” on theme buttons */
 function setTheme(theme) {
   document.documentElement.setAttribute('data-theme', theme);
-  localStorage.setItem('theme', theme);
+  localStorage.setItem('ossiq-theme', theme);
   syncThemeUI(theme);
 }
 
@@ -1378,7 +1378,7 @@ syncThemeUI(initialTheme);
 
 /* Follow OS preference changes only when no manual preference is stored */
 window.matchMedia('(prefers-color-scheme: light)').addEventListener('change', e => {
-  if (localStorage.getItem('theme')) return;
+  if (localStorage.getItem('ossiq-theme')) return;
   const next = e.matches ? 'light' : 'dark';
   document.documentElement.setAttribute('data-theme', next);
   syncThemeUI(next);

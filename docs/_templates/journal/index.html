@@ -10,7 +10,7 @@
     <!-- Runs before CSS to avoid flash of wrong theme -->
     <script>
     (function () {
-      const saved = localStorage.getItem('theme');
+      const saved = localStorage.getItem('ossiq-theme');
       const preferred = window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
       document.documentElement.setAttribute('data-theme', saved ?? preferred);
     })();
@@ -545,7 +545,7 @@ function syncThemeUI(theme) {
 
 function setTheme(theme) {
     document.documentElement.setAttribute('data-theme', theme);
-    localStorage.setItem('theme', theme);
+    localStorage.setItem('ossiq-theme', theme);
     syncThemeUI(theme);
 }
 
