@@ -97,9 +97,10 @@
       "releaseNotes": "https://github.com/ossiq/ossiq/releases",
       "screenshot": "https://ossiq.dev/_static/images/ossiq-html-report-2026-06-20.png",
       "featureList": [
-        "Upgrade blast-radius analysis across the transitive dependency graph",
-        "Solver-backed upgrade plans, applied with rollback on failure",
-        "Pre-install health and cooldown gate for packages an agent adds",
+        "Project-wide dependency audit: version drift, CVEs and maintenance health",
+        "Single-package inspection in the context of your project",
+        "Pre-install health and cooldown gate for packages you or an agent add",
+        "Solver-backed upgrade plans across the transitive dependency graph, applied with rollback on failure",
         "MCP server and skill for Claude Code, Codex and GitHub Copilot"
       ],
       "publisher": { "@id": "https://ossiq.dev/#organization" },
@@ -405,14 +406,21 @@ footer .brand svg{height:20px;opacity:.8}
 footer nav{margin:0 0 0 auto;gap:1.6rem;font-size:.88rem}
 .method{padding-top:0}
 #provenance .row{grid-template-columns:11rem 1fr 1fr}
-#provenance code,.panel code{font-family:var(--mono);font-size:.88em;color:var(--bone)}
+/* features reuse the comparison rows; the first column is wider because it holds a question */
+#features .row,#features .rowhead{grid-template-columns:19rem 1fr 1fr}
+#features .rows{margin-bottom:4.5rem}
+#features .who{font-family:var(--sans);font-size:1.12rem;font-weight:600;line-height:1.25;letter-spacing:-.015em}
+#features .who code{display:block;margin-top:.55rem;font-size:.8rem;font-weight:400;letter-spacing:0;color:var(--strand)}
+#features .misses a{display:block;margin-top:.7rem;font-family:var(--mono);font-size:.8rem;color:var(--strand)}
+#features .row.ours .misses::before{content:none}
+#provenance code,.panel code,#features code{white-space:nowrap;font-family:var(--mono);font-size:.88em;color:var(--bone)}
 .footnote{color:var(--mute);font-size:.84rem;line-height:1.65;max-width:72ch;
   border-top:1px solid var(--line);padding-top:1.4rem;margin:0}
 .panel .figure .sub{font-size:.4em;letter-spacing:-.02em}
 .rights{width:100%;font-size:.8rem;color:var(--faint);font-family:var(--mono)}
 
 @media (max-width:900px){
-  .row,.rowhead,#provenance .row{grid-template-columns:1fr;gap:.5rem}
+  .row,.rowhead,#features .row,#provenance .row{grid-template-columns:1fr;gap:.5rem}
   .rowhead{display:none}
   .row .who{margin-bottom:.4rem}
   .duo{grid-template-columns:1fr}
@@ -603,7 +611,40 @@ footer nav{margin:0 0 0 auto;gap:1.6rem;font-size:.88rem}
 
   <section id="features">
     <div class="wrap">
-      <h2>Two commands, two answers.</h2>
+      <h2>Five questions, one command each.</h2>
+      <p class="lede">Each is a question you already ask about a dependency. OSS IQ answers it in your terminal, or through your coding agent.</p>
+      <div class="rowhead"><div>Question</div><div>Answer</div><div>Details</div></div>
+      <div class="rows">
+        <div class="row">
+          <div class="who">What state is my project in? <code>ossiq status</code></div>
+          <div class="does">One scan covers every dependency, direct and transitive: version drift, known CVEs with their exploit probability, and maintenance health.</div>
+          <div class="misses">Each package gets a next action, so you know what to fix first. Read it as a console report, an HTML report or a JSON export. <a href="_static/samples/scan_npm.html">See a live report →</a></div>
+        </div>
+        <div class="row">
+          <div class="who">Is this package worth depending on? <code>ossiq info &lt;package&gt;</code></div>
+          <div class="does">A full read on one package inside your project: how far behind you are, its CVEs and those of its transitive dependencies, and where it sits in your tree.</div>
+          <div class="misses">Warnings say what is wrong in plain words, such as a single maintainer or a release its registry has deprecated. <a href="getting-started.html#package-details">Package details →</a></div>
+        </div>
+        <div class="row">
+          <div class="who">Is it safe to add right now? <code>ossiq add &lt;package&gt;</code></div>
+          <div class="does">A quality gate in front of <code>npm install</code> and <code>uv add</code>. It installs the recommended version instead of the newest, and flags a release still inside the 7-day cooldown.</div>
+          <div class="misses">It stops on critical warnings: a package its registry has retired, or one with a single published version, a common typosquat pattern. npm installs run with <code>--ignore-scripts</code>. <a href="getting-started.html#gated-package-add">Gated add →</a></div>
+        </div>
+        <div class="row">
+          <div class="who">What can I upgrade without breaking the tree? <code>ossiq plan · ossiq apply</code></div>
+          <div class="does">The solver simulates the full transitive cascade before it recommends a version. <code>plan</code> previews the change; <code>apply</code> writes it and rolls back if the install fails.</div>
+          <div class="misses">Choose how far to move with <code>--update-strategy</code>, from <code>security</code> (only what clears a CVE) up to <code>cutting-edge</code>. <code>--strategy-override pkg=tier</code> moves one package differently, and <code>--yes</code> runs it in CI.
+            <a href="getting-started.html#plan-and-apply-updates">Plan and apply →</a>            
+        </div>
+        </div>
+        <div class="row ours">
+          <div class="who">Can my coding agent do all of this? <code>ossiq install skills</code></div>
+          <div class="does">One command gives Claude Code, OpenAI Codex and GitHub Copilot the same checks, through a skill and a local MCP server. The agent asks OSS IQ before it adds or updates anything, and gets a solved answer instead of a search problem.</div>
+          <div class="misses">The MCP tools are read-only: nothing changes until <code>ossiq apply</code> shows the plan and you confirm. In our benchmark the agent needed 8 turns instead of 22, at 41% lower cost per update. <a href="getting-started.html#coding-agents">Set up your agent →</a></div>
+        </div>
+      </div>
+
+      <p class="eyebrow">Try it</p>
       <p class="lede">One for the project you already have. One for the package your agent is about to add.</p>
       <div class="duo">
         <div class="term">
