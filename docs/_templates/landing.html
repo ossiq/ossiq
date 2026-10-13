@@ -4,8 +4,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="theme-color" content="#05070a">
-<title>OSS IQ — Read the supply chain before you change it</title>
-<meta name="description" content="OSS IQ maps the blast radius of any dependency upgrade and hands your AI agent a solved plan — 41% lower cost per update in our agent benchmark.">
+<title>OSS IQ — Solve dependency upgrades in one go via LLM or CLI</title>
+<meta name="description" content="Map the blast radius of dependency upgrades. OSS IQ delivers deterministic fix plans to your AI agent or terminal - 41% lower agent cost per update.">
 
 <!-- Search, social cards, LLM discovery and analytics. One block, so a re-export of this page has a single thing to carry over. -->
 <meta name="author" content="Maksym Klymyshyn, Oleksandr Shulika">
@@ -17,8 +17,8 @@
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://ossiq.dev/">
 <meta property="og:site_name" content="OSS IQ">
-<meta property="og:title" content="OSS IQ — Read the supply chain before you change it">
-<meta property="og:description" content="OSS IQ maps the blast radius of any dependency upgrade and hands your AI agent a solved plan — 41% lower cost per update in our agent benchmark.">
+<meta property="og:title" content="OSS IQ — Solve dependency upgrades in one go via LLM or CLI">
+<meta property="og:description" content="Map the blast radius of dependency upgrades. OSS IQ delivers deterministic fix plans to your AI agent or terminal - 41% lower agent cost per update.">
 <meta property="og:image" content="https://ossiq.dev/_static/images/og-landing.jpg">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
@@ -27,8 +27,8 @@
 
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:site" content="@ossiq_dev">
-<meta name="twitter:title" content="OSS IQ — Read the supply chain before you change it">
-<meta name="twitter:description" content="OSS IQ maps the blast radius of any dependency upgrade and hands your AI agent a solved plan — 41% lower cost per update in our agent benchmark.">
+<meta name="twitter:title" content="OSS IQ — Solve dependency upgrades in one go via LLM or CLI">
+<meta name="twitter:description" content="Map the blast radius of dependency upgrades. OSS IQ delivers deterministic fix plans to your AI agent or terminal - 41% lower agent cost per update.">
 <meta name="twitter:image" content="https://ossiq.dev/_static/images/og-landing.jpg">
 <meta name="twitter:image:alt" content="OSS IQ: Read the supply chain before you change it">
 
@@ -69,8 +69,8 @@
       "@type": "WebPage",
       "@id": "https://ossiq.dev/#webpage",
       "url": "https://ossiq.dev/",
-      "name": "OSS IQ — Read the supply chain before you change it",
-      "description": "OSS IQ maps the blast radius of any dependency upgrade and hands your AI agent a solved plan — 41% lower cost per update in our agent benchmark.",
+      "name": "OSS IQ — Solve dependency upgrades in one go via LLM or CLI",
+      "description": "Map the blast radius of dependency upgrades. OSS IQ delivers deterministic fix plans to your AI agent or terminal - 41% lower agent cost per update.",
       "inLanguage": "en",
       "isPartOf": { "@id": "https://ossiq.dev/#website" },
       "about": { "@id": "https://ossiq.dev/#software" },
@@ -101,7 +101,7 @@
         "Single-package inspection in the context of your project",
         "Pre-install health and cooldown gate for packages you or an agent add",
         "Solver-backed upgrade plans across the transitive dependency graph, applied with rollback on failure",
-        "MCP server and skill for Claude Code, Codex and GitHub Copilot"
+        "Skill for Claude Code, Codex and GitHub Copilot, plus a local MCP server for Claude Code and Codex"
       ],
       "publisher": { "@id": "https://ossiq.dev/#organization" },
       "sameAs": [
@@ -494,8 +494,8 @@ footer nav{margin:0 0 0 auto;gap:1.6rem;font-size:.88rem}
 
   <div class="act left" data-act="0">
     <div class="panel">
-      <h1>Read the supply chain before you change it.</h1>
-      <p>OSS IQ maps what breaks when you upgrade — then hands your coding agent a solved plan instead of a search problem.</p>
+      <h1>Solve dependency upgrades in one go.</h1>
+      <p>OSS IQ maps transitive supply chain risk and feeds a deterministic fix plan straight to your <strong>AI agent</strong> or <strong>terminal</strong>&mdash;so you never break main on an upgrade.</p>
       <div class="actions">
         <a class="btn-solid" href="https://ossiq.dev/getting-started.html">Begin Here</a>
         <a class="btn-ghost" href="https://ossiq.dev/_static/samples/scan_npm.html">See a live report</a>
@@ -537,9 +537,9 @@ footer nav{margin:0 0 0 auto;gap:1.6rem;font-size:.88rem}
       <h2>An agentic <span style="white-space:nowrap">pre-flight</span> check.</h2>
       <div class="gate">
         ⚠ some-other-package@1.0.2 — published 4 hours ago
-        <small>Blocked: fails the 7-day cooldown policy.</small>
+        <small>Warning: still inside the 7-day cooldown period.</small>
       </div>
-      <p>Your agent installs whatever package name sounds right. OSS IQ runs first: does this exist, is it a typosquat, was it published this morning, is anyone still maintaining it. Hallucinated and freshly-published names get stopped at the gate, not in production — <code>ossiq add</code> is a quality gate in front of <code>npm install</code> and <code>uv add</code>.</p>
+      <p>Your agent installs whatever package name sounds right. OSS IQ runs first: does this exist, is it a typosquat, was it published this morning, is anyone still maintaining it. A hallucinated name fails the lookup and a freshly-published release is flagged at the gate, not in production — <code>ossiq add</code> is a quality gate in front of <code>npm install</code> and <code>uv add</code>.</p>
     </div>
   </div>
 
@@ -639,12 +639,12 @@ footer nav{margin:0 0 0 auto;gap:1.6rem;font-size:.88rem}
         </div>
         <div class="row ours">
           <div class="who">Can my coding agent do all of this? <code>ossiq install skills</code></div>
-          <div class="does">One command gives Claude Code, OpenAI Codex and GitHub Copilot the same checks, through a skill and a local MCP server. The agent asks OSS IQ before it adds or updates anything, and gets a solved answer instead of a search problem.</div>
+          <div class="does">One command gives Claude Code, OpenAI Codex and GitHub Copilot the same checks through a skill, and Claude Code and Codex also get a local MCP server. The agent asks OSS IQ before it adds or updates anything, and gets a solved answer instead of a search problem.</div>
           <div class="misses">The MCP tools are read-only: nothing changes until <code>ossiq apply</code> shows the plan and you confirm. In our benchmark the agent needed 8 turns instead of 22, at 41% lower cost per update. <a href="getting-started.html#coding-agents">Set up your agent →</a></div>
         </div>
       </div>
 
-      <p class="eyebrow">Try it</p>
+      <h2>Try it.</h2>
       <p class="lede">One for the project you already have. One for the package your agent is about to add.</p>
       <div class="duo">
         <div class="term">
