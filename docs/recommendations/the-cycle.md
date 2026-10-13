@@ -1,7 +1,7 @@
 (the-cycle)=
 # The cycle: `status` → `plan` → `apply`
 
-Part of [Recommendations and Risk](../recommendations.md).
+Part of [Explanation](../explanation/index.md).
 
 | Command | Reads | Writes | Prompts |
 |---|---|---|---|

@@ -1,5 +1,7 @@
 # Repository Stability
 
+Part of [Explanation](index.md).
+
 **A dependency can fail two ways, so OSS IQ runs two pipelines and never averages them into one
 score.**
 

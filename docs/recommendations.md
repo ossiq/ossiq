@@ -1,19 +1,23 @@
-# Recommendations and Risk
+---
+title: How a recommendation is decided
+description: The three questions OSS IQ answers before it recommends a version, the two rules that hold at every tier, and five questions for reading any recommendation.
+---
+
+# How a recommendation is decided
+
+Part of [Explanation](explanation/index.md).
 
 **Every line OSS IQ prints under *Recommended*, *What's Next* or *Plan* is a decision taken on your
-behalf. This page says what each decision means, which evidence it rests on, and what it costs you
-when that evidence is missing or wrong.**
+behalf. This page says how OSS IQ reaches that decision and how to read the result.**
 
 [Reference → Update Strategy](reference.md#update-strategy) and
 [Reference → Version ladder](reference.md#version-ladder) define the flags and the fields. This
 page is the *why*, and it is the one to read before you wire `ossiq` into CI, hand it to a coding
 agent, or run `apply --yes`.
 
----
+## Three questions, answered in order
 
-## How a recommendation is decided
-
-Three questions, answered in order by three different parts of the tool:
+Three different parts of the tool answer them:
 
 | # | Question | Answer | Decided in |
 |---|---|---|---|
@@ -31,31 +35,6 @@ Two invariants hold across all of it:
 - **A visible recommendation is not an authorized write.** `status` can show a target that
   `plan` files under *Requires constraint widening* and `apply` will not touch. See
   {ref}`The writable/readable split <the-writable-readable-split>`.
-
-## Where each part lives
-
-| Page | What it answers |
-|---|---|
-| [The update pyramid](recommendations/update-pyramid.md) | How far up the version ladder a package may go, tier by tier, and what choosing a tier risks |
-| [How OSS IQ picks a target version](recommendations/target-selection.md) | When each tier withholds a package, bumps it in range, widens the range or crosses a major, as a table and a flowchart per tier |
-| [Motives](recommendations/motives.md) | Why a package is allowed to move at all, and what a missing source does to that |
-| [Every recommendation OSS IQ can make](recommendations/catalogue.md) | The target version, `next_action`, the triage verdict, the add decision and the non-recommendations |
-| [Engine constraints](recommendations/engine-constraints.md) | Which runtime a release is checked against, and where that check fails open |
-| [The cycle: `status` → `plan` → `apply`](recommendations/the-cycle.md) | What each command reads and writes, how `apply` writes, the two prompts, and convergence |
-| [Partial data](recommendations/partial-data.md) | What each external source feeds, what breaks when it degrades, and where that shows |
-
-```{toctree}
-:hidden:
-:maxdepth: 1
-
-recommendations/update-pyramid
-recommendations/target-selection
-recommendations/motives
-recommendations/catalogue
-recommendations/engine-constraints
-recommendations/the-cycle
-recommendations/partial-data
-```
 
 ## Reading any recommendation in five questions
 

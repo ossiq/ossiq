@@ -1,7 +1,7 @@
 (motives)=
 # Motives — why a package is allowed to move
 
-Part of [Recommendations and Risk](../recommendations.md).
+Part of [Explanation](../explanation/index.md).
 
 A motive is evidence that a package *should* change. Four exist; `classify_motives` derives them
 from facts already on the scan record.

@@ -1,7 +1,7 @@
 (partial-data)=
 # Partial data
 
-Part of [Recommendations and Risk](../recommendations.md).
+Part of [Explanation](../explanation/index.md).
 
 **A scan step reaching completion is not the same as it succeeding.** OSS IQ depends on four
 external sources — the package registry, GitHub, OSV and EPSS — and any of them can be firewalled,

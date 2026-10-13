@@ -1,7 +1,7 @@
 (engines)=
 # Engine constraints
 
-Part of [Recommendations and Risk](../recommendations.md).
+Part of [Explanation](../explanation/index.md).
 
 An "engine" is the runtime a release declares it needs: `engines.node` on npm, `requires-python` on
 PyPI. A release that cannot run on your runtime is not a candidate, however new it is.

@@ -1,7 +1,7 @@
 (recommendations)=
 # Every recommendation OSS IQ can make
 
-Part of [Recommendations and Risk](../recommendations.md).
+Part of [Explanation](../explanation/index.md).
 
 Five distinct kinds of output tell you to do something. They are computed by different modules
 against different evidence, and they are *not* rankings of each other.
