@@ -130,14 +130,15 @@ The command stores no GitHub token. The MCP server uses your [GitHub login](#log
 without one, the agent shows you a login code and retries after you approve. Re-running
 `install skills` is safe: it merges into existing config rather than overwriting it.
 
-Once installed, the agent has two read-only tools:
+Once installed, the agent has three read-only tools:
 
 | Tool | Answers |
 |---|---|
 | `ossiq_evaluate_dependency` | Should I add this package, and at which version? |
 | `ossiq_evaluate_updates` | Which existing dependencies should I bump, and in what order? |
+| `ossiq_update_context` | What breaks if I move this package to a specific version, and is there a better one? |
 
-Both return the same compact decision the CLI produces with `--format agent`: a `next_action` per
+The first two return the same compact decision the CLI produces with `--format agent`: a `next_action` per
 package (`install`, `install with caution`, `do not install` when adding; `Update Immediately`,
 `Check Release Notes`, `Check for the Fix`, `Consider alternative`, `Find alternative` when
 updating), the recommended version, CVEs, and supply-chain warnings.
@@ -145,6 +146,9 @@ updating), the recommended version, CVEs, and supply-chain warnings.
 ```bash
 ossiq info requests --format agent
 ```
+
+`ossiq_update_context` returns the `ossiq update-context` result instead: breaking changes, engine
+compatibility, and a `comparison.verdict` that judges the target version against the recommended one.
 
 For exactly which files are written, and how to run the integration from a local checkout with
 `--dev`, see [Reference → install skills](reference.md#install-skills).
