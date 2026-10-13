@@ -1,78 +1,73 @@
+---
+title: Explanation
+description: "Why OSS IQ reports what it reports, in the order of a run: what status measures, how plan picks an update, and what apply writes."
+---
+
 # Explanation
 
+These pages explain why OSS IQ reports what it reports. Read them before you trust a
+recommendation in CI or hand it to a coding agent. They follow the order of a run: what `status`
+measures, how `plan` picks an update, and what `apply` writes.
+
+Start with [The update pyramid](../recommendations/update-pyramid.md), which shows the five update
+strategy tiers in one diagram. For flags and fields, see the [reference](../reference.md). For
+tasks, see the [how-to guides](../how-to/index.md).
+
+## What OSS IQ measures
+
+A scan gathers the evidence that `status` reports and that every recommendation rests on.
+
+| Page | What it answers |
+|---|---|
+| [Repository stability](repository-stability.md) | How OSS IQ judges whether a package is still maintained and whether a CVE is being exploited, and how the two meet in one triage verdict |
+| [Partial data](../recommendations/partial-data.md) | What each external source feeds, what breaks when it degrades, and where that shows |
+
 ```{toctree}
+:hidden:
 :maxdepth: 1
 
-../recommendations
-repository-stability
+Repository stability <repository-stability>
+../recommendations/partial-data
 ```
 
+## How OSS IQ picks an update
 
+OSS IQ picks at most one target version for each direct dependency, and `plan` lists the result.
 
+| Page | What it answers |
+|---|---|
+| [The update pyramid](../recommendations/update-pyramid.md) | How far up the version ladder a package may go, tier by tier, and what choosing a tier risks |
+| [How a recommendation is decided](../recommendations.md) | Which three questions OSS IQ answers before it recommends a version, and how to read the result |
+| [Motives](../recommendations/motives.md) | Why a package is allowed to move at all, and what a missing source does to that |
+| [How OSS IQ picks a target version](../recommendations/target-selection.md) | When each tier withholds a package, bumps it in range, widens the range or crosses a major, as a table and a flowchart per tier |
+| [Cooldown](cooldown.md) | Why a release must age before OSS IQ recommends it, and what skips the wait |
+| [Engine constraints](../recommendations/engine-constraints.md) | Which runtime a release is checked against, and where that check fails open |
+| [Every recommendation OSS IQ can make](../recommendations/catalogue.md) | The target version, `next_action`, the triage verdict, the add decision and the non-recommendations |
 
-## OSS IQ: The Case for Engineering Fitness
+```{toctree}
+:hidden:
+:maxdepth: 1
 
-OSS IQ introduces a paradigm shift in software supply chain management: **moving from reactive vulnerability patching to proactive sustainability modeling.**
+../recommendations/update-pyramid
+../recommendations
+Motives <../recommendations/motives>
+../recommendations/target-selection
+cooldown
+../recommendations/engine-constraints
+../recommendations/catalogue
+```
 
-While traditional tools focus on the current state of a dependency (is it secure today?),
+## What OSS IQ writes
 
-**OSS IQ focuses on its trajectory** (will it be viable in two years?). This section explores the architectural rationale behind this "Layer 3" approach.
+`apply` is the only command that changes your manifest and lockfile.
 
-## The Three-Layer Maturity Model
+| Page | What it answers |
+|---|---|
+| [The cycle: `status` → `plan` → `apply`](../recommendations/the-cycle.md) | What each command reads and writes, how `apply` writes, the two prompts, and convergence |
 
-To understand where OSS IQ fits, we must view dependency management as an evolving stack of capabilities. Most organizations are currently stuck at Layer 2.
+```{toctree}
+:hidden:
+:maxdepth: 1
 
-
-| **Layer**                    | **Focus**           | **Key Question**                     | **Primary Artifacts**               |
-| ---------------------------- | ------------------- | ------------------------------------ | ----------------------------------- |
-| **3: Engineering Fitness**   | **Sustainability**  | Is this a sound long-term bet?       | Longitudinal signals, Decay metrics |
-| **2: Security & Compliance** | **Risk Mitigation** | Is this safe/legal to use right now? | CVEs, License policies              |
-| **1: Inventory**             | **Visibility**      | What are we actually using?          | SBOMs (CycloneDX/SPDX)              |
-
-
-## Audience Perspectives
-
-If you're just starting out, it's easy to think that if the code "works" and the security scanner shows green, you're safe. Scanners are looking for fires that are happening right now, not risks that are slowly growing. You could be using a library that has no known security holes today but hasn't had a commit in two years. That's what "Maintenance Decay" means. Or maybe the library is changing so quickly that every small change breaks your build. This is called "Release Volatility." OSS IQ makes these hidden signals clear, which helps you understand that risk builds up long before a failure happens.
-
-
-### Quantifying Technical Debt
-
-You've seen this movie before: you know a specific library is becoming a liability, but it's hard to justify a refactor to stakeholders when you can't point to a specific CVE. This is why we need to move toward "Architecture Fitness Functions" for the supply chain. Instead of arguing based on vibes, we look at longitudinal signals. We can actually compare two libraries by their **"Maintenance Velocity"** or identify **"Structural Fragility"**-those single points of failure where a project is being held together by one tired contributor. It turns an intuitive judgment into shared evidence.
-
-By tracking longitudinal signals, architects can:
-
-  - Evidence-Based Selection: Compare two libraries not just by features, but by their "Maintenance Velocity."
-  - Identify Structural Fragility: Spot dependencies that are becoming "single points of failure" due to dwindling community support.
-  - Standardize Evaluation: Move from subjective "vibes" to a structured rubric for dependency on-boarding.
-
-### Cooldown as Supply-Chain Quarantine
-
-A growing share of supply-chain attacks ride on *freshly published* releases: a maintainer account
-is compromised, a malicious version is pushed, and automated update tooling distributes it before
-anyone notices. The cooldown period (`--cooldown-period`, default 7 days) treats version age as a
-quarantine: very fresh releases are penalized in the solver and withheld from the update plan until
-they have survived in the wild for a while.
-
-Quarantine creates one deliberate tension: what if the quarantined version fixes a CVE? OSS IQ
-resolves it in favour of the *known* risk — a package whose installed version carries a CVE bypasses
-the cooldown hold, because a concrete vulnerability outweighs the statistical freshness risk. The
-bypass is always visible in the plan (a `CVE` tag and a "cooldown bypassed" note), and teams that
-want manual control can scope runs with `--update-strategy security` (the smallest diff that
-resolves a CVE) or force a vetted version with `--override pkg==version`. Brand-new transitive dependencies sit outside the quarantine — they are
-resolved by the native package manager — so the plan surfaces their age and flags fresh ones with
-`⚠` instead of silently admitting them.
-
-### Governance at Scale
-
-When it's not about micro-managing individual package choices, but about managing a portfolio of risk you want to ensure your teams aren't just "fixing bugs" but building on sustainable foundations.
-
- - From Reactive to Proactive: Instead of responding to a "Zero Day," you see which dependencies the [repository-stability triage](repository-stability.md) marks `refactor` (maintenance debt, no exploit pressure yet) or `evict` (exploited, no upstream fix coming).
- - Policy as Code: Define organizational "Fitness Gates" that prevent high-risk, low-activity dependencies from entering the codebase in the first place.
- - Resource Allocation: Gain visibility into which teams are carrying the most "Dependency Debt," allowing for better-informed architectural investments.
-
-
-<!-- ## Key Differentiators: Point-in-Time vs. Longitudinal
-
-The core innovation of OSS IQ is the move from Snapshot Analysis to Trend Analysis.
-
-Traditional scanners provide a "Pass/Fail" grade based on known vulnerabilities. OSS IQ intent is to evaluates the health of the producer, not just the state of the product. This allows organizations to anticipate a failure before it manifests as a security vulnerability or a production outage. -->
+../recommendations/the-cycle
+```

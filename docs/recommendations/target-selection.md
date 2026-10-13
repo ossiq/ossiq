@@ -6,7 +6,7 @@ description: When each update strategy tier withholds a package, bumps it inside
 (target-selection)=
 # How OSS IQ picks a target version
 
-Part of [Recommendations and Risk](../recommendations.md).
+Part of [Explanation](../explanation/index.md).
 
 **For each direct dependency, one function picks at most one version. The tier you run decides
 which motives count, how far the pick can go, and whether it takes the nearest release or the

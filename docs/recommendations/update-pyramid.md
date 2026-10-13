@@ -1,7 +1,7 @@
 (the-pyramid)=
 # The update pyramid
 
-Part of [Recommendations and Risk](../recommendations.md).
+Part of [Explanation](../explanation/index.md).
 
 `--update-strategy` picks one of five tiers. Each tier is a strict superset of the one below: it
 admits every reason to move that the lower tier admits, and it can reach at least as far.

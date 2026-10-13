@@ -62,6 +62,9 @@ html_theme_options = {
     "repo_url": "https://github.com/ossiq/ossiq",
     "repo_name": "ossiq/ossiq",
     "edit_uri": "blob/main/docs/",
+    # Keeps every sidebar group expanded, so the Explanation sidebar mirrors the tables on its
+    # index page from any page, not only from the page inside the open group.
+    "globaltoc_collapse": False,
     "palette": [
         {
             "scheme": "default",

@@ -738,7 +738,7 @@ Columns: **Package**, **CVEs**, **Installed**, **Recommended**, **What's Next**;
 
 #### New transitive dependencies
 
-Packages that are not in the tree today but would be pulled in by the recommended updates. Their versions are resolved by the native package manager at apply time, outside the solver's cooldown hold, so fresh entries are flagged rather than withheld: a `⚠` before the package name means the projected version is younger than the cooldown period and deserves a look before you apply (see [Cooldown as Supply-Chain Quarantine](explanation/index.md#cooldown-as-supply-chain-quarantine) for why).
+Packages that are not in the tree today but would be pulled in by the recommended updates. Their versions are resolved by the native package manager at apply time, outside the solver's cooldown hold, so fresh entries are flagged rather than withheld: a `⚠` before the package name means the projected version is younger than the cooldown period and deserves a look before you apply (see [Cooldown](explanation/cooldown.md#new-transitive-dependencies-sit-outside-the-cooldown) for why).
 
 | Column | Meaning |
 |---|---|
@@ -839,7 +839,7 @@ A deep-dive into one package. When the package is installed in the project, the 
 
 **Warnings.** A panel of package health findings: `✗` marks critical findings (these block `ossiq add` unless `--force` is passed), `!` marks notices. Examples: a package its registry deprecated, archived or quarantined (critical; the finding quotes the registry's note), a deprecated release you asked for with `--version` (critical), a package with a single published version (critical; typosquatting risk), a single maintainer (bus-factor risk).
 
-**Health Metrics.** Registry-level signals: downloads over the last month, number of published versions, maintainer count, age of the latest version, age of the recommended version (when it differs from the latest), and cooldown remaining — days until the latest release is old enough to clear the [cooldown period](explanation/index.md#cooldown-as-supply-chain-quarantine).
+**Health Metrics.** Registry-level signals: downloads over the last month, number of published versions, maintainer count, age of the latest version, age of the recommended version (when it differs from the latest), and cooldown remaining — days until the latest release is old enough to clear the [cooldown period](explanation/cooldown.md).
 
 For an installed package, this block also shows the two risk pipelines:
 
