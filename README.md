@@ -23,7 +23,7 @@ agent also got every update right. [ossiq.dev](https://ossiq.dev/) gives the met
 
 Free and open source (AGPL v3), for npm, uv and pip projects.
 
-![OSS IQ console report](https://ossiq.dev/_static/images/ossiq-cli-report-2026-07-13.png)
+[![OSS IQ status](https://ossiq.dev/_static/casts/ossiq-status-14-10-26.gif)](https://asciinema.org/a/1268390)
 
 ## Install
 

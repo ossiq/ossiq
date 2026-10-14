@@ -93,7 +93,7 @@ Supported manifests are the ones your package manager already writes: for **npm*
 The report gives you a project-level risk score, then breaks it down per package into security
 signals (vulnerabilities) and maintenance signals (activity, overhead, health):
 
-![OSS IQ Terminal/CLI Report](/_static/images/ossiq-cli-report-2026-07-13.png)
+<script src="https://asciinema.org/a/1268390.js" id="asciicast-1268390" async="true"></script>
 
 Every table, column, and status marker in this report, including the *Transitive Recommendations*,
 *Peer Constraint Status* and the unresolved-peer rows, is documented in
@@ -171,10 +171,10 @@ disambiguate a polyglot repo.
 ### Package details
 
 ```bash
-ossiq info sphinx
+ossiq info vue
 ```
 
-![OSS IQ Terminal/CLI Package Details](/_static/images/ossiq-cli-package-2026-07-13.png)
+<script src="https://asciinema.org/a/pnSL0hEFwDmKkIrz.js" id="asciicast-pnSL0hEFwDmKkIrz" async="true"></script>
 
 The section-by-section breakdown of this report - drift status, policy compliance,
 recommendation rationale, peer requirements, and transitive CVEs - is in
@@ -221,6 +221,8 @@ ossiq apply                   # prompts for confirmation
 ossiq apply --update-strategy security --yes  # patch CVE-affected packages only, unattended
 ```
 
+<script src="https://asciinema.org/a/1268391.js" id="asciicast-1268391" async="true"></script>
+
 `--update-strategy` decides which packages may move and how far, from `security` (exploitable
 CVEs only) through the default `standard` up to `cutting-edge`.
 [The update pyramid](recommendations/update-pyramid.md) shows all five tiers in one diagram.
@@ -243,13 +245,13 @@ surface further updates; repeat until it reports none. Full rules are in
     ```
 
  2. Open `report.html` for the table view of your dependencies:
-    ![OSS IQ HTML Report](/_static/images/ossiq-html-report-2026-06-20.png)
+    ![OSS IQ HTML Report](/_static/images/ossiq-html-report-2026-10-14.png)
 
  3. Click the **Transitive Dependencies** tab at the top:
-    ![OSS IQ Transitive Dependencies Report](/_static/images/ossiq-html-transitive-dependencies-2026-06-20.png)
+    ![OSS IQ Transitive Dependencies Report](/_static/images/ossiq-html-transitive-dependencies-2026-10-14.png)
 
  4. Click a dependency node (blue circle) to read its details:
-    ![OSS IQ Transitive Dependencies Package Details](/_static/images/ossiq-html-transitive-dependencies-package-2026-06-20.png)
+    ![OSS IQ Transitive Dependencies Package Details](/_static/images/ossiq-html-transitive-dependencies-package-2026-10-14.png)
 
     Here the report tells you that [vue](https://www.npmjs.com/package/vue) is resolved at
     `3.5.38`, which is also the latest published version.

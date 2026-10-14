@@ -1,3 +1,6 @@
+import hashlib
+from pathlib import Path
+
 from sphinx.application import Sphinx
 from sphinx_immaterial.mermaid_diagrams import MermaidDirective
 
@@ -23,6 +26,13 @@ html_additional_pages = {
     "journal/index": "journal/index.html",
     "journal/the-hidden-cost-of-ai-generated-code": "journal/the-hidden-cost-of-ai-generated-code.html",
     "journal/the-poisoned-well-ai-supply-chain-attacks": "journal/the-poisoned-well-ai-supply-chain-attacks.html",
+}
+# landing.html loads its script by hand, so it misses the ?v= checksum Sphinx gives html_js_files;
+# without one a browser can pair fresh HTML with a cached old landing.js.
+html_context = {
+    "landing_js_version": hashlib.sha256(
+        (Path(__file__).parent / "_static/landing/landing.js").read_bytes()
+    ).hexdigest()[:8],
 }
 html_css_files = ["ossiq.css"]
 html_js_files = [("search_compat.js", {"defer": "defer"})]

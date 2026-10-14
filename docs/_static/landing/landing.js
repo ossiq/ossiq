@@ -67,6 +67,22 @@ for (const button of themeButtons) {
 }
 setTheme(theme);
 
+// ---------- menu ----------
+
+const menuButton = document.querySelector(".menu-btn");
+
+function setMenu(open) {
+  header.classList.toggle("open", open);
+  menuButton.setAttribute("aria-expanded", String(open));
+}
+
+menuButton.addEventListener("click", () => setMenu(!header.classList.contains("open")));
+// #product and #features scroll the page under the drawer, so any link closes it.
+for (const link of header.querySelectorAll("nav a")) {
+  link.addEventListener("click", () => setMenu(false));
+}
+addEventListener("keydown", (event) => event.key === "Escape" && setMenu(false));
+
 // ---------- scroll ----------
 
 /** Fades the panels in and out and tells the scene how far the page has scrolled. */
