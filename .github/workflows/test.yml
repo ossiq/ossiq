@@ -24,9 +24,9 @@ jobs:
     runs-on: ${{ matrix.os }}
 
     steps:
-    - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
     - name: Install uv with Python ${{ matrix.python-version }}
-      uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
+      uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.1
       with:
         python-version: ${{ matrix.python-version }}
 
@@ -48,37 +48,38 @@ jobs:
 
   frontend-template-freshness:
     # spa_app.html is a committed source artifact that packaging only reads, so a
-    # frontend/ change without a regenerated template would ship a report that no
-    # longer matches the sources it claims to come from. Needs no Node: it compares
-    # which paths the PR touched, not what they build to.
-    name: spa_app.html tracks frontend/
+    # template that no longer matches frontend/ would ship a report that differs
+    # from the sources it claims to come from. It is the tree-shaken bundle, not a
+    # copy: a devDependency bump or lockfile refresh leaves it byte-identical, so
+    # the gate rebuilds and compares output instead of guessing from touched paths.
+    name: spa_app.html matches frontend/
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          fetch-depth: 0
           persist-credentials: false
 
-      - name: A frontend/ change must regenerate the SPA template
-        env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22'
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.1
+
+      - name: Rebuilding the SPA must not change the committed template
         run: |
           set -euo pipefail
-          changed="$(git diff --name-only "$BASE_SHA"...HEAD)"
-          sources="$(printf '%s\n' "$changed" \
-            | grep -E '^frontend/(src/|index\.html$|package-lock\.json$|package\.json$|vite\.config\.ts$)' || true)"
-          template="$(printf '%s\n' "$changed" \
-            | grep -E '^src/ossiq/ui/html_templates/spa_app\.html$' || true)"
-
-          if [ -n "$sources" ] && [ -z "$template" ]; then
-            echo "::error::frontend sources changed but src/ossiq/ui/html_templates/spa_app.html was not regenerated. Run \`just frontend-build\` and commit the result."
-            printf '%s\n' "$sources"
+          # frontend_build.py only needs hatchling (it imports hatch_build), not the project.
+          uv run --no-project --with hatchling python frontend_build.py
+          if ! git diff --quiet -- src/ossiq/ui/html_templates/spa_app.html; then
+            echo "::error::src/ossiq/ui/html_templates/spa_app.html is stale: building frontend/ produces different output. Run \`just frontend-build\` and commit the result."
+            git diff --stat -- src/ossiq/ui/html_templates/spa_app.html
             exit 1
           fi
-          echo "SPA template is consistent with the frontend changes in this PR"
+          echo "SPA template matches a fresh build of frontend/"
 
   cross-platform:
     # The package claims "Operating System :: OS Independent" and ships Windows and
@@ -93,10 +94,10 @@ jobs:
     runs-on: ${{ matrix.os }}
 
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Install uv
-        uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
+        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.1
         with:
           python-version: '3.13'
 
@@ -119,7 +120,7 @@ jobs:
     container: python:3.13-slim
 
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Confirm npm really is absent
         run: |
