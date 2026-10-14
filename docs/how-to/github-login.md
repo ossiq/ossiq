@@ -105,7 +105,7 @@ GitHub token
 ```
 
 `Source` names the token that scans use. A token from the environment outranks the login; see
-[Reference → token precedence](../reference.md#token-precedence).
+[Reference → Token precedence](../reference/configuration.md#token-precedence).
 
 ## Use a token in CI and containers
 

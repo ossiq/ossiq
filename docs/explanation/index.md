@@ -20,6 +20,7 @@ A scan gathers the evidence that `status` reports and that every recommendation 
 | Page | What it answers |
 |---|---|
 | [Repository stability](repository-stability.md) | How OSS IQ judges whether a package is still maintained and whether a CVE is being exploited, and how the two meet in one triage verdict |
+| [Constraint provenance](constraint-provenance.md) | Why OSS IQ reports where each version constraint comes from, and who can change the version it holds |
 | [Partial data](../recommendations/partial-data.md) | What each external source feeds, what breaks when it degrades, and where that shows |
 
 ```{toctree}
@@ -27,6 +28,7 @@ A scan gathers the evidence that `status` reports and that every recommendation 
 :maxdepth: 1
 
 Repository stability <repository-stability>
+constraint-provenance
 ../recommendations/partial-data
 ```
 

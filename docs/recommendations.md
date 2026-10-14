@@ -10,8 +10,8 @@ Part of [Explanation](explanation/index.md).
 **Every line OSS IQ prints under *Recommended*, *What's Next* or *Plan* is a decision taken on your
 behalf. This page says how OSS IQ reaches that decision and how to read the result.**
 
-[Reference → Update Strategy](reference.md#update-strategy) and
-[Reference → Version ladder](reference.md#version-ladder) define the flags and the fields. This
+[Reference → Update strategy](reference/update-rules.md#update-strategy) and
+[Reference → Version ladder](reference/update-rules.md#version-ladder) define the flags and the fields. This
 page is the *why*, and it is the one to read before you wire `ossiq` into CI, hand it to a coding
 agent, or run `apply --yes`.
 

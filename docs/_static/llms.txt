@@ -51,12 +51,22 @@ Source: the Round 3 agent benchmark of 28 September 2026, with 60 sessions acros
 
 - [Getting Started](https://ossiq.dev/getting-started.html): Installation, first scan, and basic usage
 - [Log in to GitHub](https://ossiq.dev/how-to/github-login.html): Device-flow login, CI tokens, and troubleshooting
+- [Resolve a blocked update or a peer problem](https://ossiq.dev/how-to/resolve-blocked-updates.html): Move past a transitive constraint, fix a peer violation, or repair an unresolved peer
 - [Verifying a release](https://ossiq.dev/how-to/verifying-a-release.html): Check the signed SLSA build provenance of an installed artifact with `gh attestation verify`
 - [Explanation](https://ossiq.dev/explanation/index.html): Map of the explanation pages, in the order of a run: what OSS IQ measures, how it picks an update, and what it writes
 - [The update pyramid](https://ossiq.dev/recommendations/update-pyramid.html): The five update strategy tiers, how far each one reaches, and what choosing a tier risks
 - [How a recommendation is decided](https://ossiq.dev/recommendations.html): The three questions OSS IQ answers before it recommends a version, and how to read the result
+- [Constraint provenance](https://ossiq.dev/explanation/constraint-provenance.html): Why OSS IQ reports where each version constraint comes from, and who can change the version it holds
 - [Cooldown](https://ossiq.dev/explanation/cooldown.html): Why a release must age 7 days before OSS IQ recommends it, and what skips the wait
-- [Reference](https://ossiq.dev/reference.html): Full CLI reference and configuration options
+- [Reference](https://ossiq.dev/reference.html): Map of the reference pages, grouped by what you have in front of you: a command, a report, a rule, or code
+- [Commands](https://ossiq.dev/reference/commands.html): Every command with its arguments, options and exit codes
+- [Configuration](https://ossiq.dev/reference/configuration.html): Global flags, `OSSIQ_*` environment variables, the config file, GitHub token precedence, and the hosts a scan calls
+- [Console and HTML reports](https://ossiq.dev/reference/reports.html): Every column, marker and sub-row of `ossiq status`, `ossiq info` and the HTML report
+- [JSON export and agent format](https://ossiq.dev/reference/export-and-agent-format.html): Every field of the `ossiq export` file, the `--format agent` decision, and the MCP tools
+- [Update rules](https://ossiq.dev/reference/update-rules.html): The five update strategy tiers, the version ladder, and the solver's cooldown, CVE, peer and override rules
+- [Constraints, overrides and aliases](https://ossiq.dev/reference/constraints.html): The five constraint types, pip and uv constraint settings, npm `overrides` and npm package aliases
+- [Python API](https://ossiq.dev/reference/python-api.html): `scan()`, `ScanResult`, `ScanRecord`, `Settings` and the other types you can import
+- [Stability guarantees](https://ossiq.dev/reference/stability.html): What stays the same across releases: the export schema, the CLI interface and repeatable scans
 - [Tutorials](https://ossiq.dev/tutorials/): Step-by-step guides for common use cases
 
 ## Markdown sources
@@ -65,8 +75,17 @@ Each documentation page is also published as plain Markdown. Replace `<page>.htm
 
 - [Getting Started](https://ossiq.dev/_sources/getting-started.md.txt)
 - [Reference](https://ossiq.dev/_sources/reference.md.txt)
+- [Commands](https://ossiq.dev/_sources/reference/commands.md.txt)
+- [Configuration](https://ossiq.dev/_sources/reference/configuration.md.txt)
+- [Console and HTML reports](https://ossiq.dev/_sources/reference/reports.md.txt)
+- [JSON export and agent format](https://ossiq.dev/_sources/reference/export-and-agent-format.md.txt)
+- [Update rules](https://ossiq.dev/_sources/reference/update-rules.md.txt)
+- [Constraints, overrides and aliases](https://ossiq.dev/_sources/reference/constraints.md.txt)
+- [Python API](https://ossiq.dev/_sources/reference/python-api.md.txt)
+- [Stability guarantees](https://ossiq.dev/_sources/reference/stability.md.txt)
 - [Explanation](https://ossiq.dev/_sources/explanation/index.md.txt)
 - [Repository stability](https://ossiq.dev/_sources/explanation/repository-stability.md.txt)
+- [Constraint provenance](https://ossiq.dev/_sources/explanation/constraint-provenance.md.txt)
 - [Partial data](https://ossiq.dev/_sources/recommendations/partial-data.md.txt)
 - [The update pyramid](https://ossiq.dev/_sources/recommendations/update-pyramid.md.txt)
 - [How a recommendation is decided](https://ossiq.dev/_sources/recommendations.md.txt)
@@ -77,6 +96,7 @@ Each documentation page is also published as plain Markdown. Replace `<page>.htm
 - [Every recommendation OSS IQ can make](https://ossiq.dev/_sources/recommendations/catalogue.md.txt)
 - [The cycle: status → plan → apply](https://ossiq.dev/_sources/recommendations/the-cycle.md.txt)
 - [Log in to GitHub](https://ossiq.dev/_sources/how-to/github-login.md.txt)
+- [Resolve a blocked update or a peer problem](https://ossiq.dev/_sources/how-to/resolve-blocked-updates.md.txt)
 - [Verifying a release](https://ossiq.dev/_sources/how-to/verifying-a-release.md.txt)
 - [Tutorial: first analysis](https://ossiq.dev/_sources/tutorials/tutorial-first-analysis.md.txt)
 - [Tutorial: GitHub Actions](https://ossiq.dev/_sources/tutorials/tutorial-github-actions.md.txt)
