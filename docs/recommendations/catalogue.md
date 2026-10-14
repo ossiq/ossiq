@@ -8,7 +8,7 @@ against different evidence, and they are *not* rankings of each other.
 
 ## The target — `recommended_version` + `recommended_from_rung`
 
-The version to move to, and which rung of the [version ladder](../reference.md#version-ladder) it
+The version to move to, and which rung of the [version ladder](../reference/update-rules.md#version-ladder) it
 came from.
 
 | Rung | Meaning | Writable by `apply`? |
@@ -96,7 +96,7 @@ These carry as much decision-making weight as the targets, and are easier to ski
 | `rejected_candidates` | a newer release was found and held back — by a transitive conflict, a peer dependency range, a known module-system break, or an engine mismatch — one per rung, with the reason. On npm a transitive conflict means an `overrides` rule: a dependent whose range cannot share the installed copy simply gets its own | `status --full` `↳` rows, export, agent `reasons` |
 | *Held by overrides you wrote* | an `overrides` rule of yours kept a release or a transitive update out of the plan. OSS IQ never rewrites a rule it did not write | `plan` and `apply` section |
 | *Held by peer dependencies* | a newer release exists, but an installed package's `peerDependencies` range rules it out (`typescript` 7.0.2, held by `@typescript-eslint/*` peer-requiring `<6.1.0`), or the release's own peers cannot be met. One line per package: the newest refused release, the first requirer and how many more. Held to the *declared* range even where an `overrides` entry would let npm install past it | `plan` section, `status --full` `↳` rows, `info` |
-| *Repairs unresolved peers* | a peer is installed only where its requirer cannot load it, and `apply` fixes that: it adds the peer to the manifest at the range shown and moves the stale copies of its family with it. See *Unresolved peers* in [Reference → Console Reports](../reference.md#console-reports) | `plan` section, `apply`, export and agent `peer_repairs` |
+| *Repairs unresolved peers* | a peer is installed only where its requirer cannot load it, and `apply` fixes that: it adds the peer to the manifest at the range shown and moves the stale copies of its family with it. See [Reference → Unresolved peers](../reference/reports.md#unresolved-peers) | `plan` section, `apply`, export and agent `peer_repairs` |
 | `unresolved_peers` | the peers a package declares that nothing within its reach satisfies | `status` (every mode), `info`, export, agent |
 | `constraint_conflict` | no version satisfies all constraints (`[NO RESOLUTION]`) | `status`, `info` |
 | `escalation` | reach was pushed past the tier's base, or every reachable version still carries a CVE | export `strategy`, agent |

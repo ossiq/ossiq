@@ -4,6 +4,7 @@
 :maxdepth: 1
 
 github-login
+resolve-blocked-updates
 verifying-a-release
 ```
 

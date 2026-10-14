@@ -97,7 +97,7 @@ signals (vulnerabilities) and maintenance signals (activity, overhead, health):
 
 Every table, column, and status marker in this report, including the *Transitive Recommendations*,
 *Peer Constraint Status* and the unresolved-peer rows, is documented in
-[Reference → Console Reports](reference.md#console-reports).
+[Reference → Console and HTML reports](reference/reports.md).
 
 ## Coding agents
 
@@ -124,7 +124,7 @@ ossiq install skills copilot
 The skill and the MCP server run OSS IQ the way you ran `install skills`:
 `npx @ossiq/cli install skills` gives `npx` commands, and `uvx ossiq install skills` gives `uvx`
 ones. To choose yourself, pass `--via uvx`, `--via npx` or `--via ossiq`; see
-[How the skill runs OSS IQ](reference.md#how-the-skill-runs-oss-iq).
+[How the skill runs OSS IQ](reference/commands.md#how-the-skill-runs-oss-iq).
 
 The command stores no GitHub token. The MCP server uses your [GitHub login](#log-in-to-github);
 without one, the agent shows you a login code and retries after you approve. Re-running
@@ -151,7 +151,7 @@ ossiq info requests --format agent
 compatibility, and a `comparison.verdict` that judges the target version against the recommended one.
 
 For exactly which files are written, and how to run the integration from a local checkout with
-`--dev`, see [Reference → install skills](reference.md#install-skills).
+`--dev`, see [Reference → `install skills`](reference/commands.md#install-skills).
 
 ## The CLI workflow
 
@@ -178,7 +178,7 @@ ossiq info sphinx
 
 The section-by-section breakdown of this report - drift status, policy compliance,
 recommendation rationale, peer requirements, and transitive CVEs - is in
-[Reference → Console Reports](reference.md#console-reports).
+[Reference → Console and HTML reports](reference/reports.md).
 
 ### Gated package add
 
@@ -230,8 +230,8 @@ next-best candidate when the top one would conflict, and holds back releases you
 `--cooldown-period` (default: 7 days) unless they fix a CVE in an installed version. The solver
 resolves in a single pass against your current lockfile, so re-running `plan` after `apply` can
 surface further updates; repeat until it reports none. Full rules are in
-[Reference → Update Solver](reference.md#update-solver-plan--apply), and every flag is in
-[Reference → Plan and apply options](reference.md#plan-and-apply-options).
+[Reference → Update rules](reference/update-rules.md#solver-rules), and every flag is in
+[Reference → `plan` and `apply`](reference/commands.md#plan-and-apply).
 
 ## Reports and exports
 
@@ -267,5 +267,5 @@ ossiq export --output=./scan_export.json .
 The export carries a `schema_version`, which you can pin with `--schema-version`: within a
 version, fields are never renamed or removed, so a metric you gate on in CI today keeps its
 meaning tomorrow. See
-[Reference → Outputs](reference.md#outputs) and
-[Reference → Export Schema Stability](reference.md#export-schema-stability).
+[Reference → JSON export](reference/export-and-agent-format.md#json-export) and
+[Reference → Export schema stability](reference/stability.md#export-schema-stability).
