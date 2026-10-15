@@ -669,6 +669,26 @@ class TestNestedCopies:
         assert impact.conflict == RejectionDetail("no version satisfies", ("^12.0.0",))
         assert result.is_actionable is False
 
+    def test_an_aliased_requirement_is_judged_against_the_package_it_names(self):
+        """pretty-format aliases react-is twice; "@jest/react-is-18" itself is not on the registry."""
+        registry = make_npm_registry(
+            versions_by_name={"react-is": [pv("19.2.5"), pv("18.3.1")]},
+            requires_by_pkg_ver={
+                ("pretty-format", "30.5.1"): {
+                    "@jest/react-is-18": "npm:react-is@^18.3.1",
+                    "@jest/react-is-19": "npm:react-is@^19.2.5",
+                }
+            },
+        )
+
+        result = simulate_single("pretty-format", "30.5.1", {}, registry)
+
+        assert [(i.package_name, i.projected_version) for i in result.transitive_impacts] == [
+            ("react-is", "18.3.1"),
+            ("react-is", "19.2.5"),
+        ]
+        assert result.is_actionable is True
+
     def test_a_record_without_graph_data_is_one_copy_at_its_installed_version(self):
         shared = make_scan_record("@vue/shared", "3.5.42")
         registry = make_npm_registry(

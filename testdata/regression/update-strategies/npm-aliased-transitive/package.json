@@ -1,0 +1,11 @@
+{
+  "name": "regression-update-strategies-npm-aliased-transitive",
+  "version": "1.0.0",
+  "private": true,
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "pretty-format": "^30.3.0"
+  }
+}
