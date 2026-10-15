@@ -1,0 +1,24 @@
+# Expected `--update-strategy` outcomes for this project, checked by
+# qa/update_strategies_regression.py. Schema and workflow: qa/README.md.
+#
+# Node floor >=20 (package.json `engines`), lockfile v3. Unlike the `npm` fixture this one is
+# deliberately not dependency-free: the case lives in the candidate's own requirements.
+
+ecosystem = "npm"
+# 30.5.1 is 14 days old here, past the cooldown, and react-is 19.2.5 is already published.
+cutoff_date = "2026-09-15"
+cooldown_period = 7
+
+# 30.5.x declares npm aliases ("@jest/react-is-18": "npm:react-is@^18.3.1"), whose keys are
+# folder names, not registry packages. The installed 30.3.0 declares none, so the alias only
+# shows up while simulating the move to 30.5.1, which used to abort with UnableLoadPackage
+# (GH-165). No advisory and nothing newer than 30.5.1, so every tier that moves on drift lands
+# there inside the declared range.
+[packages.pretty-format]
+installed = "30.3.0"
+declared = "^30.3.0"
+advisories = []
+security = { withheld = true }
+standard = { recommended = "30.5.1" }
+latest = { recommended = "30.5.1" }
+cutting-edge = { recommended = "30.5.1" }

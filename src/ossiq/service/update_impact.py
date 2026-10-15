@@ -10,6 +10,7 @@ from enum import StrEnum
 from typing import TYPE_CHECKING
 
 from ossiq.adapters.api_interfaces import AbstractPackageRegistryApi
+from ossiq.adapters.package_managers.npm.manifest import parse_npm_alias
 from ossiq.domain.common import ConstraintType, RejectionDetail
 from ossiq.domain.project import ConstraintSource, IncomingEdge, InstalledCopy
 from ossiq.domain.release_cutoff import ReleaseCutoff
@@ -537,7 +538,10 @@ def simulate_nested(
 
     while frontier:
         requires, chain = frontier.popleft()
-        for dep_name, spec in requires.items():
+        for dep_key, dep_spec in requires.items():
+            # An npm alias ("@jest/react-is-18": "npm:react-is@^18.3.1") installs the package it names.
+            alias_of, spec = parse_npm_alias(dep_spec)
+            dep_name = alias_of or dep_key
             verdict = assess_nested_edge(
                 dep_name,
                 spec,
