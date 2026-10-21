@@ -1,0 +1,24 @@
+# SLSA Source L3: records source provenance for every push to a protected branch or tag,
+# stored in git notes (refs/notes/*). release.py looks this workflow up by its filename and
+# waits for its run on the release commit before pushing the tag, because a tag's
+# attestation takes its level from its commit's.
+#
+# No `concurrency:` group on purpose: GitHub cancels a queued run when a newer one joins
+# the group, and a cancelled run leaves that commit without provenance.
+name: SLSA source provenance
+
+on:
+  push:
+    branches: [main, 'release/*']
+    tags: ['**']
+
+permissions: {}
+
+jobs:
+  provenance:
+    permissions:
+      contents: write # pushes the attestations to refs/notes/*
+      id-token: write
+    # Upstream has no tags, so this pins a main commit. The reusable workflow still runs
+    # its own action from @main; see RELEASE.md, "SLSA Source track".
+    uses: slsa-framework/source-actions/.github/workflows/compute_slsa_source.yml@350349ed7254eef6f81850aee8f7ebd8370de9e0 # 2026-08-29 main
