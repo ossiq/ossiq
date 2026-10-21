@@ -1,9 +1,13 @@
 ## How to cut new release
 
-This document outlines the process for cutting a new release of the `ossiq` project.
-It covers both the standard release procedure and steps for reverting a release if issues arise.
+This document outlines the process for cutting a new release of the `ossiq` project: the
+release branches it runs on, the standard procedure, what to do when a channel or a release
+fails, and how releases are attested (SLSA Build L3 for the artifacts, SLSA Source L3 for the
+code they are built from).
 
-**Important Warning**: Do not reuse the same release version twice. While local operations might appear successful, you will be unable to push a tag with an identical version to the remote repository, even if the previous remote tag has been deleted. Each release must have a unique version number.
+**Versions only go up, and every tag is permanent.** `release.py` refuses a version that is
+not newer than the newest one on PyPI, and the tag ruleset blocks moving or deleting a tag. A
+mistaken release is fixed by the next patch, never by reusing its number.
 
 ### One version, one tag, three registries
 
@@ -80,98 +84,151 @@ darwin-arm64 — `npx --yes @ossiq/cli@0.1.13 --version` runs, and the tarball c
 From 0.1.14 the flow is **stage, then approve**: `binaries.yml` runs `npm stage publish`,
 and nothing is installable until you approve each package with 2FA.
 
-**One setting to change before 0.1.14.** On npmjs.com, for each of the six packages →
-*Settings* → *Trusted Publisher* → *Allowed actions*: untick direct **`npm publish`** and
-leave **`npm stage publish`** ticked. Direct publish was switched on to get 0.1.13 out;
-leaving it on keeps an ungated path to the registry open, which is exactly what staging
-exists to close.
-
 **Do not build the Docker image against a pre-rename version.** `docker-entrypoint.sh`
 execs `ossiq`, which only exists from 0.1.11 onward, so `TAG_VERSION=0.1.10` or earlier
 produces an image that fails at startup.
 
+### Branches
+
+Releases ship from **release branches**: one short-lived branch per release, so `main` stays
+open for anything while a release is being tested.
+
+```
+main             A──B──C──D──E──F'──R1'──G──►
+                       │                 │
+release/0.1.14         └──F──R1          │        v0.1.14 tags R1
+                                         │
+release/0.1.15                           └──R2    v0.1.15 tags R2
+```
+
+`F` is a fix made while testing 0.1.14, and `R1` is the `chore(release): 0.1.14` commit that
+`release.py` makes. Both go back to `main` as cherry-picks (`F'`, `R1'`), and the next release
+branch is cut from `main` again.
+
+A release branch:
+
+1. is cut from `main` when you start testing a release, or from the last release tag when an
+   urgent fix can't wait for what is on `main`;
+2. is named `release/X.Y.Z` after the one version it ships, and `release.py` refuses any other
+   version on it;
+3. takes fixes only, as pull requests, landed as
+   [CONTRIBUTING.md](CONTRIBUTING.md#merge-a-pull-request-maintainers) describes;
+4. is frozen once tagged: never reused, never deleted;
+5. has its fixes and its `chore(release)` commit cherry-picked back to `main` before the next
+   release branch is cut.
+
+The `chore(release)` commit has to go back too. `release.py` finds the previous release from the
+version in `pyproject.toml`, so if `main` still says the old version, the next changelog repeats
+the whole previous release.
+
+**Why not one long-running release branch.** After its first release it holds commits that
+`main` only has as cherry-picked copies. Catching it up with `main` would take a merge commit
+or a force-push, and the rulesets forbid both: linear history, and the no-force-push rule that
+SLSA continuity depends on.
+
+`production`, the branch the old process released from, is retired. It stays protected and is
+no longer used.
+
 ### Standard Release Procedure
 
-Follow these steps to create and publish a new release:
+`X.Y.Z` is the version being released. A fix to something already released ships as the next
+patch, from a new release branch.
 
-1.  **Ensure `production` branch is up-to-date**:
-    ```bash    
-    git checkout production
-    git merge --ff-only main
+1.  **Cut the release branch** from `main`:
+    ```bash
+    git fetch origin
+    git switch -c release/X.Y.Z origin/main    # urgent fix: start from the last tag instead
+    git push -u origin release/X.Y.Z
     ```
+    The push runs `compute_slsa_source.yml`, which attests the commit on the new branch.
 
-2.  **Run the release script (dry-run first)**:
-    Use the `release.py` script to manage version bumping and tagging.
-    It's highly recommended to perform a dry-run first to preview the changes without actually applying them.
-    You can specify the version bump type (`--major`, `--minor`, `--patch`) or explicitly set the version with `--override-version`.
-    
-    *   **Make sure github token is exported to the environment:
-        ```bash
-        export OSSIQ_GITHUB_TOKEN=$(gh auth token)
-        ```
-        
-    *   **Dry-run (recommended)**:
-        ```bash
-        uv run release.py --dry-run --override-version 0.1.3 # or --major/--minor/--patch
-        ```
-    *   **Execute the release**:
-        ```bash
-        uv run release.py --override-version 0.1.3 # or --major/--minor/--patch
-        ```
+2.  **Add the branch to the SLSA source policy.** Open a PR to `slsa-framework/source-policies`
+    that adds `release/X.Y.Z` to `policy/github.com/ossiq/ossiq/source-policy.json`, and let it
+    merge before step 4. The policy names branches exactly, with no wildcards, so every release
+    branch needs its own entry. See [SLSA Source track](#slsa-source-track).
 
-    This performs 11 steps locally and remotely: bumps `pyproject.toml`, regenerates
-    `CHANGELOG.md`, commits `uv.lock` + `pyproject.toml` + `CHANGELOG.md` as
-    `chore(release): X.Y.Z`, creates and pushes tag `vX.Y.Z` — which is what starts the
-    PyPI and npm workflows — then creates the GitHub Release as a draft. `binaries.yml`
-    publishes that draft once the binaries are attached; don't publish it by hand, or it
-    becomes immutable without them.
+3.  **Test, and fix through pull requests.** Run `uv run just qa-integration` and the manual
+    cases in `qa/manual/release-checklist.md` against the release branch. Each fix:
+    ```bash
+    git switch -c fix/GH-<n>--<slug> origin/release/X.Y.Z
+    gh pr create --base release/X.Y.Z
+    ```
+    Land it as [CONTRIBUTING.md](CONTRIBUTING.md#merge-a-pull-request-maintainers) describes,
+    with `release/X.Y.Z` in place of `main`.
 
-    Note that only the *tag* is pushed at this point, not the `production` branch. That is
-    enough for CI: both workflows check out the tag.
+4.  **Run the release script**, dry run first:
+    ```bash
+    git switch release/X.Y.Z && git pull --ff-only
+    export OSSIQ_GITHUB_TOKEN=$(gh auth token)
+    uv run release.py --override-version X.Y.Z --dry-run
+    uv run release.py --override-version X.Y.Z
+    ```
+    Before changing anything, both runs refuse unless the branch is `release/X.Y.Z` and `X.Y.Z`
+    is newer than the newest version on PyPI. The real run then:
 
-3.  **Watch the workflows** (see [Release timeline](#release-timeline) below):
+    - bumps `pyproject.toml` and `uv.lock`, regenerates `CHANGELOG.md`, and commits them as a
+      signed `chore(release): X.Y.Z`. The rulesets require signed commits, so git signing must
+      be set up ([CONTRIBUTING.md](CONTRIBUTING.md#get-started), step 5).
+    - tags that commit `vX.Y.Z` locally and pushes the release branch.
+    - waits for `compute_slsa_source.yml` to attest the commit. A tag's attestation takes its
+      level from its commit's, so the tag must not go first.
+    - pushes the tag, which starts `release.yml` (PyPI), `binaries.yml` and the tag's own
+      attestation.
+    - creates the GitHub Release as a draft. `binaries.yml` publishes it once the binaries are
+      attached; don't publish it by hand, or it becomes immutable without them.
+
+    If something fails, see [If a release goes wrong](#if-a-release-goes-wrong).
+
+5.  **Watch the workflows** (see [Release timeline](#release-timeline) below):
     ```bash
     gh run list --limit 5
     gh run watch
     ```
-    `release.yml` must be green, and in `binaries.yml` every job including
-    **Stage npm packages for approval**. That job's summary page prints the approval
-    commands for this release.
+    `release.yml` and the tag's `compute_slsa_source.yml` must be green, and so must every job
+    in `binaries.yml`, including **Stage npm packages for approval**. That job's summary page
+    prints the approval commands for this release.
 
-4.  **Approve the staged npm packages** — manual, and nothing is installable until you do.
+6.  **Approve the staged npm packages** — manual, and nothing is installable until you do.
     Full runbook: [Approving a staged npm release](#approving-a-staged-npm-release).
     ```bash
     just npm-approve <binaries.yml run id>            # verify, approve nothing
     just npm-approve <binaries.yml run id> --approve  # approve, in order, 2FA each
     ```
 
-5.  **Publish the Docker image** — manual, and only once PyPI has the version:
+7.  **Publish the Docker image** — manual, and only once PyPI has the version:
     ```bash
     gh workflow run docker.yml -f tag=vX.Y.Z
     ```
     `latest` defaults to on; untick it (`-f latest=false`) when rebuilding an older
     version. The workflow refuses to start if `ossiq==X.Y.Z` is not yet on PyPI.
 
-6.  **Synchronize `main` with `production`**:
-    After a successful release, ensure your `main` branch reflects the changes from `production`.
+8.  **Back-port to `main`**, before the next release branch is cut:
     ```bash
-    git push origin production
-    git checkout main
-    git merge production
-    git push origin main
+    git switch -c chore/backport-X.Y.Z origin/main
+    git cherry-pick -x <fix commits> <"chore(release): X.Y.Z" commit>
+    gh pr create --base main
     ```
+    Land it as [CONTRIBUTING.md](CONTRIBUTING.md#merge-a-pull-request-maintainers) describes.
+    The release branch is now frozen.
 
-7.  **Verify all three channels landed** ([details](#post-release-verification)):
+    The next release's changelog lists these commits again. `release.py` collects every commit
+    since the previous tag, and that tag sits on the release branch, so the cherry-picked copies
+    on `main` count as new.
+
+9.  **Verify all three channels and the source attestation**
+    ([details](#post-release-verification)):
     ```bash
     uvx ossiq@X.Y.Z --version
     npx --yes @ossiq/cli@X.Y.Z --version
     docker run --rm ossiq/ossiq-cli:X.Y.Z --version
+    sourcetool verify ossiq/ossiq --tag vX.Y.Z
     ```
 
 ### Release timeline
 
 | Step | Trigger | Duration | Depends on |
 | --- | --- | --- | --- |
+| `compute_slsa_source.yml` → source attestation in git notes | push to `main`, a `release/*` branch, or any tag | ~1 min | nothing; `release.py` waits for the release commit's run before pushing the tag |
 | `release.yml` → PyPI | push of tag `vX.Y.Z` | ~2 min | nothing |
 | `binaries.yml` → binaries, publish the draft release, then **stage** npm | push of tag `vX.Y.Z` | ~15 min | the draft release existing (created seconds after the tag push) |
 | **npm approval** → npm | **manual**, `just npm-approve … --approve` | ~2 min + 2FA | `binaries.yml` having staged |
@@ -207,6 +264,9 @@ docker run --rm ossiq/ossiq-cli:X.Y.Z --version
 
 # 4. The GitHub Release should carry five .tar.gz assets
 gh release view vX.Y.Z --json assets --jq '.assets[].name'
+
+# 5. The tag's source attestation should report SLSA_SOURCE_LEVEL_3
+sourcetool verify ossiq/ossiq --tag vX.Y.Z
 ```
 
 ### If one channel fails
@@ -220,6 +280,7 @@ Each channel is recoverable on its own; you do **not** re-cut the release.
 | npm staging (`binaries.yml`) | `403 OIDC permission denied` means a direct `npm publish` was attempted against a stage-only publisher — the workflow must use `npm stage publish`. `E404` on the first `PUT` means the trusted publisher does not match: fix it on npmjs.com, then `gh run rerun <id> --failed`. Nothing has landed in either case, so a rerun is safe. |
 | npm approval | Staged-but-unapproved is **not** a failed release — the packages simply wait. Re-run `just npm-approve <run-id>`; it reports what is already live and what is still pending. If an approval failed part-way, the launcher may be live before its platform packages: the tool says so, and the fix is to approve the rest immediately. |
 | Docker (`docker.yml`) | Just run it again: `gh workflow run docker.yml -f tag=vX.Y.Z`. Nothing depends on it, so it can be published hours or days later. |
+| Source attestation (`compute_slsa_source.yml`) | Re-run the failed job: `gh run rerun <id> --failed`. A re-run keeps the original push event, which the attestation action requires. |
 
 A version that is live on one registry but not another is not an emergency — the channels
 are independent. Fix the failed one and the release is complete.
@@ -233,28 +294,22 @@ config:
 npm deprecate "@ossiq/cli@X.Y.Z" "<what is broken>; use X.Y.Z+1 or later"
 ```
 
-### How to Revert a Release (If Something Goes Wrong)
+### If a release goes wrong
 
-If an issue is discovered immediately after a release, you can revert the changes using these steps.
-**Note**: This should be done with caution, as it rewrites history.
+Nothing a release pushes can be taken back: the tag ruleset makes every tag permanent, and a
+release branch can't be force-pushed or deleted. So you fix forward.
 
-1.  **Revert the version bump commit**:
-    This command will undo the last commit, which typically contains the version bump.
-    ```bash
-    git reset --hard HEAD~1
-    ```
-
-2.  **Delete the local tag**:
-    Remove the tag associated with the problematic release from your local repository.
-    ```bash
-    git tag -d vX.Y.Z # Replace vX.Y.Z with the actual version tag, e.g., v0.1.3
-    ```
-
-3.  **Delete the remote tag (if already pushed)**:
-    If the tag was already pushed to the remote, you must delete it there as well.
-    ```bash
-    git push origin :refs/tags/vX.Y.Z # Replace vX.Y.Z with the actual version tag
-    ```
+- **`release.py` stopped before pushing anything.** Nothing left your machine. Discard the
+  local bump with `git reset --hard origin/release/X.Y.Z` (and `git tag -d vX.Y.Z` if it got
+  as far as tagging), then run it again.
+- **It stopped after pushing the branch**, most likely while waiting for the attestation. The
+  `chore(release)` commit is on the release branch, and it is the commit to tag. Don't run
+  `release.py` again, because it would bump and commit a second time. Once that commit's
+  `compute_slsa_source.yml` run is green, finish with the two commands it printed: push the
+  tag, then create the draft release.
+- **A published version is broken.** Release the fix as the next patch: cut its release branch
+  from the broken version's tag if `main` isn't ready, and deprecate the bad version (see
+  above).
 
 ---
 
@@ -338,6 +393,61 @@ npm pack @ossiq/cli@X.Y.Z
 gh attestation verify ossiq-cli-X.Y.Z.tgz --repo ossiq/ossiq \
   --signer-workflow ossiq/ossiq/.github/workflows/reusable-build-npm.yml
 ```
+
+### SLSA Source track
+
+The workflows above make the *artifacts* SLSA Build L3. The *code* they are built from
+targets [SLSA Source L3](https://slsa.dev/spec/v1.2/source-requirements). Every revision a
+release is built from sits on a protected branch and is attested when it lands there, and
+every tag is permanent.
+
+**Protected references**, set up as repository rulesets:
+
+| Ruleset | Covers | Rules |
+| --- | --- | --- |
+| SLSA Source Level 3 Ruleset | `main`, `release/*`, `production` | no deletion, no force-push, signed commits, linear history |
+| SLSA Source Level 3 Tags Ruleset | every tag | no deletion, no update, no force-push |
+| Main Branch Protection | `main` | changes through pull requests, squash-merged; org admins can bypass |
+
+The two SLSA rulesets have **no bypass actors**, admins included. A bypass would break the
+continuity that the attestations claim. Tag *creation* is deliberately not restricted: SLSA
+asks only that tags never move or disappear, and `release.py` has to be able to create them.
+
+Main Branch Protection keeps its org-admin bypass. That is how a maintainer lands a pull
+request: by pushing its signed commits straight to `main`, as
+[CONTRIBUTING.md](CONTRIBUTING.md#merge-a-pull-request-maintainers) describes. The SLSA rules
+still apply to that push. GitHub's **Rebase and merge** would re-create the commits without
+signatures, so it is never used.
+
+**Attestations.** `compute_slsa_source.yml` runs on every push to a protected branch or tag.
+It calls the SLSA framework's reusable workflow, which records source provenance and a
+Verification Summary Attestation (VSA) for the pushed commit in git notes (`refs/notes/*`). A
+tag's VSA takes its level from its commit's. That is why `release.py` waits for the release
+commit's run before it pushes the tag.
+
+**Limit.** The SLSA framework's reusable workflow runs its own action from `@main`
+(`slsa-framework/source-actions/slsa_with_provenance@main`). Pinning `compute_slsa_source.yml`'s
+call to it by SHA doesn't freeze the code that writes the attestations.
+
+**Policy.** The level each branch is held to is declared in
+`policy/github.com/ossiq/ossiq/source-policy.json` in `slsa-framework/source-policies`, a
+repository this project doesn't control. sourcetool matches branch names exactly, so every
+release branch needs its own entry: step 2 of the
+[Standard Release Procedure](#standard-release-procedure).
+
+```bash
+sourcetool status ossiq/ossiq --level          # the level each protected branch is at
+sourcetool verify ossiq/ossiq --tag vX.Y.Z     # what a consumer checks
+```
+
+**Safe expunging.** SLSA requires the process for removing content from protected history to
+be documented, and this is it:
+
+- It is allowed only to meet a legal or privacy obligation.
+- An org admin disables the affected ruleset, rewrites or deletes the ref, and re-enables the
+  ruleset. GitHub's audit log records each ruleset change.
+- The reason, the refs and the revisions removed are recorded in a GitHub issue.
+- That ref's continuity restarts afterwards, so update its `Since` date in the source policy.
 
 ## npm Channel
 
@@ -602,7 +712,7 @@ Before releasing, test the Docker build locally:
 
 ```bash
 # Build the image against an already-published version
-docker build -t ossiq/ossiq-cli:test --build-arg TAG_VERSION=0.1.10 .
+docker build -t ossiq/ossiq-cli:test --build-arg TAG_VERSION=0.1.13 .
 
 # Test help commands
 docker run --rm ossiq/ossiq-cli:test --help
