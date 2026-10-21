@@ -15,6 +15,8 @@ from __future__ import annotations
 import os
 import re
 import subprocess
+import tempfile
+import time
 from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
@@ -28,6 +30,10 @@ from jinja2 import BaseLoader, Environment
 from requests.adapters import HTTPAdapter
 from rich.console import Console
 from urllib3.util.retry import Retry
+
+PYPI_JSON_URL = "https://pypi.org/pypi/ossiq/json"
+# The source provenance workflow; release.py waits for its run before pushing a tag.
+PROVENANCE_WORKFLOW = "compute_slsa_source.yml"
 
 # ============================================================================
 # Enums and Data Classes
@@ -161,6 +167,35 @@ class VersionService:
         raise ValueError(f"Unknown bump type: {bump_type}")
 
     @staticmethod
+    def ensure_newer_than_pypi(new_version: str, pypi_json_url: str = PYPI_JSON_URL) -> str | None:
+        """Refuse a version that is not newer than every release on PyPI.
+
+        Args:
+            new_version: Version about to be released.
+            pypi_json_url: PyPI JSON API URL for the package.
+
+        Returns:
+            The newest version on PyPI, or None if nothing is published.
+
+        Raises:
+            ValueError: If new_version is not newer than the newest on PyPI.
+            requests.RequestException: If PyPI can't be reached.
+        """
+        response = requests.get(pypi_json_url, timeout=30)
+        response.raise_for_status()
+        # Yanked releases stay in "releases" and still block their number from reuse.
+        published: list[semver.Version] = []
+        for version in response.json().get("releases") or {}:
+            try:
+                published.append(semver.Version.parse(version))
+            except ValueError:
+                continue
+        newest = max(published, default=None)
+        if newest is not None and semver.Version.parse(new_version) <= newest:
+            raise ValueError(f"{new_version} is not newer than {newest}, the newest ossiq on PyPI")
+        return str(newest) if newest is not None else None
+
+    @staticmethod
     def update_pyproject_version(project_root: Path, new_version: str, dry_run: bool) -> None:
         """Update version in pyproject.toml."""
         if dry_run:
@@ -226,6 +261,53 @@ class GitService:
             except ValueError:
                 continue
         return None
+
+    @staticmethod
+    def ensure_release_branch(version: str) -> str:
+        """Refuse to release unless the current branch is `release/<version>`.
+
+        Args:
+            version: Version about to be released.
+
+        Returns:
+            The branch name.
+
+        Raises:
+            ValueError: If the current branch is any other branch, or HEAD is detached.
+        """
+        result = subprocess.run(
+            ["git", "branch", "--show-current"],
+            capture_output=True,
+            text=True,
+            check=True,
+            shell=False,
+        )
+        branch = result.stdout.strip()
+        expected = f"release/{version}"
+        if branch != expected:
+            raise ValueError(f"On {branch or 'a detached HEAD'}, but {version} can only be released from {expected}")
+        return branch
+
+    @staticmethod
+    def head_sha() -> str:
+        """Return the full SHA of HEAD."""
+        result = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            capture_output=True,
+            text=True,
+            check=True,
+            shell=False,
+        )
+        return result.stdout.strip()
+
+    @staticmethod
+    def push_branch(branch: str) -> None:
+        """Push a branch to origin."""
+        subprocess.run(
+            ["git", "push", "origin", branch],
+            check=True,
+            shell=False,
+        )
 
     @staticmethod
     def get_commits_since_tag(tag: str | None) -> list[CommitInfo]:
@@ -337,7 +419,7 @@ class GitService:
 
         subprocess.run(["git", "add"] + files, check=True, shell=False)
         subprocess.run(
-            ["git", "commit", "-s", "-m", message],
+            ["git", "commit", "-S", "-s", "-m", message],
             check=True,
             shell=False,
         )
@@ -540,15 +622,6 @@ class GitHubService:
         if dry_run:
             return None
 
-        if not self.token:
-            raise ValueError("OSSIQ_GITHUB_TOKEN environment variable is required for GitHub release")
-
-        headers = {
-            "Authorization": f"Bearer {self.token}",
-            "Accept": "application/vnd.github+json",
-            "X-GitHub-Api-Version": "2022-11-28",
-        }
-
         payload = {
             "tag_name": tag_name,
             "name": f"Release {tag_name}",
@@ -559,7 +632,7 @@ class GitHubService:
 
         response = self.session.post(
             f"{self.api_url}/releases",
-            headers=headers,
+            headers=self.auth_headers(),
             json=payload,
             timeout=30,
         )
@@ -577,6 +650,54 @@ class GitHubService:
                 pass
             suffix = f" ({detail})" if detail else ""
             raise RuntimeError(f"Failed to create GitHub release: HTTP {response.status_code}{suffix}")
+
+    def auth_headers(self) -> dict[str, str]:
+        """Return the GitHub API headers, token included.
+
+        Raises:
+            ValueError: If no token is set.
+        """
+        if not self.token:
+            raise ValueError("OSSIQ_GITHUB_TOKEN environment variable is required for GitHub release")
+        return {
+            "Authorization": f"Bearer {self.token}",
+            "Accept": "application/vnd.github+json",
+            "X-GitHub-Api-Version": "2022-11-28",
+        }
+
+    def wait_for_provenance(self, sha: str, attempts: int = 90, poll_seconds: float = 10) -> str:
+        """Wait until the source provenance workflow succeeds on a pushed commit.
+
+        Args:
+            sha: Full SHA of the pushed commit.
+            attempts: How many times to poll before giving up.
+            poll_seconds: Pause between polls.
+
+        Returns:
+            URL of the successful run.
+
+        Raises:
+            RuntimeError: If the run fails, or no run succeeds within the attempts.
+        """
+        url = f"{self.api_url}/actions/workflows/{PROVENANCE_WORKFLOW}/runs"
+        for _ in range(attempts):
+            response = self.session.get(
+                url,
+                headers=self.auth_headers(),
+                params={"head_sha": sha, "event": "push"},
+                timeout=30,
+            )
+            response.raise_for_status()
+            runs = response.json().get("workflow_runs") or []
+            if runs and runs[0].get("status") == "completed":
+                run = runs[0]
+                if run.get("conclusion") == "success":
+                    return run.get("html_url", "")
+                raise RuntimeError(f"Provenance run ended '{run.get('conclusion')}': {run.get('html_url')}")
+            time.sleep(poll_seconds)
+        raise RuntimeError(
+            f"No successful {PROVENANCE_WORKFLOW} run for {sha[:7]} after {attempts * poll_seconds:.0f}s"
+        )
 
 
 # ============================================================================
@@ -626,18 +747,24 @@ class ReleaseOrchestrator:
             )
             self.console.print(f"  New version: [green]{new_version}[/]")
 
-            self.console.print("[bold blue]Step 3:[/] Finding latest git tag...")
+            self.console.print("[bold blue]Step 3:[/] Checking release branch and PyPI...")
+            branch = self.git_svc.ensure_release_branch(new_version)
+            self.console.print(f"  Branch: [green]{branch}[/]")
+            newest_on_pypi = self.version_svc.ensure_newer_than_pypi(new_version)
+            self.console.print(f"  Newest on PyPI: [green]{newest_on_pypi or 'None'}[/]")
+
+            self.console.print("[bold blue]Step 4:[/] Finding latest git tag...")
             latest_tag = self.config.since_tag or self.git_svc.get_latest_tag(current_version)
             self.console.print(f"  Latest tag: [green]{latest_tag or 'None'}[/]")
 
-            self.console.print("[bold blue]Step 4:[/] Getting commits since last tag...")
+            self.console.print("[bold blue]Step 5:[/] Getting commits since last tag...")
             commits = self.git_svc.get_commits_since_tag(latest_tag)
             self.console.print(f"  Found [green]{len(commits)}[/] commits")
 
             if not commits:
                 self.console.print("[yellow]Warning: No commits found since last tag![/]")
 
-            self.console.print("[bold blue]Step 5:[/] Generating changelog entry...")
+            self.console.print("[bold blue]Step 6:[/] Generating changelog entry...")
             changelog_entry = self.changelog_svc.generate_changelog_entry(
                 new_version,
                 commits,
@@ -645,9 +772,9 @@ class ReleaseOrchestrator:
             )
 
             if self.config.dry_run:
-                self._print_dry_run_output(current_version, new_version, changelog_entry)
+                self._print_dry_run_output(current_version, new_version, changelog_entry, branch)
             else:
-                self._execute_release(new_version, changelog_entry)
+                self._execute_release(new_version, changelog_entry, branch)
 
             return 0
 
@@ -663,6 +790,7 @@ class ReleaseOrchestrator:
         current_version: str,
         new_version: str,
         changelog_entry: str,
+        branch: str,
     ) -> None:
         """Print dry-run output showing what would happen."""
         self.console.print("\n[bold yellow]DRY RUN - No changes will be made[/]\n")
@@ -677,33 +805,50 @@ class ReleaseOrchestrator:
             f'  1. Update pyproject.toml: version = "{current_version}" -> "{new_version}" and execute `uv sync`'
         )
         self.console.print("  2. Update CHANGELOG.md with new entry")
-        self.console.print("  3. git add pyproject.toml CHANGELOG.md")
-        self.console.print(f'  4. git commit -s -m "chore(release): {new_version}"')
+        self.console.print("  3. git add uv.lock pyproject.toml CHANGELOG.md")
+        self.console.print(f'  4. git commit -S -s -m "chore(release): {new_version}"')
         self.console.print(f'  5. git tag -a v{new_version} -m "Release v{new_version}"')
-        self.console.print(f"  6. git push origin v{new_version} ")
-        self.console.print(f"  7. POST {self.github_api_url}/releases")
+        self.console.print(f"  6. git push origin {branch}")
+        self.console.print(f"  7. Wait for {PROVENANCE_WORKFLOW} to succeed on the release commit")
+        self.console.print(f"  8. git push origin v{new_version}")
+        self.console.print(f"  9. POST {self.github_api_url}/releases")
         self.console.print(f"     - tag_name: v{new_version}")
         self.console.print(f"     - name: Release v{new_version}")
         self.console.print("     - draft: true (binaries.yml publishes it once the binaries are attached)")
 
-    def _execute_release(self, new_version: str, changelog_entry: str) -> None:
+    def _execute_release(self, new_version: str, changelog_entry: str, branch: str) -> None:
         """Execute the actual release."""
-        self.console.print("[bold blue]Step 6:[/] Updating pyproject.toml...")
+        assert self.github_svc is not None, "GitHub service not initialized"
+
+        self.console.print("[bold blue]Step 7:[/] Updating pyproject.toml...")
         self.version_svc.update_pyproject_version(self.config.project_root, new_version, dry_run=False)
 
-        self.console.print("[bold blue]Step 7:[/] Updating CHANGELOG.md...")
+        self.console.print("[bold blue]Step 8:[/] Updating CHANGELOG.md...")
         self.changelog_svc.update_changelog_file(self.config.project_root, changelog_entry, dry_run=False)
 
-        self.console.print("[bold blue]Step 8:[/] Creating release commit...")
+        self.console.print("[bold blue]Step 9:[/] Creating signed release commit...")
         self.git_svc.create_release_commit(new_version, ["uv.lock", "pyproject.toml", "CHANGELOG.md"], dry_run=False)
+        release_sha = self.git_svc.head_sha()
 
-        self.console.print("[bold blue]Step 9:[/] Creating git tag...")
+        self.console.print("[bold blue]Step 10:[/] Creating git tag locally...")
         self.git_svc.create_tag(new_version, dry_run=False)
-        self.console.print("[bold blue]Step 10:[/] Pushing git tag...")
+
+        self.console.print(f"[bold blue]Step 11:[/] Pushing {branch}...")
+        self.git_svc.push_branch(branch)
+
+        self.console.print(f"[bold blue]Step 12:[/] Waiting for {PROVENANCE_WORKFLOW} on {release_sha[:7]}...")
+        # The tag's attestation takes its level from the commit's, so the tag must wait for it.
+        try:
+            run_url = self.github_svc.wait_for_provenance(release_sha)
+        except (RuntimeError, requests.RequestException):
+            self.print_finish_commands(new_version, changelog_entry)
+            raise
+        self.console.print(f"  Provenance: [green]{run_url}[/]")
+
+        self.console.print("[bold blue]Step 13:[/] Pushing git tag...")
         self.git_svc.push_tag(new_version, dry_run=False)
 
-        self.console.print("[bold blue]Step 11:[/] Creating draft GitHub release...")
-        assert self.github_svc is not None, "GitHub service not initialized"
+        self.console.print("[bold blue]Step 14:[/] Creating draft GitHub release...")
         release_url = self.github_svc.create_release(
             f"v{new_version}",
             changelog_entry,
@@ -718,9 +863,30 @@ class ReleaseOrchestrator:
         self.console.print("\n[bold yellow]npm is staged, not published:[/] approve it once that run is green:")
         self.console.print("  just npm-approve <binaries.yml run id>")
         self.console.print("  (see RELEASE.md, 'Approving a staged npm release')")
-        self.console.print("\n[bold yellow]Don't forget to push & backmerge:[/]")
-        self.console.print("  git push origin production")
-        self.console.print("  git checkout main && git merge production")
+        self.console.print("\n[bold yellow]Back-port to main before the next release branch:[/]")
+        self.console.print(f"  git switch -c chore/backport-{new_version} origin/main")
+        self.console.print(f"  git cherry-pick -x <fix commits> {release_sha}")
+        self.console.print("  gh pr create --base main")
+
+    def print_finish_commands(self, new_version: str, changelog_entry: str) -> None:
+        """Print the commands that finish a release whose provenance wait failed.
+
+        Args:
+            new_version: Version being released; its commit is already pushed.
+            changelog_entry: Release notes for the draft GitHub release.
+        """
+        notes_path = Path(tempfile.gettempdir()) / f"ossiq-release-notes-v{new_version}.md"
+        notes_path.write_text(changelog_entry)
+        tag = f"v{new_version}"
+        self.console.print("\n[bold yellow]The release commit is pushed, but the tag is not.[/]")
+        self.console.print(f"Don't run release.py again. Once {PROVENANCE_WORKFLOW} is green on that commit")
+        self.console.print("(re-run a failed run with `gh run rerun <run id> --failed`), finish with:")
+        self.console.print(f"  git push origin {tag}")
+        # soft_wrap keeps the command on one line, so it still pastes as one command.
+        self.console.print(
+            f'  gh release create {tag} --draft --verify-tag --title "Release {tag}" --notes-file {notes_path}',
+            soft_wrap=True,
+        )
 
 
 # ============================================================================
@@ -768,7 +934,8 @@ def release(
     """
     bump_count = sum([major, minor, patch])
 
-    # Checked up front: step 11 needs the token, and by then the tag is already pushed.
+    # Checked up front: the provenance wait and the draft release need the token, and both
+    # come after the release branch is pushed.
     if not dry_run and not os.environ.get("OSSIQ_GITHUB_TOKEN"):
         console.print("[red]Error: OSSIQ_GITHUB_TOKEN environment variable is required for actual releases.[/]")
         console.print("[red]       Please set it or use --dry-run.[/]")

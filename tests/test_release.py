@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+import io
 import tempfile
 from datetime import datetime
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
+import requests
+from pytest_httpserver import HTTPServer
+from rich.console import Console
 
 from release import (
     BumpType,
@@ -16,8 +20,15 @@ from release import (
     CommitType,
     GitHubService,
     GitService,
+    ReleaseConfig,
+    ReleaseOrchestrator,
     VersionService,
 )
+
+PYPI_PATH = "/pypi/ossiq/json"
+RUNS_PATH = "/repos/o/r/actions/workflows/compute_slsa_source.yml/runs"
+RELEASE_SHA = "a" * 40
+SUCCESSFUL_RUN = {"status": "completed", "conclusion": "success", "html_url": "https://run/1"}
 
 # ============================================================================
 # Fixtures
@@ -223,6 +234,39 @@ repository = "https://github.com/user/repo"
             with pytest.raises(ValueError, match="Could not find repository URL"):
                 VersionService.read_repository_url(project_dir)
 
+    @pytest.mark.parametrize(
+        "releases,expected",
+        [
+            ({"0.1.13": [], "0.1.12": []}, "0.1.13"),
+            ({"0.2.0rc1": [], "0.1.13": []}, "0.1.13"),
+            ({}, None),
+        ],
+    )
+    def test_ensure_newer_than_pypi_accepts_a_newer_version(
+        self, httpserver: HTTPServer, releases: dict[str, list], expected: str | None
+    ) -> None:
+        """A version above everything on PyPI passes; keys semver can't parse are skipped."""
+        httpserver.expect_request(PYPI_PATH).respond_with_json({"releases": releases})
+
+        assert VersionService.ensure_newer_than_pypi("0.1.14", httpserver.url_for(PYPI_PATH)) == expected
+
+    @pytest.mark.parametrize("new_version", ["0.1.13", "0.1.12"])
+    def test_ensure_newer_than_pypi_refuses_an_equal_or_older_version(
+        self, httpserver: HTTPServer, new_version: str
+    ) -> None:
+        """Versions only go up: PyPI's newest release is the floor."""
+        httpserver.expect_request(PYPI_PATH).respond_with_json({"releases": {"0.1.13": []}})
+
+        with pytest.raises(ValueError, match="not newer than 0.1.13"):
+            VersionService.ensure_newer_than_pypi(new_version, httpserver.url_for(PYPI_PATH))
+
+    def test_ensure_newer_than_pypi_http_error(self, httpserver: HTTPServer) -> None:
+        """An unreachable PyPI stops the release instead of skipping the check."""
+        httpserver.expect_request(PYPI_PATH).respond_with_data("down", status=500)
+
+        with pytest.raises(requests.HTTPError):
+            VersionService.ensure_newer_than_pypi("0.1.14", httpserver.url_for(PYPI_PATH))
+
 
 # ============================================================================
 # GitService Tests
@@ -371,6 +415,25 @@ class TestGitService:
         assert result.github_issues == ["GH-42"]
         assert "Some detailed description" in result.body
         assert "More details here" in result.body
+
+    def test_ensure_release_branch_accepts_its_own_branch(self) -> None:
+        """release/<version> is the one branch that version ships from."""
+        with patch("release.subprocess.run", return_value=MagicMock(stdout="release/1.2.4\n")):
+            assert GitService.ensure_release_branch("1.2.4") == "release/1.2.4"
+
+    @pytest.mark.parametrize("branch", ["main", "release/1.2.5", ""])
+    def test_ensure_release_branch_refuses_any_other_branch(self, branch: str) -> None:
+        """Another branch, another release branch, or a detached HEAD (empty output) is refused."""
+        with patch("release.subprocess.run", return_value=MagicMock(stdout=f"{branch}\n")):
+            with pytest.raises(ValueError, match="only be released from release/1.2.4"):
+                GitService.ensure_release_branch("1.2.4")
+
+    def test_create_release_commit_signs(self) -> None:
+        """The rulesets reject unsigned commits on release branches."""
+        with patch("release.subprocess.run") as run:
+            GitService.create_release_commit("1.2.4", ["pyproject.toml"], dry_run=False)
+
+        assert run.call_args_list[-1].args[0][:4] == ["git", "commit", "-S", "-s"]
 
 
 # ============================================================================
@@ -642,3 +705,110 @@ class TestGitHubService:
         assert call_kwargs["json"]["body"] == "Release notes here"
         assert call_kwargs["json"]["draft"] is True
         assert call_kwargs["json"]["prerelease"] is False
+
+    def test_wait_for_provenance_returns_the_successful_run(self, httpserver: HTTPServer) -> None:
+        """The run is looked up by the pushed commit and the push event."""
+        httpserver.expect_request(RUNS_PATH, query_string={"head_sha": RELEASE_SHA, "event": "push"}).respond_with_json(
+            {"workflow_runs": [SUCCESSFUL_RUN]}
+        )
+        service = GitHubService(api_url=httpserver.url_for("/repos/o/r"), github_token="test-token")
+
+        assert service.wait_for_provenance(RELEASE_SHA, attempts=1, poll_seconds=0) == "https://run/1"
+
+    def test_wait_for_provenance_waits_for_the_run_to_appear_and_finish(self, httpserver: HTTPServer) -> None:
+        """A run shows up a few seconds after the push, then goes through queued and in progress."""
+        for runs in ([], [{"status": "queued"}], [{"status": "in_progress"}], [SUCCESSFUL_RUN]):
+            httpserver.expect_ordered_request(RUNS_PATH).respond_with_json({"workflow_runs": runs})
+        service = GitHubService(api_url=httpserver.url_for("/repos/o/r"), github_token="test-token")
+
+        assert service.wait_for_provenance(RELEASE_SHA, attempts=5, poll_seconds=0) == "https://run/1"
+
+    def test_wait_for_provenance_failed_run(self, httpserver: HTTPServer) -> None:
+        """A failed run stops the wait at once, naming the run to re-run."""
+        failed = {"status": "completed", "conclusion": "failure", "html_url": "https://run/2"}
+        httpserver.expect_request(RUNS_PATH).respond_with_json({"workflow_runs": [failed]})
+        service = GitHubService(api_url=httpserver.url_for("/repos/o/r"), github_token="test-token")
+
+        with pytest.raises(RuntimeError, match="'failure': https://run/2"):
+            service.wait_for_provenance(RELEASE_SHA, attempts=3, poll_seconds=0)
+        assert len(httpserver.log) == 1
+
+    def test_wait_for_provenance_gives_up_when_no_run_appears(self, httpserver: HTTPServer) -> None:
+        """No run within the attempts is a failure, not a pass."""
+        httpserver.expect_request(RUNS_PATH).respond_with_json({"workflow_runs": []})
+        service = GitHubService(api_url=httpserver.url_for("/repos/o/r"), github_token="test-token")
+
+        with pytest.raises(RuntimeError, match="No successful compute_slsa_source.yml run for aaaaaaa"):
+            service.wait_for_provenance(RELEASE_SHA, attempts=3, poll_seconds=0)
+        assert len(httpserver.log) == 3
+
+
+# ============================================================================
+# ReleaseOrchestrator Tests
+# ============================================================================
+
+
+class TestReleaseOrchestrator:
+    """Tests for the order of release steps."""
+
+    @pytest.fixture
+    def services(self) -> MagicMock:
+        """One parent mock, so method_calls records the order across services."""
+        return MagicMock()
+
+    @pytest.fixture
+    def output(self) -> io.StringIO:
+        """Captured console output."""
+        return io.StringIO()
+
+    @pytest.fixture
+    def orchestrator(self, temp_project: Path, services: MagicMock, output: io.StringIO) -> ReleaseOrchestrator:
+        """An orchestrator whose services are all mocks."""
+        config = ReleaseConfig(dry_run=False, bump_type=None, override_version="1.2.4", project_root=temp_project)
+        orchestrator = ReleaseOrchestrator(config, Console(file=output))
+        orchestrator.version_svc = services.version
+        orchestrator.changelog_svc = services.changelog
+        orchestrator.git_svc = services.git
+        orchestrator.github_svc = services.github
+        services.git.head_sha.return_value = RELEASE_SHA
+        return orchestrator
+
+    def test_release_order(self, orchestrator: ReleaseOrchestrator, services: MagicMock) -> None:
+        """Only the branch goes out before the provenance wait; the tag goes after it."""
+        orchestrator._execute_release("1.2.4", "notes", "release/1.2.4")
+
+        steps = [name for name, _, _ in services.method_calls if name.startswith(("git.", "github."))]
+        assert steps == [
+            "git.create_release_commit",
+            "git.head_sha",
+            "git.create_tag",
+            "git.push_branch",
+            "github.wait_for_provenance",
+            "git.push_tag",
+            "github.create_release",
+        ]
+        services.git.push_branch.assert_called_once_with("release/1.2.4")
+        services.github.wait_for_provenance.assert_called_once_with(RELEASE_SHA)
+
+    def test_wait_failure_stops_before_the_tag(
+        self,
+        orchestrator: ReleaseOrchestrator,
+        services: MagicMock,
+        output: io.StringIO,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A failed wait leaves the tag unpushed and prints the two commands that finish the release."""
+        monkeypatch.setattr("release.tempfile.gettempdir", lambda: str(tmp_path))
+        services.github.wait_for_provenance.side_effect = RuntimeError("Provenance run ended 'failure'")
+
+        with pytest.raises(RuntimeError):
+            orchestrator._execute_release("1.2.4", "notes", "release/1.2.4")
+
+        services.git.push_tag.assert_not_called()
+        services.github.create_release.assert_not_called()
+        notes = tmp_path / "ossiq-release-notes-v1.2.4.md"
+        assert notes.read_text() == "notes"
+        printed = output.getvalue()
+        assert "git push origin v1.2.4" in printed
+        assert f'gh release create v1.2.4 --draft --verify-tag --title "Release v1.2.4" --notes-file {notes}' in printed
