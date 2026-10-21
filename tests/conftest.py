@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 
 import pytest
+import requests_cache
 
 import ossiq.settings
 
@@ -16,6 +17,17 @@ def httpserver_listen_address() -> tuple[str, None]:
     attempt costs ~2s per connection, enough to outlast the timers that timing-sensitive tests set.
     """
     return "127.0.0.1", None
+
+
+@pytest.fixture(autouse=True)
+def uninstall_requests_cache():
+    """Remove the global HTTP cache that any CLI invocation installs.
+
+    Left installed, it outlives the test and replays a cached response to a later test that
+    requests the same test-server URL.
+    """
+    yield
+    requests_cache.uninstall_cache()
 
 
 @pytest.fixture(autouse=True)
