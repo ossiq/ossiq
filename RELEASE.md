@@ -140,7 +140,9 @@ patch, from a new release branch.
     git switch -c release/X.Y.Z origin/main    # urgent fix: start from the last tag instead
     git push -u origin release/X.Y.Z
     ```
-    The push runs `compute_slsa_source.yml`, which attests the commit on the new branch.
+    `compute_slsa_source.yml` skips this push, because sourcetool can't attest a branch
+    creation. The commit is already attested on the branch it was cut from, and the branch's
+    first fix or release commit starts its own provenance.
 
 2.  **Add the branch to the SLSA source policy.** Open a PR to `slsa-framework/source-policies`
     that adds `release/X.Y.Z` to `policy/github.com/ossiq/ossiq/source-policy.json`, and let it
@@ -419,15 +421,13 @@ request: by pushing its signed commits straight to `main`, as
 still apply to that push. GitHub's **Rebase and merge** would re-create the commits without
 signatures, so it is never used.
 
-**Attestations.** `compute_slsa_source.yml` runs on every push to a protected branch or tag.
+**Attestations.** `compute_slsa_source.yml` runs on every push to a protected branch or tag,
+except the push that creates a branch: sourcetool only finds pushes, force-pushes and pull
+request merges in GitHub's activity log, and GitHub logs a new branch as a branch creation.
 It calls the SLSA framework's reusable workflow, which records source provenance and a
 Verification Summary Attestation (VSA) for the pushed commit in git notes (`refs/notes/*`). A
 tag's VSA takes its level from its commit's. That is why `release.py` waits for the release
 commit's run before it pushes the tag.
-
-**Limit.** The SLSA framework's reusable workflow runs its own action from `@main`
-(`slsa-framework/source-actions/slsa_with_provenance@main`). Pinning `compute_slsa_source.yml`'s
-call to it by SHA doesn't freeze the code that writes the attestations.
 
 **Policy.** The level each branch is held to is declared in
 `policy/github.com/ossiq/ossiq/source-policy.json` in `slsa-framework/source-policies`, a

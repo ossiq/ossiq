@@ -16,9 +16,14 @@ permissions: {}
 
 jobs:
   provenance:
+    # sourcetool matches only push/force_push/pr_merge activity, so a branch-creation push fails
+    # with "could not find repo activity". Its commit was attested on the branch it was cut from,
+    # and the new branch's next push starts its own provenance. Tag pushes are always creations.
+    if: ${{ !github.event.created || github.ref_type == 'tag' }}
     permissions:
       contents: write # pushes the attestations to refs/notes/*
       id-token: write
-    # Upstream has no tags, so this pins a main commit. The reusable workflow still runs
-    # its own action from @main; see RELEASE.md, "SLSA Source track".
-    uses: slsa-framework/source-actions/.github/workflows/compute_slsa_source.yml@350349ed7254eef6f81850aee8f7ebd8370de9e0 # 2026-08-29 main
+    # Pins a main commit, not the v0.1.0 tag: v0.1.0 still runs its action from the deprecated
+    # slsa-framework/source-actions repo at @main. From this commit on, the reusable workflow
+    # checks its own repo out at the same SHA, so this pin freezes the action too.
+    uses: slsa-framework/actions/.github/workflows/compute_slsa_source.yml@078463f1155c9295ba9e1b41d49ee2623b4415aa # 2026-10-04 main
