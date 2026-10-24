@@ -2,6 +2,655 @@
 
 
 
+## v0.1.14 (2026-10-24)
+
+
+### Feature
+
+* feat(release): gate releases on release branches and provenance (GH-166) ([`d3a26a3`](https://github.com/ossiq/ossiq/commit/d3a26a315bd594d672a2ec34b4732bf1a2e7178d))
+release.py now refuses, dry runs included, unless the branch is
+release/<version> and the version is newer than the newest on PyPI.
+It signs the release commit, pushes the branch and waits for that
+commit's compute_slsa_source.yml run before pushing the tag, and
+prints the commands that finish the release if the wait fails.
+Tests cover both checks, the wait and the order of the steps.
+
+* feat(frontend): draw an override OSS IQ wrote as declared (GH-161) ([`233dbea`](https://github.com/ossiq/ossiq/commit/233dbeafbdf6afb15293b2b6495e7d08aaee878d))
+The report reads constraint_ossiq_authored and shows such an OVERRIDE
+as DECLARED in the table, the detail panels, the explorer and the
+legend. Types are regenerated from export schema 1.6, the SPA
+template is rebuilt, and transform.ts takes the last path segment
+with pop() instead of at(-1).
+
+* feat(ui): stop flagging overrides OSS IQ wrote (GH-161) ([`27d42e2`](https://github.com/ossiq/ossiq/commit/27d42e2b290d895c62cf57197f81c012b367d10a))
+Status, info and the peer table show no override marker for a rule
+OSS IQ recorded and left unchanged, and info names it as written by
+OSS IQ. Export schema 1.6 gains constraint_ossiq_authored on package
+entries, while constraint_type stays OVERRIDE.
+
+* feat(frontend): show the registry's verdict in the report (GH-161) ([`fdba4a6`](https://github.com/ossiq/ossiq/commit/fdba4a69d30e9e6965c1eef6b2ae372c1f8e8abe))
+The table and the package detail panel badge archived and
+quarantined packages and quote the registry's note. Types are
+regenerated from export schema 1.6 and the SPA template is rebuilt.
+
+* feat(ui): report the registry's verdict in the console and export (GH-161) ([`8ef4aeb`](https://github.com/ossiq/ossiq/commit/8ef4aebb4763eb11f8abddf66cf9b175109db2e1))
+The info header shows [DEPRECATED], [ARCHIVED] or [QUARANTINED] with
+the registry's note, and warnings render registry text as typed.
+Export schema 1.6 gains registry_status and deprecation_message on
+every package entry.
+
+* feat(solver): allow dropping deprecated releases from the pool (GH-161) ([`46b75fb`](https://github.com/ossiq/ossiq/commit/46b75fb79719527587145754ca2e8f78b226dd30))
+solve_direct takes allow_deprecated, which removes deprecated
+releases before the semver-rank and penalty weights apply. It
+defaults to True, so scans keep penalising them instead of leaving a
+tree with no candidate.
+
+* feat(adapters): read the registry's verdict on a package (GH-161) ([`38aa1a8`](https://github.com/ossiq/ossiq/commit/38aa1a8e0032079c156407ed36fb37e1d29cd064))
+npm packages report deprecated when their latest release is, and
+PyPI projects report the PEP 792 status (active, deprecated,
+archived or quarantined) from the Simple API, fetched with a ranged
+request and cached. Package.is_deprecated is now derived from that
+status, and each npm release keeps its deprecation message.
+
+* feat(frontend): show unresolved peers and peer repairs in the report (GH-114) ([`1bde4f4`](https://github.com/ossiq/ossiq/commit/1bde4f409d7bfa0f76c28ea23e64c69626173ed4))
+The package detail panel lists a package's unresolved peers, and a
+new Peer repairs card in the scan report shows what apply would add
+to the manifest. A package with an unresolved peer stays on the
+default table even when it is otherwise up to date. Types are
+regenerated from export schema 1.6 and the SPA template is rebuilt.
+
+* feat(ui): show nested copies and the overrides holding updates back (GH-157) ([`ddbb37d`](https://github.com/ossiq/ossiq/commit/ddbb37d27f3085701a0fdf96cd6ab54333f2f0da))
+The Installed column lists a package's other copies, adds a sub-row
+per copy naming its requirers and flags copies forced by an
+override. Impact rows mark new copies and override bumps, and plan
+prints a table of the overrides you wrote that kept an update out,
+which also stops it from reporting nothing to do.
+
+* feat(service): plan around nested copies and overrides (GH-157) ([`8cc944a`](https://github.com/ossiq/ossiq/commit/8cc944a2ef3517aa50d33b64d0b63b0d654b0608))
+A scan now records every installed copy of a package with the edges
+that resolve to it. On npm, update impact is simulated per copy: a
+requirement no copy satisfies installs a further copy, and an
+override OSS IQ wrote moves with the candidate. A release that a
+user-written override rules out is rejected by name, and the plan
+and the agent summary report the holds, bumps and impact kinds.
+
+* feat(solver): bind a nested npm copy only through keyed overrides (GH-157) ([`c3f2eea`](https://github.com/ossiq/ossiq/commit/c3f2eeabe8867d5bad78cc8f22c4d2a26c1d6003))
+Where a package manager nests copies, a dependent's range binds the
+target only when the installed copy satisfies it, because a
+version-keyed override would rewrite exactly those edges. Transitive
+solves on npm set keyed_overrides for that, and relevant_constraints
+documents how a solve is scoped to one copy.
+
+* feat(npm): resolve each edge to the copy npm installed for it (GH-157) ([`19fdd8b`](https://github.com/ossiq/ossiq/commit/19fdd8b0bd1ef7fd69a9a1e925bafefaec7faa97))
+The lockfile graph now links an edge to the copy the parent's own
+node_modules lookup finds and records every requirer as an incoming
+edge, and registries declare whether they keep one copy per name or
+refuse an engine mismatch. The npm adapter is split into an npm
+package of engines, overrides, lockfile, manifest and writer
+modules. A chained override bump for two copies no longer drops the
+first rule, and add now installs with --ignore-scripts.
+
+* feat(domain): model each installed copy and who requires it (GH-157) ([`6a07f7b`](https://github.com/ossiq/ossiq/commit/6a07f7b2ce5bca6f02c0da302ea54f3344419e97))
+ConstraintSource now carries the key and value of the override rule
+that governs a package, and Dependency keeps every requirer as an
+IncomingEdge beside the flat constraint list. InstalledCopy groups
+the edges that resolve to one physical copy, and OverrideHold names
+a user-written override that kept a release out, which a
+RejectedCandidate can now carry.
+
+* feat(install): run the skill and MCP server through uvx or npx (GH-122) ([`db739dc`](https://github.com/ossiq/ossiq/commit/db739dca4580b1d1e1305daafe61d5dd675d1ec2))
+install skills now writes the command ossiq was run with into the
+skill and the MCP entry: npx --yes @ossiq/cli for the npm binary,
+uvx ossiq for a PyPI install, and a bare ossiq without uv. Every
+command in SKILL.md, the auth login steps included, now goes
+through that runner, and --via uvx|npx|ossiq overrides detection.
+The reference, getting started, npm README and QA manual cover it.
+
+* feat(solver): parse npm ranges with node-semver's rules (GH-122) ([`445e298`](https://github.com/ossiq/ossiq/commit/445e29811d422ac625dab63f5b1230cd820fbe90))
+npm_range reads a range with a Lark grammar and rewrites each form
+into comparator sets by node-semver 7's own rules, falling back from
+LALR to Earley only to drop a junk word the way loose mode does.
+node_semver_conformance.json, generated from node-semver itself,
+pins its parse, minimum version and verdicts on 877 ranges.
+
+* feat(packaging): smoke-test the keyring in the standalone binaries (GH-122) ([`91e9df8`](https://github.com/ossiq/ossiq/commit/91e9df8491f7618950fd8fa20f64a6ae33ef57ca))
+A new smoke step runs `ossiq auth status` against each binary with
+CI and the token variables cleared, because either one makes the
+keyring probe skip and the check prove nothing. macOS and Windows
+must name their own backend; Linux has no desktop keyring on a
+runner, so its bundle is listed for the Secret Service modules.
+The Docker entrypoint now says why `ossiq auth login` is not
+available in a container, and its usage text shows `status` rather
+than the non-existent `scan`.
+
+* feat(mcp): log in to GitHub before an MCP tool runs (GH-122) ([`5fbc870`](https://github.com/ossiq/ossiq/commit/5fbc8703ff79b6731de5fa776bff5679a1b05411))
+With no token, ossiq mcp now returns the device-flow code and URL
+as an ordinary result and asks the agent to call the tool again once
+the user approves. A daemon thread waits for the approval and saves
+the login, and after a denied or expired login the server scans
+unauthenticated instead of asking again. A retry made just after
+the approval waits briefly for that thread.
+
+* feat(auth): add ossiq auth and log in ahead of GitHub scans (GH-122) ([`e0efd35`](https://github.com/ossiq/ossiq/commit/e0efd359c8c051ca2808840234fd9cdc0e468c70))
+Adds `ossiq auth login|status|logout` and a login that runs before
+the scan commands; with no terminal to wait in, it prints the code
+and exits with status 75. `install skills` no longer asks for or
+stores a token and scrubs one an earlier install left in mcp.json.
+Rate-limit hints now point at `ossiq auth login`, and --verbose
+names where a token came from instead of claiming the environment.
+
+* feat(auth): orchestrate the GitHub token and device-flow login (GH-122) ([`c07ac2a`](https://github.com/ossiq/ossiq/commit/c07ac2a470b55c7fdba706b993d4218d21baeb59))
+Adds service.github_auth, which resolves the token a scan runs with
+(explicit token, then the keyring login, then a config-file token)
+and runs the device-flow login when none exists. It refreshes
+stored logins, re-reads the store before discarding one after a
+refused refresh, and checks a stored token against GitHub so a
+revoked one is replaced. The GitHub adapter now reads only
+settings.github_token, since Settings already folds in GITHUB_TOKEN.
+
+* feat(auth): store the GitHub login in the system keyring (GH-122) ([`a5111e3`](https://github.com/ossiq/ossiq/commit/a5111e3cba2e5e9767c9e89aab86b287eeb80a73))
+Adds keyring as a core dependency and a KeyringCredentialStore that
+keeps the OAuth tokens and a pending login in the OS keychain. Each
+call runs under a 180-second timeout, and after the first timeout
+the store reports itself unavailable for the rest of the process
+instead of waiting again. Keyring errors surface as
+CredentialStoreUnavailable, and a corrupt entry reads as absent.
+
+* feat(auth): add the GitHub device-flow types and OAuth client (GH-122) ([`2366b1c`](https://github.com/ossiq/ossiq/commit/2366b1c0e03d109aa01f72d0a3bb160d5504f3f6))
+Adds the login value types (credentials, challenge, status), four
+login exceptions, and a GithubOAuthClient that returns typed
+results instead of raising on HTTP or network failures. The HTTP
+cache now skips the login endpoints and GET /user, so a poll is
+never replayed, tokens never reach the cache file and one account
+never sees another's login. The rate-limit hint now points at
+`ossiq auth login`.
+
+* feat(settings): move config to ~/.config/ossiq, add GitHub auth fields (GH-122) ([`39db361`](https://github.com/ossiq/ossiq/commit/39db361936defb9b53c0542839d988874cac9b18))
+Config and the HTTP cache now live in ~/.config/ossiq (or
+$XDG_CONFIG_HOME/ossiq); the old ~/.ossiq/config is still read and
+the new file wins key by key. Settings gains github_auth and
+github_client_id, and a bare GITHUB_TOKEN now feeds github_token so
+the scan and its adapter read one field. Tests run with login off
+and the config paths redirected to a temp dir.
+
+* feat(npm): add a tool to verify and approve a staged release (GH-122) ([`8674c62`](https://github.com/ossiq/ossiq/commit/8674c62c0f80b056971b7b60ac7496dc4829a5fd))
+Approving six staged packages in the wrong order ships a launcher
+whose platform dependency npm silently skips, leaving an install
+with no binary. approve_staged_release.py checks each package is
+staged once at the right version with CI's attestation intact, then
+approves them in manifest order behind `just npm-approve`.
+
+
+### Fix
+
+* fix(B6): fall back to OSV "details" when a record has no "summary" ([`ad6fb9d`](https://github.com/ossiq/ossiq/commit/ad6fb9d09d34ed3245cc5940cd967695c4ed916d))
+OSV's "summary" field is optional. GHSA records almost always carry one;
+many PYSEC records carry only "details". parse_cve_response read
+"summary" alone, so those advisories were exported with an empty
+description.
+Observed on requests==2.28.1 (8 advisories, cutoff 2026-09-08): 6 carried
+a summary, 2 were blank, and both blanks were PYSEC records
+(PYSEC-2023-74, PYSEC-2026-2275).
+A blank description leaves consumers with an identifier and a severity and
+no way to judge whether the vulnerability is reachable in their context. A
+ReDoS in an unused parser and an RCE on the main code path look identical.
+For agent consumers this is worse than unhelpful: with nothing to weigh,
+they treat every advisory as equally blocking.
+Adds extract_summary(): use "summary" when present, otherwise the first
+non-empty line of "details", truncated at 300 chars. Returns "" only when
+neither field exists, so a caller can still distinguish "no description
+available" from a description that happens to be blank.
+Severity mapping is untouched; that was fixed separately in #137.
+
+* fix(update-impact): judge npm aliases by the package they name (GH-165) ([`5c89369`](https://github.com/ossiq/ossiq/commit/5c89369acdc6d33a74e0a61149a7ea239d1f47ab))
+Nested requirements declared as npm aliases, such as
+"@jest/react-is-18": "npm:react-is@^18.3.1", were looked up in
+the registry under the alias key and aborted the simulation with
+UnableLoadPackage. They are now resolved to the package they
+name. Adds a unit test and a pretty-format regression fixture.
+
+* fix(docs): show the header logo in the light scheme (GH-161) ([`a11981a`](https://github.com/ossiq/ossiq/commit/a11981a298f96773ea99776649e7a1f52ac03a45))
+The light scheme used the white logo on its white header, and only
+a prefers-color-scheme rule for dark operating systems hid that.
+The logo file now follows the site scheme: dark ink on the default
+one and white on slate.
+
+* fix(docs): render each mermaid diagram once (GH-161) ([`f7f6bd5`](https://github.com/ossiq/ossiq/commit/f7f6bd5548786bb3e51fca5250c815a75acc5166))
+sphinx_immaterial already draws every mermaid block, and then
+sphinxcontrib-mermaid re-read the replaced diagram and left a
+syntax-error SVG behind in the page. The extension is dropped from
+conf.py, pyproject.toml and uv.lock, and the theme's own directive
+now handles plain mermaid fences.
+
+* fix(solver): decide PEP 440 membership with packaging (GH-161) ([`2caaff2`](https://github.com/ossiq/ossiq/commit/2caaff233a9491c8332a478413689abfd0d35756))
+The univers matcher admitted 0.22rc5 under `<0.22`, so a pick past
+the range was classed in range and apply skipped the widening
+confirmation. pypi_version_satisfies_specifier now uses packaging's
+SpecifierSet, which follows PEP 440, and the ~= expansion helpers
+are removed.
+
+* fix(service): stop calling a withheld pin an update (GH-161) ([`df84e07`](https://github.com/ossiq/ossiq/commit/df84e07efe739987710ec5189f4d22e283e10259))
+next_action_label checked for a missing constraint before the tier's
+withheld reason, so an npm pin the tier refused to move read Update
+Immediately. The withheld check now runs first, and such a pin reads
+as withheld by the strategy.
+
+* fix(strategy): keep a CVE fix inside the declared range (GH-161) ([`d43cd2b`](https://github.com/ossiq/ossiq/commit/d43cd2bc6a7c8f1b963b6bfc25351131eeedc4f5))
+Standard took the newest CVE-clear release anywhere in reach, so a
+CVE could widen a range that already held a fix. It now stays within
+its base reach when a clear release is there, and end-of-life still
+takes the newest. The update pyramid page describes the rule.
+
+* fix(service): scope a strategy override to the package it names (GH-161) ([`9a32126`](https://github.com/ossiq/ossiq/commit/9a32126525044e102f790d4d15ba0c0e0de127dc))
+The transitive solve took the highest tier anywhere in the run, so
+one --strategy-override pkg=latest under security sent every drifted
+transitive package to the solver. Each transitive package now
+follows its own tier, the run default unless an override names it,
+and StrategyPlan.max_tier is gone.
+
+* fix(service): stop treating plan-writable picks as constrained (GH-161) ([`9ff3035`](https://github.com/ossiq/ossiq/commit/9ff30353c4f77d7e6a15636dbc87d164dba172e6))
+A pick past the declared range reads Update Immediately when the
+update tier reaches its rung or a CVE or end-of-life motive carried
+it there, since `plan` writes it. An override OSS IQ wrote itself no
+longer counts as the user's, through ConstraintSource.is_user_override.
+
+* fix(service): block adding packages the registry retired (GH-161) ([`ed65117`](https://github.com/ossiq/ossiq/commit/ed651171e9336fe05d8016f0d4974860d9e8d240))
+ossiq add, info and the MCP evaluate_dependency tool stop on a
+package its registry deprecated, archived or quarantined, quoting
+the registry's note, and on a deprecated release requested with
+--version. A retired package reads Find alternative in status
+whatever its drift, and add never recommends a deprecated release of
+a live package. Successor detection no longer mistakes a call
+expression in the note for a package name.
+
+* fix(solver): honour npm peer dependencies and repair split peers (GH-114) ([`c305dc8`](https://github.com/ossiq/ossiq/commit/c305dc8c1a0ce275339c14a5e1f96db2344ba60e))
+The solver reads each release's peer dependencies from registry
+metadata and refuses a bump that leaves a peer out of range or
+unmet, naming the peer in the plan. A scan records peers installed
+only out of their requirers' reach, and apply adds them to the
+manifest along with their lockstep family. Status, info, plan, the
+agent output and export schema 1.6 report unresolved_peers and
+peer_repairs, and a pick carried past its tier by a CVE or
+end-of-life motive is marked widening_authorized.
+
+* fix(cache): keep tokens off disk and stop unbounded growth (GH-122) ([`589ee76`](https://github.com/ossiq/ossiq/commit/589ee76460c3900d980b29ef1baeb4c443a376c8))
+A followed redirect was cached with its first request in the
+history, Authorization header included, so the credential headers
+requests-cache redacts from the final request are now stripped from
+every hop too. Responses are stored zlib-compressed, and each run
+drops entries expired for over a week, vacuums the file once enough
+space is free, and empties a file in the previous format, whose rows
+no key can reach since the serializer is part of every key. The
+abandoned ~/.ossiq/cache.sqlite3 is removed once, with a notice on
+stderr.
+
+* fix(settings): keep the GitHub token out of Settings repr (GH-122) ([`8824f43`](https://github.com/ossiq/ossiq/commit/8824f4328e8ee0e101a60b3db914837f39957e78))
+repr() and str() of Settings printed github_token, so a settings
+value in a log line, a traceback or a containing object's repr
+exposed the token; the field is now left out of both and stays
+readable. Three CLI assertions that looked for a bare number in
+--verbose output now name the setting, since the temp path printed
+there can contain the same digits.
+
+* fix(pypi): apply a requirement only when its extras and markers hold ([`1980675`](https://github.com/ossiq/ossiq/commit/198067511410e13510c09159902ba85c2275da1c))
+Requirements gated on an extra or an environment marker were
+dropped, so django-allauth[socialaccount]'s oauthlib<4 went unseen
+and oauthlib 4.0.0 was recommended beside it. pep508 now decides
+which of them apply from the extras each lockfile edge enables and
+the project's Python floor, and every parent's constraint on a
+shared dependency is recorded. A package listed both as a
+dependency and in an extra is scanned once, one that an extra
+installs is no longer reported as new, and the ossiq-pro lockfile
+joins testdata as a fixture.
+
+* fix(solver): hold transitive picks to what direct deps require ([`98056eb`](https://github.com/ossiq/ossiq/commit/98056eb7d5463de4abf35e873cc1342077ccefdc))
+build_requires_reason checked a candidate only against its own
+requirements, so a direct dependency upgraded to a release that
+caps a transitive package went unnoticed until the package manager
+refused the plan. A candidate is now also checked against what each
+direct dependency requires of it at the version it is held at, and
+a pick that fails is demoted or dropped with the parent named.
+
+* fix(solver): treat a blank constraint as satisfied ([`9778b1b`](https://github.com/ossiq/ossiq/commit/9778b1bc93a47573521b44972e9efb03826f87b2))
+version_satisfies_constraint rejected an empty specifier, which is
+how PyPI publishes a requirement with no version bound, while
+satisfies_all_constraints accepted it. Such a requirement showed up
+in a plan as a cascade (requests 2.34.2 to 2.34.2) and is now
+simply met.
+
+* fix(uv): hold releases past exclude-newer in the selector (GH-122) ([`32ed8ff`](https://github.com/ossiq/ossiq/commit/32ed8ff6124f76b25b165b8ee4de30d2462838d5))
+The PyPI registry no longer drops releases past uv's exclude-newer;
+select_target now applies that cutoff ahead of the cooldown, where
+no CVE or end-of-life bypasses it, and the solver, impact projection
+and clamp honour it while keeping the installed version. uv settings
+are read from every layer uv merges, with uv.lock as the fallback,
+and friendly spans are parsed directly. Plan and status name uv when
+it holds a package, and --override warns when uv will refuse the
+version.
+
+* fix(npm): read the engines floor through npm_range (GH-122) ([`929ca8b`](https://github.com/ossiq/ossiq/commit/929ca8b40065049562925d4d484ef84a576866b6))
+extract_min_node_version takes node-semver's minVersion and keeps
+it only when an inclusive bound names it, so ">18" is 19.0.0 and
+"<16 || >=18" has no floor. desugar_npm_comparator_xranges, the
+univers workaround it shared with the solver, is gone.
+
+* fix(solver): match npm ranges the way npm does (GH-122) ([`d007501`](https://github.com/ossiq/ossiq/commit/d0075012d85b83e9b7edd356e1a300b018e974ec))
+npm_version_satisfies_range now goes through npm_range instead of
+univers and hand-written fallbacks, so a partial version is an
+X-range, each || branch holds on its own and a prerelease needs a
+same-release bound. allow_beta becomes include_prerelease, and
+"!=1.0.0", which npm does not accept, passes through as invalid.
+
+* fix(auth): refresh an expired login before starting a new one (GH-122) ([`f5897f7`](https://github.com/ossiq/ossiq/commit/f5897f73257b03ca4507f78ec9b399da888db741))
+`ossiq auth login` read the stored token without refreshing it,
+so an expired access token started a new device flow despite a
+valid refresh token. It now asks the service's stored_login; a
+refused code request and an empty --resume raise
+GithubLoginUnavailable and NoLoginInProgress instead of the
+command printing them, and the keyring notice comes from
+default_deps. A refused refresh also logs GitHub's error code
+before the login is discarded.
+
+* fix(auth): report a slow keyring from the store itself (GH-122) ([`25a4b5d`](https://github.com/ossiq/ossiq/commit/25a4b5d7f1cc40ede80105c9e41e5e3d29c4b7dd))
+A timer around whole commands told users to answer a keyring
+dialog even when a slow network call was the cause. The keyring
+store now takes an on_slow callback, called on the calling
+thread once for each call that stays silent for slow_after
+seconds.
+
+* fix(auth): refuse a login page outside github.com (GH-122) ([`54ce817`](https://github.com/ossiq/ossiq/commit/54ce817180bd6da1b84f3ee7cc2a5d3fbd2f8a28))
+The device-code answer's verification_uri was shown to the user,
+and relayed by MCP agents, exactly as received. The client now
+accepts only an https github.com page with no credentials or
+custom port, and otherwise reports an invalid response without
+echoing the address.
+
+* fix(auth): separate the device code from its expiry line (GH-122) ([`57f5cdb`](https://github.com/ossiq/ossiq/commit/57f5cdb900e999b80429dfc6cdb87de76ae29219))
+The login challenge now leaves a blank line between the code to
+enter and the line saying when it expires, so the code stands out.
+
+* fix(npm): desugar comparator X-ranges before univers parses them (GH-122) ([`d221c08`](https://github.com/ossiq/ossiq/commit/d221c08451995fca2c953ce4900b01d9413b9e22))
+univers raised UnboundLocalError on ranges like ">=14.x", so an
+engines.node in that form crashed the scan, and it misread ">= 14.x"
+and ">=14.*". A new domain helper rewrites comparator X-ranges into
+plain comparators by node-semver's rules before both the range
+matcher and extract_min_node_version hand them to univers.
+
+* fix(uv): stop recommending releases past exclude-newer (GH-122) ([`e9eb4d9`](https://github.com/ossiq/ossiq/commit/e9eb4d9478c1e2d75248be1ed6c981a36450b32a))
+Plans recommended releases newer than uv's exclude-newer cutoff, so
+apply failed at uv lock. The uv adapter now reports that cutoff from
+UV_EXCLUDE_NEWER, uv.toml or [tool.uv], including per-package
+overrides and relative spans, and the PyPI registry drops releases
+whose earliest file postdates it. --cutoff-date still applies on
+top, so the earlier of the two wins.
+
+* fix(auth): stop telling containers to run ossiq auth login (GH-122) ([`cda6f83`](https://github.com/ossiq/ossiq/commit/cda6f835e268968e0803b06e817cbeb50e1749c2))
+The quota warning, the rate-limit error hint and the batch client's
+log line now share one sentence that leads with OSSIQ_GITHUB_TOKEN
+and offers `ossiq auth login` only where a system keyring is
+available. `ossiq auth status` with no token and no keyring points
+at the token instead of the login. Tests pin the order and the
+wording on every surface.
+
+* fix(auth): treat a keyring backend that cannot start as unavailable (GH-122) ([`46c1ed6`](https://github.com/ossiq/ossiq/commit/46c1ed6090f8029fad8c3c28e3e367b506099fa8))
+keyring chooses its backend on first use, and one named through
+PYTHON_KEYRING_BACKEND or keyringrc.cfg that cannot start raises
+errors that are not KeyringErrors, which crashed `auth status` and
+every scan. The store now runs that choice inside its timeout and
+reads a failure as an unavailable keyring, while an error raised by
+a keyring operation still propagates. Tests cover a backend that
+cannot start, a missing module, a missing class and a name with no
+module.
+
+* fix(auth): wait one poll interval before polling a resumed login (GH-122) ([`78cfcfc`](https://github.com/ossiq/ossiq/commit/78cfcfc5b9cd339c8d623fc0eeb7f7197c8c9d86))
+GitHub answers back-to-back device-flow polls with slow_down, and a
+resumed login polled once and then again at once. await_login now
+takes polled_just_now and sleeps one interval first; the interactive
+scan path passes it after resuming a pending login. Tests cover
+the sleep and its absence by default.
+
+* fix(npm): stage packages instead of publishing them directly (GH-122) ([`5c123c6`](https://github.com/ossiq/ossiq/commit/5c123c603cf9d82f7e7909d566fc1050d46525e2))
+npm's trusted publisher grants `npm stage publish` only, so the
+direct publish in binaries.yml was refused with 403 and 0.1.13
+reached npm only once direct publish was enabled by hand. The job
+now stages and prints the approval commands to the run summary, and
+a test stops it reverting to a publish that would bypass the 2FA
+gate.
+
+
+### Refactor
+
+* refactor: refactored and simplified animation files (GH-162) ([`f9efe9d`](https://github.com/ossiq/ossiq/commit/f9efe9df31f6cb3f3d7cceb23bb7200c2abd8520))
+The originally proposed version wasn't readable nor
+maintainable, refactored and made it accurate.
+
+
+### Documentation
+
+* docs(contributing): document the signed-commit PR workflow (GH-166) ([`7204841`](https://github.com/ossiq/ossiq/commit/7204841c8fde3c382f79ae08d39be8272c4e69ef))
+CONTRIBUTING.md now sets up commit signing and shows how to rebase
+and re-sign a branch locally. It adds how maintainers land a pull
+request by fast-forwarding main to its signed commits, since
+GitHub's "Rebase and merge" drops the signatures.
+
+* docs(release): document release branches and SLSA Source L3 (GH-166) ([`f2fd846`](https://github.com/ossiq/ossiq/commit/f2fd846ca0d7c70920f3db943944ce25b92dedd6))
+RELEASE.md replaces the production branch with one release branch
+per release, cut from main and back-ported once tagged. It also
+covers the SLSA Source L3 rulesets, attestations and policy, and
+how to recover when a release stops part-way.
+
+* docs: updated screenshots and html reports (GH-162) ([`d412efa`](https://github.com/ossiq/ossiq/commit/d412efa5070b33a7411fdaeda03a2a34bccf74e1))
+
+* docs: updated explanation section of docs (GH-162) ([`9e9dcce`](https://github.com/ossiq/ossiq/commit/9e9dcceafb6bc96f0200c0272dfeba18fd56935e))
+Refactored Explanation section to follow simpler
+structure.
+
+* docs: refactored Explanation section (GH-162) ([`66c54f3`](https://github.com/ossiq/ossiq/commit/66c54f313390483d4b489f822da26eaa9059d1a7))
+The original version haven't had any specific
+logic and was just dump of different stages
+of development. Added logical navigation
+followign the OSS IQ pipeline:
+What Measures, How picks an Update, What writes
+
+* docs: udpated readme, landing and llms.txt (GH-162) ([`7338fba`](https://github.com/ossiq/ossiq/commit/7338fba069d15a5e412f1e1536f930158b615bc7))
+Updated with more precise framing for what OSS IQ
+does and aligned among different landings.
+
+* docs: added use case to command mapping in features section (GH-162) ([`4a94eb3`](https://github.com/ossiq/ossiq/commit/4a94eb35a4802c56d4e69a006a4026e5959f2d4b))
+
+* docs: updated menu and theme selection (GH-162) ([`a4f7f9b`](https://github.com/ossiq/ossiq/commit/a4f7f9bc0014bbb33d6c1ea8b63d417077cd4c9d))
+
+* docs: added constrast a little to the landing (GH-162) ([`917b126`](https://github.com/ossiq/ossiq/commit/917b12673ee7526299c9f7d710c70dc40fdea28b))
+
+* docs: updated landing with the new template (GH-162) ([`3cf8640`](https://github.com/ossiq/ossiq/commit/3cf8640740a1f995e3a3fa9d0d6e37ab46e79650))
+Initial version of the new landing with nice
+animation and updated stats/figures.
+
+* docs: describe how each tier picks a target version (GH-161) ([`d2b95ab`](https://github.com/ossiq/ossiq/commit/d2b95abc4bb7d5730cbc291b763fb42526913dbc))
+A new recommendations page gives a state table and a flowchart for
+security, deprecation, standard, and latest with cutting-edge, and
+the index, the pyramid page and the reference link to it. The
+pyramid page and the strategy README now match the selector on the
+deprecation pick, a duplicated risk cell and the standard pick for
+a pinned package.
+
+* docs: say how strategy overrides narrow the transitive solve (GH-161) ([`c594fc0`](https://github.com/ossiq/ossiq/commit/c594fc0e3db76f11c11a6bb1f671c7c10537aa13))
+The update pyramid's security row says a --strategy-override on a
+direct package leaves the CVE-only transitive solve alone, and one
+on a transitive package exempts only that package.
+
+* docs: describe plan-writable updates and OSS IQ's own overrides (GH-161) ([`e760f42`](https://github.com/ossiq/ossiq/commit/e760f42dd3286017fc5166830aa2c7a2feb3ea71))
+The catalogue, the reference and the bundled skill say Update
+Immediately covers a pick past the declared range that `plan` writes.
+The reference also explains that an override OSS IQ wrote is not
+flagged and documents constraint_ossiq_authored.
+
+* docs: describe deprecated, archived and quarantined packages (GH-161) ([`127a808`](https://github.com/ossiq/ossiq/commit/127a8080c26a785ddeacc1b24a5cb85076534995))
+Getting started, the recommendations catalogue, the reference, the
+stability explanation, the domain and solver READMEs and the bundled
+skill say how a retired package is treated when adding, scanning and
+exporting.
+
+* docs: describe unresolved peers, peer repairs and export schema 1.6 (GH-114) ([`5c26896`](https://github.com/ossiq/ossiq/commit/5c26896251343bcdce4d802fa6bd196b2f531e36))
+The reference covers the solver's peer checks, lockstep families,
+unresolved peers with their plan and apply repair, and export schema
+1.6. The recommendations page is split into topic pages under
+docs/recommendations/, and the skill and the strategy and export
+READMEs describe widening_authorized, unresolved_peers and the
+schema versioning. The landing page and llms.txt drop the
+health-score wording.
+
+* docs: describe nested copies, overrides and the scripts-off npm add (GH-157) ([`8c3da83`](https://github.com/ossiq/ossiq/commit/8c3da833eb4dfae63a9386ed0fc1722ecccab84c))
+The recommendations and reference cover version-keyed override
+rules, how overrides decide whether an update is possible, and the
+plan's list of overrides you wrote. Getting started and the QA
+checklist note that ossiq add on npm runs with --ignore-scripts, so
+a package that needs a postinstall step needs npm rebuild after.
+
+* docs(site): link the landing copyright and drop it from the README (GH-122) ([`add5bdc`](https://github.com/ossiq/ossiq/commit/add5bdc99314e3bde93ab37e4d8fac930f8af14d))
+The landing page footer's copyright now links to ossiq.pro/about,
+with tighter letter spacing. The README no longer ends with its own
+copyright line.
+
+* docs(qa): add manual cases for the GitHub login (GH-122) ([`35879e5`](https://github.com/ossiq/ossiq/commit/35879e5d215863bb01d65eb4f8a0addbc1899794))
+A new login suite covers auth login, status and logout, the scan's
+login prompt, the opt-outs and a machine with no secret store, and
+the MCP suite gains the in-band challenge. Config and calibration
+cache paths move to ~/.config/ossiq, and the install-skills cases
+expect no token.
+
+* docs(site): show the login on the landing page and the new copyright (GH-122) ([`1a717c5`](https://github.com/ossiq/ossiq/commit/1a717c51ed23578344b8820696bb9991cdce7b4a))
+The landing page names both uvx and the npx native binary and swaps
+the export-a-token tip for ossiq auth login. The landing, journal
+and docs footers read OSS IQ DEV SL, and llms.txt gains install and
+login lines and drops support claims for yarn, pnpm, poetry and
+CycloneDX output.
+
+* docs(readme): cut the README down and add a credential policy (GH-122) ([`d895fda`](https://github.com/ossiq/ossiq/commit/d895fda472f0ad3baa960baac2a44a10638f0b77))
+The README shrinks to install, GitHub login, core commands, agent
+setup and links into the docs, with the OSS IQ DEV SL copyright.
+SECURITY.md states where the GitHub login is stored and what is
+never written, the Docker README drops flags that no longer exist,
+and the npm README gains the login step.
+
+* docs: teach the GitHub login in getting started and tutorials (GH-122) ([`59c4137`](https://github.com/ossiq/ossiq/commit/59c4137c6d88b330465aa88277dcc86097186556))
+Getting started now runs install, GitHub login, first scan, and
+names the platforms the native npm binary covers. The first-analysis
+tutorial logs in with ossiq auth login, the Actions tutorial passes
+the workflow's built-in GITHUB_TOKEN instead of a secret to create,
+and the stability and recommendations pages describe the token as
+either a login or OSSIQ_GITHUB_TOKEN.
+
+* docs(auth): add a GitHub login how-to and reference (GH-122) ([`4a769d2`](https://github.com/ossiq/ossiq/commit/4a769d2799bfdbaa41bd9818e02d8d8a5f180b7a))
+A new how-to covers logging in from a terminal, a script, an agent
+or an MCP client, tokens for CI and containers, logging out and
+troubleshooting. The reference gains Auth and Configuration
+sections (commands, exit codes, token precedence, storage, the
+config directory and every environment variable), and takes the
+plan and apply options and pinning table from the README.
+
+* docs(skill): log in with a device code, not a token argument (GH-122) ([`49d65e2`](https://github.com/ossiq/ossiq/commit/49d65e20989eb60b3518ed390d8abd18fdf5e48a))
+SKILL.md still told agents to pass --github-token to `install
+skills`, which no longer stores anything. It now walks them
+through `ossiq auth login --no-wait` and `--resume`, names the
+MCP pending status, and points at OSSIQ_GITHUB_TOKEN for CI or
+a machine with no keyring.
+
+* docs(release): document the npm stage-and-approve flow (GH-122) ([`4122a3a`](https://github.com/ossiq/ossiq/commit/4122a3a22a437aa19766d0f6d21fb1a73149a4d7))
+The npm channel now needs a manual approval step, and 0.1.12's
+bootstrap and 0.1.13's three publish attempts left the runbook
+describing a flow that no longer exists. RELEASE.md gains an
+approval section and corrected history, and release.py points at it
+once the tag is pushed.
+
+
+### Test
+
+* test: uninstall the requests cache after each test (GH-166) ([`53b8b29`](https://github.com/ossiq/ossiq/commit/53b8b29ad30ea883898623c5b20443bed3e1dfe9))
+Any CLI invocation installs a global requests_cache and leaves it
+installed, so a later test could get a response cached by an
+earlier one for the same test-server URL. An autouse fixture in
+conftest.py now uninstalls it after every test.
+
+* test(qa): expect an authorized widening to be written (GH-161) ([`f4d5403`](https://github.com/ossiq/ossiq/commit/f4d5403deb1b33c02a7d70cc4e0d0d93e3d3999b))
+The regression harness expects apply to write a widening pick that a
+CVE or end-of-life motive authorized, and rejects the flag on a pick
+with no widening or no escalating motive. The npm and pypi-uv
+expectations drop the known issues the preceding fixes resolve. The
+known-issue test now marks its own cells instead of relying on the
+fixtures.
+
+* test(qa): check every update-strategy tier against pinned projects (GH-157) ([`1f625df`](https://github.com/ossiq/ossiq/commit/1f625df027939d4bc828b93fa95c944a349c6c81))
+just qa-strategies runs export, status, plan and apply for each
+--update-strategy tier against frozen npm and PyPI projects in
+testdata/regression, and compares them with an expectations.toml
+per project and with invariants that hold for any project. Its
+offline core has tests, qa-integration also plans the nested-copies
+fixture, and the QA README explains how to run and extend it.
+
+* test(uv): set the Windows config variables in the uv settings tests (GH-122) ([`43d25bb`](https://github.com/ossiq/ossiq/commit/43d25bb0b100f3f38922198aecdf57fac838b835))
+uv reads the user and system uv.toml from APPDATA and PROGRAMDATA
+on Windows, so the settings-layer and user-level cutoff tests now
+set those next to the XDG variables, which only macOS and Linux
+read.
+
+* test: bind the shared test HTTP server by IP (GH-122) ([`3d85597`](https://github.com/ossiq/ossiq/commit/3d8559783f3ce0412c105673092dbd5dcbf0cd3a))
+On Windows "localhost" is tried as ::1 first, and the refused
+attempt costs about 2s per connection. That outlasted the 0.4s
+keyring notice delay in TestKeychainWaitNotice, so the notice
+fired before the login challenge. The shared httpserver now
+listens on 127.0.0.1.
+
+
+### CI
+
+* ci(slsa): move to slsa-framework/actions, skip branch creations (GH-166) ([`13eabd1`](https://github.com/ossiq/ossiq/commit/13eabd1a5483bb07108e5cfe112a51c2faa0a699))
+compute_slsa_source.yml now calls slsa-framework/actions instead of
+the deprecated source-actions repo, pinned to a main commit that
+also pins the action it runs. It skips the push that creates a
+branch, which sourcetool can't attest.
+
+* ci: record SLSA source provenance for protected refs (GH-166) ([`248e321`](https://github.com/ossiq/ossiq/commit/248e3215d6f24f2366c28f753e840bce7b9e56e9))
+Adds compute_slsa_source.yml, which runs on every push to main, a
+release/* branch or any tag and stores source provenance in git
+notes. It calls the SLSA framework's reusable workflow, pinned to a
+main commit because upstream has no tags.
+
+
+### Chore
+
+* chore: updated actions versions (GH-162) ([`4e2d1b8`](https://github.com/ossiq/ossiq/commit/4e2d1b8844271706cef313edcdc6be527a4ba437))
+
+* chore: updated transitive dependencies with ossiq apply (GH-162) ([`84728e9`](https://github.com/ossiq/ossiq/commit/84728e9aa4e8c8853eab696a209f4a585abbfd1c))
+
+* chore(frontend): bump eslint and refresh transitive overrides (GH-161) ([`472de39`](https://github.com/ossiq/ossiq/commit/472de398527db13532d2841c1d93cb4fd5b3373e))
+Raises eslint to ~10.12.0 and moves the ignore, electron-to-chromium
+and shell-quote override keys to the versions now installed. Adds an
+override taking vue-component-type-helpers to 3.3.12.
+
+* chore(frontend): add typescript-eslint and move vue family overrides (GH-114) ([`434adc6`](https://github.com/ossiq/ossiq/commit/434adc644a0ba5f2a93a3775d84c8446b6d17f2b))
+Adds @typescript-eslint/eslint-plugin, its parser and
+@vue/server-renderer as dev dependencies, drops the typescript
+override, and pins the vue 3.5.42 - 3.5.43 compiler family and
+baseline-browser-mapping to newer releases. The generate:types
+script now reads export schema 1.6.
+
+* chore: updated frontend/html report dependencies (GH-157) ([`c4d1cdc`](https://github.com/ossiq/ossiq/commit/c4d1cdc03df1f9f4ed6864b96883612e04eabaca))
+Updated all frontend/html report dependencies to
+the latest (cooled down) versions with exception of
+TypeScript which doesn't work correctly with
+bunch of transitive dependencies.
+
+* chore: updated python-sat to .dev15 release (GH-157) ([`618d9a9`](https://github.com/ossiq/ossiq/commit/618d9a946bbb0aef6d33110937cbeae87cc62fc6))
+
+* chore(frontend): drop the vue and postcss pins from overrides (GH-157) ([`41eb4d6`](https://github.com/ossiq/ossiq/commit/41eb4d62988fdb58dfeb82a5fe57de59c7e2f3ae))
+The overrides block no longer pins @vue/compiler-core, -dom, -sfc,
+-ssr, reactivity, runtime-core, runtime-dom, server-renderer and
+shared, or postcss.
+
+* chore(deps): refresh uv.lock (GH-122) ([`d97a0f0`](https://github.com/ossiq/ossiq/commit/d97a0f0e4c6b0fb08013ae409d03428228fdb13a))
+Bumps idna to 3.20, platformdirs to 4.11.9 and wcwidth to 0.8.4.
+
 ## v0.1.13 (2026-09-29)
 
 
