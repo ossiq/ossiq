@@ -2,8 +2,9 @@
 
 This document outlines the process for cutting a new release of the `ossiq` project: the
 release branches it runs on, the standard procedure, what to do when a channel or a release
-fails, and how releases are attested (SLSA Build L3 for the artifacts, SLSA Source L3 for the
-code they are built from).
+fails, and how releases are attested: SLSA Build L3 for the artifacts, and SLSA Source for the
+code they are built from (Level 1 today, Level 3 once the source policy lists the release
+branch).
 
 **Versions only go up, and every tag is permanent.** `release.py` refuses a version that is
 not newer than the newest one on PyPI, and the tag ruleset blocks moving or deleting a tag. A
@@ -64,6 +65,7 @@ disagree.
 | --- | --- | --- | --- |
 | 0.1.12 | ✅ | ✅ | ✅ published **by hand** (the bootstrap) |
 | 0.1.13 | ✅ | ✅ | ✅ published by CI, with provenance, on the third attempt |
+| 0.1.14 | ✅ | ✅ | ✅ staged by CI, approved by hand: the first release through the normal flow |
 
 0.1.13's two failed attempts are worth remembering, because both were registry-side
 settings that nothing in this repo can see:
@@ -79,7 +81,8 @@ darwin-arm64 — `npx --yes @ossiq/cli@0.1.13 --version` runs, and the tarball c
 `_internal/Python` again at 136 files rather than 131. Deprecate 0.1.12 when convenient
 (see [If one channel fails](#if-one-channel-fails)).
 
-**Docker Hub is still at 0.1.10**, because `docker.yml` was never run for 0.1.11–0.1.13.
+**Docker Hub is still at 0.1.10.** `docker.yml` was never run for 0.1.11–0.1.13, and 0.1.14's
+run was started from `main`, which the `release` environment rejects (see step 7 below).
 
 From 0.1.14 the flow is **stage, then approve**: `binaries.yml` runs `npm stage publish`,
 and nothing is installable until you approve each package with 2FA.
@@ -102,8 +105,10 @@ release/0.1.15                           └──R2    v0.1.15 tags R2
 ```
 
 `F` is a fix made while testing 0.1.14, and `R1` is the `chore(release): 0.1.14` commit that
-`release.py` makes. Both go back to `main` as cherry-picks (`F'`, `R1'`), and the next release
-branch is cut from `main` again.
+`release.py` makes. Both go back to `main` through a back-port pull request (step 8 below), and
+the next release branch is cut from `main` again. The diagram shows the case where `main` has
+moved on (`D`, `E`), so they go back as cherry-picks (`F'`, `R1'`). If `main` hasn't moved,
+they land unchanged.
 
 A release branch:
 
@@ -114,8 +119,8 @@ A release branch:
 3. takes fixes only, as pull requests, landed as
    [CONTRIBUTING.md](CONTRIBUTING.md#merge-a-pull-request-maintainers) describes;
 4. is frozen once tagged: never reused, never deleted;
-5. has its fixes and its `chore(release)` commit cherry-picked back to `main` before the next
-   release branch is cut.
+5. has its fixes and its `chore(release)` commit back-ported to `main` before the next release
+   branch is cut.
 
 The `chore(release)` commit has to go back too. `release.py` finds the previous release from the
 version in `pyproject.toml`, so if `main` still says the old version, the next changelog repeats
@@ -144,10 +149,15 @@ patch, from a new release branch.
     creation. The commit is already attested on the branch it was cut from, and the branch's
     first fix or release commit starts its own provenance.
 
-2.  **Add the branch to the SLSA source policy.** Open a PR to `slsa-framework/source-policies`
-    that adds `release/X.Y.Z` to `policy/github.com/ossiq/ossiq/source-policy.json`, and let it
-    merge before step 4. The policy names branches exactly, with no wildcards, so every release
-    branch needs its own entry. See [SLSA Source track](#slsa-source-track).
+2.  **Check the SLSA source policy** (needed for Source Level 3 only). A release reaches Level 3
+    only if `release/X.Y.Z` is in the *merged* policy before step 4. Otherwise it still ships,
+    at Level 1, and stays at Level 1:
+    ```bash
+    sourcetool policy view ossiq/ossiq     # release/X.Y.Z listed at SLSA_SOURCE_LEVEL_3?
+    ```
+    `release.py` can't check this for you. It waits for a green attestation run, and a run is
+    green at Level 1 too. Upstream takes about a month to merge a policy PR, so list release
+    branches well ahead. See [SLSA Source track](#slsa-source-track).
 
 3.  **Test, and fix through pull requests.** Run `uv run just qa-integration` and the manual
     cases in `qa/manual/release-checklist.md` against the release branch. Each fix:
@@ -199,23 +209,60 @@ patch, from a new release branch.
 
 7.  **Publish the Docker image** — manual, and only once PyPI has the version:
     ```bash
-    gh workflow run docker.yml -f tag=vX.Y.Z
+    gh workflow run docker.yml --ref vX.Y.Z -f tag=vX.Y.Z
     ```
-    `latest` defaults to on; untick it (`-f latest=false`) when rebuilding an older
-    version. The workflow refuses to start if `ossiq==X.Y.Z` is not yet on PyPI.
+    Run it from the tag. The `release` environment accepts only `v*` tags, so a run started
+    from `main` (the default `--ref`) is rejected before it starts. `latest` defaults to on;
+    untick it (`-f latest=false`) when rebuilding an older version. The workflow refuses to
+    start if `ossiq==X.Y.Z` is not yet on PyPI.
 
-8.  **Back-port to `main`**, before the next release branch is cut:
-    ```bash
-    git switch -c chore/backport-X.Y.Z origin/main
-    git cherry-pick -x <fix commits> <"chore(release): X.Y.Z" commit>
-    gh pr create --base main
-    ```
-    Land it as [CONTRIBUTING.md](CONTRIBUTING.md#merge-a-pull-request-maintainers) describes.
+8.  **Back-port to `main`** through a pull request, before the next release branch is cut.
+    `main` needs the release branch's fixes and its `chore(release): X.Y.Z` commit. Without
+    the bump, `main` still says the old version, and the next changelog repeats this release.
+
+    1. **Create the back-port branch.** How depends on whether `main` has moved since the cut:
+       ```bash
+       git fetch origin
+       git log --oneline origin/release/X.Y.Z..origin/main     # commits on main since the cut
+       ```
+       If that prints nothing, branch from the release branch itself. Its commits then land
+       on `main` unchanged, so the `vX.Y.Z` tag is in `main`'s history:
+       ```bash
+       git switch -c chore/backport-X.Y.Z origin/release/X.Y.Z
+       ```
+       If it prints commits, branch from `main` and cherry-pick the release branch's commits:
+       ```bash
+       git switch -c chore/backport-X.Y.Z origin/main
+       git cherry -v origin/main origin/release/X.Y.Z          # "+" lines: not on main yet
+       git cherry-pick -x <each "+" sha, top to bottom>
+       ```
+    2. **Check, push and open the pull request:**
+       ```bash
+       git log --format='%G? %h %s' origin/main..HEAD          # every line starts with G
+       git push -u origin chore/backport-X.Y.Z
+       gh pr create --base main --title "chore(release): back-port X.Y.Z" \
+         --body "Back-ports release/X.Y.Z to main: its fixes and the chore(release) commit."
+       gh pr checks --watch
+       ```
+    3. **Land it** as [CONTRIBUTING.md](CONTRIBUTING.md#merge-a-pull-request-maintainers)
+       describes:
+       ```bash
+       git fetch origin
+       git rebase origin/main                    # a no-op unless main moved since step 1
+       git push origin HEAD:main                 # GitHub marks the pull request as merged
+       git push origin --delete chore/backport-X.Y.Z
+       git switch main && git pull --ff-only
+       grep '^version' pyproject.toml            # X.Y.Z
+       ```
+       If the rebase changed anything, push the branch with `--force-with-lease` and wait for
+       the checks again before you push to `main`.
+
     The release branch is now frozen.
 
-    The next release's changelog lists these commits again. `release.py` collects every commit
-    since the previous tag, and that tag sits on the release branch, so the cherry-picked copies
-    on `main` count as new.
+    When the commits reach `main` as copies (cherry-picked, or rebased because `main` moved),
+    the next release's changelog lists them again. `release.py` collects every commit since the
+    previous tag, the tag is on the release branch, and the copies on `main` have new hashes.
+    Branching from the release branch avoids this.
 
 9.  **Verify all three channels and the source attestation**
     ([details](#post-release-verification)):
@@ -223,7 +270,7 @@ patch, from a new release branch.
     uvx ossiq@X.Y.Z --version
     npx --yes @ossiq/cli@X.Y.Z --version
     docker run --rm ossiq/ossiq-cli:X.Y.Z --version
-    sourcetool verify ossiq/ossiq --tag vX.Y.Z
+    sourcetool verify ossiq/ossiq --tag vX.Y.Z     # Level 1 unless step 2's check passed
     ```
 
 ### Release timeline
@@ -267,7 +314,8 @@ docker run --rm ossiq/ossiq-cli:X.Y.Z --version
 # 4. The GitHub Release should carry five .tar.gz assets
 gh release view vX.Y.Z --json assets --jq '.assets[].name'
 
-# 5. The tag's source attestation should report SLSA_SOURCE_LEVEL_3
+# 5. The tag's source attestation: SLSA_SOURCE_LEVEL_3 if the release branch was in the
+#    merged policy before release.py ran (step 2), SLSA_SOURCE_LEVEL_1 otherwise
 sourcetool verify ossiq/ossiq --tag vX.Y.Z
 ```
 
@@ -281,7 +329,7 @@ Each channel is recoverable on its own; you do **not** re-cut the release.
 | Binaries (`binaries.yml`) | Re-run the failed job. The release stays a draft until the binaries are attached, so re-running is safe (assets upload with `--clobber`). Once it is published it is immutable — missing binaries then mean a new patch version. |
 | npm staging (`binaries.yml`) | `403 OIDC permission denied` means a direct `npm publish` was attempted against a stage-only publisher — the workflow must use `npm stage publish`. `E404` on the first `PUT` means the trusted publisher does not match: fix it on npmjs.com, then `gh run rerun <id> --failed`. Nothing has landed in either case, so a rerun is safe. |
 | npm approval | Staged-but-unapproved is **not** a failed release — the packages simply wait. Re-run `just npm-approve <run-id>`; it reports what is already live and what is still pending. If an approval failed part-way, the launcher may be live before its platform packages: the tool says so, and the fix is to approve the rest immediately. |
-| Docker (`docker.yml`) | Just run it again: `gh workflow run docker.yml -f tag=vX.Y.Z`. Nothing depends on it, so it can be published hours or days later. |
+| Docker (`docker.yml`) | Just run it again: `gh workflow run docker.yml --ref vX.Y.Z -f tag=vX.Y.Z`. Nothing depends on it, so it can be published hours or days later. "Branch "main" is not allowed to deploy to release" means the run started from `main` instead of the tag. |
 | Source attestation (`compute_slsa_source.yml`) | Re-run the failed job: `gh run rerun <id> --failed`. A re-run keeps the original push event, which the attestation action requires. |
 
 A version that is live on one registry but not another is not an emergency — the channels
@@ -403,6 +451,10 @@ targets [SLSA Source L3](https://slsa.dev/spec/v1.2/source-requirements). Every 
 release is built from sits on a protected branch and is attested when it lands there, and
 every tag is permanent.
 
+**Status:** the controls are in place, and `main` and the release branches are eligible for
+Level 3. Releases still ship at **Level 1**, because the source policy isn't merged yet (see
+**Policy** below). v0.1.14 verifies at Level 1.
+
 **Protected references**, set up as repository rulesets:
 
 | Ruleset | Covers | Rules |
@@ -431,14 +483,32 @@ commit's run before it pushes the tag.
 
 **Policy.** The level each branch is held to is declared in
 `policy/github.com/ossiq/ossiq/source-policy.json` in `slsa-framework/source-policies`, a
-repository this project doesn't control. sourcetool matches branch names exactly, so every
-release branch needs its own entry: step 2 of the
-[Standard Release Procedure](#standard-release-procedure).
+repository this project doesn't control. A branch that isn't listed in the *merged* file is
+held to sourcetool's default policy, which is Level 1.
+
+- **Pending:** the file is proposed in
+  [slsa-framework/source-policies#26](https://github.com/slsa-framework/source-policies/pull/26)
+  with `main` and `release/0.1.14`. Upstream takes about a month to merge a policy PR.
+- **Exact names.** sourcetool matches branch names exactly, with no wildcards, so every release
+  branch needs its own entry. Add upcoming names ahead of time.
+- **The `since` date.** A branch reaches Level 3 only if its entry's `since` is no earlier than
+  the newest date among its required controls, and no later than the attested push. For
+  `release/*`, that date is the later `updated_at` of the two SLSA rulesets, in UTC:
+  `2026-10-22T20:31:35.469Z` today. Don't copy `main`'s date. `main` is also covered by the
+  older Main Branch Protection ruleset, so its date is earlier, and a release branch given
+  that date drops to Level 1.
+- **Editing either SLSA ruleset moves that date** for every branch that has no attestation yet,
+  which breaks entries written ahead of time. Update their `since` after any edit. Branches
+  that already have an attestation keep their earlier date.
 
 ```bash
-sourcetool status ossiq/ossiq --level          # the level each protected branch is at
-sourcetool verify ossiq/ossiq --tag vX.Y.Z     # what a consumer checks
+sourcetool policy view ossiq/ossiq                                    # the merged policy
+sourcetool status --owner ossiq --repo ossiq --branch release/X.Y.Z   # one branch's controls
+sourcetool verify ossiq/ossiq --tag vX.Y.Z                            # what a consumer checks
 ```
+
+Pass a branch to `status` with `--branch`. The `ossiq/ossiq@release/X.Y.Z` form silently
+reports `main` instead.
 
 **Safe expunging.** SLSA requires the process for removing content from protected history to
 be documented, and this is it:
@@ -605,16 +675,14 @@ Trusted Publishing**, so there is no `NPM_TOKEN` secret to create.
 #### Step 5 — Publish the Docker image
 
 ```bash
-gh workflow run docker.yml -f tag=vX.Y.Z
+gh workflow run docker.yml --ref vX.Y.Z -f tag=vX.Y.Z
 ```
 
 #### Step 6 — Confirm the automation on the next release
 
-0.1.13 was meant to be that release and did not reach npm at all (see
-[npm channel status](#npm-channel-status)). **0.1.14** is now the one: `Stage npm packages
-for approval` goes green with no manual step, and `npx @ossiq/cli@0.1.14` works once you
-have approved. When it does, the bootstrap is complete and this section never applies
-again.
+**Done at 0.1.14.** `Stage npm packages for approval` went green with no manual step, and
+`npx @ossiq/cli@0.1.14` runs once approved. The bootstrap is complete. 0.1.13 was meant to
+be this release and didn't reach npm at all (see [npm channel status](#npm-channel-status)).
 
 ### Rehearsing without publishing
 
@@ -697,11 +765,14 @@ single command on an infrequent, deliberate operation.
 
 ```bash
 # Normal case: publish the version you just released and make it `latest`
-gh workflow run docker.yml -f tag=vX.Y.Z
+gh workflow run docker.yml --ref vX.Y.Z -f tag=vX.Y.Z
 
 # Rebuild an older version without disturbing `latest`
-gh workflow run docker.yml -f tag=vX.Y.Z -f latest=false
+gh workflow run docker.yml --ref vX.Y.Z -f tag=vX.Y.Z -f latest=false
 ```
+
+`--ref vX.Y.Z` is required: the job deploys to the `release` environment, which accepts only
+`v*` tags.
 
 The workflow verifies the version is on PyPI before building, so a typo or a premature run
 fails in seconds rather than part-way through a ~20 minute multi-arch build.
