@@ -37,6 +37,7 @@ def make_cve(*, epss: float | None) -> CVE:
         summary="example vulnerability",
         severity=Severity.CRITICAL,
         affected_versions=("1.0.0",),
+        affected_ranges=(),
         published=None,
         link="https://example.test/advisory",
         epss=epss,

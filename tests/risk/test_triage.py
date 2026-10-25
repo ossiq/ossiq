@@ -24,6 +24,7 @@ def make_cve(epss: float | None, cve_id: str = "CVE-2026-0001") -> CVE:
         summary="example advisory",
         severity=Severity.HIGH,
         affected_versions=("1.0.0",),
+        affected_ranges=(),
         published="2026-01-01T00:00:00Z",
         link="https://example.test/advisory",
         epss=epss,

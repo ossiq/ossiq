@@ -42,6 +42,7 @@ def make_cve(
         summary="Test vulnerability",
         severity=Severity.HIGH,
         affected_versions=("1.0.0",),
+        affected_ranges=(),
         published="2024-01-01T00:00:00Z",
         link=f"https://osv.dev/{cve_id}",
         fix_available=bool(fix_versions),

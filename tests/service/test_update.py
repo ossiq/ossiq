@@ -240,6 +240,7 @@ def make_cve(package_name: str) -> CVE:
         summary="test",
         severity=Severity.HIGH,
         affected_versions=("1.0.0",),
+        affected_ranges=(),
         published=None,
         link="https://example.com",
     )

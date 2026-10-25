@@ -64,6 +64,7 @@ def fake_cve(name: str = "left-pad", epss: float | None = None) -> CVE:
         summary="",
         severity=Severity.HIGH,
         affected_versions=("1.0.0",),
+        affected_ranges=(),
         published=None,
         link="",
         epss=epss,

@@ -41,6 +41,7 @@ def sample_cve():
         summary="Test vulnerability",
         severity=Severity.HIGH,
         affected_versions=("<18.0.0",),
+        affected_ranges=(),
         published="2023-03-15T00:00:00Z",
         link="https://example.com/advisory",
     )

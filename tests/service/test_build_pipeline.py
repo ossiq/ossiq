@@ -219,6 +219,7 @@ class TestBuildRecords:
             summary="Test",
             severity=Severity.HIGH,
             affected_versions=("1.0.0",),
+            affected_ranges=(),
             published="2024-01-01",
             link="https://osv.dev/CVE-2024-9999",
         )

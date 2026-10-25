@@ -329,6 +329,7 @@ class TestScanRecordPrerelease:
             summary="A vulnerability",
             severity=Severity.HIGH,
             affected_versions=(_PRERELEASE_VERSION,),
+            affected_ranges=(),
             published="2024-01-01",
             link="https://osv.dev/CVE-2024-1234",
         )

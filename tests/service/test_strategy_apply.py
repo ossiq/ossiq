@@ -180,6 +180,7 @@ class TestBuildCandidates:
                 summary="bad",
                 severity=Severity.HIGH,
                 affected_versions=("1.1.0",),
+                affected_ranges=(),
                 published=None,
                 link="https://example.test",
                 epss=0.5,
@@ -460,6 +461,7 @@ class TestApplyUpdateStrategy:
                 summary="bad",
                 severity=Severity.HIGH,
                 affected_versions=("1.0.0",),
+                affected_ranges=(),
                 published=None,
                 link="https://example.test",
                 epss=0.5,
@@ -1119,6 +1121,7 @@ class TestApplyUpdateStrategyReleaseCutoff:
                 summary="cel < 0.10.0",
                 severity=Severity.HIGH,
                 affected_versions=("0.8.0",),
+                affected_ranges=(),
                 published=None,
                 link="https://osv.dev/vulnerability/GHSA-cel",
             )
@@ -1172,6 +1175,7 @@ UUID_ADVISORY = CVE(
     summary="uuid < 11.1.1",
     severity=Severity.HIGH,
     affected_versions=("8.3.2", "9.0.1", "10.0.0", "11.0.5"),
+    affected_ranges=(),
     published=None,
     link="https://osv.dev/vulnerability/GHSA-w5hq-g745-h8pq",
 )

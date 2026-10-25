@@ -37,6 +37,7 @@ def make_cve(cve_id: str, severity: Severity = Severity.MEDIUM, summary: str = "
         summary=summary,
         severity=severity,
         affected_versions=("1.0.0",),
+        affected_ranges=(),
         published=None,
         link=f"https://example.test/{cve_id}",
     )

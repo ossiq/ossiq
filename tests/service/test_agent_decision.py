@@ -70,6 +70,7 @@ def make_cve(version: str = "1.0.0", severity: Severity = Severity.HIGH) -> CVE:
         summary="bad things",
         severity=severity,
         affected_versions=(version,),
+        affected_ranges=(),
         published=None,
         link="https://example.test/advisory",
     )

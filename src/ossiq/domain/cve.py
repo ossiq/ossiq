@@ -73,6 +73,8 @@ class CVE:
     # versions OSV enumerates for this package; always empty for npm, which publishes only
     # ranges - judge exposure with solver.version_matchers.cve_affects_version, never with `in`
     affected_versions: tuple[str, ...]
+    # Required, not defaulted: a producer that forgets it would read every npm release as clean.
+    affected_ranges: tuple[AffectedRange, ...]
     published: str | None
     # URL to upstream advisory
     link: str
@@ -81,4 +83,3 @@ class CVE:
     fix_available: bool = False
     fix_versions: tuple[str, ...] = ()
     fix_age_days: int | None = None
-    affected_ranges: tuple[AffectedRange, ...] = ()
