@@ -130,8 +130,12 @@ requestAnimationFrame(frame);
 // ---------- scene ----------
 
 try {
-  const { createStrand } = await import("./strand.js");
-  scene = createStrand(canvas, { theme });
+  // Same breakpoint as the stacked layout in landing.html, where the canvas is hidden. Checked once
+  // at load, so widening the window later needs a reload to start the helix.
+  if (!matchMedia("(max-width: 900px)").matches) {
+    const { createStrand } = await import("./strand.js");
+    scene = createStrand(canvas, { theme });
+  }
 } catch (error) {
   console.warn("Landing animation unavailable:", error);
 }

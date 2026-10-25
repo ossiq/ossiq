@@ -457,7 +457,10 @@ footer nav{margin:0 0 0 auto;gap:1.6rem;font-size:.88rem}
   .close{padding-block:2.5rem 4rem}
   .lede{margin-bottom:2rem}
   #features .rows{margin-bottom:3rem}
-  .panel{max-width:100%}
+  .panel{max-width:100%;opacity:1;transform:none;will-change:auto}
+  /* no helix on phones (landing.js skips it too): no canvas, no scrim, and no copy backing — the backing's
+     7rem side inset was also what made the page wider than the screen */
+  #strandCanvas,.scrim,.panel::before{display:none}
   footer nav{display:flex;margin-left:0;flex-wrap:wrap}
 }
 /* menu + brand + repo + switch + CTA no longer fit on a phone, so the repo link and switch move into the drawer */
