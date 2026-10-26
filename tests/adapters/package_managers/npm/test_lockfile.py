@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 
 from ossiq.adapters.package_managers.api_npm import PackageManagerJsNpm
-from ossiq.adapters.package_managers.npm.lockfile import NPMResolverV3
+from ossiq.adapters.package_managers.npm.lockfile import NPMTreeBuilderV3
 from ossiq.domain.common import ConstraintType, ProjectPackagesRegistry
 from ossiq.domain.project import IncomingEdge, UnresolvedPeer
 from ossiq.solver.version_matchers import version_satisfies_constraint
@@ -343,15 +343,15 @@ class TestNpmEdgeResolution:
         """npm only installs a copy for an edge it satisfies, so no edge may end up on another copy."""
         # Arrange
         lock = json.loads((TESTDATA_NPM / fixture / "package-lock.json").read_text())
-        resolver = NPMResolverV3(lock)
+        builder = NPMTreeBuilderV3(lock)
 
         # Act
-        root = resolver.build_graph(lock["name"])
+        root = builder.build_graph(lock["name"])
 
         # Assert
         unsatisfied = [
             (node.name, node.version_installed, edge.requirer_name, edge.spec)
-            for node in resolver.registry.values()
+            for node in builder.registry.values()
             if node is not root
             for edge in node.parent_edges
             if not edge.spec.startswith("npm:")
@@ -363,14 +363,14 @@ class TestNpmEdgeResolution:
         """rc-util 5 takes its nested react-is 18; prop-types and the rc-util 4 copies take the hoisted 16."""
         # Arrange
         lock = json.loads((TESTDATA_NPM / "project3" / "package-lock.json").read_text())
-        resolver = NPMResolverV3(lock)
+        builder = NPMTreeBuilderV3(lock)
 
         # Act
-        resolver.build_graph(lock["name"])
+        builder.build_graph(lock["name"])
 
         # Assert
-        nested = resolver.registry[frozenset(("react-is", "18.3.1"))]
-        hoisted = resolver.registry[frozenset(("react-is", "16.13.1"))]
+        nested = builder.registry[("react-is", "18.3.1")]
+        hoisted = builder.registry[("react-is", "16.13.1")]
         assert nested.parent_constraints == ["^18.2.0"]
         assert set(hoisted.parent_constraints) == {"^16.13.1", "^16.12.0"}
         assert len(hoisted.parent_constraints) == 5
@@ -379,14 +379,14 @@ class TestNpmEdgeResolution:
         """form-render's color 3 is its own nested copy, apart from the hoisted color 4."""
         # Arrange
         lock = json.loads((TESTDATA_NPM / "project3" / "package-lock.json").read_text())
-        resolver = NPMResolverV3(lock)
+        builder = NPMTreeBuilderV3(lock)
 
         # Act
-        resolver.build_graph(lock["name"])
+        builder.build_graph(lock["name"])
 
         # Assert
-        assert resolver.registry[frozenset(("color", "3.2.1"))].parent_constraints == ["^3.1.2"]
-        assert resolver.registry[frozenset(("color", "4.2.3"))].parent_constraints == ["^4.2.3"]
+        assert builder.registry[("color", "3.2.1")].parent_constraints == ["^3.1.2"]
+        assert builder.registry[("color", "4.2.3")].parent_constraints == ["^4.2.3"]
 
 
 # ============================================================================

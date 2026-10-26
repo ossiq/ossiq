@@ -11,13 +11,13 @@ from typing import Any
 import pytest
 
 from ossiq.adapters.package_managers.api_npm import PackageManagerJsNpm
-from ossiq.adapters.package_managers.dependency_tree import GraphExporter
 from ossiq.adapters.package_managers.npm.writer import (
     add_peer_repairs,
     apply_direct_specs,
     write_transitive_overrides,
 )
 from ossiq.service.project.models import PeerRepair
+from ossiq.tree.walker import DependencyWalker
 from tests.adapters.package_managers.npm.helpers import make_npm_update_entry, make_npm_update_plan
 
 
@@ -87,7 +87,7 @@ class TestDevTransitiveDeps:
         """walk_all_paths(include_optional_roots=True) must yield js-cookie."""
         npm_manager = PackageManagerJsNpm(npm_project_with_dev_transitive_deps, settings)
         project = npm_manager.project_info()
-        walker = GraphExporter(project.dependency_tree)
+        walker = DependencyWalker(project.dependency_tree)
 
         discovered = {node.name for node, _ in walker.walk_all_paths(include_optional_roots=True)}
         assert "js-cookie" in discovered
@@ -97,7 +97,7 @@ class TestDevTransitiveDeps:
         """walk_all_paths(include_optional_roots=False) must NOT yield js-cookie (no prod chain)."""
         npm_manager = PackageManagerJsNpm(npm_project_with_dev_transitive_deps, settings)
         project = npm_manager.project_info()
-        walker = GraphExporter(project.dependency_tree)
+        walker = DependencyWalker(project.dependency_tree)
 
         discovered = {node.name for node, _ in walker.walk_all_paths(include_optional_roots=False)}
         assert "js-cookie" not in discovered

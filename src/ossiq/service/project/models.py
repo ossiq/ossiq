@@ -100,7 +100,7 @@ class ScanRecord:
     version_constraint: str | None = None
     """Effective version specifier used internally for solver/ladder computation, e.g. "^1.2.0".
     Last-writer-wins across every parent that declares a spec for this package (see
-    dependency_tree.py Pass 2) - it is NOT guaranteed to be the root manifest's own declaration.
+    tree/edges.py settle_version_defined) - it is NOT guaranteed to be the root manifest's own declaration.
     User-facing surfaces must read version_constraint_declared instead."""
 
     version_constraint_declared: str | None = None

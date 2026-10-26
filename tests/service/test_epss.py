@@ -4,13 +4,13 @@ from collections.abc import Iterable
 
 import pytest
 
-from ossiq.adapters.package_managers.dependency_tree import GraphExporter
 from ossiq.domain.common import ConstraintType, CveDatabase, ProjectPackagesRegistry
 from ossiq.domain.cve import CVE, Severity
 from ossiq.domain.project import ConstraintSource, Dependency
 from ossiq.domain.version import VERSION_LATEST, VersionsDifference
 from ossiq.service.project.epss import populate_epss
 from ossiq.service.project.models import ScanRecord
+from ossiq.tree.walker import DependencyWalker
 
 
 def make_dependency(name: str, *children: Dependency, optional: Iterable[Dependency] = ()) -> Dependency:
@@ -23,8 +23,8 @@ def make_dependency(name: str, *children: Dependency, optional: Iterable[Depende
     )
 
 
-def make_walker(*prod_roots: Dependency, optional: Iterable[Dependency] = ()) -> GraphExporter:
-    return GraphExporter(make_dependency("root", *prod_roots, optional=optional))
+def make_walker(*prod_roots: Dependency, optional: Iterable[Dependency] = ()) -> DependencyWalker:
+    return DependencyWalker(make_dependency("root", *prod_roots, optional=optional))
 
 
 def make_cve(*, epss: float | None) -> CVE:

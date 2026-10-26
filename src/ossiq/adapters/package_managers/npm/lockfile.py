@@ -7,7 +7,6 @@ import logging
 from collections.abc import Iterable
 from typing import Any
 
-from ossiq.adapters.package_managers.dependency_tree import BaseDependencyResolver
 from ossiq.adapters.package_managers.npm.constants import (
     CATEGORIES_OVERRIDDEN,
     MANIFEST_FILE,
@@ -19,6 +18,7 @@ from ossiq.adapters.package_managers.npm.overrides import parse_override_rules, 
 from ossiq.domain.common import ConstraintType
 from ossiq.domain.project import ConstraintSource, Dependency
 from ossiq.domain.version import classify_npm_specifier
+from ossiq.tree.builder import LockfileTreeBuilder
 
 logger = logging.getLogger(__name__)
 
@@ -39,9 +39,9 @@ def dependency_entries(pkg_data: dict[str, Any], section: str) -> list[dict[str,
     return [{"name": name, "version": spec} for name, spec in pkg_data.get(section, {}).items()]
 
 
-class NPMResolverV3(BaseDependencyResolver):
+class NPMTreeBuilderV3(LockfileTreeBuilder):
     """
-    Concrete resolver for NPM v3 lockfiles.
+    Concrete tree builder for NPM v3 lockfiles.
     """
 
     def __init__(self, raw_data: dict[str, Any], overrides: dict[str, Any] | None = None):
@@ -112,7 +112,7 @@ class NPMResolverV3(BaseDependencyResolver):
         if self.path_nodes is None:
             self.path_nodes = {}
             for pkg_data in self.get_all_packages():
-                node = self.registry.get(frozenset(self.extract_package_identity(pkg_data)))
+                node = self.registry.get(self.extract_package_identity(pkg_data))
                 if node is not None:
                     self.path_nodes[pkg_data["_path"]] = node
         return self.path_nodes

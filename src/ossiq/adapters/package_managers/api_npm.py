@@ -16,7 +16,7 @@ from ossiq.adapters.api_interfaces import AbstractPackageManagerApi
 from ossiq.adapters.package_managers.npm import manifest
 from ossiq.adapters.package_managers.npm.constants import MANIFEST_FILE
 from ossiq.adapters.package_managers.npm.engines import declared_engine_floors
-from ossiq.adapters.package_managers.npm.lockfile import NPMResolverV3
+from ossiq.adapters.package_managers.npm.lockfile import NPMTreeBuilderV3
 from ossiq.adapters.package_managers.npm.writer import (
     add_peer_repairs,
     apply_direct_specs,
@@ -126,8 +126,8 @@ class PackageManagerJsNpm(AbstractPackageManagerApi):
             ossiq_overrides: The overrides OSS IQ itself last wrote (`ossiq:metadata.overrides`).
             overrides: The manifest's `overrides` block, which the lockfile does not carry.
         """
-        resolver = NPMResolverV3(lockfile_data, overrides)
-        dependency_tree = resolver.build_graph(lockfile_data["name"], ossiq_overrides)
+        builder = NPMTreeBuilderV3(lockfile_data, overrides)
+        dependency_tree = builder.build_graph(lockfile_data["name"], ossiq_overrides)
 
         # No dependencies - no analysis, something wrong
         if not dependency_tree or (not dependency_tree.dependencies and not dependency_tree.optional_dependencies):

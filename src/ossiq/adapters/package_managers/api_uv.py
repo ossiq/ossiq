@@ -20,7 +20,6 @@ from packaging.requirements import InvalidRequirement, Requirement
 from ossiq.adapters.api_interfaces import AbstractPackageManagerApi
 from ossiq.adapters.api_pypi import PackageRegistryApiPypi
 from ossiq.adapters.package_managers.api_pypi import enrich_registry_constraints
-from ossiq.adapters.package_managers.dependency_tree import BaseDependencyResolver
 from ossiq.adapters.package_managers.utils import (
     extract_min_python_version,
     find_lockfile_parser,
@@ -33,6 +32,7 @@ from ossiq.domain.project import ConstraintSource, Dependency, Project
 from ossiq.domain.release_cutoff import ReleaseCutoff
 from ossiq.domain.version import classify_pypi_specifier
 from ossiq.settings import Settings
+from ossiq.tree.builder import LockfileTreeBuilder
 
 if TYPE_CHECKING:
     from ossiq.service.update import UpdateEntry, UpdatePlan
@@ -72,7 +72,7 @@ def parse_pyproject_direct_specifiers(pyproject_data: dict) -> dict[str, str | N
 def apply_pyproject_constraints(root: Dependency, pyproject_specs: dict[str, str | None]) -> list[str]:
     """Reassert version_constraint_declared on root's direct deps from pyproject.toml.
 
-    Pass 2 of dependency_tree.py's build_graph already sets version_constraint_declared from
+    LockfileTreeBuilder.build_graph already sets version_constraint_declared from
     the lockfile's own recorded specifier (uv.lock's [package.metadata].requires-dist), but
     that can be stale if pyproject.toml was hand-edited since the last `uv lock`. pyproject.toml
     is the actual manifest, so its value always wins for the user-facing declared constraint.
@@ -221,9 +221,9 @@ def upsert_ossiq_metadata_overrides(content: str, overrides: dict[str, str]) -> 
     return upsert_toml_array(content, ("tool", "ossiq", "metadata"), "overrides", overrides)
 
 
-class UVResolverV1R3(BaseDependencyResolver):
+class UVTreeBuilderV1R3(LockfileTreeBuilder):
     """
-    Concrete resolver for uv.lock files.
+    Concrete tree builder for uv.lock files.
     """
 
     def classify_constraint(self, spec: str | None) -> ConstraintType:
@@ -516,12 +516,12 @@ class PackageManagerPythonUv(AbstractPackageManagerApi):
         """
         Lockfile parser for UV version `1` and revision `3`
         """
-        resolver = UVResolverV1R3(uv_lock_data)
-        root_node = resolver.build_graph(project_package_name)
+        builder = UVTreeBuilderV1R3(uv_lock_data)
+        root_node = builder.build_graph(project_package_name)
         if not root_node:
             raise PackageManagerLockfileParsingError("Cannot parse UV lockfile")
 
-        return root_node, resolver.registry
+        return root_node, builder.registry
 
     def get_lockfile_parser(
         self, version: int | str | None, revision: int | str | None

@@ -19,6 +19,9 @@ FORBIDDEN_PREFIXES = (
     # The pass a package installs in is written once, by service.install_passes; a renderer
     # sequencing for itself is how `plan` and `apply` would come to disagree on the order.
     "ossiq.sequence",
+    # The graph a scan walks is assembled once by the pipeline; a renderer walking or rebuilding
+    # it would be doing its own resolution instead of reading ScanResult.
+    "ossiq.tree",
 )
 # Names that carry an adapter or a live registry handle into a renderer even when the module they
 # come from is allowed — AgentUpdateContextRenderer used to take one through untyped **kwargs.

@@ -3,7 +3,7 @@
 import json
 import os
 
-from ossiq.adapters.package_managers.npm.lockfile import NPMResolverV3
+from ossiq.adapters.package_managers.npm.lockfile import NPMTreeBuilderV3
 from ossiq.domain.project import Dependency
 from ossiq.service.update import UpdateEntry, UpdatePlan
 
@@ -13,7 +13,7 @@ from ossiq.service.update import UpdateEntry, UpdatePlan
 # ============================================================================
 def build_tree(lock: dict, overrides: dict | None = None, ossiq_overrides: dict[str, str] | None = None) -> Dependency:
     """Resolve a lockfile into its dependency tree, whose root is the package named `p`."""
-    root = NPMResolverV3(lock, overrides).build_graph("p", ossiq_overrides)
+    root = NPMTreeBuilderV3(lock, overrides).build_graph("p", ossiq_overrides)
     assert root is not None
     return root
 

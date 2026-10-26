@@ -13,6 +13,7 @@ from ossiq.domain.common import ConstraintType, normalize_dist_name
 from ossiq.domain.project import ConstraintSource, Dependency
 from ossiq.domain.version import classify_pypi_specifier
 from ossiq.solver.pep508 import applicable_requirements
+from ossiq.tree.builder import NodeKey
 
 logger = logging.getLogger(__name__)
 
@@ -43,7 +44,7 @@ def batch_fetch_requires_dist(
 
 
 def enrich_registry_constraints(
-    registry: dict[frozenset, Dependency],
+    registry: dict[NodeKey, Dependency],
     session: requests.Session | None = None,
     *,
     python_floor: str | None = None,

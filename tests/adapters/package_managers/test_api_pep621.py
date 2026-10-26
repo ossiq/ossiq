@@ -186,7 +186,7 @@ class TestProjectInfo:
     def test_version_defined_and_declared_reflect_the_manifest_specifier(self, pep621_project_no_lockfile, settings):
         """The whole point of item #15's fix applied from day one here: since this adapter IS
         the root manifest, version_constraint_declared must be populated directly, not left None
-        pending some later Pass-2 write that never happens (there's no BaseDependencyResolver
+        pending some later write that never happens (there's no LockfileTreeBuilder
         graph construction for this adapter at all)."""
         pm = PackageManagerPythonPep621(pep621_project_no_lockfile, settings)
         project = pm.project_info()

@@ -12,7 +12,6 @@ from typing import Protocol
 from ossiq.adapters.api_interfaces import AbstractPackageRegistryApi
 from ossiq.adapters.api_pypi import PackageRegistryApiPypi
 from ossiq.adapters.detectors import is_git_hosted_source
-from ossiq.adapters.package_managers.dependency_tree import GraphExporter
 from ossiq.domain.common import (
     DataCompleteness,
     DataSourceStatus,
@@ -80,6 +79,7 @@ from ossiq.solver.universe import filter_eligible_versions
 from ossiq.sources.core import AbstractProjectSources
 from ossiq.strategy.pyramid import MINIMAL_DIFF_TIERS
 from ossiq.timeutil import parse_iso_datetime
+from ossiq.tree.walker import DependencyWalker
 
 logger = logging.getLogger(__name__)
 
@@ -137,7 +137,7 @@ class ScanDescriptors:
     trans_deps: list[DependencyDescriptor]
     ignored_packages: list[IgnoredDependency]
     ignore_set: frozenset[str]
-    walker: GraphExporter
+    walker: DependencyWalker
 
 
 def requirement_scope_for(project_info: Project) -> RequirementScope:
@@ -241,7 +241,7 @@ def build_scan_descriptors(project_info, sources: AbstractProjectSources) -> Sca
         ]
 
     direct_canonical_names = {dep.canonical_name for dep in prod_deps + opt_deps}
-    walker = GraphExporter(project_info.dependency_tree)
+    walker = DependencyWalker(project_info.dependency_tree)
     # canonical name -> version -> the node and path the walk last reached it by. Kept per version
     # because npm can install several; a one-copy-per-name manager only ever fills one.
     trans_nodes: dict[str, dict[str, tuple[Dependency, list[str]]]] = {}

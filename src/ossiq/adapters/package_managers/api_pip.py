@@ -10,7 +10,6 @@ from typing import Any, cast
 
 from ossiq.adapters.api_interfaces import AbstractPackageManagerApi
 from ossiq.adapters.package_managers.api_pypi import enrich_registry_constraints
-from ossiq.adapters.package_managers.dependency_tree import BaseDependencyResolver
 from ossiq.adapters.package_managers.utils import extract_min_python_version, find_lockfile_parser
 from ossiq.domain.common import ConstraintType, normalize_dist_name
 from ossiq.domain.exceptions import PackageManagerLockfileParsingError
@@ -18,13 +17,14 @@ from ossiq.domain.packages_manager import PIP, PackageManagerType
 from ossiq.domain.project import ConstraintSource, Dependency, Project
 from ossiq.domain.version import classify_pypi_specifier
 from ossiq.settings import Settings
+from ossiq.tree.builder import LockfileTreeBuilder
 
 PylockProject = namedtuple("PylockProject", ["manifest", "lockfile"])
 
 
-class PyLockResolver(BaseDependencyResolver):
+class PyLockTreeBuilder(LockfileTreeBuilder):
     """
-    Concrete resolver for pylock.toml (PEP 751) lockfiles.
+    Concrete tree builder for pylock.toml (PEP 751) lockfiles.
 
     Handles the [[packages]] list format where dependencies are
     provided as a list of name/version maps.
@@ -157,12 +157,12 @@ class PackageManagerPythonPip(AbstractPackageManagerApi):
         """
         Lockfile parser for pylock.toml lock-version "1.0"
         """
-        resolver = PyLockResolver(pylock_data)
-        root_node = resolver.build_graph(project_package_name)
+        builder = PyLockTreeBuilder(pylock_data)
+        root_node = builder.build_graph(project_package_name)
         if not root_node:
             raise PackageManagerLockfileParsingError("Cannot parse pylock lockfile")
 
-        return root_node, resolver.registry
+        return root_node, builder.registry
 
     def get_lockfile_parser(self, lock_version: str | None) -> Callable[..., tuple[Dependency, dict]]:
         """
@@ -230,7 +230,7 @@ class PackageManagerPythonPip(AbstractPackageManagerApi):
         Build enriched pylock data by injecting a synthetic root package entry.
 
         pylock.toml (PEP 751) does not include the project itself as a package.
-        We synthesize a root entry from pyproject.toml data so the resolver
+        We synthesize a root entry from pyproject.toml data so the builder
         can build a proper dependency graph with the project as root.
         """
         root_entry = {

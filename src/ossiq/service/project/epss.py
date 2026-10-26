@@ -6,10 +6,10 @@ from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
 from itertools import chain
 
-from ossiq.adapters.package_managers.dependency_tree import GraphExporter
 from ossiq.domain.project import Dependency
 from ossiq.risk.epss import grouped_epss, package_epss
 from ossiq.service.project import models
+from ossiq.tree.walker import DependencyWalker
 
 
 @dataclass(frozen=True)
@@ -61,7 +61,7 @@ def is_published_after_cutoff(record: "models.ScanRecord") -> bool:
     return record.version_age_days is not None and record.version_age_days < 0
 
 
-def populate_epss(records: Iterable["models.ScanRecord"], walker: GraphExporter) -> ProjectEpss:
+def populate_epss(records: Iterable["models.ScanRecord"], walker: DependencyWalker) -> ProjectEpss:
     """Assign `record.epss` on every record and aggregate the project and per-direct-dependency scores."""
 
     record_list = list(records)

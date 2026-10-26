@@ -11,7 +11,6 @@ import pytest
 
 from ossiq.adapters.api_pypi import PackageRegistryApiPypi
 from ossiq.adapters.package_managers.api_npm import PackageManagerJsNpm
-from ossiq.adapters.package_managers.dependency_tree import GraphExporter
 from ossiq.domain.common import ConstraintType, CveDatabase, ProjectPackagesRegistry, RegistryStatus
 from ossiq.domain.cve import CVE, Severity
 from ossiq.domain.package import Package
@@ -38,6 +37,7 @@ from ossiq.settings import Settings
 from ossiq.solver.dependencies_solver import EMPTY_OUTPUT, SolverOutput
 from ossiq.strategy.overrides import StrategyPlan
 from ossiq.strategy.pyramid import UpdateStrategy
+from ossiq.tree.walker import DependencyWalker
 
 # ============================================================================
 # Module-level constants
@@ -740,7 +740,7 @@ class TestInstalledPackageNames:
             trans_deps=[],
             ignored_packages=[],
             ignore_set=frozenset(),
-            walker=GraphExporter(root),
+            walker=DependencyWalker(root),
         )
 
     def test_what_an_enabled_extra_installs_counts_as_installed(self):

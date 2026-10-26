@@ -3,7 +3,7 @@ Vocabulary shared by every part of the npm adapter: the manifest file name and t
 sections of package.json / package-lock.json with the category each one tags a package with.
 """
 
-from ossiq.adapters.package_managers.dependency_tree import CATEGORY_PEER
+from ossiq.tree.builder import CATEGORY_PEER
 
 MANIFEST_FILE = "package.json"
 

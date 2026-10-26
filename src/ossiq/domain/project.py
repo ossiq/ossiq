@@ -106,8 +106,8 @@ class Dependency:
     # Version, nominally defined in project requirements before resolution
     version_defined: str | None = None
     # Raw version specifier declared by the root manifest itself for this package, populated
-    # exactly once at root-node registration (never by Pass 2's parent-edge iteration in
-    # dependency_tree.py, which may process parents in arbitrary order). None for packages
+    # exactly once at root-node registration (never by the edge linking in tree/edges.py,
+    # which may process parents in arbitrary order). None for packages
     # with no root-manifest entry, i.e. pure transitive/peer-only dependencies. This is the
     # value every user-facing consumer must read instead of version_defined, which stays a
     # last-writer-wins accumulator used internally by the solver.
@@ -130,7 +130,7 @@ class Dependency:
     )
 
     # All version specifiers declared by every direct parent of this node.
-    # Populated during graph construction (dependency_tree.py Pass 2).
+    # Populated during graph construction (tree/edges.py record_incoming_edge).
     # Used by the solver to apply multi-parent L1 hard rejections for diamond deps.
     parent_constraints: list[str] = field(default_factory=list, compare=False)
 
