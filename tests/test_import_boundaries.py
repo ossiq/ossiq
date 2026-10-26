@@ -16,6 +16,9 @@ FORBIDDEN_PREFIXES = (
     # A renderer reaching into the pure selector would be re-deriving a verdict the pipeline
     # already wrote onto ScanRecord — the contradictory-surfaces class PLAN.md exists to prevent.
     "ossiq.strategy",
+    # The pass a package installs in is written once, by service.install_passes; a renderer
+    # sequencing for itself is how `plan` and `apply` would come to disagree on the order.
+    "ossiq.sequence",
 )
 # Names that carry an adapter or a live registry handle into a renderer even when the module they
 # come from is allowed — AgentUpdateContextRenderer used to take one through untyped **kwargs.
