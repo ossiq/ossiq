@@ -230,7 +230,7 @@ CVEs only) through the default `standard` up to `cutting-edge`.
 Before recommending a version, the solver simulates its full transitive cascade, falls back to the
 next-best candidate when the top one would conflict, and holds back releases younger than
 `--cooldown-period` (default: 7 days) unless they fix a CVE in an installed version. The solver
-resolves in a single pass against your current lockfile, so re-running `plan` after `apply` can
+resolves in one round against your current lockfile, so re-running `plan` after `apply` can
 surface further updates; repeat until it reports none. Full rules are in
 [Reference → Update rules](reference/update-rules.md#solver-rules), and every flag is in
 [Reference → `plan` and `apply`](reference/commands.md#plan-and-apply).

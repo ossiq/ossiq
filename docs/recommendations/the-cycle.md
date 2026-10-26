@@ -70,9 +70,9 @@ now named per entry. `--yes` skips both prompts.
 
 ## Convergence
 
-Updates are resolved in a single pass against the *current* lockfile. Applying them re-resolves the
+Updates are resolved in one round against the *current* lockfile. Applying them re-resolves the
 tree, which can surface further recommendations, so `apply` closes by telling you to re-run `plan`.
-Most projects converge in one or two passes.
+Most projects converge in one or two rounds.
 
 ## What the cycle risks
 

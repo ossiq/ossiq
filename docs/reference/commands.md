@@ -156,6 +156,15 @@ ossiq apply --pin-all
 ossiq apply --pin-all --rewrite-versions --ignore django
 ```
 
+### Install passes (npm)
+
+npm refuses a tree where an installed package's peer range excludes a version that another update places
+beside it, even when the finished tree is valid. When that applies, `plan` groups the updates under
+**Pass 1 of N**, and names the package that goes first and the range that makes it wait. `apply` runs the
+passes in that order: every pass but the last only writes `package-lock.json`, and the last one installs. A
+failure in any pass restores `package.json` and `package-lock.json`. A plan with no such conflict is one
+pass and reads as before.
+
 (cmd-export)=
 ## `export`
 
