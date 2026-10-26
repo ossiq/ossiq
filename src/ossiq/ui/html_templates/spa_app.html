@@ -9,7 +9,7 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400..700&display=swap" rel="stylesheet">
     <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded" rel="stylesheet">
-    <script type="module" crossorigin>//#region \0vite/modulepreload-polyfill.js
+    <script type="module" crossorigin>// \0vite/modulepreload-polyfill.js
 (function polyfill() {
 	const relList = document.createElement("link").relList;
 	if (relList && relList.supports && relList.supports("modulepreload")) return;
@@ -39,8 +39,7 @@
 		fetch(link.href, fetchOpts);
 	}
 })();
-//#endregion
-//#region node_modules/@vue/shared/dist/shared.esm-bundler.js
+// node_modules/@vue/shared/dist/shared.esm-bundler.js
 /**
 * @vue/shared v3.5.43
 * (c) 2018-present Yuxi (Evan) You and Vue contributors
@@ -158,9 +157,7 @@ function normalizeClass(value) {
 	}
 	return res.trim();
 }
-var specialBooleanAttrs = `itemscope,allowfullscreen,formnovalidate,ismap,nomodule,novalidate,readonly`;
-var isSpecialBooleanAttr = /* @__PURE__ */ makeMap(specialBooleanAttrs);
-specialBooleanAttrs + "";
+var isSpecialBooleanAttr = /* @__PURE__ */ makeMap(`itemscope,allowfullscreen,formnovalidate,ismap,nomodule,novalidate,readonly`);
 function includeBooleanAttr(value) {
 	return !!value || value === "";
 }
@@ -254,8 +251,7 @@ var stringifySymbol = (v, i = "") => {
 	var _a;
 	return isSymbol(v) ? `Symbol(${(_a = v.description) != null ? _a : i})` : v;
 };
-//#endregion
-//#region node_modules/@vue/reactivity/dist/reactivity.esm-bundler.js
+// node_modules/@vue/reactivity/dist/reactivity.esm-bundler.js
 /**
 * @vue/reactivity v3.5.43
 * (c) 2018-present Yuxi (Evan) You and Vue contributors
@@ -1337,6 +1333,9 @@ var RefImpl = class {
 		}
 	}
 };
+function triggerRef(ref2) {
+	if (ref2.dep) ref2.dep.trigger();
+}
 function unref(ref2) {
 	return /* @__PURE__ */ isRef(ref2) ? ref2.value : ref2;
 }
@@ -1623,8 +1622,7 @@ function traverse(value, depth = Infinity, seen) {
 	}
 	return value;
 }
-//#endregion
-//#region node_modules/@vue/runtime-core/dist/runtime-core.esm-bundler.js
+// node_modules/@vue/runtime-core/dist/runtime-core.esm-bundler.js
 /**
 * @vue/runtime-core v3.5.43
 * (c) 2018-present Yuxi (Evan) You and Vue contributors
@@ -4243,8 +4241,7 @@ function h$1(type, propsOrChildren, children) {
 	}
 }
 var version = "3.5.43";
-//#endregion
-//#region node_modules/@vue/runtime-dom/dist/runtime-dom.esm-bundler.js
+// node_modules/@vue/runtime-dom/dist/runtime-dom.esm-bundler.js
 /**
 * @vue/runtime-dom v3.5.43
 * (c) 2018-present Yuxi (Evan) You and Vue contributors
@@ -4763,10 +4760,9 @@ function normalizeContainer(container) {
 	if (isString$1(container)) return document.querySelector(container);
 	return container;
 }
-//#endregion
-//#region node_modules/pinia/dist/pinia.js
+// node_modules/pinia/dist/pinia.js
 /*!
-* pinia v4.0.3
+* pinia v4.1.0
 * (c) 2026 Eduardo San Martin Morote
 * @license MIT
 */
@@ -4855,12 +4851,13 @@ function downloadSaveAs(blob, name = "download", opts) {
 	a.rel = "noopener";
 	if (typeof blob === "string") {
 		a.href = blob;
-		if (a.origin !== location.origin) if (corsEnabled(a.href)) download(blob, name, opts);
-		else {
-			a.target = "_blank";
-			click(a);
-		}
-		else click(a);
+		if (a.origin !== location.origin) {
+			if (corsEnabled(a.href)) download(blob, name, opts);
+			else {
+				a.target = "_blank";
+				click(a);
+			}
+		} else click(a);
 	} else {
 		a.href = URL.createObjectURL(blob);
 		setTimeout(function() {
@@ -4872,16 +4869,17 @@ function downloadSaveAs(blob, name = "download", opts) {
 	}
 }
 function msSaveAs(blob, name = "download", opts) {
-	if (typeof blob === "string") if (corsEnabled(blob)) download(blob, name, opts);
-	else {
-		const a = document.createElement("a");
-		a.href = blob;
-		a.target = "_blank";
-		setTimeout(function() {
-			click(a);
-		});
-	}
-	else navigator.msSaveOrOpenBlob(bom(blob, opts), name);
+	if (typeof blob === "string") {
+		if (corsEnabled(blob)) download(blob, name, opts);
+		else {
+			const a = document.createElement("a");
+			a.href = blob;
+			a.target = "_blank";
+			setTimeout(function() {
+				click(a);
+			});
+		}
+	} else navigator.msSaveOrOpenBlob(bom(blob, opts), name);
 }
 function fileSaverSaveAs(blob, name, opts, popup) {
 	popup = popup || open("", "_blank");
@@ -4977,8 +4975,11 @@ function mergeReactiveObjects(target, patchToApply) {
 		if (!Object.hasOwn(patchToApply, key)) continue;
 		const subPatch = patchToApply[key];
 		const targetValue = target[key];
-		if (isPlainObject(targetValue) && isPlainObject(subPatch) && Object.hasOwn(target, key) && !/* @__PURE__ */ isRef(subPatch) && !/* @__PURE__ */ isReactive(subPatch)) target[key] = mergeReactiveObjects(targetValue, subPatch);
-		else target[key] = subPatch;
+		if (isPlainObject(targetValue) && isPlainObject(subPatch) && Object.hasOwn(target, key) && !/* @__PURE__ */ isRef(subPatch) && !/* @__PURE__ */ isReactive(subPatch)) {
+			target[key] = mergeReactiveObjects(targetValue, subPatch);
+			const targetRef = (/* @__PURE__ */ toRaw(target))[key];
+			if (/* @__PURE__ */ isRef(targetRef) && /* @__PURE__ */ isShallow(targetRef)) triggerRef(targetRef);
+		} else target[key] = subPatch;
 	}
 	return target;
 }
@@ -5144,10 +5145,12 @@ function createSetupStore($id, setup, options = {}, pinia, hot, isOptionsStore) 
 		const prop = setupStore[key];
 		if (/* @__PURE__ */ isRef(prop) && !isComputed(prop) || /* @__PURE__ */ isReactive(prop)) {
 			if (!isOptionsStore) {
-				if (initialState && shouldHydrate(prop)) if (/* @__PURE__ */ isRef(prop)) prop.value = initialState[key];
-				else {
-					if (prop instanceof Set || prop instanceof Map) prop.clear();
-					mergeReactiveObjects(prop, initialState[key]);
+				if (initialState && shouldHydrate(prop)) {
+					if (/* @__PURE__ */ isRef(prop)) prop.value = initialState[key];
+					else {
+						if (prop instanceof Set || prop instanceof Map) prop.clear();
+						mergeReactiveObjects(prop, initialState[key]);
+					}
 				}
 				pinia.state.value[$id][key] = prop;
 			}
@@ -5200,8 +5203,7 @@ function defineStore(id, setup, setupOptions) {
 	useStore.$id = id;
 	return useStore;
 }
-//#endregion
-//#region node_modules/tailwindcss/dist/chunk-C2OYBFIH.mjs
+// node_modules/tailwindcss/dist/chunk-C2OYBFIH.mjs
 var E = /* @__PURE__ */ new Uint8Array(256);
 function d(e, t) {
 	let r = 0, s = [], m = 0, n = e.length, a = t.charCodeAt(0);
@@ -5317,8 +5319,7 @@ var _ = h((e) => {
 	if (u(Number(e.value))) return `repeat(${e.value}, minmax(0, 1fr))`;
 });
 ({ ...ne$1 }), { ...f }, { ...l }, { ...g }, { ...l }, { ...g }, { ...g }, { ...l }, { ...l }, { ...g }, { ...g }, { ...g }, { ...g }, { ..._ }, { ..._ }, { ...w }, { ...l }, { ...g }, { ...l }, { ...g }, { ...f }, { ...f }, { ...f }, { ...f }, { ...w }, { ...l }, { ...l }, { ...l }, { ...w }, { ...g }, { ...f }, { ...f }, { ...L }, { ...L }, { ...g };
-//#endregion
-//#region node_modules/tailwindcss/dist/lib.mjs
+// node_modules/tailwindcss/dist/lib.mjs
 var U = class extends Map {
 	constructor(r) {
 		super();
@@ -5750,10 +5751,9 @@ function yi(e = "top", i = "right", r = "bottom", t = "left") {
 Re("margin"), Re("padding"), Re("scroll-margin"), Re("scroll-padding"), Re("border", "top-width", "right-width", "bottom-width", "left-width"), Re("border", "top-style", "right-style", "bottom-style", "left-style"), Re("border", "top-color", "right-color", "bottom-color", "left-color");
 var Ht = ((n) => (n[n.None = 0] = "None", n[n.AtProperty = 1] = "AtProperty", n[n.ColorMix = 2] = "ColorMix", n[n.All = 3] = "All", n))(Ht || {});
 var ze = ((f) => (f[f.None = 0] = "None", f[f.AtApply = 1] = "AtApply", f[f.AtImport = 2] = "AtImport", f[f.JsPluginCompat = 4] = "JsPluginCompat", f[f.ThemeFunction = 8] = "ThemeFunction", f[f.Utilities = 16] = "Utilities", f[f.Variants = 32] = "Variants", f[f.AtTheme = 64] = "AtTheme", f))(ze || {});
-//#endregion
-//#region node_modules/vue-router/dist/useApi-BPuI6ZR9.js
+// node_modules/vue-router/dist/useApi-CUWMwLLw.js
 /*!
-* vue-router v5.3.1
+* vue-router v5.4.0
 * (c) 2026 Eduardo San Martin Morote
 * @license MIT
 */
@@ -5852,16 +5852,22 @@ var routeLocationKey = Symbol("");
 */
 var routerViewLocationKey = Symbol("");
 /**
+* Callbacks called by the closest ancestor router-view once it displays a new
+* route. Used by `onRouteRendered()`.
+*
+* @internal
+*/
+var routerViewOnRouteRenderedKey = Symbol("");
+/**
 * Returns the current route location. Equivalent to using `$route` inside
 * templates.
 */
 function useRoute(_name) {
 	return inject(routeLocationKey);
 }
-//#endregion
-//#region node_modules/vue-router/dist/devtools-CN5uWJaH.js
+// node_modules/vue-router/dist/devtools-CxgSYwGp.js
 /*!
-* vue-router v5.3.1
+* vue-router v5.4.0
 * (c) 2026 Eduardo San Martin Morote
 * @license MIT
 */
@@ -5882,6 +5888,11 @@ var isBrowser = typeof document !== "undefined";
 * into a `/` if directly typed in. The _backtick_ (`````) should also be
 * encoded everywhere because some browsers like FF encode it when directly
 * written while others don't. Safari and IE don't encode ``"<>{}``` in hash.
+*/
+/**
+* NOTE: `replaceAll()` is not faster than `replace()` with a global RegExp.
+* Benchmarks do not show a clear benefit for these simple replacements:
+* https://github.com/mathiasbynens/string-prototype-replace-regexp-benchmark
 */
 var HASH_RE = /#/g;
 var AMPERSAND_RE = /&/g;
@@ -6181,6 +6192,12 @@ function getSavedScrollPosition(key) {
 	scrollPositions.delete(key);
 	return scroll;
 }
+function invalidateScrollPositions(position, replace = false) {
+	for (const key of scrollPositions.keys()) {
+		const entryPosition = parseInt(key, 10);
+		if (entryPosition === position || !replace && entryPosition > position) scrollPositions.delete(key);
+	}
+}
 /**
 * ScrollBehavior instance used by the router to compute and restore the scroll
 * position when navigating.
@@ -6356,10 +6373,9 @@ function extractChangingRecords(to, from) {
 		enteringRecords
 	];
 }
-//#endregion
-//#region node_modules/vue-router/dist/vue-router.js
+// node_modules/vue-router/dist/vue-router.js
 /*!
-* vue-router v5.3.1
+* vue-router v5.4.0
 * (c) 2026 Eduardo San Martin Morote
 * @license MIT
 */
@@ -6483,7 +6499,9 @@ function useHistoryStateNavigation(base) {
 		}
 	}
 	function replace(to, data) {
-		changeLocation(to, assign({}, history.state, buildState(historyState.value.back, to, historyState.value.forward, true), data, { position: historyState.value.position }), true);
+		const state = assign({}, history.state, buildState(historyState.value.back, to, historyState.value.forward, true), data, { position: historyState.value.position });
+		changeLocation(to, state, true);
+		invalidateScrollPositions(state.position, true);
 		currentLocation.value = to;
 	}
 	function push(to, data) {
@@ -6493,6 +6511,7 @@ function useHistoryStateNavigation(base) {
 		});
 		changeLocation(currentState.current, currentState, true);
 		changeLocation(to, assign({}, buildState(currentLocation.value, to, null), { position: currentState.position + 1 }, data), false);
+		invalidateScrollPositions(currentState.position);
 		currentLocation.value = to;
 	}
 	return {
@@ -7224,7 +7243,11 @@ var RouterViewImpl = /*#__PURE__*/ defineComponent({
 		provide(viewDepthKey, computed(() => depth.value + 1));
 		provide(matchedRouteKey, matchedRouteRef);
 		provide(routerViewLocationKey, routeToDisplay);
+		const onRouteRenderedCallbacks = /* @__PURE__ */ new Set();
+		provide(routerViewOnRouteRenderedKey, onRouteRenderedCallbacks);
 		const viewRef = /* @__PURE__ */ ref();
+		let settledRoute = START_LOCATION_NORMALIZED;
+		const { app } = getCurrentInstance().appContext;
 		watch(() => [
 			viewRef.value,
 			matchedRouteRef.value,
@@ -7253,8 +7276,16 @@ var RouterViewImpl = /*#__PURE__*/ defineComponent({
 			const onVnodeUnmounted = (vnode) => {
 				if (vnode.component.isUnmounted) matchedRoute.instances[currentName] = null;
 			};
+			const onVnodeSettled = (vnode) => nextTick(() => {
+				if (settledRoute === route || routeToDisplay.value !== route || vnode.el.getRootNode() !== app._container.getRootNode()) return;
+				const from = settledRoute;
+				settledRoute = route;
+				for (const callback of onRouteRenderedCallbacks) callback(route, from);
+			});
 			const component = h$1(ViewComponent, assign({}, routeProps, attrs, {
 				onVnodeUnmounted,
+				onVnodeMounted: onVnodeSettled,
+				onVnodeUpdated: onVnodeSettled,
 				ref: viewRef
 			}));
 			return normalizeSlot(slots.default, {
@@ -7279,7 +7310,7 @@ var RouterView = RouterViewImpl;
 * @param options - {@link RouterOptions}
 */
 function createRouter(options) {
-	const matcher = createRouterMatcher(options.routes, options);
+	const matcher = options.matcher || createRouterMatcher(options.routes, options);
 	const parseQuery$1$1 = options.parseQuery || parseQuery$1;
 	const stringifyQuery$1 = options.stringifyQuery || stringifyQuery;
 	const routerHistory = options.history;
@@ -7642,8 +7673,7 @@ function createRouter(options) {
 	}
 	return router;
 }
-//#endregion
-//#region src/stores/ossiq.ts
+// src/stores/ossiq.ts
 var useOssiqStore = defineStore("ossiq", () => {
 	const report = /* @__PURE__ */ ref(null);
 	const isLoaded = computed(() => report.value !== null);
@@ -7664,8 +7694,7 @@ var useOssiqStore = defineStore("ossiq", () => {
 		setReport
 	};
 });
-//#endregion
-//#region src/composables/useReportLoader.ts
+// src/composables/useReportLoader.ts
 var SCRIPT_TYPE = "json/oss-iq-report";
 function parseReportScript(el) {
 	const text = el.textContent?.trim();
@@ -7714,8 +7743,7 @@ function useReportLoader() {
 	});
 	return { isLoaded: store.isLoaded };
 }
-//#endregion
-//#region src/App.vue?vue&type=script&setup=true&lang.ts
+// src/App.vue?vue&type=script&setup=true&lang.ts
 var _hoisted_1$9 = { class: "min-h-screen bg-slate-50 text-slate-900 flex flex-col" };
 var _hoisted_2$9 = { class: "w-full bg-white border-b border-slate-200" };
 var _hoisted_3$9 = {
@@ -7727,8 +7755,7 @@ var _hoisted_5$8 = {
 	key: 0,
 	class: "mt-auto border-t border-slate-200 bg-white py-6"
 };
-//#endregion
-//#region src/App.vue
+// src/App.vue
 var App_default = /* @__PURE__ */ defineComponent({
 	__name: "App",
 	setup(__props) {
@@ -7772,8 +7799,7 @@ var App_default = /* @__PURE__ */ defineComponent({
 		};
 	}
 });
-//#endregion
-//#region src/composables/useReportFilters.ts
+// src/composables/useReportFilters.ts
 function computeDriftStatus(installed, latest) {
 	if (!latest || installed === latest) return "LATEST";
 	const [iMaj, iMin] = installed.split(".").map(Number);
@@ -7960,8 +7986,7 @@ function useReportFilters() {
 		resetFilters
 	};
 }
-//#endregion
-//#region src/components/ReportFilters.vue?vue&type=script&setup=true&lang.ts
+// src/components/ReportFilters.vue?vue&type=script&setup=true&lang.ts
 var _hoisted_1$8 = { class: "mb-6" };
 var _hoisted_2$8 = { class: "bg-white border border-slate-200 border-b-[3px] border-b-slate-300 px-4 py-3" };
 var _hoisted_3$8 = { class: "flex flex-col lg:flex-row lg:items-end gap-4" };
@@ -7974,8 +7999,7 @@ var _hoisted_9$5 = { class: "w-full sm:w-32" };
 var _hoisted_10$5 = ["value"];
 var _hoisted_11$3 = { class: "flex items-center gap-3 lg:ml-auto pt-1" };
 var _hoisted_12$3 = { class: "flex items-center gap-1.5 h-9 text-sm text-slate-600 cursor-pointer select-none" };
-//#endregion
-//#region src/components/ReportFilters.vue
+// src/components/ReportFilters.vue
 var ReportFilters_default = /* @__PURE__ */ defineComponent({
 	__name: "ReportFilters",
 	props: {
@@ -8079,8 +8103,7 @@ var ReportFilters_default = /* @__PURE__ */ defineComponent({
 		};
 	}
 });
-//#endregion
-//#region src/explorer/config.ts
+// src/explorer/config.ts
 var TREE_CONFIG = {
 	layout: {
 		nodeSize: [60, 300],
@@ -8182,8 +8205,7 @@ var TREE_CONFIG = {
 		bundleBadgeFontSize: "7px"
 	}
 };
-//#endregion
-//#region src/explorer/transform.ts
+// src/explorer/transform.ts
 function hasCveInSubtree(startRefs, registry) {
 	const visited = /* @__PURE__ */ new Set();
 	const queue = [...startRefs];
@@ -8371,8 +8393,7 @@ function buildD3DataFromVisibleState(registry, state, ancestorNames = /* @__PURE
 	}
 	return buildNode(state.rootKey);
 }
-//#endregion
-//#region src/explorer/nodeStyle.ts
+// src/explorer/nodeStyle.ts
 function isPinned(v) {
 	if (!v) return false;
 	return /^\d[\d.]*$/.test(v.trim());
@@ -8542,8 +8563,7 @@ function constraintCircleClasses(type) {
 		default: return "bg-blue-200 border-blue-700 border-2 border-solid";
 	}
 }
-//#endregion
-//#region src/components/ReportTable.vue?vue&type=script&setup=true&lang.ts
+// src/components/ReportTable.vue?vue&type=script&setup=true&lang.ts
 var _hoisted_1$7 = { class: "w-full" };
 var _hoisted_2$7 = { class: "w-full overflow-hidden bg-white border border-zinc-200 border-b-[3px] border-b-zinc-300" };
 var _hoisted_3$7 = { class: "w-full text-left border-collapse" };
@@ -8657,8 +8677,7 @@ var _hoisted_59$1 = {
 	class: "mt-2 text-xs text-red-600 font-medium"
 };
 var _hoisted_60$1 = { key: 0 };
-//#endregion
-//#region src/components/ReportTable.vue
+// src/components/ReportTable.vue
 var ReportTable_default = /* @__PURE__ */ defineComponent({
 	__name: "ReportTable",
 	props: {
@@ -8942,8 +8961,7 @@ var ReportTable_default = /* @__PURE__ */ defineComponent({
 		};
 	}
 });
-//#endregion
-//#region src/components/ReportLegend.vue?vue&type=script&setup=true&lang.ts
+// src/components/ReportLegend.vue?vue&type=script&setup=true&lang.ts
 var _hoisted_1$6 = { class: "mb-6" };
 var _hoisted_2$6 = { class: "border border-slate-200 border-b-[3px] border-b-slate-300 bg-white p-6" };
 var _hoisted_3$6 = { class: "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6" };
@@ -8951,8 +8969,7 @@ var _hoisted_4$5 = { class: "flex items-start gap-3" };
 var _hoisted_5$5 = { class: "flex items-start gap-3" };
 var _hoisted_6$5 = { class: "flex items-start gap-3" };
 var _hoisted_7$4 = { class: "flex items-start gap-3" };
-//#endregion
-//#region src/components/ReportLegend.vue
+// src/components/ReportLegend.vue
 var ReportLegend_default = /* @__PURE__ */ defineComponent({
 	__name: "ReportLegend",
 	setup(__props) {
@@ -8979,8 +8996,7 @@ var ReportLegend_default = /* @__PURE__ */ defineComponent({
 		};
 	}
 });
-//#endregion
-//#region src/components/ReportBanner.vue?vue&type=script&setup=true&lang.ts
+// src/components/ReportBanner.vue?vue&type=script&setup=true&lang.ts
 var _hoisted_1$5 = {
 	key: 0,
 	class: "mb-6"
@@ -8996,8 +9012,7 @@ var _hoisted_6$4 = {
 	key: 1,
 	class: "mt-4 space-y-1"
 };
-//#endregion
-//#region src/components/ReportBanner.vue
+// src/components/ReportBanner.vue
 var ReportBanner_default = /* @__PURE__ */ defineComponent({
 	__name: "ReportBanner",
 	setup(__props) {
@@ -9042,8 +9057,7 @@ var ReportBanner_default = /* @__PURE__ */ defineComponent({
 		};
 	}
 });
-//#endregion
-//#region src/components/PeerRepairs.vue?vue&type=script&setup=true&lang.ts
+// src/components/PeerRepairs.vue?vue&type=script&setup=true&lang.ts
 var _hoisted_1$4 = {
 	key: 0,
 	class: "mb-6",
@@ -9061,8 +9075,7 @@ var _hoisted_8$3 = {
 };
 var _hoisted_9$3 = { class: "text-slate-400" };
 var _hoisted_10$3 = { class: "text-violet-700" };
-//#endregion
-//#region src/components/PeerRepairs.vue
+// src/components/PeerRepairs.vue
 var PeerRepairs_default = /* @__PURE__ */ defineComponent({
 	__name: "PeerRepairs",
 	setup(__props) {
@@ -9097,8 +9110,7 @@ var PeerRepairs_default = /* @__PURE__ */ defineComponent({
 		};
 	}
 });
-//#endregion
-//#region src/components/DependencyDetailPanel.vue?vue&type=script&setup=true&lang.ts
+// src/components/DependencyDetailPanel.vue?vue&type=script&setup=true&lang.ts
 var _hoisted_1$3 = {
 	key: 0,
 	class: "flex flex-col"
@@ -9350,8 +9362,7 @@ var _hoisted_128 = {
 	key: 1,
 	class: "text-[10px] text-slate-400 italic"
 };
-//#endregion
-//#region src/components/DependencyDetailPanel.vue
+// src/components/DependencyDetailPanel.vue
 var DependencyDetailPanel_default = /* @__PURE__ */ defineComponent({
 	__name: "DependencyDetailPanel",
 	props: {
@@ -9784,8 +9795,7 @@ var DependencyDetailPanel_default = /* @__PURE__ */ defineComponent({
 		};
 	}
 });
-//#endregion
-//#region src/views/ScanReportView.vue?vue&type=script&setup=true&lang.ts
+// src/views/ScanReportView.vue?vue&type=script&setup=true&lang.ts
 var _hoisted_1$2 = {
 	key: 0,
 	class: "flex items-center justify-center py-20"
@@ -9809,8 +9819,7 @@ var _hoisted_14 = {
 	key: 0,
 	class: "w-3/4"
 };
-//#endregion
-//#region src/views/ScanReportView.vue
+// src/views/ScanReportView.vue
 var ScanReportView_default = /* @__PURE__ */ defineComponent({
 	__name: "ScanReportView",
 	setup(__props) {
@@ -9973,8 +9982,7 @@ var ScanReportView_default = /* @__PURE__ */ defineComponent({
 		};
 	}
 });
-//#endregion
-//#region node_modules/d3-dispatch/src/dispatch.js
+// node_modules/d3-dispatch/src/dispatch.js
 var noop = { value: () => {} };
 function dispatch() {
 	for (var i = 0, n = arguments.length, _ = {}, t; i < n; ++i) {
@@ -10046,8 +10054,7 @@ var namespaces_default = {
 	xml: "http://www.w3.org/XML/1998/namespace",
 	xmlns: "http://www.w3.org/2000/xmlns/"
 };
-//#endregion
-//#region node_modules/d3-selection/src/namespace.js
+// node_modules/d3-selection/src/namespace.js
 function namespace_default(name) {
 	var prefix = name += "", i = prefix.indexOf(":");
 	if (i >= 0 && (prefix = name.slice(0, i)) !== "xmlns") name = name.slice(i + 1);
@@ -10056,8 +10063,7 @@ function namespace_default(name) {
 		local: name
 	} : name;
 }
-//#endregion
-//#region node_modules/d3-selection/src/creator.js
+// node_modules/d3-selection/src/creator.js
 function creatorInherit(name) {
 	return function() {
 		var document = this.ownerDocument, uri = this.namespaceURI;
@@ -10073,16 +10079,14 @@ function creator_default(name) {
 	var fullname = namespace_default(name);
 	return (fullname.local ? creatorFixed : creatorInherit)(fullname);
 }
-//#endregion
-//#region node_modules/d3-selection/src/selector.js
+// node_modules/d3-selection/src/selector.js
 function none() {}
 function selector_default(selector) {
 	return selector == null ? none : function() {
 		return this.querySelector(selector);
 	};
 }
-//#endregion
-//#region node_modules/d3-selection/src/selection/select.js
+// node_modules/d3-selection/src/selection/select.js
 function select_default$2(select) {
 	if (typeof select !== "function") select = selector_default(select);
 	for (var groups = this._groups, m = groups.length, subgroups = new Array(m), j = 0; j < m; ++j) for (var group = groups[j], n = group.length, subgroup = subgroups[j] = new Array(n), node, subnode, i = 0; i < n; ++i) if ((node = group[i]) && (subnode = select.call(node, node.__data__, i, group))) {
@@ -10091,13 +10095,11 @@ function select_default$2(select) {
 	}
 	return new Selection$1(subgroups, this._parents);
 }
-//#endregion
-//#region node_modules/d3-selection/src/array.js
+// node_modules/d3-selection/src/array.js
 function array(x) {
 	return x == null ? [] : Array.isArray(x) ? x : Array.from(x);
 }
-//#endregion
-//#region node_modules/d3-selection/src/selectorAll.js
+// node_modules/d3-selection/src/selectorAll.js
 function empty() {
 	return [];
 }
@@ -10106,8 +10108,7 @@ function selectorAll_default(selector) {
 		return this.querySelectorAll(selector);
 	};
 }
-//#endregion
-//#region node_modules/d3-selection/src/selection/selectAll.js
+// node_modules/d3-selection/src/selection/selectAll.js
 function arrayAll(select) {
 	return function() {
 		return array(select.apply(this, arguments));
@@ -10122,8 +10123,7 @@ function selectAll_default$1(select) {
 	}
 	return new Selection$1(subgroups, parents);
 }
-//#endregion
-//#region node_modules/d3-selection/src/matcher.js
+// node_modules/d3-selection/src/matcher.js
 function matcher_default(selector) {
 	return function() {
 		return this.matches(selector);
@@ -10134,8 +10134,7 @@ function childMatcher(selector) {
 		return node.matches(selector);
 	};
 }
-//#endregion
-//#region node_modules/d3-selection/src/selection/selectChild.js
+// node_modules/d3-selection/src/selection/selectChild.js
 var find = Array.prototype.find;
 function childFind(match) {
 	return function() {
@@ -10148,8 +10147,7 @@ function childFirst() {
 function selectChild_default(match) {
 	return this.select(match == null ? childFirst : childFind(typeof match === "function" ? match : childMatcher(match)));
 }
-//#endregion
-//#region node_modules/d3-selection/src/selection/selectChildren.js
+// node_modules/d3-selection/src/selection/selectChildren.js
 var filter = Array.prototype.filter;
 function children() {
 	return Array.from(this.children);
@@ -10162,20 +10160,17 @@ function childrenFilter(match) {
 function selectChildren_default(match) {
 	return this.selectAll(match == null ? children : childrenFilter(typeof match === "function" ? match : childMatcher(match)));
 }
-//#endregion
-//#region node_modules/d3-selection/src/selection/filter.js
+// node_modules/d3-selection/src/selection/filter.js
 function filter_default$1(match) {
 	if (typeof match !== "function") match = matcher_default(match);
 	for (var groups = this._groups, m = groups.length, subgroups = new Array(m), j = 0; j < m; ++j) for (var group = groups[j], n = group.length, subgroup = subgroups[j] = [], node, i = 0; i < n; ++i) if ((node = group[i]) && match.call(node, node.__data__, i, group)) subgroup.push(node);
 	return new Selection$1(subgroups, this._parents);
 }
-//#endregion
-//#region node_modules/d3-selection/src/selection/sparse.js
+// node_modules/d3-selection/src/selection/sparse.js
 function sparse_default(update) {
 	return new Array(update.length);
 }
-//#endregion
-//#region node_modules/d3-selection/src/selection/enter.js
+// node_modules/d3-selection/src/selection/enter.js
 function enter_default() {
 	return new Selection$1(this._enter || this._groups.map(sparse_default), this._parents);
 }
@@ -10201,15 +10196,13 @@ EnterNode.prototype = {
 		return this._parent.querySelectorAll(selector);
 	}
 };
-//#endregion
-//#region node_modules/d3-selection/src/constant.js
+// node_modules/d3-selection/src/constant.js
 function constant_default$3(x) {
 	return function() {
 		return x;
 	};
 }
-//#endregion
-//#region node_modules/d3-selection/src/selection/data.js
+// node_modules/d3-selection/src/selection/data.js
 function bindIndex(parent, group, enter, update, exit, data) {
 	var i = 0, node, groupLength = group.length, dataLength = data.length;
 	for (; i < dataLength; ++i) if (node = group[i]) {
@@ -10259,13 +10252,11 @@ function data_default(value, key) {
 function arraylike(data) {
 	return typeof data === "object" && "length" in data ? data : Array.from(data);
 }
-//#endregion
-//#region node_modules/d3-selection/src/selection/exit.js
+// node_modules/d3-selection/src/selection/exit.js
 function exit_default() {
 	return new Selection$1(this._exit || this._groups.map(sparse_default), this._parents);
 }
-//#endregion
-//#region node_modules/d3-selection/src/selection/join.js
+// node_modules/d3-selection/src/selection/join.js
 function join_default(onenter, onupdate, onexit) {
 	var enter = this.enter(), update = this, exit = this.exit();
 	if (typeof onenter === "function") {
@@ -10280,16 +10271,14 @@ function join_default(onenter, onupdate, onexit) {
 	else onexit(exit);
 	return enter && update ? enter.merge(update).order() : update;
 }
-//#endregion
-//#region node_modules/d3-selection/src/selection/merge.js
+// node_modules/d3-selection/src/selection/merge.js
 function merge_default$1(context) {
 	var selection = context.selection ? context.selection() : context;
 	for (var groups0 = this._groups, groups1 = selection._groups, m0 = groups0.length, m1 = groups1.length, m = Math.min(m0, m1), merges = new Array(m0), j = 0; j < m; ++j) for (var group0 = groups0[j], group1 = groups1[j], n = group0.length, merge = merges[j] = new Array(n), node, i = 0; i < n; ++i) if (node = group0[i] || group1[i]) merge[i] = node;
 	for (; j < m0; ++j) merges[j] = groups0[j];
 	return new Selection$1(merges, this._parents);
 }
-//#endregion
-//#region node_modules/d3-selection/src/selection/order.js
+// node_modules/d3-selection/src/selection/order.js
 function order_default() {
 	for (var groups = this._groups, j = -1, m = groups.length; ++j < m;) for (var group = groups[j], i = group.length - 1, next = group[i], node; --i >= 0;) if (node = group[i]) {
 		if (next && node.compareDocumentPosition(next) ^ 4) next.parentNode.insertBefore(node, next);
@@ -10297,8 +10286,7 @@ function order_default() {
 	}
 	return this;
 }
-//#endregion
-//#region node_modules/d3-selection/src/selection/sort.js
+// node_modules/d3-selection/src/selection/sort.js
 function sort_default$1(compare) {
 	if (!compare) compare = ascending;
 	function compareNode(a, b) {
@@ -10313,21 +10301,18 @@ function sort_default$1(compare) {
 function ascending(a, b) {
 	return a < b ? -1 : a > b ? 1 : a >= b ? 0 : NaN;
 }
-//#endregion
-//#region node_modules/d3-selection/src/selection/call.js
+// node_modules/d3-selection/src/selection/call.js
 function call_default() {
 	var callback = arguments[0];
 	arguments[0] = this;
 	callback.apply(null, arguments);
 	return this;
 }
-//#endregion
-//#region node_modules/d3-selection/src/selection/nodes.js
+// node_modules/d3-selection/src/selection/nodes.js
 function nodes_default() {
 	return Array.from(this);
 }
-//#endregion
-//#region node_modules/d3-selection/src/selection/node.js
+// node_modules/d3-selection/src/selection/node.js
 function node_default() {
 	for (var groups = this._groups, j = 0, m = groups.length; j < m; ++j) for (var group = groups[j], i = 0, n = group.length; i < n; ++i) {
 		var node = group[i];
@@ -10335,26 +10320,22 @@ function node_default() {
 	}
 	return null;
 }
-//#endregion
-//#region node_modules/d3-selection/src/selection/size.js
+// node_modules/d3-selection/src/selection/size.js
 function size_default() {
 	let size = 0;
 	for (const node of this) ++size;
 	return size;
 }
-//#endregion
-//#region node_modules/d3-selection/src/selection/empty.js
+// node_modules/d3-selection/src/selection/empty.js
 function empty_default() {
 	return !this.node();
 }
-//#endregion
-//#region node_modules/d3-selection/src/selection/each.js
+// node_modules/d3-selection/src/selection/each.js
 function each_default$1(callback) {
 	for (var groups = this._groups, j = 0, m = groups.length; j < m; ++j) for (var group = groups[j], i = 0, n = group.length, node; i < n; ++i) if (node = group[i]) callback.call(node, node.__data__, i, group);
 	return this;
 }
-//#endregion
-//#region node_modules/d3-selection/src/selection/attr.js
+// node_modules/d3-selection/src/selection/attr.js
 function attrRemove$1(name) {
 	return function() {
 		this.removeAttribute(name);
@@ -10397,13 +10378,11 @@ function attr_default$1(name, value) {
 	}
 	return this.each((value == null ? fullname.local ? attrRemoveNS$1 : attrRemove$1 : typeof value === "function" ? fullname.local ? attrFunctionNS$1 : attrFunction$1 : fullname.local ? attrConstantNS$1 : attrConstant$1)(fullname, value));
 }
-//#endregion
-//#region node_modules/d3-selection/src/window.js
+// node_modules/d3-selection/src/window.js
 function window_default(node) {
 	return node.ownerDocument && node.ownerDocument.defaultView || node.document && node || node.defaultView;
 }
-//#endregion
-//#region node_modules/d3-selection/src/selection/style.js
+// node_modules/d3-selection/src/selection/style.js
 function styleRemove$1(name) {
 	return function() {
 		this.style.removeProperty(name);
@@ -10427,8 +10406,7 @@ function style_default$1(name, value, priority) {
 function styleValue(node, name) {
 	return node.style.getPropertyValue(name) || window_default(node).getComputedStyle(node, null).getPropertyValue(name);
 }
-//#endregion
-//#region node_modules/d3-selection/src/selection/property.js
+// node_modules/d3-selection/src/selection/property.js
 function propertyRemove(name) {
 	return function() {
 		delete this[name];
@@ -10449,8 +10427,7 @@ function propertyFunction(name, value) {
 function property_default(name, value) {
 	return arguments.length > 1 ? this.each((value == null ? propertyRemove : typeof value === "function" ? propertyFunction : propertyConstant)(name, value)) : this.node()[name];
 }
-//#endregion
-//#region node_modules/d3-selection/src/selection/classed.js
+// node_modules/d3-selection/src/selection/classed.js
 function classArray(string) {
 	return string.trim().split(/^|\s+/);
 }
@@ -10511,8 +10488,7 @@ function classed_default(name, value) {
 	}
 	return this.each((typeof value === "function" ? classedFunction : value ? classedTrue : classedFalse)(names, value));
 }
-//#endregion
-//#region node_modules/d3-selection/src/selection/text.js
+// node_modules/d3-selection/src/selection/text.js
 function textRemove() {
 	this.textContent = "";
 }
@@ -10530,8 +10506,7 @@ function textFunction$1(value) {
 function text_default$1(value) {
 	return arguments.length ? this.each(value == null ? textRemove : (typeof value === "function" ? textFunction$1 : textConstant$1)(value)) : this.node().textContent;
 }
-//#endregion
-//#region node_modules/d3-selection/src/selection/html.js
+// node_modules/d3-selection/src/selection/html.js
 function htmlRemove() {
 	this.innerHTML = "";
 }
@@ -10549,32 +10524,28 @@ function htmlFunction(value) {
 function html_default(value) {
 	return arguments.length ? this.each(value == null ? htmlRemove : (typeof value === "function" ? htmlFunction : htmlConstant)(value)) : this.node().innerHTML;
 }
-//#endregion
-//#region node_modules/d3-selection/src/selection/raise.js
+// node_modules/d3-selection/src/selection/raise.js
 function raise() {
 	if (this.nextSibling) this.parentNode.appendChild(this);
 }
 function raise_default() {
 	return this.each(raise);
 }
-//#endregion
-//#region node_modules/d3-selection/src/selection/lower.js
+// node_modules/d3-selection/src/selection/lower.js
 function lower() {
 	if (this.previousSibling) this.parentNode.insertBefore(this, this.parentNode.firstChild);
 }
 function lower_default() {
 	return this.each(lower);
 }
-//#endregion
-//#region node_modules/d3-selection/src/selection/append.js
+// node_modules/d3-selection/src/selection/append.js
 function append_default(name) {
 	var create = typeof name === "function" ? name : creator_default(name);
 	return this.select(function() {
 		return this.appendChild(create.apply(this, arguments));
 	});
 }
-//#endregion
-//#region node_modules/d3-selection/src/selection/insert.js
+// node_modules/d3-selection/src/selection/insert.js
 function constantNull() {
 	return null;
 }
@@ -10584,8 +10555,7 @@ function insert_default(name, before) {
 		return this.insertBefore(create.apply(this, arguments), select.apply(this, arguments) || null);
 	});
 }
-//#endregion
-//#region node_modules/d3-selection/src/selection/remove.js
+// node_modules/d3-selection/src/selection/remove.js
 function remove() {
 	var parent = this.parentNode;
 	if (parent) parent.removeChild(this);
@@ -10593,8 +10563,7 @@ function remove() {
 function remove_default$1() {
 	return this.each(remove);
 }
-//#endregion
-//#region node_modules/d3-selection/src/selection/clone.js
+// node_modules/d3-selection/src/selection/clone.js
 function selection_cloneShallow() {
 	var clone = this.cloneNode(false), parent = this.parentNode;
 	return parent ? parent.insertBefore(clone, this.nextSibling) : clone;
@@ -10606,13 +10575,11 @@ function selection_cloneDeep() {
 function clone_default(deep) {
 	return this.select(deep ? selection_cloneDeep : selection_cloneShallow);
 }
-//#endregion
-//#region node_modules/d3-selection/src/selection/datum.js
+// node_modules/d3-selection/src/selection/datum.js
 function datum_default(value) {
 	return arguments.length ? this.property("__data__", value) : this.node().__data__;
 }
-//#endregion
-//#region node_modules/d3-selection/src/selection/on.js
+// node_modules/d3-selection/src/selection/on.js
 function contextListener(listener) {
 	return function(event) {
 		listener.call(this, event, this.__data__);
@@ -10674,8 +10641,7 @@ function on_default$1(typename, value, options) {
 	for (i = 0; i < n; ++i) this.each(on(typenames[i], value, options));
 	return this;
 }
-//#endregion
-//#region node_modules/d3-selection/src/selection/dispatch.js
+// node_modules/d3-selection/src/selection/dispatch.js
 function dispatchEvent(node, type, params) {
 	var window = window_default(node), event = window.CustomEvent;
 	if (typeof event === "function") event = new event(type, params);
@@ -10699,13 +10665,11 @@ function dispatchFunction(type, params) {
 function dispatch_default(type, params) {
 	return this.each((typeof params === "function" ? dispatchFunction : dispatchConstant)(type, params));
 }
-//#endregion
-//#region node_modules/d3-selection/src/selection/iterator.js
+// node_modules/d3-selection/src/selection/iterator.js
 function* iterator_default$1() {
 	for (var groups = this._groups, j = 0, m = groups.length; j < m; ++j) for (var group = groups[j], i = 0, n = group.length, node; i < n; ++i) if (node = group[i]) yield node;
 }
-//#endregion
-//#region node_modules/d3-selection/src/selection/index.js
+// node_modules/d3-selection/src/selection/index.js
 var root = [null];
 function Selection$1(groups, parents) {
 	this._groups = groups;
@@ -10755,20 +10719,17 @@ Selection$1.prototype = selection.prototype = {
 	dispatch: dispatch_default,
 	[Symbol.iterator]: iterator_default$1
 };
-//#endregion
-//#region node_modules/d3-selection/src/select.js
+// node_modules/d3-selection/src/select.js
 function select_default$1(selector) {
 	return typeof selector === "string" ? new Selection$1([[document.querySelector(selector)]], [document.documentElement]) : new Selection$1([[selector]], root);
 }
-//#endregion
-//#region node_modules/d3-selection/src/sourceEvent.js
+// node_modules/d3-selection/src/sourceEvent.js
 function sourceEvent_default(event) {
 	let sourceEvent;
 	while (sourceEvent = event.sourceEvent) event = sourceEvent;
 	return event;
 }
-//#endregion
-//#region node_modules/d3-selection/src/pointer.js
+// node_modules/d3-selection/src/pointer.js
 function pointer_default(event, node) {
 	event = sourceEvent_default(event);
 	if (node === void 0) node = event.currentTarget;
@@ -10787,8 +10748,7 @@ function pointer_default(event, node) {
 	}
 	return [event.pageX, event.pageY];
 }
-//#endregion
-//#region node_modules/d3-drag/src/noevent.js
+// node_modules/d3-drag/src/noevent.js
 var nonpassivecapture = {
 	capture: true,
 	passive: false
@@ -10797,8 +10757,7 @@ function noevent_default$1(event) {
 	event.preventDefault();
 	event.stopImmediatePropagation();
 }
-//#endregion
-//#region node_modules/d3-drag/src/nodrag.js
+// node_modules/d3-drag/src/nodrag.js
 function nodrag_default(view) {
 	var root = view.document.documentElement, selection = select_default$1(view).on("dragstart.drag", noevent_default$1, nonpassivecapture);
 	if ("onselectstart" in root) selection.on("selectstart.drag", noevent_default$1, nonpassivecapture);
@@ -10821,8 +10780,7 @@ function yesdrag(view, noclick) {
 		delete root.__noselect;
 	}
 }
-//#endregion
-//#region node_modules/d3-color/src/define.js
+// node_modules/d3-color/src/define.js
 function define_default(constructor, factory, prototype) {
 	constructor.prototype = factory.prototype = prototype;
 	prototype.constructor = constructor;
@@ -10832,8 +10790,7 @@ function extend(parent, definition) {
 	for (var key in definition) prototype[key] = definition[key];
 	return prototype;
 }
-//#endregion
-//#region node_modules/d3-color/src/color.js
+// node_modules/d3-color/src/color.js
 function Color() {}
 var darker = .7;
 var brighter = 1 / darker;
@@ -11159,11 +11116,9 @@ function clampt(value) {
 function hsl2rgb(h, m1, m2) {
 	return (h < 60 ? m1 + (m2 - m1) * h / 60 : h < 180 ? m2 : h < 240 ? m1 + (m2 - m1) * (240 - h) / 60 : m1) * 255;
 }
-//#endregion
-//#region node_modules/d3-interpolate/src/constant.js
+// node_modules/d3-interpolate/src/constant.js
 var constant_default$2 = (x) => () => x;
-//#endregion
-//#region node_modules/d3-interpolate/src/color.js
+// node_modules/d3-interpolate/src/color.js
 function linear(a, d) {
 	return function(t) {
 		return a + t * d;
@@ -11183,8 +11138,7 @@ function nogamma(a, b) {
 	var d = b - a;
 	return d ? linear(a, d) : constant_default$2(isNaN(a) ? b : a);
 }
-//#endregion
-//#region node_modules/d3-interpolate/src/rgb.js
+// node_modules/d3-interpolate/src/rgb.js
 var rgb_default = (function rgbGamma(y) {
 	var color = gamma(y);
 	function rgb$1(start, end) {
@@ -11200,15 +11154,13 @@ var rgb_default = (function rgbGamma(y) {
 	rgb$1.gamma = rgbGamma;
 	return rgb$1;
 })(1);
-//#endregion
-//#region node_modules/d3-interpolate/src/number.js
+// node_modules/d3-interpolate/src/number.js
 function number_default(a, b) {
 	return a = +a, b = +b, function(t) {
 		return a * (1 - t) + b * t;
 	};
 }
-//#endregion
-//#region node_modules/d3-interpolate/src/string.js
+// node_modules/d3-interpolate/src/string.js
 var reA = /[-+]?(?:\d+\.?\d*|\.?\d+)(?:[eE][-+]?\d+)?/g;
 var reB = new RegExp(reA.source, "g");
 function zero(b) {
@@ -11252,8 +11204,7 @@ function string_default(a, b) {
 		return s.join("");
 	});
 }
-//#endregion
-//#region node_modules/d3-interpolate/src/transform/decompose.js
+// node_modules/d3-interpolate/src/transform/decompose.js
 var degrees = 180 / Math.PI;
 var identity$1 = {
 	translateX: 0,
@@ -11278,8 +11229,7 @@ function decompose_default(a, b, c, d, e, f) {
 		scaleY
 	};
 }
-//#endregion
-//#region node_modules/d3-interpolate/src/transform/parse.js
+// node_modules/d3-interpolate/src/transform/parse.js
 var svgNode;
 function parseCss(value) {
 	const m = new (typeof DOMMatrix === "function" ? DOMMatrix : WebKitCSSMatrix)(value + "");
@@ -11293,8 +11243,7 @@ function parseSvg(value) {
 	value = value.matrix;
 	return decompose_default(value.a, value.b, value.c, value.d, value.e, value.f);
 }
-//#endregion
-//#region node_modules/d3-interpolate/src/transform/index.js
+// node_modules/d3-interpolate/src/transform/index.js
 function interpolateTransform(parse, pxComma, pxParen, degParen) {
 	function pop(s) {
 		return s.length ? s.pop() + " " : "";
@@ -11357,8 +11306,7 @@ function interpolateTransform(parse, pxComma, pxParen, degParen) {
 }
 var interpolateTransformCss = interpolateTransform(parseCss, "px, ", "px)", "deg)");
 var interpolateTransformSvg = interpolateTransform(parseSvg, ", ", ")", ")");
-//#endregion
-//#region node_modules/d3-interpolate/src/zoom.js
+// node_modules/d3-interpolate/src/zoom.js
 var epsilon2 = 1e-12;
 function cosh(x) {
 	return ((x = Math.exp(x)) + 1 / x) / 2;
@@ -11402,8 +11350,7 @@ var zoom_default$1 = (function zoomRho(rho, rho2, rho4) {
 	};
 	return zoom;
 })(Math.SQRT2, 2, 4);
-//#endregion
-//#region node_modules/d3-timer/src/timer.js
+// node_modules/d3-timer/src/timer.js
 var frame = 0;
 var timeout = 0;
 var interval = 0;
@@ -11501,8 +11448,7 @@ function sleep(time) {
 		frame = 1, setFrame(wake);
 	}
 }
-//#endregion
-//#region node_modules/d3-timer/src/timeout.js
+// node_modules/d3-timer/src/timeout.js
 function timeout_default(callback, delay, time) {
 	var t = new Timer();
 	delay = delay == null ? 0 : +delay;
@@ -11512,8 +11458,7 @@ function timeout_default(callback, delay, time) {
 	}, delay, time);
 	return t;
 }
-//#endregion
-//#region node_modules/d3-transition/src/transition/schedule.js
+// node_modules/d3-transition/src/transition/schedule.js
 var emptyOn = dispatch("start", "end", "cancel", "interrupt");
 var emptyTween = [];
 function schedule_default(node, name, id, index, group, timing) {
@@ -11608,8 +11553,7 @@ function create(node, id, self) {
 		delete node.__transition;
 	}
 }
-//#endregion
-//#region node_modules/d3-transition/src/interrupt.js
+// node_modules/d3-transition/src/interrupt.js
 function interrupt_default$1(node, name) {
 	var schedules = node.__transition, schedule, active, empty = true, i;
 	if (!schedules) return;
@@ -11627,15 +11571,13 @@ function interrupt_default$1(node, name) {
 	}
 	if (empty) delete node.__transition;
 }
-//#endregion
-//#region node_modules/d3-transition/src/selection/interrupt.js
+// node_modules/d3-transition/src/selection/interrupt.js
 function interrupt_default(name) {
 	return this.each(function() {
 		interrupt_default$1(this, name);
 	});
 }
-//#endregion
-//#region node_modules/d3-transition/src/transition/tween.js
+// node_modules/d3-transition/src/transition/tween.js
 function tweenRemove(id, name) {
 	var tween0, tween1;
 	return function() {
@@ -11690,14 +11632,12 @@ function tweenValue(transition, name, value) {
 		return get$1(node, id).value[name];
 	};
 }
-//#endregion
-//#region node_modules/d3-transition/src/transition/interpolate.js
+// node_modules/d3-transition/src/transition/interpolate.js
 function interpolate_default(a, b) {
 	var c;
 	return (typeof b === "number" ? number_default : b instanceof color ? rgb_default : (c = color(b)) ? (b = c, rgb_default) : string_default)(a, b);
 }
-//#endregion
-//#region node_modules/d3-transition/src/transition/attr.js
+// node_modules/d3-transition/src/transition/attr.js
 function attrRemove(name) {
 	return function() {
 		this.removeAttribute(name);
@@ -11746,8 +11686,7 @@ function attr_default(name, value) {
 	var fullname = namespace_default(name), i = fullname === "transform" ? interpolateTransformSvg : interpolate_default;
 	return this.attrTween(name, typeof value === "function" ? (fullname.local ? attrFunctionNS : attrFunction)(fullname, i, tweenValue(this, "attr." + name, value)) : value == null ? (fullname.local ? attrRemoveNS : attrRemove)(fullname) : (fullname.local ? attrConstantNS : attrConstant)(fullname, i, value));
 }
-//#endregion
-//#region node_modules/d3-transition/src/transition/attrTween.js
+// node_modules/d3-transition/src/transition/attrTween.js
 function attrInterpolate(name, i) {
 	return function(t) {
 		this.setAttribute(name, i.call(this, t));
@@ -11786,8 +11725,7 @@ function attrTween_default(name, value) {
 	var fullname = namespace_default(name);
 	return this.tween(key, (fullname.local ? attrTweenNS : attrTween)(fullname, value));
 }
-//#endregion
-//#region node_modules/d3-transition/src/transition/delay.js
+// node_modules/d3-transition/src/transition/delay.js
 function delayFunction(id, value) {
 	return function() {
 		init(this, id).delay = +value.apply(this, arguments);
@@ -11802,8 +11740,7 @@ function delay_default(value) {
 	var id = this._id;
 	return arguments.length ? this.each((typeof value === "function" ? delayFunction : delayConstant)(id, value)) : get$1(this.node(), id).delay;
 }
-//#endregion
-//#region node_modules/d3-transition/src/transition/duration.js
+// node_modules/d3-transition/src/transition/duration.js
 function durationFunction(id, value) {
 	return function() {
 		set(this, id).duration = +value.apply(this, arguments);
@@ -11818,8 +11755,7 @@ function duration_default(value) {
 	var id = this._id;
 	return arguments.length ? this.each((typeof value === "function" ? durationFunction : durationConstant)(id, value)) : get$1(this.node(), id).duration;
 }
-//#endregion
-//#region node_modules/d3-transition/src/transition/ease.js
+// node_modules/d3-transition/src/transition/ease.js
 function easeConstant(id, value) {
 	if (typeof value !== "function") throw new Error();
 	return function() {
@@ -11830,8 +11766,7 @@ function ease_default(value) {
 	var id = this._id;
 	return arguments.length ? this.each(easeConstant(id, value)) : get$1(this.node(), id).ease;
 }
-//#endregion
-//#region node_modules/d3-transition/src/transition/easeVarying.js
+// node_modules/d3-transition/src/transition/easeVarying.js
 function easeVarying(id, value) {
 	return function() {
 		var v = value.apply(this, arguments);
@@ -11843,23 +11778,20 @@ function easeVarying_default(value) {
 	if (typeof value !== "function") throw new Error();
 	return this.each(easeVarying(this._id, value));
 }
-//#endregion
-//#region node_modules/d3-transition/src/transition/filter.js
+// node_modules/d3-transition/src/transition/filter.js
 function filter_default(match) {
 	if (typeof match !== "function") match = matcher_default(match);
 	for (var groups = this._groups, m = groups.length, subgroups = new Array(m), j = 0; j < m; ++j) for (var group = groups[j], n = group.length, subgroup = subgroups[j] = [], node, i = 0; i < n; ++i) if ((node = group[i]) && match.call(node, node.__data__, i, group)) subgroup.push(node);
 	return new Transition(subgroups, this._parents, this._name, this._id);
 }
-//#endregion
-//#region node_modules/d3-transition/src/transition/merge.js
+// node_modules/d3-transition/src/transition/merge.js
 function merge_default(transition) {
 	if (transition._id !== this._id) throw new Error();
 	for (var groups0 = this._groups, groups1 = transition._groups, m0 = groups0.length, m1 = groups1.length, m = Math.min(m0, m1), merges = new Array(m0), j = 0; j < m; ++j) for (var group0 = groups0[j], group1 = groups1[j], n = group0.length, merge = merges[j] = new Array(n), node, i = 0; i < n; ++i) if (node = group0[i] || group1[i]) merge[i] = node;
 	for (; j < m0; ++j) merges[j] = groups0[j];
 	return new Transition(merges, this._parents, this._name, this._id);
 }
-//#endregion
-//#region node_modules/d3-transition/src/transition/on.js
+// node_modules/d3-transition/src/transition/on.js
 function start(name) {
 	return (name + "").trim().split(/^|\s+/).every(function(t) {
 		var i = t.indexOf(".");
@@ -11879,8 +11811,7 @@ function on_default(name, listener) {
 	var id = this._id;
 	return arguments.length < 2 ? get$1(this.node(), id).on.on(name) : this.each(onFunction(id, name, listener));
 }
-//#endregion
-//#region node_modules/d3-transition/src/transition/remove.js
+// node_modules/d3-transition/src/transition/remove.js
 function removeFunction(id) {
 	return function() {
 		var parent = this.parentNode;
@@ -11891,8 +11822,7 @@ function removeFunction(id) {
 function remove_default() {
 	return this.on("end.remove", removeFunction(this._id));
 }
-//#endregion
-//#region node_modules/d3-transition/src/transition/select.js
+// node_modules/d3-transition/src/transition/select.js
 function select_default(select) {
 	var name = this._name, id = this._id;
 	if (typeof select !== "function") select = selector_default(select);
@@ -11903,8 +11833,7 @@ function select_default(select) {
 	}
 	return new Transition(subgroups, this._parents, name, id);
 }
-//#endregion
-//#region node_modules/d3-transition/src/transition/selectAll.js
+// node_modules/d3-transition/src/transition/selectAll.js
 function selectAll_default(select) {
 	var name = this._name, id = this._id;
 	if (typeof select !== "function") select = selectorAll_default(select);
@@ -11915,14 +11844,12 @@ function selectAll_default(select) {
 	}
 	return new Transition(subgroups, parents, name, id);
 }
-//#endregion
-//#region node_modules/d3-transition/src/transition/selection.js
+// node_modules/d3-transition/src/transition/selection.js
 var Selection = selection.prototype.constructor;
 function selection_default() {
 	return new Selection(this._groups, this._parents);
 }
-//#endregion
-//#region node_modules/d3-transition/src/transition/style.js
+// node_modules/d3-transition/src/transition/style.js
 function styleNull(name, interpolate) {
 	var string00, string10, interpolate0;
 	return function() {
@@ -11962,8 +11889,7 @@ function style_default(name, value, priority) {
 	var i = (name += "") === "transform" ? interpolateTransformCss : interpolate_default;
 	return value == null ? this.styleTween(name, styleNull(name, i)).on("end.style." + name, styleRemove(name)) : typeof value === "function" ? this.styleTween(name, styleFunction(name, i, tweenValue(this, "style." + name, value))).each(styleMaybeRemove(this._id, name)) : this.styleTween(name, styleConstant(name, i, value), priority).on("end.style." + name, null);
 }
-//#endregion
-//#region node_modules/d3-transition/src/transition/styleTween.js
+// node_modules/d3-transition/src/transition/styleTween.js
 function styleInterpolate(name, i, priority) {
 	return function(t) {
 		this.style.setProperty(name, i.call(this, t), priority);
@@ -11986,8 +11912,7 @@ function styleTween_default(name, value, priority) {
 	if (typeof value !== "function") throw new Error();
 	return this.tween(key, styleTween(name, value, priority == null ? "" : priority));
 }
-//#endregion
-//#region node_modules/d3-transition/src/transition/text.js
+// node_modules/d3-transition/src/transition/text.js
 function textConstant(value) {
 	return function() {
 		this.textContent = value;
@@ -12002,8 +11927,7 @@ function textFunction(value) {
 function text_default(value) {
 	return this.tween("text", typeof value === "function" ? textFunction(tweenValue(this, "text", value)) : textConstant(value == null ? "" : value + ""));
 }
-//#endregion
-//#region node_modules/d3-transition/src/transition/textTween.js
+// node_modules/d3-transition/src/transition/textTween.js
 function textInterpolate(i) {
 	return function(t) {
 		this.textContent = i.call(this, t);
@@ -12026,8 +11950,7 @@ function textTween_default(value) {
 	if (typeof value !== "function") throw new Error();
 	return this.tween(key, textTween(value));
 }
-//#endregion
-//#region node_modules/d3-transition/src/transition/transition.js
+// node_modules/d3-transition/src/transition/transition.js
 function transition_default$1() {
 	var name = this._name, id0 = this._id, id1 = newId();
 	for (var groups = this._groups, m = groups.length, j = 0; j < m; ++j) for (var group = groups[j], n = group.length, node, i = 0; i < n; ++i) if (node = group[i]) {
@@ -12041,8 +11964,7 @@ function transition_default$1() {
 	}
 	return new Transition(groups, this._parents, name, id1);
 }
-//#endregion
-//#region node_modules/d3-transition/src/transition/end.js
+// node_modules/d3-transition/src/transition/end.js
 function end_default() {
 	var on0, on1, that = this, id = that._id, size = that.size();
 	return new Promise(function(resolve, reject) {
@@ -12062,8 +11984,7 @@ function end_default() {
 		if (size === 0) resolve();
 	});
 }
-//#endregion
-//#region node_modules/d3-transition/src/transition/index.js
+// node_modules/d3-transition/src/transition/index.js
 var id = 0;
 function Transition(groups, parents, name, id) {
 	this._groups = groups;
@@ -12110,13 +12031,11 @@ Transition.prototype = transition.prototype = {
 	end: end_default,
 	[Symbol.iterator]: selection_prototype[Symbol.iterator]
 };
-//#endregion
-//#region node_modules/d3-ease/src/cubic.js
+// node_modules/d3-ease/src/cubic.js
 function cubicInOut(t) {
 	return ((t *= 2) <= 1 ? t * t * t : (t -= 2) * t * t + 2) / 2;
 }
-//#endregion
-//#region node_modules/d3-transition/src/selection/transition.js
+// node_modules/d3-transition/src/selection/transition.js
 var defaultTiming = {
 	time: null,
 	delay: 0,
@@ -12135,12 +12054,10 @@ function transition_default(name) {
 	for (var groups = this._groups, m = groups.length, j = 0; j < m; ++j) for (var group = groups[j], n = group.length, node, i = 0; i < n; ++i) if (node = group[i]) schedule_default(node, name, id, i, group, timing || inherit(node, id));
 	return new Transition(groups, this._parents, name, id);
 }
-//#endregion
-//#region node_modules/d3-transition/src/selection/index.js
+// node_modules/d3-transition/src/selection/index.js
 selection.prototype.interrupt = interrupt_default;
 selection.prototype.transition = transition_default;
-//#endregion
-//#region node_modules/d3-brush/src/brush.js
+// node_modules/d3-brush/src/brush.js
 var { abs, max, min } = Math;
 ["w", "e"].map(type);
 ["n", "s"].map(type);
@@ -12157,8 +12074,7 @@ var { abs, max, min } = Math;
 function type(t) {
 	return { type: t };
 }
-//#endregion
-//#region node_modules/d3-path/src/path.js
+// node_modules/d3-path/src/path.js
 var pi = Math.PI;
 var tau = 2 * pi;
 var epsilon = 1e-6;
@@ -12236,8 +12152,7 @@ function path() {
 	return new Path();
 }
 path.prototype = Path.prototype;
-//#endregion
-//#region node_modules/d3-hierarchy/src/hierarchy/count.js
+// node_modules/d3-hierarchy/src/hierarchy/count.js
 function count(node) {
 	var sum = 0, children = node.children, i = children && children.length;
 	if (!i) sum = 1;
@@ -12247,15 +12162,13 @@ function count(node) {
 function count_default() {
 	return this.eachAfter(count);
 }
-//#endregion
-//#region node_modules/d3-hierarchy/src/hierarchy/each.js
+// node_modules/d3-hierarchy/src/hierarchy/each.js
 function each_default(callback, that) {
 	let index = -1;
 	for (const node of this) callback.call(that, node, ++index, this);
 	return this;
 }
-//#endregion
-//#region node_modules/d3-hierarchy/src/hierarchy/eachBefore.js
+// node_modules/d3-hierarchy/src/hierarchy/eachBefore.js
 function eachBefore_default(callback, that) {
 	var node = this, nodes = [node], children, i, index = -1;
 	while (node = nodes.pop()) {
@@ -12264,8 +12177,7 @@ function eachBefore_default(callback, that) {
 	}
 	return this;
 }
-//#endregion
-//#region node_modules/d3-hierarchy/src/hierarchy/eachAfter.js
+// node_modules/d3-hierarchy/src/hierarchy/eachAfter.js
 function eachAfter_default(callback, that) {
 	var node = this, nodes = [node], next = [], children, i, n, index = -1;
 	while (node = nodes.pop()) {
@@ -12275,14 +12187,12 @@ function eachAfter_default(callback, that) {
 	while (node = next.pop()) callback.call(that, node, ++index, this);
 	return this;
 }
-//#endregion
-//#region node_modules/d3-hierarchy/src/hierarchy/find.js
+// node_modules/d3-hierarchy/src/hierarchy/find.js
 function find_default(callback, that) {
 	let index = -1;
 	for (const node of this) if (callback.call(that, node, ++index, this)) return node;
 }
-//#endregion
-//#region node_modules/d3-hierarchy/src/hierarchy/sum.js
+// node_modules/d3-hierarchy/src/hierarchy/sum.js
 function sum_default(value) {
 	return this.eachAfter(function(node) {
 		var sum = +value(node.data) || 0, children = node.children, i = children && children.length;
@@ -12290,15 +12200,13 @@ function sum_default(value) {
 		node.value = sum;
 	});
 }
-//#endregion
-//#region node_modules/d3-hierarchy/src/hierarchy/sort.js
+// node_modules/d3-hierarchy/src/hierarchy/sort.js
 function sort_default(compare) {
 	return this.eachBefore(function(node) {
 		if (node.children) node.children.sort(compare);
 	});
 }
-//#endregion
-//#region node_modules/d3-hierarchy/src/hierarchy/path.js
+// node_modules/d3-hierarchy/src/hierarchy/path.js
 function path_default(end) {
 	var start = this, ancestor = leastCommonAncestor(start, end), nodes = [start];
 	while (start !== ancestor) {
@@ -12324,20 +12232,17 @@ function leastCommonAncestor(a, b) {
 	}
 	return c;
 }
-//#endregion
-//#region node_modules/d3-hierarchy/src/hierarchy/ancestors.js
+// node_modules/d3-hierarchy/src/hierarchy/ancestors.js
 function ancestors_default() {
 	var node = this, nodes = [node];
 	while (node = node.parent) nodes.push(node);
 	return nodes;
 }
-//#endregion
-//#region node_modules/d3-hierarchy/src/hierarchy/descendants.js
+// node_modules/d3-hierarchy/src/hierarchy/descendants.js
 function descendants_default() {
 	return Array.from(this);
 }
-//#endregion
-//#region node_modules/d3-hierarchy/src/hierarchy/leaves.js
+// node_modules/d3-hierarchy/src/hierarchy/leaves.js
 function leaves_default() {
 	var leaves = [];
 	this.eachBefore(function(node) {
@@ -12345,8 +12250,7 @@ function leaves_default() {
 	});
 	return leaves;
 }
-//#endregion
-//#region node_modules/d3-hierarchy/src/hierarchy/links.js
+// node_modules/d3-hierarchy/src/hierarchy/links.js
 function links_default() {
 	var root = this, links = [];
 	root.each(function(node) {
@@ -12357,8 +12261,7 @@ function links_default() {
 	});
 	return links;
 }
-//#endregion
-//#region node_modules/d3-hierarchy/src/hierarchy/iterator.js
+// node_modules/d3-hierarchy/src/hierarchy/iterator.js
 function* iterator_default() {
 	var node = this, current, next = [node], children, i, n;
 	do {
@@ -12369,8 +12272,7 @@ function* iterator_default() {
 		}
 	} while (next.length);
 }
-//#endregion
-//#region node_modules/d3-hierarchy/src/hierarchy/index.js
+// node_modules/d3-hierarchy/src/hierarchy/index.js
 function hierarchy(data, children) {
 	if (data instanceof Map) {
 		data = [void 0, data];
@@ -12428,8 +12330,7 @@ Node.prototype = hierarchy.prototype = {
 	copy: node_copy,
 	[Symbol.iterator]: iterator_default
 };
-//#endregion
-//#region node_modules/d3-hierarchy/src/tree.js
+// node_modules/d3-hierarchy/src/tree.js
 function defaultSeparation(a, b) {
 	return a.parent === b.parent ? 1 : 2;
 }
@@ -12570,15 +12471,13 @@ function tree_default() {
 	};
 	return tree;
 }
-//#endregion
-//#region node_modules/d3-shape/src/constant.js
+// node_modules/d3-shape/src/constant.js
 function constant_default$1(x) {
 	return function constant() {
 		return x;
 	};
 }
-//#endregion
-//#region node_modules/d3-shape/src/path.js
+// node_modules/d3-shape/src/path.js
 function withPath(shape) {
 	let digits = 3;
 	shape.digits = function(_) {
@@ -12593,19 +12492,16 @@ function withPath(shape) {
 	};
 	return () => new Path(digits);
 }
-//#endregion
-//#region node_modules/d3-shape/src/array.js
+// node_modules/d3-shape/src/array.js
 var slice = Array.prototype.slice;
-//#endregion
-//#region node_modules/d3-shape/src/point.js
+// node_modules/d3-shape/src/point.js
 function x(p) {
 	return p[0];
 }
 function y(p) {
 	return p[1];
 }
-//#endregion
-//#region node_modules/d3-shape/src/curve/bump.js
+// node_modules/d3-shape/src/curve/bump.js
 var Bump = class {
 	constructor(context, x) {
 		this._context = context;
@@ -12642,8 +12538,7 @@ var Bump = class {
 function bumpX(context) {
 	return new Bump(context, true);
 }
-//#endregion
-//#region node_modules/d3-shape/src/link.js
+// node_modules/d3-shape/src/link.js
 function linkSource(d) {
 	return d.source;
 }
@@ -12684,11 +12579,9 @@ function link(curve) {
 function linkHorizontal() {
 	return link(bumpX);
 }
-//#endregion
-//#region node_modules/d3-zoom/src/constant.js
+// node_modules/d3-zoom/src/constant.js
 var constant_default = (x) => () => x;
-//#endregion
-//#region node_modules/d3-zoom/src/event.js
+// node_modules/d3-zoom/src/event.js
 function ZoomEvent(type, { sourceEvent, target, transform, dispatch }) {
 	Object.defineProperties(this, {
 		type: {
@@ -12714,8 +12607,7 @@ function ZoomEvent(type, { sourceEvent, target, transform, dispatch }) {
 		_: { value: dispatch }
 	});
 }
-//#endregion
-//#region node_modules/d3-zoom/src/transform.js
+// node_modules/d3-zoom/src/transform.js
 function Transform(k, x, y) {
 	this.k = k;
 	this.x = x;
@@ -12763,8 +12655,7 @@ function transform(node) {
 	while (!node.__zoom) if (!(node = node.parentNode)) return identity;
 	return node.__zoom;
 }
-//#endregion
-//#region node_modules/d3-zoom/src/noevent.js
+// node_modules/d3-zoom/src/noevent.js
 function nopropagation(event) {
 	event.stopImmediatePropagation();
 }
@@ -12772,8 +12663,7 @@ function noevent_default(event) {
 	event.preventDefault();
 	event.stopImmediatePropagation();
 }
-//#endregion
-//#region node_modules/d3-zoom/src/zoom.js
+// node_modules/d3-zoom/src/zoom.js
 function defaultFilter(event) {
 	return (!event.ctrlKey || event.type === "wheel") && !event.button;
 }
@@ -13071,8 +12961,7 @@ function zoom_default() {
 	};
 	return zoom;
 }
-//#endregion
-//#region src/explorer/visibleState.ts
+// src/explorer/visibleState.ts
 var PHANTOM_ROOT_KEY = "__phantom_root__";
 /**
 * BFS from the project root (or a navigated sub-tree root) up to maxDepth levels.
@@ -13276,8 +13165,7 @@ function buildVisibleState(registry, projectName, rootKey = "root", maxDepth = 2
 		actualProjectName: projectName
 	};
 }
-//#endregion
-//#region src/explorer/renderNodes.ts
+// src/explorer/renderNodes.ts
 /**
 * Renders tree nodes (circles, labels, CVE indicators) using D3 enter/update/exit.
 * Handles animated transitions when nodes are added, removed, or moved.
@@ -13317,8 +13205,7 @@ function applyNodeStyles(g, highlight, resolveStyle) {
 	nodeGroups.select(".folded-count").attr("fill", (d) => resolveStyle(d, highlight).stroke);
 	nodeGroups.select(".ancestor-ref-badge").attr("fill", (d) => resolveStyle(d, highlight).stroke).attr("opacity", (d) => highlight.mode === "none" || highlight.primaryKeys.has(nodeKey(d)) ? 1 : .3);
 }
-//#endregion
-//#region src/explorer/renderTreeLinks.ts
+// src/explorer/renderTreeLinks.ts
 var linkPath = linkHorizontal().x((d) => d.y).y((d) => d.x);
 /**
 * Renders tree edges (solid paths between parent and child nodes) using D3 enter/update/exit.
@@ -13408,8 +13295,7 @@ function applyTreeLinkStyles(g, highlight) {
 		return highlight.treeLinkTargetKeys.has(tk) || highlight.descendantLinkTargetKeys.has(tk) ? "1" : "0.15";
 	});
 }
-//#endregion
-//#region src/explorer/renderSameVersionLinks.ts
+// src/explorer/renderSameVersionLinks.ts
 /**
 * Builds same-version group pairs and renders them as dashed quadratic bezier paths.
 * Also renders a wider transparent hit target over each path to make clicking easier.
@@ -13466,8 +13352,7 @@ function applySameVersionLinkStyles(g, highlight) {
 		return highlight.dashedLinkPairs.has(pair) ? "3px" : null;
 	});
 }
-//#endregion
-//#region src/explorer/renderAggregateLinks.ts
+// src/explorer/renderAggregateLinks.ts
 /**
 * Renders curved dashed arcs from visible dep nodes to the folded super nodes or phantom root
 * that contain them as hidden children.
@@ -13597,8 +13482,7 @@ function applyAggregateLinkStyles(g, highlight) {
 	});
 	return relevantTargetKeys;
 }
-//#endregion
-//#region src/composables/useHighlightState.ts
+// src/composables/useHighlightState.ts
 /**
 * Manages the highlight/focus state for the dependency tree explorer.
 * All five highlight Sets live here — nothing else in the codebase mutates them.
@@ -13686,8 +13570,7 @@ function useHighlightState() {
 		getState
 	};
 }
-//#endregion
-//#region src/composables/useTreeZoom.ts
+// src/composables/useTreeZoom.ts
 /**
 * Manages D3 zoom/pan behavior for the dependency tree SVG.
 * Attach once via `initZoom(zoomGroup)` after SVG setup; then use zoomIn/Out/reset freely.
@@ -13725,8 +13608,7 @@ function useTreeZoom(svgRef) {
 		resetZoom
 	};
 }
-//#endregion
-//#region src/composables/useD3Tree.ts
+// src/composables/useD3Tree.ts
 function useD3Tree(options) {
 	const { svgRef, onNodeSelect } = options;
 	let root = null;
@@ -13965,8 +13847,7 @@ function useD3Tree(options) {
 		resetZoom: zoom.resetZoom
 	};
 }
-//#endregion
-//#region node_modules/fuse.js/dist/fuse.mjs
+// node_modules/fuse.js/dist/fuse.mjs
 /**
 * Fuse.js v7.5.0 - Lightweight fuzzy-search (http://fusejs.io)
 *
@@ -15520,8 +15401,7 @@ Fuse.use = function(...plugins) {
 	plugins.forEach((plugin) => register(plugin));
 };
 var entry_default = Fuse;
-//#endregion
-//#region src/composables/useTreeFilters.ts
+// src/composables/useTreeFilters.ts
 var TOGGLE_FILTERS = [
 	{
 		key: "cve",
@@ -15658,8 +15538,7 @@ function useTreeFilters({ dependencyTree }) {
 		clearFilters
 	};
 }
-//#endregion
-//#region src/explorer/registry.ts
+// src/explorer/registry.ts
 var SEVERITY_RANK = {
 	LOW: 1,
 	MEDIUM: 2,
@@ -15802,8 +15681,7 @@ function buildPackageRegistry(report) {
 		constraintTypeMap
 	});
 }
-//#endregion
-//#region src/composables/usePackageRegistry.ts
+// src/composables/usePackageRegistry.ts
 function usePackageRegistry() {
 	const store = useOssiqStore();
 	const registry = /* @__PURE__ */ shallowRef(null);
@@ -15815,8 +15693,7 @@ function usePackageRegistry() {
 		projectName: computed(() => store.report?.project.name ?? "")
 	};
 }
-//#endregion
-//#region src/composables/useNavigationStack.ts
+// src/composables/useNavigationStack.ts
 function useNavigationStack() {
 	const stack = /* @__PURE__ */ ref([]);
 	const current = computed(() => stack.value.at(-1) ?? null);
@@ -15844,8 +15721,7 @@ function useNavigationStack() {
 		reset
 	};
 }
-//#endregion
-//#region src/components/NavigationBreadcrumb.vue?vue&type=script&setup=true&lang.ts
+// src/components/NavigationBreadcrumb.vue?vue&type=script&setup=true&lang.ts
 var _hoisted_1$1 = {
 	class: "flex items-center gap-1 px-6 py-2 text-sm overflow-x-auto shrink-0 select-none",
 	"aria-label": "Dependency navigation"
@@ -15856,8 +15732,7 @@ var _hoisted_2$1 = {
 	"aria-current": "page"
 };
 var _hoisted_3$1 = ["onClick"];
-//#endregion
-//#region src/components/NavigationBreadcrumb.vue
+// src/components/NavigationBreadcrumb.vue
 var NavigationBreadcrumb_default = /* @__PURE__ */ defineComponent({
 	__name: "NavigationBreadcrumb",
 	props: {
@@ -15884,8 +15759,7 @@ var NavigationBreadcrumb_default = /* @__PURE__ */ defineComponent({
 		};
 	}
 });
-//#endregion
-//#region src/views/TransitiveDependenciesView.vue?vue&type=script&setup=true&lang.ts
+// src/views/TransitiveDependenciesView.vue?vue&type=script&setup=true&lang.ts
 var _hoisted_1 = {
 	key: 0,
 	class: "flex items-center justify-center py-20"
@@ -16139,18 +16013,15 @@ var TransitiveDependenciesView_vue_vue_type_script_setup_true_lang_default = /*@
 		};
 	}
 });
-//#endregion
-//#region \0plugin-vue:export-helper
+// \0plugin-vue:export-helper
 var _plugin_vue_export_helper_default = (sfc, props) => {
 	const target = sfc.__vccOpts || sfc;
 	for (const [key, val] of props) target[key] = val;
 	return target;
 };
-//#endregion
-//#region src/views/TransitiveDependenciesView.vue
+// src/views/TransitiveDependenciesView.vue
 var TransitiveDependenciesView_default = /*#__PURE__*/ _plugin_vue_export_helper_default(TransitiveDependenciesView_vue_vue_type_script_setup_true_lang_default, [["__scopeId", "data-v-89a9f2b5"]]);
-//#endregion
-//#region src/router/index.ts
+// src/router/index.ts
 var router = createRouter({
 	history: createWebHashHistory(),
 	routes: [{
@@ -16165,13 +16036,11 @@ var router = createRouter({
 		meta: { layout: "fullscreen" }
 	}]
 });
-//#endregion
-//#region src/main.ts
+// src/main.ts
 var app = createApp(App_default);
 app.use(createPinia());
 app.use(router);
-app.mount("#app");
-//#endregion</script>
+app.mount("#app");</script>
     <style rel="stylesheet" crossorigin>/*! tailwindcss v4.3.3 | MIT License | https://tailwindcss.com */
 @layer properties {
   @supports (((-webkit-hyphens: none)) and (not (margin-trim: inline))) or ((-moz-orient: inline) and (not (color: rgb(from red r g b)))) {
