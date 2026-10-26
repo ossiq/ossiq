@@ -329,20 +329,50 @@ class GraphExporter:
         belong to an extra the project enables on that package (PyPI `pkg[extra]`): the lockfile
         installs those, so a caller after the full installed set must see them. Off by default,
         which keeps them out of the transitive scan.
-        """
-        for direct_dep in self.root.dependencies.values():
-            yield from self._walk_node(direct_dep, [direct_dep.name], {id(direct_dep)}, include_enabled_extras)
-        if include_optional_roots:
-            for direct_dep in self.root.optional_dependencies.values():
-                yield from self._walk_node(direct_dep, [direct_dep.name], {id(direct_dep)}, include_enabled_extras)
 
-    def _walk_node(
-        self,
-        node: Dependency,
-        path: list[str],
-        in_path: set[int],
-        include_enabled_extras: bool = False,
-    ) -> Iterator[tuple[Dependency, list[str]]]:
+        Last, packages npm installs only because something peer-requires them (typescript for
+        @nuxt/ui) are yielded once each, with the requirer chain as their path, followed by what
+        they depend on. They sit on no production edge, yet they are installed, so a caller after
+        the installed set or the transitive scan has to see them. Optional peers are left out.
+        """
+        roots = list(self.root.dependencies.values())
+        if include_optional_roots:
+            roots += self.root.optional_dependencies.values()
+        reached = {id(root) for root in roots}
+        frontier = [(root, [root.name]) for root in roots]
+        for direct_dep in roots:
+            for node, path in self._walk_node(direct_dep, [direct_dep.name], {id(direct_dep)}, include_enabled_extras):
+                if id(node) not in reached:
+                    reached.add(id(node))
+                    frontier.append((node, [*path, node.name]))
+                yield node, path
+
+        while frontier:
+            node, below = frontier.pop()
+            for child in [*self.installed_children(node, include_enabled_extras), *self.required_peers(node)]:
+                if id(child) not in reached:
+                    reached.add(id(child))
+                    frontier.append((child, [*below, child.name]))
+                    yield child, below
+
+    @staticmethod
+    def required_peers(node: Dependency) -> list[Dependency]:
+        """The packages *node* peer-requires and npm therefore installs for it; optional peers are left out."""
+        return [
+            child
+            for child in node.optional_dependencies.values()
+            if any(
+                edge.is_peer
+                and not edge.optional
+                and edge.requirer_name == node.name
+                and edge.requirer_version == node.version_installed
+                for edge in child.parent_edges
+            )
+        ]
+
+    @staticmethod
+    def installed_children(node: Dependency, include_enabled_extras: bool = False) -> list[Dependency]:
+        """What *node* installs on production edges, plus the extras the project enables when asked."""
         children = list(node.dependencies.values())
         if include_enabled_extras and node.extras:
             enabled = {normalize_dist_name(extra) for extra in node.extras}
@@ -351,7 +381,16 @@ class GraphExporter:
                 for child in node.optional_dependencies.values()
                 if enabled & {normalize_dist_name(category) for category in child.categories}
             ]
-        for child in children:
+        return children
+
+    def _walk_node(
+        self,
+        node: Dependency,
+        path: list[str],
+        in_path: set[int],
+        include_enabled_extras: bool = False,
+    ) -> Iterator[tuple[Dependency, list[str]]]:
+        for child in self.installed_children(node, include_enabled_extras):
             if id(child) in in_path:
                 continue  # skip back-edge (circular dep)
             yield child, path

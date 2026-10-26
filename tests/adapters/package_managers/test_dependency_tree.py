@@ -987,3 +987,64 @@ class TestWalkEnabledExtras:
         )
 
         assert "oauthlib" in self.walked_names(lockfile, include_enabled_extras=True)
+
+
+class PeerResolver(DummyResolver):
+    """DummyResolver that reads which peers a package marks optional from its `optional_peers` list."""
+
+    def extract_peer_optional(self, pkg_data, name):
+        return name in pkg_data.get("optional_peers", [])
+
+
+class TestWalkInstalledPeers:
+    """npm installs a required peer for its requirer, though it sits on no production edge."""
+
+    @staticmethod
+    def walk(lockfile, **walk_options):
+        root = PeerResolver(lockfile).build_graph("my-app")
+        assert root is not None
+        return [(node.name, path) for node, path in GraphExporter(root).walk_all_paths(**walk_options)]
+
+    @staticmethod
+    def with_ui_peering_on_typescript(*, optional: bool = False, also_direct: bool = False):
+        ui = _pkg("ui", "4.0.0", optional_deps={"peer": [_dep("typescript", "5.9.3")]})
+        if optional:
+            ui["optional_peers"] = ["typescript"]
+        return _make_lockfile(
+            _pkg(
+                "my-app", "1.0.0", deps=[_dep("ui", "4.0.0"), *([_dep("typescript", "5.9.3")] if also_direct else [])]
+            ),
+            ui,
+            _pkg("typescript", "5.9.3", deps=[_dep("tslib", "2.8.1")]),
+            _pkg("tslib", "2.8.1"),
+        )
+
+    def test_a_required_peer_is_walked_with_its_requirer_as_the_path(self):
+        walked = dict(self.walk(self.with_ui_peering_on_typescript()))
+
+        assert walked["typescript"] == ["ui"]
+
+    def test_what_a_peer_depends_on_is_walked_too(self):
+        walked = dict(self.walk(self.with_ui_peering_on_typescript()))
+
+        assert walked["tslib"] == ["ui", "typescript"]
+
+    def test_an_optional_peer_is_not_installed_for_its_requirer(self):
+        names = [name for name, _ in self.walk(self.with_ui_peering_on_typescript(optional=True))]
+
+        assert "typescript" not in names
+
+    def test_a_peer_the_project_already_depends_on_is_not_entered_again(self):
+        names = [name for name, _ in self.walk(self.with_ui_peering_on_typescript(also_direct=True))]
+
+        assert names == ["tslib"]
+
+    def test_the_peers_of_a_development_package_follow_the_roots_asked_for(self):
+        lockfile = _make_lockfile(
+            _pkg("my-app", "1.0.0", optional_deps={"development": [_dep("tool", "1.0.0")]}),
+            _pkg("tool", "1.0.0", optional_deps={"peer": [_dep("typescript", "5.9.3")]}),
+            _pkg("typescript", "5.9.3"),
+        )
+
+        assert "typescript" not in [name for name, _ in self.walk(lockfile)]
+        assert "typescript" in [name for name, _ in self.walk(lockfile, include_optional_roots=True)]
