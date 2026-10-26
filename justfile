@@ -17,8 +17,10 @@ docs-clean:
 list:
     @just --list
 
-# Run all the formatting, linting, and testing commands
+# Run all the formatting, linting, and testing commands. Syncs first because `ty check .` reads
+# docs/conf.py, which imports sphinx from the `docs` extra that other uv commands uninstall.
 qa:
+    uv sync --all-extras
     uv run --group dev ruff format .
     uv run --group dev ruff check . --fix
     uv run --group dev ruff check --select I --fix .
