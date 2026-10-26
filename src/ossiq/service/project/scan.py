@@ -624,9 +624,12 @@ def solve_direct_phase(
         all_installed_names = installed_package_names(descriptors)
 
         t2 = time.perf_counter()
+        # Transitive records only, like the validator that gated these picks: the peer checks read a
+        # direct requirer's absence as "its joint move is the solver's call", and with direct records
+        # present they judged a requirer at its installed version and contradicted that verdict.
         impacts = simulate_update_impacts(
             solver_output.recommendations,
-            production_packages + optional_packages + transitive_packages,
+            transitive_packages,
             sources.packages_registry,
             sources.allow_prerelease,
             installed_names=all_installed_names,
