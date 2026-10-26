@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import dataclasses
 from collections import Counter
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
 from datetime import datetime
 
@@ -13,10 +13,14 @@ from ossiq.domain.common import (
     ConstraintType,
     CooldownHold,
     OverrideHold,
+    PassOrdering,
     PeerHold,
+    ProjectPackagesRegistry,
     RecommendationRung,
     display_package_name,
 )
+from ossiq.domain.version import PeerDependency
+from ossiq.service.install_passes import assign_install_passes
 from ossiq.service.project.models import PeerRepair, ScanRecord, ScanResult
 from ossiq.service.update_impact import ImpactKind, TransitiveImpact
 from ossiq.solver.reason import RecommendationReason
@@ -81,6 +85,14 @@ class UpdateEntry:
     # npm only: the range an override for this entry is keyed to, when the installed version alone
     # is not enough (see override_bump_entry). None keys it to current_version.
     override_key: str | None = None
+    # npm only: which `npm install` pass applies this entry (1-based). Written by assign_install_passes
+    # alone; a plan with no ordering constraints is one pass.
+    install_pass: int = 1
+
+    @property
+    def move_key(self) -> str:
+        """One id per package copy that moves: an alias, or a nested copy, is a move of its own."""
+        return f"{self.identity}@{self.override_key or self.current_version}"
 
     @property
     def identity(self) -> str:
@@ -136,10 +148,28 @@ class UpdatePlan:
     # Peers installed only out of their requirers' reach: each is added to the manifest, and its
     # family's stale copies move with it (those moves are already among transitive_entries).
     peer_repairs: list[PeerRepair] = field(default_factory=list)
+    # Why entries are spread over several install passes; empty for a one-pass plan.
+    pass_orderings: list[PassOrdering] = field(default_factory=list)
 
     @property
     def all_entries(self) -> list[UpdateEntry]:
         return self.direct_entries + self.transitive_entries
+
+    @property
+    def pass_count(self) -> int:
+        return max((entry.install_pass for entry in self.all_entries), default=1)
+
+    def through_pass(self, number: int) -> UpdatePlan:
+        """The plan as it stands once pass *number* has run: those entries only, and cumulative.
+
+        Peer repairs describe the final tree, so they wait for the last pass.
+        """
+        return dataclasses.replace(
+            self,
+            direct_entries=[e for e in self.direct_entries if e.install_pass <= number],
+            transitive_entries=[e for e in self.transitive_entries if e.install_pass <= number],
+            peer_repairs=self.peer_repairs if number >= self.pass_count else [],
+        )
 
 
 def entry_from_record(record: ScanRecord, is_direct: bool) -> UpdateEntry:
@@ -400,6 +430,7 @@ def build_update_plan(
     strategy: StrategyPlan | None = None,
     forced_overrides: dict[str, str] | None = None,
     rewrite_versions: bool = False,
+    peers_of: Callable[[str, str], Mapping[str, PeerDependency]] | None = None,
 ) -> UpdatePlan:
     """Filter scan results to packages with solver recommendations that differ from installed.
 
@@ -416,6 +447,9 @@ def build_update_plan(
     dependency tree are collected into unknown_override_packages for the caller to report.
     rewrite_versions (--rewrite-versions) lets `==x.y.z` pins through the widening hold — see
     is_held_for_widening.
+    peers_of (npm only) looks up the peers a published release declares; with it the entries are
+    spread over the install passes that keep every peer range satisfiable mid-install (see
+    assign_install_passes), and without it the plan is one pass.
     """
     plan = strategy or StrategyPlan(default=DEFAULT_STRATEGY)
     all_records = scan_result.production_packages + scan_result.optional_packages + scan_result.transitive_packages
@@ -575,7 +609,7 @@ def build_update_plan(
     direct = [e for e in direct if e.identity not in held_ids]
     transitive = [e for e in transitive if e.identity not in held_ids]
 
-    return UpdatePlan(
+    update_plan = UpdatePlan(
         project_name=scan_result.project_name,
         project_path=scan_result.project_path,
         registry_type=scan_result.packages_registry,
@@ -595,3 +629,6 @@ def build_update_plan(
         held_by_peers=peer_holds(direct_records),
         peer_repairs=list(scan_result.peer_repairs),
     )
+    if peers_of is None:
+        return update_plan
+    return assign_install_passes(update_plan, peers_of, ProjectPackagesRegistry(scan_result.packages_registry))

@@ -16,6 +16,10 @@ from ossiq.messages import (
     HELP_PLAN_HELD_FOR_WIDENING_HEADER,
     HELP_PLAN_KNOWN_BREAK_NOTE,
     HELP_PLAN_NEW_DEP_FRESH_WARNING,
+    HELP_PLAN_PASS_HEADER,
+    HELP_PLAN_PASS_ORDER,
+    HELP_PLAN_PASS_UNRESOLVED,
+    HELP_PLAN_PASSES_NOTICE,
     HELP_PLAN_PEER_REPAIRS_HEADER,
 )
 from ossiq.service.update import UpdateEntry, UpdatePlan
@@ -75,6 +79,7 @@ class ConsolePlanRenderer(AbstractUserInterfaceRenderer):
             f"  Package Manager: [bold]{data.package_manager_name}[/bold]  |  "
             f"Direct: [bold green]{len(data.direct_entries)}[/bold green]  |  "
             f"Transitive: [bold yellow]{len(data.transitive_entries)}[/bold yellow]"
+            + (f"  |  Install passes: [bold]{data.pass_count}[/bold]" if data.pass_count > 1 else "")
         )
         console.print()
 
@@ -86,24 +91,13 @@ class ConsolePlanRenderer(AbstractUserInterfaceRenderer):
             table.add_column("Age", style="dim")
             table.add_column("Type", style="dim")
 
-            for entry in data.direct_entries:
-                age = f"{entry.reason.age_days}d" if entry.reason and entry.reason.age_days is not None else "—"
-                dep_type = "[yellow]forced[/yellow]" if entry.is_forced else "direct"
-                table.add_row(package_cell_text(entry), entry.current_version, entry.recommended_version, age, dep_type)
-                if entry.carries_known_break:
-                    table.add_row(f"[yellow]  {HELP_PLAN_KNOWN_BREAK_NOTE}[/yellow]", "", "", "", "")
-                if is_cooldown_bypassed(entry, data.cooldown_period):
-                    table.add_row(f"[dim]  {HELP_PLAN_CVE_BYPASS_NOTE}[/dim]", "", "", "", "")
-                for text in impact_sub_row_texts(entry.transitive_impacts):
-                    table.add_row(text, "", "", "", "")
-            for entry in data.transitive_entries:
-                age = f"{entry.reason.age_days}d" if entry.reason and entry.reason.age_days is not None else "—"
-                dep_type = "[yellow]forced[/yellow]" if entry.is_forced else "transitive"
-                table.add_row(package_cell_text(entry), entry.current_version, entry.recommended_version, age, dep_type)
-                if entry.carries_known_break:
-                    table.add_row(f"[yellow]  {HELP_PLAN_KNOWN_BREAK_NOTE}[/yellow]", "", "", "", "")
-                if is_cooldown_bypassed(entry, data.cooldown_period):
-                    table.add_row(f"[dim]  {HELP_PLAN_CVE_BYPASS_NOTE}[/dim]", "", "", "", "")
+            for number in range(1, data.pass_count + 1):
+                if data.pass_count > 1:
+                    header = HELP_PLAN_PASS_HEADER.format(number=number, total=data.pass_count)
+                    table.add_row(f"[bold]{header}[/bold]", "", "", "", "")
+                for entry in data.all_entries:
+                    if entry.install_pass == number:
+                        self.add_entry_rows(table, entry, data)
 
             console.print(table)
             console.print()
@@ -125,6 +119,10 @@ class ConsolePlanRenderer(AbstractUserInterfaceRenderer):
                     )
                     console.print()
 
+            if data.pass_count > 1:
+                console.print(f"[dim]{HELP_PLAN_PASSES_NOTICE.format(total=data.pass_count)}[/dim]")
+                console.print()
+
             if data.transitive_entries or new_dep_impacts:
                 console.print(f"[dim]{HELP_PLAN_CONVERGENCE_NOTICE}[/dim]")
                 console.print()
@@ -141,6 +139,37 @@ class ConsolePlanRenderer(AbstractUserInterfaceRenderer):
             console.print(script)
             console.print()
             console.print(Rule("End of Plan Script", style="dim"))
+
+    @staticmethod
+    def add_entry_rows(table: Table, entry: UpdateEntry, data: UpdatePlan) -> None:
+        """One entry's row, then its notes: known break, cooldown bypass, install order, transitive impacts."""
+        dep_type = "[yellow]forced[/yellow]" if entry.is_forced else "direct" if entry.is_direct else "transitive"
+        table.add_row(
+            package_cell_text(entry), entry.current_version, entry.recommended_version, age_cell(entry), dep_type
+        )
+        if entry.carries_known_break:
+            table.add_row(f"[yellow]  {HELP_PLAN_KNOWN_BREAK_NOTE}[/yellow]", "", "", "", "")
+        if is_cooldown_bypassed(entry, data.cooldown_period):
+            table.add_row(f"[dim]  {HELP_PLAN_CVE_BYPASS_NOTE}[/dim]", "", "", "", "")
+        for ordering in data.pass_orderings:
+            if ordering.requirer_key != entry.move_key:
+                continue
+            if ordering.honoured:
+                note = HELP_PLAN_PASS_ORDER.format(
+                    peer=ordering.peer,
+                    peer_version=ordering.peer_version,
+                    requirer=ordering.requirer,
+                    requirer_version=ordering.requirer_version,
+                    spec=ordering.spec,
+                )
+                table.add_row(f"[dim]  ↳ {note}[/dim]", "", "", "", "")
+            else:
+                warning = HELP_PLAN_PASS_UNRESOLVED.format(requirer=ordering.requirer, peer=ordering.peer)
+                table.add_row(f"[yellow]  {warning}[/yellow]", "", "", "", "")
+        # Transitive entries carry the family moves of their own pick, which the table never listed.
+        if entry.is_direct:
+            for text in impact_sub_row_texts(entry.transitive_impacts):
+                table.add_row(text, "", "", "", "")
 
     def render_held_for_cooldown(self, data: UpdatePlan) -> None:
         """List recommendations withheld because their target version is too young to move to.

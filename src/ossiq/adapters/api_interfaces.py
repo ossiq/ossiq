@@ -229,10 +229,15 @@ class AbstractPackageManagerApi(abc.ABC):
         """
         return None
 
-    def execute_update(self, plan: UpdatePlan) -> None:
+    def execute_update(self, plan: UpdatePlan, on_pass: Callable[[int, int], None] | None = None) -> None:
         """Execute the update plan in-process.
 
         Supported package managers override this. Default raises NotImplementedError.
+
+        Args:
+            plan: The plan to apply.
+            on_pass: Called as `(number, total)` before each install pass of a multi-pass plan, so the
+                caller can say where it is. A package manager that installs in one go never calls it.
         """
         raise NotImplementedError(f"In-process execution is not yet supported for {self.package_manager_type.name}.")
 

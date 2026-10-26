@@ -29,6 +29,7 @@ def make_npm_update_entry(
     is_direct: bool = True,
     is_forced: bool = False,
     dependency_name: str | None = None,
+    install_pass: int = 1,
 ) -> UpdateEntry:
     return UpdateEntry(
         package_name=name,
@@ -39,6 +40,7 @@ def make_npm_update_entry(
         reason=None,
         version_defined=version_defined,
         is_forced=is_forced,
+        install_pass=install_pass,
     )
 
 

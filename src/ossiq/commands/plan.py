@@ -18,6 +18,7 @@ from ossiq.messages import (
     ERROR_OVERRIDE_SPEC_INVALID,
     ERROR_OVERRIDE_UNKNOWN_PACKAGES,
     ERROR_STRATEGY_OVERRIDE_IGNORE_CONFLICT,
+    HELP_APPLY_PASS,
     HELP_APPLY_RERUN_HINT,
     HELP_PLAN_ACKNOWLEDGE_CONFIRM_HEADER,
     HELP_PLAN_HIGHER_TIER_FOOTER,
@@ -223,6 +224,7 @@ def prepare_plan(ctx: typer.Context, options: CommandPlanOptions) -> tuple[Proje
         strategy=strategy,
         forced_overrides=dict(options.overrides),
         rewrite_versions=options.rewrite_versions,
+        peers_of=sources.packages_registry.package_version_peers,
     )
 
     if plan.unknown_override_packages:
@@ -331,12 +333,15 @@ def command_apply(ctx: typer.Context, options: CommandPlanOptions, yes: bool = F
 
     if not yes:
         n = len(plan.all_entries)
-        confirmed = typer.confirm(f"Proceed with {n} update{'s' if n != 1 else ''}?", default=False)
+        passes = f" in {plan.pass_count} passes" if plan.pass_count > 1 else ""
+        confirmed = typer.confirm(f"Proceed with {n} update{'s' if n != 1 else ''}{passes}?", default=False)
         if not confirmed:
             raise typer.Exit(0)
         if not confirm_acknowledged(plan):
             raise typer.Exit(0)
 
-    sources.packages_manager.execute_update(plan)
+    sources.packages_manager.execute_update(
+        plan, on_pass=lambda number, total: typer.echo(HELP_APPLY_PASS.format(number=number, total=total))
+    )
     typer.echo("Update complete.")
     typer.echo(HELP_APPLY_RERUN_HINT)

@@ -4,6 +4,7 @@ Support of NPM package manager
 
 from __future__ import annotations
 
+import copy
 import json
 import os
 import subprocess
@@ -163,7 +164,9 @@ class PackageManagerJsNpm(AbstractPackageManagerApi):
             declares_esm=project_data.get("type") == "module",
         )
 
-    def run_npm_install(self, project_path: str, specs: Sequence[str], original_manifest: str) -> None:
+    def run_npm_install(
+        self, project_path: str, specs: Sequence[str], original_manifest: str, lock_only: bool = False
+    ) -> None:
         """Run `npm install` for *specs* without lifecycle scripts, restoring package.json if npm fails.
 
         Install scripts stay off for every install OSS IQ runs, so what gets installed cannot run
@@ -173,31 +176,63 @@ class PackageManagerJsNpm(AbstractPackageManagerApi):
             project_path: The directory npm runs in.
             specs: Package specs to install; empty installs everything package.json declares.
             original_manifest: The text of package.json to restore on failure.
+            lock_only: Resolve and write package-lock.json without touching node_modules.
 
         Raises:
             PackageManagerExecutionError: npm exited non-zero.
         """
+        flags = ["--ignore-scripts", *(["--package-lock-only"] if lock_only else [])]
         try:
-            subprocess.run(["npm", "install", "--ignore-scripts", *specs], cwd=project_path, check=True)
+            subprocess.run(["npm", "install", *flags, *specs], cwd=project_path, check=True)
         except subprocess.CalledProcessError as exc:
             (Path(project_path) / MANIFEST_FILE).write_text(original_manifest, encoding="utf-8")
             raise PackageManagerExecutionError(f"npm install failed (exit {exc.returncode})") from exc
 
-    def execute_update(self, plan: UpdatePlan) -> None:
-        """Apply manifest changes then run npm install. Restores package.json on failure."""
+    def execute_update(self, plan: UpdatePlan, on_pass: Callable[[int, int], None] | None = None) -> None:
+        """Apply manifest changes pass by pass, then npm install. Restores package.json and the lockfile on failure.
+
+        npm refuses a tree whose installed packages' peer ranges clash with what an update places
+        beside them, so a plan with ordering constraints (see `assign_install_passes`) installs in
+        passes, each cumulative. ERESOLVE happens while npm builds the ideal tree, so every pass but
+        the last only writes the lockfile and leaves node_modules alone; the last one installs.
+
+        Args:
+            plan: The plan to apply.
+            on_pass: Called as `(number, total)` before each pass of a multi-pass plan.
+
+        Raises:
+            PackageManagerExecutionError: package.json is not valid JSON, or npm failed in some pass.
+        """
         manifest_path = Path(plan.project_path) / MANIFEST_FILE
+        lock_path = Path(plan.project_path) / NPM.lockfile.name  # ty: ignore
         original_content = manifest_path.read_text(encoding="utf-8")
+        original_lock = lock_path.read_bytes() if lock_path.exists() else None
 
         try:
             pkg = json.loads(original_content)
         except json.JSONDecodeError as exc:
             raise PackageManagerExecutionError(f"package.json is not valid JSON: {exc}") from exc
-        apply_direct_specs(pkg, plan)
-        add_peer_repairs(pkg, plan)
-        write_transitive_overrides(pkg, plan)
 
-        manifest_path.write_text(json.dumps(pkg, indent=2) + "\n", encoding="utf-8")
-        self.run_npm_install(plan.project_path, [], original_content)
+        total, number = plan.pass_count, 1
+        try:
+            for number in range(1, total + 1):
+                if total > 1 and on_pass is not None:
+                    on_pass(number, total)
+                step, draft = plan.through_pass(number), copy.deepcopy(pkg)
+                apply_direct_specs(draft, step)
+                add_peer_repairs(draft, step)
+                write_transitive_overrides(draft, step)
+                manifest_path.write_text(json.dumps(draft, indent=2) + "\n", encoding="utf-8")
+                self.run_npm_install(plan.project_path, [], original_content, lock_only=number < total)
+        except PackageManagerExecutionError as exc:
+            # run_npm_install put package.json back; a lock-only pass may have rewritten the lockfile.
+            if original_lock is None:
+                lock_path.unlink(missing_ok=True)
+            else:
+                lock_path.write_bytes(original_lock)
+            if total > 1:
+                raise PackageManagerExecutionError(f"{exc} in pass {number} of {total}") from exc
+            raise
 
     def install_package(self, package_name: str, version: str | None = None) -> int:
         """Run npm install to add a package to the project. Restores package.json on failure.

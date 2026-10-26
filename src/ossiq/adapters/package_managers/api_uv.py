@@ -674,7 +674,7 @@ class PackageManagerPythonUv(AbstractPackageManagerApi):
             entry.version_defined, entry.recommended_version, entry.constraint_type
         )
 
-    def execute_update(self, plan: UpdatePlan) -> None:
+    def execute_update(self, plan: UpdatePlan, on_pass: Callable[[int, int], None] | None = None) -> None:
         """Apply specifier rewrites, run uv lock + uv sync in-process. Restores pyproject.toml on failure.
 
         Parses pyproject.toml once and buckets every direct dependency string by normalised

@@ -646,6 +646,88 @@ class TestExecuteUpdate:
         pkg = read_package_json(temp_project_dir)
         assert pkg["dependencies"]["express"] == "^4.18.0"
 
+    @staticmethod
+    def two_pass_plan(project_dir: str):
+        write_package_json(
+            project_dir,
+            {"name": "app", "version": "1.0.0", "dependencies": {"vue-router": "^5.1.0", "pinia": "^3.0.4"}},
+        )
+        return make_npm_update_plan(
+            direct=[
+                make_npm_update_entry("vue-router", "5.1.0", "5.4.0", version_defined="^5.1.0", install_pass=1),
+                make_npm_update_entry("pinia", "3.0.4", "4.1.0", version_defined="^3.0.4", install_pass=2),
+            ],
+            project_path=project_dir,
+        )
+
+    def test_a_multi_pass_plan_only_locks_until_the_last_pass(self, npm, temp_project_dir):
+        plan = self.two_pass_plan(temp_project_dir)
+        manifests, announced = [], []
+
+        def fake_run(command, **kwargs):
+            manifests.append(read_package_json(temp_project_dir)["dependencies"])
+
+        with patch("ossiq.adapters.package_managers.api_npm.subprocess.run", side_effect=fake_run) as mock_run:
+            npm.execute_update(plan, on_pass=lambda number, total: announced.append((number, total)))
+
+        assert [call.args[0] for call in mock_run.call_args_list] == [
+            ["npm", "install", "--ignore-scripts", "--package-lock-only"],
+            ["npm", "install", "--ignore-scripts"],
+        ]
+        assert manifests == [
+            {"vue-router": "^5.4.0", "pinia": "^3.0.4"},
+            {"vue-router": "^5.4.0", "pinia": "^4.1.0"},
+        ]
+        assert announced == [(1, 2), (2, 2)]
+
+    def test_a_one_pass_plan_never_announces_a_pass(self, npm, temp_project_dir):
+        write_package_json(
+            temp_project_dir, {"name": "app", "version": "1.0.0", "dependencies": {"express": "^4.18.0"}}
+        )
+        plan = make_npm_update_plan(
+            direct=[make_npm_update_entry("express", "4.18.0", "4.19.0", version_defined="^4.18.0")],
+            project_path=temp_project_dir,
+        )
+        announced = []
+
+        with patch("ossiq.adapters.package_managers.api_npm.subprocess.run"):
+            npm.execute_update(plan, on_pass=lambda number, total: announced.append((number, total)))
+
+        assert announced == []
+
+    def test_a_failure_in_a_later_pass_restores_manifest_and_lockfile(self, npm, temp_project_dir):
+        plan = self.two_pass_plan(temp_project_dir)
+        lock = Path(temp_project_dir) / "package-lock.json"
+        lock.write_bytes(b'{"lockfileVersion": 3}\r\n')
+
+        def fake_run(command, **kwargs):
+            if "--package-lock-only" not in command:
+                raise subprocess.CalledProcessError(1, command)
+            lock.write_text("rewritten by pass 1")
+
+        with patch("ossiq.adapters.package_managers.api_npm.subprocess.run", side_effect=fake_run):
+            with pytest.raises(PackageManagerExecutionError, match="pass 2 of 2"):
+                npm.execute_update(plan)
+
+        assert lock.read_bytes() == b'{"lockfileVersion": 3}\r\n'
+        assert read_package_json(temp_project_dir)["dependencies"] == {"vue-router": "^5.1.0", "pinia": "^3.0.4"}
+
+    def test_a_lockfile_a_failed_run_created_is_removed(self, npm, temp_project_dir):
+        plan = self.two_pass_plan(temp_project_dir)
+        lock = Path(temp_project_dir) / "package-lock.json"
+        lock.unlink(missing_ok=True)
+
+        def fake_run(command, **kwargs):
+            if "--package-lock-only" not in command:
+                raise subprocess.CalledProcessError(1, command)
+            lock.write_text("created by pass 1")
+
+        with patch("ossiq.adapters.package_managers.api_npm.subprocess.run", side_effect=fake_run):
+            with pytest.raises(PackageManagerExecutionError):
+                npm.execute_update(plan)
+
+        assert not lock.exists()
+
     def test_multi_section_dep_updated_in_all_sections(self, npm, temp_project_dir):
         write_package_json(
             temp_project_dir,

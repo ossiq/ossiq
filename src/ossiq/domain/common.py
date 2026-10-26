@@ -298,6 +298,36 @@ class PeerHold:
 
 
 @dataclass(frozen=True)
+class PassOrdering:
+    """Why one update has to land in an earlier install pass than another (npm only).
+
+    The requirer's installed release still peer-requires a range the peer's target falls outside of,
+    so the requirer moves first. Installing both at once makes npm refuse the tree.
+    """
+
+    requirer_key: str
+    """`UpdateEntry.move_key` of the package that has to land first."""
+
+    requirer: str
+    """The requirer, named for a human."""
+
+    requirer_version: str
+    """Its installed version, whose peer range is the obstacle."""
+
+    peer: str
+    """The package that has to wait, named for a human."""
+
+    peer_version: str
+    """The version it is waiting to move to."""
+
+    spec: str
+    """The range the requirer's installed release asks of the peer."""
+
+    honoured: bool = True
+    """False when the requirer and the peer could not be separated: both share a pass and npm decides."""
+
+
+@dataclass(frozen=True)
 class RejectedCandidate:
     """A release that would otherwise have been a candidate, held back by a transitive conflict."""
 

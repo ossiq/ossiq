@@ -221,6 +221,21 @@ HELP_PLAN_CONVERGENCE_NOTICE = (
     "Re-run `ossiq plan` after `ossiq apply` to evaluate the updated tree."
 )
 
+HELP_PLAN_PASSES_NOTICE = (
+    "Installs in {total} passes: an installed package's peer range would otherwise make npm refuse the tree "
+    "while it is half updated."
+)
+
+HELP_PLAN_PASS_HEADER = "Pass {number} of {total}"
+
+HELP_PLAN_PASS_ORDER = "before {peer} {peer_version}: {requirer} {requirer_version} peer-requires {spec}"
+
+HELP_PLAN_PASS_UNRESOLVED = (
+    "⚠ {requirer} and {peer} cannot be told apart in time; they share a pass and npm may refuse it."
+)
+
+HELP_APPLY_PASS = "Pass {number} of {total}"
+
 HELP_PLAN_HELD_FOR_COOLDOWN_HEADER = (
     "Held for cooldown — newer versions exist but are younger than the {days}-day cooldown:"
 )
@@ -294,8 +309,8 @@ HELP_ADD_VERSION = "Pin to a specific version (e.g. 1.2.3). Default: latest reco
 HELP_ADD_FORCE = "Proceed even if critical health warnings are present."
 
 HELP_APPLY_RERUN_HINT = (
-    "Updates are resolved in a single pass; applying them re-resolves the dependency tree and can surface "
-    "further recommendations. Re-run `ossiq plan` to check whether a follow-up pass is needed."
+    "Updates are resolved in one round; applying them re-resolves the dependency tree and can surface "
+    "further recommendations. Re-run `ossiq plan` to check whether a follow-up round is needed."
 )
 
 HELP_UPDATE_CONTEXT_COMMAND = """

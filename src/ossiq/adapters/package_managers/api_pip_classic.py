@@ -12,6 +12,7 @@ import re
 import subprocess
 import tempfile
 from collections import namedtuple
+from collections.abc import Callable
 from typing import TYPE_CHECKING
 
 from ossiq.adapters.api_interfaces import AbstractPackageManagerApi
@@ -318,7 +319,7 @@ class PackageManagerPythonPipClassic(AbstractPackageManagerApi):
             has_lockfile=False,
         )
 
-    def execute_update(self, plan: UpdatePlan) -> None:
+    def execute_update(self, plan: UpdatePlan, on_pass: Callable[[int, int], None] | None = None) -> None:
         """Write a temp constraints file, run pip install in-process, then clean up."""
         with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False, encoding="utf-8") as f:
             for entry in plan.all_entries:

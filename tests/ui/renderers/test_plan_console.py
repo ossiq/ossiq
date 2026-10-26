@@ -7,7 +7,7 @@ from datetime import UTC, datetime
 
 from rich.console import Console
 
-from ossiq.domain.common import ConstraintType, OverrideHold, PeerHold, RecommendationRung
+from ossiq.domain.common import ConstraintType, OverrideHold, PassOrdering, PeerHold, RecommendationRung
 from ossiq.service.project.models import PeerRepair
 from ossiq.service.update import UpdateEntry, UpdatePlan
 from ossiq.service.update_impact import ImpactKind, TransitiveImpact
@@ -99,6 +99,49 @@ def test_held_for_cooldown_section_lists_package(monkeypatch):
     assert "7-day" in output
     assert "@vue/reactivity" in output
     assert "3.5.38" in output
+
+
+def two_pass_plan() -> UpdatePlan:
+    router = dataclasses.replace(make_entry("vue-router", "5.1.0", "5.4.0", 18, is_direct=True), install_pass=1)
+    pinia = dataclasses.replace(make_entry("pinia", "3.0.4", "4.1.0", 11, is_direct=True), install_pass=2)
+    ordering = PassOrdering(
+        requirer_key=router.move_key,
+        requirer="vue-router",
+        requirer_version="5.1.0",
+        peer="pinia",
+        peer_version="4.1.0",
+        spec="^3.0.4",
+    )
+    return dataclasses.replace(make_plan(direct_entries=[pinia, router]), pass_orderings=[ordering])
+
+
+def test_a_multi_pass_plan_groups_rows_under_pass_headings(monkeypatch):
+    output = render(two_pass_plan(), monkeypatch)
+
+    # Each row is found by its age, which no note repeats.
+    assert output.index("Pass 1 of 2") < output.index("18d") < output.index("Pass 2 of 2") < output.index("11d")
+    assert "Install passes: 2" in output
+
+
+def test_the_ordering_is_explained_under_the_package_that_goes_first(monkeypatch):
+    output = render(two_pass_plan(), monkeypatch)
+
+    assert "before pinia 4.1.0: vue-router 5.1.0 peer-requires ^3.0.4" in output.replace("\n", " ")
+
+
+def test_an_unseparable_ordering_is_a_warning(monkeypatch):
+    plan = two_pass_plan()
+    plan = dataclasses.replace(plan, pass_orderings=[dataclasses.replace(plan.pass_orderings[0], honoured=False)])
+
+    assert "share a pass" in render(plan, monkeypatch).replace("\n", " ")
+
+
+def test_a_one_pass_plan_shows_no_pass_headings(monkeypatch):
+    plan = make_plan(direct_entries=[make_entry("requests", "2.28.0", "2.32.0", 90, is_direct=True)])
+
+    output = render(plan, monkeypatch)
+
+    assert "Pass 1 of" not in output and "Install passes" not in output
 
 
 def test_package_manager_holds_get_their_own_section(monkeypatch):
