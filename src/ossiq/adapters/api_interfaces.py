@@ -10,6 +10,7 @@ from functools import cmp_to_key
 from typing import TYPE_CHECKING
 
 from ossiq.domain.common import ConstraintType, ProjectPackagesRegistry, RateLimitBudget, SourceFetch
+from ossiq.domain.exceptions import PackageManagerOperationUnsupported
 from ossiq.domain.package import Package
 from ossiq.domain.packages_manager import PackageManagerType
 from ossiq.domain.project import Project
@@ -232,14 +233,16 @@ class AbstractPackageManagerApi(abc.ABC):
     def execute_update(self, plan: UpdatePlan, on_pass: Callable[[int, int], None] | None = None) -> None:
         """Execute the update plan in-process.
 
-        Supported package managers override this. Default raises NotImplementedError.
+        Supported package managers override this. Default raises PackageManagerOperationUnsupported.
 
         Args:
             plan: The plan to apply.
             on_pass: Called as `(number, total)` before each install pass of a multi-pass plan, so the
                 caller can say where it is. A package manager that installs in one go never calls it.
         """
-        raise NotImplementedError(f"In-process execution is not yet supported for {self.package_manager_type.name}.")
+        raise PackageManagerOperationUnsupported(
+            f"In-process execution is not yet supported for {self.package_manager_type.name}."
+        )
 
     def install_package(self, package_name: str, version: str | None = None) -> int:
         """Install a package into the project. Returns subprocess exit code on success.
@@ -248,4 +251,6 @@ class AbstractPackageManagerApi(abc.ABC):
         raise PackageManagerExecutionError and restore the original manifest on subprocess
         failure, rather than returning a nonzero code.
         """
-        raise NotImplementedError(f"Package installation is not yet supported for {self.package_manager_type.name}.")
+        raise PackageManagerOperationUnsupported(
+            f"Package installation is not yet supported for {self.package_manager_type.name}."
+        )
