@@ -65,6 +65,8 @@ dependencies = [
   "python-sat==1.9.dev15",
   "univers>=32.0.1",
   "requests-cache>=1.3.1",
+  # Reads pnpm-lock.yaml (adapters/package_managers/pnpm/lockfile.py).
+  "pyyaml>=6.0.3",
   # OS keychain storage for the GitHub login token. Core, not optional: the CLI registers
   # `ossiq auth` unconditionally, like the dependencies below.
   "keyring >= 25.0.0",
@@ -184,7 +186,6 @@ dev = [
     "pyinstaller>=6.11.0",  # standalone binaries for the npm channel
     "pylint>=4.0.4,<5",
     "pytest-httpserver>=1.1.5",  # real HTTP server for integration tests
-    "pyyaml>=6.0.3",  # tests/test_workflow_supply_chain.py parses .github/workflows/
     # `just` from PyPI, so it lands in uv.lock's hashed world. Replaces
     # extractions/setup-just, which had to be handed a PAT in CI.
     "rust-just>=1.58.0",

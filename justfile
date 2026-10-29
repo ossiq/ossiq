@@ -46,6 +46,11 @@ qa-integration:
     uv run ossiq html --output=./reports/scan_pypi.html --registry-type=pypi testdata/mixed
     uv run ossiq status testdata/npm/project3
     uv run ossiq plan testdata/npm/nested-copies
+    uv run ossiq status testdata/pnpm/project1
+    uv run ossiq status testdata/pnpm/peers-aliases
+    uv run ossiq info chalk testdata/pnpm/peers-aliases
+    uv run ossiq status testdata/pnpm/workspace-config
+    uv run ossiq info lodash testdata/pnpm/workspace-config
     uv run ossiq export --output=./reports/scan_export_pypi0.json --registry-type=pypi testdata/mixed
     uv run ossiq export --schema-version=1.5 --output=./reports/scan_export_npm_15.json --registry-type=npm testdata/mixed
     uv run ossiq info scipy testdata/pypi/version-constraint

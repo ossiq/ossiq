@@ -1,0 +1,11 @@
+{
+    "name": "pnpm-workspace-config",
+    "version": "1.0.0",
+    "private": true,
+    "packageManager": "pnpm@12.16.1",
+    "dependencies": {
+        "react": "catalog:",
+        "lodash": "^4.17.21",
+        "debug": "^4.3.4"
+    }
+}

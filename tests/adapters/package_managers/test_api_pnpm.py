@@ -1,7 +1,7 @@
 # pylint: disable=redefined-outer-name,unused-argument
 """
-Tests for PackageManagerJsPnpm: detection, registry precedence, manifest-only project_info()
-and the refusal of apply/add.
+Tests for PackageManagerJsPnpm: detection, registry precedence, project_info() with and without a
+lockfile, the declared-range fetch and the refusal of apply/add.
 """
 
 import json
@@ -10,10 +10,16 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from ossiq.adapters.package_managers import api_pnpm
 from ossiq.adapters.package_managers.api import create_package_managers
 from ossiq.adapters.package_managers.api_npm import PackageManagerJsNpm
-from ossiq.adapters.package_managers.api_pnpm import PackageManagerJsPnpm, declared_package_manager
-from ossiq.domain.exceptions import PackageManagerOperationUnsupported
+from ossiq.adapters.package_managers.api_pnpm import (
+    PackageManagerJsPnpm,
+    declared_package_manager,
+    fetch_declared_ranges,
+)
+from ossiq.clients.client_npm import NpmBatchStrategy
+from ossiq.domain.exceptions import PackageManagerLockfileParsingError, PackageManagerOperationUnsupported
 from ossiq.domain.packages_manager import PNPM
 
 
@@ -104,7 +110,7 @@ class TestProjectInfo:
                 "dependencies": {"express": "^4.18.0"},
                 "devDependencies": {"jest": "^29.0.0"},
             },
-            "pnpm-lock.yaml",
+            "pnpm-workspace.yaml",
         )
 
         project = PackageManagerJsPnpm(temp_project_dir, settings).project_info()
@@ -118,7 +124,7 @@ class TestProjectInfo:
         assert "jest" in project.dependency_tree.optional_dependencies
 
     def test_name_falls_back_to_the_directory(self, temp_project_dir, settings):
-        write_project(temp_project_dir, {"dependencies": {"express": "^4.18.0"}}, "pnpm-lock.yaml")
+        write_project(temp_project_dir, {"dependencies": {"express": "^4.18.0"}}, "pnpm-workspace.yaml")
 
         project = PackageManagerJsPnpm(temp_project_dir, settings).project_info()
 
@@ -140,3 +146,95 @@ class TestUnsupportedOperations:
 
         assert (Path(temp_project_dir) / "package.json").read_bytes() == before
         assert not (Path(temp_project_dir) / "package-lock.json").exists()
+
+
+TESTDATA = Path(__file__).parents[3] / "testdata"
+
+
+@pytest.fixture
+def no_registry(monkeypatch):
+    """Scan lockfiles without asking the registry for the ranges they leave out."""
+    monkeypatch.setattr(api_pnpm, "fetch_declared_ranges", lambda parents, settings: {})
+
+
+class TestProjectInfoWithLockfile:
+    def test_installed_versions_come_from_the_lockfile(self, no_registry, settings):
+        project = PackageManagerJsPnpm(str(TESTDATA / "pnpm" / "project1"), settings).project_info()
+
+        vue = project.dependency_tree.dependencies["vue"]
+        assert project.has_lockfile is True
+        assert (vue.version_installed, vue.version_defined) == ("1.0.28", "^1.0.23")
+
+    def test_direct_names_and_constraint_types_match_the_npm_scan(self, no_registry, settings):
+        """The same package.json must read the same under either manager."""
+
+        def shape(tree):
+            return {
+                name: dep.constraint_info.type
+                for name, dep in {**tree.dependencies, **tree.optional_dependencies}.items()
+            }
+
+        pnpm = PackageManagerJsPnpm(str(TESTDATA / "pnpm" / "project1"), settings).project_info()
+        npm = PackageManagerJsNpm(str(TESTDATA / "npm" / "project1"), settings).project_info()
+
+        assert shape(pnpm.dependency_tree) == shape(npm.dependency_tree)
+
+    def test_unsupported_lockfile_version_raises(self, temp_project_dir, settings):
+        write_project(temp_project_dir, {"name": "p", "dependencies": {"a": "^1"}})
+        (Path(temp_project_dir) / "pnpm-lock.yaml").write_text("lockfileVersion: '6.0'\nimporters: {}\n")
+
+        with pytest.raises(PackageManagerLockfileParsingError, match="6.0"):
+            PackageManagerJsPnpm(temp_project_dir, settings).project_info()
+
+    def test_lockfile_without_dependencies_raises(self, temp_project_dir, settings):
+        write_project(temp_project_dir, {"name": "p"})
+        (Path(temp_project_dir) / "pnpm-lock.yaml").write_text("lockfileVersion: '9.0'\nimporters:\n  .: {}\n")
+
+        with pytest.raises(PackageManagerLockfileParsingError):
+            PackageManagerJsPnpm(temp_project_dir, settings).project_info()
+
+    def test_overrides_the_tool_wrote_are_read_from_package_json_metadata(
+        self, no_registry, temp_project_dir, settings
+    ):
+        project = TESTDATA / "pnpm" / "workspace-config"
+        package_json = json.loads((project / "package.json").read_text())
+        package_json["ossiq:metadata"] = {"overrides": {"lodash": "4.17.21"}}
+        write_project(temp_project_dir, package_json)
+        (Path(temp_project_dir) / "pnpm-lock.yaml").write_text((project / "pnpm-lock.yaml").read_text())
+
+        lodash = PackageManagerJsPnpm(temp_project_dir, settings).project_info().dependency_tree.dependencies["lodash"]
+
+        assert lodash.constraint_info.is_ossiq_authored is True
+
+
+class TestFetchDeclaredRanges:
+    @pytest.fixture
+    def registry_url(self, httpserver, monkeypatch) -> str:
+        url = httpserver.url_for("/").rstrip("/")
+        monkeypatch.setattr(NpmBatchStrategy, "BASE_URL", url)
+        return url
+
+    def test_reads_dependencies_and_optional_dependencies(self, registry_url, httpserver, settings):
+        httpserver.expect_request("/a").respond_with_json(
+            {
+                "name": "a",
+                "dist-tags": {"latest": "1.0.0"},
+                "versions": {
+                    "1.0.0": {"dependencies": {"b": "^2"}, "optionalDependencies": {"c": "~1.0.0"}},
+                    "2.0.0": {"dependencies": {"b": "^3"}},
+                },
+            }
+        )
+
+        ranges = fetch_declared_ranges([("a", "1.0.0"), ("a", "2.0.0")], settings)
+
+        assert ranges == {("a", "1.0.0"): {"b": "^2", "c": "~1.0.0"}, ("a", "2.0.0"): {"b": "^3"}}
+
+    def test_registry_that_cannot_answer_yields_nothing(self, registry_url, httpserver, settings):
+        httpserver.expect_request("/a").respond_with_data("missing", status=404)
+
+        assert fetch_declared_ranges([("a", "1.0.0")], settings) == {}
+
+    def test_nothing_to_look_up_makes_no_request(self, registry_url, httpserver, settings):
+        assert fetch_declared_ranges([], settings) == {}
+        assert httpserver.log == []

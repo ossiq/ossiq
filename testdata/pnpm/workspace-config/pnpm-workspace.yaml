@@ -1,0 +1,8 @@
+# Versions shared by `catalog:` specifiers in package.json.
+catalog:
+  react: ^18.2.0
+
+# Forced versions. `debug@4>ms` is scoped to ms beneath debug 4.
+overrides:
+  lodash: 4.17.21
+  "debug@4>ms": 2.1.3

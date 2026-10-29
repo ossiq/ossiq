@@ -661,6 +661,22 @@ class TestPackageVersionRequires:
         assert npm_api.package_version_requires("lodash", "9.9.9") == {}
 
 
+class TestPackageVersionOptionalRequires:
+    def test_returns_optional_dependencies_apart_from_dependencies(self, npm_api, mock_npm_response):
+        mock_npm_response.set_response(
+            "chokidar",
+            {"versions": {"3.6.0": {"dependencies": {"a": "^1"}, "optionalDependencies": {"fsevents": "~2.3.2"}}}},
+        )
+
+        assert npm_api.package_version_optional_requires("chokidar", "3.6.0") == {"fsevents": "~2.3.2"}
+        assert npm_api.package_version_requires("chokidar", "3.6.0") == {"a": "^1"}
+
+    def test_returns_empty_for_unknown_version(self, npm_api, mock_npm_response):
+        mock_npm_response.set_response("lodash", {"versions": {}})
+
+        assert npm_api.package_version_optional_requires("lodash", "9.9.9") == {}
+
+
 class TestNpmPeerDependencies:
     def test_reads_peers_with_optional_meta(self):
         details = {
