@@ -14,7 +14,7 @@ from ossiq.adapters.package_managers.npm.constants import (
     SECTION_CATEGORY,
 )
 from ossiq.adapters.package_managers.npm.engines import parse_node_engine
-from ossiq.adapters.package_managers.npm.overrides import parse_override_rules, select_governing_rule
+from ossiq.adapters.package_managers.npm.overrides import OverrideRule, parse_override_rules, select_governing_rule
 from ossiq.domain.common import ConstraintType
 from ossiq.domain.project import ConstraintSource, Dependency
 from ossiq.domain.version import classify_npm_specifier
@@ -39,23 +39,26 @@ def dependency_entries(pkg_data: dict[str, Any], section: str) -> list[dict[str,
     return [{"name": name, "version": spec} for name, spec in pkg_data.get(section, {}).items()]
 
 
-class NPMTreeBuilderV3(LockfileTreeBuilder):
-    """
-    Concrete tree builder for NPM v3 lockfiles.
+class NpmRegistryTreeBuilder(LockfileTreeBuilder):
+    """What every lockfile of npm-registry packages shares, whichever package manager wrote it.
+
+    That is how a node is born, how a specifier is classified, how a peer is marked optional and
+    which copies an override rule governs. A subclass reads one lockfile format and hands its
+    requirement entries over as `{"name", "version"}` pairs, "version" being the specifier.
     """
 
-    def __init__(self, raw_data: dict[str, Any], overrides: dict[str, Any] | None = None):
+    # The file the override rules were read from, as constraint_info reports it.
+    overrides_file = MANIFEST_FILE
+
+    def __init__(self, raw_data: Any, override_rules: list[OverrideRule]):
         """
         Args:
-            raw_data: The decoded package-lock.json.
-            overrides: The manifest's `overrides` block. It lives in package.json only: npm does not
-                copy it into the lockfile's root entry, so the lockfile alone cannot say what is forced.
+            raw_data: The decoded lockfile.
+            override_rules: The rules of the manifest's override block, which the lockfile does not
+                always carry.
         """
         super().__init__(raw_data)
-        self.override_rules = parse_override_rules(overrides)
-        # Lockfile key -> node, built on first use: it needs every node registered, which only
-        # holds once the first pass of build_graph is done.
-        self.path_nodes: dict[str, Dependency] | None = None
+        self.override_rules = override_rules
 
     def classify_constraint(self, spec: str | None) -> ConstraintType:
         return classify_npm_specifier(spec)
@@ -98,7 +101,7 @@ class NPMTreeBuilderV3(LockfileTreeBuilder):
                 node.categories.append(CATEGORIES_OVERRIDDEN)
             node.constraint_info = ConstraintSource(
                 type=ConstraintType.OVERRIDE,
-                source_file=MANIFEST_FILE,
+                source_file=self.overrides_file,
                 scope_path=list(rule.scope_path) or None,
                 # OSS IQ only ever writes root rules, so a scoped one is the user's by construction.
                 is_ossiq_authored=not rule.scope_path and ossiq_overrides.get(rule.raw_key) == rule.value,
@@ -106,6 +109,36 @@ class NPMTreeBuilderV3(LockfileTreeBuilder):
                 override_value=rule.value,
             )
         return root
+
+    def extract_dependency_identity(self, dep_data: dict) -> tuple[str, str | None]:
+        """
+        In a requirement entry, 'version' is actually the constraint (e.g., ^1.2.3).
+        """
+        return dep_data["name"], dep_data.get("version")
+
+    def extract_peer_optional(self, pkg_data: dict, name: str) -> bool:
+        """The requirer's own lockfile entry records `peerDependenciesMeta`."""
+        meta = pkg_data.get("peerDependenciesMeta")
+        entry = meta.get(name) if isinstance(meta, dict) else None
+        return isinstance(entry, dict) and entry.get("optional") is True
+
+
+class NPMTreeBuilderV3(NpmRegistryTreeBuilder):
+    """
+    Concrete tree builder for NPM v3 lockfiles.
+    """
+
+    def __init__(self, raw_data: dict[str, Any], overrides: dict[str, Any] | None = None):
+        """
+        Args:
+            raw_data: The decoded package-lock.json.
+            overrides: The manifest's `overrides` block. It lives in package.json only: npm does not
+                copy it into the lockfile's root entry, so the lockfile alone cannot say what is forced.
+        """
+        super().__init__(raw_data, parse_override_rules(overrides))
+        # Lockfile key -> node, built on first use: it needs every node registered, which only
+        # holds once the first pass of build_graph is done.
+        self.path_nodes: dict[str, Dependency] | None = None
 
     def path_index(self) -> dict[str, Dependency]:
         """Lockfile key -> node, so a parent's position in the tree can be turned into its copy."""
@@ -210,15 +243,3 @@ class NPMTreeBuilderV3(LockfileTreeBuilder):
         # NPM doesn't store the original 'version_defined' inside the package
         # block itself, but rather in the parent's dependency list.
         return source, required_engine, None
-
-    def extract_dependency_identity(self, dep_data: dict) -> tuple[str, str | None]:
-        """
-        In NPM's dependency list, 'version' is actually the constraint (e.g., ^1.2.3).
-        """
-        return dep_data["name"], dep_data.get("version")
-
-    def extract_peer_optional(self, pkg_data: dict, name: str) -> bool:
-        """npm records `peerDependenciesMeta` on the requirer's own lockfile entry."""
-        meta = pkg_data.get("peerDependenciesMeta")
-        entry = meta.get(name) if isinstance(meta, dict) else None
-        return isinstance(entry, dict) and entry.get("optional") is True
