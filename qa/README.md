@@ -165,6 +165,127 @@ yourself. The matrix shows what OSS IQ does, not what it should do.
 
 ---
 
+## Agent Dependency-Freshness Experiment (GH-174)
+
+### What it is
+
+`qa/agent_freshness/` measures how stale, vulnerable or made-up the versions are when a coding
+agent writes a manifest, and whether installing OSS IQ's skill and MCP server changes that. It runs
+Claude Code on 4 prompts in 2 arms, 3 times each, with two models: `opus` (Claude Opus 5.5) and
+`sonnet` (Claude Sonnet 5.5). Both use the CLI's default effort. That is 24 runs per model.
+
+| Arm | What the agent has beyond its defaults |
+|-----|-----------------------------------------|
+| `baseline` | nothing |
+| `ossiq` | the shipped ossiq skill and MCP server, with OSS IQ's default settings (a 7-day cooldown) |
+
+Each prompt asks for a feature in a small starter project and never mentions dependencies,
+packages, installs or versions. The agent picks them as a side effect of getting the feature to
+work, which is the moment OSS IQ is meant to gate. A prompt is the ecosystem's preamble, the
+request and a closing sentence, all in `experiment.toml`. The closing sentence is always: "Check
+that it works by running it, and leave the project ready for a teammate to clone and run."
+
+| Task | Ecosystem | Request |
+|------|-----------|---------|
+| `T1` | PyPI (uv) | Make `main.py` a web service with user accounts: register with an email and a password, log in for a session token, and a `/me` route that rejects requests without a valid token. |
+| `T2` | PyPI (uv) | Add `report.py`, which reads an Excel `.xlsx` file with the columns date, region and amount and prints the total per region for each month. |
+| `T3` | npm | Turn `src/index.js` into an HTTP server with `POST /photos`, which accepts a PNG or JPEG upload of at most 2 MB, saves it in `./uploads` and answers with the file name. |
+| `T4` | npm | Add `npm run backup -- <file>`, which uploads the file to the S3 bucket named in `S3_BUCKET` and prints the object key. |
+
+The tasks are meant to probe different checks. `T1` needs several packages at once. `T1` and `T2`
+have older packages that are still popular. `T4` has a package that releases almost daily.
+
+Each run is a throwaway container (`qa/agent_freshness/Dockerfile`) with a copy of a starter
+project (`qa/agent_freshness/starters/`, which declares no dependencies) and a fresh HOME, so runs
+share no memory. Never mount your own `~/.claude`: if the ossiq skill is installed there, it
+contaminates the baseline arm.
+
+`eval.py` scores each manifest against npm, PyPI and OSV directly, without importing ossiq, because
+OSS IQ can't be both an arm and the judge. For every declared dependency it records, as of the
+run's start:
+
+- whether the name exists, and whether any release matches the pin
+- whether the pin is exact or a range
+- days and major versions behind the newest stable release
+- whether the package or version is deprecated, yanked, archived or Inactive
+- OSV advisories against the pinned version
+
+It also locks each manifest from scratch (`uv lock`, or `npm install --package-lock-only`) on a copy
+without the agent's lockfile. The lock runs in the experiment image, never on the host, because
+resolving can build an sdist and so run code from a package the agent picked. A fresh manifest that
+doesn't resolve is worse than a stale one that does.
+
+The result is counts, not statistics. Three repeats show whether output varies; they can't show
+that one arm is significantly better.
+
+### Running it
+
+Credentials go in the environment and never into a file in the repo:
+
+- `CLAUDE_CODE_OAUTH_TOKEN` (from `claude setup-token`) or `ANTHROPIC_API_KEY`
+- `OSSIQ_GITHUB_TOKEN` for the ossiq arm
+
+```bash
+uv run just qa                                   # unit tests, including this experiment's
+just exp-build                                   # image; re-run after changing src/ or the CLI pin
+just exp-run --smoke                             # 4 cells (2 models x 2 arms): the model answers, only ossiq sees OSS IQ
+just exp-run --batch pilot --tasks T1,T3 --reps 1
+just exp-eval --batch pilot                      # then read the transcripts against the scores
+git commit qa/agent_freshness/experiment.toml   # freeze the prompts and models
+just exp-run --batch main-opus --models opus     # 24 runs; re-run the same command to resume
+just exp-run --batch main-sonnet --models sonnet
+just exp-eval --batch main-opus                  # the same day, so registry data matches the runs
+just exp-eval --batch main-sonnet
+```
+
+Fix every smoke failure before the pilot, and leave pilot runs out of the results. A run counts as
+finished when the agent writes its closing `result` event or hits the timeout. Anything else is
+marked `failed` and retried the next time you run the same command. That covers a killed container
+and an empty transcript.
+
+A batch records the sha256 of `experiment.toml` in `batch.json` and refuses to continue once it
+changes, so a changed prompt or model list means a new batch. Run both arms of a batch on the same
+day: the run order interleaves them, so they see the same registry.
+
+The prompt reaches the agent on stdin. As an argument it would appear in the agent's own process
+arguments, so an agent that cleans up a test server with `pkill -f main.py` would kill itself.
+
+Run each model as its own batch and compare the two reports. `summary.md` and `summary.html` group
+by arm, so one batch holding both models would pool them.
+
+### Reading the result
+
+Everything lands in `qa_logs/agent_freshness/<batch>/`:
+
+| File | Contents |
+|------|----------|
+| `batch.json` | git sha, image id, `claude` and ossiq versions, the frozen experiment |
+| `<run_id>/` | `workspace/` (what the agent wrote), `transcript.jsonl`, `stderr.log`, `meta.json`, `resolve.json` (the lock command, exit code and output) |
+| `runs.csv` | one row per run: pins, worst lag, CVE and deprecation counts, names and versions not found, whether it resolves, OSS IQ use, cost |
+| `pins.csv` | one row per declared dependency |
+| `summary.md` | per arm: pins, inexact pins, median and max days behind, pins with CVEs, deprecated, not found, resolves, OSS IQ use; then the 10 worst pins |
+| `summary.html` | the same tables with two charts: days behind per pin (one dot each, a median line per arm), and the share of pins or runs hit by each problem. Open it in a browser; it has no script and no external files |
+| `registry/` | the npm, PyPI and OSV answers the scores used; `--refresh` fetches them again and re-runs the locks |
+
+Check these before drawing a conclusion:
+
+- **Did the ossiq arm use OSS IQ?** `ossiq_used` and `ossiq_skill_used` in `runs.csv` say so. A
+  run that ignored the skill is a finding about the skill, so report it and don't drop it.
+- **Did OSS IQ answer?** OSS IQ needs a manifest before it can evaluate a package. In an empty
+  directory, `ossiq info` and the MCP tool fail with "Unable to identify Package Manager". That is
+  why each run starts from a starter project. `ossiq_no_project` marks runs where OSS IQ still found
+  none; expect zero. The npm starter has no lockfile on purpose, because OSS IQ treats an npm
+  lockfile with no dependencies as a parse error.
+- **Lag is not the headline.** The prompts don't ask for pins, so an install resolves to the newest
+  release and the baseline's lag is near zero. OSS IQ's solver penalizes versions younger than its
+  cooldown (7 days by default), so a little lag in the ossiq arm is expected, not a defect. The
+  `not exact` column is high in both arms and says little. Read the package choices in `pins.csv`
+  and the CVE, deprecated and not-found counts.
+- **Name the limits:** two models, one date, 4 prompts and 3 repeats. Newer models may already pin
+  recent versions, and that is a result too.
+
+---
+
 ## Automated Matrix
 
 ### What it is and why it exists
