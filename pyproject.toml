@@ -171,6 +171,11 @@ select = [
     "UP",  # pyupgrade
 ]
 
+[tool.pytest.ini_options]
+# pytest's default list plus qa_logs/: the agents in qa/agent_freshness write their own tests into
+# qa_logs/agent_freshness/<batch>/<run>/workspace, and those import packages this project lacks.
+norecursedirs = ["*.egg", ".*", "_darcs", "build", "CVS", "dist", "node_modules", "venv", "{arch}", "qa_logs"]
+
 [dependency-groups]
 # Tools for development: PEP 735
 dev = [

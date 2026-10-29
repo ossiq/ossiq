@@ -85,6 +85,19 @@ qa-matrix:
 calibrate-stability:
     uv run python qa/calibrate_stability.py
 
+# GH-174 experiment: build the agent image (Node 22, Python 3.12, claude CLI, ossiq from this
+# checkout). Re-run after changing src/ or the pinned CLI version. See qa/README.md.
+exp-build:
+    docker build -f qa/agent_freshness/Dockerfile -t ossiq-exp .
+
+# GH-174 experiment: run agents through the matrix, one container per run; e.g. just exp-run --smoke
+exp-run *ARGS:
+    uv run python qa/agent_freshness/run.py {{ARGS}}
+
+# GH-174 experiment: score a batch against npm, PyPI and OSV, and lock each manifest; e.g. just exp-eval --batch main
+exp-eval *ARGS:
+    uv run python qa/agent_freshness/eval.py {{ARGS}}
+
 # Profile scan command with cProfile + snakeviz; e.g. just profile testdata/npm/project1
 profile PATH:
     uv run python -m cProfile -o /tmp/ossiq_profile.prof -m ossiq.cli status {{PATH}}
