@@ -247,7 +247,7 @@ class AbstractPackageManagerApi(abc.ABC):
     def install_package(self, package_name: str, version: str | None = None) -> int:
         """Install a package into the project. Returns subprocess exit code on success.
 
-        Supported package managers override this. Adapters with a manifest to protect (uv, npm)
+        Supported package managers override this. Adapters with a manifest to protect (uv, npm, pnpm)
         raise PackageManagerExecutionError and restore the original manifest on subprocess
         failure, rather than returning a nonzero code.
         """

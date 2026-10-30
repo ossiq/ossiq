@@ -108,6 +108,12 @@ def registry_parents(lockfile: dict[str, Any]) -> list[NodeKey]:
     return list(dict.fromkeys(parents))
 
 
+def installed_copies(lockfile: dict[str, Any]) -> set[NodeKey]:
+    """Every (name, version) the lockfile installs, with the peer variants of one version folded together."""
+    packages = lockfile.get("packages") or {}
+    return {package_identity(packages, key) for key in packages}
+
+
 class PnpmTreeBuilderV9(NpmRegistryTreeBuilder):
     """Tree builder for pnpm lockfile v9.
 

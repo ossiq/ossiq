@@ -10,6 +10,7 @@ import pytest
 
 from ossiq.adapters.package_managers.pnpm.lockfile import (
     PnpmTreeBuilderV9,
+    installed_copies,
     load_lockfile,
     package_identity,
     ref_to_key,
@@ -338,6 +339,22 @@ class TestRegistryParents:
         )
 
         assert registry_parents(lock) == [("a", "1.0.0"), ("opt", "1.0.0")]
+
+
+class TestInstalledCopies:
+    def test_every_package_is_named_by_its_registry_identity(self):
+        lock = {
+            "packages": {
+                "react-dom@18.3.1": {},
+                "@scope/x@1.0.0": {},
+                # A tarball key carries its location; the entry records the version it installs.
+                "foo@https://example.com/foo-2.0.0.tgz": {"version": "2.0.0"},
+            }
+        }
+        assert installed_copies(lock) == {("react-dom", "18.3.1"), ("@scope/x", "1.0.0"), ("foo", "2.0.0")}
+
+    def test_a_lockfile_without_packages_installs_nothing(self):
+        assert installed_copies({"lockfileVersion": "9.0"}) == set()
 
 
 # ============================================================================

@@ -1,16 +1,21 @@
 """
-Support of pnpm package manager: detection and a scan of package.json and pnpm-lock.yaml.
-
-Applying updates and adding packages are refused by the base class until pnpm can run them, so
-OSS IQ never falls back to `npm install` inside a pnpm project.
+Support of pnpm package manager: detection, a scan of package.json and pnpm-lock.yaml, and
+applying a plan or adding a package through pnpm itself, so OSS IQ never runs `npm install` inside
+a pnpm project.
 """
 
+from __future__ import annotations
+
+import copy
 import json
 import logging
 import os
-from collections.abc import Callable, Iterable
+import subprocess
+from collections.abc import Callable, Iterable, Iterator
+from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import requests
 
@@ -19,23 +24,39 @@ from ossiq.adapters.api_npm import PackageRegistryApiNpm
 from ossiq.adapters.package_managers.npm import manifest
 from ossiq.adapters.package_managers.npm.constants import MANIFEST_FILE
 from ossiq.adapters.package_managers.npm.engines import declared_engine_floors
+from ossiq.adapters.package_managers.npm.writer import add_peer_repairs, apply_direct_specs
 from ossiq.adapters.package_managers.pnpm.constants import WORKSPACE_FILE
 from ossiq.adapters.package_managers.pnpm.lockfile import (
     DeclaredRanges,
     PnpmTreeBuilderV9,
+    installed_copies,
     load_lockfile,
     registry_parents,
 )
 from ossiq.adapters.package_managers.pnpm.settings import pnpm_settings_layers, release_cutoff_from_pnpm_settings
+from ossiq.adapters.package_managers.pnpm.writer import edit_workspace, load_workspace
 from ossiq.adapters.package_managers.utils import find_lockfile_parser
-from ossiq.domain.exceptions import ApplicationError, PackageManagerLockfileParsingError
+from ossiq.domain.exceptions import (
+    ApplicationError,
+    PackageManagerExecutionError,
+    PackageManagerLockfileParsingError,
+    PackageManagerUpdateIncomplete,
+)
 from ossiq.domain.packages_manager import PNPM, PNPM_LOCKFILE, PackageManagerType
 from ossiq.domain.project import Dependency, Project
 from ossiq.domain.release_cutoff import ReleaseCutoff
 from ossiq.settings import Settings
 from ossiq.tree.builder import NodeKey
 
+if TYPE_CHECKING:
+    from ossiq.service.update import UpdatePlan
+
 logger = logging.getLogger(__name__)
+
+# Every file a pnpm command may rewrite in the project root; a failed run puts all of them back.
+PROJECT_FILES = (MANIFEST_FILE, PNPM_LOCKFILE.name, WORKSPACE_FILE)
+
+PNPM_MISSING_HINT = "Install pnpm 10 or newer and put it on PATH. The project files were left as they were."
 
 
 def fetch_declared_ranges(parents: Iterable[NodeKey], settings: Settings) -> DeclaredRanges:
@@ -92,6 +113,76 @@ def declared_package_manager(project_data: dict) -> str | None:
     if isinstance(entry, list):
         entry = entry[0] if entry else None
     return entry.get("name") if isinstance(entry, dict) else None
+
+
+@contextmanager
+def restore_on_failure(root: Path) -> Iterator[None]:
+    """Put the project files back as they were if the block raises, removing any it created.
+
+    Catches BaseException, not Exception: an install interrupted with Ctrl-C leaves a half-written
+    project too. Nothing is swallowed.
+
+    Args:
+        root: The project directory.
+    """
+    before = {name: (root / name).read_bytes() if (root / name).exists() else None for name in PROJECT_FILES}
+    try:
+        yield
+    except BaseException:
+        for name, content in before.items():
+            if content is None:
+                (root / name).unlink(missing_ok=True)
+            else:
+                (root / name).write_bytes(content)
+        raise
+
+
+def run_pnpm(project_path: str, command: str, *args: str) -> None:
+    """Run `pnpm <command>` in *project_path* without lifecycle scripts.
+
+    Install scripts stay off for every pnpm run OSS IQ makes, so what gets installed cannot run
+    code during the install itself. Restoring the project is left to the caller.
+
+    Args:
+        project_path: The directory pnpm runs in.
+        command: The pnpm command, e.g. "install" or "add".
+        *args: Further arguments for the command.
+
+    Raises:
+        PackageManagerExecutionError: pnpm is not installed, or exited non-zero.
+    """
+    try:
+        subprocess.run(["pnpm", command, "--ignore-scripts", *args], cwd=project_path, check=True)
+    except FileNotFoundError as exc:
+        raise PackageManagerExecutionError("pnpm was not found on PATH", hint=PNPM_MISSING_HINT) from exc
+    except subprocess.CalledProcessError as exc:
+        raise PackageManagerExecutionError(f"pnpm {command} failed (exit {exc.returncode})") from exc
+
+
+def check_targets_landed(root: Path, plan: UpdatePlan) -> None:
+    """Raise when the lockfile pnpm just wrote lacks a version the plan targets.
+
+    pnpm exits 0 when an override the user wrote, or its release-age fallback, keeps a package off
+    the planned version, so a clean exit alone does not mean the plan landed.
+    shortcut: a target counts as landed when any copy of it is installed, so a nested copy that
+    stayed put beside a moved one goes unreported; check per edge if that hides real misses.
+
+    Args:
+        root: The project directory, after the last install pass.
+        plan: The plan that was applied.
+
+    Raises:
+        PackageManagerUpdateIncomplete: At least one target is not installed.
+    """
+    copies = installed_copies(load_lockfile((root / PNPM_LOCKFILE.name).read_text(encoding="utf-8")))
+    missed = []
+    for entry in plan.all_entries:
+        if (entry.package_name, entry.recommended_version) in copies:
+            continue
+        have = sorted(version for name, version in copies if name == entry.package_name)
+        missed.append(f"{entry.display_name} {entry.recommended_version} (installed: {', '.join(have) or 'none'})")
+    if missed:
+        raise PackageManagerUpdateIncomplete(f"pnpm did not install {'; '.join(missed)}")
 
 
 class PackageManagerJsPnpm(AbstractPackageManagerApi):
@@ -191,6 +282,73 @@ class PackageManagerJsPnpm(AbstractPackageManagerApi):
         """
         layers = pnpm_settings_layers(Path(self.project_path), os.environ)
         return release_cutoff_from_pnpm_settings(layers, now=datetime.now(UTC))
+
+    def execute_update(self, plan: UpdatePlan, on_pass: Callable[[int, int], None] | None = None) -> None:
+        """Write the plan into package.json and pnpm-workspace.yaml, then `pnpm install`.
+
+        Direct ranges go to package.json, or to the catalog entry for a `catalog:` dependency;
+        transitive picks go to `overrides` in pnpm-workspace.yaml, with the record of what OSS IQ
+        wrote kept in package.json. A plan with ordering constraints (see `assign_install_passes`)
+        installs in passes, each cumulative; every pass but the last only writes the lockfile, so
+        the last one installs. A failure in any pass restores package.json, pnpm-lock.yaml and
+        pnpm-workspace.yaml.
+
+        Args:
+            plan: The plan to apply.
+            on_pass: Called as `(number, total)` before each pass of a multi-pass plan.
+
+        Raises:
+            PackageManagerExecutionError: package.json or pnpm-workspace.yaml cannot be read as
+                what they should be, pnpm is missing, or pnpm failed in some pass.
+            PackageManagerUpdateIncomplete: pnpm succeeded but left some target uninstalled; the
+                project files keep what was written.
+        """
+        root = Path(plan.project_path)
+        original_content = (root / MANIFEST_FILE).read_text(encoding="utf-8")
+        try:
+            pkg = json.loads(original_content)
+        except json.JSONDecodeError as exc:
+            raise PackageManagerExecutionError(f"package.json is not valid JSON: {exc}") from exc
+
+        workspace_path = root / WORKSPACE_FILE
+        original_workspace = workspace_path.read_text(encoding="utf-8") if workspace_path.exists() else None
+        load_workspace(original_workspace)  # a file that cannot be edited fails here, before any write
+
+        total, number = plan.pass_count, 1
+        try:
+            with restore_on_failure(root):
+                for number in range(1, total + 1):
+                    if total > 1 and on_pass is not None:
+                        on_pass(number, total)
+                    step, draft = plan.through_pass(number), copy.deepcopy(pkg)
+                    apply_direct_specs(draft, step)
+                    add_peer_repairs(draft, step)
+                    workspace_text = edit_workspace(original_workspace, draft, step)
+                    if workspace_text is not None:
+                        workspace_path.write_text(workspace_text, encoding="utf-8")
+                    (root / MANIFEST_FILE).write_text(json.dumps(draft, indent=2) + "\n", encoding="utf-8")
+                    flags = ["--no-frozen-lockfile", *(["--lockfile-only"] if number < total else [])]
+                    run_pnpm(plan.project_path, "install", *flags)
+        except PackageManagerExecutionError as exc:
+            if total > 1:
+                raise PackageManagerExecutionError(f"{exc} in pass {number} of {total}", hint=exc.hint) from exc
+            raise
+        # Outside the restore: the install succeeded, so what did land stays.
+        check_targets_landed(root, plan)
+
+    def install_package(self, package_name: str, version: str | None = None) -> int:
+        """Run `pnpm add` for a package. Restores package.json, pnpm-lock.yaml and pnpm-workspace.yaml on failure.
+
+        `pnpm add <spec>` edits package.json itself, so there is no OSS IQ-side write to validate
+        first, only the outcome of the run to guard.
+
+        Raises:
+            PackageManagerExecutionError: pnpm is missing, or exited non-zero.
+        """
+        spec = f"{package_name}@{version}" if version else package_name
+        with restore_on_failure(Path(self.project_path)):
+            run_pnpm(self.project_path, "add", spec)
+        return 0
 
     def __repr__(self) -> str:
         return f"{self.package_manager_type.name} Package Manager"
