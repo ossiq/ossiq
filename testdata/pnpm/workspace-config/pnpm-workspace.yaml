@@ -6,3 +6,10 @@ catalog:
 overrides:
   lodash: 4.17.21
   "debug@4>ms": 2.1.3
+
+# Cooldown: pnpm refuses releases younger than a week, except these.
+minimumReleaseAge: 10080
+minimumReleaseAgeExclude:
+  - lodash # a name
+  - "loose-*" # a glob that is not scoped
+  - debug@4.4.3 # a version

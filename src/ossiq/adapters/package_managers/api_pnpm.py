@@ -7,7 +7,9 @@ OSS IQ never falls back to `npm install` inside a pnpm project.
 
 import json
 import logging
+import os
 from collections.abc import Callable, Iterable
+from datetime import UTC, datetime
 from pathlib import Path
 
 import requests
@@ -24,10 +26,12 @@ from ossiq.adapters.package_managers.pnpm.lockfile import (
     load_lockfile,
     registry_parents,
 )
+from ossiq.adapters.package_managers.pnpm.settings import pnpm_settings_layers, release_cutoff_from_pnpm_settings
 from ossiq.adapters.package_managers.utils import find_lockfile_parser
 from ossiq.domain.exceptions import ApplicationError, PackageManagerLockfileParsingError
 from ossiq.domain.packages_manager import PNPM, PNPM_LOCKFILE, PackageManagerType
 from ossiq.domain.project import Dependency, Project
+from ossiq.domain.release_cutoff import ReleaseCutoff
 from ossiq.settings import Settings
 from ossiq.tree.builder import NodeKey
 
@@ -178,6 +182,15 @@ class PackageManagerJsPnpm(AbstractPackageManagerApi):
             has_lockfile=lockfile.exists(),
             declares_esm=data.get("type") == "module",
         )
+
+    def release_cutoff(self) -> ReleaseCutoff | None:
+        """Return the `minimumReleaseAge` cutoff `pnpm install` will enforce for this project.
+
+        Reads what pnpm reads (the environment, `pnpm-workspace.yaml`, the global config), since
+        `apply` runs pnpm with this process's environment.
+        """
+        layers = pnpm_settings_layers(Path(self.project_path), os.environ)
+        return release_cutoff_from_pnpm_settings(layers, now=datetime.now(UTC))
 
     def __repr__(self) -> str:
         return f"{self.package_manager_type.name} Package Manager"

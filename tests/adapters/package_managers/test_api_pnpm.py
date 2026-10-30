@@ -5,6 +5,7 @@ lockfile, the declared-range fetch and the refusal of apply/add.
 """
 
 import json
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -238,3 +239,54 @@ class TestFetchDeclaredRanges:
     def test_nothing_to_look_up_makes_no_request(self, registry_url, httpserver, settings):
         assert fetch_declared_ranges([], settings) == {}
         assert httpserver.log == []
+
+
+@pytest.fixture
+def clean_pnpm_env(monkeypatch, tmp_path):
+    """Keep the developer's pnpm config and env out of the test: an empty global dir, no age variables."""
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
+    for prefix in ("pnpm_config_", "PNPM_CONFIG_", "npm_config_", "NPM_CONFIG_"):
+        for suffix in ("minimum_release_age", "minimum_release_age_strict"):
+            monkeypatch.delenv(prefix + suffix, raising=False)
+
+
+@pytest.mark.usefixtures("clean_pnpm_env")
+class TestReleaseCutoff:
+    """Reading the cutoff from the fixtures' real settings files."""
+
+    def test_workspace_file_sets_the_cutoff_and_its_exclusions(self, settings):
+        project = str(TESTDATA / "pnpm" / "workspace-config")
+        week_ago = timedelta(minutes=10080)
+
+        before = datetime.now(UTC) - week_ago
+        cutoff = PackageManagerJsPnpm(project, settings).release_cutoff()
+        after = datetime.now(UTC) - week_ago
+
+        assert cutoff is not None
+        assert cutoff.source == "pnpm minimumReleaseAge"
+        assert cutoff.default is not None
+        assert before <= cutoff.default <= after
+        assert cutoff.cutoff_for("lodash") is None  # excluded by name
+        assert cutoff.cutoff_for("loose-envify") is None  # excluded by glob
+        assert cutoff.cutoff_for("debug") == cutoff.default  # `debug@4.4.3` is a version entry: ignored
+
+    def test_project_without_settings_has_no_cutoff(self, settings):
+        assert PackageManagerJsPnpm(str(TESTDATA / "pnpm" / "project1"), settings).release_cutoff() is None
+
+    def test_environment_overrides_the_workspace_file(self, settings, monkeypatch):
+        monkeypatch.setenv("pnpm_config_minimum_release_age", "60")
+        project = str(TESTDATA / "pnpm" / "workspace-config")
+
+        cutoff = PackageManagerJsPnpm(project, settings).release_cutoff()
+
+        assert cutoff is not None
+        assert cutoff.default is not None
+        assert cutoff.default > datetime.now(UTC) - timedelta(hours=2)
+
+    def test_global_config_applies_to_a_project_without_settings(self, settings, tmp_path):
+        (tmp_path / "xdg" / "pnpm").mkdir(parents=True)
+        (tmp_path / "xdg" / "pnpm" / "config.yaml").write_text("minimumReleaseAge: 10080\n")
+
+        cutoff = PackageManagerJsPnpm(str(TESTDATA / "pnpm" / "project1"), settings).release_cutoff()
+
+        assert cutoff is not None
