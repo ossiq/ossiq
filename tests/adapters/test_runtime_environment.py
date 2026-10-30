@@ -10,8 +10,8 @@ import subprocess
 from unittest.mock import MagicMock, patch
 
 from ossiq.adapters.runtime_environment import (
+    detect_actual_cli_version,
     detect_actual_node_version,
-    detect_actual_npm_cli_version,
     detect_actual_python_version,
 )
 
@@ -93,15 +93,16 @@ class TestDetectActualNodeVersion:
         assert detect_actual_node_version() is None
 
 
-class TestDetectActualNpmCliVersion:
+class TestDetectActualCliVersion:
     @patch("subprocess.run")
-    def test_reads_version(self, mock_run):
+    def test_reads_version_of_the_named_cli(self, mock_run):
         mock_run.return_value = _completed(stdout="10.2.4\n")
 
-        assert detect_actual_npm_cli_version() == "10.2.4"
+        assert detect_actual_cli_version("pnpm") == "10.2.4"
+        assert mock_run.call_args.args[0] == ["pnpm", "--version"]
 
     @patch("subprocess.run")
-    def test_returns_none_when_npm_missing(self, mock_run):
+    def test_returns_none_when_the_cli_is_missing(self, mock_run):
         mock_run.side_effect = FileNotFoundError()
 
-        assert detect_actual_npm_cli_version() is None
+        assert detect_actual_cli_version("npm") is None

@@ -22,6 +22,8 @@ class Lockfile:
 class PackageManagerType:
     """Represents a package manager or dependency tool."""
 
+    # shortcut: on npm-registry managers this doubles as the CLI binary and the `engines` key
+    # (engine probing reads it); give those their own field when a manager's differs (Yarn's "Yarn").
     name: str
     package_registry: ProjectPackagesRegistry
     primary_manifest: Manifest

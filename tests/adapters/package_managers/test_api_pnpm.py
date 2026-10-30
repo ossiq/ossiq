@@ -122,7 +122,7 @@ class TestProjectInfo:
             {
                 "name": "demo",
                 "type": "module",
-                "engines": {"node": ">=18"},
+                "engines": {"node": ">=18", "pnpm": ">=9", "npm": ">=10"},
                 "dependencies": {"express": "^4.18.0"},
                 "devDependencies": {"jest": "^29.0.0"},
             },
@@ -135,7 +135,8 @@ class TestProjectInfo:
         assert project.name == "demo"
         assert project.has_lockfile is False
         assert project.declares_esm is True
-        assert project.engine_constraints == {"node": "18.0.0"}
+        # pnpm never enforces engines.npm, so only its own CLI's floor is carried beside node.
+        assert project.engine_constraints == {"node": "18.0.0", "pnpm": "9.0.0"}
         assert "express" in project.dependency_tree.dependencies
         assert "jest" in project.dependency_tree.optional_dependencies
 

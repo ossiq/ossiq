@@ -159,7 +159,7 @@ class PackageManagerJsNpm(AbstractPackageManagerApi):
             name=project_data.get("name", os.path.basename(self.project_path)),
             project_path=self.project_path,
             dependency_tree=dependency_tree,
-            engine_constraints=declared_engine_floors(project_data.get("engines")),
+            engine_constraints=declared_engine_floors(project_data.get("engines"), self.package_manager_type.name),
             has_lockfile=lockfile is not None,
             declares_esm=project_data.get("type") == "module",
         )

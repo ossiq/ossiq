@@ -186,4 +186,7 @@ class InvalidRuntime(ApplicationError):
     """Raised when a provided runtime doesn't fit the scanned project."""
 
     title = "Invalid Runtime"
-    hint = 'An npm project takes {"node": ...}; a PyPI project takes {"python": ...}.'
+    hint = (
+        'An npm or pnpm project takes {"node": ...}, optionally with its own "npm" or "pnpm" version; '
+        'a PyPI project takes {"python": ...}.'
+    )

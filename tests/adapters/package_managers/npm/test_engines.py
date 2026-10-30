@@ -58,26 +58,29 @@ class TestDeclaredEngineFloors:
     to check an `engines.npm` requirement against even once the matcher could evaluate one."""
 
     def test_node_and_npm_floors_are_both_carried(self):
-        floors = declared_engine_floors({"node": ">=18.0.0", "npm": ">=9.0.0"})
+        floors = declared_engine_floors({"node": ">=18.0.0", "npm": ">=9.0.0"}, "npm")
 
         assert floors == {"node": "18.0.0", "npm": "9.0.0"}
 
     def test_the_npm_floor_is_parsed_as_an_npm_range(self):
-        assert declared_engine_floors({"npm": "^8.6.0"}) == {"npm": "8.6.0"}
+        assert declared_engine_floors({"npm": "^8.6.0"}, "npm") == {"npm": "8.6.0"}
 
-    def test_unevaluable_package_managers_are_not_carried(self):
-        """pnpm/yarn have no adapter and no probe, so a declared floor for one would be checked
-        only on the declared path — worse than not checking it at all."""
-        assert declared_engine_floors({"pnpm": "^8.6.0", "yarn": "~4.1"}) is None
+    def test_only_the_projects_own_cli_is_carried(self):
+        """npm never enforces engines.pnpm and pnpm never enforces engines.npm, and yarn has no
+        adapter or probe: a floor for any of them would be checked only on the declared path."""
+        engines = {"node": ">=18.0.0", "npm": ">=9.0.0", "pnpm": "^9.1.0", "yarn": "~4.1"}
+
+        assert declared_engine_floors(engines, "npm") == {"node": "18.0.0", "npm": "9.0.0"}
+        assert declared_engine_floors(engines, "pnpm") == {"node": "18.0.0", "pnpm": "9.1.0"}
 
     def test_a_range_with_no_nameable_floor_is_dropped_not_guessed(self):
-        assert declared_engine_floors({"node": ">=18.0.0", "npm": "*"}) == {"node": "18.0.0"}
+        assert declared_engine_floors({"node": ">=18.0.0", "npm": "*"}, "npm") == {"node": "18.0.0"}
 
     def test_non_string_and_absent_engines_are_ignored(self):
-        assert declared_engine_floors({"node": {"nested": "junk"}}) is None
-        assert declared_engine_floors({}) is None
-        assert declared_engine_floors(None) is None
+        assert declared_engine_floors({"node": {"nested": "junk"}}, "npm") is None
+        assert declared_engine_floors({}, "npm") is None
+        assert declared_engine_floors(None, "npm") is None
 
     def test_unknown_engine_keys_are_not_carried(self):
         """Only keys the matcher can actually evaluate; a floor nothing checks is noise."""
-        assert declared_engine_floors({"bun": ">=1.0.0", "node": ">=18.0.0"}) == {"node": "18.0.0"}
+        assert declared_engine_floors({"bun": ">=1.0.0", "node": ">=18.0.0"}, "npm") == {"node": "18.0.0"}

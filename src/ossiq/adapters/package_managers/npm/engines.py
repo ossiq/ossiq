@@ -48,13 +48,7 @@ def extract_min_node_version(node_range: str) -> str | None:
     return str(floor) if floor is not None and floor in named else None
 
 
-# The engine keys a project's own `engines` block can declare a floor for. Kept in step with
-# solver.version_matchers.NPM_SEMVER_ENGINES: a floor for an engine nothing evaluates is noise,
-# and one evaluated only when declared is worse than noise.
-DECLARABLE_ENGINES: tuple[str, ...] = ("node", "npm")
-
-
-def declared_engine_floors(engines: Any) -> dict[str, str] | None:
+def declared_engine_floors(engines: Any, cli: str) -> dict[str, str] | None:
     """Lowest version the project's own manifest claims to support, per engine key.
 
     Used when no runtime probe ran (`--no-probe-runtime`, or a probe that failed): the floor is
@@ -63,6 +57,9 @@ def declared_engine_floors(engines: Any) -> dict[str, str] | None:
 
     Args:
         engines: The manifest's `engines` value; anything but a non-empty mapping yields None.
+        cli: The project's own package manager (`"npm"`, `"pnpm"`). Only its key is carried beside
+            `node`: npm never enforces `engines.pnpm` and pnpm never enforces `engines.npm`, so a
+            floor for the other one is noise, and one evaluated only on this path is worse.
 
     Returns:
         {engine_key: floor_version}, or None when nothing could be determined.
@@ -70,7 +67,7 @@ def declared_engine_floors(engines: Any) -> dict[str, str] | None:
     if not isinstance(engines, dict) or not engines:
         return None
     floors: dict[str, str] = {}
-    for key in DECLARABLE_ENGINES:
+    for key in ("node", cli):
         declared = engines.get(key)
         if not isinstance(declared, str):
             continue

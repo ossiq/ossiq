@@ -6,8 +6,8 @@ without running a whole scan.
 """
 
 from ossiq.adapters.runtime_environment import (
+    detect_actual_cli_version,
     detect_actual_node_version,
-    detect_actual_npm_cli_version,
     detect_actual_python_version,
 )
 from ossiq.domain.common import (
@@ -19,6 +19,7 @@ from ossiq.domain.common import (
     RuntimeMismatch,
 )
 from ossiq.domain.exceptions import InvalidRuntime, RuntimeNotProvided
+from ossiq.domain.packages_manager import PackageManagerType
 from ossiq.domain.project import Project
 from ossiq.settings import Settings
 from ossiq.solver.version_matchers import stricter_engine_floor
@@ -49,6 +50,10 @@ def detect_engine_context(
     PROBE_TIMEOUT each on a pure-PyPI project, for two answers nothing could use.
     `Project.engine_constraints` is already registry-specific, so the probes now match it.
 
+    An npm-registry project probes its own package manager (`npm --version` or `pnpm --version`)
+    beside `node`: npm enforces only `engines.npm` and pnpm only `engines.pnpm`, so the other CLI's
+    version would be a context nothing can use.
+
     Args:
         project_info: The scanned project, for its declared engine constraints and registry.
         project_path: Used by the Python probe to find this project's own virtualenv.
@@ -57,27 +62,29 @@ def detect_engine_context(
         provided: The runtime the caller states the project runs on, or an explicit "unknown".
 
     Returns:
-        The engine context, and the detected npm CLI version (display-only, npm projects only).
+        The engine context, and the detected npm CLI version (display-only, npm projects only,
+        None on a pnpm project).
 
     Raises:
         InvalidRuntime: `provided` names an engine this project's registry doesn't use.
     """
-    registry = project_info.package_registry
+    manager = project_info.package_manager_type
+    registry = manager.package_registry
     runtime: dict[str, str] = {}
     npm_cli_version: str | None = None
     runtime_source = EngineContextSource.DETECTED
 
     if provided is not None:
         runtime_source = EngineContextSource.PROVIDED
-        runtime = provided_versions(provided, registry)
+        runtime = provided_versions(provided, manager)
     elif probe_runtime:
         if registry == ProjectPackagesRegistry.PYPI:
             if version := detect_actual_python_version(project_path):
                 runtime[ENGINE_CONTEXT_KEY_BY_REGISTRY[ProjectPackagesRegistry.PYPI]] = version
         elif registry == ProjectPackagesRegistry.NPM:
-            npm_cli_version = detect_actual_npm_cli_version()
-            if npm_cli_version:
-                runtime["npm"] = npm_cli_version
+            if cli_version := detect_actual_cli_version(manager.name):
+                runtime[manager.name] = cli_version
+            npm_cli_version = runtime.get("npm")
             if version := detect_actual_node_version():
                 runtime[ENGINE_CONTEXT_KEY_BY_REGISTRY[ProjectPackagesRegistry.NPM]] = version
 
@@ -95,24 +102,22 @@ def detect_engine_context(
     return EngineContext(versions=enforced, source=source), npm_cli_version
 
 
-def provided_versions(provided: ProvidedRuntime, registry: ProjectPackagesRegistry) -> dict[str, str]:
-    """Validate a caller-stated runtime against the project's registry and return its versions.
+def provided_versions(provided: ProvidedRuntime, manager: PackageManagerType) -> dict[str, str]:
+    """Validate a caller-stated runtime against the project's package manager and return its versions.
 
-    `npm` rides along with `node` on npm projects, as the probe does. An explicit "unknown"
-    contributes nothing, leaving only the manifest floor.
+    The manager's own CLI (`npm` or `pnpm`) rides along with `node` on npm-registry projects, as the
+    probe does. An explicit "unknown" contributes nothing, leaving only the manifest floor.
 
     Raises:
-        InvalidRuntime: A key the registry doesn't use (`python` on an npm project), or an empty
-            version.
+        InvalidRuntime: A key the project doesn't use (`python` on an npm project, `npm` on a pnpm
+            one), or an empty version.
     """
     if provided.unknown:
         return {}
-    allowed = {"node", "npm"} if registry == ProjectPackagesRegistry.NPM else {"python"}
+    allowed = {"node", manager.name} if manager.package_registry == ProjectPackagesRegistry.NPM else {"python"}
     unexpected = sorted(set(provided.versions) - allowed)
     if unexpected:
-        raise InvalidRuntime(
-            f"runtime key(s) {', '.join(unexpected)} don't apply to a {registry.value.lower()} project"
-        )
+        raise InvalidRuntime(f"runtime key(s) {', '.join(unexpected)} don't apply to a {manager.name} project")
     empty = sorted(key for key, version in provided.versions.items() if not str(version).strip())
     if empty:
         raise InvalidRuntime(f"runtime version for {', '.join(empty)} is empty")

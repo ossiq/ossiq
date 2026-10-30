@@ -12,7 +12,8 @@ Two things can speak for an engine, and an engine requirement has to hold for **
 
 - the **runtime**: the version the caller states (MCP `runtime`, which is required there, or
   `--engine node=<version>` on the CLI), or else, on the CLI only, the **probe**: the project's
-  virtualenv Python, or `node --version` and `npm --version` from `PATH`;
+  virtualenv Python, or `node --version` plus the project's own package manager from `PATH`
+  (`npm --version`, or `pnpm --version` on a pnpm project);
 - the **declared floor** — the lowest version the project's own manifest claims to support
   (`requires-python`, `engines.node`), reduced to a concrete version per engine key.
 
@@ -41,11 +42,15 @@ own tooling (`.nvmrc`, `.node-version`, `.tool-versions`, `mise.toml`, `volta.no
 `.python-version`, `.venv/pyvenv.cfg`). A disagreement is reported as `runtime_mismatch`, never
 silently resolved: a pin says what developers run, not what the project supports.
 
-Both sides carry `npm` as well as `node`, so a release declaring `engines.npm` is checked too —
-the two share one semver grammar and one matcher. `pnpm` and `yarn` are deliberately **not**
-evaluated: OSS IQ has no adapter for either, so nothing probes them, and a floor checked on the
-declared path but not the detected one would be worse than no check at all. They pass through as
-satisfied like any other engine key OSS IQ cannot evaluate.
+Both sides carry the project's own package manager as well as `node`: `npm` on an npm project,
+`pnpm` on a pnpm project. A release declaring `engines.npm` or `engines.pnpm` is checked against it,
+because the two share one semver grammar and one matcher.
+
+Only the project's own manager is carried: npm never enforces `engines.pnpm`, and pnpm never
+enforces `engines.npm`. Stating the other one in `runtime` or `--engine` is an "Invalid Runtime"
+error. `yarn` is not evaluated. OSS IQ has no adapter for it, so nothing probes it, and a floor
+checked only on the declared path would be worse than no check. It passes through as satisfied, like
+any other engine key OSS IQ cannot evaluate.
 
 ## One definition, three consumers
 
@@ -79,5 +84,5 @@ the best available answer**; OSS IQ's obligation is to say so, not to hide it.
 | **The runtime may not be the deployed one** | A stated runtime is whatever the caller read. A probed one is whatever is on the `PATH` of the shell running `ossiq`: a developer laptop, not CI or production. Recommendations are gated against that. The pin cross-check catches the wrong shell, not the wrong environment. |
 | **The declared floor is a floor, not your runtime** | Whenever the floor is the lower of the two, checks run against the *lowest* version the manifest supports. A package requiring `node >=22` is reported incompatible for a project declaring `>=18`, even if every real deployment runs 24. Raising the floor is the fix; OSS IQ will not quietly assume you meant it. |
 | **The check fails open** | An engine key nothing can evaluate (`bun`, say) and an unparseable range both return "satisfied". A malformed `engines` field reads as compatible, not as unknown. |
-| **An engine absent from the context is never checked** | The check iterates the runtime versions it has, not the requirements a release declares. A `pnpm` requirement on a project that declares no `pnpm` floor is passed over in silence, exactly as an `npm` requirement was everywhere before it was probed. |
+| **An engine absent from the context is never checked** | The check iterates the runtime versions it has, not the requirements a release declares. A release's `engines.pnpm` requirement on a pnpm project is passed over in silence when `pnpm --version` fails (`PATH`, or the MCP server, which never probes) and the project declares no `engines.pnpm` floor. |
 | **`None` is easy to misread** | An absent requirement and a verified pass are different states and look similar in JSON. |

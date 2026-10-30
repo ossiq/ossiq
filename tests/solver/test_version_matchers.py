@@ -213,10 +213,12 @@ def test_version_satisfies_constraint_npm(version: str, constraint: str, expecte
         # requirement was silently unenforced however far the installed CLI was from it.
         ("npm", "10.2.4", ">=9.0.0", True),
         ("npm", "8.19.2", ">=9.0.0", False),
-        # pnpm/yarn are NOT dispatched: nothing probes them, so evaluating a declared floor
-        # would check them on some runs and not others. They pass through like any other
-        # unevaluable key until OSS IQ has an adapter and a probe.
-        ("pnpm", "1.0.0", ">=8", True),
+        # pnpm is probed like npm on a pnpm project, so its requirement is enforced.
+        ("pnpm", "10.18.0", ">=9.0.0", True),
+        ("pnpm", "8.15.9", ">=9.0.0", False),
+        # yarn is NOT dispatched: nothing probes it, so evaluating a declared floor would check
+        # it on some runs and not others. It passes through like any other unevaluable key until
+        # OSS IQ has an adapter and a probe.
         ("yarn", "1.22.19", ">=4.0.0", True),
         # unknown engine → passthrough True
         ("bun", "1.0.0", ">=1.0.0", True),

@@ -11,7 +11,7 @@ import pytest
 
 from ossiq.domain.common import EngineContext, EngineContextSource, ProjectPackagesRegistry, ProvidedRuntime
 from ossiq.domain.exceptions import InvalidRuntime, RuntimeNotProvided
-from ossiq.domain.packages_manager import NPM, UV
+from ossiq.domain.packages_manager import NPM, PNPM, UV, PackageManagerType
 from ossiq.domain.project import Dependency, Project
 from ossiq.service.project.runtime_context import (
     detect_engine_context,
@@ -22,9 +22,13 @@ from ossiq.service.project.runtime_context import (
 from ossiq.settings import Settings
 
 
-def make_project(registry: ProjectPackagesRegistry, engine_constraints: dict[str, str] | None = None) -> Project:
+def make_project(
+    registry: ProjectPackagesRegistry,
+    engine_constraints: dict[str, str] | None = None,
+    manager: PackageManagerType | None = None,
+) -> Project:
     return Project(
-        package_manager_type=UV if registry == ProjectPackagesRegistry.PYPI else NPM,
+        package_manager_type=manager or (UV if registry == ProjectPackagesRegistry.PYPI else NPM),
         name="demo",
         project_path=".",
         dependency_tree=Dependency(name="demo", canonical_name="demo", version_installed=""),
@@ -38,7 +42,7 @@ def probes():
     with (
         patch("ossiq.service.project.runtime_context.detect_actual_python_version") as python_probe,
         patch("ossiq.service.project.runtime_context.detect_actual_node_version") as node_probe,
-        patch("ossiq.service.project.runtime_context.detect_actual_npm_cli_version") as npm_probe,
+        patch("ossiq.service.project.runtime_context.detect_actual_cli_version") as npm_probe,
     ):
         python_probe.return_value = "3.12.1"
         node_probe.return_value = "20.11.0"
@@ -70,7 +74,7 @@ class TestProbeGating:
 
         python_probe.assert_not_called()
         node_probe.assert_called_once()
-        npm_probe.assert_called_once()
+        npm_probe.assert_called_once_with("npm")
         # The npm CLI version rides along in the context so `engines.npm` is checkable at all.
         assert context.versions == {"node": "20.11.0", "npm": "10.2.4"}
         assert npm_cli_version == "10.2.4"
@@ -199,6 +203,53 @@ class TestNpmEngineKey:
 
         assert context.versions == {"node": "20.11.0"}
         assert context.source == EngineContextSource.DETECTED
+
+
+class TestPnpmEngineKey:
+    """npm checks `engines.npm` and pnpm checks `engines.pnpm`, so a pnpm project's context carries
+    node plus pnpm: probing npm for it would check a requirement pnpm never enforces."""
+
+    def test_a_pnpm_project_probes_pnpm_not_npm(self, probes):
+        _, _, cli_probe = probes
+        cli_probe.return_value = "10.18.0"
+
+        context, npm_cli_version = detect_engine_context(
+            make_project(ProjectPackagesRegistry.NPM, manager=PNPM), ".", probe_runtime=True
+        )
+
+        cli_probe.assert_called_once_with("pnpm")
+        assert context.versions == {"node": "20.11.0", "pnpm": "10.18.0"}
+        assert npm_cli_version is None
+
+    def test_a_pnpm_older_than_the_floor_binds(self, probes):
+        """Fails without pnpm in NPM_SEMVER_ENGINES: an unevaluable key always resolves to the floor."""
+        _, _, cli_probe = probes
+        cli_probe.return_value = "10.2.4"
+        project = make_project(ProjectPackagesRegistry.NPM, {"pnpm": "11.0.0"}, manager=PNPM)
+
+        context, _ = detect_engine_context(project, ".", probe_runtime=True)
+
+        assert context.versions == {"node": "20.11.0", "pnpm": "10.2.4"}
+        assert context.source == EngineContextSource.DETECTED
+
+    def test_a_stated_pnpm_is_accepted(self, probes):
+        context, _ = detect_engine_context(
+            make_project(ProjectPackagesRegistry.NPM, manager=PNPM),
+            ".",
+            probe_runtime=False,
+            provided=ProvidedRuntime({"node": "22.12.0", "pnpm": "10.1.0"}),
+        )
+
+        assert context == EngineContext({"node": "22.12.0", "pnpm": "10.1.0"}, EngineContextSource.PROVIDED)
+
+    def test_a_stated_npm_is_rejected_on_a_pnpm_project(self, probes):
+        with pytest.raises(InvalidRuntime, match="pnpm project"):
+            detect_engine_context(
+                make_project(ProjectPackagesRegistry.NPM, manager=PNPM),
+                ".",
+                probe_runtime=False,
+                provided=ProvidedRuntime({"npm": "10.0.0"}),
+            )
 
 
 class TestProvidedRuntime:

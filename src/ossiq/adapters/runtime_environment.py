@@ -1,4 +1,4 @@
-"""Best-effort detection of the actually-installed Python/Node/npm runtime.
+"""Best-effort detection of the actually-installed Python/Node/package-manager runtime.
 
 Enrichment, not a resolution step: every probe here is read-only and must never raise or block a
 scan. Contrast with `adapters.package_managers.api_uv.execute_update`/`install_package`, which
@@ -85,6 +85,6 @@ def detect_actual_node_version() -> str | None:
     return run_version_probe(["node", "--version"], NODE_VERSION_OUTPUT_RE)
 
 
-def detect_actual_npm_cli_version() -> str | None:
-    """Return the npm CLI version on PATH right now, or None. Display-only, never checked."""
-    return run_version_probe(["npm", "--version"], NODE_VERSION_OUTPUT_RE)
+def detect_actual_cli_version(cli: str) -> str | None:
+    """Return the version of the package-manager CLI *cli* (`npm`, `pnpm`) on PATH right now, or None."""
+    return run_version_probe([cli, "--version"], NODE_VERSION_OUTPUT_RE)
