@@ -88,6 +88,8 @@ def test_every_imported_third_party_top_level_is_declared(pyproject):
     # python-dotenv is imported as `dotenv` by commands/install.py and used to
     # arrive only via pydantic-settings.
     assert "python-dotenv" in declared
+    # pnpm/lockfile.py imports `yaml`; it used to be a dev-only dependency.
+    assert "pyyaml" in declared
 
 
 def test_hatch_is_not_a_runtime_dependency(pyproject):

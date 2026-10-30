@@ -541,6 +541,16 @@ class PackageRegistryApiNpm(AbstractPackageRegistryApi):
         versions = self._raw_cache.get(package_name, {}).get("versions", {})
         return dict(versions.get(version, {}).get("dependencies", {}))
 
+    def package_version_optional_requires(self, package_name: str, version: str) -> dict[str, str]:
+        """Return {dep_name: version_range} of the `optionalDependencies` of a published version.
+
+        The registry lists these apart from `dependencies`, so `package_version_requires` leaves them out.
+        """
+        if package_name not in self._raw_cache:
+            self.packages_info_batch([package_name])
+        versions = self._raw_cache.get(package_name, {}).get("versions", {})
+        return dict(versions.get(version, {}).get("optionalDependencies", {}))
+
     def package_version_peers(self, package_name: str, version: str) -> dict[str, PeerDependency]:
         """Return {dep_name: PeerDependency} for a specific published version.
 

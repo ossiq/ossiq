@@ -12,6 +12,7 @@ from ossiq.adapters.package_managers.api_npm import PackageManagerJsNpm
 from ossiq.adapters.package_managers.api_pep621 import PackageManagerPythonPep621
 from ossiq.adapters.package_managers.api_pip import PackageManagerPythonPip
 from ossiq.adapters.package_managers.api_pip_classic import PackageManagerPythonPipClassic
+from ossiq.adapters.package_managers.api_pnpm import PackageManagerJsPnpm
 from ossiq.adapters.package_managers.api_uv import PackageManagerPythonUv
 from ossiq.domain.common import ProjectPackagesRegistry
 from ossiq.settings import Settings
@@ -19,12 +20,14 @@ from ossiq.settings import Settings
 # Precedence order, highest-featured adapter per registry first: create_package_managers yields at
 # most one adapter per registry and this tuple is what decides which. A lockfile-backed adapter must
 # come before a manifest-only one for the same registry (uv/pylock before pep621, pep621 before
-# pip-classic), so a project with a real lockfile gets the fuller-featured driver.
+# pip-classic), so a project with a real lockfile gets the fuller-featured driver. pnpm comes before
+# npm because npm accepts any package.json while pnpm needs a pnpm signal.
 PACKAGE_MANAGERS = (
     PackageManagerPythonUv,
     PackageManagerPythonPip,
     PackageManagerPythonPep621,
     PackageManagerPythonPipClassic,
+    PackageManagerJsPnpm,
     PackageManagerJsNpm,
 )
 

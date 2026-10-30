@@ -203,7 +203,7 @@ WARNING_OVERRIDE_PAST_RELEASE_CUTOFF = (
 
 WARNING_OVERRIDE_AMBIGUOUS_ALIAS = (
     "--override {package}: the project declares it under several manifest keys ({aliases}), which "
-    "npm installs as separate copies. Only one can be forced — name the key instead to pick it."
+    "install as separate copies. Only one can be forced — name the key instead to pick it."
 )
 
 HELP_PLAN_FORCED_WARNING = (
@@ -222,7 +222,7 @@ HELP_PLAN_CONVERGENCE_NOTICE = (
 )
 
 HELP_PLAN_PASSES_NOTICE = (
-    "Installs in {total} passes: an installed package's peer range would otherwise make npm refuse the tree "
+    "Installs in {total} passes: an installed package's peer range would otherwise clash with the tree "
     "while it is half updated."
 )
 
@@ -231,7 +231,7 @@ HELP_PLAN_PASS_HEADER = "Pass {number} of {total}"
 HELP_PLAN_PASS_ORDER = "before {peer} {peer_version}: {requirer} {requirer_version} peer-requires {spec}"
 
 HELP_PLAN_PASS_UNRESOLVED = (
-    "⚠ {requirer} and {peer} cannot be told apart in time; they share a pass and npm may refuse it."
+    "⚠ {requirer} and {peer} cannot be told apart in time; they share a pass, and the install may fail."
 )
 
 HELP_APPLY_PASS = "Pass {number} of {total}"
@@ -251,7 +251,7 @@ HELP_PLAN_HELD_BY_PEERS_HEADER = (
 )
 
 HELP_PLAN_PEER_REPAIRS_HEADER = (
-    "Repairs unresolved peers — installed only out of their requirers' reach; added where npm resolves them:"
+    "Repairs unresolved peers — installed only out of their requirers' reach; added where their requirers resolve them:"
 )
 
 HELP_STATUS_PEER_MISSING = "↳ missing peer {package} {spec}: nothing installed where this package looks for it"

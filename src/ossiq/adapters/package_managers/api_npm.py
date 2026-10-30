@@ -179,13 +179,18 @@ class PackageManagerJsNpm(AbstractPackageManagerApi):
             lock_only: Resolve and write package-lock.json without touching node_modules.
 
         Raises:
-            PackageManagerExecutionError: npm exited non-zero.
+            PackageManagerExecutionError: npm is not installed, or exited non-zero.
         """
         flags = ["--ignore-scripts", *(["--package-lock-only"] if lock_only else [])]
         try:
             subprocess.run(["npm", "install", *flags, *specs], cwd=project_path, check=True)
-        except subprocess.CalledProcessError as exc:
+        except (subprocess.CalledProcessError, FileNotFoundError) as exc:
             (Path(project_path) / MANIFEST_FILE).write_text(original_manifest, encoding="utf-8")
+            if isinstance(exc, FileNotFoundError):
+                raise PackageManagerExecutionError(
+                    "npm was not found on PATH",
+                    hint="Install npm and put it on PATH. The project files were left as they were.",
+                ) from exc
             raise PackageManagerExecutionError(f"npm install failed (exit {exc.returncode})") from exc
 
     def execute_update(self, plan: UpdatePlan, on_pass: Callable[[int, int], None] | None = None) -> None:

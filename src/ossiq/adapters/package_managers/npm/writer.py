@@ -5,19 +5,22 @@ recommendations persisted as overrides with a record of what OSS IQ wrote.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
 from ossiq.adapters.package_managers.npm.constants import DEP_SECTIONS
 from ossiq.adapters.package_managers.npm.overrides import (
+    OverrideRule,
     holds_recorded_value,
     parse_override_rules,
     rules_governing,
     superseded_override_keys,
     user_owns_override,
 )
+from ossiq.adapters.package_managers.pnpm.constants import CATALOG_PROTOCOL
 
 if TYPE_CHECKING:
-    from ossiq.service.update import UpdatePlan
+    from ossiq.service.update import UpdateEntry, UpdatePlan
 
 
 def relax_spec(original_spec: str, recommended: str, pin_all: bool) -> str:
@@ -39,11 +42,18 @@ def relax_spec(original_spec: str, recommended: str, pin_all: bool) -> str:
     return recommended
 
 
+def final_spec(current_spec: str, entry: UpdateEntry, pin_all: bool) -> str:
+    """Return the specifier a direct dep is written back with: exact when forced, else relaxed."""
+    if entry.is_forced:
+        return entry.recommended_version
+    return relax_spec(current_spec, entry.recommended_version, pin_all)
+
+
 def apply_direct_specs(pkg: dict[str, Any], plan: UpdatePlan) -> None:
     """Write final direct-dep specifiers to pkg in-place.
 
-    Updated deps are relaxed via relax_spec (or exact-pinned for forced/pin-all);
-    deps not in the plan are left untouched.
+    Updated deps get their final_spec; deps not in the plan, and `catalog:` specs, are left
+    untouched.
     """
     # Keyed by the manifest key, which is what this loop iterates. For an npm alias
     # (`uuid-v7: "npm:uuid@^7.0.0"`) the registry name never equals the key, so keying on
@@ -53,12 +63,10 @@ def apply_direct_specs(pkg: dict[str, Any], plan: UpdatePlan) -> None:
     for section in DEP_SECTIONS:
         for name, current_spec in list(pkg.get(section, {}).items()):
             entry = direct_entries.get(name)
-            if entry is None:
+            # A catalog entry's range lives in pnpm-workspace.yaml, which pnpm/writer.py writes.
+            if entry is None or current_spec.startswith(CATALOG_PROTOCOL):
                 continue
-            if entry.is_forced:
-                pkg[section][name] = entry.recommended_version
-            else:
-                pkg[section][name] = relax_spec(current_spec, entry.recommended_version, plan.pin_all)
+            pkg[section][name] = final_spec(current_spec, entry, plan.pin_all)
 
 
 def add_peer_repairs(pkg: dict[str, Any], plan: UpdatePlan) -> None:
@@ -74,8 +82,14 @@ def add_peer_repairs(pkg: dict[str, Any], plan: UpdatePlan) -> None:
         pkg.setdefault(section, {})[repair.package] = repair.spec
 
 
-def write_transitive_overrides(pkg: dict[str, Any], plan: UpdatePlan) -> None:
+def write_transitive_overrides(
+    pkg: dict[str, Any],
+    plan: UpdatePlan,
+    parse: Callable[[object], list[OverrideRule]] = parse_override_rules,
+) -> bool:
     """Persist transitive recommendations as overrides in *pkg*, recording what OSS IQ wrote.
+
+    *parse* reads the `overrides` block: npm's nested form by default, pnpm's flat keys for pnpm.
 
     Each is keyed to the copy it replaces (`name@<installed>`), so npm rewrites only the edges whose
     range reaches that copy. A plain `name` override would force the version onto every copy of the
@@ -84,10 +98,13 @@ def write_transitive_overrides(pkg: dict[str, Any], plan: UpdatePlan) -> None:
     Never overwrites a rule the user owns: a key whose value was edited since OSS IQ wrote it, or a
     rule of theirs that already governs the same copy, is left as it is. A rule written for one copy
     is never retired by another copy's entry in the same plan.
+
+    Returns:
+        Whether any override was written.
     """
     entries = [entry for entry in plan.all_entries if not entry.is_direct]
     if not entries:
-        return
+        return False
 
     overrides: dict[str, Any] = pkg.get("overrides", {})
     metadata: dict[str, Any] = pkg.get("ossiq:metadata", {})
@@ -100,7 +117,7 @@ def write_transitive_overrides(pkg: dict[str, Any], plan: UpdatePlan) -> None:
         if overrides.get(key) is not None and not holds_recorded_value(overrides, tool_overrides, key):
             continue
         # Parsed per entry on purpose: earlier entries add and retire rules in `overrides`.
-        governing = rules_governing(parse_override_rules(overrides), entry.package_name, entry.current_version)
+        governing = rules_governing(parse(overrides), entry.package_name, entry.current_version)
         if user_owns_override(governing, overrides, tool_overrides):
             continue
         for stale in superseded_override_keys(governing, overrides, tool_overrides, keep={key, *written}):
@@ -114,3 +131,4 @@ def write_transitive_overrides(pkg: dict[str, Any], plan: UpdatePlan) -> None:
         pkg["overrides"] = overrides
         metadata["overrides"] = tool_overrides
         pkg["ossiq:metadata"] = metadata
+    return bool(written)

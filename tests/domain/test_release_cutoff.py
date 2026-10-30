@@ -31,6 +31,21 @@ class TestCutoffFor:
         cutoff = ReleaseCutoff(SOURCE, default=GLOBAL, per_package={"typing-extensions": None})
         assert cutoff.cutoff_for("Typing_Extensions") is None
 
+    def test_scoped_glob_lifts_every_package_in_the_scope(self):
+        cutoff = ReleaseCutoff(SOURCE, default=GLOBAL, per_package={"@types/*": None})
+        assert cutoff.cutoff_for("@types/node") is None
+        assert cutoff.cutoff_for("@typed/node") == GLOBAL
+
+    def test_prefix_glob_does_not_lift_the_bare_name(self):
+        # normalize_dist_name("react-*") would cut the pattern to "react" and lift it too.
+        cutoff = ReleaseCutoff(SOURCE, default=GLOBAL, per_package={"react-*": None})
+        assert cutoff.cutoff_for("react-dom") is None
+        assert cutoff.cutoff_for("react") == GLOBAL
+
+    def test_exact_entry_wins_over_a_glob(self):
+        cutoff = ReleaseCutoff(SOURCE, default=GLOBAL, per_package={"react-*": None, "react-dom": LATER})
+        assert cutoff.cutoff_for("react-dom") == LATER
+
 
 class TestAdmits:
     def test_release_at_the_cutoff_is_admitted(self):

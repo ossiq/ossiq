@@ -1,0 +1,15 @@
+{
+    "name": "pnpm-peers-aliases",
+    "version": "1.0.0",
+    "private": true,
+    "packageManager": "pnpm@12.16.1",
+    "dependencies": {
+        "react": "^18.2.0",
+        "react-dom": "^18.2.0",
+        "chalk": "^5.3.0",
+        "chalk-legacy": "npm:chalk@^4.1.2",
+        "editorconfig": "^1.0.4",
+        "minimatch": "^10.0.1",
+        "ws": "^8.16.0"
+    }
+}

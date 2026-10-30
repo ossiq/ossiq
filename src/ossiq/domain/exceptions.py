@@ -144,6 +144,19 @@ class PackageManagerExecutionError(ApplicationError):
     hint = "The manifest has been restored to its original state. Review the output above for details."
 
 
+class PackageManagerOperationUnsupported(ApplicationError):
+    title = "Not Supported"
+    hint = "OSS IQ can scan this project but cannot change it yet. Make the change with your package manager."
+
+
+class PackageManagerUpdateIncomplete(ApplicationError):
+    title = "Update Incomplete"
+    hint = (
+        "Updates that did install are kept. An override you wrote, or a release-age setting, can hold a "
+        "package where it is: check them, then run `ossiq plan` again."
+    )
+
+
 class UnknownEcosystem(ApplicationError):
     title = "Unknown Ecosystem"
     hint = "Provided ecosystem is not recognized among supported ecosystems (NPM, etc...)"

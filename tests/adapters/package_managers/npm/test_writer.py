@@ -145,6 +145,27 @@ class TestApplyDirectSpecsWithAliases:
         assert pkg["dependencies"]["lodash"] == "^4.18.1"
 
 
+class TestApplyDirectSpecsWithCatalogs:
+    """A `catalog:` spec names a range kept in pnpm-workspace.yaml; rewriting it would corrupt package.json."""
+
+    @pytest.mark.parametrize("forced", [False, True], ids=["relaxed", "forced"])
+    def test_a_catalog_spec_is_left_untouched(self, forced):
+        pkg = {"dependencies": {"react": "catalog:", "vue": "catalog:v3", "lodash": "^4.17.0"}}
+        plan = make_npm_update_plan(
+            direct=[
+                make_npm_update_entry("react", "18.3.1", "18.4.0", is_forced=forced),
+                make_npm_update_entry("vue", "3.4.0", "3.5.0", is_forced=forced),
+                make_npm_update_entry("lodash", "4.17.0", "4.17.21", is_forced=forced),
+            ]
+        )
+
+        apply_direct_specs(pkg, plan)
+
+        assert pkg["dependencies"]["react"] == "catalog:"
+        assert pkg["dependencies"]["vue"] == "catalog:v3"
+        assert pkg["dependencies"]["lodash"] == ("4.17.21" if forced else "^4.17.21")
+
+
 class TestWriteTransitiveOverridesOwnership:
     """What counts as a key the user has taken over, at the edges of 'present and different'."""
 
