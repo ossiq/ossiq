@@ -751,6 +751,72 @@ class TestNestedCopiesInThePlan:
         ]
 
 
+class TestUserOverridesOnDirectPackages:
+    """An override the user wrote for a direct package beats the spec the writers put in the manifest.
+
+    pnpm resolves the package against the override and records its value as the importer's
+    specifier; npm refuses a direct spec that differs from its override. Either way the bump would
+    not land, so the plan holds it at every tier and names the override.
+    """
+
+    @staticmethod
+    def pnpm_override(value: str, *, ossiq: bool = False) -> ConstraintSource:
+        return dataclasses.replace(npm_override(value, ossiq=ossiq), source_file="pnpm-workspace.yaml")
+
+    def test_a_direct_package_the_user_overrode_is_held_and_named(self):
+        lodash = make_record("lodash", "4.17.21", "4.18.1")
+        lodash.constraint_info = self.pnpm_override("4.17.21")
+        debug = make_record("debug", "4.3.4", "4.4.3")
+
+        plan = build_update_plan(make_scan_result(production=[lodash, debug]), "pnpm")
+
+        assert [e.package_name for e in plan.direct_entries] == ["debug"]
+        assert [(h.package, h.key, h.value, h.source_file, h.blocked) for h in plan.held_by_user_overrides] == [
+            ("lodash", None, "4.17.21", "pnpm-workspace.yaml", ("lodash@4.18.1",))
+        ]
+
+    def test_an_exploitable_cve_does_not_lift_the_hold(self):
+        """Escalation widens reach, but an override is the user's standing `--override`: it wins at every tier."""
+        lodash = make_record("lodash", "4.17.21", "4.18.1")
+        lodash.constraint_info = self.pnpm_override("4.17.21")
+
+        plan = build_update_plan(
+            make_scan_result(production=[lodash]), "pnpm", strategy=StrategyPlan(default=UpdateStrategy.SECURITY)
+        )
+
+        assert plan.direct_entries == []
+        assert [h.package for h in plan.held_by_user_overrides] == ["lodash"]
+
+    def test_a_reference_to_the_manifest_spec_moves_with_the_bump(self):
+        lodash = make_record("lodash", "4.17.21", "4.18.1")
+        lodash.constraint_info = npm_override("$lodash", ossiq=False)
+
+        plan = build_update_plan(make_scan_result(production=[lodash]), "npm")
+
+        assert [e.package_name for e in plan.direct_entries] == ["lodash"]
+        assert plan.held_by_user_overrides == []
+
+    def test_an_override_ossiq_wrote_is_not_a_hold(self):
+        lodash = make_record("lodash", "4.17.21", "4.18.1")
+        lodash.constraint_info = self.pnpm_override("4.17.21", ossiq=True)
+
+        plan = build_update_plan(make_scan_result(production=[lodash]), "pnpm")
+
+        assert [e.package_name for e in plan.direct_entries] == ["lodash"]
+        assert plan.held_by_user_overrides == []
+
+    def test_a_forced_version_is_planned_and_not_also_listed_as_held(self):
+        lodash = make_record("lodash", "4.17.21", "4.18.1")
+        lodash.constraint_info = self.pnpm_override("4.17.21")
+
+        plan = build_update_plan(make_scan_result(production=[lodash]), "pnpm", forced_overrides={"lodash": "4.18.0"})
+
+        assert [(e.package_name, e.recommended_version, e.is_forced) for e in plan.direct_entries] == [
+            ("lodash", "4.18.0", True)
+        ]
+        assert plan.held_by_user_overrides == []
+
+
 class TestHeldByPeers:
     """A package whose newer release an installed peer range rules out must not just vanish."""
 

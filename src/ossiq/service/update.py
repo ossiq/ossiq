@@ -327,10 +327,10 @@ def override_bump_entry(impact: TransitiveImpact) -> UpdateEntry:
 
 
 def user_override_hold(record: ScanRecord | None, entry: UpdateEntry) -> OverrideHold | None:
-    """The user's override standing in the way of a transitive entry, or None when none does.
+    """The user's override standing in the way of an entry, or None when none does.
 
-    Only a rule with a value of its own counts, which today means npm's: that is the one place the
-    scan knows what an override forces, so it is the one place the plan can say it is blocked.
+    Only a rule with a value of its own counts, which today means npm's and pnpm's: those are the
+    places the scan knows what an override forces, so they are where the plan can say it is blocked.
     """
     if record is None:
         return None
@@ -536,9 +536,23 @@ def build_update_plan(
         key=lambda e: (e.package_name, e.current_version),
     )
 
-    # An override the user wrote is theirs to release: the writers would skip its package, so name it
-    # here rather than let the plan promise a bump that never lands.
+    # An override the user wrote is theirs to release, so name it here rather than let the plan
+    # promise a bump that never lands. The writers skip a transitive package it governs; on a direct
+    # package it beats the spec they write: pnpm resolves against the override, npm refuses a spec
+    # that differs from it.
+    forced_names = set(forced_overrides or {})
     user_holds = [rc.held_by_override for r in direct_records for rc in r.rejected_candidates if rc.held_by_override]
+    direct_by_identity = {r.identity_name: r for r in direct_records}
+    unheld_direct: list[UpdateEntry] = []
+    for entry in direct:
+        hold = user_override_hold(direct_by_identity.get(entry.identity), entry)
+        # A `$name` value follows the manifest's own spec, so the bump carries it along; a forced
+        # version replaces this entry below, so it is not held either.
+        if hold is None or hold.value.startswith("$") or {entry.identity, entry.package_name} & forced_names:
+            unheld_direct.append(entry)
+        else:
+            user_holds.append(hold)
+    direct = unheld_direct
     records_by_name = {r.package_name: r for r in scan_result.transitive_packages}
     unheld: list[UpdateEntry] = []
     for entry in transitive:
@@ -550,7 +564,6 @@ def build_update_plan(
     transitive = unheld
 
     unknown_overrides: list[str] = []
-    forced_names = set(forced_overrides or {})
     if forced_overrides:
         direct_identities = {r.identity_name for r in direct_records}
         # Drop by whichever spelling the user used: naming an alias replaces only that alias,
