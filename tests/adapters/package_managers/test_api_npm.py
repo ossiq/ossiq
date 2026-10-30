@@ -646,6 +646,26 @@ class TestExecuteUpdate:
         pkg = read_package_json(temp_project_dir)
         assert pkg["dependencies"]["express"] == "^4.18.0"
 
+    def test_a_missing_npm_binary_is_a_clean_error_and_restores_manifest_and_lockfile(self, npm, temp_project_dir):
+        write_package_json(
+            temp_project_dir, {"name": "app", "version": "1.0.0", "dependencies": {"express": "^4.18.0"}}
+        )
+        lock = Path(temp_project_dir) / "package-lock.json"
+        lock.write_bytes(b'{"lockfileVersion": 3}\n')
+        manifest_before = (Path(temp_project_dir) / "package.json").read_bytes()
+        plan = make_npm_update_plan(
+            direct=[make_npm_update_entry("express", "4.18.0", "4.19.0", version_defined="^4.18.0")],
+            project_path=temp_project_dir,
+        )
+
+        with patch("ossiq.adapters.package_managers.api_npm.subprocess.run", side_effect=FileNotFoundError("npm")):
+            with pytest.raises(PackageManagerExecutionError, match="npm was not found") as raised:
+                npm.execute_update(plan)
+
+        assert raised.value.hint and "Install npm" in raised.value.hint
+        assert (Path(temp_project_dir) / "package.json").read_bytes() == manifest_before
+        assert lock.read_bytes() == b'{"lockfileVersion": 3}\n'
+
     @staticmethod
     def two_pass_plan(project_dir: str):
         write_package_json(
