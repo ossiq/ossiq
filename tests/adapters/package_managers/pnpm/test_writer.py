@@ -10,10 +10,12 @@ import pytest
 from ossiq.adapters.package_managers.pnpm.writer import (
     append_entry,
     dump_workspace,
+    edit_exclusions,
     edit_workspace,
     load_workspace,
     sync_mapping,
     write_catalog_specs,
+    write_release_age_exclusions,
     write_workspace_overrides,
 )
 from ossiq.domain.exceptions import PackageManagerExecutionError
@@ -218,3 +220,56 @@ class TestEditWorkspace:
 
         assert edited is not None
         assert edited.replace("  semver@7.0.0: 7.5.2\n", "") == text
+
+
+class TestWriteReleaseAgeExclusions:
+    def write(self, text: str | None, *entries: str) -> str:
+        workspace = load_workspace(text)
+        write_release_age_exclusions(workspace, entries)
+        return dump_workspace(workspace)
+
+    def test_a_first_entry_creates_the_list_after_the_last_key(self):
+        assert self.write("catalog:\n  react: ^18.2.0\n", "a@1.0.0") == (
+            "catalog:\n  react: ^18.2.0\nminimumReleaseAgeExclude:\n  - a@1.0.0\n"
+        )
+
+    def test_entries_join_the_users_list_and_every_comment_stays(self):
+        text = WORKSPACE_FIXTURE.read_text()
+
+        edited = self.write(text, "a@1.0.0", "b@2.0.0")
+
+        assert edited.replace("  - a@1.0.0\n  - b@2.0.0\n", "") == text
+        assert edited.endswith("  - debug@4.4.3 # a version\n  - a@1.0.0\n  - b@2.0.0\n")
+
+    def test_what_the_list_already_covers_is_not_added_again(self):
+        text = "minimumReleaseAgeExclude:\n  - lodash\n  - a@1.0.0\n"
+
+        # A bare name covers every version of the package.
+        assert self.write(text, "a@1.0.0", "lodash@4.17.21", "a@1.0.0") == text
+
+    def test_a_scoped_name_is_split_at_its_version(self):
+        text = "minimumReleaseAgeExclude:\n  - '@org/pkg'\n"
+
+        assert self.write(text, "@org/pkg@1.0.0") == text
+
+    def test_a_list_that_is_not_a_list_raises_instead_of_being_replaced(self):
+        with pytest.raises(PackageManagerExecutionError, match="minimumReleaseAgeExclude"):
+            self.write("minimumReleaseAgeExclude: lodash\n", "a@1.0.0")
+
+    def test_with_nothing_to_add_even_a_list_that_is_not_a_list_is_left_alone(self):
+        # Every apply passes through here, with or without a cooldown; pnpm reports the bad value itself.
+        assert self.write("minimumReleaseAgeExclude: lodash\n") == "minimumReleaseAgeExclude: lodash\n"
+
+
+class TestEditExclusions:
+    def test_a_project_without_a_workspace_file_gets_a_new_one(self):
+        assert edit_exclusions(None, ["a@1.0.0"]) == "minimumReleaseAgeExclude:\n  - a@1.0.0\n"
+
+    def test_entries_that_are_already_covered_yield_no_text(self):
+        assert edit_exclusions("minimumReleaseAgeExclude:\n  - a@1.0.0\n", ["a@1.0.0"]) is None
+        assert edit_exclusions(None, []) is None
+
+    def test_edit_workspace_writes_them_beside_a_plans_changes(self):
+        edited = edit_workspace(None, {"name": "app"}, ms_plan(), ["a@1.0.0"])
+
+        assert edited == "overrides:\n  ms@2.1.2: 2.1.3\nminimumReleaseAgeExclude:\n  - a@1.0.0\n"

@@ -26,6 +26,7 @@ Each command answers one question about a dependency, in your terminal or throug
   - `--update-strategy` sets how far to move: `security`, `deprecation`, `standard` (the default), `latest` or `cutting-edge`.
   - `--strategy-override <package>=<tier>` moves one package differently.
   - `apply --yes` skips the prompt in CI.
+  - Under pnpm, `apply` and `add` run pnpm with the cooldown period as its `minimumReleaseAge`, so new transitive dependencies are held to the cooldown. `--cooldown-period 0` turns that off.
 - `ossiq install skills`: Can my coding agent do all of this? It installs a skill for Claude Code, OpenAI Codex and GitHub Copilot, and registers a local MCP server for Claude Code and Codex. The agent asks OSS IQ before it adds or updates a dependency. The MCP tools (`ossiq_evaluate_dependency`, `ossiq_evaluate_updates`, `ossiq_update_context`) are read-only: nothing changes until you run `ossiq apply` and confirm. See [Coding agents](https://ossiq.dev/getting-started.html#coding-agents).
 
 ## Install and log in

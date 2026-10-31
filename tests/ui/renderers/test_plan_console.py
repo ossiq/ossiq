@@ -415,3 +415,44 @@ class TestAliasedPackageNames:
 
         assert "requests" in output
         assert "(" not in output.split("requests")[1].split("\n")[0]
+
+
+class TestNewDependencyCooldownNotice:
+    """A new transitive package younger than the cooldown is warned about, unless the manager holds it."""
+
+    @staticmethod
+    def plan_with_fresh_new_dep(**changes) -> UpdatePlan:
+        fresh = TransitiveImpact(
+            package_name="left-pad",
+            current_version=None,
+            projected_version="1.3.0",
+            new_constraint="^1.3.0",
+            driven_by="express",
+            has_conflict=False,
+            projected_age_days=2,
+            kind=ImpactKind.NEW_DEP,
+        )
+        entry = dataclasses.replace(
+            make_entry("express", "4.18.0", "4.19.0", 30, is_direct=True), transitive_impacts=[fresh]
+        )
+        return dataclasses.replace(make_plan(direct_entries=[entry]), package_manager_name="PNPM", **changes)
+
+    def test_the_warning_stands_when_nothing_holds_the_new_dependency(self, monkeypatch):
+        output = render(self.plan_with_fresh_new_dep(), monkeypatch)
+
+        assert "younger than the 7-day cooldown" in output
+        assert "installs new dependencies" not in output
+
+    def test_a_manager_that_enforces_the_cooldown_says_so_instead(self, monkeypatch):
+        output = render(self.plan_with_fresh_new_dep(enforces_cooldown_on_install=True), monkeypatch)
+
+        assert "pnpm installs new dependencies under the 7-day cooldown" in output
+        assert "younger than the 7-day cooldown" not in output
+
+    def test_no_cooldown_means_no_notice_at_all(self, monkeypatch):
+        plan = self.plan_with_fresh_new_dep(enforces_cooldown_on_install=True, cooldown_period=0)
+
+        output = render(plan, monkeypatch)
+
+        assert "installs new dependencies" not in output
+        assert "younger than" not in output

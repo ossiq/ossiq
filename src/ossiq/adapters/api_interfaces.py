@@ -205,6 +205,12 @@ class AbstractPackageManagerApi(abc.ABC):
     settings: Settings
     package_manager_type: PackageManagerType
     project_path: str
+    # True when `execute_update` and `install_package` hold packages entering the tree to the cooldown
+    # period themselves, so the plan need not warn that such packages sit outside it.
+    enforces_cooldown_on_install: bool = False
+    # True when `execute_update` exempts an `--override` version from the package manager's own
+    # release cutoff, so the forced version installs even though the cutoff refuses it.
+    exempts_forced_versions: bool = False
 
     @staticmethod
     @abc.abstractmethod

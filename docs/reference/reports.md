@@ -119,7 +119,7 @@ Columns: **Package**, **CVEs**, **Installed**, **Recommended**, **What's Next**;
 
 ### New transitive dependencies
 
-Packages that are not in the tree today, and that the recommended updates pull in. The native package manager resolves their versions at apply time, outside the solver's cooldown, so OSS IQ flags a fresh entry and does not withhold it. A `⚠` before the package name means the projected version is younger than the cooldown period: look at it before you apply. [Cooldown](../explanation/cooldown.md#new-transitive-dependencies-sit-outside-the-cooldown) explains why.
+Packages that are not in the tree today, and that the recommended updates pull in. The native package manager resolves their versions at apply time, outside the solver's cooldown, so OSS IQ flags a fresh entry and does not withhold it. Under pnpm, the plan adds that pnpm holds them to the cooldown. A `⚠` before the package name means the projected version is younger than the cooldown period: look at it before you apply. [Cooldown](../explanation/cooldown.md#new-transitive-dependencies-sit-outside-the-cooldown) explains why.
 
 | Column | Meaning |
 |---|---|

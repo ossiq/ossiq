@@ -30,6 +30,8 @@ def make_npm_update_entry(
     is_forced: bool = False,
     dependency_name: str | None = None,
     install_pass: int = 1,
+    is_security: bool = False,
+    cooldown_bypassed: bool = False,
 ) -> UpdateEntry:
     return UpdateEntry(
         package_name=name,
@@ -41,6 +43,8 @@ def make_npm_update_entry(
         version_defined=version_defined,
         is_forced=is_forced,
         install_pass=install_pass,
+        is_security=is_security,
+        cooldown_bypassed=cooldown_bypassed,
     )
 
 
@@ -50,6 +54,7 @@ def make_npm_update_plan(
     project_path: str = "/tmp/test-npm",
     installed_versions: dict[str, str] | None = None,
     pin_all: bool = False,
+    cooldown_period: int = 0,
 ) -> UpdatePlan:
     return UpdatePlan(
         project_name="test-npm-project",
@@ -60,6 +65,7 @@ def make_npm_update_plan(
         transitive_entries=transitive or [],
         installed_versions=installed_versions or {},
         pin_all=pin_all,
+        cooldown_period=cooldown_period,
     )
 
 

@@ -4,6 +4,7 @@ Tests for PackageManagerJsPnpm: detection, registry precedence, project_info() w
 lockfile, the declared-range fetch, the release cutoff, and applying a plan or adding a package.
 """
 
+import dataclasses
 import difflib
 import json
 import shutil
@@ -23,6 +24,7 @@ from ossiq.adapters.package_managers.api_pnpm import (
     PackageManagerJsPnpm,
     declared_package_manager,
     fetch_declared_ranges,
+    fetch_publish_dates,
 )
 from ossiq.clients.client_npm import NpmBatchStrategy
 from ossiq.domain.exceptions import (
@@ -207,13 +209,14 @@ class TestProjectInfoWithLockfile:
         assert lodash.constraint_info.is_ossiq_authored is True
 
 
-class TestFetchDeclaredRanges:
-    @pytest.fixture
-    def registry_url(self, httpserver, monkeypatch) -> str:
-        url = httpserver.url_for("/").rstrip("/")
-        monkeypatch.setattr(NpmBatchStrategy, "BASE_URL", url)
-        return url
+@pytest.fixture
+def registry_url(httpserver, monkeypatch) -> str:
+    url = httpserver.url_for("/").rstrip("/")
+    monkeypatch.setattr(NpmBatchStrategy, "BASE_URL", url)
+    return url
 
+
+class TestFetchDeclaredRanges:
     def test_reads_dependencies_and_optional_dependencies(self, registry_url, httpserver, settings):
         httpserver.expect_request("/a").respond_with_json(
             {
@@ -240,13 +243,65 @@ class TestFetchDeclaredRanges:
         assert httpserver.log == []
 
 
+class TestFetchPublishDates:
+    def test_reads_the_publish_time_of_each_release(self, registry_url, httpserver, settings):
+        httpserver.expect_request("/a").respond_with_json(
+            {
+                "name": "a",
+                "dist-tags": {"latest": "2.0.0"},
+                "versions": {"1.0.0": {}, "2.0.0": {}},
+                "time": {"created": "2026-01-01T00:00:00.000Z", "1.0.0": "2026-01-01T00:00:00.000Z"},
+            }
+        )
+
+        dates = fetch_publish_dates([("a", "1.0.0"), ("a", "2.0.0")], settings)
+
+        # 2.0.0 has no time, so it is left out rather than guessed.
+        assert dates == {("a", "1.0.0"): datetime(2026, 1, 1, tzinfo=UTC)}
+
+    def test_a_package_the_registry_cannot_load_goes_undated_and_the_rest_are_kept(
+        self, registry_url, httpserver, settings
+    ):
+        # A private or unpublished package must not cost the other packages their dates.
+        httpserver.expect_request("/private").respond_with_data("missing", status=404)
+        httpserver.expect_request("/a").respond_with_json(
+            {"name": "a", "versions": {"1.0.0": {}}, "time": {"1.0.0": "2026-01-01T00:00:00.000Z"}}
+        )
+
+        dates = fetch_publish_dates([("a", "1.0.0"), ("private", "1.0.0")], settings)
+
+        assert dates == {("a", "1.0.0"): datetime(2026, 1, 1, tzinfo=UTC)}
+
+    def test_a_registry_that_cannot_answer_dates_nothing(self, registry_url, httpserver, settings):
+        httpserver.expect_request("/a").respond_with_data("missing", status=404)
+
+        assert fetch_publish_dates([("a", "1.0.0")], settings) == {}
+
+    def test_nothing_to_look_up_makes_no_request(self, registry_url, httpserver, settings):
+        assert fetch_publish_dates([], settings) == {}
+        assert httpserver.log == []
+
+
 @pytest.fixture
 def clean_pnpm_env(monkeypatch, tmp_path):
     """Keep the developer's pnpm config and env out of the test: an empty global dir, no age variables."""
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
     for prefix in ("pnpm_config_", "PNPM_CONFIG_", "npm_config_", "NPM_CONFIG_"):
-        for suffix in ("minimum_release_age", "minimum_release_age_strict"):
+        for suffix in ("minimum_release_age", "minimum_release_age_strict", "minimum_release_age_exclude"):
             monkeypatch.delenv(prefix + suffix, raising=False)
+
+
+@pytest.fixture(autouse=True)
+def registry_dates(monkeypatch, clean_pnpm_env) -> dict[tuple[str, str], datetime]:
+    """The publish dates the adapter finds; a test fills the returned dict. No test reaches the network."""
+    dates: dict[tuple[str, str], datetime] = {}
+
+    def fake_fetch(copies, settings):
+        wanted = set(copies)
+        return {key: at for key, at in dates.items() if key in wanted}
+
+    monkeypatch.setattr(api_pnpm, "fetch_publish_dates", fake_fetch)
+    return dates
 
 
 @pytest.mark.usefixtures("clean_pnpm_env")
@@ -599,6 +654,160 @@ class TestExecuteUpdate:
         assert snapshot(temp_project_dir) == before
 
 
+def ago(days: float) -> datetime:
+    return datetime.now(UTC) - timedelta(days=days)
+
+
+def exclude_list(env: dict[str, str]) -> list[str]:
+    return json.loads(env["pnpm_config_minimum_release_age_exclude"])
+
+
+class TestExecuteUpdateCooldown:
+    """execute_update() runs pnpm under OSS IQ's cooldown and keeps what it exempts in pnpm-workspace.yaml."""
+
+    @pytest.fixture
+    def pnpm(self, settings, temp_project_dir):
+        return PackageManagerJsPnpm(temp_project_dir, settings)
+
+    @staticmethod
+    def run(pnpm, root, plan, *, installs=("express@4.19.0",)):
+        write_package_json(root, SIMPLE_PACKAGE)
+        with patch(PNPM_RUN, side_effect=pnpm_installs(root, *installs)) as mock_run:
+            pnpm.execute_update(plan)
+        return mock_run
+
+    @staticmethod
+    def pick_plan(root, **flags):
+        entry = make_npm_update_entry("express", "4.18.0", "4.19.0", version_defined="^4.18.0", **flags)
+        return make_npm_update_plan(direct=[entry], project_path=root, cooldown_period=7)
+
+    def test_pnpm_runs_under_the_cooldown_as_a_minimum_release_age(self, pnpm, temp_project_dir):
+        mock_run = self.run(pnpm, temp_project_dir, express_plan(temp_project_dir, cooldown_period=7))
+
+        env = mock_run.call_args.kwargs["env"]
+        assert env["pnpm_config_minimum_release_age"] == "10080"
+        assert env["npm_config_minimum_release_age"] == "10080"
+        assert env["pnpm_config_minimum_release_age_strict"] == "false"
+        assert "PATH" in env
+
+    def test_a_cooldown_period_of_zero_leaves_the_environment_to_pnpm(self, pnpm, temp_project_dir):
+        mock_run = self.run(pnpm, temp_project_dir, express_plan(temp_project_dir, cooldown_period=0))
+
+        assert mock_run.call_args.kwargs["env"] is None
+
+    @pytest.mark.parametrize(
+        "flags",
+        [{}, {"is_security": True}, {"cooldown_bypassed": True}, {"is_forced": True}],
+        ids=["derived", "security", "bypassed", "forced"],
+    )
+    def test_every_target_taken_young_is_written_to_the_workspace_file_and_exempted_in_the_run(
+        self, pnpm, temp_project_dir, registry_dates, flags
+    ):
+        # An override bump carries no flag and can still be young; pnpm 10 would refuse it otherwise.
+        registry_dates[("express", "4.19.0")] = ago(2)
+
+        mock_run = self.run(pnpm, temp_project_dir, self.pick_plan(temp_project_dir, **flags))
+
+        workspace = (Path(temp_project_dir) / "pnpm-workspace.yaml").read_text()
+        assert workspace == "minimumReleaseAgeExclude:\n  - express@4.19.0\n"
+        assert exclude_list(mock_run.call_args.kwargs["env"]) == ["express@4.19.0"]
+
+    def test_a_strict_projects_own_rule_still_refuses_a_young_target(self, pnpm, temp_project_dir, registry_dates):
+        (Path(temp_project_dir) / "pnpm-workspace.yaml").write_text("minimumReleaseAge: 4320\n")
+        registry_dates[("express", "4.19.0")] = ago(1)
+
+        mock_run = self.run(pnpm, temp_project_dir, self.pick_plan(temp_project_dir, is_security=True))
+
+        assert (Path(temp_project_dir) / "pnpm-workspace.yaml").read_text() == "minimumReleaseAge: 4320\n"
+        assert "pnpm_config_minimum_release_age_exclude" not in mock_run.call_args.kwargs["env"]
+
+    @pytest.mark.parametrize("cooldown_period", [7, 0])
+    def test_an_override_is_exempted_even_from_a_strict_projects_own_rule(
+        self, pnpm, temp_project_dir, registry_dates, cooldown_period
+    ):
+        (Path(temp_project_dir) / "pnpm-workspace.yaml").write_text("minimumReleaseAge: 4320\n")
+        registry_dates[("express", "4.19.0")] = ago(1)
+        plan = dataclasses.replace(self.pick_plan(temp_project_dir, is_forced=True), cooldown_period=cooldown_period)
+
+        self.run(pnpm, temp_project_dir, plan)
+
+        workspace = (Path(temp_project_dir) / "pnpm-workspace.yaml").read_text()
+        assert workspace == "minimumReleaseAge: 4320\nminimumReleaseAgeExclude:\n  - express@4.19.0\n"
+
+    def test_a_pick_older_than_the_cooldown_needs_no_entry(self, pnpm, temp_project_dir, registry_dates):
+        registry_dates[("express", "4.19.0")] = ago(30)
+
+        self.run(pnpm, temp_project_dir, self.pick_plan(temp_project_dir, is_security=True))
+
+        assert not (Path(temp_project_dir) / "pnpm-workspace.yaml").exists()
+
+    def test_a_locked_release_younger_than_the_cooldown_is_exempted_for_the_run_only(
+        self, pnpm, temp_project_dir, registry_dates
+    ):
+        pnpm_installs(temp_project_dir, "lodash@4.17.21")(["pnpm"])
+        registry_dates[("lodash", "4.17.21")] = ago(3)
+
+        mock_run = self.run(
+            pnpm,
+            temp_project_dir,
+            express_plan(temp_project_dir, cooldown_period=7),
+            installs=("express@4.19.0", "lodash@4.17.21"),
+        )
+
+        assert exclude_list(mock_run.call_args.kwargs["env"]) == ["lodash@4.17.21"]
+        assert not (Path(temp_project_dir) / "pnpm-workspace.yaml").exists()
+
+    def test_a_later_pass_exempts_what_an_earlier_pass_locked(self, pnpm, temp_project_dir, registry_dates):
+        plan = dataclasses.replace(TestExecuteUpdate.two_pass_plan(temp_project_dir), cooldown_period=7)
+        # pnpm fell back to a young release of a new package in pass 1, and pass 2 re-checks it.
+        registry_dates[("fresh-dep", "1.0.0")] = ago(0.2)
+        envs = []
+
+        def fake_run(command, **kwargs):
+            envs.append(kwargs["env"])
+            pnpm_installs(temp_project_dir, "vue-router@5.4.0", "pinia@4.1.0", "fresh-dep@1.0.0")(command)
+
+        with patch(PNPM_RUN, side_effect=fake_run):
+            pnpm.execute_update(plan)
+
+        assert "pnpm_config_minimum_release_age_exclude" not in envs[0]
+        assert exclude_list(envs[1]) == ["fresh-dep@1.0.0"]
+        # Younger than the project's own age too, so it stays: a plain `pnpm install` re-checks it.
+        assert "fresh-dep@1.0.0" in (Path(temp_project_dir) / "pnpm-workspace.yaml").read_text()
+
+    def test_a_release_the_registry_cannot_date_is_held_to_the_age_like_any_other(self, pnpm, temp_project_dir):
+        # Nothing is dated, so nothing is exempt: pnpm refuses an unchecked release instead of skipping the check.
+        mock_run = self.run(pnpm, temp_project_dir, self.pick_plan(temp_project_dir, is_security=True))
+
+        env = mock_run.call_args.kwargs["env"]
+        assert env["pnpm_config_minimum_release_age"] == "10080"
+        assert "pnpm_config_minimum_release_age_exclude" not in env
+        assert not (Path(temp_project_dir) / "pnpm-workspace.yaml").exists()
+
+    def test_a_failed_run_points_at_the_cooldown_and_restores_the_exemptions_it_wrote(
+        self, pnpm, temp_project_dir, registry_dates
+    ):
+        write_package_json(temp_project_dir, SIMPLE_PACKAGE)
+        registry_dates[("express", "4.19.0")] = ago(2)
+        before = snapshot(temp_project_dir)
+
+        with patch(PNPM_RUN, side_effect=subprocess.CalledProcessError(1, ["pnpm"])):
+            with pytest.raises(PackageManagerExecutionError) as caught:
+                pnpm.execute_update(self.pick_plan(temp_project_dir, is_security=True))
+
+        assert "--cooldown-period 0" in (caught.value.hint or "")
+        assert snapshot(temp_project_dir) == before
+
+    def test_a_failure_without_a_cooldown_keeps_the_generic_hint(self, pnpm, temp_project_dir):
+        write_package_json(temp_project_dir, SIMPLE_PACKAGE)
+
+        with patch(PNPM_RUN, side_effect=subprocess.CalledProcessError(1, ["pnpm"])):
+            with pytest.raises(PackageManagerExecutionError) as caught:
+                pnpm.execute_update(express_plan(temp_project_dir, cooldown_period=0))
+
+        assert "--cooldown-period" not in (caught.value.hint or "")
+
+
 class TestInstallPackage:
     """install_package() runs `pnpm add <spec>`, which edits package.json itself."""
 
@@ -638,3 +847,58 @@ class TestInstallPackage:
                 pnpm.install_package("express", "4.19.0")
 
         assert snapshot(workspace_project) == before
+
+
+class TestInstallPackageCooldown:
+    """install_package() holds what `pnpm add` drags in to the cooldown, and exempts the version chosen."""
+
+    @pytest.fixture
+    def pnpm(self, settings, temp_project_dir):
+        write_package_json(temp_project_dir, {"name": "app", "version": "1.0.0", "dependencies": {}})
+        return PackageManagerJsPnpm(temp_project_dir, settings)
+
+    def test_pnpm_add_runs_under_the_cooldown(self, pnpm):
+        with patch(PNPM_RUN) as mock_run:
+            pnpm.install_package("express", "4.19.0")
+
+        assert mock_run.call_args.kwargs["env"]["pnpm_config_minimum_release_age"] == "10080"
+
+    def test_an_exact_version_taken_young_is_exempted(self, pnpm, temp_project_dir, registry_dates):
+        registry_dates[("express", "4.19.0")] = ago(2)
+
+        with patch(PNPM_RUN) as mock_run:
+            pnpm.install_package("express", "4.19.0")
+
+        workspace = (Path(temp_project_dir) / "pnpm-workspace.yaml").read_text()
+        assert workspace == "minimumReleaseAgeExclude:\n  - express@4.19.0\n"
+        assert exclude_list(mock_run.call_args.kwargs["env"]) == ["express@4.19.0"]
+
+    @pytest.mark.parametrize("version", ["^4.19.0", "latest", None])
+    def test_a_range_or_tag_is_left_to_pnpm(self, pnpm, temp_project_dir, registry_dates, version):
+        registry_dates[("express", "4.19.0")] = ago(2)
+
+        with patch(PNPM_RUN) as mock_run:
+            pnpm.install_package("express", version)
+
+        assert not (Path(temp_project_dir) / "pnpm-workspace.yaml").exists()
+        assert "pnpm_config_minimum_release_age_exclude" not in mock_run.call_args.kwargs["env"]
+
+    def test_a_cooldown_period_of_zero_leaves_the_environment_to_pnpm(self, temp_project_dir, settings):
+        pnpm = PackageManagerJsPnpm(temp_project_dir, settings.model_copy(update={"cooldown_period": 0}))
+        write_package_json(temp_project_dir, {"name": "app", "version": "1.0.0", "dependencies": {}})
+
+        with patch(PNPM_RUN) as mock_run:
+            pnpm.install_package("express", "4.19.0")
+
+        assert mock_run.call_args.kwargs["env"] is None
+
+    def test_a_failure_removes_the_workspace_file_the_exemption_created(self, pnpm, temp_project_dir, registry_dates):
+        registry_dates[("express", "4.19.0")] = ago(2)
+        before = snapshot(temp_project_dir)
+
+        with patch(PNPM_RUN, side_effect=subprocess.CalledProcessError(1, ["pnpm", "add"])):
+            with pytest.raises(PackageManagerExecutionError) as caught:
+                pnpm.install_package("express", "4.19.0")
+
+        assert "--cooldown-period 0" in (caught.value.hint or "")
+        assert snapshot(temp_project_dir) == before

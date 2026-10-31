@@ -145,9 +145,10 @@ A candidate version that is itself affected by a CVE is never recommended.
 ### New transitive dependencies
 
 A package that enters the tree for the first time is resolved by the native package manager at
-apply time, outside the cooldown. The plan projects its version and age, and flags an entry
-younger than the cooldown with `⚠`. Under `--cutoff-date`, projections leave out versions
-published after the cutoff.
+apply time, outside the cooldown, except under pnpm, which holds it to the cooldown (see
+[Cooldown](../explanation/cooldown.md#pnpm-holds-new-dependencies-to-the-cooldown)). The plan
+projects its version and age, and flags an entry younger than the cooldown with `⚠`. Under
+`--cutoff-date`, projections leave out versions published after the cutoff.
 
 ### Peer dependencies (npm)
 

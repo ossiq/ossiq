@@ -201,6 +201,11 @@ WARNING_OVERRIDE_PAST_RELEASE_CUTOFF = (
     "to install it until the cutoff passes or the package is exempted."
 )
 
+WARNING_OVERRIDE_PAST_RELEASE_CUTOFF_EXEMPTED = (
+    "--override {package}=={version}: published after the {setting} cutoff — apply exempts this version from "
+    "the cutoff so it installs anyway."
+)
+
 WARNING_OVERRIDE_AMBIGUOUS_ALIAS = (
     "--override {package}: the project declares it under several manifest keys ({aliases}), which "
     "install as separate copies. Only one can be forced — name the key instead to pick it."
@@ -214,6 +219,11 @@ HELP_PLAN_FORCED_WARNING = (
 HELP_PLAN_NEW_DEP_FRESH_WARNING = (
     "⚠ new dependencies younger than the {days}-day cooldown — the cooldown hold does not apply to packages "
     "entering your tree for the first time; review them before applying."
+)
+
+HELP_PLAN_NEW_DEP_HELD_BY_MANAGER = (
+    "{manager} installs new dependencies under the {days}-day cooldown: it picks an older release where the "
+    "version range allows one."
 )
 
 HELP_PLAN_CONVERGENCE_NOTICE = (

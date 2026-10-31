@@ -11,13 +11,14 @@ import json
 import logging
 import os
 import subprocess
-from collections.abc import Callable, Iterable, Iterator
+from collections.abc import Callable, Collection, Iterable, Iterator, Mapping
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 import requests
+import semver
 
 from ossiq.adapters.api_interfaces import AbstractPackageManagerApi
 from ossiq.adapters.api_npm import PackageRegistryApiNpm
@@ -33,8 +34,13 @@ from ossiq.adapters.package_managers.pnpm.lockfile import (
     load_lockfile,
     registry_parents,
 )
-from ossiq.adapters.package_managers.pnpm.settings import pnpm_settings_layers, release_cutoff_from_pnpm_settings
-from ossiq.adapters.package_managers.pnpm.writer import edit_workspace, load_workspace
+from ossiq.adapters.package_managers.pnpm.settings import (
+    InstallCooldown,
+    install_cooldown,
+    pnpm_settings_layers,
+    release_cutoff_from_pnpm_settings,
+)
+from ossiq.adapters.package_managers.pnpm.writer import edit_exclusions, edit_workspace, load_workspace
 from ossiq.adapters.package_managers.utils import find_lockfile_parser
 from ossiq.domain.exceptions import (
     ApplicationError,
@@ -57,6 +63,11 @@ logger = logging.getLogger(__name__)
 PROJECT_FILES = (MANIFEST_FILE, PNPM_LOCKFILE.name, WORKSPACE_FILE)
 
 PNPM_MISSING_HINT = "Install pnpm 10 or newer and put it on PATH. The project files were left as they were."
+
+COOLDOWN_REFUSED_HINT = (
+    "pnpm ran with the cooldown period as its minimumReleaseAge. If it refused a release for being too new, "
+    "run again with --cooldown-period 0. The project files were left as they were."
+)
 
 
 def fetch_declared_ranges(parents: Iterable[NodeKey], settings: Settings) -> DeclaredRanges:
@@ -90,6 +101,34 @@ def fetch_declared_ranges(parents: Iterable[NodeKey], settings: Settings) -> Dec
         }
         for name, version in parents
     }
+
+
+def fetch_publish_dates(copies: Iterable[NodeKey], settings: Settings) -> dict[NodeKey, datetime]:
+    """Fetch when each (name, version) was published, which pnpm-lock.yaml leaves out.
+
+    The scan fetches the same documents, so they come from the HTTP cache by then. A release the
+    registry cannot date (a private or unpublished package, a failed request) is left out, so it is
+    never treated as young: pnpm then holds it to the age like any other, and refuses it rather than
+    letting it through unchecked.
+
+    Args:
+        copies: The (name, version) of each release to look up.
+        settings: Scan settings, for the registry client.
+
+    Returns:
+        {(name, version): publish time} for every release the registry could date.
+    """
+    wanted = set(copies)
+    if not wanted:
+        return {}
+    registry = PackageRegistryApiNpm(settings)
+    try:
+        registry.packages_info_batch(sorted({name for name, _ in wanted}))
+    except (ApplicationError, requests.RequestException) as exc:
+        # The batch keeps whatever it did fetch, so only the packages it failed on go undated.
+        logger.debug("pnpm: some publish dates are unavailable: %s", exc)
+    times = {key: registry.package_version_published(*key) for key in wanted}
+    return {key: at for key, at in times.items() if at is not None}
 
 
 def declared_package_manager(project_data: dict) -> str | None:
@@ -137,7 +176,7 @@ def restore_on_failure(root: Path) -> Iterator[None]:
         raise
 
 
-def run_pnpm(project_path: str, command: str, *args: str) -> None:
+def run_pnpm(project_path: str, command: str, *args: str, env: Mapping[str, str] | None = None) -> None:
     """Run `pnpm <command>` in *project_path* without lifecycle scripts.
 
     Install scripts stay off for every pnpm run OSS IQ makes, so what gets installed cannot run
@@ -147,16 +186,19 @@ def run_pnpm(project_path: str, command: str, *args: str) -> None:
         project_path: The directory pnpm runs in.
         command: The pnpm command, e.g. "install" or "add".
         *args: Further arguments for the command.
+        env: The environment to run in; None inherits this process's. A non-zero exit then points
+            at the cooldown in its hint, since a minimumReleaseAge refusal is one of the ways it ends.
 
     Raises:
         PackageManagerExecutionError: pnpm is not installed, or exited non-zero.
     """
     try:
-        subprocess.run(["pnpm", command, "--ignore-scripts", *args], cwd=project_path, check=True)
+        subprocess.run(["pnpm", command, "--ignore-scripts", *args], cwd=project_path, check=True, env=env)
     except FileNotFoundError as exc:
         raise PackageManagerExecutionError("pnpm was not found on PATH", hint=PNPM_MISSING_HINT) from exc
     except subprocess.CalledProcessError as exc:
-        raise PackageManagerExecutionError(f"pnpm {command} failed (exit {exc.returncode})") from exc
+        hint = None if env is None else COOLDOWN_REFUSED_HINT
+        raise PackageManagerExecutionError(f"pnpm {command} failed (exit {exc.returncode})", hint=hint) from exc
 
 
 def check_targets_landed(root: Path, plan: UpdatePlan) -> None:
@@ -191,6 +233,10 @@ class PackageManagerJsPnpm(AbstractPackageManagerApi):
     settings: Settings
     package_manager_type: PackageManagerType = PNPM
     project_path: str
+    # `apply` and `add` run pnpm with a minimumReleaseAge, so a package entering the tree is held to the cooldown.
+    enforces_cooldown_on_install = True
+    # An `--override` version goes into minimumReleaseAgeExclude even past the project's own age.
+    exempts_forced_versions = True
 
     # Lockfile version -> the parser method; v9 is what pnpm 9 to 12 write.
     supported_versions: dict[str, str] = {"lockfileVersion == '9.0'": "parse_lockfile_v9"}
@@ -283,6 +329,44 @@ class PackageManagerJsPnpm(AbstractPackageManagerApi):
         layers = pnpm_settings_layers(Path(self.project_path), os.environ)
         return release_cutoff_from_pnpm_settings(layers, now=datetime.now(UTC))
 
+    def cooldown_for_install(
+        self, days: int, picks: Collection[NodeKey], forced: Collection[NodeKey] = ()
+    ) -> InstallCooldown | None:
+        """Work out how the next `pnpm` run holds new packages to the cooldown.
+
+        Reads what the run will read: this process's environment, the project's pnpm settings and
+        the lockfile as it stands now.
+
+        Args:
+            days: The cooldown period; zero or less means none.
+            picks: The (name, version) releases the run installs on purpose.
+            forced: The `--override` versions among them, exempted even from the project's own rule.
+
+        Returns:
+            The environment and the workspace exclusions, or None when the run needs neither.
+        """
+        if days <= 0 and not forced:
+            return None
+        root = Path(self.project_path)
+        lockfile = root / PNPM_LOCKFILE.name
+        if days <= 0:
+            # Without a cooldown only an `--override` the project's rule refuses needs anything.
+            wanted = set(forced)
+        else:
+            locked = (
+                installed_copies(load_lockfile(lockfile.read_text(encoding="utf-8"))) if lockfile.exists() else set()
+            )
+            wanted = locked | set(picks)
+        return install_cooldown(
+            os.environ,
+            pnpm_settings_layers(root, os.environ),
+            days=days,
+            published=fetch_publish_dates(wanted, self.settings),
+            picks=picks,
+            forced=forced,
+            now=datetime.now(UTC),
+        )
+
     def execute_update(self, plan: UpdatePlan, on_pass: Callable[[int, int], None] | None = None) -> None:
         """Write the plan into package.json and pnpm-workspace.yaml, then `pnpm install`.
 
@@ -323,12 +407,18 @@ class PackageManagerJsPnpm(AbstractPackageManagerApi):
                     step, draft = plan.through_pass(number), copy.deepcopy(pkg)
                     apply_direct_specs(draft, step)
                     add_peer_repairs(draft, step)
-                    workspace_text = edit_workspace(original_workspace, draft, step)
+                    # Cumulative, so an earlier pass's targets stay exempt: pnpm re-checks the lockfile every pass.
+                    picks = {(entry.package_name, entry.recommended_version) for entry in step.all_entries}
+                    forced = {(e.package_name, e.recommended_version) for e in step.all_entries if e.is_forced}
+                    cooldown = self.cooldown_for_install(plan.cooldown_period, picks, forced)
+                    workspace_text = edit_workspace(
+                        original_workspace, draft, step, cooldown.exclusions if cooldown else ()
+                    )
                     if workspace_text is not None:
                         workspace_path.write_text(workspace_text, encoding="utf-8")
                     (root / MANIFEST_FILE).write_text(json.dumps(draft, indent=2) + "\n", encoding="utf-8")
                     flags = ["--no-frozen-lockfile", *(["--lockfile-only"] if number < total else [])]
-                    run_pnpm(plan.project_path, "install", *flags)
+                    run_pnpm(plan.project_path, "install", *flags, env=cooldown.environ if cooldown else None)
         except PackageManagerExecutionError as exc:
             if total > 1:
                 raise PackageManagerExecutionError(f"{exc} in pass {number} of {total}", hint=exc.hint) from exc
@@ -340,14 +430,25 @@ class PackageManagerJsPnpm(AbstractPackageManagerApi):
         """Run `pnpm add` for a package. Restores package.json, pnpm-lock.yaml and pnpm-workspace.yaml on failure.
 
         `pnpm add <spec>` edits package.json itself, so there is no OSS IQ-side write to validate
-        first, only the outcome of the run to guard.
+        first, only the outcome of the run to guard. The run holds what the package drags in to the
+        cooldown. The package itself is exempt when `version` is an exact release, since OSS IQ or the
+        user chose that one; a range or tag is left to pnpm's own pick.
 
         Raises:
             PackageManagerExecutionError: pnpm is missing, or exited non-zero.
         """
         spec = f"{package_name}@{version}" if version else package_name
-        with restore_on_failure(Path(self.project_path)):
-            run_pnpm(self.project_path, "add", spec)
+        picks = {(package_name, version)} if version and semver.Version.is_valid(version) else set()
+        cooldown = self.cooldown_for_install(self.settings.cooldown_period, picks)
+        root = Path(self.project_path)
+        with restore_on_failure(root):
+            if cooldown and cooldown.exclusions:
+                workspace_path = root / WORKSPACE_FILE
+                original = workspace_path.read_text(encoding="utf-8") if workspace_path.exists() else None
+                workspace_text = edit_exclusions(original, cooldown.exclusions)
+                if workspace_text is not None:
+                    workspace_path.write_text(workspace_text, encoding="utf-8")
+            run_pnpm(self.project_path, "add", spec, env=cooldown.environ if cooldown else None)
         return 0
 
     def __repr__(self) -> str:

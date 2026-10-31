@@ -117,6 +117,12 @@ class TestBuildUpdatePlan:
         plan = build_update_plan(make_scan_result(), "uv", pin_all=True)
         assert plan.pin_all is True
 
+    def test_the_managers_cooldown_capability_defaults_to_off_and_is_carried_onto_the_plan(self):
+        assert build_update_plan(make_scan_result(), "uv").enforces_cooldown_on_install is False
+        assert build_update_plan(
+            make_scan_result(), "pnpm", enforces_cooldown_on_install=True
+        ).enforces_cooldown_on_install
+
     def test_pinned_entry_included(self):
         result = make_scan_result(production=[make_pinned_record("requests", "2.28.0", "2.31.0")])
         plan = build_update_plan(result, "uv")

@@ -5,6 +5,7 @@ Implementation of Package Registry API client for NPM
 import functools
 import logging
 import re
+from datetime import datetime
 
 import requests
 import semver
@@ -31,6 +32,7 @@ from ossiq.domain.version import (
     create_version_difference_no_diff,
 )
 from ossiq.settings import Settings
+from ossiq.timeutil import parse_iso_datetime
 
 logger = logging.getLogger(__name__)
 
@@ -540,6 +542,17 @@ class PackageRegistryApiNpm(AbstractPackageRegistryApi):
             self.packages_info_batch([package_name])
         versions = self._raw_cache.get(package_name, {}).get("versions", {})
         return dict(versions.get(version, {}).get("dependencies", {}))
+
+    def package_version_published(self, package_name: str, version: str) -> datetime | None:
+        """Return when a specific version was published, from what packages_info_batch already fetched.
+
+        Never fetches, unlike its siblings: a caller dating many releases batches first, and a package
+        that batch could not load must not cost a request of its own per version.
+
+        Returns:
+            The publish time, or None when the registry gave none or the package was not fetched.
+        """
+        return parse_iso_datetime(self._raw_cache.get(package_name, {}).get("time", {}).get(version))
 
     def package_version_optional_requires(self, package_name: str, version: str) -> dict[str, str]:
         """Return {dep_name: version_range} of the `optionalDependencies` of a published version.

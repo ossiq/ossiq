@@ -10,6 +10,8 @@ WORKSPACE_FILE = "pnpm-workspace.yaml"
 # Only the project's own importer is read; workspace members are out of scope.
 ROOT_IMPORTER = "."
 
+EXCLUDE_KEY = "minimumReleaseAgeExclude"
+
 CATALOG_PROTOCOL = "catalog:"
 DEFAULT_CATALOG = "default"
 

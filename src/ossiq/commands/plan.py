@@ -26,6 +26,7 @@ from ossiq.messages import (
     HELP_PLAN_NO_RECOMMENDATIONS_FOR_TIER,
     WARNING_OVERRIDE_AMBIGUOUS_ALIAS,
     WARNING_OVERRIDE_PAST_RELEASE_CUTOFF,
+    WARNING_OVERRIDE_PAST_RELEASE_CUTOFF_EXEMPTED,
     WARNING_OVERRIDE_VERSION_UNKNOWN,
     WARNING_STRATEGY_OVERRIDE_SHADOWED_BY_OVERRIDE,
     WARNING_STRATEGY_OVERRIDE_UNKNOWN_PACKAGE,
@@ -126,7 +127,8 @@ def warn_uninstallable_override_versions(
     """Warn when a forced version is one `apply` cannot install (cache is warm after the scan).
 
     Either the registry has no such version, or the package manager's own release cutoff refuses
-    it: `--override` bypasses OSS IQ's cooldown, but nothing OSS IQ does bypasses uv's.
+    it: `--override` bypasses OSS IQ's cooldown, but nothing OSS IQ does bypasses uv's. A manager
+    that `exempts_forced_versions` (pnpm) lets it through instead, and the warning says so.
 
     The registry is asked for the *canonical* name. `--override uuid-v11==14.0.2` names a manifest
     key, and asking npm for a package called `uuid-v11` raised instead of warning. A name that
@@ -148,8 +150,11 @@ def warn_uninstallable_override_versions(
             and forced is not None
             and not cutoff.admits(record.package_name, parse_iso_datetime(forced.published_date_iso))
         ):
-            message = WARNING_OVERRIDE_PAST_RELEASE_CUTOFF.format(package=name, version=version, setting=cutoff.source)
-            typer.echo(message, err=True)
+            exempted = sources.packages_manager.exempts_forced_versions
+            template = (
+                WARNING_OVERRIDE_PAST_RELEASE_CUTOFF_EXEMPTED if exempted else WARNING_OVERRIDE_PAST_RELEASE_CUTOFF
+            )
+            typer.echo(template.format(package=name, version=version, setting=cutoff.source), err=True)
 
 
 def warn_ambiguous_override_targets(scan_result: ScanResult, overrides: tuple[tuple[str, str], ...]) -> None:
@@ -225,6 +230,7 @@ def prepare_plan(ctx: typer.Context, options: CommandPlanOptions) -> tuple[Proje
         forced_overrides=dict(options.overrides),
         rewrite_versions=options.rewrite_versions,
         peers_of=sources.packages_registry.package_version_peers,
+        enforces_cooldown_on_install=sources.packages_manager.enforces_cooldown_on_install,
     )
 
     if plan.unknown_override_packages:

@@ -10,15 +10,15 @@ from __future__ import annotations
 
 import copy
 import io
-from collections.abc import Mapping, MutableMapping
+from collections.abc import Mapping, MutableMapping, Sequence
 from typing import TYPE_CHECKING, Any
 
 from ruamel.yaml import YAML, YAMLError
-from ruamel.yaml.comments import CommentedMap
+from ruamel.yaml.comments import CommentedMap, CommentedSeq
 
 from ossiq.adapters.package_managers.npm.constants import DEP_SECTIONS
 from ossiq.adapters.package_managers.npm.writer import final_spec, write_transitive_overrides
-from ossiq.adapters.package_managers.pnpm.constants import CATALOG_PROTOCOL, DEFAULT_CATALOG
+from ossiq.adapters.package_managers.pnpm.constants import CATALOG_PROTOCOL, DEFAULT_CATALOG, EXCLUDE_KEY
 from ossiq.adapters.package_managers.pnpm.overrides import parse_pnpm_override_rules
 from ossiq.domain.exceptions import PackageManagerExecutionError
 
@@ -179,13 +179,48 @@ def write_workspace_overrides(pkg: dict[str, Any], workspace: CommentedMap, plan
         append_entry(workspace, "overrides", CommentedMap(holder["overrides"]))
 
 
-def edit_workspace(text: str | None, pkg: dict[str, Any], plan: UpdatePlan) -> str | None:
+def write_release_age_exclusions(workspace: CommentedMap, entries: Sequence[str]) -> None:
+    """Add `name@version` entries to `minimumReleaseAgeExclude`, skipping any the list already covers.
+
+    An existing entry for the bare name already covers every version of it. Entries the user wrote
+    stay where they are, comments included.
+
+    Args:
+        workspace: The mapping from load_workspace, edited in place.
+        entries: The `name@version` strings to add.
+
+    Raises:
+        PackageManagerExecutionError: `minimumReleaseAgeExclude` exists but is not a list.
+    """
+    # Nothing to add leaves even a malformed list alone; that one is pnpm's to report.
+    if not entries:
+        return
+    existing = workspace.get(EXCLUDE_KEY)
+    if existing is not None and not isinstance(existing, list):
+        raise PackageManagerExecutionError(f"`{EXCLUDE_KEY}` in pnpm-workspace.yaml is not a list")
+
+    covered = {str(entry) for entry in existing or []}
+    missing = [
+        entry for entry in dict.fromkeys(entries) if entry not in covered and entry.rpartition("@")[0] not in covered
+    ]
+    if not missing:
+        return
+    if isinstance(existing, list):
+        existing.extend(missing)
+    else:
+        append_entry(workspace, EXCLUDE_KEY, CommentedSeq(missing))
+
+
+def edit_workspace(
+    text: str | None, pkg: dict[str, Any], plan: UpdatePlan, exclusions: Sequence[str] = ()
+) -> str | None:
     """Apply a plan's catalog and override changes to the text of pnpm-workspace.yaml.
 
     Args:
         text: The file's text as it was before OSS IQ touched it; None when there is no file.
         pkg: The decoded package.json; its ownership record is updated in place.
         plan: The plan to write.
+        exclusions: `name@version` entries to add to `minimumReleaseAgeExclude`.
 
     Returns:
         The new text, or None when the plan changes nothing there, so an untouched file is never
@@ -197,4 +232,24 @@ def edit_workspace(text: str | None, pkg: dict[str, Any], plan: UpdatePlan) -> s
     workspace, pristine = load_workspace(text), load_workspace(text)
     write_catalog_specs(pkg, workspace, plan)
     write_workspace_overrides(pkg, workspace, plan)
+    write_release_age_exclusions(workspace, exclusions)
+    return dump_workspace(workspace) if workspace != pristine else None
+
+
+def edit_exclusions(text: str | None, entries: Sequence[str]) -> str | None:
+    """Add `minimumReleaseAgeExclude` entries to the text of pnpm-workspace.yaml.
+
+    Args:
+        text: The file's text; None when there is no file.
+        entries: The `name@version` strings to add.
+
+    Returns:
+        The new text, or None when every entry is already covered, so an untouched file is never
+        rewritten and a missing one never created.
+
+    Raises:
+        PackageManagerExecutionError: The file cannot be edited (see load_workspace).
+    """
+    workspace, pristine = load_workspace(text), load_workspace(text)
+    write_release_age_exclusions(workspace, entries)
     return dump_workspace(workspace) if workspace != pristine else None

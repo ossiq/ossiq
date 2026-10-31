@@ -182,9 +182,10 @@ class TestWarnUninstallableOverrideVersions:
 
     CUTOFF = ReleaseCutoff("uv exclude-newer", default=datetime(2026, 9, 18, tzinfo=UTC))
 
-    def sources(self, release_cutoff: ReleaseCutoff | None) -> MagicMock:
+    def sources(self, release_cutoff: ReleaseCutoff | None, exempts_forced_versions: bool = False) -> MagicMock:
         sources = MagicMock()
         sources.release_cutoff = release_cutoff
+        sources.packages_manager.exempts_forced_versions = exempts_forced_versions
         sources.packages_registry.package_versions.return_value = [
             PackageVersion(
                 version=version,
@@ -222,7 +223,18 @@ class TestWarnUninstallableOverrideVersions:
 
     def test_override_past_the_release_cutoff_is_named(self, capsys) -> None:
         warn_uninstallable_override_versions(self.sources(self.CUTOFF), self.scan_result(), (("idna", "3.10"),))
-        assert "published after the uv exclude-newer cutoff" in capsys.readouterr().err
+        err = capsys.readouterr().err
+        assert "published after the uv exclude-newer cutoff" in err
+        assert "will refuse to install it" in err
+
+    def test_a_manager_that_exempts_forced_versions_says_it_installs_anyway(self, capsys) -> None:
+        sources = self.sources(self.CUTOFF, exempts_forced_versions=True)
+
+        warn_uninstallable_override_versions(sources, self.scan_result(), (("idna", "3.10"),))
+
+        err = capsys.readouterr().err
+        assert "apply exempts this version from the cutoff" in err
+        assert "will refuse" not in err
 
     def test_override_inside_the_release_cutoff_is_quiet(self, capsys) -> None:
         warn_uninstallable_override_versions(self.sources(self.CUTOFF), self.scan_result(), (("idna", "3.7"),))

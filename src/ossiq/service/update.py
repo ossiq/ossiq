@@ -127,6 +127,9 @@ class UpdatePlan:
     # Recommendations withheld because the target version is younger than the cooldown period.
     held_for_cooldown: list[UpdateEntry] = field(default_factory=list)
     cooldown_period: int = 0
+    # True when the package manager itself holds packages entering the tree to cooldown_period at
+    # install time, so the plan need not warn that such packages are outside it.
+    enforces_cooldown_on_install: bool = False
     # --override targets that are not present anywhere in the scanned dependency tree.
     unknown_override_packages: tuple[str, ...] = ()
     # Recommendations withheld because the run's strategy tier does not reach that rung yet
@@ -431,6 +434,7 @@ def build_update_plan(
     forced_overrides: dict[str, str] | None = None,
     rewrite_versions: bool = False,
     peers_of: Callable[[str, str], Mapping[str, PeerDependency]] | None = None,
+    enforces_cooldown_on_install: bool = False,
 ) -> UpdatePlan:
     """Filter scan results to packages with solver recommendations that differ from installed.
 
@@ -450,6 +454,8 @@ def build_update_plan(
     peers_of (npm only) looks up the peers a published release declares; with it the entries are
     spread over the install passes that keep every peer range satisfiable mid-install (see
     assign_install_passes), and without it the plan is one pass.
+    enforces_cooldown_on_install is the package manager's capability flag, carried onto the plan for
+    the renderers.
     """
     plan = strategy or StrategyPlan(default=DEFAULT_STRATEGY)
     all_records = scan_result.production_packages + scan_result.optional_packages + scan_result.transitive_packages
@@ -633,6 +639,7 @@ def build_update_plan(
         installed_versions=installed_versions,
         held_for_cooldown=held,
         cooldown_period=cooldown_period,
+        enforces_cooldown_on_install=enforces_cooldown_on_install,
         unknown_override_packages=tuple(unknown_overrides),
         held_for_widening=widening,
         strategy=plan.default,

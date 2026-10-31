@@ -55,4 +55,37 @@ To decide by hand, you have two options:
 
 The native package manager resolves a package that enters the tree for the first time, so OSS IQ
 can't hold it. The plan shows the age of each new package and flags the ones younger than the
-cooldown with `⚠`.
+cooldown with `⚠`. pnpm is the exception, as the next section explains.
+
+## pnpm holds new dependencies to the cooldown
+
+`apply` and `add` run pnpm with the cooldown period as its `minimumReleaseAge`. For each new
+package, pnpm then picks a release at least that old, where the version range allows one. The plan
+says so in a note after the new-dependencies table, in place of the warning that the package sits
+outside the cooldown. `--cooldown-period 0` turns this off.
+
+How pnpm treats a package with no old-enough release depends on your own settings:
+
+- **No `minimumReleaseAge` of your own, or `minimumReleaseAgeStrict: false`.** pnpm 11 and later
+  fall back to the younger release. pnpm 10 has no `minimumReleaseAgeStrict` and refuses.
+- **A strict `minimumReleaseAge` of your own.** It stays strict. OSS IQ raises the age to the
+  cooldown if yours is shorter, and pnpm refuses a package with no old-enough release.
+- **A longer `minimumReleaseAge` of your own.** Yours applies.
+
+When pnpm refuses, `apply` or `add` stops and restores `package.json`, `pnpm-lock.yaml` and
+`pnpm-workspace.yaml`. The error points at `--cooldown-period 0`.
+
+The releases the plan installs are exempt from the cooldown age, and so are the releases already
+in your lockfile. OSS IQ adds a `name@version` entry to `minimumReleaseAgeExclude` in
+`pnpm-workspace.yaml` for each one that a later plain `pnpm install` refuses without it, keeping
+your comments:
+
+- a release the plan installs that is younger than the cooldown;
+- a locked release younger than your `minimumReleaseAge`, or younger than a day if you set none.
+
+Without these entries, a plain `pnpm install` fails on pnpm 11 and later. Those versions check every
+locked release against the age. pnpm 10 reads the exclude list only from this file.
+
+A strict `minimumReleaseAge` of your own still applies to all of these, because OSS IQ only lifts
+the age it added. The one exception is an `--override` version: OSS IQ exempts it even when your
+rule refuses it, including under `--cooldown-period 0`, and `plan` says so when you pass it.

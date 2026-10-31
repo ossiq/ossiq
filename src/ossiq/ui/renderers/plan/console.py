@@ -16,6 +16,7 @@ from ossiq.messages import (
     HELP_PLAN_HELD_FOR_WIDENING_HEADER,
     HELP_PLAN_KNOWN_BREAK_NOTE,
     HELP_PLAN_NEW_DEP_FRESH_WARNING,
+    HELP_PLAN_NEW_DEP_HELD_BY_MANAGER,
     HELP_PLAN_PASS_HEADER,
     HELP_PLAN_PASS_ORDER,
     HELP_PLAN_PASS_UNRESOLVED,
@@ -114,9 +115,14 @@ class ConsolePlanRenderer(AbstractUserInterfaceRenderer):
                 console.print(table_new_deps)
                 console.print()
                 if any(is_fresh_new_dep(i, data.cooldown_period) for i in new_dep_impacts):
-                    console.print(
-                        f"[yellow]{HELP_PLAN_NEW_DEP_FRESH_WARNING.format(days=data.cooldown_period)}[/yellow]"
-                    )
+                    if data.enforces_cooldown_on_install:
+                        notice = HELP_PLAN_NEW_DEP_HELD_BY_MANAGER.format(
+                            manager=data.package_manager_name.lower(), days=data.cooldown_period
+                        )
+                        console.print(f"[dim]{notice}[/dim]")
+                    else:
+                        warning = HELP_PLAN_NEW_DEP_FRESH_WARNING.format(days=data.cooldown_period)
+                        console.print(f"[yellow]{warning}[/yellow]")
                     console.print()
 
             if data.pass_count > 1:
