@@ -15,7 +15,7 @@ it, in this order: the update strategy tier, the version ladder, and the solver.
 | `latest_in_range`, `latest_in_major` or `recommended_from_rung` | [Version ladder](#version-ladder) |
 | A recommendation older than the latest version, or none | [Cooldown](#cooldown) |
 | `↳ cooldown bypassed` | [CVE and end-of-life bypass](#cve-and-end-of-life-bypass) |
-| A release rejected for a peer, on npm | [Peer dependencies](#peer-dependencies-npm) |
+| A release rejected for a peer, on npm or pnpm | [Peer dependencies](#peer-dependencies-npm-and-pnpm) |
 | `--override pkg==version` | [Forced versions](#forced-versions) |
 
 For the reasoning behind these rules, see
@@ -150,7 +150,7 @@ apply time, outside the cooldown, except under pnpm, which holds it to the coold
 projects its version and age, and flags an entry younger than the cooldown with `⚠`. Under
 `--cutoff-date`, projections leave out versions published after the cutoff.
 
-### Peer dependencies (npm)
+### Peer dependencies (npm and pnpm)
 
 Every release declares its own `peerDependencies`, and which of them are optional. The solver
 reads them from the registry metadata the scan already fetched, so they cost no extra requests.
@@ -160,7 +160,7 @@ A release is refused when:
   package moves in the same plan. `vue` pins `@vue/server-renderer` to its own version, and
   `@vue/server-renderer` peer-pins `vue` back, so the two move together or not at all.
 - **Its own peers cannot be met by what the tree will hold.** A peer that is already installed
-  must be in range. A *required* peer that is not installed is installed by npm, so it must
+  must be in range. A *required* peer that is not installed is installed by the package manager, so it must
   exist, and so must whatever *it* peer-requires (four levels deep). An *optional* peer that is
   not installed binds nothing; one that is installed is enforced, as npm enforces it.
 - **Two picks contradict each other.** Two direct picks end on versions that peer-require each
@@ -185,7 +185,7 @@ Where the pinned copy has to move, the plan moves it in place with an `overrides
 the copy, and nests no second one. When another user of the shared copy cannot take the new
 version, the plan refuses the bump and names the specifiers.
 
-### Peer repairs (npm)
+### Peer repairs (npm and pnpm)
 
 The plan repairs an already-split tree the same way. See
 [Unresolved peers](#unresolved-peers).
@@ -198,6 +198,7 @@ persists depends on the package manager:
 | Package manager | Direct dependency | Transitive dependency |
 |---|---|---|
 | npm | Specifier rewritten to the exact version | Persistent `overrides` entry in `package.json` |
+| pnpm | Specifier rewritten to the exact version, in `package.json` or in its `pnpm-workspace.yaml` catalog | Persistent `overrides` entry in `pnpm-workspace.yaml` |
 | uv | Specifier rewritten to `==version` | Persistent `override-dependencies` entry under `[tool.uv]` |
 | pip | Constraints-file pin for the run | Constraints-file pin for the run (not persistent) |
 

@@ -251,9 +251,8 @@ def cve_affects_version(cve: CVE, version: str) -> bool:
 
 # Engine keys whose versions and requirements are both npm semver. Limited to what OSS IQ can
 # actually check: `node` plus the project's own package-manager CLI (`npm` or `pnpm`), all probed by
-# `service.project.runtime_context.detect_engine_context`. yarn is deliberately absent — OSS IQ has
-# no adapter for it, so nothing probes it and a declared floor for it would be checked on some runs
-# and not others.
+# `service.project.runtime_context.detect_engine_context`. Any other engine is left out: nothing
+# probes it, so a declared floor for it would be checked on some runs and not others.
 NPM_SEMVER_ENGINES: frozenset[str] = frozenset({"node", "nodejs", "npm", "pnpm"})
 
 
@@ -269,9 +268,8 @@ def engine_version_satisfies_requirement(
       - ``"node"`` / ``"nodejs"``         -> npm semver range
       - ``"npm"`` / ``"pnpm"``            -> npm semver range
 
-    Unknown engine keys (``yarn``, ``bun``) pass through as True — an engine nobody can check must
-    not read as a conflict. The package managers were previously in that bucket, so an
-    `engines.npm` requirement was silently unenforced however far the installed CLI was from it.
+    Unknown engine keys (``bun``, for example) pass through as True: an engine nobody can check
+    must not read as a conflict.
     """
     try:
         if engine_key == "python":

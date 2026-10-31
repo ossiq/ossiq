@@ -77,7 +77,7 @@ Aggregated output of a single scan run. Returned by `scan()`.
 | `engine_context` | `EngineContext` | Runtime versions the engine checks ran against, and where they came from |
 | `runtime_mismatch` | `RuntimeMismatch \| None` | The project's own runtime pin (`.nvmrc`, `.python-version`) when it disagrees with `engine_context` |
 | `declares_esm` | `bool` | The project's manifest declares `"type": "module"` (npm only) |
-| `npm_cli_version` | `str \| None` | Detected npm CLI version, for display |
+| `npm_cli_version` | `str \| None` | Detected npm CLI version, for display. `None` on pnpm and PyPI projects |
 | `source_warnings` | `list[str]` | Non-fatal problems found while reading the project, such as a tree with more than one registry |
 
 ## `ScanRecord`
@@ -163,7 +163,7 @@ also construct `Settings(...)` directly, which reads only the environment.
 | `cooldown_period` | `7` | Days a new version must age before the solver recommends it |
 | `stability` | `True` | Measure upstream repository stability |
 | `stability_responsiveness` | `None` | The GraphQL engagement-flow channel. `None` means on when a GitHub token is available |
-| `probe_runtime` | `True` | Detect the installed Python, Node.js and npm versions |
+| `probe_runtime` | `True` | Detect the installed Python, Node.js and npm or pnpm versions |
 | `engine_versions` | `{}` | Runtime versions to check against in place of the probe, for example `{"node": "20.11.0"}` |
 | `runtime_unknown` | `False` | Treat the runtime as unknown: no probe, no provided version, the project's declared floor only |
 

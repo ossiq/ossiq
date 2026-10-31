@@ -235,7 +235,7 @@ def normalize_version(version: str) -> str:
     Normalize version string by stripping version modifiers.
 
     Removes common version modifiers from package.json and pyproject.toml:
-    - npm/yarn: ^, ~, >, <, >=, <=, =, *, x, latest, etc.
+    - npm and pnpm: ^, ~, >, <, >=, <=, =, *, x, latest, etc.
     - Python: ==, >=, <=, >, <, ~=, !=, ===, etc.
 
     Examples:

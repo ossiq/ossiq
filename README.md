@@ -21,7 +21,7 @@ all ten runs of one upgrade produced the same dependency tree. The benchmark use
 projects with six dependencies each. It measures cost and time, not correctness: the unassisted
 agent also got every update right. [ossiq.dev](https://ossiq.dev/) gives the method.
 
-Free and open source (AGPL v3), for npm, uv and pip projects.
+Free and open source (AGPL v3), for npm, pnpm, uv and pip projects.
 
 [![OSS IQ status](https://ossiq.dev/_static/casts/ossiq-status-14-10-26.gif)](https://asciinema.org/a/1268390)
 
@@ -72,7 +72,7 @@ In CI and containers, set `OSSIQ_GITHUB_TOKEN` instead. See
 |---|---|---|
 | What state is my project in? | `ossiq status` | Version drift, CVEs and maintenance health for every direct and transitive dependency |
 | Is this package worth depending on? | `ossiq info requests` | One package inside your project: drift, CVEs, tree path, peer requirements |
-| Is it safe to add right now? | `ossiq add requests` | A quality gate in front of `npm install` and `uv add`. It installs the recommended version after you confirm, and critical warnings block the add |
+| Is it safe to add right now? | `ossiq add requests` | A quality gate in front of `npm install`, `pnpm add` and `uv add`. It installs the recommended version after you confirm, and critical warnings block the add |
 | What can I upgrade without breaking the tree? | `ossiq plan`, then `ossiq apply` | `plan` previews what the solver would update and writes nothing. `apply` writes it after you confirm, and rolls back if the install fails |
 | Can my coding agent do all of this? | `ossiq install skills` | The same checks for Claude Code, OpenAI Codex and GitHub Copilot: see [Use with coding agents](#use-with-coding-agents) |
 
@@ -111,7 +111,7 @@ If the agent needs a GitHub login, it shows you the code and retries after you a
 
 | Ecosystem | Supported | Not yet |
 |---|---|---|
-| JavaScript | [npm](https://docs.npmjs.com/cli/v11/commands/npm) (`package.json` + `package-lock.json`) | [Yarn](https://yarnpkg.com/), [pnpm](https://pnpm.io/) |
+| JavaScript | [npm](https://docs.npmjs.com/cli/v11/commands/npm) (`package.json` + `package-lock.json`), [pnpm](https://pnpm.io/) (`package.json` + `pnpm-lock.yaml`) | — |
 | Python | [uv](https://docs.astral.sh/uv/) (`pyproject.toml` + `uv.lock`), [pip lock](https://pip.pypa.io/en/stable/cli/pip_lock/) (`pylock.toml`), [pip](https://pip.pypa.io/en/stable/reference/requirements-file-format/) (`requirements.txt`) | [Poetry](https://python-poetry.org/): export to `pylock.toml` instead |
 
 Data comes from [OSV](https://osv.dev/), the [npm registry](https://www.npmjs.com/),

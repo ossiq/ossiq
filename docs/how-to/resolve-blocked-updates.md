@@ -58,10 +58,11 @@ explains why.
 
 ## Fix a peer violation
 
-This section applies to npm projects. `✗ violation` means the installed version of a package is
-outside the range another package declares for it as a peer. The usual causes are an `overrides`
-entry that forces a version out of range, an install with `--legacy-peer-deps` or `--force`, or
-one package updated past what its peers allow.
+This section applies to npm and pnpm projects. `✗ violation` means the installed version of a
+package is outside the range another package declares for it as a peer. The usual causes are an
+`overrides` entry that forces a version out of range, an npm install with `--legacy-peer-deps` or
+`--force`, a pnpm install that only warned about the peer, or one package updated past what its
+peers allow.
 
 Try these in order:
 
@@ -77,7 +78,7 @@ Try these in order:
    move away from.
 3. **Remove or adjust the override**, when an override is the cause. `ossiq info <package>`
    names the override under *Constraint Type*. See
-   [npm: `overrides`](../reference/constraints.md#npm-overrides).
+   [npm and pnpm: `overrides`](../reference/constraints.md#npm-and-pnpm-overrides).
 4. **Accept it.** If you have verified that the pair works together, leave it. The row keeps
    appearing on every scan as a reminder.
 
@@ -86,10 +87,10 @@ it.
 
 ## Repair an unresolved peer
 
-This section applies to npm projects. A package declares a peer, and the only installed copy
-sits nested under another package, where the declaring package cannot load it. It usually
-follows a bump of a package that pins its dependencies exactly: npm nests the new versions and
-prunes the hoisted copy.
+This section applies to npm and pnpm projects. A package declares a peer that nothing installed
+where the package looks satisfies, so the package cannot load it. On npm it usually follows a bump
+of a package that pins its dependencies exactly: npm nests the new versions and prunes the
+hoisted copy.
 
 1. Preview the repair:
 
@@ -111,7 +112,8 @@ prunes the hoisted copy.
 To make the same repair by hand, install the peer as a direct dependency, for example:
 
 ```bash
-npm install --save-dev @vue/server-renderer@~3.5.43
+npm install --save-dev @vue/server-renderer@~3.5.43     # npm
+pnpm add --save-dev @vue/server-renderer@~3.5.43        # pnpm
 ```
 
 Then add an `overrides` entry for each stale copy that blocks the hoist.

@@ -86,9 +86,11 @@ ossiq status path/to/your/project
 Supported manifests are the ones your package manager already writes: for **npm**,
 [package.json](https://docs.npmjs.com/cli/v7/configuring-npm/package-json) with
 [package-lock.json](https://docs.npmjs.com/cli/v8/configuring-npm/package-lock-json); for
+**pnpm**, `package.json` with `pnpm-lock.yaml`; for
 **Python**, [pylock.toml](https://packaging.python.org/en/latest/specifications/pylock-toml/#pylock-toml-spec),
 [uv.lock](https://docs.astral.sh/uv/concepts/projects/layout/#the-lockfile), or classic
 [requirements.txt](https://pip.pypa.io/en/stable/reference/requirements-file-format/).
+[npm and pnpm projects](reference/npm-and-pnpm.md) says how OSS IQ tells the two apart.
 
 The report gives you a project-level risk score, then breaks it down per package into security
 signals (vulnerabilities) and maintenance signals (activity, overhead, health):
@@ -182,7 +184,7 @@ recommendation rationale, peer requirements, and transitive CVEs - is in
 
 ### Gated package add
 
-`ossiq add` is a quality-gated alternative to running `uv add` or `npm install` directly.
+`ossiq add` is a quality-gated alternative to running `uv add`, `npm install` or `pnpm add` directly.
 Package managers install the newest version that satisfies your constraints; `ossiq add`
 installs the **recommended** one. It runs the same analysis as `info`, shows drift status, CVEs,
 transitive vulnerabilities, and maintainer signals before touching a file, and blocks packages
@@ -194,9 +196,10 @@ The same holds for a package PyPI marks `deprecated`, `archived` or `quarantined
 deprecated release you request with `--version`. When you add a package that is otherwise live,
 `ossiq add` never recommends one of its deprecated releases.
 
-On npm projects the install runs with `--ignore-scripts`, the same as `ossiq apply`, so the new
-package cannot run code during the install. A package that needs a postinstall step (a native
-build or a downloaded binary, as with esbuild, sharp or prisma) needs `npm rebuild <name>` afterwards.
+On npm and pnpm projects the install runs with `--ignore-scripts`, the same as `ossiq apply`, so
+the new package cannot run code during the install. A package that needs a postinstall step (a
+native build or a downloaded binary, as with esbuild, sharp or prisma) needs `npm rebuild <name>`
+or `pnpm rebuild <name>` afterwards.
 
 ```bash
 # Check health signals and install the recommended version

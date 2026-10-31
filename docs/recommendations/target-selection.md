@@ -25,7 +25,7 @@ version parsing. This page lists every verdict it returns at each tier.
 | Motives | The reasons the package may move: `exploitable_cve`, `end_of_life` and `drift`. [Motives](motives.md) defines each one |
 | Candidates | The releases newer than the installed version, oldest first. Each one carries its rung, its age, and whether an exploitable CVE still affects it |
 | Cooldown | `--cooldown-period`, 7 days by default. Releases younger than the cooldown leave the candidates, unless the tier admits a CVE or end-of-life motive for the package |
-| Release cutoff | uv's `exclude-newer` setting, when the project has one. Releases published after the cutoff leave the candidates whatever the motive, because uv refuses to install them |
+| Release cutoff | uv's `exclude-newer` or pnpm's `minimumReleaseAge`, when the project sets one. Releases published after the cutoff leave the candidates whatever the motive, because the package manager refuses to install them |
 
 Two words recur in the tables. A release is *CVE-clear* when none of the exploitable CVEs found
 for the installed version affects it. A release is *aged* when it is at least as old as the
@@ -259,7 +259,7 @@ The selector answers one question for one package. Four decisions sit outside it
   ESM-only releases for a CommonJS project
   ([The module-system line](update-pyramid.md#the-module-system-line)), and releases that break a
   transitive dependency. `rejected_candidates` names the newest release they removed at each rung.
-- **npm peers.** After every package has a pick, OSS IQ sends back any pick whose peer ranges
+- **Peers (npm and pnpm).** After every package has a pick, OSS IQ sends back any pick whose peer ranges
   clash with another package's final version. The selector then runs again without that release.
   See *Held by peer dependencies* in the [catalogue](catalogue.md#the-non-recommendations).
 - **Transitive dependencies.** The solver picks their versions. The selector runs for direct

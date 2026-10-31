@@ -212,9 +212,9 @@ The standard Python project manifest. Key tables for dependency management:
 
 ### package.json
 **Spec**: https://docs.npmjs.com/cli/v11/configuring-npm/package-json
-**Applies to**: `Manifest`, `PackageManagerType` (NPM, YARN, PNPM)
+**Applies to**: `Manifest`, `PackageManagerType` (NPM, PNPM)
 
-The npm ecosystem manifest. Shared by npm, Yarn, and pnpm. Relevant fields: `name`, `version`, `dependencies`, `devDependencies`, `peerDependencies`, `optionalDependencies`, `bundleDependencies`, `engines`.
+The npm ecosystem manifest. Shared by npm and pnpm. Relevant fields: `name`, `version`, `dependencies`, `devDependencies`, `peerDependencies`, `optionalDependencies`, `bundleDependencies`, `engines`.
 
 ### requirements.txt
 **Spec**: https://pip.pypa.io/en/stable/reference/requirements-file-format/
@@ -261,7 +261,7 @@ Poetry's TOML lockfile. Contains `[[package]]` entries with `name`, `version`, `
 **Spec**: https://docs.npmjs.com/cli/v11/configuring-npm/package-lock-json
 **Applies to**: `Lockfile` (NPM)
 
-npm's lockfile. Supports `lockfileVersion` 1, 2, and 3. Version 3 (npm 7+) uses a flat `packages` map keyed by `node_modules/` path:
+npm's lockfile. OSS IQ reads `lockfileVersion` 2 and 3. Version 3 (npm 7+) uses a flat `packages` map keyed by `node_modules/` path:
 
 | Field | Meaning |
 |-------|---------|
@@ -272,12 +272,6 @@ npm's lockfile. Supports `lockfileVersion` 1, 2, and 3. Version 3 (npm 7+) uses 
 | `optional` | `true` if optional |
 | `peer` | `true` if peer dependency |
 | `dependencies` | Nested overrides (v1 compat) |
-
-### yarn.lock
-**Spec**: https://yarnpkg.com/features/lock-protocol
-**Applies to**: `Lockfile` (YARN)
-
-Yarn's custom YAML-like lockfile. Yarn v1 uses its own format; Yarn v2+ (Berry) uses a stricter YAML format with `__metadata` and `cacheKey`.
 
 ### pnpm-lock.yaml
 **Spec**: https://pnpm.io/lockfile

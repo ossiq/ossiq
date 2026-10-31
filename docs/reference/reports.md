@@ -41,7 +41,7 @@ The report has up to six parts, printed in this order. Parts with nothing to sho
 2. **Dependency table**: one row per direct dependency, grouped into *Production* and *Development* sections.
 3. **Transitive Recommendations**: transitive packages the solver recommends updating.
 4. **New transitive dependencies**: packages that would enter the tree if the recommended updates were applied.
-5. **Peer Constraint Status**: peer dependency requirements and whether the installed versions satisfy them (npm projects only; violations only unless `--full`). Peers that are installed but out of reach are not here: they appear as [unresolved-peer rows](#unresolved-peers) under the package that declares them.
+5. **Peer Constraint Status**: peer dependency requirements and whether the installed versions satisfy them (npm and pnpm projects only; violations only unless `--full`). Peers that are installed but out of reach are not here: they appear as [unresolved-peer rows](#unresolved-peers) under the package that declares them.
 6. **Constraint Widening Opportunities**: for library projects, dependency ranges that could safely be widened.
 
 ### Dependency table
@@ -176,7 +176,7 @@ under *Repairs unresolved peers*, and `apply` writes it:
   it. Its range follows the style of the family it belongs to, tilde by default, so that npm
   places it where its requirers resolve it.
 - The stale hoisted copies of its exact-pinned family move with it, each as a keyed `overrides`
-  entry (see [npm: `overrides`](#npm-overrides)). A copy that another package still pins to the
+  entry (see [npm and pnpm: `overrides`](#npm-overrides)). A copy that another package still pins to the
   old version is left alone.
 - A peer already declared anywhere in your manifest is never rewritten.
 

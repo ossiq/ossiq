@@ -23,7 +23,7 @@ class PackageManagerType:
     """Represents a package manager or dependency tool."""
 
     # shortcut: on npm-registry managers this doubles as the CLI binary and the `engines` key
-    # (engine probing reads it); give those their own field when a manager's differs (Yarn's "Yarn").
+    # (engine probing reads it); give those their own field when a manager's name and binary differ.
     name: str
     package_registry: ProjectPackagesRegistry
     primary_manifest: Manifest
@@ -84,7 +84,7 @@ PEP621 = PackageManagerType(
     lockfile=None,
 )
 
-# --- NPM Package Managers (for future use) ---
+# --- NPM Package Managers ---
 
 NPM_PACKAGE_JSON = Manifest(name="package.json")
 NPM_LOCKFILE = Lockfile(name="package-lock.json")
@@ -93,14 +93,6 @@ NPM = PackageManagerType(
     package_registry=ProjectPackagesRegistry.NPM,
     primary_manifest=NPM_PACKAGE_JSON,
     lockfile=NPM_LOCKFILE,
-)
-
-YARN_LOCKFILE = Lockfile(name="yarn.lock")
-YARN = PackageManagerType(
-    name="Yarn",
-    package_registry=ProjectPackagesRegistry.NPM,
-    primary_manifest=NPM_PACKAGE_JSON,  # Uses package.json
-    lockfile=YARN_LOCKFILE,
 )
 
 PNPM_LOCKFILE = Lockfile(name="pnpm-lock.yaml")
@@ -113,5 +105,5 @@ PNPM = PackageManagerType(
 
 # A list to hold all supported managers for easier lookup
 PYPI_MANAGERS = [UV, POETRY, PDM, PIP, PIP_CLASSIC, PEP621]
-NPM_MANAGERS = [NPM, YARN, PNPM]
+NPM_MANAGERS = [NPM, PNPM]
 ALL_MANAGERS = PYPI_MANAGERS + NPM_MANAGERS

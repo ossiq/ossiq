@@ -1,6 +1,6 @@
 ---
 title: Constraints, overrides and aliases
-description: "The five constraint types OSS IQ reports, how it reads pip constraint files, uv constraint and override settings and npm overrides, and how it tracks npm package aliases."
+description: "The five constraint types OSS IQ reports, how it reads pip constraint files, uv constraint and override settings and npm and pnpm overrides, and how it tracks package aliases."
 ---
 
 (constraint-provenance)=
@@ -18,8 +18,8 @@ version, and the lockfile records it. This page covers the other cases. For why 
 | A `constraint_type` value | [The five constraint types](#the-five-constraint-types) |
 | A `-c constraints.txt` line | [pip: `-c` constraint files](#pip-constraint-files) |
 | `constraint-dependencies` or `override-dependencies` | [uv: constraints and overrides](#uv-constraints-and-overrides) |
-| An `overrides` block in `package.json` | [npm: `overrides`](#npm-overrides) |
-| An `npm:<name>@<range>` specifier | [npm: package aliases](#npm-package-aliases) |
+| An `overrides` block in `package.json` or `pnpm-workspace.yaml` | [npm and pnpm: `overrides`](#npm-overrides) |
+| An `npm:<name>@<range>` specifier | [npm and pnpm: package aliases](#npm-package-aliases) |
 
 ## The five constraint types
 
@@ -28,7 +28,7 @@ When several rules apply to one package, the highest wins: `OVERRIDE` > `ADDITIV
 
 | `ConstraintType` | Meaning | Set by | What it signals |
 |---|---|---|---|
-| `OVERRIDE` | A setting forces a version, whatever the dependency graph declares | npm `overrides`; uv `override-dependencies` | Removing or changing the override is the only fix |
+| `OVERRIDE` | A setting forces a version, whatever the dependency graph declares | npm and pnpm `overrides`; uv `override-dependencies` | Removing or changing the override is the only fix |
 | `ADDITIVE` | A separate file or setting narrows the allowed range without adding the package as a direct dependency | pip `-c constraints.txt`; uv `constraint-dependencies` | Whoever owns that file controls the update |
 | `PINNED` | Exactly one version is allowed: `==x.y.z` (PyPI) or a bare `x.y.z` (npm) | An exact pin in the manifest | Automatic updates are blocked |
 | `NARROWED` | A range with an upper bound: `>=x <y`, `~=x`, `==x.*` or a compound specifier | An upper bound in the manifest | The bound excludes newer versions |
@@ -42,8 +42,8 @@ The same values appear as `constraint_type` in the
 | Field | Meaning |
 |---|---|
 | `source_file` | File that introduced a non-`DECLARED` constraint |
-| `scope_path` | Ancestor chain a scoped npm override applies under; `None` for a flat override |
-| `override_key`, `override_value` | The key and value of the npm override rule that governs the package |
+| `scope_path` | Ancestor chain a scoped npm or pnpm override applies under; `None` for a flat override |
+| `override_key`, `override_value` | The key and value of the npm or pnpm override rule that governs the package |
 
 (pip-constraint-files)=
 ## pip: `-c` constraint files
@@ -80,7 +80,7 @@ The distinction matters: a `constraint-dependencies` entry cooperates with the n
 Both lists are read from `pyproject.toml` at scan time. Matched packages in the resolved dependency tree are tagged accordingly, with `source_file` set to `pyproject.toml`.
 
 (npm-overrides)=
-## npm: `overrides`
+## npm and pnpm: `overrides`
 
 npm's [`overrides`](https://docs.npmjs.com/cli/v9/configuring-npm/package-json#overrides) field in `package.json` forces a specific version (or range) for a matching package anywhere in the dependency tree, regardless of what each package's own `dependencies` declaration says.
 
@@ -98,6 +98,8 @@ npm's [`overrides`](https://docs.npmjs.com/cli/v9/configuring-npm/package-json#o
 
 OSS IQ reads the `overrides` block from `package.json` (npm does not copy it into `package-lock.json`) and tags every installed copy of a matching package with `ConstraintType.OVERRIDE`, adding an `overridden` category to its `categories` list.
 
+pnpm reads `overrides` from `pnpm-workspace.yaml`, or from the `pnpm` field of `package.json` in pnpm 9 and 10, and records them at the top of `pnpm-lock.yaml`. OSS IQ reads them from the lockfile. pnpm writes a scoped rule as one flat key, `"debug@4>ms": "2.1.3"`, and OSS IQ treats it like npm's nested form.
+
 A *scoped* override forces a version only when the package appears as a dependency of a specific parent. For these, the `scope_path` field on `ConstraintSource` records the ancestor chain. In the preceding example, `dot-prop` carries `scope_path: ["lodash"]`: the override applies only when `lodash` pulls in `dot-prop`. A flat override like `semver` has `scope_path: null`.
 
 The `scope_path` matters for remediation: a scoped override targeting `dot-prop` inside `lodash` does not affect `dot-prop` when pulled in by other packages. Removing it may leave `dot-prop` under `lodash` unprotected, or free it to resolve a patched version — depending on which direction the version was being forced.
@@ -112,7 +114,7 @@ npm nests a further copy of a package when a dependent's range cannot share the 
 
 ### An override OSS IQ wrote is not flagged
 
-OSS IQ records the rules it writes under `ossiq:metadata` (npm) or `[tool.ossiq.metadata]` (uv). While a rule still holds the recorded value, it is OSS IQ's to move: on npm, `ossiq apply` retires it and writes a fresh rule for the new version. So `status` shows no `⚑ override` marker for it, the Peer Constraint Status table reads `✓ satisfied` instead of `✓ via override`, and the HTML report draws the package as a plain dependency. `ossiq info` still names the rule, as `OVERRIDE (written by OSS IQ, from package.json)`. A rule you wrote, or edited since OSS IQ did, is yours and stays flagged. The JSON export keeps `constraint_type` at `OVERRIDE` and adds `constraint_ossiq_authored`.
+OSS IQ records the rules it writes under `ossiq:metadata` in `package.json` (npm and pnpm) or `[tool.ossiq.metadata]` (uv). While a rule still holds the recorded value, it is OSS IQ's to move: on npm and pnpm, `ossiq apply` retires it and writes a fresh rule for the new version. So `status` shows no `⚑ override` marker for it, the Peer Constraint Status table reads `✓ satisfied` instead of `✓ via override`, and the HTML report draws the package as a plain dependency. `ossiq info` still names the rule, as `OVERRIDE (written by OSS IQ, from package.json)`. A rule you wrote, or edited since OSS IQ did, is yours and stays flagged. The JSON export keeps `constraint_type` at `OVERRIDE` and adds `constraint_ossiq_authored`.
 
 ### Peers are held to what the package declares, overrides or not
 
@@ -124,12 +126,12 @@ When OSS IQ moves a whole lockstep family it writes the key as the range from th
 
 ### Matching is by exact tree name
 
-An override entry is matched against packages by the literal name npm registered them under in the lockfile — not the package's canonical registry name. This matters for [package aliases](#npm-package-aliases): an override keyed `"chalk": "4.1.2"` tags a plain `chalk` dependency, but does nothing to `"chalk-legacy": "npm:chalk@4.1.2"`, because that alias is registered as `chalk-legacy`, not `chalk`. To override an aliased package, key the `overrides` entry with the alias name.
+An override entry is matched against packages by the literal name the lockfile registers them under — not the package's canonical registry name. This matters for [package aliases](#npm-package-aliases): an override keyed `"chalk": "4.1.2"` tags a plain `chalk` dependency, but does nothing to `"chalk-legacy": "npm:chalk@4.1.2"`, because that alias is registered as `chalk-legacy`, not `chalk`. To override an aliased package, key the `overrides` entry with the alias name.
 
 (npm-package-aliases)=
-## npm: package aliases
+## npm and pnpm: package aliases
 
-npm lets a `package.json` entry install one real package under a different name, using `"npm:<real-name>@<range>"` as the version specifier:
+npm and pnpm let a `package.json` entry install one real package under a different name, using `"npm:<real-name>@<range>"` as the version specifier:
 
 ```json
 // package.json

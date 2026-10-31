@@ -1,6 +1,6 @@
 ---
 title: Reference
-description: "Look up a command, a setting, a report column, an export field or an update rule. Eight pages, grouped by what you have in front of you."
+description: "Look up a command, a setting, a report column, an export field or an update rule. Nine pages, grouped by what you have in front of you."
 ---
 
 # Reference
@@ -46,7 +46,8 @@ reference/export-and-agent-format
 | Page | Look here for |
 |---|---|
 | [Update rules](reference/update-rules.md) | The five update strategy tiers, the version ladder, and the solver's cooldown, CVE, peer and override rules |
-| [Constraints, overrides and aliases](reference/constraints.md) | The five constraint types, pip and uv constraint settings, npm `overrides` and npm package aliases |
+| [Constraints, overrides and aliases](reference/constraints.md) | The five constraint types, pip and uv constraint settings, npm and pnpm `overrides` and package aliases |
+| [npm and pnpm projects](reference/npm-and-pnpm.md) | How OSS IQ tells npm from pnpm, the files it reads, and what `apply` and `add` write and run |
 
 ```{toctree}
 :hidden:
@@ -54,6 +55,7 @@ reference/export-and-agent-format
 
 reference/update-rules
 reference/constraints
+reference/npm-and-pnpm
 ```
 
 ## What you can build on

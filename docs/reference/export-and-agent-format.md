@@ -62,7 +62,7 @@ versions, see [Stability guarantees](stability.md#export-schema-stability).
 | `ignored_packages` | Declared dependencies the scan left out, each with `name`, `spec` and `reason` |
 | `upgrade_paths` | Constraint-widening opportunities for a project without a lockfile |
 | `manifest_lock_divergent` | Names of packages whose manifest entry and lockfile entry disagree. Regenerate the lockfile before you act on their recommendation |
-| `peer_repairs` | Peers installed out of reach, and how `ossiq apply` puts them back (npm). See [Peer fields](#peer-fields) |
+| `peer_repairs` | Peers installed out of reach, and how `ossiq apply` puts them back (npm and pnpm). See [Peer fields](#peer-fields) |
 | `dependency_tree` | *(`--full`)* The tree under each direct production dependency. Each node points at a `transitive_packages` entry through `ref` |
 | `constraint_type_map` | *(`--full`)* Lookup for the `ct` integer on a tree node: `0` `DECLARED`, `1` `NARROWED`, `2` `PINNED`, `3` `ADDITIVE`, `4` `OVERRIDE` |
 
@@ -161,7 +161,7 @@ contains `<` counts as `NARROWED`.
 [Repository stability](../explanation/repository-stability.md) explains the maintenance fields.
 
 (peer-fields)=
-### Peer fields (npm)
+### Peer fields (npm and pnpm)
 
 | Field | Meaning |
 |---|---|
@@ -242,9 +242,9 @@ The `updates` list has one entry for each direct dependency.
 | `motives` | Why the tier let the package move |
 | `dependency_health` | The triage verdict (`retain`, `patch`, `refactor` or `evict`), with a `question` that says what it answers: long-term health, not what to do now |
 | `cves` | The package's CVEs, each with its `epss` when scored |
-| `unresolved_peers` | npm only. Peers the package cannot load, whatever its `next_action`. Each has `package`, `spec`, `optional` and `installed_elsewhere` |
+| `unresolved_peers` | npm and pnpm only. Peers the package cannot load, whatever its `next_action`. Each has `package`, `spec`, `optional` and `installed_elsewhere` |
 
-The decision also carries `update_strategy`, and on npm `peer_repairs` when a copy that
+The decision also carries `update_strategy`, and on npm and pnpm `peer_repairs` when a copy that
 satisfies the range is installed out of reach. Each repair has the `package` and
 `suggested_constraint` that `apply` adds to the manifest, `is_dev_dependency`, the `requirers`,
 and the `family_moves`. `unresolved_peers` and `peer_repairs` are omitted when empty. Run

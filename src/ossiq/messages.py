@@ -104,7 +104,7 @@ ARGS_HELP_STABILITY_RESPONSIVENESS = (
     "env var."
 )
 ARGS_HELP_PROBE_RUNTIME = (
-    "Detect the actually-installed Python/Node/npm runtime (default: on), preferred over the "
+    "Detect the actually-installed Python/Node/npm/pnpm runtime (default: on), preferred over the "
     "project's declared engine floor when checking recommendation compatibility. Runs a few local "
     "subprocess/file probes (timeout 3s each, never blocks a scan on failure); disable with "
     "--no-probe-runtime for CI/sandboxed environments or to compare only against the declared "

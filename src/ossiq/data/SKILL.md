@@ -3,7 +3,7 @@ name: ossiq-dependency-check
 description: >-
   Check open-source dependency health with OSS IQ before adding a new dependency
   or updating existing ones. Use whenever you are about to add a package to a
-  project (pip/uv/npm install, editing pyproject.toml / package.json) or bump
+  project (pip/uv/npm install, pnpm add, editing pyproject.toml / package.json) or bump
   dependency versions. Returns a per-package `next_action` (what to do next), a
   recommended version, known CVEs, and supply-chain warnings.
 ---

@@ -65,7 +65,7 @@ class TestNormalizeVersion:
     Test suite for normalize_version() function.
 
     Comprehensive tests covering all version modifier formats
-    from both NPM/Yarn and Python ecosystems.
+    from both npm and Python ecosystems.
     """
 
     def test_empty_string(self):
@@ -81,7 +81,7 @@ class TestNormalizeVersion:
         """Plain version without modifiers should remain unchanged."""
         assert normalize_version("1.2.3") == "1.2.3"
 
-    # NPM/Yarn modifiers
+    # npm modifiers
     def test_caret_modifier(self):
         """Caret (^) modifier should be removed."""
         assert normalize_version("^1.2.3") == "1.2.3"

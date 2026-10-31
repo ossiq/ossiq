@@ -66,9 +66,9 @@ class TestDeclaredEngineFloors:
         assert declared_engine_floors({"npm": "^8.6.0"}, "npm") == {"npm": "8.6.0"}
 
     def test_only_the_projects_own_cli_is_carried(self):
-        """npm never enforces engines.pnpm and pnpm never enforces engines.npm, and yarn has no
-        adapter or probe: a floor for any of them would be checked only on the declared path."""
-        engines = {"node": ">=18.0.0", "npm": ">=9.0.0", "pnpm": "^9.1.0", "yarn": "~4.1"}
+        """npm never enforces engines.pnpm and pnpm never enforces engines.npm, and bun has no
+        probe: a floor for any of them would be checked only on the declared path."""
+        engines = {"node": ">=18.0.0", "npm": ">=9.0.0", "pnpm": "^9.1.0", "bun": "~1.1"}
 
         assert declared_engine_floors(engines, "npm") == {"node": "18.0.0", "npm": "9.0.0"}
         assert declared_engine_floors(engines, "pnpm") == {"node": "18.0.0", "pnpm": "9.1.0"}

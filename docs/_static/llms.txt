@@ -9,7 +9,7 @@ OSS IQ is a Software Composition Analysis (SCA) tool for platform engineers and 
 - Scans project manifest files (package.json with package-lock.json; pyproject.toml with uv.lock; pylock.toml; requirements.txt)
 - Cross-references against public package registries (npm, PyPI), CVE databases, and GitHub repository signals
 - Reports a next action per package, plus a repository-stability verdict (`retain`, `patch`, `refactor` or `evict`) built from exploit probability and upstream maintenance
-- Supports JavaScript (npm) and Python (uv, pip lock, pip) ecosystems
+- Supports JavaScript (npm, pnpm) and Python (uv, pip lock, pip) ecosystems
 - Outputs reports as terminal console, HTML, JSON, or a compact agent format
 - Findings never change the exit code; gate CI with your own check over the `ossiq export` JSON
 
@@ -19,7 +19,7 @@ Each command answers one question about a dependency, in your terminal or throug
 
 - `ossiq status`: What state is my project in? One scan covers every direct and transitive dependency: version drift, known CVEs with their exploit probability, and maintenance health. Each package gets a next action, so you know what to fix first.
 - `ossiq info <package>`: Is this package worth depending on? It reports one package inside your project: its version drift, its CVEs and those of its transitive dependencies, and where it sits in your dependency tree. See [Package details](https://ossiq.dev/getting-started.html#package-details).
-- `ossiq add <package>`: Is it safe to add right now? A quality gate in front of `npm install` and `uv add`. It shows CVEs, maintainer information and health warnings. After you confirm, it installs the recommended version, not the newest. npm installs run with `--ignore-scripts`. See [Gated package add](https://ossiq.dev/getting-started.html#gated-package-add).
+- `ossiq add <package>`: Is it safe to add right now? A quality gate in front of `npm install`, `pnpm add` and `uv add`. It shows CVEs, maintainer information and health warnings. After you confirm, it installs the recommended version, not the newest. npm installs run with `--ignore-scripts`. See [Gated package add](https://ossiq.dev/getting-started.html#gated-package-add).
   - Critical warnings block the add unless you pass `--force`. They cover a package its registry has retired or quarantined, a deprecated release you request with `--version`, and a package with a single published version (a common typosquat pattern).
   - A release still inside the cooldown period (7 days by default) gets a warning, not a block.
 - `ossiq plan` and `ossiq apply`: What can I upgrade without breaking the tree? The solver simulates the full transitive cascade before it recommends a version. `plan` previews the change and writes nothing. `apply` shows the plan, writes it after you confirm, and rolls back if the install fails. See [Plan and apply updates](https://ossiq.dev/getting-started.html#plan-and-apply-updates).
@@ -65,7 +65,8 @@ Source: the Round 3 agent benchmark of 28 September 2026, with 60 sessions acros
 - [Console and HTML reports](https://ossiq.dev/reference/reports.html): Every column, marker and sub-row of `ossiq status`, `ossiq info` and the HTML report
 - [JSON export and agent format](https://ossiq.dev/reference/export-and-agent-format.html): Every field of the `ossiq export` file, the `--format agent` decision, and the MCP tools
 - [Update rules](https://ossiq.dev/reference/update-rules.html): The five update strategy tiers, the version ladder, and the solver's cooldown, CVE, peer and override rules
-- [Constraints, overrides and aliases](https://ossiq.dev/reference/constraints.html): The five constraint types, pip and uv constraint settings, npm `overrides` and npm package aliases
+- [Constraints, overrides and aliases](https://ossiq.dev/reference/constraints.html): The five constraint types, pip and uv constraint settings, npm and pnpm `overrides` and package aliases
+- [npm and pnpm projects](https://ossiq.dev/reference/npm-and-pnpm.html): How OSS IQ tells an npm project from a pnpm one, which files it reads, and what `apply` and `add` write and run
 - [Python API](https://ossiq.dev/reference/python-api.html): `scan()`, `ScanResult`, `ScanRecord`, `Settings` and the other types you can import
 - [Stability guarantees](https://ossiq.dev/reference/stability.html): What stays the same across releases: the export schema, the CLI interface and repeatable scans
 - [Tutorials](https://ossiq.dev/tutorials/): Step-by-step guides for common use cases

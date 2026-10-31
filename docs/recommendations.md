@@ -45,6 +45,6 @@ Two invariants hold across all of it:
    *Held for cooldown*.
 4. **Was the evidence actually there?** → `data_completeness`. An empty result and an
    unreachable source look identical in the headline, and only here.
-5. **Can every package load its peers?** (npm) → `unresolved_peers` on the package and
+5. **Can every package load its peers?** (npm and pnpm) → `unresolved_peers` on the package and
    `peer_repairs` on the decision. A package can read `no action needed` and still be unable to
    load a peer; `plan` shows the repair `apply` would make.

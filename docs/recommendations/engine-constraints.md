@@ -48,9 +48,8 @@ because the two share one semver grammar and one matcher.
 
 Only the project's own manager is carried: npm never enforces `engines.pnpm`, and pnpm never
 enforces `engines.npm`. Stating the other one in `runtime` or `--engine` is an "Invalid Runtime"
-error. `yarn` is not evaluated. OSS IQ has no adapter for it, so nothing probes it, and a floor
-checked only on the declared path would be worse than no check. It passes through as satisfied, like
-any other engine key OSS IQ cannot evaluate.
+error. Any other engine key a release declares passes through as satisfied, because OSS IQ cannot
+evaluate it.
 
 ## One definition, three consumers
 

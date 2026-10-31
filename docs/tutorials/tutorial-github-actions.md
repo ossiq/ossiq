@@ -17,7 +17,7 @@ A CI workflow that:
 
 **Prerequisites:**
 
-- A GitHub repository with a JavaScript (npm) or Python (uv/pip) project
+- A GitHub repository with a JavaScript (npm or pnpm) or Python (uv/pip) project
 - Basic familiarity with GitHub Actions
 
 **Time to complete:** 15-20 minutes

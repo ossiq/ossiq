@@ -31,18 +31,21 @@ Per ecosystem, in this order:
 
 1. **Read and parse the manifest first.** An unparseable `package.json`/`pyproject.toml` fails the
    whole update loudly, before anything is rewritten, rather than degrading package by package.
-2. **Rewrite direct specifiers** in the manifest text. `--pin-all` writes exact `==`/exact pins.
-3. **Add repaired peers (npm).** A peer the plan repairs (see *Repairs unresolved peers* in the [catalogue](catalogue.md#the-non-recommendations)) is
+2. **Rewrite direct specifiers** in the manifest text, or in the catalog in `pnpm-workspace.yaml`
+   for a pnpm `catalog:` dependency. `--pin-all` writes exact `==`/exact pins.
+3. **Add repaired peers (npm and pnpm).** A peer the plan repairs (see *Repairs unresolved peers* in the [catalogue](catalogue.md#the-non-recommendations)) is
    declared in `devDependencies`, or `dependencies` when a production package needs it, at the range
    the plan shows. A package your manifest already declares anywhere is left as you wrote it.
-4. **Persist transitive picks as overrides** — npm `overrides`, uv `[tool.uv] override-dependencies`
-   — and record what was written under an `ossiq:metadata` key. On npm each pick is keyed to the copy
+4. **Persist transitive picks as overrides** — npm `overrides` in `package.json`, pnpm `overrides`
+   in `pnpm-workspace.yaml`, uv `[tool.uv] override-dependencies` — and record what was written
+   under an `ossiq:metadata` key. On npm and pnpm each pick is keyed to the copy
    it replaces (`"minimatch@10.2.5": "10.2.6"`), so a nested copy of the same name that npm installed
    for a different range is not dragged along. A copy that has to move together with its family is
    keyed to the range from its old version to its new one (`"@vue/shared@3.5.42 - 3.5.43": "3.5.43"`). On the next run, an override whose value no longer
    matches what OSS IQ last wrote is left alone: you have taken ownership of it, and it is never
    silently overwritten.
-5. **Hand resolution to the native package manager** — `npm install --ignore-scripts`, or
+5. **Hand resolution to the native package manager** — `npm install --ignore-scripts`,
+   `pnpm install --ignore-scripts`, or
    `uv lock --upgrade-package … && uv sync`. OSS IQ does not resolve trees itself, and
    `--ignore-scripts` keeps install-time code out of the update path.
 6. **On failure, restore the original manifest text** and raise.

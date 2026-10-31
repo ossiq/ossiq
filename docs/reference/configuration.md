@@ -70,7 +70,7 @@ command, for example `ossiq --cutoff-date 2025-01-01 --cooldown-period 14 status
 | `OSSIQ_COOLDOWN_PERIOD` | `--cooldown-period` | `7` | Days a new version must age before the solver recommends it. `0` turns the cooldown off |
 | `OSSIQ_STABILITY` | `--stability` / `--no-stability` | on | Measure upstream repository stability |
 | `OSSIQ_STABILITY_RESPONSIVENESS` | `--stability-responsiveness` / `--no-stability-responsiveness` | on with a token | The GraphQL engagement-flow channel |
-| `OSSIQ_PROBE_RUNTIME` | `--probe-runtime` / `--no-probe-runtime` | on | Detect the installed Python, Node.js and npm versions |
+| `OSSIQ_PROBE_RUNTIME` | `--probe-runtime` / `--no-probe-runtime` | on | Detect the installed Python, Node.js and npm or pnpm versions |
 | — | `--engine ENGINE=VERSION` | — | State the runtime the project runs on, for example `--engine node=20.11.0` (repeatable). Replaces the probe for that engine |
 | — | `--config PATH` | `~/.config/ossiq/config` | Read this config file in place of the default one |
 | — | `--no-cache` | off | Skip the HTTP cache for this run |
