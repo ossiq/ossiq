@@ -9,7 +9,7 @@ from rich.console import Console
 
 from ossiq.domain.common import ConstraintType, OverrideHold, PassOrdering, PeerHold, RecommendationRung
 from ossiq.service.project.models import PeerRepair
-from ossiq.service.update import UpdateEntry, UpdatePlan
+from ossiq.service.update.models import UpdateEntry, UpdatePlan
 from ossiq.service.update_impact import ImpactKind, TransitiveImpact
 from ossiq.settings import Settings
 from ossiq.solver.reason import RecommendationReason

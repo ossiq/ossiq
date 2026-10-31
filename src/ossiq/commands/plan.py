@@ -34,12 +34,9 @@ from ossiq.messages import (
 from ossiq.service.completeness import check_security_data_complete
 from ossiq.service.project.models import ScanResult
 from ossiq.service.project.scan import scan
-from ossiq.service.update import (
-    UpdatePlan,
-    build_update_plan,
-    find_override_record,
-    override_alias_siblings,
-)
+from ossiq.service.update.models import UpdatePlan
+from ossiq.service.update.overrides import find_override_record, override_alias_siblings
+from ossiq.service.update.plan import build_update_plan
 from ossiq.settings import Settings
 from ossiq.sources import project_sources
 from ossiq.sources.project_sources import ProjectSources

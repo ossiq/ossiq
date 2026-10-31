@@ -1,4 +1,4 @@
-"""Tests for service/update.py — build_update_plan()."""
+"""Tests for the service/update package: build_update_plan() and its helpers."""
 
 from __future__ import annotations
 
@@ -20,12 +20,9 @@ from ossiq.domain.cve import CVE, Severity
 from ossiq.domain.project import ConstraintSource
 from ossiq.domain.version import VersionsDifference
 from ossiq.service.project.models import PeerRepair, ScanRecord, ScanResult
-from ossiq.service.update import (
-    build_update_plan,
-    find_override_record,
-    override_alias_siblings,
-    override_bump_entry,
-)
+from ossiq.service.update.entries import override_bump_entry
+from ossiq.service.update.overrides import find_override_record, override_alias_siblings
+from ossiq.service.update.plan import build_update_plan
 from ossiq.service.update_impact import ImpactKind, TransitiveImpact
 from ossiq.solver.reason import RecommendationReason
 from ossiq.strategy.overrides import StrategyPlan

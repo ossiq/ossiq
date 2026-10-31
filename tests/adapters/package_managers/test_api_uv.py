@@ -37,7 +37,7 @@ from ossiq.adapters.package_managers.api_uv import (
 from ossiq.domain.common import ConstraintType, ProjectPackagesRegistry
 from ossiq.domain.exceptions import PackageManagerExecutionError, PackageManagerLockfileParsingError
 from ossiq.domain.packages_manager import UV
-from ossiq.service.update import UpdateEntry, UpdatePlan
+from ossiq.service.update.models import UpdateEntry, UpdatePlan
 from ossiq.settings import Settings
 
 # ============================================================================

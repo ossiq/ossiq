@@ -18,7 +18,7 @@ from ossiq.sequence.passes import PeerLink, sequence_moves
 from ossiq.solver.version_matchers import version_satisfies_constraint
 
 if TYPE_CHECKING:
-    from ossiq.service.update import UpdateEntry, UpdatePlan
+    from ossiq.service.update.models import UpdateEntry, UpdatePlan
 
 
 def peer_links(

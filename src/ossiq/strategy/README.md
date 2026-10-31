@@ -154,7 +154,7 @@ data, and `select_target` is a pure function over it. A release's age rides alon
 and the decision stays here.
 
 **Why does the cooldown live in the selector rather than in `plan`/`apply`?** It used to live only
-there, as `service.update.is_held_for_cooldown`. But `apply_update_strategy` runs last and rewrites
+there, as `service.update.holds.is_held_for_cooldown`. But `apply_update_strategy` runs last and rewrites
 `recommended_version`, so `status` would recommend a two-day-old release with "Update Immediately"
 while `apply` refused it — with a settled release sitting between the two, recommended by nobody.
 Filtering fresh candidates out of the ladder here makes one decision serve every surface, which is

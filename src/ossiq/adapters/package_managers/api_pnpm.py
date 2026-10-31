@@ -55,7 +55,7 @@ from ossiq.settings import Settings
 from ossiq.tree.builder import NodeKey
 
 if TYPE_CHECKING:
-    from ossiq.service.update import UpdatePlan
+    from ossiq.service.update.models import UpdatePlan
 
 logger = logging.getLogger(__name__)
 

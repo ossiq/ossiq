@@ -23,7 +23,7 @@ Three different parts of the tool answer them:
 |---|---|---|---|
 | 1 | May this package move at all? | a set of **motives** | [`strategy/motive.py`](https://github.com/ossiq/ossiq/blob/main/src/ossiq/strategy/motive.py) |
 | 2 | How far up the version ladder may it go? | a **reach** | [`strategy/pyramid.py`](https://github.com/ossiq/ossiq/blob/main/src/ossiq/strategy/pyramid.py) |
-| 3 | May `apply` write the result? | the picked **rung** vs. the tier's authorization | [`service/update.py`](https://github.com/ossiq/ossiq/blob/main/src/ossiq/service/update.py) |
+| 3 | May `apply` write the result? | the picked **rung** vs. the tier's authorization | [`service/update/holds.py`](https://github.com/ossiq/ossiq/blob/main/src/ossiq/service/update/holds.py) |
 
 Questions 1 and 2 are pure functions over facts already gathered — no network, no clock. Question 3
 is where something you can *read* becomes something OSS IQ will *write*.

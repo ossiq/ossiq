@@ -61,7 +61,7 @@ def has_writable_upgrade(record: ScanRecord) -> bool:
     if rung is None or rung not in WIDENING_RUNGS:
         return True
     selection = record.strategy_selection
-    # Mirrors service.update.is_held_for_widening, which holds exactly the picks this rejects. A
+    # Mirrors service.update.holds.is_held_for_widening, which holds exactly the picks this rejects. A
     # record with no selection (transitive, ignored) has no tier to consult, so it stays held.
     return selection is not None and (selection.widening_authorized or tier_reaches(selection.strategy, rung))
 

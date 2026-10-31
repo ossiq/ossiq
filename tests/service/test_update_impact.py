@@ -10,7 +10,7 @@ from ossiq.domain.project import ConstraintSource, IncomingEdge, InstalledCopy
 from ossiq.domain.release_cutoff import ReleaseCutoff
 from ossiq.domain.version import PackageVersion, PeerDependency, VersionsDifference
 from ossiq.service.project.models import ScanRecord
-from ossiq.service.update import entry_from_record
+from ossiq.service.update.entries import entry_from_record
 from ossiq.service.update_impact import (
     DirectUpdateImpact,
     ImpactKind,

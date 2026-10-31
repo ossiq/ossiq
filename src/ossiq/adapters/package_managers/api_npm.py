@@ -29,7 +29,7 @@ from ossiq.domain.project import Dependency, Project
 from ossiq.settings import Settings
 
 if TYPE_CHECKING:
-    from ossiq.service.update import UpdatePlan
+    from ossiq.service.update.models import UpdatePlan
 
 
 class NpmProject(NamedTuple):

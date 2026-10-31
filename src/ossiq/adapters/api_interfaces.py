@@ -22,7 +22,7 @@ from ..domain.repository import Repository
 from ..domain.version import PackageVersion, PeerDependency, RepositoryVersion, VersionsDifference
 
 if TYPE_CHECKING:
-    from ossiq.service.update import UpdatePlan
+    from ossiq.service.update.models import UpdatePlan
 
 
 class AbstractSourceCodeProviderApi(abc.ABC):

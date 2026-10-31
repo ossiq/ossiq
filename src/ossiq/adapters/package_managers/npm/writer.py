@@ -20,7 +20,7 @@ from ossiq.adapters.package_managers.npm.overrides import (
 from ossiq.adapters.package_managers.pnpm.constants import CATALOG_PROTOCOL
 
 if TYPE_CHECKING:
-    from ossiq.service.update import UpdateEntry, UpdatePlan
+    from ossiq.service.update.models import UpdateEntry, UpdatePlan
 
 
 def relax_spec(original_spec: str, recommended: str, pin_all: bool) -> str:

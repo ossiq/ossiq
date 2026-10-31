@@ -23,7 +23,7 @@ from ossiq.messages import (
     HELP_PLAN_PASSES_NOTICE,
     HELP_PLAN_PEER_REPAIRS_HEADER,
 )
-from ossiq.service.update import UpdateEntry, UpdatePlan
+from ossiq.service.update.models import UpdateEntry, UpdatePlan
 from ossiq.ui.interfaces import AbstractUserInterfaceRenderer
 from ossiq.ui.renderers.impact_utils import (
     format_cutoff,

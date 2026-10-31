@@ -344,7 +344,7 @@ class TestRetiredByTheRegistry:
 class TestWideningPick:
     """A pick past the declared range reads "Update Immediately" exactly when `plan` writes it.
 
-    service.update.is_held_for_widening lets such a pick through when an escalating motive carried
+    service.update.holds.is_held_for_widening lets such a pick through when an escalating motive carried
     it past the tier or the tier reaches that far on its own; every other one waits for a human to
     widen the range, and that is what "Constrained" says.
     """

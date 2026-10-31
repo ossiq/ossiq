@@ -35,7 +35,7 @@ from ossiq.settings import Settings
 from ossiq.tree.builder import LockfileTreeBuilder
 
 if TYPE_CHECKING:
-    from ossiq.service.update import UpdateEntry, UpdatePlan
+    from ossiq.service.update.models import UpdateEntry, UpdatePlan
 
 
 logger = logging.getLogger(__name__)

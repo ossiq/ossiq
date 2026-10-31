@@ -32,7 +32,8 @@ from ossiq.service.project.strategy import (
     find_peer_conflict,
     peer_hold,
 )
-from ossiq.service.update import entry_from_record, is_held_for_widening
+from ossiq.service.update.entries import entry_from_record
+from ossiq.service.update.holds import is_held_for_widening
 from ossiq.service.update_impact import DirectUpdateImpact, ImpactKind, TransitiveImpact, simulate_single
 from ossiq.strategy.overrides import StrategyPlan
 from ossiq.strategy.pyramid import UpdateStrategy

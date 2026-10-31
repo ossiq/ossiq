@@ -26,7 +26,7 @@ from ossiq.settings import Settings
 from ossiq.solver.pep508 import applicable_requirements
 
 if TYPE_CHECKING:
-    from ossiq.service.update import UpdatePlan
+    from ossiq.service.update.models import UpdatePlan
 
 PipClassicProject = namedtuple("PipClassicProject", ["manifest"])
 

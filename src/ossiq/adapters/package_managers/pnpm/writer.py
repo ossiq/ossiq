@@ -23,7 +23,7 @@ from ossiq.adapters.package_managers.pnpm.overrides import parse_pnpm_override_r
 from ossiq.domain.exceptions import PackageManagerExecutionError
 
 if TYPE_CHECKING:
-    from ossiq.service.update import UpdatePlan
+    from ossiq.service.update.models import UpdatePlan
 
 
 def round_trip_yaml() -> YAML:

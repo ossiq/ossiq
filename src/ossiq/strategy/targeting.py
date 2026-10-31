@@ -47,7 +47,7 @@ class Candidate:
         """True when this release is younger than the cooldown period.
 
         An unknown publish date counts as aged, not fresh: the same rule
-        `service.update.is_held_for_cooldown` applies, so missing data never withholds a bump.
+        `service.update.holds.is_held_for_cooldown` applies, so missing data never withholds a bump.
         """
         return self.age_days is not None and self.age_days < cooldown_period
 
@@ -77,11 +77,11 @@ class StrategySelection:
     on, so a surface can say when to come back instead of claiming an update."""
     cooldown_bypassed: bool = False
     """Set when an escalating motive (exploitable CVE, end-of-life) took a release younger than the
-    cooldown period. Read by `service.update.is_held_for_cooldown` so `apply` does not re-hold what
+    cooldown period. Read by `service.update.holds.is_held_for_cooldown` so `apply` does not re-hold what
     the selector deliberately let through."""
     widening_authorized: bool = False
     """Set when an escalating motive (exploitable CVE, end-of-life) carried the pick past the tier's
-    base `MAX_REACH`. Read by `service.update.is_held_for_widening` so `apply` does not re-hold what
+    base `MAX_REACH`. Read by `service.update.holds.is_held_for_widening` so `apply` does not re-hold what
     the selector deliberately reached for."""
 
 
