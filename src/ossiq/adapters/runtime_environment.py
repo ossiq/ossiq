@@ -19,6 +19,10 @@ PROBE_TIMEOUT = 3
 PYVENV_VERSION_RE = re.compile(r"^version\s*=\s*(\S+)", re.MULTILINE)
 PYTHON_VERSION_OUTPUT_RE = re.compile(r"(\d+\.\d+\.\d+)")
 NODE_VERSION_OUTPUT_RE = re.compile(r"v?(\d+\.\d+\.\d+)")
+# Anchored because `pip --version` goes on to print its install path, which holds the Python
+# version; a pip release can also have two parts ("25.2"). Covers `10.2.4`, `uv 0.9.5 (...)` and
+# `pip 25.2 from /... (python 3.12)`.
+CLI_VERSION_OUTPUT_RE = re.compile(r"^(?:\S+ )?v?(\d+(?:\.\d+)+)")
 
 
 def run_version_probe(command: list[str], pattern: re.Pattern[str]) -> str | None:
@@ -86,5 +90,5 @@ def detect_actual_node_version() -> str | None:
 
 
 def detect_actual_cli_version(cli: str) -> str | None:
-    """Return the version of the package-manager CLI *cli* (`npm`, `pnpm`) on PATH right now, or None."""
-    return run_version_probe([cli, "--version"], NODE_VERSION_OUTPUT_RE)
+    """Return the version of the package-manager CLI *cli* (`uv`, `pip`, `npm`, `pnpm`) on PATH right now, or None."""
+    return run_version_probe([cli, "--version"], CLI_VERSION_OUTPUT_RE)

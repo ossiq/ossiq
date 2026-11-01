@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import { isActionable, useReportFilters, type ReportRow } from '../composables/useReportFilters'
 import { useOssiqStore } from '../stores/ossiq'
-import type { OSSIQExportSchemaV16, PackageMetrics } from '../types/report'
+import type { OSSIQExportSchemaV17, PackageMetrics } from '../types/report'
 
 function row(over: Partial<PackageMetrics>, rowOver: Partial<ReportRow> = {}): ReportRow {
   const pkg = {
@@ -37,7 +37,7 @@ function row(over: Partial<PackageMetrics>, rowOver: Partial<ReportRow> = {}): R
   }
 }
 
-function reportWith(pkg: Partial<PackageMetrics>): OSSIQExportSchemaV16 {
+function reportWith(pkg: Partial<PackageMetrics>): OSSIQExportSchemaV17 {
   return {
     project: { name: 'demo', registry: 'npm' },
     production_packages: [
@@ -57,7 +57,7 @@ function reportWith(pkg: Partial<PackageMetrics>): OSSIQExportSchemaV16 {
     development_packages: [],
     transitive_packages: [],
     dependency_tree: [],
-  } as unknown as OSSIQExportSchemaV16
+  } as unknown as OSSIQExportSchemaV17
 }
 
 describe("the report's What's Next column", () => {

@@ -11,7 +11,7 @@ import pytest
 
 from ossiq.domain.common import EngineContext, EngineContextSource, ProjectPackagesRegistry, ProvidedRuntime
 from ossiq.domain.exceptions import InvalidRuntime, RuntimeNotProvided
-from ossiq.domain.packages_manager import NPM, PNPM, UV, PackageManagerType
+from ossiq.domain.packages_manager import NPM, PIP_CLASSIC, PNPM, UV, PackageManagerType
 from ossiq.domain.project import Dependency, Project
 from ossiq.service.project.runtime_context import (
     detect_engine_context,
@@ -51,24 +51,48 @@ def probes():
 
 
 class TestProbeGating:
-    def test_pypi_project_spawns_no_node_or_npm_probe(self, probes):
-        python_probe, node_probe, npm_probe = probes
+    def test_pypi_project_spawns_no_node_probe_and_asks_only_its_own_cli(self, probes):
+        python_probe, node_probe, cli_probe = probes
 
-        context, npm_cli_version = detect_engine_context(
+        context, package_manager_version = detect_engine_context(
             make_project(ProjectPackagesRegistry.PYPI), ".", probe_runtime=True
         )
 
         python_probe.assert_called_once_with(".")
         node_probe.assert_not_called()
-        npm_probe.assert_not_called()
+        cli_probe.assert_called_once_with("uv")
+        # uv is display-only: no engine requirement refers to it, so it stays out of the context.
         assert context.versions == {"python": "3.12.1"}
         assert context.source == EngineContextSource.DETECTED
-        assert npm_cli_version is None
+        assert package_manager_version == "10.2.4"
+
+    def test_a_pip_project_asks_pip_not_uv(self, probes):
+        _, _, cli_probe = probes
+        cli_probe.return_value = "25.2"
+
+        context, package_manager_version = detect_engine_context(
+            make_project(ProjectPackagesRegistry.PYPI, manager=PIP_CLASSIC), ".", probe_runtime=True
+        )
+
+        cli_probe.assert_called_once_with("pip")
+        assert context.versions == {"python": "3.12.1"}
+        assert package_manager_version == "25.2"
+
+    def test_a_pypi_project_whose_cli_is_missing_has_no_version(self, probes):
+        _, _, cli_probe = probes
+        cli_probe.return_value = None
+
+        context, package_manager_version = detect_engine_context(
+            make_project(ProjectPackagesRegistry.PYPI), ".", probe_runtime=True
+        )
+
+        assert context.versions == {"python": "3.12.1"}
+        assert package_manager_version is None
 
     def test_npm_project_spawns_no_python_probe(self, probes):
         python_probe, node_probe, npm_probe = probes
 
-        context, npm_cli_version = detect_engine_context(
+        context, package_manager_version = detect_engine_context(
             make_project(ProjectPackagesRegistry.NPM), ".", probe_runtime=True
         )
 
@@ -77,12 +101,12 @@ class TestProbeGating:
         npm_probe.assert_called_once_with("npm")
         # The npm CLI version rides along in the context so `engines.npm` is checkable at all.
         assert context.versions == {"node": "20.11.0", "npm": "10.2.4"}
-        assert npm_cli_version == "10.2.4"
+        assert package_manager_version == "10.2.4"
 
     def test_probe_runtime_disabled_spawns_nothing(self, probes):
         python_probe, node_probe, npm_probe = probes
 
-        context, npm_cli_version = detect_engine_context(
+        context, package_manager_version = detect_engine_context(
             make_project(ProjectPackagesRegistry.NPM), ".", probe_runtime=False
         )
 
@@ -91,7 +115,7 @@ class TestProbeGating:
         npm_probe.assert_not_called()
         assert context.versions == {}
         assert context.source == EngineContextSource.NONE
-        assert npm_cli_version is None
+        assert package_manager_version is None
 
 
 class TestContextSource:
@@ -146,13 +170,13 @@ class TestContextSource:
         node_probe.return_value = None
         npm_probe.return_value = None
 
-        context, npm_cli_version = detect_engine_context(
+        context, package_manager_version = detect_engine_context(
             make_project(ProjectPackagesRegistry.NPM), ".", probe_runtime=True
         )
 
         assert context.versions == {}
         assert context.source == EngineContextSource.NONE
-        assert npm_cli_version is None
+        assert package_manager_version is None
 
     def test_declared_constraints_are_copied_not_aliased(self, probes):
         """A mutation of the context must not reach back into Project.engine_constraints."""
@@ -176,12 +200,12 @@ class TestNpmEngineKey:
         node_probe.return_value = None
         project = make_project(ProjectPackagesRegistry.NPM, {"node": "18.0.0", "npm": "9.0.0"})
 
-        context, npm_cli_version = detect_engine_context(project, ".", probe_runtime=True)
+        context, package_manager_version = detect_engine_context(project, ".", probe_runtime=True)
 
         # node has only the floor left to go on; npm has both, and the floor is the lower.
         assert context.versions == {"node": "18.0.0", "npm": "9.0.0"}
         assert context.source == EngineContextSource.DECLARED
-        assert npm_cli_version == "10.2.4"
+        assert package_manager_version == "10.2.4"
 
     def test_a_probed_npm_stands_on_its_own_when_the_node_probe_fails(self, probes):
         """The npm probe used to be discarded unless Node answered too, because an npm-only
@@ -213,13 +237,13 @@ class TestPnpmEngineKey:
         _, _, cli_probe = probes
         cli_probe.return_value = "10.18.0"
 
-        context, npm_cli_version = detect_engine_context(
+        context, package_manager_version = detect_engine_context(
             make_project(ProjectPackagesRegistry.NPM, manager=PNPM), ".", probe_runtime=True
         )
 
         cli_probe.assert_called_once_with("pnpm")
         assert context.versions == {"node": "20.11.0", "pnpm": "10.18.0"}
-        assert npm_cli_version is None
+        assert package_manager_version == "10.18.0"
 
     def test_a_pnpm_older_than_the_floor_binds(self, probes):
         """Fails without pnpm in NPM_SEMVER_ENGINES: an unevaluable key always resolves to the floor."""
@@ -258,7 +282,7 @@ class TestProvidedRuntime:
     def test_a_provided_runtime_replaces_the_probe_entirely(self, probes):
         python_probe, node_probe, npm_probe = probes
 
-        context, npm_cli_version = detect_engine_context(
+        context, package_manager_version = detect_engine_context(
             make_project(ProjectPackagesRegistry.NPM),
             ".",
             probe_runtime=True,
@@ -269,7 +293,7 @@ class TestProvidedRuntime:
         node_probe.assert_not_called()
         npm_probe.assert_not_called()
         assert context == EngineContext({"node": "22.12.0"}, EngineContextSource.PROVIDED)
-        assert npm_cli_version is None
+        assert package_manager_version is None
 
     def test_the_declared_floor_still_binds_over_a_provided_runtime(self, probes):
         project = make_project(ProjectPackagesRegistry.NPM, {"node": "18.0.0"})

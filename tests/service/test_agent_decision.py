@@ -279,7 +279,8 @@ def test_update_entry_emits_engine_fields():
     assert decision["runtime_context"] == {
         "engine_versions": {"node": "20.11.0"},
         "engine_context_source": "detected",
-        "npm_cli_version": None,
+        "package_manager": None,
+        "package_manager_version": None,
         "project_declares_esm": False,
     }
     # engine_mismatch_reason's sentence, not a raw dict repr: the same string the console prints

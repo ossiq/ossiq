@@ -124,6 +124,7 @@ class ExportJsonSchemaVersion(StrEnum):
 
     V1_5 = "1.5"
     V1_6 = "1.6"
+    V1_7 = "1.7"
 
     @property
     def numbers(self) -> tuple[int, ...]:

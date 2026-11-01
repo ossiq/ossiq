@@ -3,9 +3,9 @@ import { mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import ReportBanner from '../components/ReportBanner.vue'
 import { useOssiqStore } from '../stores/ossiq'
-import type { OSSIQExportSchemaV16 } from '../types/report'
+import type { OSSIQExportSchemaV17 } from '../types/report'
 
-type Metadata = OSSIQExportSchemaV16['metadata']
+type Metadata = OSSIQExportSchemaV17['metadata']
 
 function mountWithMetadata(metadata: Partial<Metadata>) {
   const store = useOssiqStore()
@@ -15,7 +15,7 @@ function mountWithMetadata(metadata: Partial<Metadata>) {
     production_packages: [],
     development_packages: [],
     transitive_packages: [],
-  } as unknown as OSSIQExportSchemaV16)
+  } as unknown as OSSIQExportSchemaV17)
   return mount(ReportBanner)
 }
 

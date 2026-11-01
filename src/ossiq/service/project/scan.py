@@ -747,7 +747,7 @@ def scan(sources: AbstractProjectSources, progress: ScanProgress | None = None) 
         # solver phases - compute_latest_compatible_major (records.py) needs the detected Node
         # floor to know whether an ESM-only major actually breaks a CommonJS consumer, and that
         # applies to transitive records exactly as much as direct ones.
-        engine_context, npm_cli_version = detect_engine_context(
+        engine_context, package_manager_version = detect_engine_context(
             project_info,
             sources.project_path,
             probe_runtime=sources.settings.probe_runtime,
@@ -866,7 +866,8 @@ def scan(sources: AbstractProjectSources, progress: ScanProgress | None = None) 
             data_completeness=prefetched.data_completeness,
             declares_esm=project_info.declares_esm,
             engine_context=engine_context,
-            npm_cli_version=npm_cli_version,
+            package_manager=project_info.package_manager_type.cli,
+            package_manager_version=package_manager_version,
             runtime_mismatch=runtime_pin_mismatch(sources.project_path, project_info.package_registry, engine_context),
             source_warnings=list(sources.warnings),
             peer_repairs=peer_repairs,

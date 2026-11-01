@@ -77,7 +77,8 @@ Aggregated output of a single scan run. Returned by `scan()`.
 | `engine_context` | `EngineContext` | Runtime versions the engine checks ran against, and where they came from |
 | `runtime_mismatch` | `RuntimeMismatch \| None` | The project's own runtime pin (`.nvmrc`, `.python-version`) when it disagrees with `engine_context` |
 | `declares_esm` | `bool` | The project's manifest declares `"type": "module"` (npm only) |
-| `npm_cli_version` | `str \| None` | Detected npm CLI version, for display. `None` on pnpm and PyPI projects |
+| `package_manager` | `PackageManagerCli \| None` | The CLI the project's package manager is driven through: `uv`, `pip`, `npm` or `pnpm` |
+| `package_manager_version` | `str \| None` | Detected version of `package_manager`, for display. `None` when probing is off, the runtime was stated, or the CLI is missing |
 | `source_warnings` | `list[str]` | Non-fatal problems found while reading the project, such as a tree with more than one registry |
 
 ## `ScanRecord`

@@ -36,7 +36,7 @@ Specify which project registry type (ecosystem) to use. Default: None. Possible 
 """
 
 HELP_SCHEMA_VERSION = """
-Export schema version. Default: latest. Possible options: 1.5, 1.6
+Export schema version. Default: latest. Possible options: 1.5, 1.6, 1.7
 """
 
 HELP_EXPORT_FULL = """

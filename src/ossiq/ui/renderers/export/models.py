@@ -27,6 +27,7 @@ from ossiq.domain.common import (
     RuntimeMismatch,
 )
 from ossiq.domain.cve import CVE, Severity
+from ossiq.domain.packages_manager import PackageManagerCli
 from ossiq.domain.project import UnresolvedPeer
 from ossiq.risk.maintenance import OBSERVATION_COUNT
 from ossiq.service.library_scan import UpgradePath
@@ -43,6 +44,9 @@ SINCE_V1_6: dict[str, Any] = {"since": ExportJsonSchemaVersion.V1_6.value}
 """`json_schema_extra` marker for a field schema 1.6 added. A document that declares an older version
 is dumped without it, so `--schema-version 1.5` keeps producing exactly the 1.5 shape - which matters
 most for the standard schema, since it rejects any property it doesn't list."""
+
+SINCE_V1_7: dict[str, Any] = {"since": ExportJsonSchemaVersion.V1_7.value}
+"""`json_schema_extra` marker for a field schema 1.7 added; see SINCE_V1_6."""
 
 LATEST_SCHEMA_VERSION = max(ExportJsonSchemaVersion, key=lambda version: version.numbers)
 
@@ -1274,7 +1278,7 @@ class RuntimeMismatchExport(BaseModel):
         )
 
 
-class RuntimeContextExport(BaseModel):
+class RuntimeContextExport(ProfiledExportModel):
     """The runtime this scan checked engine requirements against, stated once for the whole scan.
 
     One fact about the scan, not about each package: `engine_context_source` used to be repeated on
@@ -1295,7 +1299,20 @@ class RuntimeContextExport(BaseModel):
     )
     npm_cli_version: str | None = Field(
         default=None,
-        description="Detected npm CLI version; display-only, null on PyPI or when not probed",
+        description=(
+            "Deprecated since 1.7, use package_manager_version: detected npm CLI version; "
+            "display-only, null on PyPI and pnpm projects or when not probed"
+        ),
+    )
+    package_manager: str | None = Field(
+        default=None,
+        description="The CLI the project's package manager is driven through: 'uv', 'pip', 'npm' or 'pnpm'",
+        json_schema_extra=SINCE_V1_7,
+    )
+    package_manager_version: str | None = Field(
+        default=None,
+        description="Detected version of package_manager; display-only, null when not probed or the CLI is missing",
+        json_schema_extra=SINCE_V1_7,
     )
     project_declares_esm: bool = Field(
         default=False,
@@ -1315,7 +1332,9 @@ class RuntimeContextExport(BaseModel):
         return cls(
             engine_versions=dict(data.engine_context.versions),
             engine_context_source=data.engine_context.source.value,
-            npm_cli_version=data.npm_cli_version,
+            npm_cli_version=data.package_manager_version if data.package_manager == PackageManagerCli.NPM else None,
+            package_manager=data.package_manager.value if data.package_manager else None,
+            package_manager_version=data.package_manager_version,
             project_declares_esm=data.declares_esm,
             runtime_mismatch=RuntimeMismatchExport.from_domain(data.runtime_mismatch),
         )

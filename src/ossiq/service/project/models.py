@@ -17,6 +17,7 @@ from ossiq.domain.common import (
 from ossiq.domain.compatibility import CompatibilityFacts
 from ossiq.domain.cve import CVE
 from ossiq.domain.package import Package
+from ossiq.domain.packages_manager import PackageManagerCli
 from ossiq.domain.project import ConstraintSource, InstalledCopy, PeerRequirement, UnresolvedPeer
 from ossiq.domain.repository import Repository
 from ossiq.domain.version import VersionsDifference
@@ -347,8 +348,10 @@ class ScanResult:
     """Runtime versions every record's engine_compatible was checked against, and where they came
     from. The sole home for both: the provenance used to be copied onto every ScanRecord as well,
     and the two copies drifted."""
-    npm_cli_version: str | None = None
-    """Best-effort detected npm CLI version, display-only"""
+    package_manager: PackageManagerCli | None = None
+    """The CLI the project's package manager is driven through (uv, pip, npm or pnpm)"""
+    package_manager_version: str | None = None
+    """Best-effort detected version of `package_manager`, display-only"""
     runtime_mismatch: RuntimeMismatch | None = None
     """The project's own runtime pin (`.nvmrc`, `.python-version`, ...) disagreeing with the runtime
     the scan checked against - usually a version read from the wrong shell. None when they agree or

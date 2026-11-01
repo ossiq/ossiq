@@ -22,6 +22,8 @@ class SchemaRegistry:
         (ExportJsonSchemaVersion.V1_5, ExportProfile.STANDARD): "export_schema_v1.5_standard.json",
         (ExportJsonSchemaVersion.V1_6, ExportProfile.FULL): "export_schema_v1.6.json",
         (ExportJsonSchemaVersion.V1_6, ExportProfile.STANDARD): "export_schema_v1.6_standard.json",
+        (ExportJsonSchemaVersion.V1_7, ExportProfile.FULL): "export_schema_v1.7.json",
+        (ExportJsonSchemaVersion.V1_7, ExportProfile.STANDARD): "export_schema_v1.7_standard.json",
     }
 
     schemas_dir: Path
@@ -55,7 +57,7 @@ class SchemaRegistry:
         """
         Get the latest supported schema version.
         """
-        return ExportJsonSchemaVersion.V1_6
+        return ExportJsonSchemaVersion.V1_7
 
     def list_versions(self) -> list[ExportJsonSchemaVersion]:
         """

@@ -20,6 +20,7 @@ from ossiq.domain.common import (
 )
 from ossiq.domain.compatibility import CompatibilityFacts
 from ossiq.domain.cve import CVE
+from ossiq.domain.packages_manager import PackageManagerCli
 from ossiq.domain.project import UnresolvedPeer
 from ossiq.domain.version import VERSION_DIFF_MAJOR, VERSION_DIFF_MINOR, VERSION_DIFF_PATCH, PackageVersion
 from ossiq.risk.maintenance import NOT_MAINTAINED
@@ -490,7 +491,8 @@ def runtime_context_summary(scan: ScanResult) -> dict[str, Any]:
     summary: dict[str, Any] = {
         "engine_versions": dict(scan.engine_context.versions),
         "engine_context_source": scan.engine_context.source.value,
-        "npm_cli_version": scan.npm_cli_version,
+        "package_manager": scan.package_manager,
+        "package_manager_version": scan.package_manager_version,
         "project_declares_esm": scan.declares_esm,
     }
     if (mismatch := scan.runtime_mismatch) is not None:
@@ -545,7 +547,8 @@ def build_update_context(
     registry: AbstractPackageRegistryApi,
     engine_context: EngineContext,
     project_declares_esm: bool,
-    npm_cli_version: str | None = None,
+    package_manager: PackageManagerCli | None = None,
+    package_manager_version: str | None = None,
 ) -> dict[str, Any]:
     """Diff installed_version -> target_version for a single package, and judge the target.
 
@@ -631,6 +634,7 @@ def build_update_context(
             "context_source": engine_context.source.value,
             "compatible": engine_compatibility(engine_requirement, engine_context.versions),
         },
-        "npm_cli_version": npm_cli_version,
+        "package_manager": package_manager,
+        "package_manager_version": package_manager_version,
         "rejected_candidates": [{"version": rc.version, "reason": rc.reason} for rc in rejected_up_to_target],
     }

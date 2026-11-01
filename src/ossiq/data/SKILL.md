@@ -308,7 +308,8 @@ Example — asking about `chalk 6.0.0` on a CommonJS project that's currently on
     "context_source": "provided",
     "compatible": false
   },
-  "npm_cli_version": "10.2.4",
+  "package_manager": "npm",
+  "package_manager_version": "10.2.4",
   "rejected_candidates": [{"version": "5.0.0", "reason": "ESM-only from 5.0.0"}]
 }
 ```

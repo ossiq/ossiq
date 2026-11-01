@@ -18,7 +18,7 @@ PROJECTIONS = [
     (("$defs", "StrategySelectionExport"), export_models.StrategySelectionExport),
 ]
 
-VERSIONS = [ExportJsonSchemaVersion.V1_5, ExportJsonSchemaVersion.V1_6]
+VERSIONS = [ExportJsonSchemaVersion.V1_5, ExportJsonSchemaVersion.V1_6, ExportJsonSchemaVersion.V1_7]
 
 
 def at(schema: dict, path: tuple[str, ...]) -> dict:

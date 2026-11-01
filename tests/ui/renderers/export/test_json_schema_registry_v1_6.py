@@ -27,9 +27,6 @@ class TestSchemaRegistryV16(SchemaRegistryBaseTest):
     required_definitions = ["PackageMetrics", "CVEInfo", "TransitivePackageMetrics", *NEW_DEFINITIONS]
     included_versions = [ExportJsonSchemaVersion.V1_5, ExportJsonSchemaVersion.V1_6]
 
-    def test_get_latest_version_returns_v1_6(self, registry):
-        assert registry.get_latest_version() == ExportJsonSchemaVersion.V1_6
-
     def test_schema_version_const_is_1_6(self, schema):
         assert schema["properties"]["metadata"]["properties"]["schema_version"]["const"] == "1.6"
 

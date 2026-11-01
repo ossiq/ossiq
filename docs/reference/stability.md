@@ -19,7 +19,7 @@ other tools. Part of the [reference](../reference.md).
 
 `schema_version` in the `metadata` block identifies the schema version of an export, for example
 `"1.6"`. `ossiq export --schema-version` pins the output to one version. The available versions
-are `1.5` and `1.6`, and the default is the latest.
+are `1.5`, `1.6` and `1.7`, and the default is the latest.
 
 A pinned document never carries a field that a later version added, so pinning `1.5` keeps
 producing exactly the v1.5 shape.

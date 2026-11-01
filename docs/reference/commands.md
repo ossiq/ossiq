@@ -179,7 +179,7 @@ describes the document.
 | Option | Description |
 |---|---|
 | `--output PATH`, `-o` | Write to this file. Default: `./ossiq_export_report_{project_name}.json`. Environment variable: `OSSIQ_OUTPUT` |
-| `--schema-version 1.5\|1.6`, `-s` | Write this schema version. Default: the latest. Environment variable: `OSSIQ_SCHEMA_VERSION` |
+| `--schema-version 1.5\|1.6\|1.7`, `-s` | Write this schema version. Default: the latest. Environment variable: `OSSIQ_SCHEMA_VERSION` |
 | `--full` | Write the full report: every transitive package, the dependency tree, provenance URLs and the raw upstream signals. Default: every direct dependency, plus the transitive packages that need attention |
 | `--registry-type npm\|pypi`, `-r` | Analyze one ecosystem of a polyglot repository |
 | `--production` | Leave out development dependencies |

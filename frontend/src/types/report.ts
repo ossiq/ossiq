@@ -6,9 +6,9 @@
  */
 
 /**
- * Schema for OSS-IQ project metrics export data (v1.5 adds epss to PackageMetrics, TransitivePackageMetrics and CVEInfo, runs_code_at_install/install_execution_reason to PackageMetrics and TransitivePackageMetrics, fix_age_days to CVEInfo, project_epss/packages_with_epss/packages_with_unscored_cves to summary, declares update_transitive_impacts, and replaces the phi_i/phi_p/phi_a CSI channels with the maintenance-state model: maintenance_state, maintenance_risk, maintenance_coverage, flow_trend, engagement_buckets, deprecation_signals and deprecation_successor and dependency_health_action on PackageMetrics and TransitivePackageMetrics, and packages_unmaintained/packages_deprecated on summary; and adds latest_compatible_major, module_system, recommended_module_system to PackageMetrics and TransitivePackageMetrics, and breaking_change to PackageMetrics; and adds engine_requirement, engine_compatible, engine_context_source to PackageMetrics and TransitivePackageMetrics; and adds metadata.warnings and a scan-level runtime_context block, moving engine_context_source off the per-package models; and adds next_action to PackageMetrics and TransitivePackageMetrics and requires_constraint_widening to PackageMetrics, so every surface reads one next-action label instead of re-deriving it; and adds latest_preserving_module_system and module_system_note to PackageMetrics and TransitivePackageMetrics; and adds the standard/full profile split: metadata.profile, summary.transitive_packages, runtime_context.runtime_mismatch, affected_ranges/fixed_in on CVEInfo, recommended_version/required_by on TransitivePackageMetrics, and ignored_packages/upgrade_paths/manifest_lock_divergent at the root - the standard profile validates against export_schema_v1.6_standard.json) v1.6 adds unresolved_peers to PackageMetrics and TransitivePackageMetrics (peers a package declares that nothing installed within its reach satisfies) and peer_repairs at the root (how `ossiq apply` puts them back), and registry_status and deprecation_message to PackageMetrics and TransitivePackageMetrics (the registry's own verdict on the whole package, and the note behind it); a document that declares an earlier version omits them.
+ * Schema for OSS-IQ project metrics export data (v1.5 adds epss to PackageMetrics, TransitivePackageMetrics and CVEInfo, runs_code_at_install/install_execution_reason to PackageMetrics and TransitivePackageMetrics, fix_age_days to CVEInfo, project_epss/packages_with_epss/packages_with_unscored_cves to summary, declares update_transitive_impacts, and replaces the phi_i/phi_p/phi_a CSI channels with the maintenance-state model: maintenance_state, maintenance_risk, maintenance_coverage, flow_trend, engagement_buckets, deprecation_signals and deprecation_successor and dependency_health_action on PackageMetrics and TransitivePackageMetrics, and packages_unmaintained/packages_deprecated on summary; and adds latest_compatible_major, module_system, recommended_module_system to PackageMetrics and TransitivePackageMetrics, and breaking_change to PackageMetrics; and adds engine_requirement, engine_compatible, engine_context_source to PackageMetrics and TransitivePackageMetrics; and adds metadata.warnings and a scan-level runtime_context block, moving engine_context_source off the per-package models; and adds next_action to PackageMetrics and TransitivePackageMetrics and requires_constraint_widening to PackageMetrics, so every surface reads one next-action label instead of re-deriving it; and adds latest_preserving_module_system and module_system_note to PackageMetrics and TransitivePackageMetrics; and adds the standard/full profile split: metadata.profile, summary.transitive_packages, runtime_context.runtime_mismatch, affected_ranges/fixed_in on CVEInfo, recommended_version/required_by on TransitivePackageMetrics, and ignored_packages/upgrade_paths/manifest_lock_divergent at the root - the standard profile validates against export_schema_v1.6_standard.json) v1.6 adds unresolved_peers to PackageMetrics and TransitivePackageMetrics (peers a package declares that nothing installed within its reach satisfies) and peer_repairs at the root (how `ossiq apply` puts them back), and registry_status and deprecation_message to PackageMetrics and TransitivePackageMetrics (the registry's own verdict on the whole package, and the note behind it). v1.7 adds package_manager and package_manager_version to runtime_context (the CLI the project's package manager is driven through, and its detected version) and deprecates npm_cli_version, which they supersede; a document that declares an earlier version omits them.
  */
-export interface OSSIQExportSchemaV16 {
+export interface OSSIQExportSchemaV17 {
   /**
    * Metadata about the export itself
    */
@@ -16,7 +16,7 @@ export interface OSSIQExportSchemaV16 {
     /**
      * Version of the export schema format
      */
-    schema_version: "1.6";
+    schema_version: "1.7";
     /**
      * How much of the scan this document carries. Absent means full, the only profile this schema describes; a standard document validates against export_schema_v1.6_standard.json
      */
@@ -102,9 +102,17 @@ export interface OSSIQExportSchemaV16 {
      */
     engine_context_source?: "provided" | "detected" | "declared" | "none";
     /**
-     * Detected npm CLI version; display-only, null on PyPI or when not probed
+     * Deprecated since 1.7, use package_manager_version: detected npm CLI version; display-only, null on PyPI and pnpm projects or when not probed
      */
     npm_cli_version?: string | null;
+    /**
+     * The CLI the project's package manager is driven through: 'uv', 'pip', 'npm' or 'pnpm'
+     */
+    package_manager?: "uv" | "pip" | "npm" | "pnpm" | null;
+    /**
+     * Detected version of package_manager; display-only, null when not probed or the CLI is missing
+     */
+    package_manager_version?: string | null;
     /**
      * Whether the project's own manifest declares `"type": "module"` (npm only)
      */

@@ -22,6 +22,7 @@ from ossiq.domain.common import (
 )
 from ossiq.domain.compatibility import CompatibilityFacts
 from ossiq.domain.cve import CVE, AffectedRange, Severity
+from ossiq.domain.packages_manager import PackageManagerCli
 from ossiq.domain.project import ConstraintSource
 from ossiq.domain.version import PackageVersion, VersionsDifference
 from ossiq.service.agent import build_update_context
@@ -208,6 +209,26 @@ def test_engine_incompatible_when_target_requires_newer_node():
         "context_source": "detected",
         "compatible": False,
     }
+
+
+def test_payload_names_the_package_manager_and_its_version():
+    record = make_record(name="some-pkg", installed="1.0.0")
+
+    payload = build_update_context(
+        make_installed_detail(record),
+        target_version="1.1.0",
+        releases=[pv("1.1.0")],
+        registry=NPM,
+        engine_context=EngineContext({}, EngineContextSource.NONE),
+        project_declares_esm=False,
+        package_manager=PackageManagerCli.PNPM,
+        package_manager_version="10.18.0",
+    )
+
+    assert payload["package_manager"] == "pnpm"
+    assert payload["package_manager_version"] == "10.18.0"
+    assert "npm_cli_version" not in payload
+    json.dumps(payload)  # a StrEnum member must still serialize
 
 
 def test_engine_key_selection_ignores_unrelated_registry_key():

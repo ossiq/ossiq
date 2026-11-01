@@ -39,6 +39,7 @@ from ossiq.domain.common import (
 from ossiq.domain.compatibility import CompatibilityFacts
 from ossiq.domain.cve import CVE, AffectedRange, CveDatabase, Severity
 from ossiq.domain.exceptions import DestinationDoesntExist
+from ossiq.domain.packages_manager import PackageManagerCli
 from ossiq.domain.project import ConstraintSource, UnresolvedPeer
 from ossiq.domain.version import VersionsDifference
 from ossiq.risk.stability import EngagementBucket, EngagementSeries
@@ -203,7 +204,7 @@ class TestJsonExportRenderer:
         metadata = data["metadata"]
 
         # Assert: with no version asked for, the latest is declared
-        assert metadata["schema_version"] == "1.6"
+        assert metadata["schema_version"] == "1.7"
         assert "export_timestamp" in metadata
         assert "ossiq_version" not in metadata
 
@@ -1528,7 +1529,8 @@ class TestJsonExportRendererV15:
             production_packages=[record],
             optional_packages=[],
             engine_context=EngineContext({"node": "20.11.0"}, EngineContextSource.DETECTED),
-            npm_cli_version="10.2.4",
+            package_manager=PackageManagerCli.NPM,
+            package_manager_version="10.2.4",
         )
         renderer = JsonExportRenderer(settings)
         renderer.render(metrics, destination=str(output_file), schema_version="1.5", profile=ExportProfile.FULL)
@@ -2177,17 +2179,17 @@ def widening_scan(sample_project_metrics_record: ScanRecord) -> ScanResult:
     )
 
 
-class TestSchemaVersion17:
-    """v1.6 reports peers a package cannot reach and how apply repairs them; v1.5 stays as it was."""
+class TestSchemaVersion16:
+    """The fields 1.6 added (peers, widening authorization, the registry verdict) are still in the latest document."""
 
     @pytest.mark.parametrize("profile", [ExportProfile.STANDARD, ExportProfile.FULL])
-    def test_a_default_document_is_v1_6_and_validates_against_its_schema(
+    def test_a_default_document_is_the_latest_and_validates_against_its_schema(
         self, settings, peer_scan, output_file, profile
     ):
         data = render_profile(settings, peer_scan, output_file, profile)
 
-        assert data["metadata"]["schema_version"] == "1.6"
-        validate(instance=data, schema=json_schema_registry.load_schema(ExportJsonSchemaVersion.V1_6, profile))
+        assert data["metadata"]["schema_version"] == "1.7"
+        validate(instance=data, schema=json_schema_registry.load_schema(ExportJsonSchemaVersion.V1_7, profile))
 
     @pytest.mark.parametrize("profile", [ExportProfile.STANDARD, ExportProfile.FULL])
     def test_unresolved_peers_reach_the_direct_entry(self, settings, peer_scan, output_file, profile):
@@ -2228,7 +2230,7 @@ class TestSchemaVersion17:
         entry = data["production_packages"][0]
         assert entry["requires_constraint_widening"] is True
         assert entry["strategy"]["widening_authorized"] is True
-        validate(instance=data, schema=json_schema_registry.load_schema(ExportJsonSchemaVersion.V1_6, profile))
+        validate(instance=data, schema=json_schema_registry.load_schema(ExportJsonSchemaVersion.V1_7, profile))
 
     @pytest.mark.parametrize("profile", [ExportProfile.STANDARD, ExportProfile.FULL])
     def test_an_escalated_widening_pick_is_labelled_an_update(self, settings, widening_scan, output_file, profile):
@@ -2248,7 +2250,7 @@ class TestSchemaVersion17:
         assert entry["next_action"] == "Update Immediately"
         assert entry["requires_constraint_widening"] is True
         assert entry["strategy"]["widening_authorized"] is True
-        validate(instance=data, schema=json_schema_registry.load_schema(ExportJsonSchemaVersion.V1_6, profile))
+        validate(instance=data, schema=json_schema_registry.load_schema(ExportJsonSchemaVersion.V1_7, profile))
 
     def test_standard_keeps_a_transitive_that_only_has_an_unresolved_peer(self, settings, peer_scan, output_file):
         data = render_profile(settings, peer_scan, output_file)
@@ -2283,7 +2285,7 @@ class TestSchemaVersion17:
         assert data["transitive_packages"][0]["registry_status"] == "archived"
         # Transitive entries leave a null out rather than spelling it.
         assert "deprecation_message" not in data["transitive_packages"][0]
-        validate(instance=data, schema=json_schema_registry.load_schema(ExportJsonSchemaVersion.V1_6, profile))
+        validate(instance=data, schema=json_schema_registry.load_schema(ExportJsonSchemaVersion.V1_7, profile))
 
     def test_a_registry_that_gave_no_verdict_exports_null_not_active(self, settings, profile_scan, output_file):
         data = render_profile(settings, profile_scan, output_file, ExportProfile.FULL)
@@ -2377,7 +2379,7 @@ class TestSchemaVersion15StaysAsReleased:
 
     def test_a_v1_5_document_is_the_v1_6_one_minus_the_new_fields(self, settings, peer_scan, output_file, tmp_path):
         old = render_profile(settings, peer_scan, output_file, ExportProfile.FULL, schema_version="1.5")
-        new = render_profile(settings, peer_scan, tmp_path / "new.json", ExportProfile.FULL)
+        new = render_profile(settings, peer_scan, tmp_path / "new.json", ExportProfile.FULL, schema_version="1.6")
 
         for document in (old, new):
             document["metadata"].pop("export_timestamp")
@@ -2404,3 +2406,61 @@ class TestSchemaVersion15StaysAsReleased:
             assert "registry_status" not in entry
             assert "deprecation_message" not in entry
         validate(instance=data, schema=json_schema_registry.load_schema(ExportJsonSchemaVersion.V1_5, profile))
+
+
+class TestSchemaVersion17:
+    """v1.7 names the package manager and its version in runtime_context; npm_cli_version stays, npm only."""
+
+    @pytest.mark.parametrize("profile", [ExportProfile.STANDARD, ExportProfile.FULL])
+    @pytest.mark.parametrize(
+        ("manager", "version", "npm_cli_version"),
+        [
+            (PackageManagerCli.NPM, "10.2.4", "10.2.4"),
+            (PackageManagerCli.PNPM, "10.18.0", None),
+            (PackageManagerCli.UV, "0.9.5", None),
+            (PackageManagerCli.PIP, "25.2", None),
+        ],
+    )
+    def test_runtime_context_names_the_manager_and_validates(
+        self, settings, profile_scan, output_file, profile, manager, version, npm_cli_version
+    ):
+        scan = dataclasses.replace(profile_scan, package_manager=manager, package_manager_version=version)
+
+        data = render_profile(settings, scan, output_file, profile)
+
+        context = data["runtime_context"]
+        assert context["package_manager"] == manager.value  # plain string, not an enum repr
+        assert context["package_manager_version"] == version
+        assert context["npm_cli_version"] == npm_cli_version
+        validate(instance=data, schema=json_schema_registry.load_schema(ExportJsonSchemaVersion.V1_7, profile))
+
+    @pytest.mark.parametrize("profile", [ExportProfile.STANDARD, ExportProfile.FULL])
+    def test_a_manager_whose_cli_was_not_probed_has_no_version(self, settings, profile_scan, output_file, profile):
+        scan = dataclasses.replace(profile_scan, package_manager=PackageManagerCli.UV, package_manager_version=None)
+
+        data = render_profile(settings, scan, output_file, profile)
+
+        assert data["runtime_context"]["package_manager"] == "uv"
+        assert data["runtime_context"]["package_manager_version"] is None
+        validate(instance=data, schema=json_schema_registry.load_schema(ExportJsonSchemaVersion.V1_7, profile))
+
+
+class TestSchemaVersion16StaysAsReleased:
+    """`--schema-version 1.5` and `1.6` are promises to consumers who pinned them: nothing from 1.7 may leak in."""
+
+    @pytest.mark.parametrize("profile", [ExportProfile.STANDARD, ExportProfile.FULL])
+    @pytest.mark.parametrize("version", [ExportJsonSchemaVersion.V1_5, ExportJsonSchemaVersion.V1_6])
+    def test_a_pinned_document_has_no_package_manager_and_keeps_npm_cli_version(
+        self, settings, profile_scan, output_file, profile, version
+    ):
+        scan = dataclasses.replace(
+            profile_scan, package_manager=PackageManagerCli.NPM, package_manager_version="10.2.4"
+        )
+
+        data = render_profile(settings, scan, output_file, profile, schema_version=version.value)
+
+        assert data["metadata"]["schema_version"] == version.value
+        assert "package_manager" not in data["runtime_context"]
+        assert "package_manager_version" not in data["runtime_context"]
+        assert data["runtime_context"]["npm_cli_version"] == "10.2.4"
+        validate(instance=data, schema=json_schema_registry.load_schema(version, profile))

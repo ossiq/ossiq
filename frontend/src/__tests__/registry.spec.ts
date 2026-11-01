@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { buildPackageRegistry } from '../explorer/registry'
 import { effectiveConstraintType } from '../explorer/nodeStyle'
-import type { OSSIQExportSchemaV16, PackageMetrics, TransitivePackageMetrics } from '../types/report'
+import type { OSSIQExportSchemaV17, PackageMetrics, TransitivePackageMetrics } from '../types/report'
 
 // Only the fields buildPackageRegistry reads. The stability block is what this test guards:
 // gap_cv / silence_days / silence_p / commits_sampled / archived must survive the transform.
@@ -58,7 +58,7 @@ const report = {
     }),
   ],
   dependency_tree: [],
-} as unknown as OSSIQExportSchemaV16
+} as unknown as OSSIQExportSchemaV17
 
 describe('buildPackageRegistry', () => {
   it('carries the repository-stability fields onto direct entries', () => {
@@ -95,7 +95,7 @@ describe('buildPackageRegistry and unresolved peers (schema 1.6)', () => {
       development_packages: [],
       transitive_packages: [transitive({ id: 3, ...trans })],
       dependency_tree: [],
-    } as unknown as OSSIQExportSchemaV16
+    } as unknown as OSSIQExportSchemaV17
   }
 
   it('carries them onto direct and transitive entries', () => {
@@ -121,7 +121,7 @@ describe('an override OSS IQ wrote (schema 1.6)', () => {
       development_packages: [],
       transitive_packages: [],
       dependency_tree: [],
-    } as unknown as OSSIQExportSchemaV16
+    } as unknown as OSSIQExportSchemaV17
   }
 
   it('reads as declared on a direct entry, so it is not drawn as overridden', () => {

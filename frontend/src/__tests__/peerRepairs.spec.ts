@@ -3,9 +3,9 @@ import { mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import PeerRepairs from '../components/PeerRepairs.vue'
 import { useOssiqStore } from '../stores/ossiq'
-import type { OSSIQExportSchemaV16 } from '../types/report'
+import type { OSSIQExportSchemaV17 } from '../types/report'
 
-type Repair = NonNullable<OSSIQExportSchemaV16['peer_repairs']>[number]
+type Repair = NonNullable<OSSIQExportSchemaV17['peer_repairs']>[number]
 
 function mountWithRepairs(repairs: Repair[] | undefined) {
   useOssiqStore().setReport({
@@ -15,7 +15,7 @@ function mountWithRepairs(repairs: Repair[] | undefined) {
     development_packages: [],
     transitive_packages: [],
     ...(repairs === undefined ? {} : { peer_repairs: repairs }),
-  } as unknown as OSSIQExportSchemaV16)
+  } as unknown as OSSIQExportSchemaV17)
   return mount(PeerRepairs)
 }
 

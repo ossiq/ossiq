@@ -52,7 +52,8 @@ def detect_engine_context(
 
     An npm-registry project probes its own package manager (`npm --version` or `pnpm --version`)
     beside `node`: npm enforces only `engines.npm` and pnpm only `engines.pnpm`, so the other CLI's
-    version would be a context nothing can use.
+    version would be a context nothing can use. A PyPI project probes its own (`uv` or `pip`) for
+    display only: no engine requirement refers to either, so it never joins the engine context.
 
     Args:
         project_info: The scanned project, for its declared engine constraints and registry.
@@ -62,8 +63,8 @@ def detect_engine_context(
         provided: The runtime the caller states the project runs on, or an explicit "unknown".
 
     Returns:
-        The engine context, and the detected npm CLI version (display-only, npm projects only,
-        None on a pnpm project).
+        The engine context, and the detected version of the project's package manager CLI
+        (display-only; None when the runtime was stated, probing is off or the CLI is missing).
 
     Raises:
         InvalidRuntime: `provided` names an engine this project's registry doesn't use.
@@ -71,20 +72,22 @@ def detect_engine_context(
     manager = project_info.package_manager_type
     registry = manager.package_registry
     runtime: dict[str, str] = {}
-    npm_cli_version: str | None = None
+    package_manager_version: str | None = None
     runtime_source = EngineContextSource.DETECTED
 
     if provided is not None:
         runtime_source = EngineContextSource.PROVIDED
         runtime = provided_versions(provided, manager)
     elif probe_runtime:
+        # shortcut: probes whichever pip/uv is first on PATH, not necessarily the project venv's;
+        # read the venv's own interpreter instead if that ever reports a misleading version.
+        package_manager_version = detect_actual_cli_version(manager.cli)
         if registry == ProjectPackagesRegistry.PYPI:
             if version := detect_actual_python_version(project_path):
                 runtime[ENGINE_CONTEXT_KEY_BY_REGISTRY[ProjectPackagesRegistry.PYPI]] = version
         elif registry == ProjectPackagesRegistry.NPM:
-            if cli_version := detect_actual_cli_version(manager.name):
-                runtime[manager.name] = cli_version
-            npm_cli_version = runtime.get("npm")
+            if package_manager_version:
+                runtime[manager.name] = package_manager_version
             if version := detect_actual_node_version():
                 runtime[ENGINE_CONTEXT_KEY_BY_REGISTRY[ProjectPackagesRegistry.NPM]] = version
 
@@ -97,9 +100,9 @@ def detect_engine_context(
         floor_binds = floor_binds or binding != stated
 
     if not enforced:
-        return EngineContext(), npm_cli_version
+        return EngineContext(), package_manager_version
     source = EngineContextSource.DECLARED if floor_binds else runtime_source
-    return EngineContext(versions=enforced, source=source), npm_cli_version
+    return EngineContext(versions=enforced, source=source), package_manager_version
 
 
 def provided_versions(provided: ProvidedRuntime, manager: PackageManagerType) -> dict[str, str]:

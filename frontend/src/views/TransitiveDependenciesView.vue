@@ -10,7 +10,7 @@ import { effectiveConstraintType } from '@/explorer/nodeStyle'
 import DependencyDetailPanel from '@/components/DependencyDetailPanel.vue'
 import NavigationBreadcrumb from '@/components/NavigationBreadcrumb.vue'
 import type { DependencyNode, SelectedNodeDetail } from '@/types/dependency-tree'
-import type { OSSIQExportSchemaV16, PackageMetrics, TransitivePackageMetrics, DependencyTreeNode, CVEInfo } from '@/types/report'
+import type { OSSIQExportSchemaV17, PackageMetrics, TransitivePackageMetrics, DependencyTreeNode, CVEInfo } from '@/types/report'
 
 const store = useOssiqStore()
 const svgRef = ref<SVGSVGElement | null>(null)
@@ -22,7 +22,7 @@ const showLegend = ref(false)
 const { registry, projectName } = usePackageRegistry()
 
 // --- Filter path — DependencyNode tree (markRaw) feeds Fuse.js search + toggle UI ---
-function buildDependencyTree(report: OSSIQExportSchemaV16): DependencyNode {
+function buildDependencyTree(report: OSSIQExportSchemaV17): DependencyNode {
   const severityRank: Record<string, number> = { LOW: 1, MEDIUM: 2, HIGH: 3, CRITICAL: 4 }
   const cveMap = new Map<string, string>()
   for (const pkg of [...report.production_packages, ...report.development_packages, ...report.transitive_packages]) {

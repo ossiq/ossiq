@@ -30,22 +30,23 @@ In both outputs, `null` means the value could not be measured. It never means "n
 
 | Profile | Written by | Carries | Schema |
 |---|---|---|---|
-| Standard | `ossiq export` | Every direct dependency, the transitive packages that need attention, and the fields needed to decide what to do | [v1.6 standard](../../src/ossiq/ui/renderers/export/schemas/export_schema_v1.6_standard.json) |
-| Full | `ossiq export --full` | Every transitive package, the dependency tree, provenance URLs and the raw upstream signals | [v1.6](../../src/ossiq/ui/renderers/export/schemas/export_schema_v1.6.json) |
+| Standard | `ossiq export` | Every direct dependency, the transitive packages that need attention, and the fields needed to decide what to do | [v1.7 standard](../../src/ossiq/ui/renderers/export/schemas/export_schema_v1.7_standard.json) |
+| Full | `ossiq export --full` | Every transitive package, the dependency tree, provenance URLs and the raw upstream signals | [v1.7](../../src/ossiq/ui/renderers/export/schemas/export_schema_v1.7.json) |
 
 `metadata.profile` names the profile. The schema files list every field; the tables on this page
 say what each one means. A field marked *(`--full`)* appears in the full profile only.
 
 ### Schema versions
 
-`--schema-version` pins the document to one version. The default is the latest, `1.6`.
+`--schema-version` pins the document to one version. The default is the latest, `1.7`.
 
 | Version | Adds |
 |---|---|
+| `1.7` | `package_manager` and `package_manager_version` in `runtime_context`; `npm_cli_version` stays, deprecated, and still reports npm only |
 | `1.6` | `registry_status`, `deprecation_message`, `constraint_ossiq_authored` and `unresolved_peers` on package entries; `strategy.widening_authorized`; `peer_repairs` at the root |
 | `1.5` | The baseline. Schemas: [standard](../../src/ossiq/ui/renderers/export/schemas/export_schema_v1.5_standard.json), [full](../../src/ossiq/ui/renderers/export/schemas/export_schema_v1.5.json) |
 
-A document pinned to `1.5` omits every field `1.6` added. For what stays stable across
+A document pinned to an older version omits every field a later version added. For what stays stable across
 versions, see [Stability guarantees](stability.md#export-schema-stability).
 
 ### Root object
@@ -54,7 +55,7 @@ versions, see [Stability guarantees](stability.md#export-schema-stability).
 |---|---|
 | `metadata` | `schema_version`, `profile`, `export_timestamp`, `update_strategy`, `data_completeness` (the status of each external source) and `warnings` |
 | `project` | `name`, `path` and `registry` |
-| `runtime_context` | The runtime that engine requirements were checked against: `engine_versions`, `engine_context_source` (`provided`, `detected`, `declared` or `none`), `npm_cli_version`, `project_declares_esm` and `runtime_mismatch` |
+| `runtime_context` | The runtime that engine requirements were checked against: `engine_versions`, `engine_context_source` (`provided`, `detected`, `declared` or `none`), `package_manager` (`uv`, `pip`, `npm` or `pnpm`), `package_manager_version`, `npm_cli_version` (deprecated), `project_declares_esm` and `runtime_mismatch` |
 | `summary` | Counts: packages by role, `packages_with_cves`, `total_cves`, `packages_outdated`, `project_epss`, and how many packages are unmaintained, deprecated or unmeasured |
 | `production_packages` | Array of `PackageMetrics` |
 | `development_packages` | Array of `PackageMetrics` |

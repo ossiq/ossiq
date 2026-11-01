@@ -9,6 +9,8 @@ from __future__ import annotations
 import subprocess
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from ossiq.adapters.runtime_environment import (
     detect_actual_cli_version,
     detect_actual_node_version,
@@ -100,6 +102,30 @@ class TestDetectActualCliVersion:
 
         assert detect_actual_cli_version("pnpm") == "10.2.4"
         assert mock_run.call_args.args[0] == ["pnpm", "--version"]
+
+    @pytest.mark.parametrize(
+        ("cli", "output", "expected"),
+        [
+            ("npm", "10.2.4\n", "10.2.4"),
+            ("pnpm", "10.18.0\n", "10.18.0"),
+            ("uv", "uv 0.9.5 (d5f39331a 2025-10-21)\n", "0.9.5"),
+            # pip also prints its install path, which holds the Python version, and its own release
+            # can have two parts.
+            ("pip", "pip 25.2 from /opt/venv/lib/python3.12.4/site-packages/pip (python 3.12)\n", "25.2"),
+            ("pip", "pip 24.0.1 from /usr/lib/python3/dist-packages/pip (python 3.11)\n", "24.0.1"),
+        ],
+    )
+    @patch("subprocess.run")
+    def test_reads_the_version_each_cli_prints(self, mock_run, cli, output, expected):
+        mock_run.return_value = _completed(stdout=output)
+
+        assert detect_actual_cli_version(cli) == expected
+
+    @patch("subprocess.run")
+    def test_returns_none_on_garbage_output(self, mock_run):
+        mock_run.return_value = _completed(stdout="command not found\n")
+
+        assert detect_actual_cli_version("uv") is None
 
     @patch("subprocess.run")
     def test_returns_none_when_the_cli_is_missing(self, mock_run):

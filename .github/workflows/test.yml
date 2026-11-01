@@ -157,6 +157,7 @@ jobs:
               "ossiq/ui/html_templates/spa_app.html",
               "ossiq/ui/renderers/export/schemas/export_schema_v1.5.json",
               "ossiq/ui/renderers/export/schemas/export_schema_v1.6.json",
+              "ossiq/ui/renderers/export/schemas/export_schema_v1.7.json",
           ]
 
           wheel = glob.glob("dist/ossiq-*.whl")[0]
@@ -184,6 +185,7 @@ jobs:
               ("ossiq.ui.html_templates", "spa_app.html"),
               ("ossiq.ui.renderers.export.schemas", "export_schema_v1.5.json"),
               ("ossiq.ui.renderers.export.schemas", "export_schema_v1.6.json"),
+              ("ossiq.ui.renderers.export.schemas", "export_schema_v1.7.json"),
           ]
 
           for package, name in RESOURCES:

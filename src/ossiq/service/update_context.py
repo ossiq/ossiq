@@ -65,5 +65,6 @@ def build_update_context_payload(
         registry=sources.packages_registry,
         engine_context=scan_result.engine_context,
         project_declares_esm=scan_result.declares_esm,
-        npm_cli_version=scan_result.npm_cli_version,
+        package_manager=scan_result.package_manager,
+        package_manager_version=scan_result.package_manager_version,
     )
