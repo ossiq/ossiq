@@ -5,6 +5,7 @@
 
 github-login
 resolve-blocked-updates
+set-a-supply-chain-policy
 verifying-a-release
 ```
 

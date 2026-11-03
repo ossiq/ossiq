@@ -55,7 +55,10 @@ one in the configuration directory wins.
 ## Settings
 
 Every setting has a global flag, an environment variable, or both. Global flags go before the
-command, for example `ossiq --cutoff-date 2025-01-01 --cooldown-period 14 status`.
+command, for example `ossiq --cutoff-date 2025-01-01 --cooldown-period 14 status`. The
+`OSSIQ_POLICY_*` settings have no flag: a rule that holds updates back is a standing decision, so
+it lives in the config file or the environment. A value a setting can't take stops the command
+with an "Invalid Configuration" message that names the variable.
 
 | Variable | Flag | Default | Effect |
 |---|---|---|---|
@@ -71,6 +74,10 @@ command, for example `ossiq --cutoff-date 2025-01-01 --cooldown-period 14 status
 | `OSSIQ_STABILITY` | `--stability` / `--no-stability` | on | Measure upstream repository stability |
 | `OSSIQ_STABILITY_RESPONSIVENESS` | `--stability-responsiveness` / `--no-stability-responsiveness` | on with a token | The GraphQL engagement-flow channel |
 | `OSSIQ_PROBE_RUNTIME` | `--probe-runtime` / `--no-probe-runtime` | on | Detect the installed Python, Node.js and npm or pnpm versions |
+| `OSSIQ_POLICY_TRUST` | — | off | `no-downgrade` refuses a version with less build evidence than an earlier version of its major line. See [Set a supply-chain policy](../how-to/set-a-supply-chain-policy.md) |
+| `OSSIQ_POLICY_MIN_BUILD` | — | `none` | The weakest build evidence a version may carry: `none`, `provenance` or `trusted-publisher` |
+| `OSSIQ_POLICY_MIN_SOURCE` | — | off | The weakest protection a direct dependency's GitHub repository may have on its default branch: `version-controlled`, `protected-history` or `reviewed` |
+| `OSSIQ_POLICY_EXCLUDE` | — | — | Comma-separated `name` or `name@version` entries that no policy rule applies to |
 | — | `--engine ENGINE=VERSION` | — | State the runtime the project runs on, for example `--engine node=20.11.0` (repeatable). Replaces the probe for that engine |
 | — | `--config PATH` | `~/.config/ossiq/config` | Read this config file in place of the default one |
 | — | `--no-cache` | off | Skip the HTTP cache for this run |
@@ -144,10 +151,10 @@ A scan reads public data from these hosts. Allow them through a firewall or prox
 | Source | Host | Used for |
 |---|---|---|
 | [npm registry](https://www.npmjs.com/) | `registry.npmjs.org`, `api.npmjs.org` | Package metadata, version history and download counts for JavaScript packages |
-| [PyPI](https://pypi.org/) | `pypi.org`, `pypistats.org` | Package metadata, version history and download counts for Python packages |
+| [PyPI](https://pypi.org/) | `pypi.org`, `pypistats.org` | Package metadata, version history, project status, per-file build attestations and download counts for Python packages |
 | [OSV](https://osv.dev/) | `api.osv.dev` | Known vulnerabilities (CVEs and security advisories) |
 | [EPSS](https://www.first.org/epss/) | `api.first.org` | The probability that a CVE is exploited in the next 30 days |
-| [GitHub](https://github.com/) | `api.github.com` | Repository activity, releases and maintenance signals |
+| [GitHub](https://github.com/) | `api.github.com` | Repository activity, releases, maintenance signals and how each direct dependency's default branch is protected |
 
 When a source is unreachable, the scan still finishes and reports what is missing. See
 [Partial data](../recommendations/partial-data.md).

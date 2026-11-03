@@ -60,6 +60,8 @@ Next**. `--full` adds **EPSS**, **Update Mode**, **Lag**, and **State**.
 | Recommended | Solver-recommended update target — clamped into your declared range, so it is often *not* the Latest version. Yellow when the recommendation is older than the latest version — usually held back by the [cooldown](#update-solver) or by a constraint. `[NO RESOLUTION]` when no published version satisfies all constraints. Blank when no acceptable target was found at all — including when every newer version is still inside the [cooldown](#update-solver), in which case *What's Next* reads **Wait for cooldown**. |
 | Lag | *(`--full`)* Time between the installed and the latest version. Red when it exceeds `--lag-threshold-delta` (default `1y`). |
 | State | *(`--full`)* Maintenance-state verdict for the upstream repository: `maintained`, `winding_down`, `abandoned`, or `deprecated`. `—` when the package could not be assessed. See [Repository Stability](../explanation/repository-stability.md). |
+| Build | *(`--full`)* How the installed version was published, from the registry's own record: `trusted` (a signed build attestation, published through trusted publishing), `attested` (a signed attestation, published with a token) or `none`. `—` when the registry could not be read. Red with `✗` when it breaks a build rule of your [supply-chain policy](../how-to/set-a-supply-chain-policy.md). |
+| Source | *(`--full`)* How the package's GitHub repository protects its default branch, as it is now: `reviewed`, `protected` or `vcs`. `—` for a repository that is not on GitHub or could not be read. Red with `✗` when it breaks the source rule of your supply-chain policy. |
 | What's Next | The single next action for this package. See [What's Next labels](#whats-next-labels). Blank when nothing is due. |
 
 ### What's Next labels
@@ -69,6 +71,7 @@ Each package gets at most one label. The rules run in this order, and the first 
 | Label | Shown when |
 |---|---|
 | **Check for the Fix** | The package has a CVE with an EPSS of 10% or more. |
+| **Review provenance** | The installed version breaks the [supply-chain policy](../how-to/set-a-supply-chain-policy.md) in your config file, or the policy ruled out every newer version so none can be recommended. |
 | **Find alternative** | The registry deprecated, archived or quarantined the package, or the package is at its latest version and upstream is abandoned or deprecated. |
 | **Consider alternative** | Upstream is winding down. |
 | **Wait for cooldown** | A newer version exists, but every version reachable from the installed one is younger than the cooldown period. No version is recommended. |
@@ -77,7 +80,7 @@ Each package gets at most one label. The rules run in this order, and the first 
 | **Withheld by strategy** | A bump is available and the range admits it, but the run's `--update-strategy` tier admitted no motive to take it. The sub-row names the lowest tier that would. |
 | **Constrained. Check newer version** | The package is a minor or patch behind, but the declared range admits no bump `plan` will write. Widening the range is the next step. |
 
-On a terminal narrower than 110 columns, or 157 with `--full`, **Constrained. Check newer
+On a terminal narrower than 110 columns, or 176 with `--full`, **Constrained. Check newer
 version** is shortened to **Constrained**. The `--full` sub-row under the package still names the
 range and what it caps. Only the console shortens it: `--format agent`, the JSON export, the MCP
 tools and the HTML report always carry the full label.
@@ -109,6 +112,7 @@ of the dependency tree, or what holds the package back:
 | `↳ no version satisfies: <specifiers>` | The constraints on this package contradict each other — no published version satisfies all of them at once. Shown together with `[NO RESOLUTION]`. |
 | `↳ <specifier> caps this below <latest>[; <version> is the newest in the current major line]` | *(`--full`)* The declared range is what holds the package behind the registry's latest. Drawn only when the range genuinely admits nothing newer than what is installed — when it does admit a bump, the blocker is something else and draws its own row. The trailing clause appears only when the newest version within the installed major line differs from the latest overall. Shown with **Constrained. Check newer version**. |
 | `↳ <version> is <n> days old; nothing older to move to before the <n>-day cooldown` | *(`--full`)* Every release newer than the installed one is younger than `--cooldown-period`, so no version was recommended. Names the release being waited on. Not drawn when a CVE or end-of-life motive is in play — those escalate past the cooldown rather than waiting it out. Shown with **Wait for cooldown**. |
+| `↳ policy: <reason>` | The installed version breaks a rule of your [supply-chain policy](../how-to/set-a-supply-chain-policy.md). Shown in every mode, with **Review provenance**. |
 | `↳ no motive admitted at <tier>; available under --update-strategy <tier>` | *(`--full`)* The run's update strategy, not the declared range, is what left this package without a target. Shown with **Withheld by strategy**. |
 
 ### Transitive Recommendations
@@ -301,6 +305,12 @@ When the package is not installed in the project, `info` evaluates it as a candi
 The `ossiq html` command produces a self-contained HTML file embedding an interactive Vue.js single-page application. The report includes the full dependency tables and the **Transitive Dependency Explorer**: an interactive D3 tree that visualises the `transitive_packages` dependency graph.
 
 The dependency table shows the same version ladder the console does. Under **Latest**, a dim `in range <version>` line names the newest version the declared constraint already admits, and `in major <version>` the newest in the installed major line; each appears only when it sits below the registry's latest, which is exactly when something is holding the package back. A `widen` badge on **Rec. Version** means the recommendation lies outside the declared range, so `ossiq apply` will not write it without the range being widened first. Selecting a package opens a **Version Ladder** block with every rung and the one the recommendation came from. **What's Next** carries the label the scan decided, so it never disagrees with `ossiq status`.
+
+The table always has **Build** and **Source** columns, which the console shows only with `--full`. They carry the same wording, and a `policy` badge beside a package name marks one that breaks your [supply-chain policy](../how-to/set-a-supply-chain-policy.md); hover over it for the reason.
+
+Selecting a package, in the table or in the explorer, opens a **Provenance** block in its detail panel. It shows the same two values with what each means, and lists the policy reasons under **Breaks your policy**. A dash means the value could not be read: for **Source**, that includes every transitive dependency.
+
+A window 1280 pixels wide shows every column. Below about 1200 pixels the table scrolls sideways instead of cutting columns off.
 
 The Explorer supports:
 

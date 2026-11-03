@@ -42,7 +42,7 @@ say what each one means. A field marked *(`--full`)* appears in the full profile
 
 | Version | Adds |
 |---|---|
-| `1.7` | `package_manager` and `package_manager_version` in `runtime_context`; `npm_cli_version` stays, deprecated, and still reports npm only |
+| `1.7` | `package_manager` and `package_manager_version` in `runtime_context`; `npm_cli_version` stays, deprecated, and still reports npm only. `policy_violations` on package entries (also `build_provenance` and `source_level` in the full export), and the `next_action` label `Review provenance` |
 | `1.6` | `registry_status`, `deprecation_message`, `constraint_ossiq_authored` and `unresolved_peers` on package entries; `strategy.widening_authorized`; `peer_repairs` at the root |
 | `1.5` | The baseline. Schemas: [standard](../../src/ossiq/ui/renderers/export/schemas/export_schema_v1.5_standard.json), [full](../../src/ossiq/ui/renderers/export/schemas/export_schema_v1.5.json) |
 
@@ -167,6 +167,9 @@ contains `<` counts as `NARROWED`.
 | Field | Meaning |
 |---|---|
 | `unresolved_peers` | Peers the package declares that nothing installed *where the package looks* satisfies. Each has `package_name`, `spec`, `optional` and `installed_elsewhere` |
+| `policy_violations` | Why the installed version breaks the [supply-chain policy](../how-to/set-a-supply-chain-policy.md) in the config file, one reason per rule. Empty when it passes or no policy is set. Schema `1.7` |
+| `build_provenance` | *(full export, schema `1.7`)* How strong the registry's build evidence for the installed version is: `none`, `provenance` or `trusted-publisher`. `null` when the registry could not be read, which is not the same as `none` |
+| `source_level` | *(full export, schema `1.7`)* How well the package's GitHub repository protects its default branch, as it is now: `version-controlled`, `protected-history` or `reviewed`. `null` for transitive packages, repositories not on GitHub and lookups that failed |
 | `peer_repairs` (root) | How `ossiq apply` puts such peers back. Each has `package_name` and `suggested_constraint` to add to the manifest, `is_dev_dependency`, the `requirers` that need it, and `family_moves` |
 
 Both are empty for PyPI projects. See [Unresolved peers](#unresolved-peers).
@@ -220,8 +223,10 @@ Every decision leads with a `next_action` string.
 | Update, on each entry | `status`, `ossiq_evaluate_updates` | A [What's Next label](reports.md#whats-next-labels), or `no action needed` |
 | Update, at the top level | `status`, `ossiq_evaluate_updates` | The most urgent entry label, or `no action needed` |
 
-`do not install` covers a package its registry deprecated, archived or quarantined, and a
-deprecated release you asked for by version. `reasons` quotes the registry's note.
+`do not install` covers a package its registry deprecated, archived or quarantined, a
+deprecated release you asked for by version, and a version that breaks your
+[supply-chain policy](../how-to/set-a-supply-chain-policy.md) (the `warnings` list then holds
+`POLICY_VIOLATION`). `reasons` quotes the registry's note or the policy's reason.
 
 An update entry's label can differ from `next_action` in the JSON export, because the agent
 format escalates two cases:
@@ -244,6 +249,7 @@ The `updates` list has one entry for each direct dependency.
 | `dependency_health` | The triage verdict (`retain`, `patch`, `refactor` or `evict`), with a `question` that says what it answers: long-term health, not what to do now |
 | `cves` | The package's CVEs, each with its `epss` when scored |
 | `unresolved_peers` | npm and pnpm only. Peers the package cannot load, whatever its `next_action`. Each has `package`, `spec`, `optional` and `installed_elsewhere` |
+| `policy_violations` | Why the installed version breaks the [supply-chain policy](../how-to/set-a-supply-chain-policy.md), one reason per rule. Present only when it breaks one, whatever its `next_action` |
 
 The decision also carries `update_strategy`, and on npm and pnpm `peer_repairs` when a copy that
 satisfies the range is installed out of reach. Each repair has the `package` and

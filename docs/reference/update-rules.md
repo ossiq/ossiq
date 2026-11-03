@@ -174,6 +174,15 @@ package under *Held by peer dependencies*.
 
 PyPI has no peer dependencies, so none of this applies there.
 
+## Supply-chain policy
+
+A [supply-chain policy](../how-to/set-a-supply-chain-policy.md) in the config file removes
+versions from consideration before any other rule runs. A version that breaks it is not a
+candidate at any tier, and a CVE or end-of-life motive doesn't lift that: a version that may have
+been published by someone else is not a fix. The refused version appears in `rejected_candidates`
+with the policy's reason, and `plan` lists the package under *Held by your supply-chain policy*.
+The version you have installed is never removed. It is flagged instead.
+
 ### Lockstep families (npm)
 
 When a package pins its dependencies exactly, bumping it moves them too. If an older copy of one
