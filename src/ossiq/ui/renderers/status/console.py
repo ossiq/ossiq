@@ -1,9 +1,10 @@
 """Console renderer for status command."""
 
-from rich.console import Console
+from rich.console import Console, Group
 from rich.padding import Padding
 from rich.rule import Rule
 from rich.table import Table
+from rich.text import Text
 
 from ossiq.domain.common import Command, EngineContext, SignalCoverage, UserInterfaceType
 from ossiq.domain.project import InstalledCopy
@@ -58,24 +59,6 @@ MAIN_COLUMNS_DEFAULT: tuple[str, ...] = (
 # rather than wrapped onto a second row. Pinned by test_compact_row_fits_at_the_threshold_width —
 # adding a column means re-measuring, not adjusting by eye.
 MIN_WIDTH_DEFAULT = 110
-MAIN_COLUMNS_FULL: tuple[str, ...] = (
-    "Package",
-    "CVEs",
-    "EPSS",
-    "Update Mode",
-    "Installed",
-    "Latest",
-    "Recommended",
-    "Lag",
-    "State",
-    "Build",
-    "Source",
-    "What's Next",
-)
-# The same measurement for the six extra columns MAIN_COLUMNS_FULL adds, taken with the `--full`
-# sub-rows present: they share the Package column, so a long one widens it. A representative case,
-# not a guarantee — an unusually long rejection reason can still push a row onto a second line.
-MIN_WIDTH_FULL = 176
 
 COVERAGE_LABELS: dict[SignalCoverage, str] = {
     SignalCoverage.REPOSITORY_UNAVAILABLE: HELP_STATUS_COVERAGE_REPOSITORY_UNAVAILABLE,
@@ -93,15 +76,13 @@ sit behind one unreachable host, and a row that long buries the other reasons.""
 
 
 def add_status_column(table: Table, name: str) -> None:
-    """Add one main-table column with the justification / style it uses in every mode."""
+    """Add one main-table column with the justification / style it uses."""
     if name == "Package":
         table.add_column(name, style="bold")
     elif name == "Recommended":
         table.add_column(name, justify="left", style="bold green", no_wrap=True)
-    elif name in ("CVEs", "Update Mode", "State", "Build", "Source"):
+    elif name == "CVEs":
         table.add_column(name, justify="center", no_wrap=True)
-    elif name in ("EPSS", "Lag"):
-        table.add_column(name, justify="right", no_wrap=True)
     elif name in ("Installed", "Latest"):
         table.add_column(name, justify="left", no_wrap=True)
     else:  # What's Next
@@ -275,31 +256,28 @@ def policy_violation_texts(pkg: ScanRecord) -> list[str]:
     return [HELP_STATUS_POLICY_VIOLATION.format(reason=reason) for reason in pkg.provenance.violations]
 
 
-def add_detail_subrows(table: Table, pkg: ScanRecord, engine_context: EngineContext) -> None:
-    """Append the per-package explanation sub-rows shared by both status tables.
+def detail_sub_row_texts(pkg: ScanRecord, engine_context: EngineContext) -> list[str]:
+    """The explanation rows `--full` adds under a package: other copies, rejected candidates, breaking change, engine.
 
     Args:
-        table: The table to append to; the blank-cell padding is derived from its own column
-            count, so adding a column can never silently misalign these rows.
         pkg: The record being explained.
         engine_context: The runtime versions this scan checked against, and their provenance.
-    """
-    blanks = [""] * (len(table.columns) - 1)
 
-    for text in copy_sub_row_texts(pkg):
-        table.add_row(text, *blanks)
+    Returns:
+        Rich-markup strings in display order, each carrying its own leading indent.
+    """
+    texts = [*copy_sub_row_texts(pkg)]
 
     for rc in pkg.rejected_candidates:
-        table.add_row(f"  [dim]↳ {rc.version} rejected: {rc.reason}[/]", *blanks)
+        texts.append(f"  [dim]↳ {rc.version} rejected: {rc.reason}[/]")
         if rc.detail is not None:
-            # The spec list on its own indented line: joined onto the headline it ran to a dozen
-            # specs, and every sub-row lives in column 0, so one of them widened the whole table.
-            table.add_row(f"      [dim]{format_rejection_detail(rc.detail)}[/]", *blanks)
+            # The spec list on its own indented line: joined onto the headline it ran to a dozen specs.
+            texts.append(f"      [dim]{format_rejection_detail(rc.detail)}[/]")
 
     if pkg.compatibility.breaking_change:
-        table.add_row(f"  [yellow]↳ {pkg.compatibility.breaking_change}[/]", *blanks)
+        texts.append(f"  [yellow]↳ {pkg.compatibility.breaking_change}[/]")
         if pkg.compatibility.module_system_note:
-            table.add_row(f"      [dim]{pkg.compatibility.module_system_note}[/]", *blanks)
+            texts.append(f"      [dim]{pkg.compatibility.module_system_note}[/]")
 
     if pkg.compatibility.engine_compatible is False:
         # engine_compatible is denormalized onto the record; only draw the row when the check
@@ -307,7 +285,95 @@ def add_detail_subrows(table: Table, pkg: ScanRecord, engine_context: EngineCont
         # here rather than inside engine_mismatch_summary.
         mismatch = engine_mismatch_summary(pkg, engine_context.versions)
         if mismatch:
-            table.add_row(f"  [red]↳ {mismatch} ({engine_context.source})[/]", *blanks)
+            texts.append(f"  [red]↳ {mismatch} ({engine_context.source})[/]")
+
+    return texts
+
+
+def alert_sub_row_texts(pkg: ScanRecord) -> list[str]:
+    """The rows shown in every mode: a broken tree or a release someone else may have published is not detail.
+
+    Args:
+        pkg: The record being explained.
+
+    Returns:
+        Rich-markup strings: the constraint conflict, then unresolved peers, then policy violations.
+    """
+    texts: list[str] = []
+    if pkg.constraint_conflict:
+        texts.append(f"  [bold red]↳ no version satisfies: {' + '.join(pkg.constraint_conflict)}[/]")
+    texts += [f"  [yellow]{text}[/]" for text in unresolved_peer_texts(pkg)]
+    texts += [f"  [bold red]{text}[/]" for text in policy_violation_texts(pkg)]
+    return texts
+
+
+def field_line(*fields: tuple[str, str]) -> Padding:
+    """One indented line of `label value` pairs.
+
+    Each value is parsed on its own: the cell formatters leave tags such as `[red][bold]Major` unclosed,
+    and in one joined string they would colour everything after them.
+    """
+    cells = (Text.from_markup(f"[dim]{label}[/dim] {value}") for label, value in fields)
+    return Padding(Text(" · ", style="dim").join(cells), (0, 0, 0, 4), expand=False)
+
+
+def note_line(markup: str) -> Padding:
+    """One `↳` note with a hanging indent, so a note that wraps continues under its own arrow.
+
+    The note helpers indent with leading spaces, which suit a table cell; here that indent becomes
+    padding, which applies to wrapped lines too.
+    """
+    note = Text.from_markup(markup)
+    depth = len(note.plain) - len(note.plain.lstrip())
+    return Padding(note[depth:], (0, 0, 0, depth + 2), expand=False)
+
+
+def package_block(pkg: ScanRecord, lag_threshold_days: int, engine_context: EngineContext) -> Padding:
+    """One package for `--full`: its name and next action, three lines of fields, then the `↳` notes.
+
+    Lines rather than columns: the full field set does not fit a table at 80 columns, and a note
+    in a narrow Package column wraps there.
+
+    Args:
+        pkg: The record to describe.
+        lag_threshold_days: Above this many days the time lag is highlighted.
+        engine_context: The runtime versions this scan checked against.
+
+    Returns:
+        A renderable ready for `Console.print`.
+    """
+    missing = "[dim]—[/dim]"
+    impacts = pkg.update_transitive_impacts if pkg.recommended_version != pkg.installed_version else []
+    notes = [
+        *impact_sub_row_texts(impacts),
+        *blocker_sub_row_texts(pkg),
+        *detail_sub_row_texts(pkg, engine_context),
+        *alert_sub_row_texts(pkg),
+    ]
+    return Padding(
+        Group(
+            Text.from_markup(f"[bold]{pkg.display_name}[/]  {whats_next(pkg)}".rstrip()),
+            field_line(
+                ("installed", installed_cell(pkg) + format_status_badge(pkg)),
+                ("recommended", recommended_cell(pkg) or missing),
+                ("latest", pkg.latest_version or missing),
+            ),
+            field_line(
+                ("update mode", format_lag_status(pkg.versions_diff_index)),
+                ("lag", format_time_delta(pkg.time_lag_days, lag_threshold_days)),
+                ("state", format_state(pkg)),
+            ),
+            field_line(
+                ("CVEs", f"[bold red]{len(pkg.cve)}[/]" if pkg.cve else "0"),
+                ("EPSS", format_probability(pkg.epss)),
+                ("build", format_build_provenance(pkg)),
+                ("source", format_source_level(pkg)),
+            ),
+            *(note_line(text) for text in notes),
+        ),
+        (0, 0, 0, 2),
+        expand=False,
+    )
 
 
 class ConsoleStatusRenderer(AbstractUserInterfaceRenderer):
@@ -333,8 +399,8 @@ class ConsoleStatusRenderer(AbstractUserInterfaceRenderer):
             data: ProjectMetrics from scan service
             **kwargs: Rendering options
                 - lag_threshold_days: int - Threshold for highlighting time lag
-                - full: bool - When True show every package and the detail columns; default keeps
-                  only packages that need action and a minimal column set
+                - full: bool - When True list every package as a block of labeled fields; default
+                  keeps only the packages that need action, in a minimal table
         """
         lag_threshold_days = kwargs.get("lag_threshold_days", 180)
         full = kwargs.get("full", False)
@@ -382,24 +448,24 @@ class ConsoleStatusRenderer(AbstractUserInterfaceRenderer):
             )
         self.console.print()
 
-        main_table = self.build_main_table(
-            data.production_packages,
-            data.optional_packages,
-            lag_threshold_days,
-            full=full,
-            engine_context=data.engine_context,
-        )
-        if main_table:
+        if full:
+            for label, packages in (("Production", data.production_packages), ("Development", data.optional_packages)):
+                if packages:
+                    self.console.print(Rule(label, style="dim"))
+                    self.console.print()
+                    self.print_package_blocks(packages, lag_threshold_days, data.engine_context)
+        elif main_table := self.build_main_table(data.production_packages, data.optional_packages):
             self.console.print(main_table)
             self.console.print()
 
         if transitive_with_recs:
             self.console.print(Rule("Transitive Recommendations", style="dim"))
             self.console.print()
-            self.console.print(
-                self.transitive_table(transitive_with_recs, full=full, engine_context=data.engine_context)
-            )
-            self.console.print()
+            if full:
+                self.print_package_blocks(transitive_with_recs, lag_threshold_days, data.engine_context)
+            else:
+                self.console.print(self.transitive_table(transitive_with_recs))
+                self.console.print()
 
         new_dep_impacts = [
             i
@@ -468,34 +534,35 @@ class ConsoleStatusRenderer(AbstractUserInterfaceRenderer):
         self.console.print(table)
         self.console.print()
 
+    def print_package_blocks(
+        self, packages: list[ScanRecord], lag_threshold_days: int, engine_context: EngineContext
+    ) -> None:
+        """Print one `--full` block per package, each followed by a blank line."""
+        for pkg in packages:
+            self.console.print(package_block(pkg, lag_threshold_days, engine_context))
+            self.console.print()
+
     def build_main_table(
         self,
         prod: list[ScanRecord],
         dev: list[ScanRecord],
-        lag_threshold_days: int,
         *,
-        full: bool = False,
-        engine_context: EngineContext | None = None,
         width: int | None = None,
     ) -> Table | None:
         """Single borderless table merging prod and dev sections.
 
-        `full` picks the wide column set and keeps every package; the default keeps a minimal
-        column set and only the packages that need action (drift, a CVE, an unmaintained
-        upstream, or an unsolvable constraint).
+        Keeps only the packages that need action: drift, a CVE, an unmaintained upstream, an
+        unsolvable constraint, an unresolved peer or a policy violation. `--full` lists every
+        package as a `package_block` instead.
 
         Args:
             prod: Production dependency records.
             dev: Development/optional dependency records.
-            lag_threshold_days: Above this many days the time lag is highlighted.
-            full: Use the wide column set and keep every package.
-            engine_context: The runtime versions this scan checked against.
             width: Console width to lay the table out for; defaults to this renderer's own
-                console. Only the What's Next wording depends on it — the `--full` sub-rows keep
-                the detail at every width.
+                console. Only the What's Next wording depends on it.
 
         Returns:
-            The table, or None when no package qualifies for the current mode.
+            The table, or None when no package needs action.
         """
 
         def needs_action(pkg: ScanRecord) -> bool:
@@ -510,15 +577,15 @@ class ConsoleStatusRenderer(AbstractUserInterfaceRenderer):
                 or bool(pkg.provenance and pkg.provenance.violations)
             )
 
-        filtered_prod = prod if full else [pkg for pkg in prod if needs_action(pkg)]
-        filtered_dev = dev if full else [pkg for pkg in dev if needs_action(pkg)]
+        filtered_prod = [pkg for pkg in prod if needs_action(pkg)]
+        filtered_dev = [pkg for pkg in dev if needs_action(pkg)]
 
         if not filtered_prod and not filtered_dev:
             return None
 
-        columns = MAIN_COLUMNS_FULL if full else MAIN_COLUMNS_DEFAULT
+        columns = MAIN_COLUMNS_DEFAULT
         available = self.console.width if width is None else width
-        short_labels = available < (MIN_WIDTH_FULL if full else MIN_WIDTH_DEFAULT)
+        short_labels = available < MIN_WIDTH_DEFAULT
 
         table = Table(show_header=True, header_style="bold dim", box=None, padding=(0, 2))
         for name in columns:
@@ -544,41 +611,15 @@ class ConsoleStatusRenderer(AbstractUserInterfaceRenderer):
                     # identical rows — the plan table and the acknowledgement prompt agree.
                     "Package": pkg.display_name,
                     "CVEs": f"[bold red]{len(pkg.cve)}" if pkg.cve else "",
-                    "EPSS": format_probability(pkg.epss),
-                    "Update Mode": format_lag_status(pkg.versions_diff_index),
                     "Installed": installed_cell(pkg) + format_status_badge(pkg),
                     "Latest": pkg.latest_version or "[dim]—[/dim]",
                     "Recommended": recommended_cell(pkg),
-                    "Lag": format_time_delta(pkg.time_lag_days, lag_threshold_days),
-                    "State": format_state(pkg),
-                    "Build": format_build_provenance(pkg),
-                    "Source": format_source_level(pkg),
                     "What's Next": whats_next(pkg, short=short_labels),
                 }
                 table.add_row(*(cells[name] for name in columns))
 
-                if full and pkg.update_transitive_impacts and pkg.recommended_version != pkg.installed_version:
-                    for text in impact_sub_row_texts(pkg.update_transitive_impacts):
-                        table.add_row(text, *blanks)
-
-                if full:
-                    for text in blocker_sub_row_texts(pkg):
-                        table.add_row(text, *blanks)
-
-                if full:
-                    add_detail_subrows(table, pkg, engine_context or EngineContext())
-
-                if pkg.constraint_conflict:
-                    specs = " + ".join(pkg.constraint_conflict)
-                    table.add_row(f"  [bold red]↳ no version satisfies: {specs}[/]", *blanks)
-
-                # Shown in every mode, like a constraint conflict: either one means the tree is broken.
-                for text in unresolved_peer_texts(pkg):
-                    table.add_row(f"  [yellow]{text}[/]", *blanks)
-
-                # Also every mode: a release that may have been published by someone else is not detail.
-                for text in policy_violation_texts(pkg):
-                    table.add_row(f"  [bold red]{text}[/]", *blanks)
+                for text in alert_sub_row_texts(pkg):
+                    table.add_row(text, *blanks)
 
         if filtered_prod:
             add_section_label("Production")
@@ -590,42 +631,33 @@ class ConsoleStatusRenderer(AbstractUserInterfaceRenderer):
 
         return table
 
-    def transitive_table(
-        self,
-        packages: list[ScanRecord],
-        *,
-        full: bool = False,
-        engine_context: EngineContext | None = None,
-        width: int | None = None,
-    ) -> Table:
+    def transitive_table(self, packages: list[ScanRecord], *, width: int | None = None) -> Table:
         """Borderless table for transitive packages with solver-recommended versions."""
         available = self.console.width if width is None else width
-        # This table is narrower than the compact main one (no Latest, no Update Mode), so
-        # MIN_WIDTH_DEFAULT is a conservative threshold rather than a measured one — it keeps the
-        # two tables agreeing on wording at any given width, which matters more than one column.
+        # This table is narrower than the main one (no Latest), so MIN_WIDTH_DEFAULT is a
+        # conservative threshold rather than a measured one — it keeps the two tables agreeing on
+        # wording at any given width, which matters more than one column.
         short_labels = available < MIN_WIDTH_DEFAULT
         table = Table(show_header=True, header_style="bold dim", box=None, padding=(0, 2))
         table.add_column("Package", justify="left", style="bold")
         table.add_column("CVEs", justify="center")
-        if full:
-            table.add_column("EPSS", justify="right")
         table.add_column("Installed", justify="left")
         table.add_column("Recommended", justify="left", style="bold green")
         table.add_column("What's Next", justify="left")
 
+        blanks = [""] * (len(table.columns) - 1)
         for pkg in packages:
-            row = [pkg.display_name, f"[bold red]{len(pkg.cve)}" if pkg.cve else ""]
-            if full:
-                row.append(format_probability(pkg.epss))
-            row += [installed_cell(pkg), pkg.recommended_version or "", whats_next(pkg, short=short_labels)]
-            table.add_row(*row)
-
-            if full:
-                add_detail_subrows(table, pkg, engine_context or EngineContext())
+            table.add_row(
+                pkg.display_name,
+                f"[bold red]{len(pkg.cve)}" if pkg.cve else "",
+                installed_cell(pkg),
+                pkg.recommended_version or "",
+                whats_next(pkg, short=short_labels),
+            )
             for text in unresolved_peer_texts(pkg):
-                table.add_row(f"  [yellow]{text}[/]", *[""] * (len(table.columns) - 1))
+                table.add_row(f"  [yellow]{text}[/]", *blanks)
             for text in policy_violation_texts(pkg):
-                table.add_row(f"  [bold red]{text}[/]", *[""] * (len(table.columns) - 1))
+                table.add_row(f"  [bold red]{text}[/]", *blanks)
         return table
 
     def upgrade_paths_table(self, paths: list[UpgradePath]) -> Table | None:

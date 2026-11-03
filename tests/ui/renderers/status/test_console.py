@@ -45,10 +45,10 @@ from ossiq.ui.renderers.impact_utils import (
 from ossiq.ui.renderers.status.console import (
     COVERAGE_NAME_LIMIT,
     MIN_WIDTH_DEFAULT,
-    MIN_WIDTH_FULL,
     ConsoleStatusRenderer,
     copy_sub_row_texts,
     installed_cell,
+    package_block,
 )
 
 LATEST = VersionsDifference("1.0.0", "1.0.0", 0, "LATEST")
@@ -126,7 +126,7 @@ def make_record(
 
 
 FULL_TABLE_WIDTH = 240
-"""Roomy enough that a `--full` sub-row, which lives in the Package column, never wraps mid-sentence."""
+"""Roomy enough that no line of a `--full` block wraps."""
 
 
 def render_table(
@@ -137,13 +137,14 @@ def render_table(
     width: int = 200,
     engine_context: EngineContext | None = None,
 ) -> str:
-    renderer = ConsoleStatusRenderer(Settings())
-    table = renderer.build_main_table(
-        prod, dev or [], lag_threshold_days=180, full=full, engine_context=engine_context, width=width
-    )
-    assert table is not None
     console = Console(record=True, width=width)
-    console.print(table)
+    if full:
+        for pkg in [*prod, *(dev or [])]:
+            console.print(package_block(pkg, 180, engine_context or EngineContext()))
+    else:
+        table = ConsoleStatusRenderer(Settings()).build_main_table(prod, dev or [], width=width)
+        assert table is not None
+        console.print(table)
     return console.export_text()
 
 
@@ -176,18 +177,60 @@ def test_narrow_terminal_keeps_fixed_format_columns_intact():
                 recommended_version="9.9.9",
             )
         ],
-        full=True,
         width=80,
     )
     assert "1.0.0" in output  # Installed
     assert "9.9.9" in output  # Latest / Recommended
 
 
-def test_full_mode_shows_detail_columns():
-    header = header_of(render_table([make_record(versions_diff_index=MINOR, recommended_version="1.1.0")], full=True))
-    for shown in ("EPSS", "Update Mode", "Installed", "Latest", "Recommended", "Lag", "State", "What's Next"):
-        assert shown in header
-    assert "Action" not in header
+# --- the --full listing -----------------------------------------------------------------------
+
+
+def test_full_mode_fits_eighty_columns_with_every_field():
+    """Why `--full` is blocks and not columns: the worst-case package still reads whole at 80 columns."""
+    record = with_provenance(
+        constrained_record("@typescript-eslint/eslint-plugin"),
+        build_tier=TrustTier.NONE,
+        source_level=SourceLevel.VERSION_CONTROLLED,
+    )
+    output = render_table([record], full=True, width=80)
+
+    for label in (
+        "installed",
+        "recommended",
+        "latest",
+        "update mode",
+        "lag",
+        "state",
+        "CVEs",
+        "EPSS",
+        "build",
+        "source",
+    ):
+        assert label in output
+    assert "Constrained. Check newer version" in output
+    assert "~1.0.0 caps this below 1.5.0" in output
+    assert "…" not in output
+
+
+def test_a_wrapped_note_continues_under_its_arrow():
+    reason = "trust downgrade: no provenance, but earlier releases had provenance"
+    record = with_provenance(make_record(), build_tier=TrustTier.NONE, violations=(reason,))
+    lines = render_table([record], full=True, width=60).splitlines()
+
+    first = next(i for i, line in enumerate(lines) if "↳ policy:" in line)
+    assert len(lines[first + 1]) - len(lines[first + 1].lstrip()) == lines[first].index("↳")
+
+
+def test_full_mode_lists_transitive_recommendations_as_blocks():
+    record = make_record("minimatch", recommended_version="5.0.0")
+    record.compatibility.breaking_change = "ESM-only from 5.0.0"
+
+    section = render_report([make_record()], transitive=[record], full=True).split("Transitive Recommendations")[1]
+
+    assert "minimatch" in section
+    assert "recommended 5.0.0" in section
+    assert "ESM-only from 5.0.0" in section
 
 
 # --- Latest column and the constrained sub-row ------------------------------------------------
@@ -335,40 +378,6 @@ def test_compact_row_fits_at_the_threshold_width():
     output = render_table([constrained_record("vite-plugin-vue-devtools")], width=MIN_WIDTH_DEFAULT)
     assert "Constrained. Check newer version" in output
     assert "…" not in output
-
-
-def test_full_row_fits_at_the_full_threshold_width():
-    """The same for MIN_WIDTH_FULL, measured with the `--full` sub-row present — it shares the
-    Package column, so it is part of what the constant has to cover."""
-    record = constrained_record("vite-plugin-vue-devtools")
-    renderer = ConsoleStatusRenderer(Settings())
-    # Build wide so the table itself never abbreviates, then print at the threshold: this measures
-    # the layout, not the abbreviation that a real run at this width would apply.
-    table = renderer.build_main_table([record], [], lag_threshold_days=180, full=True, width=10_000)
-    assert table is not None
-    console = Console(record=True, width=MIN_WIDTH_FULL)
-    console.print(table)
-    output = console.export_text()
-    assert "Constrained. Check newer version" in output
-    assert "…" not in output
-
-
-def test_full_mode_uses_its_own_wider_threshold():
-    """The full column set needs more room, so a width that is roomy for the compact table still
-    abbreviates here — otherwise the label would wrap exactly where the extra columns start."""
-    output = render_table([constrained_record()], full=True, width=MIN_WIDTH_DEFAULT)
-    assert "Check newer version" not in output
-
-
-def test_constrained_sub_row_survives_abbreviation():
-    """The sub-row is what makes the short label legible, so it is never abbreviated away."""
-    output = render_table(
-        [constrained_record()],
-        full=True,
-        width=MIN_WIDTH_FULL - 1,
-    )
-    assert "Check newer version" not in output
-    assert "~1.0.0 caps this below 1.5.0" in output
 
 
 def test_abbreviation_is_console_only():
@@ -714,55 +723,14 @@ def test_transitive_table_default_columns():
     assert "Age" not in output
 
 
-def test_transitive_table_full_adds_epss():
-    renderer = ConsoleStatusRenderer(Settings())
-    table = renderer.transitive_table([make_record(epss=0.4, recommended_version="1.1.0")], full=True)
-    console = Console(record=True, width=200)
-    console.print(table)
-    assert "EPSS" in console.export_text()
-
-
-def test_transitive_table_rejected_candidate_sub_row_shown_in_full_mode():
-    record = make_record(recommended_version=None)
-    record.rejected_candidates = [RejectedCandidate(version="2.0.0", reason="dep-y requires >=3.0.0")]
-    renderer = ConsoleStatusRenderer(Settings())
-    table = renderer.transitive_table([record], full=True)
-    console = Console(record=True, width=200)
-    console.print(table)
-    assert "2.0.0 rejected: dep-y requires >=3.0.0" in console.export_text()
-
-
 def test_transitive_table_rejected_candidate_sub_row_absent_without_full():
     record = make_record(recommended_version=None)
     record.rejected_candidates = [RejectedCandidate(version="2.0.0", reason="dep-y requires >=3.0.0")]
     renderer = ConsoleStatusRenderer(Settings())
-    table = renderer.transitive_table([record], full=False)
+    table = renderer.transitive_table([record])
     console = Console(record=True, width=200)
     console.print(table)
     assert "rejected:" not in console.export_text()
-
-
-def test_transitive_table_breaking_change_sub_row_shown_in_full_mode():
-    record = make_record(recommended_version="5.0.0")
-    record.compatibility.breaking_change = "ESM-only from 5.0.0"
-    renderer = ConsoleStatusRenderer(Settings())
-    table = renderer.transitive_table([record], full=True)
-    console = Console(record=True, width=200)
-    console.print(table)
-    assert "ESM-only from 5.0.0" in console.export_text()
-
-
-def test_transitive_table_engine_mismatch_sub_row_shown_in_full_mode():
-    record = make_record(recommended_version="2.0.0")
-    record.compatibility.engine_requirement = {"node": ">=22.0.0"}
-    record.compatibility.engine_compatible = False
-    renderer = ConsoleStatusRenderer(Settings())
-    table = renderer.transitive_table(
-        [record], full=True, engine_context=EngineContext({"node": "18.0.0"}, EngineContextSource.DETECTED)
-    )
-    console = Console(record=True, width=200)
-    console.print(table)
-    assert "requires node >=22.0.0, checked against 18.0.0" in console.export_text()
 
 
 def test_transitive_table_engine_mismatch_sub_row_absent_without_full():
@@ -770,30 +738,10 @@ def test_transitive_table_engine_mismatch_sub_row_absent_without_full():
     record.compatibility.engine_requirement = {"node": ">=22.0.0"}
     record.compatibility.engine_compatible = False
     renderer = ConsoleStatusRenderer(Settings())
-    table = renderer.transitive_table(
-        [record], full=False, engine_context=EngineContext({"node": "18.0.0"}, EngineContextSource.DETECTED)
-    )
+    table = renderer.transitive_table([record])
     console = Console(record=True, width=200)
     console.print(table)
     assert "requires node" not in console.export_text()
-
-
-# --- sub-row padding -------------------------------------------------------------------------
-
-
-def test_sub_rows_pad_to_the_tables_own_column_count():
-    """add_detail_subrows derives its blank cells from len(table.columns), so adding a column
-    can't silently misalign every sub-row the way a hand-maintained count did."""
-    record = make_record(recommended_version="5.0.0")
-    record.compatibility.breaking_change = "ESM-only from 5.0.0"
-    renderer = ConsoleStatusRenderer(Settings())
-
-    for table in (
-        renderer.transitive_table([record], full=True),
-        renderer.transitive_table([record], full=False),
-    ):
-        cells_per_row = {len(column._cells) for column in table.columns}
-        assert len(cells_per_row) == 1, "sub-rows disagree with the header on column count"
 
 
 # --- whats_next column ------------------------------------------------------------------------
@@ -1078,19 +1026,13 @@ def test_default_mode_leaves_the_provenance_columns_to_full():
     assert "Source" not in header
 
 
-def test_full_mode_shows_both_provenance_columns():
-    header = header_of(render_table([make_record()], full=True))
-    assert "Build" in header
-    assert "Source" in header
-
-
 @pytest.mark.parametrize(
     ("tier", "word"),
     [(TrustTier.TRUSTED_PUBLISHER, "trusted"), (TrustTier.PROVENANCE, "attested"), (TrustTier.NONE, "none")],
 )
 def test_the_build_column_names_the_installed_releases_tier(tier, word):
     output = render_table([with_provenance(make_record(), build_tier=tier)], full=True, width=FULL_TABLE_WIDTH)
-    assert word in output.splitlines()[2]
+    assert f"build {word}" in output
 
 
 def test_a_package_whose_tier_was_not_read_shows_a_dash_not_none():
@@ -1117,12 +1059,12 @@ def test_a_package_at_latest_with_a_violation_is_not_hidden_in_the_compact_table
 def test_a_quiet_package_with_no_violation_stays_out_of_the_compact_table():
     renderer = ConsoleStatusRenderer(Settings())
     clean = with_provenance(make_record(), build_tier=TrustTier.NONE)
-    assert renderer.build_main_table([clean], [], lag_threshold_days=180) is None
+    assert renderer.build_main_table([clean], []) is None
 
 
 def test_the_source_column_shows_the_repositorys_level():
     record = with_provenance(make_record(), source_level=SourceLevel.PROTECTED_HISTORY)
-    assert "protected" in render_table([record], full=True, width=FULL_TABLE_WIDTH).splitlines()[2]
+    assert "source protected" in render_table([record], full=True, width=FULL_TABLE_WIDTH)
 
 
 class TestRedCellsFollowTheRuleThatFailed:
