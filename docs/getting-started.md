@@ -159,7 +159,7 @@ For exactly which files are written, and how to run the integration from a local
 
 ```bash
 ossiq status              # dependency health for the whole project
-ossiq status --full       # every package, every column
+ossiq status --full       # every package, every field
 ossiq status --update-strategy security   # CVE-affected packages only
 ossiq info sphinx         # one package: drift, CVEs, tree path, peer requirements
 ossiq add requests        # quality-gated install of the recommended version

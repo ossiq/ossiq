@@ -27,18 +27,17 @@ For the same data as JSON, see
 
 ```bash
 ossiq status [PROJECT_PATH]        # default: only what needs action
-ossiq status --full [PROJECT_PATH] # every package, every column
+ossiq status --full [PROJECT_PATH] # every package, every field
 ```
 
 By default the report shows only the packages that need
 attention (a version behind, a CVE, an unmaintained upstream, or an unsolvable
-constraint) and a four-column table. `--full` shows every package and the detail
-columns.
+constraint) and a compact table. `--full` shows every package with all its fields.
 
 The report has up to six parts, printed in this order. Parts with nothing to show are omitted.
 
 1. **Header**: project name, registry (`npm` or `pypi`), path, and counts: production packages, development packages, and transitive packages with an update recommendation.
-2. **Dependency table**: one row per direct dependency, grouped into *Production* and *Development* sections.
+2. **Dependency table**: one row per direct dependency, grouped into *Production* and *Development* sections. With `--full`, each dependency is a [block](#full-listing) instead of a row.
 3. **Transitive Recommendations**: transitive packages the solver recommends updating.
 4. **New transitive dependencies**: packages that would enter the tree if the recommended updates were applied.
 5. **Peer Constraint Status**: peer dependency requirements and whether the installed versions satisfy them (npm and pnpm projects only; violations only unless `--full`). Peers that are installed but out of reach are not here: they appear as [unresolved-peer rows](#unresolved-peers) under the package that declares them.
@@ -47,7 +46,7 @@ The report has up to six parts, printed in this order. Parts with nothing to sho
 ### Dependency table
 
 Default columns: **Package**, **CVEs**, **Installed**, **Latest**, **Recommended**, **What's
-Next**. `--full` adds **EPSS**, **Update Mode**, **Lag**, and **State**.
+Next**. `--full` shows the same fields, plus the ones marked *(`--full`)* in the table, as a [block per package](#full-listing).
 
 | Column | Meaning |
 |---|---|
@@ -63,6 +62,24 @@ Next**. `--full` adds **EPSS**, **Update Mode**, **Lag**, and **State**.
 | Build | *(`--full`)* How the installed version was published, from the registry's own record: `trusted` (a signed build attestation, published through trusted publishing), `attested` (a signed attestation, published with a token) or `none`. `—` when the registry could not be read. Red with `✗` when it breaks a build rule of your [supply-chain policy](../how-to/set-a-supply-chain-policy.md). |
 | Source | *(`--full`)* How the package's GitHub repository protects its default branch, as it is now: `reviewed`, `protected` or `vcs`. `—` for a repository that is not on GitHub or could not be read. Red with `✗` when it breaks the source rule of your supply-chain policy. |
 | What's Next | The single next action for this package. See [What's Next labels](#whats-next-labels). Blank when nothing is due. |
+
+### Full listing
+
+`--full` replaces the dependency table with one block per package. A table with every field doesn't fit an 80-column terminal, and a block does. Each block starts with the package name and its **What's Next** label, then three lines of fields, then the `↳` notes:
+
+```text
+  which  Consider alternative
+      installed 5.0.0 (+2.0.2) · recommended 7.0.0 · latest 7.0.0
+      update mode Major · lag 2y · state winding_down
+      CVEs 0 · EPSS — · build attested · source protected
+      + isexe 4.0.0 (new copy)
+      ↳ 5.0.0 ← nested-copies ^5.0.0
+      ↳ 2.0.2 ← cross-spawn ^2.0.1
+```
+
+The fields are the dependency table's columns, labeled in lowercase. The first line holds `installed`, `recommended` and `latest`, the second `update mode`, `lag` and `state`, and the third `CVEs`, `EPSS`, `build` and `source`.
+
+`CVEs` reads `0` when there are none, and `recommended` reads `—` when OSS IQ found no version to recommend. *Transitive Recommendations* uses the same block. A line that doesn't fit wraps, and a wrapped `↳` note continues under its own arrow.
 
 ### What's Next labels
 
@@ -80,8 +97,8 @@ Each package gets at most one label. The rules run in this order, and the first 
 | **Withheld by strategy** | A bump is available and the range admits it, but the run's `--update-strategy` tier admitted no motive to take it. The sub-row names the lowest tier that would. |
 | **Constrained. Check newer version** | The package is a minor or patch behind, but the declared range admits no bump `plan` will write. Widening the range is the next step. |
 
-On a terminal narrower than 110 columns, or 176 with `--full`, **Constrained. Check newer
-version** is shortened to **Constrained**. The `--full` sub-row under the package still names the
+On a terminal narrower than 110 columns, the dependency table shortens **Constrained. Check
+newer version** to **Constrained**. `--full` always prints the whole label, and its `↳` note names the
 range and what it caps. Only the console shortens it: `--format agent`, the JSON export, the MCP
 tools and the HTML report always carry the full label.
 
@@ -119,7 +136,7 @@ of the dependency tree, or what holds the package back:
 
 Transitive packages — packages your direct dependencies pull in — for which the solver recommends a different version, most often because the installed version carries a CVE or is far behind. With `--update-strategy security`, the list narrows to packages with CVEs only. To turn these recommendations into an executable update plan, run `ossiq plan` (see [Update Solver](#update-solver)).
 
-Columns: **Package**, **CVEs**, **Installed**, **Recommended**, **What's Next**; `--full` adds **EPSS**. The **Recommended** version is the one the solver picks within all parent constraints; **What's Next** follows the same rules as the dependency table.
+Columns: **Package**, **CVEs**, **Installed**, **Recommended**, **What's Next**. With `--full`, each package is a [block](#full-listing) instead. The **Recommended** version is the one the solver picks within all parent constraints; **What's Next** follows the same rules as the dependency table.
 
 ### New transitive dependencies
 

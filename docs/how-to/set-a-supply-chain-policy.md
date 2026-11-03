@@ -77,7 +77,7 @@ A version that breaks a rule is never recommended. What you see depends on the c
 | Where | What changes |
 |---|---|
 | `plan` | The version is left out, and the plan lists it under *Held by your supply-chain policy* with the reason. |
-| `status` | When the installed version breaks a rule, a `↳ policy:` line gives the reason and *What's Next* reads **Review provenance**. With `--full`, the cell for the rule that failed also turns red: *Build* (`✗ none`) for a build rule, *Source* (`✗ vcs`) for the source rule. The HTML report shows the same in its *Build* and *Source* columns. |
+| `status` | When the installed version breaks a rule, a `↳ policy:` line gives the reason and *What's Next* reads **Review provenance**. With `--full`, the field for the rule that failed also turns red: `build ✗ none` for a build rule, `source ✗ vcs` for the source rule. The HTML report shows the same in its *Build* and *Source* columns. |
 | `add`, `info` for a package you haven't installed, and the MCP `ossiq_evaluate_dependency` tool | The `POLICY_VIOLATION` warning is critical. `add` stops unless you pass `--force`, and the MCP tool answers `do not install`. If an older version passes, OSS IQ recommends that one instead. |
 | JSON export (schema `1.7`) and agent format | `policy_violations` lists the reasons, and `next_action` reads `Review provenance`. The full export also carries `build_provenance` and `source_level`. |
 

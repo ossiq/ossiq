@@ -40,7 +40,7 @@ Prints the project report. By default it shows only the packages that need actio
 
 | Option | Description |
 |---|---|
-| `--full` | Show every package and the detail columns: EPSS, update mode, lag and maintenance state |
+| `--full` | List every package with all its fields, one block per package: versions, EPSS, update mode, lag, maintenance state, build and source |
 | `--format console\|agent`, `-f` | Print the console report (default) or the [agent format](export-and-agent-format.md#agent-format) |
 | `--lag-threshold-delta DELTA`, `-l` | Highlight a lag longer than this. Units: `y`, `m`, `w`, `d`, `h`; a bare number is days. Default: `1y` |
 | `--registry-type npm\|pypi`, `-r` | Analyze one ecosystem of a polyglot repository |
