@@ -125,3 +125,13 @@ describe('isActionable', () => {
     expect(isActionable(row({ maintenance_state: 'maintained' }))).toBe(false)
   })
 })
+
+describe('isActionable and the supply-chain policy', () => {
+  it('keeps an up-to-date package on the default table when its release breaks the policy', () => {
+    expect(isActionable(row({ policy_violations: ['trust downgrade'] }))).toBe(true)
+  })
+
+  it('leaves a clean up-to-date package off it', () => {
+    expect(isActionable(row({ build_provenance: 'none', policy_violations: [] }))).toBe(false)
+  })
+})

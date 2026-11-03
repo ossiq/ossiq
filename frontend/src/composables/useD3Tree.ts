@@ -179,6 +179,9 @@ export function useD3Tree(options: UseD3TreeOptions) {
       days_since_push: d.data.days_since_push,
       dependency_health_action: d.data.dependency_health_action,
       unresolved_peers: d.data.unresolved_peers,
+      build_provenance: d.data.build_provenance,
+      source_level: d.data.source_level,
+      policy_violations: d.data.policy_violations,
       dependencies: d.data.dependencies,
       optional_dependencies: d.data.optional_dependencies,
     })

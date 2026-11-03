@@ -150,3 +150,39 @@ describe('effectiveConstraintType', () => {
     }
   })
 })
+
+describe('buildPackageRegistry and provenance (schema 1.7)', () => {
+  function reportWith(direct: Partial<PackageMetrics>, trans: Partial<TransitivePackageMetrics>) {
+    return {
+      constraint_type_map: ['DECLARED'],
+      production_packages: [pkg({ package_name: 'a', ...direct })],
+      development_packages: [],
+      transitive_packages: [transitive({ id: 3, ...trans })],
+      dependency_tree: [],
+    } as unknown as OSSIQExportSchemaV17
+  }
+
+  it('carries the build tier, the source level and the violations onto direct and transitive entries', () => {
+    const { directEntries, byId } = buildPackageRegistry(
+      reportWith(
+        { build_provenance: 'trusted-publisher', source_level: 'reviewed', policy_violations: ['too weak'] },
+        { build_provenance: 'none', policy_violations: ['no provenance'] },
+      ),
+    )
+
+    expect(directEntries.get('a')!.build_provenance).toBe('trusted-publisher')
+    expect(directEntries.get('a')!.source_level).toBe('reviewed')
+    expect(directEntries.get('a')!.policy_violations).toEqual(['too weak'])
+    expect(byId.get(3)!.build_provenance).toBe('none')
+    expect(byId.get(3)!.policy_violations).toEqual(['no provenance'])
+  })
+
+  it('reads a report made before 1.7, which has none of it, as unknown and clean', () => {
+    const { directEntries, byId } = buildPackageRegistry(reportWith({}, {}))
+
+    expect(directEntries.get('a')!.build_provenance).toBeNull()
+    expect(directEntries.get('a')!.source_level).toBeNull()
+    expect(directEntries.get('a')!.policy_violations).toEqual([])
+    expect(byId.get(3)!.source_level).toBeNull()
+  })
+})

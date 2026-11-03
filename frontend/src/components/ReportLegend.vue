@@ -100,6 +100,8 @@ import { constraintCircleClasses } from '@/explorer/nodeStyle'
             <p class="text-xs text-slate-500 leading-relaxed">
               The single next step for a package.
               <span class="text-red-700 font-bold">Check for the Fix</span>: a CVE with ≥10% exploit probability.
+              <span class="text-red-700 font-bold">Review provenance</span>: the installed release breaks the
+              supply-chain policy in your config file, or that policy ruled out every newer release.
               <span class="text-red-700 font-bold">Find alternative</span>: already current but the upstream is
               abandoned or deprecated. <span class="text-amber-600 font-bold">Consider alternative</span>: the
               upstream is winding down. <span class="font-bold">Check Release Notes</span>: a major version behind.
@@ -112,6 +114,27 @@ import { constraintCircleClasses } from '@/explorer/nodeStyle'
               available, but the update strategy this scan ran under admitted no reason to take it.
               By default the table hides packages with nothing to do — tick
               <span class="font-bold">Show all packages</span> to see them.
+            </p>
+          </div>
+        </div>
+
+        <!-- Build and Source provenance -->
+        <div class="flex items-start gap-3">
+          <span class="material-symbols-rounded text-lg text-slate-400 shrink-0">verified_user</span>
+          <div>
+            <div class="text-sm font-bold text-slate-900">Build and Source</div>
+            <p class="text-xs text-slate-500 leading-relaxed">
+              <span class="font-bold">Build</span> is how the installed release was published, from the registry's
+              own record. <span class="text-green-700 font-bold">trusted</span>: a signed build attestation, published
+              through the registry's trusted-publisher flow. <span class="text-green-700 font-bold">attested</span>: a
+              signed attestation, but published with a token. <span class="font-bold">none</span>: no attestation.
+              <span class="font-bold">Source</span> is how well the package's GitHub repository protects its
+              default branch, as it is now:
+              <span class="text-green-700 font-bold">reviewed</span> (history protected, approved pull requests
+              required), <span class="text-green-700 font-bold">protected</span> (force-pushes and deletion blocked)
+              or <span class="font-bold">vcs</span> (neither). A dash means it could not be read, which is not the
+              same as none. A <span class="text-red-700 font-bold">✗</span> means the policy in your config file
+              rules the package out; hover for the reason.
             </p>
           </div>
         </div>

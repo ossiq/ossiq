@@ -58,6 +58,11 @@ export interface DependencyNode {
   dependency_health_action?: string | null
   // Peers this package declares that nothing within its reach satisfies (npm only, schema 1.6+).
   unresolved_peers?: UnresolvedPeerExport[]
+  // How the installed release was built and how its repository is protected, and why either breaks the
+  // user's supply-chain policy (schema 1.7+).
+  build_provenance?: string | null
+  source_level?: string | null
+  policy_violations?: string[]
   dependencies?: Record<string, DependencyNode>
   optional_dependencies?: Record<string, DependencyNode>
 }
@@ -126,6 +131,11 @@ export interface SelectedNodeDetail {
   dependency_health_action?: string | null
   // Peers this package declares that nothing within its reach satisfies (npm only, schema 1.6+).
   unresolved_peers?: UnresolvedPeerExport[]
+  // How the installed release was built and how its repository is protected, and why either breaks the
+  // user's supply-chain policy (schema 1.7+).
+  build_provenance?: string | null
+  source_level?: string | null
+  policy_violations?: string[]
   dependencies?: Record<string, DependencyNode>
   optional_dependencies?: Record<string, DependencyNode>
 }

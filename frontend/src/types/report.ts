@@ -6,7 +6,7 @@
  */
 
 /**
- * Schema for OSS-IQ project metrics export data (v1.5 adds epss to PackageMetrics, TransitivePackageMetrics and CVEInfo, runs_code_at_install/install_execution_reason to PackageMetrics and TransitivePackageMetrics, fix_age_days to CVEInfo, project_epss/packages_with_epss/packages_with_unscored_cves to summary, declares update_transitive_impacts, and replaces the phi_i/phi_p/phi_a CSI channels with the maintenance-state model: maintenance_state, maintenance_risk, maintenance_coverage, flow_trend, engagement_buckets, deprecation_signals and deprecation_successor and dependency_health_action on PackageMetrics and TransitivePackageMetrics, and packages_unmaintained/packages_deprecated on summary; and adds latest_compatible_major, module_system, recommended_module_system to PackageMetrics and TransitivePackageMetrics, and breaking_change to PackageMetrics; and adds engine_requirement, engine_compatible, engine_context_source to PackageMetrics and TransitivePackageMetrics; and adds metadata.warnings and a scan-level runtime_context block, moving engine_context_source off the per-package models; and adds next_action to PackageMetrics and TransitivePackageMetrics and requires_constraint_widening to PackageMetrics, so every surface reads one next-action label instead of re-deriving it; and adds latest_preserving_module_system and module_system_note to PackageMetrics and TransitivePackageMetrics; and adds the standard/full profile split: metadata.profile, summary.transitive_packages, runtime_context.runtime_mismatch, affected_ranges/fixed_in on CVEInfo, recommended_version/required_by on TransitivePackageMetrics, and ignored_packages/upgrade_paths/manifest_lock_divergent at the root - the standard profile validates against export_schema_v1.6_standard.json) v1.6 adds unresolved_peers to PackageMetrics and TransitivePackageMetrics (peers a package declares that nothing installed within its reach satisfies) and peer_repairs at the root (how `ossiq apply` puts them back), and registry_status and deprecation_message to PackageMetrics and TransitivePackageMetrics (the registry's own verdict on the whole package, and the note behind it). v1.7 adds package_manager and package_manager_version to runtime_context (the CLI the project's package manager is driven through, and its detected version) and deprecates npm_cli_version, which they supersede; a document that declares an earlier version omits them.
+ * Schema for OSS-IQ project metrics export data (v1.5 adds epss to PackageMetrics, TransitivePackageMetrics and CVEInfo, runs_code_at_install/install_execution_reason to PackageMetrics and TransitivePackageMetrics, fix_age_days to CVEInfo, project_epss/packages_with_epss/packages_with_unscored_cves to summary, declares update_transitive_impacts, and replaces the phi_i/phi_p/phi_a CSI channels with the maintenance-state model: maintenance_state, maintenance_risk, maintenance_coverage, flow_trend, engagement_buckets, deprecation_signals and deprecation_successor and dependency_health_action on PackageMetrics and TransitivePackageMetrics, and packages_unmaintained/packages_deprecated on summary; and adds latest_compatible_major, module_system, recommended_module_system to PackageMetrics and TransitivePackageMetrics, and breaking_change to PackageMetrics; and adds engine_requirement, engine_compatible, engine_context_source to PackageMetrics and TransitivePackageMetrics; and adds metadata.warnings and a scan-level runtime_context block, moving engine_context_source off the per-package models; and adds next_action to PackageMetrics and TransitivePackageMetrics and requires_constraint_widening to PackageMetrics, so every surface reads one next-action label instead of re-deriving it; and adds latest_preserving_module_system and module_system_note to PackageMetrics and TransitivePackageMetrics; and adds the standard/full profile split: metadata.profile, summary.transitive_packages, runtime_context.runtime_mismatch, affected_ranges/fixed_in on CVEInfo, recommended_version/required_by on TransitivePackageMetrics, and ignored_packages/upgrade_paths/manifest_lock_divergent at the root - the standard profile validates against export_schema_v1.6_standard.json) v1.6 adds unresolved_peers to PackageMetrics and TransitivePackageMetrics (peers a package declares that nothing installed within its reach satisfies) and peer_repairs at the root (how `ossiq apply` puts them back), and registry_status and deprecation_message to PackageMetrics and TransitivePackageMetrics (the registry's own verdict on the whole package, and the note behind it). v1.7 adds package_manager and package_manager_version to runtime_context (the CLI the project's package manager is driven through, and its detected version) and deprecates npm_cli_version, which they supersede; it also adds build_provenance, source_level and policy_violations to PackageMetrics and TransitivePackageMetrics (the registry's build evidence for the installed release, how well its source repository protects its history, and why it breaks the supply-chain policy set in the config file) and the next_action label 'Review provenance'. A document that declares an earlier version omits the new fields and never emits that label.
  */
 export interface OSSIQExportSchemaV17 {
   /**
@@ -413,6 +413,7 @@ export interface PackageMetrics {
    */
   next_action?:
     | "Check for the Fix"
+    | "Review provenance"
     | "Find alternative"
     | "Consider alternative"
     | "Check Release Notes"
@@ -537,6 +538,18 @@ export interface PackageMetrics {
    * Peers this package declares that nothing installed where it looks can satisfy: a required peer npm left missing, or an optional one installed only nested under another package. Empty for PyPI projects and when every peer resolves
    */
   unresolved_peers?: UnresolvedPeerExport[];
+  /**
+   * How strong the registry's build evidence for the installed release is: none (no attestation), provenance (a signed build attestation) or trusted-publisher (attested and published through the registry's OIDC trusted-publisher flow). Null when the registry could not be read, which is not the same as none
+   */
+  build_provenance?: "none" | "provenance" | "trusted-publisher" | null;
+  /**
+   * How well the package's source repository protects its default branch, read from GitHub as it is now rather than as it was when the release was cut: version-controlled, protected-history (force-pushes and deletion blocked) or reviewed (protected history, and a pull request with an approval is required). Null for transitive packages and for repositories that are not on GitHub or could not be read
+   */
+  source_level?: "version-controlled" | "protected-history" | "reviewed" | null;
+  /**
+   * Why the installed release breaks the supply-chain policy set in the config file, one reason per rule. A reason about the source repository begins 'source repository is'; any other is about how the release was built. Empty when it passes, or when no policy is set
+   */
+  policy_violations?: string[];
   [k: string]: unknown;
 }
 /**
@@ -772,6 +785,7 @@ export interface TransitivePackageMetrics {
    */
   next_action?:
     | "Check for the Fix"
+    | "Review provenance"
     | "Find alternative"
     | "Consider alternative"
     | "Check Release Notes"
@@ -932,6 +946,18 @@ export interface TransitivePackageMetrics {
    * Peers this package declares that nothing installed where it looks can satisfy: a required peer npm left missing, or an optional one installed only nested under another package. Empty for PyPI projects and when every peer resolves
    */
   unresolved_peers?: UnresolvedPeerExport[];
+  /**
+   * How strong the registry's build evidence for the installed release is: none (no attestation), provenance (a signed build attestation) or trusted-publisher (attested and published through the registry's OIDC trusted-publisher flow). Null when the registry could not be read, which is not the same as none
+   */
+  build_provenance?: "none" | "provenance" | "trusted-publisher" | null;
+  /**
+   * How well the package's source repository protects its default branch, read from GitHub as it is now rather than as it was when the release was cut: version-controlled, protected-history (force-pushes and deletion blocked) or reviewed (protected history, and a pull request with an approval is required). Null for transitive packages and for repositories that are not on GitHub or could not be read
+   */
+  source_level?: "version-controlled" | "protected-history" | "reviewed" | null;
+  /**
+   * Why the installed release breaks the supply-chain policy set in the config file, one reason per rule. A reason about the source repository begins 'source repository is'; any other is about how the release was built. Empty when it passes, or when no policy is set
+   */
+  policy_violations?: string[];
   [k: string]: unknown;
 }
 /**

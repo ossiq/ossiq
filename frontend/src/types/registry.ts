@@ -54,6 +54,9 @@ export interface RegistryEntry {
   days_since_push: number | null
   dependency_health_action: string | null
   unresolved_peers: UnresolvedPeerExport[]
+  build_provenance: string | null
+  source_level: string | null
+  policy_violations: string[]
   childEdges: Map<number, EdgeData>
 }
 
@@ -107,6 +110,9 @@ export interface DirectEntry {
   days_since_push: number | null
   dependency_health_action: string | null
   unresolved_peers: UnresolvedPeerExport[]
+  build_provenance: string | null
+  source_level: string | null
+  policy_violations: string[]
   childRefs: Array<{ ref: number; edgeData: EdgeData }>
 }
 

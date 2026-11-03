@@ -61,6 +61,9 @@ export function buildPackageRegistry(report: OSSIQExportSchemaV17): PackageRegis
       days_since_push: pkg.days_since_push ?? null,
       dependency_health_action: pkg.dependency_health_action ?? null,
       unresolved_peers: pkg.unresolved_peers ?? [],
+      build_provenance: pkg.build_provenance ?? null,
+      source_level: pkg.source_level ?? null,
+      policy_violations: pkg.policy_violations ?? [],
       childEdges: new Map(),
     })
   }
@@ -133,6 +136,9 @@ export function buildPackageRegistry(report: OSSIQExportSchemaV17): PackageRegis
       days_since_push: pkg.days_since_push ?? null,
       dependency_health_action: pkg.dependency_health_action ?? null,
       unresolved_peers: pkg.unresolved_peers ?? [],
+      build_provenance: pkg.build_provenance ?? null,
+      source_level: pkg.source_level ?? null,
+      policy_violations: pkg.policy_violations ?? [],
       childRefs: [],
     })
   }

@@ -2,6 +2,7 @@
 import { ref } from 'vue'
 import type { ReportRow, SortColumn, SortDirection } from '@/composables/useReportFilters'
 import { WHATS_NEXT_CLASS } from '@/composables/useReportFilters'
+import { buildBadge, sourceBadge } from '@/composables/provenanceBadges'
 import type { PackageMetrics, TransitiveImpactExport } from '@/types/report'
 import { constraintCircleClasses, effectiveConstraintType } from '@/explorer/nodeStyle'
 
@@ -82,15 +83,15 @@ interface ColumnDef {
 }
 
 const columns: ColumnDef[] = [
-  { id: 'name',       label: 'Dependency',   width: '16%' },
-  { id: 'cve',        label: 'CVEs',         width: '7%'  },
-  { id: 'drift',      label: 'Drift',        width: '10%' },
+  { id: 'name',       label: 'Dependency',   width: '15%' },
+  { id: 'cve',        label: 'CVEs',         width: '6%'  },
+  { id: 'drift',      label: 'Drift',        width: '9%'  },
   { id: 'installed',  label: 'Installed',    width: '8%'  },
   { id: 'latest',     label: 'Latest',       width: '7%'  },
-  { id: 'releases',   label: 'Releases',     width: '6%'  },
-  { id: 'timeLag',    label: 'Time Lag',     width: '6%'  },
-  { id: 'versionAge', label: 'Version Age',  width: '6%'  },
-  { id: 'epss',       label: 'EPSS',         width: '7%'  },
+  { id: 'releases',   label: 'Releases',     width: '5%'  },
+  { id: 'timeLag',    label: 'Time Lag',     width: '5%'  },
+  { id: 'versionAge', label: 'Version Age',  width: '5%'  },
+  { id: 'epss',       label: 'EPSS',         width: '6%'  },
 ]
 
 function sortIcon(col: SortColumn, currentCol: SortColumn | null, dir: SortDirection): string {
@@ -166,7 +167,8 @@ function spdxUrl(spdxId: string): string {
 
 <template>
   <section class="w-full">
-    <div class="w-full overflow-hidden bg-white border border-zinc-200 border-b-[3px] border-b-zinc-300">
+    <!-- Fits a 1280px window: the table needs about 1130px at its narrowest, and a window that wide leaves it about 1210px. Narrower than that it scrolls rather than clips. -->
+    <div class="w-full overflow-x-auto bg-white border border-zinc-200 border-b-[3px] border-b-zinc-300">
       <table class="w-full text-left border-collapse">
         <thead class="bg-zinc-50 border-b border-zinc-200">
           <tr>
@@ -174,30 +176,40 @@ function spdxUrl(spdxId: string): string {
               v-for="col in columns"
               :key="col.id"
               :width="col.width"
-              class="px-3 py-2.5 text-[9px] font-bold uppercase tracking-widest text-zinc-500"
+              class="px-2 py-2.5 text-[9px] font-bold uppercase tracking-wider text-zinc-500"
             >
-              <span class="flex items-center gap-1">
+              <span class="flex items-center gap-0.5">
                 <span>{{ col.label }}</span>
                 <button
-                  class="material-symbols-rounded text-base text-zinc-400 hover:text-zinc-700 transition"
+                  class="material-symbols-rounded text-sm w-3.5 text-zinc-400 hover:text-zinc-700 transition"
                   @click="emit('sort', col.id)"
                 >
                   {{ sortIcon(col.id, sortColumn, sortDirection) }}
                 </button>
               </span>
             </th>
-            <th class="px-3 py-2.5 text-[9px] font-bold uppercase tracking-widest text-zinc-500" width="8%">Rec. Version</th>
-            <th class="px-3 py-2.5 text-[9px] font-bold uppercase tracking-widest text-zinc-500" width="10%">What's Next</th>
-            <th class="px-3 py-2.5 text-[9px] font-bold uppercase tracking-widest text-zinc-500" width="9%">License</th>
-            <th class="px-3 py-2.5 text-[9px] font-bold uppercase tracking-widest text-zinc-500" width="5%">Impact</th>
+            <th
+              class="px-2 py-2.5 text-[9px] font-bold uppercase tracking-wider text-zinc-500"
+              width="7%"
+              title="How the installed release was built and published (SLSA Build track)"
+            >Build</th>
+            <th
+              class="px-2 py-2.5 text-[9px] font-bold uppercase tracking-wider text-zinc-500"
+              width="7%"
+              title="How well the source repository protects its history (SLSA Source track)"
+            >Source</th>
+            <th class="px-2 py-2.5 text-[9px] font-bold uppercase tracking-wider text-zinc-500" width="8%">Rec. Version</th>
+            <th class="px-2 py-2.5 text-[9px] font-bold uppercase tracking-wider text-zinc-500" width="10%">What's Next</th>
+            <th class="px-2 py-2.5 text-[9px] font-bold uppercase tracking-wider text-zinc-500" width="8%">License</th>
+            <th class="px-2 py-2.5 text-[9px] font-bold uppercase tracking-wider text-zinc-500" width="4%">Impact</th>
           </tr>
         </thead>
         <tbody class="divide-y divide-zinc-100">
           <template v-for="row in rows" :key="row.pkg.package_name">
           <tr class="hover:bg-zinc-50 transition-colors">
             <!-- Dependency -->
-            <td class="px-3 py-2">
-              <div class="flex items-center gap-1.5">
+            <td class="px-2 py-2">
+              <div class="flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
                 <span
                   class="inline-block w-4 h-4 rounded-full shrink-0"
                   :class="constraintCircleClasses(shownConstraintType(row.pkg))"
@@ -214,6 +226,11 @@ function spdxUrl(spdxId: string): string {
                   :title="`Recommended action from the EPSS x maintenance-state matrix`"
                 >{{ row.pkg.dependency_health_action }}</span>
                 <span
+                  v-if="(row.pkg.policy_violations?.length ?? 0) > 0"
+                  class="px-1.5 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wide shrink-0 bg-red-700 text-white"
+                  :title="row.pkg.policy_violations!.join('\n')"
+                >policy</span>
+                <span
                   v-if="row.hasTransitiveCve"
                   class="text-orange-500 font-black leading-none text-xs"
                   title="Has transitive dependency CVEs"
@@ -227,7 +244,7 @@ function spdxUrl(spdxId: string): string {
             </td>
 
             <!-- Security -->
-            <td class="px-3 py-2 text-center">
+            <td class="px-2 py-2 text-center">
               <a
                 v-if="row.cveCount > 0"
                 :href="osvUrl(row.pkg.package_name, registry)"
@@ -240,7 +257,7 @@ function spdxUrl(spdxId: string): string {
             </td>
 
             <!-- Drift Status -->
-            <td class="px-3 py-2">
+            <td class="px-2 py-2">
               <div class="flex items-center gap-1">
                 <span class="material-symbols-rounded text-base text-zinc-400">{{ driftIcon(row.driftStatus) }}</span>
                 <span
@@ -251,7 +268,7 @@ function spdxUrl(spdxId: string): string {
             </td>
 
             <!-- Installed -->
-            <td class="px-3 py-2 text-xs text-zinc-800">
+            <td class="px-2 py-2 text-xs text-zinc-800">
               <span class="font-mono">{{ row.pkg.installed_version }}</span>
               <span
                 v-if="row.isPackageUnpublished"
@@ -280,21 +297,21 @@ function spdxUrl(spdxId: string): string {
             </td>
 
             <!-- Latest, with the ladder rungs that sit below it -->
-            <td class="px-3 py-2 text-xs font-mono text-zinc-700">
+            <td class="px-2 py-2 text-xs font-mono text-zinc-700">
               <div>{{ row.pkg.latest_version ?? '—' }}</div>
               <div
                 v-for="rung in reachableRungs(row.pkg)"
                 :key="rung.label"
-                class="text-[9px] text-zinc-400 whitespace-nowrap"
+                class="text-[9px] text-zinc-400"
                 :title="`${rung.version} is the newest version reachable ${rung.label}`"
               >{{ rung.label }} {{ rung.version }}</div>
             </td>
 
             <!-- Releases Distance -->
-            <td class="px-3 py-2 text-xs text-zinc-700">{{ row.pkg.releases_lag ?? 0 }}</td>
+            <td class="px-2 py-2 text-xs text-zinc-700">{{ row.pkg.releases_lag ?? 0 }}</td>
 
             <!-- Time Lag -->
-            <td class="px-3 py-2">
+            <td class="px-2 py-2">
               <strong
                 class="text-xs font-semibold"
                 :class="timeLagColor(row.pkg.time_lag_days)"
@@ -302,7 +319,7 @@ function spdxUrl(spdxId: string): string {
             </td>
 
             <!-- Version Age -->
-            <td class="px-3 py-2">
+            <td class="px-2 py-2">
               <strong
                 class="text-xs font-semibold"
                 :class="timeLagColor(row.pkg.version_age_days)"
@@ -310,15 +327,37 @@ function spdxUrl(spdxId: string): string {
             </td>
 
             <!-- EPSS -->
-            <td class="px-3 py-2 text-xs text-center">
+            <td class="px-2 py-2 text-xs text-center">
               <strong
                 class="font-semibold"
                 :class="epssColor(row.pkg.epss)"
               >{{ formatEpss(row.pkg.epss) }}</strong>
             </td>
 
+            <!-- Build provenance of the installed release -->
+            <td class="px-2 py-2 text-center">
+              <span
+                v-if="buildBadge(row.pkg)"
+                class="inline-block whitespace-nowrap"
+                :class="buildBadge(row.pkg)!.classes"
+                :title="buildBadge(row.pkg)!.title"
+              >{{ buildBadge(row.pkg)!.label }}</span>
+              <span v-else class="text-zinc-300">—</span>
+            </td>
+
+            <!-- Source repository protection -->
+            <td class="px-2 py-2 text-center">
+              <span
+                v-if="sourceBadge(row.pkg)"
+                class="inline-block whitespace-nowrap"
+                :class="sourceBadge(row.pkg)!.classes"
+                :title="sourceBadge(row.pkg)!.title"
+              >{{ sourceBadge(row.pkg)!.label }}</span>
+              <span v-else class="text-zinc-300">—</span>
+            </td>
+
             <!-- Recommended Version -->
-            <td class="px-3 py-2 text-xs">
+            <td class="px-2 py-2 text-xs">
               <span
                 v-if="row.pkg.recommended_version"
                 class="font-mono font-semibold text-violet-700"
@@ -332,7 +371,7 @@ function spdxUrl(spdxId: string): string {
             </td>
 
             <!-- What's Next -->
-            <td class="px-3 py-2 text-xs">
+            <td class="px-2 py-2 text-xs">
               <span
                 v-if="row.whatsNext"
                 class="font-semibold"
@@ -342,7 +381,7 @@ function spdxUrl(spdxId: string): string {
             </td>
 
             <!-- License -->
-            <td class="px-3 py-2">
+            <td class="px-2 py-2">
               <div class="flex flex-wrap gap-0.5">
                 <template v-if="row.license.length > 0">
                   <a
@@ -358,7 +397,7 @@ function spdxUrl(spdxId: string): string {
             </td>
 
             <!-- Impact toggle -->
-            <td class="px-3 py-2 text-center">
+            <td class="px-2 py-2 text-center">
               <button
                 v-if="hasImpacts(row)"
                 class="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[10px] font-semibold border cursor-pointer transition-colors"
@@ -379,7 +418,7 @@ function spdxUrl(spdxId: string): string {
             v-if="hasImpacts(row) && expandedImpacts.has(row.pkg.package_name)"
             class="bg-stone-50"
           >
-            <td colspan="13" class="px-6 py-3">
+            <td colspan="15" class="px-6 py-3">
               <p v-if="row.pkg.recommended_version" class="text-xs text-zinc-500 mb-2">
                 Recommended update:
                 <span class="font-mono font-semibold text-zinc-700">{{ row.pkg.installed_version }}</span>
@@ -421,7 +460,7 @@ function spdxUrl(spdxId: string): string {
           </template>
 
           <tr v-if="rows.length === 0">
-            <td colspan="13" class="px-6 py-8 text-center text-sm text-zinc-400">
+            <td colspan="15" class="px-6 py-8 text-center text-sm text-zinc-400">
               No dependencies match the current filters.
             </td>
           </tr>

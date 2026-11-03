@@ -3,6 +3,7 @@ import { computed } from 'vue'
 import type { SelectedNodeDetail, DependencyNode } from '@/types/dependency-tree'
 import type { CVEInfo } from '@/types/report'
 import { computeDriftStatus, formatTimeLag, WHATS_NEXT_CLASS } from '@/composables/useReportFilters'
+import { buildBadge, sourceBadge } from '@/composables/provenanceBadges'
 
 const props = defineProps<{
   node: SelectedNodeDetail | null
@@ -129,6 +130,11 @@ const maintenance = computed(() => {
 const deprecationSignals = computed(() => props.node?.deprecation_signals ?? [])
 
 const unresolvedPeers = computed(() => props.node?.unresolved_peers ?? [])
+
+// Build and source evidence behind the installed release; the same badges as the report table.
+const buildProvenance = computed(() => (props.node ? buildBadge(props.node) : null))
+const sourceProvenance = computed(() => (props.node ? sourceBadge(props.node) : null))
+const policyViolations = computed(() => props.node?.policy_violations ?? [])
 
 const triageConfig: Record<string, { text: string; label: string }> = {
   evict: { text: 'text-red-700', label: 'EVICT' },
@@ -563,6 +569,51 @@ const transitiveCVEGroups = computed<TransitiveCVEGroup[]>(() => {
                 installed only out of reach: <span class="font-mono">{{ peer.installed_elsewhere.join(', ') }}</span>
               </p>
               <p v-else class="text-[10px] text-amber-700">not installed</p>
+            </div>
+          </div>
+        </section>
+
+        <!-- Provenance — always drawn: a dash says the evidence could not be read, which is not the same as
+             "none". `ossiq status --full` shows the same two values in its Build and Source columns. -->
+        <section data-testid="provenance">
+          <div class="flex items-center gap-2 mb-3">
+            <p class="text-[10px] font-bold uppercase tracking-widest text-slate-400 font-mono">Provenance</p>
+            <span
+              v-if="policyViolations.length > 0"
+              class="px-2 py-0.5 bg-red-100 text-red-700 text-[9px] font-bold rounded-full"
+              data-testid="provenance-policy-count"
+            >{{ policyViolations.length }} policy</span>
+          </div>
+          <div class="border-t border-slate-100 divide-y divide-slate-100">
+            <div class="py-2 space-y-1" data-testid="provenance-build">
+              <div class="flex items-center justify-between">
+                <span class="text-[10px] text-slate-400 uppercase">Build</span>
+                <span v-if="buildProvenance" class="inline-block" :class="buildProvenance.classes">{{ buildProvenance.label }}</span>
+                <span v-else class="text-[10px] font-mono text-slate-300">—</span>
+              </div>
+              <p class="text-[10px] text-slate-500 leading-snug">
+                {{ buildProvenance ? buildProvenance.meaning : 'Not read: the registry could not say how this version was published.' }}
+              </p>
+            </div>
+            <div class="py-2 space-y-1" data-testid="provenance-source">
+              <div class="flex items-center justify-between">
+                <span class="text-[10px] text-slate-400 uppercase">Source</span>
+                <span v-if="sourceProvenance" class="inline-block" :class="sourceProvenance.classes">{{ sourceProvenance.label }}</span>
+                <span v-else class="text-[10px] font-mono text-slate-300">—</span>
+              </div>
+              <p class="text-[10px] text-slate-500 leading-snug">
+                {{ sourceProvenance ? sourceProvenance.meaning : 'Not read: a transitive dependency, a repository not on GitHub, or GitHub could not say.' }}
+              </p>
+            </div>
+            <div v-if="policyViolations.length > 0" class="py-2" data-testid="provenance-violations">
+              <p class="text-[10px] text-slate-400 uppercase mb-1">Breaks your policy</p>
+              <ul class="space-y-1">
+                <li
+                  v-for="reason in policyViolations"
+                  :key="reason"
+                  class="text-[10px] text-red-700 leading-snug"
+                >✗ {{ reason }}</li>
+              </ul>
             </div>
           </div>
         </section>

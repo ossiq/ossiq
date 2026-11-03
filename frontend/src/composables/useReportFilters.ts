@@ -55,6 +55,7 @@ export function computeDriftStatus(
 
 export const WHATS_NEXT_CLASS: Record<string, string> = {
   'Check for the Fix': 'text-red-700',
+  'Review provenance': 'text-red-700',
   'Find alternative': 'text-red-700',
   'Consider alternative': 'text-amber-600',
   'Check Release Notes': 'text-slate-600',
@@ -78,6 +79,8 @@ export function isActionable(row: ReportRow): boolean {
     // A peer the package cannot reach breaks it at load time however current it is, so a
     // package that is otherwise clean still belongs on the default table.
     (p.unresolved_peers?.length ?? 0) > 0 ||
+    // The user's own supply-chain policy rules the installed release out: not detail to be hidden.
+    (p.policy_violations?.length ?? 0) > 0 ||
     (p.recommended_version != null && p.recommended_version !== p.installed_version)
   )
 }

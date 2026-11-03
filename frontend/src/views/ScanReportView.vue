@@ -95,6 +95,9 @@ function handleSelectPackage(row: ReportRow) {
     days_since_push: row.pkg.days_since_push ?? null,
     dependency_health_action: row.pkg.dependency_health_action ?? null,
     unresolved_peers: row.pkg.unresolved_peers ?? [],
+    build_provenance: row.pkg.build_provenance ?? null,
+    source_level: row.pkg.source_level ?? null,
+    policy_violations: row.pkg.policy_violations ?? [],
   }
 
   const transitives = store.report?.transitive_packages ?? []

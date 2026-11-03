@@ -94,3 +94,68 @@ describe('DependencyDetailPanel registry verdict', () => {
     expect(wrapper.text()).toContain('<b>use got</b>')
   })
 })
+
+describe('DependencyDetailPanel provenance', () => {
+  const section = (over: Partial<SelectedNodeDetail> = {}) => mountNode(over).find('[data-testid="provenance"]')
+
+  it('is always drawn, so an unread value is visible as a dash rather than missing', () => {
+    const wrapper = section()
+
+    expect(wrapper.exists()).toBe(true)
+    expect(wrapper.find('[data-testid="provenance-build"]').text()).toContain('—')
+    expect(wrapper.find('[data-testid="provenance-source"]').text()).toContain('—')
+  })
+
+  it('says why a value is missing instead of leaving it blank', () => {
+    const wrapper = section({ build_provenance: null, source_level: null })
+
+    expect(wrapper.find('[data-testid="provenance-build"]').text()).toContain('registry could not say')
+    expect(wrapper.find('[data-testid="provenance-source"]').text()).toContain('transitive dependency')
+  })
+
+  it('names the build tier and the source level, and what each means', () => {
+    const wrapper = section({ build_provenance: 'trusted-publisher', source_level: 'reviewed' })
+
+    expect(wrapper.find('[data-testid="provenance-build"]').text()).toContain('trusted')
+    expect(wrapper.find('[data-testid="provenance-build"]').text()).toContain("registry's trusted-publisher flow")
+    expect(wrapper.find('[data-testid="provenance-source"]').text()).toContain('reviewed')
+    expect(wrapper.find('[data-testid="provenance-source"]').text()).toContain('requires an approved pull request')
+  })
+
+  it('does not paint "none" as a problem', () => {
+    const badge = section({ build_provenance: 'none' }).find('[data-testid="provenance-build"] span.inline-block')
+
+    expect(badge.classes().join(' ')).not.toMatch(/red/)
+  })
+
+  it('lists every policy reason and counts them', () => {
+    const wrapper = section({
+      build_provenance: 'none',
+      source_level: 'version-controlled',
+      policy_violations: ['no provenance, below the required provenance', 'source repository is version-controlled, below the required reviewed'],
+    })
+
+    const reasons = wrapper.find('[data-testid="provenance-violations"]').text()
+    expect(reasons).toContain('no provenance, below the required provenance')
+    expect(reasons).toContain('source repository is version-controlled, below the required reviewed')
+    expect(wrapper.find('[data-testid="provenance-policy-count"]').text()).toContain('2')
+  })
+
+  it('reddens only the cell whose rule failed', () => {
+    const wrapper = section({
+      build_provenance: 'none',
+      source_level: 'protected-history',
+      policy_violations: ['no provenance, below the required provenance'],
+    })
+
+    expect(wrapper.find('[data-testid="provenance-build"] span.inline-block').classes().join(' ')).toMatch(/red/)
+    expect(wrapper.find('[data-testid="provenance-source"] span.inline-block').classes().join(' ')).not.toMatch(/red/)
+  })
+
+  it('shows no violation block for a package that passes', () => {
+    const wrapper = section({ build_provenance: 'provenance', policy_violations: [] })
+
+    expect(wrapper.find('[data-testid="provenance-violations"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="provenance-policy-count"]').exists()).toBe(false)
+  })
+})
