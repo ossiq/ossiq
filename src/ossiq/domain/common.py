@@ -346,6 +346,9 @@ class RejectedCandidate:
     held_by_peer: PeerHold | None = None
     """The peer range that rules this release out; None when no installed package peer-requires around it."""
 
+    held_by_policy: bool = False
+    """True when a configured supply-chain policy rules this release out; `reason` says which rule."""
+
     @property
     def full_reason(self) -> str:
         """Headline and detail as one line - what every non-tabular surface prints."""

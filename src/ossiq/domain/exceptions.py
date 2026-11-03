@@ -30,6 +30,13 @@ class ApplicationError(Exception):
         return f"{text}\n{self.hint}" if self.hint else text
 
 
+class InvalidConfiguration(ApplicationError):
+    """Raised when a setting in the config file or the environment holds a value OSS IQ cannot use."""
+
+    title = "Invalid Configuration"
+    hint = "Correct the setting named above in your config file or environment, then run the command again."
+
+
 class GithubRateLimitError(ApplicationError):
     """Raised when the GitHub API rate limit is exceeded."""
 

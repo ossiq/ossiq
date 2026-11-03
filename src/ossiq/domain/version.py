@@ -9,6 +9,7 @@ from functools import cmp_to_key
 from typing import TypeVar
 
 from ossiq.domain.common import ConstraintType, ModuleSystem
+from ossiq.domain.provenance import TrustTier
 
 # Version is unpublished from the Package Registry or Unknown
 VERSION_NO_DIFF = 10
@@ -127,6 +128,9 @@ class PackageVersion:
     """This release's own module format (npm only, from `type`/`exports`). Always None on PyPI."""
     declared_peer_dependencies: dict[str, PeerDependency] = field(default_factory=dict)
     """This release's peer requirements (npm only). Always empty on PyPI."""
+    trust_tier: TrustTier | None = None
+    """Build evidence the registry holds for this release. None when it could not be determined
+    (the lookup failed, or the release is only known as unpublished/deleted); never a stand-in for NONE."""
 
 
 @dataclass

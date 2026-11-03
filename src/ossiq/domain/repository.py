@@ -15,6 +15,7 @@ class Repository:
     archived: bool | None
     pushed_at: str | None
     topics: list[str]
+    default_branch: str | None
 
     def __init__(
         self,
@@ -27,6 +28,7 @@ class Repository:
         archived: bool | None = None,
         pushed_at: str | None = None,
         topics: list[str] | None = None,
+        default_branch: str | None = None,
     ):
         self.provider = provider
         self.owner = owner
@@ -40,6 +42,8 @@ class Repository:
         self.archived = archived
         self.pushed_at = pushed_at
         self.topics = topics or []
+        # The branch whose protection says how well the history is kept; None when the host did not name one.
+        self.default_branch = default_branch
 
     def __repr__(self):
         return f"""{self.provider} Repository(
