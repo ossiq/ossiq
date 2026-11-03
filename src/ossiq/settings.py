@@ -5,11 +5,13 @@ from collections.abc import Mapping
 from datetime import datetime
 from enum import StrEnum
 from pathlib import Path
-from typing import ClassVar
+from typing import Annotated, ClassVar
 
-from pydantic import AliasChoices, Field, field_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import AliasChoices, Field, ValidationError, ValidationInfo, field_validator
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
+from ossiq.domain.exceptions import InvalidConfiguration
+from ossiq.domain.provenance import ProvenancePolicy, SourceLevel, TrustPolicy, TrustTier
 from ossiq.messages import (
     ARGS_HELP_CACHE_DESTINATION,
     ARGS_HELP_CACHE_TTL,
@@ -119,6 +121,24 @@ class Settings(BaseSettings):
         default=False, description="Treat the runtime as unknown: no probe, no provided version, floor only"
     )
 
+    # Supply-chain policies. Config file and environment only: a rule that holds updates back is a
+    # standing decision of the project or the machine, not something to repeat on every command line.
+    policy_trust: TrustPolicy | None = Field(
+        default=None, description="Named trust rule to enforce, e.g. no-downgrade. Unset = off"
+    )
+    policy_min_build: TrustTier = Field(
+        default=TrustTier.NONE,
+        description="Weakest build tier a release may carry: none, provenance, trusted-publisher",
+    )
+    policy_min_source: SourceLevel | None = Field(
+        default=None,
+        description="Weakest source level a package's repository may have: "
+        "version-controlled, protected-history, reviewed. Unset = off",
+    )
+    policy_exclude: Annotated[tuple[str, ...], NoDecode] = Field(
+        default=(), description="Comma-separated `name` or `name@version` entries no policy applies to"
+    )
+
     # Store the environment prefix for reference (not a setting itself)
     ENV_PREFIX: ClassVar[str] = ENV_PREFIX
 
@@ -138,6 +158,26 @@ class Settings(BaseSettings):
         """Accept any casing of the mode ('OFF' from a shell profile is as good as 'off')."""
         return v.strip().lower() if isinstance(v, str) else v
 
+    @field_validator("policy_trust", "policy_min_build", "policy_min_source", mode="before")
+    @classmethod
+    def normalize_policy_choice(cls, v: object, info: ValidationInfo) -> object:
+        """Accept any casing of a policy value; a blank one ('OSSIQ_POLICY_TRUST=') means off."""
+        if not isinstance(v, str):
+            return v
+        normalized = v.strip().lower()
+        if normalized:
+            return normalized
+        # The build floor is never unset: off is the lowest tier, which asks for nothing.
+        return TrustTier.NONE if info.field_name == "policy_min_build" else None
+
+    @field_validator("policy_exclude", mode="before")
+    @classmethod
+    def split_policy_exclude(cls, v: object) -> object:
+        """Read `a,b@1.0.0` from a dotenv line; an already-split sequence passes through."""
+        if isinstance(v, str):
+            return tuple(entry.strip() for entry in v.split(",") if entry.strip())
+        return v
+
     @classmethod
     def load(cls, config_file: Path | None = None) -> "Settings":
         """Load settings from the config files; env vars override file values.
@@ -149,12 +189,24 @@ class Settings(BaseSettings):
         Returns:
             Settings built from LEGACY_CONFIG_PATH, then CONFIG_PATH (a key in the new file wins),
             then the environment. Only the new config directory is ever created.
+
+        Raises:
+            InvalidConfiguration: A setting holds a value it cannot take. The message names each one
+                by its environment variable, without echoing the value.
         """
         CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
         env_files = [config_file] if config_file is not None else [LEGACY_CONFIG_PATH, CONFIG_PATH]
-        # _env_file is a real BaseSettings init param; ty only sees the synthesized model __init__
-        # Later files override earlier ones; a file that does not exist is skipped.
-        return cls(_env_file=env_files)  # ty: ignore[unknown-argument]
+        try:
+            # _env_file is a real BaseSettings init param; ty only sees the synthesized model __init__
+            # Later files override earlier ones; a file that does not exist is skipped.
+            return cls(_env_file=env_files)  # ty: ignore[unknown-argument]
+        except ValidationError as error:
+            # The value is left out on purpose: a setting that holds a secret must not be echoed back.
+            problems = "; ".join(
+                f"{ENV_PREFIX}{'_'.join(str(part) for part in problem['loc']).upper()}: {problem['msg']}"
+                for problem in error.errors()
+            )
+            raise InvalidConfiguration(problems) from None
 
     def responsiveness_enabled(self) -> bool:
         """Whether to run the GraphQL issue/PR/engagement stability channels.
@@ -168,3 +220,17 @@ class Settings(BaseSettings):
         if self.stability_responsiveness is not None:
             return self.stability_responsiveness
         return bool(self.github_token)
+
+    def provenance_policy(self) -> ProvenancePolicy:
+        """The configured supply-chain rules as one value; a rule is off unless its key is set.
+
+        Returns:
+            The policy with `exclude` as written. Spelling it the way a registry does is the caller's
+            job, since only the caller knows which registry the names belong to.
+        """
+        return ProvenancePolicy(
+            no_downgrade=self.policy_trust is TrustPolicy.NO_DOWNGRADE,
+            min_build=self.policy_min_build,
+            min_source=self.policy_min_source,
+            exclude=self.policy_exclude,
+        )

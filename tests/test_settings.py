@@ -8,6 +8,8 @@ from typer.testing import CliRunner
 
 import ossiq.settings
 from ossiq.cli import app
+from ossiq.domain.exceptions import InvalidConfiguration
+from ossiq.domain.provenance import ProvenancePolicy, SourceLevel, TrustPolicy, TrustTier
 from ossiq.settings import GITHUB_CLIENT_ID, GithubAuthMode, Settings, default_config_dir
 
 runner = CliRunner()
@@ -268,3 +270,129 @@ def test_github_client_id_defaults_to_the_registered_app():
 def test_github_client_id_can_be_overridden_by_env(monkeypatch):
     monkeypatch.setenv("OSSIQ_GITHUB_CLIENT_ID", "Iv1.other")
     assert Settings().github_client_id == "Iv1.other"
+
+
+class TestPolicySettings:
+    def test_every_rule_is_off_by_default(self):
+        policy = Settings().provenance_policy()
+
+        assert policy == ProvenancePolicy()
+        assert not policy.is_active
+
+    def test_the_config_file_switches_the_rules_on(self, tmp_path):
+        path = tmp_path / "config"
+        path.write_text(
+            "OSSIQ_POLICY_TRUST=no-downgrade\n"
+            "OSSIQ_POLICY_MIN_BUILD=provenance\n"
+            "OSSIQ_POLICY_MIN_SOURCE=protected-history\n"
+            "OSSIQ_POLICY_EXCLUDE=chokidar@4.0.3,legacy-pkg\n"
+        )
+
+        policy = Settings.load(path).provenance_policy()
+
+        assert policy == ProvenancePolicy(
+            no_downgrade=True,
+            min_build=TrustTier.PROVENANCE,
+            min_source=SourceLevel.PROTECTED_HISTORY,
+            exclude=("chokidar@4.0.3", "legacy-pkg"),
+        )
+        assert policy.is_active
+
+    def test_the_environment_overrides_the_config_file(self, tmp_path, monkeypatch):
+        path = tmp_path / "config"
+        path.write_text("OSSIQ_POLICY_MIN_BUILD=provenance\n")
+        monkeypatch.setenv("OSSIQ_POLICY_MIN_BUILD", "trusted-publisher")
+
+        assert Settings.load(path).policy_min_build is TrustTier.TRUSTED_PUBLISHER
+
+    def test_values_are_case_insensitive_and_blank_means_unset(self, tmp_path):
+        path = tmp_path / "config"
+        path.write_text("OSSIQ_POLICY_TRUST= No-Downgrade \nOSSIQ_POLICY_MIN_SOURCE=\n")
+
+        settings = Settings.load(path)
+
+        assert settings.policy_trust is TrustPolicy.NO_DOWNGRADE
+        assert settings.policy_min_source is None
+
+    def test_a_blank_build_floor_asks_for_nothing(self, monkeypatch):
+        monkeypatch.setenv("OSSIQ_POLICY_MIN_BUILD", "")
+
+        settings = Settings()
+
+        assert settings.policy_min_build is TrustTier.NONE
+        assert not settings.provenance_policy().is_active
+
+    def test_the_exclude_list_tolerates_spaces_and_scoped_names(self, monkeypatch):
+        monkeypatch.setenv("OSSIQ_POLICY_EXCLUDE", " @types/node@18.0.0 , legacy ,")
+
+        assert Settings().policy_exclude == ("@types/node@18.0.0", "legacy")
+
+    @pytest.mark.parametrize(
+        ("key", "value"),
+        [
+            ("OSSIQ_POLICY_TRUST", "no-upgrade"),
+            ("OSSIQ_POLICY_MIN_BUILD", "signed"),
+            ("OSSIQ_POLICY_MIN_SOURCE", "two-party"),
+        ],
+    )
+    def test_an_unknown_value_is_rejected_rather_than_ignored(self, monkeypatch, key, value):
+        # A policy that silently fails open is worse than no policy.
+        monkeypatch.setenv(key, value)
+
+        with pytest.raises(ValidationError):
+            Settings()
+
+    def test_a_min_build_of_none_asks_for_nothing(self):
+        assert not ProvenancePolicy(min_build=TrustTier.NONE).is_active
+
+    def test_build_rules_alone_gate_every_package_but_source_rules_do_not(self):
+        assert ProvenancePolicy(no_downgrade=True).gates_builds
+        assert ProvenancePolicy(min_build=TrustTier.PROVENANCE).gates_builds
+        assert not ProvenancePolicy(min_source=SourceLevel.REVIEWED).gates_builds
+
+
+class TestInvalidConfiguration:
+    """A mistyped setting is a message with a fix, not a stack trace - above all for a safety policy."""
+
+    def test_a_bad_value_names_the_variable_and_what_is_allowed(self, monkeypatch):
+        monkeypatch.setenv("OSSIQ_POLICY_MIN_BUILD", "signed")
+
+        with pytest.raises(InvalidConfiguration) as error:
+            Settings.load()
+
+        assert "OSSIQ_POLICY_MIN_BUILD" in str(error.value)
+        assert "'none', 'provenance' or 'trusted-publisher'" in str(error.value)
+
+    def test_the_offending_value_is_never_echoed(self, monkeypatch):
+        monkeypatch.setenv("OSSIQ_POLICY_MIN_BUILD", "hunter2-secret")
+
+        with pytest.raises(InvalidConfiguration) as error:
+            Settings.load()
+
+        assert "hunter2-secret" not in str(error.value)
+
+    def test_every_bad_setting_is_reported_at_once(self, monkeypatch):
+        monkeypatch.setenv("OSSIQ_POLICY_TRUST", "never")
+        monkeypatch.setenv("OSSIQ_POLICY_MIN_SOURCE", "two-party")
+
+        with pytest.raises(InvalidConfiguration) as error:
+            Settings.load()
+
+        assert "OSSIQ_POLICY_TRUST" in str(error.value) and "OSSIQ_POLICY_MIN_SOURCE" in str(error.value)
+
+    def test_a_bad_value_in_the_config_file_is_reported_the_same_way(self, tmp_path):
+        path = tmp_path / "config"
+        path.write_text("OSSIQ_POLICY_MIN_SOURCE=two-party\n")
+
+        with pytest.raises(InvalidConfiguration, match="OSSIQ_POLICY_MIN_SOURCE"):
+            Settings.load(path)
+
+    def test_the_cli_shows_the_panel_and_exits_with_an_error(self, monkeypatch):
+        monkeypatch.setenv("OSSIQ_POLICY_MIN_BUILD", "signed")
+
+        result = runner.invoke(app, ["status", "."])
+
+        assert result.exit_code == 1
+        assert "Invalid Configuration" in result.output
+        assert "OSSIQ_POLICY_MIN_BUILD" in result.output
+        assert "Traceback" not in result.output

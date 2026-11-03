@@ -37,7 +37,7 @@ from ossiq.commands.plan import (
 )
 from ossiq.commands.status import CommandStatusOptions, command_status
 from ossiq.commands.update_context import CommandUpdateContextOptions, command_update_context
-from ossiq.domain.exceptions import ApplicationError
+from ossiq.domain.exceptions import ApplicationError, InvalidConfiguration
 from ossiq.mcp.server import serve as serve_mcp
 from ossiq.messages import (
     ARGS_HELP_CACHE_DESTINATION,
@@ -361,7 +361,12 @@ def main(
         raise typer.BadParameter(f"Config file not found: {config}", param_hint="--config")
 
     # 1. Load settings from the config file; env vars override file values (pydantic-settings)
-    settings = Settings.load(config)
+    try:
+        settings = Settings.load(config)
+    except InvalidConfiguration as exc:
+        # Before any settings exist, so error_boundary (which reads --traceback from them) cannot run yet.
+        show_error(str(exc), title=exc.title, hint=exc.hint)
+        raise typer.Exit(1) from None
 
     # 2. Collect CLI arguments that will override env vars
     cli_overrides = {
