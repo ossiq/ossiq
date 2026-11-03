@@ -47,10 +47,10 @@ def test_install_requests_cache_sets_stability_url_ttls(tmp_path):
             "*/commits*": 168 * 3600,
             "*/graphql*": 168 * 3600,
             "*/readme*": 168 * 3600,
+            "*/branches/*": 168 * 3600,
         },
         allowable_methods=("GET", "POST"),
-        # The ranged PEP 792 status request is answered 206; unlisted, it would never be reused.
-        allowable_codes=(200, 206),
+        allowable_codes=(200,),
         filter_fn=prepare_for_cache,
     )
     backend = install_cache.call_args.kwargs["backend"]

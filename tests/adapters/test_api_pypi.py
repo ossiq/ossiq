@@ -19,10 +19,13 @@ from ossiq.adapters.api_pypi import (
     get_repo_url,
     is_valid_pep440_version,
     pypi_registry_status,
+    pypi_trust_tier,
 )
 from ossiq.clients.batch import BatchClient
+from ossiq.clients.client_pypi import SimpleIndex
 from ossiq.domain.common import ConstraintType, ProjectPackagesRegistry, RegistryStatus
 from ossiq.domain.exceptions import UnableLoadPackage
+from ossiq.domain.provenance import TrustTier
 from ossiq.domain.requirement_scope import RequirementScope
 from ossiq.domain.version import (
     VERSION_DIFF_BUILD,
@@ -360,10 +363,14 @@ class TestRegistryStatus:
 
     @staticmethod
     def load(pypi_api, name: str, status_chunks: list[dict]):
-        """Run packages_info_batch with the JSON and status batches patched on this instance."""
+        """Run packages_info_batch with the JSON and Simple API batches patched on this instance."""
+        index_chunks = [
+            {package: SimpleIndex(status=status, provenance={}) for package, status in chunk.items()}
+            for chunk in status_chunks
+        ]
         with (
             patch.object(pypi_api._batch_client, "run_batch", return_value=iter([{name: raw_project(name)}])),
-            patch.object(pypi_api._status_batch_client, "run_batch", return_value=iter(status_chunks)) as status_batch,
+            patch.object(pypi_api._index_batch_client, "run_batch", return_value=iter(index_chunks)) as status_batch,
         ):
             package = pypi_api.packages_info_batch([name])[name]
         return package, status_batch
@@ -414,7 +421,7 @@ class TestRegistryStatus:
 
         with (
             patch.object(pypi_api._batch_client, "run_batch", return_value=iter([])),
-            patch.object(pypi_api._status_batch_client, "run_batch") as again,
+            patch.object(pypi_api._index_batch_client, "run_batch") as again,
         ):
             package = pypi_api.packages_info_batch(["demo"])["demo"]
 
@@ -425,12 +432,72 @@ class TestRegistryStatus:
     def test_a_package_that_failed_to_load_is_never_asked_for_a_status(self, pypi_api):
         with (
             patch.object(pypi_api._batch_client, "run_batch", return_value=iter([])),
-            patch.object(pypi_api._status_batch_client, "run_batch") as status_batch,
+            patch.object(pypi_api._index_batch_client, "run_batch") as status_batch,
         ):
             with pytest.raises(UnableLoadPackage):
                 pypi_api.packages_info_batch(["missing"])
 
         status_batch.assert_not_called()
+
+
+class TestPypiTrustTier:
+    ATTESTED = "https://pypi.org/integrity/demo/1.0.0/demo-1.0.0.tar.gz/provenance"
+    TWO_FILES = [{"filename": "demo-1.0.0.tar.gz"}, {"filename": "demo-1.0.0-py3-none-any.whl"}]
+
+    def test_a_release_with_every_file_attested_is_a_trusted_publisher_release(self):
+        provenance = {"demo-1.0.0.tar.gz": self.ATTESTED, "demo-1.0.0-py3-none-any.whl": self.ATTESTED}
+
+        assert pypi_trust_tier(self.TWO_FILES, provenance) == TrustTier.TRUSTED_PUBLISHER
+
+    def test_one_unattested_file_makes_the_whole_release_unattested(self):
+        # A file added later with a stolen token carries no attestation.
+        provenance = {"demo-1.0.0.tar.gz": self.ATTESTED, "demo-1.0.0-py3-none-any.whl": None}
+
+        assert pypi_trust_tier(self.TWO_FILES, provenance) == TrustTier.NONE
+
+    def test_a_release_published_before_attestations_existed_is_none(self):
+        provenance = {"demo-1.0.0.tar.gz": None, "demo-1.0.0-py3-none-any.whl": None}
+
+        assert pypi_trust_tier(self.TWO_FILES, provenance) == TrustTier.NONE
+
+    def test_a_page_that_could_not_be_read_leaves_the_release_unjudged(self):
+        assert pypi_trust_tier(self.TWO_FILES, None) is None
+
+    def test_a_file_the_page_does_not_list_leaves_the_release_unjudged(self):
+        # The legacy JSON and the Simple API are cached separately, so one can be a release ahead.
+        assert pypi_trust_tier(self.TWO_FILES, {"demo-1.0.0.tar.gz": self.ATTESTED}) is None
+
+    def test_a_release_with_no_files_is_unjudged(self):
+        assert pypi_trust_tier([], {}) is None
+
+
+class TestReleaseTrustTier:
+    """The tier reaches PackageVersion through the Simple API page fetched next to the JSON metadata."""
+
+    @staticmethod
+    def releases(pypi_api, index: SimpleIndex | None):
+        raw = raw_project("demo")
+        raw["releases"] = {"1.0.0": [{"filename": "demo-1.0.0.tar.gz", "yanked": False}]}
+        chunks = [] if index is None else [{"demo": index}]
+        with (
+            patch.object(pypi_api._batch_client, "run_batch", return_value=iter([{"demo": raw}])),
+            patch.object(pypi_api._index_batch_client, "run_batch", return_value=iter(chunks)),
+        ):
+            pypi_api.packages_info_batch(["demo"])
+        return {pv.version: pv for pv in pypi_api.package_versions("demo")}
+
+    def test_an_attested_release_is_a_trusted_publisher_release(self, pypi_api):
+        index = SimpleIndex(status={}, provenance={"demo-1.0.0.tar.gz": "https://x/provenance"})
+
+        assert self.releases(pypi_api, index)["1.0.0"].trust_tier == TrustTier.TRUSTED_PUBLISHER
+
+    def test_an_unattested_release_is_none(self, pypi_api):
+        index = SimpleIndex(status={}, provenance={"demo-1.0.0.tar.gz": None})
+
+        assert self.releases(pypi_api, index)["1.0.0"].trust_tier == TrustTier.NONE
+
+    def test_a_failed_page_request_leaves_the_tier_unknown_not_none(self, pypi_api):
+        assert self.releases(pypi_api, None)["1.0.0"].trust_tier is None
 
 
 class TestPypiRegistryStatus:

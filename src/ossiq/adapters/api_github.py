@@ -13,6 +13,7 @@ import requests
 from ossiq.clients.batch import is_rate_limit_response
 from ossiq.clients.client_github import (
     BatchClient,
+    GithubBranchControlsBatchStrategy,
     GithubCommitsBatchStrategy,
     GithubGraphQLBatchStrategy,
     GithubReadmeBatchStrategy,
@@ -30,8 +31,11 @@ from ..domain.common import (
     RateLimitBudget,
     RepositoryProvider,
     SourceFetch,
+    combine_statuses,
+    merge_diagnostics,
 )
 from ..domain.exceptions import GithubRateLimitError
+from ..domain.provenance import SourceLevel
 from ..domain.repository import Repository
 from ..domain.version import Commit, PackageVersion, RepositoryVersion, User, sort_versions
 from .api_interfaces import AbstractSourceCodeProviderApi
@@ -278,6 +282,7 @@ class SourceCodeProviderApiGithub(AbstractSourceCodeProviderApi):
                     archived=repo_data.get("archived"),
                     pushed_at=repo_data.get("pushed_at"),
                     topics=repo_data.get("topics") or [],
+                    default_branch=repo_data.get("default_branch"),
                 )
         return SourceFetch(result, client.last_summary.status, client.last_summary.diagnostics)
 
@@ -335,6 +340,64 @@ class SourceCodeProviderApiGithub(AbstractSourceCodeProviderApi):
                 if text:
                     result[url] = text
         return SourceFetch(result, client.last_summary.status, client.last_summary.diagnostics)
+
+    def branch_controls_batch(self, branches: dict[str, str]) -> SourceFetch[dict[str, SourceLevel]]:
+        """Read how each repo protects its default branch, from classic protection and rulesets.
+
+        Two requests per repo. A repo for which neither could be read is absent from the result, so
+        an unreachable repo is never reported as an unprotected one.
+        """
+        items = list(branches.items())
+        protection_client = BatchClient(GithubBranchControlsBatchStrategy(self.session, "protection"))
+        rules_client = BatchClient(GithubBranchControlsBatchStrategy(self.session, "rules"))
+        protection: dict[str, bool] = {}
+        rules: dict[str, list[dict]] = {}
+        for chunk_result in protection_client.run_batch(items):
+            protection.update(chunk_result)
+        for chunk_result in rules_client.run_batch(items):
+            rules.update(chunk_result)
+
+        levels: dict[str, SourceLevel] = {}
+        for url in branches:
+            level = self.source_level_from_controls(protection.get(url), rules.get(url))
+            if level is not None:
+                levels[url] = level
+        summaries = (protection_client.last_summary, rules_client.last_summary)
+        return SourceFetch(
+            levels,
+            combine_statuses(summary.status for summary in summaries),
+            merge_diagnostics(summary.diagnostics for summary in summaries),
+        )
+
+    @staticmethod
+    def source_level_from_controls(protection_enabled: bool | None, rules: list[dict] | None) -> SourceLevel | None:
+        """Judge how well a default branch keeps its history from what GitHub says protects it.
+
+        Args:
+            protection_enabled: Whether classic branch protection is on; None when it could not be read.
+            rules: The active ruleset rules for the branch, each with its `type` and `parameters`; None
+                when they could not be read.
+
+        Returns:
+            `REVIEWED` when the history is protected and a pull request with an approval is required,
+            `PROTECTED_HISTORY` when force-pushes and deletion are blocked, `VERSION_CONTROLLED` when the
+            repository was readable but protects neither, and None when neither answer could be read.
+        """
+        # shortcut: classic protection's allow_force_pushes setting is admin-only, so classic protection
+        # counts as blocking force-pushes (GitHub's default); read it with a token that can administer
+        # the repository if this ever has to be exact.
+        if protection_enabled is None and rules is None:
+            return None
+        types = {rule.get("type") for rule in rules or []}
+        protected_history = {"deletion", "non_fast_forward"} <= types or bool(protection_enabled)
+        reviewed = any(
+            rule.get("type") == "pull_request"
+            and ((rule.get("parameters") or {}).get("required_approving_review_count") or 0) >= 1
+            for rule in rules or []
+        )
+        if protected_history and reviewed:
+            return SourceLevel.REVIEWED
+        return SourceLevel.PROTECTED_HISTORY if protected_history else SourceLevel.VERSION_CONTROLLED
 
     def rate_limit_budgets(self) -> tuple[RateLimitBudget, ...]:
         """What this token's GitHub quota looks like right now, before the scan spends any of it.

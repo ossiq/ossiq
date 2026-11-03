@@ -6,6 +6,8 @@ import base64
 import logging
 import re
 from datetime import UTC, datetime
+from typing import Any, Literal
+from urllib.parse import quote
 
 import requests
 
@@ -398,8 +400,57 @@ class GithubReadmeBatchStrategy(BatchStrategy):
         return {original_url: text[:README_HEAD_BYTES]}
 
 
+class GithubBranchControlsBatchStrategy(BatchStrategy):
+    """How a repository protects its default branch, from the two places GitHub keeps that.
+
+    `protection` reads GET /repos/{owner}/{repo}/branches/{branch}, whose `protection.enabled` is true
+    for classic branch protection; the rules behind it are admin-only, so only the flag is visible.
+    `rules` reads GET /repos/{owner}/{repo}/rules/branches/{branch}, the active repository and
+    organization rulesets with their parameters, which anyone can read on a public repository.
+    The top-level `protected` flag is not used: it is also true for a ruleset that only asks for
+    status checks, which says nothing about force-pushes.
+
+    prepare_item   : (repo URL, default branch)
+    process_response: `{url: bool}` for `protection`, `{url: [rule, ...]}` for `rules`; a repo whose
+        request failed has no entry, which is not the same as an empty answer.
+    """
+
+    def __init__(self, session: requests.Session, kind: Literal["protection", "rules"]):
+        self.session = session
+        self.kind = kind
+
+    @property
+    def config(self) -> BatchStrategySettings:
+        return BatchStrategySettings(
+            chunk_size=1,
+            max_retries=2,
+            max_workers=5,
+            request_timeout=15.0,
+        )
+
+    def prepare_item(self, item: tuple[str, str]) -> tuple[str, str]:
+        url, branch = item
+        prefix = "rules/branches" if self.kind == "rules" else "branches"
+        return (url, f"{repo_api_path(url)}/{prefix}/{quote(branch, safe='/')}")
+
+    def perform_request(self, chunk: list) -> requests.Response:
+        _, api_path = chunk[0]
+        return self.session.get(f"{GITHUB_API}/{api_path}", timeout=self.config.request_timeout)
+
+    def process_response(self, source_items: list, response: ChunkResult) -> dict[str, Any]:
+        url, _ = source_items[0]
+        body = response.data[0] if response.data else None
+        if self.kind == "rules":
+            return {url: [rule for rule in body if isinstance(rule, dict)]} if isinstance(body, list) else {}
+        if not isinstance(body, dict):
+            return {}
+        protection = body.get("protection")
+        return {url: bool(isinstance(protection, dict) and protection.get("enabled"))}
+
+
 __all__ = (
     "BatchClient",
+    "GithubBranchControlsBatchStrategy",
     "GithubCommitsBatchStrategy",
     "GithubGraphQLBatchStrategy",
     "GithubReadmeBatchStrategy",

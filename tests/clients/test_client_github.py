@@ -8,6 +8,7 @@ from ossiq.clients.batch import ChunkResult
 from ossiq.clients.client_github import (
     FIRST_PAGE,
     RESPONSIVENESS_PAGE_CAP,
+    GithubBranchControlsBatchStrategy,
     GithubGraphQLBatchStrategy,
     build_activity_query,
     fetch_rate_limit,
@@ -192,3 +193,69 @@ class TestNextItems:
         source = [item("u0", "o", "a", "issues", after="IC", page=RESPONSIVENESS_PAGE_CAP - 1)]
         body = {"data": {"r0": {"issues": {"pageInfo": {"hasNextPage": True, "endCursor": "IC2"}, "nodes": []}}}}
         assert strategy.next_items(source, chunk_result(body)) == []
+
+
+class TestBranchControlsRequest:
+    URL = "https://github.com/pallets/flask"
+
+    def test_protection_reads_the_branch_endpoint(self) -> None:
+        strategy = GithubBranchControlsBatchStrategy(MagicMock(), "protection")
+
+        assert strategy.prepare_item((self.URL, "main")) == (self.URL, "repos/pallets/flask/branches/main")
+
+    def test_rules_read_the_ruleset_endpoint(self) -> None:
+        strategy = GithubBranchControlsBatchStrategy(MagicMock(), "rules")
+
+        assert strategy.prepare_item((self.URL, "main")) == (self.URL, "repos/pallets/flask/rules/branches/main")
+
+    def test_a_branch_with_a_slash_keeps_it_and_other_characters_are_quoted(self) -> None:
+        strategy = GithubBranchControlsBatchStrategy(MagicMock(), "protection")
+
+        _, path = strategy.prepare_item((self.URL, "release/1.x #beta"))
+
+        assert path.endswith("/branches/release/1.x%20%23beta")
+
+    def test_the_request_goes_to_the_api_host(self) -> None:
+        session = MagicMock()
+        strategy = GithubBranchControlsBatchStrategy(session, "rules")
+
+        strategy.perform_request([(self.URL, "repos/pallets/flask/rules/branches/main")])
+
+        assert session.get.call_args[0][0] == "https://api.github.com/repos/pallets/flask/rules/branches/main"
+
+
+class TestBranchControlsResponse:
+    URL = "https://github.com/pallets/flask"
+
+    def process(self, kind, body):
+        strategy = GithubBranchControlsBatchStrategy(MagicMock(), kind)
+        return strategy.process_response([(self.URL, "main")], chunk_result(body))
+
+    def test_classic_protection_enabled(self) -> None:
+        assert self.process("protection", {"protected": True, "protection": {"enabled": True}}) == {self.URL: True}
+
+    def test_a_ruleset_only_branch_is_not_classically_protected(self) -> None:
+        # GitHub sets the top-level `protected` for a ruleset too, but `protection.enabled` stays false.
+        body = {"protected": True, "protection": {"enabled": False}}
+
+        assert self.process("protection", body) == {self.URL: False}
+
+    def test_a_branch_with_no_protection_object_is_unprotected(self) -> None:
+        assert self.process("protection", {"name": "main"}) == {self.URL: False}
+
+    def test_an_answer_that_is_not_an_object_says_nothing(self) -> None:
+        assert self.process("protection", ["unexpected"]) == {}
+
+    def test_the_rules_are_passed_through(self) -> None:
+        rules = [{"type": "deletion"}, {"type": "pull_request", "parameters": {"required_approving_review_count": 1}}]
+
+        assert self.process("rules", rules) == {self.URL: rules}
+
+    def test_an_empty_rule_list_is_an_answer_not_a_gap(self) -> None:
+        assert self.process("rules", []) == {self.URL: []}
+
+    def test_junk_among_the_rules_is_dropped(self) -> None:
+        assert self.process("rules", [{"type": "deletion"}, "x", 3]) == {self.URL: [{"type": "deletion"}]}
+
+    def test_rules_that_are_not_a_list_say_nothing(self) -> None:
+        assert self.process("rules", {"message": "Not Found"}) == {}

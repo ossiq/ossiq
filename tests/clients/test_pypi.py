@@ -10,10 +10,10 @@ import requests
 
 from ossiq.clients.batch import BatchClient, ChunkResult
 from ossiq.clients.client_pypi import (
-    PROJECT_STATUS_HEAD_BYTES,
     PypiBatchStrategy,
-    PypiProjectStatusBatchStrategy,
-    parse_project_status,
+    PypiSimpleIndexBatchStrategy,
+    SimpleIndex,
+    parse_simple_index,
 )
 
 
@@ -93,113 +93,107 @@ class TestProcessResponse:
         assert "Django" in result
 
 
-def simple_page(*meta: str, body: str = "") -> str:
-    """A Simple API project page (HTML form) with the given <meta> lines in its head."""
-    head = "\n".join(meta)
-    return (
-        '<!DOCTYPE html>\n<html lang="en">\n  <head>\n'
-        f"{head}\n    <title>Links for demo</title>\n  </head>\n  <body>\n    <h1>Links for demo</h1>\n{body}"
-    )
+def simple_index(*files: tuple[str, str | None], status: dict | None = None) -> dict:
+    """A `simple.v1+json` project page with the given (filename, provenance URL) files."""
+    payload: dict = {
+        "meta": {"api-version": "1.4"},
+        "name": "demo",
+        "files": [{"filename": name, "hashes": {"sha256": "0" * 64}, "provenance": url} for name, url in files],
+    }
+    if status is not None:
+        payload["project-status"] = status
+    return payload
 
 
-class TestParseProjectStatus:
+class TestParseSimpleIndex:
     def test_reads_the_status_of_an_archived_project(self):
-        page = simple_page(
-            '<meta name="pypi:repository-version" content="1.4">',
-            '<meta name="pypi:project-status" content="archived">',
-        )
-        assert parse_project_status(page) == {"status": "archived"}
+        assert parse_simple_index(simple_index(status={"status": "archived"})).status == {"status": "archived"}
 
     def test_reads_the_reason_when_the_index_gives_one(self):
-        page = simple_page(
-            '<meta name="pypi:project-status" content="deprecated">',
-            '<meta name="pypi:project-status-reason" content="Use other-lib instead">',
-        )
-        assert parse_project_status(page) == {"status": "deprecated", "reason": "Use other-lib instead"}
+        index = parse_simple_index(simple_index(status={"status": "deprecated", "reason": "Use other-lib instead"}))
 
-    def test_a_page_with_no_status_meta_is_an_empty_status(self):
-        # PEP 792 lets an index leave the tag out for an active project.
-        assert parse_project_status(simple_page('<meta name="pypi:repository-version" content="1.4">')) == {}
+        assert index.status == {"status": "deprecated", "reason": "Use other-lib instead"}
 
-    def test_a_page_that_is_not_html_is_an_empty_status(self):
-        assert parse_project_status("") == {}
-        assert parse_project_status('{"name": "demo"}') == {}
+    def test_a_page_with_no_status_is_an_empty_status(self):
+        # PEP 792 lets an index leave the object out for an active project.
+        assert parse_simple_index(simple_index()).status == {}
 
-    def test_ignores_status_markup_that_appears_after_the_head(self):
-        # A project can name anything in a file link; only the head carries the index's verdict.
-        page = simple_page(body='<meta name="pypi:project-status" content="quarantined">')
-        assert parse_project_status(page) == {}
+    def test_a_status_that_is_not_text_is_dropped(self):
+        assert parse_simple_index(simple_index(status={"status": 7, "reason": None})).status == {}
 
-    def test_survives_a_head_cut_off_mid_tag(self):
-        page = simple_page('<meta name="pypi:project-status" content="archived">')
-        assert parse_project_status(page[: page.index("<title>") + 3]) == {"status": "archived"}
+    @pytest.mark.parametrize("payload", [None, [], "<html></html>", 5])
+    def test_a_payload_that_is_not_an_object_is_an_empty_index(self, payload):
+        assert parse_simple_index(payload) == SimpleIndex(status={}, provenance={})
+
+    def test_keys_provenance_by_file_name(self):
+        url = "https://pypi.org/integrity/demo/1.0/demo-1.0.tar.gz/provenance"
+        index = parse_simple_index(simple_index(("demo-1.0.tar.gz", url), ("demo-1.0-py3-none-any.whl", None)))
+
+        assert index.provenance == {"demo-1.0.tar.gz": url, "demo-1.0-py3-none-any.whl": None}
+
+    def test_a_file_without_a_provenance_key_is_unattested(self):
+        payload = {"files": [{"filename": "demo-1.0.tar.gz"}]}
+
+        assert parse_simple_index(payload).provenance == {"demo-1.0.tar.gz": None}
+
+    def test_skips_file_entries_that_name_no_file(self):
+        payload = {"files": [{"provenance": "https://x"}, "junk", {"filename": 3}]}
+
+        assert parse_simple_index(payload).provenance == {}
 
 
-class TestProjectStatusRequest:
+class TestSimpleIndexRequest:
     def test_requests_the_canonical_simple_url(self):
         session = MagicMock()
-        PypiProjectStatusBatchStrategy(session).perform_request(["Typed_AST"])
+        PypiSimpleIndexBatchStrategy(session).perform_request(["Typed_AST"])
 
         assert session.get.call_args[0][0] == "https://pypi.org/simple/typed-ast/"
 
-    def test_asks_for_only_the_start_of_an_html_page(self):
+    def test_asks_for_the_whole_json_page(self):
         session = MagicMock()
-        PypiProjectStatusBatchStrategy(session).perform_request(["demo"])
+        PypiSimpleIndexBatchStrategy(session).perform_request(["demo"])
 
         headers = session.get.call_args.kwargs["headers"]
-        assert headers["Accept"] == "application/vnd.pypi.simple.v1+html"
-        assert headers["Range"] == f"bytes=0-{PROJECT_STATUS_HEAD_BYTES - 1}"
-        # A byte range applies to the encoded body; a gzip fragment cannot be parsed.
-        assert headers["Accept-Encoding"] == "identity"
+        assert headers == {"Accept": "application/vnd.pypi.simple.v1+json"}
 
-    def test_fans_out_wider_than_the_json_strategies(self):
-        assert (
-            PypiProjectStatusBatchStrategy(MagicMock()).config.max_workers
-            > PypiBatchStrategy(MagicMock()).config.max_workers
-        )
-
-    def test_keeps_only_the_head_of_a_page_the_server_sent_whole(self):
-        # A server that ignores Range answers 200 with every file link of the project.
-        response = MagicMock(spec=requests.Response)
-        response.content = (simple_page(body="x" * 10_000)).encode()
-
-        decoded = PypiProjectStatusBatchStrategy(MagicMock()).decode_response(response)
-
-        assert len(decoded) == PROJECT_STATUS_HEAD_BYTES
-
-    def test_decodes_a_cut_multibyte_character_without_raising(self):
-        response = MagicMock(spec=requests.Response)
-        response.content = ("é" * PROJECT_STATUS_HEAD_BYTES).encode()
-
-        PypiProjectStatusBatchStrategy(MagicMock()).decode_response(response)
-
-    def test_process_response_keys_the_status_by_the_requested_name(self):
-        strategy = PypiProjectStatusBatchStrategy(MagicMock())
-        page = simple_page('<meta name="pypi:project-status" content="archived">')
+    def test_process_response_keys_the_index_by_the_requested_name(self):
+        strategy = PypiSimpleIndexBatchStrategy(MagicMock())
+        page = simple_index(("demo-1.0.tar.gz", "https://x"), status={"status": "archived"})
 
         result = strategy.process_response(["Typed_AST"], ChunkResult(data=[page], success=True))
 
-        assert result == {"Typed_AST": {"status": "archived"}}
+        assert result == {
+            "Typed_AST": SimpleIndex(status={"status": "archived"}, provenance={"demo-1.0.tar.gz": "https://x"})
+        }
 
 
-class TestProjectStatusAgainstAServer:
-    """The ranged request, end to end over real HTTP."""
+class TestSimpleIndexAgainstAServer:
+    """The request, end to end over real HTTP."""
 
     @pytest.fixture
     def strategy(self, httpserver):
-        strategy = PypiProjectStatusBatchStrategy(requests.Session())
+        strategy = PypiSimpleIndexBatchStrategy(requests.Session())
         strategy.BASE_URL = httpserver.url_for("/simple")
         return strategy
 
-    def test_reads_the_status_out_of_a_partial_response(self, httpserver, strategy):
-        page = simple_page('<meta name="pypi:project-status" content="archived">', body="<a>file</a>\n" * 500)
+    def test_reads_status_and_provenance_from_one_response(self, httpserver, strategy):
+        page = simple_index(("demo-1.0.tar.gz", "https://x/provenance"), status={"status": "archived"})
         httpserver.expect_request(
-            "/simple/typed-ast/", headers={"Range": f"bytes=0-{PROJECT_STATUS_HEAD_BYTES - 1}"}
-        ).respond_with_data(page[:PROJECT_STATUS_HEAD_BYTES], status=206, content_type="text/html")
+            "/simple/typed-ast/", headers={"Accept": "application/vnd.pypi.simple.v1+json"}
+        ).respond_with_json(page, content_type="application/vnd.pypi.simple.v1+json")
 
         (chunk,) = BatchClient(strategy).run_batch(["typed_ast"])
 
-        assert chunk == {"typed_ast": {"status": "archived"}}
+        assert chunk == {
+            "typed_ast": SimpleIndex(
+                status={"status": "archived"}, provenance={"demo-1.0.tar.gz": "https://x/provenance"}
+            )
+        }
+
+    def test_a_body_that_is_not_json_is_dropped_rather_than_guessed_active(self, httpserver, strategy):
+        httpserver.expect_request("/simple/demo/").respond_with_data("<html></html>", content_type="text/html")
+
+        assert list(BatchClient(strategy).run_batch(["demo"])) == []
 
     def test_an_unknown_project_is_dropped_rather_than_guessed_active(self, httpserver, strategy):
         httpserver.expect_request("/simple/nope/").respond_with_data("Not Found", status=404)

@@ -176,9 +176,10 @@ def install_requests_cache(cache_destination: str, cache_ttl_hours: int, stabili
     """Install a persistent sqlite3 HTTP cache for all requests sessions.
 
     Caches all GET/POST responses for cache_ttl_hours hours, except GitHub stability data — commit
-    history (`*/commits*`), the batched activity GraphQL job (`*/graphql*`) and the README
-    deprecation scan (`*/readme*`) — which gets stability_cache_ttl_hours instead: a repo's commit
-    rhythm, issue/PR responsiveness and maintenance status don't change day to day. Subsequent
+    history (`*/commits*`), the batched activity GraphQL job (`*/graphql*`), the README
+    deprecation scan (`*/readme*`) and default-branch protection (`*/branches/*`) — which gets
+    stability_cache_ttl_hours instead: a repo's commit rhythm, issue/PR responsiveness,
+    maintenance status and branch controls don't change day to day. Subsequent
     scans of the same project skip network calls entirely when data is still fresh. POST is cached
     (GraphQL) and requests-cache keys it by request body, so each unique aliased query caches
     independently. The GitHub login endpoints, `GET /user` and the quota check are never cached.
@@ -202,12 +203,12 @@ def install_requests_cache(cache_destination: str, cache_ttl_hours: int, stabili
             "*/commits*": stability_cache_ttl_hours * 3600,
             "*/graphql*": stability_cache_ttl_hours * 3600,
             "*/readme*": stability_cache_ttl_hours * 3600,
+            # Default-branch protection and rulesets: a repository's controls don't change day to day
+            # either. One glob covers both `branches/{b}` and `rules/branches/{b}`.
+            "*/branches/*": stability_cache_ttl_hours * 3600,
         },
         allowable_methods=("GET", "POST"),
-        # 206 is what PyPI answers the ranged PEP 792 status request with; unlisted, every warm scan
-        # would repeat it for every package. That request is the only one that sends `Range`, and the
-        # only one to `/simple/`, so nothing else is cached as a fragment.
-        allowable_codes=(200, 206),
+        allowable_codes=(200,),
         filter_fn=prepare_for_cache,
     )
     return Path(cache.db_path)

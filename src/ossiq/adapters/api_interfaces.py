@@ -14,6 +14,7 @@ from ossiq.domain.exceptions import PackageManagerOperationUnsupported
 from ossiq.domain.package import Package
 from ossiq.domain.packages_manager import PackageManagerType
 from ossiq.domain.project import Project
+from ossiq.domain.provenance import SourceLevel
 from ossiq.domain.release_cutoff import ReleaseCutoff
 from ossiq.domain.requirement_scope import RequirementScope
 from ossiq.settings import Settings
@@ -64,6 +65,20 @@ class AbstractSourceCodeProviderApi(abc.ABC):
     def readmes_batch(self, repo_urls: list[str]) -> SourceFetch[dict[str, str]]:
         """Fetch the top of each repo's README in parallel, for the deprecation-banner scan."""
         raise NotImplementedError
+
+    def branch_controls_batch(self, branches: dict[str, str]) -> SourceFetch[dict[str, SourceLevel]]:
+        """Read how each repository protects its default branch.
+
+        Not abstract: a provider that cannot say simply reports nothing, which every surface shows as
+        "unknown" rather than "unprotected".
+
+        Args:
+            branches: Repository URL -> the name of its default branch.
+
+        Returns:
+            Source level per repository; a repository that could not be read is absent.
+        """
+        return SourceFetch({})
 
     @abc.abstractmethod
     def rate_limit_budgets(self) -> tuple[RateLimitBudget, ...]:

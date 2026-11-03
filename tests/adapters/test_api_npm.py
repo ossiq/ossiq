@@ -14,10 +14,12 @@ from ossiq.adapters.api_npm import (
     exports_conditions,
     is_npm_prerelease,
     npm_peer_dependencies,
+    npm_trust_tier,
 )
 from ossiq.clients.batch import BatchClient
 from ossiq.domain.common import ModuleSystem, ProjectPackagesRegistry, RegistryStatus
 from ossiq.domain.exceptions import UnableLoadPackage
+from ossiq.domain.provenance import TrustTier
 from ossiq.domain.version import (
     VERSION_DIFF_BUILD,
     VERSION_DIFF_MAJOR,
@@ -225,6 +227,60 @@ class TestPackageVersions:
 # ============================================================================
 # install execution detection (runs_code_at_install / install_execution_reason)
 # ============================================================================
+
+
+class TestNpmTrustTier:
+    """Tiers follow npm's own trust-policy rule: attestation = provenance, plus OIDC publish = trusted publisher."""
+
+    ATTESTED = {
+        "attestations": {
+            "url": "https://registry.npmjs.org/-/npm/v1/attestations/pkg@1.0.0",
+            "provenance": {"predicateType": "https://slsa.dev/provenance/v1"},
+        }
+    }
+    OIDC = {"name": "GitHub Actions", "trustedPublisher": {"id": "github", "oidcConfigId": "x"}}
+
+    def test_a_release_with_no_dist_attestations_is_none(self):
+        assert npm_trust_tier({"dist": {"integrity": "sha512-x"}}) == TrustTier.NONE
+
+    def test_a_release_with_no_dist_at_all_is_none(self):
+        assert npm_trust_tier({}) == TrustTier.NONE
+
+    def test_an_attested_release_published_with_a_token_is_provenance(self):
+        details = {"dist": self.ATTESTED, "_npmUser": {"name": "maintainer"}}
+
+        assert npm_trust_tier(details) == TrustTier.PROVENANCE
+
+    def test_an_attested_release_published_through_oidc_is_a_trusted_publisher_release(self):
+        assert npm_trust_tier({"dist": self.ATTESTED, "_npmUser": self.OIDC}) == TrustTier.TRUSTED_PUBLISHER
+
+    def test_an_empty_provenance_object_still_counts_as_attested(self):
+        # npm's own check is a JS truthiness test, where {} is truthy.
+        assert npm_trust_tier({"dist": {"attestations": {"provenance": {}}}}) == TrustTier.PROVENANCE
+
+    def test_a_null_provenance_is_not_attested(self):
+        assert npm_trust_tier({"dist": {"attestations": {"provenance": None}}}) == TrustTier.NONE
+
+    def test_trusted_publisher_without_an_attestation_gains_nothing(self):
+        # npm's rule: the publisher flag counts only alongside the attestation itself.
+        assert npm_trust_tier({"dist": {}, "_npmUser": self.OIDC}) == TrustTier.NONE
+
+    def test_the_tier_reaches_package_versions(self, npm_api, mock_npm_response):
+        mock_npm_response.set_response(
+            "pkg",
+            {
+                "name": "pkg",
+                "versions": {
+                    "1.0.0": {"dist": self.ATTESTED, "_npmUser": self.OIDC},
+                    "1.0.1": {"dist": {}, "_npmUser": {"name": "maintainer"}},
+                },
+                "time": {"1.0.0": "2020-01-01T00:00:00.000Z", "1.0.1": "2020-02-01T00:00:00.000Z"},
+            },
+        )
+
+        tiers = {pv.version: pv.trust_tier for pv in npm_api.package_versions("pkg")}
+
+        assert tiers == {"1.0.0": TrustTier.TRUSTED_PUBLISHER, "1.0.1": TrustTier.NONE}
 
 
 class TestInstallExecutionDetection:

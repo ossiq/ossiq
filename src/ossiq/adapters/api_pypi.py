@@ -13,11 +13,12 @@ from ossiq.adapters.api_interfaces import AbstractPackageRegistryApi
 from ossiq.adapters.detectors import is_repository_root_url
 from ossiq.adapters.package_managers.api_pypi import batch_fetch_requires_dist
 from ossiq.clients.batch import BatchClient
-from ossiq.clients.client_pypi import PypiBatchStrategy, PypiProjectStatusBatchStrategy
+from ossiq.clients.client_pypi import PypiBatchStrategy, PypiSimpleIndexBatchStrategy
 from ossiq.clients.common import get_user_agent
 from ossiq.domain.common import ConstraintType, ProjectPackagesRegistry, RegistryStatus
 from ossiq.domain.exceptions import UnableLoadPackage
 from ossiq.domain.package import Package
+from ossiq.domain.provenance import TrustTier
 from ossiq.domain.requirement_scope import RequirementScope
 from ossiq.domain.version import (
     VERSION_DIFF_BUILD,
@@ -154,6 +155,33 @@ def earliest_upload_iso(release_files: list[dict]) -> str | None:
         if (parsed := parse_iso_datetime(raw := f.get("upload_time_iso_8601"))) is not None
     ]
     return min(dated)[1] if dated else None
+
+
+def pypi_trust_tier(release_files: list[dict], provenance: dict[str, str | None] | None) -> TrustTier | None:
+    """The build evidence PyPI holds for one release.
+
+    PyPI accepts attestations only from Trusted Publishing, so an attested file is a
+    trusted-publisher file. A release counts as attested only when *every* file is: a file added
+    later with a stolen token carries no attestation.
+
+    Args:
+        release_files: The release's entries from the legacy JSON `releases` map.
+        provenance: Provenance URL per file name from the Simple API page; None when that page could
+            not be read.
+
+    Returns:
+        The tier, or None when the page is unavailable or does not list one of the files. The two
+        sources disagree there (or one is stale), and either way the release stays unjudged.
+    """
+    if provenance is None or not release_files:
+        return None
+    attested: list[bool] = []
+    for entry in release_files:
+        filename = entry.get("filename")
+        if not isinstance(filename, str) or filename not in provenance:
+            return None
+        attested.append(bool(provenance[filename]))
+    return TrustTier.TRUSTED_PUBLISHER if all(attested) else TrustTier.NONE
 
 
 class PackageRegistryApiPypi(AbstractPackageRegistryApi):
@@ -295,7 +323,9 @@ class PackageRegistryApiPypi(AbstractPackageRegistryApi):
         # PEP 792 status per package, from the Simple API. A name missing here means the request
         # failed, which is not the same as the index saying nothing (that is an empty dict).
         self._project_status: dict[str, dict[str, str]] = {}
-        self._status_batch_client = BatchClient(PypiProjectStatusBatchStrategy(self.session))
+        # PEP 740 provenance URL per file name, from the same page; a package missing here has no verdict.
+        self._release_provenance: dict[str, dict[str, str | None]] = {}
+        self._index_batch_client = BatchClient(PypiSimpleIndexBatchStrategy(self.session))
 
     def __repr__(self):
         return "<PackageRegistryApiPypi instance>"
@@ -396,26 +426,28 @@ class PackageRegistryApiPypi(AbstractPackageRegistryApi):
             if name not in self._raw_cache:
                 raise UnableLoadPackage(name)
 
-        self.fetch_project_statuses([n for n in names_to_fetch if n in self._raw_cache])
+        self.fetch_simple_indexes([n for n in names_to_fetch if n in self._raw_cache])
 
         return {
             name: self.map_raw_to_package(name, self._raw_cache[name], self._project_status.get(name)) for name in names
         }
 
-    def fetch_project_statuses(self, names: list[str]) -> None:
-        """Fetch PEP 792 project status for packages whose JSON metadata was just loaded.
+    def fetch_simple_indexes(self, names: list[str]) -> None:
+        """Fetch the Simple API page (PEP 792 status, PEP 740 provenance) for packages just loaded.
 
-        The legacy JSON API the rest of this adapter reads has no status, so it costs one more
-        small request per package. A failure is not fatal: the package keeps no status, which
-        reads as "the registry did not say" rather than "active".
+        The legacy JSON API the rest of this adapter reads has neither, so it costs one more
+        request per package. A failure is not fatal: the package keeps no status and its releases
+        no trust tier, which read as "the registry did not say" rather than "active" or "unattested".
         """
         if not names:
             return
-        for chunk_data in self._status_batch_client.run_batch(names):
-            self._project_status.update(chunk_data)
+        for chunk_data in self._index_batch_client.run_batch(names):
+            for name, index in chunk_data.items():
+                self._project_status[name] = index.status
+                self._release_provenance[name] = index.provenance
         unavailable = [name for name in names if name not in self._project_status]
         if unavailable:
-            logger.debug("PEP 792 project status unavailable for %s", ", ".join(unavailable))
+            logger.debug("PyPI Simple API page unavailable for %s", ", ".join(unavailable))
 
     def package_versions(self, package_name: str) -> Iterable[PackageVersion]:
         """
@@ -477,6 +509,7 @@ class PackageRegistryApiPypi(AbstractPackageRegistryApi):
                 runtime_requirements={"python": requires_python} if requires_python else None,
                 runs_code_at_install=runs_code_at_install,
                 install_execution_reason=install_exec_reason,
+                trust_tier=pypi_trust_tier(release_files, self._release_provenance.get(package_name)),
             )
 
     def package_version_requires(self, package_name: str, version: str) -> dict[str, str]:

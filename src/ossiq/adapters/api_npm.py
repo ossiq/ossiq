@@ -17,6 +17,7 @@ from ossiq.clients.common import get_user_agent
 from ossiq.domain.common import ConstraintType, ModuleSystem, ProjectPackagesRegistry, RegistryStatus
 from ossiq.domain.exceptions import UnableLoadPackage, UnknownPackageVersion
 from ossiq.domain.package import Package
+from ossiq.domain.provenance import TrustTier
 from ossiq.domain.version import (
     VERSION_DIFF_BUILD,
     VERSION_DIFF_MAJOR,
@@ -110,6 +111,27 @@ def npm_deprecation_message(details: dict) -> str | None:
     """
     deprecated = details.get("deprecated")
     return deprecated if isinstance(deprecated, str) and deprecated else None
+
+
+def npm_trust_tier(details: dict) -> TrustTier:
+    """The build evidence npm holds for one release.
+
+    Same rule as npm's own `trust-policy`: a provenance attestation is `PROVENANCE`, and it is a
+    `TRUSTED_PUBLISHER` only when the publish also went through OIDC trusted publishing.
+
+    Args:
+        details: One entry of the packument's `versions` map.
+
+    Returns:
+        The tier. `NONE` means the release carries no attestation, which is a fact about the
+        release rather than a gap in what the registry sent.
+    """
+    # Presence, not truthiness: npm's own check is a JS truthiness test, where an empty object counts.
+    attested = ((details.get("dist") or {}).get("attestations") or {}).get("provenance") is not None
+    if not attested:
+        return TrustTier.NONE
+    trusted_publisher = bool((details.get("_npmUser") or {}).get("trustedPublisher"))
+    return TrustTier.TRUSTED_PUBLISHER if trusted_publisher else TrustTier.PROVENANCE
 
 
 def npm_peer_dependencies(details: dict) -> dict[str, PeerDependency]:
@@ -471,6 +493,7 @@ class PackageRegistryApiNpm(AbstractPackageRegistryApi):
                     install_execution_reason=install_exec_reason,
                     module_system=detect_npm_module_system(details),
                     declared_peer_dependencies=npm_peer_dependencies(details),
+                    trust_tier=npm_trust_tier(details),
                 )
             )
 

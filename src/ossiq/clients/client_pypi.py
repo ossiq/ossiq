@@ -2,7 +2,8 @@
 Pre-configured HTTP session and batch strategy for the PyPI registry API.
 """
 
-from html.parser import HTMLParser
+from dataclasses import dataclass
+from typing import Any
 
 import requests
 from packaging.utils import canonicalize_name
@@ -11,10 +12,6 @@ from ossiq.clients.batch import BatchClient, BatchStrategy, BatchStrategySetting
 
 PYPI_REGISTRY = "https://pypi.org/pypi"
 PYPI_SIMPLE = "https://pypi.org/simple"
-
-PROJECT_STATUS_HEAD_BYTES = 2048
-"""How much of a Simple API page the PEP 792 status request reads. The status lives in `<head>`,
-a few hundred bytes in, while a whole page lists every file of the project (numpy's is 2 MB)."""
 
 
 class PypiBatchStrategy(BatchStrategy):
@@ -87,57 +84,53 @@ class PypiVersionBatchStrategy(BatchStrategy):
         return {(name, version): info.get("requires_dist") or []}
 
 
-class ProjectStatusParser(HTMLParser):
-    """Collects PEP 792's `pypi:project-status` meta tags from the head of a Simple API page."""
+@dataclass(frozen=True)
+class SimpleIndex:
+    """What the Simple API says about one project: its PEP 792 status and each file's attestation."""
 
-    def __init__(self) -> None:
-        super().__init__()
-        self.fields: dict[str, str] = {}
-        self.head_closed = False
+    status: dict[str, str]
+    """`{"status": ..., "reason": ...}`, with `reason` only when given. Empty when the index declares no
+    status, which PEP 792 allows for an active project."""
 
-    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
-        if tag != "meta" or self.head_closed:
-            return
-        values = dict(attrs)
-        content = values.get("content")
-        if content is None:
-            return
-        if values.get("name") == "pypi:project-status":
-            self.fields["status"] = content
-        elif values.get("name") == "pypi:project-status-reason":
-            self.fields["reason"] = content
-
-    def handle_endtag(self, tag: str) -> None:
-        if tag == "head":
-            self.head_closed = True
+    provenance: dict[str, str | None]
+    """Provenance URL (PEP 740) per file name; None for a file published without an attestation."""
 
 
-def parse_project_status(head: str) -> dict[str, str]:
-    """Read the PEP 792 project status out of a Simple API page head.
+def parse_simple_index(payload: Any) -> SimpleIndex:
+    """Read the project status and per-file provenance out of a `simple.v1+json` project page.
 
     Args:
-        head: The start of a `application/vnd.pypi.simple.v1+html` project page.
+        payload: The decoded JSON body. Anything that is not an object reads as an empty index.
 
     Returns:
-        `{"status": ..., "reason": ...}` with `reason` only when given, shaped like the JSON
-        form's `project-status` object. Empty when the page declares no status, which PEP 792
-        allows for an active project.
+        The status in the shape the JSON form gives its `project-status` object, and a provenance
+        URL (or None) for every named file.
     """
-    parser = ProjectStatusParser()
-    parser.feed(head)
-    return parser.fields
+    if not isinstance(payload, dict):
+        return SimpleIndex(status={}, provenance={})
+    raw_status = payload.get("project-status")
+    declared: dict[str, object] = raw_status if isinstance(raw_status, dict) else {}
+    status = {key: value for key in ("status", "reason") if isinstance(value := declared.get(key), str)}
+    provenance: dict[str, str | None] = {}
+    for entry in payload.get("files") or []:
+        if not isinstance(entry, dict):
+            continue
+        filename, url = entry.get("filename"), entry.get("provenance")
+        if isinstance(filename, str):
+            provenance[filename] = url if isinstance(url, str) else None
+    return SimpleIndex(status=status, provenance=provenance)
 
 
-class PypiProjectStatusBatchStrategy(BatchStrategy):
+class PypiSimpleIndexBatchStrategy(BatchStrategy):
     """
-    BatchStrategy implementation for PEP 792 project status.
+    BatchStrategy implementation for the JSON Simple API.
 
-    The legacy JSON API the other strategies use carries no project status; only the Simple API
-    does. That page also lists every file of the project, so only its head is requested.
+    The legacy JSON API the other strategies use carries neither the PEP 792 project status nor
+    the PEP 740 provenance of a file; only the Simple API does.
 
     prepare_item   : package name string (identity — used as key in process_response)
-    perform_request: ranged GET /simple/{name}/
-    process_response: returns {name: {"status": ..., "reason"?: ...}}
+    perform_request: GET /simple/{name}/ as application/vnd.pypi.simple.v1+json
+    process_response: returns {name: SimpleIndex}
     """
 
     BASE_URL = PYPI_SIMPLE
@@ -150,8 +143,7 @@ class PypiProjectStatusBatchStrategy(BatchStrategy):
         return BatchStrategySettings(
             chunk_size=1,
             max_retries=3,
-            # Each response is about a kilobyte, so a wider fan-out than the JSON strategies costs nothing.
-            max_workers=10,
+            max_workers=5,
             request_timeout=15.0,
         )
 
@@ -162,21 +154,12 @@ class PypiProjectStatusBatchStrategy(BatchStrategy):
         name = canonicalize_name(chunk[0])
         return self.session.get(
             f"{self.BASE_URL}/{name}/",
-            headers={
-                "Accept": "application/vnd.pypi.simple.v1+html",
-                "Range": f"bytes=0-{PROJECT_STATUS_HEAD_BYTES - 1}",
-                # A byte range applies to the encoded body, and a gzip fragment cannot be parsed.
-                "Accept-Encoding": "identity",
-            },
+            headers={"Accept": "application/vnd.pypi.simple.v1+json"},
             timeout=self.config.request_timeout,
         )
 
-    def decode_response(self, resp: requests.Response) -> str:
-        # Slice rather than trust the 206: a server that ignores Range sends the whole page.
-        return resp.content[:PROJECT_STATUS_HEAD_BYTES].decode("utf-8", "replace")
-
-    def process_response(self, source_items: list, response: ChunkResult) -> dict[str, dict[str, str]]:  # noqa: ARG002
-        return {source_items[0]: parse_project_status(response.data[0])}
+    def process_response(self, source_items: list, response: ChunkResult) -> dict[str, SimpleIndex]:  # noqa: ARG002
+        return {source_items[0]: parse_simple_index(response.data[0])}
 
 
 __all__ = ("BatchClient", "PypiBatchStrategy", "PypiVersionBatchStrategy")

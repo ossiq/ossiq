@@ -11,12 +11,14 @@ This module tests the GitHub API adapter implementation, including:
 """
 
 import datetime
+from collections.abc import Mapping
 from unittest.mock import Mock, patch
 
 import pytest
 import requests
 
 from ossiq.adapters.api_github import SourceCodeProviderApiGithub
+from ossiq.adapters.api_interfaces import AbstractSourceCodeProviderApi
 from ossiq.clients.batch import BatchRunSummary
 from ossiq.domain.common import (
     VERSION_DATA_SOURCE_GITHUB_RELEASES,
@@ -26,6 +28,7 @@ from ossiq.domain.common import (
     combine_statuses,
 )
 from ossiq.domain.exceptions import GithubRateLimitError
+from ossiq.domain.provenance import SourceLevel
 from ossiq.domain.repository import Repository
 from ossiq.domain.version import PackageVersion
 from ossiq.settings import Settings
@@ -786,3 +789,152 @@ class TestFetchStatus:
         # is exactly what "partial" means, not "unreachable" (which requires nothing came through
         # at all). combine_statuses is what the scan applies to reach that verdict.
         assert combine_statuses([repos.status, commits.status]) == DataSourceStatus.PARTIAL
+
+
+class TestSourceLevelFromControls:
+    """How GitHub's two answers about a default branch become a SLSA-style source level."""
+
+    FULL_HISTORY = [{"type": "deletion"}, {"type": "non_fast_forward"}]
+    REVIEW = {"type": "pull_request", "parameters": {"required_approving_review_count": 1}}
+
+    def test_neither_answer_readable_is_unknown(self):
+        assert SourceCodeProviderApiGithub.source_level_from_controls(None, None) is None
+
+    def test_a_readable_repo_with_no_protection_is_only_version_controlled(self):
+        assert SourceCodeProviderApiGithub.source_level_from_controls(False, []) == SourceLevel.VERSION_CONTROLLED
+
+    def test_a_ruleset_blocking_force_pushes_and_deletion_protects_history(self):
+        assert (
+            SourceCodeProviderApiGithub.source_level_from_controls(False, self.FULL_HISTORY)
+            == SourceLevel.PROTECTED_HISTORY
+        )
+
+    def test_half_of_that_is_not_enough(self):
+        assert (
+            SourceCodeProviderApiGithub.source_level_from_controls(False, [{"type": "deletion"}])
+            == SourceLevel.VERSION_CONTROLLED
+        )
+        assert (
+            SourceCodeProviderApiGithub.source_level_from_controls(False, [{"type": "non_fast_forward"}])
+            == SourceLevel.VERSION_CONTROLLED
+        )
+
+    def test_a_ruleset_that_only_wants_status_checks_protects_nothing(self):
+        assert (
+            SourceCodeProviderApiGithub.source_level_from_controls(False, [{"type": "required_status_checks"}])
+            == SourceLevel.VERSION_CONTROLLED
+        )
+
+    def test_classic_protection_counts_as_protected_history(self):
+        assert SourceCodeProviderApiGithub.source_level_from_controls(True, []) == SourceLevel.PROTECTED_HISTORY
+
+    def test_classic_protection_alone_when_the_rules_could_not_be_read(self):
+        assert SourceCodeProviderApiGithub.source_level_from_controls(True, None) == SourceLevel.PROTECTED_HISTORY
+
+    def test_protected_history_plus_a_required_approval_is_reviewed(self):
+        assert (
+            SourceCodeProviderApiGithub.source_level_from_controls(False, [*self.FULL_HISTORY, self.REVIEW])
+            == SourceLevel.REVIEWED
+        )
+
+    def test_a_required_approval_without_protected_history_is_not_reviewed(self):
+        assert (
+            SourceCodeProviderApiGithub.source_level_from_controls(False, [self.REVIEW])
+            == SourceLevel.VERSION_CONTROLLED
+        )
+
+    def test_a_pull_request_rule_asking_for_no_approvals_does_not_count(self):
+        rule = {"type": "pull_request", "parameters": {"required_approving_review_count": 0}}
+
+        assert SourceCodeProviderApiGithub.source_level_from_controls(True, [rule]) == SourceLevel.PROTECTED_HISTORY
+
+    def test_a_pull_request_rule_with_no_parameters_does_not_count(self):
+        assert (
+            SourceCodeProviderApiGithub.source_level_from_controls(True, [{"type": "pull_request"}])
+            == SourceLevel.PROTECTED_HISTORY
+        )
+
+
+class TestBranchControlsBatch:
+    URL = "https://github.com/pallets/flask"
+
+    @staticmethod
+    def respond(by_suffix: Mapping[str, object]):
+        """A fake session.get answering by the endpoint asked for; a missing suffix is a 404."""
+
+        def get(url, **kwargs):
+            resp = Mock(spec=requests.Response)
+            resp.headers = {}
+            for suffix, body in by_suffix.items():
+                if url.endswith(suffix):
+                    resp.status_code = 200
+                    resp.json.return_value = body
+                    return resp
+            resp.status_code = 404
+            return resp
+
+        return get
+
+    def test_both_answers_are_combined_into_one_level(self, github_api_with_token):
+        answers = {
+            "/rules/branches/main": [
+                {"type": "deletion"},
+                {"type": "non_fast_forward"},
+                {"type": "pull_request", "parameters": {"required_approving_review_count": 1}},
+            ],
+            "/branches/main": {"protected": True, "protection": {"enabled": False}},
+        }
+
+        with patch.object(github_api_with_token.session, "get", side_effect=self.respond(answers)):
+            fetch = github_api_with_token.branch_controls_batch({self.URL: "main"})
+
+        assert fetch.data == {self.URL: SourceLevel.REVIEWED}
+        assert fetch.status == DataSourceStatus.OK
+
+    def test_a_repo_whose_requests_all_failed_is_unknown_not_unprotected(self, github_api_with_token):
+        with patch.object(github_api_with_token.session, "get", side_effect=self.respond({})):
+            fetch = github_api_with_token.branch_controls_batch({self.URL: "main"})
+
+        assert fetch.data == {}
+
+    def test_one_readable_answer_is_enough_to_judge(self, github_api_with_token):
+        answers = {"/branches/main": {"protection": {"enabled": True}}}
+
+        with patch.object(github_api_with_token.session, "get", side_effect=self.respond(answers)):
+            fetch = github_api_with_token.branch_controls_batch({self.URL: "main"})
+
+        assert fetch.data == {self.URL: SourceLevel.PROTECTED_HISTORY}
+
+    def test_an_unreachable_host_is_reported_as_such(self, github_api_with_token):
+        with (
+            patch.object(github_api_with_token.session, "get", side_effect=requests.ConnectionError("blocked")),
+            patch("ossiq.clients.batch.time.sleep"),
+        ):
+            fetch = github_api_with_token.branch_controls_batch({self.URL: "main"})
+
+        assert fetch.data == {}
+        assert fetch.status == DataSourceStatus.UNREACHABLE
+
+    def test_each_repo_gets_its_own_level(self, github_api_with_token):
+        other = "https://github.com/psf/requests"
+
+        def get(url, **kwargs):
+            resp = Mock(spec=requests.Response)
+            resp.headers = {}
+            resp.status_code = 200
+            if "psf/requests" in url:
+                resp.json.return_value = [] if "/rules/" in url else {"protection": {"enabled": True}}
+            else:
+                resp.json.return_value = [] if "/rules/" in url else {"protection": {"enabled": False}}
+            return resp
+
+        with patch.object(github_api_with_token.session, "get", side_effect=get):
+            fetch = github_api_with_token.branch_controls_batch({self.URL: "main", other: "main"})
+
+        assert fetch.data == {self.URL: SourceLevel.VERSION_CONTROLLED, other: SourceLevel.PROTECTED_HISTORY}
+
+    def test_a_provider_that_cannot_say_reports_nothing(self):
+        # The default method never touches the instance, so it can be called on the interface itself.
+        fetch = AbstractSourceCodeProviderApi.branch_controls_batch(Mock(), {self.URL: "main"})
+
+        assert fetch.data == {}
