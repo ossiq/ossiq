@@ -325,6 +325,35 @@ class TestReleaseCutoffFiltering:
 # ---------------------------------------------------------------------------
 
 
+class TestVersionBlockFiltering:
+    """A release the supply-chain policy rules out never reaches the solver, however fresh or fitting."""
+
+    BLOCKS = {"pkg": {"2.0.0": ("trust downgrade: no provenance",)}}
+
+    def test_blocked_releases_are_not_candidates(self) -> None:
+        registry = _make_registry({"pkg": [_pv("1.0.0"), _pv("2.0.0"), _pv("1.5.0")]})
+        problem = SolvablePool.build([_FakeDep("pkg", "1.0.0")], registry, {}, version_blocks=self.BLOCKS)
+        assert [cv.version for cv in problem.candidates["pkg"]] == ["1.5.0", "1.0.0"]
+
+    def test_the_installed_release_stays_a_candidate_even_when_blocked(self) -> None:
+        """A policy cannot un-install what is already there; without it the solver had no candidate at all."""
+        registry = _make_registry({"pkg": [_pv("2.0.0"), _pv("2.1.0")]})
+        problem = SolvablePool.build([_FakeDep("pkg", "2.0.0")], registry, {}, version_blocks=self.BLOCKS)
+        assert [cv.version for cv in problem.candidates["pkg"]] == ["2.1.0", "2.0.0"]
+
+    def test_blocks_for_another_package_change_nothing(self) -> None:
+        registry = _make_registry({"pkg": [_pv("1.0.0"), _pv("2.0.0")]})
+        problem = SolvablePool.build(
+            [_FakeDep("pkg", "1.0.0")], registry, {}, version_blocks={"other": {"2.0.0": ("x",)}}
+        )
+        assert [cv.version for cv in problem.candidates["pkg"]] == ["2.0.0", "1.0.0"]
+
+    def test_no_blocks_keep_every_release(self) -> None:
+        registry = _make_registry({"pkg": [_pv("1.0.0"), _pv("2.0.0")]})
+        problem = SolvablePool.build([_FakeDep("pkg", "1.0.0")], registry, {})
+        assert [cv.version for cv in problem.candidates["pkg"]] == ["2.0.0", "1.0.0"]
+
+
 class TestSolvablePoolConstraintBuilding:
     def test_single_descriptor_becomes_one_constraint(self) -> None:
         dep = _FakeDep("requests", "2.31.0", constraint=">=2.0.0", constraint_type=ConstraintType.DECLARED)

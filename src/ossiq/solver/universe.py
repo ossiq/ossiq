@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 from datetime import datetime
 from functools import cmp_to_key
 from typing import Protocol
@@ -9,6 +9,7 @@ from ossiq.adapters.api_interfaces import AbstractPackageRegistryApi
 from ossiq.domain.common import ConstraintType, ProjectPackagesRegistry
 from ossiq.domain.cve import CVE
 from ossiq.domain.project import ConstraintSource
+from ossiq.domain.provenance import VersionBlocks
 from ossiq.domain.release_cutoff import ReleaseCutoff
 from ossiq.domain.requirement_scope import RequirementScope
 from ossiq.domain.version import PackageVersion
@@ -169,14 +170,16 @@ def filter_eligible_versions(
     release_cutoff: datetime | None = None,
     *,
     allow_deprecated: bool = True,
+    blocked: Collection[str] = (),
 ) -> list[PackageVersion]:
     """Return candidates sorted newest-first, capped at CANDIDATE_CAP.
 
     Drops yanked, unpublished, pre-release (when disallowed), deprecated (when disallowed),
-    downgrades, versions published after `now`, and versions published after `release_cutoff` —
-    the package manager's own limit for this package. The installed version survives that last
-    filter: the package manager keeps a locked version past its cutoff, it only refuses to move to
-    one.
+    downgrades, versions published after `now`, versions published after `release_cutoff` —
+    the package manager's own limit for this package — and `blocked` versions, which a supply-chain
+    policy rules out. The installed version survives those last two filters: the package manager
+    keeps a locked version past its cutoff and a policy cannot un-install it, they only refuse to
+    move to one.
 
     Deprecated releases stay eligible by default, where the solver only penalises them: a scan
     meets them deep in dependency trees, and dropping them there would leave packages with no
@@ -193,6 +196,10 @@ def filter_eligible_versions(
         and is_published_before(pv.published_date_iso, now)
         and (
             is_published_before(pv.published_date_iso, release_cutoff)
+            or (bool(installed_version) and registry.compare_versions(pv.version, installed_version) == 0)
+        )
+        and (
+            pv.version not in blocked
             or (bool(installed_version) and registry.compare_versions(pv.version, installed_version) == 0)
         )
     ]
@@ -260,6 +267,7 @@ class SolvablePool:
         _now: datetime | None = None,
         rewrite_pinned: bool = False,
         release_cutoff: ReleaseCutoff | None = None,
+        version_blocks: VersionBlocks | None = None,
     ) -> SolverProblem:
         """Build a SolverProblem from the given dependencies and registry.
 
@@ -280,6 +288,8 @@ class SolvablePool:
                             solver can recommend newer versions for deliberate re-pinning.
             release_cutoff: The package manager's own limit on release age; a release past it
                             never becomes a candidate, since the installer would refuse it.
+            version_blocks: Releases a supply-chain policy rules out; they never become candidates
+                            either. The installed version stays, as with the cutoff.
         """
         best = deduplicate_deps(deps)
 
@@ -304,6 +314,7 @@ class SolvablePool:
                     _now,
                     release_cutoff.cutoff_for(name) if release_cutoff else None,
                     allow_deprecated=allow_deprecated,
+                    blocked=(version_blocks or {}).get(name, {}),
                 ),
                 (cves_by_package or {}).get(name, ()),
                 _now,
