@@ -86,6 +86,11 @@ installed in the project (not a prospective add) — see the version ladder belo
 deprecated release requested by `version`. `reasons` quotes the registry's own note, which
 usually names the replacement: look for that alternative instead of forcing the install.
 
+A `POLICY_VIOLATION` in `warnings` also means `do not install`. The user set a supply-chain policy
+in their OSS IQ config file, and the version being judged (the one requested by `version`, else
+`recommended_version`) has less build or source evidence than it requires. `reasons` says which
+rule. Don't add the package with `--force`; ask the user, since only they can relax the policy.
+
 ## When updating existing dependencies
 
 Before bumping versions, run:
@@ -144,6 +149,10 @@ The top-level `next_action` is the most urgent one across the `updates` list, or
 
 - **Check for the Fix** — a known CVE that `to` does not clear (or there is no `to`); check for a
   patched release.
+- **Review provenance** — the installed version breaks the user's own supply-chain policy (for
+  example it was published without the build attestation earlier versions had), or the policy ruled
+  out every newer version. `policy_violations` lists the reasons. Don't bump past it; tell the
+  user, since a version that lost its provenance may have been published by someone else.
 - **Find alternative** — the package is gone, its registry deprecated, archived or quarantined it,
   or its upstream is abandoned/deprecated; migrate off it. A newer release of such a package does
   not help.
@@ -173,6 +182,9 @@ Each CVE's `fixed_in` lists the releases that close it, one per fixed line (uuid
 GHSA-w5hq-g745-h8pq: `["11.1.1", "12.0.1", "13.0.1"]` - so 12.0.0 is still affected). If you pick
 a target other than `to`, check it against `fixed_in`, or ask `update_context` for its verdict;
 don't bisect the release history one version at a time.
+
+`policy_violations` appears only when the installed version breaks the user's supply-chain policy.
+An entry that carries it never reads `no action needed`.
 
 `dependency_name` appears only when the manifest declares the package under a different key
 than its registry name — npm aliases (`"uuid-v7": "npm:uuid@^7.0.0"`) are the only case today.

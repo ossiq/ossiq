@@ -3,7 +3,7 @@
 import pytest
 
 from ossiq.domain.common import ExportJsonSchemaVersion, ExportProfile
-from ossiq.service.project.next_action import NEXT_ACTION_PRIORITY
+from ossiq.service.project.next_action import NEXT_ACTION_PRIORITY, REVIEW_PROVENANCE
 from ossiq.ui.renderers.export.json_schema_registry import json_schema_registry
 from tests.ui.renderers.export.test_json_schema_registry_base import SchemaRegistryBaseTest
 
@@ -159,7 +159,8 @@ class TestV16IsAdditiveOverV15:
         assert set(new["$defs"]) - set(old["$defs"]) == NEW_DEFINITIONS
 
 
-LABELS = [*NEXT_ACTION_PRIORITY, None]
+# 1.6 is released: it never learned 'Review provenance', and exports declaring it never emit it.
+LABELS = [*(label for label in NEXT_ACTION_PRIORITY if label != REVIEW_PROVENANCE), None]
 
 
 @pytest.mark.parametrize("profile", [ExportProfile.FULL, ExportProfile.STANDARD], ids=["full", "standard"])

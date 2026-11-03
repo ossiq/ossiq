@@ -510,6 +510,50 @@ class RegistryStatusFields(BaseModel):
     )
 
 
+class ProvenanceFields(BaseModel):
+    """Build evidence behind the installed release, shared verbatim by direct and transitive metrics."""
+
+    build_provenance: str | None = Field(
+        default=None,
+        description=(
+            "How strong the registry's build evidence for the installed release is: none (no attestation), "
+            "provenance (a signed build attestation) or trusted-publisher (attested and published through "
+            "the registry's OIDC trusted-publisher flow). Null when the registry could not be read, which is "
+            "not the same as none"
+        ),
+        json_schema_extra={**FULL_ONLY, **SINCE_V1_7},
+    )
+    source_level: str | None = Field(
+        default=None,
+        description=(
+            "How well the package's source repository protects its default branch, read from GitHub as it is "
+            "now rather than as it was when the release was cut: version-controlled, protected-history (force-pushes "
+            "and deletion blocked) or reviewed (protected history, and a pull request with an approval is required). "
+            "Null for transitive packages and for repositories that are not on GitHub or could not be read"
+        ),
+        json_schema_extra={**FULL_ONLY, **SINCE_V1_7},
+    )
+    policy_violations: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Why the installed release breaks the supply-chain policy set in the config file, one reason per "
+            "rule. A reason about the source repository begins 'source repository is'; any other is about how "
+            "the release was built. Empty when it passes, or when no policy is set"
+        ),
+        json_schema_extra=SINCE_V1_7,
+    )
+
+
+def provenance_export_fields(record) -> dict:
+    """Flatten a record's provenance facts for export; the build tier stays None when it was not read."""
+    facts = record.provenance
+    return {
+        "build_provenance": facts.build_tier.value if facts and facts.build_tier else None,
+        "source_level": facts.source_level.value if facts and facts.source_level else None,
+        "policy_violations": list(facts.violations) if facts else [],
+    }
+
+
 class UnresolvedPeerExport(BaseModel):
     """A peer a package declares that nothing installed within its reach satisfies (npm only)."""
 
@@ -654,7 +698,13 @@ class StrategySelectionExport(ProfiledExportModel):
 
 
 class PackageMetrics(
-    ProfiledExportModel, LadderFields, CompatibilityFields, NextActionFields, PeerFields, RegistryStatusFields
+    ProfiledExportModel,
+    LadderFields,
+    CompatibilityFields,
+    NextActionFields,
+    PeerFields,
+    RegistryStatusFields,
+    ProvenanceFields,
 ):
     """Metrics for one direct dependency."""
 
@@ -892,7 +942,7 @@ class PackageMetrics(
         return None if value is None else round(value, 4)
 
     @classmethod
-    def from_domain(cls, record) -> "PackageMetrics":
+    def from_domain(cls, record, schema_version: ExportJsonSchemaVersion = LATEST_SCHEMA_VERSION) -> "PackageMetrics":
         """Convert domain ScanRecord to export model."""
         facts = record.compatibility
         return cls(
@@ -937,7 +987,7 @@ class PackageMetrics(
             engine_compatible=facts.engine_compatible,
             recommended_from_rung=record.recommended_from_rung.value if record.recommended_from_rung else None,
             requires_constraint_widening=record.recommended_from_rung in WIDENING_RUNGS,
-            next_action=next_action_label(record),
+            next_action=next_action_label(record, provenance=schema_version.at_least(ExportJsonSchemaVersion.V1_7)),
             update_transitive_impacts=[
                 TransitiveImpactExport(
                     package_name=i.package_name,
@@ -963,6 +1013,7 @@ class PackageMetrics(
             strategy=StrategySelectionExport.from_domain(record.strategy_selection),
             unresolved_peers=[UnresolvedPeerExport.from_domain(peer) for peer in record.unresolved_peers],
             **stability_export_fields(record),
+            **provenance_export_fields(record),
         )
 
 
@@ -1017,7 +1068,13 @@ class DependencyTreeRoot(BaseModel):
 
 
 class TransitivePackageMetrics(
-    ProfiledExportModel, LadderFields, CompatibilityFields, NextActionFields, PeerFields, RegistryStatusFields
+    ProfiledExportModel,
+    LadderFields,
+    CompatibilityFields,
+    NextActionFields,
+    PeerFields,
+    RegistryStatusFields,
+    ProvenanceFields,
 ):
     """
     Metrics for a transitive package (schema v1.3+).
@@ -1199,7 +1256,11 @@ class TransitivePackageMetrics(
 
     @classmethod
     def from_domain_group(
-        cls, idx: int, records: list[ScanRecord], constraint_source_file: str | None
+        cls,
+        idx: int,
+        records: list[ScanRecord],
+        constraint_source_file: str | None,
+        schema_version: ExportJsonSchemaVersion = LATEST_SCHEMA_VERSION,
     ) -> "TransitivePackageMetrics":
         """Build one TransitivePackageMetrics from a group of ScanRecords sharing (package_name, installed_version)."""
         first = records[0]
@@ -1223,7 +1284,7 @@ class TransitivePackageMetrics(
             engine_compatible=facts.engine_compatible,
             # Nulls are dropped (omit_empty_always), so an absent next_action on a transitive means
             # "nothing due", matching whats_next rendering an empty cell for a None label.
-            next_action=next_action_label(first),
+            next_action=next_action_label(first, provenance=schema_version.at_least(ExportJsonSchemaVersion.V1_7)),
             recommended_version=first.recommended_version,
             required_by=sorted({record.dependency_path[0] for record in records if record.dependency_path}),
             rejected_candidates=[
@@ -1249,6 +1310,7 @@ class TransitivePackageMetrics(
             install_execution_reason=first.install_execution_reason,
             unresolved_peers=[UnresolvedPeerExport.from_domain(peer) for peer in first.unresolved_peers],
             **stability_export_fields(first),
+            **provenance_export_fields(first),
         )
 
 
@@ -1510,19 +1572,24 @@ def build_transitive_data(
 
     if profile == ExportProfile.STANDARD:
         reports_peers = schema_version.at_least(ExportJsonSchemaVersion.V1_6)
+        reports_provenance = schema_version.at_least(ExportJsonSchemaVersion.V1_7)
         kept = [
             (key, group)
             for key, group in groups.items()
-            if needs_attention(group[0]) or (reports_peers and group[0].unresolved_peers)
+            if needs_attention(group[0])
+            or (reports_peers and group[0].unresolved_peers)
+            or (reports_provenance and group[0].provenance is not None and group[0].provenance.violations)
         ]
         transitive = [
-            TransitivePackageMetrics.from_domain_group(i, group, first_csf[key]) for i, (key, group) in enumerate(kept)
+            TransitivePackageMetrics.from_domain_group(i, group, first_csf[key], schema_version)
+            for i, (key, group) in enumerate(kept)
         ]
         return transitive, [], len(groups)
 
     pkg_to_idx = {key: i for i, key in enumerate(groups.keys())}
     transitive = [
-        TransitivePackageMetrics.from_domain_group(i, g, first_csf[key]) for i, (key, g) in enumerate(groups.items())
+        TransitivePackageMetrics.from_domain_group(i, g, first_csf[key], schema_version)
+        for i, (key, g) in enumerate(groups.items())
     ]
     tree = build_dependency_tree(records, pkg_to_idx)
     return transitive, tree, len(groups)
@@ -1631,8 +1698,8 @@ def build_export_data(
         packages_deprecated=data.project_stability.deprecated_packages if data.project_stability else 0,
         packages_stability_unknown=data.project_stability.unknown_packages if data.project_stability else 0,
     )
-    production = [PackageMetrics.from_domain(pkg) for pkg in data.production_packages]
-    development = [PackageMetrics.from_domain(pkg) for pkg in data.optional_packages]
+    production = [PackageMetrics.from_domain(pkg, schema_version) for pkg in data.production_packages]
+    development = [PackageMetrics.from_domain(pkg, schema_version) for pkg in data.optional_packages]
 
     return ExportData(
         metadata=metadata,

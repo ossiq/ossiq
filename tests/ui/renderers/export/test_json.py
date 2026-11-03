@@ -41,6 +41,7 @@ from ossiq.domain.cve import CVE, AffectedRange, CveDatabase, Severity
 from ossiq.domain.exceptions import DestinationDoesntExist
 from ossiq.domain.packages_manager import PackageManagerCli
 from ossiq.domain.project import ConstraintSource, UnresolvedPeer
+from ossiq.domain.provenance import ProvenanceFacts, SourceLevel, TrustTier
 from ossiq.domain.version import VersionsDifference
 from ossiq.risk.stability import EngagementBucket, EngagementSeries
 from ossiq.risk.triage import ACTION_REFACTOR, TriageResult
@@ -2056,6 +2057,9 @@ class TestExportProfiles:
             # names what replaces it, so neither is dashboard-only.
             "registry_status",
             "deprecation_message",
+            # Why the installed release breaks the user's own supply-chain policy is the one provenance
+            # fact an agent acts on; the tier itself is dashboard detail (FULL_ONLY).
+            "policy_violations",
         }
         assert standard_fields(export_models.PackageMetrics) == shared | {
             "dependency_name",
@@ -2443,6 +2447,126 @@ class TestSchemaVersion17:
         assert data["runtime_context"]["package_manager"] == "uv"
         assert data["runtime_context"]["package_manager_version"] is None
         validate(instance=data, schema=json_schema_registry.load_schema(ExportJsonSchemaVersion.V1_7, profile))
+
+
+def with_provenance(scan: ScanResult, name: str, **facts) -> ScanResult:
+    """*scan* with the direct or transitive record called *name* carrying *facts*."""
+
+    def swap(records):
+        return [
+            dataclasses.replace(r, provenance=ProvenanceFacts(**facts)) if r.package_name == name else r
+            for r in records
+        ]
+
+    return dataclasses.replace(
+        scan,
+        production_packages=swap(scan.production_packages),
+        transitive_packages=swap(scan.transitive_packages),
+    )
+
+
+def package_named(data: dict, name: str) -> dict:
+    return next(p for p in [*data["production_packages"], *data["transitive_packages"]] if p["package_name"] == name)
+
+
+DOWNGRADE = "trust downgrade: no provenance, but earlier releases of this major line had provenance"
+
+
+class TestSchemaVersion17Provenance:
+    """v1.7 says how the installed release was built, and why it breaks the user's supply-chain policy."""
+
+    @pytest.mark.parametrize("profile", [ExportProfile.STANDARD, ExportProfile.FULL])
+    def test_a_violation_is_reported_and_the_document_validates(self, settings, profile_scan, output_file, profile):
+        scan = with_provenance(profile_scan, "quiet", build_tier=TrustTier.NONE, violations=(DOWNGRADE,))
+
+        data = render_profile(settings, scan, output_file, profile)
+
+        assert package_named(data, "quiet")["policy_violations"] == [DOWNGRADE]
+        validate(instance=data, schema=json_schema_registry.load_schema(ExportJsonSchemaVersion.V1_7, profile))
+
+    def test_the_full_profile_carries_the_tier_and_the_standard_one_does_not(self, settings, profile_scan, output_file):
+        scan = with_provenance(profile_scan, "quiet", build_tier=TrustTier.TRUSTED_PUBLISHER)
+
+        full = render_profile(settings, scan, output_file, ExportProfile.FULL)
+        standard = render_profile(settings, scan, output_file, ExportProfile.STANDARD)
+
+        assert package_named(full, "quiet")["build_provenance"] == "trusted-publisher"
+        assert "build_provenance" not in package_named(standard, "quiet")
+
+    def test_the_full_profile_carries_the_source_level_and_the_standard_one_does_not(
+        self, settings, profile_scan, output_file
+    ):
+        scan = with_provenance(profile_scan, "quiet", source_level=SourceLevel.PROTECTED_HISTORY)
+
+        full = render_profile(settings, scan, output_file, ExportProfile.FULL)
+        standard = render_profile(settings, scan, output_file, ExportProfile.STANDARD)
+
+        assert package_named(full, "quiet")["source_level"] == "protected-history"
+        assert "source_level" not in package_named(standard, "quiet")
+        validate(
+            instance=full, schema=json_schema_registry.load_schema(ExportJsonSchemaVersion.V1_7, ExportProfile.FULL)
+        )
+
+    def test_an_unmeasured_repository_has_a_null_source_level(self, settings, profile_scan, output_file):
+        data = render_profile(settings, profile_scan, output_file, ExportProfile.FULL)
+
+        assert package_named(data, "quiet")["source_level"] is None
+
+    def test_a_tier_the_registry_did_not_give_is_null_not_none(self, settings, profile_scan, output_file):
+        scan = with_provenance(profile_scan, "quiet", build_tier=None)
+
+        data = render_profile(settings, scan, output_file, ExportProfile.FULL)
+
+        assert package_named(data, "quiet")["build_provenance"] is None
+
+    def test_a_package_with_no_violation_has_an_empty_list(self, settings, profile_scan, output_file):
+        data = render_profile(settings, profile_scan, output_file, ExportProfile.FULL)
+
+        assert package_named(data, "quiet")["policy_violations"] == []
+
+    def test_a_transitive_that_breaks_the_policy_survives_the_standard_profile(
+        self, settings, profile_scan, output_file
+    ):
+        # Four of these five transitives merely drift and are dropped; a violation is news.
+        scan = with_provenance(profile_scan, "drift-0", build_tier=TrustTier.NONE, violations=(DOWNGRADE,))
+
+        data = render_profile(settings, scan, output_file, ExportProfile.STANDARD)
+
+        assert "drift-0" in {p["package_name"] for p in data["transitive_packages"]}
+        assert "drift-1" not in {p["package_name"] for p in data["transitive_packages"]}
+
+    def test_an_installed_violation_headlines_review_provenance(self, settings, profile_scan, output_file):
+        scan = with_provenance(profile_scan, "quiet", build_tier=TrustTier.NONE, violations=(DOWNGRADE,))
+
+        data = render_profile(settings, scan, output_file, ExportProfile.FULL)
+
+        assert package_named(data, "quiet")["next_action"] == "Review provenance"
+
+
+class TestSchemaVersion16IgnoresProvenance:
+    """A pinned 1.5 or 1.6 document never learns of the policy: no new fields, and no new label."""
+
+    @pytest.mark.parametrize("profile", [ExportProfile.STANDARD, ExportProfile.FULL])
+    @pytest.mark.parametrize("version", [ExportJsonSchemaVersion.V1_5, ExportJsonSchemaVersion.V1_6])
+    def test_a_pinned_document_has_no_provenance_and_still_validates(
+        self, settings, profile_scan, output_file, profile, version
+    ):
+        scan = with_provenance(
+            profile_scan,
+            "quiet",
+            build_tier=TrustTier.NONE,
+            source_level=SourceLevel.REVIEWED,
+            violations=(DOWNGRADE,),
+        )
+
+        data = render_profile(settings, scan, output_file, profile, schema_version=version.value)
+
+        quiet = package_named(data, "quiet")
+        assert "policy_violations" not in quiet
+        assert "build_provenance" not in quiet
+        assert "source_level" not in quiet
+        assert quiet.get("next_action") != "Review provenance"
+        validate(instance=data, schema=json_schema_registry.load_schema(version, profile))
 
 
 class TestSchemaVersion16StaysAsReleased:
