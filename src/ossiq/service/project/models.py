@@ -19,6 +19,7 @@ from ossiq.domain.cve import CVE
 from ossiq.domain.package import Package
 from ossiq.domain.packages_manager import PackageManagerCli
 from ossiq.domain.project import ConstraintSource, InstalledCopy, PeerRequirement, UnresolvedPeer
+from ossiq.domain.provenance import ProvenanceFacts, SourceLevel
 from ossiq.domain.repository import Repository
 from ossiq.domain.version import VersionsDifference
 from ossiq.risk.maintenance import DeprecationEvidence, MaintenanceAssessment
@@ -253,6 +254,10 @@ class ScanRecord:
     service.project.strategy.apply_update_strategy, after populate_stability. None for transitive
     records (v1 scope: the strategy applies to direct dependencies only) or an ignored package."""
 
+    provenance: ProvenanceFacts | None = None
+    """Build evidence behind the installed release, and whether it breaks the configured policy.
+    Written only by service.project.provenance.populate_provenance; None before that step has run."""
+
     @property
     def identity_name(self) -> str:
         """The manifest key this record answers for — `dependency_name`, else `package_name`.
@@ -286,6 +291,9 @@ class PrefetchedData:
     readmes: dict[str, str] = field(default_factory=dict)
     """Repo URL -> the first few KB of the README, scanned for a deprecation banner. Absent keys
     are unmeasured (no repo, non-GitHub host, or --no-stability)."""
+    source_levels: dict[str, SourceLevel] = field(default_factory=dict)
+    """Repo URL -> how well the default branch protects its history. Absent keys are unmeasured (a
+    transitive's repo, a non-GitHub host, a failed lookup, or neither --stability nor a source policy)."""
     data_completeness: DataCompleteness = field(default_factory=DataCompleteness)
     """B4: per-step status (ok/partial/unreachable/rate_limited) for the data sources fetched
     above - see prefetch_scan_data. Carried onto ScanResult so the CLI, export, and exit-code

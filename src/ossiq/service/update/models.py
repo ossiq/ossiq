@@ -14,6 +14,7 @@ from ossiq.domain.common import (
     RecommendationRung,
     display_package_name,
 )
+from ossiq.domain.provenance import PolicyHold
 from ossiq.service.project.models import PeerRepair
 from ossiq.service.update_impact import TransitiveImpact
 from ossiq.solver.reason import RecommendationReason
@@ -129,6 +130,9 @@ class UpdatePlan:
     # The newest release refused per package because an installed package peer-requires a range it
     # falls outside. Without it, such a package would drop out of the plan unexplained.
     held_by_peers: list[PeerHold] = field(default_factory=list)
+    # The newest release refused per package by the supply-chain policy in the config file. Only the
+    # user can relax a policy, so the plan names what it kept out rather than going quiet.
+    held_by_policy: list[PolicyHold] = field(default_factory=list)
     # Peers installed only out of their requirers' reach. Each is added to the manifest, and its
     # family's stale copies move with it (those moves are in transitive_entries).
     peer_repairs: list[PeerRepair] = field(default_factory=list)

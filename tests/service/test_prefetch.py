@@ -19,9 +19,15 @@ from ossiq.domain.cve import CVE, Severity
 from ossiq.domain.exceptions import UnknownPackageVersion
 from ossiq.domain.package import Package
 from ossiq.domain.project import ConstraintSource
+from ossiq.domain.provenance import SourceLevel
+from ossiq.domain.repository import Repository
 from ossiq.domain.version import PackageVersion
 from ossiq.service.project.models import DependencyDescriptor
-from ossiq.service.project.prefetch import enrich_cves_with_epss_and_fix_age, forecast_github_budget
+from ossiq.service.project.prefetch import (
+    enrich_cves_with_epss_and_fix_age,
+    forecast_github_budget,
+    prefetch_repository_source_levels,
+)
 from ossiq.service.project.scan import ScanProgress, apply_cutoff_date, prefetch_scan_data
 from ossiq.settings import Settings
 
@@ -397,6 +403,60 @@ class TestForecastGithubBudget:
 
         assert forecast_github_budget(provider, [], [], stability=True, responsiveness=True) == ()
         provider.rate_limit_budgets.assert_not_called()
+
+    def test_source_controls_cost_two_more_requests_per_direct_repo(self):
+        provider = self.provider(RateLimitBudget(resource="core", remaining=100))
+        repos = ["https://github.com/org/a", "https://github.com/org/b"]
+        direct = ["https://github.com/org/a"]
+
+        without = forecast_github_budget(provider, repos, direct, stability=False, responsiveness=False)
+        with_source = forecast_github_budget(
+            provider, repos, direct, stability=False, responsiveness=False, source_controls=True
+        )
+
+        assert (without[0].needed, with_source[0].needed) == (2, 4)
+
+
+class TestPrefetchRepositorySourceLevels:
+    URL = "https://github.com/org/a"
+
+    @staticmethod
+    def repository(branch: str | None) -> Repository:
+        return Repository(
+            provider="github", name="a", owner="org", description=None, html_url=None, default_branch=branch
+        )
+
+    def test_asks_for_the_default_branch_each_repo_names(self):
+        provider = MagicMock()
+        provider.branch_controls_batch.return_value = SourceFetch({self.URL: SourceLevel.REVIEWED})
+
+        fetch = prefetch_repository_source_levels(provider, {self.URL: self.repository("trunk")}, [self.URL])
+
+        provider.branch_controls_batch.assert_called_once_with({self.URL: "trunk"})
+        assert fetch.data == {self.URL: SourceLevel.REVIEWED}
+
+    def test_a_repo_whose_metadata_was_lost_has_no_branch_to_ask_about(self):
+        provider = MagicMock()
+
+        fetch = prefetch_repository_source_levels(provider, {}, [self.URL])
+
+        assert fetch.data == {}
+        provider.branch_controls_batch.assert_not_called()
+
+    def test_a_repo_that_named_no_default_branch_is_skipped(self):
+        provider = MagicMock()
+
+        prefetch_repository_source_levels(provider, {self.URL: self.repository(None)}, [self.URL])
+
+        provider.branch_controls_batch.assert_not_called()
+
+    def test_non_github_repos_are_not_asked_about(self):
+        provider = MagicMock()
+        gitlab = "https://gitlab.com/org/a"
+
+        prefetch_repository_source_levels(provider, {gitlab: self.repository("main")}, [gitlab])
+
+        provider.branch_controls_batch.assert_not_called()
 
 
 def test_prefetch_scan_data_records_data_completeness_per_step():

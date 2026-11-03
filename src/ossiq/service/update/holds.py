@@ -6,6 +6,7 @@ import dataclasses
 from collections.abc import Iterable
 
 from ossiq.domain.common import ConstraintType, OverrideHold, PeerHold
+from ossiq.domain.provenance import PolicyHold
 from ossiq.service.project.models import ScanRecord, ScanResult
 from ossiq.service.update.entries import cooldown_entry_from_record
 from ossiq.service.update.models import UpdateEntry
@@ -78,6 +79,21 @@ def peer_holds(records: Iterable[ScanRecord]) -> list[PeerHold]:
         for record in records
         for hold in [next((rc.held_by_peer for rc in reversed(record.rejected_candidates) if rc.held_by_peer), None)]
         if hold is not None
+    ]
+    return sorted(holds, key=lambda hold: hold.package)
+
+
+def policy_holds(records: Iterable[ScanRecord]) -> list[PolicyHold]:
+    """Return the newest policy-refused release of each package, sorted by package name.
+
+    `rejected_candidates` run from the lowest rung to the highest, so the last policy hold is the
+    furthest the package was kept back.
+    """
+    holds = [
+        PolicyHold(package=record.package_name, blocked_version=rc.version, reason=rc.reason)
+        for record in records
+        for rc in [next((rc for rc in reversed(record.rejected_candidates) if rc.held_by_policy), None)]
+        if rc is not None
     ]
     return sorted(holds, key=lambda hold: hold.package)
 

@@ -31,6 +31,7 @@ from ossiq.domain.compatibility import CompatibilityFacts
 from ossiq.domain.cve import CVE, AffectedRange, Severity
 from ossiq.domain.package import Package
 from ossiq.domain.project import ConstraintSource, UnresolvedPeer
+from ossiq.domain.provenance import ProvenanceFacts, TrustTier
 from ossiq.domain.version import (
     VERSION_DIFF_MAJOR,
     VERSION_DIFF_MINOR,
@@ -974,6 +975,36 @@ def test_an_entry_without_unresolved_peers_has_no_such_key():
     entry = build_update_decide(make_scan([make_record()]))["updates"][0]
 
     assert "unresolved_peers" not in entry
+
+
+def test_a_policy_violation_rides_on_the_entry_and_headlines_review_provenance():
+    record = make_record()
+    record.provenance = ProvenanceFacts(build_tier=TrustTier.NONE, violations=("trust downgrade: no provenance",))
+
+    entry = build_update_decide(make_scan([record]))["updates"][0]
+
+    assert entry["policy_violations"] == ["trust downgrade: no provenance"]
+    assert entry["next_action"] == "Review provenance"
+    assert "installed version breaks your supply-chain policy: trust downgrade: no provenance" in entry["reasons"]
+
+
+def test_a_package_held_back_by_policy_is_not_reported_as_needing_no_action():
+    record = make_record()
+    record.rejected_candidates = [
+        RejectedCandidate("1.1.0", "no provenance, below the required provenance", held_by_policy=True)
+    ]
+
+    entry = build_update_decide(make_scan([record]))["updates"][0]
+
+    assert entry["next_action"] != "no action needed"
+    assert "1.1.0 rejected: no provenance, below the required provenance" in entry["reasons"]
+
+
+def test_an_entry_without_a_violation_has_no_policy_key():
+    record = make_record()
+    record.provenance = ProvenanceFacts(build_tier=TrustTier.PROVENANCE)
+
+    assert "policy_violations" not in build_update_decide(make_scan([record]))["updates"][0]
 
 
 def test_peer_repairs_ride_on_the_decision_with_their_family_moves():

@@ -21,6 +21,7 @@ from ossiq.solver.version_matchers import engine_mismatch_reason
 from ossiq.strategy.pyramid import tier_reaches
 
 CHECK_FOR_THE_FIX = "Check for the Fix"
+REVIEW_PROVENANCE = "Review provenance"
 FIND_ALTERNATIVE = "Find alternative"
 CONSIDER_ALTERNATIVE = "Consider alternative"
 CHECK_RELEASE_NOTES = "Check Release Notes"
@@ -33,8 +34,11 @@ WITHHELD_BY_STRATEGY = "Withheld by strategy"
 # CONSTRAINED_CHECK_NEWER sits last: a package you can simply bump outranks one you cannot.
 # WITHHELD_BY_STRATEGY sits below it in turn: nothing about the package is holding it back, only
 # the tier this run asked for, and a different --update-strategy would move it.
+# REVIEW_PROVENANCE is second: a release whose build evidence broke the configured policy may be a
+# takeover, which a person should look at before any routine bump or alternative.
 NEXT_ACTION_PRIORITY: tuple[str, ...] = (
     CHECK_FOR_THE_FIX,
+    REVIEW_PROVENANCE,
     FIND_ALTERNATIVE,
     CONSIDER_ALTERNATIVE,
     CHECK_RELEASE_NOTES,
@@ -66,10 +70,19 @@ def has_writable_upgrade(record: ScanRecord) -> bool:
     return selection is not None and (selection.widening_authorized or tier_reaches(selection.strategy, rung))
 
 
-def next_action_label(record: ScanRecord) -> str | None:
+def next_action_label(record: ScanRecord, *, provenance: bool = True) -> str | None:
     """The single next action for a package, or None when nothing is due.
 
     First match wins: an exploitable CVE outranks a dying upstream, which outranks version drift.
+
+    Args:
+        record: The package.
+        provenance: Whether the configured supply-chain policy may produce REVIEW_PROVENANCE. A
+            document written to a schema that predates the label passes False and gets the label the
+            drift ladder would have given.
+
+    Returns:
+        The label, or None when nothing is due.
     """
     # ponytail: flat rule ladder on purpose - the product owner extends it rule by rule.
     diff_index = record.versions_diff_index.diff_index
@@ -78,6 +91,10 @@ def next_action_label(record: ScanRecord) -> str | None:
     has_active_cve = bool(record.cve) and record.epss is not None and record.epss >= EPSS_EXPLOIT_THRESHOLD
     if has_active_cve:
         return CHECK_FOR_THE_FIX
+    # The installed release itself breaks the policy (a trust downgrade, say): no bump is the first
+    # move, a person looking at how it was published is.
+    if provenance and record.provenance is not None and record.provenance.violations:
+        return REVIEW_PROVENANCE
     # The registry itself retired the package, so no bump inside it helps. A deprecated *version* of
     # a live package (uuid@3) is the opposite - updating is the fix - and falls through to the ladder.
     if record.registry_status in INACTIVE_STATUSES:
@@ -86,6 +103,15 @@ def next_action_label(record: ScanRecord) -> str | None:
         return FIND_ALTERNATIVE
     if state == MaintenanceState.WINDING_DOWN:
         return CONSIDER_ALTERNATIVE
+    # Every newer release was ruled out by the policy, so there is nothing to bump to. Like the
+    # cooldown below, this describes the bump rather than the package; it sits above that rule
+    # because a release that may be a takeover is not one to merely wait for.
+    if (
+        provenance
+        and record.recommended_version is None
+        and any(rc.held_by_policy for rc in record.rejected_candidates)
+    ):
+        return REVIEW_PROVENANCE
     # Checked below the rules above and above the drift ladder: those describe the package, this
     # describes the bump. An update the user cannot take yet must not be labelled as one they can —
     # that mismatch is what made `status` say "Update Immediately" for a version `apply` refused.

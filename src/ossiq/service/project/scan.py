@@ -27,6 +27,7 @@ from ossiq.domain.common import (
 from ossiq.domain.exceptions import ProjectPathNotFoundError
 from ossiq.domain.package import Package
 from ossiq.domain.project import Dependency, Project
+from ossiq.domain.provenance import SourceLevel, VersionBlocks
 from ossiq.domain.requirement_scope import RequirementScope
 from ossiq.service.library_scan import compute_upgrade_paths, resolve_library_constraints
 from ossiq.service.project.copies import group_nodes_by_copy, installed_copies_by_name
@@ -48,10 +49,12 @@ from ossiq.service.project.prefetch import (
     prefetch_repository_activity,
     prefetch_repository_commits,
     prefetch_repository_readmes,
+    prefetch_repository_source_levels,
     prefetch_source_code_repositories_info,
     prefetch_versions_since,
     update_latest_versions_for_prerelease,
 )
+from ossiq.service.project.provenance import compute_version_blocks, populate_provenance, registry_policy
 from ossiq.service.project.recommendations import (
     apply_conflicts,
     apply_recommendations,
@@ -408,6 +411,11 @@ def prefetch_scan_data(
     direct_packages = (packages_info[dep.canonical_name] for dep in all_deps if dep.dependency_path is None)
     direct_repo_urls = {pkg.repo_url for pkg in direct_packages if pkg.repo_url is not None}
 
+    # The Source column rides along with the stability signals, and a source policy needs it even
+    # without them. Branch protection is read for direct dependencies only: a transitive's repository
+    # is nobody's decision to make, so asking about it would only spend quota.
+    measure_source = sources.settings.stability or sources.settings.policy_min_source is not None
+
     # Quota first: it costs nothing against the limit it reports, and it is the only way a scan
     # that is about to run out can say so before it starts paying for it.
     forecast = forecast_github_budget(
@@ -416,6 +424,7 @@ def prefetch_scan_data(
         direct_repo_urls,
         stability=sources.settings.stability,
         responsiveness=sources.settings.responsiveness_enabled(),
+        source_controls=measure_source,
     )
     progress.on_budget(forecast)
 
@@ -430,6 +439,12 @@ def prefetch_scan_data(
     commits: dict[str, list[dict]] = {}
     activity: dict[str, dict] = {}
     readmes: dict[str, str] = {}
+    source_levels: dict[str, SourceLevel] = {}
+    if measure_source:
+        source_fetch = prefetch_repository_source_levels(provider, repositories_fetch.data, direct_repo_urls)
+        source_levels = source_fetch.data
+        repository_statuses.append(source_fetch.status)
+        repository_diagnostics.append(source_fetch.diagnostics)
     if sources.settings.stability:
         commits_fetch = prefetch_repository_commits(provider, sources, direct_repo_urls)
         readmes_fetch = prefetch_repository_readmes(provider, direct_repo_urls)
@@ -491,6 +506,7 @@ def prefetch_scan_data(
         commits=commits,
         activity=activity,
         readmes=readmes,
+        source_levels=source_levels,
         data_completeness=DataCompleteness(by_step=completeness, diagnostics=diagnostics),
     )
 
@@ -533,6 +549,7 @@ def solve_direct_phase(
     now: datetime | None,
     *,
     project_declares_esm: bool = False,
+    version_blocks: VersionBlocks | None = None,
 ) -> tuple[
     dependencies_solver.SolverOutput, list[ScanRecord], list[ScanRecord], Callable[[str, str], DirectUpdateImpact]
 ]:
@@ -575,6 +592,7 @@ def solve_direct_phase(
         cooldown_period=sources.settings.cooldown_period,
         rewrite_pinned=sources.rewrite_versions,
         release_cutoff=sources.release_cutoff,
+        version_blocks=version_blocks,
     )
     logger.debug(
         "Pass 1.5 solve_direct: %.2fs — %d recommendations",
@@ -660,6 +678,7 @@ def solve_transitive_phase(
     now: datetime | None,
     *,
     project_declares_esm: bool = False,
+    version_blocks: VersionBlocks | None = None,
 ) -> None:
     """Pass 1.6: run the HPDR solver over transitive deps and apply its output in place.
 
@@ -691,6 +710,7 @@ def solve_transitive_phase(
         cooldown_period=sources.settings.cooldown_period,
         external_targets=external_targets,
         release_cutoff=sources.release_cutoff,
+        version_blocks=version_blocks,
     )
     logger.debug(
         "Pass 1.6 solve_transitive: %.2fs — %d records, %d recommendations",
@@ -736,6 +756,21 @@ def scan(sources: AbstractProjectSources, progress: ScanProgress | None = None) 
         now = sources.settings.cutoff_date
         prefetched = prefetch_scan_data(sources, all_deps, now, progress)
 
+        # Judged once, over every package's whole history: the solver, the strategy and each record's
+        # own provenance all read these verdicts, so none of them can disagree about a release.
+        source_levels_by_name = {
+            dep.canonical_name: prefetched.source_levels[repo_url]
+            for dep in all_deps
+            if dep.dependency_path is None
+            and (repo_url := prefetched.packages_info[dep.canonical_name].repo_url) in prefetched.source_levels
+        }
+        version_blocks = compute_version_blocks(
+            {dep.canonical_name for dep in all_deps},
+            sources.packages_registry,
+            registry_policy(sources.settings, project_info.package_registry),
+            source_levels_by_name,
+        )
+
         # Ignored packages still get full ScanRecords (status/export/html show the row), but
         # they're excluded from solver input so they never receive a recommended_version.
         solvable_direct_deps = [
@@ -778,6 +813,7 @@ def scan(sources: AbstractProjectSources, progress: ScanProgress | None = None) 
             installed_version_by_name,
             now,
             project_declares_esm=project_info.declares_esm,
+            version_blocks=version_blocks,
         )
 
         solve_transitive_phase(
@@ -789,6 +825,7 @@ def scan(sources: AbstractProjectSources, progress: ScanProgress | None = None) 
             solver_output,
             now,
             project_declares_esm=project_info.declares_esm,
+            version_blocks=version_blocks,
         )
         settle_transitive_picks(
             transitive_packages,
@@ -801,6 +838,7 @@ def scan(sources: AbstractProjectSources, progress: ScanProgress | None = None) 
         )
 
         all_records = production_packages + optional_packages + transitive_packages
+        populate_provenance(all_records, prefetched.versions_since_map, version_blocks, source_levels_by_name)
         project_epss = populate_epss(all_records, descriptors.walker)
         vulnerabilities_status = prefetched.data_completeness.status_for(ScanStep.VULNERABILITIES)
         project_stability = populate_stability(
@@ -839,6 +877,7 @@ def scan(sources: AbstractProjectSources, progress: ScanProgress | None = None) 
             release_cutoff=sources.release_cutoff,
             fixed_versions={**transitive_finals, **ignored_versions},
             fixed_installed={**transitive_installed, **ignored_versions},
+            version_blocks=version_blocks,
         )
 
         peer_repairs = plan_peer_repairs(

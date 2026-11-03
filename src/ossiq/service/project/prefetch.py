@@ -3,7 +3,7 @@ Bulk pre-fetch helpers: package info, repositories, versions-since-installed,
 and classification of dependencies that must be excluded from the scan.
 """
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from dataclasses import replace
 from datetime import datetime
 from itertools import chain
@@ -18,6 +18,7 @@ from ossiq.domain.cve import CVE
 from ossiq.domain.exceptions import UnknownPackageVersion
 from ossiq.domain.package import Package
 from ossiq.domain.project import Dependency
+from ossiq.domain.provenance import SourceLevel
 from ossiq.domain.repository import Repository
 from ossiq.messages import IGNORE_REASON_IGNORE_FLAG, IGNORE_REASON_NON_REGISTRY
 from ossiq.risk.stability import engagement_window_since
@@ -245,6 +246,8 @@ def github_only(repo_urls: Iterable[str]) -> list[str]:
 # bound - it ignores the HTTP cache, so a warm scan is forecast to cost more than it will.
 REST_REQUESTS_PER_REPO = 1
 REST_REQUESTS_PER_DIRECT_REPO = 2
+REST_REQUESTS_PER_SOURCE_REPO = 2
+"""Default-branch protection (classic) and rulesets, one request each."""
 GRAPHQL_REQUESTS_PER_DIRECT_REPO = 2
 
 
@@ -255,6 +258,7 @@ def forecast_github_budget(
     *,
     stability: bool,
     responsiveness: bool,
+    source_controls: bool = False,
 ) -> tuple[RateLimitBudget, ...]:
     """Read GitHub's remaining quota before the scan spends it, against what the scan will need.
 
@@ -269,6 +273,7 @@ def forecast_github_budget(
             channels.
         stability: Whether the commits and README fetches will run.
         responsiveness: Whether the GraphQL activity fetch will run.
+        source_controls: Whether the default-branch protection fetches will run.
 
     Returns:
         One budget per metered resource with `needed` filled in, or an empty tuple when there is
@@ -281,7 +286,8 @@ def forecast_github_budget(
 
     needed = {
         "core": repo_count * REST_REQUESTS_PER_REPO
-        + (direct_count * REST_REQUESTS_PER_DIRECT_REPO if stability else 0),
+        + (direct_count * REST_REQUESTS_PER_DIRECT_REPO if stability else 0)
+        + (direct_count * REST_REQUESTS_PER_SOURCE_REPO if source_controls else 0),
         "graphql": direct_count * GRAPHQL_REQUESTS_PER_DIRECT_REPO if stability and responsiveness else 0,
     }
     return tuple(
@@ -336,6 +342,34 @@ def prefetch_repository_readmes(
     if not github_urls:
         return SourceFetch({})
     return provider.readmes_batch(github_urls)
+
+
+def prefetch_repository_source_levels(
+    provider: AbstractSourceCodeProviderApi,
+    repositories: Mapping[str, Repository],
+    repo_urls: Iterable[str],
+) -> SourceFetch[dict[str, SourceLevel]]:
+    """Pre-fetch how each GitHub repo protects its default branch.
+
+    Needs the repository metadata first, since that is where the default branch's name comes from;
+    a repository that metadata fetch lost has no branch to ask about and is simply not measured.
+
+    Args:
+        provider: The GitHub provider the scan's other fetches use.
+        repositories: Repository metadata by URL, from `prefetch_source_code_repositories_info`.
+        repo_urls: The repositories to measure.
+
+    Returns:
+        Source level per repository URL; repositories that could not be measured are absent.
+    """
+    branches: dict[str, str] = {}
+    for url in github_only(repo_urls):
+        repository = repositories.get(url)
+        if repository is not None and repository.default_branch:
+            branches[url] = repository.default_branch
+    if not branches:
+        return SourceFetch({})
+    return provider.branch_controls_batch(branches)
 
 
 def partition_git_hosted(deps: Iterable[Dependency], enabled: bool) -> tuple[list[Dependency], list[Dependency]]:

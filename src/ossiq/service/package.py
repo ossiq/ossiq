@@ -13,8 +13,10 @@ from ossiq.domain.common import (
 from ossiq.domain.cve import CVE
 from ossiq.domain.package import Package
 from ossiq.domain.project import ConstraintSource
+from ossiq.domain.provenance import SourceLevel
 from ossiq.domain.version import PackageVersion
 from ossiq.service.project.models import DependencyDescriptor, ScanRecord, ScanResult
+from ossiq.service.project.provenance import compute_version_blocks, fetch_source_level, registry_policy
 from ossiq.service.project.recommendations import apply_recommendations, clamp_recommendations
 from ossiq.service.project.records import calculate_version_age_days
 from ossiq.settings import Settings
@@ -28,6 +30,7 @@ RULE_COOLDOWN_PERIOD = "COOLDOWN_PERIOD"
 RULE_PACKAGE_DEPRECATED = "PACKAGE_DEPRECATED"
 RULE_PACKAGE_QUARANTINED = "PACKAGE_QUARANTINED"
 RULE_VERSION_DEPRECATED = "VERSION_DEPRECATED"
+RULE_POLICY_VIOLATION = "POLICY_VIOLATION"
 
 REGISTRY_LABELS: dict[ProjectPackagesRegistry, str] = {
     ProjectPackagesRegistry.NPM: "npm",
@@ -92,6 +95,10 @@ class PackageInsight:
     deprecation_message: str | None = None
     # The release the caller asked for, when it asked for one that exists.
     requested_release: PackageVersion | None = None
+    # Why the release being judged (the one asked for, else the recommendation) breaks the supply-chain
+    # policy in the config file; empty when it passes or no policy is set.
+    policy_violations: tuple[str, ...] = ()
+    policy_checked_version: str | None = None
 
 
 @dataclass
@@ -118,11 +125,13 @@ def build_package_insight(
     recommended_version: str | None = None,
     recommended_version_age_days: int | None = None,
     requested_version: str | None = None,
+    policy_violations: tuple[str, ...] = (),
 ) -> PackageInsight:
     """Compute health metrics from a package's metadata and full version list.
 
     `requested_version` is the release the user named (`add pkg --version X`); it is looked up so
-    the rules can judge that release rather than only the package.
+    the rules can judge that release rather than only the package. `policy_violations` are the
+    supply-chain rules the judged release (that one, else the recommendation) breaks.
     """
     non_prerelease = [v for v in versions if not v.is_prerelease]
     versions_count = len(non_prerelease)
@@ -150,6 +159,8 @@ def build_package_insight(
         requested_release=next((v for v in versions if v.version == requested_version), None)
         if requested_version
         else None,
+        policy_violations=policy_violations,
+        policy_checked_version=requested_version or recommended_version,
     )
 
 
@@ -193,6 +204,20 @@ def evaluate_package_rules(insight: PackageInsight, settings: Settings) -> list[
             PackageWarning(
                 rule_id=RULE_VERSION_DEPRECATED,
                 message=f"Version {release.version} is deprecated{where}{reason}{use_instead}",
+                severity="critical",
+            )
+        )
+
+    # The user's own rule, so it stops an add like the registry's verdicts do. One warning however many
+    # rules the release breaks, so the rule id appears once in the agent's `warnings` list.
+    if insight.policy_violations:
+        warnings.append(
+            PackageWarning(
+                rule_id=RULE_POLICY_VIOLATION,
+                message=(
+                    f"Version {insight.policy_checked_version} breaks your supply-chain policy: "
+                    f"{'; '.join(insight.policy_violations)}"
+                ),
                 severity="critical",
             )
         )
@@ -246,6 +271,14 @@ def fetch_prospective_detail(
 
     pkg_canonical = package.canonical_name or package.name
 
+    # The user's supply-chain policy, applied to a package that is not installed yet: its releases are
+    # judged like an installed package's would be, so the solver skips the ones the policy rules out.
+    policy = registry_policy(settings, sources.packages_registry.package_registry)
+    source_levels: dict[str, SourceLevel] = {}
+    if policy.min_source is not None and (level := fetch_source_level(sources, package.repo_url)) is not None:
+        source_levels[pkg_canonical] = level
+    version_blocks = compute_version_blocks([pkg_canonical], sources.packages_registry, policy, source_levels)
+
     cves: list[CVE] = []
     if package.latest_version:
         cve_map = sources.cve_database.get_cves_batch([(package, package.latest_version)]).data
@@ -274,10 +307,22 @@ def fetch_prospective_detail(
         allow_deprecated=package.is_deprecated,
         cooldown_period=settings.cooldown_period,
         release_cutoff=sources.release_cutoff,
+        version_blocks=version_blocks,
     )
-    recommended_version = solver_output.recommendations.get(pkg_canonical) or package.latest_version
+    recommended_version = solver_output.recommendations.get(pkg_canonical)
+    # The solver is given "0.0.0" as the installed version, and a release equal to the installed one is
+    # never filtered out - a real left-pad@0.0.0 slipped through a block that way. Nothing is installed
+    # here, so a pick the policy ruled out means nothing clean was left.
+    if recommended_version in version_blocks.get(pkg_canonical, {}):
+        recommended_version = None
+    recommended_version = recommended_version or package.latest_version
     prospective_reason = solver_output.reasons.get(pkg_canonical)
     recommended_age = calculate_version_age_days(versions, recommended_version) if recommended_version else None
+
+    # With nothing clean left the recommendation falls back to the latest release, which is then the
+    # blocked one - so judging it is what turns "the policy ruled everything out" into a stop.
+    judged_version = requested_version or recommended_version
+    policy_violations = version_blocks.get(pkg_canonical, {}).get(judged_version, ()) if judged_version else ()
 
     insight = build_package_insight(
         package=package,
@@ -286,6 +331,7 @@ def fetch_prospective_detail(
         recommended_version=recommended_version,
         recommended_version_age_days=recommended_age,
         requested_version=requested_version,
+        policy_violations=policy_violations,
     )
     warnings = evaluate_package_rules(insight, settings)
 

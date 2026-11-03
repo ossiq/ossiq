@@ -25,6 +25,7 @@ from ossiq.domain.common import (
     RejectedCandidate,
     RejectionDetail,
 )
+from ossiq.domain.provenance import VersionBlocks
 from ossiq.domain.release_cutoff import ReleaseCutoff
 from ossiq.domain.version import PeerDependency
 from ossiq.risk.maintenance import DEPRECATION_NONE
@@ -209,6 +210,7 @@ def build_candidates(
     structural_gates: Sequence[StructuralGate] = (),
     binding_gates: Sequence[StructuralGate] = (),
     strict_gates: Sequence[StructuralGate] = (),
+    policy_blocks: Mapping[str, tuple[str, ...]] | None = None,
 ) -> BuiltCandidates:
     """Build the ascending candidate ladder for one record.
 
@@ -233,6 +235,11 @@ def build_candidates(
     says: a release excluded by `requires-python` is not "incompatible but still the best answer",
     it is one `uv`/`pip` refuse to resolve at all. Waiving those produced a recommendation that
     could only ever fail at `apply`, so they empty the ladder rather than be waived.
+
+    `policy_blocks` maps a version to the reasons a configured supply-chain policy rules it out. Those
+    releases are never candidates and are never waived, even when that leaves the ladder empty: the
+    point of the policy is to refuse a release, however attractive it is otherwise. They are recorded
+    as `RejectedCandidate(held_by_policy=True)` so the plan can say why nothing was proposed.
 
     A release that clears the structural pre-filter but fails `validator` (i.e. it would break a
     transitive dependency) is not silently dropped: it's kept as a `RejectedCandidate`, capped at
@@ -290,6 +297,13 @@ def build_candidates(
     rejected_by_rung: dict[RecommendationRung, RejectedCandidate] = {}
     for pv in installable:
         rung = classify_rung(pv.version, record, installed_major, registry)
+
+        policy_reasons = (policy_blocks or {}).get(pv.version)
+        if policy_reasons:
+            rejected_by_rung[rung] = RejectedCandidate(
+                version=pv.version, reason="; ".join(policy_reasons), held_by_policy=True
+            )
+            continue
 
         gate_reason = gate_reasons.get(pv.version)
         if gate_reason is not None:
@@ -534,6 +548,7 @@ def apply_update_strategy(
     release_cutoff: ReleaseCutoff | None = None,
     fixed_versions: Mapping[str, str] | None = None,
     fixed_installed: Mapping[str, str] | None = None,
+    version_blocks: VersionBlocks | None = None,
 ) -> None:
     """Run the selector for each record and write its verdict, replacing `apply_ladder_fallback`.
 
@@ -568,6 +583,9 @@ def apply_update_strategy(
     that peer-require another package out of its final version. `fixed_versions` holds the final
     version of every package this pass does not move (ignored direct ones, transitive ones), and
     `fixed_installed` their installed versions; that pass holds them in place.
+
+    `version_blocks` carries the configured supply-chain policy's verdicts; a blocked release is never
+    a candidate, and the installed one is never in the ladder anyway, so it stays.
     """
     engine_context = engine_context or EngineContext()
     decisions: list[TargetDecision] = []
@@ -659,6 +677,7 @@ def apply_update_strategy(
             transitive_by_name=transitive_by_name,
             structural_gates=() if engine_gate_binds else (engine_gate,),
             binding_gates=(engine_gate,) if engine_gate_binds else (),
+            policy_blocks=(version_blocks or {}).get(record.package_name),
         )
 
         built = build(strict_gates=module_gates)

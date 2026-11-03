@@ -1183,6 +1183,96 @@ UUID_ADVISORY = CVE(
 BENCH_NODE = "26.8.1"
 
 
+class TestApplyUpdateStrategyPolicyBlocks:
+    """A release the supply-chain policy rules out is held back, and the record says why."""
+
+    DOWNGRADE = ("trust downgrade: no provenance, but earlier releases of this major line had provenance",)
+
+    def run(self, record: ScanRecord, registry: MagicMock, blocks, **kwargs) -> None:
+        apply_update_strategy(
+            [record],
+            registry,
+            STANDARD_PLAN,
+            versions_since={
+                (record.package_name, record.installed_version): list(registry.package_versions(record.package_name))
+            },
+            transitive_by_name={},
+            installed_names=set(),
+            allow_prerelease=False,
+            now=NOW,
+            version_blocks=blocks,
+            **kwargs,
+        )
+
+    def test_the_newest_release_is_skipped_for_the_newest_clean_one(self) -> None:
+        registry = make_registry({"pkg": [pv("1.1.0"), pv("1.2.0"), pv("1.3.0")]})
+        record = make_record("pkg", "1.0.0")
+
+        self.run(record, registry, {"pkg": {"1.3.0": self.DOWNGRADE}})
+
+        assert record.recommended_version == "1.2.0"
+
+    def test_the_skipped_release_is_recorded_as_held_by_policy(self) -> None:
+        registry = make_registry({"pkg": [pv("1.1.0"), pv("1.2.0")]})
+        record = make_record("pkg", "1.0.0")
+
+        self.run(record, registry, {"pkg": {"1.2.0": self.DOWNGRADE}})
+
+        (rejected,) = record.rejected_candidates
+        assert (rejected.version, rejected.held_by_policy) == ("1.2.0", True)
+        assert "trust downgrade" in rejected.reason
+
+    def test_every_reason_is_kept_when_a_release_breaks_two_rules(self) -> None:
+        registry = make_registry({"pkg": [pv("1.1.0")]})
+        record = make_record("pkg", "1.0.0")
+
+        self.run(record, registry, {"pkg": {"1.1.0": ("no provenance, below the required provenance", "second rule")}})
+
+        assert record.rejected_candidates[0].reason == "no provenance, below the required provenance; second rule"
+
+    def test_no_recommendation_is_made_when_every_newer_release_is_blocked(self) -> None:
+        registry = make_registry({"pkg": [pv("1.1.0"), pv("1.2.0")]})
+        record = make_record("pkg", "1.0.0")
+
+        self.run(record, registry, {"pkg": {"1.1.0": self.DOWNGRADE, "1.2.0": self.DOWNGRADE}})
+
+        assert record.recommended_version is None
+        assert all(rc.held_by_policy for rc in record.rejected_candidates)
+
+    def test_a_cve_does_not_lift_a_policy_block(self) -> None:
+        # A takeover release that "fixes" a CVE is exactly what the policy exists to refuse.
+        registry = make_registry({"pkg": [pv("1.1.0")]})
+        record = make_record("pkg", "1.0.0")
+        record.cve = [
+            CVE(
+                id="GHSA-pkg",
+                cve_ids=("GHSA-pkg",),
+                source=CveDatabase.OSV,
+                package_name="pkg",
+                package_registry=ProjectPackagesRegistry.PYPI,
+                summary="pkg < 1.1.0",
+                severity=Severity.HIGH,
+                affected_versions=("1.0.0",),
+                affected_ranges=(),
+                published=None,
+                link="https://osv.dev/vulnerability/GHSA-pkg",
+            )
+        ]
+
+        self.run(record, registry, {"pkg": {"1.1.0": self.DOWNGRADE}})
+
+        assert record.recommended_version is None
+
+    def test_blocks_for_another_package_change_nothing(self) -> None:
+        registry = make_registry({"pkg": [pv("1.1.0")]})
+        record = make_record("pkg", "1.0.0")
+
+        self.run(record, registry, {"other": {"1.1.0": self.DOWNGRADE}})
+
+        assert record.recommended_version == "1.1.0"
+        assert record.rejected_candidates == []
+
+
 def recommend_for_cjs_project(
     name: str,
     releases: list[PackageVersion],

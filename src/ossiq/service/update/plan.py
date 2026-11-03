@@ -10,7 +10,13 @@ from ossiq.domain.version import PeerDependency
 from ossiq.service.install_passes import assign_install_passes
 from ossiq.service.project.models import ScanResult
 from ossiq.service.update.entries import entry_from_record, transitive_entries_for
-from ossiq.service.update.holds import hold_for_cooldown, hold_for_widening, peer_holds, split_user_override_holds
+from ossiq.service.update.holds import (
+    hold_for_cooldown,
+    hold_for_widening,
+    peer_holds,
+    policy_holds,
+    split_user_override_holds,
+)
 from ossiq.service.update.models import UpdatePlan
 from ossiq.service.update.overrides import apply_forced_overrides
 from ossiq.strategy.overrides import StrategyPlan
@@ -103,6 +109,7 @@ def build_update_plan(
         available_at_higher_tier=dict(available_at_higher_tier),
         held_by_user_overrides=user_holds,
         held_by_peers=peer_holds(direct_records),
+        held_by_policy=policy_holds(direct_records),
         peer_repairs=list(scan_result.peer_repairs),
     )
     if peers_of is None:

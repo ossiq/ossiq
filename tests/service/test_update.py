@@ -18,6 +18,7 @@ from ossiq.domain.common import (
 )
 from ossiq.domain.cve import CVE, Severity
 from ossiq.domain.project import ConstraintSource
+from ossiq.domain.provenance import PolicyHold
 from ossiq.domain.version import VersionsDifference
 from ossiq.service.project.models import PeerRepair, ScanRecord, ScanResult
 from ossiq.service.update.entries import override_bump_entry
@@ -862,6 +863,39 @@ class TestHeldByPeers:
         plan = build_update_plan(make_scan_result(production=[vue]), "npm")
 
         assert plan.held_by_peers == []
+
+
+class TestPolicyHoldsInThePlan:
+    DOWNGRADE = "trust downgrade: no provenance, but earlier releases of this major line had provenance"
+
+    def refused(self, version: str, reason: str = DOWNGRADE) -> RejectedCandidate:
+        return RejectedCandidate(version, reason, held_by_policy=True)
+
+    def test_the_newest_refused_release_is_named_with_its_reason(self):
+        axios = make_record("axios", "1.6.0")
+        axios.rejected_candidates = [self.refused("1.7.0"), self.refused("1.8.0")]
+
+        plan = build_update_plan(make_scan_result(production=[axios]), "npm")
+
+        assert plan.held_by_policy == [PolicyHold("axios", "1.8.0", self.DOWNGRADE)]
+
+    def test_holds_are_listed_by_package_name(self):
+        zod = make_record("zod", "3.0.0")
+        zod.rejected_candidates = [self.refused("4.0.0")]
+        axios = make_record("axios", "1.6.0")
+        axios.rejected_candidates = [self.refused("1.7.0")]
+
+        plan = build_update_plan(make_scan_result(production=[zod, axios]), "npm")
+
+        assert [h.package for h in plan.held_by_policy] == ["axios", "zod"]
+
+    def test_a_rejection_for_another_reason_is_not_a_policy_hold(self):
+        vue = make_record("vue", "3.5.42")
+        vue.rejected_candidates = [RejectedCandidate("3.5.43", "@vue/shared is held by an override")]
+
+        plan = build_update_plan(make_scan_result(production=[vue]), "npm")
+
+        assert plan.held_by_policy == []
 
 
 class TestPeerRepairsInThePlan:

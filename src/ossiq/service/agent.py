@@ -277,6 +277,7 @@ def build_update_entry(record: ScanRecord, engine_context: EngineContext | None 
     can_fix = has_writable_upgrade(record)
     unmaintained_state = record.maintenance.state if record.maintenance is not None else None
     unmaintained = unmaintained_state in NOT_MAINTAINED
+    violations = record.provenance.violations if record.provenance is not None else ()
 
     actionable = (
         bool(cves)
@@ -287,6 +288,8 @@ def build_update_entry(record: ScanRecord, engine_context: EngineContext | None 
         or record.is_installed_yanked
         or record.is_installed_package_unpublished
         or record.registry_status in INACTIVE_STATUSES
+        or bool(violations)
+        or any(rc.held_by_policy for rc in record.rejected_candidates)
     )
 
     # Every entry carries the full version picture regardless of actionability - installed,
@@ -328,6 +331,9 @@ def build_update_entry(record: ScanRecord, engine_context: EngineContext | None 
             if record.unresolved_peers
             else {}
         ),
+        # Same reason: a package that breaks the user's own supply-chain policy has nothing else due
+        # more often than not, and must not read as "no action needed".
+        **({"policy_violations": list(violations)} if violations else {}),
     }
 
     if not actionable:
@@ -345,6 +351,7 @@ def build_update_entry(record: ScanRecord, engine_context: EngineContext | None 
         reasons.append("installed version is yanked")
     if record.is_installed_package_unpublished:
         reasons.append("package is unpublished")
+    reasons.extend(f"installed version breaks your supply-chain policy: {reason}" for reason in violations)
     # The registry retiring the whole package says more than one deprecated release does, so it
     # replaces that reason rather than joining it. A scan record does not know its registry, hence
     # no "on npm" here; the add decision, which does, names it.

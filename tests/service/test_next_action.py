@@ -13,6 +13,7 @@ from ossiq.domain.common import (
 )
 from ossiq.domain.cve import CVE, Severity
 from ossiq.domain.project import ConstraintSource
+from ossiq.domain.provenance import ProvenanceFacts, TrustTier
 from ossiq.domain.version import VERSION_DIFF_MAJOR, VERSION_DIFF_MINOR, VERSION_LATEST, VersionsDifference
 from ossiq.risk.maintenance import MaintenanceAssessment, MaintenanceState
 from ossiq.service.project.models import ScanRecord
@@ -23,6 +24,7 @@ from ossiq.service.project.next_action import (
     CONSTRAINED_CHECK_NEWER,
     FIND_ALTERNATIVE,
     NEXT_ACTION_PRIORITY,
+    REVIEW_PROVENANCE,
     UPDATE_IMMEDIATELY,
     WAIT_FOR_COOLDOWN,
     WITHHELD_BY_STRATEGY,
@@ -406,3 +408,70 @@ class TestWideningPick:
         record.cve = [fake_cve(0.2)]
         record.epss = 0.2
         assert next_action_label(record) == CHECK_FOR_THE_FIX
+
+
+class TestReviewProvenance:
+    """A release the supply-chain policy rules out is a person's call, ahead of any routine bump."""
+
+    @staticmethod
+    def violating(**kwargs) -> ScanRecord:
+        record = make_record(**kwargs)
+        record.provenance = ProvenanceFacts(build_tier=TrustTier.NONE, violations=("trust downgrade: no provenance",))
+        return record
+
+    @staticmethod
+    def held_by_policy(**kwargs) -> ScanRecord:
+        record = make_record(**kwargs)
+        record.rejected_candidates = [RejectedCandidate(version="1.1.0", reason="x", held_by_policy=True)]
+        return record
+
+    def test_an_installed_release_that_breaks_the_policy_is_reviewed(self):
+        assert next_action_label(self.violating()) == REVIEW_PROVENANCE
+
+    def test_it_outranks_plain_drift(self):
+        assert next_action_label(self.violating(versions_diff_index=MAJOR)) == REVIEW_PROVENANCE
+
+    def test_it_outranks_a_dying_upstream(self):
+        record = self.violating(maintenance=assessment(MaintenanceState.ABANDONED))
+        assert next_action_label(record) == REVIEW_PROVENANCE
+
+    def test_an_active_cve_still_comes_first(self):
+        record = self.violating(versions_diff_index=MINOR, cve=[fake_cve(0.2)], epss=0.2)
+        assert next_action_label(record) == CHECK_FOR_THE_FIX
+
+    def test_a_clean_installed_release_is_untouched(self):
+        record = make_record(versions_diff_index=MINOR, recommended_version="1.1.0")
+        record.provenance = ProvenanceFacts(build_tier=TrustTier.PROVENANCE)
+        assert next_action_label(record) == UPDATE_IMMEDIATELY
+
+    def test_every_newer_release_ruled_out_leaves_nothing_to_bump_to(self):
+        assert next_action_label(self.held_by_policy(versions_diff_index=MINOR)) == REVIEW_PROVENANCE
+
+    def test_a_policy_hold_outranks_waiting_for_the_cooldown(self):
+        record = self.held_by_policy(versions_diff_index=MINOR)
+        record.strategy_selection = StrategySelection(
+            strategy=UpdateStrategy.STANDARD,
+            target_version=None,
+            rung=None,
+            motives=frozenset(),
+            requires_widening=False,
+            withheld_reason=None,
+            available_at=None,
+            escalation=None,
+            cooldown_hold=CooldownHold(version="1.2.0", age_days=2, cooldown_period=7),
+        )
+        assert next_action_label(record) == REVIEW_PROVENANCE
+
+    def test_a_newer_clean_release_to_move_to_is_just_an_update(self):
+        # Only the newest was ruled out; 1.0.5 is still on offer.
+        record = self.held_by_policy(versions_diff_index=MINOR, recommended_version="1.0.5")
+        assert next_action_label(record) == UPDATE_IMMEDIATELY
+
+    def test_a_document_written_before_the_label_existed_gets_the_old_ladder(self):
+        assert next_action_label(self.violating(versions_diff_index=MINOR), provenance=False) == (
+            next_action_label(make_record(versions_diff_index=MINOR))
+        )
+        assert next_action_label(self.held_by_policy(versions_diff_index=MINOR), provenance=False) != REVIEW_PROVENANCE
+
+    def test_the_label_is_second_on_the_headline_ladder(self):
+        assert list(NEXT_ACTION_PRIORITY)[:2] == [CHECK_FOR_THE_FIX, REVIEW_PROVENANCE]
