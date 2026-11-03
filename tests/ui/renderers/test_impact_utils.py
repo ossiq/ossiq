@@ -4,9 +4,11 @@ from rich.console import Console
 from rich.table import Table
 
 from ossiq.domain.common import RejectionDetail
+from ossiq.service.project.next_action import NEXT_ACTION_PRIORITY
 from ossiq.service.update_impact import ImpactKind, TransitiveImpact
 from ossiq.ui.renderers.impact_utils import (
     REJECTION_DETAIL_LIMIT,
+    WHATS_NEXT_STYLE,
     format_probability,
     format_rejection_detail,
     impact_sub_row_texts,
@@ -229,3 +231,8 @@ def test_impact_conflict_row_elides_a_long_spec_list():
     rows = impact_sub_row_texts(impacts)
 
     assert any("(+2 more)" in row for row in rows)
+
+
+def test_every_next_action_label_has_a_console_style():
+    """whats_next raises KeyError on a label with no style, so a new rule must bring its colour."""
+    assert set(NEXT_ACTION_PRIORITY) <= set(WHATS_NEXT_STYLE)

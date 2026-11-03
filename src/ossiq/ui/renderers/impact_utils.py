@@ -5,6 +5,7 @@ from datetime import UTC, datetime
 from rich.table import Table
 
 from ossiq.domain.common import RegistryStatus, RejectionDetail
+from ossiq.domain.provenance import SourceLevel, TrustTier
 from ossiq.domain.version import (
     VERSION_DIFF_BUILD,
     VERSION_DIFF_MAJOR,
@@ -23,6 +24,7 @@ from ossiq.service.project.next_action import (
     CONSIDER_ALTERNATIVE,
     CONSTRAINED_CHECK_NEWER,
     FIND_ALTERNATIVE,
+    REVIEW_PROVENANCE,
     UPDATE_IMMEDIATELY,
     WAIT_FOR_COOLDOWN,
     WITHHELD_BY_STRATEGY,
@@ -137,8 +139,63 @@ def format_state(record: ScanRecord) -> str:
     return f"[{style}]{maintenance.state}[/]"
 
 
+BUILD_PROVENANCE_LABEL: dict[TrustTier, tuple[str, str]] = {
+    TrustTier.TRUSTED_PUBLISHER: ("trusted", "green"),
+    TrustTier.PROVENANCE: ("attested", "green"),
+    # Dim, not a warning colour: most packages publish without provenance today, so colouring "none" would paint
+    # the whole table. Only a policy violation turns the cell red.
+    TrustTier.NONE: ("none", "dim"),
+}
+"""Console wording and colour per build tier. Presentation only; the tier names are the contract."""
+
+
+def format_build_provenance(record: ScanRecord) -> str:
+    """The Build column cell: how the installed release was published, red when a build rule rules it out.
+
+    Args:
+        record: The package to describe.
+
+    Returns:
+        Rich markup; an em dash when the registry could not be read, which is not the same as `none`.
+    """
+    facts = record.provenance
+    if facts is None or facts.build_tier is None:
+        return "[dim]—[/dim]"
+    label, style = BUILD_PROVENANCE_LABEL[facts.build_tier]
+    if facts.build_violations:
+        return f"[bold red]✗ {label}[/]"
+    return f"[{style}]{label}[/]"
+
+
+SOURCE_LEVEL_LABEL: dict[SourceLevel, tuple[str, str]] = {
+    SourceLevel.REVIEWED: ("reviewed", "green"),
+    SourceLevel.PROTECTED_HISTORY: ("protected", "green"),
+    SourceLevel.VERSION_CONTROLLED: ("vcs", "dim"),
+}
+"""Console wording and colour per source level. Presentation only; the level names are the contract."""
+
+
+def format_source_level(record: ScanRecord) -> str:
+    """The Source column cell: how the repository protects its history, red when the source rule rules it out.
+
+    Args:
+        record: The package to describe.
+
+    Returns:
+        Rich markup; an em dash when the repository was not read (transitive, not on GitHub, lookup failed).
+    """
+    facts = record.provenance
+    if facts is None or facts.source_level is None:
+        return "[dim]—[/dim]"
+    label, style = SOURCE_LEVEL_LABEL[facts.source_level]
+    if facts.source_violations:
+        return f"[bold red]✗ {label}[/]"
+    return f"[{style}]{label}[/]"
+
+
 WHATS_NEXT_STYLE: dict[str, str] = {
     CHECK_FOR_THE_FIX: "bold red",
+    REVIEW_PROVENANCE: "bold red",
     FIND_ALTERNATIVE: "bold red",
     CONSIDER_ALTERNATIVE: "bold yellow",
     CHECK_RELEASE_NOTES: "default",

@@ -11,6 +11,7 @@ from ossiq.messages import (
     HELP_PLAN_FORCED_WARNING,
     HELP_PLAN_HELD_BY_PACKAGE_MANAGER_HEADER,
     HELP_PLAN_HELD_BY_PEERS_HEADER,
+    HELP_PLAN_HELD_BY_POLICY_HEADER,
     HELP_PLAN_HELD_BY_USER_OVERRIDES_HEADER,
     HELP_PLAN_HELD_FOR_COOLDOWN_HEADER,
     HELP_PLAN_HELD_FOR_WIDENING_HEADER,
@@ -137,6 +138,7 @@ class ConsolePlanRenderer(AbstractUserInterfaceRenderer):
         self.render_held_for_widening(data)
         self.render_held_by_user_overrides(data)
         self.render_held_by_peers(data)
+        self.render_held_by_policy(data)
         self.render_peer_repairs(data)
 
         if script:
@@ -275,6 +277,21 @@ class ConsolePlanRenderer(AbstractUserInterfaceRenderer):
         for hold in data.held_by_peers:
             requirer = f"{hold.requirer} (+{hold.others} more)" if hold.others else hold.requirer
             table.add_row(hold.package, hold.blocked_version, requirer, hold.spec)
+        console.print(table)
+        console.print()
+
+    def render_held_by_policy(self, data: UpdatePlan) -> None:
+        """List the packages whose newer release the user's supply-chain policy rules out."""
+        if not data.held_by_policy:
+            return
+
+        console.print(f"[yellow]{HELP_PLAN_HELD_BY_POLICY_HEADER}[/yellow]")
+        table = Table(show_header=True, header_style="bold dim", box=None, padding=(0, 2))
+        table.add_column("Package", style="bold")
+        table.add_column("Refused", style="green")
+        table.add_column("Why", style="dim")
+        for hold in data.held_by_policy:
+            table.add_row(hold.package, hold.blocked_version, hold.reason)
         console.print(table)
         console.print()
 

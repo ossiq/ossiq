@@ -8,6 +8,7 @@ from datetime import UTC, datetime
 from rich.console import Console
 
 from ossiq.domain.common import ConstraintType, OverrideHold, PassOrdering, PeerHold, RecommendationRung
+from ossiq.domain.provenance import PolicyHold
 from ossiq.service.project.models import PeerRepair
 from ossiq.service.update.models import UpdateEntry, UpdatePlan
 from ossiq.service.update_impact import ImpactKind, TransitiveImpact
@@ -236,6 +237,24 @@ def test_peer_holds_get_their_own_section(monkeypatch):
     assert "typescript" in output and "7.0.2" in output
     assert "@typescript-eslint/utils (+7" in output and ">=4.8.4 <6.1.0" in output
     assert "@vue/server-renderer" in output and "(+0 more)" not in output
+
+
+def test_policy_holds_get_their_own_section(monkeypatch):
+    plan = dataclasses.replace(
+        make_plan(),
+        held_by_policy=[PolicyHold("axios", "1.8.0", "trust downgrade: no provenance")],
+    )
+
+    output = render(plan, monkeypatch)
+
+    assert "Held by your supply-chain policy" in output
+    assert "axios" in output and "1.8.0" in output and "trust downgrade: no provenance" in output
+
+
+def test_no_policy_section_without_holds(monkeypatch):
+    output = render(make_plan(direct_entries=[make_entry("vue", "3.5.42", "3.5.43", 20, is_direct=True)]), monkeypatch)
+
+    assert "supply-chain policy" not in output
 
 
 def test_no_peer_section_without_holds(monkeypatch):

@@ -260,6 +260,10 @@ HELP_PLAN_HELD_BY_PEERS_HEADER = (
     "Held by peer dependencies — newer versions exist, but an installed package's peer range rules them out:"
 )
 
+HELP_PLAN_HELD_BY_POLICY_HEADER = (
+    "Held by your supply-chain policy — newer versions exist, but the policy in the config file rules them out:"
+)
+
 HELP_PLAN_PEER_REPAIRS_HEADER = (
     "Repairs unresolved peers — installed only out of their requirers' reach; added where their requirers resolve them:"
 )
@@ -269,6 +273,8 @@ HELP_STATUS_PEER_MISSING = "↳ missing peer {package} {spec}: nothing installed
 HELP_STATUS_PEER_OUT_OF_REACH = (
     "↳ {optional}peer {package} {spec} is installed only out of reach ({versions}); this package cannot load it"
 )
+
+HELP_STATUS_POLICY_VIOLATION = "↳ policy: {reason}"
 
 HELP_STATUS_COOLDOWN_HOLD = (
     "↳ {version} is {age_days} days old; nothing older to move to before the {days}-day cooldown"

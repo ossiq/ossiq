@@ -19,6 +19,7 @@ from ossiq.messages import (
     HELP_STATUS_PACKAGE_MANAGER_HOLD,
     HELP_STATUS_PEER_MISSING,
     HELP_STATUS_PEER_OUT_OF_REACH,
+    HELP_STATUS_POLICY_VIOLATION,
 )
 from ossiq.risk.maintenance import NOT_MAINTAINED
 from ossiq.service.library_scan import UpgradePath
@@ -28,10 +29,12 @@ from ossiq.service.project.next_action import CONSTRAINED_CHECK_NEWER, engine_mi
 from ossiq.settings import Settings
 from ossiq.ui.interfaces import AbstractUserInterfaceRenderer
 from ossiq.ui.renderers.impact_utils import (
+    format_build_provenance,
     format_cutoff,
     format_lag_status,
     format_probability,
     format_rejection_detail,
+    format_source_level,
     format_state,
     format_status_badge,
     format_time_delta,
@@ -65,12 +68,14 @@ MAIN_COLUMNS_FULL: tuple[str, ...] = (
     "Recommended",
     "Lag",
     "State",
+    "Build",
+    "Source",
     "What's Next",
 )
-# The same measurement for the four extra columns MAIN_COLUMNS_FULL adds, taken with the `--full`
+# The same measurement for the six extra columns MAIN_COLUMNS_FULL adds, taken with the `--full`
 # sub-rows present: they share the Package column, so a long one widens it. A representative case,
 # not a guarantee — an unusually long rejection reason can still push a row onto a second line.
-MIN_WIDTH_FULL = 157
+MIN_WIDTH_FULL = 176
 
 COVERAGE_LABELS: dict[SignalCoverage, str] = {
     SignalCoverage.REPOSITORY_UNAVAILABLE: HELP_STATUS_COVERAGE_REPOSITORY_UNAVAILABLE,
@@ -93,7 +98,7 @@ def add_status_column(table: Table, name: str) -> None:
         table.add_column(name, style="bold")
     elif name == "Recommended":
         table.add_column(name, justify="left", style="bold green", no_wrap=True)
-    elif name in ("CVEs", "Update Mode", "State"):
+    elif name in ("CVEs", "Update Mode", "State", "Build", "Source"):
         table.add_column(name, justify="center", no_wrap=True)
     elif name in ("EPSS", "Lag"):
         table.add_column(name, justify="right", no_wrap=True)
@@ -261,6 +266,13 @@ def unresolved_peer_texts(pkg: ScanRecord) -> list[str]:
         else:
             texts.append(HELP_STATUS_PEER_MISSING.format(package=peer.package, spec=peer.spec))
     return texts
+
+
+def policy_violation_texts(pkg: ScanRecord) -> list[str]:
+    """One line per supply-chain rule the installed release breaks."""
+    if pkg.provenance is None:
+        return []
+    return [HELP_STATUS_POLICY_VIOLATION.format(reason=reason) for reason in pkg.provenance.violations]
 
 
 def add_detail_subrows(table: Table, pkg: ScanRecord, engine_context: EngineContext) -> None:
@@ -495,6 +507,7 @@ class ConsoleStatusRenderer(AbstractUserInterfaceRenderer):
                 or bool(pkg.constraint_conflict)
                 or bool(pkg.unresolved_peers)
                 or pkg.recommended_version not in (None, pkg.installed_version)
+                or bool(pkg.provenance and pkg.provenance.violations)
             )
 
         filtered_prod = prod if full else [pkg for pkg in prod if needs_action(pkg)]
@@ -538,6 +551,8 @@ class ConsoleStatusRenderer(AbstractUserInterfaceRenderer):
                     "Recommended": recommended_cell(pkg),
                     "Lag": format_time_delta(pkg.time_lag_days, lag_threshold_days),
                     "State": format_state(pkg),
+                    "Build": format_build_provenance(pkg),
+                    "Source": format_source_level(pkg),
                     "What's Next": whats_next(pkg, short=short_labels),
                 }
                 table.add_row(*(cells[name] for name in columns))
@@ -560,6 +575,10 @@ class ConsoleStatusRenderer(AbstractUserInterfaceRenderer):
                 # Shown in every mode, like a constraint conflict: either one means the tree is broken.
                 for text in unresolved_peer_texts(pkg):
                     table.add_row(f"  [yellow]{text}[/]", *blanks)
+
+                # Also every mode: a release that may have been published by someone else is not detail.
+                for text in policy_violation_texts(pkg):
+                    table.add_row(f"  [bold red]{text}[/]", *blanks)
 
         if filtered_prod:
             add_section_label("Production")
@@ -605,6 +624,8 @@ class ConsoleStatusRenderer(AbstractUserInterfaceRenderer):
                 add_detail_subrows(table, pkg, engine_context or EngineContext())
             for text in unresolved_peer_texts(pkg):
                 table.add_row(f"  [yellow]{text}[/]", *[""] * (len(table.columns) - 1))
+            for text in policy_violation_texts(pkg):
+                table.add_row(f"  [bold red]{text}[/]", *[""] * (len(table.columns) - 1))
         return table
 
     def upgrade_paths_table(self, paths: list[UpgradePath]) -> Table | None:

@@ -5,6 +5,7 @@ from __future__ import annotations
 import dataclasses
 from datetime import UTC, datetime
 
+import pytest
 from rich.console import Console
 
 from ossiq.domain.common import (
@@ -21,14 +22,26 @@ from ossiq.domain.common import (
 )
 from ossiq.domain.compatibility import CompatibilityFacts
 from ossiq.domain.cve import CVE, Severity
-from ossiq.domain.project import ConstraintSource, IncomingEdge, InstalledCopy, PeerRequirement, UnresolvedPeer
+from ossiq.domain.project import (
+    ConstraintSource,
+    IncomingEdge,
+    InstalledCopy,
+    PeerRequirement,
+    UnresolvedPeer,
+)
+from ossiq.domain.provenance import ProvenanceFacts, SourceLevel, TrustTier
 from ossiq.domain.version import VersionsDifference
 from ossiq.risk.maintenance import MaintenanceAssessment, MaintenanceState
 from ossiq.service.project.models import ScanRecord, ScanResult
 from ossiq.settings import Settings
 from ossiq.strategy.pyramid import UpdateStrategy
 from ossiq.strategy.targeting import StrategySelection
-from ossiq.ui.renderers.impact_utils import REJECTION_DETAIL_LIMIT, whats_next
+from ossiq.ui.renderers.impact_utils import (
+    REJECTION_DETAIL_LIMIT,
+    format_build_provenance,
+    format_source_level,
+    whats_next,
+)
 from ossiq.ui.renderers.status.console import (
     COVERAGE_NAME_LIMIT,
     MIN_WIDTH_DEFAULT,
@@ -110,6 +123,10 @@ def make_record(
             engine_compatible=engine_compatible,
         ),
     )
+
+
+FULL_TABLE_WIDTH = 240
+"""Roomy enough that a `--full` sub-row, which lives in the Package column, never wraps mid-sentence."""
 
 
 def render_table(
@@ -846,7 +863,7 @@ class TestWithheldByStrategySubRow:
         return record
 
     def test_withheld_package_names_the_tier_not_the_range(self):
-        output = render_table([self.withheld_record()], full=True)
+        output = render_table([self.withheld_record()], full=True, width=FULL_TABLE_WIDTH)
 
         assert "Withheld by strategy" in output
         assert "available under --update-strategy standard" in output
@@ -898,7 +915,7 @@ class TestCooldownHoldSubRow:
         return record
 
     def test_held_package_says_wait_and_names_the_version_and_the_wait(self):
-        output = render_table([self.held_record()], full=True)
+        output = render_table([self.held_record()], full=True, width=FULL_TABLE_WIDTH)
 
         assert "Wait for cooldown" in output
         assert "0.10.0 is 5 days old" in output
@@ -931,7 +948,7 @@ class TestCooldownHoldSubRow:
             ),
         )
 
-        output = render_table([record], full=True)
+        output = render_table([record], full=True, width=FULL_TABLE_WIDTH)
 
         assert "Wait for cooldown" in output
         assert "uv exclude-newer cutoff (2024-05-18 06:30 UTC)" in output
@@ -1045,3 +1062,101 @@ class TestSignalCoveragePanel:
         assert "pkg-00" in panel
         assert f"pkg-{COVERAGE_NAME_LIMIT:02d}" not in panel
         assert "(+4 more)" in panel
+
+
+# --- supply-chain provenance ------------------------------------------------------------------
+
+
+def with_provenance(record: ScanRecord, **facts) -> ScanRecord:
+    record.provenance = ProvenanceFacts(**facts)
+    return record
+
+
+def test_default_mode_leaves_the_provenance_columns_to_full():
+    header = header_of(render_table([make_record(versions_diff_index=MINOR, recommended_version="1.1.0")]))
+    assert "Build" not in header
+    assert "Source" not in header
+
+
+def test_full_mode_shows_both_provenance_columns():
+    header = header_of(render_table([make_record()], full=True))
+    assert "Build" in header
+    assert "Source" in header
+
+
+@pytest.mark.parametrize(
+    ("tier", "word"),
+    [(TrustTier.TRUSTED_PUBLISHER, "trusted"), (TrustTier.PROVENANCE, "attested"), (TrustTier.NONE, "none")],
+)
+def test_the_build_column_names_the_installed_releases_tier(tier, word):
+    output = render_table([with_provenance(make_record(), build_tier=tier)], full=True, width=FULL_TABLE_WIDTH)
+    assert word in output.splitlines()[2]
+
+
+def test_a_package_whose_tier_was_not_read_shows_a_dash_not_none():
+    output = render_table([with_provenance(make_record(), build_tier=None)], full=True, width=FULL_TABLE_WIDTH)
+    assert "none" not in output
+
+
+def test_a_violation_is_written_under_the_package_in_every_mode():
+    record = with_provenance(
+        make_record(versions_diff_index=MINOR, recommended_version="1.1.0"),
+        build_tier=TrustTier.NONE,
+        violations=("trust downgrade: no provenance, but earlier releases had provenance",),
+    )
+    for full in (False, True):
+        output = render_table([record], full=full, width=FULL_TABLE_WIDTH)
+        assert "↳ policy: trust downgrade" in output
+
+
+def test_a_package_at_latest_with_a_violation_is_not_hidden_in_the_compact_table():
+    record = with_provenance(make_record(), build_tier=TrustTier.NONE, violations=("below the required provenance",))
+    assert "below the required provenance" in render_table([record])
+
+
+def test_a_quiet_package_with_no_violation_stays_out_of_the_compact_table():
+    renderer = ConsoleStatusRenderer(Settings())
+    clean = with_provenance(make_record(), build_tier=TrustTier.NONE)
+    assert renderer.build_main_table([clean], [], lag_threshold_days=180) is None
+
+
+def test_the_source_column_shows_the_repositorys_level():
+    record = with_provenance(make_record(), source_level=SourceLevel.PROTECTED_HISTORY)
+    assert "protected" in render_table([record], full=True, width=FULL_TABLE_WIDTH).splitlines()[2]
+
+
+class TestRedCellsFollowTheRuleThatFailed:
+    """One policy can fail on the build and pass on the source (or the reverse): only the failing cell is red."""
+
+    BUILD = "no provenance, below the required provenance"
+    SOURCE = "source repository is version-controlled, below the required protected-history"
+
+    def record(self, *violations: str) -> ScanRecord:
+        return with_provenance(
+            make_record(),
+            build_tier=TrustTier.NONE,
+            source_level=SourceLevel.PROTECTED_HISTORY,
+            violations=violations,
+        )
+
+    def test_a_build_failure_reddens_the_build_cell_only(self):
+        record = self.record(self.BUILD)
+
+        assert "✗ none" in format_build_provenance(record)
+        assert "✗" not in format_source_level(record)
+
+    def test_a_source_failure_reddens_the_source_cell_only(self):
+        record = self.record(self.SOURCE)
+
+        assert "✗" not in format_build_provenance(record)
+        assert "✗ protected" in format_source_level(record)
+
+    def test_both_failing_reddens_both(self):
+        record = self.record(self.BUILD, self.SOURCE)
+
+        assert "✗" in format_build_provenance(record) and "✗" in format_source_level(record)
+
+    def test_neither_failing_reddens_neither(self):
+        record = self.record()
+
+        assert "✗" not in format_build_provenance(record) + format_source_level(record)
