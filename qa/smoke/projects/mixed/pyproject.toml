@@ -3,5 +3,5 @@ name = "smoke-mixed-py"
 version = "0.1.0"
 requires-python = ">=3.12"
 dependencies = [
-    "idna>=3.0,<4",
+    "idna>=3.15,<4",
 ]
