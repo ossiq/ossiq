@@ -451,12 +451,27 @@ class RunResult:
         return f"{outcome} after {self.elapsed:.1f}s; transcript {self.log_path}"
 
 
-def run_logged(cmd: Sequence[str], *, env: Mapping[str, str], log_path: Path, timeout: int) -> RunResult:
-    """Run *cmd* from the repo root, writing command, output and exit status to *log_path*."""
+def run_logged(
+    cmd: Sequence[str], *, env: Mapping[str, str], log_path: Path, timeout: int, stdin: str | None = None
+) -> RunResult:
+    """Run *cmd* from the repo root, writing command, output and exit status to *log_path*.
+
+    Args:
+        cmd: The command line.
+        env: The child's whole environment.
+        log_path: Where the transcript goes.
+        timeout: Seconds before the command is abandoned.
+        stdin: Text for the child's standard input; the parent's stdin when None.
+
+    Returns:
+        The exit status and captured output.
+    """
     start = time.monotonic()
     timed_out = False
     try:
-        proc = subprocess.run(list(cmd), cwd=REPO_ROOT, env=dict(env), capture_output=True, text=True, timeout=timeout)
+        proc = subprocess.run(
+            list(cmd), cwd=REPO_ROOT, env=dict(env), capture_output=True, text=True, timeout=timeout, input=stdin
+        )
         rc, stdout, stderr = proc.returncode, proc.stdout, proc.stderr
     except subprocess.TimeoutExpired as exc:
         timed_out = True
