@@ -57,7 +57,9 @@ IMAGE = "ossiq-qa"
 CACHE_VOLUME = "ossiq-qa-cache"
 CONTAINER_HOME = "/home/qarunner"
 CONTAINER_WORKSPACE = "/work"
-CONTAINER_CACHE = "/cache/ossiq_cache.sqlite3"
+# Container paths stay plain strings: a host Path would write them with backslashes on Windows.
+CONTAINER_CACHE_DIR = "/cache"
+CONTAINER_CACHE = f"{CONTAINER_CACHE_DIR}/ossiq_cache.sqlite3"
 GITHUB_TOKEN_ENV = "OSSIQ_GITHUB_TOKEN"
 DEFAULT_TIMEOUT = 300
 # Headroom for the host-side backstop over the in-container `timeout`.
@@ -458,7 +460,7 @@ def docker_command(case: Case, step: Step, index: int, case_dir: Path, image: st
         "-v",
         f"{case_dir / 'home'}:{CONTAINER_HOME}",
         "-v",
-        f"{CACHE_VOLUME}:{Path(CONTAINER_CACHE).parent}",
+        f"{CACHE_VOLUME}:{CONTAINER_CACHE_DIR}",
         "-w",
         CONTAINER_WORKSPACE,
     ]

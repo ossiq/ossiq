@@ -246,10 +246,13 @@ def test_a_case_without_a_token_does_not_ask_docker_for_it() -> None:
 def test_the_command_mounts_workspace_home_and_cache_and_runs_ossiq_under_timeout() -> None:
     case = make_case({"run": ["ossiq", "status", "."], "timeout": 77, "env": {"OSSIQ_COOLDOWN_PERIOD": "3"}})
 
-    command = smoke.docker_command(case, case.steps[0], 2, Path("/runs/t"), "img", "r1")
+    case_dir = Path("/runs/t")
 
-    assert "/runs/t/workspace:/work" in command
-    assert "/runs/t/home:/home/qarunner" in command
+    command = smoke.docker_command(case, case.steps[0], 2, case_dir, "img", "r1")
+
+    # The host side is a native path (backslashes on Windows); the container side is always POSIX.
+    assert f"{case_dir / 'workspace'}:/work" in command
+    assert f"{case_dir / 'home'}:/home/qarunner" in command
     assert "ossiq-qa-cache:/cache" in command
     assert "OSSIQ_COOLDOWN_PERIOD=3" in command
     assert command[command.index("img") :] == ["img", "timeout", "-k", "10", "77", "ossiq", "status", "."]
