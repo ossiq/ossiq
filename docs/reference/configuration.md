@@ -12,6 +12,7 @@ the [reference](../reference.md).
 |---|---|
 | A flag such as `--cooldown-period`, or an `OSSIQ_*` variable | [Settings](#settings) |
 | A config file to write or find | [Config file](#config-file) |
+| A supply-chain policy to commit with a project | [Project policy file](#project-policy-file) |
 | A question about which GitHub token a scan uses | [Token precedence](#token-precedence) |
 | A scan that asks for a login, or should not | [When a scan logs in](#when-a-scan-logs-in) |
 | A firewall or proxy to configure | [Data sources](#data-sources) |
@@ -22,6 +23,9 @@ For each setting, the first source that sets it wins:
 2. Environment variables
 3. The config file
 4. Built-in defaults
+
+The cooldown has one more source: a project's [policy file](#project-policy-file) sets it when none
+of those does.
 
 ## Configuration directory
 
@@ -52,13 +56,43 @@ file then replaces the default one.
 OSS IQ also reads `~/.ossiq/config`, where the file lived before. When both files set a key, the
 one in the configuration directory wins.
 
+## Project policy file
+
+A project's `.ossiq.yaml` holds the supply-chain rules its team agrees on. Commit it next to the
+manifest. [Set a supply-chain policy](../how-to/set-a-supply-chain-policy.md) walks through
+writing one.
+
+OSS IQ looks for the file in the project directory, then in each parent directory, and stops at
+the first directory that holds a `.git`. An unknown key, a wrong value or a missing `version` stops
+the command with an "Invalid policy file" message that names each entry.
+The JSON Schema ships with OSS IQ as `ossiq/data/project_config_v1.schema.json`.
+
+| Key | Values | Effect |
+|---|---|---|
+| `version` | `1` | Required. The schema version of the file |
+| `policy.cooldown.days` | A whole number, `0` or more | Days a version must age before OSS IQ recommends it. Used only when no flag, environment variable or config file sets the cooldown |
+| `policy.build.minimum` | `none`, `provenance`, `trusted-publisher` | The weakest build evidence a version may carry |
+| `policy.build.no-downgrade` | `true`, `false` | Refuse a version with less build evidence than an earlier version of its major line |
+| `policy.source.minimum` | `version-controlled`, `protected-history`, `reviewed` | The weakest protection a direct dependency's GitHub repository may have on its default branch |
+| `policy.exceptions` | A list | Waivers: packages and releases that a rule skips |
+
+A rule is off unless its block is present. Each entry under `policy.exceptions` takes these keys:
+
+| Key | Required | Values |
+|---|---|---|
+| `package` | yes | A registry name, or a glob such as `@myorg/*` |
+| `reason` | yes | Text |
+| `versions` | no | A list of exact versions, quoted. Without it, every version |
+| `rules` | no | A list of `cooldown`, `build`, `source`. Without it, all three |
+| `expires` | no | `YYYY-MM-DD`, the last day the exception holds |
+
 ## Settings
 
 Every setting has a global flag, an environment variable, or both. Global flags go before the
-command, for example `ossiq --cutoff-date 2025-01-01 --cooldown-period 14 status`. The
-`OSSIQ_POLICY_*` settings have no flag: a rule that holds updates back is a standing decision, so
-it lives in the config file or the environment. A value a setting can't take stops the command
-with an "Invalid Configuration" message that names the variable.
+command, for example `ossiq --cutoff-date 2025-01-01 --cooldown-period 14 status`. Supply-chain
+rules are not settings: they belong to the project, in its [policy file](#project-policy-file). A
+value a setting can't take stops the command with an "Invalid Configuration" message that names
+the variable.
 
 | Variable | Flag | Default | Effect |
 |---|---|---|---|
@@ -70,14 +104,10 @@ with an "Invalid Configuration" message that names the variable.
 | `OSSIQ_CACHE_TTL` | `--cache-ttl` | `24` | Hours to keep cached responses |
 | `OSSIQ_STABILITY_CACHE_TTL` | `--stability-cache-ttl` | `168` | Hours to keep GitHub stability data (commits, activity, README) |
 | `OSSIQ_CUTOFF_DATE` | `--cutoff-date`, `-C` | today | Hide versions published after this date (23:59:59 UTC), to reproduce a past state |
-| `OSSIQ_COOLDOWN_PERIOD` | `--cooldown-period` | `7` | Days a new version must age before the solver recommends it. `0` turns the cooldown off |
+| `OSSIQ_COOLDOWN_PERIOD` | `--cooldown-period` | `7` | Days a new version must age before the solver recommends it. `0` turns the cooldown off. Beats the project's `policy.cooldown.days` |
 | `OSSIQ_STABILITY` | `--stability` / `--no-stability` | on | Measure upstream repository stability |
 | `OSSIQ_STABILITY_RESPONSIVENESS` | `--stability-responsiveness` / `--no-stability-responsiveness` | on with a token | The GraphQL engagement-flow channel |
 | `OSSIQ_PROBE_RUNTIME` | `--probe-runtime` / `--no-probe-runtime` | on | Detect the installed Python, Node.js and npm or pnpm versions |
-| `OSSIQ_POLICY_TRUST` | — | off | `no-downgrade` refuses a version with less build evidence than an earlier version of its major line. See [Set a supply-chain policy](../how-to/set-a-supply-chain-policy.md) |
-| `OSSIQ_POLICY_MIN_BUILD` | — | `none` | The weakest build evidence a version may carry: `none`, `provenance` or `trusted-publisher` |
-| `OSSIQ_POLICY_MIN_SOURCE` | — | off | The weakest protection a direct dependency's GitHub repository may have on its default branch: `version-controlled`, `protected-history` or `reviewed` |
-| `OSSIQ_POLICY_EXCLUDE` | — | — | Comma-separated `name` or `name@version` entries that no policy rule applies to |
 | — | `--engine ENGINE=VERSION` | — | State the runtime the project runs on, for example `--engine node=20.11.0` (repeatable). Replaces the probe for that engine |
 | — | `--config PATH` | `~/.config/ossiq/config` | Read this config file in place of the default one |
 | — | `--no-cache` | off | Skip the HTTP cache for this run |

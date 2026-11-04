@@ -1,44 +1,58 @@
 ---
 title: Set a supply-chain policy
-description: "Add policy lines to the OSS IQ config file so plan, status, add and the MCP tools refuse versions published without the build evidence you require."
+description: "Commit a .ossiq.yaml with your cooldown, build and source rules and per-package exceptions, so plan, status, add and the MCP tools refuse versions that lack the evidence you require."
 ---
 
 # Set a supply-chain policy
 
-Add a few lines to the OSS IQ config file. Then `plan`, `status`, `add` and the MCP tools stop
-recommending versions that lack the build or source evidence you require.
+Commit a `.ossiq.yaml` to your project. Then `plan`, `status`, `add` and the MCP tools stop
+recommending versions that are too new, or that lack the build or source evidence you require.
+This holds on every machine and in CI.
 
 A stolen registry token is a known way to publish a malicious version. The attacker can publish,
 but cannot reproduce the build pipeline the project normally uses. A version with less evidence
 than its predecessors is the sign.
 
-## Add a policy to the config file
+## Add a policy to your project
 
-Policies have no command-line flags. Set them in the [config file](../reference/configuration.md#config-file),
-or as environment variables in CI. An environment variable beats the file.
+Create `.ossiq.yaml` in the project root and commit it. CI reads it from the checkout, and so does
+everyone who scans the project.
 
-```bash
-# ~/.config/ossiq/config
-OSSIQ_POLICY_TRUST=no-downgrade           # refuse a version that has less build evidence than an earlier one
-OSSIQ_POLICY_MIN_BUILD=provenance         # refuse a version with no signed build attestation
-OSSIQ_POLICY_MIN_SOURCE=protected-history # refuse a package whose repository lets history be rewritten
+```yaml
+# .ossiq.yaml
+version: 1
+
+policy:
+  cooldown:
+    days: 7                       # hold back releases younger than 7 days
+  build:
+    minimum: provenance           # refuse a version with no signed build attestation
+    no-downgrade: true            # refuse a version with less build evidence than an earlier one
+  source:
+    minimum: protected-history    # refuse a package whose repository lets history be rewritten
 ```
 
-Values are case-insensitive, and a blank value turns the rule off. If a value isn't one of the
-allowed ones, the command stops with an "Invalid Configuration" message. It names the variable and
-lists the allowed values.
+A rule is off unless its block is present. OSS IQ looks for the file in the project directory,
+then in each parent directory, and stops at the first directory that holds a `.git`. A monorepo's
+root file therefore covers `ossiq status packages/web`.
+
+OSS IQ rejects a file it can't read: an unknown key, a value a rule can't take, or a missing
+`version`. The command stops with an "Invalid policy file" message that names each entry
+(`policy.build.minimum`) and what is wrong with it. A mistyped key never switches a rule off
+unnoticed.
 
 ## Choose the rules
 
-| Setting | Values | A version or package breaks it when |
+| Key | Values | A version or package breaks it when |
 |---|---|---|
-| `OSSIQ_POLICY_TRUST` | `no-downgrade` | A version has less [build evidence](#build-evidence) than an earlier version in the same major line. Order is publish date. A stable version is compared with earlier stable versions only; a prerelease with everything earlier. |
-| `OSSIQ_POLICY_MIN_BUILD` | `none` (default), `provenance`, `trusted-publisher` | A version has less build evidence than the value. |
-| `OSSIQ_POLICY_MIN_SOURCE` | `version-controlled`, `protected-history`, `reviewed` | The package's GitHub repository protects its default branch less than the value ([source levels](#source-levels)). Direct dependencies only. |
-| `OSSIQ_POLICY_EXCLUDE` | Comma-separated `name` or `name@version` | Never. These are exempt from every rule. |
+| `policy.cooldown.days` | A whole number; `0` is no cooldown | The version is younger than that many days. A flag, `OSSIQ_COOLDOWN_PERIOD` or the config file beats this value, so a developer can still pass `--cooldown-period`. |
+| `policy.build.no-downgrade` | `true`, `false` | A version has less [build evidence](#build-evidence) than an earlier version in the same major line. Order is publish date. A stable version is compared with earlier stable versions only; a prerelease with everything earlier. |
+| `policy.build.minimum` | `none` (default), `provenance`, `trusted-publisher` | A version has less build evidence than the value. |
+| `policy.source.minimum` | `version-controlled`, `protected-history`, `reviewed` | The package's GitHub repository protects its default branch less than the value ([source levels](#source-levels)). Direct dependencies only. |
+| `policy.exceptions` | A list of [exceptions](#allow-a-known-exception) | Never. Each one lifts the rules it names. |
 
-Turn on `OSSIQ_POLICY_TRUST` first. It asks nothing of packages that never had build evidence, so
-it flags only the ones that lost it.
+Turn on `policy.build.no-downgrade` first. It asks nothing of packages that never had build
+evidence, so it flags only the ones that lost it.
 
 ### Build evidence
 
@@ -69,7 +83,7 @@ The *Src* column of `status --full` shows `L1` for `version-controlled`, `L2` fo
 `reviewed`. The HTML report shows `vcs`, `protected` and `reviewed`.
 
 Reading it costs two GitHub requests per direct dependency, cached for 168 hours
-(`OSSIQ_STABILITY_CACHE_TTL`). With `--no-stability` and no `OSSIQ_POLICY_MIN_SOURCE`, OSS IQ skips
+(`OSSIQ_STABILITY_CACHE_TTL`). With `--no-stability` and no `policy.source` block, OSS IQ skips
 those requests and the column shows `—`.
 
 ## See what the policy does
@@ -87,7 +101,7 @@ For example, requiring `reviewed` repositories holds back four updates in the `p
 project:
 
 ```text
-Held by your supply-chain policy — newer versions exist, but the policy in the config file rules them out:
+Held by your supply-chain policy — newer versions exist, but the policy in .ossiq.yaml rules them out:
   Package        Refused    Why
   @types/node    26.6.6     source repository is protected-history, below the required reviewed
   i18n           0.15.4     source repository is version-controlled, below the required reviewed
@@ -95,7 +109,7 @@ Held by your supply-chain policy — newer versions exist, but the policy in the
   vue            3.5.44     source repository is protected-history, below the required reviewed
 ```
 
-Adding a package that has no provenance, under `OSSIQ_POLICY_MIN_BUILD=trusted-publisher`, stops
+Adding a package that has no provenance, under `policy.build.minimum: trusted-publisher`, stops
 like this:
 
 ```text
@@ -106,16 +120,40 @@ like this:
 
 ## Allow a known exception
 
-List the package, or one version of it, in `OSSIQ_POLICY_EXCLUDE`:
+List an exception for a package that you have reviewed and accept. Each one lifts the rules it
+names for the releases it matches:
 
-```bash
-# ~/.config/ossiq/config
-OSSIQ_POLICY_EXCLUDE=chokidar@4.0.3,legacy-package,@types/node@18.0.0
+```yaml
+# .ossiq.yaml
+policy:
+  build:
+    minimum: provenance
+  exceptions:
+    - package: chokidar
+      versions: ["4.0.3"]       # omit for every version
+      rules: [build]            # omit for every rule: cooldown, build, source
+      reason: Published from a laptop during the CI migration; diffed against 4.0.2 by hand.
+      expires: 2027-01-31       # optional; the last day the exception holds
+
+    - package: "@myorg/*"       # a glob over registry names
+      rules: [cooldown]
+      reason: Our own packages; we release and consume them the same day.
+
+    - package: legacy-package
+      reason: Archived upstream, so there is no repository to protect.
 ```
 
-A bare name exempts every version. A `name@version` entry exempts that version only. Write npm
-names as the registry lists them, scoped names included. For PyPI, `Typing_Extensions` and
-`typing-extensions` are the same entry.
+| Key | Required | Meaning |
+|---|---|---|
+| `package` | yes | A registry name, or a glob such as `@myorg/*`. Write npm names as the registry lists them, scoped names included. For PyPI, `Typing_Extensions` and `typing-extensions` are the same entry. |
+| `reason` | yes | Why the exception exists. A reviewer reads this in the pull request that adds it. |
+| `versions` | no | Exact versions, quoted so YAML keeps them as strings. Without it, every version. |
+| `rules` | no | `cooldown`, `build` or `source`. Without it, all three. |
+| `expires` | no | A date, `YYYY-MM-DD`. After that day the rules apply again, and each scan warns that the exception expired. |
+
+An exception for `build` leaves the same release's `source` and `cooldown` rules in force. A
+release that an exception covers still counts as history for `no-downgrade`, so it can't hide a
+downgrade in the releases after it.
 
 ## What a policy does not do
 
@@ -128,6 +166,8 @@ names as the registry lists them, scoped names included. For PyPI, `Typing_Exten
   protected today, not how it was when a version was built. OSS IQ counts classic branch
   protection as blocking force-pushes, because GitHub shows that setting only to repository
   admins. It reads rulesets exactly.
+- **The solver still prefers older transitive releases.** A cooldown exception stops `plan` from
+  holding a release. It doesn't change which transitive release the solver picks.
 - **It governs OSS IQ, not your package manager.** `npm install` and `uv add` still install
   whatever you tell them to. The policy changes what OSS IQ recommends and writes.
 - **It judges transitive dependencies by build evidence only.** The source rule needs a GitHub
@@ -138,6 +178,6 @@ names as the registry lists them, scoped names included. For PyPI, `Typing_Exten
 
 ## Related
 
-- [Configuration](../reference/configuration.md) lists every setting and where the config file lives.
+- [Configuration](../reference/configuration.md#project-policy-file) lists every key in `.ossiq.yaml` and how the cooldown ranks against flags and environment variables.
 - [Status report](../reference/reports.md#dependency-table) describes the *Build* and *Source* columns.
 - [Verifying a release](verifying-a-release.md) checks a specific artifact's signed provenance yourself.
