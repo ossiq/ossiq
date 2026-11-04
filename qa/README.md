@@ -169,176 +169,111 @@ yourself. The matrix shows what OSS IQ does, not what it should do.
 
 ### What it is and why it exists
 
-The unit test suite (`uv run just qa`) runs against synthetic `testdata/` fixtures with
-predictable, hand-crafted manifests. It cannot catch problems that only appear with real
-package metadata: solver edge cases on non-trivial constraint graphs, API shape regressions,
-apply correctness against real lockfile structures, or crashes on packages with unusual
-metadata.
+`just qa` runs against synthetic `testdata/` and can't catch what only the real CLI, the real
+registries and the real package managers produce. `qa/smoke_matrix.py` automates the cases from
+`qa/manual/` that don't need a browser, a person or a GitHub login: it runs `ossiq` against tiny
+projects (one or two dependencies, locked at an old version) and checks what it printed and what it
+left in the manifest, lockfile and export.
 
-`qa/smoke-matrix.sh` fills that gap. It runs the full
-`status → export → plan → apply → re-export` pipeline against 20 real-world repos at pinned
-git tags, fetching only the manifest files ossiq actually reads (no full repo clones). It is
-the last gate before a release.
-
-**What a PASS means for a target:**
-- ossiq can parse the manifest at that tag without crashing
-- The solver produces a recommendation (or correctly produces none)
-- `apply --yes` writes updated manifests without crashing or corrupting them
-- A post-apply export reflects the applied state consistently
-
-**What a SKIP means:** the required manifest files were absent at the pinned tag, or the
-export returned 0 packages. Skips are not failures — they indicate the target has nothing
-testable at that tag.
-
----
-
-### Architecture
-
-```
-Host machine
-│
-├── justfile (just qa-build / just qa-matrix)
-├── qa/Dockerfile          → image: ossiq-qa
-├── qa/smoke-matrix.sh     → orchestration script (runs inside container)
-└── qa_logs/               ← bind mount; logs written here by the container
-
-Docker container (ossiq-qa, non-root qarunner UID 1000)
-│
-├── /app          read-only bind mount ← ossiq source (pyproject.toml, src/, ...)
-├── /workspace    named volume         ← per-target manifest dirs (cleaned after each PASS)
-├── /cache        named volume         ← ossiq SQLite HTTP cache (persists across runs)
-└── /qa_logs      bind mount           → qa_logs/ on host
-```
-
-**ossiq is never installed in the image.** It is invoked via `uv run hatch run ossiq`
-from `/app`, using the source mount. The uv venv is written to
-`/home/qarunner/.venv` (set via `UV_PROJECT_ENVIRONMENT`) so the read-only `/app` mount
-is never written to.
-
-**Per-target flow inside the script:**
-1. Parse target entry (`ecosystem|repo|tag|cutoff`)
-2. Fetch manifest files from the GitHub Contents API (raw bytes, no clone)
-3. Run the 9-step pipeline against the fetched workspace directory
-4. Write `PASS`, `SKIP`, or `FAIL:stepNN` to `result.log`
-5. On PASS: delete the workspace dir (logs are kept)
-6. Accumulate counters; print summary; exit 1 if any FAIL
-
----
-
-### Environment variables
-
-All script behaviour is controlled through environment variables. The justfile recipe passes
-these into the container via `-e`. Override any of them to change paths or inject credentials.
-
-| Variable | Default (in container) | Purpose |
-|----------|----------------------|---------|
-| `OSSIQ_GITHUB_TOKEN` | *(required)* | Token for `gh api` manifest fetches and `ossiq --github-token`. Needs read-only access to public repos. |
-| `OSSIQ_QA_WORKSPACE` | `/workspace` | Directory where per-target manifest dirs are created. Mapped to named volume `ossiq-qa-workspace`. |
-| `OSSIQ_QA_LOGS` | `/qa_logs` | Log root. Mapped to `./qa_logs/` on the host so logs survive container exit. |
-| `OSSIQ_QA_CACHE` | `/cache/ossiq_cache.sqlite3` | ossiq's SQLite HTTP cache. Mapped to named volume `ossiq-qa-cache` so expensive registry calls are reused across runs. |
-
-The script also bridges `OSSIQ_GITHUB_TOKEN → GH_TOKEN` internally so the `gh` CLI
-(which reads `GH_TOKEN`, not `OSSIQ_GITHUB_TOKEN`) picks up the same token without extra
-configuration.
-
----
-
-### Justfile recipes
+Every step is one throwaway Docker container (`qa/Dockerfile`: Node 22, Python 3.12, uv, ossiq from
+this checkout). The host only copies files and reads results, so `npm install`, `uv sync` and sdist
+builds never run on your machine, and each case gets a fresh HOME, so nothing from `~/.claude` or
+`~/.config/ossiq` leaks in.
 
 ```bash
-just qa-build    # build the ossiq-qa Docker image (run once; re-run after Dockerfile changes)
-just qa-matrix   # run the full 20-target matrix inside Docker
+just qa-matrix                                   # build the image, then run every case (about a minute)
+just qa-matrix --cases npm-security,uv-standard  # a few cases
+just qa-matrix --dry-run                         # list the cases and their commands
+just qa-matrix --parallel 1                      # if "database is locked" shows up in a log
 ```
 
-`qa-build` runs:
-```bash
-docker build -f qa/Dockerfile -t ossiq-qa .
-```
+`OSSIQ_GITHUB_TOKEN` is optional. Without it GitHub data is rate-limited and some maintenance
+signals are missing; the cases don't depend on them. It is handed to docker by name, so its value is
+never in a command line or a log. Exit status: 0 when no case failed, 1 when one did, 2 when the run
+couldn't start (invalid `cases.toml`, unknown case id, image not built).
 
-`qa-matrix` runs:
-```bash
-mkdir -p qa_logs
-docker run --rm \
-    -v "$(pwd)":/app:ro \
-    -v ossiq-qa-workspace:/workspace \
-    -v ossiq-qa-cache:/cache \
-    -v "$(pwd)/qa_logs":/qa_logs \
-    -e OSSIQ_GITHUB_TOKEN \
-    --user 1000:1000 \
-    ossiq-qa \
-    bash /app/qa/smoke-matrix.sh
-```
+### Why the assertions look the way they do
 
-The named volumes (`ossiq-qa-workspace`, `ossiq-qa-cache`) are created automatically by
-Docker on first use. To reset the cache between runs: `docker volume rm ossiq-qa-cache`.
+Registries move, so a case says how far a result must have got, not what it is today:
 
----
+| Check | Example | Use for |
+|-------|---------|---------|
+| `at_least` / `below` | `locked = { semver = { at_least = "5.7.2", below = "6.0.0" } }` | anything a newer release can change |
+| `equals` | `locked = { left-pad = { equals = "1.3.0" } }` | releases that cannot change: left-pad 1.3.0 is the last left-pad, uuid 3.4.0 the last 3.x, attrs 21.1.0 is yanked for good, or a version the step forces (`--override idna==3.7`) |
+| `pinned` / `changed` | `declared = { idna = { equals = ">=3.0" } }` | what `apply` did to the manifest |
 
-### Reading logs
+### What every step checks
 
-After a run, logs land in `./qa_logs/` on the host:
+Without being asked: the exit code (`rc`, default 0, or `"nonzero"`); no Python traceback;
+`status`, `plan`, `export` and `info` leave the manifest, lockfile and `.ossiq.yaml` byte-identical;
+and after `apply` or `add` every direct dependency is locked at a version its declared spec admits.
+A case adds `stdout` / `stderr` / `output` text rules (`has`, `lacks`, `once`, `json`), `locked` and
+`declared` version rules, an export to read (`report` + `packages`), and `files` under the case
+directory (`workspace/...`, `home/...`). A case stops at its first failing step.
 
-```
-qa_logs/
-  summary.log                         # chronological PASS/SKIP/FAIL/WARN for all targets
-  npm_express_4.18.2/
-    result.log                        # single word outcome: PASS | SKIP | FAIL:step07
-    03_status.log                     # ossiq status stdout+stderr
-    04_export.log                     # ossiq export stdout+stderr
-    04_pre_export.json                # JSON export before apply
-    06_plan.log
-    07_apply.log
-    07b_npm_install.log               # npm --package-lock-only (npm targets only)
-    08_status_post.log
-    09_export.log
-    09_post_export.json               # JSON export after apply
-    09_comparison.json                # [{package, expected, got, ok}] diff
-```
+### Projects (`qa/smoke/projects/`)
 
-To triage a failure:
+| Project | Declares | Why |
+|---------|----------|-----|
+| `npm-semver` | `semver ^5.7.1` (locked 5.7.1), dev `ms ^2.0.0` (2.0.0) | a CVE, a major to widen into, a dev dependency |
+| `npm-deprecated` | `left-pad ^1.3.0`, `uuid ^3.4.0` | both deprecated; left-pad has no successor |
+| `npm-transitive` | `debug ^2.6.9`, which brings `ms 2.0.0` | a transitive package to `--override` |
+| `uv-ranges` | `idna>=3.0` (3.4), `urllib3~=1.26.5` (1.26.5) | a bare `>=` is lockfile-only, a `~=` is rewritten |
+| `uv-pinned` | `attrs==23.1.0` | `==` pins and `--rewrite-versions` |
+| `uv-yanked` | `attrs==21.1.0` | a yanked release |
+| `uv-no-lock` | `idna>=3.0`, no lockfile | a PEP 621 project before its first lock |
+| `pip-classic` | `requirements.txt` with `idna==3.4` | pip detection |
+| `mixed` | an npm and a uv project in one directory | `--registry-type` |
+| `empty` | nothing | "Unable to identify Package Manager", and the `install` / `auth` commands |
+
+To add a project, write the manifest with exact versions, lock it in the image, relax the versions
+to the ranges you want and lock again (both npm and uv keep a locked version that still satisfies
+the new range), then check each claim against the registry before writing it into a case:
 
 ```bash
-# What failed and why
-grep FAIL qa_logs/summary.log
-
-# Which step failed for a specific target
-cat qa_logs/npm_express_4.18.2/result.log
-
-# Read the step log
-cat qa_logs/npm_express_4.18.2/07_apply.log
-
-# Inspect the version comparison
-jq '.[] | select(.ok == false)' qa_logs/npm_express_4.18.2/09_comparison.json
+docker run --rm -v "$PWD/qa/smoke/projects/NAME":/work -w /work ossiq-qa \
+  sh -c 'npm install --package-lock-only --ignore-scripts'   # or: uv lock
 ```
 
----
+Don't use uv's `--exclude-newer`: it ends up in `uv.lock`, where OSS IQ reads it as a release
+cutoff. `tests/test_smoke_matrix.py` checks that every project's lockfile still satisfies its
+manifest, and that every case in `cases.toml` is valid, as part of `just qa`.
 
-### Adding a target
+### Adding a case
 
-Add a pipe-separated entry to the `TARGETS` array in `qa/smoke-matrix.sh`:
+Add a `[[cases]]` table to `qa/smoke/cases.toml` with an `id`, a `project`, a `why` and `covers` (the
+SOP ids it automates). Unknown keys are an error, so a typo can't silently skip a check. Write the
+expectation as the behaviour *should* be; when it isn't yet, add `known_issue = "GH-NNN: ..."`: the
+case reports XFAIL instead of failing, and XPASS once it passes so the marker can go.
 
-```bash
-"ecosystem|owner/repo|tag|cutoff_date"
+### Reading the result
+
+```
+qa_logs/smoke/<UTC timestamp>/
+  summary.log     one line per case; the failing checks are indented under it
+  run.json        git sha, dirty flag, image id, ossiq version, every case's status and problems
+  <case>/
+    workspace/    the project as the last step left it (node_modules and .venv are removed)
+    home/         the container's HOME: .claude/, .copilot/, ...
+    01.log, ...   one transcript per step: the docker command, exit code, stdout, stderr
 ```
 
-Rules:
-- `ecosystem`: `npm` or `pypi`
-- `tag`: the exact git tag string as it appears on GitHub (e.g. `v4.18.2` or `4.18.2`)
-- `cutoff_date`: ISO date (YYYY-MM-DD), approximately tag release date + 12 months — this
-  is the date ossiq treats as "today" when computing recommendations. Set it too close to
-  the tag and there will be no recommendations (nothing is outdated yet); too far and
-  all packages will look ancient.
-- For npm: the repo must have **both** `package.json` and `package-lock.json` at the tag.
-  Many repos only have `package.json` in VCS — those will SKIP.
-- For pypi: the repo needs `uv.lock`, `requirements.txt`, or both alongside `pyproject.toml`.
-  A bare `pyproject.toml` with no lockfile will SKIP.
+| Status | Meaning | Fails the run |
+|--------|---------|---------------|
+| `PASS` | every step passed | no |
+| `FAIL` | a check failed: read the indented lines, then `<case>/NN.log` | **yes** |
+| `XFAIL` | a case marked `known_issue` still fails | no |
+| `XPASS` | a case marked `known_issue` passes: remove the marker | no |
 
-### Skipped targets
+When something fails, re-run that case alone, then replay its command by hand from the transcript's
+`CMD:` line. The image holds a snapshot of the checkout, so rebuild it (`just qa-build`) after
+changing `src/`.
 
-A SKIP is not a test failure. It means one of:
-- Required manifest files were not found at the pinned tag (the repo didn't commit them)
-- Export returned 0 packages (manifest parsed but empty — e.g. a meta-package)
+### Still manual
 
-Skips are logged in `summary.log` with a reason and counted separately in the final summary.
-If a target you expect to pass is SKIP-ing, check the tag name spelling and whether the
-lockfile exists at that ref on GitHub.
+Not automatable here: everything in a browser (TC-H02, H03, H07-H13), a live agent (TC-L09), the
+GitHub device flow and keyring (TC-L10, O02-O05, O07, O09, O11), forcing an `apply` to fail for the
+rollback check (TC-U21), the published npm package (TC-L12), constraint widening that needs a major
+release that doesn't exist yet (TC-C11), `apply` on a pip-classic project (it would `pip install`
+into the container's Python), and the repo-root runs of TC-T04 to T06 (the security tier is covered
+by the tier cases).

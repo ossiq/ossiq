@@ -66,24 +66,17 @@ qa-integration:
 qa-strategies *ARGS:
     uv run python qa/update_strategies_regression.py {{ARGS}}
 
-# Build the QA Docker image (run once, or after qa/Dockerfile changes)
+# Build the QA image: Node 22, Python 3.12, uv, and ossiq from this checkout.
+# Re-run after changing src/ or qa/Dockerfile (qa-matrix does it for you).
 qa-build:
     docker build -f qa/Dockerfile -t ossiq-qa .
 
-# Smoke-test against 20 real-world repos at pinned version tags (runs in Docker).
-# Prerequisites: ossiq-qa image built (just qa-build), OSSIQ_GITHUB_TOKEN env var set.
-qa-matrix:
-    mkdir -p qa_logs
-    docker run --rm \
-        -v "$(pwd)":/app:ro \
-        -v ossiq-qa-workspace:/workspace \
-        -v ossiq-qa-cache:/cache \
-        -v "$(pwd)/qa_logs":/qa_logs \
-        -e OSSIQ_GITHUB_TOKEN="$OSSIQ_GITHUB_TOKEN" \
-        -e GH_TOKEN="$OSSIQ_GITHUB_TOKEN" \
-        --user 1000:1000 \
-        ossiq-qa \
-        python /app/qa/smoke_matrix.py
+# Smoke-test the real CLI against tiny npm and PyPI projects, one throwaway Docker container per
+# step (cases in qa/smoke/cases.toml). Rebuilds the image first; that is a cache hit when src/ is
+# unchanged. OSSIQ_GITHUB_TOKEN is optional but avoids GitHub rate limits. See qa/README.md.
+# e.g. just qa-matrix --cases npm-security,uv-standard
+qa-matrix *ARGS: qa-build
+    uv run python qa/smoke_matrix.py {{ARGS}}
 
 # Validate the gap-based repository-stability estimator against a hand-labelled corpus of live
 # GitHub repos. Prerequisite: OSSIQ_GITHUB_TOKEN env var set. See docs/explanation/repository-stability-calibration.md

@@ -1,0 +1,11 @@
+{
+  "name": "smoke-npm-semver",
+  "version": "1.0.0",
+  "private": true,
+  "dependencies": {
+    "semver": "^5.7.1"
+  },
+  "devDependencies": {
+    "ms": "^2.0.0"
+  }
+}

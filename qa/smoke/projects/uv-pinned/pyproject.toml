@@ -1,0 +1,7 @@
+[project]
+name = "smoke-uv-pinned"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = [
+    "attrs==23.1.0",
+]

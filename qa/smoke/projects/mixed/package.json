@@ -1,0 +1,8 @@
+{
+  "name": "smoke-mixed",
+  "version": "1.0.0",
+  "private": true,
+  "dependencies": {
+    "semver": "^5.7.1"
+  }
+}

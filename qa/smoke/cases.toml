@@ -1,0 +1,395 @@
+# Smoke-matrix cases: see qa/smoke_matrix.py and qa/README.md.
+#
+# Registries move, so a version check says how far the result must have got (`at_least`, `below`),
+# never what it is today. `equals` is for releases that cannot change: left-pad 1.3.0 is the last
+# left-pad, uuid 3.4.0 the last 3.x, attrs 21.1.0 is yanked for good, and a version a step forces
+# itself (`--override idna==3.7`).
+#
+# Step keys: run, rc (0 | "nonzero" | N), env, stdin, timeout, stdout / stderr / output
+# ({ has, lacks, once, json }), locked / declared ({ pkg = { at_least, below, equals, missing,
+# pinned, changed } }), report + packages (an export in the workspace), files (paths under the case
+# directory: workspace/..., home/...). Unknown keys are an error.
+
+# ---------------------------------------------------------------------------
+# CLI surface
+# ---------------------------------------------------------------------------
+
+[[cases]]
+id = "cli-help"
+project = "empty"
+why = "help and version work, removed flags are rejected, and a directory with no manifest is a clean error"
+covers = ["TC-G01", "TC-H00", "TC-T01", "TC-U14", "TC-U17", "TC-O01"]
+steps = [
+  { run = ["ossiq", "--version"], stdout = { has = ["ossiq version:"] } },
+  { run = ["ossiq", "--help"], stdout = { has = ["status", "plan", "apply", "export", "info", "add", "html", "install", "mcp", "auth"] } },
+  { run = ["ossiq", "status", "--help"], stdout = { has = ["--format", "--ignore", "--production", "--allow-prerelease", "--registry-type", "--update-strategy", "--full"] } },
+  { run = ["ossiq", "plan", "--help"], stdout = { has = ["--pin-all", "--rewrite-versions", "--override", "--ignore"], lacks = ["--script"] } },
+  { run = ["ossiq", "apply", "--help"], stdout = { has = ["--yes", "--pin-all", "--rewrite-versions", "--override"] } },
+  { run = ["ossiq", "plan", "--script", "."], rc = 2, output = { has = ["No such option"] } },
+  { run = ["ossiq", "status", "."], rc = "nonzero", output = { has = ["Unable to identify Package Manager"] } },
+]
+
+[[cases]]
+id = "cli-config"
+project = "npm-semver"
+why = "cooldown comes from the config file, an environment variable beats it, a flag beats both"
+covers = ["TC-G09", "TC-G10", "TC-G11"]
+add_files = { "ossiq.cfg" = "OSSIQ_COOLDOWN_PERIOD=21\n" }
+steps = [
+  { run = ["ossiq", "--config", "ossiq.cfg", "--verbose", "status", "."], output = { has = ["cooldown_period: 21"] } },
+  { run = ["ossiq", "--config", "ossiq.cfg", "--verbose", "status", "."], env = { OSSIQ_COOLDOWN_PERIOD = "3" }, output = { has = ["cooldown_period: 3"] } },
+  { run = ["ossiq", "--config", "ossiq.cfg", "--cooldown-period", "1", "--verbose", "status", "."], env = { OSSIQ_COOLDOWN_PERIOD = "3" }, output = { has = ["cooldown_period: 1"] } },
+  { run = ["ossiq", "--config", "nope.cfg", "status", "."], rc = "nonzero", output = { has = ["Config file not found"] } },
+]
+
+[[cases]]
+id = "policy-invalid"
+project = "npm-semver"
+why = "a mistyped key in .ossiq.yaml stops the command and names the key"
+covers = ["GH-120"]
+add_files = { ".ossiq.yaml" = "version: 1\npolicy:\n  cooldown:\n    dayz: 7\n" }
+steps = [
+  { run = ["ossiq", "status", "."], rc = "nonzero", output = { has = ["Invalid policy file", "dayz"] } },
+]
+
+# ---------------------------------------------------------------------------
+# status / info / ecosystem detection
+# ---------------------------------------------------------------------------
+
+[[cases]]
+id = "status-npm"
+project = "npm-semver"
+why = "status, its agent and --full forms, --production and info read an npm project without touching it"
+covers = ["TC-C02", "TC-C09", "TC-C10", "TC-C03", "TC-G04", "TC-S06", "TC-L08", "TC-U04"]
+steps = [
+  { run = ["ossiq", "status", "."], stdout = { has = ["Registry: NPM", "semver", "ms", "Production: 1", "Dev: 1"] } },
+  { run = ["ossiq", "status", "--production", "."], stdout = { has = ["Production: 1", "Dev: 0"], lacks = ["Development"] } },
+  { run = ["ossiq", "status", "--format", "agent", "."], stdout = { json = true, has = ['"operation": "update"', '"registry": "npm"', '"package": "semver"'] } },
+  { run = ["ossiq", "status", "--full", "."], stdout = { has = ["semver"] } },
+  { run = ["ossiq", "info", "semver", "."], stdout = { has = ["semver"] } },
+  { run = ["ossiq", "info", "semver", "--format", "agent", "."], stdout = { json = true, has = ['"operation": "add"', '"package": "semver"'] } },
+  { run = ["ossiq", "info", "no-such-pkg-xyz-123", "."], rc = 1 },
+]
+
+[[cases]]
+id = "status-uv"
+project = "uv-ranges"
+why = "a uv project is detected, scanned, and its export recommends something newer than the old lock"
+covers = ["TC-G03", "TC-C01", "TC-S01", "TC-S10", "TC-L08"]
+steps = [
+  { run = ["ossiq", "status", "."], stdout = { has = ["Registry: PYPI", "idna", "urllib3"] } },
+  { run = ["ossiq", "status", "--format", "agent", "."], stdout = { json = true, has = ['"registry": "pypi"'] } },
+  { run = ["ossiq", "export", "--output", "export.json", "."], report = "export.json", packages = { idna = { installed_version = { equals = "3.4" }, recommended_version = { at_least = "3.10" } }, urllib3 = { installed_version = { equals = "1.26.5" }, recommended_version = { at_least = "1.26.20" } } } },
+]
+
+[[cases]]
+id = "status-pip-classic"
+project = "pip-classic"
+why = "a bare requirements.txt is detected as PyPI"
+covers = ["TC-G03"]
+steps = [
+  { run = ["ossiq", "status", "."], stdout = { has = ["Registry: PYPI", "idna"] } },
+]
+
+[[cases]]
+id = "status-no-lock"
+project = "uv-no-lock"
+why = "a PEP 621 project before its first lock is scanned"
+covers = ["TC-G03"]
+steps = [
+  { run = ["ossiq", "status", "."], stdout = { has = ["Registry: PYPI", "idna"] } },
+]
+
+[[cases]]
+id = "registry-mixed"
+project = "mixed"
+why = "a directory with both an npm and a PyPI project warns, and --registry-type picks one"
+covers = ["TC-G05", "TC-G06"]
+steps = [
+  { run = ["ossiq", "status", "."], output = { has = ["multiple registry types"] } },
+  { run = ["ossiq", "status", "--registry-type", "npm", "."], stdout = { has = ["Registry: NPM", "semver"] } },
+  { run = ["ossiq", "status", "--registry-type", "pypi", "."], stdout = { has = ["Registry: PYPI", "idna"] } },
+]
+
+[[cases]]
+id = "registry-mismatch"
+project = "npm-semver"
+why = "--registry-type that contradicts the project is an error that names what was found"
+covers = ["TC-G06"]
+steps = [
+  { run = ["ossiq", "status", "--registry-type", "pypi", "."], rc = "nonzero", output = { has = ["Detected: npm"] } },
+]
+
+# ---------------------------------------------------------------------------
+# deprecated / yanked
+# ---------------------------------------------------------------------------
+
+[[cases]]
+id = "deprecated-npm"
+project = "npm-deprecated"
+why = "deprecated releases are marked in status, export and the HTML report; left-pad has no successor"
+covers = ["TC-C05", "TC-S07", "TC-H01", "TC-H05"]
+steps = [
+  { run = ["ossiq", "status", "."], stdout = { has = ["[DEPRECATED]", "left-pad", "uuid"] } },
+  { run = ["ossiq", "export", "--output", "export.json", "."], report = "export.json", packages = { left-pad = { installed_version = { equals = "1.3.0" }, latest_version = { equals = "1.3.0" }, is_deprecated = { equals = true }, recommended_version = { missing = true } }, uuid = { installed_version = { equals = "3.4.0" }, is_deprecated = { equals = true }, recommended_version = { at_least = "3.4.0" } } } },
+  { run = ["ossiq", "html", "--output", "report.html", "."], files = { "workspace/report.html" = { has = ["left-pad"] } } },
+]
+
+[[cases]]
+id = "yanked-uv"
+project = "uv-yanked"
+why = "a yanked pin is marked, and the recommendation is a later release"
+covers = ["TC-C04", "TC-S04", "TC-H05"]
+steps = [
+  { run = ["ossiq", "status", "."], stdout = { has = ["[YANKED]", "attrs"] } },
+  { run = ["ossiq", "export", "--output", "export.json", "."], report = "export.json", packages = { attrs = { installed_version = { equals = "21.1.0" }, is_yanked = { equals = true }, recommended_version = { at_least = "21.2.0" } } } },
+  { run = ["ossiq", "html", "--output", "report.html", "."], files = { "workspace/report.html" = { has = ["attrs"] } } },
+]
+
+# ---------------------------------------------------------------------------
+# export
+# ---------------------------------------------------------------------------
+
+[[cases]]
+id = "export-npm"
+project = "npm-semver"
+why = "every export schema parses and agrees on semver's recommendation; --production, --full and --ignore shape it"
+covers = ["TC-E01", "TC-E02", "TC-E04", "TC-E05", "TC-E06", "TC-U03"]
+steps = [
+  { run = ["ossiq", "export", "."], files = { "workspace/ossiq_export_report_smoke-npm-semver.json" = { has = ['"production_packages"'] } } },
+  { run = ["ossiq", "export", "--schema-version", "1.5", "--output", "e15.json", "."], report = "e15.json", packages = { semver = { recommended_version = { at_least = "5.7.2" } } } },
+  { run = ["ossiq", "export", "--schema-version", "1.6", "--output", "e16.json", "."], report = "e16.json", packages = { semver = { recommended_version = { at_least = "5.7.2" } } } },
+  { run = ["ossiq", "export", "--schema-version", "1.7", "--output", "e17.json", "."], report = "e17.json", packages = { semver = { recommended_version = { at_least = "5.7.2" } } } },
+  { run = ["ossiq", "export", "--production", "--output", "prod.json", "."], report = "prod.json", packages = { semver = { installed_version = { equals = "5.7.1" } }, ms = { installed_version = { missing = true } } } },
+  { run = ["ossiq", "export", "--full", "--output", "full.json", "."], files = { "workspace/full.json" = { has = ["dependency_tree"] } } },
+  { run = ["ossiq", "export", "--ignore", "semver", "--output", "ignored.json", "."], report = "ignored.json", packages = { semver = { recommended_version = { missing = true } }, ms = { recommended_version = { at_least = "2.1.3" } } } },
+]
+
+# ---------------------------------------------------------------------------
+# npm: update tiers, plan / apply flags
+# ---------------------------------------------------------------------------
+
+[[cases]]
+id = "npm-security"
+project = "npm-semver"
+why = "the security tier moves only semver (it has a CVE), by the smallest diff, and leaves ms alone"
+covers = ["TC-T07", "TC-U08", "TC-U13"]
+steps = [
+  { run = ["ossiq", "plan", "--update-strategy", "security", "."], stdout = { has = ["semver"] } },
+  { run = ["ossiq", "apply", "--update-strategy", "security", "--yes", "."], locked = { semver = { at_least = "5.7.2", below = "6.0.0" }, ms = { equals = "2.0.0" } }, declared = { semver = { changed = true } } },
+]
+
+[[cases]]
+id = "npm-standard"
+project = "npm-semver"
+why = "the standard tier moves both packages inside their caret ranges, and a second plan has nothing to recommend"
+covers = ["TC-U08", "TC-U13", "TC-U19"]
+steps = [
+  { run = ["ossiq", "apply", "--yes", "."], locked = { semver = { at_least = "5.7.2", below = "6.0.0" }, ms = { at_least = "2.1.3", below = "3.0.0" } }, declared = { semver = { pinned = false }, ms = { pinned = false } } },
+  { run = ["ossiq", "plan", "."], stdout = { lacks = ["Recommended"] } },
+]
+
+[[cases]]
+id = "npm-latest"
+project = "npm-semver"
+why = "the latest tier widens semver's caret to the newest major"
+covers = ["TC-U08"]
+steps = [
+  { run = ["ossiq", "apply", "--update-strategy", "latest", "--yes", "."], locked = { semver = { at_least = "7.6.3" }, ms = { at_least = "2.1.3" } }, declared = { semver = { changed = true } } },
+]
+
+[[cases]]
+id = "npm-pin-all"
+project = "npm-semver"
+why = "--pin-all writes exact versions for every updated direct dependency"
+covers = ["TC-U12"]
+steps = [
+  { run = ["ossiq", "apply", "--pin-all", "--yes", "."], locked = { semver = { at_least = "5.7.2", below = "6.0.0" }, ms = { at_least = "2.1.3" } }, declared = { semver = { pinned = true }, ms = { pinned = true } } },
+]
+
+[[cases]]
+id = "npm-ignore"
+project = "npm-semver"
+why = "--ignore keeps a package out of the plan and out of apply"
+covers = ["TC-U01", "TC-U02"]
+steps = [
+  { run = ["ossiq", "plan", "--ignore", "semver", "."], stdout = { has = ["ms"], lacks = ["semver CVE"] } },
+  { run = ["ossiq", "apply", "--ignore", "semver", "--yes", "."], locked = { semver = { equals = "5.7.1" }, ms = { at_least = "2.1.3" } }, declared = { semver = { equals = "^5.7.1" } } },
+]
+
+[[cases]]
+id = "npm-declined"
+project = "npm-semver"
+why = "answering no at the apply prompt changes nothing"
+covers = ["TC-U18"]
+steps = [
+  { run = ["ossiq", "apply", "."], stdin = "n\n", output = { has = ["Proceed with"] }, locked = { semver = { equals = "5.7.1" }, ms = { equals = "2.0.0" } }, declared = { semver = { equals = "^5.7.1" } } },
+]
+
+[[cases]]
+id = "npm-override"
+project = "npm-transitive"
+why = "--override forces a transitive package to an exact version through npm overrides; an unknown target is an error"
+covers = ["TC-U15"]
+steps = [
+  { run = ["ossiq", "plan", "--override", "no-such-pkg==1.0.0", "."], rc = "nonzero", output = { has = ["not found in the dependency tree"] } },
+  { run = ["ossiq", "apply", "--override", "ms==2.1.3", "--yes", "."], locked = { ms = { equals = "2.1.3" } }, files = { "workspace/package.json" = { has = ['"overrides"'] } } },
+]
+
+# ---------------------------------------------------------------------------
+# uv: update tiers, plan / apply flags
+# ---------------------------------------------------------------------------
+
+[[cases]]
+id = "uv-security"
+project = "uv-ranges"
+why = "the security tier clears the CVEs with the smallest diff; a bare >= stays untouched in pyproject"
+covers = ["TC-U06"]
+steps = [
+  { run = ["ossiq", "apply", "--update-strategy", "security", "--yes", "."], locked = { idna = { at_least = "3.7" }, urllib3 = { at_least = "1.26.20" } }, declared = { idna = { equals = ">=3.0" }, urllib3 = { changed = true } } },
+]
+
+[[cases]]
+id = "uv-standard"
+project = "uv-ranges"
+why = "a bare >= is lockfile-only, a ~= is rewritten in place, and a second plan has nothing to recommend"
+covers = ["TC-U05", "TC-U06", "TC-U19"]
+steps = [
+  { run = ["ossiq", "apply", "--yes", "."], locked = { idna = { at_least = "3.10" }, urllib3 = { at_least = "1.26.20" } }, declared = { idna = { equals = ">=3.0" }, urllib3 = { changed = true } } },
+  { run = ["ossiq", "plan", "."], stdout = { lacks = ["Recommended"] } },
+]
+
+[[cases]]
+id = "uv-pin-all"
+project = "uv-ranges"
+why = "--pin-all writes == for every updated direct dependency"
+covers = ["TC-U07"]
+steps = [
+  { run = ["ossiq", "apply", "--pin-all", "--yes", "."], locked = { idna = { at_least = "3.10" }, urllib3 = { at_least = "1.26.20" } }, declared = { idna = { pinned = true }, urllib3 = { pinned = true } } },
+]
+
+[[cases]]
+id = "uv-override"
+project = "uv-ranges"
+why = "--override pins a direct dependency to exactly the version asked for"
+covers = ["TC-U15"]
+steps = [
+  { run = ["ossiq", "apply", "--override", "idna==3.7", "--yes", "."], locked = { idna = { equals = "3.7" } }, declared = { idna = { equals = "==3.7" } } },
+]
+
+[[cases]]
+id = "uv-ignore"
+project = "uv-ranges"
+why = "--ignore keeps a package out of the plan and out of apply"
+covers = ["TC-U01", "TC-U02"]
+steps = [
+  { run = ["ossiq", "plan", "--ignore", "idna", "."], stdout = { has = ["urllib3"], lacks = ["idna"] } },
+  { run = ["ossiq", "apply", "--ignore", "idna", "--yes", "."], locked = { idna = { equals = "3.4" }, urllib3 = { at_least = "1.26.20" } } },
+]
+
+[[cases]]
+id = "uv-rewrite"
+project = "uv-pinned"
+why = "an == pin is left alone unless --rewrite-versions asks for it"
+covers = ["TC-U20"]
+steps = [
+  { run = ["ossiq", "plan", "."], stdout = { has = ["attrs"], lacks = ["Recommended"] } },
+  { run = ["ossiq", "apply", "--rewrite-versions", "--yes", "."], locked = { attrs = { at_least = "23.2.0" } }, declared = { attrs = { pinned = true, changed = true } } },
+]
+
+# ---------------------------------------------------------------------------
+# add
+# ---------------------------------------------------------------------------
+
+[[cases]]
+id = "npm-add"
+project = "npm-transitive"
+why = "add puts a healthy package into package.json as a caret range and locks it"
+covers = ["TC-A02", "TC-A06"]
+steps = [
+  { run = ["ossiq", "add", "ms", "."], stdin = "y\n", declared = { ms = { pinned = false } }, locked = { ms = { at_least = "2.1.3" } } },
+]
+
+[[cases]]
+id = "npm-add-blocked"
+project = "npm-semver"
+why = "add refuses a deprecated package and leaves the project alone"
+covers = ["TC-A03"]
+steps = [
+  { run = ["ossiq", "add", "left-pad", "."], rc = 1, output = { has = ["critical warnings"] }, declared = { left-pad = { missing = true } }, locked = { left-pad = { missing = true } } },
+]
+
+[[cases]]
+id = "npm-add-force"
+project = "npm-semver"
+why = "--force adds the deprecated package anyway"
+covers = ["TC-A04"]
+steps = [
+  { run = ["ossiq", "add", "left-pad", "--force", "."], stdin = "y\n", declared = { left-pad = { pinned = false } }, locked = { left-pad = { equals = "1.3.0" } } },
+]
+
+[[cases]]
+id = "uv-add"
+project = "uv-pinned"
+why = "add --version pins the version asked for in pyproject and the lockfile"
+covers = ["TC-A05"]
+steps = [
+  { run = ["ossiq", "add", "idna", "--version", "3.7", "."], stdin = "y\n", declared = { idna = { equals = "==3.7" } }, locked = { idna = { equals = "3.7" } } },
+]
+
+# ---------------------------------------------------------------------------
+# AI integrations
+# ---------------------------------------------------------------------------
+
+[[cases]]
+id = "skills-claude"
+project = "empty"
+why = "the skill and MCP entry are written to HOME without a token, and installing twice changes nothing"
+covers = ["TC-L01", "TC-L02", "TC-L03", "TC-L11"]
+steps = [
+  { run = ["ossiq", "install", "skills", "bogus-tool"], rc = "nonzero", output = { has = ["Unknown tool 'bogus-tool'", "claude, codex, copilot, all"] } },
+  { run = ["ossiq", "install", "skills", "claude"], stdout = { has = ["installed ossiq skill for claude", "uvx ossiq"] }, files = { "home/.claude/skills/ossiq/SKILL.md" = { has = ["ossiq-dependency-check"], lacks = ["{{ossiq}}"] }, "home/.claude/mcp.json" = { has = ['"ossiq"'], lacks = ["OSSIQ_GITHUB_TOKEN"] } } },
+  { run = ["ossiq", "install", "skills", "claude"], files = { "home/.claude/mcp.json" = { once = ['"ossiq": {'] } } },
+  { run = ["ossiq", "install", "skills", "claude", "--dev", "/opt/ossiq-src"], stdout = { has = ["uvx --from /opt/ossiq-src --no-cache ossiq"] }, files = { "home/.claude/mcp.json" = { has = ['"command": "uv"'] } } },
+  { run = ["ossiq", "install", "skills", "claude", "--via", "npx"], stdout = { has = ["npx --yes @ossiq/cli"] } },
+  { run = ["ossiq", "install", "skills", "claude", "--dev", "/opt/ossiq-src", "--via", "npx"], rc = "nonzero", output = { has = ["cannot be combined"] } },
+]
+
+[[cases]]
+id = "skills-copilot"
+project = "empty"
+why = "installing the Copilot instructions twice leaves one block"
+covers = ["TC-L04"]
+steps = [
+  { run = ["ossiq", "install", "skills", "copilot"] },
+  { run = ["ossiq", "install", "skills", "copilot"], files = { "home/.copilot/copilot-instructions.md" = { once = ["ossiq-skill:start"] } } },
+]
+
+[[cases]]
+id = "mcp"
+project = "uv-ranges"
+why = "the stdio MCP server handshakes, lists its tools, answers both evaluate tools and rejects an unknown one"
+covers = ["TC-L05", "TC-L06", "TC-L07"]
+steps = [
+  { run = ["ossiq", "mcp"], stdout = { has = ['"serverInfo"', '"name": "ossiq"', "ossiq_evaluate_dependency", "ossiq_evaluate_updates", '\"operation\": \"add\"', '\"operation\": \"update\"', "Unknown tool: no_such_tool"] }, stdin = '''
+{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"smoke","version":"0"}}}
+{"jsonrpc":"2.0","method":"notifications/initialized"}
+{"jsonrpc":"2.0","id":2,"method":"tools/list"}
+{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"ossiq_evaluate_dependency","arguments":{"package":"idna","registry_type":"pypi","project_path":"/work","runtime":{"python":"3.12"}}}}
+{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"ossiq_evaluate_updates","arguments":{"project_path":"/work","runtime":{"python":"3.12"}}}}
+{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"no_such_tool","arguments":{}}}
+''' },
+]
+
+[[cases]]
+id = "auth-no-keyring"
+project = "npm-semver"
+token = false
+why = "with no system keyring and no token, auth says so plainly, logout is a no-op, and a scan still runs"
+covers = ["TC-O08", "TC-O10"]
+steps = [
+  { run = ["ossiq", "auth", "status"], stdout = { has = ["none available"] } },
+  { run = ["ossiq", "auth", "logout"], stdout = { has = ["Nothing to remove"] } },
+  { run = ["ossiq", "auth", "login"], rc = "nonzero", output = { has = ["Credential Store Unavailable"] } },
+  { run = ["ossiq", "status", "."], stdout = { has = ["Registry: NPM"] } },
+]

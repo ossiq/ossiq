@@ -1,10 +1,34 @@
 #!/usr/bin/env python3
-"""QA smoke-test: status→export→plan→apply→re-export against real-world repos.
+"""Smoke matrix: drive the real `ossiq` CLI against tiny projects in Docker and check what it did.
 
-Fetches only manifest files via the GitHub API — no full clones.
-Usage: python qa/smoke_matrix.py  (or: just qa-matrix)
+Each case in qa/smoke/cases.toml names a project under qa/smoke/projects/ (one or two dependencies,
+locked at an old version) and a list of steps. A step is one command in a throwaway container
+(qa/Dockerfile): the host copies the project into qa_logs/smoke/<run>/<case>/workspace, mounts it
+at /work with a fresh HOME, then reads what the command printed and what it left in the manifest,
+lockfile and export. npm installs, `uv sync` and sdist builds therefore never run on the host.
+
+Registries move, so a step asserts progress, not a snapshot: "locked at least 5.7.2", "recommended
+at least 3.7". Exact versions are only asserted for releases that cannot change - a package whose
+last release is the one in the project, or a version the step itself forces.
+
+Every step also gets four checks no case has to ask for: the exit code, no Python traceback,
+`status` / `plan` / `export` / `info` leave the manifest and lockfile byte-identical, and after
+`apply` / `add` every direct dependency is locked at a version its declared spec admits.
+
+Usage:
+
+    just qa-build                                  # once, and after changing src/
+    uv run python qa/smoke_matrix.py               # or: just qa-matrix
+    uv run python qa/smoke_matrix.py --cases npm-security,uv-standard
+    uv run python qa/smoke_matrix.py --dry-run
+
+Exit status: 0 when no case failed (XFAIL and XPASS allowed), 1 when a case failed, 2 when the run
+could not start (invalid cases.toml, unknown case id, image not built).
+
+This is a QA script, not a pytest - it hits the network and is kept out of `just qa`.
 """
 
+import argparse
 import json
 import logging
 import os
@@ -13,667 +37,615 @@ import shlex
 import shutil
 import subprocess
 import sys
-import time
 import tomllib
-from dataclasses import dataclass, field
+from collections.abc import Mapping, Sequence
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Literal
+from typing import Any
 
-REPO_ROOT = Path(__file__).parent.parent
-WORKSPACE = Path(os.environ.get("OSSIQ_QA_WORKSPACE", "/workspace"))
-LOG_ROOT = Path(os.environ.get("OSSIQ_QA_LOGS", "/qa_logs"))
-CACHE_FILE = os.environ.get("OSSIQ_QA_CACHE", "/cache/ossiq_cache.sqlite3")
-GITHUB_TOKEN = os.environ.get("OSSIQ_GITHUB_TOKEN", "")
+from update_strategies_regression import ECOSYSTEMS, Ecosystem, FixtureError, Status, reject_unknown_keys, run_logged
 
-# Use the pre-built venv binary directly — bypasses uv sync and hatch build hooks entirely.
-VENV_BIN = Path(os.environ.get("UV_PROJECT_ENVIRONMENT", "/home/qarunner/.venv")) / "bin"
-OSSIQ_CMD = [str(VENV_BIN / "ossiq")]
+REPO_ROOT = Path(__file__).resolve().parent.parent
+SMOKE_DIR = Path(__file__).resolve().parent / "smoke"
+CASES_FILE = SMOKE_DIR / "cases.toml"
+PROJECTS_DIR = SMOKE_DIR / "projects"
+LOG_ROOT = REPO_ROOT / "qa_logs" / "smoke"
 
-# ecosystem, owner/repo, tag, cutoff_date  (cutoff ≈ tag release date + 12 months)
-TARGETS: list[tuple[str, str, str, str]] = [
-    # ("npm", "koajs/koa", "2.14.2", "2024-01-01"),
-    # ("npm", "mochajs/mocha", "v11.0.1", "2024-12-01"),
-    # ("npm",  "graphql/graphql-js",  "v16.6.0", "2023-09-01"),
-    # ("npm",  "typeorm/typeorm",     "v0.3.11", "2023-09-01"),
-    ("npm", "socketio/socket.io", "4.5.4", "2023-11-01"),
-    # ("pypi", "psf/requests",        "v2.28.1", "2023-07-01"),
-    # ("pypi", "pallets/flask",       "2.2.2",   "2023-10-01"),
-    # ("pypi", "pydantic/pydantic",   "v1.10.2", "2023-09-01"),
-    # ("pypi", "tiangolo/fastapi",    "0.88.0",  "2023-12-01"),
-    # ("pypi", "encode/httpx",        "0.23.3",  "2023-12-01"),
-    # ("pypi", "pallets/click",       "8.1.3",   "2023-05-01"),
-    # ("pypi", "celery/celery",       "v5.2.7",  "2023-06-01"),
-    # ("pypi", "django/django",       "4.1.4",   "2023-12-01"),
-    # ("pypi", "encode/starlette",    "0.22.0",  "2023-11-01"),
-    # ("pypi", "apache/airflow",      "2.5.0",   "2023-07-01"),
-]
+IMAGE = "ossiq-qa"
+CACHE_VOLUME = "ossiq-qa-cache"
+CONTAINER_HOME = "/home/qarunner"
+CONTAINER_WORKSPACE = "/work"
+CONTAINER_CACHE = "/cache/ossiq_cache.sqlite3"
+GITHUB_TOKEN_ENV = "OSSIQ_GITHUB_TOKEN"
+DEFAULT_TIMEOUT = 300
+# Headroom for the host-side backstop over the in-container `timeout`.
+HOST_TIMEOUT_SLACK = 60
+# Installed trees and package caches: they add up to gigabytes per run and nothing reads them.
+BULKY_DIRS = ("workspace/node_modules", "workspace/.venv", "home/.cache", "home/.npm")
+# Files a command that only reads must leave alone.
+GUARDED_FILES = ("package.json", "package-lock.json", "pyproject.toml", "uv.lock", "requirements.txt", ".ossiq.yaml")
+MUTATING_COMMANDS = frozenset({"apply", "add"})
+TRACEBACK = "Traceback (most recent call last)"
+NONZERO = "nonzero"
 
-TAIL_LINES = 40
+MANIFESTS = {"npm": "package.json", "pypi": "pyproject.toml"}
+CASE_KEYS = frozenset({"id", "project", "why", "covers", "ecosystem", "token", "known_issue", "add_files", "steps"})
+STEP_KEYS = frozenset(
+    {"run", "rc", "env", "stdin", "timeout", "stdout", "stderr", "output", "locked", "declared", "report"}
+    | {"packages", "files"}
+)
+TEXT_GROUPS = ("stdout", "stderr", "output")
+TEXT_KEYS = frozenset({"has", "lacks", "once", "json"})
+FILE_KEYS = TEXT_KEYS - {"json"}
+VALUE_KEYS = frozenset({"at_least", "below", "equals", "missing", "pinned", "changed"})
+REPORT_SECTIONS = ("production_packages", "development_packages", "transitive_packages")
 
-logger: logging.Logger = logging.getLogger("ossiq-qa")
+logger = logging.getLogger("ossiq-qa.smoke")
 
 
-# ---------------------------------------------------------------------------
-# Run result
-# ---------------------------------------------------------------------------
+@dataclass(frozen=True)
+class Step:
+    """One command in a throwaway container, and everything checked about it afterwards."""
 
-
-@dataclass
-class RunResult:
-    """Result of a single subprocess invocation."""
-
-    rc: int
-    stdout: str
-    stderr: str
-    elapsed: float
-    cmd: list[str]
-    timed_out: bool = field(default=False)
+    run: tuple[str, ...]
+    rc: int | str
+    """The expected exit code, or `nonzero` for any failure."""
+    env: Mapping[str, str]
+    stdin: str | None
+    timeout: int
+    texts: Mapping[str, Mapping[str, Any]]
+    locked: Mapping[str, Mapping[str, Any]]
+    declared: Mapping[str, Mapping[str, Any]]
+    report: str | None
+    packages: Mapping[str, Mapping[str, Mapping[str, Any]]]
+    files: Mapping[str, Mapping[str, Any]]
 
     @property
-    def ok(self) -> bool:
-        """Return True when the command exited 0 and did not time out."""
-        return self.rc == 0 and not self.timed_out
+    def read_only(self) -> bool:
+        """Whether the command promises to leave the manifest and lockfile alone."""
+        return not MUTATING_COMMANDS.intersection(self.run)
+
+
+@dataclass(frozen=True)
+class Case:
+    """A project and the steps run against a fresh copy of it."""
+
+    id: str
+    project: str
+    why: str
+    covers: tuple[str, ...]
+    ecosystem: Ecosystem | None
+    token: bool
+    known_issue: str | None
+    add_files: Mapping[str, str]
+    steps: tuple[Step, ...]
+
+
+@dataclass(frozen=True)
+class CaseResult:
+    """How one case ended."""
+
+    case_id: str
+    status: Status
+    problems: tuple[str, ...]
+    seconds: float
 
 
 # ---------------------------------------------------------------------------
-# Logging
+# cases.toml
 # ---------------------------------------------------------------------------
 
 
-def setup_logging(log_root: Path) -> None:
-    """Configure the module-level logger with console + file handlers."""
-    logger.setLevel(logging.DEBUG)
-    fmt = logging.Formatter("%(asctime)s [%(levelname)-4s] %(message)s", datefmt="%H:%M:%S")
+def string_list(where: str, value: Any) -> list[str]:
+    """Return *value* when it is a list of strings.
 
-    console = logging.StreamHandler(sys.stdout)
-    console.setFormatter(fmt)
-    logger.addHandler(console)
-
-    file_handler = logging.FileHandler(log_root / "summary.log")
-    file_handler.setFormatter(fmt)
-    logger.addHandler(file_handler)
-
-
-def log_failure(target_id: str, step: str, result: RunResult) -> None:
-    """Inline the command and output tail into summary.log so triage needs no secondary files."""
-    rc_label = "TIMEOUT" if result.timed_out else str(result.rc)
-    logger.error("%s | %s failed (rc=%s, elapsed=%.1fs)", target_id, step, rc_label, result.elapsed)
-    logger.error("%s | cmd: %s", target_id, shlex.join(result.cmd))
-
-    def tail(text: str, label: str) -> None:
-        lines = text.splitlines()
-        if not lines:
-            return
-        trimmed = lines[-TAIL_LINES:]
-        if len(lines) > TAIL_LINES:
-            logger.error("%s | %s (last %d/%d lines):", target_id, label, TAIL_LINES, len(lines))
-        else:
-            logger.error("%s | %s:", target_id, label)
-        for line in trimmed:
-            logger.error("%s |   %s", target_id, line)
-
-    tail(result.stdout, "stdout")
-    tail(result.stderr, "stderr")
-
-
-# ---------------------------------------------------------------------------
-# Subprocess runner
-# ---------------------------------------------------------------------------
-
-
-def run_cmd(args: list[str], cwd: Path, timeout: int, log_path: Path) -> RunResult:
-    """Run a command and write a full transcript to log_path.
-
-    Captures stdout and stderr. On timeout the partial output is preserved.
+    Raises:
+        FixtureError: *value* is anything else.
     """
-    start = time.monotonic()
-    stdout = ""
-    stderr = ""
-    rc = -1
-    timed_out = False
-
-    try:
-        proc = subprocess.run(args, cwd=cwd, capture_output=True, text=True, timeout=timeout)
-        stdout = proc.stdout
-        stderr = proc.stderr
-        rc = proc.returncode
-    except subprocess.TimeoutExpired as exc:
-        timed_out = True
-        raw_out = exc.stdout or b""
-        raw_err = exc.stderr or b""
-        stdout = raw_out.decode(errors="replace") if isinstance(raw_out, bytes) else str(raw_out)
-        stderr = raw_err.decode(errors="replace") if isinstance(raw_err, bytes) else str(raw_err)
-
-    elapsed = time.monotonic() - start
-    divider = "─" * 60
-
-    with log_path.open("w") as f:
-        f.write(f"CMD:     {shlex.join(args)}\n")
-        f.write(f"CWD:     {cwd}\n")
-        f.write(f"STARTED: {datetime.now(UTC).isoformat()}\n")
-        f.write(f"{divider}\n")
-        f.write("STDOUT:\n")
-        f.write(stdout if stdout else "(empty)\n")
-        f.write(f"\n{divider}\n")
-        f.write("STDERR:\n")
-        f.write(stderr if stderr else "(empty)\n")
-        f.write(f"\n{divider}\n")
-        if timed_out:
-            f.write(f"RESULT:  TIMEOUT after {elapsed:.1f}s\n")
-        else:
-            f.write(f"RC:      {rc}\n")
-            f.write(f"ELAPSED: {elapsed:.1f}s\n")
-
-    return RunResult(rc=rc, stdout=stdout, stderr=stderr, elapsed=elapsed, cmd=list(args), timed_out=timed_out)
+    if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
+        raise FixtureError(f"{where}: expected a list of strings")
+    return value
 
 
-# ---------------------------------------------------------------------------
-# Manifest fetchers
-# ---------------------------------------------------------------------------
+def parse_text_rules(where: str, raw: Mapping[str, Any], allowed: frozenset[str]) -> Mapping[str, Any]:
+    """Validate a `has` / `lacks` / `once` / `json` block."""
+    reject_unknown_keys(where, raw, allowed)
+    for key in ("has", "lacks", "once"):
+        string_list(f"{where}.{key}", raw.get(key, []))
+    return raw
 
 
-def fetch_manifest(repo: str, filepath: str, tag: str, dest: Path) -> bool:
-    """Fetch one file from the GitHub Contents API. Returns True when dest is non-empty."""
-    try:
-        result = subprocess.run(
-            ["gh", "api", f"repos/{repo}/contents/{filepath}?ref={tag}", "-H", "Accept: application/vnd.github.raw"],
-            capture_output=True,
-            timeout=120,
-        )
-    except subprocess.TimeoutExpired:
-        logger.debug("fetch_manifest %s/%s@%s: timed out", repo, filepath, tag)
-        return False
-    if result.returncode != 0:
-        logger.debug(
-            "fetch_manifest %s/%s@%s: rc=%d — %s",
-            repo,
-            filepath,
-            tag,
-            result.returncode,
-            result.stderr.decode(errors="replace").strip(),
-        )
-        return False
-    dest.write_bytes(result.stdout)
-    return dest.stat().st_size > 0
+def parse_value_rules(where: str, raw: Mapping[str, Mapping[str, Any]]) -> Mapping[str, Mapping[str, Any]]:
+    """Validate {name: {at_least | below | equals | missing | pinned | changed}}."""
+    for name, rule in raw.items():
+        reject_unknown_keys(f"{where}.{name}", rule, VALUE_KEYS)
+        if not rule:
+            raise FixtureError(f"{where}.{name}: an empty rule checks nothing")
+        if "missing" in rule and len(rule) > 1:
+            raise FixtureError(f"{where}.{name}: `missing` can't be combined with other checks")
+    return raw
 
 
-def fetch_npm(repo: str, tag: str, target_dir: Path) -> bool:
-    """Fetch package.json + package-lock.json. Returns True when both are present and non-empty."""
-    pkg_ok = fetch_manifest(repo, "package.json", tag, target_dir / "package.json")
-    lock_ok = fetch_manifest(repo, "package-lock.json", tag, target_dir / "package-lock.json")
-    return pkg_ok and lock_ok
+def parse_step(where: str, raw: Mapping[str, Any]) -> Step:
+    """Validate one [[cases.steps]] table and build the step.
 
-
-def fetch_pypi(repo: str, tag: str, target_dir: Path) -> bool:
-    """Fetch PyPI manifests in priority order. Returns True when a usable set is present."""
-    pyproject_ok = fetch_manifest(repo, "pyproject.toml", tag, target_dir / "pyproject.toml")
-    uv_lock_ok = fetch_manifest(repo, "uv.lock", tag, target_dir / "uv.lock")
-    if pyproject_ok and uv_lock_ok:
-        return True
-    (target_dir / "uv.lock").unlink(missing_ok=True)
-
-    if pyproject_ok:
-        req_ok = fetch_manifest(repo, "requirements.txt", tag, target_dir / "requirements.txt")
-        if req_ok:
-            return True
-    (target_dir / "pyproject.toml").unlink(missing_ok=True)
-
-    return fetch_manifest(repo, "requirements.txt", tag, target_dir / "requirements.txt")
-
-
-# ---------------------------------------------------------------------------
-# Per-target pipeline
-# ---------------------------------------------------------------------------
-
-
-def build_base_args(cutoff: str) -> list[str]:
-    """Return global ossiq flags that precede every subcommand."""
-    args = ["--cache-destination", CACHE_FILE, "--cutoff-date", cutoff]
-    return args
-
-
-def copy_pristine(pristine_dir: Path, dest: Path) -> None:
-    """Reset dest to an exact copy of the pristine manifest set."""
-    shutil.rmtree(dest, ignore_errors=True)
-    shutil.copytree(pristine_dir, dest)
-
-
-def direct_specifiers(ecosystem: str, project_dir: Path) -> dict[str, str]:
-    """Return {package_name: specifier} for direct deps declared in the manifest."""
-    if ecosystem == "npm":
-        pkg = json.loads((project_dir / "package.json").read_text())
-        specs: dict[str, str] = {}
-        for section in ("dependencies", "devDependencies", "optionalDependencies"):
-            specs.update(pkg.get(section) or {})
-        return specs
-
-    pyproject = project_dir / "pyproject.toml"
-    if not pyproject.exists():
-        return {}
-    data = tomllib.loads(pyproject.read_text())
-    specs = {}
-    dep_strings = list(data.get("project", {}).get("dependencies", []) or [])
-    for group in (data.get("project", {}).get("optional-dependencies", {}) or {}).values():
-        dep_strings.extend(group)
-    for dep in dep_strings:
-        match = re.match(r"^([A-Za-z0-9_.\[\]-]+)\s*(.*)$", dep.strip())
-        if match:
-            specs[match.group(1).split("[")[0].lower()] = match.group(2).strip()
-    return specs
-
-
-def is_exact_spec(ecosystem: str, spec: str) -> bool:
-    """True when the specifier pins exactly one version."""
-    if ecosystem == "npm":
-        return not spec.startswith(("^", "~", ">", "<")) and not spec.startswith("npm:")
-    return spec.startswith("==")
-
-
-# ---------------------------------------------------------------------------
-# Use-case scenarios (run after the main 9-step pipeline)
-# ---------------------------------------------------------------------------
-
-
-def scenario_convergence(main_dir: Path, logs_dir: Path, base_args: list[str], target_id: str) -> bool:
-    """Step 10: a second plan over the applied tree must succeed; convergence is informational."""
-    scen_logs = logs_dir / "scenario_convergence"
-    scen_logs.mkdir(exist_ok=True)
-    result = run_cmd(
-        OSSIQ_CMD + base_args + ["plan", str(main_dir)],
-        cwd=REPO_ROOT,
-        timeout=300,
-        log_path=scen_logs / "10_plan_post_apply.log",
+    Raises:
+        FixtureError: On an unknown key or a value of the wrong shape.
+    """
+    reject_unknown_keys(where, raw, STEP_KEYS)
+    rc = raw.get("rc", 0)
+    if rc != NONZERO and (not isinstance(rc, int) or isinstance(rc, bool)):
+        raise FixtureError(f"{where}.rc: expected an integer or {NONZERO!r}")
+    packages = raw.get("packages", {})
+    for name, fields in packages.items():
+        parse_value_rules(f"{where}.packages.{name}", fields)
+    if bool(packages) != bool(raw.get("report")):
+        raise FixtureError(f"{where}: `packages` and `report` go together")
+    return Step(
+        run=tuple(string_list(f"{where}.run", raw.get("run"))) or fail(f"{where}.run: empty"),
+        rc=rc,
+        env=dict(raw.get("env", {})),
+        stdin=raw.get("stdin"),
+        timeout=raw.get("timeout", DEFAULT_TIMEOUT),
+        texts={
+            group: parse_text_rules(f"{where}.{group}", raw[group], TEXT_KEYS) for group in TEXT_GROUPS if group in raw
+        },
+        locked=parse_value_rules(f"{where}.locked", raw.get("locked", {})),
+        declared=parse_value_rules(f"{where}.declared", raw.get("declared", {})),
+        report=raw.get("report"),
+        packages=packages,
+        files={
+            path: parse_text_rules(f"{where}.files.{path}", rules, FILE_KEYS)
+            for path, rules in raw.get("files", {}).items()
+        },
     )
-    if not result.ok:
-        log_failure(target_id, "scenario convergence: post-apply plan", result)
-        return False
-    converged = "No updates recommended" in result.stdout
-    (scen_logs / "converged.txt").write_text(f"{converged}\n")
-    logger.info("%s | convergence: %s", target_id, "converged" if converged else "further recommendations remain")
-    return True
 
 
-def scenario_pin_all(
-    ecosystem: str,
-    pristine_dir: Path,
-    target_dir: Path,
-    logs_dir: Path,
-    base_args: list[str],
-    export_data: dict,
-    target_id: str,
-) -> bool:
-    """apply --pin-all on a fresh copy; updated direct deps must end up with exact specifiers."""
-    scen_dir = target_dir / "pin_all"
-    scen_logs = logs_dir / "scenario_pin_all"
-    scen_logs.mkdir(exist_ok=True)
-    copy_pristine(pristine_dir, scen_dir)
+def fail(message: str) -> Any:
+    """Raise a FixtureError, so a validation can be written as an `or` expression.
 
-    result = run_cmd(
-        OSSIQ_CMD + base_args + ["apply", "--pin-all", "--yes", str(scen_dir)],
-        cwd=REPO_ROOT,
-        timeout=600,
-        log_path=scen_logs / "apply_pin_all.log",
+    Raises:
+        FixtureError: Always.
+    """
+    raise FixtureError(message)
+
+
+def detect_ecosystem(project: Path) -> Ecosystem | None:
+    """The ecosystem a project is unambiguously in, judged by its manifest file; None for none or both."""
+    found = [eco for eco in ECOSYSTEMS if (project / MANIFESTS[eco.name]).is_file()]
+    return found[0] if len(found) == 1 else None
+
+
+def parse_case(raw: Mapping[str, Any], projects_root: Path) -> Case:
+    """Validate one [[cases]] table and build the case.
+
+    Raises:
+        FixtureError: On an unknown key, a missing project, or a check that needs an ecosystem the
+            project doesn't have.
+    """
+    where = f"case {raw.get('id')}"
+    reject_unknown_keys(where, raw, CASE_KEYS)
+    for key in ("id", "project", "why", "steps"):
+        if key not in raw:
+            raise FixtureError(f"{where}: missing `{key}`")
+    project = projects_root / raw["project"]
+    if not project.is_dir():
+        raise FixtureError(f"{where}: no project {project}")
+    by_name = {eco.name: eco for eco in ECOSYSTEMS}
+    if "ecosystem" in raw and raw["ecosystem"] not in by_name:
+        raise FixtureError(f"{where}.ecosystem: expected one of {', '.join(by_name)}")
+    ecosystem = by_name[raw["ecosystem"]] if "ecosystem" in raw else detect_ecosystem(project)
+    steps = tuple(parse_step(f"{where} step {i}", step) for i, step in enumerate(raw["steps"], 1))
+    if ecosystem is None and any(step.locked or step.declared or step.packages for step in steps):
+        raise FixtureError(f"{where}: checks on versions need an `ecosystem`, and {raw['project']} has no single one")
+    return Case(
+        id=raw["id"],
+        project=raw["project"],
+        why=raw["why"],
+        covers=tuple(string_list(f"{where}.covers", raw.get("covers", []))),
+        ecosystem=ecosystem,
+        token=raw.get("token", True),
+        known_issue=raw.get("known_issue"),
+        add_files=dict(raw.get("add_files", {})),
+        steps=steps,
     )
-    if not result.ok:
-        log_failure(target_id, "scenario pin-all: apply", result)
-        return False
 
-    recommended = {
-        p["package_name"]
-        for p in export_data.get("production_packages", [])
-        if p.get("recommended_version") and p.get("recommended_version") != p.get("installed_version")
+
+def parse_cases(raw: Mapping[str, Any], projects_root: Path = PROJECTS_DIR) -> list[Case]:
+    """Validate the parsed cases.toml and build its cases.
+
+    Raises:
+        FixtureError: On an unknown key, a duplicate case id, or an invalid case.
+    """
+    reject_unknown_keys("cases.toml", raw, frozenset({"cases"}))
+    cases = [parse_case(entry, projects_root) for entry in raw.get("cases", [])]
+    ids = [case.id for case in cases]
+    duplicates = sorted({case_id for case_id in ids if ids.count(case_id) > 1})
+    if duplicates:
+        raise FixtureError(f"duplicate case id(s): {', '.join(duplicates)}")
+    return cases
+
+
+def select_cases(cases: Sequence[Case], wanted: str | None) -> list[Case]:
+    """Filter *cases* by a comma-separated list of ids, in the order asked for.
+
+    Raises:
+        FixtureError: When an id isn't defined.
+    """
+    if not wanted:
+        return list(cases)
+    known = {case.id: case for case in cases}
+    ids = [part.strip() for part in wanted.split(",") if part.strip()]
+    unknown = [case_id for case_id in ids if case_id not in known]
+    if unknown:
+        raise FixtureError(f"unknown case(s): {', '.join(unknown)}; expected {', '.join(known)}")
+    return [known[case_id] for case_id in ids]
+
+
+# ---------------------------------------------------------------------------
+# Checks
+# ---------------------------------------------------------------------------
+
+
+def is_pinned(ecosystem: Ecosystem, spec: str) -> bool:
+    """Whether *spec* names exactly one release."""
+    if ecosystem.name == "npm":
+        return re.fullmatch(r"\d+\.\d+\.\d+([-+][0-9A-Za-z.+-]+)?", spec.strip()) is not None
+    return spec.strip().startswith("==") and "*" not in spec
+
+
+def check_value(
+    ecosystem: Ecosystem, label: str, actual: Any, rule: Mapping[str, Any], kind: str, before: str | None = None
+) -> list[str]:
+    """Check one observed value against a rule.
+
+    Args:
+        ecosystem: Decides how versions and specs compare.
+        label: What is being checked, for the message.
+        actual: The observed value; None when the package or field is absent.
+        rule: The `at_least` / `below` / `equals` / `missing` / `pinned` / `changed` checks.
+        kind: `version`, `spec` or `value`: how `equals` compares.
+        before: The spec before the step ran, for `changed`.
+
+    Returns:
+        One message per failed check.
+    """
+    if rule.get("missing"):
+        return [] if actual is None else [f"{label} is {actual!r}, expected it missing"]
+    if actual is None:
+        return [f"{label} not found"]
+    problems = []
+    if "at_least" in rule and ecosystem.is_older(actual, rule["at_least"]):
+        problems.append(f"{label} is {actual}, expected at least {rule['at_least']}")
+    if "below" in rule and not ecosystem.is_older(actual, rule["below"]):
+        problems.append(f"{label} is {actual}, expected below {rule['below']}")
+    if "equals" in rule:
+        same = {
+            "version": lambda: ecosystem.same_version(actual, rule["equals"]),
+            "spec": lambda: ecosystem.same_spec(actual, rule["equals"]),
+            "value": lambda: actual == rule["equals"],
+        }[kind]()
+        if not same:
+            problems.append(f"{label} is {actual!r}, expected {rule['equals']!r}")
+    if "pinned" in rule and is_pinned(ecosystem, actual) != rule["pinned"]:
+        problems.append(f"{label} is {actual}, expected {'a pin' if rule['pinned'] else 'a range'}")
+    if "changed" in rule:
+        unchanged = before is not None and ecosystem.same_spec(actual, before)
+        if unchanged == rule["changed"]:
+            problems.append(f"{label} is {actual}, expected it {'changed' if rule['changed'] else 'unchanged'}")
+    return problems
+
+
+def text_problems(label: str, text: str, rules: Mapping[str, Any]) -> list[str]:
+    """Check *text* against `has` / `lacks` / `once` / `json` rules."""
+    problems = [f"{label} lacks {needle!r}" for needle in rules.get("has", []) if needle not in text]
+    problems += [f"{label} has {needle!r}" for needle in rules.get("lacks", []) if needle in text]
+    problems += [
+        f"{label} has {text.count(needle)} of {needle!r}, expected one"
+        for needle in rules.get("once", [])
+        if text.count(needle) != 1
+    ]
+    if rules.get("json"):
+        try:
+            if not isinstance(json.loads(text), dict):
+                problems.append(f"{label} is JSON but not an object")
+        except json.JSONDecodeError as error:
+            problems.append(f"{label} is not JSON: {error}")
+    return problems
+
+
+def snapshot(workspace: Path) -> dict[str, bytes]:
+    """The bytes of every manifest, lockfile and policy file in *workspace*."""
+    return {name: (workspace / name).read_bytes() for name in GUARDED_FILES if (workspace / name).is_file()}
+
+
+def lock_agrees_with_manifest(ecosystem: Ecosystem, workspace: Path) -> list[str]:
+    """Every direct dependency must be locked at a version its declared spec admits."""
+    try:
+        specs = ecosystem.declared_specs(workspace)
+        locked = ecosystem.locked_versions(workspace)
+    except FileNotFoundError:
+        return []  # a project with no lockfile has nothing to disagree with
+    except (OSError, ValueError, KeyError) as error:
+        return [f"manifest or lockfile unreadable after the command: {error}"]
+    problems = []
+    for name, spec in specs.items():
+        version = locked.get(ecosystem.key(name))
+        if version is None:
+            problems.append(f"{name} is declared as {spec!r} but not locked")
+        elif not ecosystem.admits(spec, version):
+            problems.append(f"{name} is locked at {version}, which {spec!r} does not admit")
+    return problems
+
+
+def report_package(ecosystem: Ecosystem, report: Mapping[str, Any], name: str) -> Mapping[str, Any] | None:
+    """Find a package in an export, in any of its sections."""
+    for section in REPORT_SECTIONS:
+        for package in report.get(section) or []:
+            if ecosystem.key(package["package_name"]) == ecosystem.key(name):
+                return package
+    return None
+
+
+def version_checks(case: Case, step: Step, workspace: Path, specs_before: Mapping[str, str]) -> list[str]:
+    """The `locked`, `declared` and `packages` checks of a step, read from the workspace."""
+    ecosystem = case.ecosystem
+    if ecosystem is None or not (step.locked or step.declared or step.packages):
+        return []
+    problems: list[str] = []
+    try:
+        if step.locked:
+            locked = ecosystem.locked_versions(workspace)
+            for name, rule in step.locked.items():
+                problems += check_value(ecosystem, f"locked {name}", locked.get(ecosystem.key(name)), rule, "version")
+        if step.declared:
+            declared = ecosystem.declared_specs(workspace)
+            for name, rule in step.declared.items():
+                key = ecosystem.key(name)
+                problems += check_value(
+                    ecosystem, f"declared {name}", declared.get(key), rule, "spec", before=specs_before.get(key)
+                )
+        if step.report:
+            report = json.loads((workspace / step.report).read_text(encoding="utf-8"))
+            for name, fields in step.packages.items():
+                package = report_package(ecosystem, report, name)
+                for field_name, rule in fields.items():
+                    actual = None if package is None else package.get(field_name)
+                    kind = "version" if field_name.endswith("version") else "value"
+                    problems += check_value(ecosystem, f"{step.report} {name}.{field_name}", actual, rule, kind)
+    except (OSError, ValueError, KeyError) as error:
+        problems.append(f"could not read the workspace: {error}")
+    return problems
+
+
+def file_problems(step: Step, case_dir: Path) -> list[str]:
+    """The `files` checks: text rules on files under the case directory."""
+    problems = []
+    for relative, rules in step.files.items():
+        path = case_dir / relative
+        if not path.is_file():
+            problems.append(f"{relative} was not written")
+            continue
+        problems += text_problems(relative, path.read_text(encoding="utf-8", errors="replace"), rules)
+    return problems
+
+
+# ---------------------------------------------------------------------------
+# Running
+# ---------------------------------------------------------------------------
+
+
+def container_name(run_id: str, case: Case, index: int) -> str:
+    """The name of a step's container, so a host-side timeout can remove it."""
+    return f"ossiq-smoke-{run_id}-{case.id}-{index}"
+
+
+def docker_command(case: Case, step: Step, index: int, case_dir: Path, image: str, run_id: str) -> list[str]:
+    """The `docker run` for one step.
+
+    The GitHub token is passed by name, so docker copies it from this process and its value stays
+    out of `ps` and the transcript. `timeout` inside the container stops a hung command even if
+    the host loses the docker client.
+    """
+    command = ["docker", "run", "--rm", "--name", container_name(run_id, case, index), "--user", "1000:1000"]
+    if step.stdin is not None:
+        command.append("-i")
+    command += [
+        "-v",
+        f"{case_dir / 'workspace'}:{CONTAINER_WORKSPACE}",
+        "-v",
+        f"{case_dir / 'home'}:{CONTAINER_HOME}",
+        "-v",
+        f"{CACHE_VOLUME}:{Path(CONTAINER_CACHE).parent}",
+        "-w",
+        CONTAINER_WORKSPACE,
+    ]
+    values = {
+        "HOME": CONTAINER_HOME,
+        "NO_COLOR": "1",
+        # Wide enough that Rich never wraps a table row or a panel line a check looks for.
+        "COLUMNS": "240",
+        "OSSIQ_CACHE_DESTINATION": CONTAINER_CACHE,
+        **step.env,
     }
-    specs = direct_specifiers(ecosystem, scen_dir)
-    loose = [name for name in recommended if name in specs and not is_exact_spec(ecosystem, specs[name])]
-    if loose:
-        logger.warning("%s | pin-all: %d updated direct dep(s) not pinned exact: %s", target_id, len(loose), loose)
-    return True
+    for name, value in values.items():
+        command += ["-e", f"{name}={value}"]
+    if case.token:
+        command += ["-e", GITHUB_TOKEN_ENV]
+    return [*command, image, "timeout", "-k", "10", str(step.timeout), *step.run]
 
 
-def scenario_security(
-    pristine_dir: Path,
-    target_dir: Path,
-    logs_dir: Path,
-    base_args: list[str],
-    target_id: str,
-) -> bool:
-    """plan/apply --update-strategy security must succeed, including the zero-CVE case."""
-    scen_dir = target_dir / "security"
-    scen_logs = logs_dir / "scenario_security"
-    scen_logs.mkdir(exist_ok=True)
-    copy_pristine(pristine_dir, scen_dir)
+def run_step(case: Case, step: Step, index: int, case_dir: Path, image: str, run_id: str) -> list[str]:
+    """Run one step in a container and check it.
 
-    result = run_cmd(
-        OSSIQ_CMD + base_args + ["plan", "--update-strategy", "security", str(scen_dir)],
-        cwd=REPO_ROOT,
-        timeout=300,
-        log_path=scen_logs / "plan_security.log",
+    Returns:
+        One message per failed check; empty when the step passed.
+    """
+    workspace = case_dir / "workspace"
+    before = snapshot(workspace)
+    specs_before: Mapping[str, str] = {}
+    if case.ecosystem is not None:
+        try:
+            specs_before = case.ecosystem.declared_specs(workspace)
+        except (OSError, ValueError, KeyError):
+            specs_before = {}
+
+    command = docker_command(case, step, index, case_dir, image, run_id)
+    # The docker client finds its daemon and reads the token through the parent environment.
+    result = run_logged(
+        command,
+        env=os.environ,
+        log_path=case_dir / f"{index:02d}.log",
+        timeout=step.timeout + HOST_TIMEOUT_SLACK,
+        stdin=step.stdin,
     )
-    if not result.ok:
-        log_failure(target_id, "scenario security: plan", result)
-        return False
+    if result.timed_out:
+        subprocess.run(["docker", "rm", "-f", container_name(run_id, case, index)], capture_output=True, check=False)
+        return [f"timed out after {step.timeout}s (see {result.log_path.name})"]
 
-    result = run_cmd(
-        OSSIQ_CMD + base_args + ["apply", "--update-strategy", "security", "--yes", str(scen_dir)],
-        cwd=REPO_ROOT,
-        timeout=600,
-        log_path=scen_logs / "apply_security.log",
-    )
-    if not result.ok:
-        log_failure(target_id, "scenario security: apply", result)
-        return False
-    return True
+    problems = []
+    if step.rc == NONZERO:
+        if result.rc == 0:
+            problems.append("exited 0, expected a failure")
+    elif result.rc != step.rc:
+        problems.append(f"exited {result.rc}, expected {step.rc}")
+    combined = f"{result.stdout}\n{result.stderr}"
+    if TRACEBACK in combined:
+        problems.append("a Python traceback was printed")
+    streams = {"stdout": result.stdout, "stderr": result.stderr, "output": combined}
+    for group, rules in step.texts.items():
+        problems += text_problems(group, streams[group], rules)
 
-
-def scenario_override(
-    ecosystem: str,
-    pristine_dir: Path,
-    target_dir: Path,
-    logs_dir: Path,
-    base_args: list[str],
-    export_data: dict,
-    target_id: str,
-) -> bool:
-    """--override unknown target must fail; forcing a transitive version must persist an override."""
-    scen_logs = logs_dir / "scenario_override"
-    scen_logs.mkdir(exist_ok=True)
-
-    negative = run_cmd(
-        OSSIQ_CMD + base_args + ["plan", "--override", "no-such-pkg==1.0.0", str(pristine_dir)],
-        cwd=REPO_ROOT,
-        timeout=300,
-        log_path=scen_logs / "plan_unknown_override.log",
-    )
-    if negative.ok:
-        logger.error("%s | override: plan with unknown --override target unexpectedly succeeded", target_id)
-        return False
-
-    direct_names = {p["package_name"] for p in export_data.get("production_packages", [])}
-    candidates = [
-        p
-        for p in export_data.get("transitive_packages", [])
-        if p.get("recommended_version")
-        and p.get("recommended_version") != p.get("installed_version")
-        and p["package_name"] not in direct_names
-    ]
-    if not candidates:
-        logger.info("%s | override: no transitive recommendation available — positive case skipped", target_id)
-        return True
-
-    name = candidates[0]["package_name"]
-    version = candidates[0]["recommended_version"]
-    scen_dir = target_dir / "override"
-    copy_pristine(pristine_dir, scen_dir)
-
-    result = run_cmd(
-        OSSIQ_CMD + base_args + ["apply", "--override", f"{name}=={version}", "--yes", str(scen_dir)],
-        cwd=REPO_ROOT,
-        timeout=600,
-        log_path=scen_logs / "apply_override.log",
-    )
-    if not result.ok:
-        log_failure(target_id, f"scenario override: apply --override {name}=={version}", result)
-        return False
-
-    if ecosystem == "npm":
-        pkg = json.loads((scen_dir / "package.json").read_text())
-        persisted = (pkg.get("overrides") or {}).get(name) == version
-    else:
-        pyproject = scen_dir / "pyproject.toml"
-        persisted = pyproject.exists() and f"{name}=={version}" in pyproject.read_text()
-    if not persisted:
-        logger.warning("%s | override: forced version %s==%s not found persisted in manifest", target_id, name, version)
-    return True
+    if step.read_only and snapshot(workspace) != before:
+        problems.append("changed the manifest or lockfile although the command only reads")
+    elif not step.read_only and result.rc == 0 and case.ecosystem is not None:
+        problems += lock_agrees_with_manifest(case.ecosystem, workspace)
+    problems += version_checks(case, step, workspace, specs_before)
+    problems += file_problems(step, case_dir)
+    return problems
 
 
-def run_target(ecosystem: str, repo: str, tag: str, cutoff: str, target_id: str) -> Literal["PASS", "FAIL", "SKIP"]:
-    """Run the 9-step smoke pipeline plus use-case scenarios for one target. Returns PASS, FAIL, or SKIP."""
-    target_dir = WORKSPACE / target_id
-    logs_dir = LOG_ROOT / target_id
-    pristine_dir = target_dir / "pristine"
-    pristine_dir.mkdir(parents=True, exist_ok=True)
-    logs_dir.mkdir(parents=True, exist_ok=True)
-
-    def write_result(value: str) -> None:
-        (logs_dir / "result.log").write_text(f"{value}\n")
-
-    # --- Manifest fetch (once, into pristine; scenarios run on fresh copies) ---
-    logger.info("%s | fetching manifests (%s @ %s)", target_id, repo, tag)
-    if ecosystem == "npm":
-        if not fetch_npm(repo, tag, pristine_dir):
-            logger.warning("%s | SKIP: package.json or package-lock.json not found at tag %s", target_id, tag)
-            write_result("SKIP")
-            return "SKIP"
-    else:
-        if not fetch_pypi(repo, tag, pristine_dir):
-            logger.warning("%s | SKIP: no supported PyPI manifest at tag %s", target_id, tag)
-            write_result("SKIP")
-            return "SKIP"
-
-    main_dir = target_dir / "main"
-    copy_pristine(pristine_dir, main_dir)
-    base_args = build_base_args(cutoff)
-
-    # --- Step 03: status ------------------------------------------------------
-    logger.info("%s | step 03 status", target_id)
-    result = run_cmd(
-        OSSIQ_CMD + base_args + ["status", str(main_dir)],
-        cwd=REPO_ROOT,
-        timeout=300,
-        log_path=logs_dir / "03_status.log",
-    )
-    if not result.ok:
-        log_failure(target_id, "step 03 status", result)
-        write_result("FAIL:step03")
-        return "FAIL"
-
-    # --- Step 04: pre-apply export --------------------------------------------
-    logger.info("%s | step 04 export", target_id)
-    pre_export = logs_dir / "04_pre_export.json"
-    result = run_cmd(
-        OSSIQ_CMD + base_args + ["export", "--schema-version", "1.5", "--output", str(pre_export), str(main_dir)],
-        cwd=REPO_ROOT,
-        timeout=120,
-        log_path=logs_dir / "04_export.log",
-    )
-    if not result.ok:
-        log_failure(target_id, "step 04 export", result)
-        write_result("FAIL:step04")
-        return "FAIL"
-
-    with pre_export.open() as f:
-        export_data: dict = json.load(f)
-
-    pkg_count: int = export_data.get("summary", {}).get("total_packages", 0)
-    if pkg_count == 0:
-        logger.warning("%s | SKIP: export returned 0 packages", target_id)
-        write_result("SKIP")
-        shutil.rmtree(target_dir, ignore_errors=True)
-        return "SKIP"
-
-    # --- Step 05: downgrade assertion (WARN only) ----------------------------
-    downgrades = [
-        p
-        for p in export_data.get("production_packages", [])
-        if p.get("recommended_version") is not None
-        and p.get("recommended_version") != p.get("installed_version")
-        and (p.get("time_lag_days") or 0) < 0
-    ]
-    if downgrades:
-        logger.warning(
-            "%s | step 05 — %d package(s) have recommended < installed (time_lag_days < 0)",
-            target_id,
-            len(downgrades),
-        )
-
-    # --- Step 06: plan --------------------------------------------------------
-    logger.info("%s | step 06 plan", target_id)
-    result = run_cmd(
-        OSSIQ_CMD + base_args + ["plan", str(main_dir)],
-        cwd=REPO_ROOT,
-        timeout=300,
-        log_path=logs_dir / "06_plan.log",
-    )
-    if not result.ok:
-        log_failure(target_id, "step 06 plan", result)
-        write_result("FAIL:step06")
-        return "FAIL"
-
-    # --- Step 07: apply -------------------------------------------------------
-    logger.info("%s | step 07 apply", target_id)
-    result = run_cmd(
-        OSSIQ_CMD + base_args + ["apply", "--yes", str(main_dir)],
-        cwd=REPO_ROOT,
-        timeout=600,
-        log_path=logs_dir / "07_apply.log",
-    )
-    if not result.ok:
-        log_failure(target_id, "step 07 apply", result)
-        write_result("FAIL:step07")
-        return "FAIL"
-
-    # --- Step 07b: npm lock regeneration -------------------------------------
-    if ecosystem == "npm" and shutil.which("npm"):
-        npm_result = run_cmd(
-            ["npm", "install", "--prefix", str(main_dir), "--package-lock-only"],
-            cwd=main_dir,
-            timeout=120,
-            log_path=logs_dir / "07b_npm_install.log",
-        )
-        if not npm_result.ok:
-            logger.warning(
-                "%s | step 07b npm --package-lock-only failed (rc=%d); step 09 comparison may be inaccurate",
-                target_id,
-                npm_result.rc,
-            )
-
-    # --- Step 08: post-apply status -------------------------------------------
-    logger.info("%s | step 08 status (post-apply)", target_id)
-    result = run_cmd(
-        OSSIQ_CMD + base_args + ["status", str(main_dir)],
-        cwd=REPO_ROOT,
-        timeout=300,
-        log_path=logs_dir / "08_status_post.log",
-    )
-    if not result.ok:
-        log_failure(target_id, "step 08 post-apply status", result)
-        write_result("FAIL:step08")
-        return "FAIL"
-
-    # --- Step 09: post-apply export + comparison ------------------------------
-    logger.info("%s | step 09 export (post-apply)", target_id)
-    post_export = logs_dir / "09_post_export.json"
-    result = run_cmd(
-        OSSIQ_CMD + base_args + ["export", "--schema-version", "1.5", "--output", str(post_export), str(main_dir)],
-        cwd=REPO_ROOT,
-        timeout=120,
-        log_path=logs_dir / "09_export.log",
-    )
-    if not result.ok:
-        log_failure(target_id, "step 09 post-apply export", result)
-        write_result("FAIL:step09")
-        return "FAIL"
-
-    with post_export.open() as f:
-        post_data: dict = json.load(f)
-
-    recs = {p["package_name"]: p.get("recommended_version") for p in export_data.get("production_packages", [])}
-    post = {p["package_name"]: p.get("installed_version") for p in post_data.get("production_packages", [])}
-    comparison = [
-        {"package": name, "expected": ver, "got": post.get(name), "ok": ver == post.get(name)}
-        for name, ver in recs.items()
-        if ver is not None
-    ]
-    (logs_dir / "09_comparison.json").write_text(json.dumps(comparison, indent=2))
-
-    not_applied = [c for c in comparison if not c["ok"]]
-    if not_applied:
-        logger.warning(
-            "%s | step 09 — %d package(s) not at recommended version post-apply",
-            target_id,
-            len(not_applied),
-        )
-
-    # --- Use-case scenarios (each on its own copy of the pristine manifests) --
-    logger.info("%s | scenario: convergence (second plan over applied tree)", target_id)
-    if not scenario_convergence(main_dir, logs_dir, base_args, target_id):
-        write_result("FAIL:scenario_convergence")
-        return "FAIL"
-
-    logger.info("%s | scenario: pin-all", target_id)
-    if not scenario_pin_all(ecosystem, pristine_dir, target_dir, logs_dir, base_args, export_data, target_id):
-        write_result("FAIL:scenario_pin_all")
-        return "FAIL"
-
-    logger.info("%s | scenario: security", target_id)
-    if not scenario_security(pristine_dir, target_dir, logs_dir, base_args, target_id):
-        write_result("FAIL:scenario_security")
-        return "FAIL"
-
-    logger.info("%s | scenario: override", target_id)
-    if not scenario_override(ecosystem, pristine_dir, target_dir, logs_dir, base_args, export_data, target_id):
-        write_result("FAIL:scenario_override")
-        return "FAIL"
-
-    # --- Crash check ----------------------------------------------------------
-    for log_file in logs_dir.rglob("*.log"):
-        content = log_file.read_text(errors="replace")
-        if "Traceback" in content:
-            logger.error("%s | Python traceback found in %s", target_id, log_file.name)
-            write_result("FAIL:traceback")
-            return "FAIL"
-
-    logger.info("%s | PASS (packages=%d)", target_id, pkg_count)
-    write_result("PASS")
-    shutil.rmtree(target_dir, ignore_errors=True)
-    return "PASS"
+def classify(case: Case, problems: Sequence[str]) -> Status:
+    """PASS or FAIL, or XFAIL / XPASS when the case carries a `known_issue`."""
+    if case.known_issue:
+        return Status.XFAIL if problems else Status.XPASS
+    return Status.FAIL if problems else Status.PASS
 
 
-# ---------------------------------------------------------------------------
-# Main
-# ---------------------------------------------------------------------------
+def run_case(case: Case, run_dir: Path, image: str, run_id: str) -> CaseResult:
+    """Run every step of a case on a fresh copy of its project, stopping at the first failing step."""
+    started = datetime.now(UTC)
+    case_dir = run_dir / case.id
+    shutil.copytree(PROJECTS_DIR / case.project, case_dir / "workspace")
+    (case_dir / "home").mkdir()
+    for relative, content in case.add_files.items():
+        target = case_dir / "workspace" / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(content, encoding="utf-8")
+
+    problems: list[str] = []
+    for index, step in enumerate(case.steps, 1):
+        step_problems = run_step(case, step, index, case_dir, image, run_id)
+        problems += [f"step {index} `{shlex.join(step.run)}`: {problem}" for problem in step_problems]
+        if step_problems:
+            break
+    for bulky in BULKY_DIRS:
+        shutil.rmtree(case_dir / bulky, ignore_errors=True)
+    seconds = (datetime.now(UTC) - started).total_seconds()
+    return CaseResult(case.id, classify(case, problems), tuple(problems), seconds)
 
 
-def main() -> None:
-    """Entry point: iterate TARGETS, run each pipeline, print summary."""
-    if not GITHUB_TOKEN:
-        print("[ERROR] OSSIQ_GITHUB_TOKEN is not set", file=sys.stderr)
-        sys.exit(1)
+def command_output(command: Sequence[str]) -> str:
+    """Run a short command and return its stripped stdout, or an empty string when it fails."""
+    result = subprocess.run(command, capture_output=True, text=True, check=False)
+    return result.stdout.strip() if result.returncode == 0 else ""
 
-    LOG_ROOT.mkdir(parents=True, exist_ok=True)
-    WORKSPACE.mkdir(parents=True, exist_ok=True)
-    setup_logging(LOG_ROOT)
 
-    logger.info("ossiq QA matrix — %s", datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"))
-    logger.info("WORKSPACE=%s  LOG_ROOT=%s  CACHE=%s", WORKSPACE, LOG_ROOT, CACHE_FILE)
+def write_run_json(run_dir: Path, image: str, results: Sequence[CaseResult]) -> None:
+    """Record what ran against which checkout and image, and how every case ended."""
+    record = {
+        "created_at": datetime.now(UTC).isoformat(),
+        "git_sha": command_output(["git", "-C", str(REPO_ROOT), "rev-parse", "HEAD"]),
+        "git_dirty": bool(command_output(["git", "-C", str(REPO_ROOT), "status", "--porcelain"])),
+        "image_id": command_output(["docker", "image", "inspect", "-f", "{{.Id}}", image]),
+        "ossiq_version": command_output(["docker", "run", "--rm", image, "ossiq", "--version"]),
+        "cases": [
+            {"id": r.case_id, "status": str(r.status), "seconds": round(r.seconds, 1), "problems": list(r.problems)}
+            for r in results
+        ],
+    }
+    (run_dir / "run.json").write_text(json.dumps(record, indent=2), encoding="utf-8")
 
-    passed: list[str] = []
-    failed: list[str] = []
-    skipped: list[str] = []
 
-    for ecosystem, repo, tag, cutoff in TARGETS:
-        name = repo.split("/")[-1]
-        target_id = f"{ecosystem}_{name}_{tag.removeprefix('v')}"
-        logger.info("--- %s ---", target_id)
+def setup_logging(log_dir: Path | None = None) -> None:
+    """Log plain lines to stdout, and timestamped ones to summary.log once the run directory exists."""
+    logger.setLevel(logging.INFO)
+    if not logger.handlers:
+        console = logging.StreamHandler(sys.stdout)
+        console.setFormatter(logging.Formatter("%(message)s"))
+        logger.addHandler(console)
+    if log_dir is not None:
+        file_handler = logging.FileHandler(log_dir / "summary.log", encoding="utf-8")
+        file_handler.setFormatter(logging.Formatter("%(asctime)s %(message)s", datefmt="%H:%M:%S"))
+        logger.addHandler(file_handler)
 
-        outcome = run_target(ecosystem, repo, tag, cutoff, target_id)
-        if outcome == "PASS":
-            passed.append(target_id)
-        elif outcome == "SKIP":
-            skipped.append(target_id)
-        else:
-            failed.append(target_id)
 
-    logger.info("=" * 60)
-    logger.info("Results: %d passed, %d skipped, %d failed", len(passed), len(skipped), len(failed))
-    if failed:
-        logger.info("Failed targets:")
-        for t in failed:
-            logger.info("  - %s  (logs: %s/%s/)", t, LOG_ROOT, t)
+def parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
+    """Parse the command line."""
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--cases", help="comma-separated case ids (default: all)")
+    parser.add_argument("--parallel", type=int, default=4, help="cases at a time (default: 4)")
+    parser.add_argument("--image", default=IMAGE, help=f"QA image (default: {IMAGE})")
+    parser.add_argument("--dry-run", action="store_true", help="list the cases and their commands, then exit")
+    return parser.parse_args(argv)
 
-    sys.exit(0 if not failed else 1)
+
+def main(argv: Sequence[str] | None = None) -> int:
+    """Run the matrix and return the exit status."""
+    args = parse_args(argv)
+    setup_logging()
+    try:
+        selected = select_cases(parse_cases(tomllib.loads(CASES_FILE.read_text(encoding="utf-8"))), args.cases)
+    except (FixtureError, tomllib.TOMLDecodeError) as error:
+        logger.error(f"cases.toml: {error}")
+        return 2
+
+    if args.dry_run:
+        for case in selected:
+            logger.info(f"{case.id}  [{case.project}]  {case.why}")
+            for index, step in enumerate(case.steps, 1):
+                logger.info(f"    {index}. {shlex.join(step.run)}")
+        return 0
+
+    if not command_output(["docker", "image", "inspect", "-f", "{{.Id}}", args.image]):
+        logger.error(f"docker image {args.image} not found: run `just qa-build`")
+        return 2
+    if not os.environ.get(GITHUB_TOKEN_ENV):
+        logger.warning(f"{GITHUB_TOKEN_ENV} is not set: GitHub data is rate-limited, so some signals may be missing")
+
+    run_id = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+    run_dir = LOG_ROOT / run_id
+    run_dir.mkdir(parents=True)
+    setup_logging(run_dir)
+    logger.info(f"{len(selected)} case(s); logs in {run_dir}")
+
+    results: list[CaseResult] = []
+    with ThreadPoolExecutor(max_workers=args.parallel) as pool:
+        futures = [pool.submit(run_case, case, run_dir, args.image, run_id) for case in selected]
+        for future in as_completed(futures):
+            result = future.result()
+            results.append(result)
+            logger.info(f"[{result.status:5}] {result.case_id} ({result.seconds:.0f}s)")
+            for problem in result.problems:
+                logger.info(f"          {problem}")
+
+    write_run_json(run_dir, args.image, results)
+    counts = {status: sum(r.status == status for r in results) for status in Status}
+    logger.info("  ".join(f"{status}: {count}" for status, count in counts.items() if count))
+    return 1 if counts[Status.FAIL] else 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

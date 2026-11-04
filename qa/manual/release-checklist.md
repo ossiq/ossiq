@@ -80,7 +80,7 @@
 
 ## 09 — Automated Matrix ([details](../README.md#automated-matrix))
 
-- [ ] TC-M01: `just qa-matrix` exits 0; `qa_logs/summary.log` final `Results:` line shows `0 failed` (SKIPs acceptable)
+- [ ] TC-M01: `just qa-matrix` exits 0; `qa_logs/smoke/<latest>/summary.log` lists no `FAIL` (XFAIL and XPASS are acceptable)
 - [ ] TC-M02: `just qa-strategies --fresh` exits 0 ([details](../README.md#update-strategy-regression)); copy any XFAIL/XPASS/WARN lines into Notes
 
 ## 10 — LLM Integration: `install skills` & MCP Server ([details](10-llm-integration.md))
