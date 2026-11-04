@@ -37,6 +37,13 @@ class InvalidConfiguration(ApplicationError):
     hint = "Correct the setting named above in your config file or environment, then run the command again."
 
 
+class InvalidPolicyFile(ApplicationError):
+    """Raised when a project's .ossiq.yaml cannot be read or breaks the policy schema."""
+
+    title = "Invalid policy file"
+    hint = "Correct the entries named above in the project's .ossiq.yaml, then run the command again."
+
+
 class GithubRateLimitError(ApplicationError):
     """Raised when the GitHub API rate limit is exceeded."""
 

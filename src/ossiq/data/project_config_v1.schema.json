@@ -1,0 +1,100 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "OSS IQ project config",
+  "description": "The .ossiq.yaml a project commits next to its manifest.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version"],
+  "properties": {
+    "version": {
+      "description": "The schema version of this file.",
+      "const": 1
+    },
+    "policy": {
+      "description": "Rules for the releases OSS IQ may recommend. A rule is off unless its block is present.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "cooldown": {
+          "description": "Hold back releases younger than this. A flag, an environment variable or the user config beats it.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["days"],
+          "properties": {
+            "days": { "type": "integer", "minimum": 0 }
+          }
+        },
+        "build": {
+          "description": "Build evidence the registry records for a release, checked on direct and transitive packages.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "minimum": {
+              "description": "The weakest build tier a release may carry.",
+              "enum": ["none", "provenance", "trusted-publisher"]
+            },
+            "no-downgrade": {
+              "description": "Refuse a release with less build evidence than an earlier one of its major line.",
+              "type": "boolean"
+            }
+          }
+        },
+        "source": {
+          "description": "How the default branch of a direct dependency's GitHub repository is protected.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["minimum"],
+          "properties": {
+            "minimum": {
+              "description": "The weakest source level a repository may have.",
+              "enum": ["version-controlled", "protected-history", "reviewed"]
+            }
+          }
+        },
+        "exceptions": {
+          "description": "Waivers. Each lifts the named rules for the releases it matches.",
+          "type": "array",
+          "items": { "$ref": "#/$defs/exception" }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "exception": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["package", "reason"],
+      "properties": {
+        "package": {
+          "description": "A registry name, or a glob over names such as @myorg/*.",
+          "type": "string",
+          "minLength": 1
+        },
+        "versions": {
+          "description": "Exact versions it covers, quoted so YAML keeps them strings. Omit for every version.",
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "rules": {
+          "description": "The rules it lifts. Omit for all of them.",
+          "type": "array",
+          "items": { "enum": ["cooldown", "build", "source"] },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "reason": {
+          "description": "Why the waiver exists.",
+          "type": "string",
+          "minLength": 1
+        },
+        "expires": {
+          "description": "The last day it holds, as YYYY-MM-DD. After it the rules apply again.",
+          "type": "string",
+          "format": "date"
+        }
+      }
+    }
+  }
+}
