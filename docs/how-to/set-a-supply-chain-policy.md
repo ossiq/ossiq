@@ -50,8 +50,9 @@ OSS IQ reads the evidence from the registry's own record of each version.
 | `provenance` | A signed provenance attestation | Not used: PyPI accepts attestations only from trusted publishing |
 | `trusted-publisher` | An attestation, and the publish went through npm's trusted-publisher flow (OIDC) | An attestation on every file of the version |
 
-The *Build* column in the [status report](../reference/reports.md#dependency-table) shows the tier of the installed
-version: `trusted`, `attested` or `none`.
+The *Bld* column of `status --full` shows the tier of the installed version as a level: `L2` for
+`trusted-publisher`, `L1` for `provenance` and `L0` for `none`. The
+[HTML report](../reference/reports.md#html-report) shows the words `trusted`, `attested` and `none`.
 
 ### Source levels
 
@@ -64,7 +65,8 @@ is now.
 | `protected-history` | Blocks force-pushes and deletion |
 | `reviewed` | Blocks force-pushes and deletion, and requires a pull request with at least one approval |
 
-The *Source* column shows `vcs`, `protected` or `reviewed`.
+The *Src* column of `status --full` shows `L1` for `version-controlled`, `L2` for `protected-history` and `L3` for
+`reviewed`. The HTML report shows `vcs`, `protected` and `reviewed`.
 
 Reading it costs two GitHub requests per direct dependency, cached for 168 hours
 (`OSSIQ_STABILITY_CACHE_TTL`). With `--no-stability` and no `OSSIQ_POLICY_MIN_SOURCE`, OSS IQ skips
@@ -77,7 +79,7 @@ A version that breaks a rule is never recommended. What you see depends on the c
 | Where | What changes |
 |---|---|
 | `plan` | The version is left out, and the plan lists it under *Held by your supply-chain policy* with the reason. |
-| `status` | When the installed version breaks a rule, a `↳ policy:` line gives the reason and *What's Next* reads **Review provenance**. With `--full`, the field for the rule that failed also turns red: `build ✗ none` for a build rule, `source ✗ vcs` for the source rule. The HTML report shows the same in its *Build* and *Source* columns. |
+| `status` | When the installed version breaks a rule, a `↳ policy:` line gives the reason and *What's Next* reads **Review provenance**. With `--full`, the column for the rule that failed also turns red: `✗L0` in *Bld* for a build rule, `✗L1` in *Src* for the source rule. The HTML report flags the same two columns. |
 | `add`, `info` for a package you haven't installed, and the MCP `ossiq_evaluate_dependency` tool | The `POLICY_VIOLATION` warning is critical. `add` stops unless you pass `--force`, and the MCP tool answers `do not install`. If an older version passes, OSS IQ recommends that one instead. |
 | JSON export (schema `1.7`) and agent format | `policy_violations` lists the reasons, and `next_action` reads `Review provenance`. The full export also carries `build_provenance` and `source_level`. |
 
