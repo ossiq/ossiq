@@ -17,6 +17,7 @@ from ossiq.domain.common import (
     RejectionDetail,
 )
 from ossiq.domain.cve import CVE, Severity
+from ossiq.domain.policy import Policy, PolicyException, PolicyRule
 from ossiq.domain.project import ConstraintSource
 from ossiq.domain.provenance import PolicyHold
 from ossiq.domain.version import VersionsDifference
@@ -288,6 +289,21 @@ class TestCooldownHold:
         plan = build_update_plan(result, "npm", cooldown_period=0)
         assert [e.package_name for e in plan.transitive_entries] == ["@vue/reactivity"]
         assert not plan.held_for_cooldown
+
+    def test_a_release_the_policy_waives_is_not_held(self):
+        waiver = PolicyException(
+            package="@vue/*", reason="our own", rules=frozenset({PolicyRule.COOLDOWN}), versions=("3.5.38",)
+        )
+        result = make_scan_result(transitive=[self.fresh_record("@vue/reactivity", "3.5.35", "3.5.38", age_days=0)])
+        plan = build_update_plan(result, "npm", cooldown_period=7, policy=Policy(exceptions=(waiver,)))
+        assert [e.package_name for e in plan.transitive_entries] == ["@vue/reactivity"]
+        assert not plan.held_for_cooldown
+
+    def test_a_waiver_for_another_rule_does_not_lift_the_cooldown(self):
+        waiver = PolicyException(package="@vue/*", reason="x", rules=frozenset({PolicyRule.BUILD}))
+        result = make_scan_result(transitive=[self.fresh_record("@vue/reactivity", "3.5.35", "3.5.38", age_days=0)])
+        plan = build_update_plan(result, "npm", cooldown_period=7, policy=Policy(exceptions=(waiver,)))
+        assert [e.package_name for e in plan.held_for_cooldown] == ["@vue/reactivity"]
 
     def test_missing_reason_not_held(self):
         result = make_scan_result(production=[make_record("requests", "2.28.0", "2.32.0")])

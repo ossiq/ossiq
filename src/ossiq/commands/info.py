@@ -70,15 +70,15 @@ def command_info(ctx: typer.Context, options: CommandInfoOptions) -> None:
     matched = [r for r in all_records if matches(r, options.package_name)]
 
     if matched:
-        detail = build_installed_detail(matched, scan_result, options.package_name, sources, settings)
+        detail = build_installed_detail(matched, scan_result, options.package_name, sources, sources.settings)
     elif is_agent:
-        detail = fetch_prospective_detail(options.package_name, sources, settings)
+        detail = fetch_prospective_detail(options.package_name, sources, sources.settings)
     else:
         # Package not in this project — run the prospective flow.
         # sources.__enter__ was already called inside scan(), so packages_registry is live.
         with show_operation_progress(settings, f"Fetching prospective info for {options.package_name}...") as progress:
             with progress():
-                detail = fetch_prospective_detail(options.package_name, sources, settings)
+                detail = fetch_prospective_detail(options.package_name, sources, sources.settings)
 
     renderer = get_renderer(
         command=Command.INFO,

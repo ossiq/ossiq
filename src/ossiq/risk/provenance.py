@@ -1,9 +1,10 @@
 """Which releases of a package a supply-chain policy rules out, judged from registry evidence alone."""
 
-from collections.abc import Callable, Hashable, Iterable, Sequence
+from collections.abc import Callable, Hashable, Sequence
 from datetime import datetime
 
-from ossiq.domain.provenance import SOURCE_REASON_PREFIX, ProvenancePolicy, SourceLevel, TrustTier
+from ossiq.domain.policy import Policy, PolicyRule
+from ossiq.domain.provenance import SOURCE_REASON_PREFIX, SourceLevel, TrustTier
 from ossiq.domain.version import PackageVersion
 from ossiq.timeutil import parse_iso_datetime
 
@@ -25,29 +26,7 @@ def published_at(release: PackageVersion) -> datetime | None:
         return None
 
 
-def is_excluded(exclude: Iterable[str], name: str, version: str) -> bool:
-    """Whether an exclude entry covers a release.
-
-    Args:
-        exclude: `name` entries (every release) or `name@version` entries (one release).
-        name: The package, spelled the way the entries are.
-        version: The release.
-
-    Returns:
-        True when an entry names this package, and either names no version or this one.
-    """
-    for entry in exclude:
-        # A leading "@" is an npm scope, not the start of a version.
-        at = entry.rfind("@")
-        if at > 0:
-            if entry[:at] == name and entry[at + 1 :] == version:
-                return True
-        elif entry == name:
-            return True
-    return False
-
-
-def source_violation(policy: ProvenancePolicy, level: SourceLevel | None) -> str | None:
+def source_violation(policy: Policy, level: SourceLevel | None) -> str | None:
     """Why a repository's source level breaks the policy, or None when it passes.
 
     Args:
@@ -65,7 +44,7 @@ def source_violation(policy: ProvenancePolicy, level: SourceLevel | None) -> str
 
 def build_violations(
     releases: Sequence[PackageVersion],
-    policy: ProvenancePolicy,
+    policy: Policy,
     name: str,
     major_of: MajorOf,
 ) -> dict[str, tuple[str, ...]]:
@@ -80,7 +59,7 @@ def build_violations(
     Args:
         releases: Every release of the package, including ones older than the installed version.
         policy: The configured rules; nothing is returned unless a build rule is on.
-        name: The package, spelled the way `policy.exclude` spells it.
+        name: The package, spelled the way the policy's exceptions spell it.
         major_of: Names a version's major line (None excludes it from line comparisons).
 
     Returns:
@@ -93,7 +72,7 @@ def build_violations(
     judged = [(pv, tier) for pv in releases if (tier := pv.trust_tier) is not None]
 
     for pv, tier in judged:
-        if tier.rank < policy.min_build.rank and not is_excluded(policy.exclude, name, pv.version):
+        if tier.rank < policy.min_build.rank and not policy.waives(PolicyRule.BUILD, name, pv.version):
             reasons.setdefault(pv.version, []).append(
                 f"{TIER_LABEL[tier]}, below the required {TIER_LABEL[policy.min_build]}"
             )
@@ -118,7 +97,11 @@ def build_violations(
             group = dated[start:end]
             for _, pv, tier in group:
                 prior = (best_any if pv.is_prerelease else best_stable).get(major_of(pv.version))
-                if prior is not None and prior.rank > tier.rank and not is_excluded(policy.exclude, name, pv.version):
+                if (
+                    prior is not None
+                    and prior.rank > tier.rank
+                    and not policy.waives(PolicyRule.BUILD, name, pv.version)
+                ):
                     reasons.setdefault(pv.version, []).append(
                         f"trust downgrade: {TIER_LABEL[tier]}, but earlier releases of this major line had "
                         f"{TIER_LABEL[prior]} (possible package takeover)"

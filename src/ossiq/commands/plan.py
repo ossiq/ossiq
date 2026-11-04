@@ -33,6 +33,7 @@ from ossiq.messages import (
 )
 from ossiq.service.completeness import check_security_data_complete
 from ossiq.service.project.models import ScanResult
+from ossiq.service.project.provenance import registry_policy
 from ossiq.service.project.scan import scan
 from ossiq.service.update.models import UpdatePlan
 from ossiq.service.update.overrides import find_override_record, override_alias_siblings
@@ -228,6 +229,7 @@ def prepare_plan(ctx: typer.Context, options: CommandPlanOptions) -> tuple[Proje
         rewrite_versions=options.rewrite_versions,
         peers_of=sources.packages_registry.package_version_peers,
         enforces_cooldown_on_install=sources.packages_manager.enforces_cooldown_on_install,
+        policy=registry_policy(sources.policy, sources.packages_registry.package_registry),
     )
 
     if plan.unknown_override_packages:

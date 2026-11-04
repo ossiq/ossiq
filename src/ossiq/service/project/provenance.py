@@ -9,43 +9,38 @@ from packaging.utils import canonicalize_name
 from ossiq.adapters.api_interfaces import AbstractPackageRegistryApi
 from ossiq.domain.common import ProjectPackagesRegistry, RepositoryProvider
 from ossiq.domain.exceptions import UnknownPackageVersion
-from ossiq.domain.provenance import ProvenanceFacts, ProvenancePolicy, SourceLevel, VersionBlocks
+from ossiq.domain.policy import Policy, PolicyRule
+from ossiq.domain.provenance import ProvenanceFacts, SourceLevel, VersionBlocks
 from ossiq.domain.version import PackageVersion
-from ossiq.risk.provenance import build_violations, is_excluded, source_violation
+from ossiq.risk.provenance import build_violations, source_violation
 from ossiq.service.project.models import ScanRecord
 from ossiq.service.project.prefetch import prefetch_repository_source_levels, prefetch_source_code_repositories_info
-from ossiq.settings import Settings
 from ossiq.solver.version_matchers import major_key
 from ossiq.sources.core import AbstractProjectSources
 
 
-def canonical_exclude(entry: str) -> str:
-    """Spell a `name` or `name@version` exclude entry the way PyPI normalizes project names."""
-    # A PyPI name cannot contain "@", so the first one is the version separator.
-    name, at, version = entry.partition("@")
-    return f"{canonicalize_name(name)}{at}{version}"
-
-
-def registry_policy(settings: Settings, registry: ProjectPackagesRegistry) -> ProvenancePolicy:
-    """The configured policy, with its exclude list spelled the way `registry` spells package names.
+def registry_policy(policy: Policy, registry: ProjectPackagesRegistry) -> Policy:
+    """The policy, with its exceptions spelled the way `registry` spells package names.
 
     Args:
-        settings: The run's settings.
+        policy: The project's policy as written in its config file.
         registry: The registry the scanned project installs from.
 
     Returns:
-        The policy; only PyPI entries change, since npm names are matched as written.
+        The policy; only PyPI names change, since npm names are matched as written.
     """
-    policy = settings.provenance_policy()
     if registry is not ProjectPackagesRegistry.PYPI:
         return policy
-    return replace(policy, exclude=tuple(canonical_exclude(entry) for entry in policy.exclude))
+    return replace(
+        policy,
+        exceptions=tuple(replace(e, package=canonicalize_name(e.package)) for e in policy.exceptions),
+    )
 
 
 def compute_version_blocks(
     names: Iterable[str],
     registry: AbstractPackageRegistryApi,
-    policy: ProvenancePolicy,
+    policy: Policy,
     source_levels: Mapping[str, SourceLevel] | None = None,
 ) -> VersionBlocks:
     """The releases the policy rules out, for every named package.
@@ -60,7 +55,7 @@ def compute_version_blocks(
     Args:
         names: Packages to judge, spelled as `registry.package_versions` takes them.
         registry: Registry with the scan's warm cache.
-        policy: The configured rules, with `exclude` in the registry's spelling.
+        policy: The configured rules, with exception names in the registry's spelling.
         source_levels: Package -> how well its repository protects its history, for the packages
             that were measured.
 
@@ -81,7 +76,7 @@ def compute_version_blocks(
         violations = build_violations(releases, policy, name, major_of)
         if source_reason is not None:
             for pv in releases:
-                if not is_excluded(policy.exclude, name, pv.version):
+                if not policy.waives(PolicyRule.SOURCE, name, pv.version):
                     violations[pv.version] = (*violations.get(pv.version, ()), source_reason)
         if violations:
             blocks[name] = violations

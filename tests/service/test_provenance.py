@@ -2,24 +2,25 @@
 
 from unittest.mock import MagicMock
 
-import pytest
-
 from ossiq.domain.common import ConstraintType, ProjectPackagesRegistry
 from ossiq.domain.exceptions import UnknownPackageVersion
+from ossiq.domain.policy import Policy, PolicyException, PolicyRule
 from ossiq.domain.project import ConstraintSource
-from ossiq.domain.provenance import ProvenancePolicy, SourceLevel, TrustTier
+from ossiq.domain.provenance import SourceLevel, TrustTier
 from ossiq.domain.version import PackageVersion, VersionsDifference
 from ossiq.service.project.models import ScanRecord
 from ossiq.service.project.provenance import (
-    canonical_exclude,
     compute_version_blocks,
     populate_provenance,
     registry_policy,
 )
-from ossiq.settings import Settings
 
 NONE, PROV, TRUSTED = TrustTier.NONE, TrustTier.PROVENANCE, TrustTier.TRUSTED_PUBLISHER
-NO_DOWNGRADE = ProvenancePolicy(no_downgrade=True)
+NO_DOWNGRADE = Policy(no_downgrade=True)
+
+
+def waiver(package: str, *versions: str, rules=frozenset(PolicyRule)) -> PolicyException:
+    return PolicyException(package=package, reason="test", versions=versions, rules=rules)
 
 
 def release(version: str, tier: TrustTier | None, published: str) -> PackageVersion:
@@ -67,53 +68,42 @@ def record(name: str, installed: str) -> ScanRecord:
 DIPPED = [release("1.0.0", TRUSTED, "2024-01-01"), release("1.0.1", NONE, "2024-02-01")]
 
 
-class TestCanonicalExclude:
-    @pytest.mark.parametrize(
-        ("entry", "expected"),
-        [
-            ("Typing_Extensions", "typing-extensions"),
-            ("Typing_Extensions@4.0.0", "typing-extensions@4.0.0"),
-            ("zope.interface@5.0", "zope-interface@5.0"),
-        ],
-    )
-    def test_spells_the_name_as_pypi_normalizes_it(self, entry, expected):
-        assert canonical_exclude(entry) == expected
-
-
 class TestRegistryPolicy:
-    def test_pypi_exclude_entries_are_normalized(self, monkeypatch):
-        monkeypatch.setenv("OSSIQ_POLICY_EXCLUDE", "Typing_Extensions@4.0.0,Flask")
+    def test_pypi_exception_names_are_normalized(self):
+        policy = Policy(exceptions=(waiver("Typing_Extensions", "4.0.0"), waiver("zope.interface"), waiver("Foo_*")))
 
-        policy = registry_policy(Settings(), ProjectPackagesRegistry.PYPI)
+        names = [e.package for e in registry_policy(policy, ProjectPackagesRegistry.PYPI).exceptions]
 
-        assert policy.exclude == ("typing-extensions@4.0.0", "flask")
+        assert names == ["typing-extensions", "zope-interface", "foo-*"]
 
-    def test_npm_exclude_entries_are_matched_as_written(self, monkeypatch):
-        monkeypatch.setenv("OSSIQ_POLICY_EXCLUDE", "@Scope/Pkg_x@1.0.0")
+    def test_pypi_exception_versions_are_left_alone(self):
+        policy = Policy(exceptions=(waiver("Typing_Extensions", "4.0.0"),))
 
-        assert registry_policy(Settings(), ProjectPackagesRegistry.NPM).exclude == ("@Scope/Pkg_x@1.0.0",)
+        assert registry_policy(policy, ProjectPackagesRegistry.PYPI).exceptions[0].versions == ("4.0.0",)
 
-    def test_the_other_rules_pass_through(self, monkeypatch):
-        monkeypatch.setenv("OSSIQ_POLICY_TRUST", "no-downgrade")
-        monkeypatch.setenv("OSSIQ_POLICY_MIN_BUILD", "provenance")
+    def test_npm_exception_names_are_matched_as_written(self):
+        policy = Policy(exceptions=(waiver("@Scope/Pkg_x", "1.0.0"),))
 
-        policy = registry_policy(Settings(), ProjectPackagesRegistry.PYPI)
+        assert registry_policy(policy, ProjectPackagesRegistry.NPM) == policy
 
-        assert (policy.no_downgrade, policy.min_build) == (True, PROV)
+    def test_the_other_rules_pass_through(self):
+        policy = Policy(no_downgrade=True, min_build=PROV, cooldown_days=3)
+
+        assert registry_policy(policy, ProjectPackagesRegistry.PYPI) == policy
 
 
 class TestComputeVersionBlocks:
     def test_without_a_build_rule_the_registry_is_not_read(self):
         registry = registry_with({"pkg": DIPPED})
 
-        blocks = compute_version_blocks(["pkg"], registry, ProvenancePolicy())
+        blocks = compute_version_blocks(["pkg"], registry, Policy())
 
         assert blocks == {}
         registry.package_versions.assert_not_called()
 
     def test_a_source_only_policy_does_not_read_release_history_without_a_measured_repository(self):
         registry = registry_with({"pkg": DIPPED})
-        policy = ProvenancePolicy(min_source=SourceLevel.REVIEWED)
+        policy = Policy(min_source=SourceLevel.REVIEWED)
 
         assert compute_version_blocks(["pkg"], registry, policy) == {}
         registry.package_versions.assert_not_called()
@@ -139,10 +129,10 @@ class TestComputeVersionBlocks:
 
         assert registry.package_versions.call_count == 1
 
-    def test_an_excluded_release_is_left_out(self):
+    def test_a_waived_release_is_left_out(self):
         registry = registry_with({"dipped": DIPPED})
 
-        policy = ProvenancePolicy(no_downgrade=True, exclude=("dipped@1.0.1",))
+        policy = Policy(no_downgrade=True, exceptions=(waiver("dipped", "1.0.1"),))
 
         assert compute_version_blocks(["dipped"], registry, policy) == {}
 
@@ -209,7 +199,7 @@ class TestPopulateProvenance:
 class TestSourceLevelBlocks:
     """A repository below the source floor rules out every release of its package."""
 
-    FLOOR = ProvenancePolicy(min_source=SourceLevel.PROTECTED_HISTORY)
+    FLOOR = Policy(min_source=SourceLevel.PROTECTED_HISTORY)
     CLEAN = [release("1.0.0", TRUSTED, "2024-01-01"), release("1.0.1", TRUSTED, "2024-02-01")]
 
     def test_every_release_is_ruled_out_including_the_installed_one(self):
@@ -239,9 +229,9 @@ class TestSourceLevelBlocks:
 
         assert [c.args[0] for c in registry.package_versions.call_args_list] == ["weak"]
 
-    def test_an_excluded_release_is_left_out(self):
+    def test_a_waived_release_is_left_out(self):
         registry = registry_with({"pkg": self.CLEAN})
-        policy = ProvenancePolicy(min_source=SourceLevel.PROTECTED_HISTORY, exclude=("pkg@1.0.0",))
+        policy = Policy(min_source=SourceLevel.PROTECTED_HISTORY, exceptions=(waiver("pkg", "1.0.0"),))
 
         blocks = compute_version_blocks(["pkg"], registry, policy, {"pkg": SourceLevel.VERSION_CONTROLLED})
 
@@ -249,7 +239,7 @@ class TestSourceLevelBlocks:
 
     def test_the_reasons_of_both_kinds_of_rule_are_kept(self):
         registry = registry_with({"pkg": DIPPED})
-        policy = ProvenancePolicy(no_downgrade=True, min_source=SourceLevel.PROTECTED_HISTORY)
+        policy = Policy(no_downgrade=True, min_source=SourceLevel.PROTECTED_HISTORY)
 
         blocks = compute_version_blocks(["pkg"], registry, policy, {"pkg": SourceLevel.VERSION_CONTROLLED})
 

@@ -42,14 +42,16 @@ class Candidate:
     published_at: datetime | None = None
     """When this release was published, or None when the registry gave no date. The package
     manager's release cutoff is an instant, so it is checked against this rather than `age_days`."""
+    cooldown_waived: bool = False
+    """The project's policy lifts the cooldown for this release, so its age never counts against it."""
 
     def is_fresh(self, cooldown_period: int) -> bool:
-        """True when this release is younger than the cooldown period.
+        """True when this release is younger than the cooldown period and no waiver lifts it.
 
         An unknown publish date counts as aged, not fresh: the same rule
         `service.update.holds.is_held_for_cooldown` applies, so missing data never withholds a bump.
         """
-        return self.age_days is not None and self.age_days < cooldown_period
+        return not self.cooldown_waived and self.age_days is not None and self.age_days < cooldown_period
 
 
 @dataclass(frozen=True)

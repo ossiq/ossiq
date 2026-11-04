@@ -221,6 +221,29 @@ def test_a_release_with_no_publish_date_is_never_held() -> None:
     assert selection.cooldown_bypassed is False
 
 
+def test_a_waived_release_is_picked_while_still_young() -> None:
+    facts = make_facts()
+    candidates = [
+        Candidate("1.1.0", IN_RANGE, has_cve=False, age_days=30),
+        Candidate("1.2.0", IN_RANGE, has_cve=False, age_days=1, cooldown_waived=True),
+    ]
+
+    selection = select_target(facts, UpdateStrategy.STANDARD, candidates, cooldown_period=7)
+    assert selection.target_version == "1.2.0"
+    assert selection.cooldown_hold is None
+    assert selection.cooldown_bypassed is False
+
+
+def test_a_waiver_covers_only_the_release_it_names() -> None:
+    facts = make_facts()
+    candidates = [
+        Candidate("1.1.0", IN_RANGE, has_cve=False, age_days=30),
+        Candidate("1.2.0", IN_RANGE, has_cve=False, age_days=1),
+    ]
+
+    assert select_target(facts, UpdateStrategy.STANDARD, candidates, cooldown_period=7).target_version == "1.1.0"
+
+
 def _random_candidates(rng: random.Random, n: int) -> list[Candidate]:
     rung_cycle = [IN_RANGE, IN_MAJOR, LATEST]
     current = 0

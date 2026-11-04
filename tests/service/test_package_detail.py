@@ -22,8 +22,9 @@ from ossiq.domain.common import (
 )
 from ossiq.domain.compatibility import CompatibilityFacts
 from ossiq.domain.package import Package
+from ossiq.domain.policy import Policy, PolicyException, PolicyRule
 from ossiq.domain.project import ConstraintSource
-from ossiq.domain.provenance import SourceLevel, TrustPolicy, TrustTier
+from ossiq.domain.provenance import SourceLevel, TrustTier
 from ossiq.domain.version import PackageVersion, VersionsDifference
 from ossiq.service.agent import build_add_decide
 from ossiq.service.package import (
@@ -96,6 +97,7 @@ def make_sources(releases: list[PackageVersion]) -> MagicMock:
     sources = MagicMock()
     sources.allow_prerelease = False
     sources.release_cutoff = None
+    sources.policy = Policy()
     registry = sources.packages_registry
     registry.package_registry = ProjectPackagesRegistry.NPM
     registry.package_versions.return_value = releases
@@ -406,7 +408,7 @@ def tiered(version: str, tier: TrustTier | None, published: str, *, is_prereleas
     )
 
 
-NO_DOWNGRADE = Settings(policy_trust=TrustPolicy.NO_DOWNGRADE)
+NO_DOWNGRADE = Policy(no_downgrade=True)
 DROPPED_PROVENANCE = [
     tiered("1.0.0", TrustTier.TRUSTED_PUBLISHER, "2024-01-01"),
     tiered("1.1.0", TrustTier.TRUSTED_PUBLISHER, "2024-02-01"),
@@ -417,11 +419,11 @@ DROPPED_PROVENANCE = [
 class TestProspectiveAddUnderAPolicy:
     """`ossiq add` and the MCP dependency check judge a package that is not installed under the user's policy."""
 
-    def fetch(self, releases, settings=NO_DOWNGRADE, *, requested=None, repo_url=None):
+    def fetch(self, releases, policy=NO_DOWNGRADE, *, requested=None, repo_url=None):
         package = make_package(RegistryStatus.ACTIVE, latest=releases[-1].version, repo_url=repo_url)
-        return fetch_prospective_detail(
-            "pkg", prospective_sources(package, releases), settings, requested_version=requested
-        )
+        sources = prospective_sources(package, releases)
+        sources.policy = policy
+        return fetch_prospective_detail("pkg", sources, Settings(), requested_version=requested)
 
     def test_the_recommendation_skips_a_release_that_dropped_provenance(self) -> None:
         detail = self.fetch(DROPPED_PROVENANCE)
@@ -438,9 +440,9 @@ class TestProspectiveAddUnderAPolicy:
 
     def test_when_nothing_clean_is_left_the_fallback_release_is_stopped(self) -> None:
         releases = [tiered("1.0.0", TrustTier.NONE, "2024-01-01"), tiered("1.1.0", TrustTier.NONE, "2024-02-01")]
-        settings = Settings(policy_min_build=TrustTier.PROVENANCE)
+        policy = Policy(min_build=TrustTier.PROVENANCE)
 
-        detail = self.fetch(releases, settings)
+        detail = self.fetch(releases, policy)
 
         critical = [w for w in detail.warnings if w.severity == "critical"]
         assert [w.rule_id for w in critical] == [RULE_POLICY_VIOLATION]
@@ -449,33 +451,34 @@ class TestProspectiveAddUnderAPolicy:
     def test_a_release_numbered_like_the_solvers_stand_in_is_not_mistaken_for_an_install(self) -> None:
         # left-pad really has a 0.0.0, and the solver is told "0.0.0" is installed.
         releases = [tiered("0.0.0", TrustTier.NONE, "2024-01-01"), tiered("1.0.0", TrustTier.NONE, "2024-02-01")]
-        settings = Settings(policy_min_build=TrustTier.PROVENANCE)
+        policy = Policy(min_build=TrustTier.PROVENANCE)
 
-        detail = self.fetch(releases, settings)
+        detail = self.fetch(releases, policy)
 
         assert recommended_of(detail) == "1.0.0"
         warning = next(w for w in detail.warnings if w.rule_id == RULE_POLICY_VIOLATION)
         assert warning.message.startswith("Version 1.0.0 breaks")
 
     def test_every_reason_is_in_the_one_warning(self) -> None:
-        settings = Settings(policy_trust=TrustPolicy.NO_DOWNGRADE, policy_min_build=TrustTier.PROVENANCE)
+        policy = Policy(no_downgrade=True, min_build=TrustTier.PROVENANCE)
 
-        detail = self.fetch(DROPPED_PROVENANCE, settings, requested="1.2.0")
+        detail = self.fetch(DROPPED_PROVENANCE, policy, requested="1.2.0")
 
         warnings = [w for w in detail.warnings if w.rule_id == RULE_POLICY_VIOLATION]
         assert len(warnings) == 1
         assert "trust downgrade" in warnings[0].message and "below the required provenance" in warnings[0].message
 
     def test_without_a_policy_nothing_is_judged(self) -> None:
-        detail = self.fetch(DROPPED_PROVENANCE, Settings(), requested="1.2.0")
+        detail = self.fetch(DROPPED_PROVENANCE, Policy(), requested="1.2.0")
 
         assert RULE_POLICY_VIOLATION not in {w.rule_id for w in detail.warnings}
         assert recommended_of(detail) == "1.2.0"
 
-    def test_an_excluded_release_is_not_stopped(self) -> None:
-        settings = Settings(policy_trust=TrustPolicy.NO_DOWNGRADE, policy_exclude=("pkg@1.2.0",))
+    def test_a_waived_release_is_not_stopped(self) -> None:
+        waiver = PolicyException(package="pkg", reason="test", versions=("1.2.0",), rules=frozenset({PolicyRule.BUILD}))
+        policy = Policy(no_downgrade=True, exceptions=(waiver,))
 
-        detail = self.fetch(DROPPED_PROVENANCE, settings, requested="1.2.0")
+        detail = self.fetch(DROPPED_PROVENANCE, policy, requested="1.2.0")
 
         assert RULE_POLICY_VIOLATION not in {w.rule_id for w in detail.warnings}
 
@@ -485,21 +488,21 @@ class TestProspectiveAddUnderAPolicy:
         assert build_add_decide(detail, "1.2.0")["next_action"] == "do not install"
 
     def test_a_weak_repository_stops_the_add(self) -> None:
-        settings = Settings(policy_min_source=SourceLevel.PROTECTED_HISTORY)
+        policy = Policy(min_source=SourceLevel.PROTECTED_HISTORY)
         releases = [tiered("1.0.0", TrustTier.NONE, "2024-01-01")]
 
         with patch("ossiq.service.package.fetch_source_level", return_value=SourceLevel.VERSION_CONTROLLED):
-            detail = self.fetch(releases, settings, repo_url="https://github.com/org/pkg")
+            detail = self.fetch(releases, policy, repo_url="https://github.com/org/pkg")
 
         warning = next(w for w in detail.warnings if w.rule_id == RULE_POLICY_VIOLATION)
         assert "source repository is version-controlled, below the required protected-history" in warning.message
 
     def test_a_repository_that_could_not_be_read_does_not_stop_the_add(self) -> None:
-        settings = Settings(policy_min_source=SourceLevel.PROTECTED_HISTORY)
+        policy = Policy(min_source=SourceLevel.PROTECTED_HISTORY)
         releases = [tiered("1.0.0", TrustTier.NONE, "2024-01-01")]
 
         with patch("ossiq.service.package.fetch_source_level", return_value=None):
-            detail = self.fetch(releases, settings, repo_url="https://github.com/org/pkg")
+            detail = self.fetch(releases, policy, repo_url="https://github.com/org/pkg")
 
         assert RULE_POLICY_VIOLATION not in {w.rule_id for w in detail.warnings}
 

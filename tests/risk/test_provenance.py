@@ -4,12 +4,17 @@ from dataclasses import replace
 
 import pytest
 
-from ossiq.domain.provenance import ProvenancePolicy, SourceLevel, TrustTier
+from ossiq.domain.policy import Policy, PolicyException, PolicyRule
+from ossiq.domain.provenance import SourceLevel, TrustTier
 from ossiq.domain.version import PackageVersion
-from ossiq.risk.provenance import build_violations, is_excluded, source_violation
+from ossiq.risk.provenance import build_violations, source_violation
 
 NONE, PROV, TRUSTED = TrustTier.NONE, TrustTier.PROVENANCE, TrustTier.TRUSTED_PUBLISHER
-NO_DOWNGRADE = ProvenancePolicy(no_downgrade=True)
+NO_DOWNGRADE = Policy(no_downgrade=True)
+
+
+def waiver(package: str = "pkg", *versions: str, rules=frozenset(PolicyRule)) -> PolicyException:
+    return PolicyException(package=package, reason="test", versions=versions, rules=rules)
 
 
 def major_of(version: str):
@@ -37,7 +42,7 @@ class TestNothingConfigured:
     def test_no_rule_means_no_violations(self):
         releases = [release("1.0.0", TRUSTED, "2024-01-01"), release("1.0.1", NONE, "2024-02-01")]
 
-        assert build_violations(releases, ProvenancePolicy(), "pkg", major_of) == {}
+        assert build_violations(releases, Policy(), "pkg", major_of) == {}
 
 
 class TestNoDowngrade:
@@ -167,77 +172,62 @@ class TestUnknownEvidence:
 
 class TestMinimumBuild:
     def test_a_release_below_the_floor_is_flagged(self):
-        policy = ProvenancePolicy(min_build=PROV)
+        policy = Policy(min_build=PROV)
         releases = [release("1.0.0", NONE, "2024-01-01"), release("1.0.1", PROV, "2024-02-01")]
 
         assert violated(releases, policy) == {"1.0.0"}
 
     def test_a_trusted_publisher_floor_flags_plain_provenance(self):
-        policy = ProvenancePolicy(min_build=TRUSTED)
+        policy = Policy(min_build=TRUSTED)
 
         assert violated([release("1.0.0", PROV, "2024-01-01")], policy) == {"1.0.0"}
 
     def test_the_floor_needs_no_publish_date(self):
-        policy = ProvenancePolicy(min_build=PROV)
+        policy = Policy(min_build=PROV)
 
         assert violated([release("1.0.0", NONE, None)], policy) == {"1.0.0"}
 
     def test_an_unknown_tier_is_not_below_the_floor(self):
-        policy = ProvenancePolicy(min_build=TRUSTED)
+        policy = Policy(min_build=TRUSTED)
 
         assert violated([release("1.0.0", None, "2024-01-01")], policy) == set()
 
     def test_a_release_can_break_both_rules_and_gets_both_reasons(self):
-        policy = ProvenancePolicy(no_downgrade=True, min_build=TRUSTED)
+        policy = Policy(no_downgrade=True, min_build=TRUSTED)
         releases = [release("1.0.0", TRUSTED, "2024-01-01"), release("1.0.1", NONE, "2024-02-01")]
 
         assert len(build_violations(releases, policy, "pkg", major_of)["1.0.1"]) == 2
 
 
-class TestExclusions:
-    @pytest.mark.parametrize("entry", ["pkg", "pkg@1.0.1"])
-    def test_an_excluded_release_is_not_flagged(self, entry):
-        policy = ProvenancePolicy(no_downgrade=True, min_build=PROV, exclude=(entry,))
+class TestWaivers:
+    @pytest.mark.parametrize("versions", [(), ("1.0.1",)])
+    def test_a_waived_release_is_not_flagged(self, versions):
+        policy = Policy(no_downgrade=True, min_build=PROV, exceptions=(waiver("pkg", *versions),))
         releases = [release("1.0.0", TRUSTED, "2024-01-01"), release("1.0.1", NONE, "2024-02-01")]
 
         assert violated(releases, policy) == set()
 
-    def test_a_version_entry_leaves_other_releases_judged(self):
-        policy = ProvenancePolicy(min_build=PROV, exclude=("pkg@1.0.0",))
+    def test_a_version_waiver_leaves_other_releases_judged(self):
+        policy = Policy(min_build=PROV, exceptions=(waiver("pkg", "1.0.0"),))
         releases = [release("1.0.0", NONE, "2024-01-01"), release("1.0.1", NONE, "2024-02-01")]
 
         assert violated(releases, policy) == {"1.0.1"}
 
-    def test_an_exclusion_for_another_package_changes_nothing(self):
-        policy = ProvenancePolicy(min_build=PROV, exclude=("other",))
+    def test_a_waiver_for_another_package_changes_nothing(self):
+        policy = Policy(min_build=PROV, exceptions=(waiver("other"),))
 
         assert violated([release("1.0.0", NONE, "2024-01-01")], policy) == {"1.0.0"}
 
-    def test_an_excluded_release_still_counts_as_history(self):
-        policy = ProvenancePolicy(no_downgrade=True, exclude=("pkg@1.0.0",))
+    def test_a_waiver_for_another_rule_changes_nothing(self):
+        policy = Policy(min_build=PROV, exceptions=(waiver(rules=frozenset({PolicyRule.SOURCE, PolicyRule.COOLDOWN})),))
+
+        assert violated([release("1.0.0", NONE, "2024-01-01")], policy) == {"1.0.0"}
+
+    def test_a_waived_release_still_counts_as_history(self):
+        policy = Policy(no_downgrade=True, exceptions=(waiver("pkg", "1.0.0"),))
         releases = [release("1.0.0", TRUSTED, "2024-01-01"), release("1.0.1", NONE, "2024-02-01")]
 
         assert violated(releases, policy) == {"1.0.1"}
-
-
-class TestIsExcluded:
-    def test_a_bare_name_covers_every_release(self):
-        assert is_excluded(["chokidar"], "chokidar", "4.0.3")
-
-    def test_a_name_and_version_cover_that_release_only(self):
-        assert is_excluded(["chokidar@4.0.3"], "chokidar", "4.0.3")
-        assert not is_excluded(["chokidar@4.0.3"], "chokidar", "4.0.4")
-
-    def test_a_scoped_name_is_not_read_as_a_version(self):
-        assert is_excluded(["@types/node"], "@types/node", "18.0.0")
-        assert not is_excluded(["@types/node"], "@types", "18.0.0")
-
-    def test_a_scoped_name_with_a_version(self):
-        assert is_excluded(["@types/node@18.0.0"], "@types/node", "18.0.0")
-        assert not is_excluded(["@types/node@18.0.0"], "@types/node", "18.0.1")
-
-    def test_nothing_is_excluded_by_an_empty_list(self):
-        assert not is_excluded([], "pkg", "1.0.0")
 
 
 @pytest.mark.parametrize("tier", list(TrustTier))
@@ -251,14 +241,14 @@ def test_a_history_of_one_tier_never_flags_a_downgrade(tier):
 def test_a_stricter_floor_only_adds_violations(weaker, stronger):
     releases = [release(f"1.0.{i}", tier, f"2024-0{i + 1}-01") for i, tier in enumerate([NONE, PROV, TRUSTED, NONE])]
 
-    loose = violated(releases, ProvenancePolicy(min_build=weaker))
-    strict = violated(releases, ProvenancePolicy(min_build=stronger))
+    loose = violated(releases, Policy(min_build=weaker))
+    strict = violated(releases, Policy(min_build=stronger))
 
     assert loose <= strict
 
 
 class TestSourceViolation:
-    FLOOR = ProvenancePolicy(min_source=SourceLevel.PROTECTED_HISTORY)
+    FLOOR = Policy(min_source=SourceLevel.PROTECTED_HISTORY)
 
     def test_a_repository_below_the_floor_is_a_violation(self):
         reason = source_violation(self.FLOOR, SourceLevel.VERSION_CONTROLLED)
@@ -273,4 +263,4 @@ class TestSourceViolation:
         assert source_violation(self.FLOOR, None) is None
 
     def test_no_floor_asks_for_nothing(self):
-        assert source_violation(ProvenancePolicy(), SourceLevel.VERSION_CONTROLLED) is None
+        assert source_violation(Policy(), SourceLevel.VERSION_CONTROLLED) is None

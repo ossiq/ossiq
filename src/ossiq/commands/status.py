@@ -83,7 +83,7 @@ def command_status(ctx: typer.Context, options: CommandStatusOptions) -> None:
         allow_partial=options.allow_partial,
     )
 
-    renderer = get_renderer(command=Command.STATUS, user_interface_type=output_ui, settings=settings)
+    renderer = get_renderer(command=Command.STATUS, user_interface_type=output_ui, settings=sources.settings)
 
     renderer.render(
         data=project_scan,

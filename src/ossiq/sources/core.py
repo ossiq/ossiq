@@ -12,6 +12,7 @@ from ossiq.adapters.api_interfaces import (
 )
 from ossiq.adapters.api_osv import CveApiOsv
 from ossiq.domain.common import ProjectPackagesRegistry, RepositoryProvider
+from ossiq.domain.policy import Policy
 from ossiq.domain.release_cutoff import ReleaseCutoff
 from ossiq.settings import Settings
 from ossiq.strategy.overrides import StrategyPlan
@@ -23,6 +24,8 @@ class AbstractProjectSources(abc.ABC):
     """
 
     settings: Settings
+    policy: Policy
+    """The project's supply-chain rules, read from its .ossiq.yaml; every rule is off without one."""
     project_path: str
     narrow_package_manager: ProjectPackagesRegistry | None
     packages_manager: AbstractPackageManagerApi

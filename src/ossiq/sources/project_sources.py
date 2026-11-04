@@ -2,6 +2,7 @@
 ProjectSources: assembles external data providers for a scan run.
 """
 
+from datetime import date
 from pathlib import Path
 
 from ossiq.adapters.api import (
@@ -14,9 +15,11 @@ from ossiq.adapters.api_interfaces import AbstractSourceCodeProviderApi
 from ossiq.adapters.package_managers.api import create_package_managers, inspected_manifests
 from ossiq.domain.common import ProjectPackagesRegistry, RepositoryProvider, normalize_dist_name
 from ossiq.domain.exceptions import UnknownProjectPackageManager
+from ossiq.domain.policy import Policy
 from ossiq.messages import HINT_NO_PACKAGE_MANAGER, WARNING_MULTIPLE_REGISTRY_TYPES
 from ossiq.settings import Settings
 from ossiq.sources.core import AbstractProjectSources
+from ossiq.sources.project_config import find_project_config, load_project_policy
 from ossiq.strategy.overrides import StrategyPlan
 from ossiq.strategy.pyramid import DEFAULT_STRATEGY, PRERELEASE_TIERS
 
@@ -50,6 +53,7 @@ class ProjectSources(AbstractProjectSources):
         self.warnings: list[str] = []
         self.project_path = project_path
         self.settings = settings
+        self.policy = Policy()
         self.production = production
         self.strategy = strategy or StrategyPlan(default=DEFAULT_STRATEGY)
         # cutting-edge admits prereleases; handled at prefetch, not as a sixth ladder rung — see
@@ -66,6 +70,15 @@ class ProjectSources(AbstractProjectSources):
         """
         Initialize actual instances of respective clients (and other stuff when needed)
         """
+
+        # First, so the package managers below are built from the settings the policy file adjusted.
+        config_path = find_project_config(Path(self.project_path))
+        if config_path is not None:
+            self.policy, expired = load_project_policy(config_path, date.today())
+            self.warnings.extend(expired)
+            # A flag, the environment and the user config all list the field as set; only the default does not.
+            if self.policy.cooldown_days is not None and "cooldown_period" not in self.settings.model_fields_set:
+                self.settings = self.settings.model_copy(update={"cooldown_period": self.policy.cooldown_days})
 
         packages_managers = list(create_package_managers(self.project_path, self.settings))
 

@@ -1,9 +1,9 @@
 """Tests for the trust tier ladder."""
 
+from ossiq.domain.policy import Policy
 from ossiq.domain.provenance import (
     SOURCE_REASON_PREFIX,
     ProvenanceFacts,
-    ProvenancePolicy,
     SourceLevel,
     TrustTier,
 )
@@ -44,7 +44,7 @@ class TestViolationsByDimension:
 
     def test_the_wording_the_policy_actually_produces_is_recognized_as_a_source_reason(self):
         # Guards the prefix against a reworded message: the split is only as good as this match.
-        reason = source_violation(ProvenancePolicy(min_source=SourceLevel.REVIEWED), SourceLevel.VERSION_CONTROLLED)
+        reason = source_violation(Policy(min_source=SourceLevel.REVIEWED), SourceLevel.VERSION_CONTROLLED)
 
         assert reason is not None and reason.startswith(SOURCE_REASON_PREFIX)
         assert ProvenanceFacts(violations=(reason,)).source_violations == (reason,)

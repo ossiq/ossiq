@@ -41,7 +41,7 @@ def command_add(ctx: typer.Context, options: CommandAddOptions) -> None:
         with progress():
             with sources:
                 detail = fetch_prospective_detail(
-                    options.package_name, sources, settings, requested_version=options.version
+                    options.package_name, sources, sources.settings, requested_version=options.version
                 )
 
     packages_manager = sources.packages_manager

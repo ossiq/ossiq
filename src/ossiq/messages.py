@@ -262,7 +262,7 @@ HELP_PLAN_HELD_BY_PEERS_HEADER = (
 )
 
 HELP_PLAN_HELD_BY_POLICY_HEADER = (
-    "Held by your supply-chain policy — newer versions exist, but the policy in the config file rules them out:"
+    "Held by your supply-chain policy — newer versions exist, but the policy in .ossiq.yaml rules them out:"
 )
 
 HELP_PLAN_PEER_REPAIRS_HEADER = (

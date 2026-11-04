@@ -185,10 +185,10 @@ def evaluate_dependency(settings: Settings, args: dict[str, Any]) -> AgentDecisi
     requested_version = args.get("version")
     if matched:
         detail = build_installed_detail(
-            matched, scan_result, package_name, sources, settings, requested_version=requested_version
+            matched, scan_result, package_name, sources, sources.settings, requested_version=requested_version
         )
     else:
-        detail = fetch_prospective_detail(package_name, sources, settings, requested_version=requested_version)
+        detail = fetch_prospective_detail(package_name, sources, sources.settings, requested_version=requested_version)
 
     return build_add_decide(detail, requested_version=requested_version)
 

@@ -6,6 +6,7 @@ import dataclasses
 from collections.abc import Iterable
 
 from ossiq.domain.common import ConstraintType, OverrideHold, PeerHold
+from ossiq.domain.policy import Policy, PolicyRule
 from ossiq.domain.provenance import PolicyHold
 from ossiq.service.project.models import ScanRecord, ScanResult
 from ossiq.service.update.entries import cooldown_entry_from_record
@@ -14,14 +15,17 @@ from ossiq.strategy.overrides import StrategyPlan
 from ossiq.strategy.pyramid import UpdateStrategy, tier_reaches
 
 
-def is_held_for_cooldown(entry: UpdateEntry, cooldown_period: int) -> bool:
+def is_held_for_cooldown(entry: UpdateEntry, cooldown_period: int, policy: Policy | None = None) -> bool:
     """Return whether the entry's target version is younger than the cooldown period.
 
-    Forced, security and cooldown-bypassed entries are exempt. This is a backstop: `select_target`
-    already settles direct records (see apply_update_strategy), so it mostly catches transitive
-    entries, whose solver picks carry only a soft freshness penalty.
+    Forced, security and cooldown-bypassed entries are exempt, and so is a release the policy
+    waives. This is a backstop: `select_target` already settles direct records (see
+    apply_update_strategy), so it mostly catches transitive entries, whose solver picks carry only a
+    soft freshness penalty.
     """
     if entry.is_forced or entry.is_security or entry.cooldown_bypassed:
+        return False
+    if policy is not None and policy.waives(PolicyRule.COOLDOWN, entry.package_name, entry.recommended_version):
         return False
     if entry.reason is None or entry.reason.age_days is None:
         return False
@@ -192,6 +196,7 @@ def hold_for_cooldown(
     direct_records: list[ScanRecord],
     forced_names: set[str],
     cooldown_period: int,
+    policy: Policy | None = None,
 ) -> tuple[list[UpdateEntry], list[UpdateEntry], list[UpdateEntry]]:
     """Take out the entries younger than the cooldown, and add the direct records it left without one.
 
@@ -201,6 +206,7 @@ def hold_for_cooldown(
         direct_records: The scan's direct records, searched for those with no recommendation left.
         forced_names: `--override` names in either spelling; a forced version is never held.
         cooldown_period: The cooldown in days.
+        policy: The project's policy; a release it waives the cooldown for is never held.
 
     Returns:
         The direct entries and transitive entries that remain, and the held entries sorted by package name.
@@ -217,7 +223,7 @@ def hold_for_cooldown(
         and r.identity_name not in forced_names
     ]
     held = sorted(
-        [e for e in direct + transitive if is_held_for_cooldown(e, cooldown_period)] + cooldown_blanked,
+        [e for e in direct + transitive if is_held_for_cooldown(e, cooldown_period, policy)] + cooldown_blanked,
         key=lambda e: e.package_name,
     )
     # By identity for the same reason as in hold_for_widening.

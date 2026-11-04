@@ -6,6 +6,7 @@ from collections import Counter
 from collections.abc import Callable, Mapping
 
 from ossiq.domain.common import ProjectPackagesRegistry
+from ossiq.domain.policy import Policy
 from ossiq.domain.version import PeerDependency
 from ossiq.service.install_passes import assign_install_passes
 from ossiq.service.project.models import ScanResult
@@ -33,6 +34,7 @@ def build_update_plan(
     rewrite_versions: bool = False,
     peers_of: Callable[[str, str], Mapping[str, PeerDependency]] | None = None,
     enforces_cooldown_on_install: bool = False,
+    policy: Policy | None = None,
 ) -> UpdatePlan:
     """Build an UpdatePlan from the scan's solver recommendations that differ from the installed versions.
 
@@ -60,6 +62,8 @@ def build_update_plan(
             assign_install_passes); without it the plan is one pass.
         enforces_cooldown_on_install: The package manager's capability flag, carried onto the plan for
             the renderers.
+        policy: The project's policy, with exception names in the registry's spelling. A release it
+            waives the cooldown for is never held for it.
     """
     plan = strategy or StrategyPlan(default=DEFAULT_STRATEGY)
     direct_records = scan_result.production_packages + scan_result.optional_packages
@@ -88,7 +92,9 @@ def build_update_plan(
     # Widening before cooldown: widening entries never reach the writers, so one must not also be counted
     # as held for cooldown.
     direct, transitive, widening = hold_for_widening(direct, transitive, plan, rewrite_versions)
-    direct, transitive, held = hold_for_cooldown(direct, transitive, direct_records, forced_names, cooldown_period)
+    direct, transitive, held = hold_for_cooldown(
+        direct, transitive, direct_records, forced_names, cooldown_period, policy
+    )
 
     update_plan = UpdatePlan(
         project_name=scan_result.project_name,

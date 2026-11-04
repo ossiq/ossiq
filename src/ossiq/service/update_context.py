@@ -51,9 +51,9 @@ def build_update_context_payload(
     all_records = scan_result.production_packages + scan_result.optional_packages + scan_result.transitive_packages
     matched = [record for record in all_records if matches(record, package_name)]
     detail = (
-        build_installed_detail(matched, scan_result, package_name, sources, settings)
+        build_installed_detail(matched, scan_result, package_name, sources, sources.settings)
         if matched
-        else fetch_prospective_detail(package_name, sources, settings)
+        else fetch_prospective_detail(package_name, sources, sources.settings)
     )
 
     canonical_name = detail.records[0].package_name if detail.records else (detail.prospective_name or package_name)

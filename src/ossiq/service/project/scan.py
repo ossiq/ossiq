@@ -414,7 +414,7 @@ def prefetch_scan_data(
     # The Source column rides along with the stability signals, and a source policy needs it even
     # without them. Branch protection is read for direct dependencies only: a transitive's repository
     # is nobody's decision to make, so asking about it would only spend quota.
-    measure_source = sources.settings.stability or sources.settings.policy_min_source is not None
+    measure_source = sources.settings.stability or sources.policy.min_source is not None
 
     # Quota first: it costs nothing against the limit it reports, and it is the only way a scan
     # that is about to run out can say so before it starts paying for it.
@@ -764,10 +764,11 @@ def scan(sources: AbstractProjectSources, progress: ScanProgress | None = None) 
             if dep.dependency_path is None
             and (repo_url := prefetched.packages_info[dep.canonical_name].repo_url) in prefetched.source_levels
         }
+        policy = registry_policy(sources.policy, project_info.package_registry)
         version_blocks = compute_version_blocks(
             {dep.canonical_name for dep in all_deps},
             sources.packages_registry,
-            registry_policy(sources.settings, project_info.package_registry),
+            policy,
             source_levels_by_name,
         )
 
@@ -878,6 +879,7 @@ def scan(sources: AbstractProjectSources, progress: ScanProgress | None = None) 
             fixed_versions={**transitive_finals, **ignored_versions},
             fixed_installed={**transitive_installed, **ignored_versions},
             version_blocks=version_blocks,
+            policy=policy,
         )
 
         peer_repairs = plan_peer_repairs(

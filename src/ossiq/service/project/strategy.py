@@ -25,6 +25,7 @@ from ossiq.domain.common import (
     RejectedCandidate,
     RejectionDetail,
 )
+from ossiq.domain.policy import Policy, PolicyRule
 from ossiq.domain.provenance import VersionBlocks
 from ossiq.domain.release_cutoff import ReleaseCutoff
 from ossiq.domain.version import PeerDependency
@@ -211,6 +212,7 @@ def build_candidates(
     binding_gates: Sequence[StructuralGate] = (),
     strict_gates: Sequence[StructuralGate] = (),
     policy_blocks: Mapping[str, tuple[str, ...]] | None = None,
+    policy: Policy | None = None,
 ) -> BuiltCandidates:
     """Build the ascending candidate ladder for one record.
 
@@ -240,6 +242,9 @@ def build_candidates(
     releases are never candidates and are never waived, even when that leaves the ladder empty: the
     point of the policy is to refuse a release, however attractive it is otherwise. They are recorded
     as `RejectedCandidate(held_by_policy=True)` so the plan can say why nothing was proposed.
+
+    `policy` is read for its cooldown waivers only: a candidate it waives is tagged `cooldown_waived`,
+    so `select_target` treats it as aged however young it is.
 
     A release that clears the structural pre-filter but fails `validator` (i.e. it would break a
     transitive dependency) is not silently dropped: it's kept as a `RejectedCandidate`, capped at
@@ -316,6 +321,7 @@ def build_candidates(
             has_cve=any(cve_affects_version(cve, pv.version) for cve in qualifying_cves),
             age_days=age_days_from_iso(pv.published_date_iso, now=now),
             published_at=parse_iso_datetime(pv.published_date_iso),
+            cooldown_waived=policy is not None and policy.waives(PolicyRule.COOLDOWN, record.package_name, pv.version),
         )
 
         if validator is None:
@@ -549,6 +555,7 @@ def apply_update_strategy(
     fixed_versions: Mapping[str, str] | None = None,
     fixed_installed: Mapping[str, str] | None = None,
     version_blocks: VersionBlocks | None = None,
+    policy: Policy | None = None,
 ) -> None:
     """Run the selector for each record and write its verdict, replacing `apply_ladder_fallback`.
 
@@ -678,6 +685,7 @@ def apply_update_strategy(
             structural_gates=() if engine_gate_binds else (engine_gate,),
             binding_gates=(engine_gate,) if engine_gate_binds else (),
             policy_blocks=(version_blocks or {}).get(record.package_name),
+            policy=policy,
         )
 
         built = build(strict_gates=module_gates)

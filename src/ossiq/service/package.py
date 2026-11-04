@@ -12,6 +12,7 @@ from ossiq.domain.common import (
 )
 from ossiq.domain.cve import CVE
 from ossiq.domain.package import Package
+from ossiq.domain.policy import Policy, PolicyRule
 from ossiq.domain.project import ConstraintSource
 from ossiq.domain.provenance import SourceLevel
 from ossiq.domain.version import PackageVersion
@@ -96,7 +97,7 @@ class PackageInsight:
     # The release the caller asked for, when it asked for one that exists.
     requested_release: PackageVersion | None = None
     # Why the release being judged (the one asked for, else the recommendation) breaks the supply-chain
-    # policy in the config file; empty when it passes or no policy is set.
+    # policy in .ossiq.yaml; empty when it passes or no policy is set.
     policy_violations: tuple[str, ...] = ()
     policy_checked_version: str | None = None
 
@@ -126,6 +127,7 @@ def build_package_insight(
     recommended_version_age_days: int | None = None,
     requested_version: str | None = None,
     policy_violations: tuple[str, ...] = (),
+    policy: Policy | None = None,
 ) -> PackageInsight:
     """Compute health metrics from a package's metadata and full version list.
 
@@ -141,7 +143,8 @@ def build_package_insight(
     )
 
     cooldown_days_remaining = None
-    if latest_version_age_days is not None and latest_version_age_days < settings.cooldown_period:
+    waived = policy is not None and policy.waives(PolicyRule.COOLDOWN, package.name, package.latest_version or "")
+    if not waived and latest_version_age_days is not None and latest_version_age_days < settings.cooldown_period:
         cooldown_days_remaining = settings.cooldown_period - latest_version_age_days
 
     return PackageInsight(
@@ -259,7 +262,8 @@ def fetch_prospective_detail(
     Args:
         package_name: The package being considered.
         sources: The project's registry, CVE database and resolution settings.
-        settings: Cooldown and other scan settings.
+        settings: Cooldown and other scan settings. Pass `sources.settings`, which carries the cooldown the
+            project's policy file set.
         requested_version: A release the user named explicitly; judged by the rules alongside the
             package itself.
     """
@@ -273,7 +277,7 @@ def fetch_prospective_detail(
 
     # The user's supply-chain policy, applied to a package that is not installed yet: its releases are
     # judged like an installed package's would be, so the solver skips the ones the policy rules out.
-    policy = registry_policy(settings, sources.packages_registry.package_registry)
+    policy = registry_policy(sources.policy, sources.packages_registry.package_registry)
     source_levels: dict[str, SourceLevel] = {}
     if policy.min_source is not None and (level := fetch_source_level(sources, package.repo_url)) is not None:
         source_levels[pkg_canonical] = level
@@ -332,6 +336,7 @@ def fetch_prospective_detail(
         recommended_version_age_days=recommended_age,
         requested_version=requested_version,
         policy_violations=policy_violations,
+        policy=policy,
     )
     warnings = evaluate_package_rules(insight, settings)
 
@@ -470,6 +475,7 @@ def build_installed_detail(
         recommended_version=rec_version,
         recommended_version_age_days=rec_age,
         requested_version=requested_version,
+        policy=registry_policy(sources.policy, sources.packages_registry.package_registry),
     )
     warnings = evaluate_package_rules(insight, settings)
 

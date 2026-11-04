@@ -45,40 +45,6 @@ class SourceLevel(StrEnum):
         return list(type(self)).index(self)
 
 
-class TrustPolicy(StrEnum):
-    """The named trust rule a config file can switch on."""
-
-    NO_DOWNGRADE = "no-downgrade"
-    """Refuse a release whose build evidence is weaker than an earlier release of the same major line."""
-
-
-@dataclass(frozen=True)
-class ProvenancePolicy:
-    """The supply-chain rules the user configured; all off by default."""
-
-    no_downgrade: bool = False
-    """A release must not carry weaker build evidence than an earlier one of its major line."""
-
-    min_build: TrustTier = TrustTier.NONE
-    """The weakest build tier a release may carry. NONE asks for nothing."""
-
-    min_source: SourceLevel | None = None
-    """The weakest source level a package's repository may have. None asks for nothing."""
-
-    exclude: tuple[str, ...] = ()
-    """`name` or `name@version` entries that no rule applies to, already in the registry's canonical spelling."""
-
-    @property
-    def gates_builds(self) -> bool:
-        """Whether any rule judges a release from registry data alone, which every package can be held to."""
-        return self.no_downgrade or self.min_build is not TrustTier.NONE
-
-    @property
-    def is_active(self) -> bool:
-        """Whether any rule is switched on."""
-        return self.gates_builds or self.min_source is not None
-
-
 SOURCE_REASON_PREFIX = "source repository is"
 """How every reason about a package's repository begins. The export carries reasons as plain strings, so
 this is what lets a surface tell a Source violation from a Build one; the report's `provenanceBadges.ts`

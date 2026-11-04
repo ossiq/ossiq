@@ -1,11 +1,15 @@
 """Tests for unit_of_work/project_sources.py — ignore_packages normalization."""
 
+import shutil
+from datetime import date, timedelta
 from pathlib import Path
 
 import pytest
 
 from ossiq.domain.common import ProjectPackagesRegistry
-from ossiq.domain.exceptions import UnknownProjectPackageManager
+from ossiq.domain.exceptions import InvalidPolicyFile, UnknownProjectPackageManager
+from ossiq.domain.policy import Policy
+from ossiq.domain.provenance import TrustTier
 from ossiq.settings import Settings
 from ossiq.sources.project_sources import ProjectSources
 
@@ -107,3 +111,78 @@ class TestProjectSourcesWarnings:
             pass
 
         assert sources.warnings == []
+
+
+class TestProjectSourcesPolicyFile:
+    """The project's .ossiq.yaml reaches the scan through the sources, and the cooldown keeps its order."""
+
+    @pytest.fixture
+    def project(self, tmp_path) -> Path:
+        path = tmp_path / "project"
+        shutil.copytree(PEP621_NO_LOCKFILE_TESTDATA, path)
+        return path
+
+    def write_policy(self, project: Path, body: str) -> None:
+        (project / ".ossiq.yaml").write_text(f"version: 1\npolicy:\n{body}", encoding="utf-8")
+
+    def test_without_a_file_there_is_no_policy(self, project):
+        sources = ProjectSources(settings=Settings(), project_path=str(project))
+        with sources:
+            assert sources.policy == Policy()
+            assert sources.settings.cooldown_period == Settings().cooldown_period
+
+    def test_the_file_sets_the_policy_and_the_cooldown(self, project):
+        self.write_policy(project, "  cooldown:\n    days: 14\n  build:\n    minimum: provenance\n")
+
+        sources = ProjectSources(settings=Settings(), project_path=str(project))
+        with sources:
+            assert sources.policy.min_build is TrustTier.PROVENANCE
+            assert sources.settings.cooldown_period == 14
+
+    def test_a_file_without_a_cooldown_leaves_the_machines_setting(self, project):
+        self.write_policy(project, "  build:\n    minimum: provenance\n")
+
+        sources = ProjectSources(settings=Settings(cooldown_period=3), project_path=str(project))
+        with sources:
+            assert sources.settings.cooldown_period == 3
+
+    def test_a_setting_beats_the_file(self, project):
+        self.write_policy(project, "  cooldown:\n    days: 14\n")
+
+        sources = ProjectSources(settings=Settings(cooldown_period=3), project_path=str(project))
+        with sources:
+            assert sources.settings.cooldown_period == 3
+
+    def test_the_environment_beats_the_file(self, project, monkeypatch):
+        self.write_policy(project, "  cooldown:\n    days: 14\n")
+        monkeypatch.setenv("OSSIQ_COOLDOWN_PERIOD", "5")
+
+        sources = ProjectSources(settings=Settings(), project_path=str(project))
+        with sources:
+            assert sources.settings.cooldown_period == 5
+
+    def test_a_flag_beats_the_file_even_when_it_asks_for_zero(self, project):
+        self.write_policy(project, "  cooldown:\n    days: 14\n")
+        settings = Settings().model_copy(update={"cooldown_period": 0})
+
+        sources = ProjectSources(settings=settings, project_path=str(project))
+        with sources:
+            assert sources.settings.cooldown_period == 0
+
+    def test_an_expired_exception_is_a_warning_on_the_sources(self, project):
+        yesterday = date.today() - timedelta(days=1)
+        self.write_policy(
+            project, f"  exceptions:\n    - package: left-pad\n      reason: old\n      expires: {yesterday}\n"
+        )
+
+        sources = ProjectSources(settings=Settings(), project_path=str(project))
+        with sources:
+            assert sources.policy.exceptions == ()
+            assert "left-pad" in sources.warnings[0]
+
+    def test_a_broken_file_stops_the_scan_before_anything_is_read(self, project):
+        self.write_policy(project, "  cooldwn:\n    days: 14\n")
+
+        sources = ProjectSources(settings=Settings(), project_path=str(project))
+        with pytest.raises(InvalidPolicyFile), sources:
+            pass
