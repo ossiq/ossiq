@@ -149,22 +149,28 @@ BUILD_PROVENANCE_LABEL: dict[TrustTier, tuple[str, str]] = {
 """Console wording and colour per build tier. Presentation only; the tier names are the contract."""
 
 
+def build_badge(tier: TrustTier) -> str:
+    """`L0` to `L2`: the tier's place on the ladder, weakest first."""
+    return f"L{tier.rank}"
+
+
 def format_build_provenance(record: ScanRecord) -> str:
-    """The Build column cell: how the installed release was published, red when a build rule rules it out.
+    """The Bld cell: the installed release's build tier as a badge, red when a build rule rules it out.
 
     Args:
         record: The package to describe.
 
     Returns:
-        Rich markup; an em dash when the registry could not be read, which is not the same as `none`.
+        Rich markup such as `L2`, or `✗L0` on a violation; an em dash when the registry could not be read,
+        which is not the same as `L0`.
     """
     facts = record.provenance
     if facts is None or facts.build_tier is None:
         return "[dim]—[/dim]"
-    label, style = BUILD_PROVENANCE_LABEL[facts.build_tier]
+    badge = build_badge(facts.build_tier)
     if facts.build_violations:
-        return f"[bold red]✗ {label}[/]"
-    return f"[{style}]{label}[/]"
+        return f"[bold red]✗{badge}[/]"
+    return f"[{BUILD_PROVENANCE_LABEL[facts.build_tier][1]}]{badge}[/]"
 
 
 SOURCE_LEVEL_LABEL: dict[SourceLevel, tuple[str, str]] = {
@@ -175,22 +181,39 @@ SOURCE_LEVEL_LABEL: dict[SourceLevel, tuple[str, str]] = {
 """Console wording and colour per source level. Presentation only; the level names are the contract."""
 
 
+def source_badge(level: SourceLevel) -> str:
+    """`L1` to `L3`: the level's place on the ladder, numbered from 1 because a source we could read is already L1."""
+    return f"L{level.rank + 1}"
+
+
 def format_source_level(record: ScanRecord) -> str:
-    """The Source column cell: how the repository protects its history, red when the source rule rules it out.
+    """The Src cell: how the repository protects its history as a badge, red when the source rule rules it out.
 
     Args:
         record: The package to describe.
 
     Returns:
-        Rich markup; an em dash when the repository was not read (transitive, not on GitHub, lookup failed).
+        Rich markup such as `L2`, or `✗L1` on a violation; an em dash when the repository was not read
+        (transitive, not on GitHub, lookup failed).
     """
     facts = record.provenance
     if facts is None or facts.source_level is None:
         return "[dim]—[/dim]"
-    label, style = SOURCE_LEVEL_LABEL[facts.source_level]
+    badge = source_badge(facts.source_level)
     if facts.source_violations:
-        return f"[bold red]✗ {label}[/]"
-    return f"[{style}]{label}[/]"
+        return f"[bold red]✗{badge}[/]"
+    return f"[{SOURCE_LEVEL_LABEL[facts.source_level][1]}]{badge}[/]"
+
+
+def provenance_legend() -> tuple[str, str]:
+    """What each Src and Bld badge stands for, in the console's own words, for the `--full` footer.
+
+    Returns:
+        The Src line and the Bld line as plain text; the Bld line also explains the `✗` and `—` marks.
+    """
+    source = " · ".join(f"{source_badge(level)} {SOURCE_LEVEL_LABEL[level][0]}" for level in SourceLevel)
+    build = " · ".join(f"{build_badge(tier)} {BUILD_PROVENANCE_LABEL[tier][0]}" for tier in TrustTier)
+    return source, f"{build} · ✗ breaks your policy · — not read"
 
 
 WHATS_NEXT_STYLE: dict[str, str] = {
@@ -209,10 +232,21 @@ WHATS_NEXT_STYLE: dict[str, str] = {
 }
 
 
-WHATS_NEXT_SHORT: dict[str, str] = {CONSTRAINED_CHECK_NEWER: "Constrained"}
-"""Console-only abbreviations for labels too wide for a narrow terminal. Presentation, not
-contract: the canonical label is what next_action_label returns and what every machine-readable
-surface carries. Keyed by the canonical label, so no style entry is ever needed twice."""
+WHATS_NEXT_SHORT: dict[str, str] = {
+    CHECK_FOR_THE_FIX: "Check fix",
+    REVIEW_PROVENANCE: "Provenance",
+    FIND_ALTERNATIVE: "Refactor out",
+    CONSIDER_ALTERNATIVE: "Alternative",
+    CHECK_RELEASE_NOTES: "Check RN",
+    UPDATE_IMMEDIATELY: "Update",
+    WAIT_FOR_COOLDOWN: "Cooldown",
+    CONSTRAINED_CHECK_NEWER: "Constrained",
+    WITHHELD_BY_STRATEGY: "Withheld",
+}
+"""Console-only codes for the What's Next labels: `status --full` always prints them, and the default
+table does below MIN_WIDTH_DEFAULT. Presentation, not contract: the canonical label is what
+next_action_label returns and what every machine-readable surface carries. Keyed by the canonical
+label, so no style entry is ever needed twice. At most 12 characters, the width of the `--full` column."""
 
 
 def whats_next(record: ScanRecord, *, short: bool = False) -> str:

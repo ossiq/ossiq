@@ -27,8 +27,9 @@ Exclude non-production packages. Default: false
 """
 
 HELP_STATUS_FULL = """
-List every dependency as a block of labeled fields (versions, EPSS, update mode, lag,
-maintenance state, build, source). Default: only packages that need action, in a compact table.
+List every dependency in a wide table (versions, update mode, lag, maintenance state, CVEs,
+EPSS, source and build levels) with notes under each row. Default: only packages that need
+action, in a compact table.
 """
 
 HELP_REGISTRY_TYPE = """

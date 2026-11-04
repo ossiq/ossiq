@@ -1,5 +1,8 @@
 """Console renderer for status command."""
 
+from dataclasses import dataclass
+from typing import Literal
+
 from rich.console import Console, Group
 from rich.padding import Padding
 from rich.rule import Rule
@@ -41,6 +44,7 @@ from ossiq.ui.renderers.impact_utils import (
     format_time_delta,
     impact_sub_row_texts,
     new_transitive_deps_table,
+    provenance_legend,
     whats_next,
 )
 
@@ -307,14 +311,162 @@ def alert_sub_row_texts(pkg: ScanRecord) -> list[str]:
     return texts
 
 
-def field_line(*fields: tuple[str, str]) -> Padding:
-    """One indented line of `label value` pairs.
+FULL_MIN_WIDTH = 120
+"""Console width from which `--full` uses the wide columns, one per field. Below it the narrow
+layout merges Mode+Lag, CVEs+EPSS and Src+Bld so a row still fits 80 columns. Pinned by
+test_full_rows_fit_their_console_width — adding a column means re-measuring."""
 
-    Each value is parsed on its own: the cell formatters leave tags such as `[red][bold]Major` unclosed,
-    and in one joined string they would colour everything after them.
+FULL_PACKAGE_MIN = 10
+FULL_PACKAGE_MAX = 28
+
+VERSIONS_HEADER = "Installed ➔ Rec"
+
+
+def middle_ellipsis(text: str, width: int) -> str:
+    """Shorten `text` to `width` characters, keeping its head and its tail.
+
+    Both ends carry the identity of a package name or a version (`@typescript-eslint/…-plugin`,
+    `1.0.…1820`), so cutting only the end would drop the part that tells two of them apart.
     """
-    cells = (Text.from_markup(f"[dim]{label}[/dim] {value}") for label, value in fields)
-    return Padding(Text(" · ", style="dim").join(cells), (0, 0, 0, 4), expand=False)
+    if len(text) <= width:
+        return text
+    head = width // 2
+    tail = width - 1 - head
+    return f"{text[:head]}…{text[len(text) - tail :]}"
+
+
+@dataclass(frozen=True)
+class FullLayout:
+    """The columns of the `--full` table: header, width and justification for each.
+
+    A row is a line of text rather than a `rich.table.Table` row because a `↳` note has to run the
+    full width under its package, and a table cell can't span columns. Package's width is None: it
+    takes what the other columns and the gaps leave.
+    """
+
+    columns: tuple[tuple[str, int | None, Literal["left", "right"]], ...]
+    gap: str
+
+    def widths(self, console_width: int) -> dict[str, int]:
+        """Resolve every column's width for a console of `console_width` characters."""
+        fixed = sum(width or 0 for _, width, _ in self.columns) + len(self.gap) * (len(self.columns) - 1)
+        package = min(FULL_PACKAGE_MAX, max(FULL_PACKAGE_MIN, console_width - fixed))
+        return {name: width or package for name, width, _ in self.columns}
+
+    def line(self, cells: dict[str, Text], widths: dict[str, int]) -> Text:
+        """Fit each cell to its column and join them into one line.
+
+        The line is cut with an ellipsis at the console edge rather than wrapped: below 80 columns
+        the right-hand columns go first. shortcut: add a stacked layout if anyone needs under 80.
+        """
+        fitted = []
+        for name, _, justify in self.columns:
+            cell = cells[name]
+            cell.truncate(widths[name], overflow="ellipsis")
+            cell.align(justify, widths[name])
+            fitted.append(cell)
+        line = Text(self.gap, no_wrap=True, overflow="ellipsis").join(fitted)
+        line.rstrip()
+        return line
+
+
+FULL_WIDE = FullLayout(
+    columns=(
+        ("Package", None, "left"),
+        (VERSIONS_HEADER, 20, "left"),
+        ("Mode", 6, "left"),
+        ("Lag", 4, "right"),
+        ("State", 12, "left"),
+        ("CVEs", 4, "right"),
+        ("EPSS", 6, "right"),
+        ("Src", 4, "left"),
+        ("Bld", 4, "left"),
+        ("What's Next", 12, "left"),
+    ),
+    gap="  ",
+)
+FULL_NARROW = FullLayout(
+    columns=(
+        ("Package", None, "left"),
+        (VERSIONS_HEADER, 15, "left"),
+        ("Mode Lag", 9, "left"),
+        ("State", 12, "left"),
+        ("CVE EPSS", 8, "left"),
+        ("Src/Bld", 7, "left"),
+        ("What's Next", 12, "left"),
+    ),
+    gap=" ",
+)
+
+
+def new_target(pkg: ScanRecord) -> str | None:
+    """The recommended version when it is a move away from the installed one, else None.
+
+    None covers a package with nothing to recommend, one already on its recommendation, and one
+    whose constraints contradict each other: in none of them is there a version to point at.
+    """
+    if pkg.constraint_conflict or pkg.recommended_version == pkg.installed_version:
+        return None
+    return pkg.recommended_version
+
+
+def versions_cell(pkg: ScanRecord, width: int) -> Text:
+    """The installed version, then `➔ recommended` only when there is a newer version to move to.
+
+    Each side is shortened from the middle when the pair would overflow. The target is yellow when
+    it is not the registry's latest (the default table's rule). The installed version is red when
+    the constraints leave no version to recommend; the alert note spells the conflict out.
+    """
+    installed = pkg.installed_version
+    target = new_target(pkg)
+    if target is None:
+        return Text(middle_ellipsis(installed, width), style="bold red" if pkg.constraint_conflict else "")
+    if len(installed) + len(target) + 3 > width:
+        side = (width - 3) // 2
+        installed, target = middle_ellipsis(installed, side), middle_ellipsis(target, side)
+    return Text.assemble(installed, " ➔ ", (target, "bold yellow" if target != pkg.latest_version else ""))
+
+
+def full_cells(pkg: ScanRecord, widths: dict[str, int], lag_threshold_days: int) -> dict[str, Text]:
+    """Every cell either `--full` layout can ask for, keyed by its header.
+
+    Each value is parsed on its own: the cell formatters leave tags such as `[red][bold]Major`
+    unclosed, and in one joined string they would colour everything after them.
+    """
+    mode = Text.from_markup(format_lag_status(pkg.versions_diff_index))
+    lag = Text.from_markup(format_time_delta(pkg.time_lag_days, lag_threshold_days))
+    cves = Text.from_markup(f"[bold red]{len(pkg.cve)}[/]" if pkg.cve else "[dim]—[/dim]")
+    epss = Text.from_markup(format_probability(pkg.epss))
+    src = Text.from_markup(format_source_level(pkg))
+    bld = Text.from_markup(format_build_provenance(pkg))
+    return {
+        "Package": Text(middle_ellipsis(pkg.display_name, widths["Package"]), style="bold"),
+        VERSIONS_HEADER: versions_cell(pkg, widths[VERSIONS_HEADER]),
+        "Mode": mode,
+        "Lag": lag,
+        "State": Text.from_markup(format_state(pkg)),
+        "CVEs": cves,
+        "EPSS": epss,
+        "Src": src,
+        "Bld": bld,
+        "Mode Lag": Text(" ").join([mode, lag]),
+        "CVE EPSS": Text(" ").join([cves, epss]),
+        "Src/Bld": Text("/").join([src, bld]),
+        "What's Next": Text.from_markup(whats_next(pkg, short=True)),
+    }
+
+
+def latest_note_texts(pkg: ScanRecord) -> list[str]:
+    """The registry's latest, when the Versions cell does not already show it."""
+    if pkg.latest_version and pkg.latest_version not in (pkg.installed_version, new_target(pkg)):
+        return [f"  [dim]↳ latest[/] {pkg.latest_version}"]
+    return []
+
+
+def installed_note_texts(pkg: ScanRecord) -> list[str]:
+    """What the Versions cell leaves out of the installed version: other copies, an override, a lifecycle badge."""
+    installed = installed_cell(pkg) + format_status_badge(pkg)
+    return [f"  [dim]↳ installed[/] {installed}"] if installed != pkg.installed_version else []
 
 
 def note_line(markup: str) -> Padding:
@@ -325,55 +477,39 @@ def note_line(markup: str) -> Padding:
     """
     note = Text.from_markup(markup)
     depth = len(note.plain) - len(note.plain.lstrip())
-    return Padding(note[depth:], (0, 0, 0, depth + 2), expand=False)
+    return Padding(note[depth:], (0, 0, 0, depth), expand=False)
 
 
-def package_block(pkg: ScanRecord, lag_threshold_days: int, engine_context: EngineContext) -> Padding:
-    """One package for `--full`: its name and next action, three lines of fields, then the `↳` notes.
-
-    Lines rather than columns: the full field set does not fit a table at 80 columns, and a note
-    in a narrow Package column wraps there.
+def full_row(
+    pkg: ScanRecord,
+    layout: FullLayout,
+    widths: dict[str, int],
+    lag_threshold_days: int,
+    engine_context: EngineContext,
+) -> Group:
+    """One package for `--full`: its line of cells, then the `↳` notes, then a blank line when there are notes.
 
     Args:
         pkg: The record to describe.
+        layout: The column set picked for this console width.
+        widths: The layout's column widths, as `FullLayout.widths` resolved them.
         lag_threshold_days: Above this many days the time lag is highlighted.
         engine_context: The runtime versions this scan checked against.
 
     Returns:
         A renderable ready for `Console.print`.
     """
-    missing = "[dim]—[/dim]"
     impacts = pkg.update_transitive_impacts if pkg.recommended_version != pkg.installed_version else []
     notes = [
+        *latest_note_texts(pkg),
+        *installed_note_texts(pkg),
         *impact_sub_row_texts(impacts),
         *blocker_sub_row_texts(pkg),
         *detail_sub_row_texts(pkg, engine_context),
         *alert_sub_row_texts(pkg),
     ]
-    return Padding(
-        Group(
-            Text.from_markup(f"[bold]{pkg.display_name}[/]  {whats_next(pkg)}".rstrip()),
-            field_line(
-                ("installed", installed_cell(pkg) + format_status_badge(pkg)),
-                ("recommended", recommended_cell(pkg) or missing),
-                ("latest", pkg.latest_version or missing),
-            ),
-            field_line(
-                ("update mode", format_lag_status(pkg.versions_diff_index)),
-                ("lag", format_time_delta(pkg.time_lag_days, lag_threshold_days)),
-                ("state", format_state(pkg)),
-            ),
-            field_line(
-                ("CVEs", f"[bold red]{len(pkg.cve)}[/]" if pkg.cve else "0"),
-                ("EPSS", format_probability(pkg.epss)),
-                ("build", format_build_provenance(pkg)),
-                ("source", format_source_level(pkg)),
-            ),
-            *(note_line(text) for text in notes),
-        ),
-        (0, 0, 0, 2),
-        expand=False,
-    )
+    row = layout.line(full_cells(pkg, widths, lag_threshold_days), widths)
+    return Group(row, *(note_line(text) for text in notes), *([Text("")] if notes else []))
 
 
 class ConsoleStatusRenderer(AbstractUserInterfaceRenderer):
@@ -399,8 +535,8 @@ class ConsoleStatusRenderer(AbstractUserInterfaceRenderer):
             data: ProjectMetrics from scan service
             **kwargs: Rendering options
                 - lag_threshold_days: int - Threshold for highlighting time lag
-                - full: bool - When True list every package as a block of labeled fields; default
-                  keeps only the packages that need action, in a minimal table
+                - full: bool - When True list every package as a row of a wide table with its
+                  notes under it; default keeps only the packages that need action, in a minimal table
         """
         lag_threshold_days = kwargs.get("lag_threshold_days", 180)
         full = kwargs.get("full", False)
@@ -453,7 +589,7 @@ class ConsoleStatusRenderer(AbstractUserInterfaceRenderer):
                 if packages:
                     self.console.print(Rule(label, style="dim"))
                     self.console.print()
-                    self.print_package_blocks(packages, lag_threshold_days, data.engine_context)
+                    self.print_full_table(packages, lag_threshold_days, data.engine_context)
         elif main_table := self.build_main_table(data.production_packages, data.optional_packages):
             self.console.print(main_table)
             self.console.print()
@@ -462,10 +598,16 @@ class ConsoleStatusRenderer(AbstractUserInterfaceRenderer):
             self.console.print(Rule("Transitive Recommendations", style="dim"))
             self.console.print()
             if full:
-                self.print_package_blocks(transitive_with_recs, lag_threshold_days, data.engine_context)
+                self.print_full_table(transitive_with_recs, lag_threshold_days, data.engine_context)
             else:
                 self.console.print(self.transitive_table(transitive_with_recs))
                 self.console.print()
+
+        if full and (data.production_packages or data.optional_packages or transitive_with_recs):
+            source_legend, build_legend = provenance_legend()
+            self.console.print(f"  [dim]Src  {source_legend}[/dim]")
+            self.console.print(f"  [dim]Bld  {build_legend}[/dim]")
+            self.console.print()
 
         new_dep_impacts = [
             i
@@ -534,13 +676,16 @@ class ConsoleStatusRenderer(AbstractUserInterfaceRenderer):
         self.console.print(table)
         self.console.print()
 
-    def print_package_blocks(
+    def print_full_table(
         self, packages: list[ScanRecord], lag_threshold_days: int, engine_context: EngineContext
     ) -> None:
-        """Print one `--full` block per package, each followed by a blank line."""
+        """Print the `--full` header and one row per package, each followed by its `↳` notes."""
+        layout = FULL_WIDE if self.console.width >= FULL_MIN_WIDTH else FULL_NARROW
+        widths = layout.widths(self.console.width)
+        self.console.print(layout.line({name: Text(name, style="bold dim") for name, _, _ in layout.columns}, widths))
         for pkg in packages:
-            self.console.print(package_block(pkg, lag_threshold_days, engine_context))
-            self.console.print()
+            self.console.print(full_row(pkg, layout, widths, lag_threshold_days, engine_context))
+        self.console.print()
 
     def build_main_table(
         self,
@@ -553,7 +698,7 @@ class ConsoleStatusRenderer(AbstractUserInterfaceRenderer):
 
         Keeps only the packages that need action: drift, a CVE, an unmaintained upstream, an
         unsolvable constraint, an unresolved peer or a policy violation. `--full` lists every
-        package as a `package_block` instead.
+        package as a row of `print_full_table` instead.
 
         Args:
             prod: Production dependency records.

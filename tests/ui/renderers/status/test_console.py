@@ -38,17 +38,23 @@ from ossiq.strategy.pyramid import UpdateStrategy
 from ossiq.strategy.targeting import StrategySelection
 from ossiq.ui.renderers.impact_utils import (
     REJECTION_DETAIL_LIMIT,
+    WHATS_NEXT_SHORT,
+    WHATS_NEXT_STYLE,
     format_build_provenance,
     format_source_level,
+    provenance_legend,
     whats_next,
 )
 from ossiq.ui.renderers.status.console import (
     COVERAGE_NAME_LIMIT,
+    FULL_MIN_WIDTH,
+    FULL_NARROW,
+    FULL_WIDE,
     MIN_WIDTH_DEFAULT,
     ConsoleStatusRenderer,
     copy_sub_row_texts,
     installed_cell,
-    package_block,
+    middle_ellipsis,
 )
 
 LATEST = VersionsDifference("1.0.0", "1.0.0", 0, "LATEST")
@@ -126,7 +132,7 @@ def make_record(
 
 
 FULL_TABLE_WIDTH = 240
-"""Roomy enough that no line of a `--full` block wraps."""
+"""Roomy enough that no line of a `--full` table wraps."""
 
 
 def render_table(
@@ -137,15 +143,15 @@ def render_table(
     width: int = 200,
     engine_context: EngineContext | None = None,
 ) -> str:
-    console = Console(record=True, width=width)
+    renderer = ConsoleStatusRenderer(Settings())
+    renderer.console = Console(record=True, width=width)
     if full:
-        for pkg in [*prod, *(dev or [])]:
-            console.print(package_block(pkg, 180, engine_context or EngineContext()))
+        renderer.print_full_table([*prod, *(dev or [])], 180, engine_context or EngineContext())
     else:
-        table = ConsoleStatusRenderer(Settings()).build_main_table(prod, dev or [], width=width)
+        table = renderer.build_main_table(prod, dev or [], width=width)
         assert table is not None
-        console.print(table)
-    return console.export_text()
+        renderer.console.print(table)
+    return renderer.console.export_text()
 
 
 # --- column sets ------------------------------------------------------------------------------
@@ -186,31 +192,55 @@ def test_narrow_terminal_keeps_fixed_format_columns_intact():
 # --- the --full listing -----------------------------------------------------------------------
 
 
-def test_full_mode_fits_eighty_columns_with_every_field():
-    """Why `--full` is blocks and not columns: the worst-case package still reads whole at 80 columns."""
+@pytest.mark.parametrize("width", [80, FULL_MIN_WIDTH - 1, FULL_MIN_WIDTH, 200])
+def test_full_rows_fit_their_console_width(width):
+    """Why `--full` has two layouts: the worst-case package is one line, notes included, from 80 columns up."""
     record = with_provenance(
         constrained_record("@typescript-eslint/eslint-plugin"),
         build_tier=TrustTier.NONE,
         source_level=SourceLevel.VERSION_CONTROLLED,
     )
-    output = render_table([record], full=True, width=80)
+    lines = render_table([record], full=True, width=width).splitlines()
+    header, row = lines[0], lines[1]
 
-    for label in (
-        "installed",
-        "recommended",
-        "latest",
-        "update mode",
-        "lag",
-        "state",
-        "CVEs",
-        "EPSS",
-        "build",
-        "source",
-    ):
-        assert label in output
-    assert "Constrained. Check newer version" in output
-    assert "~1.0.0 caps this below 1.5.0" in output
-    assert "…" not in output
+    assert max(len(line) for line in lines) <= width
+    assert "Constrained" in row
+    assert "~1.0.0 caps this below 1.5.0" in "\n".join(lines)
+    # Only the Package column is ever cut, and from the middle.
+    assert row.count("…") == 1 and row.startswith("@type") and row.split()[0].endswith("lugin")
+    merged = width < FULL_MIN_WIDTH
+    assert ("Src/Bld" in header) is merged
+    assert ("Mode Lag" in header) is merged
+    assert ("CVE EPSS" in header) is merged
+    assert ("CVEs" in header.split()) is not merged
+
+
+def test_the_two_layouts_swap_at_the_threshold_width():
+    assert "Src/Bld" in header_of(render_table([make_record()], full=True, width=FULL_MIN_WIDTH - 1))
+    assert "Src/Bld" not in header_of(render_table([make_record()], full=True, width=FULL_MIN_WIDTH))
+
+
+@pytest.mark.parametrize("layout", [FULL_WIDE, FULL_NARROW])
+def test_every_whats_next_code_fits_its_column(layout):
+    """A new label without a code, or with a long one, would be cut mid-word in `--full`."""
+    width = layout.widths(FULL_MIN_WIDTH)["What's Next"]
+    assert set(WHATS_NEXT_SHORT) == set(WHATS_NEXT_STYLE)
+    assert max(len(code) for code in WHATS_NEXT_SHORT.values()) <= width
+
+
+@pytest.mark.parametrize(
+    ("text", "width", "expected"),
+    [
+        ("short", 10, "short"),
+        ("exactly-10", 10, "exactly-10"),
+        ("@typescript-eslint/eslint-plugin", 11, "@type…lugin"),
+        ("1.0.30001600", 9, "1.0.…1600"),
+        ("abcdefgh", 4, "ab…h"),
+    ],
+)
+def test_middle_ellipsis_keeps_the_head_and_the_tail(text, width, expected):
+    assert middle_ellipsis(text, width) == expected
+    assert len(middle_ellipsis(text, width)) <= width
 
 
 def test_a_wrapped_note_continues_under_its_arrow():
@@ -222,14 +252,14 @@ def test_a_wrapped_note_continues_under_its_arrow():
     assert len(lines[first + 1]) - len(lines[first + 1].lstrip()) == lines[first].index("↳")
 
 
-def test_full_mode_lists_transitive_recommendations_as_blocks():
+def test_full_mode_lists_transitive_recommendations_as_rows():
     record = make_record("minimatch", recommended_version="5.0.0")
     record.compatibility.breaking_change = "ESM-only from 5.0.0"
 
     section = render_report([make_record()], transitive=[record], full=True).split("Transitive Recommendations")[1]
 
     assert "minimatch" in section
-    assert "recommended 5.0.0" in section
+    assert "1.0.0 ➔ 5.0.0" in section
     assert "ESM-only from 5.0.0" in section
 
 
@@ -270,7 +300,7 @@ def test_constrained_package_names_the_range_holding_it_back():
         ],
         full=True,
     )
-    assert "Constrained. Check newer version" in output
+    assert "Constrained" in output
     assert "~1.0.0 caps this below 1.5.0" in output
 
 
@@ -413,14 +443,14 @@ def widening_pick_record(*, authorized: bool) -> ScanRecord:
 def test_an_escalated_pick_past_the_range_reads_as_an_update():
     """`plan` writes an authorized widening pick, so the range is not what is holding it back."""
     output = render_table([widening_pick_record(authorized=True)], full=True)
-    assert "Update Immediately" in output
+    assert "Update" in output
     assert "Constrained" not in output
     assert "caps this below" not in output
 
 
 def test_an_unauthorized_pick_past_the_range_stays_constrained():
     output = render_table([widening_pick_record(authorized=False)], full=True)
-    assert "Constrained. Check newer version" in output
+    assert "Constrained" in output
     assert "~1.0.0 caps this below 1.5.0" in output
 
 
@@ -813,7 +843,7 @@ class TestWithheldByStrategySubRow:
     def test_withheld_package_names_the_tier_not_the_range(self):
         output = render_table([self.withheld_record()], full=True, width=FULL_TABLE_WIDTH)
 
-        assert "Withheld by strategy" in output
+        assert "Withheld" in output
         assert "available under --update-strategy standard" in output
         # The bug this replaced: <2.0.0 admits 1.9.1, so it caps nothing.
         assert "caps this below" not in output
@@ -826,7 +856,7 @@ class TestWithheldByStrategySubRow:
 
         output = render_table([record], full=True)
 
-        assert "Constrained. Check newer version" in output
+        assert "Constrained" in output
         assert "caps this below" not in output
 
     def test_a_genuinely_capping_range_is_still_named(self):
@@ -865,12 +895,12 @@ class TestCooldownHoldSubRow:
     def test_held_package_says_wait_and_names_the_version_and_the_wait(self):
         output = render_table([self.held_record()], full=True, width=FULL_TABLE_WIDTH)
 
-        assert "Wait for cooldown" in output
+        assert "Cooldown" in output
         assert "0.10.0 is 5 days old" in output
         assert "7-day cooldown" in output
         # The reported defect, in one assertion: the label must not promise an update that
         # `apply` will refuse.
-        assert "Update Immediately" not in output
+        assert "Update" not in output
 
     def test_the_declared_range_is_not_blamed_for_a_cooldown_hold(self):
         record = self.held_record()
@@ -898,7 +928,7 @@ class TestCooldownHoldSubRow:
 
         output = render_table([record], full=True, width=FULL_TABLE_WIDTH)
 
-        assert "Wait for cooldown" in output
+        assert "Cooldown" in output
         assert "uv exclude-newer cutoff (2024-05-18 06:30 UTC)" in output
         assert "7-day cooldown" not in output
 
@@ -1027,17 +1057,17 @@ def test_default_mode_leaves_the_provenance_columns_to_full():
 
 
 @pytest.mark.parametrize(
-    ("tier", "word"),
-    [(TrustTier.TRUSTED_PUBLISHER, "trusted"), (TrustTier.PROVENANCE, "attested"), (TrustTier.NONE, "none")],
+    ("tier", "badge"),
+    [(TrustTier.TRUSTED_PUBLISHER, "L2"), (TrustTier.PROVENANCE, "L1"), (TrustTier.NONE, "L0")],
 )
-def test_the_build_column_names_the_installed_releases_tier(tier, word):
+def test_the_build_column_badges_the_installed_releases_tier(tier, badge):
     output = render_table([with_provenance(make_record(), build_tier=tier)], full=True, width=FULL_TABLE_WIDTH)
-    assert f"build {word}" in output
+    assert badge in output.splitlines()[1].split()
 
 
 def test_a_package_whose_tier_was_not_read_shows_a_dash_not_none():
     output = render_table([with_provenance(make_record(), build_tier=None)], full=True, width=FULL_TABLE_WIDTH)
-    assert "none" not in output
+    assert "L0" not in output
 
 
 def test_a_violation_is_written_under_the_package_in_every_mode():
@@ -1062,9 +1092,13 @@ def test_a_quiet_package_with_no_violation_stays_out_of_the_compact_table():
     assert renderer.build_main_table([clean], []) is None
 
 
-def test_the_source_column_shows_the_repositorys_level():
-    record = with_provenance(make_record(), source_level=SourceLevel.PROTECTED_HISTORY)
-    assert "source protected" in render_table([record], full=True, width=FULL_TABLE_WIDTH)
+@pytest.mark.parametrize(
+    ("level", "badge"),
+    [(SourceLevel.VERSION_CONTROLLED, "L1"), (SourceLevel.PROTECTED_HISTORY, "L2"), (SourceLevel.REVIEWED, "L3")],
+)
+def test_the_source_column_badges_the_repositorys_level(level, badge):
+    record = with_provenance(make_record(), source_level=level)
+    assert badge in render_table([record], full=True, width=FULL_TABLE_WIDTH).splitlines()[1].split()
 
 
 class TestRedCellsFollowTheRuleThatFailed:
@@ -1084,14 +1118,14 @@ class TestRedCellsFollowTheRuleThatFailed:
     def test_a_build_failure_reddens_the_build_cell_only(self):
         record = self.record(self.BUILD)
 
-        assert "✗ none" in format_build_provenance(record)
+        assert "✗L0" in format_build_provenance(record)
         assert "✗" not in format_source_level(record)
 
     def test_a_source_failure_reddens_the_source_cell_only(self):
         record = self.record(self.SOURCE)
 
         assert "✗" not in format_build_provenance(record)
-        assert "✗ protected" in format_source_level(record)
+        assert "✗L2" in format_source_level(record)
 
     def test_both_failing_reddens_both(self):
         record = self.record(self.BUILD, self.SOURCE)
@@ -1102,3 +1136,79 @@ class TestRedCellsFollowTheRuleThatFailed:
         record = self.record()
 
         assert "✗" not in format_build_provenance(record) + format_source_level(record)
+
+
+# --- the Versions cell and its notes ----------------------------------------------------------
+
+
+def test_an_off_latest_recommendation_notes_the_latest():
+    output = render_table(
+        [make_record(versions_diff_index=MINOR, latest_version="1.5.0", recommended_version="1.2.0")], full=True
+    )
+    assert "1.0.0 ➔ 1.2.0" in output
+    assert "↳ latest 1.5.0" in output
+
+
+def test_a_recommendation_at_the_latest_adds_no_latest_note():
+    output = render_table(
+        [make_record(versions_diff_index=MINOR, latest_version="1.2.0", recommended_version="1.2.0")], full=True
+    )
+    assert "1.0.0 ➔ 1.2.0" in output
+    assert "↳ latest" not in output
+
+
+@pytest.mark.parametrize(
+    "record",
+    [
+        make_record(),
+        make_record(recommended_version="1.0.0"),
+        make_record(versions_diff_index=MINOR, latest_version="1.5.0"),
+        make_record(versions_diff_index=MINOR, latest_version="1.5.0", recommended_version="1.0.0"),
+    ],
+    ids=["at latest", "recommends itself", "nothing to recommend", "held on the installed version"],
+)
+def test_no_arrow_without_a_newer_version_to_move_to(record):
+    row = render_table([record], full=True).splitlines()[1]
+    assert "➔" not in row and "—" not in row.split("  ")[1]
+    assert row.split()[1] == "1.0.0"
+
+
+def test_a_package_held_behind_the_latest_still_names_the_latest():
+    output = render_table([make_record(versions_diff_index=MINOR, latest_version="1.5.0")], full=True)
+    assert "↳ latest 1.5.0" in output
+
+
+def test_a_conflict_prints_no_target():
+    record = make_record(versions_diff_index=MINOR, latest_version="1.5.0", recommended_version="1.5.0")
+    record.constraint_conflict = ["a ^1.0.0", "b ^2.0.0"]
+    output = render_table([record], full=True)
+    assert "➔" not in output.splitlines()[1]
+    assert "no version satisfies: a ^1.0.0 + b ^2.0.0" in output
+    assert "↳ latest 1.5.0" in output
+
+
+def test_a_long_version_is_cut_from_the_middle():
+    record = make_record(versions_diff_index=MINOR, latest_version="1.0.30001600", recommended_version="1.0.30001600")
+    record.installed_version = "1.0.30001599-beta.12"
+    row = render_table([record], full=True, width=80).splitlines()[1]
+    assert "…" in row
+    assert "1.0.30001599-beta.12" not in row
+
+
+def test_extra_installed_copies_move_to_a_note():
+    output = render_table([nested_record(plain_copy("10.2.5"), plain_copy("9.0.9"))], full=True)
+    assert "↳ installed 10.2.5 (+9.0.9)" in output
+
+
+# --- the footer legend ------------------------------------------------------------------------
+
+
+def test_the_legend_spells_out_every_badge_in_the_console_words():
+    source, build = provenance_legend()
+    assert source == "L1 vcs · L2 protected · L3 reviewed"
+    assert build.startswith("L0 none · L1 attested · L2 trusted")
+
+
+def test_the_legend_follows_the_full_listing_only():
+    assert "Src  L1 vcs" in render_report([make_record()], full=True)
+    assert "Src  L1 vcs" not in render_report([make_record(versions_diff_index=MINOR, recommended_version="1.1.0")])
