@@ -226,6 +226,8 @@ class AbstractPackageManagerApi(abc.ABC):
     # True when `execute_update` exempts an `--override` version from the package manager's own
     # release cutoff, so the forced version installs even though the cutoff refuses it.
     exempts_forced_versions: bool = False
+    # True when `ossiq upgrade` can roll a step back: `execute_update` writes only snapshot_files().
+    supports_upgrade_session: bool = False
 
     @staticmethod
     @abc.abstractmethod
@@ -263,6 +265,21 @@ class AbstractPackageManagerApi(abc.ABC):
         """
         raise PackageManagerOperationUnsupported(
             f"In-process execution is not yet supported for {self.package_manager_type.name}."
+        )
+
+    def snapshot_files(self) -> tuple[str, ...]:
+        """Names, relative to the project, of the files `execute_update` may rewrite; `upgrade` snapshots them."""
+        pm = self.package_manager_type
+        return (pm.primary_manifest.name, *([pm.lockfile.name] if pm.lockfile else []))
+
+    def sync_environment(self) -> None:
+        """Make the installed packages match the manifest and lockfile on disk, e.g. after a rollback.
+
+        Raises:
+            PackageManagerExecutionError: The package manager failed or is not installed.
+        """
+        raise PackageManagerOperationUnsupported(
+            f"Syncing the environment is not yet supported for {self.package_manager_type.name}."
         )
 
     def install_package(self, package_name: str, version: str | None = None) -> int:

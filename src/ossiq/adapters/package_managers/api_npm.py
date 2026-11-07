@@ -46,6 +46,7 @@ class PackageManagerJsNpm(AbstractPackageManagerApi):
     settings: Settings
     package_manager_type: PackageManagerType = NPM
     project_path: str
+    supports_upgrade_session = True
 
     # Dynamic mapping between NPM lockfile versions
     supported_versions: dict[str, str] = {
@@ -238,6 +239,11 @@ class PackageManagerJsNpm(AbstractPackageManagerApi):
             if total > 1:
                 raise PackageManagerExecutionError(f"{exc} in pass {number} of {total}") from exc
             raise
+
+    def sync_environment(self) -> None:
+        """Run `npm install` so node_modules matches the lockfile as it is on disk."""
+        manifest = (Path(self.project_path) / MANIFEST_FILE).read_text(encoding="utf-8")
+        self.run_npm_install(self.project_path, [], manifest)
 
     def install_package(self, package_name: str, version: str | None = None) -> int:
         """Run npm install to add a package to the project. Restores package.json on failure.

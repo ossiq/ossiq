@@ -237,6 +237,7 @@ class PackageManagerJsPnpm(AbstractPackageManagerApi):
     enforces_cooldown_on_install = True
     # An `--override` version goes into minimumReleaseAgeExclude even past the project's own age.
     exempts_forced_versions = True
+    supports_upgrade_session = True
 
     # Lockfile version -> the parser method; v9 is what pnpm 9 to 12 write.
     supported_versions: dict[str, str] = {"lockfileVersion == '9.0'": "parse_lockfile_v9"}
@@ -425,6 +426,14 @@ class PackageManagerJsPnpm(AbstractPackageManagerApi):
             raise
         # Outside the restore: the install succeeded, so what did land stays.
         check_targets_landed(root, plan)
+
+    def snapshot_files(self) -> tuple[str, ...]:
+        """The manifest, the lockfile and pnpm-workspace.yaml, where overrides and catalogs live."""
+        return PROJECT_FILES
+
+    def sync_environment(self) -> None:
+        """Run `pnpm install --frozen-lockfile` so node_modules matches the lockfile as it is on disk."""
+        run_pnpm(self.project_path, "install", "--frozen-lockfile")
 
     def install_package(self, package_name: str, version: str | None = None) -> int:
         """Run `pnpm add` for a package. Restores package.json, pnpm-lock.yaml and pnpm-workspace.yaml on failure.

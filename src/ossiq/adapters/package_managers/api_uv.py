@@ -475,6 +475,7 @@ class PackageManagerPythonUv(AbstractPackageManagerApi):
     settings: Settings
     package_manager_type: PackageManagerType = UV
     project_path: str
+    supports_upgrade_session = True
 
     # Dynamic mapping between UV lockfile versions
     supported_versions = {"version == 1 && revision >= 3": "parse_lockfile_v1_r3"}
@@ -738,11 +739,25 @@ class PackageManagerPythonUv(AbstractPackageManagerApi):
             for entry in plan.all_entries
             for arg in ("--upgrade-package", f"{entry.package_name}=={entry.recommended_version}")
         ]
+        lock_path = Path(plan.project_path) / UV.lockfile.name  # ty: ignore
+        original_lock = lock_path.read_bytes() if lock_path.exists() else None
         try:
             subprocess.run(["uv", "lock"] + upgrade_args, cwd=plan.project_path, check=True)
             subprocess.run(["uv", "sync"], cwd=plan.project_path, check=True)
         except subprocess.CalledProcessError as exc:
             manifest_path.write_text(original_content, encoding="utf-8")
+            # `uv lock` may have succeeded before `uv sync` failed; the lock must not outlive the manifest.
+            if original_lock is None:
+                lock_path.unlink(missing_ok=True)
+            else:
+                lock_path.write_bytes(original_lock)
+            raise PackageManagerExecutionError(f"uv command failed (exit {exc.returncode})") from exc
+
+    def sync_environment(self) -> None:
+        """Run `uv sync` so the virtualenv matches uv.lock as it is on disk."""
+        try:
+            subprocess.run(["uv", "sync"], cwd=self.project_path, check=True)
+        except subprocess.CalledProcessError as exc:
             raise PackageManagerExecutionError(f"uv command failed (exit {exc.returncode})") from exc
 
     def install_package(self, package_name: str, version: str | None = None) -> int:

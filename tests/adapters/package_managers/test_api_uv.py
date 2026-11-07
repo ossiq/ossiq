@@ -1302,6 +1302,60 @@ class TestExecuteUpdateDirectRewrite:
 
         assert pyproject_path.read_text() == original_content
 
+    def test_restores_lockfile_when_sync_fails_after_lock(self, tmp_path, settings):
+        """`uv lock` rewrites uv.lock before `uv sync` fails; the lock must go back with the manifest."""
+        self._write_project(tmp_path, 'dependencies = [\n    "pydantic==1.10.13",\n]\n')
+        lock_path = tmp_path / "uv.lock"
+        lock_path.write_text("old lock")
+
+        def uv(argv, **kwargs):
+            if argv[:2] == ["uv", "lock"]:
+                lock_path.write_text("new lock")
+                return MagicMock(returncode=0)
+            raise subprocess.CalledProcessError(1, argv)
+
+        entry = UpdateEntry(
+            package_name="pydantic",
+            current_version="x",
+            recommended_version="1.10.26",
+            is_direct=True,
+            reason=None,
+            version_defined="==1.10.13",
+            constraint_type=ConstraintType.PINNED,
+        )
+        plan = UpdatePlan(
+            project_name="demo",
+            project_path=str(tmp_path),
+            registry_type="PYPI",
+            package_manager_name="uv",
+            direct_entries=[entry],
+            transitive_entries=[],
+        )
+        pm = PackageManagerPythonUv(project_path=str(tmp_path), settings=settings)
+        with patch("subprocess.run", side_effect=uv):
+            with pytest.raises(PackageManagerExecutionError):
+                pm.execute_update(plan)
+
+        assert lock_path.read_text() == "old lock"
+
+
+class TestSyncEnvironment:
+    def test_runs_uv_sync_in_the_project(self, tmp_path, settings):
+        pm = PackageManagerPythonUv(project_path=str(tmp_path), settings=settings)
+        with patch("subprocess.run") as mock_run:
+            pm.sync_environment()
+        mock_run.assert_called_once_with(["uv", "sync"], cwd=str(tmp_path), check=True)
+
+    def test_wraps_a_failed_sync(self, tmp_path, settings):
+        pm = PackageManagerPythonUv(project_path=str(tmp_path), settings=settings)
+        with patch("subprocess.run", side_effect=subprocess.CalledProcessError(1, ["uv", "sync"])):
+            with pytest.raises(PackageManagerExecutionError):
+                pm.sync_environment()
+
+    def test_snapshots_manifest_and_lockfile(self, tmp_path, settings):
+        pm = PackageManagerPythonUv(project_path=str(tmp_path), settings=settings)
+        assert pm.snapshot_files() == ("pyproject.toml", "uv.lock")
+
 
 class TestInstallPackage:
     """Tests for install_package() — runs `uv add <spec>`, which edits pyproject.toml itself."""

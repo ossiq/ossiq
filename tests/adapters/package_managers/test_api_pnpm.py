@@ -902,3 +902,14 @@ class TestInstallPackageCooldown:
 
         assert "--cooldown-period 0" in (caught.value.hint or "")
         assert snapshot(temp_project_dir) == before
+
+
+class TestSyncEnvironment:
+    def test_installs_the_frozen_lockfile_without_scripts(self, tmp_path, settings):
+        with patch("subprocess.run") as mock_run:
+            PackageManagerJsPnpm(str(tmp_path), settings).sync_environment()
+        assert mock_run.call_args.args[0] == ["pnpm", "install", "--ignore-scripts", "--frozen-lockfile"]
+
+    def test_snapshots_the_workspace_file_too(self, tmp_path, settings):
+        files = PackageManagerJsPnpm(str(tmp_path), settings).snapshot_files()
+        assert files == ("package.json", "pnpm-lock.yaml", "pnpm-workspace.yaml")
