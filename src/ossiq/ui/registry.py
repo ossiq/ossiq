@@ -17,6 +17,8 @@ from ossiq.ui.renderers.html.html import HtmlStatusRenderer
 from ossiq.ui.renderers.info.console import ConsoleInfoRenderer
 from ossiq.ui.renderers.plan.console import ConsolePlanRenderer
 from ossiq.ui.renderers.status.console import ConsoleStatusRenderer
+from ossiq.ui.renderers.upgrade.agent import AgentUpgradeRenderer
+from ossiq.ui.renderers.upgrade.console import ConsoleUpgradeRenderer
 
 # Registry of all available renderers (populated via register_renderers)
 # Similar to PACKAGE_MANAGERS tuple
@@ -29,6 +31,8 @@ RENDERERS: tuple[type[AbstractUserInterfaceRenderer], ...] = (
     AgentInfoRenderer,
     AgentStatusRenderer,
     AgentUpdateContextRenderer,
+    ConsoleUpgradeRenderer,
+    AgentUpgradeRenderer,
 )
 
 
