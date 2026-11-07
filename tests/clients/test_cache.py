@@ -43,6 +43,8 @@ def test_install_requests_cache_sets_stability_url_ttls(tmp_path):
             "*/rate_limit*": requests_cache.DO_NOT_CACHE,
             # A replayed poll never completes a login, and the token response holds the secrets.
             "*/login/*": requests_cache.DO_NOT_CACHE,
+            # A changelog can carry a "temporarily unavailable" notice the API itself marks no-store.
+            "*changelogiq.dev*": requests_cache.DO_NOT_CACHE,
             GITHUB_USER_URL: requests_cache.DO_NOT_CACHE,
             "*/commits*": 168 * 3600,
             "*/graphql*": 168 * 3600,
