@@ -2,6 +2,7 @@
 
 import json
 from collections.abc import Mapping
+from dataclasses import dataclass
 from datetime import date
 from functools import cache
 from importlib.resources import files
@@ -60,15 +61,14 @@ def find_project_config(project_path: Path) -> Path | None:
     return None
 
 
-def load_project_policy(path: Path, today: date) -> tuple[Policy, list[str]]:
-    """Read a policy file.
+def read_project_config(path: Path) -> Mapping[str, Any]:
+    """Read and validate a `.ossiq.yaml`.
 
     Args:
-        path: The `.ossiq.yaml` to read.
-        today: The date an exception's `expires` is judged against.
+        path: The file to read.
 
     Returns:
-        The policy, and one warning for each exception that has expired and was therefore left out.
+        The document, checked against the schema.
 
     Raises:
         InvalidPolicyFile: The file cannot be read, is not valid YAML, or breaks the schema.
@@ -92,8 +92,50 @@ def load_project_policy(path: Path, today: date) -> tuple[Policy, list[str]]:
     ]
     if problems:
         raise InvalidPolicyFile(f"{path}:\n  " + "\n  ".join(problems))
+    return raw
 
-    return build_policy(raw.get("policy") or {}, today, path)
+
+def load_project_policy(path: Path, today: date) -> tuple[Policy, list[str]]:
+    """Read a policy file.
+
+    Args:
+        path: The `.ossiq.yaml` to read.
+        today: The date an exception's `expires` is judged against.
+
+    Returns:
+        The policy, and one warning for each exception that has expired and was therefore left out.
+
+    Raises:
+        InvalidPolicyFile: The file cannot be read, is not valid YAML, or breaks the schema.
+    """
+    return build_policy(read_project_config(path).get("policy") or {}, today, path)
+
+
+@dataclass(frozen=True)
+class UpgradeConfig:
+    """The project's defaults for `ossiq upgrade start`; a flag on the command line beats them."""
+
+    limit: int | None = None
+    test_command: str | None = None
+
+
+def load_upgrade_config(project_path: Path) -> UpgradeConfig:
+    """Read the `upgrade:` block of the project's `.ossiq.yaml`.
+
+    Args:
+        project_path: The directory being upgraded.
+
+    Returns:
+        The defaults it sets; empty when there is no file or no block.
+
+    Raises:
+        InvalidPolicyFile: The file exists but cannot be read or breaks the schema.
+    """
+    path = find_project_config(project_path)
+    if path is None:
+        return UpgradeConfig()
+    block = read_project_config(path).get("upgrade") or {}
+    return UpgradeConfig(limit=block.get("limit"), test_command=block.get("test-command"))
 
 
 def build_policy(block: Mapping[str, Any], today: date, path: Path) -> tuple[Policy, list[str]]:
