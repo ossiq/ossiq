@@ -340,3 +340,17 @@ update to a version other than `recommended_version`.
 """
 
 HELP_UPDATE_CONTEXT_TO = "Target version to evaluate against. Default: OSS IQ's recommended_version."
+
+HELP_UPGRADE_APP = "Upgrade packages one step at a time: preview, apply, test, then keep, roll back or skip each step."
+HELP_UPGRADE_PACKAGE = "Queue only this direct package (and what has to move with it)."
+HELP_UPGRADE_LIMIT = "Queue only the first N steps."
+HELP_UPGRADE_TEST_COMMAND = (
+    "Shell command that checks the project, e.g. 'npm test'. It runs once before the first step and "
+    "after every applied step; a failing run before any upgrade stops the session from starting."
+)
+HELP_UPGRADE_FORMAT = (
+    "Output format: console (human) or agent (JSON on stdout; exit status 3 means the step needs attention)"
+)
+HELP_UPGRADE_CHANGELOG_WEB = "Open the changelog on changelogiq.dev in your browser instead of printing it."
+HELP_UPGRADE_INTERACTIVE = "Keep going as a menu: pick the next action with a key until the session ends or you quit."
+HELP_UPGRADE_SKIP_REASON = "Why the step is skipped; kept in the session."

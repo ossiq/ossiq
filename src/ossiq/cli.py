@@ -28,7 +28,6 @@ from ossiq.commands.html import CommandHtmlOptions, command_html
 from ossiq.commands.info import CommandInfoOptions, command_info
 from ossiq.commands.install import install_app
 from ossiq.commands.plan import (
-    CommandPlanOptions,
     check_override_ignore_conflict,
     check_strategy_override_ignore_conflict,
     command_apply,
@@ -37,6 +36,7 @@ from ossiq.commands.plan import (
 )
 from ossiq.commands.status import CommandStatusOptions, command_status
 from ossiq.commands.update_context import CommandUpdateContextOptions, command_update_context
+from ossiq.commands.upgrade import command_upgrade, command_upgrade_changelog, command_upgrade_start
 from ossiq.domain.exceptions import ApplicationError, InvalidConfiguration
 from ossiq.mcp.server import serve as serve_mcp
 from ossiq.messages import (
@@ -72,8 +72,19 @@ from ossiq.messages import (
     HELP_TEXT,
     HELP_UPDATE_CONTEXT_TO,
     HELP_UPDATE_STRATEGY,
+    HELP_UPGRADE_APP,
+    HELP_UPGRADE_CHANGELOG_WEB,
+    HELP_UPGRADE_FORMAT,
+    HELP_UPGRADE_INTERACTIVE,
+    HELP_UPGRADE_LIMIT,
+    HELP_UPGRADE_PACKAGE,
+    HELP_UPGRADE_SKIP_REASON,
+    HELP_UPGRADE_TEST_COMMAND,
 )
 from ossiq.service.github_auth import find_token_source
+from ossiq.service.update.models import PlanOptions
+from ossiq.service.upgrade import engine as upgrade_engine
+from ossiq.service.upgrade.view import UpgradeView
 from ossiq.settings import Settings
 from ossiq.strategy.overrides import parse_overrides, parse_strategy
 from ossiq.strategy.pyramid import UpdateStrategy
@@ -783,7 +794,7 @@ def plan(
     with error_boundary(context.obj):
         command_plan(
             ctx=context,
-            options=CommandPlanOptions(
+            options=PlanOptions(
                 project_path=project_path,
                 registry_type=registry_type,
                 allow_prerelease=allow_prerelease,
@@ -848,7 +859,7 @@ def apply(
     with error_boundary(context.obj):
         command_apply(
             ctx=context,
-            options=CommandPlanOptions(
+            options=PlanOptions(
                 project_path=project_path,
                 registry_type=registry_type,
                 allow_prerelease=allow_prerelease,
@@ -863,6 +874,161 @@ def apply(
             ),
             yes=yes,
         )
+
+
+upgrade_app = typer.Typer(name="upgrade", help=HELP_UPGRADE_APP, no_args_is_help=True)
+app.add_typer(upgrade_app, name="upgrade")
+
+UpgradeFormatOption = Annotated[Literal["console", "agent"], typer.Option("--format", "-f", help=HELP_UPGRADE_FORMAT)]
+UpgradeInteractiveOption = Annotated[bool, typer.Option("--interactive", help=HELP_UPGRADE_INTERACTIVE)]
+
+
+def check_interactive(interactive: bool, output_format: str) -> None:
+    """A menu is for a person; an agent drives the subcommands."""
+    if interactive and output_format != "console":
+        raise typer.BadParameter("--interactive only works with --format console")
+
+
+@upgrade_app.command("start")
+@requires_github_login
+def upgrade_start(
+    context: typer.Context,
+    project_path: Annotated[str, typer.Argument()] = ".",
+    registry_type: Annotated[
+        Literal["npm", "pypi"] | None,
+        typer.Option("--registry-type", "-r", help=HELP_REGISTRY_TYPE),
+    ] = None,
+    allow_prerelease: Annotated[
+        bool, typer.Option("--allow-prerelease", help="Include pre-release versions in drift calculations")
+    ] = False,
+    allow_prerelease_package: Annotated[
+        list[str] | None,
+        typer.Option("--allow-prerelease-package", help="Allow pre-release for a specific package (repeatable)"),
+    ] = None,
+    production: Annotated[bool, typer.Option("--production", help=HELP_PRODUCTION_ONLY)] = False,
+    update_strategy: UpdateStrategyOption = "standard",
+    strategy_override: StrategyOverrideOption = None,
+    ignore: Annotated[list[str] | None, typer.Option("--ignore", "-i", help=HELP_IGNORE_PACKAGE)] = None,
+    pin_all: Annotated[bool, typer.Option("--pin-all", is_flag=True, help=HELP_PIN_ALL)] = False,
+    rewrite_versions: Annotated[
+        bool, typer.Option("--rewrite-versions", is_flag=True, help=HELP_REWRITE_VERSIONS)
+    ] = False,
+    override: Annotated[list[str] | None, typer.Option("--override", help=HELP_OVERRIDE_PACKAGE)] = None,
+    allow_partial: Annotated[bool, typer.Option("--allow-partial", help=HELP_ALLOW_PARTIAL)] = False,
+    package: Annotated[str | None, typer.Option("--package", help=HELP_UPGRADE_PACKAGE)] = None,
+    limit: Annotated[int | None, typer.Option("--limit", min=1, help=HELP_UPGRADE_LIMIT)] = None,
+    test_command: Annotated[str | None, typer.Option("--test-command", help=HELP_UPGRADE_TEST_COMMAND)] = None,
+    output_format: UpgradeFormatOption = "console",
+    interactive: UpgradeInteractiveOption = False,
+):
+    """Queue the project's updates as steps, test the project, and show the first step."""
+    check_interactive(interactive, output_format)
+    if registry_type and registry_type.lower() not in ["npm", "pypi"]:
+        raise typer.BadParameter("Only `npm` and `pypi` allowed")
+
+    overrides = parse_override_specs(override)
+    check_override_ignore_conflict(overrides, tuple(ignore or []))
+    default_strategy, strategy_overrides = resolve_strategy(update_strategy, strategy_override, ignore)
+
+    with error_boundary(context.obj):
+        command_upgrade_start(
+            context,
+            PlanOptions(
+                project_path=project_path,
+                registry_type=registry_type,
+                allow_prerelease=allow_prerelease,
+                allow_prerelease_packages=tuple(allow_prerelease_package or []),
+                production=production,
+                update_strategy=default_strategy,
+                strategy_overrides=strategy_overrides,
+                ignore_packages=tuple(ignore or []),
+                pin_all=pin_all,
+                rewrite_versions=rewrite_versions,
+                overrides=overrides,
+                allow_partial=allow_partial,
+            ),
+            package=package,
+            limit=limit,
+            test_command=test_command,
+            output_format=output_format,
+            interactive=interactive,
+        )
+
+
+@upgrade_app.command("changelog")
+def upgrade_changelog(
+    context: typer.Context,
+    project_path: Annotated[str, typer.Argument()] = ".",
+    web: Annotated[bool, typer.Option("--web", help=HELP_UPGRADE_CHANGELOG_WEB)] = False,
+    output_format: UpgradeFormatOption = "console",
+):
+    """Read the current step's changelog from changelog IQ, whole."""
+    with error_boundary(context.obj):
+        command_upgrade_changelog(context, project_path, web, output_format)
+
+
+@upgrade_app.command("skip")
+@requires_github_login
+def upgrade_skip(
+    context: typer.Context,
+    project_path: Annotated[str, typer.Argument()] = ".",
+    reason: Annotated[str | None, typer.Option("--reason", help=HELP_UPGRADE_SKIP_REASON)] = None,
+    output_format: UpgradeFormatOption = "console",
+):
+    """Leave this step out, rolling it back first if it was applied, and show the next one."""
+    with error_boundary(context.obj):
+        command_upgrade(context, lambda env, path: upgrade_engine.skip(env, path, reason), project_path, output_format)
+
+
+@upgrade_app.command("status")
+@requires_github_login
+def upgrade_status(
+    context: typer.Context,
+    project_path: Annotated[str, typer.Argument()] = ".",
+    output_format: UpgradeFormatOption = "console",
+    interactive: UpgradeInteractiveOption = False,
+):
+    """Show the current step, and with --interactive carry on from there."""
+    check_interactive(interactive, output_format)
+    with error_boundary(context.obj):
+        command_upgrade(context, upgrade_engine.status, project_path, output_format, interactive=interactive)
+
+
+def add_session_command(name: str, run: Callable[..., UpgradeView], summary: str, *, scans: bool) -> None:
+    """Register an `upgrade` subcommand that takes only the project path and the output format.
+
+    Args:
+        name: The subcommand.
+        run: The engine function it calls.
+        summary: Its help text.
+        scans: Whether it plans the project, and so needs the GitHub login a scan needs.
+    """
+
+    def command(
+        context: typer.Context,
+        project_path: Annotated[str, typer.Argument()] = ".",
+        output_format: UpgradeFormatOption = "console",
+    ) -> None:
+        with error_boundary(context.obj):
+            command_upgrade(context, run, project_path, output_format)
+
+    command.__doc__ = summary
+    upgrade_app.command(name)(requires_github_login(command) if scans else command)
+
+
+add_session_command("apply", upgrade_engine.apply, "Install the current step, then run the test command.", scans=True)
+add_session_command("test", upgrade_engine.run_tests, "Run the test command again on the applied step.", scans=False)
+add_session_command(
+    "rollback",
+    upgrade_engine.rollback,
+    "Undo the applied step and show it again, to choose once more.",
+    scans=True,
+)
+add_session_command("continue", upgrade_engine.accept, "Keep the applied step and show the next one.", scans=True)
+add_session_command("finish", upgrade_engine.finish, "Stop here and keep what is installed.", scans=False)
+add_session_command(
+    "abort", upgrade_engine.abort, "Put the project files back as they were at start, and end the session.", scans=False
+)
 
 
 if __name__ == "__main__":
