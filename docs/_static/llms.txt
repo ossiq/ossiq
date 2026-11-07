@@ -54,6 +54,7 @@ Source: the Round 3 agent benchmark of 28 September 2026, with 60 sessions acros
 - [Log in to GitHub](https://ossiq.dev/how-to/github-login.html): Device-flow login, CI tokens, and troubleshooting
 - [Resolve a blocked update or a peer problem](https://ossiq.dev/how-to/resolve-blocked-updates.html): Move past a transitive constraint, fix a peer violation, or repair an unresolved peer
 - [Set a supply-chain policy](https://ossiq.dev/how-to/set-a-supply-chain-policy.html): Refuse versions that are too new or lack the build or source evidence you require, with a committed `.ossiq.yaml`
+- [Upgrade one package at a time](https://ossiq.dev/how-to/upgrade-step-by-step.html): Step through updates with `ossiq upgrade`: preview, install, test, then keep, roll back or skip each one, by hand or with a coding agent
 - [Verifying a release](https://ossiq.dev/how-to/verifying-a-release.html): Check the signed SLSA build provenance of an installed artifact with `gh attestation verify`
 - [Explanation](https://ossiq.dev/explanation/index.html): Map of the explanation pages, in the order of a run: what OSS IQ measures, how it picks an update, and what it writes
 - [The update pyramid](https://ossiq.dev/recommendations/update-pyramid.html): The five update strategy tiers, how far each one reaches, and what choosing a tier risks

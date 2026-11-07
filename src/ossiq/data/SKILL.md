@@ -350,3 +350,43 @@ it for "what else already failed on the path here", not as an exhaustive audit o
 For a package not yet installed, `from_version` is `null` and the payload otherwise has the same
 shape — useful for previewing a brand-new dependency's own module-system/engine story before
 adding it.
+
+## Upgrading several packages, one step at a time
+
+When the user wants to bring a project up to date and have you fix what each update breaks, don't
+apply the whole plan at once. Step through it, so one failing package stops one step:
+
+```bash
+{{ossiq}} upgrade start <project_path> --format agent --test-command "<the project's test command>"
+```
+
+Every `upgrade` subcommand takes `--format agent` and prints one JSON document on stdout; npm,
+uv and the test command write to stderr. `start` runs the test command once first and refuses to
+begin if it already fails, so a failure later always belongs to the step you just applied. Ask the
+user to commit or stash first, so your code edits are easy to revert: `rollback` and `abort`
+restore only the manifest and the lockfile, never code.
+
+Read `step.packages` before you apply. Each direct package carries `update` (the entry
+`{{ossiq}} status --format agent` prints), `update_context` (module-system and engine breaks)
+and `changelog`: `risk_level`, the `breaking` items by version, and `migration_guides` to open
+when the step is a major bump. `changelog.status` other than `ok` means the changelog was not
+available; read the release notes yourself. Run `{{ossiq}} upgrade changelog --format agent` for
+the whole text as `changelogs[].markdown`.
+
+Then loop:
+
+1. `{{ossiq}} upgrade apply --format agent` installs the step and runs the test command.
+2. Exit status `0` and `step.status` `AWAITING_REVIEW`: run `{{ossiq}} upgrade continue --format agent`.
+3. Exit status `3` means the step needs attention (`needs_attention` is `true`, and `message` says why).
+   With `step.status` `AWAITING_REFACTOR` the tests failed: read `step.last_test.output_tail`, fix the
+   project's code for the new version, and run `{{ossiq}} upgrade test --format agent` until it
+   exits `0`, then `continue`. A message that the versions changed means a newer release appeared:
+   read the new step and `apply` again.
+4. If the fix is not worth it, `{{ossiq}} upgrade rollback --format agent` puts the step back to its
+   preview, and `{{ossiq}} upgrade skip --reason "<why>" --format agent` leaves it out. Tell the
+   user which packages you skipped and why.
+
+`commands` in every response lists the subcommands that make sense next. `outcome` is
+`IN_PROGRESS` until the session ends as `COMPLETED`, `FINISHED` or `ABORTED`, or `NOTHING_TO_DO`.
+Use `finish` to stop early and keep what is installed, `abort` to restore the project files to
+where they were at `start`. Do not delete `.ossiq/`; it holds the session.

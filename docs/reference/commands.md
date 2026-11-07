@@ -1,6 +1,6 @@
 ---
 title: Commands
-description: "Every ossiq command with its arguments, options and exit codes: status, info, add, update-context, plan, apply, export, html, install skills, auth and mcp."
+description: "Every ossiq command with its arguments, options and exit codes: status, info, add, update-context, plan, apply, upgrade, export, html, install skills, auth and mcp."
 ---
 
 # Commands
@@ -16,6 +16,7 @@ Every `ossiq` command, with its arguments, options and exit codes. Part of the
 | [`update-context`](#update-context) | Compares a package's installed version with a target you name | Nothing |
 | [`plan`](#plan-and-apply) | Previews the updates `apply` would make | Nothing |
 | [`apply`](#plan-and-apply) | Shows the plan, then writes it after you confirm | Manifest and lockfile |
+| [`upgrade`](#upgrade) | Steps through the updates one at a time: preview, install, test, then keep, roll back or skip | Manifest and lockfile, and a `.ossiq/` directory while a session lasts |
 | [`export`](#export) | Writes the scan as JSON | One `.json` file |
 | [`html`](#html) | Writes the scan as a self-contained HTML report | One `.html` file |
 | [`install skills`](#install-skills) | Sets up coding agents to call OSS IQ | Files under your home directory |
@@ -165,6 +166,76 @@ names the package that goes first and the range that makes it wait. `apply` runs
 order: every pass but the last only writes the lockfile, and the last one installs. A failure in
 any pass restores the project files (see [npm and pnpm projects](npm-and-pnpm.md)). A plan with no
 such conflict is one pass and shows no pass headings.
+
+(cmd-upgrade)=
+## `upgrade`
+
+```bash
+ossiq upgrade start [OPTIONS] [PROJECT_PATH]
+ossiq upgrade SUBCOMMAND [OPTIONS] [PROJECT_PATH]
+```
+
+Queues the updates `plan` lists as steps and walks through them one at a time. The session is kept
+in `.ossiq/` in the project, so each subcommand picks up where the last one stopped.
+[Upgrade one package at a time](../how-to/upgrade-step-by-step.md) walks through a session.
+
+`upgrade` works with npm, pnpm and uv projects. On any other package manager, `start` fails with
+an error before it changes anything.
+
+| Subcommand | What it does |
+|---|---|
+| `start` | Plans the project, runs the test command once as a baseline, queues the steps and shows the first one |
+| `status` | Shows the current step: its preview while it is pending, its test result once applied |
+| `changelog` | Prints the full changelog of the current step's direct packages. `--web` opens it in a browser |
+| `apply` | Installs the current step, then runs the test command |
+| `test` | Runs the test command again on the applied step |
+| `rollback` | Restores the manifest and lockfile from before the step, reinstalls, and shows the step again |
+| `skip` | Leaves the step out, rolling it back first if it was applied |
+| `continue` | Keeps the applied step and shows the next one. Refuses while the tests fail |
+| `finish` | Ends the session and keeps what is installed. Refuses while the tests fail |
+| `abort` | Restores the manifest and lockfile as they were at `start`, reinstalls, and ends the session |
+
+Every subcommand takes `--format console|agent`, `-f`. The agent format prints one JSON document on
+stdout, and npm, uv and the test command write to stderr instead.
+
+| Option | Subcommands | Description |
+|---|---|---|
+| The options of [`plan`](#plan-and-apply), except `--yes` | `start` | Choose the project, the tier and the packages the plan covers. Every later step plans again with the same options |
+| `--test-command CMD` | `start` | Shell command that checks the project. It runs before the first step and after every install. A failing baseline stops `start`. Default: `upgrade.test-command` in [`.ossiq.yaml`](configuration.md#project-policy-file) |
+| `--limit N` | `start` | Queue only the first `N` steps. Default: `upgrade.limit` in `.ossiq.yaml` |
+| `--package NAME` | `start` | Queue only the step of one direct dependency |
+| `--interactive` | `start`, `status` | Carry on as a menu. Needs `--format console` |
+| `--web` | `changelog` | Open the changelog on changelogiq.dev instead of printing it |
+| `--reason TEXT` | `skip` | Why the step is skipped. The session keeps it |
+
+A flag beats the `.ossiq.yaml` default.
+
+### Steps and their states
+
+A step is one direct dependency plus the transitive copies and peers that must move with it. The
+transitive updates no direct dependency pulls in share the last step. A step is in one state:
+
+| State | Meaning |
+|---|---|
+| `PENDING` | Previewed, not installed |
+| `AWAITING_REVIEW` | Installed, and the tests passed or no test command is set |
+| `AWAITING_REFACTOR` | Installed, and the tests failed |
+| `COMPLETED` | Kept with `continue` |
+| `SKIPPED` | Left out with `skip`, or no longer recommended once an earlier step ran |
+
+`apply` plans again before it installs. When the versions differ from the preview, it shows the new
+ones and exits with status 3 without installing.
+
+### Files the session keeps
+
+| Path | Content |
+|---|---|
+| `.ossiq/update-progress.json` | The session: the options, the steps, their states and the last test run |
+| `.ossiq/snapshots/` | Copies of the manifest and lockfile from `start` and from before each applied step |
+| `.ossiq/.gitignore` | Contains `*`, so version control ignores the directory |
+
+pnpm projects also snapshot `pnpm-workspace.yaml`. The directory is removed when the session ends.
+`rollback` and `abort` restore these files and reinstall from them. They never touch your code.
 
 (cmd-export)=
 ## `export`
@@ -340,6 +411,7 @@ the [JSON export](export-and-agent-format.md#json-export) yourself.
 | `0` | The command finished | All |
 | `1` | An error stopped the command. The message has a title and a hint. This includes "Security Data Incomplete" and a critical warning that blocks `add` | All |
 | `2` | A usage error: an unknown option, or `--override` naming a package that is not in the project | All |
+| `3` | An `upgrade` step needs attention: its tests failed, its install was refused, or the versions to install changed since the preview | `upgrade` |
 | `75` | A GitHub login is waiting for approval. A scan that shows a login code without a terminal exits this way too | `auth login`, scanning commands |
 
 Pass the global `--traceback` option to print a full traceback in place of the error message.

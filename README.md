@@ -122,6 +122,7 @@ Data comes from [OSV](https://osv.dev/), the [npm registry](https://www.npmjs.co
 - [Getting started](https://ossiq.dev/getting-started.html)
 - [Log in to GitHub](https://ossiq.dev/how-to/github-login.html)
 - [Set a supply-chain policy](https://ossiq.dev/how-to/set-a-supply-chain-policy.html)
+- [Upgrade one package at a time](https://ossiq.dev/how-to/upgrade-step-by-step.html)
 - [Reference](https://ossiq.dev/reference.html)
 - [Explanation](https://ossiq.dev/explanation/index.html), starting with
   [the update pyramid](https://ossiq.dev/recommendations/update-pyramid.html)

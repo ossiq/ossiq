@@ -75,6 +75,8 @@ The JSON Schema ships with OSS IQ as `ossiq/data/project_config_v1.schema.json`.
 | `policy.build.no-downgrade` | `true`, `false` | Refuse a version with less build evidence than an earlier version of its major line |
 | `policy.source.minimum` | `version-controlled`, `protected-history`, `reviewed` | The weakest protection a direct dependency's GitHub repository may have on its default branch |
 | `policy.exceptions` | A list | Waivers: packages and releases that a rule skips |
+| `upgrade.limit` | A whole number, `1` or more | Queue only this many steps in `ossiq upgrade start`. The `--limit` flag beats it |
+| `upgrade.test-command` | A non-empty string | Shell command `ossiq upgrade` runs before the first step and after every install. It runs in your shell from the project directory. The `--test-command` flag beats it |
 
 A rule is off unless its block is present. Each entry under `policy.exceptions` takes these keys:
 
