@@ -84,6 +84,21 @@ def test_pass_count_and_through_pass_are_cumulative() -> None:
     assert {e.package_name for e in plan.through_pass(2).all_entries} == {"pinia", "@pinia/nuxt", "vue-router"}
 
 
+def test_only_keeps_the_named_moves_in_a_single_pass() -> None:
+    plan = assign(pinia_trio(), PINIA_TRIO)
+
+    step = plan.only({"pinia@3.0.4"})
+
+    assert [e.package_name for e in step.all_entries] == ["pinia"]
+    assert (step.pass_count, step.pass_orderings) == (1, [])
+
+
+def test_the_peer_key_names_the_move_that_waits() -> None:
+    (ordering,) = assign(pinia_trio(), PINIA_TRIO).pass_orderings
+
+    assert ordering.peer_key == "pinia@3.0.4"
+
+
 def test_a_plan_without_peer_ranges_between_its_entries_is_returned_as_it_was() -> None:
     plan = plan_of(entry("a", "1.0.0", "2.0.0"), entry("b", "1.0.0", "2.0.0"))
 

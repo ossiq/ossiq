@@ -111,6 +111,7 @@ class Command(Enum):
     PLAN = "plan"
     APPLY = "apply"
     UPDATE_CONTEXT = "update-context"
+    UPGRADE = "upgrade"
 
 
 class ExportUnknownSchemaVersion(StrEnum):
@@ -326,6 +327,9 @@ class PassOrdering:
 
     honoured: bool = True
     """False when the requirer and the peer could not be separated: both share a pass and npm decides."""
+
+    peer_key: str = ""
+    """`UpdateEntry.move_key` of the package that has to wait; what a step groups lockstep pairs by."""
 
 
 @dataclass(frozen=True)

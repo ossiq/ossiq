@@ -91,6 +91,7 @@ def assign_install_passes(
             peer_version=peer.recommended_version,
             spec=links[link],
             honoured=honoured,
+            peer_key=peer.move_key,
         )
 
     def in_pass(group: Iterable[UpdateEntry]) -> list[UpdateEntry]:

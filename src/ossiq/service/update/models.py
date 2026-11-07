@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import dataclasses
+from collections.abc import Collection
 from dataclasses import dataclass, field
 from datetime import datetime
+from typing import Literal
 
 from ossiq.domain.common import (
     ConstraintType,
@@ -158,3 +160,38 @@ class UpdatePlan:
             transitive_entries=[e for e in self.transitive_entries if e.install_pass <= number],
             peer_repairs=self.peer_repairs if number >= self.pass_count else [],
         )
+
+    def only(self, move_keys: Collection[str], *, with_peer_repairs: bool = False) -> UpdatePlan:
+        """Keep only the entries whose `move_key` is in *move_keys*, all in one install pass.
+
+        Peer repairs describe the final tree, so they stay only with *with_peer_repairs*.
+        """
+
+        def pick(entries: list[UpdateEntry]) -> list[UpdateEntry]:
+            return [dataclasses.replace(e, install_pass=1) for e in entries if e.move_key in move_keys]
+
+        return dataclasses.replace(
+            self,
+            direct_entries=pick(self.direct_entries),
+            transitive_entries=pick(self.transitive_entries),
+            peer_repairs=self.peer_repairs if with_peer_repairs else [],
+            pass_orderings=[],
+        )
+
+
+@dataclass(frozen=True)
+class PlanOptions:
+    """What `plan`, `apply` and `upgrade` build a plan from; an upgrade session keeps it to re-plan alike."""
+
+    project_path: str
+    registry_type: Literal["npm", "pypi"] | None = None
+    allow_prerelease: bool = False
+    allow_prerelease_packages: tuple[str, ...] = ()
+    production: bool = False
+    update_strategy: UpdateStrategy = DEFAULT_STRATEGY
+    strategy_overrides: tuple[tuple[str, UpdateStrategy], ...] = ()
+    ignore_packages: tuple[str, ...] = ()
+    pin_all: bool = False
+    rewrite_versions: bool = False
+    overrides: tuple[tuple[str, str], ...] = field(default_factory=tuple)
+    allow_partial: bool = False
