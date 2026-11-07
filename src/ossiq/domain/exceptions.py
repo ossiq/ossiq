@@ -171,6 +171,13 @@ class PackageManagerUpdateIncomplete(ApplicationError):
     )
 
 
+class UpgradeSessionError(ApplicationError):
+    """Raised when an `ossiq upgrade` subcommand cannot run in the session's current state."""
+
+    title = "Upgrade Session"
+    hint = "Run `ossiq upgrade status` to see where the session stands."
+
+
 class UnknownEcosystem(ApplicationError):
     title = "Unknown Ecosystem"
     hint = "Provided ecosystem is not recognized among supported ecosystems (NPM, etc...)"
