@@ -90,7 +90,8 @@ dev = [
 
     # Create uv.lock with version 1 revision 3
     # Real uv.lock stores version specifiers from pyproject.toml in the root package's
-    # [package.metadata].requires-dist block, not in the dependencies entries themselves.
+    # [package.metadata].requires-dist block, not in the dependencies entries themselves,
+    # and tags an extra's entries with an `extra == '<name>'` marker.
     lockfile_content = """
 version = 1
 revision = 3
@@ -111,15 +112,12 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "requests", specifier = ">=2.31.0" },
+    { name = "black", marker = "extra == 'dev'", specifier = ">=23.0.0" },
     { name = "click", specifier = ">=8.1.0" },
+    { name = "pytest", marker = "extra == 'dev'", specifier = ">=7.4.0" },
+    { name = "requests", specifier = ">=2.31.0" },
 ]
-
-[package.metadata.requires-dev]
-dev = [
-    { name = "pytest", specifier = ">=7.4.0" },
-    { name = "black", specifier = ">=23.0.0" },
-]
+provides-extras = ["dev"]
 
 [[package]]
 name = "requests"
@@ -451,6 +449,30 @@ class TestParseLockfileV1R3:
         assert dependency_tree.dependencies["uvicorn"].extras == ["standard"]
         assert dependency_tree.dependencies["click"].extras is None
         assert "httptools" in dependency_tree.dependencies["uvicorn"].optional_dependencies
+
+    def test_a_pin_in_an_extra_is_classified_pinned(self, uv_project_with_lockfile, settings):
+        """An extra's pin keeps its type, so it is frozen by default like a pin in [project.dependencies]."""
+        uv_manager = PackageManagerPythonUv(uv_project_with_lockfile, settings)
+        uv_lock_data = {
+            "package": [
+                {
+                    "name": "test-project",
+                    "version": "0.1.0",
+                    "source": {"virtual": "."},
+                    "optional-dependencies": {"docs": [{"name": "foo"}]},
+                    "metadata": {
+                        "requires-dist": [{"name": "foo", "marker": "extra == 'docs'", "specifier": "==1.0.0"}]
+                    },
+                },
+                {"name": "foo", "version": "1.0.0", "source": {"registry": "https://pypi.org/simple"}},
+            ]
+        }
+
+        dependency_tree, _ = uv_manager.parse_lockfile_v1_r3("test-project", uv_lock_data)
+
+        foo = dependency_tree.optional_dependencies["foo"]
+        assert foo.version_constraint_declared == "==1.0.0"
+        assert foo.constraint_info.type == ConstraintType.PINNED
 
     def test_parse_transitive_dependencies_ignored(self, uv_project_with_lockfile, settings):
         """
@@ -810,6 +832,7 @@ version = "0.1.0"
 _VERSION_CONSTRAINT_TESTDATA = os.path.join(
     os.path.dirname(__file__), "..", "..", "..", "testdata", "pypi", "version-constraint"
 )
+_UV_TESTDATA = os.path.join(os.path.dirname(__file__), "..", "..", "..", "testdata", "pypi", "uv")
 
 
 class TestVersionConstraintIntegration:
@@ -876,6 +899,25 @@ class TestConstraintClassificationUv:
         assert dep.constraint_info.type == expected_type, (
             f"{pkg_name}: expected {expected_type}, got {dep.constraint_info.type}"
         )
+
+    @pytest.mark.parametrize(
+        "pkg_name,expected_spec",
+        [
+            ("black", "~=25.11.0"),  # extra `test`
+            ("mkdocs-material", "~=9.7.1"),  # extra `docs`
+            ("pytest", "~=9.0.1"),  # extra `test`
+        ],
+    )
+    def test_range_in_an_extra_is_classified_like_a_main_dependency(
+        self, pkg_name: str, expected_spec: str, settings: Settings
+    ):
+        """An extra's `~=` range is NARROWED, so `apply` can widen it when the recommendation leaves it."""
+        project = PackageManagerPythonUv(_UV_TESTDATA, settings).project_info()
+
+        dep = project.optional_dependencies.get(pkg_name)
+        assert dep is not None, f"{pkg_name!r} not found"
+        assert dep.version_defined == expected_spec
+        assert dep.constraint_info.type == ConstraintType.NARROWED
 
 
 # ============================================================================

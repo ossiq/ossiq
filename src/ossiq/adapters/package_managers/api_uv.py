@@ -46,6 +46,8 @@ UV_EXCLUDE_NEWER_ENV = "UV_EXCLUDE_NEWER"
 UV_CONFIG_FILE_ENV = "UV_CONFIG_FILE"
 UV_NO_CONFIG_ENV = "UV_NO_CONFIG"
 UV_EXCLUDE_NEWER_SOURCE = "uv exclude-newer"
+# uv tags an extra's entries in [package.metadata].requires-dist with this marker.
+UV_EXTRA_MARKER = re.compile(r"extra == '([^']+)'")
 
 
 def parse_pyproject_direct_specifiers(pyproject_data: dict) -> dict[str, str | None]:
@@ -268,17 +270,12 @@ class UVTreeBuilderV1R3(LockfileTreeBuilder):
         return source, marker, None
 
     def get_raw_dependencies(self, pkg_data: dict) -> Iterable[tuple[str | None, Iterable[dict]]]:
-        metadata = pkg_data.get("metadata", {})
-
-        # Specifiers for regular deps live in [package.metadata].requires-dist
-        requires_dist = metadata.get("requires-dist", [])
-        dist_specifiers: dict[str, str | None] = {e["name"]: e.get("specifier") for e in requires_dist}
-
-        # Specifiers for optional/dev deps live in [package.metadata.requires-dev].<group>
-        dev_specifiers: dict[str, dict[str, str | None]] = {
-            group: {e["name"]: e.get("specifier") for e in entries}
-            for group, entries in metadata.get("requires-dev", {}).items()
-        }
+        # requires-dist holds every range the package declares: plain dependencies untagged, an
+        # extra's tagged `extra == '<name>'`. requires-dev is for dependency groups, not extras.
+        specifiers: dict[str | None, dict[str, str | None]] = defaultdict(dict)
+        for entry in pkg_data.get("metadata", {}).get("requires-dist", []):
+            extra = UV_EXTRA_MARKER.search(entry.get("marker", ""))
+            specifiers[extra[1] if extra else None][entry["name"]] = entry.get("specifier")
 
         def enrich(deps: list[dict], spec_map: dict[str, str | None]) -> list[dict]:
             if not spec_map:
@@ -290,11 +287,10 @@ class UVTreeBuilderV1R3(LockfileTreeBuilder):
                 for dep in deps
             ]
 
-        if pkg_data.get("optional-dependencies", {}):
-            for category, deps in pkg_data["optional-dependencies"].items():
-                yield category, enrich(list(deps), dev_specifiers.get(category, {}))
+        for category, deps in pkg_data.get("optional-dependencies", {}).items():
+            yield category, enrich(list(deps), specifiers.get(category, {}))
 
-        yield None, enrich(pkg_data.get("dependencies", []), dist_specifiers)
+        yield None, enrich(pkg_data.get("dependencies", []), specifiers.get(None, {}))
 
     def extract_dependency_identity(self, dep_data: dict) -> tuple[str, str | None]:
         # UV dependency entries: {name = "requests", specifier = ">=2.31.0"}
