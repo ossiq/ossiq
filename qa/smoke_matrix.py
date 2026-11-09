@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
-"""Smoke matrix: drive the real `ossiq` CLI against tiny projects in Docker and check what it did.
+"""Regression matrix: drive the real `ossiq` CLI against tiny projects in Docker and check what it did.
+
+It covers status, plan, apply, add, export and `upgrade` (console, menu and the `--format agent` loop)
+on npm, pnpm, uv, pip and pylock projects.
 
 Each case in qa/smoke/cases.toml names a project under qa/smoke/projects/ (one or two dependencies,
 locked at an old version) and a list of steps. A step is one command in a throwaway container
@@ -12,14 +15,16 @@ at least 3.7". Exact versions are only asserted for releases that cannot change 
 last release is the one in the project, or a version the step itself forces.
 
 Every step also gets four checks no case has to ask for: the exit code, no Python traceback,
-`status` / `plan` / `export` / `info` leave the manifest and lockfile byte-identical, and after
-`apply` / `add` every direct dependency is locked at a version its declared spec admits.
+`status` / `plan` / `export` / `info` and the `upgrade` subcommands that only read leave the manifest
+and lockfile byte-identical, and after a command that writes (`apply`, `add`, `upgrade apply`,
+`rollback`, `skip`, `abort`) every direct dependency is locked at a version its declared spec admits.
 
 Usage:
 
     just qa-build                                  # once, and after changing src/
     uv run python qa/smoke_matrix.py               # or: just qa-matrix
     uv run python qa/smoke_matrix.py --cases npm-security,uv-standard
+    uv run python qa/smoke_matrix.py --cases 'pnpm-*,*-upgrade-*'     # `*` patterns are accepted
     uv run python qa/smoke_matrix.py --dry-run
 
 Exit status: 0 when no case failed (XFAIL and XPASS allowed), 1 when a case failed, 2 when the run
@@ -29,6 +34,7 @@ This is a QA script, not a pytest - it hits the network and is kept out of `just
 """
 
 import argparse
+import fnmatch
 import json
 import logging
 import os
@@ -45,7 +51,19 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from update_strategies_regression import ECOSYSTEMS, Ecosystem, FixtureError, Status, reject_unknown_keys, run_logged
+import yaml
+from packaging.requirements import Requirement
+from packaging.utils import canonicalize_name
+from update_strategies_regression import ECOSYSTEMS as BASE_ECOSYSTEMS
+from update_strategies_regression import (
+    Ecosystem,
+    FixtureError,
+    NpmEcosystem,
+    PypiEcosystem,
+    Status,
+    reject_unknown_keys,
+    run_logged,
+)
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SMOKE_DIR = Path(__file__).resolve().parent / "smoke"
@@ -65,14 +83,25 @@ DEFAULT_TIMEOUT = 300
 # Headroom for the host-side backstop over the in-container `timeout`.
 HOST_TIMEOUT_SLACK = 60
 # Installed trees and package caches: they add up to gigabytes per run and nothing reads them.
-BULKY_DIRS = ("workspace/node_modules", "workspace/.venv", "home/.cache", "home/.npm")
+BULKY_DIRS = ("workspace/node_modules", "workspace/.venv", "home/.cache", "home/.npm", "home/.local/share/pnpm")
 # Files a command that only reads must leave alone.
-GUARDED_FILES = ("package.json", "package-lock.json", "pyproject.toml", "uv.lock", "requirements.txt", ".ossiq.yaml")
-MUTATING_COMMANDS = frozenset({"apply", "add"})
+GUARDED_FILES = (
+    "package.json",
+    "package-lock.json",
+    "pnpm-lock.yaml",
+    "pnpm-workspace.yaml",
+    "pyproject.toml",
+    "uv.lock",
+    "pylock.toml",
+    "requirements.txt",
+    ".ossiq.yaml",
+)
+# `upgrade apply` is `apply`; the others write the manifest and lockfile too (rollback, skip and abort
+# restore them, the menu can do any of it). `start`, `status`, `test`, `continue` and `finish` only read.
+MUTATING_COMMANDS = frozenset({"apply", "add", "rollback", "skip", "abort", "--interactive"})
 TRACEBACK = "Traceback (most recent call last)"
 NONZERO = "nonzero"
 
-MANIFESTS = {"npm": "package.json", "pypi": "pyproject.toml"}
 CASE_KEYS = frozenset({"id", "project", "why", "covers", "ecosystem", "token", "known_issue", "add_files", "steps"})
 STEP_KEYS = frozenset(
     {"run", "rc", "env", "stdin", "timeout", "stdout", "stderr", "output", "locked", "declared", "report"}
@@ -214,10 +243,75 @@ def fail(message: str) -> Any:
     raise FixtureError(message)
 
 
+class PnpmEcosystem(NpmEcosystem):
+    """npm's semver ranges, read from package.json and pnpm-lock.yaml (lockfileVersion 9)."""
+
+    name = "pnpm"
+    toolchain = "pnpm"
+
+    def locked_versions(self, project: Path) -> dict[str, str]:
+        lock = yaml.safe_load((project / "pnpm-lock.yaml").read_text(encoding="utf-8")) or {}
+        versions: dict[str, str] = {}
+        # shortcut: a transitive package locked at several versions reports the last one in file
+        # order; when a case needs one of them, key the result by version.
+        for entry in lock.get("snapshots") or {}:
+            name, _, version = entry.split("(")[0].rpartition("@")  # "@scope/pkg@1.2.3(peer@4)"
+            if name:
+                versions[name] = version
+        importer = (lock.get("importers") or {}).get(".") or {}
+        for section in ("dependencies", "devDependencies", "optionalDependencies"):
+            for name, meta in (importer.get(section) or {}).items():
+                versions[name] = str(meta["version"]).split("(")[0]
+        return versions
+
+
+class PipEcosystem(PypiEcosystem):
+    """PEP 440 specifiers in requirements.txt; the venv `apply` installed into stands in for a lockfile."""
+
+    name = "pip"
+    toolchain = "pip"
+
+    def declared_specs(self, project: Path) -> dict[str, str]:
+        specs: dict[str, str] = {}
+        for raw in (project / "requirements.txt").read_text(encoding="utf-8").splitlines():
+            line = raw.split("#")[0].strip()
+            if line and not line.startswith("-"):  # -c, -r and -e name files, not packages
+                requirement = Requirement(line)
+                specs[canonicalize_name(requirement.name)] = str(requirement.specifier)
+        return specs
+
+    def locked_versions(self, project: Path) -> dict[str, str]:
+        sites = sorted((project / ".venv").glob("lib/python*/site-packages"))
+        if not sites:
+            raise FileNotFoundError("no .venv in the project: nothing was installed")
+        versions: dict[str, str] = {}
+        for dist_info in sites[0].glob("*.dist-info"):
+            name, _, version = dist_info.name.removesuffix(".dist-info").rpartition("-")
+            versions[canonicalize_name(name)] = version
+        return versions
+
+
+ECOSYSTEMS: tuple[Ecosystem, ...] = (*BASE_ECOSYSTEMS, PnpmEcosystem(), PipEcosystem())
+
+
 def detect_ecosystem(project: Path) -> Ecosystem | None:
-    """The ecosystem a project is unambiguously in, judged by its manifest file; None for none or both."""
-    found = [eco for eco in ECOSYSTEMS if (project / MANIFESTS[eco.name]).is_file()]
-    return found[0] if len(found) == 1 else None
+    """The ecosystem a project is unambiguously in, judged by its files; None for none or both.
+
+    pnpm is an npm project with a pnpm-lock.yaml, pip a requirements.txt with no pyproject.toml.
+    """
+    names = {
+        name
+        for name in ("package.json", "pnpm-lock.yaml", "pyproject.toml", "requirements.txt")
+        if (project / name).is_file()
+    }
+    javascript = "package.json" in names
+    python = bool(names & {"pyproject.toml", "requirements.txt"})
+    if javascript == python:
+        return None
+    by_name = {eco.name: eco for eco in ECOSYSTEMS}
+    if javascript:
+        return by_name["pnpm" if "pnpm-lock.yaml" in names else "npm"]
+    return by_name["pypi" if "pyproject.toml" in names else "pip"]
 
 
 def parse_case(raw: Mapping[str, Any], projects_root: Path) -> Case:
@@ -271,19 +365,23 @@ def parse_cases(raw: Mapping[str, Any], projects_root: Path = PROJECTS_DIR) -> l
 
 
 def select_cases(cases: Sequence[Case], wanted: str | None) -> list[Case]:
-    """Filter *cases* by a comma-separated list of ids, in the order asked for.
+    """Filter *cases* by a comma-separated list of ids or `*` patterns, in the order asked for.
 
     Raises:
-        FixtureError: When an id isn't defined.
+        FixtureError: When an id or pattern matches no case.
     """
     if not wanted:
         return list(cases)
-    known = {case.id: case for case in cases}
-    ids = [part.strip() for part in wanted.split(",") if part.strip()]
-    unknown = [case_id for case_id in ids if case_id not in known]
-    if unknown:
-        raise FixtureError(f"unknown case(s): {', '.join(unknown)}; expected {', '.join(known)}")
-    return [known[case_id] for case_id in ids]
+    selected: list[Case] = []
+    unmatched: list[str] = []
+    for pattern in (part.strip() for part in wanted.split(",") if part.strip()):
+        matches = [case for case in cases if fnmatch.fnmatchcase(case.id, pattern)]
+        if not matches:
+            unmatched.append(pattern)
+        selected += [case for case in matches if all(case.id != chosen.id for chosen in selected)]
+    if unmatched:
+        raise FixtureError(f"unknown case(s): {', '.join(unmatched)}; expected {', '.join(case.id for case in cases)}")
+    return selected
 
 
 # ---------------------------------------------------------------------------
@@ -293,7 +391,7 @@ def select_cases(cases: Sequence[Case], wanted: str | None) -> list[Case]:
 
 def is_pinned(ecosystem: Ecosystem, spec: str) -> bool:
     """Whether *spec* names exactly one release."""
-    if ecosystem.name == "npm":
+    if isinstance(ecosystem, NpmEcosystem):  # pnpm reads the same semver ranges
         return re.fullmatch(r"\d+\.\d+\.\d+([-+][0-9A-Za-z.+-]+)?", spec.strip()) is not None
     return spec.strip().startswith("==") and "*" not in spec
 
@@ -597,7 +695,7 @@ def setup_logging(log_dir: Path | None = None) -> None:
 def parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
     """Parse the command line."""
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--cases", help="comma-separated case ids (default: all)")
+    parser.add_argument("--cases", help="comma-separated case ids or patterns such as 'pnpm-*' (default: all)")
     parser.add_argument("--parallel", type=int, default=4, help="cases at a time (default: 4)")
     parser.add_argument("--image", default=IMAGE, help=f"QA image (default: {IMAGE})")
     parser.add_argument("--dry-run", action="store_true", help="list the cases and their commands, then exit")

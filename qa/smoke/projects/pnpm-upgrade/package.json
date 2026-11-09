@@ -1,0 +1,12 @@
+{
+  "name": "smoke-pnpm-upgrade",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "test": "node test.js"
+  },
+  "dependencies": {
+    "semver": "^5.7.1",
+    "escape-string-regexp": "^4.0.0"
+  }
+}

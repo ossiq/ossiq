@@ -236,6 +236,21 @@ steps = [
   { run = ["ossiq", "apply", "--override", "ms==2.1.3", "--yes", "."], locked = { ms = { equals = "2.1.3" } }, files = { "workspace/package.json" = { has = ['"overrides"'] } } },
 ]
 
+# vue pins @vue/server-renderer to its own version and the renderer peer-pins vue back. Only vue owns
+# the renderer's copy, so the pick that moves vue moves the renderer too; the old copy must not hold
+# vue below the release that fixes the renderer's CVE (3.5.42).
+
+[[cases]]
+id = "npm-lockstep"
+project = "npm-lockstep"
+why = "vue is not held back by the old @vue/server-renderer that peer-pins it: both move past the renderer's CVE, and no peer hold is left"
+covers = ["GH-179"]
+steps = [
+  { run = ["ossiq", "plan", "."], stdout = { lacks = ["Held by peer dependencies"] } },
+  { run = ["ossiq", "apply", "--yes", "."], locked = { vue = { at_least = "3.5.42", below = "4.0.0" }, "@vue/server-renderer" = { at_least = "3.5.42", below = "4.0.0" } } },
+  { run = ["ossiq", "plan", "."], stdout = { lacks = ["Held by peer dependencies"] } },
+]
+
 # ---------------------------------------------------------------------------
 # uv: update tiers, plan / apply flags
 # ---------------------------------------------------------------------------
@@ -295,6 +310,37 @@ covers = ["TC-U20"]
 steps = [
   { run = ["ossiq", "plan", "."], stdout = { has = ["attrs"], lacks = ["Recommended"] } },
   { run = ["ossiq", "apply", "--rewrite-versions", "--yes", "."], locked = { attrs = { at_least = "23.2.0" } }, declared = { attrs = { pinned = true, changed = true } } },
+]
+
+# Extras. mkdocs-material fixes its CVE in 9.7.7, and every 9.8 release needs requests>=2.33.0,
+# which requests~=2.32.5 leaves out.
+
+[[cases]]
+id = "uv-extras-widen"
+project = "uv-extras"
+why = "a ~= range in an extra is widened in place, like one in [project].dependencies"
+covers = ["TC-U05", "GH-179"]
+steps = [
+  { run = ["ossiq", "apply", "--update-strategy", "latest", "--yes", "."], locked = { idna = { at_least = "3.10" }, mkdocs-material = { at_least = "9.8.0" }, requests = { at_least = "2.33.0" } }, declared = { idna = { changed = true, pinned = false }, mkdocs-material = { changed = true, pinned = false }, requests = { changed = true } } },
+]
+
+[[cases]]
+id = "uv-extras-sibling-range"
+project = "uv-extras"
+why = "apply succeeds: an extra's CVE fix never needs requests past the range the plan leaves it in"
+covers = ["GH-179"]
+steps = [
+  { run = ["ossiq", "apply", "--yes", "."], locked = { mkdocs-material = { at_least = "9.7.7" } } },
+]
+
+[[cases]]
+id = "uv-extras-sibling-held"
+project = "uv-extras"
+why = "with requests left alone, mkdocs-material stops below 9.8 and the export says requests is why"
+covers = ["GH-179", "TC-U01"]
+steps = [
+  { run = ["ossiq", "export", "--ignore", "requests", "--output", "export.json", "."], report = "export.json", packages = { mkdocs-material = { recommended_version = { at_least = "9.7.7", below = "9.8.0" } } }, files = { "workspace/export.json" = { has = ["requires requests (held at ~=2.32.5"] } } },
+  { run = ["ossiq", "apply", "--ignore", "requests", "--yes", "."], locked = { mkdocs-material = { at_least = "9.7.7", below = "9.8.0" }, requests = { below = "2.33.0" } }, declared = { requests = { equals = "~=2.32.5" } } },
 ]
 
 # ---------------------------------------------------------------------------
@@ -392,4 +438,644 @@ steps = [
   { run = ["ossiq", "auth", "logout"], stdout = { has = ["Nothing to remove"] } },
   { run = ["ossiq", "auth", "login"], rc = "nonzero", output = { has = ["Credential Store Unavailable"] } },
   { run = ["ossiq", "status", "."], stdout = { has = ["Registry: NPM"] } },
+]
+
+# ---------------------------------------------------------------------------
+# pnpm: the npm cases again, on pnpm-locked copies of the same projects
+# ---------------------------------------------------------------------------
+
+[[cases]]
+id = "status-pnpm"
+project = "pnpm-semver"
+why = "status, its agent and --full forms, --production and info read a pnpm project without touching it"
+covers = ["TC-C02", "TC-C09", "TC-C10", "TC-C03", "TC-G04", "TC-S06", "TC-L08", "TC-U04"]
+steps = [
+  { run = ["ossiq", "status", "."], stdout = { has = ["Registry: NPM", "semver", "ms", "Production: 1", "Dev: 1"] } },
+  { run = ["ossiq", "status", "--production", "."], stdout = { has = ["Production: 1", "Dev: 0"], lacks = ["Development"] } },
+  { run = ["ossiq", "status", "--format", "agent", "."], stdout = { json = true, has = ['"operation": "update"', '"registry": "npm"', '"package": "semver"'] } },
+  { run = ["ossiq", "status", "--full", "."], stdout = { has = ["semver"] } },
+  { run = ["ossiq", "info", "semver", "."], stdout = { has = ["semver"] } },
+  { run = ["ossiq", "info", "semver", "--format", "agent", "."], stdout = { json = true, has = ['"operation": "add"', '"package": "semver"'] } },
+  { run = ["ossiq", "info", "no-such-pkg-xyz-123", "."], rc = 1 },
+]
+
+[[cases]]
+id = "pnpm-security"
+project = "pnpm-semver"
+why = "the security tier moves only semver (it has a CVE), by the smallest diff, and leaves ms alone"
+covers = ["TC-T07", "TC-U08", "TC-U13"]
+steps = [
+  { run = ["ossiq", "plan", "--update-strategy", "security", "."], stdout = { has = ["semver"] } },
+  { run = ["ossiq", "apply", "--update-strategy", "security", "--yes", "."], locked = { semver = { at_least = "5.7.2", below = "6.0.0" }, ms = { equals = "2.0.0" } }, declared = { semver = { changed = true } } },
+]
+
+[[cases]]
+id = "pnpm-standard"
+project = "pnpm-semver"
+why = "the standard tier moves both packages inside their caret ranges, and a second plan has nothing to recommend"
+covers = ["TC-U08", "TC-U13", "TC-U19"]
+steps = [
+  { run = ["ossiq", "apply", "--yes", "."], locked = { semver = { at_least = "5.7.2", below = "6.0.0" }, ms = { at_least = "2.1.3", below = "3.0.0" } }, declared = { semver = { pinned = false }, ms = { pinned = false } } },
+  { run = ["ossiq", "plan", "."], stdout = { lacks = ["Recommended"] } },
+]
+
+[[cases]]
+id = "pnpm-latest"
+project = "pnpm-semver"
+why = "the latest tier widens semver's caret to the newest major"
+covers = ["TC-U08"]
+steps = [
+  { run = ["ossiq", "apply", "--update-strategy", "latest", "--yes", "."], locked = { semver = { at_least = "7.6.3" }, ms = { at_least = "2.1.3" } }, declared = { semver = { changed = true } } },
+]
+
+[[cases]]
+id = "pnpm-pin-all"
+project = "pnpm-semver"
+why = "--pin-all writes exact versions for every updated direct dependency"
+covers = ["TC-U12"]
+steps = [
+  { run = ["ossiq", "apply", "--pin-all", "--yes", "."], locked = { semver = { at_least = "5.7.2", below = "6.0.0" }, ms = { at_least = "2.1.3" } }, declared = { semver = { pinned = true }, ms = { pinned = true } } },
+]
+
+[[cases]]
+id = "pnpm-ignore"
+project = "pnpm-semver"
+why = "--ignore keeps a package out of the plan and out of apply"
+covers = ["TC-U01", "TC-U02"]
+steps = [
+  { run = ["ossiq", "plan", "--ignore", "semver", "."], stdout = { has = ["ms"], lacks = ["semver CVE"] } },
+  { run = ["ossiq", "apply", "--ignore", "semver", "--yes", "."], locked = { semver = { equals = "5.7.1" }, ms = { at_least = "2.1.3" } }, declared = { semver = { equals = "^5.7.1" } } },
+]
+
+[[cases]]
+id = "pnpm-declined"
+project = "pnpm-semver"
+why = "answering no at the apply prompt changes nothing"
+covers = ["TC-U18"]
+steps = [
+  { run = ["ossiq", "apply", "."], stdin = "n\n", output = { has = ["Proceed with"] }, locked = { semver = { equals = "5.7.1" }, ms = { equals = "2.0.0" } }, declared = { semver = { equals = "^5.7.1" } } },
+]
+
+[[cases]]
+id = "pnpm-override"
+project = "pnpm-transitive"
+why = "--override forces a transitive package to an exact version through pnpm overrides; an unknown target is an error"
+covers = ["TC-U15"]
+steps = [
+  { run = ["ossiq", "plan", "--override", "no-such-pkg==1.0.0", "."], rc = "nonzero", output = { has = ["not found in the dependency tree"] } },
+  { run = ["ossiq", "apply", "--override", "ms==2.1.3", "--yes", "."], locked = { ms = { equals = "2.1.3" } }, files = { "workspace/pnpm-workspace.yaml" = { has = ["overrides"] } } },
+]
+
+# ---------------------------------------------------------------------------
+# uv: update tiers, plan / apply flags
+# ---------------------------------------------------------------------------
+
+[[cases]]
+id = "pnpm-add"
+project = "pnpm-transitive"
+why = "add writes a healthy package into package.json and locks it (pnpm saves the exact version where npm saves a caret, so the range style is not checked)"
+covers = ["TC-A02", "TC-A06"]
+steps = [
+  { run = ["ossiq", "add", "ms", "."], stdin = "y\n", locked = { ms = { at_least = "2.1.3" } }, files = { "workspace/package.json" = { has = ['"ms"'] } } },
+]
+
+[[cases]]
+id = "pnpm-add-blocked"
+project = "pnpm-semver"
+why = "add refuses a deprecated package and leaves the project alone"
+covers = ["TC-A03"]
+steps = [
+  { run = ["ossiq", "add", "left-pad", "."], rc = 1, output = { has = ["critical warnings"] }, declared = { left-pad = { missing = true } }, locked = { left-pad = { missing = true } } },
+]
+
+[[cases]]
+id = "pnpm-add-force"
+project = "pnpm-semver"
+why = "--force adds the deprecated package anyway"
+covers = ["TC-A04"]
+steps = [
+  { run = ["ossiq", "add", "left-pad", "--force", "."], stdin = "y\n", locked = { left-pad = { equals = "1.3.0" } }, files = { "workspace/package.json" = { has = ['"left-pad"'] } } },
+]
+
+[[cases]]
+id = "pnpm-user-override"
+project = "pnpm-overridden"
+why = "a version the user forced in pnpm-workspace.yaml holds at every tier: the plan names the override, apply leaves semver at 5.7.1 and still moves ms"
+covers = ["TC-U15", "GH-179"]
+steps = [
+  { run = ["ossiq", "plan", "--update-strategy", "latest", "."], stdout = { has = ["Held by overrides you wrote", "pnpm-workspace.yaml", "ms"] } },
+  { run = ["ossiq", "apply", "--update-strategy", "latest", "--yes", "."], locked = { semver = { equals = "5.7.1" }, ms = { at_least = "2.1.3" } } },
+]
+
+[[cases]]
+id = "pnpm-export"
+project = "pnpm-semver"
+why = "a pnpm project exports like an npm one: semver recommended past its CVE, --production leaves the dev dependency out"
+covers = ["TC-E01", "TC-E04"]
+steps = [
+  { run = ["ossiq", "export", "--output", "export.json", "."], report = "export.json", packages = { semver = { installed_version = { equals = "5.7.1" }, recommended_version = { at_least = "5.7.2" } } } },
+  { run = ["ossiq", "export", "--production", "--output", "prod.json", "."], report = "prod.json", packages = { semver = { installed_version = { equals = "5.7.1" } }, ms = { installed_version = { missing = true } } } },
+]
+
+# ---------------------------------------------------------------------------
+# pip and pylock
+# ---------------------------------------------------------------------------
+#
+# pip has no lockfile: the venv `apply` installs into stands in for one, so a step that needs it
+# creates .venv first and puts it on PATH (ossiq calls a bare `pip`). `ossiq upgrade` does not support
+# pip or pylock projects yet, and says so; pylock can be scanned but not changed.
+
+[[cases]]
+id = "pip-scan"
+project = "pip-pinned"
+why = "a pinned requirements.txt is scanned, and its export recommends past the CVEs of both pins"
+covers = ["TC-G03", "TC-C01", "TC-L08"]
+steps = [
+  { run = ["ossiq", "status", "."], stdout = { has = ["Registry: PYPI", "idna", "urllib3"] } },
+  { run = ["ossiq", "status", "--format", "agent", "."], stdout = { json = true, has = ['"registry": "pypi"'] } },
+  { run = ["ossiq", "plan", "."], stdout = { has = ["pip-classic", "idna", "urllib3"] } },
+  { run = ["ossiq", "export", "--output", "export.json", "."], report = "export.json", packages = { idna = { installed_version = { equals = "3.4" }, recommended_version = { at_least = "3.7" } }, urllib3 = { installed_version = { equals = "1.26.5" }, recommended_version = { at_least = "1.26.20" } } } },
+]
+
+[[cases]]
+id = "pip-declined"
+project = "pip-pinned"
+why = "answering no at the apply prompt installs nothing and leaves requirements.txt alone"
+covers = ["TC-U18"]
+steps = [
+  { run = ["python", "-m", "venv", ".venv"] },
+  { run = [".venv/bin/pip", "install", "--quiet", "idna==3.4", "urllib3==1.26.5"] },
+  { run = ["ossiq", "apply", "."], env = { PATH = "/work/.venv/bin:/opt/ossiq-bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" }, stdin = "n\n", output = { has = ["Proceed with"] }, locked = { idna = { equals = "3.4" }, urllib3 = { equals = "1.26.5" } }, declared = { idna = { equals = "==3.4" } } },
+]
+
+[[cases]]
+id = "pip-ignore"
+project = "pip-pinned"
+why = "--ignore on every pin leaves apply nothing to do, and the venv keeps what it had"
+covers = ["TC-U01", "TC-U02"]
+steps = [
+  { run = ["python", "-m", "venv", ".venv"] },
+  { run = [".venv/bin/pip", "install", "--quiet", "idna==3.4", "urllib3==1.26.5"] },
+  { run = ["ossiq", "apply", "--ignore", "idna", "--ignore", "urllib3", "--yes", "."], env = { PATH = "/work/.venv/bin:/opt/ossiq-bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" }, output = { has = ["No updates recommended"] }, locked = { idna = { equals = "3.4" }, urllib3 = { equals = "1.26.5" } } },
+]
+
+[[cases]]
+id = "pip-apply"
+project = "pip-pinned"
+known_issue = "pip-classic apply cannot move an == pin: it hands pip a constraints file (idna==3.x) next to requirements.txt (idna==3.4), pip answers ResolutionImpossible, and OSS IQ reports an unexpected error instead of rewriting the pin. No issue filed yet"
+why = "apply moves both pins past their CVEs and leaves requirements.txt and the venv in agreement"
+covers = ["TC-U18", "TC-U19"]
+steps = [
+  { run = ["python", "-m", "venv", ".venv"] },
+  { run = [".venv/bin/pip", "install", "--quiet", "idna==3.4", "urllib3==1.26.5"] },
+  { run = ["ossiq", "apply", "--yes", "."], env = { PATH = "/work/.venv/bin:/opt/ossiq-bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" }, locked = { idna = { at_least = "3.7" }, urllib3 = { at_least = "1.26.20" } } },
+]
+
+[[cases]]
+id = "pip-add"
+project = "pip-pinned"
+why = "add --version installs the version asked for into the venv"
+covers = ["TC-A05"]
+steps = [
+  { run = ["python", "-m", "venv", ".venv"] },
+  { run = [".venv/bin/pip", "install", "--quiet", "idna==3.4", "urllib3==1.26.5"] },
+  { run = ["ossiq", "add", "attrs", "--version", "23.1.0", "."], env = { PATH = "/work/.venv/bin:/opt/ossiq-bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" }, stdin = "y\n", locked = { attrs = { equals = "23.1.0" }, idna = { equals = "3.4" } } },
+]
+
+[[cases]]
+id = "pip-upgrade-refused"
+project = "pip-pinned"
+why = "upgrade start says pip projects are not supported yet and leaves no session behind"
+covers = ["GH-179"]
+steps = [
+  { run = ["ossiq", "upgrade", "start", "."], rc = "nonzero", output = { has = ["does not support pip-classic projects"] } },
+  { run = ["ossiq", "upgrade", "status", "."], rc = "nonzero", output = { has = ["No upgrade session in this project"] } },
+]
+
+[[cases]]
+id = "pylock-scan"
+project = "pylock"
+why = "a pyproject.toml with a pylock.toml is scanned and exported, but apply, add and upgrade refuse and change nothing"
+covers = ["TC-G03", "GH-179"]
+steps = [
+  { run = ["ossiq", "status", "."], stdout = { has = ["Registry: PYPI", "idna", "urllib3"] } },
+  { run = ["ossiq", "plan", "."], stdout = { has = ["idna", "urllib3"] } },
+  { run = ["ossiq", "export", "--output", "export.json", "."], report = "export.json", packages = { idna = { installed_version = { equals = "3.4" }, recommended_version = { at_least = "3.7" } } } },
+  { run = ["ossiq", "apply", "--yes", "."], rc = "nonzero", output = { has = ["not yet supported for pylock"] } },
+  { run = ["ossiq", "add", "attrs", "."], stdin = "y\n", rc = "nonzero", output = { has = ["not yet supported for pylock"] } },
+  { run = ["ossiq", "upgrade", "start", "."], rc = "nonzero", output = { has = ["does not support pylock projects"] } },
+]
+
+# ---------------------------------------------------------------------------
+# apply that fails (TC-U21)
+# ---------------------------------------------------------------------------
+#
+# The package manager is pointed at a registry that refuses connections, so its install fails while
+# OSS IQ's own clients, which do not read these variables, keep working.
+
+[[cases]]
+id = "npm-apply-fails"
+project = "npm-semver"
+why = "when npm cannot install, apply says so and puts the manifest and lockfile back"
+covers = ["TC-U21"]
+steps = [
+  { run = ["ossiq", "apply", "--yes", "."], env = { npm_config_registry = "http://127.0.0.1:9", npm_config_fetch_retries = "0" }, rc = 1, output = { has = ["Update Failed"] }, locked = { semver = { equals = "5.7.1" }, ms = { equals = "2.0.0" } }, declared = { semver = { equals = "^5.7.1" }, ms = { equals = "^2.0.0" } } },
+]
+
+[[cases]]
+id = "pnpm-apply-fails"
+project = "pnpm-semver"
+why = "when pnpm cannot install, apply says so and leaves the manifest and lockfile as they were"
+covers = ["TC-U21"]
+steps = [
+  { run = ["ossiq", "apply", "--yes", "."], env = { npm_config_registry = "http://127.0.0.1:9", npm_config_fetch_retries = "0" }, rc = 1, output = { has = ["Update Failed"] }, locked = { semver = { equals = "5.7.1" }, ms = { equals = "2.0.0" } }, declared = { semver = { equals = "^5.7.1" }, ms = { equals = "^2.0.0" } } },
+]
+
+[[cases]]
+id = "uv-apply-fails"
+project = "uv-ranges"
+why = "when uv cannot lock, apply says so and restores pyproject.toml and uv.lock"
+covers = ["TC-U21"]
+steps = [
+  { run = ["ossiq", "apply", "--yes", "."], env = { UV_INDEX_URL = "http://127.0.0.1:9" }, rc = 1, output = { has = ["Update Failed"] }, locked = { idna = { equals = "3.4" }, urllib3 = { equals = "1.26.5" } }, declared = { idna = { equals = ">=3.0" }, urllib3 = { equals = "~=1.26.5" } } },
+]
+
+# ---------------------------------------------------------------------------
+# uv: tiers and prompts the cases above leave out
+# ---------------------------------------------------------------------------
+
+[[cases]]
+id = "uv-latest"
+project = "uv-ranges"
+why = "the latest tier widens urllib3's ~= range to the newest major, and a bare >= stays untouched"
+covers = ["TC-U05", "TC-U08"]
+steps = [
+  { run = ["ossiq", "apply", "--update-strategy", "latest", "--yes", "."], locked = { idna = { at_least = "3.10" }, urllib3 = { at_least = "2.0.0" } }, declared = { idna = { equals = ">=3.0" }, urllib3 = { changed = true } } },
+]
+
+[[cases]]
+id = "uv-declined"
+project = "uv-ranges"
+why = "answering no at the apply prompt changes nothing"
+covers = ["TC-U18"]
+steps = [
+  { run = ["ossiq", "apply", "."], stdin = "n\n", output = { has = ["Proceed with"] }, locked = { idna = { equals = "3.4" }, urllib3 = { equals = "1.26.5" } }, declared = { urllib3 = { equals = "~=1.26.5" } } },
+]
+
+# ---------------------------------------------------------------------------
+# upgrade: start, apply, test, continue, rollback, skip, abort
+# ---------------------------------------------------------------------------
+#
+# npm-upgrade, pnpm-upgrade and uv-upgrade share one shape. The first dependency has a CVE, so it is
+# always step 1 (CVEs queue first); the second has none, is stable at the standard tier, and breaks
+# the project's test at the latest tier: it is step 2, and `fix/` holds the change that mends the test.
+# The install step first: `start` runs the test command before changing anything, so the project
+# must be installed. A step that expects exit 3 is the tests failing, which is the point.
+
+[[cases]]
+id = "npm-upgrade-happy"
+project = "npm-upgrade"
+why = "a one-step session at the standard tier: start, apply with passing tests, continue, and the session is gone"
+covers = ["GH-179"]
+steps = [
+  { run = ["npm", "ci", "--ignore-scripts"] },
+  { run = ["ossiq", "upgrade", "start", "--test-command", "node test.js", "."], stdout = { has = ["Upgrade: step 1 of 1", "semver", "PENDING"] } },
+  { run = ["ossiq", "upgrade", "status", "."], stdout = { has = ["step 1 of 1", "PENDING"] } },
+  { run = ["ossiq", "upgrade", "apply", "."], stdout = { has = ["AWAITING_REVIEW", "The tests passed"] }, locked = { semver = { at_least = "5.7.2", below = "6.0.0" }, escape-string-regexp = { equals = "4.0.0" } } },
+  { run = ["ossiq", "upgrade", "continue", "."], stdout = { has = ["Step 1 done"] } },
+  { run = ["ossiq", "upgrade", "status", "."], rc = "nonzero", output = { has = ["No upgrade session in this project"] } },
+]
+
+[[cases]]
+id = "npm-upgrade-agent-loop"
+project = "npm-upgrade"
+why = "the loop a coding agent runs: JSON on stdout, exit 3 when the tests fail, a code fix, test until green, continue"
+covers = ["GH-179", "TC-L08"]
+steps = [
+  { run = ["npm", "ci", "--ignore-scripts"] },
+  { run = ["ossiq", "upgrade", "start", "--format", "agent", "--update-strategy", "latest", "--test-command", "node test.js", "."], stdout = { json = true, has = ['"outcome": "IN_PROGRESS"', '"needs_attention": false', '"total_steps": 2', '"baseline_exit_code": 0', '"status": "PENDING"'] } },
+  { run = ["ossiq", "upgrade", "apply", "--format", "agent", "."], stdout = { json = true, has = ['"needs_attention": false', '"status": "AWAITING_REVIEW"', '"exit_code": 0'] }, locked = { semver = { at_least = "7.0.0" } } },
+  { run = ["ossiq", "upgrade", "continue", "--format", "agent", "."], stdout = { json = true, has = ['"completed": 1', '"status": "PENDING"'] } },
+  { run = ["ossiq", "upgrade", "apply", "--format", "agent", "."], rc = 3, stdout = { json = true, has = ['"needs_attention": true', '"status": "AWAITING_REFACTOR"', '"exit_code": 1', '"output_tail"'] }, locked = { escape-string-regexp = { at_least = "5.0.0" } }, declared = { escape-string-regexp = { changed = true } } },
+  { run = ["ossiq", "upgrade", "continue", "--format", "agent", "."], rc = 3, stdout = { json = true, has = ['"status": "AWAITING_REFACTOR"'] } },
+  { run = ["ossiq", "upgrade", "finish", "--format", "agent", "."], rc = 3, stdout = { json = true, has = ['"outcome": "IN_PROGRESS"'] } },
+  { run = ["sh", "-c", "cp fix/test.js test.js"] },
+  { run = ["ossiq", "upgrade", "test", "--format", "agent", "."], stdout = { json = true, has = ['"needs_attention": false', '"status": "AWAITING_REVIEW"'] } },
+  { run = ["ossiq", "upgrade", "continue", "--format", "agent", "."], stdout = { json = true, has = ['"outcome": "COMPLETED"', '"completed": 2'] }, locked = { escape-string-regexp = { at_least = "5.0.0" } } },
+]
+
+[[cases]]
+id = "npm-upgrade-rollback-skip"
+project = "npm-upgrade"
+why = "a failing step is rolled back to its preview, fails again, and is skipped with a reason; the kept step stays"
+covers = ["GH-179"]
+steps = [
+  { run = ["npm", "ci", "--ignore-scripts"] },
+  { run = ["ossiq", "upgrade", "start", "--update-strategy", "latest", "--test-command", "node test.js", "."] },
+  { run = ["ossiq", "upgrade", "apply", "."], locked = { semver = { at_least = "7.0.0" } } },
+  { run = ["ossiq", "upgrade", "continue", "."] },
+  { run = ["ossiq", "upgrade", "apply", "."], rc = 3, stdout = { has = ["AWAITING_REFACTOR", "tests failed"] }, locked = { escape-string-regexp = { at_least = "5.0.0" } } },
+  { run = ["ossiq", "upgrade", "rollback", "."], stdout = { has = ["PENDING"] }, locked = { escape-string-regexp = { equals = "4.0.0" } }, declared = { escape-string-regexp = { equals = "^4.0.0" } } },
+  { run = ["ossiq", "upgrade", "apply", "."], rc = 3, stdout = { has = ["AWAITING_REFACTOR"] } },
+  { run = ["ossiq", "upgrade", "skip", "--reason", "needs the ESM release", "."], stdout = { has = ["SKIPPED"] }, locked = { escape-string-regexp = { equals = "4.0.0" } }, declared = { escape-string-regexp = { equals = "^4.0.0" } } },
+  { run = ["ossiq", "upgrade", "status", "."], rc = "nonzero", output = { has = ["No upgrade session in this project"] }, locked = { semver = { at_least = "7.0.0" } } },
+]
+
+[[cases]]
+id = "npm-upgrade-abort"
+project = "npm-upgrade"
+why = "abort puts the manifest and lockfile back as they were at start, even after a kept step and a failing one"
+covers = ["GH-179"]
+steps = [
+  { run = ["npm", "ci", "--ignore-scripts"] },
+  { run = ["ossiq", "upgrade", "start", "--update-strategy", "latest", "--test-command", "node test.js", "."] },
+  { run = ["ossiq", "upgrade", "apply", "."] },
+  { run = ["ossiq", "upgrade", "continue", "."] },
+  { run = ["ossiq", "upgrade", "apply", "."], rc = 3 },
+  { run = ["ossiq", "upgrade", "abort", "."], locked = { semver = { equals = "5.7.1" }, escape-string-regexp = { equals = "4.0.0" } }, declared = { semver = { equals = "^5.7.1" }, escape-string-regexp = { equals = "^4.0.0" } } },
+  { run = ["ossiq", "upgrade", "status", "."], rc = "nonzero", output = { has = ["No upgrade session in this project"] } },
+]
+
+[[cases]]
+id = "npm-upgrade-interactive"
+project = "npm-upgrade"
+why = "the menu drives the one-step session: apply, then continue, from two keystrokes"
+covers = ["GH-179"]
+steps = [
+  { run = ["npm", "ci", "--ignore-scripts"] },
+  { run = ["ossiq", "upgrade", "start", "--interactive", "--test-command", "node test.js", "."], stdin = "a\nn\n", stdout = { has = ["Choose", "The tests passed", "Step 1 done"] }, locked = { semver = { at_least = "5.7.2", below = "6.0.0" } } },
+]
+
+[[cases]]
+id = "pnpm-upgrade-happy"
+project = "pnpm-upgrade"
+why = "a one-step session at the standard tier: start, apply with passing tests, continue, and the session is gone"
+covers = ["GH-179"]
+steps = [
+  { run = ["pnpm", "install", "--frozen-lockfile", "--ignore-scripts"] },
+  { run = ["ossiq", "upgrade", "start", "--test-command", "node test.js", "."], stdout = { has = ["Upgrade: step 1 of 1", "semver", "PENDING"] } },
+  { run = ["ossiq", "upgrade", "status", "."], stdout = { has = ["step 1 of 1", "PENDING"] } },
+  { run = ["ossiq", "upgrade", "apply", "."], stdout = { has = ["AWAITING_REVIEW", "The tests passed"] }, locked = { semver = { at_least = "5.7.2", below = "6.0.0" }, escape-string-regexp = { equals = "4.0.0" } } },
+  { run = ["ossiq", "upgrade", "continue", "."], stdout = { has = ["Step 1 done"] } },
+  { run = ["ossiq", "upgrade", "status", "."], rc = "nonzero", output = { has = ["No upgrade session in this project"] } },
+]
+
+[[cases]]
+id = "pnpm-upgrade-agent-loop"
+project = "pnpm-upgrade"
+why = "the loop a coding agent runs: JSON on stdout, exit 3 when the tests fail, a code fix, test until green, continue"
+covers = ["GH-179", "TC-L08"]
+steps = [
+  { run = ["pnpm", "install", "--frozen-lockfile", "--ignore-scripts"] },
+  { run = ["ossiq", "upgrade", "start", "--format", "agent", "--update-strategy", "latest", "--test-command", "node test.js", "."], stdout = { json = true, has = ['"outcome": "IN_PROGRESS"', '"needs_attention": false', '"total_steps": 2', '"baseline_exit_code": 0', '"status": "PENDING"'] } },
+  { run = ["ossiq", "upgrade", "apply", "--format", "agent", "."], stdout = { json = true, has = ['"needs_attention": false', '"status": "AWAITING_REVIEW"', '"exit_code": 0'] }, locked = { semver = { at_least = "7.0.0" } } },
+  { run = ["ossiq", "upgrade", "continue", "--format", "agent", "."], stdout = { json = true, has = ['"completed": 1', '"status": "PENDING"'] } },
+  { run = ["ossiq", "upgrade", "apply", "--format", "agent", "."], rc = 3, stdout = { json = true, has = ['"needs_attention": true', '"status": "AWAITING_REFACTOR"', '"exit_code": 1', '"output_tail"'] }, locked = { escape-string-regexp = { at_least = "5.0.0" } }, declared = { escape-string-regexp = { changed = true } } },
+  { run = ["ossiq", "upgrade", "continue", "--format", "agent", "."], rc = 3, stdout = { json = true, has = ['"status": "AWAITING_REFACTOR"'] } },
+  { run = ["ossiq", "upgrade", "finish", "--format", "agent", "."], rc = 3, stdout = { json = true, has = ['"outcome": "IN_PROGRESS"'] } },
+  { run = ["sh", "-c", "cp fix/test.js test.js"] },
+  { run = ["ossiq", "upgrade", "test", "--format", "agent", "."], stdout = { json = true, has = ['"needs_attention": false', '"status": "AWAITING_REVIEW"'] } },
+  { run = ["ossiq", "upgrade", "continue", "--format", "agent", "."], stdout = { json = true, has = ['"outcome": "COMPLETED"', '"completed": 2'] }, locked = { escape-string-regexp = { at_least = "5.0.0" } } },
+]
+
+[[cases]]
+id = "pnpm-upgrade-rollback-skip"
+project = "pnpm-upgrade"
+why = "a failing step is rolled back to its preview, fails again, and is skipped with a reason; the kept step stays"
+covers = ["GH-179"]
+steps = [
+  { run = ["pnpm", "install", "--frozen-lockfile", "--ignore-scripts"] },
+  { run = ["ossiq", "upgrade", "start", "--update-strategy", "latest", "--test-command", "node test.js", "."] },
+  { run = ["ossiq", "upgrade", "apply", "."], locked = { semver = { at_least = "7.0.0" } } },
+  { run = ["ossiq", "upgrade", "continue", "."] },
+  { run = ["ossiq", "upgrade", "apply", "."], rc = 3, stdout = { has = ["AWAITING_REFACTOR", "tests failed"] }, locked = { escape-string-regexp = { at_least = "5.0.0" } } },
+  { run = ["ossiq", "upgrade", "rollback", "."], stdout = { has = ["PENDING"] }, locked = { escape-string-regexp = { equals = "4.0.0" } }, declared = { escape-string-regexp = { equals = "^4.0.0" } } },
+  { run = ["ossiq", "upgrade", "apply", "."], rc = 3, stdout = { has = ["AWAITING_REFACTOR"] } },
+  { run = ["ossiq", "upgrade", "skip", "--reason", "needs the ESM release", "."], stdout = { has = ["SKIPPED"] }, locked = { escape-string-regexp = { equals = "4.0.0" } }, declared = { escape-string-regexp = { equals = "^4.0.0" } } },
+  { run = ["ossiq", "upgrade", "status", "."], rc = "nonzero", output = { has = ["No upgrade session in this project"] }, locked = { semver = { at_least = "7.0.0" } } },
+]
+
+[[cases]]
+id = "pnpm-upgrade-abort"
+project = "pnpm-upgrade"
+why = "abort puts the manifest and lockfile back as they were at start, even after a kept step and a failing one"
+covers = ["GH-179"]
+steps = [
+  { run = ["pnpm", "install", "--frozen-lockfile", "--ignore-scripts"] },
+  { run = ["ossiq", "upgrade", "start", "--update-strategy", "latest", "--test-command", "node test.js", "."] },
+  { run = ["ossiq", "upgrade", "apply", "."] },
+  { run = ["ossiq", "upgrade", "continue", "."] },
+  { run = ["ossiq", "upgrade", "apply", "."], rc = 3 },
+  { run = ["ossiq", "upgrade", "abort", "."], locked = { semver = { equals = "5.7.1" }, escape-string-regexp = { equals = "4.0.0" } }, declared = { semver = { equals = "^5.7.1" }, escape-string-regexp = { equals = "^4.0.0" } } },
+  { run = ["ossiq", "upgrade", "status", "."], rc = "nonzero", output = { has = ["No upgrade session in this project"] } },
+]
+
+[[cases]]
+id = "pnpm-upgrade-interactive"
+project = "pnpm-upgrade"
+why = "the menu drives the one-step session: apply, then continue, from two keystrokes"
+covers = ["GH-179"]
+steps = [
+  { run = ["pnpm", "install", "--frozen-lockfile", "--ignore-scripts"] },
+  { run = ["ossiq", "upgrade", "start", "--interactive", "--test-command", "node test.js", "."], stdin = "a\nn\n", stdout = { has = ["Choose", "The tests passed", "Step 1 done"] }, locked = { semver = { at_least = "5.7.2", below = "6.0.0" } } },
+]
+
+[[cases]]
+id = "uv-upgrade-happy"
+project = "uv-upgrade"
+why = "a one-step session at the standard tier: start, apply with passing tests, continue, and the session is gone"
+covers = ["GH-179"]
+steps = [
+  { run = ["uv", "sync", "--frozen"] },
+  { run = ["ossiq", "upgrade", "start", "--test-command", "uv run --frozen python check.py", "."], stdout = { has = ["Upgrade: step 1 of 1", "idna", "PENDING"] } },
+  { run = ["ossiq", "upgrade", "status", "."], stdout = { has = ["step 1 of 1", "PENDING"] } },
+  { run = ["ossiq", "upgrade", "apply", "."], stdout = { has = ["AWAITING_REVIEW", "The tests passed"] }, locked = { idna = { at_least = "3.7" }, packaging = { equals = "21.3" } } },
+  { run = ["ossiq", "upgrade", "continue", "."], stdout = { has = ["Step 1 done"] } },
+  { run = ["ossiq", "upgrade", "status", "."], rc = "nonzero", output = { has = ["No upgrade session in this project"] } },
+]
+
+[[cases]]
+id = "uv-upgrade-agent-loop"
+project = "uv-upgrade"
+why = "the loop a coding agent runs: JSON on stdout, exit 3 when the tests fail, a code fix, test until green, continue"
+covers = ["GH-179", "TC-L08"]
+steps = [
+  { run = ["uv", "sync", "--frozen"] },
+  { run = ["ossiq", "upgrade", "start", "--format", "agent", "--update-strategy", "latest", "--test-command", "uv run --frozen python check.py", "."], stdout = { json = true, has = ['"outcome": "IN_PROGRESS"', '"needs_attention": false', '"total_steps": 2', '"baseline_exit_code": 0', '"status": "PENDING"'] } },
+  { run = ["ossiq", "upgrade", "apply", "--format", "agent", "."], stdout = { json = true, has = ['"needs_attention": false', '"status": "AWAITING_REVIEW"', '"exit_code": 0'] }, locked = { idna = { at_least = "3.7" } } },
+  { run = ["ossiq", "upgrade", "continue", "--format", "agent", "."], stdout = { json = true, has = ['"completed": 1', '"status": "PENDING"'] } },
+  { run = ["ossiq", "upgrade", "apply", "--format", "agent", "."], rc = 3, stdout = { json = true, has = ['"needs_attention": true', '"status": "AWAITING_REFACTOR"', '"exit_code": 1', '"output_tail"'] }, locked = { packaging = { at_least = "22.0" } }, declared = { packaging = { changed = true } } },
+  { run = ["ossiq", "upgrade", "continue", "--format", "agent", "."], rc = 3, stdout = { json = true, has = ['"status": "AWAITING_REFACTOR"'] } },
+  { run = ["ossiq", "upgrade", "finish", "--format", "agent", "."], rc = 3, stdout = { json = true, has = ['"outcome": "IN_PROGRESS"'] } },
+  { run = ["sh", "-c", "cp fix/check.py check.py"] },
+  { run = ["ossiq", "upgrade", "test", "--format", "agent", "."], stdout = { json = true, has = ['"needs_attention": false', '"status": "AWAITING_REVIEW"'] } },
+  { run = ["ossiq", "upgrade", "continue", "--format", "agent", "."], stdout = { json = true, has = ['"outcome": "COMPLETED"', '"completed": 2'] }, locked = { packaging = { at_least = "22.0" } } },
+]
+
+[[cases]]
+id = "uv-upgrade-rollback-skip"
+project = "uv-upgrade"
+why = "a failing step is rolled back to its preview, fails again, and is skipped with a reason; the kept step stays"
+covers = ["GH-179"]
+steps = [
+  { run = ["uv", "sync", "--frozen"] },
+  { run = ["ossiq", "upgrade", "start", "--update-strategy", "latest", "--test-command", "uv run --frozen python check.py", "."] },
+  { run = ["ossiq", "upgrade", "apply", "."], locked = { idna = { at_least = "3.7" } } },
+  { run = ["ossiq", "upgrade", "continue", "."] },
+  { run = ["ossiq", "upgrade", "apply", "."], rc = 3, stdout = { has = ["AWAITING_REFACTOR", "tests failed"] }, locked = { packaging = { at_least = "22.0" } } },
+  { run = ["ossiq", "upgrade", "rollback", "."], stdout = { has = ["PENDING"] }, locked = { packaging = { equals = "21.3" } }, declared = { packaging = { equals = "~=21.3" } } },
+  { run = ["ossiq", "upgrade", "apply", "."], rc = 3, stdout = { has = ["AWAITING_REFACTOR"] } },
+  { run = ["ossiq", "upgrade", "skip", "--reason", "needs the ESM release", "."], stdout = { has = ["SKIPPED"] }, locked = { packaging = { equals = "21.3" } }, declared = { packaging = { equals = "~=21.3" } } },
+  { run = ["ossiq", "upgrade", "status", "."], rc = "nonzero", output = { has = ["No upgrade session in this project"] }, locked = { idna = { at_least = "3.7" } } },
+]
+
+[[cases]]
+id = "uv-upgrade-abort"
+project = "uv-upgrade"
+why = "abort puts the manifest and lockfile back as they were at start, even after a kept step and a failing one"
+covers = ["GH-179"]
+steps = [
+  { run = ["uv", "sync", "--frozen"] },
+  { run = ["ossiq", "upgrade", "start", "--update-strategy", "latest", "--test-command", "uv run --frozen python check.py", "."] },
+  { run = ["ossiq", "upgrade", "apply", "."] },
+  { run = ["ossiq", "upgrade", "continue", "."] },
+  { run = ["ossiq", "upgrade", "apply", "."], rc = 3 },
+  { run = ["ossiq", "upgrade", "abort", "."], locked = { idna = { equals = "3.4" }, packaging = { equals = "21.3" } }, declared = { idna = { equals = "~=3.4" }, packaging = { equals = "~=21.3" } } },
+  { run = ["ossiq", "upgrade", "status", "."], rc = "nonzero", output = { has = ["No upgrade session in this project"] } },
+]
+
+[[cases]]
+id = "uv-upgrade-interactive"
+project = "uv-upgrade"
+why = "the menu drives the one-step session: apply, then continue, from two keystrokes"
+covers = ["GH-179"]
+steps = [
+  { run = ["uv", "sync", "--frozen"] },
+  { run = ["ossiq", "upgrade", "start", "--interactive", "--test-command", "uv run --frozen python check.py", "."], stdin = "a\nn\n", stdout = { has = ["Choose", "The tests passed", "Step 1 done"] }, locked = { idna = { at_least = "3.7" } } },
+]
+
+# ---------------------------------------------------------------------------
+# upgrade: menu, guards, scope and config (npm-upgrade stands in; none of this depends on the manager)
+# ---------------------------------------------------------------------------
+
+[[cases]]
+id = "upgrade-menu"
+project = "npm-upgrade"
+why = "the menu rejects keys the step does not offer, keeps the session on q, skips with a reason, and asks before it aborts"
+covers = ["GH-179"]
+steps = [
+  { run = ["npm", "ci", "--ignore-scripts"] },
+  { run = ["ossiq", "upgrade", "start", "--update-strategy", "latest", "--interactive", "--test-command", "node test.js", "."], stdin = "z\nq\n", stdout = { has = ["Pick one of", "Session kept"] } },
+  { run = ["ossiq", "upgrade", "status", "--interactive", "."], stdin = "s\nnot now\nq\n", stdout = { has = ["SKIPPED", "Session kept"] }, locked = { semver = { equals = "5.7.1" } } },
+  { run = ["ossiq", "upgrade", "status", "--interactive", "."], stdin = "x\nn\nq\n", stdout = { has = ["Put the project files back", "Session kept"] } },
+  { run = ["ossiq", "upgrade", "status", "--interactive", "."], stdin = "x\ny\n", locked = { semver = { equals = "5.7.1" }, escape-string-regexp = { equals = "4.0.0" } }, declared = { semver = { equals = "^5.7.1" } } },
+  { run = ["ossiq", "upgrade", "status", "."], rc = "nonzero", output = { has = ["No upgrade session in this project"] } },
+]
+
+[[cases]]
+id = "upgrade-guards"
+project = "npm-upgrade"
+why = "a second start is refused, and --interactive is refused with --format agent"
+covers = ["GH-179"]
+steps = [
+  { run = ["npm", "ci", "--ignore-scripts"] },
+  { run = ["ossiq", "upgrade", "start", "--test-command", "node test.js", "."] },
+  { run = ["ossiq", "upgrade", "start", "--test-command", "node test.js", "."], rc = "nonzero", output = { has = ["already in progress"] } },
+  { run = ["ossiq", "upgrade", "status", "--interactive", "--format", "agent", "."], rc = 2, output = { has = ["--interactive only works with --format console"] } },
+]
+
+[[cases]]
+id = "upgrade-baseline-fails"
+project = "npm-upgrade"
+why = "a test command that already fails stops start before anything changes, and no session is left behind"
+covers = ["GH-179"]
+steps = [
+  { run = ["npm", "ci", "--ignore-scripts"] },
+  { run = ["ossiq", "upgrade", "start", "--test-command", "false", "."], rc = "nonzero", output = { has = ["already fails"] } },
+  { run = ["ossiq", "upgrade", "status", "."], rc = "nonzero", output = { has = ["No upgrade session in this project"] } },
+]
+
+[[cases]]
+id = "upgrade-no-session"
+project = "npm-upgrade"
+why = "every subcommand that needs a session says there is none, and none of them crashes"
+covers = ["GH-179"]
+steps = [
+  { run = ["ossiq", "upgrade", "status", "."], rc = "nonzero", output = { has = ["No upgrade session in this project"] } },
+  { run = ["ossiq", "upgrade", "apply", "."], rc = "nonzero", output = { has = ["No upgrade session in this project"] } },
+  { run = ["ossiq", "upgrade", "test", "."], rc = "nonzero", output = { has = ["No upgrade session in this project"] } },
+  { run = ["ossiq", "upgrade", "rollback", "."], rc = "nonzero", output = { has = ["No upgrade session in this project"] } },
+  { run = ["ossiq", "upgrade", "continue", "."], rc = "nonzero", output = { has = ["No upgrade session in this project"] } },
+  { run = ["ossiq", "upgrade", "skip", "."], rc = "nonzero", output = { has = ["No upgrade session in this project"] } },
+  { run = ["ossiq", "upgrade", "finish", "."], rc = "nonzero", output = { has = ["No upgrade session in this project"] } },
+  { run = ["ossiq", "upgrade", "abort", "."], rc = "nonzero", output = { has = ["No upgrade session in this project"] } },
+  { run = ["ossiq", "upgrade", "changelog", "."], rc = "nonzero", output = { has = ["No upgrade session in this project"] } },
+]
+
+[[cases]]
+id = "upgrade-config"
+project = "npm-upgrade"
+add_files = { ".ossiq.yaml" = "version: 1\nupgrade:\n  limit: 1\n  test-command: node test.js\n" }
+why = ".ossiq.yaml supplies the step limit and the test command, and a flag beats it"
+covers = ["GH-179"]
+steps = [
+  { run = ["npm", "ci", "--ignore-scripts"] },
+  { run = ["ossiq", "upgrade", "start", "--update-strategy", "latest", "."], stdout = { has = ["Upgrade: step 1 of 1"] } },
+  { run = ["ossiq", "upgrade", "apply", "."], stdout = { has = ["$ node test.js", "The tests passed"] } },
+  { run = ["ossiq", "upgrade", "abort", "."] },
+  { run = ["ossiq", "upgrade", "start", "--update-strategy", "latest", "--limit", "2", "--test-command", "node test.js && echo from-the-flag", "."], stdout = { has = ["Upgrade: step 1 of 2"] } },
+  { run = ["ossiq", "upgrade", "apply", "."], stdout = { has = ["from-the-flag"] } },
+]
+
+[[cases]]
+id = "upgrade-scope"
+project = "npm-upgrade"
+why = "--limit queues the first steps only, and --package queues one direct dependency's step"
+covers = ["GH-179"]
+steps = [
+  { run = ["ossiq", "upgrade", "start", "--update-strategy", "latest", "--limit", "1", "."], stdout = { has = ["Upgrade: step 1 of 1", "semver"], lacks = ["escape-string-regexp"] } },
+  { run = ["ossiq", "upgrade", "abort", "."] },
+  { run = ["ossiq", "upgrade", "start", "--update-strategy", "latest", "--package", "escape-string-regexp", "."], stdout = { has = ["Upgrade: step 1 of 1", "escape-string-regexp"] } },
+]
+
+[[cases]]
+id = "upgrade-no-tests"
+project = "npm-upgrade"
+why = "without a test command apply installs the step and says that nothing was checked"
+covers = ["GH-179"]
+steps = [
+  { run = ["ossiq", "upgrade", "start", "--update-strategy", "latest", "--limit", "1", "."] },
+  { run = ["ossiq", "upgrade", "apply", "."], stdout = { has = ["No test command is set"] }, locked = { semver = { at_least = "7.0.0" } } },
+]
+
+[[cases]]
+id = "upgrade-nothing"
+project = "npm-upgrade"
+why = "a plan with nothing in it ends as NOTHING_TO_DO and starts no session"
+covers = ["GH-179"]
+steps = [
+  { run = ["ossiq", "upgrade", "start", "--format", "agent", "--update-strategy", "security", "--ignore", "semver", "."], stdout = { json = true, has = ['"outcome": "NOTHING_TO_DO"'] } },
+  { run = ["ossiq", "upgrade", "status", "."], rc = "nonzero", output = { has = ["No upgrade session in this project"] } },
+]
+
+[[cases]]
+id = "upgrade-corrupt"
+project = "npm-upgrade"
+why = "a session file that cannot be read is reported, not crashed on"
+covers = ["GH-179"]
+steps = [
+  { run = ["ossiq", "upgrade", "start", "."] },
+  { run = ["sh", "-c", "echo '{' > .ossiq/update-progress.json"] },
+  { run = ["ossiq", "upgrade", "status", "."], rc = "nonzero", output = { has = ["unreadable"] } },
+]
+
+[[cases]]
+id = "upgrade-changelog"
+project = "npm-upgrade"
+why = "the changelog of the current step is fetched whole, as text and as agent JSON, or reported as not available"
+covers = ["GH-179"]
+steps = [
+  { run = ["ossiq", "upgrade", "start", "."] },
+  { run = ["ossiq", "upgrade", "changelog", "."], stdout = { has = ["semver"] } },
+  { run = ["ossiq", "upgrade", "changelog", "--format", "agent", "."], stdout = { json = true, has = ['"changelogs"'] } },
 ]
