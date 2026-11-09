@@ -13,6 +13,7 @@ from ossiq.adapters.api_interfaces import AbstractPackageRegistryApi
 from ossiq.adapters.api_pypi import PackageRegistryApiPypi
 from ossiq.adapters.detectors import is_git_hosted_source
 from ossiq.domain.common import (
+    ConstraintType,
     DataCompleteness,
     DataSourceStatus,
     EngineContext,
@@ -880,6 +881,13 @@ def scan(sources: AbstractProjectSources, progress: ScanProgress | None = None) 
             fixed_installed={**transitive_installed, **ignored_versions},
             version_blocks=version_blocks,
             policy=policy,
+            # Ignored packages included, since their ranges still bind. An override replaces every
+            # requirement on its package, so nothing a sibling requires of it binds.
+            declared_ranges={
+                r.package_name: r.version_constraint_declared or r.version_constraint
+                for r in direct_records
+                if r.constraint_info.type != ConstraintType.OVERRIDE
+            },
         )
 
         peer_repairs = plan_peer_repairs(

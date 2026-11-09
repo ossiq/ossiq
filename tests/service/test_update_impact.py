@@ -701,6 +701,32 @@ class TestNestedCopies:
         assert [i.kind for i in result.transitive_impacts] == [ImpactKind.NEW_COPY]
         assert result.is_actionable is True
 
+    def test_a_requirement_an_installed_direct_dependency_meets_is_no_impact(self):
+        """nuxt 4.6.3 asks for vue ^3.5.44: the vue installed at the root is that copy, not a new one."""
+        shared = make_scan_record("@vue/shared", "3.5.44")
+        registry = make_npm_registry(
+            versions_by_name={"vue": [pv("3.5.45"), pv("3.5.44")], "@vue/shared": [pv("3.5.45"), pv("3.5.44")]},
+            requires_by_pkg_ver={("nuxt", "4.6.3"): {"vue": "^3.5.44", "@vue/shared": "^3.5.44"}},
+        )
+
+        result = simulate_single("nuxt", "4.6.3", {"@vue/shared": shared}, registry, direct_versions={"vue": "3.5.44"})
+
+        assert result.transitive_impacts == []
+        assert result.is_actionable is True
+
+    def test_a_direct_dependency_below_the_requirement_is_still_a_new_copy(self):
+        """With vue at 3.5.39 the candidate would pull a second vue in, so it is reported, as before."""
+        registry = make_npm_registry(
+            versions_by_name={"vue": [pv("3.5.45"), pv("3.5.44"), pv("3.5.39")]},
+            requires_by_pkg_ver={("nuxt", "4.6.3"): {"vue": "^3.5.44"}},
+        )
+
+        result = simulate_single("nuxt", "4.6.3", {}, registry, direct_versions={"vue": "3.5.39"})
+
+        assert [(i.package_name, i.kind, i.projected_version) for i in result.transitive_impacts] == [
+            ("vue", ImpactKind.NEW_DEP, "3.5.45")
+        ]
+
     def test_a_family_pinned_in_lockstep_moves_without_conflict(self):
         """vue 3.5.43 pins @vue/shared 3.5.43 while the installed @vue/* all pin 3.5.42."""
         shared = make_nested_record(

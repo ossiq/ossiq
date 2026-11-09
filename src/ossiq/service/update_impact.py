@@ -519,6 +519,7 @@ def simulate_nested(
     installed_names: set[str] | None = None,
     now: datetime | None = None,
     release_cutoff: ReleaseCutoff | None = None,
+    direct_versions: Mapping[str, str] | None = None,
 ) -> list[TransitiveImpact]:
     """Project what updating a package does to the tree when the package manager nests copies.
 
@@ -527,6 +528,10 @@ def simulate_nested(
     @vue/shared): only for what an override makes of them, since a further copy of an ordinary
     dependency is not news at that depth. OSS IQ's own overrides are then re-solved against the
     whole family at once, so a family that moves together is not blocked by its old pins.
+
+    A requirement that a direct dependency already meets is no impact: the scan keeps no
+    transitive record for it, so without `direct_versions` it would read as a new package, projected
+    at the newest release, and clash with the family pins of the copy that is really installed.
     """
     candidate_requires = registry.package_version_requires(package_name, candidate_version)
     follow_family = has_override_rules(transitive_by_name)
@@ -542,6 +547,13 @@ def simulate_nested(
             # An npm alias ("@jest/react-is-18": "npm:react-is@^18.3.1") installs the package it names.
             alias_of, spec = parse_npm_alias(dep_spec)
             dep_name = alias_of or dep_key
+            direct = (direct_versions or {}).get(dep_name)
+            if (
+                direct
+                and dep_name not in transitive_by_name
+                and version_satisfies_constraint(direct, spec, registry.package_registry)
+            ):
+                continue
             verdict = assess_nested_edge(
                 dep_name,
                 spec,
@@ -943,6 +955,7 @@ def simulate_single(
             installed_names,
             now,
             release_cutoff,
+            direct_versions,
         )
 
     moved: dict[str, str] = {}

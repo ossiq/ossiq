@@ -36,7 +36,7 @@ from ossiq.service.update.entries import entry_from_record
 from ossiq.service.update.holds import is_held_for_widening
 from ossiq.service.update_impact import DirectUpdateImpact, ImpactKind, TransitiveImpact, simulate_single
 from ossiq.strategy.overrides import StrategyPlan
-from ossiq.strategy.pyramid import UpdateStrategy
+from ossiq.strategy.pyramid import UpdateStrategy, withholds_widening
 
 CONSTRAINT_SOURCE = ConstraintSource(type=ConstraintType.DECLARED, source_file="pyproject.toml")
 NO_DIFF = VersionsDifference("1.0.0", "1.0.0", 0, diff_name="LATEST")
@@ -1478,6 +1478,7 @@ class TestPeerReconciliation:
 
     @staticmethod
     def apply(records: list[ScanRecord], registry: MagicMock, **kwargs) -> None:
+        kwargs.setdefault("transitive_by_name", {})
         apply_update_strategy(
             records,
             registry,
@@ -1485,7 +1486,6 @@ class TestPeerReconciliation:
             versions_since={
                 (r.package_name, r.installed_version): list(registry.package_versions(r.package_name)) for r in records
             },
-            transitive_by_name={},
             installed_names=set(),
             allow_prerelease=False,
             now=NOW,
@@ -1606,6 +1606,56 @@ class TestPeerReconciliation:
         assert vue.recommended_version is None
         assert vue.rejected_candidates[0].held_by_peer == PeerHold("vue", "3.5.44", "@vue/server-renderer", "3.5.43")
 
+    @pytest.mark.parametrize(
+        ("kind", "owners", "expected"),
+        [
+            (ImpactKind.NEW_COPY, ("vue",), "3.5.44"),
+            (ImpactKind.NEW_COPY, ("vue", "@vue/test-utils"), None),
+            (ImpactKind.OVERRIDE_BUMP, ("vue", "@vue/test-utils"), "3.5.44"),
+        ],
+    )
+    def test_a_lockstep_partner_the_pick_replaces_does_not_hold_it_back(
+        self, kind: ImpactKind, owners: tuple[str, ...], expected: str | None
+    ) -> None:
+        """vue pins its renderer to its own version, so the renderer's old copy goes when vue lands.
+
+        Unless another package still asks for that copy (NEW_COPY): then it stays and holds vue. An
+        override bump moves the copy in place whoever owns it.
+        """
+        registry = make_npm_registry(
+            {
+                "vue": [pv("3.5.43"), pv("3.5.44")],
+                "@vue/server-renderer": [
+                    pv("3.5.43", peers={"vue": PeerDependency("3.5.43")}),
+                    pv("3.5.44", peers={"vue": PeerDependency("3.5.44")}),
+                ],
+            }
+        )
+        renderer = make_record("@vue/server-renderer", "3.5.43")
+        renderer.installed_copies = [
+            InstalledCopy("3.5.43", tuple(IncomingEdge(o, "1.0.0", "3.5.43") for o in owners), CONSTRAINT_SOURCE)
+        ]
+        moves = DirectUpdateImpact(
+            package_name="vue",
+            recommended_version="3.5.44",
+            transitive_impacts=[
+                TransitiveImpact("@vue/server-renderer", "3.5.43", "3.5.44", "3.5.44", "vue", False, kind=kind)
+            ],
+            is_actionable=True,
+            fallback_version=None,
+        )
+        vue = make_record("vue", "3.5.43")
+
+        with patch("ossiq.service.project.strategy.simulate_single", return_value=moves):
+            self.apply(
+                [vue],
+                registry,
+                transitive_by_name={"@vue/server-renderer": renderer},
+                fixed_versions={"@vue/server-renderer": "3.5.43"},
+            )
+
+        assert vue.recommended_version == expected
+
     def test_a_python_project_is_untouched(self) -> None:
         registry = make_registry({"a": [pv("1.0.0"), pv("1.1.0")], "b": [pv("2.0.0"), pv("2.1.0")]})
         a, b = make_record("a", "1.0.0"), make_record("b", "2.0.0")
@@ -1614,6 +1664,81 @@ class TestPeerReconciliation:
 
         assert (a.recommended_version, b.recommended_version) == ("1.1.0", "2.1.0")
         assert a.rejected_candidates == [] and b.rejected_candidates == []
+
+
+class TestRequirementReconciliation:
+    """Where one copy is installed per name, a pick's requirements on another direct package bind like peers."""
+
+    @staticmethod
+    def apply(
+        records: list[ScanRecord],
+        versions_by_name: dict[str, list[PackageVersion]],
+        requires: dict[tuple[str, str], dict[str, str]],
+        **kwargs,
+    ) -> None:
+        registry = make_registry(versions_by_name)
+        registry.package_version_requires.side_effect = lambda name, version: requires.get((name, version), {})
+        TestPeerReconciliation.apply(records, registry, **kwargs)
+
+    def test_a_requirement_the_siblings_range_cannot_meet_sends_the_pick_back(self) -> None:
+        """mkdocs-material 9.8.1 needs requests>=2.33.0; requests stays, declared ~=2.32.5."""
+        app = make_record("app", "1.0.0")
+
+        self.apply(
+            [app],
+            {"app": [pv("1.0.0"), pv("1.0.5"), pv("1.1.0")], "lib": [pv("2.0.0"), pv("2.1.0"), pv("3.0.0")]},
+            {("app", "1.1.0"): {"lib": ">=3"}},
+            fixed_versions={"lib": "2.0.0"},
+            declared_ranges={"app": None, "lib": "~=2.0"},
+        )
+
+        assert app.recommended_version == "1.0.5"
+        (refused,) = app.rejected_candidates
+        assert refused.reason == "app 1.1.0 requires lib"
+        assert refused.detail == RejectionDetail("held at ~=2.0, wanted", (">=3",))
+
+    def test_a_sibling_left_in_place_can_still_move_inside_its_range(self) -> None:
+        app = make_record("app", "1.0.0")
+
+        self.apply(
+            [app],
+            {"app": [pv("1.0.0"), pv("1.1.0")], "lib": [pv("2.0.0"), pv("2.1.0")]},
+            {("app", "1.1.0"): {"lib": ">=2.1"}},
+            fixed_versions={"lib": "2.0.0"},
+            declared_ranges={"app": None, "lib": "~=2.0"},
+        )
+
+        assert app.recommended_version == "1.1.0"
+        assert app.rejected_candidates == []
+
+    def test_a_sibling_the_plan_moves_is_held_to_its_pick(self) -> None:
+        app, lib = make_record("app", "1.0.0"), make_record("lib", "2.0.0")
+
+        self.apply(
+            [app, lib],
+            {"app": [pv("1.0.0"), pv("1.1.0")], "lib": [pv("2.0.0"), pv("2.1.0")]},
+            {("app", "1.1.0"): {"lib": "<2.1"}},
+            declared_ranges={"app": None, "lib": ">=2"},
+        )
+
+        assert (app.recommended_version, lib.recommended_version) == (None, "2.1.0")
+        assert app.rejected_candidates[0].detail == RejectionDetail("held at 2.1.0, wanted", ("<2.1",))
+
+    def test_a_sibling_pick_the_plan_holds_for_widening_stays_in_its_range(self) -> None:
+        """requests is picked at 2.34.2, past ~=2.32.5, but the plan holds that back, so it stays."""
+        app = make_record("app", "1.0.0")
+        lib = make_record("lib", "2.0.0", version_constraint="~=2.0.0", version_constraint_declared="~=2.0.0")
+
+        self.apply(
+            [app, lib],
+            {"app": [pv("1.0.0"), pv("1.1.0")], "lib": [pv("2.0.0"), pv("2.1.0")]},
+            {("app", "1.1.0"): {"lib": ">=2.1"}},
+            declared_ranges={"app": None, "lib": "~=2.0.0"},
+        )
+
+        assert withholds_widening(UpdateStrategy.STANDARD, lib.recommended_from_rung, False)
+        assert app.recommended_version is None
+        assert app.rejected_candidates[0].detail == RejectionDetail("held at ~=2.0.0, wanted", (">=2.1",))
 
 
 class TestFindPeerConflict:
