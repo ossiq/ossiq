@@ -53,36 +53,30 @@ class SolverProblem:
         payload = {
             "registry": self.registry.value,
             "engine_context": sorted(self.engine_context.items()),
-            "constraints": sorted(
-                [
-                    {
-                        "name": c.package_name,
-                        "constraint": c.version_constraint,
-                        "type": c.constraint_type,
-                        "installed": c.installed_version,
-                        "all_constraints": sorted(c.all_constraints),
-                    }
-                    for c in self.constraints
-                ],
-                key=lambda d: d["name"],
-            ),
+            "constraints": [
+                {
+                    "name": c.package_name,
+                    "constraint": c.version_constraint,
+                    "type": c.constraint_type,
+                    "installed": c.installed_version,
+                    "all_constraints": sorted(c.all_constraints),
+                }
+                for c in sorted(self.constraints, key=lambda c: c.package_name)
+            ],
             "candidates": {
-                pkg: sorted(
-                    [
-                        {
-                            "v": cv.version,
-                            "age_days": cv.age_days,
-                            "cve": cv.has_cve,
-                            "deprecated": cv.is_deprecated,
-                            "prerelease": cv.is_prerelease,
-                            "yanked": cv.is_yanked,
-                            "rt": sorted((cv.runtime_requirements or {}).items()),
-                            "requires": sorted((cv.requires or {}).items()),
-                        }
-                        for cv in cvs
-                    ],
-                    key=lambda d: d["v"],
-                )
+                pkg: [
+                    {
+                        "v": cv.version,
+                        "age_days": cv.age_days,
+                        "cve": cv.has_cve,
+                        "deprecated": cv.is_deprecated,
+                        "prerelease": cv.is_prerelease,
+                        "yanked": cv.is_yanked,
+                        "rt": sorted((cv.runtime_requirements or {}).items()),
+                        "requires": sorted((cv.requires or {}).items()),
+                    }
+                    for cv in sorted(cvs, key=lambda cv: cv.version)
+                ]
                 for pkg, cvs in sorted(self.candidates.items())
             },
         }
