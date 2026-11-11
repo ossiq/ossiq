@@ -66,7 +66,7 @@ def test_start_with_nothing_to_upgrade_writes_no_session(project: Project) -> No
 
 def test_start_refuses_when_the_tests_already_fail(project: Project) -> None:
     with pytest.raises(UpgradeSessionError, match="already fails"):
-        start(project, test_command="echo broken; false")
+        start(project, test_command="echo broken && false")
     assert not store.exists(project.root)
 
 
