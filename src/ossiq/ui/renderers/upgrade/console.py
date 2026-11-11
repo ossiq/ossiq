@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import shlex
 from typing import Any
 
@@ -151,6 +152,8 @@ class ConsoleUpgradeRenderer(AbstractUserInterfaceRenderer):
 
     def render_changelogs(self, view: UpgradeView) -> None:
         """Print each changelog whole, through a pager when this is a terminal so a long one can be read."""
+        # Without -R, less prints colour codes as raw ESC text; like git, only when the user has no LESS of their own.
+        os.environ.setdefault("LESS", "-R")
         with self.console.pager(styles=True):
             for package, changelog in view.changelogs:
                 self.console.print(Rule(f"{package.name} {package.current} → {package.target}", style="dim"))

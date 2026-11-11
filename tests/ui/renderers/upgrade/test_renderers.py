@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 from typing import Any, cast
 
 from ossiq.domain.changelog import ChangelogItem, ChangelogStatus, MigrationGuide, RangeChangelog
@@ -174,6 +175,19 @@ def test_console_shows_the_tail_of_a_failing_test_run(capsys) -> None:
 
     out = capsys.readouterr().out
     assert "exited with 1" in out and "AssertionError: boom" in out
+
+
+def test_the_changelog_pager_keeps_colours_unless_the_user_configured_less(capsys, monkeypatch) -> None:
+    view = UpgradeView(Outcome.IN_PROGRESS, None, None, changelogs=((package("zod"), CHANGELOG),))
+    renderer = ConsoleUpgradeRenderer(Settings())
+
+    monkeypatch.delenv("LESS", raising=False)
+    renderer.render_changelogs(view)
+    assert os.environ["LESS"] == "-R"
+
+    monkeypatch.setenv("LESS", "-X")
+    renderer.render_changelogs(view)
+    assert os.environ["LESS"] == "-X"
 
 
 def test_the_front_matter_is_left_out_of_the_pager_view() -> None:
