@@ -6,70 +6,20 @@ from collections import deque
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from datetime import datetime
-from enum import StrEnum
 from typing import TYPE_CHECKING
 
-from ossiq.adapters.api_interfaces import AbstractPackageRegistryApi
 from ossiq.adapters.package_managers.npm.manifest import parse_npm_alias
 from ossiq.domain.common import ConstraintType, RejectionDetail
-from ossiq.domain.project import ConstraintSource, IncomingEdge, InstalledCopy
+from ossiq.domain.project import IncomingEdge, InstalledCopy
 from ossiq.domain.release_cutoff import ReleaseCutoff
+from ossiq.domain.update_plan import ImpactKind, TransitiveImpact
 from ossiq.domain.version import PackageVersion, PeerDependency, classify_npm_specifier
+from ossiq.solver.ports import RegistryReader
 from ossiq.solver.version_matchers import satisfies_all_constraints, version_satisfies_constraint
 from ossiq.timeutil import age_days_from_iso, parse_iso_datetime
 
 if TYPE_CHECKING:
     from ossiq.service.project.models import ScanRecord
-
-
-class ImpactKind(StrEnum):
-    """What a candidate's requirement does to the dependency it names."""
-
-    UPGRADE = "upgrade"
-    """The installed copy has to move to satisfy it."""
-    NEW_DEP = "new_dep"
-    """The dependency is not installed at all today."""
-    NEW_COPY = "new_copy"
-    """npm only: no installed copy satisfies it, so a further copy is installed beside the others."""
-    OVERRIDE_BUMP = "override_bump"
-    """npm only: a copy that has to move with the candidate, through an override OSS IQ writes or
-    rewrites (keyed to that copy), so the tree stays consistent instead of splitting."""
-    PEER = "peer"
-    """npm only: an installed package peer-requires a range the candidate falls outside of."""
-
-
-@dataclass(frozen=True)
-class TransitiveImpact:
-    """Impact on a single transitive dependency caused by a direct package update."""
-
-    package_name: str
-    # None means this is a brand-new transitive dep not currently in the tree.
-    current_version: str | None
-    # None means no version satisfies all merged constraints (hard conflict).
-    projected_version: str | None
-    # Constraint the updated direct dep imposes on this transitive dep.
-    new_constraint: str
-    # Canonical name of the direct dep recommendation driving this impact.
-    driven_by: str
-    # True when projected_version violates an existing parent constraint (multi-parent diamond).
-    has_conflict: bool
-    # The specs behind the conflict, unjoined. None when there is no conflict to explain.
-    conflict: RejectionDetail | None = None
-    # Age of the projected version in days at the reference time; None when unknown.
-    projected_age_days: int | None = None
-    kind: ImpactKind = ImpactKind.UPGRADE
-    # The override that forces the dependency to a version the requirement rules out. Set only on a
-    # conflict that override causes, so a surface can say whose override it is.
-    held_by_override: ConstraintSource | None = None
-
-    @property
-    def conflict_detail(self) -> str | None:
-        """The conflict as one sentence — derived, so no surface can word it differently.
-
-        A table that cannot afford the whole spec list reads `conflict` and elides it itself;
-        see ui.renderers.impact_utils.format_rejection_detail.
-        """
-        return self.conflict.render() if self.conflict else None
 
 
 @dataclass(frozen=True)
@@ -98,7 +48,7 @@ def published_on_or_before(pv: PackageVersion, now: datetime | None) -> bool:
 def find_best_satisfying_package_version(
     package_name: str,
     constraints: list[str],
-    registry: AbstractPackageRegistryApi,
+    registry: RegistryReader,
     allow_prerelease: bool = False,
     now: datetime | None = None,
     release_cutoff: ReleaseCutoff | None = None,
@@ -129,7 +79,7 @@ def find_best_satisfying_package_version(
 def find_best_satisfying_version(
     package_name: str,
     constraints: list[str],
-    registry: AbstractPackageRegistryApi,
+    registry: RegistryReader,
     allow_prerelease: bool = False,
     now: datetime | None = None,
     release_cutoff: ReleaseCutoff | None = None,
@@ -147,7 +97,7 @@ def assess_new_dependency(
     dep_name: str,
     new_constraint: str,
     driven_by: str,
-    registry: AbstractPackageRegistryApi,
+    registry: RegistryReader,
     allow_prerelease: bool = False,
     installed_names: set[str] | None = None,
     now: datetime | None = None,
@@ -182,7 +132,7 @@ def assess_transitive_impact(
     new_constraint: str,
     driven_by: str,
     transitive_by_name: dict[str, ScanRecord],
-    registry: AbstractPackageRegistryApi,
+    registry: RegistryReader,
     allow_prerelease: bool = False,
     installed_names: set[str] | None = None,
     now: datetime | None = None,
@@ -273,7 +223,7 @@ class EdgeVerdict:
     bump: PendingBump | None = None
 
 
-def ranges_intersect(first: str, second: str, versions: Iterable[str], registry: AbstractPackageRegistryApi) -> bool:
+def ranges_intersect(first: str, second: str, versions: Iterable[str], registry: RegistryReader) -> bool:
     """npm's `semver.intersects`, decided over the versions that exist.
 
     A version is enough to say two ranges overlap, and a published one is what an install would
@@ -286,7 +236,7 @@ def ranges_intersect(first: str, second: str, versions: Iterable[str], registry:
     )
 
 
-def known_versions(dep_name: str, copies: list[InstalledCopy], registry: AbstractPackageRegistryApi) -> set[str]:
+def known_versions(dep_name: str, copies: list[InstalledCopy], registry: RegistryReader) -> set[str]:
     """Every version of the package worth testing a range against: the published and the installed."""
     return {pv.version for pv in registry.package_versions(dep_name)} | {copy.version for copy in copies}
 
@@ -296,7 +246,7 @@ def governing_copy(
     copies: list[InstalledCopy],
     spec: str,
     ancestry: set[str],
-    registry: AbstractPackageRegistryApi,
+    registry: RegistryReader,
 ) -> InstalledCopy | None:
     """The installed copy whose override rule would apply to a new edge with this spec, or None.
 
@@ -366,7 +316,7 @@ def assess_nested_edge(
     driven_by: str,
     chain: tuple[str, ...],
     record: ScanRecord | None,
-    registry: AbstractPackageRegistryApi,
+    registry: RegistryReader,
     allow_prerelease: bool = False,
     installed_names: set[str] | None = None,
     now: datetime | None = None,
@@ -456,7 +406,7 @@ def resolve_override_bump(
     pending: PendingBump,
     moved_requires: dict[str, dict[str, str]],
     driven_by: str,
-    registry: AbstractPackageRegistryApi,
+    registry: RegistryReader,
     allow_prerelease: bool = False,
     now: datetime | None = None,
     release_cutoff: ReleaseCutoff | None = None,
@@ -514,7 +464,7 @@ def simulate_nested(
     package_name: str,
     candidate_version: str,
     transitive_by_name: dict[str, ScanRecord],
-    registry: AbstractPackageRegistryApi,
+    registry: RegistryReader,
     allow_prerelease: bool = False,
     installed_names: set[str] | None = None,
     now: datetime | None = None,
@@ -621,7 +571,7 @@ def assess_incoming_peers(
     incoming_peers: Sequence[IncomingEdge],
     moved: Mapping[str, str],
     transitive_by_name: dict[str, ScanRecord],
-    registry: AbstractPackageRegistryApi,
+    registry: RegistryReader,
     installed_version: str | None,
     bumped: Mapping[tuple[str, str], str] | None = None,
 ) -> list[TransitiveImpact]:
@@ -704,7 +654,7 @@ class PeerSetWalk:
 
     driven_by: str
     transitive_by_name: dict[str, ScanRecord]
-    registry: AbstractPackageRegistryApi
+    registry: RegistryReader
     allow_prerelease: bool
     installed_names: set[str]
     now: datetime | None
@@ -840,7 +790,7 @@ def assess_candidate_peers(
     package_name: str,
     candidate_version: str,
     transitive_by_name: dict[str, ScanRecord],
-    registry: AbstractPackageRegistryApi,
+    registry: RegistryReader,
     allow_prerelease: bool = False,
     installed_names: set[str] | None = None,
     now: datetime | None = None,
@@ -893,7 +843,7 @@ def simulate_single(
     package_name: str,
     candidate_version: str,
     transitive_by_name: dict[str, ScanRecord],
-    registry: AbstractPackageRegistryApi,
+    registry: RegistryReader,
     allow_prerelease: bool = False,
     installed_names: set[str] | None = None,
     now: datetime | None = None,
@@ -1010,7 +960,7 @@ def simulate_single(
 def simulate_update_impacts(
     recommendations: dict[str, str],
     transitive_records: list[ScanRecord],
-    registry: AbstractPackageRegistryApi,
+    registry: RegistryReader,
     allow_prerelease: bool = False,
     installed_names: set[str] | None = None,
     now: datetime | None = None,

@@ -11,11 +11,10 @@ import json
 import logging
 import os
 import subprocess
-from collections.abc import Callable, Collection, Iterable, Iterator, Mapping
+from collections.abc import Callable, Collection, Generator, Iterable, Mapping
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING
 
 import requests
 import semver
@@ -51,11 +50,9 @@ from ossiq.domain.exceptions import (
 from ossiq.domain.packages_manager import PNPM, PNPM_LOCKFILE, PackageManagerType
 from ossiq.domain.project import Dependency, Project
 from ossiq.domain.release_cutoff import ReleaseCutoff
+from ossiq.domain.update_plan import UpdatePlan
 from ossiq.settings import Settings
 from ossiq.tree.builder import NodeKey
-
-if TYPE_CHECKING:
-    from ossiq.service.update.models import UpdatePlan
 
 logger = logging.getLogger(__name__)
 
@@ -155,7 +152,7 @@ def declared_package_manager(project_data: dict) -> str | None:
 
 
 @contextmanager
-def restore_on_failure(root: Path) -> Iterator[None]:
+def restore_on_failure(root: Path) -> Generator[None, None, None]:
     """Put the project files back as they were if the block raises, removing any it created.
 
     Catches BaseException, not Exception: an install interrupted with Ctrl-C leaves a half-written

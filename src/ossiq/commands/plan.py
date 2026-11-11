@@ -9,6 +9,7 @@ from ossiq.domain.common import (
     normalize_dist_name,
     parse_name_value_specs,
 )
+from ossiq.domain.update_plan import UpdatePlan
 from ossiq.messages import (
     ERROR_OVERRIDE_DUPLICATE,
     ERROR_OVERRIDE_IGNORE_CONFLICT,
@@ -29,7 +30,7 @@ from ossiq.messages import (
     WARNING_STRATEGY_OVERRIDE_UNKNOWN_PACKAGE,
 )
 from ossiq.service.project.models import ScanResult
-from ossiq.service.update.models import PlanOptions, UpdatePlan
+from ossiq.service.update.models import PlanOptions
 from ossiq.service.update.overrides import find_override_record, override_alias_siblings
 from ossiq.service.update.plan import plan_project
 from ossiq.settings import Settings

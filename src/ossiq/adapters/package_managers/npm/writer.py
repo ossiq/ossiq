@@ -6,7 +6,7 @@ recommendations persisted as overrides with a record of what OSS IQ wrote.
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from ossiq.adapters.package_managers.npm.constants import DEP_SECTIONS
 from ossiq.adapters.package_managers.npm.overrides import (
@@ -18,9 +18,7 @@ from ossiq.adapters.package_managers.npm.overrides import (
     user_owns_override,
 )
 from ossiq.adapters.package_managers.pnpm.constants import CATALOG_PROTOCOL
-
-if TYPE_CHECKING:
-    from ossiq.service.update.models import UpdateEntry, UpdatePlan
+from ossiq.domain.update_plan import UpdateEntry, UpdatePlan
 
 
 def relax_spec(original_spec: str, recommended: str, pin_all: bool) -> str:

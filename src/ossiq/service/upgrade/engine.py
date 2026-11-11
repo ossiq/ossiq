@@ -23,8 +23,9 @@ from ossiq.domain.exceptions import (
     PackageManagerUpdateIncomplete,
     UpgradeSessionError,
 )
+from ossiq.domain.update_plan import UpdatePlan
 from ossiq.service.project.models import ScanResult
-from ossiq.service.update.models import PlanOptions, UpdatePlan
+from ossiq.service.update.models import PlanOptions
 from ossiq.service.upgrade import store
 from ossiq.service.upgrade.models import APPLIED, CommandRun, StepPackage, StepStatus, UpgradeSession, UpgradeStep
 from ossiq.service.upgrade.preview import ChangelogFetcher, build_preview

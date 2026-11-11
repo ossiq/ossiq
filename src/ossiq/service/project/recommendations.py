@@ -8,10 +8,11 @@ from datetime import datetime
 from ossiq.adapters.api_interfaces import AbstractPackageRegistryApi
 from ossiq.domain.common import ConstraintType, EngineContext, RecommendationRung, RejectedCandidate
 from ossiq.domain.release_cutoff import ReleaseCutoff
+from ossiq.domain.update_plan import ImpactKind
 from ossiq.service.project.models import ScanRecord
 from ossiq.service.project.strategy import describe_rejection, peer_hold
 from ossiq.service.project.target_facts import annotate_target_facts, clear_target_facts
-from ossiq.service.update_impact import ImpactKind, incoming_peer_edges, simulate_single
+from ossiq.service.update_impact import incoming_peer_edges, simulate_single
 from ossiq.solver import dependencies_solver
 from ossiq.solver.universe import filter_eligible_versions
 from ossiq.solver.version_matchers import satisfies_all_constraints, version_satisfies_constraint

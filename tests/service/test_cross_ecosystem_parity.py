@@ -22,7 +22,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from ossiq.adapters.api_interfaces import AbstractPackageRegistryApi, VersionRules
+from ossiq.adapters.api_interfaces import AbstractPackageRegistryApi
 from ossiq.adapters.api_npm import PackageRegistryApiNpm
 from ossiq.adapters.api_pypi import PackageRegistryApiPypi
 from ossiq.domain.common import ConstraintType, RecommendationRung
@@ -34,6 +34,7 @@ from ossiq.service.project.models import ScanRecord
 from ossiq.service.project.strategy import apply_update_strategy
 from ossiq.settings import Settings
 from ossiq.solver.dependencies_solver import solve_direct
+from ossiq.solver.ports import VersionRules
 from ossiq.strategy.overrides import StrategyPlan
 from ossiq.strategy.pyramid import UpdateStrategy
 

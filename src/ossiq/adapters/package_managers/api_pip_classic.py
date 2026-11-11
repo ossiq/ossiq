@@ -13,7 +13,6 @@ import subprocess
 import tempfile
 from collections import namedtuple
 from collections.abc import Callable
-from typing import TYPE_CHECKING
 
 from ossiq.adapters.api_interfaces import AbstractPackageManagerApi
 from ossiq.adapters.package_managers.api_pypi import batch_fetch_requires_dist, make_session
@@ -21,12 +20,10 @@ from ossiq.domain.common import ConstraintType, normalize_dist_name
 from ossiq.domain.exceptions import PackageManagerLockfileParsingError
 from ossiq.domain.packages_manager import PIP_CLASSIC, PackageManagerType
 from ossiq.domain.project import ConstraintSource, Dependency, Project
+from ossiq.domain.update_plan import UpdatePlan
 from ossiq.domain.version import classify_pypi_specifier, normalize_version
 from ossiq.settings import Settings
 from ossiq.solver.pep508 import applicable_requirements
-
-if TYPE_CHECKING:
-    from ossiq.service.update.models import UpdatePlan
 
 PipClassicProject = namedtuple("PipClassicProject", ["manifest"])
 

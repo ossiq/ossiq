@@ -9,18 +9,19 @@ from datetime import datetime
 from functools import cache
 from typing import Protocol
 
-from ossiq.adapters.api_interfaces import AbstractPackageRegistryApi
 from ossiq.domain.common import RejectedCandidate
 from ossiq.domain.cve import CVE
 from ossiq.domain.project import ConstraintSource
 from ossiq.domain.provenance import VersionBlocks
 from ossiq.domain.release_cutoff import ReleaseCutoff
+from ossiq.domain.update_plan import RecommendationReason
 from ossiq.solver.driver import ConflictSet
 from ossiq.solver.driver_glucose import GlucoseDriver
 from ossiq.solver.encoder import ConstraintEncoder
 from ossiq.solver.kernel import HPDRKernel
+from ossiq.solver.ports import RegistryReader
 from ossiq.solver.problem import SolverProblem
-from ossiq.solver.reason import RecommendationReason, build_reason
+from ossiq.solver.reason import build_reason
 from ossiq.solver.universe import DepLike, SolvablePool
 from ossiq.solver.version_matchers import satisfies_all_constraints, version_satisfies_constraint
 from ossiq.solver.weights import VERY_FRESH_THRESHOLD_DAYS
@@ -119,7 +120,7 @@ def apply_fallback(
 
 def build_requires_reason(
     problem: SolverProblem,
-    registry: AbstractPackageRegistryApi,
+    registry: RegistryReader,
     recommendations: dict[str, str],
     external_targets: dict[str, str],
     *,
@@ -241,7 +242,7 @@ def build_requires_reason(
 
 def build_requires_validator(
     problem: SolverProblem,
-    registry: AbstractPackageRegistryApi,
+    registry: RegistryReader,
     recommendations: dict[str, str],
     external_targets: dict[str, str],
     *,
@@ -260,7 +261,7 @@ def build_requires_validator(
 def apply_requires_consistency(
     output: SolverOutput,
     problem: SolverProblem,
-    registry: AbstractPackageRegistryApi,
+    registry: RegistryReader,
     *,
     extra_validator: Callable[[str, str], bool] | None = None,
     external_targets: dict[str, str] | None = None,
@@ -348,7 +349,7 @@ def detect_conflicts(problem: SolverProblem) -> list[ConstraintConflict]:
 def _run_solve(
     label: str,
     deps: Sequence[DepLike],
-    registry: AbstractPackageRegistryApi,
+    registry: RegistryReader,
     engine_context: dict[str, str],
     *,
     allow_prerelease: bool = False,
@@ -399,7 +400,7 @@ def _run_solve(
 
 def solve_direct(
     deps: Sequence[DepLike],
-    registry: AbstractPackageRegistryApi,
+    registry: RegistryReader,
     engine_context: dict[str, str],
     *,
     allow_prerelease: bool = False,
@@ -475,7 +476,7 @@ class TransitiveDependency:
 
 def solve_transitive(
     transitive_records: Sequence[TransitiveRecord],
-    registry: AbstractPackageRegistryApi,
+    registry: RegistryReader,
     engine_context: dict[str, str],
     *,
     allow_prerelease: bool = False,

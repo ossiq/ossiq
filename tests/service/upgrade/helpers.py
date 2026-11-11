@@ -9,7 +9,8 @@ from typing import Any, cast
 
 from ossiq.domain.common import ConstraintType
 from ossiq.domain.exceptions import PackageManagerExecutionError
-from ossiq.service.update.models import PlanOptions, UpdateEntry, UpdatePlan
+from ossiq.domain.update_plan import UpdateEntry, UpdatePlan
+from ossiq.service.update.models import PlanOptions
 from ossiq.service.upgrade import engine
 from ossiq.service.upgrade.engine import UpgradeEnv
 from ossiq.service.upgrade.view import StepPreview, UpgradeView

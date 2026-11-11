@@ -20,13 +20,12 @@ from ossiq.domain.cve import CVE, Severity
 from ossiq.domain.policy import Policy, PolicyException, PolicyRule
 from ossiq.domain.project import ConstraintSource
 from ossiq.domain.provenance import PolicyHold
+from ossiq.domain.update_plan import ImpactKind, PeerRepair, RecommendationReason, TransitiveImpact
 from ossiq.domain.version import VersionsDifference
-from ossiq.service.project.models import PeerRepair, ScanRecord, ScanResult
+from ossiq.service.project.models import ScanRecord, ScanResult
 from ossiq.service.update.entries import override_bump_entry
 from ossiq.service.update.overrides import find_override_record, override_alias_siblings
 from ossiq.service.update.plan import build_update_plan
-from ossiq.service.update_impact import ImpactKind, TransitiveImpact
-from ossiq.solver.reason import RecommendationReason
 from ossiq.strategy.overrides import StrategyPlan
 from ossiq.strategy.pyramid import UpdateStrategy
 from ossiq.strategy.targeting import StrategySelection

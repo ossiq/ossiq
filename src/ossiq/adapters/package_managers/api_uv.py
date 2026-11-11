@@ -13,7 +13,7 @@ from collections import defaultdict, namedtuple
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from packaging.requirements import InvalidRequirement, Requirement
 
@@ -30,13 +30,10 @@ from ossiq.domain.exceptions import PackageManagerExecutionError, PackageManager
 from ossiq.domain.packages_manager import UV, PackageManagerType
 from ossiq.domain.project import ConstraintSource, Dependency, Project
 from ossiq.domain.release_cutoff import ReleaseCutoff
+from ossiq.domain.update_plan import UpdateEntry, UpdatePlan
 from ossiq.domain.version import classify_pypi_specifier
 from ossiq.settings import Settings
 from ossiq.tree.builder import LockfileTreeBuilder
-
-if TYPE_CHECKING:
-    from ossiq.service.update.models import UpdateEntry, UpdatePlan
-
 
 logger = logging.getLogger(__name__)
 

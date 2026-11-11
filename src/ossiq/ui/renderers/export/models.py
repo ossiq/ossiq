@@ -29,9 +29,10 @@ from ossiq.domain.common import (
 from ossiq.domain.cve import CVE, Severity
 from ossiq.domain.packages_manager import PackageManagerCli
 from ossiq.domain.project import UnresolvedPeer
+from ossiq.domain.update_plan import PeerRepair
 from ossiq.risk.maintenance import OBSERVATION_COUNT
 from ossiq.service.library_scan import UpgradePath
-from ossiq.service.project.models import IgnoredDependency, PeerRepair, ScanRecord, ScanResult
+from ossiq.service.project.models import IgnoredDependency, ScanRecord, ScanResult
 from ossiq.service.project.next_action import needs_attention, next_action_label
 from ossiq.service.project.stability import RepositoryStability
 

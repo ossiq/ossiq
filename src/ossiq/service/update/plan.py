@@ -7,6 +7,7 @@ from collections.abc import Callable, Mapping
 
 from ossiq.domain.common import ProjectPackagesRegistry
 from ossiq.domain.policy import Policy
+from ossiq.domain.update_plan import UpdatePlan
 from ossiq.domain.version import PeerDependency
 from ossiq.service.completeness import check_security_data_complete
 from ossiq.service.install_passes import assign_install_passes
@@ -21,7 +22,7 @@ from ossiq.service.update.holds import (
     policy_holds,
     split_user_override_holds,
 )
-from ossiq.service.update.models import PlanOptions, UpdatePlan
+from ossiq.service.update.models import PlanOptions
 from ossiq.service.update.overrides import apply_forced_overrides
 from ossiq.settings import Settings
 from ossiq.sources import project_sources

@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 from ossiq.domain.common import ConstraintType, ProjectPackagesRegistry
+from ossiq.domain.update_plan import UpdateEntry, UpdatePlan
 from ossiq.domain.version import PeerDependency
 from ossiq.service.install_passes import assign_install_passes
-from ossiq.service.update.models import UpdateEntry, UpdatePlan
 
 
 def entry(name: str, current: str, recommended: str) -> UpdateEntry:

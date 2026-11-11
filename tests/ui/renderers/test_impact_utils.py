@@ -4,8 +4,8 @@ from rich.console import Console
 from rich.table import Table
 
 from ossiq.domain.common import RejectionDetail
+from ossiq.domain.update_plan import ImpactKind, TransitiveImpact
 from ossiq.service.project.next_action import NEXT_ACTION_PRIORITY
-from ossiq.service.update_impact import ImpactKind, TransitiveImpact
 from ossiq.ui.renderers.impact_utils import (
     REJECTION_DETAIL_LIMIT,
     WHATS_NEXT_STYLE,

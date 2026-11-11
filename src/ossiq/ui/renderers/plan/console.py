@@ -5,6 +5,7 @@ from rich.rule import Rule
 from rich.table import Table
 
 from ossiq.domain.common import Command, UserInterfaceType, rung_scope_label
+from ossiq.domain.update_plan import UpdateEntry, UpdatePlan
 from ossiq.messages import (
     HELP_PLAN_CONVERGENCE_NOTICE,
     HELP_PLAN_CVE_BYPASS_NOTE,
@@ -24,7 +25,6 @@ from ossiq.messages import (
     HELP_PLAN_PASSES_NOTICE,
     HELP_PLAN_PEER_REPAIRS_HEADER,
 )
-from ossiq.service.update.models import UpdateEntry, UpdatePlan
 from ossiq.ui.interfaces import AbstractUserInterfaceRenderer
 from ossiq.ui.renderers.impact_utils import (
     format_cutoff,

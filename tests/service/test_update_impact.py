@@ -8,13 +8,12 @@ from unittest.mock import MagicMock
 from ossiq.domain.common import ConstraintType, ProjectPackagesRegistry, RejectionDetail
 from ossiq.domain.project import ConstraintSource, IncomingEdge, InstalledCopy
 from ossiq.domain.release_cutoff import ReleaseCutoff
+from ossiq.domain.update_plan import ImpactKind, TransitiveImpact
 from ossiq.domain.version import PackageVersion, PeerDependency, VersionsDifference
 from ossiq.service.project.models import ScanRecord
 from ossiq.service.update.entries import entry_from_record
 from ossiq.service.update_impact import (
     DirectUpdateImpact,
-    ImpactKind,
-    TransitiveImpact,
     assess_transitive_impact,
     copy_to_move,
     find_best_satisfying_version,

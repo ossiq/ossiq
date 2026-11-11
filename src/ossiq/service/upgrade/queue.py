@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 
+from ossiq.domain.update_plan import UpdateEntry, UpdatePlan
 from ossiq.sequence.steps import group_steps
-from ossiq.service.update.models import UpdateEntry, UpdatePlan
 from ossiq.service.upgrade.models import StepPackage
 
 

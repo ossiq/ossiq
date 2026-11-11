@@ -21,6 +21,7 @@ from ossiq.domain.common import (
 from ossiq.domain.cve import CVE, AffectedRange, Severity
 from ossiq.domain.project import ConstraintSource, IncomingEdge, InstalledCopy
 from ossiq.domain.release_cutoff import ReleaseCutoff
+from ossiq.domain.update_plan import ImpactKind, TransitiveImpact
 from ossiq.domain.version import PackageVersion, PeerDependency, VersionsDifference
 from ossiq.service.project.ladder import compute_version_ladder
 from ossiq.service.project.models import ScanRecord
@@ -34,7 +35,7 @@ from ossiq.service.project.strategy import (
 )
 from ossiq.service.update.entries import entry_from_record
 from ossiq.service.update.holds import is_held_for_widening
-from ossiq.service.update_impact import DirectUpdateImpact, ImpactKind, TransitiveImpact, simulate_single
+from ossiq.service.update_impact import DirectUpdateImpact, simulate_single
 from ossiq.strategy.overrides import StrategyPlan
 from ossiq.strategy.pyramid import UpdateStrategy, withholds_widening
 

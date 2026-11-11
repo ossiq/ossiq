@@ -21,14 +21,13 @@ from ossiq.domain.packages_manager import PackageManagerCli
 from ossiq.domain.project import ConstraintSource, InstalledCopy, PeerRequirement, UnresolvedPeer
 from ossiq.domain.provenance import ProvenanceFacts, SourceLevel
 from ossiq.domain.repository import Repository
+from ossiq.domain.update_plan import PeerRepair, RecommendationReason, TransitiveImpact
 from ossiq.domain.version import VersionsDifference
 from ossiq.risk.maintenance import DeprecationEvidence, MaintenanceAssessment
 from ossiq.service.common import package_versions
 from ossiq.service.library_scan import UpgradePath
 from ossiq.service.project.epss import ProjectEpss
 from ossiq.service.project.stability import ProjectStability, RepositoryStability, TriageResult
-from ossiq.service.update_impact import TransitiveImpact
-from ossiq.solver.reason import RecommendationReason
 from ossiq.strategy.targeting import StrategySelection
 
 
@@ -307,32 +306,6 @@ class IgnoredDependency:
     name: str
     spec: str
     reason: str
-
-
-@dataclass(frozen=True)
-class PeerRepair:
-    """What it takes to put a peer back where the package that declares it can load it (npm only).
-
-    npm never re-hoists a copy that is valid where it sits, so a peer installed only nested under some
-    other package stays out of reach until the project asks for it directly. The family moves bring
-    the stale hoisted copies of its lockstep family to the same version, so the added package and
-    its family stop being split.
-    """
-
-    package: str
-    """The peer to install where its requirers resolve it."""
-
-    spec: str
-    """The range written for it, in the style of the family it belongs to."""
-
-    is_dev: bool
-    """Whether it belongs in devDependencies: every requirer that needs it is a development package."""
-
-    requirers: tuple[str, ...]
-    """The installed packages whose peer it resolves."""
-
-    family_moves: tuple[TransitiveImpact, ...] = ()
-    """OVERRIDE_BUMP impacts moving stale hoisted copies of its family to its version."""
 
 
 @dataclass

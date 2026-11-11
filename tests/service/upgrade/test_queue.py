@@ -1,9 +1,7 @@
 from __future__ import annotations
 
 from ossiq.domain.common import ConstraintType, PassOrdering
-from ossiq.service.project.models import PeerRepair
-from ossiq.service.update.models import UpdateEntry, UpdatePlan
-from ossiq.service.update_impact import TransitiveImpact
+from ossiq.domain.update_plan import PeerRepair, TransitiveImpact, UpdateEntry, UpdatePlan
 from ossiq.service.upgrade.queue import build_queue
 
 PATCH, MINOR, MAJOR = 3, 4, 5

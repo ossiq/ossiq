@@ -30,6 +30,7 @@ from ossiq.domain.package import Package
 from ossiq.domain.project import Dependency, Project
 from ossiq.domain.provenance import SourceLevel, VersionBlocks
 from ossiq.domain.requirement_scope import RequirementScope
+from ossiq.domain.update_plan import ImpactKind
 from ossiq.service.library_scan import compute_upgrade_paths, resolve_library_constraints
 from ossiq.service.project.copies import group_nodes_by_copy, installed_copies_by_name
 from ossiq.service.project.epss import populate_epss
@@ -73,7 +74,6 @@ from ossiq.service.project.stability import populate_stability
 from ossiq.service.project.strategy import apply_update_strategy
 from ossiq.service.update_impact import (
     DirectUpdateImpact,
-    ImpactKind,
     incoming_peer_edges,
     simulate_single,
     simulate_update_impacts,

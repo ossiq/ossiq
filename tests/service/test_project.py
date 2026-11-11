@@ -16,6 +16,7 @@ from ossiq.domain.cve import CVE, Severity
 from ossiq.domain.package import Package
 from ossiq.domain.packages_manager import UV
 from ossiq.domain.project import ConstraintSource, Dependency, IncomingEdge, InstalledCopy, PeerRequirement, Project
+from ossiq.domain.update_plan import ImpactKind, TransitiveImpact
 from ossiq.domain.version import PackageVersion, VersionsDifference
 from ossiq.messages import IGNORE_REASON_IGNORE_FLAG, IGNORE_REASON_NON_REGISTRY
 from ossiq.risk.maintenance import DeprecationSignal
@@ -32,7 +33,6 @@ from ossiq.service.project.scan import (
     scan,
     solve_transitive_phase,
 )
-from ossiq.service.update_impact import ImpactKind, TransitiveImpact
 from ossiq.settings import Settings
 from ossiq.solver.dependencies_solver import EMPTY_OUTPUT, SolverOutput
 from ossiq.strategy.overrides import StrategyPlan

@@ -13,7 +13,6 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from functools import cache, cmp_to_key, partial
 
-from ossiq.adapters.api_interfaces import AbstractPackageRegistryApi
 from ossiq.domain.common import (
     RUNG_ORDER,
     ConstraintType,
@@ -28,6 +27,7 @@ from ossiq.domain.common import (
 from ossiq.domain.policy import Policy, PolicyRule
 from ossiq.domain.provenance import VersionBlocks
 from ossiq.domain.release_cutoff import ReleaseCutoff
+from ossiq.domain.update_plan import ImpactKind, RecommendationReason
 from ossiq.domain.version import PeerDependency
 from ossiq.risk.maintenance import DEPRECATION_NONE
 from ossiq.service.common.package_versions import PackageVersion
@@ -42,13 +42,12 @@ from ossiq.service.project.models import ScanRecord
 from ossiq.service.project.target_facts import annotate_target_facts, clear_target_facts
 from ossiq.service.update_impact import (
     DirectUpdateImpact,
-    ImpactKind,
     find_best_satisfying_package_version,
     incoming_peer_edges,
     moves_with_candidate,
     simulate_single,
 )
-from ossiq.solver.reason import RecommendationReason
+from ossiq.solver.ports import RegistryReader
 from ossiq.solver.version_matchers import (
     cve_affects_version,
     engine_mismatch_reason,
@@ -72,7 +71,7 @@ def module_system_gate(
     installed_module_system: ModuleSystem | None,
     project_declares_esm: bool,
     releases: list[PackageVersion],
-    registry: AbstractPackageRegistryApi,
+    registry: RegistryReader,
 ) -> StructuralGate:
     """Reject a release that code on the installed module system can no longer load.
 
@@ -129,7 +128,7 @@ def classify_rung(
     version: str,
     record: ScanRecord,
     installed_major: tuple[int, int] | None,
-    registry: AbstractPackageRegistryApi,
+    registry: RegistryReader,
 ) -> RecommendationRung:
     """Place *version* on the widening ladder relative to what *record*'s root manifest declares."""
     # The declaration, not version_constraint's last-writer-wins accumulator: this rung decides
@@ -210,7 +209,7 @@ def peer_hold(impact: DirectUpdateImpact) -> PeerHold | None:
 def build_candidates(
     record: ScanRecord,
     releases: list[PackageVersion],
-    registry: AbstractPackageRegistryApi,
+    registry: RegistryReader,
     *,
     now: datetime | None = None,
     validator: Callable[[str, str], DirectUpdateImpact] | None = None,
@@ -407,7 +406,7 @@ def find_peer_conflict(
     version: str,
     finals: Mapping[str, str],
     installed: Mapping[str, str],
-    registry: AbstractPackageRegistryApi,
+    registry: RegistryReader,
     peers_of: Callable[[str, str], Mapping[str, PeerDependency]] | None = None,
 ) -> PeerConflict | None:
     """The first peer range *name* at *version* breaks against every other package's final version.
@@ -463,7 +462,7 @@ def find_requirement_conflict(
     finals: Mapping[str, str],
     installed: Mapping[str, str],
     *,
-    registry: AbstractPackageRegistryApi,
+    registry: RegistryReader,
     declared_ranges: Mapping[str, str | None],
     fits: Callable[[str, list[str]], PackageVersion | None],
 ) -> PeerConflict | None:
@@ -500,9 +499,7 @@ def find_requirement_conflict(
     return None
 
 
-def record_peer_refusal(
-    record: ScanRecord, version: str, conflict: PeerConflict, registry: AbstractPackageRegistryApi
-) -> None:
+def record_peer_refusal(record: ScanRecord, version: str, conflict: PeerConflict, registry: RegistryReader) -> None:
     """Add a release the joint pass refused to the record's rejected candidates, one per rung as elsewhere."""
     verb = "peer-requires" if conflict.is_peer else "requires"
     if conflict.requirer == record.package_name:
@@ -580,7 +577,7 @@ def dragged_copies(record: ScanRecord, transitive_by_name: Mapping[str, ScanReco
 
 def reconcile_peer_targets(
     decisions: Sequence[TargetDecision],
-    registry: AbstractPackageRegistryApi,
+    registry: RegistryReader,
     fixed_versions: Mapping[str, str],
     reselect: Callable[[TargetDecision, tuple[Candidate, ...]], StrategySelection],
     write: Callable[[TargetDecision, StrategySelection, str], None],
@@ -658,7 +655,7 @@ def reconcile_peer_targets(
 
 def apply_update_strategy(
     records: list[ScanRecord],
-    registry: AbstractPackageRegistryApi,
+    registry: RegistryReader,
     plan: StrategyPlan,
     *,
     versions_since: dict[tuple[str, str], list[PackageVersion]],

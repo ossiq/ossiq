@@ -5,7 +5,7 @@ import os
 
 from ossiq.adapters.package_managers.npm.lockfile import NPMTreeBuilderV3
 from ossiq.domain.project import Dependency
-from ossiq.service.update.models import UpdateEntry, UpdatePlan
+from ossiq.domain.update_plan import UpdateEntry, UpdatePlan
 
 
 # ============================================================================

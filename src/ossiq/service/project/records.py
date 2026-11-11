@@ -4,7 +4,6 @@ Building and sorting ScanRecord instances from dependency descriptors and pre-fe
 
 from datetime import UTC, datetime
 
-from ossiq.adapters.api_interfaces import VersionRules
 from ossiq.domain.common import EngineContext, build_purl, parse_spdx_expression
 from ossiq.domain.compatibility import CompatibilityFacts
 from ossiq.domain.cve import CVE
@@ -21,6 +20,7 @@ from ossiq.service.project.breaking_changes import (
 from ossiq.service.project.coverage import classify_signal_coverage
 from ossiq.service.project.ladder import compute_version_ladder
 from ossiq.service.project.models import DependencyDescriptor, PrefetchedData, ScanRecord
+from ossiq.solver.ports import VersionRules
 from ossiq.solver.version_matchers import version_satisfies_constraint
 
 

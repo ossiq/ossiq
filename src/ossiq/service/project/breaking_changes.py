@@ -10,10 +10,10 @@ from datetime import datetime
 
 import semver
 
-from ossiq.adapters.api_interfaces import VersionRules
 from ossiq.domain.common import ModuleSystem, ProjectPackagesRegistry
 from ossiq.domain.version import PackageVersion, pad_npm_version
 from ossiq.service.project.ladder import installable_releases
+from ossiq.solver.ports import VersionRules
 from ossiq.solver.version_matchers import major_key
 
 

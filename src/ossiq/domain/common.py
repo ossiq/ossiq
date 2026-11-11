@@ -190,6 +190,20 @@ decides whether an entry lands in UpdatePlan.held_for_widening (unless the tier 
 and, unless the tier or `widening_authorized` lifts the hold, whether "Constrained" is the right next
 action. Anything not in here is writable as-is."""
 
+
+class UpdateStrategy(StrEnum):
+    """A tier of the update pyramid, from the smallest diff to the newest possible version."""
+
+    SECURITY = "security"
+    DEPRECATION = "deprecation"
+    STANDARD = "standard"
+    LATEST = "latest"
+    CUTTING_EDGE = "cutting-edge"
+
+
+DEFAULT_STRATEGY = UpdateStrategy.STANDARD
+
+
 RUNG_ORDER: Mapping[RecommendationRung, int] = {
     RecommendationRung.IN_RANGE: 0,
     RecommendationRung.IN_MAJOR: 1,

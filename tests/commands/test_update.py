@@ -17,9 +17,10 @@ from ossiq.commands.plan import (
 from ossiq.domain.common import ConstraintType
 from ossiq.domain.project import ConstraintSource
 from ossiq.domain.release_cutoff import ReleaseCutoff
+from ossiq.domain.update_plan import UpdateEntry, UpdatePlan
 from ossiq.domain.version import PackageVersion, VersionsDifference
 from ossiq.service.project.models import ScanRecord, ScanResult
-from ossiq.service.update.models import PlanOptions, UpdateEntry, UpdatePlan
+from ossiq.service.update.models import PlanOptions
 
 
 class TestCommandUpdatePinWiring:

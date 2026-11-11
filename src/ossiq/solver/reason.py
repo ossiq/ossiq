@@ -2,35 +2,9 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Literal
-
+from ossiq.domain.update_plan import RecommendationReason, VersionRejection
 from ossiq.solver.problem import SolverProblem
 from ossiq.solver.version_matchers import has_engine_mismatch, version_satisfies_constraint
-
-RejectionCause = Literal["constraint_mismatch", "cve", "engine_mismatch", "deprecated", "very_fresh", "lower_semver"]
-
-
-@dataclass(frozen=True)
-class VersionRejection:
-    """A single candidate version that was not selected and why."""
-
-    version: str
-    cause: RejectionCause
-    detail: str
-
-
-@dataclass(frozen=True)
-class RecommendationReason:
-    """Human-readable explanation of why a solver-selected version was chosen."""
-
-    selected_version: str
-    constraint: str | None
-    hard_rejections: list[VersionRejection]
-    soft_rejections: list[VersionRejection]
-    lower_semver_alternatives: list[VersionRejection]
-    age_days: int | None
-    is_latest: bool
 
 
 def _empty_reason(selected_version: str, constraint: str | None = None) -> RecommendationReason:

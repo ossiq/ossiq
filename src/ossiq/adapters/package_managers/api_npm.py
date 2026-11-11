@@ -10,7 +10,7 @@ import os
 import subprocess
 from collections.abc import Callable, Sequence
 from pathlib import Path
-from typing import TYPE_CHECKING, NamedTuple
+from typing import NamedTuple
 
 from ossiq.adapters.api_interfaces import AbstractPackageManagerApi
 from ossiq.adapters.package_managers.npm import manifest
@@ -26,10 +26,8 @@ from ossiq.adapters.package_managers.utils import find_lockfile_parser
 from ossiq.domain.exceptions import PackageManagerExecutionError, PackageManagerLockfileParsingError
 from ossiq.domain.packages_manager import NPM, PackageManagerType
 from ossiq.domain.project import Dependency, Project
+from ossiq.domain.update_plan import UpdatePlan
 from ossiq.settings import Settings
-
-if TYPE_CHECKING:
-    from ossiq.service.update.models import UpdatePlan
 
 
 class NpmProject(NamedTuple):

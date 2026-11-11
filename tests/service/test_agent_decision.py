@@ -32,6 +32,7 @@ from ossiq.domain.cve import CVE, AffectedRange, Severity
 from ossiq.domain.package import Package
 from ossiq.domain.project import ConstraintSource, UnresolvedPeer
 from ossiq.domain.provenance import ProvenanceFacts, TrustTier
+from ossiq.domain.update_plan import ImpactKind, PeerRepair, TransitiveImpact
 from ossiq.domain.version import (
     VERSION_DIFF_MAJOR,
     VERSION_DIFF_MINOR,
@@ -53,8 +54,7 @@ from ossiq.service.package import (
     build_package_insight,
     evaluate_package_rules,
 )
-from ossiq.service.project.models import PeerRepair, ScanRecord, ScanResult
-from ossiq.service.update_impact import ImpactKind, TransitiveImpact
+from ossiq.service.project.models import ScanRecord, ScanResult
 from ossiq.settings import Settings
 from ossiq.strategy.motive import UpdateMotive
 from ossiq.strategy.pyramid import UpdateStrategy

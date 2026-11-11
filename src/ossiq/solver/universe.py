@@ -5,7 +5,6 @@ from datetime import datetime
 from functools import cmp_to_key
 from typing import Protocol
 
-from ossiq.adapters.api_interfaces import AbstractPackageRegistryApi
 from ossiq.domain.common import ConstraintType, ProjectPackagesRegistry
 from ossiq.domain.cve import CVE
 from ossiq.domain.project import ConstraintSource
@@ -14,6 +13,7 @@ from ossiq.domain.release_cutoff import ReleaseCutoff
 from ossiq.domain.requirement_scope import RequirementScope
 from ossiq.domain.version import PackageVersion
 from ossiq.solver.pep508 import applicable_requirements
+from ossiq.solver.ports import RegistryReader
 from ossiq.solver.problem import CandidateVersion, PackageConstraint, SolverProblem
 from ossiq.solver.version_matchers import (
     comparable_package_name,
@@ -39,7 +39,7 @@ _CONSTRAINT_PRIORITY: dict[ConstraintType, int] = {
 def relevant_constraints(
     installed_version: str,
     raw_constraints: Sequence[str],
-    registry: AbstractPackageRegistryApi,
+    registry: RegistryReader,
 ) -> tuple[str, ...]:
     """Keep only specifiers the installed version satisfies.
 
@@ -117,11 +117,21 @@ class DepLike(Protocol):
     Phase 4 should move DependencyDescriptor to domain/ and replace this Protocol.
     """
 
-    canonical_name: str
-    version: str
-    version_constraint: str | None
-    constraint_info: ConstraintSource
-    all_constraints: list[str]
+    # Read-only: a frozen dataclass can't satisfy a writable protocol attribute.
+    @property
+    def canonical_name(self) -> str: ...
+
+    @property
+    def version(self) -> str: ...
+
+    @property
+    def version_constraint(self) -> str | None: ...
+
+    @property
+    def constraint_info(self) -> ConstraintSource: ...
+
+    @property
+    def all_constraints(self) -> Sequence[str]: ...
 
 
 def effective_version_constraint(dep: DepLike, rewrite_pinned: bool) -> str | None:
@@ -165,7 +175,7 @@ def filter_eligible_versions(
     raw: list[PackageVersion],
     installed_version: str,
     allow_prerelease: bool,
-    registry: AbstractPackageRegistryApi,
+    registry: RegistryReader,
     now: datetime | None,
     release_cutoff: datetime | None = None,
     *,
@@ -258,7 +268,7 @@ class SolvablePool:
     def build(
         cls,
         deps: Sequence[DepLike],
-        registry: AbstractPackageRegistryApi,
+        registry: RegistryReader,
         engine_context: dict[str, str],
         *,
         cves_by_package: dict[str, tuple[CVE, ...]] | None = None,

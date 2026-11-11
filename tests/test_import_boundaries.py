@@ -3,6 +3,8 @@
 import ast
 import pathlib
 
+import pytest
+
 # Anchored to this file, not the working directory: a relative path made the
 # rglob below silently match nothing whenever pytest ran from outside the repo
 # root, so the boundary check passed without inspecting anything.
@@ -66,3 +68,65 @@ def test_renderers_import_boundary() -> None:
     for py_file in py_files:
         all_violations.extend(_collect_violations(py_file))
     assert not all_violations, "\n".join(all_violations)
+
+
+SRC_ROOT = PROJECT_ROOT / "src"
+# Layers that sit above the pure packages in the spine (CLAUDE.md, Architecture): importing one is importing upward.
+UPWARD_PREFIXES = (
+    "ossiq.adapters",
+    "ossiq.clients",
+    "ossiq.sources",
+    "ossiq.service",
+    "ossiq.ui",
+    "ossiq.commands",
+    "ossiq.mcp",
+    "ossiq.settings",
+    "ossiq.cli",
+)
+
+
+def imported_modules(path: pathlib.Path) -> set[str]:
+    """Absolute dotted names a module imports, with relative imports resolved against its own package."""
+    package = list(path.relative_to(SRC_ROOT).with_suffix("").parts[:-1])
+    found: set[str] = set()
+    for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+        if isinstance(node, ast.Import):
+            found.update(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom):
+            base = package[: len(package) - (node.level - 1)] if node.level else []
+            module = ".".join([*base, *([node.module] if node.module else [])])
+            found.add(module)
+            # `from ossiq import settings` names a module through the imported name.
+            found.update(f"{module}.{alias.name}" for alias in node.names)
+    return found
+
+
+def under(module: str, prefixes: tuple[str, ...]) -> bool:
+    return any(module == prefix or module.startswith(f"{prefix}.") for prefix in prefixes)
+
+
+def package_files(name: str) -> list[pathlib.Path]:
+    files = sorted((SRC_ROOT / "ossiq" / name).rglob("*.py"))
+    assert files, f"no modules found under ossiq/{name}"
+    return files
+
+
+def test_domain_imports_nothing_but_itself() -> None:
+    violations = [
+        f"{path.relative_to(PROJECT_ROOT)}: `{module}`"
+        for path in package_files("domain")
+        for module in sorted(imported_modules(path))
+        if module.startswith("ossiq") and not under(module, ("ossiq.domain",))
+    ]
+    assert not violations, "\n".join(violations)
+
+
+@pytest.mark.parametrize("package", ["risk", "solver", "strategy", "sequence", "tree"])
+def test_pure_packages_do_not_import_upward(package: str) -> None:
+    violations = [
+        f"{path.relative_to(PROJECT_ROOT)}: `{module}`"
+        for path in package_files(package)
+        for module in sorted(imported_modules(path))
+        if under(module, UPWARD_PREFIXES)
+    ]
+    assert not violations, "\n".join(violations)

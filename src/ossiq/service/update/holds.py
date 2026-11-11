@@ -8,9 +8,9 @@ from collections.abc import Iterable
 from ossiq.domain.common import ConstraintType, OverrideHold, PeerHold
 from ossiq.domain.policy import Policy, PolicyRule
 from ossiq.domain.provenance import PolicyHold
+from ossiq.domain.update_plan import UpdateEntry
 from ossiq.service.project.models import ScanRecord, ScanResult
 from ossiq.service.update.entries import cooldown_entry_from_record
-from ossiq.service.update.models import UpdateEntry
 from ossiq.strategy.overrides import StrategyPlan
 from ossiq.strategy.pyramid import UpdateStrategy, withholds_widening
 

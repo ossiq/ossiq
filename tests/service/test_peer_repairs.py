@@ -6,10 +6,10 @@ from packaging.version import Version
 
 from ossiq.domain.common import ConstraintType, ProjectPackagesRegistry
 from ossiq.domain.project import ConstraintSource, IncomingEdge, InstalledCopy, UnresolvedPeer
+from ossiq.domain.update_plan import ImpactKind
 from ossiq.domain.version import PackageVersion, VersionsDifference
 from ossiq.service.project.models import ScanRecord
 from ossiq.service.project.peer_repairs import plan_peer_repairs
-from ossiq.service.update_impact import ImpactKind
 
 SOURCE = ConstraintSource(type=ConstraintType.DECLARED, source_file="package.json")
 OUT_OF_REACH = UnresolvedPeer("@vue/server-renderer", "3.x", optional=True, installed_elsewhere=("3.5.43",))
