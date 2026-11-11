@@ -49,13 +49,20 @@ class FakeBatchStrategy(BatchStrategy):
     via session.post.side_effect / session.post.return_value.
     """
 
-    def __init__(self, session: MagicMock | None = None, chunk_size: int = 3, max_retries: int = 3):
+    def __init__(
+        self,
+        session: MagicMock | None = None,
+        chunk_size: int = 3,
+        max_retries: int = 3,
+        abort_on_unauthorized: bool = False,
+    ):
         self.session = session or MagicMock()
         self._config = BatchStrategySettings(
             chunk_size=chunk_size,
             max_retries=max_retries,
             max_workers=3,
             request_timeout=10,
+            abort_on_unauthorized=abort_on_unauthorized,
         )
 
     @property
@@ -86,8 +93,18 @@ def make_response(status: int, body: dict, headers: dict | None = None) -> Magic
     return resp
 
 
-def make_strategy(session: MagicMock | None = None, chunk_size: int = 3, max_retries: int = 3) -> FakeBatchStrategy:
-    return FakeBatchStrategy(session=session, chunk_size=chunk_size, max_retries=max_retries)
+def make_strategy(
+    session: MagicMock | None = None,
+    chunk_size: int = 3,
+    max_retries: int = 3,
+    abort_on_unauthorized: bool = False,
+) -> FakeBatchStrategy:
+    return FakeBatchStrategy(
+        session=session,
+        chunk_size=chunk_size,
+        max_retries=max_retries,
+        abort_on_unauthorized=abort_on_unauthorized,
+    )
 
 
 def make_client(strategy: FakeBatchStrategy | None = None) -> BatchClient:
@@ -309,6 +326,28 @@ class TestBatchClientRetry:
 
         assert results == []
         assert session.post.call_count == 1
+
+    def test_401_stops_the_run_when_the_strategy_asks_for_it(self):
+        """A refused token fails every request, so only the chunks already in flight (max_workers) are paid for."""
+        session = MagicMock()
+        session.post.return_value = make_response(401, {"error": "unauthorized"})
+        client = make_client(make_strategy(session, chunk_size=1, abort_on_unauthorized=True))
+
+        results = collect(client.run_batch(list(range(10))))
+
+        assert results == []
+        assert session.post.call_count <= 3
+        assert client.last_summary.failures[0][0] == DegradeReason.REJECTED
+
+    def test_401_does_not_stop_the_run_by_default(self):
+        """A registry can refuse one private package and serve the rest."""
+        session = MagicMock()
+        session.post.return_value = make_response(401, {"error": "unauthorized"})
+        client = make_client(make_strategy(session, chunk_size=1))
+
+        collect(client.run_batch(list(range(10))))
+
+        assert session.post.call_count == 10
 
     def test_200_is_success(self):
         """200 OK must produce a successful ChunkResult."""

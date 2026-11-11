@@ -126,6 +126,7 @@ class GithubRepoBatchStrategy(BatchStrategy):
             max_retries=3,
             max_workers=5,
             request_timeout=15.0,
+            abort_on_unauthorized=True,
         )
 
     def prepare_item(self, item: str) -> tuple[str, str]:
@@ -159,6 +160,7 @@ class GithubCommitsBatchStrategy(BatchStrategy):
             max_retries=3,
             max_workers=5,
             request_timeout=15.0,
+            abort_on_unauthorized=True,
         )
 
     def prepare_item(self, item: str) -> tuple[str, str]:
@@ -313,6 +315,7 @@ class GithubGraphQLBatchStrategy(BatchStrategy):
             max_retries=3,
             max_workers=3,
             request_timeout=20.0,
+            abort_on_unauthorized=True,
         )
 
     def prepare_item(self, item: tuple[str, str]) -> tuple | None:
@@ -379,6 +382,7 @@ class GithubReadmeBatchStrategy(BatchStrategy):
             max_retries=2,
             max_workers=5,
             request_timeout=15.0,
+            abort_on_unauthorized=True,
         )
 
     def prepare_item(self, item: str) -> tuple[str, str]:
@@ -426,6 +430,7 @@ class GithubBranchControlsBatchStrategy(BatchStrategy):
             max_retries=2,
             max_workers=5,
             request_timeout=15.0,
+            abort_on_unauthorized=True,
         )
 
     def prepare_item(self, item: tuple[str, str]) -> tuple[str, str]:
