@@ -5,10 +5,8 @@ from __future__ import annotations
 import dataclasses
 
 from ossiq.domain.common import WIDENING_RUNGS, ConstraintType, CooldownHold
+from ossiq.domain.update_plan import ImpactKind, RecommendationReason, TransitiveImpact, UpdateEntry
 from ossiq.service.project.models import ScanRecord, ScanResult
-from ossiq.service.update.models import UpdateEntry
-from ossiq.service.update_impact import ImpactKind, TransitiveImpact
-from ossiq.solver.reason import RecommendationReason
 from ossiq.solver.version_matchers import parse_npm_version
 
 

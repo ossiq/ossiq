@@ -158,9 +158,8 @@ class Settings(BaseSettings):
         CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
         env_files = [config_file] if config_file is not None else [LEGACY_CONFIG_PATH, CONFIG_PATH]
         try:
-            # _env_file is a real BaseSettings init param; ty only sees the synthesized model __init__
             # Later files override earlier ones; a file that does not exist is skipped.
-            return cls(_env_file=env_files)  # ty: ignore[unknown-argument]
+            return cls(_env_file=env_files)
         except ValidationError as error:
             # The value is left out on purpose: a setting that holds a secret must not be echoed back.
             problems = "; ".join(

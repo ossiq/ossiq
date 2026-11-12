@@ -387,6 +387,23 @@ class TestRequirementsParsing:
 
         assert dependencies == {}
 
+    def test_a_constraint_file_caps_a_requirement_without_relabelling_it(self, temp_project_dir, settings):
+        """pip intersects `-c` ranges with every requirement: the range is recorded, the line keeps its type."""
+        root = Path(temp_project_dir)
+        (root / "requirements.txt").write_text("-c constraints.txt\nidna>=3.4\nclick==8.1.7\n")
+        (root / "constraints.txt").write_text("idna<3.8  # waits for a fix\n-c more.txt\n")
+        (root / "more.txt").write_text("click\n")
+        adapter = PackageManagerPythonPipClassic(temp_project_dir, settings)
+
+        dependencies = adapter.parse_requirements_txt()
+
+        idna = dependencies["idna"]
+        assert (idna.constraint_info.type, idna.constraint_info.constraint_range) == (ConstraintType.DECLARED, "<3.8")
+        assert idna.parent_constraints == ["<3.8"]
+        assert dependencies["click"].constraint_info.type == ConstraintType.PINNED
+        assert dependencies["click"].constraint_info.constraint_range is None
+        assert adapter.installer_caps() == {"idna": "<3.8"}
+
 
 # ============================================================================
 # Test Project Info Extraction

@@ -7,9 +7,10 @@ from functools import cmp_to_key
 from ossiq.adapters.api_interfaces import AbstractPackageRegistryApi
 from ossiq.domain.common import ConstraintType
 from ossiq.domain.release_cutoff import ReleaseCutoff
+from ossiq.domain.update_plan import PeerRepair, TransitiveImpact
 from ossiq.domain.version import classify_npm_specifier
-from ossiq.service.project.models import PeerRepair, ScanRecord
-from ossiq.service.update_impact import MAX_FAMILY_SIZE, PendingBump, TransitiveImpact, resolve_override_bump
+from ossiq.service.project.models import ScanRecord
+from ossiq.service.update_impact import MAX_FAMILY_SIZE, PendingBump, resolve_override_bump
 from ossiq.solver.version_matchers import version_satisfies_constraint
 
 RANGE_PREFIXES = ("~", "^")

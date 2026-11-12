@@ -16,6 +16,7 @@ from ossiq.domain.cve import CVE, Severity
 from ossiq.domain.package import Package
 from ossiq.domain.packages_manager import UV
 from ossiq.domain.project import ConstraintSource, Dependency, IncomingEdge, InstalledCopy, PeerRequirement, Project
+from ossiq.domain.update_plan import ImpactKind, TransitiveImpact
 from ossiq.domain.version import PackageVersion, VersionsDifference
 from ossiq.messages import IGNORE_REASON_IGNORE_FLAG, IGNORE_REASON_NON_REGISTRY
 from ossiq.risk.maintenance import DeprecationSignal
@@ -32,7 +33,6 @@ from ossiq.service.project.scan import (
     scan,
     solve_transitive_phase,
 )
-from ossiq.service.update_impact import ImpactKind, TransitiveImpact
 from ossiq.settings import Settings
 from ossiq.solver.dependencies_solver import EMPTY_OUTPUT, SolverOutput
 from ossiq.strategy.overrides import StrategyPlan
@@ -245,6 +245,17 @@ class TestScanRecord:
         )
 
         assert record.compatibility.latest_in_range == "2.32.0"
+
+    def test_a_package_manager_cap_keeps_releases_past_it_off_every_rung(self, mock_package):
+        """uv refuses anything past `[tool.uv] constraint-dependencies`, so no rung may name it; latest still shows."""
+        capped = ConstraintSource(type=ConstraintType.DECLARED, source_file="pyproject.toml", constraint_range="<2.32")
+        record = self._make_record(
+            _REAL_PYPI, mock_package, _LADDER_VERSIONS, version_constraint=">=2.0.0", constraint_info=capped
+        )
+
+        assert record.compatibility.latest_in_range == "2.31.0"
+        assert record.compatibility.latest_in_major == "2.31.0"
+        assert record.latest_version == "2.32.0"
 
     def test_purl_uses_canonical_name_and_registry(self, mock_package_registry, mock_package, mock_versions):
         """PURL is built from the canonical name, not any alias, and reflects the correct registry."""

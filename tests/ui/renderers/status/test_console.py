@@ -263,6 +263,19 @@ def test_full_mode_lists_transitive_recommendations_as_rows():
     assert "ESM-only from 5.0.0" in section
 
 
+def test_full_mode_lists_a_transitive_package_held_back_with_its_reason():
+    """No recommendation, but a reason: the row is shown, so the hold is not silent."""
+    record = make_record("urllib3", recommended_version=None)
+    record.rejected_candidates = [
+        RejectedCandidate(version="1.26.20", reason="every release under its constraints still carries a CVE")
+    ]
+
+    section = render_report([make_record()], transitive=[record], full=True).split("Transitive Recommendations")[1]
+
+    assert "urllib3" in section
+    assert "1.26.20 rejected: every release under its constraints still carries a CVE" in section
+
+
 # --- Latest column and the constrained sub-row ------------------------------------------------
 
 

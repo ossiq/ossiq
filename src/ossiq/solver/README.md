@@ -30,11 +30,11 @@ solver/
 
 | Argument | Type | Description |
 |---|---|---|
-| `deps` | `Sequence[_DepLike]` | Direct dependency descriptors from the scan pass |
-| `registry` | `AbstractPackageRegistryApi` | Registry with warm in-memory cache (no extra HTTP) |
+| `deps` | `Sequence[DepLike]` | Direct dependency descriptors from the scan pass |
+| `registry` | `RegistryReader` (`solver/ports.py`) | Registry with warm in-memory cache (no extra HTTP) |
 | `engine_context` | `dict[str, str]` | Project runtime versions, e.g. `{"python": "3.11.9"}` — currently `{}` (L2 inactive until Phase 6) |
 
-`_DepLike` is a structural Protocol requiring: `canonical_name`, `version`, `version_constraint`, `constraint_info`.
+`DepLike` is a structural Protocol of read-only properties: `canonical_name`, `version`, `version_constraint`, `constraint_info`, `all_constraints`.
 
 ### `solve_transitive(transitive_records, registry, engine_context)`
 
@@ -146,7 +146,7 @@ A PyPI release declares requirements gated on extras (`oauthlib<4; extra == "soc
 **Why a Weighted MaxSAT formulation — and why the default driver isn't exact MaxSAT?**  
 The problem is naturally a Partial MaxSAT instance: some constraints are inviolable (declared ranges, CVEs) while others express preferences with quantified importance (age, engine, deprecation). The encoding is shared; the driver is pluggable. The **default `GlucoseDriver`** commits each package's highest-net-soft-weight version as a SAT assumption greedily (Glucose42, 10 s timeout) — it captures the dominant per-package preference without MaxSAT's NP-hard optimisation cost. **`PySATDriver`** (RC2 from `python-sat==1.9.dev2`) remains available for exact optimisation. Reference: [RC2 in the pysat handbook](https://pysathq.github.io/docs/html/api/examples/rc2.html).
 
-**Why a Protocol (`_DepLike`) instead of importing `DependencyDescriptor`?**  
+**Why a Protocol (`DepLike`) instead of importing `DependencyDescriptor`?**  
 `service/` already imports `unit_of_work/`; importing back would create a cycle. The Protocol is duck-typed and zero-cost at runtime. A future refactor moving `DependencyDescriptor` to `domain/` would let us drop the Protocol (noted as TODO in `universe.py:28`).
 
 **Why is `engine_context={}` in Phase 4/5?**  

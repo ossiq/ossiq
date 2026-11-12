@@ -10,7 +10,7 @@ import os
 import subprocess
 from collections.abc import Callable, Sequence
 from pathlib import Path
-from typing import TYPE_CHECKING, NamedTuple
+from typing import NamedTuple
 
 from ossiq.adapters.api_interfaces import AbstractPackageManagerApi
 from ossiq.adapters.package_managers.npm import manifest
@@ -26,10 +26,8 @@ from ossiq.adapters.package_managers.utils import find_lockfile_parser
 from ossiq.domain.exceptions import PackageManagerExecutionError, PackageManagerLockfileParsingError
 from ossiq.domain.packages_manager import NPM, PackageManagerType
 from ossiq.domain.project import Dependency, Project
+from ossiq.domain.update_plan import UpdatePlan
 from ossiq.settings import Settings
-
-if TYPE_CHECKING:
-    from ossiq.service.update.models import UpdatePlan
 
 
 class NpmProject(NamedTuple):
@@ -46,6 +44,7 @@ class PackageManagerJsNpm(AbstractPackageManagerApi):
     settings: Settings
     package_manager_type: PackageManagerType = NPM
     project_path: str
+    supports_upgrade_session = True
 
     # Dynamic mapping between NPM lockfile versions
     supported_versions: dict[str, str] = {
@@ -238,6 +237,11 @@ class PackageManagerJsNpm(AbstractPackageManagerApi):
             if total > 1:
                 raise PackageManagerExecutionError(f"{exc} in pass {number} of {total}") from exc
             raise
+
+    def sync_environment(self) -> None:
+        """Run `npm install` so node_modules matches the lockfile as it is on disk."""
+        manifest = (Path(self.project_path) / MANIFEST_FILE).read_text(encoding="utf-8")
+        self.run_npm_install(self.project_path, [], manifest)
 
     def install_package(self, package_name: str, version: str | None = None) -> int:
         """Run npm install to add a package to the project. Restores package.json on failure.

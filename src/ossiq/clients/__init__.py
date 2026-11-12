@@ -197,6 +197,8 @@ def install_requests_cache(cache_destination: str, cache_ttl_hours: int, stabili
             # The quota pre-flight check reports a number that only means anything live - a
             # replayed reading would claim yesterday's budget and is worse than no reading.
             "*/rate_limit*": requests_cache.DO_NOT_CACHE,
+            # A changelog can carry a "temporarily unavailable" notice the API itself marks no-store.
+            "*changelogiq.dev*": requests_cache.DO_NOT_CACHE,
             # A replayed poll never completes a login, and the token response holds the secrets.
             "*/login/*": requests_cache.DO_NOT_CACHE,
             GITHUB_USER_URL: requests_cache.DO_NOT_CACHE,

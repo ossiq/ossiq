@@ -1,0 +1,17 @@
+[project]
+name = "smoke-uv-constrained"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = [
+    "requests~=2.31.0",
+    "packaging>=21.3",
+]
+
+[tool.uv]
+package = false
+# The project's own caps, as a team writes them after a breaking release. uv applies them to every
+# lock, so a plan past one is a plan `uv lock` refuses. urllib3 is transitive (via requests);
+# packaging is direct with room to move under its range; requests is direct and has to widen
+# its ~= to reach its CVE fix, which the cap still admits. attrs is not installed at all:
+# `add` must honour its cap too.
+constraint-dependencies = ["urllib3<2", "packaging<22", "requests<2.33", "attrs<23"]

@@ -3,7 +3,7 @@ Implementation of Package Registry API client for PyPI
 """
 
 import logging
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 
 import requests
 from packaging.version import InvalidVersion
@@ -157,7 +157,7 @@ def earliest_upload_iso(release_files: list[dict]) -> str | None:
     return min(dated)[1] if dated else None
 
 
-def pypi_trust_tier(release_files: list[dict], provenance: dict[str, str | None] | None) -> TrustTier | None:
+def pypi_trust_tier(release_files: list[dict], provenance: Mapping[str, str | None] | None) -> TrustTier | None:
     """The build evidence PyPI holds for one release.
 
     PyPI accepts attestations only from Trusted Publishing, so an attested file is a

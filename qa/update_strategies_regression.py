@@ -537,6 +537,12 @@ def build_env() -> dict[str, str]:
         for key, value in os.environ.items()
         if key not in DROPPED_ENV and (not key.startswith("OSSIQ_") or key in KEPT_OSSIQ_ENV)
     }
+    if not env.get("OSSIQ_GITHUB_TOKEN"):
+        from ossiq.settings import Settings  # only a run reads the config, not the offline fixture tests
+
+        if token := Settings.load().github_token:
+            # The CLI runs with an empty --config, so a token kept in the ossiq config would never reach it.
+            env["OSSIQ_GITHUB_TOKEN"] = token
     # Wide enough that Rich never wraps a plan row; parse_plan reads them line by line.
     env.update({"COLUMNS": "240", "NO_COLOR": "1"})
     return env

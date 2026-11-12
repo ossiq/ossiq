@@ -10,7 +10,7 @@ import threading
 import time
 from abc import ABC, abstractmethod
 from collections import deque
-from collections.abc import Generator, Iterable
+from collections.abc import Generator, Iterable, Sequence
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from dataclasses import dataclass
 from typing import Any
@@ -89,6 +89,9 @@ class BatchStrategySettings:
     max_retries: int
     max_workers: int
     request_timeout: float
+    # A 401 stops the whole run. Right for one host and one credential (GitHub); wrong for a registry
+    # that can refuse a single private package.
+    abort_on_unauthorized: bool = False
 
 
 @dataclass
@@ -198,7 +201,7 @@ class BatchStrategy(ABC):
         """
         return resp.json()
 
-    def next_items(self, source_items: list, response: ChunkResult) -> Iterable[Any]:  # noqa: ARG002
+    def next_items(self, source_items: list, response: ChunkResult) -> Sequence[Any]:  # noqa: ARG002
         """
         Return request-ready follow-up items to enqueue after a successful response.
 
@@ -284,10 +287,6 @@ class BatchClient:
         normal usage pattern everywhere in this codebase) can read it immediately afterward to
         find out whether the data they just received is complete.
         """
-
-        if not items:
-            self.last_summary = BatchRunSummary()
-            return
 
         chunk_size = self.strategy.config.chunk_size
 
@@ -468,6 +467,10 @@ class BatchClient:
                             error=exc,
                             reason=DegradeReason.EMPTY_RESPONSE,
                         )
+
+                # A refused token fails every request alike; going on would only pay for each one.
+                if resp.status_code == 401 and strategy.config.abort_on_unauthorized:
+                    self._abort.set()
 
                 # Other 4xx (400, 401, 422, …) — permanent failure, no retry
                 return ChunkResult(

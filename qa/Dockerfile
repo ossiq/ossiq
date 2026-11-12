@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1
-# Smoke-matrix image: Node 22, Python 3.12, uv, and ossiq from this checkout.
+# Regression-matrix image: Node 22, pnpm, Python 3.12, uv, and ossiq from this checkout.
 # The image is the sandbox: smoke_matrix.py starts one throwaway container per step, so npm
 # installs, `uv sync` and sdist builds never run on the host.
 # Build: just qa-build  (docker build -f qa/Dockerfile -t ossiq-qa .)
@@ -11,6 +11,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends curl git ca-cer
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=ghcr.io/astral-sh/uv:0.9.26 /uv /uvx /usr/local/bin/
+
+# pnpm 10 writes lockfileVersion 9.0, the only one OSS IQ reads. Pinned, so a run is repeatable.
+RUN npm install -g pnpm@10.34.8
 
 # ossiq from uv.lock into its own venv. Only the binary is linked into /opt/ossiq-bin, which goes
 # on PATH: the venv's python must never shadow the python of the project under test.

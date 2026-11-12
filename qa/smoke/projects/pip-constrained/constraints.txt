@@ -1,0 +1,2 @@
+# The project's cap: pip intersects it with every requirement, so nothing past it installs.
+idna<3.8

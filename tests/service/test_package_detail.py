@@ -98,6 +98,7 @@ def make_sources(releases: list[PackageVersion]) -> MagicMock:
     sources.allow_prerelease = False
     sources.release_cutoff = None
     sources.policy = Policy()
+    sources.packages_manager.installer_caps.return_value = {}
     registry = sources.packages_registry
     registry.package_registry = ProjectPackagesRegistry.NPM
     registry.package_versions.return_value = releases
@@ -414,6 +415,23 @@ DROPPED_PROVENANCE = [
     tiered("1.1.0", TrustTier.TRUSTED_PUBLISHER, "2024-02-01"),
     tiered("1.2.0", TrustTier.NONE, "2024-03-01"),
 ]
+
+
+class TestProspectiveAddUnderACap:
+    """A package manager cap (`[tool.uv] constraint-dependencies`) binds a package before it is declared."""
+
+    def test_the_recommendation_stays_under_the_cap(self) -> None:
+        sources = prospective_sources(make_package(None, latest="2.0.0"), [pv("1.0.0"), pv("1.5.0"), pv("2.0.0")])
+        sources.packages_manager.installer_caps.return_value = {"pkg": "<2"}
+
+        assert recommended_of(fetch_prospective_detail("pkg", sources, Settings())) == "1.5.0"
+
+    def test_the_latest_is_no_fallback_when_the_cap_rules_it_out(self) -> None:
+        """With nothing under the cap, `add` passes no version and the installer picks under it itself."""
+        sources = prospective_sources(make_package(None, latest="2.0.0"), [pv("2.0.0")])
+        sources.packages_manager.installer_caps.return_value = {"pkg": "<2"}
+
+        assert recommended_of(fetch_prospective_detail("pkg", sources, Settings())) is None
 
 
 class TestProspectiveAddUnderAPolicy:

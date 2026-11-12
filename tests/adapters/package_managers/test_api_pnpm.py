@@ -547,6 +547,16 @@ class TestExecuteUpdate:
         }
         assert "  semver@7.0.0: 7.5.2\n" in (Path(workspace_project) / "pnpm-workspace.yaml").read_text()
 
+    def test_a_newer_release_the_range_admits_counts_as_landed(self, pnpm, workspace_project):
+        """`^4.4.3` lets pnpm take 4.4.4, published after the plan picked 4.4.3; that is not a miss."""
+        plan = make_npm_update_plan(
+            direct=[make_npm_update_entry("debug", "4.3.4", "4.4.3", version_defined="^4.3.4")],
+            project_path=workspace_project,
+        )
+
+        with patch(PNPM_RUN, side_effect=pnpm_installs(workspace_project, "debug@4.4.4", "ms@2.1.3")):
+            pnpm.execute_update(plan)
+
     def test_a_failure_in_a_later_pass_restores_all_three_files(self, pnpm, workspace_project):
         plan = make_npm_update_plan(
             direct=[
@@ -902,3 +912,14 @@ class TestInstallPackageCooldown:
 
         assert "--cooldown-period 0" in (caught.value.hint or "")
         assert snapshot(temp_project_dir) == before
+
+
+class TestSyncEnvironment:
+    def test_installs_the_frozen_lockfile_without_scripts(self, tmp_path, settings):
+        with patch("subprocess.run") as mock_run:
+            PackageManagerJsPnpm(str(tmp_path), settings).sync_environment()
+        assert mock_run.call_args.args[0] == ["pnpm", "install", "--ignore-scripts", "--frozen-lockfile"]
+
+    def test_snapshots_the_workspace_file_too(self, tmp_path, settings):
+        files = PackageManagerJsPnpm(str(tmp_path), settings).snapshot_files()
+        assert files == ("package.json", "pnpm-lock.yaml", "pnpm-workspace.yaml")

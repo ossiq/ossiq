@@ -9,12 +9,14 @@ from ossiq.domain.common import (
     ConstraintType,
     ProjectPackagesRegistry,
     RegistryStatus,
+    normalize_dist_name,
 )
 from ossiq.domain.cve import CVE
 from ossiq.domain.package import Package
 from ossiq.domain.policy import Policy, PolicyRule
 from ossiq.domain.project import ConstraintSource
 from ossiq.domain.provenance import SourceLevel
+from ossiq.domain.update_plan import RecommendationReason
 from ossiq.domain.version import PackageVersion
 from ossiq.service.project.models import DependencyDescriptor, ScanRecord, ScanResult
 from ossiq.service.project.provenance import compute_version_blocks, fetch_source_level, registry_policy
@@ -22,7 +24,7 @@ from ossiq.service.project.recommendations import apply_recommendations, clamp_r
 from ossiq.service.project.records import calculate_version_age_days
 from ossiq.settings import Settings
 from ossiq.solver import dependencies_solver
-from ossiq.solver.reason import RecommendationReason
+from ossiq.solver.version_matchers import version_satisfies_constraint
 from ossiq.sources.core import AbstractProjectSources
 
 RULE_SINGLE_VERSION = "SINGLE_VERSION"
@@ -288,7 +290,11 @@ def fetch_prospective_detail(
         cve_map = sources.cve_database.get_cves_batch([(package, package.latest_version)]).data
         cves = list(cve_map.get((package.name, package.latest_version), set()))
 
-    # Run solver (unconstrained) to get proper recommendation + full rationale.
+    # The package manager's own cap is the only constraint a package not yet declared has: past it,
+    # `add` would hand the installer a version it refuses.
+    cap = sources.packages_manager.installer_caps().get(normalize_dist_name(pkg_canonical))
+
+    # Run solver to get proper recommendation + full rationale.
     # "0.0.0" as installed version ensures solver always finds a recommendation.
     descriptor = DependencyDescriptor(
         name=pkg_canonical,
@@ -296,8 +302,8 @@ def fetch_prospective_detail(
         version="0.0.0",
         is_optional=False,
         dependency_path=None,
-        version_constraint=None,
-        constraint_info=ConstraintSource(type=ConstraintType.DECLARED, source_file=""),
+        version_constraint=cap,
+        constraint_info=ConstraintSource(type=ConstraintType.DECLARED, source_file="", constraint_range=cap),
         all_constraints=[],
     )
     solver_output = dependencies_solver.solve_direct(
@@ -319,7 +325,10 @@ def fetch_prospective_detail(
     # here, so a pick the policy ruled out means nothing clean was left.
     if recommended_version in version_blocks.get(pkg_canonical, {}):
         recommended_version = None
-    recommended_version = recommended_version or package.latest_version
+    latest = package.latest_version
+    under_cap = cap is None or (latest is not None and version_satisfies_constraint(latest, cap, package.registry))
+    if recommended_version is None and under_cap:
+        recommended_version = latest
     prospective_reason = solver_output.reasons.get(pkg_canonical)
     recommended_age = calculate_version_age_days(versions, recommended_version) if recommended_version else None
 

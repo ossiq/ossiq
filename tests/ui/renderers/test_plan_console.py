@@ -9,11 +9,15 @@ from rich.console import Console
 
 from ossiq.domain.common import ConstraintType, OverrideHold, PassOrdering, PeerHold, RecommendationRung
 from ossiq.domain.provenance import PolicyHold
-from ossiq.service.project.models import PeerRepair
-from ossiq.service.update.models import UpdateEntry, UpdatePlan
-from ossiq.service.update_impact import ImpactKind, TransitiveImpact
+from ossiq.domain.update_plan import (
+    ImpactKind,
+    PeerRepair,
+    RecommendationReason,
+    TransitiveImpact,
+    UpdateEntry,
+    UpdatePlan,
+)
 from ossiq.settings import Settings
-from ossiq.solver.reason import RecommendationReason
 from ossiq.ui.renderers.plan import console as plan_console
 from ossiq.ui.renderers.plan.console import ConsolePlanRenderer
 

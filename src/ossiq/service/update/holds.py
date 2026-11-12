@@ -8,11 +8,11 @@ from collections.abc import Iterable
 from ossiq.domain.common import ConstraintType, OverrideHold, PeerHold
 from ossiq.domain.policy import Policy, PolicyRule
 from ossiq.domain.provenance import PolicyHold
+from ossiq.domain.update_plan import UpdateEntry
 from ossiq.service.project.models import ScanRecord, ScanResult
 from ossiq.service.update.entries import cooldown_entry_from_record
-from ossiq.service.update.models import UpdateEntry
 from ossiq.strategy.overrides import StrategyPlan
-from ossiq.strategy.pyramid import UpdateStrategy, tier_reaches
+from ossiq.strategy.pyramid import UpdateStrategy, withholds_widening
 
 
 def is_held_for_cooldown(entry: UpdateEntry, cooldown_period: int, policy: Policy | None = None) -> bool:
@@ -41,7 +41,7 @@ def is_held_for_widening(entry: UpdateEntry, strategy: UpdateStrategy, *, rewrit
     flag's purpose, but not npm aliases, whose inner constraint can't be rewritten (as in
     clamp_recommendations).
     """
-    if entry.is_forced or entry.widening_authorized or not entry.widens_constraint or entry.from_rung is None:
+    if entry.is_forced or not entry.widens_constraint:
         return False
     if (
         rewrite_versions
@@ -49,7 +49,7 @@ def is_held_for_widening(entry: UpdateEntry, strategy: UpdateStrategy, *, rewrit
         and not (entry.version_defined or "").startswith("npm:")
     ):
         return False
-    return not tier_reaches(strategy, entry.from_rung)
+    return withholds_widening(strategy, entry.from_rung, entry.widening_authorized)
 
 
 def user_override_hold(record: ScanRecord | None, entry: UpdateEntry) -> OverrideHold | None:

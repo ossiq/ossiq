@@ -69,8 +69,9 @@ just qa-strategies --fresh                           # --no-cache: live registry
 just qa-strategies --ossiq-cmd "uvx --from dist/ossiq-X.Y.Z-py3-none-any.whl ossiq"   # a built wheel
 ```
 
-It needs network, a GitHub login (`uv run ossiq auth login`, or `OSSIQ_GITHUB_TOKEN`), and `npm` /
-`uv` on `PATH` unless you pass `--skip-apply`. A full run takes about a minute with a warm cache.
+It needs network, a GitHub login (`uv run ossiq auth login`, or `OSSIQ_GITHUB_TOKEN` in the
+environment or your ossiq config file), and `npm` / `uv` on `PATH` unless you pass `--skip-apply`.
+A full run takes about a minute with a warm cache.
 For a release, run it with `--fresh` against the built artifact.
 
 For every fixture and tier it runs `export`, `status --format agent` and `plan` against a pristine
@@ -170,26 +171,31 @@ yourself. The matrix shows what OSS IQ does, not what it should do.
 ### What it is and why it exists
 
 `just qa` runs against synthetic `testdata/` and can't catch what only the real CLI, the real
-registries and the real package managers produce. `qa/smoke_matrix.py` automates the cases from
-`qa/manual/` that don't need a browser, a person or a GitHub login: it runs `ossiq` against tiny
-projects (one or two dependencies, locked at an old version) and checks what it printed and what it
-left in the manifest, lockfile and export.
+registries and the real package managers produce. `qa/smoke_matrix.py` is the regression engine for
+that: it automates the cases from `qa/manual/` that don't need a browser, a person or a GitHub
+login. It runs `ossiq` against tiny projects (one or two dependencies, locked at an old version) and
+checks what it printed and what it left in the manifest, lockfile and export. It covers `status`,
+`plan`, `apply`, `add`, `export`, and `ossiq upgrade` (console, `--interactive` and the
+`--format agent` loop a coding agent runs) on npm, pnpm and uv, plus pip and pylock projects, which
+the CLI can scan but cannot always change.
 
-Every step is one throwaway Docker container (`qa/Dockerfile`: Node 22, Python 3.12, uv, ossiq from
-this checkout). The host only copies files and reads results, so `npm install`, `uv sync` and sdist
+Every step is one throwaway Docker container (`qa/Dockerfile`: Node 22, pnpm, Python 3.12, uv, ossiq
+from this checkout). The host only copies files and reads results, so `npm install`, `uv sync` and sdist
 builds never run on your machine, and each case gets a fresh HOME, so nothing from `~/.claude` or
 `~/.config/ossiq` leaks in.
 
 ```bash
-just qa-matrix                                   # build the image, then run every case (about a minute)
+just qa-matrix                                   # build the image, then run every case (about 4 minutes)
 just qa-matrix --cases npm-security,uv-standard  # a few cases
+just qa-matrix --cases 'pnpm-*,*-upgrade-*'      # patterns work too
 just qa-matrix --dry-run                         # list the cases and their commands
 just qa-matrix --parallel 1                      # if "database is locked" shows up in a log
 ```
 
 `OSSIQ_GITHUB_TOKEN` is optional. Without it GitHub data is rate-limited and some maintenance
-signals are missing; the cases don't depend on them. It is handed to docker by name, so its value is
-never in a command line or a log. Exit status: 0 when no case failed, 1 when one did, 2 when the run
+signals are missing; the cases don't depend on them. When the environment doesn't set it, the runner
+takes it from your ossiq config file. It is handed to docker by name, so its value is never in a
+command line or a log. Exit status: 0 when no case failed, 1 when one did, 2 when the run
 couldn't start (invalid `cases.toml`, unknown case id, image not built).
 
 ### Why the assertions look the way they do
@@ -204,9 +210,13 @@ Registries move, so a case says how far a result must have got, not what it is t
 
 ### What every step checks
 
-Without being asked: the exit code (`rc`, default 0, or `"nonzero"`); no Python traceback;
-`status`, `plan`, `export` and `info` leave the manifest, lockfile and `.ossiq.yaml` byte-identical;
-and after `apply` or `add` every direct dependency is locked at a version its declared spec admits.
+Without being asked: the exit code (`rc`, default 0, or `"nonzero"`); no Python traceback (so a
+project's own failing test must not print one: see `uv-upgrade/check.py`); `status`, `plan`, `export`,
+`info` and the upgrade subcommands that only read (`start`, `status`, `test`, `continue`, `finish`,
+`changelog`) leave the manifest, lockfile and `.ossiq.yaml` byte-identical; and after `apply`, `add`,
+`upgrade apply`, `rollback`, `skip` or `abort` every direct dependency is locked at a version its
+declared spec admits. For pnpm the lockfile is `pnpm-lock.yaml`; for pip, which has none, it is the
+`.venv` the step installed into.
 A case adds `stdout` / `stderr` / `output` text rules (`has`, `lacks`, `once`, `json`), `locked` and
 `declared` version rules, an export to read (`report` + `packages`), and `files` under the case
 directory (`workspace/...`, `home/...`). A case stops at its first failing step.
@@ -218,13 +228,50 @@ directory (`workspace/...`, `home/...`). A case stops at its first failing step.
 | `npm-semver` | `semver ^5.7.1` (locked 5.7.1), dev `ms ^2.0.0` (2.0.0) | a CVE, a major to widen into, a dev dependency |
 | `npm-deprecated` | `left-pad ^1.3.0`, `uuid ^3.4.0` | both deprecated; left-pad has no successor |
 | `npm-transitive` | `debug ^2.6.9`, which brings `ms 2.0.0` | a transitive package to `--override` |
+| `npm-lockstep` | `vue ^3.5.30` (3.5.30), with its exact-pinned `@vue/*` family | `@vue/server-renderer` peer-pins vue back; only vue owns its copy, so the old copy must not hold vue below the renderer's CVE fix |
 | `uv-ranges` | `idna>=3.0` (3.4), `urllib3~=1.26.5` (1.26.5) | a bare `>=` is lockfile-only, a `~=` is rewritten |
 | `uv-pinned` | `attrs==23.1.0` | `==` pins and `--rewrite-versions` |
 | `uv-yanked` | `attrs==21.1.0` | a yanked release |
 | `uv-no-lock` | `idna>=3.0`, no lockfile | a PEP 621 project before its first lock |
+| `uv-extras` | `requests~=2.32.5` (2.32.5); extras `mkdocs-material~=9.7.1` (9.7.1), `idna~=3.4.0` (3.4) | `~=` ranges in extras; an extra whose newer releases need `requests` past its range |
+| `uv-constrained` | `requests~=2.31.0` (2.31.0, brings `urllib3` 1.26.5), `packaging>=21.3` (21.3); `[tool.uv] constraint-dependencies` caps `urllib3<2`, `packaging<22`, `requests<2.33`, and `attrs<23` (not installed) | uv applies the caps to every lock, so no tier may recommend past one: a transitive cap that holds urllib3 on releases that all carry advisories (it stays put, and says why), a direct cap inside a looser range, a direct `~=` that has to widen under its cap, and an `add` under a cap |
+| `pnpm-semver` | `semver ^5.7.1` (5.7.1), dev `ms ^2.0.0` (2.0.0) | the npm tier and flag cases on pnpm |
+| `pnpm-transitive` | `debug ^2.6.9`, which brings `ms 2.0.0` | a transitive package to `--override` into `pnpm-workspace.yaml` |
+| `pnpm-overridden` | `pnpm-semver` plus `overrides: semver: 5.7.1` in `pnpm-workspace.yaml` (recorded in the lockfile) | a user override the plan must hold back |
 | `pip-classic` | `requirements.txt` with `idna==3.4` | pip detection |
+| `pip-pinned` | `requirements.txt` with `idna==3.4`, `urllib3==1.26.5` | pip scan, `add`, and `apply` into a venv |
+| `pip-constrained` | `requirements.txt` with `-c constraints.txt` and `idna>=3.4`; `constraints.txt` caps `idna<3.8` | pip intersects a `-c` range with every requirement: the scan takes 3.7 as installed and recommends nothing past the cap |
+| `pylock` | `pyproject.toml` and `pylock.toml` with `idna>=3.0`, `urllib3~=1.26.5` | a project OSS IQ can scan but not change |
+| `npm-upgrade`, `pnpm-upgrade` | `semver ^5.7.1` (CVE), `escape-string-regexp ^4.0.0`; `test.js` and `fix/test.js` | two upgrade steps: one that passes, one that breaks the test at the latest tier |
+| `uv-upgrade` | `idna~=3.4` (CVE), `packaging~=21.3`; `check.py` and `fix/check.py` | the same two steps for uv |
 | `mixed` | an npm and a uv project in one directory | `--registry-type` |
 | `empty` | nothing | "Unable to identify Package Manager", and the `install` / `auth` commands |
+
+### Upgrade cases
+
+`ossiq upgrade` is checked on `npm-upgrade`, `pnpm-upgrade` and `uv-upgrade`, which share one shape.
+Their first dependency has a CVE, so it is always step 1 (CVEs queue first). The second has none and
+stays put at the standard tier, but at `--update-strategy latest` it moves to a release that breaks
+the project's test (`escape-string-regexp` 5 is ES-module only, `packaging` 22 dropped
+`LegacyVersion`): that is step 2. The mended test is in `fix/`. A step first installs the project,
+because `upgrade start` runs the test command before it changes anything.
+
+The `*-upgrade-agent-loop` cases are the scripted stand-in for an LLM: they call each subcommand with
+`--format agent`, check the JSON and the exit status (0, or 3 when the step needs attention), copy
+`fix/` over the test with an `sh -c` step the way an agent would edit the code, and run `upgrade test`
+until it passes. No model runs, so the cases are free and repeatable. A real agent session
+(TC-L09) stays manual.
+
+| Case | What it checks |
+|------|----------------|
+| `*-upgrade-happy` | A one-step session: start, apply, tests pass, continue, session gone |
+| `*-upgrade-agent-loop` | The agent contract end to end, including `continue` and `finish` refusing on a failing step |
+| `*-upgrade-rollback-skip` | A failing step rolled back, applied again, then skipped with a reason; the kept step stays |
+| `*-upgrade-abort` | `abort` restores the manifest and lockfile after a kept step and a failing one |
+| `*-upgrade-interactive` | The menu drives a session from two keystrokes |
+| `uv-constrained-upgrade` | A session queues no move past a `[tool.uv]` cap, so `upgrade apply` installs instead of being refused |
+| `upgrade-menu`, `upgrade-guards`, `upgrade-config`, `upgrade-scope`, `upgrade-no-tests`, `upgrade-nothing`, `upgrade-baseline-fails`, `upgrade-no-session`, `upgrade-corrupt`, `upgrade-changelog` | What does not depend on the package manager, on `npm-upgrade` |
+| `pip-upgrade-refused`, `pylock-scan` | pip and pylock projects are refused cleanly and no session is left behind |
 
 To add a project, write the manifest with exact versions, lock it in the image, relax the versions
 to the ranges you want and lock again (both npm and uv keep a locked version that still satisfies
@@ -271,9 +318,19 @@ changing `src/`.
 
 ### Still manual
 
-Not automatable here: everything in a browser (TC-H02, H03, H07-H13), a live agent (TC-L09), the
-GitHub device flow and keyring (TC-L10, O02-O05, O07, O09, O11), forcing an `apply` to fail for the
-rollback check (TC-U21), the published npm package (TC-L12), constraint widening that needs a major
-release that doesn't exist yet (TC-C11), `apply` on a pip-classic project (it would `pip install`
-into the container's Python), and the repo-root runs of TC-T04 to T06 (the security tier is covered
-by the tier cases).
+Not automatable here: everything in a browser (TC-H02, H03, H07-H13), a live agent (TC-L09, the
+`*-upgrade-agent-loop` cases replay the contract but no model runs), the GitHub device flow and
+keyring (TC-L10, O02-O05, O07, O09, O11), the published npm package (TC-L12), constraint widening
+that needs a major release that doesn't exist yet (TC-C11), the "versions to install changed since
+the preview" refusal of `upgrade apply` (a release has to appear between two commands), the `w` key
+of the upgrade menu (it opens a browser), and the repo-root runs of TC-T04 to T06 (the security tier
+is covered by the tier cases).
+
+### Known failures
+
+`pip-apply` is marked `known_issue`: `ossiq apply` on a pinned `requirements.txt` hands pip a
+constraints file (`idna==3.x`) next to `idna==3.4` and pip answers `ResolutionImpossible`, which OSS
+IQ reports as an unexpected error. `pip-add` installs into the venv but leaves `requirements.txt`
+unchanged; the case checks only the venv. `pnpm add ms@2.1.3` saves `2.1.3` where `npm install ms@2.1.3`
+saves `^2.1.3`: OSS IQ keeps what the package manager wrote, so the pnpm cases check that the package
+was written and locked, not its range.

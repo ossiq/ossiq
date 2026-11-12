@@ -546,6 +546,11 @@ class ConsoleStatusRenderer(AbstractUserInterfaceRenderer):
             (r for r in data.transitive_packages if r.recommended_version is not None),
             key=lambda r: r.package_name,
         )
+        # A package held back with a reason is shown too: a blank with no row is the silence the reason ends.
+        transitive_shown = sorted(
+            (r for r in data.transitive_packages if r.recommended_version is not None or r.rejected_candidates),
+            key=lambda r: r.package_name,
+        )
 
         self.console.print()
         self.console.print(Rule(f"OSS IQ — Status: {data.project_name}", style="bold"))
@@ -594,16 +599,16 @@ class ConsoleStatusRenderer(AbstractUserInterfaceRenderer):
             self.console.print(main_table)
             self.console.print()
 
-        if transitive_with_recs:
+        if transitive_shown:
             self.console.print(Rule("Transitive Recommendations", style="dim"))
             self.console.print()
             if full:
-                self.print_full_table(transitive_with_recs, lag_threshold_days, data.engine_context)
+                self.print_full_table(transitive_shown, lag_threshold_days, data.engine_context)
             else:
-                self.console.print(self.transitive_table(transitive_with_recs))
+                self.console.print(self.transitive_table(transitive_shown))
                 self.console.print()
 
-        if full and (data.production_packages or data.optional_packages or transitive_with_recs):
+        if full and (data.production_packages or data.optional_packages or transitive_shown):
             source_legend, build_legend = provenance_legend()
             self.console.print(f"  [dim]Src  {source_legend}[/dim]")
             self.console.print(f"  [dim]Bld  {build_legend}[/dim]")

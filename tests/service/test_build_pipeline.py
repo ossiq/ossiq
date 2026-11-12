@@ -386,6 +386,17 @@ class TestClampRecommendations:
         assert record.recommended_version == "7.0.3"
         assert record.recommended_version_reason is None
 
+    def test_a_range_under_more_releases_than_the_candidate_cap_still_clamps(self):
+        releases = [make_dated_pv(f"7.0.{patch}") for patch in range(4)] + [
+            make_dated_pv(f"8.{m}.0") for m in range(40)
+        ]
+        registry = make_npm_registry({"uuid": releases})
+        record = make_clamp_record("uuid", "7.0.0", "npm:uuid@^7.0.0", "8.39.0")
+
+        self.clamp([record], registry)
+
+        assert record.recommended_version == "7.0.3"
+
     def test_alias_pin_violation_clamped_to_pin(self):
         registry = make_npm_registry({"chalk": [make_dated_pv("4.1.2"), make_dated_pv("5.3.0")]})
         record = make_clamp_record("chalk", "4.1.2", "npm:chalk@4.1.2", "5.3.0", constraint_type=ConstraintType.PINNED)

@@ -10,15 +10,12 @@ from __future__ import annotations
 
 import dataclasses
 from collections.abc import Callable, Iterable, Mapping
-from typing import TYPE_CHECKING
 
 from ossiq.domain.common import PassOrdering, ProjectPackagesRegistry
+from ossiq.domain.update_plan import UpdateEntry, UpdatePlan
 from ossiq.domain.version import PeerDependency
 from ossiq.sequence.passes import PeerLink, sequence_moves
 from ossiq.solver.version_matchers import version_satisfies_constraint
-
-if TYPE_CHECKING:
-    from ossiq.service.update.models import UpdateEntry, UpdatePlan
 
 
 def peer_links(
@@ -91,6 +88,7 @@ def assign_install_passes(
             peer_version=peer.recommended_version,
             spec=links[link],
             honoured=honoured,
+            peer_key=peer.move_key,
         )
 
     def in_pass(group: Iterable[UpdateEntry]) -> list[UpdateEntry]:

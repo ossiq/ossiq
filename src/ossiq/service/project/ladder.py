@@ -11,9 +11,9 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime
 
-from ossiq.adapters.api_interfaces import VersionRules
 from ossiq.domain.common import ProjectPackagesRegistry, RecommendationRung
 from ossiq.domain.version import PackageVersion
+from ossiq.solver.ports import VersionRules
 from ossiq.solver.universe import is_published_before
 from ossiq.solver.version_matchers import major_key, version_satisfies_constraint
 

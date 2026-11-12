@@ -25,6 +25,9 @@ class ConstraintSource:
     applies to every version of the package."""
     override_value: str | None = None
     """npm only: what the matching override rule forces. May be a `$name` reference to a root dependency."""
+    constraint_range: str | None = None
+    """uv only: the range `[tool.uv] constraint-dependencies` caps the package at. uv intersects it with
+    every requirement on the package, so no release outside it can be installed, whatever the tier."""
 
     @property
     def is_user_override(self) -> bool:

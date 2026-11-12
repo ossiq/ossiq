@@ -13,6 +13,7 @@ from ossiq.adapters.api_interfaces import AbstractPackageRegistryApi
 from ossiq.adapters.api_pypi import PackageRegistryApiPypi
 from ossiq.adapters.detectors import is_git_hosted_source
 from ossiq.domain.common import (
+    ConstraintType,
     DataCompleteness,
     DataSourceStatus,
     EngineContext,
@@ -29,6 +30,7 @@ from ossiq.domain.package import Package
 from ossiq.domain.project import Dependency, Project
 from ossiq.domain.provenance import SourceLevel, VersionBlocks
 from ossiq.domain.requirement_scope import RequirementScope
+from ossiq.domain.update_plan import ImpactKind
 from ossiq.service.library_scan import compute_upgrade_paths, resolve_library_constraints
 from ossiq.service.project.copies import group_nodes_by_copy, installed_copies_by_name
 from ossiq.service.project.epss import populate_epss
@@ -72,7 +74,6 @@ from ossiq.service.project.stability import populate_stability
 from ossiq.service.project.strategy import apply_update_strategy
 from ossiq.service.update_impact import (
     DirectUpdateImpact,
-    ImpactKind,
     incoming_peer_edges,
     simulate_single,
     simulate_update_impacts,
@@ -880,6 +881,13 @@ def scan(sources: AbstractProjectSources, progress: ScanProgress | None = None) 
             fixed_installed={**transitive_installed, **ignored_versions},
             version_blocks=version_blocks,
             policy=policy,
+            # Ignored packages included, since their ranges still bind. An override replaces every
+            # requirement on its package, so nothing a sibling requires of it binds.
+            declared_ranges={
+                r.package_name: r.version_constraint_declared or r.version_constraint
+                for r in direct_records
+                if r.constraint_info.type != ConstraintType.OVERRIDE
+            },
         )
 
         peer_repairs = plan_peer_repairs(

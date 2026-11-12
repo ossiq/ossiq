@@ -1,8 +1,5 @@
 """Plan and preview solver-recommended package version changes."""
 
-from dataclasses import dataclass, field
-from typing import Literal
-
 import typer
 
 from ossiq.domain.common import (
@@ -12,6 +9,7 @@ from ossiq.domain.common import (
     normalize_dist_name,
     parse_name_value_specs,
 )
+from ossiq.domain.update_plan import UpdatePlan
 from ossiq.messages import (
     ERROR_OVERRIDE_DUPLICATE,
     ERROR_OVERRIDE_IGNORE_CONFLICT,
@@ -31,39 +29,16 @@ from ossiq.messages import (
     WARNING_STRATEGY_OVERRIDE_SHADOWED_BY_OVERRIDE,
     WARNING_STRATEGY_OVERRIDE_UNKNOWN_PACKAGE,
 )
-from ossiq.service.completeness import check_security_data_complete
 from ossiq.service.project.models import ScanResult
-from ossiq.service.project.provenance import registry_policy
-from ossiq.service.project.scan import scan
-from ossiq.service.update.models import UpdatePlan
+from ossiq.service.update.models import PlanOptions
 from ossiq.service.update.overrides import find_override_record, override_alias_siblings
-from ossiq.service.update.plan import build_update_plan
+from ossiq.service.update.plan import plan_project
 from ossiq.settings import Settings
-from ossiq.sources import project_sources
 from ossiq.sources.project_sources import ProjectSources
-from ossiq.strategy.overrides import StrategyPlan
 from ossiq.strategy.pyramid import DEFAULT_STRATEGY, PYRAMID, UpdateStrategy, tier_index
 from ossiq.timeutil import parse_iso_datetime
 from ossiq.ui.registry import get_renderer
 from ossiq.ui.system import show_error, show_scan_progress
-
-
-@dataclass(frozen=True)
-class CommandPlanOptions:
-    """Options for the plan/apply subcommands."""
-
-    project_path: str
-    registry_type: Literal["npm", "pypi"] | None = None
-    allow_prerelease: bool = False
-    allow_prerelease_packages: tuple[str, ...] = ()
-    production: bool = False
-    update_strategy: UpdateStrategy = DEFAULT_STRATEGY
-    strategy_overrides: tuple[tuple[str, UpdateStrategy], ...] = ()
-    ignore_packages: tuple[str, ...] = ()
-    pin_all: bool = False
-    rewrite_versions: bool = False
-    overrides: tuple[tuple[str, str], ...] = field(default_factory=tuple)
-    allow_partial: bool = False
 
 
 def parse_override_specs(raw: list[str] | tuple[str, ...] | None) -> tuple[tuple[str, str], ...]:
@@ -191,46 +166,12 @@ def warn_strategy_overrides(
             typer.echo(WARNING_STRATEGY_OVERRIDE_UNKNOWN_PACKAGE.format(package=name), err=True)
 
 
-def prepare_plan(ctx: typer.Context, options: CommandPlanOptions) -> tuple[ProjectSources, UpdatePlan] | None:
+def prepare_plan(ctx: typer.Context, options: PlanOptions) -> tuple[ProjectSources, UpdatePlan] | None:
     """Scan the project and build the update plan. Returns None when nothing needs updating."""
     settings: Settings = ctx.obj
 
-    strategy = StrategyPlan(default=options.update_strategy, overrides=dict(options.strategy_overrides))
-
-    sources = project_sources.build_project_sources(
-        settings,
-        options.project_path,
-        options.production,
-        options.allow_prerelease,
-        options.allow_prerelease_packages,
-        options.registry_type,
-        strategy=strategy,
-        ignore_packages=options.ignore_packages,
-        rewrite_versions=options.rewrite_versions,
-    )
-
     with show_scan_progress(settings) as progress:
-        scan_result = scan(sources, progress=progress)
-
-    check_security_data_complete(
-        scan_result.data_completeness,
-        options.update_strategy,
-        allow_partial=options.allow_partial,
-    )
-
-    package_manager_name = sources.packages_manager.package_manager_type.name
-    plan = build_update_plan(
-        scan_result,
-        package_manager_name,
-        pin_all=options.pin_all,
-        cooldown_period=sources.settings.cooldown_period,
-        strategy=strategy,
-        forced_overrides=dict(options.overrides),
-        rewrite_versions=options.rewrite_versions,
-        peers_of=sources.packages_registry.package_version_peers,
-        enforces_cooldown_on_install=sources.packages_manager.enforces_cooldown_on_install,
-        policy=registry_policy(sources.policy, sources.packages_registry.package_registry),
-    )
+        sources, scan_result, plan = plan_project(settings, options, progress)
 
     if plan.unknown_override_packages:
         packages = ", ".join(plan.unknown_override_packages)
@@ -273,7 +214,7 @@ def render_higher_tier_footer(plan: UpdatePlan) -> None:
         typer.echo(HELP_PLAN_HIGHER_TIER_FOOTER.format(count=count, plural=plural, tier=tier.value))
 
 
-def command_plan(ctx: typer.Context, options: CommandPlanOptions) -> None:
+def command_plan(ctx: typer.Context, options: PlanOptions) -> None:
     """Show the plan table."""
     result = prepare_plan(ctx, options)
     if result is None:
@@ -323,7 +264,7 @@ def confirm_acknowledged(plan: UpdatePlan) -> bool:
     return typer.confirm("Proceed with these updates?", default=False)
 
 
-def command_apply(ctx: typer.Context, options: CommandPlanOptions, yes: bool = False) -> None:
+def command_apply(ctx: typer.Context, options: PlanOptions, yes: bool = False) -> None:
     """Show the plan, confirm, then run updates in-process with rollback on failure."""
     result = prepare_plan(ctx, options)
     if result is None:

@@ -7,9 +7,13 @@ from collections.abc import Callable, Mapping
 
 from ossiq.domain.common import ProjectPackagesRegistry
 from ossiq.domain.policy import Policy
+from ossiq.domain.update_plan import UpdatePlan
 from ossiq.domain.version import PeerDependency
+from ossiq.service.completeness import check_security_data_complete
 from ossiq.service.install_passes import assign_install_passes
 from ossiq.service.project.models import ScanResult
+from ossiq.service.project.provenance import registry_policy
+from ossiq.service.project.scan import ScanProgress, scan
 from ossiq.service.update.entries import entry_from_record, transitive_entries_for
 from ossiq.service.update.holds import (
     hold_for_cooldown,
@@ -18,8 +22,11 @@ from ossiq.service.update.holds import (
     policy_holds,
     split_user_override_holds,
 )
-from ossiq.service.update.models import UpdatePlan
+from ossiq.service.update.models import PlanOptions
 from ossiq.service.update.overrides import apply_forced_overrides
+from ossiq.settings import Settings
+from ossiq.sources import project_sources
+from ossiq.sources.project_sources import ProjectSources
 from ossiq.strategy.overrides import StrategyPlan
 from ossiq.strategy.pyramid import DEFAULT_STRATEGY, UpdateStrategy
 
@@ -121,3 +128,52 @@ def build_update_plan(
     if peers_of is None:
         return update_plan
     return assign_install_passes(update_plan, peers_of, ProjectPackagesRegistry(scan_result.packages_registry))
+
+
+def plan_project(
+    settings: Settings, options: PlanOptions, progress: ScanProgress | None = None
+) -> tuple[ProjectSources, ScanResult, UpdatePlan]:
+    """Scan a project and build its update plan: the work `plan`, `apply` and `upgrade` share.
+
+    Args:
+        settings: Run settings.
+        options: The project and the tier, ignores and overrides to plan with.
+        progress: Receives the scan's step callbacks; None runs the scan silently.
+
+    Returns:
+        The sources (still holding the registry and package manager the plan needs), the scan, and the plan.
+
+    Raises:
+        ApplicationError: The security data is incomplete and `options.allow_partial` is off.
+    """
+    strategy = StrategyPlan(default=options.update_strategy, overrides=dict(options.strategy_overrides))
+    sources = project_sources.build_project_sources(
+        settings,
+        options.project_path,
+        options.production,
+        options.allow_prerelease,
+        options.allow_prerelease_packages,
+        options.registry_type,
+        strategy=strategy,
+        ignore_packages=options.ignore_packages,
+        rewrite_versions=options.rewrite_versions,
+    )
+    scan_result = scan(sources, progress=progress)
+    check_security_data_complete(
+        scan_result.data_completeness,
+        options.update_strategy,
+        allow_partial=options.allow_partial,
+    )
+    plan = build_update_plan(
+        scan_result,
+        sources.packages_manager.package_manager_type.name,
+        pin_all=options.pin_all,
+        cooldown_period=sources.settings.cooldown_period,
+        strategy=strategy,
+        forced_overrides=dict(options.overrides),
+        rewrite_versions=options.rewrite_versions,
+        peers_of=sources.packages_registry.package_version_peers,
+        enforces_cooldown_on_install=sources.packages_manager.enforces_cooldown_on_install,
+        policy=registry_policy(sources.policy, sources.packages_registry.package_registry),
+    )
+    return sources, scan_result, plan

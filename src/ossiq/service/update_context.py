@@ -10,9 +10,11 @@ from typing import Any
 
 from ossiq.service.agent import build_update_context
 from ossiq.service.package import build_installed_detail, fetch_prospective_detail, matches
+from ossiq.service.project.models import ScanResult
 from ossiq.service.project.scan import scan
 from ossiq.settings import Settings
 from ossiq.sources import project_sources
+from ossiq.sources.project_sources import ProjectSources
 
 
 def build_update_context_payload(
@@ -46,8 +48,26 @@ def build_update_context_payload(
         allow_prerelease_packages=(),
         registry_type=registry_type,
     )
-    scan_result = scan(sources)
+    return update_context_from_scan(sources, scan(sources), package_name, target_version)
 
+
+def update_context_from_scan(
+    sources: ProjectSources,
+    scan_result: ScanResult,
+    package_name: str,
+    target_version: str | None = None,
+) -> dict[str, Any]:
+    """The `build_update_context_payload` diff for a project that is already scanned.
+
+    Args:
+        sources: The live sources the scan ran on.
+        scan_result: The scan to read the installed package from.
+        package_name: The package to diff, matched by alias or canonical name.
+        target_version: The version to diff against; falls back to OSS IQ's own recommendation.
+
+    Returns:
+        The same payload `build_update_context_payload` returns.
+    """
     all_records = scan_result.production_packages + scan_result.optional_packages + scan_result.transitive_packages
     matched = [record for record in all_records if matches(record, package_name)]
     detail = (

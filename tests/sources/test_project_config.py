@@ -7,7 +7,13 @@ import pytest
 from ossiq.domain.exceptions import InvalidPolicyFile
 from ossiq.domain.policy import Policy, PolicyException, PolicyRule
 from ossiq.domain.provenance import SourceLevel, TrustTier
-from ossiq.sources.project_config import CONFIG_FILE_NAME, find_project_config, load_project_policy
+from ossiq.sources.project_config import (
+    CONFIG_FILE_NAME,
+    UpgradeConfig,
+    find_project_config,
+    load_project_policy,
+    load_upgrade_config,
+)
 
 TODAY = date(2027, 1, 1)
 
@@ -186,3 +192,43 @@ class TestFindProjectConfig:
         (tmp_path / ".git").mkdir()
 
         assert find_project_config(tmp_path) is None
+
+
+class TestLoadUpgradeConfig:
+    def test_reads_the_limit_and_the_test_command(self, tmp_path) -> None:
+        (tmp_path / ".git").mkdir()
+        write(tmp_path, 'version: 1\nupgrade:\n  limit: 3\n  test-command: "npm test"\n')
+
+        config = load_upgrade_config(tmp_path)
+
+        assert (config.limit, config.test_command) == (3, "npm test")
+
+    def test_no_file_or_no_block_means_no_defaults(self, tmp_path) -> None:
+        (tmp_path / ".git").mkdir()
+        assert load_upgrade_config(tmp_path) == UpgradeConfig()
+
+        write(tmp_path, "version: 1\n")
+        assert load_upgrade_config(tmp_path) == UpgradeConfig()
+
+    @pytest.mark.parametrize(
+        "block",
+        [
+            "upgrade:\n  limit: 0\n",
+            "upgrade:\n  limit: many\n",
+            'upgrade:\n  test-command: ""\n',
+            "upgrade:\n  retries: 2\n",
+        ],
+    )
+    def test_a_block_that_breaks_the_schema_is_refused(self, tmp_path, block: str) -> None:
+        (tmp_path / ".git").mkdir()
+        write(tmp_path, f"version: 1\n{block}")
+
+        with pytest.raises(InvalidPolicyFile):
+            load_upgrade_config(tmp_path)
+
+    def test_the_policy_block_still_loads_beside_it(self, tmp_path) -> None:
+        path = write(tmp_path, "version: 1\nupgrade:\n  limit: 2\npolicy:\n  cooldown:\n    days: 5\n")
+
+        policy, _ = load_project_policy(path, date(2026, 11, 7))
+
+        assert policy.cooldown_days == 5

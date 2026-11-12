@@ -1,0 +1,2 @@
+-c constraints.txt
+idna>=3.4

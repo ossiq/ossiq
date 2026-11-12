@@ -9,7 +9,6 @@ import pytest
 import typer
 
 from ossiq.commands.plan import (
-    CommandPlanOptions,
     check_override_ignore_conflict,
     confirm_acknowledged,
     parse_override_specs,
@@ -18,18 +17,19 @@ from ossiq.commands.plan import (
 from ossiq.domain.common import ConstraintType
 from ossiq.domain.project import ConstraintSource
 from ossiq.domain.release_cutoff import ReleaseCutoff
+from ossiq.domain.update_plan import UpdateEntry, UpdatePlan
 from ossiq.domain.version import PackageVersion, VersionsDifference
 from ossiq.service.project.models import ScanRecord, ScanResult
-from ossiq.service.update.models import UpdateEntry, UpdatePlan
+from ossiq.service.update.models import PlanOptions
 
 
 class TestCommandUpdatePinWiring:
     def test_pin_all_true_passed_to_options(self) -> None:
-        options = CommandPlanOptions(project_path="/some/path", pin_all=True)
+        options = PlanOptions(project_path="/some/path", pin_all=True)
         assert options.pin_all is True
 
     def test_pin_all_false_by_default(self) -> None:
-        options = CommandPlanOptions(project_path="/some/path")
+        options = PlanOptions(project_path="/some/path")
         assert options.pin_all is False
 
 

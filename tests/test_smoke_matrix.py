@@ -42,6 +42,8 @@ smoke = load_script()
 RunResult = sys.modules["update_strategies_regression"].RunResult
 NPM = next(eco for eco in smoke.ECOSYSTEMS if eco.name == "npm")
 PYPI = next(eco for eco in smoke.ECOSYSTEMS if eco.name == "pypi")
+PNPM = next(eco for eco in smoke.ECOSYSTEMS if eco.name == "pnpm")
+PIP = next(eco for eco in smoke.ECOSYSTEMS if eco.name == "pip")
 
 
 def make_case(*steps: dict[str, Any], project: str = "npm-semver", **extra: Any) -> Any:
@@ -80,9 +82,9 @@ def test_catalogue_parses_with_unique_ids_and_documented_cases() -> None:
 def test_every_project_lockfile_agrees_with_its_manifest(project: str) -> None:
     # A project edited without relocking would make every case on it fail for the wrong reason.
     workspace = smoke.PROJECTS_DIR / project
-    for ecosystem in smoke.ECOSYSTEMS:
-        if (workspace / smoke.MANIFESTS[ecosystem.name]).is_file():
-            assert smoke.lock_agrees_with_manifest(ecosystem, workspace) == []
+    ecosystem = smoke.detect_ecosystem(workspace)
+    if ecosystem is not None:
+        assert smoke.lock_agrees_with_manifest(ecosystem, workspace) == []
 
 
 @pytest.mark.parametrize(
@@ -149,11 +151,102 @@ def test_select_cases_keeps_the_order_asked_for_and_rejects_unknown_ids() -> Non
         smoke.select_cases(cases, "zzz")
 
 
+def test_select_cases_takes_patterns_once_each_and_rejects_one_that_matches_nothing() -> None:
+    cases = [
+        smoke.parse_case({"id": name, "project": "empty", "why": "w", "steps": [{"run": ["x"]}]}, smoke.PROJECTS_DIR)
+        for name in ("pnpm-a", "pnpm-b", "uv-a")
+    ]
+
+    assert [case.id for case in smoke.select_cases(cases, "uv-*, pnpm-*")] == ["uv-a", "pnpm-a", "pnpm-b"]
+    assert [case.id for case in smoke.select_cases(cases, "*-a,pnpm-a")] == ["pnpm-a", "uv-a"]
+    with pytest.raises(smoke.FixtureError, match=r"nope-\*"):
+        smoke.select_cases(cases, "pnpm-a,nope-*")
+
+
 def test_ecosystem_is_detected_from_the_manifest_unless_ambiguous() -> None:
     assert smoke.detect_ecosystem(smoke.PROJECTS_DIR / "npm-semver") is NPM
     assert smoke.detect_ecosystem(smoke.PROJECTS_DIR / "uv-ranges") is PYPI
     assert smoke.detect_ecosystem(smoke.PROJECTS_DIR / "mixed") is None
     assert smoke.detect_ecosystem(smoke.PROJECTS_DIR / "empty") is None
+
+
+def test_pnpm_is_told_from_npm_by_its_lockfile_and_pip_from_uv_by_its_pyproject(tmp_path: Path) -> None:
+    (tmp_path / "package.json").write_text("{}", encoding="utf-8")
+    assert smoke.detect_ecosystem(tmp_path) is NPM
+    (tmp_path / "pnpm-lock.yaml").write_text("lockfileVersion: '9.0'\n", encoding="utf-8")
+    assert smoke.detect_ecosystem(tmp_path) is PNPM
+    (tmp_path / "package.json").unlink()
+    (tmp_path / "requirements.txt").write_text("idna~=3.4\n", encoding="utf-8")
+    assert smoke.detect_ecosystem(tmp_path) is PIP
+    (tmp_path / "pyproject.toml").write_text("[project]\nname = 'x'\n", encoding="utf-8")
+    assert smoke.detect_ecosystem(tmp_path) is PYPI
+
+
+def test_pnpm_lock_gives_direct_and_transitive_versions_without_peer_suffixes(tmp_path: Path) -> None:
+    (tmp_path / "pnpm-lock.yaml").write_text(
+        "lockfileVersion: '9.0'\n"
+        "importers:\n"
+        "  .:\n"
+        "    dependencies:\n"
+        "      debug:\n"
+        "        specifier: ^2.6.9\n"
+        "        version: 2.6.9\n"
+        "    devDependencies:\n"
+        "      '@types/node':\n"
+        "        specifier: ^22.0.0\n"
+        "        version: 22.1.0(peer@4.0.0)\n"
+        "snapshots:\n"
+        "  debug@2.6.9:\n"
+        "    dependencies:\n"
+        "      ms: 2.0.0\n"
+        "  ms@2.0.0: {}\n"
+        "  '@types/node@22.1.0(peer@4.0.0)': {}\n",
+        encoding="utf-8",
+    )
+
+    assert PNPM.locked_versions(tmp_path) == {"debug": "2.6.9", "ms": "2.0.0", "@types/node": "22.1.0"}
+
+
+@pytest.mark.parametrize("ecosystem", [NPM, PNPM])
+def test_a_bare_version_is_a_pin_and_a_range_is_not_for_both_javascript_ecosystems(ecosystem: Any) -> None:
+    assert smoke.is_pinned(ecosystem, "5.7.3")
+    assert not smoke.is_pinned(ecosystem, "^5.7.3")
+
+
+def test_pip_reads_requirements_for_what_is_declared_and_the_venv_for_what_is_locked(tmp_path: Path) -> None:
+    (tmp_path / "requirements.txt").write_text(
+        "# pins\n-c constraints.txt\nidna~=3.4  # why\nTyping_Extensions>=4\n", encoding="utf-8"
+    )
+
+    assert PIP.declared_specs(tmp_path) == {"idna": "~=3.4", "typing-extensions": ">=4"}
+    with pytest.raises(FileNotFoundError):
+        PIP.locked_versions(tmp_path)  # no venv: nothing was installed, so there is nothing to compare
+    site = tmp_path / ".venv" / "lib" / "python3.12" / "site-packages"
+    (site / "idna-3.10.dist-info").mkdir(parents=True)
+    (site / "typing_extensions-4.12.2.dist-info").mkdir()
+    assert PIP.locked_versions(tmp_path) == {"idna": "3.10", "typing-extensions": "4.12.2"}
+
+
+@pytest.mark.parametrize(
+    ("run", "read_only"),
+    [
+        (("ossiq", "upgrade", "start", "--test-command", "true"), True),
+        (("ossiq", "upgrade", "status"), True),
+        (("ossiq", "upgrade", "changelog"), True),
+        (("ossiq", "upgrade", "test"), True),
+        (("ossiq", "upgrade", "continue"), True),
+        (("ossiq", "upgrade", "finish"), True),
+        (("ossiq", "upgrade", "apply"), False),
+        (("ossiq", "upgrade", "rollback"), False),
+        (("ossiq", "upgrade", "skip"), False),
+        (("ossiq", "upgrade", "abort"), False),
+        (("ossiq", "upgrade", "start", "--interactive"), False),
+    ],
+)
+def test_upgrade_subcommands_that_write_the_project_are_not_held_to_read_only(
+    run: tuple[str, ...], read_only: bool
+) -> None:
+    assert make_case({"run": list(run)}).steps[0].read_only is read_only
 
 
 # ---------------------------------------------------------------------------

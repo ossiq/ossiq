@@ -16,12 +16,12 @@ from ossiq.domain.compatibility import CompatibilityFacts
 from ossiq.domain.cve import CVE, Severity
 from ossiq.domain.package import Package
 from ossiq.domain.project import ConstraintSource, PeerRequirement, UnresolvedPeer
+from ossiq.domain.update_plan import RecommendationReason, VersionRejection
 from ossiq.domain.version import VERSION_DIFF_MAJOR, VERSION_LATEST, VersionsDifference
 from ossiq.risk.maintenance import DeprecationEvidence, DeprecationSignal
 from ossiq.service.package import PackageDetailResult, PackageInsight, PackageWarning, TransitiveCVEGroup
 from ossiq.service.project.models import ScanRecord
 from ossiq.settings import Settings
-from ossiq.solver.reason import RecommendationReason, VersionRejection
 from ossiq.ui.renderers.impact_utils import format_status_badge
 from ossiq.ui.renderers.info.blocks import collect_licenses, policy_compliance, unique_cves
 from ossiq.ui.renderers.info.console import ConsoleInfoRenderer

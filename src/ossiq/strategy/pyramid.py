@@ -9,13 +9,18 @@ Everything else in this module is bookkeeping over those two tables.
 """
 
 from collections.abc import Mapping
-from enum import StrEnum
 
-from ossiq.domain.common import RUNG_ORDER, RecommendationRung
+from ossiq.domain.common import (
+    DEFAULT_STRATEGY,
+    RUNG_ORDER,
+    WIDENING_RUNGS,
+    RecommendationRung,
+    UpdateStrategy,
+)
 from ossiq.strategy.motive import UpdateMotive
 
-# RUNG_ORDER is domain.common's — re-exported here because the reach ceilings below are what makes
-# it useful, and every caller that compares a rung against a ceiling imports both together.
+# RUNG_ORDER, UpdateStrategy and DEFAULT_STRATEGY are domain.common's — re-exported here because the reach
+# ceilings below are what makes them useful, and callers that compare a rung against a ceiling import both.
 __all__ = [
     "ADMITTED_MOTIVES",
     "DEFAULT_STRATEGY",
@@ -33,16 +38,6 @@ __all__ = [
 ]
 
 
-class UpdateStrategy(StrEnum):
-    """A tier of the update pyramid, from the smallest diff to the newest possible version."""
-
-    SECURITY = "security"
-    DEPRECATION = "deprecation"
-    STANDARD = "standard"
-    LATEST = "latest"
-    CUTTING_EDGE = "cutting-edge"
-
-
 PYRAMID: tuple[UpdateStrategy, ...] = (
     UpdateStrategy.SECURITY,
     UpdateStrategy.DEPRECATION,
@@ -50,8 +45,6 @@ PYRAMID: tuple[UpdateStrategy, ...] = (
     UpdateStrategy.LATEST,
     UpdateStrategy.CUTTING_EDGE,
 )
-
-DEFAULT_STRATEGY = UpdateStrategy.STANDARD
 
 ESCALATING_MOTIVES: frozenset[UpdateMotive] = frozenset({UpdateMotive.EXPLOITABLE_CVE, UpdateMotive.END_OF_LIFE})
 """Motives that push reach past a tier's base MAX_REACH — "stay inside a range that has no safe
@@ -111,3 +104,17 @@ def tier_reaches(strategy: UpdateStrategy, rung: RecommendationRung) -> bool:
         rung: A ladder rung; SOLVER sits outside the ladder and raises KeyError.
     """
     return RUNG_ORDER[rung] <= RUNG_ORDER[MAX_REACH[strategy]]
+
+
+def withholds_widening(strategy: UpdateStrategy, rung: RecommendationRung | None, widening_authorized: bool) -> bool:
+    """True when a pick at `rung` must widen its declared range further than `strategy` reaches.
+
+    The plan holds such a pick back (UpdatePlan.held_for_widening) unless a CVE or end-of-life motive
+    authorized the widening, so it never lands.
+
+    Args:
+        strategy: The tier in force for the package.
+        rung: The rung the pick came from; None when nothing was picked.
+        widening_authorized: Whether an escalating motive lifted the hold.
+    """
+    return rung in WIDENING_RUNGS and not widening_authorized and not tier_reaches(strategy, rung)

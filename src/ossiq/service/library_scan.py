@@ -212,6 +212,8 @@ def resolve_library_constraints(project: Project, registry: AbstractPackageRegis
             continue
         if not versions:
             continue
-        dep.version_installed = latest_version_for_constraint(versions, dep.version_defined)
+        # The installer takes the newest release both the declared range and its own cap admit.
+        spec = ",".join(filter(None, (dep.version_defined, dep.constraint_info.constraint_range)))
+        dep.version_installed = latest_version_for_constraint(versions, spec)
 
     return project

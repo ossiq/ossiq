@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
+from ossiq.domain.update_plan import UpdateEntry
 from ossiq.service.project.models import ScanRecord, ScanResult
 from ossiq.service.update.entries import forced_entry_from_record
-from ossiq.service.update.models import UpdateEntry
 
 
 def find_override_record(scan_result: ScanResult, name: str) -> ScanRecord | None:

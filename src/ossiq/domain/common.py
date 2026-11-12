@@ -111,6 +111,7 @@ class Command(Enum):
     PLAN = "plan"
     APPLY = "apply"
     UPDATE_CONTEXT = "update-context"
+    UPGRADE = "upgrade"
 
 
 class ExportUnknownSchemaVersion(StrEnum):
@@ -188,6 +189,20 @@ decides whether an entry lands in UpdatePlan.held_for_widening (unless the tier 
 `widening_authorized` lifts the hold), whether an agent entry carries requires_constraint_widening,
 and, unless the tier or `widening_authorized` lifts the hold, whether "Constrained" is the right next
 action. Anything not in here is writable as-is."""
+
+
+class UpdateStrategy(StrEnum):
+    """A tier of the update pyramid, from the smallest diff to the newest possible version."""
+
+    SECURITY = "security"
+    DEPRECATION = "deprecation"
+    STANDARD = "standard"
+    LATEST = "latest"
+    CUTTING_EDGE = "cutting-edge"
+
+
+DEFAULT_STRATEGY = UpdateStrategy.STANDARD
+
 
 RUNG_ORDER: Mapping[RecommendationRung, int] = {
     RecommendationRung.IN_RANGE: 0,
@@ -326,6 +341,9 @@ class PassOrdering:
 
     honoured: bool = True
     """False when the requirer and the peer could not be separated: both share a pass and npm decides."""
+
+    peer_key: str = ""
+    """`UpdateEntry.move_key` of the package that has to wait; what a step groups lockstep pairs by."""
 
 
 @dataclass(frozen=True)

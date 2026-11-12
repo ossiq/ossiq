@@ -11,11 +11,10 @@ import json
 import logging
 import os
 import subprocess
-from collections.abc import Callable, Collection, Iterable, Iterator, Mapping
+from collections.abc import Callable, Collection, Generator, Iterable, Mapping
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING
 
 import requests
 import semver
@@ -51,11 +50,9 @@ from ossiq.domain.exceptions import (
 from ossiq.domain.packages_manager import PNPM, PNPM_LOCKFILE, PackageManagerType
 from ossiq.domain.project import Dependency, Project
 from ossiq.domain.release_cutoff import ReleaseCutoff
+from ossiq.domain.update_plan import UpdatePlan
 from ossiq.settings import Settings
 from ossiq.tree.builder import NodeKey
-
-if TYPE_CHECKING:
-    from ossiq.service.update.models import UpdatePlan
 
 logger = logging.getLogger(__name__)
 
@@ -155,7 +152,7 @@ def declared_package_manager(project_data: dict) -> str | None:
 
 
 @contextmanager
-def restore_on_failure(root: Path) -> Iterator[None]:
+def restore_on_failure(root: Path) -> Generator[None, None, None]:
     """Put the project files back as they were if the block raises, removing any it created.
 
     Catches BaseException, not Exception: an install interrupted with Ctrl-C leaves a half-written
@@ -202,10 +199,11 @@ def run_pnpm(project_path: str, command: str, *args: str, env: Mapping[str, str]
 
 
 def check_targets_landed(root: Path, plan: UpdatePlan) -> None:
-    """Raise when the lockfile pnpm just wrote lacks a version the plan targets.
+    """Raise when the lockfile pnpm just wrote holds a package below the version the plan targets.
 
-    pnpm exits 0 when an override the user wrote, or its release-age fallback, keeps a package off
-    the planned version, so a clean exit alone does not mean the plan landed.
+    pnpm exits 0 when an override the user wrote, or its release-age fallback, keeps a package below
+    the planned version, so a clean exit alone does not mean the plan landed. A newer release is not a
+    miss: pnpm installs the newest one the rewritten range admits, as npm does.
     shortcut: a target counts as landed when any copy of it is installed, so a nested copy that
     stayed put beside a moved one goes unreported; check per edge if that hides real misses.
 
@@ -219,12 +217,22 @@ def check_targets_landed(root: Path, plan: UpdatePlan) -> None:
     copies = installed_copies(load_lockfile((root / PNPM_LOCKFILE.name).read_text(encoding="utf-8")))
     missed = []
     for entry in plan.all_entries:
-        if (entry.package_name, entry.recommended_version) in copies:
-            continue
         have = sorted(version for name, version in copies if name == entry.package_name)
+        if any(reaches(version, entry.recommended_version) for version in have):
+            continue
         missed.append(f"{entry.display_name} {entry.recommended_version} (installed: {', '.join(have) or 'none'})")
     if missed:
         raise PackageManagerUpdateIncomplete(f"pnpm did not install {'; '.join(missed)}")
+
+
+def reaches(installed: str, target: str) -> bool:
+    """Whether *installed* is *target* or newer; exact equality for a version semver cannot parse."""
+    if installed == target:
+        return True
+    try:
+        return semver.Version.parse(installed) >= semver.Version.parse(target)
+    except ValueError:
+        return False
 
 
 class PackageManagerJsPnpm(AbstractPackageManagerApi):
@@ -237,6 +245,7 @@ class PackageManagerJsPnpm(AbstractPackageManagerApi):
     enforces_cooldown_on_install = True
     # An `--override` version goes into minimumReleaseAgeExclude even past the project's own age.
     exempts_forced_versions = True
+    supports_upgrade_session = True
 
     # Lockfile version -> the parser method; v9 is what pnpm 9 to 12 write.
     supported_versions: dict[str, str] = {"lockfileVersion == '9.0'": "parse_lockfile_v9"}
@@ -425,6 +434,14 @@ class PackageManagerJsPnpm(AbstractPackageManagerApi):
             raise
         # Outside the restore: the install succeeded, so what did land stays.
         check_targets_landed(root, plan)
+
+    def snapshot_files(self) -> tuple[str, ...]:
+        """The manifest, the lockfile and pnpm-workspace.yaml, where overrides and catalogs live."""
+        return PROJECT_FILES
+
+    def sync_environment(self) -> None:
+        """Run `pnpm install --frozen-lockfile` so node_modules matches the lockfile as it is on disk."""
+        run_pnpm(self.project_path, "install", "--frozen-lockfile")
 
     def install_package(self, package_name: str, version: str | None = None) -> int:
         """Run `pnpm add` for a package. Restores package.json, pnpm-lock.yaml and pnpm-workspace.yaml on failure.

@@ -42,13 +42,13 @@ from ossiq.domain.exceptions import DestinationDoesntExist
 from ossiq.domain.packages_manager import PackageManagerCli
 from ossiq.domain.project import ConstraintSource, UnresolvedPeer
 from ossiq.domain.provenance import ProvenanceFacts, SourceLevel, TrustTier
+from ossiq.domain.update_plan import ImpactKind, PeerRepair, TransitiveImpact
 from ossiq.domain.version import VersionsDifference
 from ossiq.risk.stability import EngagementBucket, EngagementSeries
 from ossiq.risk.triage import ACTION_REFACTOR, TriageResult
 from ossiq.service.library_scan import UpgradePath
-from ossiq.service.project.models import IgnoredDependency, PeerRepair, ScanRecord, ScanResult
+from ossiq.service.project.models import IgnoredDependency, ScanRecord, ScanResult
 from ossiq.service.project.stability import RepositoryStability
-from ossiq.service.update_impact import ImpactKind, TransitiveImpact
 from ossiq.settings import Settings
 from ossiq.strategy.motive import UpdateMotive
 from ossiq.strategy.pyramid import UpdateStrategy

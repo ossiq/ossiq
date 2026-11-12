@@ -85,6 +85,9 @@ package = true
 # resolution depend on wall-clock time, so re-locking to pick up a security fix
 # produced a diff whose scope varied with the calendar.
 exclude-newer = "2026-09-18T00:00:00Z"
+# ty ships a new release every few days and its checks tighten each time, so it follows the
+# same 7-day cooldown ossiq applies to its users instead of the global cutoff.
+exclude-newer-package = { ty = "2026-11-05T00:00:00Z" }
 
 [project.optional-dependencies]
 # Retained as an empty no-op so `pip install 'ossiq[cli]'` keeps resolving for
@@ -183,7 +186,7 @@ dev = [
     "jinja2>=3.1.0",  # release.py templating + tests/test_release.py
     "pytest>=9.0.3",  # testing
     "ruff>=0.15.9",  # linting
-    "ty>=0.0.29",  # checking types
+    "ty>=0.0.97",  # checking types
     "ipdb>=0.13.13",  # debugging
     "pyinstaller>=6.11.0",  # standalone binaries for the npm channel
     "pylint>=4.0.4,<5",

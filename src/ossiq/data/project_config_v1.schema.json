@@ -10,6 +10,23 @@
       "description": "The schema version of this file.",
       "const": 1
     },
+    "upgrade": {
+      "description": "Defaults for `ossiq upgrade start`. A flag on the command line beats them.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "limit": {
+          "description": "Queue only the first N steps.",
+          "type": "integer",
+          "minimum": 1
+        },
+        "test-command": {
+          "description": "Shell command that checks the project. It runs once before the first step and after every applied step.",
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
     "policy": {
       "description": "Rules for the releases OSS IQ may recommend. A rule is off unless its block is present.",
       "type": "object",

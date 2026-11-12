@@ -7,26 +7,26 @@ files with pinned versions (package==version format).
 
 from __future__ import annotations
 
+import dataclasses
 import os
 import re
 import subprocess
 import tempfile
 from collections import namedtuple
 from collections.abc import Callable
-from typing import TYPE_CHECKING
+
+from packaging.requirements import InvalidRequirement, Requirement
 
 from ossiq.adapters.api_interfaces import AbstractPackageManagerApi
 from ossiq.adapters.package_managers.api_pypi import batch_fetch_requires_dist, make_session
-from ossiq.domain.common import ConstraintType, normalize_dist_name
+from ossiq.domain.common import normalize_dist_name
 from ossiq.domain.exceptions import PackageManagerLockfileParsingError
 from ossiq.domain.packages_manager import PIP_CLASSIC, PackageManagerType
 from ossiq.domain.project import ConstraintSource, Dependency, Project
+from ossiq.domain.update_plan import UpdatePlan
 from ossiq.domain.version import classify_pypi_specifier, normalize_version
 from ossiq.settings import Settings
 from ossiq.solver.pep508 import applicable_requirements
-
-if TYPE_CHECKING:
-    from ossiq.service.update.models import UpdatePlan
 
 PipClassicProject = namedtuple("PipClassicProject", ["manifest"])
 
@@ -138,14 +138,16 @@ class PackageManagerPythonPipClassic(AbstractPackageManagerApi):
         return package_spec, extras, version_spec
 
     @staticmethod
-    def load_constraint_file(path: str, constraint_names: set[str], visited: set[str] | None = None) -> None:
+    def load_constraint_file(
+        path: str, constraint_ranges: dict[str, list[str]], visited: set[str] | None = None
+    ) -> None:
         """
-        Read a pip constraints file and accumulate normalised package names into constraint_names.
+        Read a pip constraints file and accumulate each package's specifiers into constraint_ranges.
 
-        Handles recursive -c includes with a visited-file guard to prevent infinite loops.
-        Only package name lines are collected; version specifiers are intentionally ignored
-        because the constraint is applied at resolution time — what matters for tagging is
-        *which* package is constrained, not the specific range.
+        Handles recursive -c includes with a visited-file guard to prevent infinite loops. pip
+        intersects every range with each requirement on the package, so the ranges are what bound a
+        recommendation; a bare name maps to an empty list.
+        shortcut: markers are ignored, so a range binds on every platform; honour them if one over-blocks.
         """
         if visited is None:
             visited = set()
@@ -168,12 +170,32 @@ class PackageManagerPythonPipClassic(AbstractPackageManagerApi):
             c_match = _CONSTRAINT_FILE_PATTERN.match(line)
             if c_match:
                 nested_path = os.path.join(os.path.dirname(path), c_match.group(1).strip())
-                PackageManagerPythonPipClassic.load_constraint_file(nested_path, constraint_names, visited)
+                PackageManagerPythonPipClassic.load_constraint_file(nested_path, constraint_ranges, visited)
                 continue
             # Skip all other pip options and non-package lines
             if _SKIP_LINE_PATTERN.match(line):
                 continue
-            constraint_names.add(normalize_dist_name(line))
+            try:
+                req = Requirement(line)
+            except InvalidRequirement:
+                continue
+            found = constraint_ranges.setdefault(normalize_dist_name(req.name), [])
+            if req.specifier:
+                found.append(str(req.specifier))
+
+    def constraint_file_ranges(self) -> dict[str, list[str]]:
+        """{normalised name: [specifier, ...]} from every `-c` file requirements.txt names."""
+        manifest = self.project_files(self.project_path).manifest
+        ranges: dict[str, list[str]] = {}
+        for line in self.read_requirements_lines(manifest):
+            c_match = _CONSTRAINT_FILE_PATTERN.match(line.split("#")[0].strip())
+            if c_match:
+                self.load_constraint_file(os.path.join(os.path.dirname(manifest), c_match.group(1).strip()), ranges)
+        return ranges
+
+    def installer_caps(self) -> dict[str, str]:
+        """Return the `-c` files' ranges as {normalised name: range}."""
+        return {name: ",".join(specs) for name, specs in self.constraint_file_ranges().items() if specs}
 
     def parse_requirements_txt(self) -> dict[str, Dependency]:
         """
@@ -182,16 +204,15 @@ class PackageManagerPythonPipClassic(AbstractPackageManagerApi):
         Handles any PEP 440 specifier (==, >=, ~=, !=, compound ranges, etc.) and
         preserves PyPI extras (e.g. requests[security]) as a structured list.
         Skips bare package names (no version specifier), editable installs, VCS and
-        URL dependencies. Follows -c <file> constraint directives and tags the
-        corresponding packages with ConstraintType.ADDITIVE.
+        URL dependencies. Follows -c <file> constraint directives and records each
+        constrained package's range as `ConstraintSource.constraint_range`.
 
         Returns:
             Dictionary of dependencies {package_name: Dependency}
         """
         project_files = self.project_files(self.project_path)
-        manifest_dir = os.path.dirname(project_files.manifest)
         dependencies: dict[str, Dependency] = {}
-        constraint_names: set[str] = set()
+        constraint_ranges = self.constraint_file_ranges()
 
         lines = self.read_requirements_lines(project_files.manifest)
 
@@ -203,11 +224,8 @@ class PackageManagerPythonPipClassic(AbstractPackageManagerApi):
             if not line:
                 continue
 
-            # Intercept -c <file> before the general skip pattern
-            c_match = _CONSTRAINT_FILE_PATTERN.match(line)
-            if c_match:
-                constraint_path = os.path.join(manifest_dir, c_match.group(1).strip())
-                self.load_constraint_file(constraint_path, constraint_names)
+            # -c <file> lines were read by constraint_file_ranges; intercepted before the general skip pattern
+            if _CONSTRAINT_FILE_PATTERN.match(line):
                 continue
 
             if _SKIP_LINE_PATTERN.match(line):
@@ -244,15 +262,14 @@ class PackageManagerPythonPipClassic(AbstractPackageManagerApi):
                 ),
             )
 
-        # Second pass: tag packages that appear in constraint files
-        if constraint_names:
-            manifest_basename = os.path.basename(project_files.manifest)
-            for pkg_name, dep in dependencies.items():
-                if normalize_dist_name(pkg_name) in constraint_names:
-                    dep.constraint_info = ConstraintSource(
-                        type=ConstraintType.ADDITIVE,
-                        source_file=manifest_basename,
-                    )
+        # Second pass: a constrained requirement keeps its own classification, since its line is still
+        # the user's to rewrite; the cap bounds the pick (the strategy gate) and the solver (its parents' specs).
+        for pkg_name, dep in dependencies.items():
+            ranges = constraint_ranges.get(normalize_dist_name(pkg_name))
+            if ranges is None:
+                continue
+            dep.parent_constraints.extend(ranges)
+            dep.constraint_info = dataclasses.replace(dep.constraint_info, constraint_range=",".join(ranges) or None)
 
         return dependencies
 

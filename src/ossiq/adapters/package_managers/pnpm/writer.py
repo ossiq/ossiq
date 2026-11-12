@@ -11,7 +11,7 @@ from __future__ import annotations
 import copy
 import io
 from collections.abc import Mapping, MutableMapping, Sequence
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from ruamel.yaml import YAML, YAMLError
 from ruamel.yaml.comments import CommentedMap, CommentedSeq
@@ -21,9 +21,7 @@ from ossiq.adapters.package_managers.npm.writer import final_spec, write_transit
 from ossiq.adapters.package_managers.pnpm.constants import CATALOG_PROTOCOL, DEFAULT_CATALOG, EXCLUDE_KEY
 from ossiq.adapters.package_managers.pnpm.overrides import parse_pnpm_override_rules
 from ossiq.domain.exceptions import PackageManagerExecutionError
-
-if TYPE_CHECKING:
-    from ossiq.service.update.models import UpdatePlan
+from ossiq.domain.update_plan import UpdatePlan
 
 
 def round_trip_yaml() -> YAML:

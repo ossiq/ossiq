@@ -814,3 +814,14 @@ class TestInstallPackage:
             with pytest.raises(PackageManagerExecutionError):
                 npm.install_package("express", "4.19.0")
         assert manifest_path.read_text(encoding="utf-8") == original_content
+
+
+class TestSyncEnvironment:
+    def test_installs_from_the_lockfile_without_scripts(self, tmp_path, settings):
+        (tmp_path / "package.json").write_text('{"name": "demo"}')
+        with patch("subprocess.run") as mock_run:
+            PackageManagerJsNpm(str(tmp_path), settings).sync_environment()
+        mock_run.assert_called_once_with(["npm", "install", "--ignore-scripts"], cwd=str(tmp_path), check=True)
+
+    def test_snapshots_manifest_and_lockfile(self, tmp_path, settings):
+        assert PackageManagerJsNpm(str(tmp_path), settings).snapshot_files() == ("package.json", "package-lock.json")

@@ -16,7 +16,7 @@ from ossiq.adapters.package_managers.npm.writer import (
     apply_direct_specs,
     write_transitive_overrides,
 )
-from ossiq.service.project.models import PeerRepair
+from ossiq.domain.update_plan import PeerRepair
 from ossiq.tree.walker import DependencyWalker
 from tests.adapters.package_managers.npm.helpers import make_npm_update_entry, make_npm_update_plan
 

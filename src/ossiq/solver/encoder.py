@@ -130,9 +130,7 @@ class ConstraintEncoder:
             # When all_constraints is populated (transitive deps with multiple parents),
             # a version must satisfy every parent's specifier — diamond-dep correctness.
             # Falls back to the single version_constraint for direct deps and simple transitives.
-            l1_constraints = constraint.all_constraints or (
-                (constraint.version_constraint,) if constraint.version_constraint else ()
-            )
+            l1_constraints = constraint.hard_specs
             eligible_vids: list[int] = []
             l1_forbidden = 0
             l5_forbidden = 0

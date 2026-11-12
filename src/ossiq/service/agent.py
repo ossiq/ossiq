@@ -22,6 +22,7 @@ from ossiq.domain.compatibility import CompatibilityFacts
 from ossiq.domain.cve import CVE
 from ossiq.domain.packages_manager import PackageManagerCli
 from ossiq.domain.project import UnresolvedPeer
+from ossiq.domain.update_plan import PeerRepair, TransitiveImpact
 from ossiq.domain.version import VERSION_DIFF_MAJOR, VERSION_DIFF_MINOR, VERSION_DIFF_PATCH, PackageVersion
 from ossiq.risk.maintenance import NOT_MAINTAINED
 from ossiq.service.package import PackageDetailResult, registry_status_note
@@ -30,7 +31,7 @@ from ossiq.service.project.breaking_changes import (
     esm_interop_note,
     module_system_label,
 )
-from ossiq.service.project.models import PeerRepair, ScanRecord, ScanResult
+from ossiq.service.project.models import ScanRecord, ScanResult
 from ossiq.service.project.next_action import (
     CHECK_FOR_THE_FIX,
     CHECK_RELEASE_NOTES,
@@ -42,7 +43,6 @@ from ossiq.service.project.next_action import (
     has_writable_upgrade,
     next_action_label,
 )
-from ossiq.service.update_impact import TransitiveImpact
 from ossiq.solver.version_matchers import cve_affects_version, engine_compatibility
 from ossiq.strategy.compare import compare_target
 from ossiq.strategy.motive import is_qualifying_score

@@ -1,0 +1,15 @@
+[project]
+name = "smoke-uv-extras"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = [
+    "requests~=2.32.5",
+]
+
+[project.optional-dependencies]
+docs = [
+    "mkdocs-material~=9.7.1",
+]
+net = [
+    "idna~=3.4.0",
+]

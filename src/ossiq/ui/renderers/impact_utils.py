@@ -6,6 +6,7 @@ from rich.table import Table
 
 from ossiq.domain.common import RegistryStatus, RejectionDetail
 from ossiq.domain.provenance import SourceLevel, TrustTier
+from ossiq.domain.update_plan import ImpactKind, TransitiveImpact
 from ossiq.domain.version import (
     VERSION_DIFF_BUILD,
     VERSION_DIFF_MAJOR,
@@ -30,7 +31,6 @@ from ossiq.service.project.next_action import (
     WITHHELD_BY_STRATEGY,
     next_action_label,
 )
-from ossiq.service.update_impact import ImpactKind, TransitiveImpact
 from ossiq.timeutil import format_time_days
 
 REGISTRY_STATUS_BADGES: dict[RegistryStatus, str] = {

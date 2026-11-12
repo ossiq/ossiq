@@ -71,10 +71,12 @@ qa-strategies *ARGS:
 qa-build:
     docker build -f qa/Dockerfile -t ossiq-qa .
 
-# Smoke-test the real CLI against tiny npm and PyPI projects, one throwaway Docker container per
-# step (cases in qa/smoke/cases.toml). Rebuilds the image first; that is a cache hit when src/ is
-# unchanged. OSSIQ_GITHUB_TOKEN is optional but avoids GitHub rate limits. See qa/README.md.
-# e.g. just qa-matrix --cases npm-security,uv-standard
+# The regression engine: drives the real CLI through add, plan, apply and `upgrade` (console, menu and
+# the agent loop) on tiny npm, pnpm, uv and pip projects, one throwaway Docker container per step
+# (cases in qa/smoke/cases.toml). Rebuilds the image first; that is a cache hit when src/ and
+# qa/Dockerfile are unchanged. OSSIQ_GITHUB_TOKEN is optional but avoids GitHub rate limits.
+# See qa/README.md.
+# e.g. just qa-matrix --cases npm-security,uv-standard   or   just qa-matrix --cases 'pnpm-*,*-upgrade-*'
 qa-matrix *ARGS: qa-build
     uv run python qa/smoke_matrix.py {{ARGS}}
 

@@ -13,7 +13,6 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from functools import cache, cmp_to_key, partial
 
-from ossiq.adapters.api_interfaces import AbstractPackageRegistryApi
 from ossiq.domain.common import (
     RUNG_ORDER,
     ConstraintType,
@@ -26,8 +25,10 @@ from ossiq.domain.common import (
     RejectionDetail,
 )
 from ossiq.domain.policy import Policy, PolicyRule
+from ossiq.domain.project import ConstraintSource
 from ossiq.domain.provenance import VersionBlocks
 from ossiq.domain.release_cutoff import ReleaseCutoff
+from ossiq.domain.update_plan import ImpactKind, RecommendationReason
 from ossiq.domain.version import PeerDependency
 from ossiq.risk.maintenance import DEPRECATION_NONE
 from ossiq.service.common.package_versions import PackageVersion
@@ -40,8 +41,14 @@ from ossiq.service.project.ladder import classify_rung as ladder_classify_rung
 from ossiq.service.project.ladder import installable_releases
 from ossiq.service.project.models import ScanRecord
 from ossiq.service.project.target_facts import annotate_target_facts, clear_target_facts
-from ossiq.service.update_impact import DirectUpdateImpact, ImpactKind, incoming_peer_edges, simulate_single
-from ossiq.solver.reason import RecommendationReason
+from ossiq.service.update_impact import (
+    DirectUpdateImpact,
+    find_best_satisfying_package_version,
+    incoming_peer_edges,
+    moves_with_candidate,
+    simulate_single,
+)
+from ossiq.solver.ports import RegistryReader
 from ossiq.solver.version_matchers import (
     cve_affects_version,
     engine_mismatch_reason,
@@ -50,7 +57,7 @@ from ossiq.solver.version_matchers import (
 )
 from ossiq.strategy.motive import PackageFacts, is_qualifying_score
 from ossiq.strategy.overrides import StrategyPlan
-from ossiq.strategy.pyramid import ESCALATING_MOTIVES, MODULE_BREAK_TIERS, UpdateStrategy
+from ossiq.strategy.pyramid import ESCALATING_MOTIVES, MODULE_BREAK_TIERS, UpdateStrategy, withholds_widening
 from ossiq.strategy.targeting import Candidate, StrategySelection, select_target
 from ossiq.timeutil import age_days_from_iso, parse_iso_datetime
 
@@ -65,7 +72,7 @@ def module_system_gate(
     installed_module_system: ModuleSystem | None,
     project_declares_esm: bool,
     releases: list[PackageVersion],
-    registry: AbstractPackageRegistryApi,
+    registry: RegistryReader,
 ) -> StructuralGate:
     """Reject a release that code on the installed module system can no longer load.
 
@@ -91,6 +98,22 @@ def engine_mismatch_gate(engine_context: EngineContext) -> StructuralGate:
 
     def gate(pv: PackageVersion) -> str | None:
         return engine_mismatch_reason(pv.runtime_requirements, engine_context.versions)
+
+    return gate
+
+
+def installer_cap_gate(constraint: ConstraintSource, registry: RegistryReader) -> StructuralGate:
+    """Reject a release outside the range the package manager's own constraints cap the package at.
+
+    A binding gate: uv applies `[tool.uv] constraint-dependencies` to every lock, so a pick past the cap
+    is one `apply` can only fail on, whatever the tier and whatever the motive.
+    """
+    cap = constraint.constraint_range
+
+    def gate(pv: PackageVersion) -> str | None:
+        if cap is None or version_satisfies_constraint(pv.version, cap, registry.package_registry):
+            return None
+        return f"outside {cap}, the cap {constraint.source_file or 'the project'} puts on it"
 
     return gate
 
@@ -122,7 +145,7 @@ def classify_rung(
     version: str,
     record: ScanRecord,
     installed_major: tuple[int, int] | None,
-    registry: AbstractPackageRegistryApi,
+    registry: RegistryReader,
 ) -> RecommendationRung:
     """Place *version* on the widening ladder relative to what *record*'s root manifest declares."""
     # The declaration, not version_constraint's last-writer-wins accumulator: this rung decides
@@ -203,7 +226,7 @@ def peer_hold(impact: DirectUpdateImpact) -> PeerHold | None:
 def build_candidates(
     record: ScanRecord,
     releases: list[PackageVersion],
-    registry: AbstractPackageRegistryApi,
+    registry: RegistryReader,
     *,
     now: datetime | None = None,
     validator: Callable[[str, str], DirectUpdateImpact] | None = None,
@@ -365,7 +388,7 @@ MAX_PEER_ROUNDS = 10
 
 @dataclass(frozen=True)
 class PeerConflict:
-    """A peer range two direct packages cannot both meet at the versions the plan gives them."""
+    """A range two direct packages cannot both meet at the versions the plan gives them."""
 
     requirer: str
     """The package that declares the range."""
@@ -376,7 +399,10 @@ class PeerConflict:
     spec: str
 
     held_at: str
-    """The version `package` would be at."""
+    """The version `package` would be at, or the declared range a package the plan leaves is held to."""
+
+    is_peer: bool = True
+    """False for an ordinary requirement, which binds like a peer where one copy is installed per name."""
 
 
 @dataclass(frozen=True)
@@ -397,7 +423,7 @@ def find_peer_conflict(
     version: str,
     finals: Mapping[str, str],
     installed: Mapping[str, str],
-    registry: AbstractPackageRegistryApi,
+    registry: RegistryReader,
     peers_of: Callable[[str, str], Mapping[str, PeerDependency]] | None = None,
 ) -> PeerConflict | None:
     """The first peer range *name* at *version* breaks against every other package's final version.
@@ -447,20 +473,62 @@ def find_peer_conflict(
     return None
 
 
-def record_peer_refusal(
-    record: ScanRecord, version: str, conflict: PeerConflict, registry: AbstractPackageRegistryApi
-) -> None:
-    """Add a peer-refused release to the record's rejected candidates, one per rung as elsewhere."""
+def find_requirement_conflict(
+    name: str,
+    version: str,
+    finals: Mapping[str, str],
+    installed: Mapping[str, str],
+    *,
+    registry: RegistryReader,
+    declared_ranges: Mapping[str, str | None],
+    fits: Callable[[str, list[str]], PackageVersion | None],
+) -> PeerConflict | None:
+    """The first requirement *name* at *version* places on another direct package the plan cannot meet.
+
+    Only for a package manager that installs one copy per name, where an ordinary requirement binds
+    that copy as a peer does. A package the plan moves is pinned at its pick. One it leaves can still
+    move inside its declared range when the lock is rebuilt, so it conflicts only when no release in
+    that range meets the requirement. Transitive packages are `simulate_single`'s to judge.
+
+    Args:
+        name: The package whose pick is being checked.
+        version: The version it would move to.
+        finals: Each package's version once the plan applies (its pick, or as installed).
+        installed: Each package's installed version, to tell a pick from a package left in place.
+        registry: Registry, for each release's declared requirements.
+        declared_ranges: The range each direct package declares, for those a requirement binds.
+        fits: The newest release of a package meeting every given range, or None.
+
+    Returns:
+        The conflict, or None when every direct package can meet what *version* requires of it.
+    """
+    for dep, spec in registry.package_version_requires(name, version).items():
+        if dep == name or not spec or dep not in declared_ranges or dep not in finals:
+            continue
+        held = finals[dep]
+        if version_satisfies_constraint(held, spec, registry.package_registry):
+            continue
+        if held != installed.get(dep):
+            return PeerConflict(requirer=name, package=dep, spec=spec, held_at=held, is_peer=False)
+        declared = declared_ranges[dep]
+        if declared and fits(dep, [declared, spec]) is None:
+            return PeerConflict(requirer=name, package=dep, spec=spec, held_at=declared, is_peer=False)
+    return None
+
+
+def record_peer_refusal(record: ScanRecord, version: str, conflict: PeerConflict, registry: RegistryReader) -> None:
+    """Add a release the joint pass refused to the record's rejected candidates, one per rung as elsewhere."""
+    verb = "peer-requires" if conflict.is_peer else "requires"
     if conflict.requirer == record.package_name:
         refused = RejectedCandidate(
             version=version,
-            reason=f"{record.package_name} {version} peer-requires {conflict.package}",
+            reason=f"{record.package_name} {version} {verb} {conflict.package}",
             detail=RejectionDetail(f"held at {conflict.held_at}, wanted", (conflict.spec,)),
         )
     else:
         refused = RejectedCandidate(
             version=version,
-            reason=f"{conflict.requirer} peer-requires {record.package_name}",
+            reason=f"{conflict.requirer} {verb} {record.package_name}",
             detail=RejectionDetail(f"{version} violates", (conflict.spec,)),
             held_by_peer=PeerHold(
                 package=record.package_name,
@@ -478,15 +546,63 @@ def record_peer_refusal(
     record.rejected_candidates = [by_rung[r] for r in sorted(by_rung, key=RUNG_ORDER.__getitem__)]
 
 
+def landing_version(decision: TargetDecision) -> str:
+    """The version the decision's package ends at once the plan applies.
+
+    Its pick, unless the plan holds that pick back for a widening the tier does not reach
+    (`holds.is_held_for_widening`); then it stays as installed.
+    """
+    record = decision.record
+    selection = record.strategy_selection
+    authorized = selection is not None and selection.widening_authorized
+    if record.recommended_version is None or withholds_widening(
+        decision.strategy, record.recommended_from_rung, authorized
+    ):
+        return record.installed_version
+    return record.recommended_version
+
+
+def dragged_copies(record: ScanRecord, transitive_by_name: Mapping[str, ScanRecord]) -> dict[str, tuple[str, str]]:
+    """The installed copies the record's pick replaces, as {name: (copy version, version it moves to)}.
+
+    Same rule as `assess_incoming_peers`: an override bump moves its copy in place, any other copy
+    only when nothing but the pick and what it pulls along asks for it. vue pins its renderer to its
+    own version, so the renderer's old copy is gone once vue lands and cannot hold vue back.
+
+    Args:
+        record: The direct record whose pick is being judged.
+        transitive_by_name: The scan's transitive records, for each copy's owners.
+
+    Returns:
+        The copies that go away with the pick, keyed by package name.
+    """
+    moving = [
+        i for i in record.update_transitive_impacts if not i.has_conflict and i.projected_version != i.current_version
+    ]
+    movers = {record.package_name, *(i.package_name for i in moving)}
+    dragged: dict[str, tuple[str, str]] = {}
+    for impact in moving:
+        if impact.current_version is None or impact.projected_version is None:
+            continue
+        dep = transitive_by_name.get(impact.package_name)
+        if impact.kind == ImpactKind.OVERRIDE_BUMP or (
+            dep and moves_with_candidate(dep, impact.current_version, movers)
+        ):
+            dragged[impact.package_name] = (impact.current_version, impact.projected_version)
+    return dragged
+
+
 def reconcile_peer_targets(
     decisions: Sequence[TargetDecision],
-    registry: AbstractPackageRegistryApi,
+    registry: RegistryReader,
     fixed_versions: Mapping[str, str],
     reselect: Callable[[TargetDecision, tuple[Candidate, ...]], StrategySelection],
     write: Callable[[TargetDecision, StrategySelection, str], None],
     fixed_installed: Mapping[str, str] | None = None,
+    requirement_conflict: Callable[[str, str, Mapping[str, str], Mapping[str, str]], PeerConflict | None] | None = None,
+    transitive_by_name: Mapping[str, ScanRecord] | None = None,
 ) -> None:
-    """Send back every pick whose peers clash with another package's final version.
+    """Send back every pick whose peers, or requirements, clash with another package's final version.
 
     Each pick is chosen on its own, so two packages can end up on versions that peer-require each
     other out (vue bumped while its lockstep partner stays), and the transitive picks were made
@@ -504,25 +620,42 @@ def reconcile_peer_targets(
         write: Writes a new verdict onto its record; the third argument is the pick it replaces.
         fixed_installed: The installed version of each package in `fixed_versions`, to tell drift
             from new breakage; `fixed_versions` itself when omitted.
+        requirement_conflict: Where one copy is installed per name, the check for ordinary
+            requirements on other direct packages (`find_requirement_conflict`); None elsewhere.
+        transitive_by_name: The scan's transitive records. A transitive copy that only a landing
+            pick owns moves with it (`dragged_copies`), so it does not hold that pick back.
     """
     installed = {
         **(fixed_installed if fixed_installed is not None else fixed_versions),
         **{d.record.package_name: d.record.installed_version for d in decisions},
     }
-    finals = {
-        **fixed_versions,
-        **{d.record.package_name: d.record.recommended_version or d.record.installed_version for d in decisions},
-    }
     peers_of = cache(registry.package_version_peers)
+
+    def landed() -> dict[str, str]:
+        # shortcut: two picks dragging the same copy to different versions - the later one wins; upgrade
+        # when a package family is ever pulled two ways at once.
+        dragged = {
+            name: new
+            for d in decisions
+            if d.record.recommended_version is not None and landing_version(d) == d.record.recommended_version
+            for name, (old, new) in dragged_copies(d.record, transitive_by_name or {}).items()
+            if installed.get(name) == old
+        }
+        return {**fixed_versions, **dragged, **{d.record.package_name: landing_version(d) for d in decisions}}
+
+    finals = landed()
 
     for _ in range(MAX_PEER_ROUNDS):
         demoted = False
         for decision in decisions:
             record = decision.record
             pick = record.recommended_version
-            if pick is None:
+            # A pick the plan holds back never lands, so nothing it requires can break.
+            if pick is None or landing_version(decision) != pick:
                 continue
             conflict = find_peer_conflict(record.package_name, pick, finals, installed, registry, peers_of)
+            if conflict is None and requirement_conflict is not None:
+                conflict = requirement_conflict(record.package_name, pick, finals, installed)
             if conflict is None:
                 continue
             decision.refused[pick] = conflict
@@ -531,7 +664,7 @@ def reconcile_peer_targets(
             record.strategy_selection = selection
             record_peer_refusal(record, pick, conflict, registry)
             write(decision, selection, pick)
-            finals[record.package_name] = record.recommended_version or record.installed_version
+            finals = landed()
             demoted = True
         if not demoted:
             return
@@ -539,7 +672,7 @@ def reconcile_peer_targets(
 
 def apply_update_strategy(
     records: list[ScanRecord],
-    registry: AbstractPackageRegistryApi,
+    registry: RegistryReader,
     plan: StrategyPlan,
     *,
     versions_since: dict[tuple[str, str], list[PackageVersion]],
@@ -556,6 +689,7 @@ def apply_update_strategy(
     fixed_installed: Mapping[str, str] | None = None,
     version_blocks: VersionBlocks | None = None,
     policy: Policy | None = None,
+    declared_ranges: Mapping[str, str | None] | None = None,
 ) -> None:
     """Run the selector for each record and write its verdict, replacing `apply_ladder_fallback`.
 
@@ -593,6 +727,10 @@ def apply_update_strategy(
 
     `version_blocks` carries the configured supply-chain policy's verdicts; a blocked release is never
     a candidate, and the installed one is never in the ladder anyway, so it stays.
+
+    `declared_ranges` maps every direct package a requirement binds to the range its manifest
+    declares. Where one copy is installed per name, that last pass also sends back a pick whose
+    ordinary requirements another direct package cannot meet (`find_requirement_conflict`).
     """
     engine_context = engine_context or EngineContext()
     decisions: list[TargetDecision] = []
@@ -664,6 +802,9 @@ def apply_update_strategy(
         # npm installs an engines mismatch anyway (a warning, not a refusal), so there it stays
         # advisory and waivable. pip and uv refuse outright, so on PyPI the gate has to bind.
         engine_gate_binds = registry.refuses_engine_mismatch
+        binding_gates: tuple[StructuralGate, ...] = (engine_gate,) if engine_gate_binds else ()
+        if record.constraint_info.constraint_range:
+            binding_gates += (installer_cap_gate(record.constraint_info, registry),)
         # Crossing to ESM-only is a freshness tier's call, and only on a runtime that can
         # require() ESM at all. Even there it stays flagged (breaking_change), because require()
         # returns the namespace and a default-export-only package still breaks.
@@ -683,7 +824,7 @@ def apply_update_strategy(
             validator=validator,
             transitive_by_name=transitive_by_name,
             structural_gates=() if engine_gate_binds else (engine_gate,),
-            binding_gates=(engine_gate,) if engine_gate_binds else (),
+            binding_gates=binding_gates,
             policy_blocks=(version_blocks or {}).get(record.package_name),
             policy=policy,
         )
@@ -709,4 +850,29 @@ def apply_update_strategy(
         decisions.append(decision)
         write_verdict(decision, selection, record.recommended_version)
 
-    reconcile_peer_targets(decisions, registry, fixed_versions or {}, reselect, write_verdict, fixed_installed)
+    requirement_conflict = (
+        partial(
+            find_requirement_conflict,
+            registry=registry,
+            declared_ranges=declared_ranges,
+            fits=partial(
+                find_best_satisfying_package_version,
+                registry=registry,
+                allow_prerelease=allow_prerelease,
+                now=now,
+                release_cutoff=release_cutoff,
+            ),
+        )
+        if registry.one_copy_per_name and declared_ranges
+        else None
+    )
+    reconcile_peer_targets(
+        decisions,
+        registry,
+        fixed_versions or {},
+        reselect,
+        write_verdict,
+        fixed_installed,
+        requirement_conflict,
+        transitive_by_name,
+    )

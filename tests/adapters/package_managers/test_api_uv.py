@@ -37,7 +37,7 @@ from ossiq.adapters.package_managers.api_uv import (
 from ossiq.domain.common import ConstraintType, ProjectPackagesRegistry
 from ossiq.domain.exceptions import PackageManagerExecutionError, PackageManagerLockfileParsingError
 from ossiq.domain.packages_manager import UV
-from ossiq.service.update.models import UpdateEntry, UpdatePlan
+from ossiq.domain.update_plan import UpdateEntry, UpdatePlan
 from ossiq.settings import Settings
 
 # ============================================================================
@@ -90,7 +90,8 @@ dev = [
 
     # Create uv.lock with version 1 revision 3
     # Real uv.lock stores version specifiers from pyproject.toml in the root package's
-    # [package.metadata].requires-dist block, not in the dependencies entries themselves.
+    # [package.metadata].requires-dist block, not in the dependencies entries themselves,
+    # and tags an extra's entries with an `extra == '<name>'` marker.
     lockfile_content = """
 version = 1
 revision = 3
@@ -111,15 +112,12 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "requests", specifier = ">=2.31.0" },
+    { name = "black", marker = "extra == 'dev'", specifier = ">=23.0.0" },
     { name = "click", specifier = ">=8.1.0" },
+    { name = "pytest", marker = "extra == 'dev'", specifier = ">=7.4.0" },
+    { name = "requests", specifier = ">=2.31.0" },
 ]
-
-[package.metadata.requires-dev]
-dev = [
-    { name = "pytest", specifier = ">=7.4.0" },
-    { name = "black", specifier = ">=23.0.0" },
-]
+provides-extras = ["dev"]
 
 [[package]]
 name = "requests"
@@ -451,6 +449,30 @@ class TestParseLockfileV1R3:
         assert dependency_tree.dependencies["uvicorn"].extras == ["standard"]
         assert dependency_tree.dependencies["click"].extras is None
         assert "httptools" in dependency_tree.dependencies["uvicorn"].optional_dependencies
+
+    def test_a_pin_in_an_extra_is_classified_pinned(self, uv_project_with_lockfile, settings):
+        """An extra's pin keeps its type, so it is frozen by default like a pin in [project.dependencies]."""
+        uv_manager = PackageManagerPythonUv(uv_project_with_lockfile, settings)
+        uv_lock_data = {
+            "package": [
+                {
+                    "name": "test-project",
+                    "version": "0.1.0",
+                    "source": {"virtual": "."},
+                    "optional-dependencies": {"docs": [{"name": "foo"}]},
+                    "metadata": {
+                        "requires-dist": [{"name": "foo", "marker": "extra == 'docs'", "specifier": "==1.0.0"}]
+                    },
+                },
+                {"name": "foo", "version": "1.0.0", "source": {"registry": "https://pypi.org/simple"}},
+            ]
+        }
+
+        dependency_tree, _ = uv_manager.parse_lockfile_v1_r3("test-project", uv_lock_data)
+
+        foo = dependency_tree.optional_dependencies["foo"]
+        assert foo.version_constraint_declared == "==1.0.0"
+        assert foo.constraint_info.type == ConstraintType.PINNED
 
     def test_parse_transitive_dependencies_ignored(self, uv_project_with_lockfile, settings):
         """
@@ -810,6 +832,7 @@ version = "0.1.0"
 _VERSION_CONSTRAINT_TESTDATA = os.path.join(
     os.path.dirname(__file__), "..", "..", "..", "testdata", "pypi", "version-constraint"
 )
+_UV_TESTDATA = os.path.join(os.path.dirname(__file__), "..", "..", "..", "testdata", "pypi", "uv")
 
 
 class TestVersionConstraintIntegration:
@@ -876,6 +899,25 @@ class TestConstraintClassificationUv:
         assert dep.constraint_info.type == expected_type, (
             f"{pkg_name}: expected {expected_type}, got {dep.constraint_info.type}"
         )
+
+    @pytest.mark.parametrize(
+        "pkg_name,expected_spec",
+        [
+            ("black", "~=25.11.0"),  # extra `test`
+            ("mkdocs-material", "~=9.7.1"),  # extra `docs`
+            ("pytest", "~=9.0.1"),  # extra `test`
+        ],
+    )
+    def test_range_in_an_extra_is_classified_like_a_main_dependency(
+        self, pkg_name: str, expected_spec: str, settings: Settings
+    ):
+        """An extra's `~=` range is NARROWED, so `apply` can widen it when the recommendation leaves it."""
+        project = PackageManagerPythonUv(_UV_TESTDATA, settings).project_info()
+
+        dep = project.optional_dependencies.get(pkg_name)
+        assert dep is not None, f"{pkg_name!r} not found"
+        assert dep.version_defined == expected_spec
+        assert dep.constraint_info.type == ConstraintType.NARROWED
 
 
 # ============================================================================
@@ -1302,6 +1344,73 @@ class TestExecuteUpdateDirectRewrite:
 
         assert pyproject_path.read_text() == original_content
 
+    def test_lock_refusal_carries_uv_reason(self, tmp_path, settings):
+        """uv's own words are the only explanation; `upgrade apply` redraws over the terminal output."""
+        self._write_project(tmp_path, 'dependencies = [\n    "pydantic>=1.10.13",\n]\n')
+        pm = PackageManagerPythonUv(project_path=str(tmp_path), settings=settings)
+        plan = make_update_plan(
+            direct=[make_update_entry("pydantic", "1.10.13", "2.0.0", version_defined=">=1.10.13")],
+            project_path=str(tmp_path),
+        )
+        failure = subprocess.CalledProcessError(1, ["uv", "lock"], stderr="error: No solution found\n")
+        with patch("subprocess.run", side_effect=failure):
+            with pytest.raises(PackageManagerExecutionError, match="No solution found"):
+                pm.execute_update(plan)
+
+    def test_restores_lockfile_when_sync_fails_after_lock(self, tmp_path, settings):
+        """`uv lock` rewrites uv.lock before `uv sync` fails; the lock must go back with the manifest."""
+        self._write_project(tmp_path, 'dependencies = [\n    "pydantic==1.10.13",\n]\n')
+        lock_path = tmp_path / "uv.lock"
+        lock_path.write_text("old lock")
+
+        def uv(argv, **kwargs):
+            if argv[:2] == ["uv", "lock"]:
+                lock_path.write_text("new lock")
+                return MagicMock(returncode=0)
+            raise subprocess.CalledProcessError(1, argv)
+
+        entry = UpdateEntry(
+            package_name="pydantic",
+            current_version="x",
+            recommended_version="1.10.26",
+            is_direct=True,
+            reason=None,
+            version_defined="==1.10.13",
+            constraint_type=ConstraintType.PINNED,
+        )
+        plan = UpdatePlan(
+            project_name="demo",
+            project_path=str(tmp_path),
+            registry_type="PYPI",
+            package_manager_name="uv",
+            direct_entries=[entry],
+            transitive_entries=[],
+        )
+        pm = PackageManagerPythonUv(project_path=str(tmp_path), settings=settings)
+        with patch("subprocess.run", side_effect=uv):
+            with pytest.raises(PackageManagerExecutionError):
+                pm.execute_update(plan)
+
+        assert lock_path.read_text() == "old lock"
+
+
+class TestSyncEnvironment:
+    def test_runs_uv_sync_in_the_project(self, tmp_path, settings):
+        pm = PackageManagerPythonUv(project_path=str(tmp_path), settings=settings)
+        with patch("subprocess.run") as mock_run:
+            pm.sync_environment()
+        mock_run.assert_called_once_with(["uv", "sync"], cwd=str(tmp_path), check=True)
+
+    def test_wraps_a_failed_sync(self, tmp_path, settings):
+        pm = PackageManagerPythonUv(project_path=str(tmp_path), settings=settings)
+        with patch("subprocess.run", side_effect=subprocess.CalledProcessError(1, ["uv", "sync"])):
+            with pytest.raises(PackageManagerExecutionError):
+                pm.sync_environment()
+
+    def test_snapshots_manifest_and_lockfile(self, tmp_path, settings):
+        pm = PackageManagerPythonUv(project_path=str(tmp_path), settings=settings)
+        assert pm.snapshot_files() == ("pyproject.toml", "uv.lock")
+
 
 class TestInstallPackage:
     """Tests for install_package() — runs `uv add <spec>`, which edits pyproject.toml itself."""
@@ -1403,6 +1512,40 @@ class TestOssiqMetadataOwnershipUv:
 
         data = tomllib.loads(pyproject_path.read_text())
         assert data["tool"]["uv"]["override-dependencies"] == ["urllib3==2.0.9"]
+
+    def test_constraint_dependency_range_reaches_the_solver(self, uv_project_with_lockfile, settings):
+        """uv honours a constraint's range, so the plan must too, or `uv lock` refuses the version OSS IQ picks."""
+        pyproject_path = Path(uv_project_with_lockfile) / "pyproject.toml"
+        pyproject_path.write_text(
+            pyproject_path.read_text()
+            + '\n[tool.uv]\nconstraint-dependencies = ["urllib3<2", "certifi", "requests<3", "requests!=2.32.0"]\n'
+        )
+
+        tree = PackageManagerPythonUv(uv_project_with_lockfile, settings).project_info().dependency_tree
+        requests = tree.dependencies["requests"]
+        urllib3 = requests.dependencies["urllib3"]
+        certifi = requests.dependencies["certifi"]
+
+        assert urllib3.constraint_info.type == ConstraintType.ADDITIVE
+        assert urllib3.constraint_info.constraint_range == "<2"
+        assert urllib3.parent_constraints.count("<2") == 1
+        assert certifi.constraint_info.type == ConstraintType.ADDITIVE
+        assert certifi.constraint_info.constraint_range is None
+        assert certifi.parent_constraints == []
+        # A direct package keeps its manifest's classification, so a tier that widens it still rewrites it.
+        assert requests.constraint_info.type == ConstraintType.DECLARED
+        assert requests.constraint_info.constraint_range == "<3,!=2.32.0"
+
+    def test_installer_caps_need_no_lockfile(self, tmp_path, settings):
+        """`add` reads the caps of a project that has never been locked; a bare name caps nothing."""
+        (tmp_path / "pyproject.toml").write_text(
+            '[project]\nname = "app"\n\n[tool.uv]\n'
+            'constraint-dependencies = ["URLLib3<2", "attrs>=21,<23", "certifi"]\n'
+        )
+
+        caps = PackageManagerPythonUv(str(tmp_path), settings).installer_caps()
+
+        assert caps == {"urllib3": "<2", "attrs": "<23,>=21"}
 
 
 # ============================================================================
