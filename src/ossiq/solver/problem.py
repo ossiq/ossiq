@@ -34,6 +34,14 @@ class PackageConstraint:
     # so a version must satisfy ALL parent constraints (diamond-dep correctness).
     all_constraints: tuple[str, ...] = ()
 
+    @property
+    def hard_specs(self) -> tuple[str, ...]:
+        """The specifiers the encoder hard-forbids a candidate for missing (L1).
+
+        Every parent's specifier when there are any, else the declared constraint alone.
+        """
+        return self.all_constraints or ((self.version_constraint,) if self.version_constraint else ())
+
 
 @dataclass(frozen=True)
 class SolverProblem:

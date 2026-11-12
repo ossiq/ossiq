@@ -130,6 +130,7 @@ def clamp_recommendations(
             registry,
             now,
             release_cutoff.cutoff_for(record.package_name) if release_cutoff else None,
+            within=(record.version_constraint, *record.all_constraints),
         )
         in_range = [
             pv

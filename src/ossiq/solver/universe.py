@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Collection, Sequence
 from datetime import datetime
 from functools import cmp_to_key
+from itertools import islice
 from typing import Protocol
 
 from ossiq.domain.common import ConstraintType, ProjectPackagesRegistry
@@ -18,6 +19,7 @@ from ossiq.solver.problem import CandidateVersion, PackageConstraint, SolverProb
 from ossiq.solver.version_matchers import (
     comparable_package_name,
     cve_affects_version,
+    satisfies_all_constraints,
     version_satisfies_constraint,
 )
 from ossiq.timeutil import age_days_from_iso, parse_iso_datetime
@@ -181,8 +183,14 @@ def filter_eligible_versions(
     *,
     allow_deprecated: bool = True,
     blocked: Collection[str] = (),
+    within: Sequence[str] = (),
 ) -> list[PackageVersion]:
-    """Return candidates sorted newest-first, capped at CANDIDATE_CAP.
+    """Return candidates newest-first: the newest CANDIDATE_CAP, plus the newest CANDIDATE_CAP inside `within`.
+
+    The second window keeps a package under a cap solvable when 30+ releases sit past it, such as
+    `urllib3<2` under a busy 2.x line: the encoder hard-forbids everything outside the range, so
+    the newest releases alone would leave nothing to pick. Releases outside `within` stay, since
+    reasons cite them.
 
     Drops yanked, unpublished, pre-release (when disallowed), deprecated (when disallowed),
     downgrades, versions published after `now`, versions published after `release_cutoff` —
@@ -213,10 +221,15 @@ def filter_eligible_versions(
             or (bool(installed_version) and registry.compare_versions(pv.version, installed_version) == 0)
         )
     ]
-    return sorted(
-        eligible,
-        key=cmp_to_key(lambda a, b: registry.compare_versions(b.version, a.version)),
-    )[:CANDIDATE_CAP]
+    ordered = sorted(eligible, key=cmp_to_key(lambda a, b: registry.compare_versions(b.version, a.version)))
+    specs = list(within)
+    in_range = set(
+        islice(
+            (pv.version for pv in ordered if satisfies_all_constraints(pv.version, specs, registry.package_registry)),
+            CANDIDATE_CAP,
+        )
+    )
+    return [pv for rank, pv in enumerate(ordered) if rank < CANDIDATE_CAP or pv.version in in_range]
 
 
 def requirements_with_peers(pv: PackageVersion) -> dict[str, str]:
@@ -303,16 +316,16 @@ class SolvablePool:
         """
         best = deduplicate_deps(deps)
 
-        constraints = tuple(
-            PackageConstraint(
-                package_name=dep.canonical_name,
+        constraints = {
+            name: PackageConstraint(
+                package_name=name,
                 version_constraint=effective_version_constraint(dep, rewrite_pinned),
                 constraint_type=dep.constraint_info.type,
                 installed_version=dep.version,
                 all_constraints=relevant_constraints(dep.version, dep.all_constraints, registry),
             )
-            for dep in best.values()
-        )
+            for name, dep in best.items()
+        }
 
         candidates: dict[str, tuple[CandidateVersion, ...]] = {
             name: make_candidate_versions(
@@ -325,6 +338,7 @@ class SolvablePool:
                     release_cutoff.cutoff_for(name) if release_cutoff else None,
                     allow_deprecated=allow_deprecated,
                     blocked=(version_blocks or {}).get(name, {}),
+                    within=constraints[name].hard_specs,
                 ),
                 (cves_by_package or {}).get(name, ()),
                 _now,
@@ -336,7 +350,7 @@ class SolvablePool:
         }
 
         return SolverProblem(
-            constraints=constraints,
+            constraints=tuple(constraints.values()),
             candidates=candidates,
             engine_context=dict(engine_context),
             registry=registry.package_registry,

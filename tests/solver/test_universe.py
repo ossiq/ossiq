@@ -79,6 +79,11 @@ def _make_registry(versions_by_name: dict[str, list[PackageVersion]]) -> MagicMo
     return registry
 
 
+def _busy_past_cap() -> list[PackageVersion]:
+    """urllib3's shape, busier: a capped 1.26 line under 40 newer 2.x releases."""
+    return [*(_pv(f"1.26.{patch}") for patch in range(21)), *(_pv(f"2.{minor}.0") for minor in range(40))]
+
+
 _FIXED_NOW = datetime(2024, 1, 31, 0, 0, 0, tzinfo=UTC)
 _PUBLISH_30_DAYS_AGO = "2024-01-01T00:00:00Z"
 
@@ -131,6 +136,24 @@ class TestCandidateVersionFiltering:
         registry = _make_registry({"pkg": [_pv("1.0.0"), *deprecated_run]})
         problem = SolvablePool.build([_FakeDep("pkg", "0.0.0")], registry, {}, allow_deprecated=False)
         assert [cv.version for cv in problem.candidates["pkg"]] == ["1.0.0"]
+
+    def test_the_cap_keeps_the_newest_releases_under_a_declared_cap(self) -> None:
+        registry = _make_registry({"urllib3": _busy_past_cap()})
+        problem = SolvablePool.build([_FakeDep("urllib3", "1.26.5", constraint="<2")], registry, {})
+        versions = [cv.version for cv in problem.candidates["urllib3"]]
+        # The newest 30 overall stay (reasons cite them), then the newest 30 under the cap.
+        assert versions[:30] == [f"2.{minor}.0" for minor in range(39, 9, -1)]
+        assert versions[30:] == [f"1.26.{patch}" for patch in range(20, 4, -1)]
+
+    def test_the_cap_keeps_the_newest_releases_under_a_parents_cap(self) -> None:
+        registry = _make_registry({"urllib3": _busy_past_cap()})
+        problem = SolvablePool.build([_FakeDep("urllib3", "1.26.5", all_constraints=["<2"])], registry, {})
+        assert "1.26.20" in [cv.version for cv in problem.candidates["urllib3"]]
+
+    def test_an_unconstrained_package_keeps_only_the_newest_releases(self) -> None:
+        registry = _make_registry({"urllib3": _busy_past_cap()})
+        problem = SolvablePool.build([_FakeDep("urllib3", "1.26.5")], registry, {})
+        assert [cv.version for cv in problem.candidates["urllib3"]] == [f"2.{minor}.0" for minor in range(39, 9, -1)]
 
     def test_versions_sorted_descending(self) -> None:
         registry = _make_registry({"pkg": [_pv("1.0.0"), _pv("3.0.0"), _pv("2.0.0")]})
