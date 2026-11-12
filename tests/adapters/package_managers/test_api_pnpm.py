@@ -547,6 +547,16 @@ class TestExecuteUpdate:
         }
         assert "  semver@7.0.0: 7.5.2\n" in (Path(workspace_project) / "pnpm-workspace.yaml").read_text()
 
+    def test_a_newer_release_the_range_admits_counts_as_landed(self, pnpm, workspace_project):
+        """`^4.4.3` lets pnpm take 4.4.4, published after the plan picked 4.4.3; that is not a miss."""
+        plan = make_npm_update_plan(
+            direct=[make_npm_update_entry("debug", "4.3.4", "4.4.3", version_defined="^4.3.4")],
+            project_path=workspace_project,
+        )
+
+        with patch(PNPM_RUN, side_effect=pnpm_installs(workspace_project, "debug@4.4.4", "ms@2.1.3")):
+            pnpm.execute_update(plan)
+
     def test_a_failure_in_a_later_pass_restores_all_three_files(self, pnpm, workspace_project):
         plan = make_npm_update_plan(
             direct=[

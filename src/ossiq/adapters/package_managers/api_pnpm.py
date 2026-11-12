@@ -199,10 +199,11 @@ def run_pnpm(project_path: str, command: str, *args: str, env: Mapping[str, str]
 
 
 def check_targets_landed(root: Path, plan: UpdatePlan) -> None:
-    """Raise when the lockfile pnpm just wrote lacks a version the plan targets.
+    """Raise when the lockfile pnpm just wrote holds a package below the version the plan targets.
 
-    pnpm exits 0 when an override the user wrote, or its release-age fallback, keeps a package off
-    the planned version, so a clean exit alone does not mean the plan landed.
+    pnpm exits 0 when an override the user wrote, or its release-age fallback, keeps a package below
+    the planned version, so a clean exit alone does not mean the plan landed. A newer release is not a
+    miss: pnpm installs the newest one the rewritten range admits, as npm does.
     shortcut: a target counts as landed when any copy of it is installed, so a nested copy that
     stayed put beside a moved one goes unreported; check per edge if that hides real misses.
 
@@ -216,12 +217,22 @@ def check_targets_landed(root: Path, plan: UpdatePlan) -> None:
     copies = installed_copies(load_lockfile((root / PNPM_LOCKFILE.name).read_text(encoding="utf-8")))
     missed = []
     for entry in plan.all_entries:
-        if (entry.package_name, entry.recommended_version) in copies:
-            continue
         have = sorted(version for name, version in copies if name == entry.package_name)
+        if any(reaches(version, entry.recommended_version) for version in have):
+            continue
         missed.append(f"{entry.display_name} {entry.recommended_version} (installed: {', '.join(have) or 'none'})")
     if missed:
         raise PackageManagerUpdateIncomplete(f"pnpm did not install {'; '.join(missed)}")
+
+
+def reaches(installed: str, target: str) -> bool:
+    """Whether *installed* is *target* or newer; exact equality for a version semver cannot parse."""
+    if installed == target:
+        return True
+    try:
+        return semver.Version.parse(installed) >= semver.Version.parse(target)
+    except ValueError:
+        return False
 
 
 class PackageManagerJsPnpm(AbstractPackageManagerApi):
