@@ -130,6 +130,13 @@ class TestSolveTransitiveUnflagged:
         result = solve_transitive(records, registry, {})
         assert result.recommendations.get("requests") == "2.32.0"
 
+    def test_a_cap_under_more_releases_than_the_candidate_cap_still_solves(self) -> None:
+        # 40 releases past `<2` outnumber CANDIDATE_CAP; the newest 1.26 must still be reachable.
+        releases = [*(_pv(f"1.26.{patch}") for patch in range(21)), *(_pv(f"2.{minor}.0") for minor in range(40))]
+        records = [_rec("urllib3", "1.26.5", constraint="<2")]
+        result = solve_transitive(records, _make_registry({"urllib3": releases}), {})
+        assert result.recommendations.get("urllib3") == "1.26.20"
+
 
 class TestSolveTransitiveCVE:
     def test_cve_flags_package_and_solver_picks_safe_version(self) -> None:
@@ -159,6 +166,36 @@ class TestSolveTransitiveCVE:
         )
         result = solve_transitive(records, registry, {})
         assert result.recommendations == {}
+
+    def test_a_constraint_that_keeps_every_fix_out_is_named_as_the_reason(self) -> None:
+        """A `<2` cap admits only affected releases; the blank says so and names the fix past it."""
+        record = _rec("capped", "1.0.0", cve_affected=["1.0.0", "1.1.0"], age_days=100)
+        record.all_constraints = ["<2", ">=1.0"]
+        registry = _make_registry({"capped": [_pv("1.0.0"), _pv("1.1.0"), _pv("2.0.0")]})
+
+        result = solve_transitive([record], registry, {})
+
+        assert result.recommendations == {}
+        held = result.rejected["capped"]
+        assert held.version == "1.1.0"
+        assert held.full_reason == (
+            "every release under its constraints still carries a CVE; 2.0.0 clears it, outside <2 "
+            "(constraints: <2, >=1.0)"
+        )
+
+    def test_no_fix_anywhere_is_still_explained(self) -> None:
+        record = _rec("bad-pkg", "1.0.0", cve_affected=["1.0.0", "2.0.0"], age_days=100)
+        registry = _make_registry({"bad-pkg": [_pv("1.0.0"), _pv("2.0.0")]})
+
+        held = solve_transitive([record], registry, {}).rejected["bad-pkg"]
+
+        assert (held.version, held.reason) == ("2.0.0", "every release under its constraints still carries a CVE")
+
+    def test_a_package_with_a_clean_release_in_reach_is_not_held(self) -> None:
+        record = _rec("vuln-pkg", "1.0.0", cve_affected=["1.0.0"], age_days=100)
+        registry = _make_registry({"vuln-pkg": [_pv("1.0.0"), _pv("2.0.0")]})
+
+        assert solve_transitive([record], registry, {}).rejected == {}
 
     def test_a_range_only_advisory_forbids_every_version_inside_it(self) -> None:
         """D7: npm advisories enumerate nothing; the range alone must forbid the affected releases."""

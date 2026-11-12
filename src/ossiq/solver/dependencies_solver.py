@@ -2,14 +2,15 @@
 
 from __future__ import annotations
 
+import dataclasses
 import logging
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Collection, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
 from functools import cache
 from typing import Protocol
 
-from ossiq.domain.common import RejectedCandidate
+from ossiq.domain.common import RejectedCandidate, RejectionDetail
 from ossiq.domain.cve import CVE
 from ossiq.domain.project import ConstraintSource
 from ossiq.domain.provenance import VersionBlocks
@@ -57,9 +58,9 @@ class SolverOutput:
     reasons: dict[str, RecommendationReason]
     conflicts: list[ConstraintConflict] = field(default_factory=list)
     rejected: dict[str, RejectedCandidate] = field(default_factory=dict)
-    """Packages the final requires-consistency sweep dropped, keyed by package name — the
-    recommendation apply_fallback would otherwise have silently discarded, with a reason naming
-    the conflicting dependency. Populated only by apply_requires_consistency's final sweep."""
+    """Packages left without a pick, keyed by package name, with the reason: the recommendation
+    apply_requires_consistency's sweep dropped (naming the conflicting dependency), or, from
+    solve_transitive, a vulnerable package whose every admitted release has a CVE (`cve_holds`)."""
 
 
 EMPTY_OUTPUT = SolverOutput(recommendations={}, reasons={})
@@ -346,6 +347,46 @@ def detect_conflicts(problem: SolverProblem) -> list[ConstraintConflict]:
     return result
 
 
+def cve_holds(
+    problem: SolverProblem, recommendations: Mapping[str, str], vulnerable: Collection[str]
+) -> dict[str, RejectedCandidate]:
+    """Explain each vulnerable package left as installed because every release its constraints admit has a CVE.
+
+    The encoder hard-forbids CVE-affected releases, so such a package simply gets no pick and would
+    otherwise come back blank with no reason on any surface.
+
+    Args:
+        problem: The solved problem; its candidates are newest-first.
+        recommendations: What the solve picked; a package in it is not held.
+        vulnerable: Packages whose installed version carries a CVE. Passed in rather than read off
+            the candidates, which are capped to the newest few and may no longer hold the installed one.
+
+    Returns:
+        {package: RejectedCandidate} naming the newest release the constraints admit and, when one
+        exists, the nearest CVE-free release and the constraint that keeps it out.
+    """
+    holds: dict[str, RejectedCandidate] = {}
+    for constraint in problem.constraints:
+        name = constraint.package_name
+        if name in recommendations or name not in vulnerable:
+            continue
+        # The encoder's L1 specs, so "admitted" here means what it admits.
+        specs = tuple(dict.fromkeys(constraint.hard_specs))
+        newer = [cv for cv in problem.candidates.get(name, ()) if cv.version != constraint.installed_version]
+        admitted = [cv for cv in newer if satisfies_all_constraints(cv.version, list(specs), problem.registry)]
+        if not admitted or not all(cv.has_cve for cv in admitted):
+            continue
+        reason = "every release under its constraints still carries a CVE"
+        if fix := next((cv for cv in reversed(newer) if not cv.has_cve), None):
+            # Not admitted, since every admitted release has a CVE, so some spec rules it out.
+            outside = next(s for s in specs if not version_satisfies_constraint(fix.version, s, problem.registry))
+            reason += f"; {fix.version} clears it, outside {outside}"
+        holds[name] = RejectedCandidate(
+            version=admitted[0].version, reason=reason, detail=RejectionDetail("constraints", specs)
+        )
+    return holds
+
+
 def _run_solve(
     label: str,
     deps: Sequence[DepLike],
@@ -543,14 +584,16 @@ def solve_transitive(
         release_cutoff=release_cutoff,
         version_blocks=version_blocks,
     )
-    if not output.recommendations:
-        return output
-    return apply_requires_consistency(
-        output,
-        problem,
-        registry,
-        external_targets=external_targets,
-        cooldown_period=cooldown_period,
-        # Where copies nest, a transitive pick is written as a version-keyed override.
-        keyed_overrides=True,
-    )
+    if output.recommendations:
+        output = apply_requires_consistency(
+            output,
+            problem,
+            registry,
+            external_targets=external_targets,
+            cooldown_period=cooldown_period,
+            # Where copies nest, a transitive pick is written as a version-keyed override.
+            keyed_overrides=True,
+        )
+    # Held packages never had a pick, so they cannot collide with requires-consistency drops.
+    holds = cve_holds(problem, output.recommendations, vulnerable=cves_by_package.keys())
+    return dataclasses.replace(output, rejected={**holds, **output.rejected})
