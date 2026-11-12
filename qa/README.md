@@ -69,8 +69,9 @@ just qa-strategies --fresh                           # --no-cache: live registry
 just qa-strategies --ossiq-cmd "uvx --from dist/ossiq-X.Y.Z-py3-none-any.whl ossiq"   # a built wheel
 ```
 
-It needs network, a GitHub login (`uv run ossiq auth login`, or `OSSIQ_GITHUB_TOKEN`), and `npm` /
-`uv` on `PATH` unless you pass `--skip-apply`. A full run takes about a minute with a warm cache.
+It needs network, a GitHub login (`uv run ossiq auth login`, or `OSSIQ_GITHUB_TOKEN` in the
+environment or your ossiq config file), and `npm` / `uv` on `PATH` unless you pass `--skip-apply`.
+A full run takes about a minute with a warm cache.
 For a release, run it with `--fresh` against the built artifact.
 
 For every fixture and tier it runs `export`, `status --format agent` and `plan` against a pristine
@@ -192,8 +193,9 @@ just qa-matrix --parallel 1                      # if "database is locked" shows
 ```
 
 `OSSIQ_GITHUB_TOKEN` is optional. Without it GitHub data is rate-limited and some maintenance
-signals are missing; the cases don't depend on them. It is handed to docker by name, so its value is
-never in a command line or a log. Exit status: 0 when no case failed, 1 when one did, 2 when the run
+signals are missing; the cases don't depend on them. When the environment doesn't set it, the runner
+takes it from your ossiq config file. It is handed to docker by name, so its value is never in a
+command line or a log. Exit status: 0 when no case failed, 1 when one did, 2 when the run
 couldn't start (invalid `cases.toml`, unknown case id, image not built).
 
 ### Why the assertions look the way they do
@@ -232,11 +234,13 @@ directory (`workspace/...`, `home/...`). A case stops at its first failing step.
 | `uv-yanked` | `attrs==21.1.0` | a yanked release |
 | `uv-no-lock` | `idna>=3.0`, no lockfile | a PEP 621 project before its first lock |
 | `uv-extras` | `requests~=2.32.5` (2.32.5); extras `mkdocs-material~=9.7.1` (9.7.1), `idna~=3.4.0` (3.4) | `~=` ranges in extras; an extra whose newer releases need `requests` past its range |
+| `uv-constrained` | `requests~=2.31.0` (2.31.0, brings `urllib3` 1.26.5), `packaging>=21.3` (21.3); `[tool.uv] constraint-dependencies` caps `urllib3<2`, `packaging<22`, `requests<2.33`, and `attrs<23` (not installed) | uv applies the caps to every lock, so no tier may recommend past one: a transitive cap that holds urllib3 on releases that all carry advisories (it stays put, and says why), a direct cap inside a looser range, a direct `~=` that has to widen under its cap, and an `add` under a cap |
 | `pnpm-semver` | `semver ^5.7.1` (5.7.1), dev `ms ^2.0.0` (2.0.0) | the npm tier and flag cases on pnpm |
 | `pnpm-transitive` | `debug ^2.6.9`, which brings `ms 2.0.0` | a transitive package to `--override` into `pnpm-workspace.yaml` |
 | `pnpm-overridden` | `pnpm-semver` plus `overrides: semver: 5.7.1` in `pnpm-workspace.yaml` (recorded in the lockfile) | a user override the plan must hold back |
 | `pip-classic` | `requirements.txt` with `idna==3.4` | pip detection |
 | `pip-pinned` | `requirements.txt` with `idna==3.4`, `urllib3==1.26.5` | pip scan, `add`, and `apply` into a venv |
+| `pip-constrained` | `requirements.txt` with `-c constraints.txt` and `idna>=3.4`; `constraints.txt` caps `idna<3.8` | pip intersects a `-c` range with every requirement: the scan takes 3.7 as installed and recommends nothing past the cap |
 | `pylock` | `pyproject.toml` and `pylock.toml` with `idna>=3.0`, `urllib3~=1.26.5` | a project OSS IQ can scan but not change |
 | `npm-upgrade`, `pnpm-upgrade` | `semver ^5.7.1` (CVE), `escape-string-regexp ^4.0.0`; `test.js` and `fix/test.js` | two upgrade steps: one that passes, one that breaks the test at the latest tier |
 | `uv-upgrade` | `idna~=3.4` (CVE), `packaging~=21.3`; `check.py` and `fix/check.py` | the same two steps for uv |
@@ -265,6 +269,7 @@ until it passes. No model runs, so the cases are free and repeatable. A real age
 | `*-upgrade-rollback-skip` | A failing step rolled back, applied again, then skipped with a reason; the kept step stays |
 | `*-upgrade-abort` | `abort` restores the manifest and lockfile after a kept step and a failing one |
 | `*-upgrade-interactive` | The menu drives a session from two keystrokes |
+| `uv-constrained-upgrade` | A session queues no move past a `[tool.uv]` cap, so `upgrade apply` installs instead of being refused |
 | `upgrade-menu`, `upgrade-guards`, `upgrade-config`, `upgrade-scope`, `upgrade-no-tests`, `upgrade-nothing`, `upgrade-baseline-fails`, `upgrade-no-session`, `upgrade-corrupt`, `upgrade-changelog` | What does not depend on the package manager, on `npm-upgrade` |
 | `pip-upgrade-refused`, `pylock-scan` | pip and pylock projects are refused cleanly and no session is left behind |
 

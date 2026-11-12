@@ -723,6 +723,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         logger.error(f"docker image {args.image} not found: run `just qa-build`")
         return 2
     if not os.environ.get(GITHUB_TOKEN_ENV):
+        from ossiq.settings import Settings  # only a run reads the config, not the offline case tests
+
+        if token := Settings.load().github_token:
+            # Docker copies the token by name from this process, so one kept in the ossiq config has to land here.
+            os.environ[GITHUB_TOKEN_ENV] = token
+    if not os.environ.get(GITHUB_TOKEN_ENV):
         logger.warning(f"{GITHUB_TOKEN_ENV} is not set: GitHub data is rate-limited, so some signals may be missing")
 
     run_id = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")

@@ -343,6 +343,70 @@ steps = [
   { run = ["ossiq", "apply", "--ignore", "requests", "--yes", "."], locked = { mkdocs-material = { at_least = "9.7.7", below = "9.8.0" }, requests = { below = "2.33.0" } }, declared = { requests = { equals = "~=2.32.5" } } },
 ]
 
+# [tool.uv] constraint-dependencies caps. uv applies them to every lock, so a plan past one is a plan
+# `uv lock` refuses, and every tier has to stay under them. uv-constrained caps urllib3 (transitive,
+# via requests) below 2, packaging (direct, >=21.3) below 22 and requests (direct, ~=2.31.0) below
+# 2.33. packaging 21.3 is the last 21.x, requests clears its CVEs in 2.32.4 and 2.32.5 is the last
+# 2.32, and every urllib3 1.26 release still carries an advisory, so urllib3 stays where it is.
+
+[[cases]]
+id = "uv-constrained-security"
+project = "uv-constrained"
+why = "the security tier widens requests to its CVE fix under its cap, and moves nothing past the others"
+covers = ["TC-U06"]
+steps = [
+  { run = ["ossiq", "export", "--update-strategy", "security", "--output", "export.json", "."], report = "export.json", packages = { requests = { recommended_version = { at_least = "2.32.4", below = "2.33.0" } }, packaging = { recommended_version = { missing = true }, latest_in_range = { equals = "21.3" } }, urllib3 = { recommended_version = { missing = true }, latest_in_range = { below = "2.0.0" } } }, files = { "workspace/export.json" = { has = ["every release under its constraints still carries a CVE", "outside <22"] } } },
+  { run = ["ossiq", "apply", "--update-strategy", "security", "--yes", "."], locked = { requests = { at_least = "2.32.4", below = "2.33.0" }, urllib3 = { below = "2.0.0" }, packaging = { equals = "21.3" } }, declared = { requests = { changed = true, pinned = false }, packaging = { equals = ">=21.3" } } },
+]
+
+[[cases]]
+id = "uv-constrained-standard"
+project = "uv-constrained"
+why = "the standard tier leaves packaging at its cap although >=21.3 admits 26, and uv locks the plan"
+covers = ["TC-U05"]
+steps = [
+  { run = ["ossiq", "export", "--output", "export.json", "."], report = "export.json", packages = { requests = { recommended_version = { at_least = "2.32.5", below = "2.33.0" } }, packaging = { recommended_version = { missing = true } } } },
+  { run = ["ossiq", "apply", "--yes", "."], locked = { requests = { at_least = "2.32.5", below = "2.33.0" }, urllib3 = { below = "2.0.0" }, packaging = { equals = "21.3" } }, declared = { requests = { changed = true }, packaging = { equals = ">=21.3" } } },
+]
+
+[[cases]]
+id = "uv-constrained-latest"
+project = "uv-constrained"
+why = "the latest tier widens only as far as each cap, and uv locks the plan"
+covers = ["TC-U05"]
+steps = [
+  { run = ["ossiq", "export", "--update-strategy", "latest", "--output", "export.json", "."], report = "export.json", packages = { requests = { recommended_version = { at_least = "2.32.5", below = "2.33.0" } }, packaging = { recommended_version = { missing = true } } } },
+  { run = ["ossiq", "apply", "--update-strategy", "latest", "--yes", "."], locked = { requests = { at_least = "2.32.5", below = "2.33.0" }, urllib3 = { below = "2.0.0" }, packaging = { equals = "21.3" } }, declared = { requests = { changed = true }, packaging = { equals = ">=21.3" } } },
+]
+
+[[cases]]
+id = "uv-constrained-held"
+project = "uv-constrained"
+why = "status --full says why each capped package stays put, the transitive one held by its advisories included"
+covers = ["TC-C01"]
+steps = [
+  { run = ["ossiq", "status", "--full", "."], stdout = { has = ["urllib3", "rejected: every release under its constraints still carries a CVE", "rejected: outside <22", "rejected: outside <2.33"] } },
+]
+
+[[cases]]
+id = "uv-constrained-add"
+project = "uv-constrained"
+why = "add picks the newest release under the [tool.uv] cap of a package not installed yet, and uv locks it"
+covers = ["TC-A05"]
+steps = [
+  { run = ["ossiq", "add", "attrs", "."], stdin = "y\n", locked = { attrs = { equals = "22.2.0" } }, declared = { attrs = { equals = "==22.2.0" } } },
+]
+
+[[cases]]
+id = "uv-constrained-cutting-edge"
+project = "uv-constrained"
+why = "the cutting-edge tier admits prereleases, but none past a cap, and uv locks the plan"
+covers = ["TC-U05"]
+steps = [
+  { run = ["ossiq", "export", "--update-strategy", "cutting-edge", "--output", "export.json", "."], report = "export.json", packages = { requests = { recommended_version = { at_least = "2.32.5", below = "2.33.0" } }, packaging = { recommended_version = { missing = true } } } },
+  { run = ["ossiq", "apply", "--update-strategy", "cutting-edge", "--yes", "."], locked = { requests = { at_least = "2.32.5", below = "2.33.0" }, urllib3 = { below = "2.0.0" }, packaging = { equals = "21.3" } }, declared = { requests = { changed = true }, packaging = { equals = ">=21.3" } } },
+]
+
 # ---------------------------------------------------------------------------
 # add
 # ---------------------------------------------------------------------------
@@ -595,6 +659,15 @@ steps = [
   { run = ["ossiq", "status", "--format", "agent", "."], stdout = { json = true, has = ['"registry": "pypi"'] } },
   { run = ["ossiq", "plan", "."], stdout = { has = ["pip-classic", "idna", "urllib3"] } },
   { run = ["ossiq", "export", "--output", "export.json", "."], report = "export.json", packages = { idna = { installed_version = { equals = "3.4" }, recommended_version = { at_least = "3.7" } }, urllib3 = { installed_version = { equals = "1.26.5" }, recommended_version = { at_least = "1.26.20" } } } },
+]
+
+[[cases]]
+id = "pip-constrained-scan"
+project = "pip-constrained"
+why = "a -c constraints file caps idna>=3.4 at <3.8: pip would install 3.7 (the last below it), and nothing past the cap is recommended"
+covers = ["TC-G03", "TC-C01"]
+steps = [
+  { run = ["ossiq", "export", "--update-strategy", "latest", "--output", "export.json", "."], report = "export.json", packages = { idna = { installed_version = { equals = "3.7" }, recommended_version = { missing = true } } }, files = { "workspace/export.json" = { has = ["outside <3.8"] } } },
 ]
 
 [[cases]]
@@ -892,6 +965,18 @@ steps = [
   { run = ["ossiq", "upgrade", "apply", "."], stdout = { has = ["AWAITING_REVIEW", "The tests passed"] }, locked = { idna = { at_least = "3.7" }, packaging = { equals = "21.3" } } },
   { run = ["ossiq", "upgrade", "continue", "."], stdout = { has = ["Step 1 done"] } },
   { run = ["ossiq", "upgrade", "status", "."], rc = "nonzero", output = { has = ["No upgrade session in this project"] } },
+]
+
+[[cases]]
+id = "uv-constrained-upgrade"
+project = "uv-constrained"
+why = "a session never queues a move past a [tool.uv] cap (urllib3 2.x would be a second step), so apply installs instead of being refused"
+covers = ["GH-179"]
+steps = [
+  { run = ["uv", "sync", "--frozen"] },
+  { run = ["ossiq", "upgrade", "start", "--update-strategy", "security", "--test-command", "uv run --frozen python -c 'import requests, packaging'", "."], stdout = { has = ["Upgrade: step 1 of 1", "requests", "PENDING"] } },
+  { run = ["ossiq", "upgrade", "apply", "."], stdout = { has = ["AWAITING_REVIEW", "The tests passed"], lacks = ["The install was refused"] }, locked = { requests = { at_least = "2.32.4", below = "2.33.0" }, urllib3 = { below = "2.0.0" }, packaging = { equals = "21.3" } } },
+  { run = ["ossiq", "upgrade", "continue", "."], stdout = { has = ["Step 1 done"] } },
 ]
 
 [[cases]]
