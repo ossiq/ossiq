@@ -1344,6 +1344,19 @@ class TestExecuteUpdateDirectRewrite:
 
         assert pyproject_path.read_text() == original_content
 
+    def test_lock_refusal_carries_uv_reason(self, tmp_path, settings):
+        """uv's own words are the only explanation; `upgrade apply` redraws over the terminal output."""
+        self._write_project(tmp_path, 'dependencies = [\n    "pydantic>=1.10.13",\n]\n')
+        pm = PackageManagerPythonUv(project_path=str(tmp_path), settings=settings)
+        plan = make_update_plan(
+            direct=[make_update_entry("pydantic", "1.10.13", "2.0.0", version_defined=">=1.10.13")],
+            project_path=str(tmp_path),
+        )
+        failure = subprocess.CalledProcessError(1, ["uv", "lock"], stderr="error: No solution found\n")
+        with patch("subprocess.run", side_effect=failure):
+            with pytest.raises(PackageManagerExecutionError, match="No solution found"):
+                pm.execute_update(plan)
+
     def test_restores_lockfile_when_sync_fails_after_lock(self, tmp_path, settings):
         """`uv lock` rewrites uv.lock before `uv sync` fails; the lock must go back with the manifest."""
         self._write_project(tmp_path, 'dependencies = [\n    "pydantic==1.10.13",\n]\n')
@@ -1499,6 +1512,40 @@ class TestOssiqMetadataOwnershipUv:
 
         data = tomllib.loads(pyproject_path.read_text())
         assert data["tool"]["uv"]["override-dependencies"] == ["urllib3==2.0.9"]
+
+    def test_constraint_dependency_range_reaches_the_solver(self, uv_project_with_lockfile, settings):
+        """uv honours a constraint's range, so the plan must too, or `uv lock` refuses the version OSS IQ picks."""
+        pyproject_path = Path(uv_project_with_lockfile) / "pyproject.toml"
+        pyproject_path.write_text(
+            pyproject_path.read_text()
+            + '\n[tool.uv]\nconstraint-dependencies = ["urllib3<2", "certifi", "requests<3", "requests!=2.32.0"]\n'
+        )
+
+        tree = PackageManagerPythonUv(uv_project_with_lockfile, settings).project_info().dependency_tree
+        requests = tree.dependencies["requests"]
+        urllib3 = requests.dependencies["urllib3"]
+        certifi = requests.dependencies["certifi"]
+
+        assert urllib3.constraint_info.type == ConstraintType.ADDITIVE
+        assert urllib3.constraint_info.constraint_range == "<2"
+        assert urllib3.parent_constraints.count("<2") == 1
+        assert certifi.constraint_info.type == ConstraintType.ADDITIVE
+        assert certifi.constraint_info.constraint_range is None
+        assert certifi.parent_constraints == []
+        # A direct package keeps its manifest's classification, so a tier that widens it still rewrites it.
+        assert requests.constraint_info.type == ConstraintType.DECLARED
+        assert requests.constraint_info.constraint_range == "<3,!=2.32.0"
+
+    def test_installer_caps_need_no_lockfile(self, tmp_path, settings):
+        """`add` reads the caps of a project that has never been locked; a bare name caps nothing."""
+        (tmp_path / "pyproject.toml").write_text(
+            '[project]\nname = "app"\n\n[tool.uv]\n'
+            'constraint-dependencies = ["URLLib3<2", "attrs>=21,<23", "certifi"]\n'
+        )
+
+        caps = PackageManagerPythonUv(str(tmp_path), settings).installer_caps()
+
+        assert caps == {"urllib3": "<2", "attrs": "<23,>=21"}
 
 
 # ============================================================================

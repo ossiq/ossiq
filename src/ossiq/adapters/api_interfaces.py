@@ -160,6 +160,14 @@ class AbstractPackageManagerApi(abc.ABC):
         """
         return None
 
+    def installer_caps(self) -> dict[str, str]:
+        """Return the ranges this package manager applies to every resolution, by normalised package name.
+
+        uv's `[tool.uv] constraint-dependencies`, pip's `-c` files: nothing outside one can be installed,
+        so nothing outside one may be recommended. Defaults to no caps.
+        """
+        return {}
+
     def execute_update(self, plan: UpdatePlan, on_pass: Callable[[int, int], None] | None = None) -> None:
         """Execute the update plan in-process.
 

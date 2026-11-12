@@ -25,6 +25,7 @@ from ossiq.domain.common import (
     RejectionDetail,
 )
 from ossiq.domain.policy import Policy, PolicyRule
+from ossiq.domain.project import ConstraintSource
 from ossiq.domain.provenance import VersionBlocks
 from ossiq.domain.release_cutoff import ReleaseCutoff
 from ossiq.domain.update_plan import ImpactKind, RecommendationReason
@@ -97,6 +98,22 @@ def engine_mismatch_gate(engine_context: EngineContext) -> StructuralGate:
 
     def gate(pv: PackageVersion) -> str | None:
         return engine_mismatch_reason(pv.runtime_requirements, engine_context.versions)
+
+    return gate
+
+
+def installer_cap_gate(constraint: ConstraintSource, registry: RegistryReader) -> StructuralGate:
+    """Reject a release outside the range the package manager's own constraints cap the package at.
+
+    A binding gate: uv applies `[tool.uv] constraint-dependencies` to every lock, so a pick past the cap
+    is one `apply` can only fail on, whatever the tier and whatever the motive.
+    """
+    cap = constraint.constraint_range
+
+    def gate(pv: PackageVersion) -> str | None:
+        if cap is None or version_satisfies_constraint(pv.version, cap, registry.package_registry):
+            return None
+        return f"outside {cap}, the cap {constraint.source_file or 'the project'} puts on it"
 
     return gate
 
@@ -785,6 +802,9 @@ def apply_update_strategy(
         # npm installs an engines mismatch anyway (a warning, not a refusal), so there it stays
         # advisory and waivable. pip and uv refuse outright, so on PyPI the gate has to bind.
         engine_gate_binds = registry.refuses_engine_mismatch
+        binding_gates: tuple[StructuralGate, ...] = (engine_gate,) if engine_gate_binds else ()
+        if record.constraint_info.constraint_range:
+            binding_gates += (installer_cap_gate(record.constraint_info, registry),)
         # Crossing to ESM-only is a freshness tier's call, and only on a runtime that can
         # require() ESM at all. Even there it stays flagged (breaking_change), because require()
         # returns the namespace and a default-export-only package still breaks.
@@ -804,7 +824,7 @@ def apply_update_strategy(
             validator=validator,
             transitive_by_name=transitive_by_name,
             structural_gates=() if engine_gate_binds else (engine_gate,),
-            binding_gates=(engine_gate,) if engine_gate_binds else (),
+            binding_gates=binding_gates,
             policy_blocks=(version_blocks or {}).get(record.package_name),
             policy=policy,
         )

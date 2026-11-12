@@ -7,6 +7,7 @@ Covers:
 3. compute_upgrade_paths — cross-constraint widening opportunities for library projects
 """
 
+import dataclasses
 from unittest.mock import MagicMock
 
 import requests
@@ -206,6 +207,17 @@ class TestResolveLibraryConstraints:
         result = resolve_library_constraints(project, registry)
 
         assert result.dependency_tree.dependencies["express"].version_installed == "4.21.2"
+
+    def test_the_package_managers_cap_bounds_what_counts_as_installed(self):
+        """pip with `-c constraints.txt` (idna<3.8) installs 3.7 for idna>=3.4, never the newest release."""
+        idna = make_dep("idna", ">=3.4", "3.4")
+        idna.constraint_info = dataclasses.replace(idna.constraint_info, constraint_range="<3.8")
+        project = make_project({"idna": idna}, has_lockfile=False)
+        registry = make_registry({"idna": [make_package_version(v) for v in ("3.4", "3.7", "3.10")]})
+
+        result = resolve_library_constraints(project, registry)
+
+        assert result.dependency_tree.dependencies["idna"].version_installed == "3.7"
 
     def test_lockfile_project_returned_unchanged(self):
         """Projects with a lockfile are not enriched."""

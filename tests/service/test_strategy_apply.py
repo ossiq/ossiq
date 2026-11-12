@@ -1274,6 +1274,61 @@ class TestApplyUpdateStrategyPolicyBlocks:
         assert record.rejected_candidates == []
 
 
+class TestApplyUpdateStrategyInstallerCap:
+    """A `[tool.uv] constraint-dependencies` cap binds every tier: uv refuses a lock past it."""
+
+    CAPPED = ConstraintSource(type=ConstraintType.DECLARED, source_file="pyproject.toml", constraint_range="<2")
+
+    def run(self, strategy: UpdateStrategy) -> ScanRecord:
+        from ossiq.domain.common import CveDatabase
+
+        registry = make_registry({"pkg": [pv("1.1.0"), pv("1.2.0"), pv("2.0.0")]})
+        record = dataclasses.replace(make_record("pkg", "1.0.0", ">=1.0", ">=1.0"), constraint_info=self.CAPPED)
+        # A CVE gives the security tier a motive too; 2.0.0, the newest, would clear it with the rest.
+        record.cve = [
+            CVE(
+                id="CVE-1",
+                cve_ids=("CVE-1",),
+                source=CveDatabase.OSV,
+                package_name="pkg",
+                package_registry=ProjectPackagesRegistry.PYPI,
+                summary="bad",
+                severity=Severity.HIGH,
+                affected_versions=("1.0.0",),
+                affected_ranges=(),
+                published=None,
+                link="https://example.test",
+                epss=0.5,
+            )
+        ]
+        apply_update_strategy(
+            [record],
+            registry,
+            StrategyPlan(default=strategy),
+            versions_since={("pkg", "1.0.0"): list(registry.package_versions("pkg"))},
+            transitive_by_name={},
+            installed_names=set(),
+            allow_prerelease=strategy == UpdateStrategy.CUTTING_EDGE,
+            now=NOW,
+        )
+        return record
+
+    @pytest.mark.parametrize("strategy", list(UpdateStrategy))
+    def test_no_tier_recommends_past_the_cap(self, strategy: UpdateStrategy) -> None:
+        record = self.run(strategy)
+
+        assert record.recommended_version is not None
+        assert Version(record.recommended_version) < Version("2")
+
+    def test_the_release_past_the_cap_is_recorded_with_the_reason(self) -> None:
+        record = self.run(UpdateStrategy.LATEST)
+
+        assert record.recommended_version == "1.2.0"
+        (rejected,) = record.rejected_candidates
+        assert rejected.version == "2.0.0"
+        assert "outside <2" in rejected.reason
+
+
 def recommend_for_cjs_project(
     name: str,
     releases: list[PackageVersion],

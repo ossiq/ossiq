@@ -131,12 +131,20 @@ def scan_record(
     version_diff_index = version_rules.difference_versions(package_version, package_info.latest_version)
     releases_lag = len(releases_since_installed) - 1
 
+    # A release past the package manager's own cap can never be installed, so it sits on no rung.
+    cap = constraint_info.constraint_range
+    reachable = [
+        release
+        for release in releases_since_installed
+        if cap is None or version_satisfies_constraint(release.version, cap, version_rules.package_registry)
+    ]
+
     # The declaration, not version_constraint's last-writer-wins accumulator: latest_in_range and
     # service.project.strategy.classify_rung's IN_RANGE verdict must be computed against the same
     # specifier, or the rung that authorizes a manifest write disagrees with the rung the ladder
     # shows. Falls back for transitive-only records, which have no declaration of their own.
     ladder = compute_version_ladder(
-        releases_since_installed,
+        reachable,
         package_version,
         version_constraint_declared or version_constraint,
         version_rules,
@@ -148,7 +156,7 @@ def scan_record(
     installed_module_system = installed_release.module_system if installed_release else None
     latest_compatible_major = compute_latest_compatible_major(
         canonical_name,
-        releases_since_installed,
+        reachable,
         package_version,
         version_rules,
         version_rules.package_registry,
@@ -156,7 +164,7 @@ def scan_record(
         node_version=node_version,
     )
     latest_preserving_module_system = compute_latest_preserving_module_system(
-        releases_since_installed,
+        reachable,
         package_version,
         installed_module_system,
         version_rules,

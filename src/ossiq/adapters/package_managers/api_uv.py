@@ -4,6 +4,7 @@ Support of UV package manager
 
 from __future__ import annotations
 
+import dataclasses
 import logging
 import os
 import re
@@ -45,6 +46,24 @@ UV_NO_CONFIG_ENV = "UV_NO_CONFIG"
 UV_EXCLUDE_NEWER_SOURCE = "uv exclude-newer"
 # uv tags an extra's entries in [package.metadata].requires-dist with this marker.
 UV_EXTRA_MARKER = re.compile(r"extra == '([^']+)'")
+
+
+def constraint_ranges(pyproject_data: dict) -> dict[str, list[str]]:
+    """Return {normalised name: [specifier, ...]} for `[tool.uv] constraint-dependencies`.
+
+    A bare name maps to an empty list: it is constrained, but by nothing a version can fail.
+    shortcut: markers are ignored, so a range binds on every platform; honour them if one over-blocks.
+    """
+    ranges: dict[str, list[str]] = {}
+    for spec in pyproject_data.get("tool", {}).get("uv", {}).get("constraint-dependencies", []):
+        try:
+            req = Requirement(spec)
+        except InvalidRequirement:
+            continue
+        found = ranges.setdefault(normalize_dist_name(req.name), [])
+        if req.specifier:
+            found.append(str(req.specifier))
+    return ranges
 
 
 def parse_pyproject_direct_specifiers(pyproject_data: dict) -> dict[str, str | None]:
@@ -537,12 +556,19 @@ class PackageManagerPythonUv(AbstractPackageManagerApi):
     @staticmethod
     def constraint_dependencies_setting(
         dep_tree: Dependency,
-        constraint_names: set[str],
+        constraint_ranges: dict[str, list[str]],
         override_specs: dict[str, str],
         ossiq_overrides: dict[str, str] | None = None,
         source_file: str = "pyproject.toml",
     ) -> None:
-        """Walk dep_tree recursively and set constraint_info on matching nodes.
+        """Set constraint_info on every node under dep_tree that [tool.uv] constrains or overrides.
+
+        constraint_ranges maps normalised package name to the specifiers [tool.uv]
+        constraint-dependencies puts on it. uv intersects them with every requirement on the
+        package, so each is added to the node's parent_constraints for the solver and recorded as
+        `ConstraintSource.constraint_range` for the direct pick. A transitive package becomes
+        ADDITIVE; a direct one keeps its manifest's classification, since that range is still the
+        user's to rewrite.
 
         override_specs and ossiq_overrides map normalised package name to the raw "pkg==version"
         specifier currently in [tool.uv] override-dependencies / [tool.ossiq.metadata] overrides
@@ -551,20 +577,34 @@ class PackageManagerPythonUv(AbstractPackageManagerApi):
         False, even though the package name is still present in our last-written record.
         """
         ossiq_overrides = ossiq_overrides or {}
-        for dep in {**dep_tree.dependencies, **dep_tree.optional_dependencies}.values():
-            norm = normalize_dist_name(dep.canonical_name)
-            if norm in override_specs:
-                dep.constraint_info = ConstraintSource(
-                    type=ConstraintType.OVERRIDE,
-                    source_file=source_file,
-                    is_ossiq_authored=ossiq_overrides.get(norm) == override_specs[norm],
-                )
-            elif norm in constraint_names:
-                dep.constraint_info = ConstraintSource(type=ConstraintType.ADDITIVE, source_file=source_file)
-
-            PackageManagerPythonUv.constraint_dependencies_setting(
-                dep, constraint_names, override_specs, ossiq_overrides, source_file
-            )
+        direct = {id(dep) for dep in {**dep_tree.dependencies, **dep_tree.optional_dependencies}.values()}
+        # Nodes are shared between parents, so each is visited once rather than once per path.
+        seen: set[int] = set()
+        pending = [dep_tree]
+        while pending:
+            node = pending.pop()
+            for dep in {**node.dependencies, **node.optional_dependencies}.values():
+                if id(dep) in seen:
+                    continue
+                seen.add(id(dep))
+                pending.append(dep)
+                norm = normalize_dist_name(dep.canonical_name)
+                if norm in override_specs:
+                    dep.constraint_info = ConstraintSource(
+                        type=ConstraintType.OVERRIDE,
+                        source_file=source_file,
+                        is_ossiq_authored=ossiq_overrides.get(norm) == override_specs[norm],
+                    )
+                elif norm in constraint_ranges:
+                    ranges = constraint_ranges[norm]
+                    dep.parent_constraints.extend(ranges)
+                    cap = ",".join(ranges) or None
+                    if id(dep) in direct:
+                        dep.constraint_info = dataclasses.replace(dep.constraint_info, constraint_range=cap)
+                    else:
+                        dep.constraint_info = ConstraintSource(
+                            type=ConstraintType.ADDITIVE, source_file=source_file, constraint_range=cap
+                        )
 
     def load_pyproject_data(self):
         """
@@ -596,6 +636,15 @@ class PackageManagerPythonUv(AbstractPackageManagerApi):
             env_exclude_newer=os.environ.get(UV_EXCLUDE_NEWER_ENV) or None,
             now=datetime.now(UTC),
         )
+
+    def installer_caps(self) -> dict[str, str]:
+        """Return `[tool.uv] constraint-dependencies` as {normalised name: range}, read from pyproject.toml alone.
+
+        Needs no lockfile, so `add` can honour a cap in a project that has never been locked.
+        """
+        manifest = Path(PackageManagerPythonUv.project_files(self.project_path).manifest)
+        ranges = constraint_ranges(tomllib.loads(manifest.read_text(encoding="utf-8")))
+        return {name: ",".join(specs) for name, specs in ranges.items() if specs}
 
     def project_info(self) -> Project:
         """
@@ -634,15 +683,14 @@ class PackageManagerPythonUv(AbstractPackageManagerApi):
 
         # Constraint/Override settings from [tool.uv] section
         uv_section = pyproject_data.get("tool", {}).get("uv", {})
-        constraint_specs: list[str] = uv_section.get("constraint-dependencies", [])
         override_specs: list[str] = uv_section.get("override-dependencies", [])
-        if constraint_specs or override_specs:
-            constraint_names = {normalize_dist_name(s) for s in constraint_specs}
+        ranges_by_name = constraint_ranges(pyproject_data)
+        if ranges_by_name or override_specs:
             override_specs_by_name = {normalize_dist_name(s): s for s in override_specs}
             ossiq_metadata = pyproject_data.get("tool", {}).get("ossiq", {}).get("metadata", {})
             ossiq_overrides_by_name = {normalize_dist_name(s): s for s in ossiq_metadata.get("overrides", [])}
             self.constraint_dependencies_setting(
-                dependency_tree, constraint_names, override_specs_by_name, ossiq_overrides_by_name
+                dependency_tree, ranges_by_name, override_specs_by_name, ossiq_overrides_by_name
             )
 
         return Project(
@@ -735,7 +783,10 @@ class PackageManagerPythonUv(AbstractPackageManagerApi):
         lock_path = Path(plan.project_path) / UV.lockfile.name  # ty: ignore
         original_lock = lock_path.read_bytes() if lock_path.exists() else None
         try:
-            subprocess.run(["uv", "lock"] + upgrade_args, cwd=plan.project_path, check=True)
+            # uv's refusal is captured: the caller may redraw the screen and bury it, and an agent only reads the error.
+            subprocess.run(
+                ["uv", "lock"] + upgrade_args, cwd=plan.project_path, check=True, stderr=subprocess.PIPE, text=True
+            )
             subprocess.run(["uv", "sync"], cwd=plan.project_path, check=True)
         except subprocess.CalledProcessError as exc:
             manifest_path.write_text(original_content, encoding="utf-8")
@@ -744,7 +795,9 @@ class PackageManagerPythonUv(AbstractPackageManagerApi):
                 lock_path.unlink(missing_ok=True)
             else:
                 lock_path.write_bytes(original_lock)
-            raise PackageManagerExecutionError(f"uv command failed (exit {exc.returncode})") from exc
+            detail = (exc.stderr or "").strip()
+            message = f"uv command failed (exit {exc.returncode})"
+            raise PackageManagerExecutionError(f"{message}:\n{detail}" if detail else message) from exc
 
     def sync_environment(self) -> None:
         """Run `uv sync` so the virtualenv matches uv.lock as it is on disk."""
