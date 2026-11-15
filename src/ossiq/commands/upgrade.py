@@ -36,6 +36,7 @@ MENU_KEYS = {
     "finish": "f",
     "abort": "x",
 }
+MENU_LABELS = {"continue": "next step"}
 ENGINE_CALLS: dict[str, Callable[[UpgradeEnv, str], UpgradeView]] = {
     "changelog": engine.changelog,
     "apply": engine.apply,
@@ -115,14 +116,14 @@ def menu_keys(commands: tuple[str, ...]) -> dict[str, str]:
 
 def menu_line(commands: tuple[str, ...]) -> str:
     entries = [*menu_keys(commands).items(), (QUIT_KEY, "quit")]
-    return "  " + "   ".join(f"{key} {name}" for key, name in entries)
+    return "  " + "   ".join(f"{key} {MENU_LABELS.get(name, name)}" for key, name in entries)
 
 
 def run_interactive(ctx: typer.Context, env: UpgradeEnv, view: UpgradeView, project_path: str) -> None:
     """Show the step, ask what to do with it, and repeat until the session ends or the user quits.
 
     Each choice calls the engine function its subcommand calls, so the menu holds no logic of its own.
-    Quitting leaves the session as it is; `status --interactive` picks it up again.
+    Quitting leaves the session as it is; `continue --interactive` picks it up again.
     """
     renderer = get_renderer(Command.UPGRADE, UserInterfaceType.CONSOLE, ctx.obj)
     while True:
@@ -133,7 +134,7 @@ def run_interactive(ctx: typer.Context, env: UpgradeEnv, view: UpgradeView, proj
         typer.echo(menu_line(view.commands))
         key = ask_key([*by_key, QUIT_KEY])
         if key == QUIT_KEY:
-            typer.echo("Session kept. Resume it with `ossiq upgrade status --interactive`.")
+            typer.echo("Session kept. Resume it with `ossiq upgrade continue --interactive`.")
             return
         try:
             view = choose(env, by_key[key], project_path, view)

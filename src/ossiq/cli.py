@@ -994,6 +994,20 @@ def upgrade_status(
         command_upgrade(context, upgrade_engine.status, project_path, output_format, interactive=interactive)
 
 
+@upgrade_app.command("continue")
+@requires_github_login
+def upgrade_continue(
+    context: typer.Context,
+    project_path: Annotated[str, typer.Argument()] = ".",
+    output_format: UpgradeFormatOption = "console",
+    interactive: UpgradeInteractiveOption = False,
+):
+    """Keep the applied step and show the next one, or show the pending one; --interactive carries on from there."""
+    check_interactive(interactive, output_format)
+    with error_boundary(context.obj):
+        command_upgrade(context, upgrade_engine.accept, project_path, output_format, interactive=interactive)
+
+
 def add_session_command(name: str, run: Callable[..., UpgradeView], summary: str, *, scans: bool) -> None:
     """Register an `upgrade` subcommand that takes only the project path and the output format.
 
@@ -1024,7 +1038,6 @@ add_session_command(
     "Undo the applied step and show it again, to choose once more.",
     scans=True,
 )
-add_session_command("continue", upgrade_engine.accept, "Keep the applied step and show the next one.", scans=True)
 add_session_command("finish", upgrade_engine.finish, "Stop here and keep what is installed.", scans=False)
 add_session_command(
     "abort", upgrade_engine.abort, "Put the project files back as they were at start, and end the session.", scans=False

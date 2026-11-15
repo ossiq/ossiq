@@ -173,16 +173,18 @@ The session also ends by itself when you keep or skip the last step.
 
 ## Work from a menu
 
-Add `--interactive` to `start` or `status`, and OSS IQ asks which action to take after each step,
-offering only the actions the step allows:
+Add `--interactive` to `start`, `continue` or `status`, and OSS IQ asks which action to take after
+each step, offering only the actions the step allows:
 
 ```text
   a apply   c changelog   w web   s skip   f finish   x abort   q quit
 Choose:
 ```
 
-Each key runs the subcommand with the same name, `n` runs `continue`, and `w` opens the changelog on
-the web. `q` leaves the session as it is. Run `ossiq upgrade status --interactive` to pick it up again.
+Each key runs the subcommand with the same name, `n` (next step) runs `continue`, and `w` opens the
+changelog on the web. `q` leaves the session as it is. Run `ossiq upgrade continue --interactive`
+to pick it up again. On a step you have not applied yet, `continue` shows it without changing
+anything.
 
 ## Let a coding agent drive
 
@@ -248,6 +250,7 @@ Only npm, pnpm and uv projects can step through updates. `ossiq apply` still app
 ### "The versions to install changed since the preview."
 
 A newer release appeared between the preview and `apply`, and the step now shows the new versions.
+If the new versions only install with another package's update, that package joins this step too.
 Read them, then run `ossiq upgrade apply` again.
 
 ### "No upgrade session in this project."

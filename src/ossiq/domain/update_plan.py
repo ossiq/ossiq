@@ -246,6 +246,9 @@ class UpdatePlan:
     peer_repairs: list[PeerRepair] = field(default_factory=list)
     # Why entries span several install passes; empty for a one-pass plan.
     pass_orderings: list[PassOrdering] = field(default_factory=list)
+    # (requirer, peer) move keys a step must not split: the requirer's target peer-requires a range
+    # the peer's installed version falls outside, so npm refuses the requirer without it.
+    install_together: list[tuple[str, str]] = field(default_factory=list)
 
     @property
     def all_entries(self) -> list[UpdateEntry]:

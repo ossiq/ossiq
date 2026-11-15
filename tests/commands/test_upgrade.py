@@ -12,6 +12,7 @@ from ossiq.cli import app
 from ossiq.commands.upgrade import ENGINE_CALLS, menu_line, run_interactive, stdout_to_stderr
 from ossiq.domain.exceptions import UpgradeSessionError
 from ossiq.service.upgrade import store
+from ossiq.service.upgrade.engine import PASSING_COMMANDS
 from ossiq.settings import Settings
 from tests.service.upgrade.helpers import BREAKS_ON_UPGRADE, env_for, make_project, start
 
@@ -151,5 +152,6 @@ class TestInteractiveMenu:
         pending = menu_line(("changelog", "apply", "skip", "finish", "abort"))
         failing = menu_line(("test", "rollback", "skip", "abort"))
 
-        assert "w web" in pending and "n continue" not in pending
+        assert "w web" in pending and "n next step" not in pending
         assert "t test" in failing and "a apply" not in failing and "w web" not in failing
+        assert "n next step" in menu_line(PASSING_COMMANDS)

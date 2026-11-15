@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import dataclasses
 import uuid
-from collections.abc import Callable, Mapping
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -24,12 +24,13 @@ from ossiq.domain.exceptions import (
     UpgradeSessionError,
 )
 from ossiq.domain.update_plan import UpdatePlan
+from ossiq.sequence.steps import group_steps
 from ossiq.service.project.models import ScanResult
 from ossiq.service.update.models import PlanOptions
 from ossiq.service.upgrade import store
 from ossiq.service.upgrade.models import APPLIED, CommandRun, StepPackage, StepStatus, UpgradeSession, UpgradeStep
 from ossiq.service.upgrade.preview import ChangelogFetcher, build_preview
-from ossiq.service.upgrade.queue import build_queue
+from ossiq.service.upgrade.queue import build_queue, step_links, step_package
 from ossiq.service.upgrade.runner import run_command
 from ossiq.service.upgrade.view import Outcome, UpgradeView
 from ossiq.settings import Settings
@@ -81,23 +82,30 @@ def require_step(session: UpgradeSession, *statuses: StepStatus) -> UpgradeStep:
     return step
 
 
-def sync_step(step: UpgradeStep, targets: Mapping[str, str]) -> UpgradeStep:
-    """Bring a step's targets in line with a fresh plan's; a step left with nothing to move is skipped.
+def sync_step(step: UpgradeStep, plan: UpdatePlan) -> UpgradeStep:
+    """Bring a step in line with a fresh plan; a step left with nothing to move is skipped.
 
-    An earlier step may already have moved a package, and a newer release may have appeared.
+    An earlier step may already have moved a package, and a newer release may have appeared. That
+    release may need a move a later step holds; it joins this step, and the later one skips once
+    nothing is left in it.
     """
-    kept = tuple(
-        dataclasses.replace(package, target=targets[package.move_key])
+    by_key = {entry.move_key: entry for entry in plan.all_entries}
+    kept = [
+        dataclasses.replace(package, target=by_key[package.move_key].recommended_version)
         for package in step.packages
-        if package.move_key in targets
-    )
+        if package.move_key in by_key
+    ]
     if not kept:
         return dataclasses.replace(step, status=StepStatus.SKIPPED, note="no longer recommended")
-    return dataclasses.replace(step, packages=kept)
-
-
-def move_targets(plan: UpdatePlan) -> dict[str, str]:
-    return {entry.move_key: entry.recommended_version for entry in plan.all_entries}
+    have = {package.move_key for package in kept}
+    joined = [
+        step_package(by_key[key])
+        for group in group_steps(list(by_key), step_links(plan))
+        if have.intersection(group)
+        for key in group
+        if key not in have
+    ]
+    return dataclasses.replace(step, packages=(*kept, *joined))
 
 
 def step_snapshot(step: UpgradeStep) -> str:
@@ -115,10 +123,9 @@ def pending_view(
 ) -> UpgradeView:
     """Describe the session's current step, preview and all, or end the session when none is left."""
     sources, scan, plan = planned or env.plan(session.options)
-    targets = move_targets(plan)
     notes = []
     while (step := session.current) is not None:
-        synced = sync_step(step, targets)
+        synced = sync_step(step, plan)
         session = session.with_step(synced)
         if synced.status is not StepStatus.SKIPPED:
             break
@@ -292,7 +299,7 @@ def apply(env: UpgradeEnv, path: str) -> UpgradeView:
     planned = env.plan(session.options)
     sources, _, plan = planned
 
-    synced = sync_step(step, move_targets(plan))
+    synced = sync_step(step, plan)
     if synced != step:
         return pending_view(
             env,
@@ -394,16 +401,15 @@ def skip(env: UpgradeEnv, path: str, reason: str | None = None) -> UpgradeView:
 
 
 def accept(env: UpgradeEnv, path: str) -> UpgradeView:
-    """Keep the applied step and move to the next one.
+    """Keep the applied step and move to the next one; a pending step is shown as it is.
 
     A step whose tests fail cannot be kept: it is shown again with what it needs.
-
-    Raises:
-        UpgradeSessionError: The step is not applied.
     """
     root = Path(path)
     session = store.load(root)
-    step = require_step(session, *APPLIED)
+    step = session.current
+    if step is None or step.status is StepStatus.PENDING:
+        return pending_view(env, root, session)
     if step.status is StepStatus.AWAITING_REFACTOR:
         return applied_view(
             session,

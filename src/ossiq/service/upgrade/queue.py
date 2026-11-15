@@ -26,9 +26,10 @@ def step_of(group: list[str], by_key: Mapping[str, UpdateEntry]) -> tuple[StepPa
 
 
 def step_links(plan: UpdatePlan) -> list[tuple[str, str]]:
-    """Pairs of moves that share a step: a direct package and its riders, and peers npm cannot separate."""
+    """Pairs of moves that share a step: a direct package and its riders, and peers that install together."""
     riders = {(e.package_name, e.current_version): e.move_key for e in plan.transitive_entries}
     links = [(o.requirer_key, o.peer_key) for o in plan.pass_orderings if not o.honoured and o.peer_key]
+    links += plan.install_together
     for direct in plan.direct_entries:
         for impact in direct.transitive_impacts:
             rider = riders.get((impact.package_name, impact.current_version or ""))

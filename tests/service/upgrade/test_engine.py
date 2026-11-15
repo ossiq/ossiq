@@ -91,6 +91,15 @@ def test_continue_completes_the_step_and_previews_the_next(project: Project) -> 
     assert [p.name for p in cast(Any, view.step).packages] == ["zod"]
 
 
+def test_continue_on_a_pending_step_shows_it_and_installs_nothing(project: Project) -> None:
+    start(project)
+
+    view = engine.accept(env_for(project), str(project.root))
+
+    assert current(view) == (1, StepStatus.PENDING)
+    assert project.installed() == {"vite": "1.0.0", "zod": "1.0.0"}
+
+
 def test_the_last_continue_ends_the_session(project: Project) -> None:
     start(project, limit=1)
     engine.apply(env_for(project), str(project.root))
@@ -187,6 +196,23 @@ def test_a_step_that_is_no_longer_recommended_is_skipped(project: Project) -> No
 
     assert current(view) == (2, StepStatus.PENDING)
     assert "no longer recommended" in (view.message or "")
+
+
+def test_a_move_the_plan_now_ties_to_the_step_joins_it_and_its_own_step_skips(project: Project) -> None:
+    start(project)
+    project.together = [("vite@1.0.0", "zod@1.0.0")]
+
+    view = engine.apply(env_for(project), str(project.root))
+
+    assert view.attention
+    assert [p.name for p in cast(Any, view.step).packages] == ["vite", "zod"]
+    assert project.installed() == {"vite": "1.0.0", "zod": "1.0.0"}
+
+    engine.apply(env_for(project), str(project.root))
+    assert project.installed() == {"vite": "2.0.0", "zod": "2.0.0"}
+
+    view = engine.accept(env_for(project), str(project.root))
+    assert view.outcome is Outcome.COMPLETED
 
 
 def test_apply_needs_a_pending_step(project: Project) -> None:

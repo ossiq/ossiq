@@ -52,6 +52,7 @@ class Project:
 
     def __init__(self, root: Path, installed: dict[str, str], targets: dict[str, str]) -> None:
         self.root, self.targets, self.manager = root, targets, FakeManager(root)
+        self.together: list[tuple[str, str]] = []
         (root / "package.json").write_text(json.dumps(installed))
 
     def installed(self) -> dict[str, str]:
@@ -77,6 +78,7 @@ class Project:
             package_manager_name="npm",
             direct_entries=entries,
             transitive_entries=[],
+            install_together=self.together,
         )
         sources = SimpleNamespace(
             packages_manager=self.manager,

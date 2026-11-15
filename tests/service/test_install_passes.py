@@ -115,6 +115,21 @@ def test_a_lockstep_pair_shares_a_pass() -> None:
     assert set(passes(assign(plan, declared)).values()) == {1}
 
 
+def test_a_plugin_pinned_to_its_hosts_minor_installs_with_it() -> None:
+    plan = plan_of(entry("oxlint", "1.89.0", "1.92.0"), entry("eslint-plugin-oxlint", "1.89.0", "1.92.0"))
+    declared = {
+        ("eslint-plugin-oxlint", "1.89.0"): {"oxlint": "~1.89.0"},
+        ("eslint-plugin-oxlint", "1.92.0"): {"oxlint": "~1.92.0"},
+    }
+
+    assert assign(plan, declared).install_together == [("eslint-plugin-oxlint@1.89.0", "oxlint@1.89.0")]
+
+
+def test_only_a_requirer_whose_target_rejects_the_installed_peer_is_tied_to_it() -> None:
+    # vue-router 5.4.0 still takes pinia 3, so it can go first instead.
+    assert assign(pinia_trio(), PINIA_TRIO).install_together == [("@pinia/nuxt@0.11.3", "pinia@3.0.4")]
+
+
 def test_a_range_the_installed_pair_already_breaks_does_not_order_anything() -> None:
     plan = plan_of(entry("host", "2.0.0", "2.1.0"), entry("plugin", "1.0.0", "1.1.0"))
     declared = {("plugin", "1.0.0"): {"host": "^1"}, ("plugin", "1.1.0"): {"host": "^2"}}

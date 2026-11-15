@@ -61,7 +61,7 @@ def assign_install_passes(
     peers_of: Callable[[str, str], Mapping[str, PeerDependency]],
     kind: ProjectPackagesRegistry,
 ) -> UpdatePlan:
-    """The single writer of `UpdateEntry.install_pass` and `UpdatePlan.pass_orderings`.
+    """The single writer of `UpdateEntry.install_pass`, `UpdatePlan.pass_orderings` and `UpdatePlan.install_together`.
 
     Args:
         plan: The plan whose entries to spread over passes.
@@ -102,4 +102,7 @@ def assign_install_passes(
             *(ordering(link, True) for link in sequence.ordered),
             *(ordering(link, False) for link in sequence.unresolved),
         ],
+        # shortcut: also ties a peer that only has to land first instead of ordering its step earlier;
+        # order steps if they grow too coarse.
+        install_together=[(link.requirer, link.peer) for link in links if not link.target_admits_installed],
     )

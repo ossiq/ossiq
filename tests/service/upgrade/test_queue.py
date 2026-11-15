@@ -83,7 +83,16 @@ def test_a_transitive_copy_a_direct_package_drags_along_rides_in_its_step() -> N
     assert names(queue) == [["app-lib", "helper"]]
 
 
-def test_a_lockstep_pair_is_one_step() -> None:
+def test_a_pair_that_must_install_together_is_one_step() -> None:
+    plugin, host = entry("eslint-plugin-oxlint"), entry("oxlint")
+    plan = plan_of([plugin, entry("other"), host], install_together=[(plugin.move_key, host.move_key)])
+
+    queue, _ = build_queue(plan, {}, bump_of())
+
+    assert names(queue) == [["eslint-plugin-oxlint", "oxlint"], ["other"]]
+
+
+def test_a_peer_cycle_is_one_step() -> None:
     react, dom = entry("react"), entry("react-dom")
     ordering = PassOrdering(
         requirer_key=dom.move_key,
