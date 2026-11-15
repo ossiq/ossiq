@@ -1,0 +1,9 @@
+{
+  "name": "smoke-npm-peer-pair",
+  "version": "1.0.0",
+  "private": true,
+  "devDependencies": {
+    "eslint-plugin-oxlint": "^1.80.0",
+    "oxlint": "^1.80.0"
+  }
+}

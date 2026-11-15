@@ -229,6 +229,7 @@ directory (`workspace/...`, `home/...`). A case stops at its first failing step.
 | `npm-deprecated` | `left-pad ^1.3.0`, `uuid ^3.4.0` | both deprecated; left-pad has no successor |
 | `npm-transitive` | `debug ^2.6.9`, which brings `ms 2.0.0` | a transitive package to `--override` |
 | `npm-lockstep` | `vue ^3.5.30` (3.5.30), with its exact-pinned `@vue/*` family | `@vue/server-renderer` peer-pins vue back; only vue owns its copy, so the old copy must not hold vue below the renderer's CVE fix |
+| `npm-peer-pair` | dev `oxlint ^1.80.0` and `eslint-plugin-oxlint ^1.80.0` (both 1.80.0) | every plugin release peer-requires `oxlint ~<its own minor>`, so two direct packages that npm installs only together |
 | `uv-ranges` | `idna>=3.0` (3.4), `urllib3~=1.26.5` (1.26.5) | a bare `>=` is lockfile-only, a `~=` is rewritten |
 | `uv-pinned` | `attrs==23.1.0` | `==` pins and `--rewrite-versions` |
 | `uv-yanked` | `attrs==21.1.0` | a yanked release |
@@ -270,6 +271,8 @@ until it passes. No model runs, so the cases are free and repeatable. A real age
 | `*-upgrade-abort` | `abort` restores the manifest and lockfile after a kept step and a failing one |
 | `*-upgrade-interactive` | The menu drives a session from two keystrokes |
 | `uv-constrained-upgrade` | A session queues no move past a `[tool.uv]` cap, so `upgrade apply` installs instead of being refused |
+| `npm-peer-pair-upgrade` | A plugin and the host it peer-pins share one step, so `upgrade apply` installs instead of being refused |
+| `npm-peer-pair-resync` | A session that queued the pair in two steps (edited into it, as an older plan left it) is re-synced: `apply` shows both again, installs both, and the emptied step is skipped |
 | `upgrade-menu`, `upgrade-guards`, `upgrade-config`, `upgrade-scope`, `upgrade-no-tests`, `upgrade-nothing`, `upgrade-baseline-fails`, `upgrade-no-session`, `upgrade-corrupt`, `upgrade-changelog` | What does not depend on the package manager, on `npm-upgrade` |
 | `pip-upgrade-refused`, `pylock-scan` | pip and pylock projects are refused cleanly and no session is left behind |
 
@@ -321,16 +324,15 @@ changing `src/`.
 Not automatable here: everything in a browser (TC-H02, H03, H07-H13), a live agent (TC-L09, the
 `*-upgrade-agent-loop` cases replay the contract but no model runs), the GitHub device flow and
 keyring (TC-L10, O02-O05, O07, O09, O11), the published npm package (TC-L12), constraint widening
-that needs a major release that doesn't exist yet (TC-C11), the "versions to install changed since
-the preview" refusal of `upgrade apply` (a release has to appear between two commands), the `w` key
+that needs a major release that doesn't exist yet (TC-C11), a release appearing between two upgrade
+commands (`npm-peer-pair-resync` reaches the same "versions to install changed since the preview"
+refusal by editing the session instead), the `w` key
 of the upgrade menu (it opens a browser), and the repo-root runs of TC-T04 to T06 (the security tier
 is covered by the tier cases).
 
 ### Known failures
 
-`pip-apply` is marked `known_issue`: `ossiq apply` on a pinned `requirements.txt` hands pip a
-constraints file (`idna==3.x`) next to `idna==3.4` and pip answers `ResolutionImpossible`, which OSS
-IQ reports as an unexpected error. `pip-add` installs into the venv but leaves `requirements.txt`
-unchanged; the case checks only the venv. `pnpm add ms@2.1.3` saves `2.1.3` where `npm install ms@2.1.3`
-saves `^2.1.3`: OSS IQ keeps what the package manager wrote, so the pnpm cases check that the package
-was written and locked, not its range.
+No case is marked `known_issue`. The pnpm `add` cases check less than they could.
+`pnpm add ms@2.1.3` saves `2.1.3` where `npm install ms@2.1.3` saves `^2.1.3`. OSS IQ keeps what
+the package manager wrote, so the pnpm cases check that the package was written and locked, not its
+range.

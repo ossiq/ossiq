@@ -695,24 +695,33 @@ steps = [
 [[cases]]
 id = "pip-apply"
 project = "pip-pinned"
-known_issue = "pip-classic apply cannot move an == pin: it hands pip a constraints file (idna==3.x) next to requirements.txt (idna==3.4), pip answers ResolutionImpossible, and OSS IQ reports an unexpected error instead of rewriting the pin. No issue filed yet"
 why = "apply moves both pins past their CVEs and leaves requirements.txt and the venv in agreement"
 covers = ["TC-U18", "TC-U19"]
 steps = [
   { run = ["python", "-m", "venv", ".venv"] },
   { run = [".venv/bin/pip", "install", "--quiet", "idna==3.4", "urllib3==1.26.5"] },
-  { run = ["ossiq", "apply", "--yes", "."], env = { PATH = "/work/.venv/bin:/opt/ossiq-bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" }, locked = { idna = { at_least = "3.7" }, urllib3 = { at_least = "1.26.20" } } },
+  { run = ["ossiq", "apply", "--yes", "."], env = { PATH = "/work/.venv/bin:/opt/ossiq-bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" }, locked = { idna = { at_least = "3.7" }, urllib3 = { at_least = "1.26.20" } }, declared = { idna = { pinned = true, changed = true }, urllib3 = { pinned = true, changed = true } } },
 ]
 
 [[cases]]
 id = "pip-add"
 project = "pip-pinned"
-why = "add --version installs the version asked for into the venv"
+why = "add --version installs the version asked for into the venv and pins it in requirements.txt"
 covers = ["TC-A05"]
 steps = [
   { run = ["python", "-m", "venv", ".venv"] },
   { run = [".venv/bin/pip", "install", "--quiet", "idna==3.4", "urllib3==1.26.5"] },
-  { run = ["ossiq", "add", "attrs", "--version", "23.1.0", "."], env = { PATH = "/work/.venv/bin:/opt/ossiq-bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" }, stdin = "y\n", locked = { attrs = { equals = "23.1.0" }, idna = { equals = "3.4" } } },
+  { run = ["ossiq", "add", "attrs", "--version", "23.1.0", "."], env = { PATH = "/work/.venv/bin:/opt/ossiq-bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" }, stdin = "y\n", locked = { attrs = { equals = "23.1.0" }, idna = { equals = "3.4" } }, declared = { attrs = { equals = "==23.1.0" }, idna = { equals = "==3.4" } } },
+]
+
+[[cases]]
+id = "pip-missing"
+project = "pip-pinned"
+why = "with no pip on PATH, apply and add stop with a clean error and leave requirements.txt as it was"
+covers = ["TC-U18", "TC-A05"]
+steps = [
+  { run = ["ossiq", "apply", "--yes", "."], env = { PATH = "/opt/ossiq-bin:/usr/sbin:/usr/bin:/sbin:/bin" }, rc = "nonzero", output = { has = ["pip was not found on PATH"], lacks = ["Unexpected Error"] }, declared = { idna = { equals = "==3.4" }, urllib3 = { equals = "==1.26.5" } } },
+  { run = ["ossiq", "add", "attrs", "--version", "23.1.0", "."], env = { PATH = "/opt/ossiq-bin:/usr/sbin:/usr/bin:/sbin:/bin" }, stdin = "y\n", rc = "nonzero", output = { has = ["pip was not found on PATH"], lacks = ["Unexpected Error"] }, declared = { attrs = { missing = true } } },
 ]
 
 [[cases]]
@@ -877,6 +886,30 @@ covers = ["GH-179"]
 steps = [
   { run = ["npm", "ci", "--ignore-scripts"] },
   { run = ["ossiq", "upgrade", "start", "--interactive", "--test-command", "node test.js", "."], stdin = "a\nn\n", stdout = { has = ["Choose", "The tests passed", "Step 1 done"] }, locked = { semver = { at_least = "5.7.2", below = "6.0.0" } } },
+]
+
+[[cases]]
+id = "npm-peer-pair-upgrade"
+project = "npm-peer-pair"
+why = "eslint-plugin-oxlint peer-pins oxlint to its own minor, so the two direct packages share one step; the plugin alone is refused by npm"
+covers = ["GH-179"]
+steps = [
+  { run = ["ossiq", "upgrade", "start", "--format", "agent", "."], stdout = { json = true, has = ['"total_steps": 1', '"name": "eslint-plugin-oxlint"', '"name": "oxlint"'] } },
+  { run = ["ossiq", "upgrade", "apply", "--format", "agent", "."], stdout = { json = true, has = ['"needs_attention": false', '"status": "AWAITING_REVIEW"'], lacks = ["The install was refused"] }, locked = { eslint-plugin-oxlint = { at_least = "1.92.0", below = "2.0.0" }, oxlint = { at_least = "1.92.0", below = "2.0.0" } } },
+  { run = ["ossiq", "upgrade", "continue", "--format", "agent", "."], stdout = { json = true, has = ['"outcome": "COMPLETED"', '"completed": 1'] } },
+]
+
+[[cases]]
+id = "npm-peer-pair-resync"
+project = "npm-peer-pair"
+why = "a session that holds the pair in two steps (the plugin first, as one queued before the plan tied them) is re-synced: apply previews both again, installs both, and the emptied oxlint step is skipped"
+covers = ["GH-179"]
+steps = [
+  { run = ["ossiq", "upgrade", "start", "--format", "agent", "."], stdout = { json = true, has = ['"total_steps": 1'] } },
+  { run = ["python3", "-c", "import json, pathlib; p = pathlib.Path('.ossiq/update-progress.json'); d = json.loads(p.read_text()); s = d['steps'][0]; d['steps'] = [dict(s, number=i, packages=[pkg]) for i, pkg in enumerate(s['packages'], 1)]; p.write_text(json.dumps(d))"] },
+  { run = ["ossiq", "upgrade", "apply", "--format", "agent", "."], rc = 3, stdout = { json = true, has = ['"needs_attention": true', "changed since the preview", '"total_steps": 2'] }, locked = { eslint-plugin-oxlint = { equals = "1.80.0" }, oxlint = { equals = "1.80.0" } } },
+  { run = ["ossiq", "upgrade", "apply", "--format", "agent", "."], stdout = { json = true, has = ['"needs_attention": false', '"status": "AWAITING_REVIEW"'] }, locked = { eslint-plugin-oxlint = { at_least = "1.92.0", below = "2.0.0" }, oxlint = { at_least = "1.92.0", below = "2.0.0" } } },
+  { run = ["ossiq", "upgrade", "continue", "--format", "agent", "."], stdout = { json = true, has = ['"outcome": "COMPLETED"', '"completed": 1', '"skipped": 1'] } },
 ]
 
 [[cases]]
