@@ -10,8 +10,10 @@ Tests focus on:
 """
 
 import os
+import subprocess
 import tempfile
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -21,8 +23,9 @@ from ossiq.adapters.package_managers.api_pip_classic import (
     PackageManagerPythonPipClassic,
 )
 from ossiq.domain.common import ConstraintType, normalize_dist_name
-from ossiq.domain.exceptions import PackageManagerLockfileParsingError
+from ossiq.domain.exceptions import PackageManagerExecutionError, PackageManagerLockfileParsingError
 from ossiq.domain.packages_manager import PIP_CLASSIC
+from ossiq.domain.update_plan import UpdateEntry, UpdatePlan
 from ossiq.settings import Settings
 
 # ============================================================================
@@ -489,3 +492,123 @@ class TestRealTestData:
         assert project.name == "pip-classic"
         assert len(project.dependencies) >= 80
         assert len(project.optional_dependencies) == 0
+
+
+# ============================================================================
+# execute_update
+# ============================================================================
+
+
+def pip_entry(name: str, version_defined: str, recommended: str, constraint_type: ConstraintType) -> UpdateEntry:
+    return UpdateEntry(
+        package_name=name,
+        current_version=version_defined.lstrip("=<>~!"),
+        recommended_version=recommended,
+        is_direct=True,
+        reason=None,
+        version_defined=version_defined,
+        constraint_type=constraint_type,
+    )
+
+
+def pip_plan(project: Path, entries: list[UpdateEntry], *, pin_all: bool = False) -> UpdatePlan:
+    return UpdatePlan(
+        project_name="demo",
+        project_path=str(project),
+        registry_type="PYPI",
+        package_manager_name="pip-classic",
+        direct_entries=entries,
+        transitive_entries=[],
+        pin_all=pin_all,
+    )
+
+
+class TestExecuteUpdate:
+    """The requirements.txt rewrite and the pip run, with pip itself stubbed."""
+
+    REQUIREMENTS = 'idna==3.4  # dns\nurllib3[socks]==1.26.5 ; python_version >= "3.8"\nrequests>=2.0\n-c caps.txt\n'
+    ENTRIES = (
+        ("idna", "==3.4", "3.7", ConstraintType.PINNED),
+        ("urllib3", "==1.26.5", "1.26.20", ConstraintType.PINNED),
+        ("requests", ">=2.0", "2.32.0", ConstraintType.DECLARED),
+    )
+
+    def run(self, tmp_path, settings, *, pin_all=False, side_effect=None):
+        (tmp_path / "requirements.txt").write_text(self.REQUIREMENTS)
+        seen: dict[str, str] = {}
+
+        def pip(argv, **kwargs):
+            seen["constraints"] = Path(argv[argv.index("-c") + 1]).read_text()
+            if side_effect:
+                raise side_effect
+
+        plan = pip_plan(tmp_path, [pip_entry(*e) for e in self.ENTRIES], pin_all=pin_all)
+        with patch("shutil.which", return_value="/venv/bin/pip"), patch("subprocess.run", side_effect=pip):
+            PackageManagerPythonPipClassic(str(tmp_path), settings).execute_update(plan)
+        return (tmp_path / "requirements.txt").read_text(), seen["constraints"]
+
+    def test_a_pin_moves_in_requirements_txt_and_the_plan_rides_as_constraints(self, tmp_path, settings):
+        requirements, constraints = self.run(tmp_path, settings)
+
+        assert requirements == (
+            'idna==3.7  # dns\nurllib3[socks]==1.26.20 ; python_version >= "3.8"\nrequests>=2.0\n-c caps.txt\n'
+        )
+        assert constraints == "idna==3.7\nurllib3==1.26.20\nrequests==2.32.0\n"
+
+    def test_pin_all_pins_a_range(self, tmp_path, settings):
+        requirements, _ = self.run(tmp_path, settings, pin_all=True)
+
+        assert "requests==2.32.0\n" in requirements
+
+    def test_a_refused_install_restores_requirements_and_carries_pips_reason(self, tmp_path, settings):
+        refusal = subprocess.CalledProcessError(1, ["pip"], stderr="ERROR: ResolutionImpossible\n")
+
+        with pytest.raises(PackageManagerExecutionError, match="ResolutionImpossible"):
+            self.run(tmp_path, settings, side_effect=refusal)
+
+        assert (tmp_path / "requirements.txt").read_text() == self.REQUIREMENTS
+
+    def test_a_missing_pip_is_reported_before_anything_is_touched(self, tmp_path, settings):
+        (tmp_path / "requirements.txt").write_text(self.REQUIREMENTS)
+        plan = pip_plan(tmp_path, [pip_entry(*e) for e in self.ENTRIES])
+
+        with patch("shutil.which", return_value=None), patch("subprocess.run") as run:
+            with pytest.raises(PackageManagerExecutionError, match="pip was not found on PATH"):
+                PackageManagerPythonPipClassic(str(tmp_path), settings).execute_update(plan)
+
+        run.assert_not_called()
+        assert (tmp_path / "requirements.txt").read_text() == self.REQUIREMENTS
+
+
+class TestInstallPackage:
+    """`ossiq add` on a requirements.txt project: pip installs, then the file records the package."""
+
+    def add(self, tmp_path, settings, requirements, name, version, *, side_effect=None):
+        (tmp_path / "requirements.txt").write_text(requirements)
+        with (
+            patch("shutil.which", return_value="/venv/bin/pip"),
+            patch("subprocess.run", side_effect=side_effect) as run,
+        ):
+            PackageManagerPythonPipClassic(str(tmp_path), settings).install_package(name, version)
+        return (tmp_path / "requirements.txt").read_text(), run.call_args.args[0]
+
+    def test_a_new_package_is_appended_as_a_pin(self, tmp_path, settings):
+        requirements, argv = self.add(tmp_path, settings, "idna==3.4", "attrs", "23.1.0")
+
+        assert argv == ["pip", "install", "attrs==23.1.0"]
+        assert requirements == "idna==3.4\nattrs==23.1.0\n"
+
+    def test_a_listed_package_is_pinned_in_its_own_line(self, tmp_path, settings):
+        requirements, _ = self.add(tmp_path, settings, "Attrs[tests]  # testing\nidna==3.4\n", "attrs", "23.1.0")
+
+        assert requirements == "Attrs[tests]==23.1.0  # testing\nidna==3.4\n"
+
+    def test_a_refused_install_leaves_requirements_alone(self, tmp_path, settings):
+        refusal = subprocess.CalledProcessError(
+            1, ["pip"], stderr="ERROR: No matching distribution found for attrs==99\n"
+        )
+
+        with pytest.raises(PackageManagerExecutionError, match="No matching distribution"):
+            self.add(tmp_path, settings, "idna==3.4\n", "attrs", "99", side_effect=refusal)
+
+        assert (tmp_path / "requirements.txt").read_text() == "idna==3.4\n"

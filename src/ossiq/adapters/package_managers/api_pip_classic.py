@@ -10,17 +10,20 @@ from __future__ import annotations
 import dataclasses
 import os
 import re
+import shutil
 import subprocess
 import tempfile
 from collections import namedtuple
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
+from pathlib import Path
 
 from packaging.requirements import InvalidRequirement, Requirement
 
 from ossiq.adapters.api_interfaces import AbstractPackageManagerApi
 from ossiq.adapters.package_managers.api_pypi import batch_fetch_requires_dist, make_session
+from ossiq.adapters.package_managers.api_uv import PackageManagerPythonUv
 from ossiq.domain.common import normalize_dist_name
-from ossiq.domain.exceptions import PackageManagerLockfileParsingError
+from ossiq.domain.exceptions import PackageManagerExecutionError, PackageManagerLockfileParsingError
 from ossiq.domain.packages_manager import PIP_CLASSIC, PackageManagerType
 from ossiq.domain.project import ConstraintSource, Dependency, Project
 from ossiq.domain.update_plan import UpdatePlan
@@ -51,6 +54,52 @@ _REQUIREMENT_PATTERN = re.compile(
     r"(\[[^\]]+\])?"
     r"\s*((?:==|!=|>=|<=|~=|>|<)[^,\s;]+(?:\s*,\s*(?:==|!=|>=|<=|~=|>|<)[^,\s;]+)*)?"
 )
+
+
+PIP_MISSING_HINT = (
+    "Activate the virtual environment the project installs into, or put pip on PATH. "
+    "The project files were left as they were."
+)
+
+
+def requirement_name(line: str) -> str | None:
+    """Return the normalised name a requirements.txt line starts with; None for comments and blanks."""
+    match = _REQUIREMENT_PATTERN.match(line.lstrip())
+    return normalize_dist_name(match.group(1)) if match else None
+
+
+def rewrite_requirement(line: str, specs: Mapping[str, str]) -> str:
+    """Return the requirement line with its version specifier swapped for the one *specs* gives its package.
+
+    A bare name gets the specifier after its extras. Markers, comments and the line ending stay as
+    they were, and a line naming no package in *specs* comes back unchanged.
+    """
+    stripped = line.lstrip()
+    match = _REQUIREMENT_PATTERN.match(stripped)
+    spec = specs.get(normalize_dist_name(match.group(1))) if match else None
+    if match is None or spec is None:
+        return line
+    name_end = match.end(2) if match.group(2) else match.end(1)
+    start, end = match.span(3) if match.group(3) is not None else (name_end, name_end)
+    offset = len(line) - len(stripped)
+    return line[: offset + start] + spec + line[offset + end :]
+
+
+def run_pip(project_path: str, *args: str) -> None:
+    """Run `pip install *args*` in *project_path*.
+
+    Raises:
+        PackageManagerExecutionError: pip is not on PATH, or exited non-zero; the message carries pip's reason.
+    """
+    if shutil.which("pip") is None:
+        raise PackageManagerExecutionError("pip was not found on PATH", hint=PIP_MISSING_HINT)
+    try:
+        # pip's refusal is captured: it is the only explanation the caller can show.
+        subprocess.run(["pip", "install", *args], cwd=project_path, check=True, stderr=subprocess.PIPE, text=True)
+    except subprocess.CalledProcessError as exc:
+        detail = (exc.stderr or "").strip()
+        message = f"pip install failed (exit {exc.returncode})"
+        raise PackageManagerExecutionError(f"{message}:\n{detail}" if detail else message) from exc
 
 
 class PackageManagerPythonPipClassic(AbstractPackageManagerApi):
@@ -337,24 +386,58 @@ class PackageManagerPythonPipClassic(AbstractPackageManagerApi):
         )
 
     def execute_update(self, plan: UpdatePlan, on_pass: Callable[[int, int], None] | None = None) -> None:
-        """Write a temp constraints file, run pip install in-process, then clean up."""
+        """Rewrite the direct requirements that have to move, then pip install with the plan as constraints.
+
+        A constraint cannot override an `==` pin in requirements.txt, so a pin that moves is rewritten
+        in the file; the constraints file carries the rest of the plan (ranges and transitive packages).
+
+        Raises:
+            PackageManagerExecutionError: pip is missing or exited non-zero; requirements.txt is put back as it was.
+        """
+        manifest_path = Path(plan.project_path) / "requirements.txt"
+        original_content = manifest_path.read_text(encoding="utf-8")
+        specs: dict[str, str] = {}
+        for entry in plan.direct_entries:
+            new_spec = PackageManagerPythonUv.resolve_direct_specifier(entry, plan.pin_all)
+            if new_spec != entry.version_defined:
+                specs[normalize_dist_name(entry.package_name)] = new_spec or f"=={entry.recommended_version}"
+        content = "".join(rewrite_requirement(line, specs) for line in original_content.splitlines(keepends=True))
+        if content != original_content:
+            manifest_path.write_text(content, encoding="utf-8")
+
         with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False, encoding="utf-8") as f:
             for entry in plan.all_entries:
                 f.write(f"{entry.package_name}=={entry.recommended_version}\n")
             constraints_path = f.name
         try:
-            subprocess.run(
-                ["pip", "install", "-r", "requirements.txt", "-c", constraints_path],
-                cwd=plan.project_path,
-                check=True,
-            )
+            run_pip(plan.project_path, "-r", "requirements.txt", "-c", constraints_path)
+        except PackageManagerExecutionError:
+            manifest_path.write_text(original_content, encoding="utf-8")
+            raise
         finally:
             os.unlink(constraints_path)
 
     def install_package(self, package_name: str, version: str | None = None) -> int:
-        """Run pip install to add a package to the project."""
-        spec = f"{package_name}=={version}" if version else package_name
-        return subprocess.run(["pip", "install", spec], cwd=self.project_path).returncode
+        """Pip install a package, then record it in requirements.txt: its line re-pinned, or a new one added.
+
+        Raises:
+            PackageManagerExecutionError: pip is missing or exited non-zero; requirements.txt is not touched.
+        """
+        spec = f"=={version}" if version else ""
+        run_pip(self.project_path, f"{package_name}{spec}")
+        manifest_path = Path(self.project_files(self.project_path).manifest)
+        content = manifest_path.read_text(encoding="utf-8")
+        name = normalize_dist_name(package_name)
+        lines = content.splitlines(keepends=True)
+        if any(requirement_name(line) == name for line in lines):
+            if spec:
+                manifest_path.write_text(
+                    "".join(rewrite_requirement(line, {name: spec}) for line in lines), encoding="utf-8"
+                )
+        else:
+            separator = "\n" if content and not content.endswith("\n") else ""
+            manifest_path.write_text(f"{content}{separator}{package_name}{spec}\n", encoding="utf-8")
+        return 0
 
     def __repr__(self):
         return f"{self.package_manager_type.name} Package Manager"
