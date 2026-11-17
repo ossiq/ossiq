@@ -3,6 +3,6 @@ name = "smoke-uv-ranges"
 version = "0.1.0"
 requires-python = ">=3.12"
 dependencies = [
-    "idna>=3.0",
-    "urllib3~=1.26.5",
+    "idna>=3.15",
+    "urllib3~=2.8.0",
 ]
