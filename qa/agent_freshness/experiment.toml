@@ -1,0 +1,57 @@
+# GH-174: when a coding agent builds a feature, which dependencies does it pull in, and does
+# installing OSS IQ's skill and MCP server change that? See qa/README.md.
+#
+# The prompts ask for a feature and never mention dependencies, packages, installs or versions:
+# choosing them is a side effect of getting the feature working, which is the moment OSS IQ is meant
+# to gate. Keep it that way; tests/test_agent_freshness.py rejects those words.
+#
+# Commit this file before the main batch: run.py records its sha256 in batch.json and refuses to
+# continue a batch once it changes, so a changed prompt means a new batch.
+
+seed = 174
+reps = 3
+timeout_minutes = 15
+arms = ["baseline", "ossiq"]
+
+# `effort` empty = the CLI's own default for that model.
+[[models]]
+id = "opus"
+model = "claude-opus-5-5"
+effort = ""
+
+[[models]]
+id = "sonnet"
+model = "claude-sonnet-5-5"
+effort = ""
+
+# Each run starts from a copy of starters/<ecosystem>/, a project that declares no dependencies.
+[ecosystems.npm]
+preamble = "This is a small Node.js 22 service (ES modules), managed with npm. Use specific version when adding to the project e.g. `npm install express@3.0.0`"
+
+[ecosystems.pypi]
+preamble = "This is a small Python 3.12 service, managed with uv. Use specific version when adding to the project e.g. `uv add 'httpx>=0.20'`"
+
+# Every prompt is preamble + prompt + this suffix. It makes the agent run the code, which forces an
+# install, and leaves the project in a state that has to declare whatever the agent chose.
+[prompt]
+suffix = "Check that it works by running it, and leave the project ready for a teammate to clone and run."
+
+[[tasks]]
+id = "T1"
+ecosystem = "pypi"
+prompt = "Make main.py a web service with user accounts: POST /register takes an email and a password, POST /login returns a session token, and GET /me returns the logged-in user and rejects requests without a valid token. Keep users in memory for now."
+
+[[tasks]]
+id = "T2"
+ecosystem = "pypi"
+prompt = "Add report.py: it takes the path to an Excel .xlsx file with the columns date, region and amount, and prints the total amount per region for each month, one line per region and month, oldest month first. Include a small sample workbook to try it on."
+
+[[tasks]]
+id = "T3"
+ecosystem = "npm"
+prompt = "Turn src/index.js into an HTTP server on port 3000 with POST /photos, which accepts an image upload (PNG or JPEG, at most 2 MB), saves it in ./uploads and answers with the saved file name as JSON."
+
+[[tasks]]
+id = "T4"
+ecosystem = "npm"
+prompt = "Add an npm script `backup`, so that `npm run backup -- <file>` uploads the file to the S3 bucket named in the S3_BUCKET environment variable, under backups/<today's date>/<file name>, and prints the object key. No real bucket is available here, so check it as well as you can without one."
