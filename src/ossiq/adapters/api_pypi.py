@@ -2,6 +2,7 @@
 Implementation of Package Registry API client for PyPI
 """
 
+import copy
 import logging
 from collections.abc import Iterable, Mapping
 
@@ -190,7 +191,10 @@ class PackageRegistryApiPypi(AbstractPackageRegistryApi):
     package_registry = ProjectPackagesRegistry.PYPI
     settings: Settings
 
-    _raw_cache: dict[str, dict]
+    # What each registry document is turned into on arrival; the document itself is not kept, since
+    # holding every one cost about 1.3 MB a package.
+    packages: dict[str, Package]
+    releases: dict[str, list[PackageVersion]]
 
     @staticmethod
     def compare_versions(v1: str, v2: str) -> int:
@@ -313,7 +317,8 @@ class PackageRegistryApiPypi(AbstractPackageRegistryApi):
         self.settings = settings
         self.session = requests.Session()
         self.session.headers.update({"User-Agent": get_user_agent()})
-        self._raw_cache = {}
+        self.packages = {}
+        self.releases = {}
         # Raw requires_dist per release, as published; what applies is decided per read, under the
         # scope in force, so a scope set after a warm-up still takes effect.
         self._version_requires_raw: dict[tuple[str, str], list[str]] = {}
@@ -415,25 +420,31 @@ class PackageRegistryApiPypi(AbstractPackageRegistryApi):
     def packages_info_batch(self, names: list[str]) -> dict[str, Package]:
         """
         Fetch PyPI info for a list of packages in parallel, returning name -> Package.
-        Already-cached packages are served from _raw_cache without a network request.
+        Packages already stored are served without a network request.
         """
-        names_to_fetch = [n for n in names if n not in self._raw_cache]
+        names_to_fetch = [n for n in names if n not in self.packages]
 
+        # The Simple page goes first: a release's trust tier needs its provenance when the JSON
+        # document is turned into versions, and that lets each document be dropped as it arrives.
+        self.fetch_simple_indexes(names_to_fetch)
         for chunk_data in self._batch_client.run_batch(names_to_fetch):
-            self._raw_cache.update(chunk_data)
+            for name, data in chunk_data.items():
+                self.store_project(name, data)
 
         for name in names:
-            if name not in self._raw_cache:
+            if name not in self.packages:
                 raise UnableLoadPackage(name)
 
-        self.fetch_simple_indexes([n for n in names_to_fetch if n in self._raw_cache])
+        # A copy, because the scan adjusts `latest_version` on what it is handed.
+        return {name: copy.copy(self.packages[name]) for name in names}
 
-        return {
-            name: self.map_raw_to_package(name, self._raw_cache[name], self._project_status.get(name)) for name in names
-        }
+    def store_project(self, name: str, data: dict) -> None:
+        """Turn one registry document into its Package and releases, then let the document go."""
+        self.packages[name] = self.map_raw_to_package(name, data, self._project_status.get(name))
+        self.releases[name] = list(self.build_package_versions(name, data))
 
     def fetch_simple_indexes(self, names: list[str]) -> None:
-        """Fetch the Simple API page (PEP 792 status, PEP 740 provenance) for packages just loaded.
+        """Fetch the Simple API page (PEP 792 status, PEP 740 provenance) for packages about to load.
 
         The legacy JSON API the rest of this adapter reads has neither, so it costs one more
         request per package. A failure is not fatal: the package keeps no status and its releases
@@ -449,20 +460,24 @@ class PackageRegistryApiPypi(AbstractPackageRegistryApi):
         if unavailable:
             logger.debug("PyPI Simple API page unavailable for %s", ", ".join(unavailable))
 
-    def package_versions(self, package_name: str) -> Iterable[PackageVersion]:
+    def package_versions(self, package_name: str) -> list[PackageVersion]:
         """
-        Fetch PyPI versions for a given package, using `_raw_cache` (populated by
-        `packages_info_batch`) and fetching if not cached.
+        Fetch PyPI versions for a given package, served from what `packages_info_batch` stored
+        and fetching if not stored yet.
+        """
+        if package_name not in self.releases:
+            self.packages_info_batch([package_name])
+        return list(self.releases[package_name])
+
+    def build_package_versions(self, package_name: str, data: dict) -> Iterable[PackageVersion]:
+        """
+        Build the PyPI versions of a package from its registry document.
 
         PyPI's main endpoint omits dependency info for older versions, and fetching it
         per-version is expensive — so only the latest version's dependencies are populated here.
         """
-        if package_name not in self._raw_cache:
-            self.packages_info_batch([package_name])
-
-        data = self._raw_cache[package_name]
         info = data["info"]
-        releases = data["releases"]
+        releases = data.get("releases") or {}
 
         latest_version_dependencies = info.get("requires_dist") or []
 

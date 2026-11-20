@@ -280,7 +280,7 @@ class Row:
 def registry_packages(settings: Settings) -> tuple[dict[str, Package], dict[str, int | None]]:
     """PyPI + npm metadata for every corpus entry that names a registry package, plus release ages.
 
-    `package_versions` is served from the `_raw_cache` that `packages_info_batch` just populated,
+    `package_versions` is served from what `packages_info_batch` just stored,
     so the latest-release dates cost no extra requests.
 
     Returns:

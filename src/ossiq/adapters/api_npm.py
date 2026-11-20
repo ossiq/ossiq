@@ -2,6 +2,7 @@
 Implementation of Package Registry API client for NPM
 """
 
+import copy
 import functools
 import logging
 import re
@@ -251,7 +252,10 @@ class PackageRegistryApiNpm(AbstractPackageRegistryApi):
     settings: Settings
     session: requests.Session
 
-    _raw_cache: dict[str, dict]
+    # What each registry document is turned into on arrival. The document itself is not kept: one
+    # packument carries every version ever published, and holding them all cost about 2.5 MB a package.
+    packages: dict[str, Package]
+    releases: dict[str, dict[str, PackageVersion]]
 
     @staticmethod
     def compare_versions(v1: str, v2: str) -> int:
@@ -345,8 +349,8 @@ class PackageRegistryApiNpm(AbstractPackageRegistryApi):
         self.settings = settings
         self.session = requests.Session()
         self.session.headers.update({"User-Agent": get_user_agent()})
-        self._raw_cache = {}
-        self._versions_list_cache: dict[str, list[PackageVersion]] = {}
+        self.packages = {}
+        self.releases = {}
         self._strategy = NpmBatchStrategy(self.session)
         self._batch_client = BatchClient(self._strategy)
 
@@ -377,7 +381,7 @@ class PackageRegistryApiNpm(AbstractPackageRegistryApi):
             registry_status = RegistryStatus.DEPRECATED if deprecated else RegistryStatus.ACTIVE
         return Package(
             registry=ProjectPackagesRegistry.NPM,
-            name=data["name"],
+            name=data.get("name", name),
             latest_version=latest_version,
             next_version=distribution_tags.get("next", None),
             repo_url=PackageRegistryApiNpm.extract_repo_url(data),
@@ -408,18 +412,23 @@ class PackageRegistryApiNpm(AbstractPackageRegistryApi):
     def packages_info_batch(self, names: list[str]) -> dict[str, Package]:
         """
         Fetch NPM info for a list of packages in parallel, returning name -> Package.
-        Already-cached packages are served from _raw_cache without a network request.
+        Packages already stored are served without a network request.
         """
-        names_to_fetch = [n for n in names if n not in self._raw_cache]
-
-        for chunk_data in self._batch_client.run_batch(names_to_fetch):
-            self._raw_cache.update(chunk_data)
+        for chunk_data in self._batch_client.run_batch([n for n in names if n not in self.packages]):
+            for name, data in chunk_data.items():
+                self.store_packument(name, data)
 
         for name in names:
-            if name not in self._raw_cache:
+            if name not in self.packages:
                 raise UnableLoadPackage(name)
 
-        return {name: self.map_raw_to_package(name, self._raw_cache[name]) for name in names}
+        # A copy, because the scan adjusts `latest_version` on what it is handed.
+        return {name: copy.copy(self.packages[name]) for name in names}
+
+    def store_packument(self, name: str, data: dict) -> None:
+        """Turn one registry document into its Package and releases, then let the document go."""
+        self.packages[name] = self.map_raw_to_package(name, data)
+        self.releases[name] = {pv.version: pv for pv in self.build_package_versions(name, data)}
 
     META_KEYS = frozenset({"created", "modified"})
 
@@ -462,9 +471,7 @@ class PackageRegistryApiNpm(AbstractPackageRegistryApi):
             )
         return result
 
-    def build_package_versions(self, package_name: str) -> list[PackageVersion]:
-        data = self._raw_cache[package_name]
-
+    def build_package_versions(self, package_name: str, data: dict) -> list[PackageVersion]:
         # FIXME: raise custom exception if not found
         versions = data.get("versions", {})
         timestamp_map = dict(data.get("time", {}))
@@ -483,8 +490,7 @@ class PackageRegistryApiNpm(AbstractPackageRegistryApi):
                     declared_dependencies=details.get("dependencies", {}),
                     license=normalize_npm_license(details.get("license")),
                     runtime_requirements=normalize_npm_engines(details.get("engines")),
-                    declared_dev_dependencies=details.get("devDependencies", {}),
-                    description=details.get("description", None),
+                    declared_optional_dependencies=details.get("optionalDependencies") or None,
                     package_url=f"{NPM_REGISTRY_FRONT}/package/{package_name}/v/{version}",
                     is_prerelease=is_npm_prerelease(version),
                     is_deprecated=bool(details.get("deprecated")),
@@ -502,17 +508,16 @@ class PackageRegistryApiNpm(AbstractPackageRegistryApi):
 
     def package_versions(self, package_name: str) -> list[PackageVersion]:
         """
-        Fetch npm versions for a given package.
-        Uses _raw_cache populated by package_infos_batch; fetches if not cached.
-        Result is cached to avoid rebuilding PackageVersion objects on repeated calls.
+        Fetch npm versions for a given package, in the order the registry lists them.
+        Served from what `packages_info_batch` stored; fetches if not stored yet.
         """
-        if package_name not in self._raw_cache:
+        return list(self.release_map(package_name).values())
+
+    def release_map(self, package_name: str) -> dict[str, PackageVersion]:
+        """The releases of a package by version, fetching the package first if it is not stored."""
+        if package_name not in self.releases:
             self.packages_info_batch([package_name])
-
-        if package_name not in self._versions_list_cache:
-            self._versions_list_cache[package_name] = self.build_package_versions(package_name)
-
-        return self._versions_list_cache[package_name]
+        return self.releases[package_name]
 
     @staticmethod
     def rewrite_specifier(
@@ -561,10 +566,8 @@ class PackageRegistryApiNpm(AbstractPackageRegistryApi):
 
         Returns empty dict if the version is not found or has no runtime dependencies.
         """
-        if package_name not in self._raw_cache:
-            self.packages_info_batch([package_name])
-        versions = self._raw_cache.get(package_name, {}).get("versions", {})
-        return dict(versions.get(version, {}).get("dependencies", {}))
+        release = self.release_map(package_name).get(version)
+        return dict(release.declared_dependencies) if release else {}
 
     def package_version_published(self, package_name: str, version: str) -> datetime | None:
         """Return when a specific version was published, from what packages_info_batch already fetched.
@@ -575,25 +578,22 @@ class PackageRegistryApiNpm(AbstractPackageRegistryApi):
         Returns:
             The publish time, or None when the registry gave none or the package was not fetched.
         """
-        return parse_iso_datetime(self._raw_cache.get(package_name, {}).get("time", {}).get(version))
+        release = self.releases.get(package_name, {}).get(version)
+        return parse_iso_datetime(release.published_date_iso) if release else None
 
     def package_version_optional_requires(self, package_name: str, version: str) -> dict[str, str]:
         """Return {dep_name: version_range} of the `optionalDependencies` of a published version.
 
         The registry lists these apart from `dependencies`, so `package_version_requires` leaves them out.
         """
-        if package_name not in self._raw_cache:
-            self.packages_info_batch([package_name])
-        versions = self._raw_cache.get(package_name, {}).get("versions", {})
-        return dict(versions.get(version, {}).get("optionalDependencies", {}))
+        release = self.release_map(package_name).get(version)
+        return dict(release.declared_optional_dependencies or {}) if release else {}
 
     def package_version_peers(self, package_name: str, version: str) -> dict[str, PeerDependency]:
         """Return {dep_name: PeerDependency} for a specific published version.
 
-        Read from the packument already in the cache, so it costs no further request. Empty when
-        the version is not found or declares no peers.
+        Read from what the package's document was turned into, so it costs no further request. Empty
+        when the version is not found or declares no peers.
         """
-        if package_name not in self._raw_cache:
-            self.packages_info_batch([package_name])
-        versions = self._raw_cache.get(package_name, {}).get("versions", {})
-        return npm_peer_dependencies(versions.get(version, {}))
+        release = self.release_map(package_name).get(version)
+        return dict(release.declared_peer_dependencies) if release else {}

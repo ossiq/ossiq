@@ -108,7 +108,8 @@ class PackageVersion:
     license: str | None
     package_url: str
     declared_dependencies: dict[str, str]
-    declared_dev_dependencies: dict[str, str] | None = None
+    declared_optional_dependencies: dict[str, str] | None = None
+    """This release's `optionalDependencies` (npm only); None when it declares none."""
     runtime_requirements: dict[str, str] | None = None
     description: str | None = None
     published_date_iso: str | None = None
