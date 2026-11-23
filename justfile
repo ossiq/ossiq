@@ -96,7 +96,6 @@ lint:
 
 # Run all the tests for all the supported Python versions
 testall:
-    uv run --python=3.11 --group dev pytest
     uv run --python=3.12 --group dev pytest
     uv run --python=3.13 --group dev pytest
     uv run --python=3.14 --group dev pytest

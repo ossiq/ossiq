@@ -9,10 +9,7 @@ from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field, replace
 from datetime import datetime
 from enum import Enum, StrEnum
-from typing import Generic, TypeVar
 from urllib.parse import quote
-
-T = TypeVar("T")
 
 # Source of versions data within target source code repository
 VERSION_DATA_SOURCE_GITHUB_RELEASES = "GITHUB-RELEASES"
@@ -618,7 +615,7 @@ def merge_diagnostics(items: Iterable[FetchDiagnostics]) -> FetchDiagnostics:
 
 
 @dataclass(frozen=True)
-class SourceFetch(Generic[T]):
+class SourceFetch[T]:
     """What one fetch from an external source returned, and whether the source delivered it.
 
     Adapters used to answer the second half by leaving a summary on themselves for the caller to
@@ -782,7 +779,7 @@ class NameValueSpecError(ValueError):
         self.package = package
 
 
-def parse_name_value_specs(
+def parse_name_value_specs[T](
     raw: Iterable[str] | None,
     *,
     separator: str,

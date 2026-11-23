@@ -6,7 +6,6 @@ import re
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from functools import cmp_to_key
-from typing import TypeVar
 
 from ossiq.domain.common import ConstraintType, ModuleSystem
 from ossiq.domain.provenance import TrustTier
@@ -362,10 +361,9 @@ def classify_pypi_specifier(spec: str | None) -> ConstraintType:
     return ConstraintType.NARROWED
 
 
-VersionType = TypeVar("VersionType", PackageVersion, RepositoryVersion)
-
-
-def sort_versions(versions: list[VersionType], comparator: Callable) -> list[VersionType]:
+def sort_versions[VersionType: (PackageVersion, RepositoryVersion)](
+    versions: list[VersionType], comparator: Callable
+) -> list[VersionType]:
     """
     Sorts a list of semantically versioned objects.
 

@@ -41,7 +41,6 @@ classifiers = [
     "Operating System :: OS Independent",
 
     # Specific Python Versions (Adjust these to what you actually support)
-    "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
     "Programming Language :: Python :: 3.14",
@@ -49,7 +48,7 @@ classifiers = [
 ]
 keywords = ["techdebt", "tech debt", "maintenance", "toc", "engineering"]
 
-requires-python = ">= 3.11"
+requires-python = ">= 3.12"
 
 dependencies = [
   "pydantic==2.13.5",

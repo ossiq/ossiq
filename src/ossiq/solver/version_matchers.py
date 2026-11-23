@@ -33,7 +33,6 @@ from __future__ import annotations
 import functools
 import logging
 from collections.abc import Callable
-from typing import TypeVar
 
 import semver
 from packaging.specifiers import SpecifierSet
@@ -178,10 +177,6 @@ def satisfies_all_constraints(version: str, constraints: list[str], registry: Pr
 
 # ── Advisory exposure
 
-# One ordering per registry; constrained so an interval's bounds and the candidate always compare
-# within the same type.
-VersionT = TypeVar("VersionT", semver.Version, PackagingVersion)
-
 
 @functools.cache
 def parse_npm_version(version: str) -> semver.Version:
@@ -199,7 +194,11 @@ def parse_pypi_version(version: str) -> PackagingVersion:
     return PackagingVersion(version)
 
 
-def interval_contains(affected_range: AffectedRange, version: str, parse: Callable[[str], VersionT]) -> bool:
+# One ordering per registry; constrained so an interval's bounds and the candidate always compare
+# within the same type.
+def interval_contains[VersionT: (semver.Version, PackagingVersion)](
+    affected_range: AffectedRange, version: str, parse: Callable[[str], VersionT]
+) -> bool:
     """Whether *version* sits inside one advisory interval; raises ValueError on anything unparseable."""
     candidate = parse(version)
     if affected_range.introduced is not None and candidate < parse(affected_range.introduced):

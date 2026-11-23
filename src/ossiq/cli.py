@@ -7,7 +7,7 @@ import os
 from collections.abc import Callable, Generator
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Annotated, Literal, ParamSpec, TypeVar, cast
+from typing import Annotated, Literal, cast
 
 import typer
 from rich.console import Console
@@ -161,11 +161,7 @@ def error_boundary(settings: Settings) -> Generator[None, None, None]:
         raise typer.Exit(1) from None
 
 
-P = ParamSpec("P")
-R = TypeVar("R")
-
-
-def requires_github_login(command: Callable[P, R]) -> Callable[P, R]:
+def requires_github_login[**P, R](command: Callable[P, R]) -> Callable[P, R]:
     """Resolve the GitHub token before a scan command's body runs, logging in first when needed.
 
     Runs once typer has parsed the arguments, so `--help` or a mistyped flag never starts a login.
