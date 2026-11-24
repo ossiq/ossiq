@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import os
 from typing import Any, cast
 
 from ossiq.domain.changelog import ChangelogItem, ChangelogStatus, MigrationGuide, RangeChangelog
-from ossiq.domain.common import Command, UserInterfaceType
+from ossiq.domain.common import Command, ConstraintType, UpdateStrategy, UserInterfaceType
+from ossiq.domain.update_plan import UpdateEntry, UpdatePlan
 from ossiq.service.update.models import PlanOptions
 from ossiq.service.upgrade.models import CommandRun, StepPackage, StepStatus, UpgradeSession, UpgradeStep
 from ossiq.service.upgrade.view import Outcome, PackagePreview, StepPreview, UpgradeView
@@ -43,8 +45,45 @@ def session(*steps: UpgradeStep, test_command: str | None = "npm test") -> Upgra
         test_command=test_command,
         snapshot_files=("package.json",),
         steps=steps,
-        peer_repairs=False,
         baseline=CommandRun(0, "t", ""),
+    )
+
+
+def held_plan() -> UpdatePlan:
+    held = UpdateEntry(
+        package_name="@vue/reactivity",
+        current_version="3.5.30",
+        recommended_version="3.5.38",
+        is_direct=False,
+        reason=None,
+        constraint_type=ConstraintType.DECLARED,
+    )
+    return UpdatePlan(
+        project_name="app",
+        project_path="/work/app",
+        registry_type="NPM",
+        package_manager_name="npm",
+        direct_entries=[],
+        transitive_entries=[],
+        held_for_cooldown=[held],
+        cooldown_period=7,
+        available_at_higher_tier={UpdateStrategy.LATEST: 2},
+    )
+
+
+def planned_view(*steps: UpgradeStep, plan: UpdatePlan | None = None) -> UpgradeView:
+    return UpgradeView(Outcome.PLANNED, session(*steps), None, plan=plan)
+
+
+def marked_steps() -> tuple[UpgradeStep, ...]:
+    return (
+        UpgradeStep(1, StepStatus.PENDING, (dataclasses.replace(package("lodash"), is_security=True),)),
+        UpgradeStep(2, StepStatus.PENDING, (dataclasses.replace(package("uuid"), needs_ack=True),)),
+        UpgradeStep(
+            3,
+            StepStatus.PENDING,
+            (StepPackage("peer-repair:peer", "peer", "peer", False, "", "~1.2.0", is_repair=True),),
+        ),
     )
 
 
@@ -77,11 +116,25 @@ def test_agent_output_has_the_same_top_level_keys_in_every_state(capsys) -> None
         pending_view(),
         UpgradeView(Outcome.ABORTED, None, None, message="gone"),
         UpgradeView(Outcome.NOTHING_TO_DO, None, None),
+        planned_view(*marked_steps()),
     ]
 
     shapes = {tuple(render_agent(view, capsys)) for view in states}
 
-    assert shapes == {("outcome", "needs_attention", "message", "session", "step", "changelogs", "commands")}
+    assert shapes == {("outcome", "needs_attention", "message", "session", "steps", "step", "changelogs", "commands")}
+
+
+def test_agent_planned_view_lists_every_step_with_its_markers(capsys) -> None:
+    payload = render_agent(planned_view(*marked_steps()), capsys)
+
+    assert payload["outcome"] == "PLANNED" and payload["step"] is None and payload["commands"] == []
+    assert [(s["step"], s["packages"][0]["name"]) for s in payload["steps"]] == [
+        (1, "lodash"),
+        (2, "uuid"),
+        (3, "peer"),
+    ]
+    lodash, uuid, peer = (s["packages"][0] for s in payload["steps"])
+    assert (lodash["is_security"], uuid["needs_ack"], peer["is_repair"], peer["from"]) == (True, True, True, "")
 
 
 def test_agent_pending_step_lists_every_package_with_its_move(capsys) -> None:
@@ -219,3 +272,53 @@ def test_console_prints_square_brackets_from_tests_and_changelogs_as_they_are(ca
     assert "FAIL [/tmp/x] in [suite]" in out and "Bad [/x] news" in out
     assert "Drop [Symbol.iterator] and [/tmp/x] support" in out
     assert "Moving [/old] to [new]" in out
+
+
+def test_console_marks_cve_fixes_acknowledgements_and_added_peers(capsys) -> None:
+    get_renderer(Command.UPGRADE, UserInterfaceType.CONSOLE, Settings()).render(data=planned_view(*marked_steps()))
+
+    out = capsys.readouterr().out
+    assert "lodash 1.0.0 → 2.0.0 CVE" in out
+    assert "uuid 1.0.0 → 2.0.0 ⚠" in out
+    assert "peer add → ~1.2.0" in out
+    assert out.count("widens a declared range or carries a known break") == 1
+
+
+def test_console_leaves_the_legend_out_when_no_step_needs_acknowledging(capsys) -> None:
+    get_renderer(Command.UPGRADE, UserInterfaceType.CONSOLE, Settings()).render(data=pending_view())
+
+    assert "widens a declared range" not in capsys.readouterr().out
+
+
+def test_console_shows_a_planned_view_as_steps_without_state_or_pointer_then_the_holds(capsys) -> None:
+    view = planned_view(*marked_steps(), plan=held_plan())
+
+    get_renderer(Command.UPGRADE, UserInterfaceType.CONSOLE, Settings()).render(data=view)
+
+    out = capsys.readouterr().out
+    assert "Upgrade: planned" in out
+    assert "PENDING" not in out and "▶" not in out
+    assert out.index("lodash") < out.index("Held for cooldown")
+    assert "7-day" in out and "@vue/reactivity" in out
+    assert "2 more updates available under --update-strategy latest." in out
+
+
+def test_console_shows_the_holds_of_a_plan_that_queues_nothing(capsys) -> None:
+    view = UpgradeView(Outcome.NOTHING_TO_DO, None, None, message="Nothing to upgrade at this tier.", plan=held_plan())
+
+    get_renderer(Command.UPGRADE, UserInterfaceType.CONSOLE, Settings()).render(data=view)
+
+    out = capsys.readouterr().out
+    assert "Nothing to upgrade at this tier." in out and "Held for cooldown" in out
+
+
+def test_console_shows_a_started_sessions_holds_once_beside_the_first_step(capsys) -> None:
+    view = dataclasses.replace(pending_view(), plan=held_plan())
+    renderer = get_renderer(Command.UPGRADE, UserInterfaceType.CONSOLE, Settings())
+
+    renderer.render(data=view)
+    out = capsys.readouterr().out
+    renderer.render(data=pending_view())
+
+    assert "Held for cooldown" in out
+    assert "Held for cooldown" not in capsys.readouterr().out

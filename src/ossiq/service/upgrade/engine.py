@@ -24,22 +24,25 @@ from ossiq.domain.exceptions import (
     UpgradeSessionError,
 )
 from ossiq.domain.update_plan import UpdatePlan
+from ossiq.messages import HELP_PLAN_NO_RECOMMENDATIONS, HELP_PLAN_NO_RECOMMENDATIONS_FOR_TIER
 from ossiq.sequence.steps import group_steps
 from ossiq.service.project.models import ScanResult
 from ossiq.service.update.models import PlanOptions
 from ossiq.service.upgrade import store
 from ossiq.service.upgrade.models import APPLIED, CommandRun, StepPackage, StepStatus, UpgradeSession, UpgradeStep
 from ossiq.service.upgrade.preview import ChangelogFetcher, build_preview
-from ossiq.service.upgrade.queue import build_queue, step_links, step_package
+from ossiq.service.upgrade.queue import build_queue, step_links, step_packages
 from ossiq.service.upgrade.runner import run_command
 from ossiq.service.upgrade.view import Outcome, UpgradeView
 from ossiq.settings import Settings
 from ossiq.sources.project_config import load_upgrade_config
 from ossiq.sources.project_sources import ProjectSources
+from ossiq.strategy.pyramid import DEFAULT_STRATEGY
 
 Planned = tuple[ProjectSources, ScanResult, UpdatePlan]
 
 PENDING_COMMANDS = ("changelog", "apply", "skip", "finish", "abort")
+END_COMMANDS = ("finish", "abort")
 FAILING_COMMANDS = ("test", "rollback", "skip", "abort")
 PASSING_COMMANDS = ("test", "rollback", "continue", "skip", "finish", "abort")
 BASELINE_TAIL_LINES = 30
@@ -87,25 +90,27 @@ def sync_step(step: UpgradeStep, plan: UpdatePlan) -> UpgradeStep:
 
     An earlier step may already have moved a package, and a newer release may have appeared. That
     release may need a move a later step holds; it joins this step, and the later one skips once
-    nothing is left in it.
+    nothing is left in it. A peer repair stays while the plan still repairs that package, and takes
+    the range the plan now writes for it.
     """
-    by_key = {entry.move_key: entry for entry in plan.all_entries}
-    kept = [
-        dataclasses.replace(package, target=by_key[package.move_key].recommended_version)
-        for package in step.packages
-        if package.move_key in by_key
-    ]
+    fresh = step_packages(plan, plan.all_entries)
+    kept = [fresh[package.move_key] for package in step.packages if package.move_key in fresh]
     if not kept:
         return dataclasses.replace(step, status=StepStatus.SKIPPED, note="no longer recommended")
     have = {package.move_key for package in kept}
     joined = [
-        step_package(by_key[key])
-        for group in group_steps(list(by_key), step_links(plan))
+        fresh[key]
+        for group in group_steps(list(fresh), step_links(plan))
         if have.intersection(group)
         for key in group
         if key not in have
     ]
     return dataclasses.replace(step, packages=(*kept, *joined))
+
+
+def moves_of(step: UpgradeStep) -> list[tuple[str, str]]:
+    """What a preview showed: each move and its target. A changed flag on a move is not a new thing to review."""
+    return [(package.move_key, package.target) for package in step.packages]
 
 
 def step_snapshot(step: UpgradeStep) -> str:
@@ -121,7 +126,11 @@ def pending_view(
     message: str | None = None,
     attention: bool = False,
 ) -> UpgradeView:
-    """Describe the session's current step, preview and all, or end the session when none is left."""
+    """Describe the session's current step, preview and all.
+
+    With no step left the session stays open: only `finish` and `abort` end it, so the user can still
+    undo everything the run did.
+    """
     sources, scan, plan = planned or env.plan(session.options)
     notes = []
     while (step := session.current) is not None:
@@ -134,11 +143,12 @@ def pending_view(
         notes.append(message)
     message = " ".join(notes) or None
 
+    store.save(root, session)
     step = session.current
     if step is None:
-        store.end(root)
-        return UpgradeView(Outcome.COMPLETED, session, None, message=message or "Every step is done.")
-    store.save(root, session)
+        return UpgradeView(
+            Outcome.COMPLETED, session, None, commands=END_COMMANDS, message=message or "Every step is done."
+        )
     return UpgradeView(
         Outcome.IN_PROGRESS,
         session,
@@ -166,6 +176,162 @@ def next_commands(session: UpgradeSession, step: UpgradeStep) -> tuple[str, ...]
     return commands if session.test_command else tuple(c for c in commands if c != "test")
 
 
+def require_no_session(root: Path) -> None:
+    """Refuse to begin over a session that is still open.
+
+    Raises:
+        UpgradeSessionError: A session exists in *root*.
+    """
+    if store.exists(root):
+        raise UpgradeSessionError(
+            "An upgrade session is already in progress here.",
+            hint="Run `ossiq upgrade status` to resume it, or `ossiq upgrade abort` to discard it.",
+        )
+
+
+def nothing_to_do(plan: UpdatePlan) -> UpgradeView:
+    """The view of a plan that queues no step; it carries the plan, so what is held back still shows."""
+    if plan.all_entries or plan.peer_repairs or plan.has_holds:
+        message = "Nothing to upgrade at this tier."
+    elif plan.strategy == DEFAULT_STRATEGY:
+        message = HELP_PLAN_NO_RECOMMENDATIONS
+    else:
+        message = HELP_PLAN_NO_RECOMMENDATIONS_FOR_TIER.format(tier=plan.strategy.value)
+    return UpgradeView(Outcome.NOTHING_TO_DO, None, None, message=message, plan=plan)
+
+
+def queue_session(
+    env: UpgradeEnv,
+    options: PlanOptions,
+    *,
+    package: str | None = None,
+    limit: int | None = None,
+    test_command: str | None = None,
+    planned: Planned | None = None,
+) -> tuple[UpgradeSession, Planned]:
+    """Plan the project and queue its updates as a session, without writing anything.
+
+    Args:
+        env: Planning, output and settings.
+        options: The project and the tier to plan with; kept so every later step re-plans the same way.
+        package: Queue only this direct package.
+        limit: Queue only the first this many steps.
+        test_command: Stored in the session; nothing runs it here.
+        planned: A plan the caller already made, so the project is not scanned twice.
+
+    Returns:
+        The session, with no steps when the plan has no moves, and the plan it came from.
+
+    Raises:
+        UpgradeSessionError: The package manager does not support upgrade sessions.
+    """
+    planned = planned or env.plan(options)
+    sources, scan, plan = planned
+    manager = sources.packages_manager
+    name = manager.package_manager_type.name
+    if not manager.supports_upgrade_session:
+        raise UpgradeSessionError(
+            f"`ossiq upgrade` does not support {name} projects yet.",
+            hint="It works with npm, pnpm and uv. `ossiq apply` still applies the whole plan at once.",
+        )
+    epss = {r.package_name: r.epss or 0.0 for r in scan.production_packages + scan.optional_packages}
+    parents = {r.package_name: r.dependency_path[0] for r in scan.transitive_packages if r.dependency_path}
+    steps = build_queue(
+        plan,
+        epss,
+        lambda current, target: sources.packages_registry.difference_versions(current, target).diff_index,
+        parents,
+        package=package,
+        limit=limit,
+    )
+    session = UpgradeSession(
+        session_id=f"seq_{uuid.uuid4().hex[:10]}",
+        created_at=datetime.now(UTC).isoformat(timespec="seconds"),
+        package_manager=name,
+        registry=scan.packages_registry.lower(),
+        options=options,
+        test_command=test_command,
+        snapshot_files=manager.snapshot_files(),
+        steps=tuple(UpgradeStep(number=i, status=StepStatus.PENDING, packages=s) for i, s in enumerate(steps, 1)),
+    )
+    return session, planned
+
+
+def open_session(
+    env: UpgradeEnv,
+    options: PlanOptions,
+    *,
+    package: str | None = None,
+    limit: int | None = None,
+    test_command: str | None = None,
+    planned: Planned | None = None,
+) -> tuple[UpgradeSession, Planned]:
+    """Queue the updates and, when there are any, run the baseline test, snapshot START and save the session.
+
+    Args:
+        env: Planning, output and settings.
+        options: The project and the tier to plan with.
+        package: Queue only this direct package.
+        limit: Queue only the first this many steps; the project's `upgrade.limit` when None.
+        test_command: Run once now, as a baseline, and after every applied step; the project's
+            `upgrade.test-command` when None.
+        planned: A plan the caller already made, so the project is not scanned twice.
+
+    Returns:
+        The saved session, with no steps (and nothing written) when the plan has no moves, and the plan.
+
+    Raises:
+        UpgradeSessionError: A session exists, the package manager is unsupported, or the test
+            command already fails.
+    """
+    root = Path(options.project_path)
+    require_no_session(root)
+    config = load_upgrade_config(root)
+    session, planned = queue_session(
+        env,
+        options,
+        package=package,
+        limit=limit if limit is not None else config.limit,
+        test_command=test_command or config.test_command,
+        planned=planned,
+    )
+    if not session.steps:
+        return session, planned
+
+    if session.test_command:
+        baseline = run_command(session.test_command, root, env.on_line)
+        if baseline.exit_code != 0:
+            tail = "\n".join(baseline.output_tail.splitlines()[-BASELINE_TAIL_LINES:])
+            raise UpgradeSessionError(
+                f"The test command already fails before any upgrade (exit {baseline.exit_code}). Last output:\n{tail}",
+                hint="Fix the failing tests first, or start without a test command.",
+            )
+        session = dataclasses.replace(session, baseline=baseline)
+    store.snapshot(root, store.START, session.snapshot_files)
+    store.save(root, session)
+    return session, planned
+
+
+def plan(env: UpgradeEnv, options: PlanOptions, planned: Planned | None = None) -> UpgradeView:
+    """Show every step `start` would queue and what the plan holds back, saving nothing.
+
+    Args:
+        env: Planning, output and settings.
+        options: The project and the tier to plan with.
+        planned: A plan the caller already made, so the project is not scanned twice.
+
+    Returns:
+        A PLANNED view, or a NOTHING_TO_DO one when the plan has no moves.
+
+    Raises:
+        UpgradeSessionError: The package manager does not support upgrade sessions.
+    """
+    session, planned = queue_session(env, options, planned=planned)
+    if not session.steps:
+        return nothing_to_do(planned[2])
+    return UpgradeView(Outcome.PLANNED, session, None, plan=planned[2])
+
+
 def start(
     env: UpgradeEnv,
     options: PlanOptions,
@@ -173,6 +339,7 @@ def start(
     package: str | None = None,
     limit: int | None = None,
     test_command: str | None = None,
+    planned: Planned | None = None,
 ) -> UpgradeView:
     """Plan the project, queue its updates as steps and show the first one.
 
@@ -183,68 +350,22 @@ def start(
         limit: Queue only the first this many steps; the project's `upgrade.limit` when None.
         test_command: Run once now, as a baseline, and after every applied step; the project's
             `upgrade.test-command` when None.
+        planned: A plan the caller already made, so the project is not scanned twice.
 
     Returns:
-        The first step's preview, or a NOTHING_TO_DO view when the plan has no moves.
+        The first step's preview, with the plan's holds; or a NOTHING_TO_DO view when the plan has no moves.
 
     Raises:
         UpgradeSessionError: A session exists, the package manager is unsupported, or the test
             command already fails.
     """
-    root = Path(options.project_path)
-    config = load_upgrade_config(root)
-    limit = limit if limit is not None else config.limit
-    test_command = test_command or config.test_command
-    if store.exists(root):
-        raise UpgradeSessionError(
-            "An upgrade session is already in progress here.",
-            hint="Run `ossiq upgrade status` to resume it, or `ossiq upgrade abort` to discard it.",
-        )
-    planned = env.plan(options)
-    sources, scan, plan = planned
-    manager = sources.packages_manager
-    name = manager.package_manager_type.name
-    if not manager.supports_upgrade_session:
-        raise UpgradeSessionError(
-            f"`ossiq upgrade` does not support {name} projects yet.",
-            hint="It works with npm, pnpm and uv. `ossiq apply` still applies the whole plan at once.",
-        )
-    epss = {r.package_name: r.epss or 0.0 for r in scan.production_packages + scan.optional_packages}
-    steps, peer_repairs = build_queue(
-        plan,
-        epss,
-        lambda current, target: sources.packages_registry.difference_versions(current, target).diff_index,
-        package=package,
-        limit=limit,
+    session, planned = open_session(
+        env, options, package=package, limit=limit, test_command=test_command, planned=planned
     )
-    if not steps:
-        return UpgradeView(Outcome.NOTHING_TO_DO, None, None, message="Nothing to upgrade at this tier.")
-
-    baseline = None
-    if test_command:
-        baseline = run_command(test_command, root, env.on_line)
-        if baseline.exit_code != 0:
-            tail = "\n".join(baseline.output_tail.splitlines()[-BASELINE_TAIL_LINES:])
-            raise UpgradeSessionError(
-                f"The test command already fails before any upgrade (exit {baseline.exit_code}). Last output:\n{tail}",
-                hint="Fix the failing tests first, or start without a test command.",
-            )
-
-    session = UpgradeSession(
-        session_id=f"seq_{uuid.uuid4().hex[:10]}",
-        created_at=datetime.now(UTC).isoformat(timespec="seconds"),
-        package_manager=name,
-        registry=scan.packages_registry.lower(),
-        options=options,
-        test_command=test_command,
-        snapshot_files=manager.snapshot_files(),
-        steps=tuple(UpgradeStep(number=i, status=StepStatus.PENDING, packages=s) for i, s in enumerate(steps, 1)),
-        peer_repairs=peer_repairs,
-        baseline=baseline,
-    )
-    store.snapshot(root, store.START, session.snapshot_files)
-    store.save(root, session)
-    return pending_view(env, root, session, planned)
+    if not session.steps:
+        return nothing_to_do(planned[2])
+    view = pending_view(env, Path(options.project_path), session, planned)
+    return dataclasses.replace(view, plan=planned[2])
 
 
 def status(env: UpgradeEnv, path: str) -> UpgradeView:
@@ -300,7 +421,7 @@ def apply(env: UpgradeEnv, path: str) -> UpgradeView:
     sources, _, plan = planned
 
     synced = sync_step(step, plan)
-    if synced != step:
+    if (synced.status, moves_of(synced)) != (step.status, moves_of(step)):
         return pending_view(
             env,
             root,
@@ -312,9 +433,7 @@ def apply(env: UpgradeEnv, path: str) -> UpgradeView:
 
     manager = sources.packages_manager
     store.snapshot(root, step_snapshot(step), session.snapshot_files)
-    step_plan = plan.only(
-        {p.move_key for p in step.packages}, with_peer_repairs=session.peer_repairs and session.is_last
-    )
+    step_plan = plan.only({p.move_key for p in step.packages}, {p.name for p in step.packages if p.is_repair})
     try:
         manager.execute_update(step_plan)
     except (PackageManagerExecutionError, PackageManagerUpdateIncomplete) as exc:

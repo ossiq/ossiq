@@ -14,6 +14,11 @@ from ossiq.strategy.pyramid import (
 )
 
 
+def test_the_enum_is_declared_in_pyramid_order() -> None:
+    # UpdatePlan.higher_tier_counts orders tiers by declaration, because domain cannot import PYRAMID.
+    assert tuple(UpdateStrategy) == PYRAMID
+
+
 def test_admitted_motives_is_cumulative() -> None:
     for lower, higher in zip(PYRAMID, PYRAMID[1:], strict=False):
         assert ADMITTED_MOTIVES[lower] <= ADMITTED_MOTIVES[higher], f"{higher} must admit every motive {lower} admits"

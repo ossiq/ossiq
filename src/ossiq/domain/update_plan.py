@@ -255,6 +255,28 @@ class UpdatePlan:
         return self.direct_entries + self.transitive_entries
 
     @property
+    def higher_tier_counts(self) -> list[tuple[UpdateStrategy, int]]:
+        """The tiers above the run's that would move a withheld package, and how many each would, lowest first.
+
+        `UpdateStrategy` is declared from the smallest diff to the newest version, which is the
+        pyramid's order; `tests/strategy/test_pyramid.py` pins that.
+        """
+        tiers = list(UpdateStrategy)
+        above = tiers.index(self.strategy)
+        return [(t, n) for i, t in enumerate(tiers) if i > above and (n := self.available_at_higher_tier.get(t))]
+
+    @property
+    def has_holds(self) -> bool:
+        """Whether anything was withheld from the plan, for a reason the user can act on."""
+        return bool(
+            self.held_for_cooldown
+            or self.held_for_widening
+            or self.held_by_user_overrides
+            or self.held_by_peers
+            or self.held_by_policy
+        )
+
+    @property
     def pass_count(self) -> int:
         return max((entry.install_pass for entry in self.all_entries), default=1)
 
@@ -270,10 +292,11 @@ class UpdatePlan:
             peer_repairs=self.peer_repairs if number >= self.pass_count else [],
         )
 
-    def only(self, move_keys: Collection[str], *, with_peer_repairs: bool = False) -> UpdatePlan:
+    def only(self, move_keys: Collection[str], repairs: Collection[str] = ()) -> UpdatePlan:
         """Keep only the entries whose `move_key` is in *move_keys*, all in one install pass.
 
-        Peer repairs describe the final tree, so they stay only with *with_peer_repairs*.
+        Peer repairs stay only when their package is in *repairs*: a repair names no move, so the
+        step that carries it says which ones it means.
         """
 
         def pick(entries: list[UpdateEntry]) -> list[UpdateEntry]:
@@ -283,6 +306,6 @@ class UpdatePlan:
             self,
             direct_entries=pick(self.direct_entries),
             transitive_entries=pick(self.transitive_entries),
-            peer_repairs=self.peer_repairs if with_peer_repairs else [],
+            peer_repairs=[r for r in self.peer_repairs if r.package in repairs],
             pass_orderings=[],
         )

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 import pytest
 
 from ossiq.domain.exceptions import UpgradeSessionError
@@ -40,7 +42,6 @@ def session(*statuses: StepStatus) -> UpgradeSession:
         test_command="npm test",
         snapshot_files=("package.json", "package-lock.json"),
         steps=steps,
-        peer_repairs=True,
         baseline=CommandRun(exit_code=0, ran_at="2026-11-07T11:00:05Z", output_tail="ok"),
     )
 
@@ -49,6 +50,17 @@ def test_a_session_survives_a_round_trip_through_json() -> None:
     original = session(StepStatus.COMPLETED, StepStatus.PENDING)
 
     assert session_from_json(session_to_json(original)) == original
+
+
+def test_a_session_file_written_by_0_1_15_still_loads() -> None:
+    original = session(StepStatus.COMPLETED, StepStatus.PENDING)
+    data = json.loads(session_to_json(original))
+    data["peer_repairs"] = True
+    for step in data["steps"]:
+        for package in step["packages"]:
+            del package["is_repair"]
+
+    assert session_from_json(json.dumps(data)) == original
 
 
 def test_the_current_step_is_the_first_one_not_finished() -> None:

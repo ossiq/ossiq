@@ -41,8 +41,12 @@ Every command reads the session from there, so you can close the terminal and co
    ```
 
 A step is one direct dependency plus the packages that must move with it. Those are the transitive
-copies it pulls in and the peers that only work together, such as `react` and `react-dom`. The
-transitive updates that no direct dependency pulls in share the last step.
+copies it pulls in and the peers that only work together, such as `react` and `react-dom`.
+
+A transitive update that no direct dependency pulls in is its own step, right after the step of
+the direct dependency it sits under. A [peer repair](../reference/update-rules.md#peer-repairs-npm-and-pnpm)
+is a step of its own too, right after the first step that moves a package needing the peer. It lists
+no installed version, because it adds the peer to your manifest.
 
 OSS IQ orders the steps by:
 
@@ -169,7 +173,9 @@ code. Code you changed to fit the new version stays in your working tree, so rev
 | `ossiq upgrade finish` | Ends the session and keeps what is installed. An applied step whose tests pass counts as kept. It refuses while the tests fail |
 | `ossiq upgrade abort` | Puts the manifest and lockfile back as they were at `start`, reinstalls, and ends the session |
 
-The session also ends by itself when you keep or skip the last step.
+After you keep or skip the last step the session stays open, so `abort` can still put back
+everything since `start`. Run `finish` to keep the result, or `abort` to undo it. Only those two end
+the session.
 
 ## Work from a menu
 
@@ -209,8 +215,8 @@ The loop for an agent:
 5. `rollback` or `skip` when the fix isn't worth it. The `commands` field lists the subcommands
    that make sense next.
 
-`outcome` is `IN_PROGRESS` until the session ends as `COMPLETED`, `FINISHED` or `ABORTED`, or
-`NOTHING_TO_DO` when the plan is empty. `ossiq upgrade changelog --format agent` adds the whole
+`outcome` is `IN_PROGRESS` while a step is open and `COMPLETED` once you have kept or skipped every step.
+The session ends as `FINISHED` or `ABORTED`. `NOTHING_TO_DO` means the plan is empty. `ossiq upgrade changelog --format agent` adds the whole
 changelog as `changelogs[].markdown`. [`ossiq install skills`](../reference/commands.md#install-skills)
 teaches Claude Code, Codex and Copilot this loop.
 

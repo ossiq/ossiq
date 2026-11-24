@@ -38,7 +38,15 @@ def changelog_payload(changelog: RangeChangelog, *, full: bool = False) -> dict[
 
 
 def move_payload(package: StepPackage) -> dict[str, Any]:
-    return {"name": package.name, "is_direct": package.is_direct, "from": package.current, "to": package.target}
+    return {
+        "name": package.name,
+        "is_direct": package.is_direct,
+        "is_repair": package.is_repair,
+        "is_security": package.is_security,
+        "needs_ack": package.needs_ack,
+        "from": package.current,
+        "to": package.target,
+    }
 
 
 def package_payload(item: PackagePreview, preview: StepPreview) -> dict[str, Any]:
@@ -90,6 +98,7 @@ def view_payload(view: UpgradeView) -> dict[str, Any]:
         "needs_attention": view.attention,
         "message": view.message,
         "session": session_payload(view.session, view.step) if view.session else None,
+        "steps": [step_payload(step, None) for step in view.session.steps] if view.session else [],
         "step": step_payload(view.step, view.preview) if view.step else None,
         "changelogs": [
             {"name": package.name, "from": package.current, "to": package.target, **changelog_payload(c, full=True)}

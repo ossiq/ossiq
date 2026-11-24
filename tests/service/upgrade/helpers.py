@@ -9,11 +9,12 @@ from typing import Any, cast
 
 from ossiq.domain.common import ConstraintType
 from ossiq.domain.exceptions import PackageManagerExecutionError
-from ossiq.domain.update_plan import UpdateEntry, UpdatePlan
+from ossiq.domain.update_plan import PeerRepair, UpdateEntry, UpdatePlan
 from ossiq.service.update.models import PlanOptions
 from ossiq.service.upgrade import engine
 from ossiq.service.upgrade.engine import UpgradeEnv
 from ossiq.service.upgrade.view import StepPreview, UpgradeView
+from ossiq.strategy.pyramid import DEFAULT_STRATEGY
 
 # Green on the starting tree, red once vite moves: what a real suite does when an upgrade breaks it.
 BREAKS_ON_UPGRADE = 'grep -q \'"vite": "1.0.0"\' package.json'
@@ -39,6 +40,8 @@ class FakeManager:
         deps = json.loads(manifest.read_text())
         for entry in plan.all_entries:
             deps[entry.identity] = entry.recommended_version
+        for repair in plan.peer_repairs:
+            deps[repair.package] = repair.spec
         manifest.write_text(json.dumps(deps))
         if self.refuse:
             raise PackageManagerExecutionError("npm install failed (exit 1)")
@@ -53,6 +56,8 @@ class Project:
     def __init__(self, root: Path, installed: dict[str, str], targets: dict[str, str]) -> None:
         self.root, self.targets, self.manager = root, targets, FakeManager(root)
         self.together: list[tuple[str, str]] = []
+        self.repairs: list[PeerRepair] = []
+        self.strategy = DEFAULT_STRATEGY
         (root / "package.json").write_text(json.dumps(installed))
 
     def installed(self) -> dict[str, str]:
@@ -69,7 +74,7 @@ class Project:
                 constraint_type=ConstraintType.DECLARED,
             )
             for name, version in sorted(self.installed().items())
-            if version != self.targets[name]
+            if name in self.targets and version != self.targets[name]
         ]
         plan = UpdatePlan(
             project_name="demo",
@@ -79,6 +84,8 @@ class Project:
             direct_entries=entries,
             transitive_entries=[],
             install_together=self.together,
+            strategy=self.strategy,
+            peer_repairs=[r for r in self.repairs if r.package not in self.installed()],
         )
         sources = SimpleNamespace(
             packages_manager=self.manager,
