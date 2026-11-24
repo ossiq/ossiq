@@ -2,6 +2,7 @@
 Building and sorting ScanRecord instances from dependency descriptors and pre-fetched data.
 """
 
+from collections.abc import Sequence
 from datetime import UTC, datetime
 
 from ossiq.domain.common import EngineContext, build_purl, parse_spdx_expression
@@ -10,7 +11,7 @@ from ossiq.domain.cve import CVE
 from ossiq.domain.package import Package
 from ossiq.domain.project import ConstraintSource, InstalledCopy, PeerRequirement, UnresolvedPeer
 from ossiq.domain.repository import Repository
-from ossiq.risk.maintenance import deprecation_evidence
+from ossiq.risk.maintenance import DeprecationEvidence, deprecation_evidence
 from ossiq.service.common import package_versions
 from ossiq.service.project.breaking_changes import (
     compute_latest_compatible_major,
@@ -80,6 +81,40 @@ def calculate_version_age_days(
                 )
                 return (reference - installed_date).days
     return None
+
+
+def package_deprecation(
+    package: Package,
+    repository: Repository | None,
+    readme_head: str | None,
+    pinned_titles: Sequence[str] | None,
+) -> DeprecationEvidence:
+    """Collect every deprecation marker for one package into a `DeprecationEvidence`.
+
+    The one place that maps a package, its repository and the repository's README / pinned issues
+    onto `deprecation_evidence`, shared by `scan_record` and the changelog IQ server.
+
+    Args:
+        package: Registry metadata for the package.
+        repository: Its GitHub repository, None when it has none or was not fetched.
+        readme_head: The top of the README, already truncated, None when not fetched.
+        pinned_titles: Titles of the repository's pinned issues, None when not fetched.
+
+    Returns:
+        The signals found and the successor the package names, if any.
+    """
+    return deprecation_evidence(
+        archived=repository.archived if repository else None,
+        classifiers=package.classifiers,
+        all_releases_yanked=package.all_releases_yanked,
+        registry_deprecated=package.is_deprecated,
+        deprecation_message=package.deprecation_message,
+        repo_description=repository.description if repository else None,
+        summary=package.description,
+        topics=repository.topics if repository else [],
+        readme_head=readme_head,
+        pinned_titles=pinned_titles or [],
+    )
 
 
 def scan_record(
@@ -181,18 +216,7 @@ def scan_record(
         node_version=node_version,
     )
 
-    deprecation = deprecation_evidence(
-        archived=prefetched_repository.archived if prefetched_repository else None,
-        classifiers=package_info.classifiers,
-        all_releases_yanked=package_info.all_releases_yanked,
-        registry_deprecated=package_info.is_deprecated,
-        deprecation_message=package_info.deprecation_message,
-        repo_description=prefetched_repository.description if prefetched_repository else None,
-        summary=package_info.description,
-        topics=prefetched_repository.topics if prefetched_repository else [],
-        readme_head=readme_head,
-        pinned_titles=pinned_titles or [],
-    )
+    deprecation = package_deprecation(package_info, prefetched_repository, readme_head, pinned_titles)
 
     return ScanRecord(
         package_name=canonical_name,

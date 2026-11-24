@@ -14,6 +14,7 @@ from datetime import UTC, datetime
 from ossiq.risk.maintenance import (
     MAINTENANCE_THRESHOLD,
     NOT_MAINTAINED,
+    DeprecationEvidence,
     MaintenanceAssessment,
     MaintenanceState,
     assess_maintenance,
@@ -196,24 +197,37 @@ def repository_stability(
     )
 
 
-def maintenance_observations(record: "models.ScanRecord") -> dict[str, object]:
-    """The observation dict for one record, before None values are dropped by the model.
+def maintenance_observations(
+    stability: RepositoryStability | None,
+    deprecation: DeprecationEvidence | None,
+    days_since_push: int | None,
+    latest_release_age_days: int | None,
+) -> dict[str, object]:
+    """The observation dict for one package, before None values are dropped by the model.
 
     A `"none"` deprecation strength on its own is not enough to assess a package: a repository we
     never measured and found no markers on stays unknown rather than pinned to the prior. The
-    other gates live in `gated_observations`, shared with the calibration harness.
+    other gates live in `gated_observations`, shared with the calibration harness. Takes values,
+    not a `ScanRecord`, so the changelog IQ server composes the same verdict from the same code.
+
+    Args:
+        stability: The repository's commit-rhythm record, None when it could not be measured.
+        deprecation: Every deprecation marker found for the package, None when none were collected.
+        days_since_push: Days since the repository's last push, None when unknown.
+        latest_release_age_days: Days since the registry's latest release, None when unknown.
+
+    Returns:
+        Observation name to value, with None for an observation that is unknown or gated off.
     """
 
-    stability = record.stability
-    deprecation = record.deprecation
     strength = deprecation.strength if deprecation is not None and deprecation.signals else None
     stopped = has_stopped(stability.silence_p, stability.silence_days) if stability is not None else None
     return gated_observations(
         deprecation_strength=strength,
         has_stopped=stopped,
-        push_age=push_age_bucket(record.days_since_push),
+        push_age=push_age_bucket(days_since_push),
         flow_trend=stability.flow_trend if stability is not None else None,
-        release_age=release_age_bucket(record.latest_release_age_days),
+        release_age=release_age_bucket(latest_release_age_days),
     )
 
 
@@ -251,7 +265,11 @@ def populate_stability(
         if record.repository is not None:
             record.days_since_push = age_days_from_iso(record.repository.pushed_at, now=now)
 
-        record.maintenance = assess_maintenance(maintenance_observations(record))
+        record.maintenance = assess_maintenance(
+            maintenance_observations(
+                record.stability, record.deprecation, record.days_since_push, record.latest_release_age_days
+            )
+        )
         unstable = None
         if record.maintenance is not None:
             unstable = record.maintenance.p_not_maintained >= MAINTENANCE_THRESHOLD
