@@ -343,6 +343,7 @@ HELP_UPDATE_CONTEXT_TO = "Target version to evaluate against. Default: OSS IQ's 
 
 HELP_UPGRADE_APP = "Upgrade packages one step at a time: preview, apply, test, then keep, roll back or skip each step."
 HELP_UPGRADE_PACKAGE = "Queue only this direct package (and what has to move with it)."
+HELP_UPGRADE_ACK_LEGEND = "⚠ widens a declared range or carries a known break"
 HELP_UPGRADE_LIMIT = "Queue only the first N steps."
 HELP_UPGRADE_TEST_COMMAND = (
     "Shell command that checks the project, e.g. 'npm test'. It runs once before the first step and "

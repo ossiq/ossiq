@@ -2,17 +2,29 @@
 
 from __future__ import annotations
 
+import dataclasses
 from pathlib import Path
 from typing import Any, cast
 
 import pytest
 
 from ossiq.domain.exceptions import UpgradeSessionError
+from ossiq.domain.update_plan import PeerRepair
+from ossiq.messages import HELP_PLAN_NO_RECOMMENDATIONS, HELP_PLAN_NO_RECOMMENDATIONS_FOR_TIER
 from ossiq.service.upgrade import engine, store
 from ossiq.service.upgrade.engine import UpgradeEnv
 from ossiq.service.upgrade.models import StepStatus
 from ossiq.service.upgrade.view import Outcome, UpgradeView
-from tests.service.upgrade.helpers import BREAKS_ON_UPGRADE, FIXABLE, Project, env_for, make_project, start
+from ossiq.strategy.pyramid import UpdateStrategy
+from tests.service.upgrade.helpers import (
+    BREAKS_ON_UPGRADE,
+    FIXABLE,
+    Project,
+    env_for,
+    make_project,
+    options,
+    start,
+)
 
 
 @pytest.fixture
@@ -100,14 +112,19 @@ def test_continue_on_a_pending_step_shows_it_and_installs_nothing(project: Proje
     assert project.installed() == {"vite": "1.0.0", "zod": "1.0.0"}
 
 
-def test_the_last_continue_ends_the_session(project: Project) -> None:
+def test_the_last_continue_keeps_the_session_open_for_finish_or_abort(project: Project) -> None:
     start(project, limit=1)
     engine.apply(env_for(project), str(project.root))
 
     view = engine.accept(env_for(project), str(project.root))
 
     assert view.outcome is Outcome.COMPLETED
-    assert not (project.root / ".ossiq").exists()
+    assert view.commands == ("finish", "abort")
+    assert store.exists(project.root)
+    assert engine.status(env_for(project), str(project.root)).outcome is Outcome.COMPLETED
+
+    assert engine.finish(env_for(project), str(project.root)).outcome is Outcome.FINISHED
+    assert not store.exists(project.root)
 
 
 def test_failing_tests_need_attention_and_block_continue(project: Project) -> None:
@@ -327,3 +344,131 @@ def test_a_flag_beats_the_project_file(project: Project) -> None:
 
     assert view.session is not None
     assert len(view.session.steps) == 2 and view.session.test_command == "true"
+
+
+def test_a_peer_repair_is_a_step_that_installs_only_when_its_turn_comes(project: Project) -> None:
+    project.repairs = [PeerRepair("peer", "~1.2.0", False, ("vite",))]
+
+    view = start(project, test_command="true")
+
+    assert [[p.name for p in s.packages] for s in cast(Any, view.session).steps] == [["vite"], ["peer"], ["zod"]]
+    engine.apply(env_for(project), str(project.root))
+    assert "peer" not in project.installed()
+
+    engine.accept(env_for(project), str(project.root))
+    engine.apply(env_for(project), str(project.root))
+    assert project.installed()["peer"] == "~1.2.0"
+
+
+def test_a_repair_with_a_new_range_is_shown_again_and_one_the_plan_dropped_is_skipped(project: Project) -> None:
+    project.repairs = [PeerRepair("peer", "~1.2.0", False, ("vite",))]
+    start(project, test_command="true")
+    engine.apply(env_for(project), str(project.root))
+    engine.accept(env_for(project), str(project.root))
+
+    project.repairs = [PeerRepair("peer", "~1.3.0", False, ("vite",))]
+    view = engine.apply(env_for(project), str(project.root))
+
+    assert view.attention and "peer" not in project.installed()
+    assert cast(Any, view.step).packages[0].target == "~1.3.0"
+
+    project.repairs = []
+    view = engine.status(env_for(project), str(project.root))
+
+    assert current(view) == (3, StepStatus.PENDING)
+    assert "no longer recommended" in (view.message or "")
+
+
+def test_abort_after_every_step_is_done_puts_back_what_start_saw(project: Project) -> None:
+    start(project, test_command="true")
+    for _ in range(2):
+        engine.apply(env_for(project), str(project.root))
+        engine.accept(env_for(project), str(project.root))
+
+    view = engine.abort(env_for(project), str(project.root))
+
+    assert view.outcome is Outcome.ABORTED
+    assert project.installed() == {"vite": "1.0.0", "zod": "1.0.0"}
+    assert project.manager.synced == 1
+    assert not store.exists(project.root)
+
+
+def test_plan_lists_every_step_with_the_plan_and_writes_nothing(project: Project) -> None:
+    view = engine.plan(env_for(project), options(project))
+
+    assert view.outcome is Outcome.PLANNED
+    assert [[p.name for p in s.packages] for s in cast(Any, view.session).steps] == [["vite"], ["zod"]]
+    assert view.step is None and view.commands == () and view.plan is not None
+    assert not (project.root / ".ossiq").exists()
+    assert project.installed() == {"vite": "1.0.0", "zod": "1.0.0"}
+
+
+def test_plan_ignores_the_project_file_limit_that_start_honours(project: Project) -> None:
+    (project.root / ".git").mkdir()
+    (project.root / ".ossiq.yaml").write_text("version: 1\nupgrade:\n  limit: 1\n")
+
+    assert len(cast(Any, engine.plan(env_for(project), options(project)).session).steps) == 2
+    assert len(cast(Any, start(project).session).steps) == 1
+
+
+def test_plan_and_start_reuse_a_plan_they_are_given(project: Project) -> None:
+    planned = project.plan(options(project))
+
+    def never(_: Any) -> Any:
+        raise AssertionError("planned twice")
+
+    env = UpgradeEnv(settings=cast(Any, None), plan=never)
+    assert engine.plan(env, options(project), planned=planned).outcome is Outcome.PLANNED
+    assert engine.start(env, options(project), planned=planned).outcome is Outcome.IN_PROGRESS
+
+
+def test_plan_with_nothing_to_move_says_so_and_still_carries_the_plan(project: Project) -> None:
+    project.targets = project.installed()
+
+    view = engine.plan(env_for(project), options(project))
+
+    assert (view.outcome, view.message) == (Outcome.NOTHING_TO_DO, HELP_PLAN_NO_RECOMMENDATIONS)
+    assert view.plan is not None
+    assert not (project.root / ".ossiq").exists()
+
+
+def test_the_message_for_nothing_to_move_names_a_tier_other_than_the_default(project: Project) -> None:
+    project.targets = project.installed()
+    project.strategy = UpdateStrategy.SECURITY
+
+    view = engine.plan(env_for(project), options(project))
+
+    assert view.message == HELP_PLAN_NO_RECOMMENDATIONS_FOR_TIER.format(tier="security")
+
+
+def test_plan_refuses_a_package_manager_without_session_support(project: Project) -> None:
+    project.manager.supports_upgrade_session = False
+
+    with pytest.raises(UpgradeSessionError, match="does not support npm"):
+        engine.plan(env_for(project), options(project))
+
+
+def test_start_carries_the_plan_for_its_holds_and_a_later_status_does_not(project: Project) -> None:
+    assert start(project).plan is not None
+    assert engine.status(env_for(project), str(project.root)).plan is None
+
+
+def test_start_over_a_session_refuses_before_it_scans(project: Project) -> None:
+    start(project)
+
+    def never(_: Any) -> Any:
+        raise AssertionError("scanned")
+
+    with pytest.raises(UpgradeSessionError, match="already in progress"):
+        engine.start(UpgradeEnv(settings=cast(Any, None), plan=never), options(project))
+
+
+def test_a_changed_flag_on_a_move_is_not_a_new_version_to_review(project: Project) -> None:
+    start(project)
+    session = store.load(project.root)
+    stale = dataclasses.replace(session.steps[0].packages[0], is_security=True, needs_ack=True)
+    store.save(project.root, session.with_step(dataclasses.replace(session.steps[0], packages=(stale,))))
+
+    view = engine.apply(env_for(project), str(project.root))
+
+    assert project.installed()["vite"] == "2.0.0" and not view.attention

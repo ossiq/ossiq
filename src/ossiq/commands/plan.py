@@ -19,7 +19,6 @@ from ossiq.messages import (
     HELP_APPLY_PASS,
     HELP_APPLY_RERUN_HINT,
     HELP_PLAN_ACKNOWLEDGE_CONFIRM_HEADER,
-    HELP_PLAN_HIGHER_TIER_FOOTER,
     HELP_PLAN_NO_RECOMMENDATIONS,
     HELP_PLAN_NO_RECOMMENDATIONS_FOR_TIER,
     WARNING_OVERRIDE_AMBIGUOUS_ALIAS,
@@ -35,7 +34,7 @@ from ossiq.service.update.overrides import find_override_record, override_alias_
 from ossiq.service.update.plan import plan_project
 from ossiq.settings import Settings
 from ossiq.sources.project_sources import ProjectSources
-from ossiq.strategy.pyramid import DEFAULT_STRATEGY, PYRAMID, UpdateStrategy, tier_index
+from ossiq.strategy.pyramid import DEFAULT_STRATEGY, UpdateStrategy
 from ossiq.timeutil import parse_iso_datetime
 from ossiq.ui.registry import get_renderer
 from ossiq.ui.system import show_error, show_scan_progress
@@ -166,13 +165,14 @@ def warn_strategy_overrides(
             typer.echo(WARNING_STRATEGY_OVERRIDE_UNKNOWN_PACKAGE.format(package=name), err=True)
 
 
-def prepare_plan(ctx: typer.Context, options: PlanOptions) -> tuple[ProjectSources, UpdatePlan] | None:
-    """Scan the project and build the update plan. Returns None when nothing needs updating."""
-    settings: Settings = ctx.obj
+def check_plan_overrides(
+    sources: ProjectSources, scan_result: ScanResult, plan: UpdatePlan, options: PlanOptions
+) -> None:
+    """Check the user's `--override` and `--strategy-override` against the plan that was just built.
 
-    with show_scan_progress(settings) as progress:
-        sources, scan_result, plan = plan_project(settings, options, progress)
-
+    Raises:
+        typer.Exit: With code 2 when an `--override` names a package that is not in the tree.
+    """
     if plan.unknown_override_packages:
         packages = ", ".join(plan.unknown_override_packages)
         show_error(ERROR_OVERRIDE_UNKNOWN_PACKAGES.format(packages=packages))
@@ -184,16 +184,17 @@ def prepare_plan(ctx: typer.Context, options: PlanOptions) -> tuple[ProjectSourc
     if options.strategy_overrides:
         warn_strategy_overrides(plan, options.strategy_overrides, options.overrides)
 
-    if (
-        not plan.direct_entries
-        and not plan.transitive_entries
-        and not plan.held_for_cooldown
-        and not plan.held_for_widening
-        and not plan.held_by_user_overrides
-        and not plan.held_by_peers
-        and not plan.held_by_policy
-        and not plan.peer_repairs
-    ):
+
+def prepare_plan(ctx: typer.Context, options: PlanOptions) -> tuple[ProjectSources, UpdatePlan] | None:
+    """Scan the project and build the update plan. Returns None when nothing needs updating."""
+    settings: Settings = ctx.obj
+
+    with show_scan_progress(settings) as progress:
+        sources, scan_result, plan = plan_project(settings, options, progress)
+
+    check_plan_overrides(sources, scan_result, plan, options)
+
+    if not plan.direct_entries and not plan.transitive_entries and not plan.has_holds and not plan.peer_repairs:
         if options.update_strategy == DEFAULT_STRATEGY:
             typer.echo(HELP_PLAN_NO_RECOMMENDATIONS)
         else:
@@ -201,17 +202,6 @@ def prepare_plan(ctx: typer.Context, options: PlanOptions) -> tuple[ProjectSourc
         return None
 
     return sources, plan
-
-
-def render_higher_tier_footer(plan: UpdatePlan) -> None:
-    """Print "N more updates available under --update-strategy X" for each higher tier that
-    would move a withheld package, lowest tier first."""
-    for tier in PYRAMID:
-        count = plan.available_at_higher_tier.get(tier)
-        if not count or tier_index(tier) <= tier_index(plan.strategy):
-            continue
-        plural = "s" if count != 1 else ""
-        typer.echo(HELP_PLAN_HIGHER_TIER_FOOTER.format(count=count, plural=plural, tier=tier.value))
 
 
 def command_plan(ctx: typer.Context, options: PlanOptions) -> None:
@@ -223,7 +213,6 @@ def command_plan(ctx: typer.Context, options: PlanOptions) -> None:
     plan = result[1]
     renderer = get_renderer(Command.PLAN, UserInterfaceType.CONSOLE, ctx.obj)
     renderer.render(data=plan, script="")
-    render_higher_tier_footer(plan)
 
 
 def confirm_acknowledged(plan: UpdatePlan) -> bool:
@@ -273,7 +262,6 @@ def command_apply(ctx: typer.Context, options: PlanOptions, yes: bool = False) -
     sources, plan = result
     renderer = get_renderer(Command.PLAN, UserInterfaceType.CONSOLE, ctx.obj)
     renderer.render(data=plan, script="")
-    render_higher_tier_footer(plan)
 
     if not plan.all_entries:
         return

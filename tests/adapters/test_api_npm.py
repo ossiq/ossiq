@@ -42,7 +42,7 @@ def npm_api():
 def mock_npm_response(npm_api):
     class MockHelper:
         def set_response(self, name: str, data: dict):
-            npm_api._raw_cache[name] = data
+            npm_api.store_packument(name, data)
 
     return MockHelper()
 
@@ -89,12 +89,26 @@ class TestPackageInfosBatch:
             with pytest.raises(UnableLoadPackage):
                 npm_api.packages_info_batch(["missing"])
 
-    def test_uses_raw_cache_to_avoid_refetch(self, npm_api):
-        npm_api._raw_cache["cached"] = {"name": "cached", "dist-tags": {"latest": "2.0.0"}}
+    def test_a_stored_package_is_not_refetched(self, npm_api):
+        npm_api.store_packument("cached", {"name": "cached", "dist-tags": {"latest": "2.0.0"}})
         with patch.object(BatchClient, "run_batch", return_value=iter([])) as mock_run:
             result = npm_api.packages_info_batch(["cached"])
         mock_run.assert_called_once_with([])
         assert result["cached"].latest_version == "2.0.0"
+
+    def test_a_package_the_caller_adjusts_does_not_change_the_next_answer(self, npm_api):
+        npm_api.store_packument("pkg", {"name": "pkg", "dist-tags": {"latest": "2.0.0"}})
+        npm_api.packages_info_batch(["pkg"])["pkg"].latest_version = "9.9.9"
+
+        assert npm_api.packages_info_batch(["pkg"])["pkg"].latest_version == "2.0.0"
+
+    def test_the_registry_document_is_not_kept(self, npm_api):
+        raw = {"pkg": {"name": "pkg", "dist-tags": {"latest": "1.0.0"}, "versions": {"1.0.0": {}}}}
+        with patch.object(BatchClient, "run_batch", return_value=iter([raw])):
+            npm_api.packages_info_batch(["pkg"])
+
+        assert [pv.version for pv in npm_api.package_versions("pkg")] == ["1.0.0"]
+        assert not hasattr(npm_api, "_raw_cache")
 
 
 class TestPackageInfo:
@@ -731,6 +745,29 @@ class TestPackageVersionOptionalRequires:
         mock_npm_response.set_response("lodash", {"versions": {}})
 
         assert npm_api.package_version_optional_requires("lodash", "9.9.9") == {}
+
+    def test_per_version_lookups_answer_from_the_stored_releases(self, npm_api, mock_npm_response):
+        mock_npm_response.set_response(
+            "pkg",
+            {
+                "name": "pkg",
+                "time": {"1.0.0": "2024-01-02T03:04:05.000Z"},
+                "versions": {
+                    "1.0.0": {
+                        "dependencies": {"a": "^1"},
+                        "optionalDependencies": {"b": "^2"},
+                        "peerDependencies": {"c": "^3"},
+                    }
+                },
+            },
+        )
+
+        assert npm_api.package_version_requires("pkg", "1.0.0") == {"a": "^1"}
+        assert npm_api.package_version_optional_requires("pkg", "1.0.0") == {"b": "^2"}
+        assert npm_api.package_version_peers("pkg", "1.0.0") == {"c": PeerDependency("^3")}
+        assert npm_api.package_version_published("pkg", "1.0.0").year == 2024
+        assert npm_api.package_version_requires("pkg", "9.9.9") == {}
+        assert npm_api.package_version_published("never-fetched", "1.0.0") is None
 
 
 class TestNpmPeerDependencies:

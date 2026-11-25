@@ -8,12 +8,14 @@ from typing import Any
 
 from ossiq.domain.changelog import RangeChangelog
 from ossiq.domain.common import EngineContext
+from ossiq.domain.update_plan import UpdatePlan
 from ossiq.service.package import PackageDetailResult
 from ossiq.service.project.models import ScanRecord
 from ossiq.service.upgrade.models import StepPackage, UpgradeSession, UpgradeStep
 
 
 class Outcome(StrEnum):
+    PLANNED = "PLANNED"
     IN_PROGRESS = "IN_PROGRESS"
     COMPLETED = "COMPLETED"
     FINISHED = "FINISHED"
@@ -57,3 +59,5 @@ class UpgradeView:
     """Set by `changelog`: the full range changelog of each direct package of the step."""
     attention: bool = False
     """The step needs the user: tests failed, the install was refused, or the target moved."""
+    plan: UpdatePlan | None = None
+    """The plan the queue came from, so a renderer can show what it holds back. Set by `plan` and `start`."""

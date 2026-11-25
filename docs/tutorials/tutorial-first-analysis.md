@@ -8,7 +8,7 @@ By the end, you'll have performed a full dependency analysis and know how to use
 
 **Prerequisites:**
 
-- Python 3.11+ or Node.js
+- Python 3.12+ or Node.js
 - A GitHub account
 - Basic familiarity with the command line
 

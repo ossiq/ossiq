@@ -32,7 +32,7 @@ To install it permanently, pick one channel:
 
 | Channel | Install | Needs |
 |---|---|---|
-| PyPI | `uv tool install ossiq` or `pipx install ossiq` | Python 3.11+ |
+| PyPI | `uv tool install ossiq` or `pipx install ossiq` | Python 3.12+ |
 | npm | `npm install -g @ossiq/cli` | Node.js only |
 | Docker | `docker pull ossiq/ossiq-cli` | Docker |
 

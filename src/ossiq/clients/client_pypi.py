@@ -9,6 +9,7 @@ import requests
 from packaging.utils import canonicalize_name
 
 from ossiq.clients.batch import BatchClient, BatchStrategy, BatchStrategySettings, ChunkResult
+from ossiq.clients.common import decode_registry_json
 
 PYPI_REGISTRY = "https://pypi.org/pypi"
 PYPI_SIMPLE = "https://pypi.org/simple"
@@ -46,6 +47,9 @@ class PypiBatchStrategy(BatchStrategy):
     def perform_request(self, chunk: list) -> requests.Response:
         name = chunk[0]
         return self.session.get(f"{self.BASE_URL}/{name}/json", timeout=self.config.request_timeout)
+
+    def decode_response(self, resp: requests.Response) -> Any:
+        return decode_registry_json(resp)
 
     def process_response(self, source_items: list, response: ChunkResult) -> dict[str, dict]:  # noqa: ARG002
         return {source_items[0]: response.data[0]}

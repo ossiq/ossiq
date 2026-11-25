@@ -4,21 +4,12 @@ from rich.console import Console
 from rich.rule import Rule
 from rich.table import Table
 
-from ossiq.domain.common import Command, UserInterfaceType, rung_scope_label
+from ossiq.domain.common import Command, UserInterfaceType
 from ossiq.domain.update_plan import UpdateEntry, UpdatePlan
 from ossiq.messages import (
     HELP_PLAN_CONVERGENCE_NOTICE,
     HELP_PLAN_CVE_BYPASS_NOTE,
-    HELP_PLAN_FORCED_WARNING,
-    HELP_PLAN_HELD_BY_PACKAGE_MANAGER_HEADER,
-    HELP_PLAN_HELD_BY_PEERS_HEADER,
-    HELP_PLAN_HELD_BY_POLICY_HEADER,
-    HELP_PLAN_HELD_BY_USER_OVERRIDES_HEADER,
-    HELP_PLAN_HELD_FOR_COOLDOWN_HEADER,
-    HELP_PLAN_HELD_FOR_WIDENING_HEADER,
     HELP_PLAN_KNOWN_BREAK_NOTE,
-    HELP_PLAN_NEW_DEP_FRESH_WARNING,
-    HELP_PLAN_NEW_DEP_HELD_BY_MANAGER,
     HELP_PLAN_PASS_HEADER,
     HELP_PLAN_PASS_ORDER,
     HELP_PLAN_PASS_UNRESOLVED,
@@ -26,19 +17,17 @@ from ossiq.messages import (
     HELP_PLAN_PEER_REPAIRS_HEADER,
 )
 from ossiq.ui.interfaces import AbstractUserInterfaceRenderer
-from ossiq.ui.renderers.impact_utils import (
-    format_cutoff,
-    impact_sub_row_texts,
-    is_fresh_new_dep,
-    new_transitive_deps_table,
+from ossiq.ui.renderers.impact_utils import impact_sub_row_texts
+from ossiq.ui.renderers.upgrade.plan_notes import (
+    age_cell,
+    new_dependency_impacts,
+    render_forced_warning,
+    render_higher_tier_footer,
+    render_holds,
+    render_new_dependencies,
 )
 
 console = Console()
-
-
-def age_cell(entry: UpdateEntry) -> str:
-    """Age of the entry's target in days, or a dash when the registry gave no publish date."""
-    return f"{entry.reason.age_days}d" if entry.reason and entry.reason.age_days is not None else "—"
 
 
 def package_cell_text(entry: UpdateEntry) -> str:
@@ -104,41 +93,18 @@ class ConsolePlanRenderer(AbstractUserInterfaceRenderer):
             console.print(table)
             console.print()
 
-            if any(entry.is_forced for entry in data.all_entries):
-                console.print(f"[yellow]{HELP_PLAN_FORCED_WARNING}[/yellow]")
-                console.print()
-
-            new_dep_impacts = [
-                i for entry in data.direct_entries for i in entry.transitive_impacts if i.current_version is None
-            ]
-            table_new_deps = new_transitive_deps_table(new_dep_impacts, cooldown_period=data.cooldown_period)
-            if table_new_deps:
-                console.print(table_new_deps)
-                console.print()
-                if any(is_fresh_new_dep(i, data.cooldown_period) for i in new_dep_impacts):
-                    if data.enforces_cooldown_on_install:
-                        notice = HELP_PLAN_NEW_DEP_HELD_BY_MANAGER.format(
-                            manager=data.package_manager_name.lower(), days=data.cooldown_period
-                        )
-                        console.print(f"[dim]{notice}[/dim]")
-                    else:
-                        warning = HELP_PLAN_NEW_DEP_FRESH_WARNING.format(days=data.cooldown_period)
-                        console.print(f"[yellow]{warning}[/yellow]")
-                    console.print()
+            render_forced_warning(console, data)
+            render_new_dependencies(console, data)
 
             if data.pass_count > 1:
                 console.print(f"[dim]{HELP_PLAN_PASSES_NOTICE.format(total=data.pass_count)}[/dim]")
                 console.print()
 
-            if data.transitive_entries or new_dep_impacts:
+            if data.transitive_entries or new_dependency_impacts(data):
                 console.print(f"[dim]{HELP_PLAN_CONVERGENCE_NOTICE}[/dim]")
                 console.print()
 
-        self.render_held_for_cooldown(data)
-        self.render_held_for_widening(data)
-        self.render_held_by_user_overrides(data)
-        self.render_held_by_peers(data)
-        self.render_held_by_policy(data)
+        render_holds(console, data)
         self.render_peer_repairs(data)
 
         if script:
@@ -147,6 +113,8 @@ class ConsolePlanRenderer(AbstractUserInterfaceRenderer):
             console.print(script)
             console.print()
             console.print(Rule("End of Plan Script", style="dim"))
+
+        render_higher_tier_footer(console, data)
 
     @staticmethod
     def add_entry_rows(table: Table, entry: UpdateEntry, data: UpdatePlan) -> None:
@@ -178,122 +146,6 @@ class ConsolePlanRenderer(AbstractUserInterfaceRenderer):
         if entry.is_direct:
             for text in impact_sub_row_texts(entry.transitive_impacts):
                 table.add_row(text, "", "", "", "")
-
-    def render_held_for_cooldown(self, data: UpdatePlan) -> None:
-        """List recommendations withheld because their target version is too young to move to.
-
-        OSS IQ's cooldown and the package manager's release cutoff get separate tables: only the
-        first is OSS IQ's call, and naming the wrong one sends the user to the wrong setting.
-        """
-        by_cooldown = [e for e in data.held_for_cooldown if e.held_by is None]
-        by_package_manager = [e for e in data.held_for_cooldown if e.held_by is not None]
-
-        if by_cooldown:
-            console.print(f"[yellow]{HELP_PLAN_HELD_FOR_COOLDOWN_HEADER.format(days=data.cooldown_period)}[/yellow]")
-            table = Table(show_header=True, header_style="bold dim", box=None, padding=(0, 2))
-            table.add_column("Package", style="bold")
-            table.add_column("Current", style="red")
-            table.add_column("Recommended", style="green")
-            table.add_column("Age", style="dim")
-            table.add_column("Type", style="dim")
-            for entry in by_cooldown:
-                dep_type = "direct" if entry.is_direct else "transitive"
-                versions = (entry.current_version, entry.recommended_version)
-                table.add_row(entry.display_name, *versions, age_cell(entry), dep_type)
-            console.print(table)
-            console.print()
-
-        if by_package_manager:
-            header = HELP_PLAN_HELD_BY_PACKAGE_MANAGER_HEADER.format(setting=by_package_manager[0].held_by)
-            console.print(f"[yellow]{header}[/yellow]")
-            table = Table(show_header=True, header_style="bold dim", box=None, padding=(0, 2))
-            table.add_column("Package", style="bold")
-            table.add_column("Current", style="red")
-            table.add_column("Waiting on", style="green")
-            table.add_column("Age", style="dim")
-            table.add_column("Cutoff", style="dim")
-            for entry in by_package_manager:
-                cutoff = format_cutoff(entry.held_cutoff) if entry.held_cutoff is not None else "—"
-                versions = (entry.current_version, entry.recommended_version)
-                table.add_row(entry.display_name, *versions, age_cell(entry), cutoff)
-            console.print(table)
-            console.print()
-
-    def render_held_for_widening(self, data: UpdatePlan) -> None:
-        """List recommendations withheld because reaching them requires widening the declared range."""
-        if not data.held_for_widening:
-            return
-
-        console.print(f"[yellow]{HELP_PLAN_HELD_FOR_WIDENING_HEADER}[/yellow]")
-        table = Table(show_header=True, header_style="bold dim", box=None, padding=(0, 2))
-        table.add_column("Package", style="bold")
-        table.add_column("Current", style="red")
-        table.add_column("Declared", style="dim")
-        table.add_column("Reachable", style="green")
-        table.add_column("Scope", style="dim")
-        table.add_column("Type", style="dim")
-        for entry in data.held_for_widening:
-            dep_type = "direct" if entry.is_direct else "transitive"
-            scope = rung_scope_label(entry.from_rung)
-            table.add_row(
-                entry.display_name,
-                entry.current_version,
-                entry.version_defined or "—",
-                entry.recommended_version,
-                scope,
-                dep_type,
-            )
-        console.print(table)
-        console.print()
-
-    def render_held_by_user_overrides(self, data: UpdatePlan) -> None:
-        """List the overrides the user wrote that kept an update out of the plan."""
-        if not data.held_by_user_overrides:
-            return
-
-        console.print(f"[yellow]{HELP_PLAN_HELD_BY_USER_OVERRIDES_HEADER}[/yellow]")
-        table = Table(show_header=True, header_style="bold dim", box=None, padding=(0, 2))
-        table.add_column("Override", style="bold")
-        table.add_column("Forces", style="green")
-        table.add_column("Declared in", style="dim")
-        table.add_column("Keeps back", style="dim")
-        for hold in data.held_by_user_overrides:
-            name = f"{hold.package}@{hold.key}" if hold.key else hold.package
-            table.add_row(name, hold.value, hold.source_file or "—", ", ".join(hold.blocked))
-        console.print(table)
-        console.print()
-
-    def render_held_by_peers(self, data: UpdatePlan) -> None:
-        """List the packages whose newer release an installed package's peer range rules out."""
-        if not data.held_by_peers:
-            return
-
-        console.print(f"[yellow]{HELP_PLAN_HELD_BY_PEERS_HEADER}[/yellow]")
-        table = Table(show_header=True, header_style="bold dim", box=None, padding=(0, 2))
-        table.add_column("Package", style="bold")
-        table.add_column("Refused", style="green")
-        table.add_column("Peer-required by", style="dim")
-        table.add_column("Range", style="dim")
-        for hold in data.held_by_peers:
-            requirer = f"{hold.requirer} (+{hold.others} more)" if hold.others else hold.requirer
-            table.add_row(hold.package, hold.blocked_version, requirer, hold.spec)
-        console.print(table)
-        console.print()
-
-    def render_held_by_policy(self, data: UpdatePlan) -> None:
-        """List the packages whose newer release the user's supply-chain policy rules out."""
-        if not data.held_by_policy:
-            return
-
-        console.print(f"[yellow]{HELP_PLAN_HELD_BY_POLICY_HEADER}[/yellow]")
-        table = Table(show_header=True, header_style="bold dim", box=None, padding=(0, 2))
-        table.add_column("Package", style="bold")
-        table.add_column("Refused", style="green")
-        table.add_column("Why", style="dim")
-        for hold in data.held_by_policy:
-            table.add_row(hold.package, hold.blocked_version, hold.reason)
-        console.print(table)
-        console.print()
 
     def render_peer_repairs(self, data: UpdatePlan) -> None:
         """List the peers the plan puts back in reach, and the family copies that move with them."""

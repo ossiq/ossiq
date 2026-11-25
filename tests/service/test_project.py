@@ -16,13 +16,14 @@ from ossiq.domain.cve import CVE, Severity
 from ossiq.domain.package import Package
 from ossiq.domain.packages_manager import UV
 from ossiq.domain.project import ConstraintSource, Dependency, IncomingEdge, InstalledCopy, PeerRequirement, Project
+from ossiq.domain.repository import Repository
 from ossiq.domain.update_plan import ImpactKind, TransitiveImpact
 from ossiq.domain.version import PackageVersion, VersionsDifference
 from ossiq.messages import IGNORE_REASON_IGNORE_FLAG, IGNORE_REASON_NON_REGISTRY
 from ossiq.risk.maintenance import DeprecationSignal
 from ossiq.service.project.models import DependencyDescriptor, ScanRecord
 from ossiq.service.project.prefetch import build_ignored_packages, get_package_versions_since, partition_git_hosted
-from ossiq.service.project.records import calculate_version_age_days, scan_record, scan_sort_key
+from ossiq.service.project.records import calculate_version_age_days, package_deprecation, scan_record, scan_sort_key
 from ossiq.service.project.scan import (
     ScanDescriptors,
     build_scan_descriptors,
@@ -1103,6 +1104,26 @@ class TestScanRecordRegistryVerdict:
         record = self.record(mock_package_registry, mock_package, mock_versions)
 
         assert DeprecationSignal.REGISTRY_DEPRECATED in record.deprecation.signals
+
+    def test_package_deprecation_gathers_registry_repository_and_readme_markers(self, mock_package):
+        mock_package.registry_status = RegistryStatus.DEPRECATED
+        repository = Repository(
+            provider="github", name="requests", owner="psf", description=None, html_url=None, archived=True
+        )
+
+        evidence = package_deprecation(mock_package, repository, "This project is deprecated.", ["Moving house"])
+
+        assert {
+            DeprecationSignal.REGISTRY_DEPRECATED,
+            DeprecationSignal.ARCHIVED,
+            DeprecationSignal.README_MARKED,
+        } <= evidence.signals
+
+    def test_package_deprecation_without_a_repository_reads_only_the_registry(self, mock_package):
+        evidence = package_deprecation(mock_package, None, None, None)
+
+        assert evidence.signals == frozenset()
+        assert evidence.successor is None
 
     def test_quarantine_is_not_deprecation_evidence(self, mock_package_registry, mock_package, mock_versions):
         mock_package.registry_status = RegistryStatus.QUARANTINED

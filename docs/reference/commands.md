@@ -212,8 +212,10 @@ A flag beats the `.ossiq.yaml` default.
 
 ### Steps and their states
 
-A step is one direct dependency plus the transitive copies and peers that must move with it. The
-transitive updates no direct dependency pulls in share the last step. A step is in one state:
+A step is one direct dependency plus the transitive copies and peers that must move with it. Each
+transitive update no direct dependency pulls in is a step of its own, right after the step of the
+direct dependency it sits under. Each [peer repair](update-rules.md#peer-repairs-npm-and-pnpm) is a step of its own,
+right after the first step that moves a package needing the peer. A step is in one state:
 
 | State | Meaning |
 |---|---|

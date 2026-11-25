@@ -8,10 +8,12 @@ import sys
 import webbrowser
 from collections.abc import Callable, Generator
 from contextlib import contextmanager, nullcontext
+from pathlib import Path
 from typing import Literal
 
 import typer
 
+from ossiq.commands.plan import check_plan_overrides
 from ossiq.domain.common import Command, UserInterfaceType
 from ossiq.domain.exceptions import ApplicationError
 from ossiq.service.update.models import PlanOptions
@@ -19,7 +21,7 @@ from ossiq.service.update.plan import plan_project
 from ossiq.service.upgrade import engine
 from ossiq.service.upgrade.engine import Planned, UpgradeEnv
 from ossiq.service.upgrade.preview import changelog_fetcher
-from ossiq.service.upgrade.view import Outcome, UpgradeView
+from ossiq.service.upgrade.view import UpgradeView
 from ossiq.settings import Settings
 from ossiq.ui.registry import get_renderer
 from ossiq.ui.system import show_error, show_scan_progress
@@ -128,7 +130,7 @@ def run_interactive(ctx: typer.Context, env: UpgradeEnv, view: UpgradeView, proj
     renderer = get_renderer(Command.UPGRADE, UserInterfaceType.CONSOLE, ctx.obj)
     while True:
         renderer.render(data=dataclasses.replace(view, commands=()))
-        if view.outcome is not Outcome.IN_PROGRESS:
+        if not view.commands:
             return
         by_key = menu_keys(view.commands)
         typer.echo(menu_line(view.commands))
@@ -169,6 +171,22 @@ def open_web(project_path: str) -> None:
         webbrowser.open(url)
 
 
+def first_plan(env: UpgradeEnv, options: PlanOptions) -> Planned:
+    """Plan the project once and check the user's overrides against that plan.
+
+    The engine takes the result as `planned=`, so the checks run on the first plan only and nothing
+    scans twice.
+    """
+    planned = env.plan(options)
+    check_plan_overrides(*planned, options)
+    return planned
+
+
+def command_upgrade_plan(ctx: typer.Context, options: PlanOptions, output_format: Literal["console", "agent"]) -> None:
+    """Show the steps and the holds, and save nothing."""
+    run_engine(ctx, output_format, lambda env: engine.plan(env, options, planned=first_plan(env, options)))
+
+
 def command_upgrade_start(
     ctx: typer.Context,
     options: PlanOptions,
@@ -179,12 +197,14 @@ def command_upgrade_start(
     output_format: Literal["console", "agent"],
     interactive: bool = False,
 ) -> None:
-    run_engine(
-        ctx,
-        output_format,
-        lambda env: engine.start(env, options, package=package, limit=limit, test_command=test_command),
-        options.project_path if interactive else None,
-    )
+
+    def start(env: UpgradeEnv) -> UpgradeView:
+        # Refuse before the scan, not after it: a session in the way makes the scan wasted work.
+        engine.require_no_session(Path(options.project_path))
+        planned = first_plan(env, options)
+        return engine.start(env, options, package=package, limit=limit, test_command=test_command, planned=planned)
+
+    run_engine(ctx, output_format, start, options.project_path if interactive else None)
 
 
 def command_upgrade(

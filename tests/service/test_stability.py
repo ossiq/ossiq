@@ -215,32 +215,38 @@ def stability_stub(*, silence_p: float | None = 0.5, silence_days: float | None 
     return RepositoryStability(silence_p=silence_p, silence_days=silence_days, flow_trend=flow_trend)
 
 
+def observations(record) -> dict[str, object]:
+    return maintenance_observations(
+        record.stability, record.deprecation, record.days_since_push, record.latest_release_age_days
+    )
+
+
 class TestMaintenanceObservations:
     def test_strong_deprecation_drops_the_commit_recency_observations(self) -> None:
         deprecation = DeprecationEvidence(frozenset({DeprecationSignal.ARCHIVED}), None)
         record = make_record("x", deprecation=deprecation)
         record.stability = stability_stub(flow_trend="declining")
         record.days_since_push = 3
-        assert maintenance_observations(record) == {"deprecation_strength": DEPRECATION_STRONG}
+        assert observations(record) == {"deprecation_strength": DEPRECATION_STRONG}
 
     def test_flow_trend_is_dropped_on_a_freshly_pushed_repo(self) -> None:
         record = make_record("x")
         record.stability = stability_stub(flow_trend="declining")
         record.days_since_push = 10  # fresh
-        assert maintenance_observations(record)["flow_trend"] is None
+        assert observations(record)["flow_trend"] is None
 
     def test_flow_trend_is_kept_once_activity_has_slowed(self) -> None:
         record = make_record("x")
         record.stability = stability_stub(flow_trend="declining")
         record.days_since_push = 200  # aging
-        assert maintenance_observations(record)["flow_trend"] == "declining"
+        assert observations(record)["flow_trend"] == "declining"
 
     def test_release_age_is_observed_once_the_repo_has_gone_quiet(self) -> None:
         record = make_record("x")
         record.stability = stability_stub()
         record.days_since_push = 200  # aging
         record.latest_release_age_days = 40
-        assert maintenance_observations(record)["release_age"] == "current"
+        assert observations(record)["release_age"] == "current"
 
     def test_release_age_is_dropped_on_a_freshly_pushed_repo(self) -> None:
         # Correlated with the push it would be scored alongside; counting both double-counts.
@@ -248,11 +254,11 @@ class TestMaintenanceObservations:
         record.stability = stability_stub()
         record.days_since_push = 10  # fresh
         record.latest_release_age_days = 40
-        assert maintenance_observations(record)["release_age"] is None
+        assert observations(record)["release_age"] is None
 
     def test_none_deprecation_strength_alone_is_not_an_observation(self) -> None:
         record = make_record("x")  # no repository, no stability, no deprecation markers
-        assert all(value is None for value in maintenance_observations(record).values())
+        assert all(value is None for value in observations(record).values())
 
 
 class TestPopulateStability:

@@ -45,26 +45,28 @@ from ossiq.settings import Settings
 
 @pytest.fixture
 def pypi_api():
-    """Create a PyPI API instance for testing."""
-    settings = Settings()
-    return PackageRegistryApiPypi(settings)
+    """A PyPI API instance whose Simple API page comes back empty unless a test patches it, so no test goes online."""
+    api = PackageRegistryApiPypi(Settings())
+    with patch.object(api._index_batch_client, "run_batch", side_effect=lambda names: iter([])):
+        yield api
 
 
 @pytest.fixture
 def mock_pypi_response(pypi_api):
     """
-    Fixture to mock PyPI registry API responses via _raw_cache.
+    Fixture to mock PyPI registry API responses.
 
-    Populates _raw_cache directly, bypassing HTTP, so packages_info_batch
-    and package_versions use cached data without network calls.
+    Stores the document directly, bypassing HTTP, so packages_info_batch
+    and package_versions answer without network calls.
     """
 
     class MockHelper:
         def set_response(self, name: str, data: dict):
-            pypi_api._raw_cache[name] = data
+            pypi_api.store_project(name, data)
 
         def clear(self):
-            pypi_api._raw_cache.clear()
+            pypi_api.packages.clear()
+            pypi_api.releases.clear()
 
     return MockHelper()
 
@@ -278,21 +280,24 @@ class TestPackageInfosBatch:
             with pytest.raises(UnableLoadPackage):
                 pypi_api.packages_info_batch(["missing-pkg"])
 
-    def test_uses_raw_cache_to_avoid_refetch(self, pypi_api):
-        """Names already in _raw_cache are not passed to run_batch."""
-        pypi_api._raw_cache["cached-pkg"] = {
-            "info": {
-                "name": "cached-pkg",
-                "version": "1.0.0",
-                "project_urls": {},
-                "author": None,
-                "home_page": None,
-                "summary": None,
-                "package_url": None,
-                "license": None,
+    def test_a_stored_package_is_not_refetched(self, pypi_api):
+        """Names already stored are not passed to run_batch."""
+        pypi_api.store_project(
+            "cached-pkg",
+            {
+                "info": {
+                    "name": "cached-pkg",
+                    "version": "1.0.0",
+                    "project_urls": {},
+                    "author": None,
+                    "home_page": None,
+                    "summary": None,
+                    "package_url": None,
+                    "license": None,
+                },
+                "releases": {},
             },
-            "releases": {},
-        }
+        )
         with patch.object(BatchClient, "run_batch", return_value=iter([])) as mock_run:
             result = pypi_api.packages_info_batch(["cached-pkg"])
 
@@ -429,15 +434,13 @@ class TestRegistryStatus:
         # The first answer is remembered, not asked for again.
         assert package.registry_status == RegistryStatus.ACTIVE
 
-    def test_a_package_that_failed_to_load_is_never_asked_for_a_status(self, pypi_api):
-        with (
-            patch.object(pypi_api._batch_client, "run_batch", return_value=iter([])),
-            patch.object(pypi_api._index_batch_client, "run_batch") as status_batch,
-        ):
+    def test_a_package_that_failed_to_load_raises_and_is_not_stored(self, pypi_api):
+        # The Simple page is asked for first, so a name whose JSON fails still costs that one request.
+        with patch.object(pypi_api._batch_client, "run_batch", return_value=iter([])):
             with pytest.raises(UnableLoadPackage):
                 pypi_api.packages_info_batch(["missing"])
 
-        status_batch.assert_not_called()
+        assert "missing" not in pypi_api.packages
 
 
 class TestPypiTrustTier:
@@ -792,18 +795,21 @@ class TestPackageVersions:
 def straddling_registry() -> PackageRegistryApiPypi:
     """A registry holding one package whose 2.0.0 files were uploaded on different days."""
     api = PackageRegistryApiPypi(Settings())
-    api._raw_cache["Plat_Dirs"] = {
-        "info": {"name": "plat-dirs", "version": "3.0.0", "requires_dist": [], "license": None, "summary": None},
-        "releases": {
-            "1.0.0": [{"upload_time_iso_8601": "2026-09-01T00:00:00Z", "yanked": False}],
-            # Listed newest-first: the wheel was added after the sdist.
-            "2.0.0": [
-                {"upload_time_iso_8601": "2026-09-20T00:00:00Z", "yanked": False},
-                {"upload_time_iso_8601": "2026-09-10T00:00:00Z", "yanked": False},
-            ],
-            "3.0.0": [{"upload_time_iso_8601": "2026-09-22T01:02:35Z", "yanked": False}],
+    api.store_project(
+        "Plat_Dirs",
+        {
+            "info": {"name": "plat-dirs", "version": "3.0.0", "requires_dist": [], "license": None, "summary": None},
+            "releases": {
+                "1.0.0": [{"upload_time_iso_8601": "2026-09-01T00:00:00Z", "yanked": False}],
+                # Listed newest-first: the wheel was added after the sdist.
+                "2.0.0": [
+                    {"upload_time_iso_8601": "2026-09-20T00:00:00Z", "yanked": False},
+                    {"upload_time_iso_8601": "2026-09-10T00:00:00Z", "yanked": False},
+                ],
+                "3.0.0": [{"upload_time_iso_8601": "2026-09-22T01:02:35Z", "yanked": False}],
+            },
         },
-    }
+    )
     return api
 
 

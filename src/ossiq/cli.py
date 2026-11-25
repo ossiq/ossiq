@@ -7,7 +7,7 @@ import os
 from collections.abc import Callable, Generator
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Annotated, Literal, ParamSpec, TypeVar, cast
+from typing import Annotated, Literal, cast
 
 import typer
 from rich.console import Console
@@ -36,7 +36,12 @@ from ossiq.commands.plan import (
 )
 from ossiq.commands.status import CommandStatusOptions, command_status
 from ossiq.commands.update_context import CommandUpdateContextOptions, command_update_context
-from ossiq.commands.upgrade import command_upgrade, command_upgrade_changelog, command_upgrade_start
+from ossiq.commands.upgrade import (
+    command_upgrade,
+    command_upgrade_changelog,
+    command_upgrade_plan,
+    command_upgrade_start,
+)
 from ossiq.domain.exceptions import ApplicationError, InvalidConfiguration
 from ossiq.mcp.server import serve as serve_mcp
 from ossiq.messages import (
@@ -95,6 +100,22 @@ from ossiq.ui.system import show_error, show_settings
 # declarations were the reason a seventh command would have been easy to get subtly wrong.
 UpdateStrategyOption = Annotated[str, typer.Option("--update-strategy", help=HELP_UPDATE_STRATEGY)]
 StrategyOverrideOption = Annotated[list[str] | None, typer.Option("--strategy-override", help=HELP_STRATEGY_OVERRIDE)]
+RegistryTypeOption = Annotated[
+    Literal["npm", "pypi"] | None, typer.Option("--registry-type", "-r", help=HELP_REGISTRY_TYPE)
+]
+AllowPrereleaseOption = Annotated[
+    bool, typer.Option("--allow-prerelease", help="Include pre-release versions in drift calculations")
+]
+AllowPrereleasePackageOption = Annotated[
+    list[str] | None,
+    typer.Option("--allow-prerelease-package", help="Allow pre-release for a specific package (repeatable)"),
+]
+ProductionOption = Annotated[bool, typer.Option("--production", help=HELP_PRODUCTION_ONLY)]
+IgnoreOption = Annotated[list[str] | None, typer.Option("--ignore", "-i", help=HELP_IGNORE_PACKAGE)]
+PinAllOption = Annotated[bool, typer.Option("--pin-all", help=HELP_PIN_ALL)]
+RewriteVersionsOption = Annotated[bool, typer.Option("--rewrite-versions", help=HELP_REWRITE_VERSIONS)]
+OverrideOption = Annotated[list[str] | None, typer.Option("--override", help=HELP_OVERRIDE_PACKAGE)]
+AllowPartialOption = Annotated[bool, typer.Option("--allow-partial", help=HELP_ALLOW_PARTIAL)]
 
 
 def resolve_strategy(
@@ -125,6 +146,47 @@ def resolve_strategy(
         raise typer.BadParameter(str(exc)) from exc
     check_strategy_override_ignore_conflict(overrides, tuple(ignore or []))
     return default, overrides
+
+
+def plan_options(
+    project_path: str,
+    registry_type: Literal["npm", "pypi"] | None,
+    allow_prerelease: bool,
+    allow_prerelease_package: list[str] | None,
+    production: bool,
+    update_strategy: str,
+    strategy_override: list[str] | None,
+    ignore: list[str] | None,
+    pin_all: bool,
+    rewrite_versions: bool,
+    override: list[str] | None,
+    allow_partial: bool,
+) -> PlanOptions:
+    """Validate the flags every planning command shares and build the options they plan with.
+
+    Raises:
+        typer.BadParameter: On an unknown registry or tier, a malformed `--override` or
+            `--strategy-override`, or a package that is both overridden and ignored.
+    """
+    if registry_type and registry_type.lower() not in ["npm", "pypi"]:
+        raise typer.BadParameter("Only `npm` and `pypi` allowed")
+    overrides = parse_override_specs(override)
+    check_override_ignore_conflict(overrides, tuple(ignore or []))
+    default_strategy, strategy_overrides = resolve_strategy(update_strategy, strategy_override, ignore)
+    return PlanOptions(
+        project_path=project_path,
+        registry_type=registry_type,
+        allow_prerelease=allow_prerelease,
+        allow_prerelease_packages=tuple(allow_prerelease_package or []),
+        production=production,
+        update_strategy=default_strategy,
+        strategy_overrides=strategy_overrides,
+        ignore_packages=tuple(ignore or []),
+        pin_all=pin_all,
+        rewrite_versions=rewrite_versions,
+        overrides=overrides,
+        allow_partial=allow_partial,
+    )
 
 
 app = typer.Typer()
@@ -161,11 +223,7 @@ def error_boundary(settings: Settings) -> Generator[None, None, None]:
         raise typer.Exit(1) from None
 
 
-P = ParamSpec("P")
-R = TypeVar("R")
-
-
-def requires_github_login(command: Callable[P, R]) -> Callable[P, R]:
+def requires_github_login[**P, R](command: Callable[P, R]) -> Callable[P, R]:
     """Resolve the GitHub token before a scan command's body runs, logging in first when needed.
 
     Runs once typer has parsed the arguments, so `--help` or a mistyped flag never starts a login.
@@ -889,32 +947,59 @@ def check_interactive(interactive: bool, output_format: str) -> None:
         raise typer.BadParameter("--interactive only works with --format console")
 
 
+@upgrade_app.command("plan")
+@requires_github_login
+def upgrade_plan(
+    context: typer.Context,
+    project_path: Annotated[str, typer.Argument()] = ".",
+    registry_type: RegistryTypeOption = None,
+    allow_prerelease: AllowPrereleaseOption = False,
+    allow_prerelease_package: AllowPrereleasePackageOption = None,
+    production: ProductionOption = False,
+    update_strategy: UpdateStrategyOption = "standard",
+    strategy_override: StrategyOverrideOption = None,
+    ignore: IgnoreOption = None,
+    pin_all: PinAllOption = False,
+    rewrite_versions: RewriteVersionsOption = False,
+    override: OverrideOption = None,
+    allow_partial: AllowPartialOption = False,
+    output_format: UpgradeFormatOption = "console",
+):
+    """Show the steps an upgrade would take and what is held back. Changes and saves nothing."""
+    options = plan_options(
+        project_path,
+        registry_type,
+        allow_prerelease,
+        allow_prerelease_package,
+        production,
+        update_strategy,
+        strategy_override,
+        ignore,
+        pin_all,
+        rewrite_versions,
+        override,
+        allow_partial,
+    )
+    with error_boundary(context.obj):
+        command_upgrade_plan(context, options, output_format)
+
+
 @upgrade_app.command("start")
 @requires_github_login
 def upgrade_start(
     context: typer.Context,
     project_path: Annotated[str, typer.Argument()] = ".",
-    registry_type: Annotated[
-        Literal["npm", "pypi"] | None,
-        typer.Option("--registry-type", "-r", help=HELP_REGISTRY_TYPE),
-    ] = None,
-    allow_prerelease: Annotated[
-        bool, typer.Option("--allow-prerelease", help="Include pre-release versions in drift calculations")
-    ] = False,
-    allow_prerelease_package: Annotated[
-        list[str] | None,
-        typer.Option("--allow-prerelease-package", help="Allow pre-release for a specific package (repeatable)"),
-    ] = None,
-    production: Annotated[bool, typer.Option("--production", help=HELP_PRODUCTION_ONLY)] = False,
+    registry_type: RegistryTypeOption = None,
+    allow_prerelease: AllowPrereleaseOption = False,
+    allow_prerelease_package: AllowPrereleasePackageOption = None,
+    production: ProductionOption = False,
     update_strategy: UpdateStrategyOption = "standard",
     strategy_override: StrategyOverrideOption = None,
-    ignore: Annotated[list[str] | None, typer.Option("--ignore", "-i", help=HELP_IGNORE_PACKAGE)] = None,
-    pin_all: Annotated[bool, typer.Option("--pin-all", is_flag=True, help=HELP_PIN_ALL)] = False,
-    rewrite_versions: Annotated[
-        bool, typer.Option("--rewrite-versions", is_flag=True, help=HELP_REWRITE_VERSIONS)
-    ] = False,
-    override: Annotated[list[str] | None, typer.Option("--override", help=HELP_OVERRIDE_PACKAGE)] = None,
-    allow_partial: Annotated[bool, typer.Option("--allow-partial", help=HELP_ALLOW_PARTIAL)] = False,
+    ignore: IgnoreOption = None,
+    pin_all: PinAllOption = False,
+    rewrite_versions: RewriteVersionsOption = False,
+    override: OverrideOption = None,
+    allow_partial: AllowPartialOption = False,
     package: Annotated[str | None, typer.Option("--package", help=HELP_UPGRADE_PACKAGE)] = None,
     limit: Annotated[int | None, typer.Option("--limit", min=1, help=HELP_UPGRADE_LIMIT)] = None,
     test_command: Annotated[str | None, typer.Option("--test-command", help=HELP_UPGRADE_TEST_COMMAND)] = None,
@@ -923,30 +1008,24 @@ def upgrade_start(
 ):
     """Queue the project's updates as steps, test the project, and show the first step."""
     check_interactive(interactive, output_format)
-    if registry_type and registry_type.lower() not in ["npm", "pypi"]:
-        raise typer.BadParameter("Only `npm` and `pypi` allowed")
-
-    overrides = parse_override_specs(override)
-    check_override_ignore_conflict(overrides, tuple(ignore or []))
-    default_strategy, strategy_overrides = resolve_strategy(update_strategy, strategy_override, ignore)
-
+    options = plan_options(
+        project_path,
+        registry_type,
+        allow_prerelease,
+        allow_prerelease_package,
+        production,
+        update_strategy,
+        strategy_override,
+        ignore,
+        pin_all,
+        rewrite_versions,
+        override,
+        allow_partial,
+    )
     with error_boundary(context.obj):
         command_upgrade_start(
             context,
-            PlanOptions(
-                project_path=project_path,
-                registry_type=registry_type,
-                allow_prerelease=allow_prerelease,
-                allow_prerelease_packages=tuple(allow_prerelease_package or []),
-                production=production,
-                update_strategy=default_strategy,
-                strategy_overrides=strategy_overrides,
-                ignore_packages=tuple(ignore or []),
-                pin_all=pin_all,
-                rewrite_versions=rewrite_versions,
-                overrides=overrides,
-                allow_partial=allow_partial,
-            ),
+            options,
             package=package,
             limit=limit,
             test_command=test_command,

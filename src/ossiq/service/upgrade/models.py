@@ -40,6 +40,12 @@ class StepPackage:
     current: str
     target: str
     """The version the last preview showed; `apply` refuses to install a different one."""
+    is_repair: bool = False
+    """A peer repair adds the package: `current` is empty and `target` is the range written for it."""
+    is_security: bool = False
+    """The move fixes a known CVE, which is why the queue put it early."""
+    needs_ack: bool = False
+    """The move widens the declared range or carries a known break: what `upgrade all` asks about once."""
 
 
 @dataclass(frozen=True)
@@ -72,19 +78,12 @@ class UpgradeSession:
     test_command: str | None
     snapshot_files: tuple[str, ...]
     steps: tuple[UpgradeStep, ...]
-    peer_repairs: bool
-    """Whether the last step also carries the plan's peer repairs, which describe the final tree."""
     baseline: CommandRun | None = None
 
     @property
     def current(self) -> UpgradeStep | None:
         """The first step that is not finished, or None when every step is."""
         return next((step for step in self.steps if step.status not in DONE), None)
-
-    @property
-    def is_last(self) -> bool:
-        current = self.current
-        return current is not None and current.number == self.steps[-1].number
 
     def with_step(self, step: UpgradeStep) -> UpgradeSession:
         return dataclasses.replace(self, steps=tuple(step if s.number == step.number else s for s in self.steps))
@@ -147,7 +146,6 @@ def session_from_json(text: str) -> UpgradeSession:
             test_command=data["test_command"],
             snapshot_files=tuple(data["snapshot_files"]),
             steps=steps,
-            peer_repairs=data["peer_repairs"],
             baseline=run_from_dict(data["baseline"]),
         )
     except (KeyError, TypeError, ValueError) as exc:

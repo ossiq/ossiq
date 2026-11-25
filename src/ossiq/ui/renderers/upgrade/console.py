@@ -13,12 +13,14 @@ from rich.rule import Rule
 
 from ossiq.domain.changelog import ChangelogStatus, RangeChangelog
 from ossiq.domain.common import Command, UserInterfaceType
-from ossiq.service.upgrade.models import CommandRun, StepStatus, UpgradeStep
-from ossiq.service.upgrade.view import PackagePreview, StepPreview, UpgradeView
+from ossiq.messages import HELP_UPGRADE_ACK_LEGEND
+from ossiq.service.upgrade.models import CommandRun, StepPackage, StepStatus, UpgradeStep
+from ossiq.service.upgrade.view import Outcome, PackagePreview, StepPreview, UpgradeView
 from ossiq.settings import Settings
 from ossiq.ui.interfaces import AbstractUserInterfaceRenderer
 from ossiq.ui.renderers.info.console import installed_blocks
 from ossiq.ui.renderers.status.console import ConsoleStatusRenderer
+from ossiq.ui.renderers.upgrade.plan_notes import render_plan_notes
 
 MARKS = {
     StepStatus.COMPLETED: "[green]✓[/green]",
@@ -39,15 +41,21 @@ def without_front_matter(markdown: str) -> str:
     return markdown[4:].partition("\n---\n")[2].lstrip("\n")
 
 
-def step_line(step: UpgradeStep, is_current: bool) -> str:
+def move_text(package: StepPackage) -> str:
+    """`name current → target`; a repair has no installed version, so it says it adds the package."""
+    return f"{package.name} {'add' if package.is_repair else package.current} → {package.target}"
+
+
+def step_line(step: UpgradeStep, is_current: bool, show_status: bool = True) -> str:
+    """One step as a line: its lead move, a CVE marker and a ⚠ when it needs acknowledging, then its state."""
     lead = step.packages[0]
+    cve = " [red]CVE[/red]" if any(p.is_security for p in step.packages) else ""
+    ack = " [yellow]⚠[/yellow]" if any(p.needs_ack for p in step.packages) else ""
     more = f" [dim]+{len(step.packages) - 1} more[/dim]" if len(step.packages) > 1 else ""
+    state = f"  [dim]{step.status.value}[/dim]" if show_status else ""
     note = f" [dim]({escape(step.note)})[/dim]" if step.note else ""
     pointer = "▶" if is_current else " "
-    return (
-        f"  {pointer} {MARKS[step.status]} {step.number:>2}  {lead.name} {lead.current} → {lead.target}{more}"
-        f"  [dim]{step.status.value}[/dim]{note}"
-    )
+    return f"  {pointer} {MARKS[step.status]} {step.number:>2}  {move_text(lead)}{cve}{ack}{more}{state}{note}"
 
 
 class ConsoleUpgradeRenderer(AbstractUserInterfaceRenderer):
@@ -74,12 +82,17 @@ class ConsoleUpgradeRenderer(AbstractUserInterfaceRenderer):
             title = f"OSS IQ — Upgrade: {view.outcome.value.replace('_', ' ').lower()}"
         self.console.print(Rule(title, style="bold"))
         if session:
+            show_status = view.outcome is not Outcome.PLANNED
             for each in session.steps:
-                self.console.print(step_line(each, step is not None and each.number == step.number))
+                self.console.print(step_line(each, step is not None and each.number == step.number, show_status))
+            if any(p.needs_ack for each in session.steps for p in each.packages):
+                self.console.print(f"\n  [dim]{HELP_UPGRADE_ACK_LEGEND}[/dim]")
             self.console.print()
         if view.message:
             self.console.print(f"  [{'yellow' if view.attention else 'bold'}]{escape(view.message)}[/]")
             self.console.print()
+        if view.plan:
+            render_plan_notes(self.console, view.plan)
         if view.changelogs:
             self.render_changelogs(view)
         elif view.preview:
@@ -100,7 +113,7 @@ class ConsoleUpgradeRenderer(AbstractUserInterfaceRenderer):
         for item in preview.packages:
             package = item.package
             kind = "" if package.is_direct else " [dim](moves with it)[/dim]"
-            self.console.print(Rule(f"{package.name} {package.current} → {package.target}{kind}", style="dim"))
+            self.console.print(Rule(f"{move_text(package)}{kind}", style="dim"))
             self.console.print()
             if item.record:
                 status_table.print_full_table([item.record], LAG_THRESHOLD_DAYS, preview.engine_context)
@@ -156,7 +169,7 @@ class ConsoleUpgradeRenderer(AbstractUserInterfaceRenderer):
         os.environ.setdefault("LESS", "-R")
         with self.console.pager(styles=True):
             for package, changelog in view.changelogs:
-                self.console.print(Rule(f"{package.name} {package.current} → {package.target}", style="dim"))
+                self.console.print(Rule(move_text(package), style="dim"))
                 if changelog.status is ChangelogStatus.OK:
                     self.console.print(Markdown(without_front_matter(changelog.markdown)))
                 else:

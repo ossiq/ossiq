@@ -2,6 +2,537 @@
 
 
 
+## v0.1.15 (2026-11-15)
+
+
+### Feature
+
+* feat: honour uv and pip constraint caps (GH-179) ([`a23b3df`](https://github.com/ossiq/ossiq/commit/a23b3df7c4f36815f43390c3c0304b40b9ed0df1))
+uv's [tool.uv] constraint-dependencies and pip's -c files now carry
+their ranges into the scan, not just the package names: each one
+reaches the solver as a parent constraint, a binding strategy gate,
+the ladder rungs, what a library scan counts as installed, and the
+version add recommends. A capped direct requirement keeps its own
+classification, since its line is still the user's to rewrite. A
+failed uv lock now carries uv's own stderr in the error.
+
+* feat(cli): add ossiq upgrade and its subcommands (GH-179) ([`f387b92`](https://github.com/ossiq/ossiq/commit/f387b927796eb2fa82579516c15f9e42936b0f0f))
+start, status, changelog, apply, test, rollback, skip, continue,
+finish and abort drive the upgrade engine, each with --format agent
+and exit status 3 when the step needs attention. --interactive turns
+start and status into a menu over the same calls. plan and apply now
+build their plan through plan_project and PlanOptions.
+
+* feat(ui): render upgrade sessions for the console and agents (GH-179) ([`2c35c28`](https://github.com/ossiq/ossiq/commit/2c35c28c5a4eadaa04788acad11a4bcdce003840))
+The console renderer shows the queue, the pending step's status
+row, info blocks, breaks and changelog summary, the tail of a
+failing test run and the commands to run next. The agent renderer
+prints the same view as one JSON document.
+
+* feat(service): step through an update plan one upgrade at a time (GH-179) ([`d1b2eb9`](https://github.com/ossiq/ossiq/commit/d1b2eb9813ab7b0e387f1558cf72c58394ade10d))
+The upgrade engine queues a plan's moves as steps and keeps the
+session and snapshots of the package files in .ossiq/. Each step is
+previewed, installed and tested, then kept, rolled back or skipped,
+and abort restores the files as they were at start. A test command,
+when set, must pass before the first step.
+
+* feat(sequence): group plan moves into upgrade steps (GH-179) ([`ed1bde2`](https://github.com/ossiq/ossiq/commit/ed1bde22cac3cbbbb2046fd6caebf3b3ff036f42))
+group_steps splits a plan's moves into the groups that must land
+together: lockstep peers, and a direct package with the transitive
+copies it drags along. Groups keep the order of their earliest move.
+
+* feat(clients): fetch range changelogs from changelog IQ (GH-179) ([`997c329`](https://github.com/ossiq/ossiq/commit/997c3290f89b1e1b96ae2c335121075f7d84a5f2))
+The client asks api.changelogiq.dev for the changelog between two
+versions, waits while it is generated, and parses the UCS v1
+markdown into a RangeChangelog. A failure comes back as a status on
+the result instead of an exception, and changelogiq.dev responses
+bypass the requests cache.
+
+* feat(sources): read upgrade defaults from .ossiq.yaml (GH-179) ([`de5f21d`](https://github.com/ossiq/ossiq/commit/de5f21df0e19951234853bfbffe9b6037e66f52b))
+The schema gains an upgrade block with limit and test-command, and
+load_upgrade_config reads it, returning empty defaults when there is
+no file or no block. read_project_config now reads and validates the
+file for both this and load_project_policy.
+
+* feat(service): share plan building through PlanOptions (GH-179) ([`01de781`](https://github.com/ossiq/ossiq/commit/01de781cdd3773965e7cf572cdf9ad3bcb514799))
+plan_project scans a project and builds its update plan from
+PlanOptions, and update_context_from_scan diffs a package against a
+scan that already ran. UpdatePlan.only keeps a subset of the moves
+in one install pass, and each PassOrdering names the peer's move
+key. Command gains an UPGRADE member for the upgrade renderers.
+
+* feat(adapters): snapshot and resync what execute_update writes (GH-179) ([`12b1d00`](https://github.com/ossiq/ossiq/commit/12b1d004a0c113abb3545af551ae21ff9a9ccc7a))
+npm, pnpm and uv now name the files execute_update may rewrite and
+can sync node_modules or the virtualenv back to them after a
+rollback, and supports_upgrade_session marks those three. uv's
+execute_update also puts uv.lock back when uv sync fails after uv
+lock succeeded.
+
+* feat(qa): run the smoke matrix in Docker against tiny projects ([`1cb39f4`](https://github.com/ossiq/ossiq/commit/1cb39f403416cbd1ce304837f2d86183534e9b9e))
+smoke_matrix.py now runs the real CLI in a throwaway container per
+step, against npm and PyPI projects with one or two old
+dependencies, and checks the output, manifest, lockfile and export.
+Results assert progress such as "locked at least 5.7.2" instead of
+exact versions, except for releases that can never change. The 33
+cases in qa/smoke/cases.toml automate the manual checks that need
+no browser or GitHub login, and replace the old fetch of real
+repositories.
+
+* feat(qa): let run_logged pass text to the command's stdin ([`db2175e`](https://github.com/ossiq/ossiq/commit/db2175ea9a40f179de880b3d13afc6d8cc8ed6aa))
+The strategy regression logs every command through run_logged, which
+could only inherit the parent's stdin. A caller can now hand it the
+text to feed in, so a prompt or a JSON-RPC stream is scriptable, and
+callers that pass nothing behave as before.
+
+* feat(service): take the supply-chain policy from .ossiq.yaml (GH-120) ([`bb6dac6`](https://github.com/ossiq/ossiq/commit/bb6dac66d100b31ad21722a1dc90cea5a74cb962))
+ProjectSources reads the project's .ossiq.yaml once, and scan, plan,
+add, info and the MCP tools judge releases against that policy
+instead of the OSSIQ_POLICY_* settings, which never shipped and are
+removed. A policy exception can lift the cooldown, build or source
+rule for a release, so a waived release is no longer held for being
+young. The file's cooldown applies only when no flag, environment
+variable or config file sets one, so the commands read
+sources.settings.
+
+* feat(sources): read the supply-chain policy from .ossiq.yaml (GH-120) ([`af6007b`](https://github.com/ossiq/ossiq/commit/af6007badc5e4a4a9b98df0cf6d313cdd0d13ad6))
+A project's .ossiq.yaml can hold its supply-chain rules: a cooldown,
+a build minimum, a source minimum and waivers that name the package,
+the rules, the releases and an optional expiry. The reader finds the
+file by walking up to the repository root, checks it against a
+bundled JSON Schema and raises Invalid policy file naming each bad
+entry. A waiver past its expiry is left out with a warning.
+
+* feat(report): add Build and Source to the HTML report (GH-120) ([`caa05cb`](https://github.com/ossiq/ossiq/commit/caa05cb82c6eac31691b3323918d45250f157c36))
+The report table gains Build and Source columns and a policy badge
+beside a package that breaks the policy, and the detail panel gets a
+Provenance block that lists the reasons. The legend explains the
+values, the table scrolls sideways below about 1200 pixels instead
+of cutting columns off, and the bundled spa_app.html is rebuilt.
+
+* feat(console): show Build and Source and the policy holds (GH-120) ([`e49fb0b`](https://github.com/ossiq/ossiq/commit/e49fb0b73445161a4c4104dbbefb75a37105f896))
+status --full gains Build and Source columns, red when a policy rule
+rules the package out, and a policy line under any package that
+breaks one. plan lists what the policy kept out under Held by your
+supply-chain policy and no longer reports a plan with only such
+holds as having nothing to do.
+
+* feat(export): report provenance in schema 1.7 and the agent skill (GH-120) ([`4769fc7`](https://github.com/ossiq/ossiq/commit/4769fc71e14989ed1ee420d62620740d4b05b4c7))
+Package entries gain build_provenance, source_level and
+policy_violations, and next_action can be Review provenance; schema
+1.7 is amended in place, so documents pinned to 1.5 or 1.6 are
+unchanged. A transitive that breaks the policy is kept in the
+attention-only list. The agent skill tells an agent not to install
+past a POLICY_VIOLATION or bump past Review provenance.
+
+* feat(service): hold scan, plan and add to the supply-chain policy (GH-120) ([`d5f52d7`](https://github.com/ossiq/ossiq/commit/d5f52d7f3596e9f46caacca7942932d2a4d0b507))
+The scan judges every release once against the policy, hands the
+verdicts to the solver and the update strategy, and records on each
+package its build tier, source level and violations. A refused
+release is never a candidate and the plan lists it as held by
+policy; a package whose installed version breaks the policy, or
+whose newer versions are all ruled out, gets the next action Review
+provenance. add stops on a POLICY_VIOLATION warning, and the agent
+entry lists policy_violations.
+
+* feat(adapters): read build attestations and branch protection (GH-120) ([`5506f1a`](https://github.com/ossiq/ossiq/commit/5506f1a1a8d841f058635d2508cf8827c2e0fa38))
+npm and PyPI releases now carry a trust tier: npm reads the
+provenance attestation and the trusted-publisher flag, and PyPI
+reads each file's provenance from the JSON Simple API, which also
+carries the project status the ranged HTML request used to fetch.
+GitHub reports whether a default branch blocks force-pushes and
+deletion and requires approved pull requests, from classic
+protection and rulesets, cached with the other stability data. A
+page or repository that cannot be read leaves the tier or level
+unknown, never none.
+
+* feat(settings): read a supply-chain policy from the config file (GH-120) ([`d68e711`](https://github.com/ossiq/ossiq/commit/d68e71196a92056879828aaf0c283738344d6783))
+OSSIQ_POLICY_TRUST, _MIN_BUILD, _MIN_SOURCE and _EXCLUDE come from
+the config file or the environment and are exposed as one
+ProvenancePolicy; they have no flags, since a rule that holds
+updates back is a standing decision. A value a setting cannot take
+now stops the command with an Invalid Configuration message that
+names the variable and never echoes the value.
+
+* feat(solver): never recommend a release a policy rules out (GH-120) ([`5fbefcf`](https://github.com/ossiq/ossiq/commit/5fbefcfdc040c00863566a2e630b12703e816368))
+solve_direct and solve_transitive take version_blocks, the versions
+per package that a supply-chain policy refuses, and those versions
+never become candidates. The installed version stays eligible, as it
+does under a release cutoff, since a policy cannot un-install it.
+
+* feat(provenance): model build and source evidence and its policy (GH-120) ([`0840f31`](https://github.com/ossiq/ossiq/commit/0840f313cdbcbf5536d305f2a79c8da509ea134b))
+A release now carries a trust tier (none, provenance, trusted
+publisher), a repository a source level (version-controlled,
+protected history, reviewed), and a ProvenancePolicy states the
+rules held against them. risk/provenance.py judges which releases
+break the build rules and whether a source level passes, with a
+package or version excludable by name. Repository gains its default
+branch, RejectedCandidate says when a policy held a release back,
+and InvalidConfiguration names a setting that cannot be used.
+
+* feat(export): schema 1.7 names the package manager and version (GH-34) ([`2f9ff2c`](https://github.com/ossiq/ossiq/commit/2f9ff2c3f7c2d28ef0f86008caf2e432360b506c))
+runtime_context gains package_manager (uv, pip, npm or pnpm) and
+package_manager_version; npm_cli_version stays, deprecated and set
+on npm only. The probe now runs uv --version and pip --version on
+PyPI projects and pnpm reports its own version, and status --agent
+and the update-context tool switch to the new fields. Documents
+pinned to 1.5 or 1.6 are unchanged.
+
+* feat(pnpm): hold new dependencies to the cooldown period (GH-34) ([`525063b`](https://github.com/ossiq/ossiq/commit/525063b64d912d4bd788a8e8955d50ad6f93821b))
+apply and add now run pnpm with the cooldown period as its
+minimumReleaseAge, non-strict unless the project is, and exempt the
+releases the plan picks through minimumReleaseAgeExclude, in the
+environment and in pnpm-workspace.yaml. The plan says pnpm holds new
+dependencies to the cooldown instead of warning, and an --override
+version past the project's own cutoff is exempted rather than
+refused. A failed run points at --cooldown-period 0.
+
+* feat(pnpm): check engines.pnpm against the project's own CLI (GH-34) ([`0c84d6e`](https://github.com/ossiq/ossiq/commit/0c84d6e637e3a8f455bc6b6a461ad2987e8f4100))
+A pnpm project's engine context now holds node and pnpm where it
+held npm: the probe runs pnpm --version, declared floors read
+engines.pnpm, and a release's engines.pnpm requirement is enforced.
+Only the project's own manager is carried, so stating npm on a pnpm
+project is an Invalid Runtime error.
+
+* feat(plan): hold direct packages that a user override pins (GH-34) ([`a0d14c5`](https://github.com/ossiq/ossiq/commit/a0d14c5f8beca450327c873fca467800de389d8a))
+An override the user wrote for a direct package beats the spec
+apply writes: pnpm resolves against the override and npm refuses
+the mismatch. The plan now lists such a package under the overrides
+the user wrote, at every tier, unless the override is a $name
+reference or the version is forced with --override.
+
+* feat(pnpm): apply plans and add packages through pnpm (GH-34) ([`c9cd719`](https://github.com/ossiq/ossiq/commit/c9cd719f6aad440fa795d38b4d7907d87d6ac2ce))
+apply writes direct ranges to package.json, or to their catalog in
+pnpm-workspace.yaml, and transitive picks to overrides there with
+comments kept (ruamel.yaml, a new dependency), then runs pnpm
+install in npm's passes; add runs pnpm add. A failed run or a
+missing pnpm restores package.json, pnpm-lock.yaml and
+pnpm-workspace.yaml, and a target pnpm did not install ends the run
+with Update Incomplete. Plan messages no longer name npm.
+
+* feat(pnpm): honor minimumReleaseAge as a release cutoff (GH-34) ([`ea9b28c`](https://github.com/ossiq/ossiq/commit/ea9b28c8eeb0c24dfe68ac593f14de50cb608fad))
+The pnpm adapter reads minimumReleaseAge, its strict flag and
+minimumReleaseAgeExclude from the environment, pnpm-workspace.yaml
+and the global config.yaml, and holds back releases younger than
+that age. pnpm 10's .npmrc is not read yet. ReleaseCutoff accepts
+glob keys such as "@org/*", and an exact name wins over a glob.
+
+* feat(pnpm): read pnpm-lock.yaml into the dependency graph (GH-34) ([`b648ff9`](https://github.com/ossiq/ossiq/commit/b648ff93b2b82801aa7b62f8b7f4c8b5cfd6790b))
+A pnpm project is now scanned from its lockfile (v9, pnpm 9 to 12)
+instead of package.json alone, including aliases, peer variants,
+catalogs and overrides. Ranges the lockfile omits are fetched from
+the npm registry, optional dependencies included, and a failed
+fetch leaves the scan without transitive constraints. PyYAML
+becomes a runtime dependency.
+
+* feat(pnpm): detect pnpm projects and refuse apply and add (GH-34) ([`1165969`](https://github.com/ossiq/ossiq/commit/1165969be50dc47eb97d3773bbab6a875aca50d7))
+A new pnpm adapter claims a project when package.json declares pnpm,
+or, with no declaration, when a pnpm lockfile or workspace file is
+present, and scans package.json only. apply and add now raise
+PackageManagerOperationUnsupported instead of running npm install in
+a pnpm tree. The base class raises it for any adapter without its
+own implementation, so pep621 and pip-classic get the same panel.
+
+* feat(apply): install npm updates in passes (GH-172) ([`9d551d8`](https://github.com/ossiq/ossiq/commit/9d551d8618e8f4d60c0c0c644fbfd962d4e23590))
+npm refuses a tree where an installed package's peer range excludes
+another update's new version, even when the finished tree is valid.
+plan now splits such updates into passes and says which package goes
+first and why. apply runs them in order, writing only the lockfile
+until the last pass, and restores package.json and the lockfile if
+any pass fails.
+
+* feat(sequence): order package moves into install passes (GH-172) ([`16954bf`](https://github.com/ossiq/ossiq/commit/16954bfdc34e0eb9fab542d1a124c5f8d778c9bf))
+A pure function gives each move a pass number from the peer ranges
+between moves, in as few passes as they allow. A strict order that
+sits on a cycle is reported and both ends share a pass. Renderers may
+not import it.
+
+
+### Fix
+
+* fix(pip): write requirements.txt on apply and add (GH-179) ([`f4bd768`](https://github.com/ossiq/ossiq/commit/f4bd7682d213dc4caa3ea7757b2aa9e364e0e686))
+apply rewrites each direct requirement that has to move, so a
+moved == pin no longer contradicts the constraints file pip gets,
+and add pins the package it installs in its own line or a new one.
+Both check for pip on PATH first and turn a pip refusal into a
+clean error that carries pip's reason, with requirements.txt left
+as it was.
+
+* fix(upgrade): keep peer-tied packages in one step (GH-179) ([`612da2e`](https://github.com/ossiq/ossiq/commit/612da2e704ec2dbbb7d92cec2617fadee48f01dd))
+A package whose new release needs its peer's update now shares a
+step with that peer, and a re-synced step pulls in any move the
+fresh plan ties to it, so npm is never handed half of the pair.
+`ossiq upgrade continue` shows a pending step instead of refusing,
+takes --interactive and is what quitting the menu points to, where
+the n key now reads "next step".
+
+* fix(solver): say why a vulnerable transitive package stays put (GH-179) ([`8595adc`](https://github.com/ossiq/ossiq/commit/8595adc236cbb14607271314155484e2f0074a3a))
+When every release a transitive package's constraints admit has a
+CVE, solve_transitive now returns it as rejected, naming the newest
+admitted release and, where one exists, the CVE-free release and
+the constraint that keeps it out. The status console lists such a
+held package among the transitive rows instead of dropping it. A
+transitive solve test also covers a cap under more releases than
+the candidate cap.
+
+* fix(solver): keep releases under a cap among the candidates (GH-179) ([`923ed19`](https://github.com/ossiq/ossiq/commit/923ed1998d1675124bf0e4ac1a613e13b870f3a0))
+The candidate pool took a package's 30 newest releases before
+looking at its range, so 30 or more releases past a cap such as
+urllib3<2 left the solver nothing it may pick. The pool now also
+keeps the 30 newest releases inside the package's hard specs,
+named once as PackageConstraint.hard_specs for it and the encoder.
+clamp_recommendations does the same inside a record's own range.
+
+* fix(pnpm): count a newer release as landed (GH-179) ([`aa7cdf0`](https://github.com/ossiq/ossiq/commit/aa7cdf0196458a16653452e0d78e4f2260682cef))
+The post-install check now accepts a lockfile copy at or above the
+planned version, since pnpm installs the newest release the
+rewritten range admits, as npm does. Only a copy below the target
+is reported as a miss.
+
+* fix(clients): stop a GitHub batch on the first 401 (GH-179) ([`d15b576`](https://github.com/ossiq/ossiq/commit/d15b576ddea2caab9dae1db535097d79b04e52dd))
+A rejected token fails every GitHub request alike, yet each one
+still went out and failed on its own, once per repository on every
+step of a scan. The GitHub strategies now set abort_on_unauthorized,
+which ends the run once the chunks already in flight return; other
+registries keep retrying per package. run_batch also drops an empty-
+input check that never fired for generators.
+
+* fix(upgrade): show changelog colours in less (GH-179) ([`5f62343`](https://github.com/ossiq/ossiq/commit/5f62343f75a74c5694061545dcfd06e8fd177148))
+less printed the pager's colour codes as raw ESC text unless run
+with -R. The changelog view now sets LESS=-R before paging, but
+only when the user has no LESS of their own, as git does.
+
+* fix(uv): read an extra's ranges from requires-dist (GH-179) ([`af9fd98`](https://github.com/ossiq/ossiq/commit/af9fd98d9fc21e8d0e13920a93886e55f94098d0))
+uv lists an extra's ranges in requires-dist, tagged extra ==
+'<name>', while requires-dev holds dependency groups. Extras now
+take their specifiers from requires-dist, so an extra's dependency
+keeps the range it declares.
+
+* fix(strategy): reconcile picks against what the plan lands (GH-179) ([`b098845`](https://github.com/ossiq/ossiq/commit/b098845557a3c5f9b075a0da86685e68de65577a))
+A pick is no longer held back by a lockstep partner that only it
+owns, since that copy moves with the pick, and a requirement an
+installed direct dependency already meets is not read as a new
+nested copy. Where one copy is installed per name, ordinary
+requirements on other direct packages now send a pick back as peers
+do. A pick the plan withholds for widening no longer counts as
+landing.
+
+* fix(qa): keep the smoke matrix's container paths POSIX on Windows ([`7b3d26e`](https://github.com/ossiq/ossiq/commit/7b3d26ea2b9fe260e0a6cadd6e3e4006e0a80583))
+The cache mount derived its container path from a host Path, which
+Windows writes as \cache, so the volume landed on an invalid path.
+Container paths are now plain strings, and the test builds the host
+side of each mount natively instead of assuming forward slashes.
+
+* fix(npm): restore package.json when npm is not on PATH (GH-34) ([`55367c0`](https://github.com/ossiq/ossiq/commit/55367c032b92a005f9383dd9e62d31450eb570b0))
+A missing npm binary used to escape as FileNotFoundError and leave
+the rewritten package.json behind. run_npm_install now restores the
+manifest and raises PackageManagerExecutionError with an install
+hint, so apply puts package-lock.json back as well.
+
+* fix(scan): judge impacts against the tree the validator saw (GH-172) ([`47fc19e`](https://github.com/ossiq/ossiq/commit/47fc19e820cba4a887d33574e734a2486cc97d3d))
+The final impact pass included the direct records, so the peer checks
+read a direct requirer at its installed version and marked a pick the
+validator had accepted as not actionable. It now takes the transitive
+records only, like the validator.
+
+* fix(adapters): walk packages npm installs only as peers (GH-172) ([`52772a7`](https://github.com/ossiq/ossiq/commit/52772a797dc53285e1b044965e701ad86a32676b))
+The tree walk followed production edges only, so a package npm
+installs just because something peer-requires it (typescript for
+@nuxt/ui) was never scanned, and a plan called it a new dependency.
+It now yields each required peer once, with what that peer depends
+on. Optional peers stay out.
+
+* fix(docs): drop landing animation and side overflow on phones (GH-172) ([`264dc5d`](https://github.com/ossiq/ossiq/commit/264dc5d66d4d4ce23f4bf83a9c5b0eb84417307f))
+Below 900px the helix canvas, its scrim and the per-panel copy
+backing are hidden, copy stays fully opaque, and strand.js is no
+longer loaded. The backing's 7rem side inset made the page wider
+than the screen on phones.
+
+* fix(domain): require affected_ranges on every CVE (GH-172) ([`e96d22b`](https://github.com/ossiq/ossiq/commit/e96d22b98d5946696e2c275633e7faa9fc3d0c45))
+A CVE built without its ranges defaulted to none, so a producer that
+forgot them read every npm release as clean without any error.
+Leaving the field out now fails ty and raises TypeError, and the
+test helpers pass an empty tuple.
+
+* fix(osv): restore advisory ranges and PEP 503 name matching (GH-172) ([`f45ac52`](https://github.com/ossiq/ossiq/commit/f45ac52f1eed141b52d1d9fc3344cfc95ea04677))
+Reverts ad6fb9d, which replaced this adapter and its tests with a
+copy older than their range parsing. That copy read npm releases
+inside an advisory's ranges as clean and lost PyPI fixes whenever
+the registry's casing differed from OSV's. Its HTML cleanup moves
+into advisory_summary and now strips only known HTML tags, so
+placeholders like `<T>` and `/proc/<pid>` survive.
+
+
+### Refactor
+
+* refactor: move UpdatePlan and the registry port down the spine (GH-179) ([`2f9c72a`](https://github.com/ossiq/ossiq/commit/2f9c72a31858ff53f03061268f9aa5985d6d1553))
+The registry interface the solver reads now lives in
+solver/ports.py, and UpdatePlan moves into domain/update_plan.py
+with the value types it is built from, so solver/ and the adapters
+no longer import upward. UpdateStrategy moves to domain/common.py
+and is still re-exported from strategy.pyramid. Tests now check that
+domain/ imports only itself and the pure packages never import
+upward.
+
+* refactor(console): show status --full as a dense table (GH-120) ([`ea79467`](https://github.com/ossiq/ossiq/commit/ea794671000687036241963ba7429d0939a9d2ad))
+status --full prints one table row per package again, with the ↳
+notes under the row, Src and Bld as L0-L3 levels and What's Next as
+a short code. Below 120 columns it merges Mode+Lag, CVEs+EPSS and
+Src+Bld so a row fits 80 columns. The arrow in Installed ➔ Rec shows
+only when a newer version is recommended, and the default table now
+prints the same short codes below 110 columns.
+
+* refactor(console): show status --full as a block per package (GH-120) ([`cab5845`](https://github.com/ossiq/ossiq/commit/cab5845bd51af19c2cec454f41edd34ef57f1d39))
+status --full prints one block per package instead of a 12-column
+table: the name and What's Next, three lines of labeled fields, then
+the ↳ notes, which wrap under their own arrow. At 80 columns the
+table lost the Package and What's Next columns, while a block reads
+whole and always carries the full What's Next label. The default
+table keeps its columns and its 110-column threshold, and the --full
+help text now describes blocks.
+
+* refactor(update): split service/update.py into a package (GH-34) ([`580a01b`](https://github.com/ossiq/ossiq/commit/580a01bf61beccd0cb31d60da72ef4b9fa6b3aaf))
+build_update_plan is now a short pipeline over named phase helpers,
+and the module is split into models, entries, holds, overrides and
+plan under service/update/, with every importer updated. Comments
+and docstrings are trimmed to what the code does now.
+
+* refactor(npm): share the npm-registry tree builder hooks (GH-34) ([`a0e6354`](https://github.com/ossiq/ossiq/commit/a0e63547ba3d87ff1eca6ec4328149ef7754b1e0))
+NpmRegistryTreeBuilder takes the hooks that do not depend on the
+lockfile format: node creation, specifier classification, optional
+peers and the override marking. NPMTreeBuilderV3 keeps its
+placement-based edge resolution and subclasses it, with the same
+constructor and build_graph signatures.
+
+* refactor(tree): move lockfile graph building out of adapters (GH-172) ([`45a246d`](https://github.com/ossiq/ossiq/commit/45a246dc9c2ce3e4c0118c2b46e90db3c332f9d7))
+The lockfile graph builder and the walker over it leave adapters
+for a new pure tree package, so service stops importing a graph
+walk from adapters. build_graph is split into per-edge helpers,
+the registry is keyed by (name, version), and the unused export
+and descendant_counts are dropped. GraphExporter becomes
+DependencyWalker and the resolvers become tree builders.
+
+
+### Documentation
+
+* docs(upgrade): document stepping through upgrades (GH-179) ([`d30a0c6`](https://github.com/ossiq/ossiq/commit/d30a0c692c17c1ec810dcadb316f9982e52dc0cb))
+A new how-to walks through an upgrade session by hand and with a
+coding agent, and the command and configuration references cover
+the subcommands and the upgrade block. The bundled SKILL.md gives
+agents the loop to follow, and the README and llms.txt link the
+guide.
+
+* docs(provenance): document the .ossiq.yaml policy file (GH-120) ([`7803259`](https://github.com/ossiq/ossiq/commit/78032591c0b9e2beafd17130a7789c27847941f3))
+The policy how-to now walks through writing a committed .ossiq.yaml
+with a cooldown, build and source rules and expiring exceptions. The
+configuration reference gains a Project policy file section and
+drops the OSSIQ_POLICY_* variables, and llms.txt and the
+recommendations catalogue point at the file.
+
+* docs(status): document the --full table (GH-120) ([`157cd37`](https://github.com/ossiq/ossiq/commit/157cd3700a45d0d8428322a345f3c5db7587c675))
+The status reference describes the dense --full table, its narrow
+layout and the L0-L3 levels, and lists the short code beside each
+What's Next label. The supply-chain how-to names the Bld and Src
+levels, and says the HTML report keeps the words.
+
+* docs(status): document the --full listing (GH-120) ([`fb084b2`](https://github.com/ossiq/ossiq/commit/fb084b2a05cbff8dc321c40dfe3fab47837fb137))
+The status reference gains a Full listing section with a real block,
+and its 176-column note is gone because --full always prints the
+whole What's Next label. The commands reference, getting-started and
+the supply-chain how-to say fields where they said columns and
+cells.
+
+* docs(provenance): document the supply-chain policy (GH-120) ([`2085ddd`](https://github.com/ossiq/ossiq/commit/2085ddd67403b78c6adab29df040cacdeda6005e))
+A new how-to explains how to set the OSSIQ_POLICY_* keys in the
+config file and what each rule refuses. The configuration, reports,
+update-rules and export references, the README and llms.txt cover
+the new settings, the Build and Source columns, Review provenance
+and the schema 1.7 fields.
+
+* docs(pnpm): document pnpm next to npm and drop Yarn (GH-34) ([`fdadc5c`](https://github.com/ossiq/ossiq/commit/fdadc5ce3e2faed9344c39373c5c893d9c60dae8))
+A new reference page says how OSS IQ tells npm from pnpm, what it
+reads, and what apply and add write and run; the README, getting
+started, llms.txt and the pages on overrides, peers and the update
+cycle now cover pnpm. Yarn is gone from the docs and the code,
+including the unused YARN package manager type.
+
+* docs: describe npm install passes, call re-resolution a round (GH-172) ([`98c4d35`](https://github.com/ossiq/ossiq/commit/98c4d357ba9a47df527d9a0638528ed9c3747c40))
+The plan and apply reference gains an Install passes section. The
+getting-started and cycle pages say round for one resolution against
+the lockfile, so pass only means an npm install pass.
+
+* docs(release): document source policy, back-port PR, docker ref (GH-166) ([`410e260`](https://github.com/ossiq/ossiq/commit/410e260e387ec14813898aed395bc77b7de9de58))
+RELEASE.md records 0.1.14 in the channel status and says releases
+still ship at SLSA Source Level 1 until the source policy is
+merged, with a check to run before each release. It rewrites the
+back-port step as a pull request that branches from the release
+branch when main hasn't moved. Docker runs now start from the
+tag, because the release environment rejects main.
+
+
+### Test
+
+* test(qa): add peer-pair and missing-pip smoke cases (GH-179) ([`e9ae12f`](https://github.com/ossiq/ossiq/commit/e9ae12f820a66fd1317f8f1d02a7b4ef797e9e9a))
+A new npm-peer-pair project drives an upgrade session that gives
+eslint-plugin-oxlint and oxlint one step, and one whose saved
+steps split them. pip-apply drops its known_issue and checks the
+rewritten pins, pip-add checks requirements.txt, and pip-missing
+runs apply and add with no pip on PATH.
+
+* test(qa): add smoke cases for constraint caps (GH-179) ([`4f49aee`](https://github.com/ossiq/ossiq/commit/4f49aee3ec146161f593429d53a8cea49bca1085))
+New uv-constrained and pip-constrained projects drive every tier,
+status, add and an upgrade session under [tool.uv] and -c caps,
+and the README lists them. Both QA runners now take the GitHub
+token from the ossiq config when the environment has none.
+
+* test(upgrade): run the shell command tests under cmd.exe (GH-179) ([`772b846`](https://github.com/ossiq/ossiq/commit/772b8462aaeef70526d67598297fe4df10077e23))
+cmd.exe has no ; separator, so the runner tests now chain
+statements through the Python interpreter and the engine test
+uses &&, which both shells accept.
+
+* test(qa): extend the matrix to pnpm, pip, pylock and upgrade (GH-179) ([`a12536c`](https://github.com/ossiq/ossiq/commit/a12536c257b5ac4ca918a0fb0c5d9da41d05173a))
+The matrix now covers pnpm, pip, pylock and the ossiq upgrade
+subcommands, with pnpm pinned in the image and cases selectable by
+pattern. New fixtures back the cases, among them npm-lockstep, which
+checks that vue and the old @vue/server-renderer that peer-pins it
+move together. qa/README.md documents them.
+
+* test(osv): judge recorded axios and Jinja2 advisories end to end (GH-172) ([`919ce4d`](https://github.com/ossiq/ossiq/commit/919ce4deab64b0da021e306f91ba125ac071a767))
+Real OSV records for axios and Jinja2 are parsed by CveApiOsv and
+judged by cve_affects_version. They live outside test_api_osv.py, so
+rewriting the adapter together with its own tests still fails CI.
+
+
+### Chore
+
+* chore(frontend): update dependencies and rebuild the SPA (GH-179) ([`521c057`](https://github.com/ossiq/ossiq/commit/521c0572caeb55a8e8c110a13373b06bae35a885))
+An ossiq upgrade session moved the frontend's direct dependencies
+to their newest releases past the cooldown, among them jsdom 31,
+eslint 10.14, vite 8.3.6, vitest 5.1, and oxlint with
+eslint-plugin-oxlint 1.92, along with the transitive overrides it
+records in package.json. spa_app.html is rebuilt from the result.
+
+* chore(ty): move to ty 0.0.97 and fix what it reports (GH-179) ([`862afe7`](https://github.com/ossiq/ossiq/commit/862afe780bbae57d46ce6bdb72c1a4331adc6c2e))
+ty is locked at 0.0.97, the newest release outside a seven-day
+cooldown, through a per-package exclude-newer. The checks it adds
+are fixed: a read-only Mapping for PyPI provenance, sorting the
+sources instead of the dicts in the solver fingerprint, and an
+unused ignore in settings.
+
+* chore: ignore FIXME.md (GH-179) ([`76bfd47`](https://github.com/ossiq/ossiq/commit/76bfd47069ee5953f7014ed8602b2de87b910f2a))
+FIXME.md joins TODO.md and PLAN.md as a local note file that stays
+out of the repo.
+
+* chore: updated frontend dependencies with ossiq (GH-172) ([`ad04ea7`](https://github.com/ossiq/ossiq/commit/ad04ea7c4495ff3f08756fa8d597ea7b397d3633))
+Updated frontend dependencies with
+the OSS IQ `ossiq apply --update-strategy latest`
+to update all the dependencies to the latest
+stable versions.
+
+* chore(just): sync all extras first in qa (GH-172) ([`af91070`](https://github.com/ossiq/ossiq/commit/af91070be20b983a4facc3a07e672f09f17c0d10))
+Other uv commands uninstall the docs extra, so ty check failed on
+docs/conf.py for want of sphinx. qa now runs uv sync --all-extras
+before anything else.
+
 ## v0.1.14 (2026-10-24)
 
 

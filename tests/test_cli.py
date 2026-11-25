@@ -2,11 +2,16 @@
 Tests for the CLI entry point (ossiq.cli).
 """
 
+from typing import Any
+
+import pytest
 import requests_cache
+import typer
 from typer.testing import CliRunner
 
 import ossiq.settings
-from ossiq.cli import app
+from ossiq.cli import app, plan_options
+from ossiq.strategy.pyramid import UpdateStrategy
 
 runner = CliRunner()
 
@@ -40,3 +45,45 @@ def test_no_cache_leaves_the_old_cache_alone():
 
     assert result.exit_code == 0
     assert legacy.exists()
+
+
+NO_FLAGS: dict[str, Any] = dict(
+    registry_type=None,
+    allow_prerelease=False,
+    allow_prerelease_package=None,
+    production=False,
+    update_strategy="standard",
+    strategy_override=None,
+    ignore=None,
+    pin_all=False,
+    rewrite_versions=False,
+    override=None,
+    allow_partial=False,
+)
+
+
+def build_options(project_path: str = ".", **changes: Any):
+    flags: dict[str, Any] = {**NO_FLAGS, **changes}
+    return plan_options(project_path, **flags)
+
+
+def test_plan_options_builds_the_options_every_planning_command_takes():
+    options = build_options("/work/app", production=True, update_strategy="security", override=["Left-Pad==1.3.0"])
+
+    assert options.project_path == "/work/app" and options.production
+    assert options.update_strategy is UpdateStrategy.SECURITY
+    assert options.overrides == (("left-pad", "1.3.0"),)
+
+
+@pytest.mark.parametrize(
+    "flags",
+    [
+        {"registry_type": "maven"},
+        {"override": ["foo==1.0.0"], "ignore": ["foo"]},
+        {"override": ["not-a-spec"]},
+        {"update_strategy": "nonsense"},
+    ],
+)
+def test_plan_options_rejects_what_the_flags_cannot_mean(flags):
+    with pytest.raises(typer.BadParameter):
+        build_options(**flags)

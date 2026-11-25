@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import dataclasses
+import json
 import subprocess
 import sys
 
@@ -34,7 +36,19 @@ def test_every_subcommand_is_listed() -> None:
     result = runner.invoke(app, ["upgrade", "--help"])
 
     assert result.exit_code == 0
-    for name in ("start", "status", "changelog", "apply", "test", "rollback", "skip", "continue", "finish", "abort"):
+    for name in (
+        "plan",
+        "start",
+        "status",
+        "changelog",
+        "apply",
+        "test",
+        "rollback",
+        "skip",
+        "continue",
+        "finish",
+        "abort",
+    ):
         assert name in result.stdout
 
 
@@ -51,6 +65,65 @@ def test_abort_without_a_session_fails_the_same_way(tmp_path) -> None:
 
     assert result.exit_code == 1
     assert "No upgrade session" in result.output
+
+
+class TestUpgradePlan:
+    """`upgrade plan` plans once, checks the overrides, shows the steps and writes nothing."""
+
+    @pytest.fixture
+    def project(self, tmp_path, monkeypatch):
+        project = make_project(tmp_path, monkeypatch)
+        monkeypatch.setattr(
+            "ossiq.commands.upgrade.plan_project", lambda settings, options, progress=None: project.plan(options)
+        )
+        return project
+
+    def test_it_lists_the_steps_and_leaves_the_project_alone(self, project) -> None:
+        result = runner.invoke(app, ["upgrade", "plan", str(project.root)])
+
+        assert result.exit_code == 0
+        assert "Upgrade: planned" in result.output and "vite 1.0.0 → 2.0.0" in result.output
+        assert "zod 1.0.0 → 2.0.0" in result.output
+        assert not store.exists(project.root)
+        assert project.installed() == {"vite": "1.0.0", "zod": "1.0.0"}
+
+    def test_the_agent_format_prints_one_json_document(self, project) -> None:
+        result = runner.invoke(app, ["upgrade", "plan", str(project.root), "--format", "agent"])
+
+        payload = json.loads(result.stdout)
+        assert result.exit_code == 0 and payload["outcome"] == "PLANNED"
+        assert [s["packages"][0]["name"] for s in payload["steps"]] == ["vite", "zod"]
+
+    def test_an_override_for_a_package_outside_the_tree_exits_2(self, project, monkeypatch) -> None:
+        def with_unknown(settings, options, progress=None):
+            sources, scan, plan = project.plan(options)
+            return sources, scan, dataclasses.replace(plan, unknown_override_packages=("no-such-pkg",))
+
+        monkeypatch.setattr("ossiq.commands.upgrade.plan_project", with_unknown)
+
+        result = runner.invoke(app, ["upgrade", "plan", str(project.root), "--override", "no-such-pkg==1.0.0"])
+
+        assert result.exit_code == 2
+        assert "no-such-pkg" in result.output
+
+    def test_start_refuses_a_session_in_the_way_before_it_scans(self, project, monkeypatch) -> None:
+        start(project)
+
+        def never(settings, options, progress=None):
+            raise AssertionError("scanned")
+
+        monkeypatch.setattr("ossiq.commands.upgrade.plan_project", never)
+
+        result = runner.invoke(app, ["upgrade", "start", str(project.root)])
+
+        assert result.exit_code == 1 and "already in progress" in result.output
+
+    def test_start_shows_the_first_step_and_the_session_stays_for_the_next_command(self, project) -> None:
+        result = runner.invoke(app, ["upgrade", "start", str(project.root), "--limit", "1"])
+
+        assert result.exit_code == 0
+        assert "step 1 of 1" in result.output
+        assert store.exists(project.root)
 
 
 class TestInteractiveMenu:
@@ -147,6 +220,16 @@ class TestInteractiveMenu:
         captured = capsys.readouterr()
         assert "boom" in captured.out + captured.err
         assert "Session kept" in captured.out
+
+    def test_after_the_last_step_the_menu_offers_finish_and_abort(self, project, monkeypatch, capsys) -> None:
+        view = start(project, limit=1)
+        self.answers(monkeypatch, "a", "n", "f")
+
+        self.run(project, view)
+
+        out = capsys.readouterr().out
+        assert "f finish   x abort   q quit" in out
+        assert not store.exists(project.root)
 
     def test_the_menu_lists_only_what_the_state_allows(self) -> None:
         pending = menu_line(("changelog", "apply", "skip", "finish", "abort"))

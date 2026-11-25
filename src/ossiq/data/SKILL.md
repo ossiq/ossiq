@@ -387,6 +387,12 @@ Then loop:
    user which packages you skipped and why.
 
 `commands` in every response lists the subcommands that make sense next. `outcome` is
-`IN_PROGRESS` until the session ends as `COMPLETED`, `FINISHED` or `ABORTED`, or `NOTHING_TO_DO`.
-Use `finish` to stop early and keep what is installed, `abort` to restore the project files to
-where they were at `start`. Do not delete `.ossiq/`; it holds the session.
+`IN_PROGRESS` while a step is open and `COMPLETED` once every step is kept or skipped; the session
+is still open then, and `commands` is `finish` and `abort`. Run `finish` to keep the result, or
+`abort` to restore the project files to where they were at `start`; either ends the session.
+`NOTHING_TO_DO` means the plan is empty. Use `finish` to stop early too. Do not delete `.ossiq/`;
+it holds the session.
+
+To see the steps without starting a session, run `{{ossiq}} upgrade plan <project_path> --format agent`.
+It prints `outcome` `PLANNED` and `steps`, each package with `is_security` (a CVE fix) and
+`needs_ack` (it widens the declared range or carries a known break), and changes nothing.
