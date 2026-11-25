@@ -1,10 +1,13 @@
 name: OSS IQ Dependency Quality Gate
 
-on:  
+on:
   push:
     branches: [ "main" ]
   pull_request:
     branches: [ "main" ]
+  # Drift only grows with time, so a quiet week must still surface it.
+  schedule:
+    - cron: '0 6 * * 1'
 
 # Was absent, so this workflow ran at the repo-default token scope on runs
 # triggered by arbitrary pull requests.
@@ -25,8 +28,9 @@ jobs:
         with:
           python-version: '3.12'
 
+      # Pinned: the gates below match next_action labels, whose wording can change between releases.
       - name: Install OSS IQ
-        run: pip install ossiq
+        run: pip install ossiq==0.1.15
 
       - name: Run OSS IQ scan
         env:
@@ -42,42 +46,90 @@ jobs:
           name: ossiq-report
           path: ossiq-report.json
 
-      - name: Check for critical issues
+      # Blocks everywhere: these are about what is installed, not about what upstream shipped this week.
+      - name: Security gate
+        env:
+          # 0.10 is where OSS IQ itself calls a single CVE actively exploitable ("Check for the Fix").
+          MAX_PROJECT_EPSS: "0.10"
+          MAX_FIX_AGE_DAYS: "30"
         run: |
-          echo "Checking OSS IQ results..."
+          R=ossiq-report.json
+          fail=0
 
-          # Extract metrics from JSON report
-          TOTAL_CVES=$(jq '.summary.total_cves' ossiq-report.json)
-          PACKAGES_OUTDATED=$(jq '.summary.packages_outdated' ossiq-report.json)
-          TOTAL_PACKAGES=$(jq '.summary.total_packages' ossiq-report.json)
+          # Transitives count: a CVE two levels down is as exploitable as a direct one, and the
+          # standard profile keeps every transitive that carries a CVE.
+          DEFS='def pkgs: (.production_packages + .development_packages + (.transitive_packages // []));'
 
-          echo "📊 Scan Summary:"
-          echo "   Total packages: $TOTAL_PACKAGES"
-          echo "   Packages with CVEs: $TOTAL_CVES"
-          echo "   Outdated packages: $PACKAGES_OUTDATED"
+          # check TITLE FILTER [jq args]: FILTER prints one line per offender and nothing when clean.
+          check() {
+            local title=$1 filter=$2 out
+            shift 2
+            if ! out=$(jq -r "$@" "$DEFS $filter" "$R"); then
+              echo "::error::jq failed while checking: $title"
+              fail=1
+            elif [ -n "$out" ]; then
+              echo "::error::$title"
+              echo "$out"
+              fail=1
+            fi
+          }
 
-          # Fail if any CVEs are found
-          if [ "$TOTAL_CVES" -gt 0 ]; then
-            echo ""
-            echo "❌ FAILED: Found $TOTAL_CVES CVE(s) in dependencies"
-            echo ""
-            echo "Packages with vulnerabilities:"
-            jq -r '(.production_packages + .development_packages) | .[] | select(.cve | length > 0) | "  - \(.package_name)@\(.installed_version): \(.cve | length) CVE(s)"' ossiq-report.json
-            exit 1
+          # Without this a firewalled OSV or EPSS makes every check below pass on missing data.
+          check "Vulnerability or EPSS data is incomplete, so the checks below cannot be trusted" \
+            '.metadata.data_completeness | if . == null then "  - data_completeness is missing from the report" else (.sources[]? | select((.step == "vulnerabilities" or .step == "epss") and .status != "ok") | "  - \(.step): \(.status)") end'
+
+          check "Project EPSS is at or above $MAX_PROJECT_EPSS" \
+            'select((.summary.project_epss // 0) >= $max) | "  project EPSS: \(.summary.project_epss)", (pkgs | map(select(.epss != null)) | sort_by(-.epss)[] | "  - \(.package_name)@\(.installed_version): EPSS \(.epss)")' \
+            --argjson max "$MAX_PROJECT_EPSS"
+
+          # No EPSS score adds nothing to the project score, so severity is the only signal left.
+          check "A HIGH or CRITICAL CVE has no EPSS score, so the EPSS check cannot see it" \
+            'pkgs[] | . as $p | (.cve // [])[] | select(.epss == null and (.severity == "HIGH" or .severity == "CRITICAL")) | "  - \($p.package_name)@\($p.installed_version): \(.id) (\(.severity))"'
+
+          check "An installed version was yanked from its registry" \
+            'pkgs[] | select(.is_yanked == true) | "  - \(.package_name)@\(.installed_version)"'
+
+          check "A CVE fix has been available for more than $MAX_FIX_AGE_DAYS days and is not installed" \
+            'pkgs[] | select(any((.cve // [])[]; (.fix_age_days // 0) > $max)) | "  - \(.package_name)@\(.installed_version): fixed in \([.cve[].fixed_in[]?] | unique | join(", ")), \([.cve[].fix_age_days // 0] | max) days ago"' \
+            --argjson max "$MAX_FIX_AGE_DAYS"
+
+          if [ "$fail" -eq 0 ]; then
+            echo "Security gate passed (project EPSS: $(jq '.summary.project_epss // 0' "$R"))"
+          fi
+          exit "$fail"
+
+      # Drift depends on upstream's release calendar, not on the change under review, so it only
+      # warns on pull requests and blocks on main and on the weekly run.
+      - name: Drift gate
+        env:
+          # Share of direct dependencies with an update that can be taken now. 7-day cooldown
+          # holds, constrained ranges and strategy holds are not ready, so they do not count.
+          MAX_READY_RATIO: "0.20"
+        run: |
+          R=ossiq-report.json
+          LEVEL=error
+          if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
+            LEVEL=warning
           fi
 
-          # Check for severely outdated packages (default: 365 days)
-          MAX_LAG_DAYS=${MAX_LAG_DAYS:-365}
-          SEVERELY_OUTDATED_COUNT=$(jq "(.production_packages + .development_packages) | map(select(.time_lag_days != null and .time_lag_days > $MAX_LAG_DAYS)) | length" ossiq-report.json)
+          DIRECT='(.production_packages + .development_packages)'
 
-          if [ "$SEVERELY_OUTDATED_COUNT" -gt 0 ]; then
-            echo ""
-            echo "❌ FAILED: Found $SEVERELY_OUTDATED_COUNT package(s) more than $MAX_LAG_DAYS days behind latest"
-            echo ""
-            echo "Severely outdated packages:"
-            jq -r "(.production_packages + .development_packages) | .[] | select(.time_lag_days != null and .time_lag_days > $MAX_LAG_DAYS) | \"  - \(.package_name): \(.time_lag_days) days behind\"" ossiq-report.json
-            exit 1
+          READY=$(jq "$DIRECT"' | map(select(.next_action == "Update Immediately" or .next_action == "Check Release Notes")) | length' "$R")
+          TOTAL=$(jq '.summary.total_packages' "$R")
+          HELD=$(jq "$DIRECT"' | map(select(.next_action == "Wait for cooldown")) | length' "$R")
+          echo "Direct dependencies: $TOTAL, update ready: $READY, waiting on cooldown: $HELD (limit: $MAX_READY_RATIO ready)"
+
+          # Abandoned or winding-down packages cannot be fixed in a pull request, so they never fail the gate.
+          ALTERNATIVES=$(jq -r "$DIRECT"'[] | select(.next_action == "Find alternative" or .next_action == "Consider alternative") | "  - \(.package_name): \(.next_action)"' "$R")
+          if [ -n "$ALTERNATIVES" ]; then
+            echo "::warning::Direct dependencies with an unhealthy upstream"
+            echo "$ALTERNATIVES"
           fi
 
-          echo ""
-          echo "✅ PASSED: No critical issues detected"
+          if awk -v r="$READY" -v t="$TOTAL" -v m="$MAX_READY_RATIO" 'BEGIN { exit !(t > 0 && r / t > m) }'; then
+            echo "::$LEVEL::$READY of $TOTAL direct dependencies have an update ready (more than $MAX_READY_RATIO)"
+            jq -r "$DIRECT"'[] | select(.next_action == "Update Immediately" or .next_action == "Check Release Notes") | "  - \(.package_name): \(.installed_version) -> \(.recommended_version // .latest_version // "?") (\(.next_action))"' "$R"
+            if [ "$LEVEL" = error ]; then
+              exit 1
+            fi
+          fi
